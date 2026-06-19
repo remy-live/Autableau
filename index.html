@@ -36,7 +36,7 @@
     </div>
 
     <div id="wysiwyg-text" contenteditable="true" spellcheck="false" data-placeholder="Tapez ici..."></div>
-    <!-- Menu Rapide au-dessus de la sélection -->
+    
     <div id="quick-edit-menu">
         <button class="btn-quick" id="btn-quick-ratio" title="Verrouiller/Déverrouiller les proportions">
             <svg id="icon-quick-ratio" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -49,6 +49,7 @@
             <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
     </div>
+    
     <div id="toast-container"></div>
     <div id="drop-overlay">Relâchez l'image ou le PDF ici</div>
 
@@ -234,19 +235,34 @@
             <button class="btn danger" data-mode="eraser" title="Gomme" style="grid-column: span 2;"><svg viewBox="0 0 24 24" class="stroke-icon"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button>
 
             <div class="divider"></div>
-            <button class="btn" id="btn-ruler" data-widget="ruler" title="Règle">
-                <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><rect x="4" y="8" width="16" height="8" rx="1" /><path d="M6 8v3 M9 8v2 M12 8v3 M15 8v2 M18 8v3" stroke-width="1.5" /></svg>
-            </button>
-            <button class="btn" id="btn-setsquare" data-widget="setsquare" title="Équerre">
-                 <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2"
-                            fill="none">
-                            <path d="M4 20h16L4 4z" />
-                        </svg></button>
-            <button class="btn" id="btn-protractor" data-widget="protractor" title="Rapporteur">
-                <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><path d="M 2 16 A 8 10 0 0 1 22 16 Z" /><line x1="12" y1="16" x2="12" y2="12" stroke-width="1.5" /></svg></button>
-            <button class="btn" id="btn-compass" data-widget="compass" title="Compas">
-                <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2" /><line x1="12" y1="7" x2="7" y2="21" /><line x1="12" y1="7" x2="17" y2="21" /><line x1="7" y1="21" x2="7" y2="21" stroke-width="3" /><line x1="17" y1="21" x2="17" y2="21" stroke-width="3" /></svg>
-            </button>
+           <button class="btn" id="btn-ruler" data-widget="ruler" title="Règle">
+    <svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="8" width="18" height="8" rx="1" />
+        <path d="M7 8v3 M11 8v2 M15 8v3 M19 8v2" />
+    </svg>
+</button>
+
+<button class="btn" id="btn-setsquare" data-widget="setsquare" title="Équerre">
+    <svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 20h16L4 4z"/>
+        <path d="M8 20v-2 M12 20v-2 M16 20v-2 M4 16h2 M4 12h2 M4 8h2"/>
+    </svg>
+</button>
+
+<button class="btn" id="btn-protractor" data-widget="protractor" title="Rapporteur">
+    <svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 17a9 9 0 0 1 18 0H3z"/>
+        <path d="M9 17a3 3 0 0 1 6 0"/>
+        <path d="M12 8v2 M7.5 10.5l1.5 1.5 M16.5 10.5l-1.5 1.5"/>
+    </svg>
+</button>
+
+<button class="btn" id="btn-compass" data-widget="compass" title="Compas">
+    <svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4l-6 16 M12 4l6 16"/>
+        <circle cx="12" cy="4" r="1" fill="currentColor" stroke="none"/>
+    </svg>
+</button>
         </div>
     </div>
 
@@ -299,26 +315,38 @@
         <div class="opacity-container">Opacité : <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="1"></div>
     </div>
 
-    <div id="export-popover">
-        <h3 style="margin: 0 0 10px 0; color: #2d3436; font-size: 16px;">Exporter la zone</h3>
-        <div class="export-options-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px;">
-            <label class="export-option" style="font-size: 13px;">
-                <input type="checkbox" id="export-bg" checked> Garder le fond
-            </label>
-            <select id="export-quality" class="export-select" title="Qualité de l'image (PNG/PDF)">
-                <option value="1">Standard (x1)</option>
-                <option value="2" selected>Haute (x2)</option>
-                <option value="4">Impression (x4)</option>
-            </select>
+<div id="export-popover">
+        <h3 id="export-popover-title" style="margin: 0 0 15px 0; color: #2d3436; font-size: 16px; text-align: center;">Choisir le format d'export</h3>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <button class="btn-format-choice" data-format="png" style="flex:1; padding:10px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 14px; transition: all 0.2s;">🖼️ PNG</button>
+            <button class="btn-format-choice" data-format="svg" style="flex:1; padding:10px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 14px; transition: all 0.2s;">📐 SVG</button>
+            <button class="btn-format-choice" data-format="pdf" style="flex:1; padding:10px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 14px; transition: all 0.2s;">📄 PDF</button>
         </div>
-        <div class="export-actions-grid">
-            <button class="btn-action primary" id="btn-do-copy" title="Copier" style="grid-column: span 2;"><svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg> Copier l'image</button>
-            <button class="btn-action secondary" id="btn-do-export-png" title="Télécharger en PNG"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg> Image PNG</button>
-            <button class="btn-action secondary" id="btn-do-export-svg" title="Télécharger en Vectoriel SVG"><svg viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2zm0 3.5l7.5 15h-15L12 5.5z"/></svg> Vectoriel SVG</button>
-            <div style="grid-column: span 2; height: 1px; background: #dfe6e9; margin: 4px 0;"></div>
-            <button class="btn-action secondary" id="btn-do-export-pdf" title="PDF de la page actuelle"><svg viewBox="0 0 24 24"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM16.5 9v1.5h-1.5V9h1.5zM3 6H1.5v14.5c0 1.1.9 2 2 2H18v-1.5H3V6z"/></svg> PDF (Sélection)</button>
-            <button class="btn-action primary" id="btn-do-export-pdf-all" title="PDF complet avec toutes les pages" style="background: #0984e3;"><svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/></svg> PDF (Toutes les pages)</button>
-            <button class="btn-action secondary" id="btn-cancel-export" title="Annuler" style="grid-column: span 2; margin-top: 4px;">Fermer & Annuler</button>
+
+        <div id="export-settings-container" style="border-top: 1px solid #eee; padding-top: 15px;">
+            <p id="format-description" style="font-size: 12px; color: #636e72; margin-bottom: 15px; text-align: center;">Sélectionnez un format pour commencer.</p>
+            
+            <div id="settings-png-pdf" style="display:none; margin-bottom:15px;">
+                <label style="font-size: 12px; display:block; margin-bottom:5px; color: #2d3436; font-weight: bold;">Qualité de l'image :</label>
+                <select id="export-quality" class="export-select" style="width:100%; padding:8px; border-radius: 6px; border: 1px solid #dfe6e9; font-size: 13px;">
+                    <option value="1">Standard (x1)</option>
+                    <option value="2" selected>Haute (x2)</option>
+                    <option value="4">Impression (x4)</option>
+                </select>
+            </div>
+            
+            <label class="export-option" style="font-size: 13px; display:flex; align-items:center; gap: 8px; margin-bottom:15px; cursor: pointer;">
+                <input type="checkbox" id="export-bg" checked style="width: 16px; height: 16px;"> Garder le fond d'écran
+            </label>
+        </div>
+
+        <div class="export-actions-grid" style="display:flex; flex-direction:column; gap:8px;">
+            <button class="btn-action primary" id="btn-do-export" style="background: #0984e3; padding: 12px; font-weight: bold; width: 100%; border: none; color: white; border-radius: 6px; cursor: pointer;">Exporter</button>
+            
+            <button class="btn-action primary" id="btn-do-export-pdf-all" style="background: #6c5ce7; padding: 12px; font-weight: bold; display: none; width: 100%; border: none; color: white; border-radius: 6px; cursor: pointer;">Exporter TOUTES les pages (PDF)</button>
+            
+            <button class="btn-action secondary" id="btn-cancel-export" style="padding: 10px; width: 100%; border: 1px solid #dfe6e9; background: white; border-radius: 6px; cursor: pointer;">Annuler</button>
         </div>
     </div>
 
@@ -337,9 +365,14 @@
                 <button class="menu-item" id="btn-save"><span class="icon">💾</span> Sauvegarder le Projet</button>
                 <button class="menu-item" id="btn-load"><span class="icon">📁</span> Ouvrir un Projet</button>
                 <button class="menu-item" id="btn-import-pdf"><span class="icon">📄</span> Importer un PDF</button>
+                
                 <div class="menu-divider"></div>
-                <button class="menu-item" id="btn-capture"><span class="icon">📸</span> Recadrer & Exporter</button>
-                <button class="menu-item" id="btn-record"><span class="icon">🎥</span> Enregistrer l'écran</button>
+                <button class="menu-item" id="btn-capture"><span class="icon">✂️</span> Recadrer une zone</button>
+                <button class="menu-item" id="btn-export-page"><span class="icon">🖼️</span> Exporter la page courante</button>
+                
+                <div class="menu-divider"></div>
+                <button class="menu-item" id="btn-record-canvas"><span class="icon">🎥</span> Enregistrer le dessin</button>
+                
                 <div class="menu-divider"></div>
                 <button class="menu-item" id="btn-dark-mode"><span class="icon">🌙</span> Thème Clair/Sombre</button>
                 <button class="menu-item" id="btn-help"><span class="icon">❓</span> Aide & Raccourcis</button>
@@ -392,7 +425,17 @@
         </div>
     </div>
 
+    <button id="btn-floating-record" style="display: none; position: fixed; bottom: 20px; right: 20px; z-index: 100000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); border-radius: 50px; padding: 10px 20px; font-weight: bold; background: #0984e3; color: white; border: none; cursor: pointer; align-items: center; gap: 8px; font-family: sans-serif; font-size: 14px; transition: all 0.2s;">
+        <span class="icon">🎬</span> REC Tutoriel
+    </button>
+
     <script src="script.js"></script>
     <script src="plugin.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <script>
+        if (window.location.search.includes('admin=true')) {
+            document.getElementById('btn-floating-record').style.display = 'flex';
+        }
+    </script>
 </body>
 </html>
