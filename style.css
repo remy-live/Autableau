@@ -382,3 +382,239 @@ body.dark-mode { background-color: #1e272e; color: #dfe6e9; }
 .dark-mode #quick-edit-menu { background: rgba(45, 52, 54, 0.95); border-color: rgba(99, 110, 114, 0.8); }
 .dark-mode #quick-edit-menu .btn-quick { color: #dfe6e9; }
 .dark-mode #quick-edit-menu .btn-quick:hover { background: #636e72; color: #a29bfe; }
+/* ---------------------------------------------------
+   INFOBULLES (TOOLTIPS) MODERNES POUR LE MENU PLUGINS
+--------------------------------------------------- */
+#plugins-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0px !important; /* On passe de 8px à 2px pour un rendu ultra compact */
+    padding: 0px !important; /* Moins de marge autour */
+}
+
+/* ===================================================
+   TOOLTIPS INTELLIGENTS (ADAPTÉS AUX BORDS D'ÉCRAN)
+=================================================== */
+
+/* 1. Base commune de l'infobulle (centrée par défaut) */
+[data-tooltip] { position: relative; }
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 115%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px); 
+    background: #1e272e;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    z-index: 100000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+[data-tooltip]::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    border-width: 6px;
+    border-style: solid;
+    border-color: #1e272e transparent transparent transparent;
+    opacity: 0; visibility: hidden;
+    transition: all 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    z-index: 100000;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before {
+    opacity: 1; visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* 2. BARRES À DROITE (Plugins & Favoris) -> Les bulles s'ouvrent vers la GAUCHE */
+#plugins-grid .btn[data-tooltip]::after,
+#favorites-toolbar .btn[data-tooltip]::after {
+    left: auto;
+    right: -5px; /* La bulle s'aligne sur le bord droit du bouton */
+    transform: translateY(10px); /* On supprime le centrage (translateX) */
+}
+#plugins-grid .btn[data-tooltip]::before,
+#favorites-toolbar .btn[data-tooltip]::before {
+    left: auto;
+    right: 15px; /* La petite flèche reste bien centrée sous le bouton */
+    transform: translateY(10px);
+}
+#plugins-grid .btn[data-tooltip]:hover::after,
+#plugins-grid .btn[data-tooltip]:hover::before,
+#favorites-toolbar .btn[data-tooltip]:hover::after,
+#favorites-toolbar .btn[data-tooltip]:hover::before {
+    transform: translateY(0); /* Animation propre de bas en haut */
+}
+
+/* 3. BARRE À GAUCHE (Outils principaux) -> Les bulles s'ouvrent vers la DROITE */
+#bar-tools .btn[data-tooltip]::after {
+    left: -5px; /* La bulle s'aligne sur le bord gauche du bouton */
+    right: auto;
+    transform: translateY(10px);
+}
+#bar-tools .btn[data-tooltip]::before {
+    left: 15px;
+    right: auto;
+    transform: translateY(10px);
+}
+#bar-tools .btn[data-tooltip]:hover::after,
+#bar-tools .btn[data-tooltip]:hover::before {
+    transform: translateY(0);
+}
+/* ===================================================
+   DOCK DES FAVORIS (COMPACT)
+=================================================== */
+
+#favorites-toolbar {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    left: auto;
+    transform: none !important;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 8px; /* <-- Bordures plus fines */
+    gap: 6px; /* <-- Espace réduit entre les zones */
+    z-index: 1000;
+    min-height: 44px;
+    min-width: 80px;
+    border-radius: 24px;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+#favorites-toolbar.minimized {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    overflow: hidden;
+}
+
+#favorites-toolbar.drag-over {
+    border-color: #0984e3;
+    background: rgba(9, 132, 227, 0.1);
+}
+
+#favorites-list {
+    display: flex;
+    flex-direction: row;
+    gap: 2px; /* <-- ICÔNES TRÈS SERRÉES (2px au lieu de 8px) */
+    align-items: center;
+    min-height: 40px;
+    min-width: 30px;
+}
+
+.fav-empty-text {
+    font-size: 12px;
+    font-weight: 600;
+    color: #b2bec3;
+    white-space: nowrap;
+    margin: 0 5px;
+    pointer-events: none;
+}
+
+.btn.dragging {
+    opacity: 0.5;
+    transform: scale(0.9);
+}
+
+.fav-item-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+/* --- SÉCURITÉ ABSOLUE : BARRE DE PLUGINS MINIMISÉE --- */
+
+/* 1. On cache TOUS les enfants directs de la barre SAUF le badge d'ouverture */
+#bar-plugins.minimized > *:not(.toolbar-badge) {
+    display: none !important;
+}
+
+/* 2. On empêche tout débordement visuel */
+#bar-plugins.minimized {
+    overflow: hidden !important;
+    /* Si la bulle n'est pas carrée, tu peux forcer sa taille ici, ex: */
+    /* width: 40px !important; height: 40px !important; */
+}
+
+/* 3. On affiche la petite icône (badge) bien au centre */
+#bar-plugins.minimized .toolbar-badge {
+    display: flex !important;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+/* ===================================================
+   FENÊTRE D'APERÇU EN DIRECT (LIVE PREVIEW MODAL)
+=================================================== */
+.live-modal-backdrop {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(5px);
+    z-index: 30000; display: flex; align-items: center; justify-content: center;
+}
+.live-modal-box {
+    background: #ffffff; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    width: 700px; max-width: 95vw; display: flex; flex-direction: column; overflow: hidden;
+}
+.live-modal-header {
+    background: #f1f2f6; padding: 15px 20px; font-weight: bold; font-size: 18px; color: #2d3436;
+    border-bottom: 1px solid #dfe6e9; display: flex; justify-content: space-between;
+}
+.live-modal-body {
+    display: flex; flex-direction: row; height: 350px;
+}
+.live-modal-preview {
+    flex: 1; background: #dfe6e9; background-image: radial-gradient(#b2bec3 1px, transparent 1px);
+    background-size: 20px 20px; display: flex; align-items: center; justify-content: center;
+    position: relative;
+}
+.live-modal-controls {
+    width: 250px; padding: 20px; background: #ffffff; border-left: 1px solid #dfe6e9;
+    display: flex; flex-direction: column; gap: 15px; overflow-y: auto;
+}
+.live-modal-footer {
+    padding: 15px 20px; background: #ffffff; border-top: 1px solid #dfe6e9;
+    display: flex; justify-content: flex-end; gap: 10px;
+}
+.control-group { display: flex; flex-direction: column; gap: 5px; }
+.control-group label { font-size: 13px; font-weight: bold; color: #636e72; }
+.control-group select, .control-group input { padding: 8px; border-radius: 6px; border: 1px solid #dfe6e9; outline: none; }
+
+/* Joystick de Direction (3x3 Grid) */
+.direction-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; width: 120px; margin: 0 auto; }
+.dir-btn { height: 35px; background: #f1f2f6; border: 2px solid transparent; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+.dir-btn:hover { background: #dfe6e9; }
+.dir-btn.active { border-color: #6c5ce7; background: rgba(108, 92, 231, 0.1); color: #6c5ce7; }
+.dir-btn.center { opacity: 0.5; pointer-events: none; } /* Bouton central désactivé */
+
+.dark-mode .live-modal-box { background: #2d3436; border: 1px solid #636e72; }
+.dark-mode .live-modal-header { background: #1e272e; color: #dfe6e9; border-bottom-color: #636e72; }
+.dark-mode .live-modal-controls { background: #2d3436; border-left-color: #636e72; }
+.dark-mode .live-modal-footer { background: #1e272e; border-top-color: #636e72; }
+.dark-mode .live-modal-preview { background-color: #1e272e; }
+.dark-mode .control-group select { background: #1e272e; color: #dfe6e9; border-color: #636e72; }
+.dark-mode .dir-btn { background: #1e272e; color: #b2bec3; }
