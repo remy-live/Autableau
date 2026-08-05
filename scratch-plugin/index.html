@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scratch Blocks — Démo autonome</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f0f2f5;
+        }
+        h1 { color: #2d3436; margin: 0; }
+        p { color: #636e72; margin: 0; }
+        #open-scratch {
+            padding: 14px 28px;
+            font-size: 18px;
+            border: none;
+            border-radius: 10px;
+            background: #4C97FF;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(76, 151, 255, 0.4);
+        }
+        #open-scratch:hover { background: #3d7fe0; }
+    </style>
+</head>
+<body>
+    <h1>🐱 Scratch Blocks</h1>
+    <p>Démo du plugin extrait d'Autableau, utilisable dans n'importe quelle page.</p>
+    <button id="open-scratch">Ouvrir l'éditeur d'algorithmes</button>
+
+    <script src="scratch-plugin.js"></script>
+    <script>
+        document.getElementById('open-scratch').addEventListener('click', () => {
+            PluginManager.plugins.scratchBlocksTool.openWidget();
+        });
+    </script>
+</body>
+</html>
