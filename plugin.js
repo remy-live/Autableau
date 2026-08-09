@@ -1,28 +1,109 @@
 // ==========================================
 // ERGONOMIE GLOBALE DES PLUGINS (Touche Échap)
 // ==========================================
+// Y a-t-il un tampon en attente de pose ? (utilisé par la pastille tactile d'annulation)
+function hasPendingStamp() {
+    if (!window.PluginManager || !PluginManager.plugins) return false;
+    for (let key in PluginManager.plugins) {
+        if (PluginManager.plugins[key].currentStamp) return true;
+    }
+    return false;
+}
+
+// Annule le tampon en attente de tous les plugins. Renvoie true si quelque chose a été annulé.
+function cancelPendingStamps() {
+    if (!window.PluginManager || !PluginManager.plugins) return false;
+    let canceled = false;
+
+    // Invalide aussi les tampons encore en cours de préparation (sinon ils s'arment après coup)
+    if (typeof invalidatePendingStampLoads === 'function') invalidatePendingStampLoads();
+
+    for (let key in PluginManager.plugins) {
+        if (PluginManager.plugins[key].currentStamp) {
+            PluginManager.plugins[key].currentStamp = null; // On détruit le fantôme
+            canceled = true;
+        }
+    }
+
+    if (canceled) {
+        if (typeof setMode === 'function') setMode('pointer'); // Retour à la flèche
+        if (typeof draw === 'function') draw(); // Efface le fantôme de l'écran
+        if (typeof showToast === 'function') showToast("Tampon annulé");
+    }
+    return canceled;
+}
+window.cancelPendingStamps = cancelPendingStamps;
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         // On vérifie si le gestionnaire de plugins existe
         if (window.PluginManager && PluginManager.plugins) {
-            let pluginCanceled = false;
+            // 1er Échap = annuler le tampon en cours, on garde la modale ouverte
+            if (cancelPendingStamps()) return;
 
-            // On parcourt tous les outils pour vider la mémoire
+            // Sinon (aucun tampon en attente) : Échap ferme la modale de plugin ouverte.
+            // Les outils à tampons répétés (réglettes, monnaie, dés...) restent donc utilisables :
+            // le 1er Échap annule le tampon, le 2e ferme la fenêtre.
+            const isOpen = (el) => el && el.isConnected && getComputedStyle(el).display !== 'none';
+
             for (let key in PluginManager.plugins) {
-                if (PluginManager.plugins[key].currentStamp) {
-                    PluginManager.plugins[key].currentStamp = null; // On détruit le fantôme
-                    pluginCanceled = true;
-                }
+                const w = PluginManager.plugins[key].widgetEl;
+                if (isOpen(w)) { w.style.display = 'none'; return; }
             }
 
-            // Si un tampon a été annulé, on nettoie l'interface
-            if (pluginCanceled) {
-                if (typeof setMode === 'function') setMode('pointer'); // Retour à la flèche
-                if (typeof draw === 'function') draw(); // Efface le fantôme de l'écran
-                if (typeof showToast === 'function') showToast("Tampon annulé");
-            }
+            const sharedModal = document.getElementById('custom-prompt-modal');
+            if (isOpen(sharedModal)) { sharedModal.style.display = 'none'; return; }
         }
     }
+});
+
+// ==========================================
+// PASTILLE D'ANNULATION TACTILE (équivalent d'Échap au doigt, indispensable sur tablette)
+// Apparaît dès qu'un tampon est en attente de pose, quel que soit le plugin.
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    const pill = document.createElement('button');
+    pill.id = 'stamp-cancel-pill';
+    pill.type = 'button';
+    pill.innerHTML = `<span style="font-size:15px; line-height:1;">✕</span> Annuler le tampon`;
+    pill.style.cssText = [
+        'position:fixed',
+        'top:calc(12px + env(safe-area-inset-top, 0px))',
+        'right:calc(14px + env(safe-area-inset-right, 0px))',
+        'z-index:100006',
+        'display:none',
+        'align-items:center',
+        'gap:8px',
+        'padding:11px 17px',
+        'border:none',
+        'border-radius:24px',
+        'background:#d63031',
+        'color:#fff',
+        'font-family:sans-serif',
+        'font-size:13.5px',
+        'font-weight:700',
+        'cursor:pointer',
+        'box-shadow:0 4px 14px rgba(214,48,49,0.4)',
+        'touch-action:manipulation',
+        '-webkit-tap-highlight-color:transparent'
+    ].join(';');
+
+    // pointerdown plutôt que click : réaction immédiate au doigt, et on empêche
+    // le geste d'atteindre le canvas (ce qui poserait le tampon qu'on veut annuler)
+    pill.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelPendingStamps();
+        pill.style.display = 'none';
+    });
+
+    document.body.appendChild(pill);
+
+    // On surveille l'état plutôt que d'instrumenter les ~80 plugins un par un
+    setInterval(() => {
+        const active = hasPendingStamp() && typeof mode !== 'undefined' && mode !== 'pointer';
+        pill.style.display = active ? 'flex' : 'none';
+    }, 250);
 });
 
 // ==========================================
@@ -41,10 +122,55 @@ if (typeof window.PluginManager === 'undefined') {
     };
 }
 
+// Échappement XML pour tout texte saisi par l'utilisateur injecté dans un <text> SVG.
+// Sans ça, un simple "&" ou "<" dans un nom d'élève / un titre de graphique rend le SVG
+// invalide et le tampon ne se charge jamais (échec silencieux).
+function xmlEsc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[<>&"']/g, c => ({
+        '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;'
+    })[c]);
+}
+window.xmlEsc = xmlEsc;
+
+// Les tampons sont préparés de façon asynchrone (chargement de l'image SVG). Si l'utilisateur
+// annule (Échap, pastille tactile, fermeture du panneau) pendant ce chargement, le callback
+// tardif ressuscitait le tampon : on croyait avoir annulé et chaque appui reposait un tampon.
+// Ce compteur invalide les préparations en cours au moment d'une annulation.
+let stampGeneration = 0;
+function invalidatePendingStampLoads() { stampGeneration++; }
+window.invalidatePendingStampLoads = invalidatePendingStampLoads;
+
 function createStampFromSVG(svgStr, callback) {
+    const gen = stampGeneration;
     const svgData = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
     const img = new Image();
-    img.onload = () => { imageCache[svgData] = img; callback({ img: img, src: svgData, w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onload = () => {
+        imageCache[svgData] = img;
+        if (gen !== stampGeneration) return; // annulé pendant le chargement : on n'arme rien
+        callback({ img: img, src: svgData, w: img.naturalWidth, h: img.naturalHeight });
+    };
+    img.src = svgData;
+}
+
+function createRasterStampFromSVG(svgStr, callback, scale = 2) {
+    const svgData = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+    const img = new Image();
+    img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth * scale;
+        canvas.height = img.naturalHeight * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        const pngData = canvas.toDataURL("image/png");
+        const pngImg = new Image();
+        pngImg.onload = () => {
+            if (typeof imageCache !== 'undefined') imageCache[pngData] = pngImg;
+            callback({ img: pngImg, src: pngData, w: img.naturalWidth, h: img.naturalHeight });
+        };
+        pngImg.src = pngData;
+    };
     img.src = svgData;
 }
 
@@ -196,15 +322,19 @@ function registerPlugin(name, category, pluginObj) {
             tabContainer.appendChild(tabBtn);
         }
 
-        // 3. Exécution de l'init et assignation de la catégorie au bouton
+        // 3. Exécution de l'init et assignation de la catégorie aux boutons créés
         if (originalInit) {
+            // On mémorise les boutons déjà présents : ainsi on ne taggue QUE ceux que ce plugin ajoute.
+            // (Prendre « le dernier bouton » réattribuait la catégorie au plugin précédent
+            //  quand un plugin n'ajoutait aucun bouton, et en oubliait un quand il en ajoutait deux.)
+            const before = new Set(grid.querySelectorAll('.btn'));
             originalInit.call(this);
-            const btns = grid.querySelectorAll('.btn');
-            if (btns.length > 0) {
-                const newBtn = btns[btns.length - 1]; // Le dernier bouton ajouté
-                newBtn.dataset.category = category;
-                newBtn.style.display = (category === activeCategory) ? 'flex' : 'none';
-            }
+            grid.querySelectorAll('.btn').forEach(btn => {
+                if (before.has(btn)) return;
+                btn.dataset.category = category;
+                btn.dataset.pluginId = btn.dataset.pluginId || name;
+                btn.style.display = (category === activeCategory) ? 'flex' : 'none';
+            });
         }
     };
     PluginManager.register(name, pluginObj);
@@ -233,16 +363,15 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         // 2. Chargement de MathLive (Pour le super éditeur visuel et le clavier virtuel)
         if (!customElements.get('math-field')) {
             let scriptLive = document.createElement('script');
-            scriptLive.type = 'module';
-            scriptLive.src = 'https://unpkg.com/mathlive?module';
+            scriptLive.src = './lib/mathlive/mathlive.min.js';
             document.head.appendChild(scriptLive);
 
-            // 🌟 CSS MAGIQUE : On dompte le clavier flottant de MathLive ! 🌟
+            // CSS pour le clavier MathLive
             let kbStyle = document.createElement('style');
             kbStyle.innerHTML = `
                 .ML__keyboard {
-                    z-index: 100005 !important; /* Passe au-dessus du voile noir */
-                    transform: scale(0.85); /* Réduit la taille globale */
+                    z-index: 100005 !important;
+                    transform: scale(0.85);
                     transform-origin: bottom center;
                     box-shadow: 0 -10px 40px rgba(0,0,0,0.4) !important;
                 }
@@ -267,7 +396,6 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
 
     edit: function (imgObj) {
         this.openStudio(imgObj.pluginData.args, (stamp, latex) => {
-            // FIX CACHE INTÉGRÉ ICI AUSSI
             if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
             imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h;
             imgObj.cw = stamp.w; imgObj.ch = stamp.h; imgObj.pluginData.args = latex;
@@ -277,7 +405,7 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
 
     openStudio: function (initialLatex, onValidate) {
         const overlay = document.createElement('div');
-        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;";
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;justify-content:center;align-items:center;font-family: sans-serif;";
 
         const box = document.createElement('div');
         box.style.cssText = "width:650px;background:#fff;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.4);";
@@ -285,7 +413,7 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         box.innerHTML = `
             <div style="padding:15px 20px; background:#f8f9fa; border-bottom:1px solid #dfe6e9; display:flex; justify-content:space-between; align-items:center;">
                 <h3 style="margin:0; color:#2d3436; font-size:18px;">✨ Éditeur de Formules</h3>
-                
+
                 <select id="math-presets" style="padding:6px 10px; border-radius:6px; border:1px solid #b2bec3; font-size:14px; background:#fff; cursor:pointer;">
                     <option value="">-- Modèles rapides --</option>
                     <option value="\\frac{1}{2}">Fraction simple (1/2)</option>
@@ -298,9 +426,9 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                     <option value="\\int_{a}^{b} f(x) dx">Intégrale</option>
                 </select>
             </div>
-            
+
             <div style="padding:20px; display:flex; flex-direction:column; gap:20px;">
-                
+
                 <div>
                     <label style="font-size:12px; font-weight:bold; color:#636e72; text-transform:uppercase;">1. Éditeur Visuel (Cliquez pour ouvrir le clavier)</label>
                     <math-field id="math-live-editor" locale="fr" style="font-size: 32px; padding: 16px; margin-top:8px; border: 2px solid #0984e3; border-radius: 8px; width: 100%; box-sizing: border-box; background:#f1f2f6; outline:none;"></math-field>
@@ -311,7 +439,7 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                     <textarea id="latex-input" rows="2" style="width:100%; margin-top:8px; padding:12px; border:1px solid #b2bec3; border-radius:8px; font-family:monospace; font-size:16px; background:#fff; box-sizing: border-box;"></textarea>
                 </div>
             </div>
-            
+
             <div style="padding:15px 20px; background:#f8f9fa; border-top:1px solid #dfe6e9; display:flex; justify-content:flex-end; gap:10px;">
                 <button id="math-btn-cancel" style="padding:10px 20px; background:transparent; color:#636e72; border:1px solid #b2bec3; border-radius:6px; cursor:pointer; font-size:14px;">Annuler</button>
                 <button id="math-btn-valid" style="padding:10px 20px; background:#0984e3; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:14px; box-shadow: 0 4px 6px rgba(9, 132, 227, 0.3);">Valider la Formule</button>
@@ -329,32 +457,25 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         mf.value = initialLatex || "";
         latexInput.value = mf.value;
 
-        // Initialisation
-        mf.value = initialLatex || "";
-        latexInput.value = mf.value;
-
-        // 🌟 NOUVEAU : On force la norme française pour la multiplication ! 🌟
+        // Force la norme française pour la multiplication
         customElements.whenDefined('math-field').then(() => {
-            // 1. Force la croix sur la touche "x" du clavier virtuel
             if (window.mathVirtualKeyboard && window.mathVirtualKeyboard.setKeycap) {
                 window.mathVirtualKeyboard.setKeycap('[*]', { latex: '\\times' });
             }
-            // 2. Force la croix si l'élève tape "*" sur son vrai clavier physique
             if (mf.inlineShortcuts) {
                 mf.inlineShortcuts = { ...mf.inlineShortcuts, '*': '\\times' };
             }
         });
-        // 🌟 SYNCHRONISATION 🌟
 
-        // Clavier visuel -> LaTeX
+        // Synchronisation: Clavier visuel -> LaTeX
         mf.addEventListener('input', () => {
             if (latexInput.value !== mf.value) {
                 latexInput.value = mf.value;
-                presetsSelect.value = ""; // Réinitialise la liste déroulante si on modifie à la main
+                presetsSelect.value = "";
             }
         });
 
-        // LaTeX -> Clavier visuel
+        // Synchronisation: LaTeX -> Clavier visuel
         latexInput.addEventListener('input', () => {
             if (mf.value !== latexInput.value) {
                 mf.setValue(latexInput.value, { suppressChangeNotifications: true });
@@ -367,33 +488,31 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
             if (e.target.value) {
                 mf.setValue(e.target.value, { suppressChangeNotifications: true });
                 latexInput.value = e.target.value;
-                mf.focus(); // Ouvre le clavier virtuel automatiquement
+                mf.focus();
             }
         });
 
-        // --- Validation et création de l'image SVG ---
+        // Validation et création de l'image SVG
         document.getElementById('math-btn-cancel').onclick = () => document.body.removeChild(overlay);
 
         document.getElementById('math-btn-valid').onclick = () => {
             const finalLatex = latexInput.value;
             if (!finalLatex) return;
 
-            // On demande à MathJax de générer un SVG silencieusement
             if (window.MathJax && window.MathJax.tex2svgPromise) {
                 MathJax.tex2svgPromise(finalLatex).then(function (node) {
                     const svgEl = node.querySelector('svg');
                     if (!svgEl) return;
 
-                    // MathJax donne la taille en "ex" (unité typo). On convertit en pixels pour le tableau
                     const wEx = parseFloat(svgEl.getAttribute('width'));
                     const hEx = parseFloat(svgEl.getAttribute('height'));
-                    const pxW = Math.round(wEx * 25); // Échelle x25 pour une belle netteté
+                    const pxW = Math.round(wEx * 25);
                     const pxH = Math.round(hEx * 25);
 
                     svgEl.setAttribute('width', pxW + 'px');
                     svgEl.setAttribute('height', pxH + 'px');
                     svgEl.setAttribute('xmlns', "http://www.w3.org/2000/svg");
-                    svgEl.style.color = "#2d3436"; // Couleur de l'encre
+                    svgEl.style.color = "#2d3436";
 
                     const svgString = new XMLSerializer().serializeToString(svgEl);
                     document.body.removeChild(overlay);
@@ -410,11 +529,9 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
             }
         };
 
-        // Focus automatique
         setTimeout(() => mf.focus(), 100);
     },
 
-    // --- Rendu fantôme et pose sur le tableau ---
     onPointerMove: function (rawPos) {
         if (mode === 'math' && this.currentStamp) { mouseLogicalPos = { x: rawPos.x, y: rawPos.y }; if (typeof draw === 'function') draw(); return false; } return false;
     },
@@ -429,7 +546,6 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
 
     onPointerDown: function (rawPos) {
         if (mode === 'math' && this.currentStamp) {
-            // 🌟 LE CORRECTIF CRITIQUE POUR LE CACHE 🌟
             if (typeof imageCache !== 'undefined') {
                 imageCache[this.currentStamp.src] = this.currentStamp.img;
             }
@@ -450,6 +566,7 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         return false;
     }
 });
+
 // 1. FRACTIONS VISUELLES
 registerPlugin('fractionTool', 'Maths - Numérique', {
     currentStamp: null, currentArgs: null,
@@ -1468,7 +1585,7 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
         if (!document.getElementById('f-style')) {
             const style = document.createElement('style'); style.id = 'f-style';
             style.innerHTML = `
-                #f-palette { position:fixed; width:360px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family:sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
+                #f-palette { position:fixed; width:360px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
                 .f-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
                 #edit-banner-f { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner-f:hover { background:#c0392b; }
@@ -1711,7 +1828,7 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
         if (!document.getElementById('a-style')) {
             const style = document.createElement('style'); style.id = 'a-style';
             style.innerHTML = `
-                #a-palette { position:fixed; width:340px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family:sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
+                #a-palette { position:fixed; width:340px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
                 .a-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
                 #edit-banner { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner:hover { background:#c0392b; }
@@ -2126,7 +2243,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
         document.getElementById('plugins-grid').appendChild(btn);
 
         const builderHTML = `
-        <div id="stat-builder-modal" style="display:none; position:absolute; left:calc(50vw - 220px); border-radius:12px; top:15vh; width:440px; z-index:10001; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); border:none; flex-direction:column; overflow:hidden; font-family:sans-serif;">
+        <div id="stat-builder-modal" style="display:none; position:absolute; left:calc(50vw - 220px); border-radius:12px; top:15vh; width:440px; z-index:10001; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); border:none; flex-direction:column; overflow:hidden; font-family: sans-serif;">
             <div id="stat-drag-handle" style="background:#1f2937; color:#ffffff; display:flex; align-items:center; padding:10px 24px; cursor:grab; font-weight:bold; font-size:13px; letter-spacing:0.3px;">Graphique Statistique</div>
             <div style="padding:24px; display:flex; flex-direction:column; gap:16px;">
                 <div id="stat-preview" style="width:100%; height:110px; background:#f1f2f6; border:2px dashed #b2bec3; border-radius:8px; display:flex; align-items:center; justify-content:center; overflow:hidden;"></div>
@@ -2195,7 +2312,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
     generateSVG: function (isExport = false) {
         const w = isExport ? 600 : 300, h = isExport ? 400 : 200, mX = isExport ? 40 : 20, mY = isExport ? 50 : 25;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${isExport ? w : '100%'}" height="${isExport ? h : '100%'}">`;
-        svg += `<text x="${w / 2}" y="${mY / 2}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 20 : 12}" fill="#2d3436" text-anchor="middle">${this.state.title}</text>`;
+        svg += `<text x="${w / 2}" y="${mY / 2}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 20 : 12}" fill="#2d3436" text-anchor="middle">${xmlEsc(this.state.title)}</text>`;
 
         const num = this.state.rows.length; if (num === 0) return svg + `</svg>`;
 
@@ -2212,7 +2329,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
                     const col = colors[i % colors.length];
                     if (sliceAng >= 2 * Math.PI - 0.001) { svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${col}" fill-opacity="0.8" stroke="#fff" stroke-width="2"/>`; }
                     else { svg += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${col}" fill-opacity="0.8" stroke="#fff" stroke-width="2"/>`; }
-                    svg += `<text x="${tx}" y="${ty}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 14 : 8}" fill="#fff" text-anchor="middle">${rObj.label}</text>`;
+                    svg += `<text x="${tx}" y="${ty}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 14 : 8}" fill="#fff" text-anchor="middle">${xmlEsc(rObj.label)}</text>`;
                     svg += `<text x="${tx}" y="${ty + (isExport ? 15 : 10)}" font-family="sans-serif" font-size="${isExport ? 12 : 7}" fill="#fff" text-anchor="middle">${rObj.val}</text>`;
                     curAng = eAng;
                 });
@@ -2228,7 +2345,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
                     const barH = (r.val / max) * usableH; const x = mX + 10 + i * (usableW / num) + ((usableW / num - barW) / 2); const y = h - mY - barH;
                     svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${this.state.color}" fill-opacity="0.8" stroke="${this.state.color}" stroke-width="2"/>`;
                     svg += `<text x="${x + barW / 2}" y="${y - 5}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${r.val}</text>`;
-                    svg += `<text x="${x + barW / 2}" y="${h - mY + (isExport ? 20 : 12)}" font-family="sans-serif" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${r.label}</text>`;
+                    svg += `<text x="${x + barW / 2}" y="${h - mY + (isExport ? 20 : 12)}" font-family="sans-serif" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${xmlEsc(r.label)}</text>`;
                 });
             } else if (this.state.type === 'line') {
                 let pts = [];
@@ -2236,7 +2353,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
                     const x = mX + 20 + i * (usableW / (num || 1)); const y = h - mY - ((r.val / max) * usableH); pts.push(`${x},${y}`);
                     svg += `<circle cx="${x}" cy="${y}" r="${isExport ? 6 : 3}" fill="${this.state.color}"/>`;
                     svg += `<text x="${x}" y="${y - 10}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${r.val}</text>`;
-                    svg += `<text x="${x}" y="${h - mY + (isExport ? 20 : 12)}" font-family="sans-serif" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${r.label}</text>`;
+                    svg += `<text x="${x}" y="${h - mY + (isExport ? 20 : 12)}" font-family="sans-serif" font-size="${isExport ? 14 : 8}" fill="#2d3436" text-anchor="middle">${xmlEsc(r.label)}</text>`;
                 });
                 svg += `<polyline points="${pts.join(' ')}" fill="none" stroke="${this.state.color}" stroke-width="${isExport ? 3 : 2}"/>`;
             }
@@ -2328,12 +2445,12 @@ registerPlugin('propTableTool', 'Maths - Numérique', {
         for (let i = 1; i < cols; i++) svg += `<line x1="${titleW + i * cellW}" y1="0" x2="${titleW + i * cellW}" y2="${h}" stroke="${color}" stroke-width="1"/>`;
 
         const fs = isExport ? 16 : 10;
-        svg += `<text x="${titleW / 2}" y="${rowH / 2 + fs / 3}" font-family="sans-serif" font-weight="bold" font-size="${fs}" fill="${color}" text-anchor="middle">${this.state.t1}</text>`;
-        svg += `<text x="${titleW / 2}" y="${rowH + rowH / 2 + fs / 3}" font-family="sans-serif" font-weight="bold" font-size="${fs}" fill="${color}" text-anchor="middle">${this.state.t2}</text>`;
+        svg += `<text x="${titleW / 2}" y="${rowH / 2 + fs / 3}" font-family="sans-serif" font-weight="bold" font-size="${fs}" fill="${color}" text-anchor="middle">${xmlEsc(this.state.t1)}</text>`;
+        svg += `<text x="${titleW / 2}" y="${rowH + rowH / 2 + fs / 3}" font-family="sans-serif" font-weight="bold" font-size="${fs}" fill="${color}" text-anchor="middle">${xmlEsc(this.state.t2)}</text>`;
 
         this.state.cols.forEach((c, i) => {
-            svg += `<text x="${titleW + i * cellW + cellW / 2}" y="${rowH / 2 + fs / 3}" font-family="sans-serif" font-size="${fs + 2}" fill="#0984e3" text-anchor="middle">${c.v1}</text>`;
-            svg += `<text x="${titleW + i * cellW + cellW / 2}" y="${rowH + rowH / 2 + fs / 3}" font-family="sans-serif" font-size="${fs + 2}" fill="#0984e3" text-anchor="middle">${c.v2}</text>`;
+            svg += `<text x="${titleW + i * cellW + cellW / 2}" y="${rowH / 2 + fs / 3}" font-family="sans-serif" font-size="${fs + 2}" fill="#0984e3" text-anchor="middle">${xmlEsc(c.v1)}</text>`;
+            svg += `<text x="${titleW + i * cellW + cellW / 2}" y="${rowH + rowH / 2 + fs / 3}" font-family="sans-serif" font-size="${fs + 2}" fill="#0984e3" text-anchor="middle">${xmlEsc(c.v2)}</text>`;
         });
 
         if (this.state.coef) {
@@ -2482,11 +2599,11 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
     createWidget: function () {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'money-widget';
-        this.widgetEl.style.cssText = "display:none; position:fixed; left:120px; top:120px; width:220px; background:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.2); z-index:10000; padding:15px; border:1px solid #dfe6e9; font-family:sans-serif;";
+        this.widgetEl.style.cssText = "display:none; position:fixed; left:120px; top:120px; width:220px; background:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.2); z-index:10000; padding:15px; border:1px solid #dfe6e9; font-family: sans-serif;";
 
         this.widgetEl.innerHTML = `
             <div style="font-weight:900; margin-bottom:12px; font-size:13px; display:flex; justify-content:space-between; align-items:center; color:#2d3436;">
-                Kit Monnaie <span style="cursor:pointer; font-size:16px;" onclick="MoneyPlugin.widgetEl.style.display='none'">✕</span>
+                Kit Monnaie <span style="cursor:pointer; font-size:16px;" onclick="MoneyPlugin.closeWidget()">✕</span>
             </div>
             <select id="money-select" class="dw-select" style="margin-bottom:0; cursor:pointer;">
                 <option value="1c">🟡 1 ct</option><option value="2c">🟡 2 ct</option><option value="5c">🟡 5 ct</option>
@@ -2512,9 +2629,8 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
     toggleWidget: function () {
         if (!this.widgetEl) this.createWidget();
         const isVisible = this.widgetEl.style.display === 'block';
-        this.widgetEl.style.display = isVisible ? 'none' : 'block';
-        if (!isVisible) this.updateStamp();
-        else if (typeof setMode === 'function') setMode('pointer');
+        if (isVisible) this.closeWidget();
+        else { this.widgetEl.style.display = 'block'; this.updateStamp(); }
     },
 
     updateStamp: function () {
@@ -2601,9 +2717,15 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
         return false;
     },
 
+    // Fermer le panneau doit AUSSI annuler le tampon en attente : sinon le panneau disparaît
+    // mais chaque appui sur le tableau continue de poser des pièces (piège sur tablette).
     closeWidget: function () {
         if (this.widgetEl) this.widgetEl.style.display = 'none';
+        // Invalide un tampon encore en cours de préparation, sinon il s'armerait après la fermeture
+        if (typeof invalidatePendingStampLoads === 'function') invalidatePendingStampLoads();
+        this.currentStamp = null;
         if (typeof setMode === 'function') setMode('pointer');
+        if (typeof draw === 'function') draw();
     }
 });
 
@@ -2653,7 +2775,7 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
 
     createWidget: function () {
         this.widgetEl = document.createElement('div'); this.widgetEl.id = 'circuit-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:10vw; width:800px; height:550px; background:#fdfdfd; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:999999; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #bdc3c7;";
+        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:10vw; width:800px; height:550px; background:#fdfdfd; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:999999; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #bdc3c7;";
 
         const svgStyle = 'pointer-events:none; width:100%; height:100%;';
         const icons = {
@@ -3190,7 +3312,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
     createWidget: function () {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'sound-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:80px; right:40px; width:420px; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:999999; display:none; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9; transition: width 0.3s;";
+        this.widgetEl.style.cssText = "position:fixed; top:80px; right:40px; width:420px; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:999999; display:none; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9; transition: width 0.3s;";
 
         this.widgetEl.innerHTML = `
             <div id="sound-header" style="height:40px; background:#2d3436; color:white; display:flex; justify-content:space-between; align-items:center; padding:0 15px; cursor:grab; user-select:none;">
@@ -3482,7 +3604,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
     openFullscreen: function () {
         if (this.fsEl) return;
         this.fsEl = document.createElement('div');
-        this.fsEl.style.cssText = "position:fixed; top:0; left:0; width:100vw; height:100vh; background:#1e272e; z-index:9999999; display:flex; align-items:center; justify-content:center; flex-direction:column; font-family:sans-serif;";
+        this.fsEl.style.cssText = "position:fixed; top:0; left:0; width:100vw; height:100vh; background:#1e272e; z-index:9999999; display:flex; align-items:center; justify-content:center; flex-direction:column; font-family: sans-serif;";
 
         this.fsEl.innerHTML = `
             <div style="font-size:4vmin; color:#808e9b; text-transform:uppercase; letter-spacing:4px; margin-bottom:60px; font-weight:900;">Niveau Sonore Toléré</div>
@@ -3531,24 +3653,60 @@ registerPlugin('mathodokuTool', 'Jeux', {
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openCustomPrompt("Générer un Mathodoku", [
-                { type: 'select', label: 'Taille de la grille', value: '4', options: [{ value: '3', label: 'Petit (3x3)' }, { value: '4', label: 'Moyen (4x4)' }, { value: '5', label: 'Grand (5x5)' }] },
-                { type: 'select', label: 'Difficulté', value: 'mixed', options: [{ value: 'add', label: 'Additions & Soustractions (+, -)' }, { value: 'mixed', label: 'Toutes les opérations (+, -, ×, ÷)' }] },
-                { type: 'select', label: 'Solution', value: 'hidden', options: [{ value: 'none', label: 'Aucune' }, { value: 'hidden', label: 'Cachée (Gomme)' }, { value: 'visible', label: 'Visible' }] }
-            ],
-                (res) => {
-                    let svgs = this.generateMathodokuSVGs(parseInt(res[0]), res[1]);
-                    let html = `<div style="display:flex; gap:15px; width:100%; height:100%; justify-content:center; align-items:center;">`;
-                    html += `<img src="${svgs.puzzle}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
-                    if (res[2] === 'visible') html += `<img src="${svgs.sol}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
-                    else if (res[2] === 'hidden') html += `<img src="${svgs.cache}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
-                    return html + `</div>`;
-                },
-                (res) => {
-                    showToast("⏳ Génération du Mathodoku...");
-                    setTimeout(() => this.buildMathodoku(parseInt(res[0]), res[1], res[2]), 50);
-                });
+            this.openPrompt();
+            if (typeof closeAllPopups === 'function') closeAllPopups();
         });
+    },
+
+    openPrompt: function () {
+        openCustomPrompt("Générer un Mathodoku", [
+            { type: 'select', label: 'Taille de la grille', value: '4', options: [{ value: '3', label: 'Petit (3x3)' }, { value: '4', label: 'Moyen (4x4)' }, { value: '5', label: 'Grand (5x5)' }] },
+            { type: 'select', label: 'Difficulté', value: 'mixed', options: [{ value: 'add', label: 'Additions & Soustractions (+, -)' }, { value: 'mixed', label: 'Toutes les opérations (+, -, ×, ÷)' }] },
+            { type: 'select', label: 'Solution', value: 'hidden', options: [{ value: 'none', label: 'Aucune' }, { value: 'hidden', label: 'Cachée (Gomme)' }, { value: 'visible', label: 'Visible' }] }
+        ],
+            (res) => {
+                let svgs = this.generateMathodokuSVGs(parseInt(res[0]), res[1]);
+                let html = `<div style="display:flex; gap:15px; width:100%; height:100%; justify-content:center; align-items:center;">`;
+                html += `<img src="${svgs.puzzle}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                if (res[2] === 'visible') html += `<img src="${svgs.sol}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                else if (res[2] === 'hidden') html += `<img src="${svgs.cache}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                return html + `</div>`;
+            },
+            (res) => {
+                showToast("⏳ Génération du Mathodoku...");
+                setTimeout(() => this.buildMathodoku(parseInt(res[0]), res[1], res[2]), 50);
+            });
+    },
+
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const args = imgObj.pluginData.args;
+        const groupId = imgObj.pluginData.groupId;
+        openCustomPrompt("Modifier le Mathodoku", [
+            { type: 'select', label: 'Taille de la grille', value: args[0].toString(), options: [{ value: '3', label: 'Petit (3x3)' }, { value: '4', label: 'Moyen (4x4)' }, { value: '5', label: 'Grand (5x5)' }] },
+            { type: 'select', label: 'Difficulté', value: args[1], options: [{ value: 'add', label: 'Additions & Soustractions (+, -)' }, { value: 'mixed', label: 'Toutes les opérations (+, -, ×, ÷)' }] },
+            { type: 'select', label: 'Solution', value: args[2], options: [{ value: 'none', label: 'Aucune' }, { value: 'hidden', label: 'Cachée (Gomme)' }, { value: 'visible', label: 'Visible' }] }
+        ],
+            (res) => {
+                let svgs = this.generateMathodokuSVGs(parseInt(res[0]), res[1]);
+                let html = `<div style="display:flex; gap:15px; width:100%; height:100%; justify-content:center; align-items:center;">`;
+                html += `<img src="${svgs.puzzle}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                if (res[2] === 'visible') html += `<img src="${svgs.sol}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                else if (res[2] === 'hidden') html += `<img src="${svgs.cache}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                return html + `</div>`;
+            },
+            (res) => {
+                showToast("⏳ Régénération du Mathodoku...");
+                if (groupId && typeof images !== 'undefined') {
+                    for (let i = images.length - 1; i >= 0; i--) {
+                        if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                            images.splice(i, 1);
+                        }
+                    }
+                }
+                if (typeof draw === 'function') draw();
+                setTimeout(() => this.buildMathodoku(parseInt(res[0]), res[1], res[2]), 50);
+            });
     },
 
     generateMathodokuSVGs: function (size, diff) {
@@ -3655,13 +3813,14 @@ registerPlugin('mathodokuTool', 'Jeux', {
     buildMathodoku: function (size, diff, solType) {
         let svgs = this.generateMathodokuSVGs(size, diff);
         const w = 400;
+        let groupId = 'mathodoku_' + Date.now() + '_' + Math.random();
 
         const loadImg = (b64, x, y) => {
             return new Promise(resolve => {
                 let img = new Image();
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                    images.push({ id: nextId++, x, y, w, h: w, cx: 0, cy: 0, cw: w, ch: w, src: img.src, z: globalZ++ });
+                    images.push({ id: nextId++, x, y, w, h: w, cx: 0, cy: 0, cw: w, ch: w, src: img.src, z: globalZ++, pluginData: { id: 'mathodokuTool', args: [size, diff, solType], groupId: groupId } });
                     resolve();
                 };
                 img.src = b64;
@@ -3771,7 +3930,7 @@ registerPlugin('pianoTool', 'Musique', {
             let fill = (activeNoteName === n.name) ? '#ffeaa7' : '#ffffff';
             svg += `<rect x="${n.x}" y="20" width="40" height="156" fill="${fill}" stroke="#2d3436" stroke-width="1.5" rx="3"/>`;
             if (n.name.includes('C')) { // Repère visuel sur les DO
-                svg += `<text x="${n.x + 20}" y="160" font-family="sans-serif" font-size="12" font-weight="bold" fill="#d63031" text-anchor="middle">${n.name}</text>`;
+                svg += `<text x="${n.x + 20}" y="160" font-family="sans-serif" font-size="12" font-weight="bold" fill="#d63031" text-anchor="middle">${xmlEsc(n.name)}</text>`;
             }
         });
         // Les Noires
@@ -3801,7 +3960,7 @@ registerPlugin('pianoTool', 'Musique', {
     createRemote: function () {
         if (document.getElementById('piano-remote')) document.getElementById('piano-remote').remove();
         const remote = document.createElement('div'); remote.id = 'piano-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #1e272e; font-family:sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #1e272e; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#1e272e;">🎹 PIANO 3 OCTAVES :</div>
             <button id="btn-piano-lock" onclick="pianoToggleLock()" style="padding:10px 18px; background:#f1f2f6; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px; transition: all 0.2s;">🔓 Déverrouillé</button>
@@ -4175,11 +4334,15 @@ registerPlugin('solidPatronTool', 'Maths - Géométrie', {
             const f = parseFloat(val);
             const imgObj = images.find(img => img.id === id);
             if (imgObj) {
+                if (!imgObj.pluginData) imgObj.pluginData = { id: 'solidPatronTool', type: type, factor: f, color: color };
+                else imgObj.pluginData.factor = f;
+
                 const b64 = this.generateSVG(type, f, color);
                 const img = new Image();
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
                     imgObj.src = img.src;
+                    if (typeof saveState === 'function') saveState();
                     if (typeof draw === 'function') draw();
                 };
                 img.src = b64;
@@ -4364,7 +4527,7 @@ registerPlugin('solidPatronTool', 'Maths - Géométrie', {
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
 
             this.currentSolidId = nextId++;
-            images.push({ id: this.currentSolidId, x: cx - 250, y: cy - 250, w: 500, h: 500, cx: 0, cy: 0, cw: 500, ch: 500, src: img.src, z: globalZ++ });
+            images.push({ id: this.currentSolidId, x: cx - 250, y: cy - 250, w: 500, h: 500, cx: 0, cy: 0, cw: 500, ch: 500, src: img.src, z: globalZ++, pluginData: { id: 'solidPatronTool', type: type, factor: factor, color: color } });
             if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
 
             this.createCanvasRemote(this.currentSolidId, type, factor, color);
@@ -4375,7 +4538,7 @@ registerPlugin('solidPatronTool', 'Maths - Géométrie', {
     createCanvasRemote: function (id, type, factor, color) {
         if (document.getElementById('solid-patron-remote')) document.getElementById('solid-patron-remote').remove();
         const remote = document.createElement('div'); remote.id = 'solid-patron-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #2d3436; font-family:sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #2d3436; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#2d3436;">🧊 MANIPULATION :</div>
             <span style="font-size:12px; color:#636e72;">SOLIDE</span>
@@ -4384,6 +4547,478 @@ registerPlugin('solidPatronTool', 'Maths - Géométrie', {
             <button onclick="document.getElementById('solid-patron-remote').remove()" style="margin-left:15px; background:#f1f2f6; border:none; padding:5px 10px; border-radius:5px; cursor:pointer; color:#e74c3c; font-weight:bold;">Fermer</button>
         `;
         document.body.appendChild(remote);
+    },
+
+    edit: function (imgObj) {
+        if (!imgObj.pluginData) return;
+        this.createCanvasRemote(imgObj.id, imgObj.pluginData.type, imgObj.pluginData.factor, imgObj.pluginData.color);
+    }
+});
+
+// ==========================================
+// MOTEUR 3D MAISON & PLUGIN SOLIDES 3D
+// ==========================================
+const Custom3DEngine = {
+    rotateX: (p, a) => [p[0], p[1] * Math.cos(a) - p[2] * Math.sin(a), p[1] * Math.sin(a) + p[2] * Math.cos(a)],
+    rotateY: (p, a) => [p[0] * Math.cos(a) + p[2] * Math.sin(a), p[1], -p[0] * Math.sin(a) + p[2] * Math.cos(a)],
+    rotateZ: (p, a) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a), p[2]],
+
+    rotateAroundAxis: (p, p1, p2, angle) => {
+        let x = p[0] - p1[0], y = p[1] - p1[1], z = p[2] - p1[2];
+        let ux = p2[0] - p1[0], uy = p2[1] - p1[1], uz = p2[2] - p1[2];
+        let len = Math.sqrt(ux * ux + uy * uy + uz * uz);
+        ux /= len; uy /= len; uz /= len;
+        let cos = Math.cos(angle), sin = Math.sin(angle);
+        let dot = x * ux + y * uy + z * uz;
+        let rx = x * cos + (uy * z - uz * y) * sin + ux * dot * (1 - cos);
+        let ry = y * cos + (uz * x - ux * z) * sin + uy * dot * (1 - cos);
+        let rz = z * cos + (ux * y - uy * x) * sin + uz * dot * (1 - cos);
+        return [rx + p1[0], ry + p1[1], rz + p1[2]];
+    },
+
+    applyUnfold: (node, vertices, factor) => {
+        let angle = (Math.PI / 2) * factor * node.angleRatio;
+        if (node.hinge) {
+            let p1 = vertices[node.hinge[0]], p2 = vertices[node.hinge[1]];
+            let indices = new Set();
+            const collect = (n) => { n.face.forEach(i => indices.add(i)); n.children.forEach(c => collect(c)); };
+            collect(node);
+            indices.delete(node.hinge[0]); indices.delete(node.hinge[1]);
+            indices.forEach(i => { vertices[i] = Custom3DEngine.rotateAroundAxis(vertices[i], p1, p2, angle); });
+        }
+        node.children.forEach(c => Custom3DEngine.applyUnfold(c, vertices, factor));
+    },
+
+    getShape: (type) => {
+        let v = [], tree = null;
+        if (!['cube', 'pyramid', 'tetrahedron', 'cuboid', 'prism3', 'prism6'].includes(type)) type = 'cube';
+
+        const createPrism = (N, r, h) => {
+            let v = [];
+            let sideNodes = [];
+            for (let i = 0; i < N; i++) {
+                let th1 = i * 2 * Math.PI / N, th2 = (i + 1) * 2 * Math.PI / N;
+                let top1 = [r * Math.cos(th1), h / 2, r * Math.sin(th1)];
+                let bot1 = [r * Math.cos(th1), -h / 2, r * Math.sin(th1)];
+                let bot2 = [r * Math.cos(th2), -h / 2, r * Math.sin(th2)];
+                let top2 = [r * Math.cos(th2), h / 2, r * Math.sin(th2)];
+                let vStart = v.length;
+                v.push(top1, bot1, bot2, top2);
+                sideNodes.push({ face: [vStart, vStart + 1, vStart + 2, vStart + 3], hinge: null, angleRatio: 0, children: [] });
+            }
+
+            let rootIdx = 1;
+            for (let i = rootIdx - 1; i >= 0; i--) {
+                let parentStart = (i + 1) * 4;
+                sideNodes[i].hinge = [parentStart + 1, parentStart];
+                sideNodes[i].angleRatio = -(4 / N);
+                sideNodes[i + 1].children.push(sideNodes[i]);
+            }
+            for (let i = rootIdx + 1; i < N; i++) {
+                let parentStart = (i - 1) * 4;
+                sideNodes[i].hinge = [parentStart + 2, parentStart + 3];
+                sideNodes[i].angleRatio = (4 / N);
+                sideNodes[i - 1].children.push(sideNodes[i]);
+            }
+
+            let topFace = [];
+            for (let j = 0; j < N; j++) {
+                let th = j * 2 * Math.PI / N;
+                v.push([r * Math.cos(th), h / 2, r * Math.sin(th)]);
+                topFace.push(v.length - 1);
+            }
+            let rs = rootIdx * 4;
+            sideNodes[rootIdx].children.push({ face: topFace, hinge: [rs, rs + 3], angleRatio: -1, children: [] });
+
+            let botFace = [];
+            for (let j = 0; j < N; j++) {
+                let th = j * 2 * Math.PI / N;
+                v.push([r * Math.cos(th), -h / 2, r * Math.sin(th)]);
+                botFace.push(v.length - 1);
+            }
+            sideNodes[rootIdx].children.push({ face: botFace, hinge: [rs + 2, rs + 1], angleRatio: -1, children: [] });
+
+            return { v, tree: sideNodes[rootIdx] };
+        };
+
+        const createCuboid = (w, h, d) => {
+            let v = [];
+            let sideNodes = [];
+            let facesDef = [
+                { top1: [-w, h, d], bot1: [-w, -h, d], bot2: [w, -h, d], top2: [w, h, d] },
+                { top1: [w, h, d], bot1: [w, -h, d], bot2: [w, -h, -d], top2: [w, h, -d] },
+                { top1: [w, h, -d], bot1: [w, -h, -d], bot2: [-w, -h, -d], top2: [-w, h, -d] },
+                { top1: [-w, h, -d], bot1: [-w, -h, -d], bot2: [-w, -h, d], top2: [-w, h, d] }
+            ];
+            for (let i = 0; i < 4; i++) {
+                let fDef = facesDef[i];
+                let vStart = v.length;
+                v.push(fDef.top1, fDef.bot1, fDef.bot2, fDef.top2);
+                sideNodes.push({ face: [vStart, vStart + 1, vStart + 2, vStart + 3], hinge: null, angleRatio: 0, children: [] });
+            }
+            let rootIdx = 1;
+            sideNodes[0].hinge = [5, 4];
+            sideNodes[0].angleRatio = 1;
+            sideNodes[1].children.push(sideNodes[0]);
+
+            for (let i = 2; i < 4; i++) {
+                let prevStart = (i - 1) * 4;
+                sideNodes[i].hinge = [prevStart + 2, prevStart + 3];
+                sideNodes[i].angleRatio = -1;
+                sideNodes[i - 1].children.push(sideNodes[i]);
+            }
+
+            let tStart = v.length;
+            v.push([-w, h, d], [w, h, d], [w, h, -d], [-w, h, -d]);
+            sideNodes[rootIdx].children.push({ face: [tStart, tStart + 1, tStart + 2, tStart + 3], hinge: [4, 7], angleRatio: -1, children: [] });
+
+            let bStart = v.length;
+            v.push([-w, -h, d], [w, -h, d], [w, -h, -d], [-w, -h, -d]);
+            sideNodes[rootIdx].children.push({ face: [bStart, bStart + 1, bStart + 2, bStart + 3], hinge: [6, 5], angleRatio: -1, children: [] });
+
+            return { v, tree: sideNodes[rootIdx] };
+        };
+
+        if (type === 'prism3') return createPrism(3, 1, 2);
+        if (type === 'prism6') return createPrism(6, 1.2, 2);
+        if (type === 'cuboid') return createCuboid(0.8, 1.2, 1.5);
+
+
+        if (type === 'cube') {
+            v = [
+                [-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1],
+                [-1, 1, 1], [-1, -1, 1], [1, -1, 1], [1, 1, 1],
+                [-1, -1, 1], [-1, -1, -1], [1, -1, -1], [1, -1, 1],
+                [1, 1, 1], [1, -1, 1], [1, -1, -1], [1, 1, -1],
+                [1, 1, -1], [1, -1, -1], [-1, -1, -1], [-1, 1, -1],
+                [-1, 1, -1], [-1, -1, -1], [-1, -1, 1], [-1, 1, 1]
+            ];
+            tree = {
+                face: [0, 3, 2, 1], children: [
+                    {
+                        face: [4, 5, 6, 7], hinge: [4, 7], angleRatio: -1, children: [
+                            { face: [8, 9, 10, 11], hinge: [8, 11], angleRatio: -1, children: [] }
+                        ]
+                    },
+                    { face: [12, 13, 14, 15], hinge: [12, 15], angleRatio: -1, children: [] },
+                    { face: [16, 17, 18, 19], hinge: [16, 19], angleRatio: -1, children: [] },
+                    { face: [20, 21, 22, 23], hinge: [20, 23], angleRatio: -1, children: [] }
+                ]
+            };
+        } else if (type === 'pyramid') {
+            v = [
+                [-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1],
+                [-1, 1, 1], [1, 1, 1], [0, -1, 0],
+                [1, 1, 1], [1, 1, -1], [0, -1, 0],
+                [1, 1, -1], [-1, 1, -1], [0, -1, 0],
+                [-1, 1, -1], [-1, 1, 1], [0, -1, 0]
+            ];
+            tree = {
+                face: [0, 3, 2, 1], children: [
+                    { face: [4, 6, 5], hinge: [4, 5], angleRatio: -1.295, children: [] },
+                    { face: [7, 9, 8], hinge: [7, 8], angleRatio: -1.295, children: [] },
+                    { face: [10, 12, 11], hinge: [10, 11], angleRatio: -1.295, children: [] },
+                    { face: [13, 15, 14], hinge: [13, 14], angleRatio: -1.295, children: [] }
+                ]
+            };
+        } else if (type === 'tetrahedron') {
+            v = [
+                [0, 1, 1.15], [1, 1, -0.57], [-1, 1, -0.57],
+                [0, 1, 1.15], [1, 1, -0.57], [0, -0.41, 0],
+                [1, 1, -0.57], [-1, 1, -0.57], [0, -0.41, 0],
+                [-1, 1, -0.57], [0, 1, 1.15], [0, -0.41, 0]
+            ];
+            tree = {
+                face: [0, 1, 2], children: [
+                    { face: [3, 5, 4], hinge: [3, 4], angleRatio: -1.216, children: [] },
+                    { face: [6, 8, 7], hinge: [6, 7], angleRatio: -1.216, children: [] },
+                    { face: [9, 11, 10], hinge: [9, 10], angleRatio: -1.216, children: [] }
+                ]
+            };
+        }
+        return { v, tree };
+    },
+
+    renderSVG: (type, f, rx, ry, rz, zoomFactor, color, coloration, transparent, shading, strokeMode) => {
+        let shape = Custom3DEngine.getShape(type);
+
+        zoomFactor = (typeof zoomFactor === 'number' && !isNaN(zoomFactor)) ? zoomFactor : 1.0;
+        f = (typeof f === 'number' && !isNaN(f)) ? f : 0;
+        rx = (typeof rx === 'number' && !isNaN(rx)) ? rx : 0.4;
+        ry = (typeof ry === 'number' && !isNaN(ry)) ? ry : 0.5;
+        rz = (typeof rz === 'number' && !isNaN(rz)) ? rz : 0;
+
+        // Sécurité anti-crash : si la couleur est absente ou invalide (anciens solides), on force un bleu
+        color = color || '#0984e3';
+        if (typeof color !== 'string' || !color.startsWith('#')) color = '#0984e3';
+
+        let verts = JSON.parse(JSON.stringify(shape.v));
+
+        Custom3DEngine.applyUnfold(shape.tree, verts, f);
+        verts = verts.map(p => Custom3DEngine.rotateX(p, rx));
+        verts = verts.map(p => Custom3DEngine.rotateY(p, ry));
+        verts = verts.map(p => Custom3DEngine.rotateZ(p, rz));
+
+        let faces = [];
+        const extract = (n) => { faces.push(n.face); n.children.forEach(c => extract(c)); };
+        extract(shape.tree);
+
+        let renderFaces = [];
+        faces.forEach(face => {
+            let p0 = verts[face[0]], p1 = verts[face[1]], p2 = verts[face[2]];
+            let ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+            let vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+            let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+            let len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 0) { nx /= len; ny /= len; nz /= len; }
+
+            let cx = 0, cy = 0, cz = 0;
+            face.forEach(i => { cx += verts[i][0]; cy += verts[i][1]; cz += verts[i][2]; });
+            cx /= face.length; cy /= face.length; cz /= face.length;
+
+            // On supprime le backface culling pour toujours voir l'intérieur du patron quand il se déplie
+
+            let light = [0.5, -0.5, -1];
+            let ll = Math.sqrt(0.5 * 0.5 + 0.5 * 0.5 + 1);
+            let dot = (nx * light[0] / ll + ny * light[1] / ll + nz * light[2] / ll);
+            let shade = Math.max(0.3, Math.min(1.0, 0.5 + 0.5 * dot));
+
+            renderFaces.push({ face, cz, shade, nz });
+        });
+
+        renderFaces.sort((a, b) => b.cz - a.cz);
+
+        let scale = 150 * zoomFactor;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let polygons = [];
+
+        renderFaces.forEach((rf, idx) => {
+            let pts = rf.face.map(i => {
+                let p = verts[i];
+                let px = p[0] * scale;
+                let py = -p[1] * scale;
+                if (px < minX) minX = px;
+                if (px > maxX) maxX = px;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+                return { x: px, y: py };
+            });
+            polygons.push({ pts: pts, rf: rf });
+        });
+
+        let margin = 10;
+        if (minX === Infinity) { minX = -100; maxX = 100; minY = -100; maxY = 100; }
+        let width = maxX - minX + 2 * margin;
+        let height = maxY - minY + 2 * margin;
+        let vBoxX = minX - margin;
+        let vBoxY = minY - margin;
+
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vBoxX} ${vBoxY} ${width} ${height}" width="${width}" height="${height}">`;
+
+        polygons.forEach((poly) => {
+            let ptsStr = poly.pts.map(p => `${p.x},${p.y}`).join(" ");
+
+            let drawColor = color;
+            if (coloration === 'multi') {
+                const palette = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c', '#34495e'];
+                let origIdx = faces.indexOf(poly.rf.face);
+                drawColor = palette[origIdx % palette.length];
+            }
+
+            if (transparent) {
+                let sCol = strokeMode === 'black' ? '#000' : (strokeMode === 'none' ? 'none' : drawColor);
+                let sWidth = strokeMode === 'none' ? 0 : (strokeMode === 'black' ? 2.5 : 2);
+                svg += `<polygon points="${ptsStr}" fill="${drawColor}" fill-opacity="0.2" stroke="${sCol}" stroke-width="${sWidth}" stroke-linejoin="round"/>`;
+            } else {
+                let r = parseInt(drawColor.substr(1, 2), 16), g = parseInt(drawColor.substr(3, 2), 16), b = parseInt(drawColor.substr(5, 2), 16);
+                let shadeFactor = shading ? poly.rf.shade : 1.0;
+                let sr = Math.round(r * shadeFactor), sg = Math.round(g * shadeFactor), sb = Math.round(b * shadeFactor);
+
+                let sCol = strokeMode === 'black' ? '#000' : (strokeMode === 'none' ? 'none' : `rgba(0,0,0,0.4)`);
+                let sWidth = strokeMode === 'none' ? 0 : (strokeMode === 'black' ? 2.5 : 1.5);
+
+                svg += `<polygon points="${ptsStr}" fill="rgb(${sr},${sg},${sb})" stroke="${sCol}" stroke-width="${sWidth}" stroke-linejoin="round"/>`;
+            }
+        });
+        return svg + `</svg>`;
+    }
+};
+
+registerPlugin('solid3DTool', 'Maths - Géométrie', {
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Visionneuse 3D';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>`;
+        btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
+        grid.appendChild(btn);
+
+        window.updateSolid3DCanvas = (id, prop, val) => {
+            const imgObj = images.find(img => img.id === id);
+            if (imgObj && imgObj.pluginData && imgObj.pluginData.id === 'solid3DTool') {
+                if (prop === 'transparent') imgObj.pluginData.transparent = val;
+                else if (prop === 'shading') imgObj.pluginData.shading = val;
+                else if (prop === 'stroke' || prop === 'coloration') imgObj.pluginData[prop] = val;
+                else imgObj.pluginData[prop] = parseFloat(val);
+
+                const pd = imgObj.pluginData;
+                const b64 = this.generateSVG(pd);
+                const img = new Image();
+                img.onload = () => {
+                    if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
+                    imgObj.src = img.src;
+
+                    let oldCx = imgObj.x + imgObj.w / 2;
+                    let oldCy = imgObj.y + imgObj.h / 2;
+
+                    let currentScale = imgObj.w / imgObj.cw;
+
+                    imgObj.cw = img.width;
+                    imgObj.ch = img.height;
+                    let targetW = img.width * currentScale;
+                    let targetH = img.height * currentScale;
+                    imgObj.w = targetW;
+                    imgObj.h = targetH;
+
+                    imgObj.x = oldCx - targetW / 2;
+                    imgObj.y = oldCy - targetH / 2;
+
+                    if (typeof saveState === 'function') saveState();
+                    if (typeof draw === 'function') draw();
+                };
+                img.src = b64;
+            }
+        };
+    },
+
+    openPrompt: function () {
+        openCustomPrompt("Nouveau Solide 3D", [
+            {
+                type: 'select', label: 'Forme', value: 'cube', options: [
+                    { value: 'cube', label: 'Cube' },
+                    { value: 'cuboid', label: 'Pavé Droit' },
+                    { value: 'pyramid', label: 'Pyramide (Base Carrée)' },
+                    { value: 'tetrahedron', label: 'Tétraèdre' },
+                    { value: 'prism3', label: 'Prisme Triangulaire' },
+                    { value: 'prism6', label: 'Prisme Hexagonal' }
+                ]
+            },
+            { type: 'select', label: 'Coloration', value: 'mono', options: [{ value: 'mono', label: 'Couleur unie' }, { value: 'multi', label: 'Multicolore' }] },
+            { type: 'color', label: 'Couleur', value: '#0984e3' },
+            { type: 'select', label: 'Affichage', value: 'opaque', options: [{ value: 'opaque', label: 'Opaque' }, { value: 'transparent', label: 'Transparent' }] },
+            { type: 'select', label: 'Ombrage (3D)', value: 'yes', options: [{ value: 'yes', label: 'Oui' }, { value: 'no', label: 'Non' }] },
+            { type: 'select', label: 'Bordures', value: 'auto', options: [{ value: 'auto', label: 'Discrètes' }, { value: 'black', label: 'Noires' }, { value: 'none', label: 'Aucune' }] }
+        ],
+            (res) => {
+                let pd = { type: res[0], coloration: res[1], color: res[2], transparent: res[3] === 'transparent', shading: res[4] === 'yes', stroke: res[5], f: 0, rx: 0.4, ry: 0.5, rz: 0, zoom: 1.0 };
+                let b64 = this.generateSVG(pd);
+                return `<div style="display:flex; justify-content:center; align-items:center; width:100%; height:100%;">
+                        <img src="${b64}" style="max-height:140px; object-fit:contain; filter:drop-shadow(0 4px 6px rgba(0,0,0,0.15));">
+                    </div>`;
+            },
+            (res) => {
+                let pd = { type: res[0], coloration: res[1], color: res[2], transparent: res[3] === 'transparent', shading: res[4] === 'yes', stroke: res[5], f: 0, rx: 0.4, ry: 0.5, rz: 0, zoom: 1.0 };
+                this.buildOnCanvas(pd);
+            }
+        );
+    },
+
+    generateSVG: function (pd) {
+        let svg = Custom3DEngine.renderSVG(pd.type, pd.f, pd.rx, pd.ry, pd.rz, pd.zoom, pd.color, pd.coloration, pd.transparent, pd.shading, pd.stroke);
+        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+    },
+
+    buildOnCanvas: function (pd) {
+        pd.id = 'solid3DTool';
+        const b64 = this.generateSVG(pd);
+        const img = new Image();
+        img.onload = () => {
+            const cx = (window.innerWidth / 2 - panX) / zoom, cy = (window.innerHeight / 2 - panY) / zoom;
+            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
+            let sid = nextId++;
+            let targetW = img.width / 4;
+            let targetH = img.height / 4;
+            images.push({ id: sid, x: cx - targetW / 2, y: cy - targetH / 2, w: targetW, h: targetH, cx: 0, cy: 0, cw: img.width, ch: img.height, src: img.src, z: globalZ++, pluginData: pd });
+            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
+            this.createCanvasRemote(sid, pd);
+        };
+        img.src = b64;
+    },
+
+    createCanvasRemote: function (id, pd) {
+        if (document.getElementById('solid-3d-remote')) document.getElementById('solid-3d-remote').remove();
+        const remote = document.createElement('div'); remote.id = 'solid-3d-remote';
+        remote.style.cssText = "position:absolute; top:100px; left:100px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; flex-direction:column; padding: 15px 25px; gap: 10px; border: 2px solid #2d3436; font-family: sans-serif; width: 350px; cursor:move;";
+
+        let isDragging = false, startX, startY, startLeft, startTop;
+        remote.onmousedown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'LABEL') return;
+            isDragging = true;
+            startX = e.clientX; startY = e.clientY;
+            startLeft = parseInt(remote.style.left || 100);
+            startTop = parseInt(remote.style.top || 100);
+        };
+        const onMove = (e) => {
+            if (!isDragging) return;
+            remote.style.left = (startLeft + e.clientX - startX) + 'px';
+            remote.style.top = (startTop + e.clientY - startY) + 'px';
+        };
+        const onUp = () => isDragging = false;
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+
+        // Clean up events on remove
+        const oldRemove = remote.remove;
+        remote.remove = function () {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            oldRemove.call(this);
+        };
+
+        const row = (label, prop, min, max, val) => `
+            <div style="display:flex; align-items:center; justify-content:space-between; font-size:12px; color:#636e72;">
+                <span style="width:80px; font-weight:bold;">${label}</span>
+                <input type="range" min="${min}" max="${max}" step="0.01" value="${val}" style="flex-grow:1; margin:0 10px; cursor:pointer;" oninput="updateSolid3DCanvas(${id}, '${prop}', this.value)">
+            </div>
+        `;
+
+        remote.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                <div style="font-weight:bold; font-size:14px; color:#2d3436;">🧊 MANIPULATION 3D</div>
+                <button onclick="document.getElementById('solid-3d-remote').remove()" style="background:#ff7675; border:none; padding:4px 8px; border-radius:5px; cursor:pointer; color:#fff; font-weight:bold; font-size:11px;">Fermer</button>
+            </div>
+            ${row('Dépliage', 'f', 0, 1, pd.f)}
+            ${row('Rotation X', 'rx', -Math.PI, Math.PI, pd.rx)}
+            ${row('Rotation Y', 'ry', -Math.PI, Math.PI, pd.ry)}
+            ${row('Rotation Z', 'rz', -Math.PI, Math.PI, pd.rz)}
+            ${row('Zoom', 'zoom', 0.1, 3.0, pd.zoom)}
+            <div style="display:flex; align-items:center; justify-content:space-between; font-size:12px; color:#636e72; margin-top:5px; flex-wrap: wrap; gap: 8px;">
+                <label style="display:flex; align-items:center; cursor:pointer;"><input type="checkbox" ${pd.transparent ? 'checked' : ''} onchange="updateSolid3DCanvas(${id}, 'transparent', this.checked)"> Transparence</label>
+                <label style="display:flex; align-items:center; cursor:pointer;"><input type="checkbox" ${pd.shading ? 'checked' : ''} onchange="updateSolid3DCanvas(${id}, 'shading', this.checked)"> Ombrages</label>
+                <label style="display:flex; align-items:center; cursor:pointer;">Bordures: 
+                    <select onchange="updateSolid3DCanvas(${id}, 'stroke', this.value)" style="margin-left:5px; font-size:11px;">
+                        <option value="auto" ${pd.stroke === 'auto' ? 'selected' : ''}>Discrètes</option>
+                        <option value="black" ${pd.stroke === 'black' ? 'selected' : ''}>Noires</option>
+                        <option value="none" ${pd.stroke === 'none' ? 'selected' : ''}>Aucune</option>
+                    </select>
+                </label>
+                <label style="display:flex; align-items:center; cursor:pointer;">Couleurs: 
+                    <select onchange="updateSolid3DCanvas(${id}, 'coloration', this.value)" style="margin-left:5px; font-size:11px;">
+                        <option value="mono" ${pd.coloration === 'mono' ? 'selected' : ''}>Unie</option>
+                        <option value="multi" ${pd.coloration === 'multi' ? 'selected' : ''}>Multi</option>
+                    </select>
+                </label>
+            </div>
+        `;
+        document.body.appendChild(remote);
+    },
+
+    edit: function (imgObj) {
+        if (!imgObj.pluginData) return;
+        this.createCanvasRemote(imgObj.id, imgObj.pluginData);
     }
 });
 
@@ -4429,7 +5064,43 @@ registerPlugin('mazeGeneratorTool', 'Jeux', {
             (res) => {
                 if (!this.cachedData) return;
                 showToast("🌀 Insertion du labyrinthe...");
-                setTimeout(() => this.buildMazeOnCanvas(res[4]), 50);
+                setTimeout(() => this.buildMazeOnCanvas(res[4], res), 50);
+            });
+    },
+
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const args = imgObj.pluginData.args;
+        const groupId = imgObj.pluginData.groupId;
+        this.cachedData = null;
+        openCustomPrompt("Modifier le Labyrinthe", [
+            { type: 'select', label: 'Structure', value: args[0], options: [{ value: 'orthogonal', label: 'Classique (Rectangle)' }, { value: 'hexagonal', label: 'Nid d\'Abeille (Hexagones)' }] },
+            { type: 'select', label: 'Largeur (Colonnes)', value: args[1], options: [{ value: '10', label: '10' }, { value: '15', label: '15' }, { value: '20', label: '20' }] },
+            { type: 'select', label: 'Hauteur (Lignes)', value: args[2], options: [{ value: '10', label: '10' }, { value: '15', label: '15' }, { value: '20', label: '20' }] },
+            { type: 'select', label: 'Thème', value: args[3], options: [{ value: 'classic', label: 'Classique' }, { value: 'blueprint', label: 'Plan Bleu' }] },
+            { type: 'select', label: 'Solution', value: args[4], options: [{ value: 'none', label: 'Aucune' }, { value: 'hidden', label: 'Cachée (Gomme)' }, { value: 'visible', label: 'Visible' }] }
+        ],
+            (res) => {
+                let cols = parseInt(res[1]) || 15; let rows = parseInt(res[2]) || 10;
+                this.cachedData = this.generateMazeData(res[0], cols, rows, res[3]);
+                let html = `<div style="display:flex; gap:15px; width:100%; height:100%; justify-content:center; align-items:center;">`;
+                html += `<img src="${this.cachedData.base}" style="max-height:110px; object-fit:contain; filter:drop-shadow(0 4px 6px rgba(0,0,0,0.15));">`;
+                if (res[4] === 'visible') html += `<img src="${this.cachedData.sol}" style="max-height:110px; object-fit:contain; filter:drop-shadow(0 4px 6px rgba(0,0,0,0.15));">`;
+                else if (res[4] === 'hidden') html += `<img src="${this.cachedData.cache}" style="max-height:110px; object-fit:contain; filter:drop-shadow(0 4px 6px rgba(0,0,0,0.15));">`;
+                return html + `</div>`;
+            },
+            (res) => {
+                if (!this.cachedData) return;
+                showToast("🌀 Régénération du labyrinthe...");
+                if (groupId && typeof images !== 'undefined') {
+                    for (let i = images.length - 1; i >= 0; i--) {
+                        if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                            images.splice(i, 1);
+                        }
+                    }
+                }
+                if (typeof draw === 'function') draw();
+                setTimeout(() => this.buildMazeOnCanvas(res[4], res), 50);
             });
     },
 
@@ -4550,15 +5221,16 @@ registerPlugin('mazeGeneratorTool', 'Jeux', {
         };
     },
 
-    buildMazeOnCanvas: function (solType) {
+    buildMazeOnCanvas: function (solType, args = []) {
         let data = this.cachedData; if (!data) return;
+        let groupId = 'maze_' + Date.now() + '_' + Math.random();
 
         const loadImg = (b64, x, y) => {
             return new Promise(resolve => {
                 let img = new Image();
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                    images.push({ id: nextId++, x, y, w: data.w, h: data.h, cx: 0, cy: 0, cw: data.w, ch: data.h, src: img.src, z: globalZ++ });
+                    images.push({ id: nextId++, x, y, w: data.w, h: data.h, cx: 0, cy: 0, cw: data.w, ch: data.h, src: img.src, z: globalZ++, pluginData: { id: 'mazeGeneratorTool', args: args, groupId: groupId } });
                     resolve();
                 };
                 img.src = b64;
@@ -4669,7 +5341,7 @@ registerPlugin('longestWordTool', 'Jeux', {
     createGameRemote: function () {
         if (document.getElementById('word-game-remote')) document.getElementById('word-game-remote').remove();
         const remote = document.createElement('div'); remote.id = 'word-game-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 10px 20px; gap: 12px; border: 2px solid #0984e3; font-family:sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 10px 20px; gap: 12px; border: 2px solid #0984e3; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#2d3436; margin-right:5px;">🔤 TIRAGE :</div>
             <button onclick="wordGamePickLetter('vowel')" style="padding:10px 16px; background:#0984e3; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px; box-shadow:0 2px 4px rgba(9,132,227,0.3);">🔵 Voyelle</button>
@@ -5217,7 +5889,7 @@ registerPlugin('trafficLightTool', 'Outils Profs', {
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
         const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'traffic';
-        btn.title = 'Signalisation (Feux & Panneaux)';
+        btn.title = 'Signalisation';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="2" width="14" height="20" rx="4" ry="4"/>
             <circle cx="12" cy="7" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="17" r="2.5"/>
@@ -5529,7 +6201,7 @@ registerPlugin('popcornTool', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 300px); width:600px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; overflow:hidden; font-family:'Segoe UI', sans-serif; border:2px solid #3c40c6;";
+        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 300px); width:600px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; overflow:hidden; font-family: sans-serif; border:2px solid #3c40c6;";
 
         this.widgetEl.innerHTML = `
             <div id="pop-drag-handle" style="background:#0a0e14; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; user-select:none; border-bottom:1px solid #3c40c6;">
@@ -5779,7 +6451,7 @@ registerPlugin('popcornTool', 'Jeux', {
         this.ctx.save();
         this.ctx.fillStyle = color; this.ctx.shadowBlur = 10; this.ctx.shadowColor = color;
         this.ctx.beginPath(); this.ctx.roundRect(x, y, w, h, 8); this.ctx.fill();
-        this.ctx.fillStyle = '#1e272e'; this.ctx.font = 'bold 18px sans-serif'; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle';
+        this.ctx.fillStyle = '#1e272e'; this.ctx.font = "bold 18px sans-serif"; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle';
         this.ctx.shadowBlur = 0; this.ctx.fillText(text, x + w / 2, y + h / 2);
         this.ctx.restore();
     },
@@ -5791,7 +6463,7 @@ registerPlugin('popcornTool', 'Jeux', {
 
         if (this.game.state === 'title') {
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.shadowBlur = 20; ctx.shadowColor = '#00d2d3'; ctx.fillStyle = '#00d2d3'; ctx.font = 'bold 70px sans-serif';
+            ctx.shadowBlur = 20; ctx.shadowColor = '#00d2d3'; ctx.fillStyle = '#00d2d3'; ctx.font = "bold 70px sans-serif";
             ctx.fillText("POPCORN", this.game.width / 2, 120);
 
             this.drawButton(200, 220, 200, 50, "JOUER", "#00d2d3");
@@ -5801,27 +6473,27 @@ registerPlugin('popcornTool', 'Jeux', {
         }
 
         if (this.game.state === 'settings') {
-            ctx.fillStyle = '#fff'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillStyle = '#fff'; ctx.font = "bold 30px sans-serif"; ctx.textAlign = 'center';
             ctx.fillText("VITESSE DE LA BALLE", this.game.width / 2, 120);
 
             this.drawButton(150, 180, 80, 40, "LENT", this.game.baseSpeed === 4 ? "#1dd1a1" : "#576574");
             this.drawButton(250, 180, 100, 40, "NORMAL", this.game.baseSpeed === 6 ? "#1dd1a1" : "#576574");
             this.drawButton(370, 180, 80, 40, "RAPIDE", this.game.baseSpeed === 9 ? "#1dd1a1" : "#576574");
 
-            ctx.fillStyle = '#576574'; ctx.font = '16px sans-serif'; ctx.fillText("◀ Retour", 50, 35);
+            ctx.fillStyle = '#576574'; ctx.font = "16px sans-serif"; ctx.fillText("◀ Retour", 50, 35);
             return;
         }
 
         if (this.game.state === 'levelselect') {
-            ctx.fillStyle = '#fff'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillStyle = '#fff'; ctx.font = "bold 30px sans-serif"; ctx.textAlign = 'center';
             ctx.fillText("CHOIX DU NIVEAU", this.game.width / 2, 40);
-            ctx.fillStyle = '#576574'; ctx.font = '16px sans-serif'; ctx.fillText("◀ Retour", 50, 35);
+            ctx.fillStyle = '#576574'; ctx.font = "16px sans-serif"; ctx.fillText("◀ Retour", 50, 35);
 
             for (let i = 0; i < 20; i++) {
                 let col = i % 5; let row = Math.floor(i / 5);
                 let x = 50 + col * 100; let y = 80 + row * 70;
                 ctx.fillStyle = '#2f3640'; ctx.beginPath(); ctx.roundRect(x, y, 80, 50, 6); ctx.fill();
-                ctx.fillStyle = '#00d2d3'; ctx.font = 'bold 20px sans-serif'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#00d2d3'; ctx.font = "bold 20px sans-serif"; ctx.textBaseline = 'middle';
                 ctx.fillText(i + 1, x + 40, y + 25);
             }
             return;
@@ -5915,30 +6587,30 @@ registerPlugin('popcornTool', 'Jeux', {
         }
 
         // UI Textes
-        ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textBaseline = 'alphabetic';
+        ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = "bold 16px sans-serif"; ctx.textBaseline = 'alphabetic';
         ctx.textAlign = 'left'; ctx.fillText(`SCORE: ${this.game.score}`, 15, 25); ctx.fillText(`NIVEAU: ${this.game.level + 1}`, 15, 45);
         ctx.textAlign = 'right'; ctx.fillText(`VIES: ${this.game.lives}`, this.game.width - 15, 25);
 
         if (this.game.state === 'paused') {
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, this.game.width, this.game.height);
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillStyle = '#fff'; ctx.font = 'bold 40px sans-serif'; ctx.fillText("PAUSE", this.game.width / 2, this.game.height / 2);
+            ctx.fillStyle = '#fff'; ctx.font = "bold 40px sans-serif"; ctx.fillText("PAUSE", this.game.width / 2, this.game.height / 2);
         }
         else if (this.game.state === 'gameover' || this.game.state === 'levelclear' || this.game.state === 'win') {
             ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, this.game.width, this.game.height);
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
             if (this.game.state === 'gameover') {
-                ctx.fillStyle = '#ff4757'; ctx.font = 'bold 40px sans-serif'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff4757';
+                ctx.fillStyle = '#ff4757'; ctx.font = "bold 40px sans-serif"; ctx.shadowBlur = 20; ctx.shadowColor = '#ff4757';
                 ctx.fillText("GAME OVER", this.game.width / 2, this.game.height / 2);
             } else if (this.game.state === 'levelclear') {
-                ctx.fillStyle = '#feca57'; ctx.font = 'bold 40px sans-serif'; ctx.shadowBlur = 20; ctx.shadowColor = '#feca57';
+                ctx.fillStyle = '#feca57'; ctx.font = "bold 40px sans-serif"; ctx.shadowBlur = 20; ctx.shadowColor = '#feca57';
                 ctx.fillText("NIVEAU TERMINÉ", this.game.width / 2, this.game.height / 2);
             } else if (this.game.state === 'win') {
-                ctx.fillStyle = '#1dd1a1'; ctx.font = 'bold 40px sans-serif'; ctx.shadowBlur = 20; ctx.shadowColor = '#1dd1a1';
+                ctx.fillStyle = '#1dd1a1'; ctx.font = "bold 40px sans-serif"; ctx.shadowBlur = 20; ctx.shadowColor = '#1dd1a1';
                 ctx.fillText("VICTOIRE !", this.game.width / 2, this.game.height / 2);
             }
-            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif';
+            ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.font = "20px sans-serif";
             ctx.fillText("Cliquez pour continuer", this.game.width / 2, this.game.height / 2 + 40);
         }
     },
@@ -5993,7 +6665,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
         overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;justify-content:center;align-items:center;";
 
         const box = document.createElement('div');
-        box.style.cssText = "width:90%;height:85%;background:#fff;border-radius:12px;display:flex;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.4); font-family:sans-serif;";
+        box.style.cssText = "width:90%;height:85%;background:#fff;border-radius:12px;display:flex;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.4); font-family: sans-serif;";
 
         box.innerHTML = `
             <div style="width:300px; background:#f8f9fa; border-right:1px solid #dfe6e9; padding:20px; display:flex; flex-direction:column; gap:15px;">
@@ -6125,7 +6797,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
                             // Numérateur
                             const tNum = document.createElementNS("http://www.w3.org/2000/svg", "text");
                             tNum.setAttribute('x', midX); tNum.setAttribute('y', midY - 8);
-                            tNum.setAttribute('text-anchor', 'middle'); tNum.setAttribute('font-family', 'sans-serif'); tNum.setAttribute('font-size', '14px'); tNum.setAttribute('fill', '#0984e3');
+                            tNum.setAttribute('text-anchor', 'middle'); tNum.setAttribute('font-family', "sans-serif"); tNum.setAttribute('font-size', '14px'); tNum.setAttribute('fill', '#0984e3');
                             tNum.textContent = num;
                             svgGroup.appendChild(tNum);
 
@@ -6139,7 +6811,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
                             // Dénominateur
                             const tDen = document.createElementNS("http://www.w3.org/2000/svg", "text");
                             tDen.setAttribute('x', midX); tDen.setAttribute('y', midY + 14);
-                            tDen.setAttribute('text-anchor', 'middle'); tDen.setAttribute('font-family', 'sans-serif'); tDen.setAttribute('font-size', '14px'); tDen.setAttribute('fill', '#0984e3');
+                            tDen.setAttribute('text-anchor', 'middle'); tDen.setAttribute('font-family', "sans-serif"); tDen.setAttribute('font-size', '14px'); tDen.setAttribute('fill', '#0984e3');
                             tDen.textContent = den;
                             svgGroup.appendChild(tDen);
 
@@ -6154,7 +6826,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
                             const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
                             txt.setAttribute('x', midX); txt.setAttribute('y', midY);
                             txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('dominant-baseline', 'central');
-                            txt.setAttribute('font-family', 'sans-serif'); txt.setAttribute('font-size', '16px'); txt.setAttribute('fill', '#0984e3');
+                            txt.setAttribute('font-family', "sans-serif"); txt.setAttribute('font-size', '16px'); txt.setAttribute('fill', '#0984e3');
                             txt.textContent = c.prob;
                             svgGroup.appendChild(txt);
                         }
@@ -6184,7 +6856,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
                     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
                     t.setAttribute('x', n.x); t.setAttribute('y', n.y);
                     t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'central');
-                    t.setAttribute('font-family', 'sans-serif'); t.setAttribute('font-size', '18px'); t.setAttribute('font-weight', 'bold'); t.setAttribute('fill', '#2d3436');
+                    t.setAttribute('font-family', "sans-serif"); t.setAttribute('font-size', '18px'); t.setAttribute('font-weight', 'bold'); t.setAttribute('fill', '#2d3436');
                     if (n.bar) t.setAttribute('text-decoration', 'overline');
                     t.textContent = n.name;
                     g.appendChild(t);
@@ -6273,7 +6945,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
     openWidget: function (existingState = null) {
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; font-family:sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
+            this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; font-family: sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
 
             this.widgetEl.innerHTML = `
                 <div class="geg-header" style="background:#1e272e; color:#fff; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; font-weight:bold;">
@@ -7014,6 +7686,26 @@ registerPlugin('countdownGameTool', 'Jeux', {
         ], null, (res) => this.generateGame(res[0], parseInt(res[1]))); // null = pas d'aperçu
     },
 
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const args = imgObj.pluginData.args;
+        const groupId = imgObj.pluginData.groupId;
+        openCustomPrompt("Modifier Le Compte est Bon", [
+            { type: 'select', label: 'Cible', value: args[0], options: [{ value: 'easy', label: 'Facile (101 à 300)' }, { value: 'medium', label: 'Moyen (301 à 700)' }, { value: 'hard', label: 'Difficile (701 à 999)' }] },
+            { type: 'select', label: 'Minuteur', value: args[1].toString(), options: [{ value: '0', label: 'Libre' }, { value: '1', label: '1 minute' }, { value: '3', label: '3 minutes' }] }
+        ], null, (res) => {
+            if (groupId && typeof images !== 'undefined') {
+                for (let i = images.length - 1; i >= 0; i--) {
+                    if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                        images.splice(i, 1);
+                    }
+                }
+            }
+            if (typeof draw === 'function') draw();
+            this.generateGame(res[0], parseInt(res[1]));
+        });
+    },
+
     // Le VRAI moteur (sans calculs fantômes)
     generateLogic: function (difficulty) {
         const officialPool = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 25, 50, 75, 100];
@@ -7119,12 +7811,13 @@ registerPlugin('countdownGameTool', 'Jeux', {
         svgCache += `</svg>`;
 
         // On charge les 3 images de manière séquentielle (Le Cache s'affiche SUR la Solution)
+        let groupId = 'countdown_' + Date.now() + '_' + Math.random();
         const loadImg = (svgStr, x, y, w, h) => {
             return new Promise(resolve => {
                 let img = new Image();
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                    images.push({ id: nextId++, x, y, w, h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++ });
+                    images.push({ id: nextId++, x, y, w, h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'countdownGameTool', args: [difficulty, timerMinutes], groupId: groupId } });
                     resolve();
                 };
                 img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr)));
@@ -7175,6 +7868,37 @@ registerPlugin('sudokuGeneratorTool', 'Jeux', {
             },
             (res) => {
                 showToast("⏳ Génération de la grille...");
+                setTimeout(() => this.generateSudoku(parseInt(res[0]), res[2], res[1]), 50);
+            });
+    },
+
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const args = imgObj.pluginData.args;
+        const groupId = imgObj.pluginData.groupId;
+        openCustomPrompt("Modifier le Sudoku", [
+            { type: 'select', label: 'Niveau', value: args[0].toString(), options: [{ value: '30', label: 'Facile' }, { value: '45', label: 'Moyen' }, { value: '55', label: 'Difficile' }] },
+            { type: 'select', label: 'Solution', value: args[1], options: [{ value: 'none', label: 'Aucune' }, { value: 'hidden', label: 'Cachée (Gomme)' }, { value: 'visible', label: 'Visible' }] },
+            { type: 'color', label: 'Couleur', value: args[2] }
+        ],
+            (res) => {
+                let svgs = this.getPreviewSVGs(parseInt(res[0]), res[2]);
+                let html = `<div style="display:flex; gap:15px; width:100%; height:100%; justify-content:center; align-items:center;">`;
+                html += `<img src="${svgs.puzzle}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                if (res[1] === 'visible') html += `<img src="${svgs.sol}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                else if (res[1] === 'hidden') html += `<img src="${svgs.cache}" style="max-height:110px; object-fit:contain; border-radius:4px; box-shadow:0 4px 6px rgba(0,0,0,0.15);">`;
+                return html + `</div>`;
+            },
+            (res) => {
+                showToast("⏳ Régénération de la grille...");
+                if (groupId && typeof images !== 'undefined') {
+                    for (let i = images.length - 1; i >= 0; i--) {
+                        if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                            images.splice(i, 1);
+                        }
+                    }
+                }
+                if (typeof draw === 'function') draw();
                 setTimeout(() => this.generateSudoku(parseInt(res[0]), res[2], res[1]), 50);
             });
     },
@@ -7259,13 +7983,14 @@ registerPlugin('sudokuGeneratorTool', 'Jeux', {
         }
 
         let svgs = this.buildSVGStrings(puzzle, grid, color);
+        let groupId = 'sudoku_' + Date.now() + '_' + Math.random();
 
         const loadImg = (b64, x, y) => {
             return new Promise(resolve => {
                 let img = new Image();
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                    images.push({ id: nextId++, x, y, w: 450, h: 450, cx: 0, cy: 0, cw: 450, ch: 450, src: img.src, z: globalZ++ });
+                    images.push({ id: nextId++, x, y, w: 450, h: 450, cx: 0, cy: 0, cw: 450, ch: 450, src: img.src, z: globalZ++, pluginData: { id: 'sudokuGeneratorTool', args: [holes, solType, color], groupId: groupId } });
                     resolve();
                 };
                 img.src = b64;
@@ -7361,7 +8086,7 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
                 const solY = cy + 180;
 
                 // 1. Le texte natif (valeur)
-                texts.push({ id: nextId++, x: cx - 25, y: solY, content: `<b>${angleDeg}°</b>`, color: '#2d3436', fontSize: 28, fontFamily: 'sans-serif', align: 'left', locked: true, z: globalZ++, groupId: grp });
+                texts.push({ id: nextId++, x: cx - 25, y: solY, content: `<b>${angleDeg}°</b>`, color: '#2d3436', fontSize: 28, fontFamily: "sans-serif", align: 'left', locked: true, z: globalZ++, groupId: grp });
 
                 // 2. L'image du cache (Descendue de 23 pixels pour s'aligner parfaitement sur le texte !)
                 const imgCache = new Image();
@@ -7473,7 +8198,7 @@ registerPlugin('hangmanGameTool', 'Jeux', {
         if (document.getElementById('hangman-remote')) document.getElementById('hangman-remote').remove();
         const remote = document.createElement('div');
         remote.id = 'hangman-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:600px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family:sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:600px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family: sans-serif;";
 
         let html = `<div style="background:#1e272e; color:#fff; padding:10px; text-align:center; font-weight:bold;">🎮 Télécommande Pendu (Cachée aux élèves)</div>`;
         html += `<div style="padding:15px;"><div id="hangman-keys" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:15px;">`;
@@ -7538,15 +8263,53 @@ registerPlugin('wordSearchGenerator', 'Jeux', {
             let words = input.split(',').map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, '')).filter(w => w.length > 2);
             if (words.length > 0) {
                 showToast("⏳ Génération de la grille...");
-                setTimeout(() => this.generateGrid(words.slice(0, 6)), 50);
+                setTimeout(() => this.generateGrid(words.slice(0, 6), input), 50);
             } else {
                 showToast("Veuillez entrer des mots valides.");
             }
         });
     },
-    generateGrid: function (words) {
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const inputStr = imgObj.pluginData.args[0];
+        const groupId = imgObj.pluginData.groupId;
+        openCustomPrompt("Modifier les Mots Mêlés", [
+            { type: 'text', label: 'Entrez jusqu\'à 6 mots (séparés par des virgules)', value: inputStr }
+        ], null, (res) => {
+            let input = res[0];
+            let words = input.split(',').map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, '')).filter(w => w.length > 2);
+            if (words.length > 0) {
+                showToast("⏳ Régénération de la grille...");
+                if (groupId && typeof images !== 'undefined') {
+                    for (let i = images.length - 1; i >= 0; i--) {
+                        if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                            images.splice(i, 1);
+                        }
+                    }
+                    if (typeof texts !== 'undefined') {
+                        for (let i = texts.length - 1; i >= 0; i--) {
+                            if (texts[i].groupId === groupId) {
+                                texts.splice(i, 1);
+                            }
+                        }
+                    }
+                }
+                if (typeof draw === 'function') draw();
+                setTimeout(() => this.generateGrid(words.slice(0, 6), input), 50);
+            } else {
+                showToast("Veuillez entrer des mots valides.");
+            }
+        });
+    },
+    generateGrid: function (words, originalInput = "") {
         const size = 12;
         let grid = Array(size).fill(null).map(() => Array(size).fill(''));
+
+        const tooLong = words.filter(w => w.length > size);
+        words = words.filter(w => w.length <= size);
+        if (tooLong.length > 0) {
+            showToast(`⚠️ Mot(s) trop long(s) pour la grille, ignoré(s) : ${tooLong.join(', ')}`);
+        }
 
         words.forEach(word => {
             let placed = false; let attempts = 0;
@@ -7589,12 +8352,12 @@ registerPlugin('wordSearchGenerator', 'Jeux', {
             const logicalCenterX = (window.innerWidth / 2 - panX) / zoom;
             const logicalCenterY = (window.innerHeight / 2 - panY) / zoom;
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: logicalCenterX - w / 2 - 120, y: logicalCenterY - h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, groupId: grp });
+            images.push({ id: nextId++, x: logicalCenterX - w / 2 - 120, y: logicalCenterY - h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, groupId: grp, pluginData: { id: 'wordSearchGenerator', args: [originalInput], groupId: grp } });
 
             texts.push({
                 id: nextId++, x: logicalCenterX + w / 2 - 80, y: logicalCenterY - 120,
                 content: `<b>Mots à trouver :</b><br><br>` + words.map(w => `☐ ${w}`).join('<br><br>'),
-                color: '#2d3436', fontSize: 26, fontFamily: 'sans-serif', align: 'left', locked: true, z: globalZ++, groupId: grp
+                color: '#2d3436', fontSize: 26, fontFamily: "sans-serif", align: 'left', locked: true, z: globalZ++, groupId: grp
             });
 
             if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
@@ -7659,16 +8422,10 @@ registerPlugin('pyramidGeneratorTool', 'Exercices', {
     },
 
     buildPyramid: function (levels, type) {
-        const logicalCenterX = (window.innerWidth / 2 - panX) / zoom;
-        const logicalCenterY = (window.innerHeight / 2 - panY) / zoom;
-
         const brickW = 120;
         const brickH = 60;
         const w = levels * brickW;
         const h = levels * brickH;
-
-        const startX = logicalCenterX - w / 2;
-        const startY = logicalCenterY - h / 2;
 
         let pyramidVals = [];
         let base = [];
@@ -7698,29 +8455,58 @@ registerPlugin('pyramidGeneratorTool', 'Exercices', {
 
         const img = new Image();
         img.onload = () => {
-            const grp = 'group-' + Date.now() + '-' + Math.random();
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, groupId: grp });
-
-            for (let row = 0; row < levels; row++) {
-                let cols = levels - row;
-                let rowStartX = startX + (w - cols * brickW) / 2;
-                let currentY = startY + h - (row + 1) * brickH;
-
-                for (let col = 0; col < cols; col++) {
-                    let currentX = rowStartX + col * brickW;
-                    let val = pyramidVals[row][col];
-
-                    if (visible[row][col]) {
-                        texts.push({ id: nextId++, x: currentX + brickW / 2, y: currentY + 10, content: `<b>${val}</b>`, color: '#2d3436', fontSize: 28, fontFamily: 'sans-serif', align: 'center', textAlign: 'center', locked: true, z: globalZ++, groupId: grp });
-                    }
-                    // Les briques cachées restent 100% vides !
-                }
-            }
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
-            showToast("🔺 Pyramide prête ! Utilisez le Crayon ou l'outil Texte pour remplir.");
+            this.currentStamp = { img: img, src: img.src, w: w, h: h };
+            this.currentArgs = { levels, type, pyramidVals, visible, brickW, brickH };
+            showToast("📌 Tamponnez la pyramide !");
+            if (typeof setMode === 'function') setMode('pyramidGeneratorTool');
+            if (typeof draw === 'function') draw();
         };
         img.src = this.getPyramidSVG(levels, false);
+    },
+
+    currentStamp: null,
+    currentArgs: null,
+
+    onDraw: function (ctx) {
+        if (mode === 'pyramidGeneratorTool' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2, this.currentStamp.w, this.currentStamp.h);
+            ctx.globalAlpha = 1.0;
+        }
+    },
+
+    onPointerDown: function (rawPos) {
+        if (mode === 'pyramidGeneratorTool' && this.currentStamp) {
+            const args = this.currentArgs;
+            const startX = rawPos.x - this.currentStamp.w / 2;
+            const startY = rawPos.y - this.currentStamp.h / 2;
+            const grp = 'group-' + Date.now() + '-' + Math.random();
+
+            images.push({ id: nextId++, x: startX, y: startY, w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++, groupId: grp });
+
+            for (let row = 0; row < args.levels; row++) {
+                let cols = args.levels - row;
+                let rowStartX = startX + (this.currentStamp.w - cols * args.brickW) / 2;
+                let currentY = startY + this.currentStamp.h - (row + 1) * args.brickH;
+
+                for (let col = 0; col < cols; col++) {
+                    let currentX = rowStartX + col * args.brickW;
+                    let val = args.pyramidVals[row][col];
+
+                    if (args.visible[row][col]) {
+                        texts.push({ id: nextId++, x: currentX + args.brickW / 2, y: currentY + 10, content: `<b>${val}</b>`, color: '#2d3436', fontSize: 28, fontFamily: "sans-serif", align: 'center', textAlign: 'center', locked: true, z: globalZ++, groupId: grp });
+                    }
+                }
+            }
+
+            saveState();
+            setMode('pointer');
+            this.currentStamp = null;
+            showToast("🔺 Pyramide prête ! Utilisez le Crayon ou l'outil Texte pour la remplir.");
+            return true;
+        }
+        return false;
     }
 });
 
@@ -7800,7 +8586,7 @@ registerPlugin('dominoGeneratorTool', 'Exercices', {
 
                 // Petit cache gris optionnel pour le résultat total sous le domino !
                 const totalY = logicalCenterY + 140;
-                texts.push({ id: nextId++, x: startX + i * spacingX, y: totalY, content: `<b>${v1 + v2}</b>`, color: '#2d3436', fontSize: 28, fontFamily: 'sans-serif', align: 'center', textAlign: 'center', locked: true, z: globalZ++, groupId: grp });
+                texts.push({ id: nextId++, x: startX + i * spacingX, y: totalY, content: `<b>${v1 + v2}</b>`, color: '#2d3436', fontSize: 28, fontFamily: "sans-serif", align: 'center', textAlign: 'center', locked: true, z: globalZ++, groupId: grp });
                 rectangles.push({ id: nextId++, x: startX + i * spacingX - 30, y: totalY - 25, w: 60, h: 35, fillColor: '#b2bec3', fillOpacity: 1, strokeColor: '#636e72', strokeWidth: 1.5, lineDash: 'solid', z: globalZ++, groupId: grp });
 
                 if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
@@ -7819,7 +8605,7 @@ registerPlugin('symmetryGeneratorTool', 'Exercices', {
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'symmetry'; btn.title = 'Symétrie sur quadrillage';
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'symmetry'; btn.title = 'Symétrie';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M12 6c-3 0-6 2-6 5s3 5 6 5"/><path d="M12 6c3 0 6 2 6 5s-3 5-6 5"/><path d="M6 11l-4 2 4 2"/><path d="M18 11l4 2-4 2"/></svg>`;
         grid.appendChild(btn);
 
@@ -7942,6 +8728,28 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
             (res) => this.buildCDUTable(res[0], res[1]));
     },
 
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
+        const args = imgObj.pluginData.args;
+        const groupId = imgObj.pluginData.groupId;
+        openCustomPrompt("Modifier Tableau de Numération", [
+            { type: 'select', label: 'Format du tableau', value: args[0], options: [{ value: 'full', label: 'Complet (Millièmes)' }, { value: 'int', label: 'Entiers uniquement' }] },
+            { type: 'select', label: 'Nombre de lignes', value: args[1], options: [{ value: '1', label: '1 ligne' }, { value: '2', label: '2 lignes' }, { value: '3', label: '3 lignes' }, { value: '5', label: '5 lignes' }, { value: '8', label: '8 lignes' }, { value: '10', label: '10 lignes' }] }
+        ],
+            (res) => `<div style="width:100%; height:100%; display:flex; justify-content:center; align-items:center; padding:10px;"><img src="${this.getCDUSvg(res[0], res[1])}" style="max-width:100%; max-height:110px; object-fit:contain; border-radius:4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`,
+            (res) => {
+                if (groupId && typeof images !== 'undefined') {
+                    for (let i = images.length - 1; i >= 0; i--) {
+                        if (images[i].pluginData && images[i].pluginData.groupId === groupId) {
+                            images.splice(i, 1);
+                        }
+                    }
+                }
+                if (typeof draw === 'function') draw();
+                this.buildCDUTable(res[0], res[1]);
+            });
+    },
+
     getCDUSvg: function (format, rowsStr) {
         const rows = parseInt(rowsStr) || 3;
         const hasDecimals = (format !== 'int');
@@ -8004,10 +8812,11 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
         const startX = logicalCenterX - (w / 2);
         const startY = logicalCenterY - (h / 2); // Le tableau se centre parfaitement peu importe sa hauteur
 
+        let groupId = 'cdu_' + Date.now() + '_' + Math.random();
         const img = new Image();
         img.onload = () => {
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++ });
+            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'cduGeneratorTool', args: [format, rowsStr], groupId: groupId } });
 
             // Fini les petits points générés automatiquement !
             if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
@@ -8255,7 +9064,7 @@ registerPlugin('petitBacTool', 'Jeux', {
             (res) => {
                 return `<div style="display:flex; flex-direction:column; align-items:center; gap:8px; width:100%; padding: 5px 0;">
                 <div style="font-size:12px; font-weight:bold; color:#636e72;">LETTRE SÉLECTIONNÉE</div>
-                <div id="petitbac-letter-display" style="font-size:36px; font-weight:900; color:#e74c3c; font-family:sans-serif; transition: transform 0.15s ease; min-height:42px; line-height:1;">${initialLetter}</div>
+                <div id="petitbac-letter-display" style="font-size:36px; font-weight:900; color:#e74c3c; font-family: sans-serif; transition: transform 0.15s ease; min-height:42px; line-height:1;">${initialLetter}</div>
                 <button type="button" class="btn-action secondary" style="padding:6px 14px; font-size:13px; font-weight:bold; cursor:pointer; display:flex; align-items:center; gap:6px; border-radius:6px;" onclick="petitBacRollLetter()">🎲 Tirer une lettre</button>
             </div>`;
             },
@@ -8288,7 +9097,7 @@ registerPlugin('petitBacTool', 'Jeux', {
 
         cats.forEach((c, i) => {
             svg += `<line x1="${i * colW}" y1="${titleH}" x2="${i * colW}" y2="${totalH}" stroke="#2d3436" stroke-width="2"/>`;
-            svg += `<text x="${i * colW + colW / 2}" y="${titleH + headerH / 2}" font-family="sans-serif" font-weight="bold" font-size="18" fill="#0984e3" text-anchor="middle" dominant-baseline="central">${c}</text>`;
+            svg += `<text x="${i * colW + colW / 2}" y="${titleH + headerH / 2}" font-family="sans-serif" font-weight="bold" font-size="18" fill="#0984e3" text-anchor="middle" dominant-baseline="central">${xmlEsc(c)}</text>`;
         });
 
         for (let r = 1; r <= totalRows; r++) {
@@ -8326,7 +9135,7 @@ registerPlugin('petitBacTool', 'Jeux', {
 
         const remote = document.createElement('div');
         remote.id = 'petitbac-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family:sans-serif; display:flex; align-items:center; padding: 8px 15px; gap: 15px; border: 2px solid #0984e3;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family: sans-serif; display:flex; align-items:center; padding: 8px 15px; gap: 15px; border: 2px solid #0984e3;";
 
         let html = `
             <div style="font-weight:bold; color:#2d3436; font-size:16px;">📝 Petit Bac actif</div>
@@ -8459,94 +9268,7 @@ registerPlugin('weatherTool', 'Outils Profs', {
     }
 });
 
-registerPlugin('postitTool', 'Outils Profs', {
-    currentStamp: null,
 
-    init: function () {
-        const grid = document.getElementById('plugins-grid'); if (!grid) return;
-        const btn = document.createElement('button'); btn.className = 'btn';
-        btn.title = 'Déposer un Post-It';
-
-        // 🎨 NOUVELLE ICÔNE 100% Noir & Blanc (Line-Art avec coin plié)
-        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4h16v10.5L14.5 20H4z"/>
-            <path d="M14.5 14.5V20l5.5-5.5z"/>
-            <line x1="8" y1="9" x2="16" y2="9"/>
-            <line x1="8" y1="13" x2="14" y2="13"/>
-        </svg>`;
-
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            document.querySelectorAll('#bar-tools .btn, #plugins-grid .btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            if (typeof setMode === 'function') setMode('postit'); // Passe la souris en mode Post-it
-
-            // 🌟 Génération du Post-It
-            let s = 250;
-            let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}">`;
-            svg += `<defs><filter id="p-shd"><feDropShadow dx="2" dy="5" stdDeviation="4" flood-opacity="0.25"/></filter></defs>`;
-            svg += `<rect x="10" y="10" width="${s - 20}" height="${s - 20}" fill="#ffeaa7" filter="url(#p-shd)"/>`;
-            svg += `<polygon points="${s - 10},${s - 40} ${s - 40},${s - 10} ${s - 10},${s - 10}" fill="#000" opacity="0.12"/>`; // Pli réaliste
-            svg += `<path d="M ${s - 40} ${s - 10} Q ${s - 25} ${s - 25} ${s - 10} ${s - 40}" fill="none" stroke="#e5d443" stroke-width="1"/>`;
-            svg += `</svg>`;
-
-            // 🔧 CORRECTION : On charge l'image directement sans fonction externe !
-            const b64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
-            let img = new Image();
-            img.onload = () => {
-                // Dès que l'image est chargée, on crée le tampon fantôme
-                this.currentStamp = { img: img, w: s, h: s, src: img.src };
-                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour coller le Post-It !");
-                if (typeof draw === 'function') draw(); // Force l'apparition immédiate sous la souris
-            };
-            img.src = b64;
-        });
-
-        grid.appendChild(btn);
-    },
-
-    // Dessine le fantôme translucide sous le curseur
-    onDraw: function (ctx) {
-        if (typeof mode !== 'undefined' && mode === 'postit' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
-            ctx.save();
-            ctx.globalAlpha = 0.7; // Transparence du fantôme
-            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2);
-            ctx.restore();
-        }
-    },
-
-    // Dépose l'image définitive au clic
-    onPointerDown: function (rawPos) {
-        if (typeof mode !== 'undefined' && mode === 'postit' && this.currentStamp) {
-            if (typeof imageCache !== 'undefined') imageCache[this.currentStamp.src] = this.currentStamp.img;
-
-            images.push({
-                id: typeof nextId !== 'undefined' ? nextId++ : Date.now(),
-                x: rawPos.x - this.currentStamp.w / 2,
-                y: rawPos.y - this.currentStamp.h / 2,
-                w: this.currentStamp.w,
-                h: this.currentStamp.h,
-                cx: 0, cy: 0,
-                cw: this.currentStamp.w,
-                ch: this.currentStamp.h,
-                src: this.currentStamp.src,
-                z: typeof globalZ !== 'undefined' ? globalZ++ : 1000
-            });
-
-            if (typeof saveState === 'function') saveState();
-            if (typeof setMode === 'function') setMode('pointer'); // Retour à la flèche de sélection
-
-            // On désactive le bouton
-            document.querySelectorAll('#plugins-grid .btn').forEach(b => b.classList.remove('active'));
-
-            this.currentStamp = null; // Détruit le tampon
-            if (typeof draw === 'function') draw(); // Redessine la page sans le fantôme
-            return true;
-        }
-        return false;
-    }
-});
 
 // ---------------------------------------------------------
 // 72. CALENDRIER MULTI-FORMATS (Interface Google Agenda + Choix Date)
@@ -8612,7 +9334,7 @@ registerPlugin('calendarTool', 'Outils Profs', {
         if (view === 'year') titleText = `ANNÉE ${year}`;
         if (view === 'day') titleText = `AGENDA DU JOUR - ${year}`;
 
-        svg += `<text x="${w / 2}" y="25" font-family="sans-serif" font-weight="bold" font-size="18" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${titleText}</text>`;
+        svg += `<text x="${w / 2}" y="25" font-family="sans-serif" font-weight="bold" font-size="18" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${xmlEsc(titleText)}</text>`;
 
         if (view === 'day') {
             svg += `<text x="25" y="85" font-family="sans-serif" font-weight="bold" font-size="16" fill="${color}">Notes et Emploi du Temps :</text>`;
@@ -8686,7 +9408,7 @@ registerPlugin('calendarTool', 'Outils Profs', {
 registerPlugin('qrCodeTool', 'Outils Profs', {
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Générer un QR Code';
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'QR Code';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>`;
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
         grid.appendChild(btn);
@@ -8696,16 +9418,26 @@ registerPlugin('qrCodeTool', 'Outils Profs', {
             { type: 'text', label: 'Adresse web (URL)', value: 'https://' }
         ], null, (res) => {
             if (!res[0] || res[0] === 'https://') return;
+            if (typeof qrcode !== 'function') { showToast("❌ Générateur de QR Code non disponible."); return; }
             showToast("⏳ Génération du QR Code...");
-            let s = 300;
+
+            const qr = qrcode(0, 'M');
+            qr.addData(res[0]);
+            qr.make();
+
+            const margin = 4;
+            const targetSize = 300;
+            const moduleCount = qr.getModuleCount();
+            const cellSize = Math.max(1, Math.round(targetSize / (moduleCount + margin * 2)));
+            const s = (moduleCount + margin * 2) * cellSize;
+
             let img = new Image();
-            img.crossOrigin = "Anonymous";
             img.onload = () => {
                 if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
                 images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - s / 2, y: (window.innerHeight / 2 - panY) / zoom - s / 2, w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++ });
                 if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("📱 QR Code importé au tableau !");
             };
-            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${s}x${s}&data=${encodeURIComponent(res[0])}&margin=10`;
+            img.src = qr.createDataURL(cellSize, margin);
         });
     }
 });
@@ -8934,7 +9666,7 @@ registerPlugin('checkersTool', 'Jeux', {
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
         const btn = document.createElement('button'); btn.className = 'btn';
-        btn.title = 'Jeu de Dames (Clic droit pour styles)';
+        btn.title = 'Jeu de Dames';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2"/>
             <path d="M12 3v18"/>
@@ -9136,7 +9868,7 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         grid.appendChild(btn);
 
         const modalHTML = `
-        <div id="mol-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:10000; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family:-apple-system, sans-serif;">
+        <div id="mol-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:10000; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family: sans-serif;">
             <div id="mol-modal" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:950px; height:650px; background:#fdfdfd; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
                 
                 <div style="position:relative; height:50px; background:#1f2937; color:white; display:flex; justify-content:space-between; align-items:center; padding:0 15px; user-select:none;">
@@ -9671,7 +10403,7 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         inp.value = initialText;
         let screenX = x + this.viewport.x, screenY = y + this.viewport.y;
 
-        inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family:sans-serif; font-size:16px; pointer-events:auto;`;
+        inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:16px; pointer-events:auto;`;
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
         this.htmlLayer.appendChild(inp);
@@ -9776,7 +10508,7 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
             let wx = this.tempMouse.x - this.viewport.x, wy = this.tempMouse.y - this.viewport.y;
             let t = ATOM_TYPES[this.currentAtomType] || ATOM_TYPES['?'];
             svg += `<circle cx="${wx}" cy="${wy}" r="${t.r}" fill="${t.bg}" stroke="#bdc3c7" stroke-width="2" stroke-dasharray="4,4" opacity="0.6"/>`;
-            svg += `<text x="${wx}" y="${wy}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="20" fill="${t.fg}" opacity="0.6">${t.label}</text>`;
+            svg += `<text x="${wx}" y="${wy}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="20" fill="${t.fg}" opacity="0.6">${xmlEsc(t.label)}</text>`;
         }
 
         this.guides.forEach(g => {
@@ -9958,7 +10690,7 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
             .tab-str-btn.danger { color:#e74c3c; }
             .tab-str-btn.danger:hover { background:#fad390; border-color:#e74c3c; }
         </style>
-        <div id="tab-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:2147483647; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family:-apple-system, sans-serif;">
+        <div id="tab-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:2147483647; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family: sans-serif;">
             <div id="tab-modal" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:1050px; height:620px; background:#fdfdfd; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
                 
                 <!-- Barre de titre & Actions -->
@@ -10882,9 +11614,9 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         inp.value = initialText;
 
         if (isVertical) {
-            inp.style.cssText = `position:absolute; left:${x + w / 2 - h / 2}px; top:${y + h / 2 - w / 2}px; width:${h}px; height:${w}px; box-sizing:border-box; text-align:center; outline:none; border:2px solid #0984e3; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family:sans-serif; font-size:16px; transform:rotate(-90deg);`;
+            inp.style.cssText = `position:absolute; left:${x + w / 2 - h / 2}px; top:${y + h / 2 - w / 2}px; width:${h}px; height:${w}px; box-sizing:border-box; text-align:center; outline:none; border:2px solid #0984e3; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:16px; transform:rotate(-90deg);`;
         } else {
-            inp.style.cssText = `position:absolute; left:${x}px; top:${y}px; width:${w}px; height:${h}px; box-sizing:border-box; text-align:center; outline:none; border:2px solid #0984e3; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family:sans-serif; font-size:16px;`;
+            inp.style.cssText = `position:absolute; left:${x}px; top:${y}px; width:${w}px; height:${h}px; box-sizing:border-box; text-align:center; outline:none; border:2px solid #0984e3; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:16px;`;
         }
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
@@ -11100,9 +11832,7 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     }
 });
 
-// ==========================================
-// PLUGIN : TIRAGE, SURVIVOR AVEC PODIUM & ÎLOTS (V9)
-// ==========================================
+
 // ==========================================
 // PLUGIN : TIRAGE, SURVIVOR, CARTES & ÎLOTS (COMPLET)
 // ==========================================
@@ -11133,7 +11863,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             const style = document.createElement('style'); style.id = 'draw-widget-style';
             style.innerHTML = `
                 /* WIDGET STYLES BASE */
-                #draw-widget { position:fixed; left:calc(50% - 200px); top:100px; width:400px; background:#fff; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.15); z-index:100000; font-family:sans-serif; border:1px solid #dfe6e9; display:flex; flex-direction:column; user-select:none; }
+                #draw-widget { position:fixed; left:calc(50% - 200px); top:100px; width:400px; background:#fff; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.15); z-index:100000; font-family: sans-serif; border:1px solid #dfe6e9; display:flex; flex-direction:column; user-select:none; }
                 .dw-header { background:#f8f9fa; padding:10px 15px; display:flex; align-items:center; cursor:grab; border-bottom:1px solid #dfe6e9; }
                 .dw-title { flex:1; font-weight:bold; font-size:14px; color:#2d3436; margin-left:8px; }
                 .dw-close { background:none; border:none; cursor:pointer; color:#d63031; padding:4px; border-radius:4px; font-size:16px; font-weight:bold; }
@@ -11146,7 +11876,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                 .dw-content { padding:15px; display:none; flex-direction:column; gap:12px; max-height:400px; overflow-y:auto; }
                 .dw-content.active { display:flex; }
                 .dw-label { font-size:12px; font-weight:bold; color:#2d3436; display:block; margin-bottom:4px; }
-                .dw-select, .dw-input, .dw-textarea { width:100%; padding:8px; border-radius:6px; border:1px solid #dfe6e9; font-size:13px; outline:none; box-sizing:border-box; font-family:sans-serif; }
+                .dw-select, .dw-input, .dw-textarea { width:100%; padding:8px; border-radius:6px; border:1px solid #dfe6e9; font-size:13px; outline:none; box-sizing:border-box; font-family: sans-serif; }
                 .dw-select:focus, .dw-input:focus, .dw-textarea:focus { border-color:#0984e3; }
                 .dw-students-area { background:#fff; border-radius:6px; padding:10px; border:1px solid #dfe6e9; min-height:60px; display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start; max-height:150px; overflow-y:auto; }
                 
@@ -11162,7 +11892,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                 .dw-row { display:flex; gap:10px; align-items:center; }
 
                 /* OVERLAY PLEIN ÉCRAN RECOMPOSÉ POUR PANNEAU LATÉRAL */
-                #dw-overlay { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(30, 39, 46, 0.98); z-index:100001; display:none; flex-direction:row; font-family:sans-serif; }
+                #dw-overlay { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(30, 39, 46, 0.98); z-index:100001; display:none; flex-direction:row; font-family: sans-serif; }
                 #dw-overlay-sidebar { width:280px; background:rgba(255,255,255,0.05); border-right:1px solid rgba(255,255,255,0.1); height:100%; display:none; flex-direction:column; padding:20px; box-sizing:border-box; overflow-y:auto; }
                 #dw-overlay-main { flex:1; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
                 
@@ -11229,16 +11959,56 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
     },
 
     loadClasses: function () {
+        // Repli legacy (chargement synchrone immédiat, avant que le store partagé ne réponde)
         const saved = localStorage.getItem('auTableau_classes');
         if (saved) { try { this.savedClasses = JSON.parse(saved); } catch (e) { this.savedClasses = {}; } }
+
+        // ✅ Si "Mes classes" (stockage partagé ClassesStore) contient des classes, on les utilise
+        if (typeof ClassesStore !== 'undefined') {
+            ClassesStore.loadAll().then(classes => {
+                if (classes && classes.length > 0) {
+                    this.savedClasses = {};
+                    classes.forEach(c => { this.savedClasses[c.name] = (c.students || []).map(s => s.name); });
+                    this.updateClassSelect();
+                    this.updateSavedClassesList();
+                }
+            });
+        }
     },
     saveClassesToStorage: function () {
         localStorage.setItem('auTableau_classes', JSON.stringify(this.savedClasses));
+
+        // ✅ Répercuter aussi vers le stockage partagé "Mes classes", en conservant les id existants
+        if (typeof ClassesStore !== 'undefined') {
+            ClassesStore.loadAll().then(existingClasses => {
+                const byName = {};
+                existingClasses.forEach(c => { byName[c.name] = c; });
+                const updated = Object.keys(this.savedClasses).map(name => {
+                    const existing = byName[name];
+                    const students = this.savedClasses[name].map(sName => {
+                        const existingStudent = existing && (existing.students || []).find(s => s.name === sName);
+                        return existingStudent || { id: ClassesStore.newId('stu'), name: sName };
+                    });
+                    return {
+                        id: existing ? existing.id : ClassesStore.newId('class'),
+                        name,
+                        students,
+                        createdAt: existing ? existing.createdAt : Date.now(),
+                        updatedAt: Date.now()
+                    };
+                });
+                ClassesStore.saveAll(updated);
+            });
+        }
     },
 
     toggleWidget: function () { if (this.widgetEl && this.widgetEl.style.display !== 'none') this.closeWidget(); else this.openWidget(); },
 
     openWidget: function () {
+        // ✅ Recharger les classes à chaque ouverture (elles peuvent avoir été créées/modifiées
+        // entre-temps dans "Mes classes"), sinon le menu déroulant reste figé sur son état initial.
+        this.loadClasses();
+
         if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
 
         this.widgetEl = document.createElement('div');
@@ -11729,9 +12499,9 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             <defs><filter id="ilshadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.15"/></filter></defs>
             <rect x="10" y="10" width="230" height="${canvasHeight - 20}" rx="8" fill="#ffffff" filter="url(#ilshadow)"/>
             <path d="M 10 18 Q 10 10 18 10 L 232 10 Q 240 10 240 18 L 240 18 L 10 18 Z" fill="#0984e3"/>
-            <text x="25" y="40" font-family="sans-serif" font-weight="bold" font-size="16" fill="#2d3436">${group.name}</text>
+            <text x="25" y="40" font-family="sans-serif" font-weight="bold" font-size="16" fill="#2d3436">${xmlEsc(group.name)}</text>
             <line x1="25" y1="50" x2="225" y2="50" stroke="#dfe6e9" stroke-width="1"/>
-            ${group.students.map((s, i) => `<text x="25" y="${75 + (i * 35)}" font-family="sans-serif" font-size="14" fill="#636e72">👤 ${s}</text>`).join('')}
+            ${group.students.map((s, i) => `<text x="25" y="${75 + (i * 35)}" font-family="sans-serif" font-size="14" fill="#636e72">👤 ${xmlEsc(s)}</text>`).join('')}
         </svg>`;
 
         const dataUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr)));
@@ -11826,6 +12596,12 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         if (this.widgetEl) {
             this.widgetEl.style.display = 'none';
         }
+        // Fermer la fenêtre annule aussi un tampon d'îlot resté en attente
+        if (this.currentStamp) {
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
+            if (typeof draw === 'function') draw();
+        }
     },
 
     onPointerDown: function (rawPos) {
@@ -11917,7 +12693,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
             #pix-preview-container { position:absolute; top:20px; right:20px; width:120px; height:120px; background:white; border:2px solid #bdc3c7; border-radius:6px; box-shadow:0 5px 15px rgba(0,0,0,0.1); display:flex; justify-content:center; align-items:center; overflow:hidden; }
             #pix-preview-canvas { image-rendering: pixelated; }
         </style>
-        <div id="pix-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:2147483647; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family:-apple-system, sans-serif;">
+        <div id="pix-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:2147483647; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family: sans-serif;">
             <div id="pix-modal" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:950px; height:620px; background:#fdfdfd; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
                 
                 <div style="height:55px; background:#1f2937; color:white; display:flex; justify-content:space-between; align-items:center; padding:0 15px; user-select:none;">
@@ -12651,56 +13427,127 @@ registerPlugin('geometryStampTool', 'Maths - Géométrie', {
                         { value: 'circle', label: '◯ Cercle' }
                     ]
                 },
-                { type: 'color', label: 'Couleur', value: '#2d3436' }
-            ], null, (res) => { this.buildShape(res[0], res[1]); });
+                { type: 'color', label: 'Couleur', value: '#2d3436' },
+                { type: 'checkbox', label: 'Codage', value: true },
+                { type: 'checkbox', label: 'Diagonales', value: false }
+            ], (res) => { return this.buildShape(res[0], res[1], res[2], res[3], true); }, (res) => { this.buildShape(res[0], res[1], res[2], res[3], false); });
         });
         grid.appendChild(btn);
     },
 
-    buildShape: function (shape, color) {
-        let s = 200; // Taille généreuse pour le tableau
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}">`;
+    buildShape: function (shape, color, codage, diag, isPreview) {
+        let s = 200;
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${isPreview ? '100%' : s}" height="${isPreview ? '100%' : s}">`;
         let style = `fill="transparent" stroke="${color}" stroke-width="4" stroke-linejoin="round"`;
-        let codeStyle = `fill="none" stroke="#e74c3c" stroke-width="3"`; // Le codage mathématique en rouge
+        let codeStyle = `fill="none" stroke="#e74c3c" stroke-width="3"`;
+        let codeStyleThin = `fill="none" stroke="#e74c3c" stroke-width="2"`;
+        let diagStyle = `fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="6,4"`;
 
         if (shape === 'square') {
+            if (diag) svg += `<line x1="40" y1="40" x2="160" y2="160" ${diagStyle}/><line x1="40" y1="160" x2="160" y2="40" ${diagStyle}/>`;
             svg += `<rect x="40" y="40" width="120" height="120" ${style}/>`;
-            // 4 Angles droits
-            svg += `<path d="M40,60 h20 v-20 M160,60 h-20 v-20 M160,140 h-20 v20 M40,140 h20 v20" ${codeStyle}/>`;
-            // Traits d'égalité
-            svg += `<line x1="90" y1="30" x2="110" y2="50" ${codeStyle}/><line x1="90" y1="150" x2="110" y2="170" ${codeStyle}/>`;
-            svg += `<line x1="30" y1="90" x2="50" y2="110" ${codeStyle}/><line x1="150" y1="90" x2="170" y2="110" ${codeStyle}/>`;
+            if (codage) {
+                // Angles droits des coins
+                svg += `<path d="M40,55 h15 v-15 M160,55 h-15 v-15 M160,145 h-15 v15 M40,145 h15 v15" ${codeStyle}/>`;
+                // Traits d'égalité sur les 4 côtés (1 trait)
+                svg += `<line x1="90" y1="30" x2="110" y2="50" ${codeStyle}/><line x1="90" y1="150" x2="110" y2="170" ${codeStyle}/>`;
+                svg += `<line x1="30" y1="90" x2="50" y2="110" ${codeStyle}/><line x1="150" y1="90" x2="170" y2="110" ${codeStyle}/>`;
+            }
+            if (codage && diag) {
+                // Angle droit au centre (orienté à 45 degrés pour suivre les diagonales)
+                svg += `<path d="M 90,90 L 100,80 L 110,90" ${codeStyle}/>`;
+                // Traits d'égalité sur les 4 demi-diagonales (2 traits pour différencier des côtés)
+                svg += `<line x1="63" y1="73" x2="73" y2="63" ${codeStyleThin}/><line x1="67" y1="77" x2="77" y2="67" ${codeStyleThin}/>`; // TL
+                svg += `<line x1="123" y1="133" x2="133" y2="123" ${codeStyleThin}/><line x1="127" y1="137" x2="137" y2="127" ${codeStyleThin}/>`; // BR
+                svg += `<line x1="127" y1="63" x2="137" y2="73" ${codeStyleThin}/><line x1="123" y1="67" x2="133" y2="77" ${codeStyleThin}/>`; // TR
+                svg += `<line x1="67" y1="123" x2="77" y2="133" ${codeStyleThin}/><line x1="63" y1="127" x2="73" y2="137" ${codeStyleThin}/>`; // BL
+            }
         } else if (shape === 'rect') {
+            if (diag) svg += `<line x1="20" y1="60" x2="180" y2="140" ${diagStyle}/><line x1="20" y1="140" x2="180" y2="60" ${diagStyle}/>`;
             svg += `<rect x="20" y="60" width="160" height="80" ${style}/>`;
-            svg += `<path d="M20,80 h20 v-20 M180,80 h-20 v-20 M180,120 h-20 v20 M20,120 h20 v20" ${codeStyle}/>`;
-            svg += `<line x1="100" y1="50" x2="100" y2="70" ${codeStyle}/><line x1="100" y1="130" x2="100" y2="150" ${codeStyle}/>`;
-            svg += `<line x1="15" y1="95" x2="25" y2="95" ${codeStyle}/><line x1="15" y1="105" x2="25" y2="105" ${codeStyle}/>`;
-            svg += `<line x1="175" y1="95" x2="185" y2="95" ${codeStyle}/><line x1="175" y1="105" x2="185" y2="105" ${codeStyle}/>`;
+            if (codage) {
+                // Angles droits des coins
+                svg += `<path d="M20,75 h15 v-15 M180,75 h-15 v-15 M180,125 h-15 v15 M20,125 h15 v15" ${codeStyle}/>`;
+                // Traits d'égalité (1 trait pour largeur, 2 traits pour longueur)
+                svg += `<line x1="100" y1="50" x2="100" y2="70" ${codeStyle}/><line x1="100" y1="130" x2="100" y2="150" ${codeStyle}/>`; // Longueurs
+                svg += `<line x1="12" y1="95" x2="28" y2="95" ${codeStyle}/><line x1="12" y1="105" x2="28" y2="105" ${codeStyle}/>`; // Largeur gauche
+                svg += `<line x1="172" y1="95" x2="188" y2="95" ${codeStyle}/><line x1="172" y1="105" x2="188" y2="105" ${codeStyle}/>`; // Largeur droite
+            }
+            if (codage && diag) {
+                // Traits d'égalité sur les 4 demi-diagonales (3 traits pour différencier des côtés)
+                svg += `<line x1="57" y1="69" x2="57" y2="79" ${codeStyleThin}/><line x1="60" y1="70" x2="60" y2="80" ${codeStyleThin}/><line x1="63" y1="71" x2="63" y2="81" ${codeStyleThin}/>`; // TL
+                svg += `<line x1="137" y1="99" x2="137" y2="109" ${codeStyleThin}/><line x1="140" y1="100" x2="140" y2="110" ${codeStyleThin}/><line x1="143" y1="101" x2="143" y2="111" ${codeStyleThin}/>`; // BR
+                svg += `<line x1="143" y1="69" x2="143" y2="79" ${codeStyleThin}/><line x1="140" y1="70" x2="140" y2="80" ${codeStyleThin}/><line x1="137" y1="71" x2="137" y2="81" ${codeStyleThin}/>`; // TR
+                svg += `<line x1="63" y1="99" x2="63" y2="109" ${codeStyleThin}/><line x1="60" y1="100" x2="60" y2="110" ${codeStyleThin}/><line x1="57" y1="101" x2="57" y2="111" ${codeStyleThin}/>`; // BL
+            }
         } else if (shape === 'rhombus') {
+            if (diag) svg += `<line x1="100" y1="20" x2="100" y2="180" ${diagStyle}/><line x1="40" y1="100" x2="160" y2="100" ${diagStyle}/>`;
             svg += `<polygon points="100,20 160,100 100,180 40,100" ${style}/>`;
-            svg += `<line x1="60" y1="50" x2="80" y2="70" ${codeStyle}/><line x1="120" y1="50" x2="140" y2="70" ${codeStyle}/>`;
-            svg += `<line x1="60" y1="150" x2="80" y2="130" ${codeStyle}/><line x1="120" y1="150" x2="140" y2="130" ${codeStyle}/>`;
+            if (codage) {
+                // Traits d'égalité sur les 4 côtés (1 seul trait pour différencier des diagonales)
+                svg += `<line x1="65" y1="56" x2="75" y2="64" ${codeStyle}/>`; // TL
+                svg += `<line x1="125" y1="64" x2="135" y2="56" ${codeStyle}/>`; // TR
+                svg += `<line x1="65" y1="144" x2="75" y2="136" ${codeStyle}/>`; // BL
+                svg += `<line x1="125" y1="136" x2="135" y2="144" ${codeStyle}/>`; // BR
+            }
+            if (codage && diag) {
+                // Angle droit au centre
+                svg += `<path d="M100,88 h12 v12" ${codeStyle}/>`;
+                // Codage demi-diagonales (2 traits pour la grande, 3 traits pour la petite)
+                svg += `<line x1="95" y1="58" x2="105" y2="58" ${codeStyleThin}/><line x1="95" y1="62" x2="105" y2="62" ${codeStyleThin}/>`; // Haut (2)
+                svg += `<line x1="95" y1="138" x2="105" y2="138" ${codeStyleThin}/><line x1="95" y1="142" x2="105" y2="142" ${codeStyleThin}/>`; // Bas (2)
+                svg += `<line x1="67" y1="95" x2="67" y2="105" ${codeStyleThin}/><line x1="70" y1="95" x2="70" y2="105" ${codeStyleThin}/><line x1="73" y1="95" x2="73" y2="105" ${codeStyleThin}/>`; // Gauche (3)
+                svg += `<line x1="127" y1="95" x2="127" y2="105" ${codeStyleThin}/><line x1="130" y1="95" x2="130" y2="105" ${codeStyleThin}/><line x1="133" y1="95" x2="133" y2="105" ${codeStyleThin}/>`; // Droite (3)
+            }
         } else if (shape === 'para') {
+            if (diag) svg += `<line x1="60" y1="40" x2="140" y2="160" ${diagStyle}/><line x1="20" y1="160" x2="180" y2="40" ${diagStyle}/>`;
             svg += `<polygon points="60,40 180,40 140,160 20,160" ${style}/>`;
+            if (codage) {
+                // Traits d'égalité des côtés opposés (1 trait pour H/B, 2 traits pour G/D)
+                svg += `<line x1="120" y1="35" x2="120" y2="45" ${codeStyle}/>`; // Top
+                svg += `<line x1="80" y1="155" x2="80" y2="165" ${codeStyle}/>`; // Bottom
+                svg += `<line x1="34" y1="95" x2="44" y2="99" ${codeStyle}/><line x1="36" y1="101" x2="46" y2="105" ${codeStyle}/>`; // Left
+                svg += `<line x1="154" y1="95" x2="164" y2="99" ${codeStyle}/><line x1="156" y1="101" x2="166" y2="105" ${codeStyle}/>`; // Right
+            }
+            if (codage && diag) {
+                // Codage demi-diagonales (cercle 'O' pour Diag 1, 3 traits pour Diag 2)
+                svg += `<circle cx="80" cy="70" r="4" ${codeStyleThin}/>`; // TL
+                svg += `<circle cx="120" cy="130" r="4" ${codeStyleThin}/>`; // BR
+
+                svg += `<line x1="133" y1="69" x2="139" y2="77" ${codeStyleThin}/><line x1="137" y1="66" x2="143" y2="74" ${codeStyleThin}/><line x1="141" y1="63" x2="147" y2="71" ${codeStyleThin}/>`; // TR
+                svg += `<line x1="53" y1="129" x2="59" y2="137" ${codeStyleThin}/><line x1="57" y1="126" x2="63" y2="134" ${codeStyleThin}/><line x1="61" y1="123" x2="67" y2="131" ${codeStyleThin}/>`; // BL
+            }
         } else if (shape === 'trap') {
+            if (diag) svg += `<line x1="60" y1="40" x2="180" y2="160" ${diagStyle}/><line x1="20" y1="160" x2="140" y2="40" ${diagStyle}/>`;
             svg += `<polygon points="60,40 140,40 180,160 20,160" ${style}/>`;
         } else if (shape === 'tri_eq') {
             svg += `<polygon points="100,30 170,151 30,151" ${style}/>`;
-            svg += `<line x1="55" y1="85" x2="75" y2="95" ${codeStyle}/>`;
-            svg += `<line x1="145" y1="85" x2="125" y2="95" ${codeStyle}/>`;
-            svg += `<line x1="95" y1="141" x2="95" y2="161" ${codeStyle}/>`;
+            if (codage) {
+                svg += `<line x1="55" y1="85" x2="75" y2="95" ${codeStyle}/>`;
+                svg += `<line x1="145" y1="85" x2="125" y2="95" ${codeStyle}/>`;
+                svg += `<line x1="95" y1="141" x2="95" y2="161" ${codeStyle}/>`;
+            }
         } else if (shape === 'tri_iso') {
             svg += `<polygon points="100,30 150,170 50,170" ${style}/>`;
-            svg += `<line x1="65" y1="95" x2="85" y2="105" ${codeStyle}/>`;
-            svg += `<line x1="135" y1="95" x2="115" y2="105" ${codeStyle}/>`;
+            if (codage) {
+                svg += `<line x1="65" y1="95" x2="85" y2="105" ${codeStyle}/>`;
+                svg += `<line x1="135" y1="95" x2="115" y2="105" ${codeStyle}/>`;
+            }
         } else if (shape === 'tri_rect') {
             svg += `<polygon points="40,40 40,160 160,160" ${style}/>`;
-            svg += `<path d="M40,140 h20 v20" ${codeStyle}/>`;
+            if (codage) {
+                svg += `<path d="M40,140 h20 v20" ${codeStyle}/>`;
+            }
         } else if (shape === 'circle') {
+            if (diag) svg += `<line x1="20" y1="100" x2="180" y2="100" ${diagStyle}/>`;
             svg += `<circle cx="100" cy="100" r="80" ${style}/>`;
-            svg += `<path d="M90,100 h20 M100,90 v20" ${codeStyle}/>`;
+            if (codage) {
+                svg += `<path d="M90,100 h20 M100,90 v20" ${codeStyle}/>`;
+            }
         }
         svg += `</svg>`;
+
+        if (isPreview) return svg;
 
         let img = new Image();
         img.onload = () => {
@@ -12994,7 +13841,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
         svg += `<text x="${headerW / 2}" y="${cellH / 2}" ${textStyle} font-weight="bold">x</text>`;
         curX = headerW;
         for (let i = 0; i < d.bounds.length; i++) {
-            svg += `<text x="${curX + rootW / 2}" y="${cellH / 2}" ${textStyle}>${d.bounds[i]}</text>`;
+            svg += `<text x="${curX + rootW / 2}" y="${cellH / 2}" ${textStyle}>${xmlEsc(d.bounds[i])}</text>`;
             curX += rootW;
             if (i < d.bounds.length - 1) curX += signW;
         }
@@ -13006,7 +13853,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
             let rH = row.type === 'vars' ? varH : cellH;
 
             // Label
-            svg += `<text x="${headerW / 2}" y="${curY + rH / 2}" ${textStyle}>${row.label}</text>`;
+            svg += `<text x="${headerW / 2}" y="${curY + rH / 2}" ${textStyle}>${xmlEsc(row.label)}</text>`;
 
             curX = headerW;
             for (let i = 0; i < row.cells.length; i++) {
@@ -13049,7 +13896,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
 
                             // Ajout d'un petit fond blanc pour que le texte coupe le filet vertical
                             svg += `<rect x="${cx - 15}" y="${textY - 10}" width="30" height="20" fill="white"/>`;
-                            svg += `<text x="${cx}" y="${textY}" ${textStyle}>${cell}</text>`;
+                            svg += `<text x="${cx}" y="${textY}" ${textStyle}>${xmlEsc(cell)}</text>`;
                         }
                     }
                     curX += rootW;
@@ -13351,6 +14198,12 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
     colors: ['#ffffff', '#e74c3c', '#2ecc71', '#9b59b6', '#f1c40f', '#27ae60', '#2c3e50', '#8e44ad', '#2980b9', '#e67e22'],
 
     init: function () {
+        if (typeof localforage !== 'undefined') {
+            localforage.getItem('cuisenaire_colors').then(c => {
+                if (c && c.length === 10) this.colors = c;
+            }).catch(e => console.warn(e));
+        }
+
         const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'cuisenaire'; btn.title = 'Réglettes Cuisenaire';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <rect x="4" y="16" width="16" height="5" rx="1"/>
@@ -13367,12 +14220,15 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
         if (!document.getElementById('c-style')) {
             const style = document.createElement('style'); style.id = 'c-style';
             style.innerHTML = `
-                #c-palette { position:fixed; width:300px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family:sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s;}
+                #c-palette { position:fixed; width:max-content; min-width:330px; max-width:90vw; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s;}
                 .c-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
                 #edit-banner-c { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner-c:hover { background:#c0392b; }
                 .c-controls { display:flex; justify-content:space-between; align-items:center; background:#f1f2f6; padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:13px; font-weight:bold; }
                 .c-content { padding:12px; max-height:500px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+                .c-color-picker { width:20px; height:20px; padding:0; border:none; border-radius:50%; cursor:pointer; outline:none; background:none; overflow:hidden; }
+                .c-color-picker::-webkit-color-swatch-wrapper { padding:0; }
+                .c-color-picker::-webkit-color-swatch { border:1px solid #dfe6e9; border-radius:50%; }
             `;
             document.head.appendChild(style);
         }
@@ -13461,14 +14317,33 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
             let dashes = '';
             for (let j = 1; j < i; j++) dashes += `<div style="position:absolute; left:${(j / i) * 100}%; top:0; bottom:0; width:1px; border-left:1px dashed rgba(0,0,0,0.5);"></div>`;
 
+            const row = document.createElement('div');
+            row.style.cssText = `display:flex; align-items:center; gap:8px; flex-shrink:0;${i === 10 ? ' margin-bottom:12px;' : ''}`;
+
             const btn = document.createElement('div');
             btn.style.cssText = `position:relative; width:${w}px; height:${Math.min(h, 25)}px; background:${color}; border:1px solid #2d3436; border-radius:2px; cursor:pointer; flex-shrink:0; transition: transform 0.1s;`;
             btn.innerHTML = dashes;
             btn.onmouseover = () => btn.style.transform = "scale(1.02)";
             btn.onmouseout = () => btn.style.transform = "scale(1)";
-
             btn.onclick = () => this.prepareStamp(w, h, color, i);
-            list.appendChild(btn);
+
+            const picker = document.createElement('input');
+            picker.type = 'color';
+            picker.className = 'c-color-picker';
+            picker.value = color === '#ffffff' ? '#f5f6fa' : color;
+            picker.title = "Changer la couleur";
+            picker.oninput = (e) => {
+                this.colors[i - 1] = e.target.value;
+                btn.style.background = e.target.value;
+                this.prepareStamp(w, h, e.target.value, i); // Update active stamp color if selected
+                if (typeof localforage !== 'undefined') {
+                    localforage.setItem('cuisenaire_colors', this.colors);
+                }
+            };
+
+            row.appendChild(btn);
+            row.appendChild(picker);
+            list.appendChild(row);
         }
     },
 
@@ -13639,7 +14514,7 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
 
         this.widgetEl = document.createElement('div');
         // SUPPRESSION DU OVERFLOW:HIDDEN ICI POUR PERMETTRE AU MENU DE DEBORDER
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 280px); width:560px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 280px); width:560px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -14270,7 +15145,7 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
                     const color = val.toString().startsWith('#') ? "#d63031" : "#2d3436";
                     const fw = style.bold ? "bold" : "normal";
 
-                    svg += `<text x="${textX}" y="${y + cellH / 2 + 5}" font-family="sans-serif" font-weight="${fw}" font-size="14" fill="${color}" text-anchor="${anchor}">${val}</text>`;
+                    svg += `<text x="${textX}" y="${y + cellH / 2 + 5}" font-family="sans-serif" font-weight="${fw}" font-size="14" fill="${color}" text-anchor="${anchor}">${xmlEsc(val)}</text>`;
                 }
             }
         }
@@ -14338,8 +15213,68 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
 registerPlugin('flashMathTool', 'Exercices', {
     widgetEl: null, currentStamp: null, editingImage: null,
 
+    // Métadonnées de présentation/filtrage : catégorie (tri dans la barre latérale),
+    // classes où le thème est enseigné (6, 5, 4, 3), et sous-options (variantes) éventuelles.
+    // Une variante avec minClass:4 n'est proposée que si la 4e ou la 3e est cochée.
+    themeMeta: {
+        relatifs: {
+            label: 'Nombres relatifs', cat: 'Calcul & Nombres', classes: [5, 4, 3],
+            variants: [
+                { id: 'add', short: '+', title: 'Addition' },
+                { id: 'sub', short: '−', title: 'Soustraction' },
+                { id: 'mul', short: '×', title: 'Multiplication', minClass: 4 },
+                { id: 'comp', short: '≷', title: 'Comparaison' }
+            ]
+        },
+        priorites: { label: 'Priorités opératoires', cat: 'Calcul & Nombres', classes: [6, 5, 4, 3] },
+        fractions: {
+            label: 'Fractions', cat: 'Calcul & Nombres', classes: [6, 5, 4, 3],
+            variants: [
+                { id: 'add', short: '+', title: 'Addition' },
+                { id: 'mul', short: '×', title: 'Multiplication' }
+            ]
+        },
+        arithmetique: { label: 'Divisions & Multiples', cat: 'Calcul & Nombres', classes: [6, 5, 4, 3] },
+        pourcentages: { label: 'Pourcentages', cat: 'Calcul & Nombres', classes: [6, 5, 4, 3] },
+        conversions: { label: 'Conversions', cat: 'Calcul & Nombres', classes: [6, 5, 4, 3] },
+        vitesses: {
+            label: 'Vitesses', cat: 'Calcul & Nombres', classes: [4, 3],
+            variants: [
+                { id: 'temps', short: 't', title: 'Calculer le temps' },
+                { id: 'dist', short: 'd', title: 'Calculer la distance' },
+                { id: 'vit', short: 'v', title: 'Calculer la vitesse' }
+            ]
+        },
+        racines: { label: 'Racines carrées', cat: 'Calcul & Nombres', classes: [4, 3] },
+        puissances: {
+            label: 'Puissances', cat: 'Calcul & Nombres', classes: [4, 3],
+            variants: [
+                { id: 'prod', short: '10ᵃ×10ᵇ', title: 'Produit de puissances' },
+                { id: 'dec', short: 'a×10ᵖ', title: 'Écriture décimale' }
+            ]
+        },
+        litteral: { label: 'Calcul littéral', cat: 'Calcul & Nombres', classes: [5, 4, 3] },
+        equations: { label: 'Équations', cat: 'Calcul & Nombres', classes: [4, 3] },
+        fonctions: { label: 'Fonctions affines', cat: 'Calcul & Nombres', classes: [3] },
+        aires: {
+            label: 'Aires & Périmètres', cat: 'Géométrie', classes: [6, 5, 4, 3],
+            variants: [
+                { id: 'rect', short: '▭', title: 'Aire du rectangle' },
+                { id: 'carre', short: '□', title: 'Aire du carré' },
+                { id: 'perim', short: 'P', title: 'Périmètre' }
+            ]
+        },
+        geometrie: { label: 'Pythagore', cat: 'Géométrie', classes: [4, 3] },
+        thales: { label: 'Thalès', cat: 'Géométrie', classes: [3] },
+        trigonometrie: { label: 'Trigonométrie', cat: 'Géométrie', classes: [3] },
+        stats: { label: 'Moyenne', cat: 'Probas & Stats', classes: [5, 4, 3] },
+        probabilites: { label: 'Probabilités', cat: 'Probas & Stats', classes: [5, 4, 3] }
+    },
+
     state: {
-        themes: ['fractions', 'puissances', 'litteral', 'equations', 'thales', 'geometrie', 'trigonometrie', 'probabilites', 'vitesses'],
+        themes: ['fractions', 'relatifs', 'priorites', 'puissances', 'litteral', 'equations', 'thales', 'geometrie', 'trigonometrie', 'probabilites', 'vitesses'],
+        levels: [4, 3], // classes cochées : sous-ensemble de [6, 5, 4, 3]
+        variants: {}, // { themeId: [variantIds actives] } — absent = toutes actives
         count: 5,
         timerLength: 0,
         questions: [],
@@ -14367,8 +15302,8 @@ registerPlugin('flashMathTool', 'Exercices', {
     // MOTEURS AVEC EXPLICATIONS ET SCHÉMAS SVG
     // ==========================================
     generators: {
-        fractions: (self) => {
-            if (Math.random() > 0.5) {
+        fractions: (self, lvl, variant) => {
+            if ((variant || (Math.random() > 0.5 ? 'add' : 'mul')) === 'add') {
                 let d1 = self.randInt(2, 5); let k = self.randInt(2, 4); let d2 = d1 * k;
                 let n1 = self.randInt(1, d1 * 2); if (n1 % d1 === 0) n1++;
                 let n2 = self.randInt(1, d2); if (n2 % d2 === 0) n2++;
@@ -14398,8 +15333,8 @@ registerPlugin('flashMathTool', 'Exercices', {
                 };
             }
         },
-        puissances: (self) => {
-            if (Math.random() > 0.5) {
+        puissances: (self, lvl, variant) => {
+            if ((variant || (Math.random() > 0.5 ? 'prod' : 'dec')) === 'prod') {
                 let p1 = self.randInt(-5, 8); let p2 = self.randInt(-5, 8);
                 return {
                     q: `Écrire sous la forme 10ⁿ :<br/><span style="white-space:nowrap; font-weight:bold; color:#0984e3; display:inline-block; margin-top:8px;">10${self.toSup(p1)} × 10${self.toSup(p2)}</span>`,
@@ -14496,14 +15431,135 @@ registerPlugin('flashMathTool', 'Exercices', {
                 exp: `Il y a ${r} issues favorables (boules rouges) sur ${total} issues possibles au total (${r}+${b}).`
             };
         },
-        vitesses: (self) => {
+        vitesses: (self, lvl, variant) => {
+            // Les 3 variantes de la formule v = d/t (temps, distance, vitesse inconnus)
             let v = self.randInt(4, 12) * 10;
-            let d = v * self.randInt(2, 5);
+            let t = self.randInt(2, 5);
+            let d = v * t;
+            const which = variant || ['temps', 'dist', 'vit'][self.randInt(0, 2)];
+
+            if (which === 'temps') {
+                return {
+                    q: `Une voiture roule à ${v} km/h.<br/>Combien de temps met-elle pour parcourir ${d} km ?`,
+                    a: `${t} h`,
+                    exp: `Temps = Distance ÷ Vitesse<br/>t = ${d} ÷ ${v} = ${t} h.`
+                };
+            } else if (variant === 2) {
+                return {
+                    q: `Une voiture roule à ${v} km/h pendant ${t} h.<br/>Quelle distance parcourt-elle ?`,
+                    a: `${d} km`,
+                    exp: `Distance = Vitesse × Temps<br/>d = ${v} × ${t} = ${d} km.`
+                };
+            } else {
+                return {
+                    q: `Une voiture parcourt ${d} km en ${t} h.<br/>Quelle est sa vitesse moyenne ?`,
+                    a: `${v} km/h`,
+                    exp: `Vitesse = Distance ÷ Temps<br/>v = ${d} ÷ ${t} = ${v} km/h.`
+                };
+            }
+        },
+        relatifs: (self, lvl, variant) => {
+            const range = lvl === 1 ? 10 : 20;
+            const which = variant || ['add', 'sub', 'mul', 'comp'][self.randInt(0, lvl === 1 ? 1 : 3)];
+            if (which === 'add' || which === 'sub') {
+                let a = self.randInt(-range, range); let b = self.randInt(-range, range);
+                let op = which === 'add' ? '+' : '-';
+                let result = op === '+' ? a + b : a - b;
+                return {
+                    q: `Calculer : (${a}) ${op} (${b})`,
+                    a: `${result}`,
+                    exp: op === '+'
+                        ? `On additionne les deux nombres relatifs : ${a} + (${b}) = ${result}.`
+                        : `Soustraire un nombre revient à ajouter son opposé : ${a} - (${b}) = ${a} + (${-b}) = ${result}.`
+                };
+            } else if (which === 'mul') {
+                let a = self.randInt(2, lvl === 1 ? 9 : 12) * (Math.random() > 0.5 ? 1 : -1);
+                let b = self.randInt(2, lvl === 1 ? 9 : 12) * (Math.random() > 0.5 ? 1 : -1);
+                let result = a * b;
+                return {
+                    q: `Calculer : (${a}) × (${b})`,
+                    a: `${result}`,
+                    exp: `Règle des signes : ${(a > 0) === (b > 0) ? 'signes identiques ➔ résultat positif' : 'signes différents ➔ résultat négatif'}.<br/>|${a}| × |${b}| = ${Math.abs(a) * Math.abs(b)}, donc résultat = ${result}.`
+                };
+            } else {
+                let a = self.randInt(-range, range); let b = self.randInt(-range, range);
+                while (a === b) b = self.randInt(-range, range);
+                return {
+                    q: `Comparer : ${a} et ${b} (utiliser < ou >)`,
+                    a: `${a} ${a < b ? '<' : '>'} ${b}`,
+                    exp: `Sur la droite graduée, ${a < b ? `${a} est à gauche de ${b}` : `${a} est à droite de ${b}`}.`
+                };
+            }
+        },
+        priorites: (self, lvl) => {
+            const max = lvl === 1 ? 6 : 12;
+            let a = self.randInt(2, max); let b = self.randInt(2, max); let c = self.randInt(2, max);
+            if (Math.random() > 0.5) {
+                let result = a + b * c;
+                return {
+                    q: `Calculer en respectant les priorités : ${a} + ${b} × ${c}`,
+                    a: `${result}`,
+                    exp: `La multiplication est prioritaire sur l'addition : ${b} × ${c} = ${b * c}.<br/>Puis ${a} + ${b * c} = ${result}.`
+                };
+            } else {
+                let result = (a + b) * c;
+                return {
+                    q: `Calculer : (${a} + ${b}) × ${c}`,
+                    a: `${result}`,
+                    exp: `On calcule d'abord la parenthèse : ${a} + ${b} = ${a + b}.<br/>Puis ${a + b} × ${c} = ${result}.`
+                };
+            }
+        },
+        racines: (self, lvl) => {
+            const squares1 = [4, 9, 16, 25, 36, 49, 64, 81, 100];
+            const squares2 = [4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225];
+            const squares = lvl === 1 ? squares1 : squares2;
+            const n = squares[self.randInt(0, squares.length - 1)];
+            const root = Math.sqrt(n);
             return {
-                q: `Une voiture roule à ${v} km/h.<br/>Combien de temps met-elle pour parcourir ${d} km ?`,
-                a: `${d / v} h`,
-                exp: `Temps = Distance / Vitesse<br/>t = ${d} / ${v} = ${d / v} heures.`
+                q: `Calculer : √${n}`,
+                a: `${root}`,
+                exp: `${root} × ${root} = ${n}, donc √${n} = ${root}.`
             };
+        },
+        aires: (self, lvl, variant) => {
+            const which = variant || ['rect', 'carre', 'perim'][self.randInt(0, 2)];
+            if (which === 'rect') {
+                let L = self.randInt(3, 12); let l = self.randInt(2, 9);
+                const svg = `<svg class="math-fig" viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="15" y="15" width="90" height="50" fill="#e8f8f5" stroke="#2d3436" stroke-width="2"/>
+                    <text x="60" y="10" text-anchor="middle" font-size="14" font-family="sans-serif">${L}</text>
+                    <text x="10" y="44" text-anchor="end" font-size="14" font-family="sans-serif">${l}</text>
+                </svg>`;
+                return {
+                    q: `Calculer l'aire du rectangle :<br/>${svg}`,
+                    a: `${L * l}`,
+                    exp: `Aire = Longueur × largeur = ${L} × ${l} = ${L * l}.`
+                };
+            } else if (which === 'carre') {
+                let c = self.randInt(3, 12);
+                const svg = `<svg class="math-fig" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="20" y="15" width="55" height="55" fill="#e8f4fd" stroke="#2d3436" stroke-width="2"/>
+                    <text x="47" y="10" text-anchor="middle" font-size="14" font-family="sans-serif">${c}</text>
+                </svg>`;
+                return {
+                    q: `Calculer l'aire du carré de côté ${c} :<br/>${svg}`,
+                    a: `${c * c}`,
+                    exp: `Aire d'un carré = côté². ${c}² = ${c} × ${c} = ${c * c}.`
+                };
+            } else {
+                let L = self.randInt(3, 12); let l = self.randInt(2, 9);
+                const svg = `<svg class="math-fig" viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="15" y="15" width="90" height="50" fill="#fdf6e3" stroke="#2d3436" stroke-width="2"/>
+                    <text x="60" y="10" text-anchor="middle" font-size="14" font-family="sans-serif">${L}</text>
+                    <text x="10" y="44" text-anchor="end" font-size="14" font-family="sans-serif">${l}</text>
+                </svg>`;
+                return {
+                    q: `Calculer le périmètre du rectangle :<br/>${svg}`,
+                    a: `${2 * (L + l)}`,
+                    exp: `Périmètre = 2 × (Longueur + largeur) = 2 × (${L} + ${l}) = 2 × ${L + l} = ${2 * (L + l)}.`
+                };
+            }
         },
         conversions: (self) => {
             let h = self.randInt(1, 3); let m = self.randInt(1, 3) * 15;
@@ -14513,9 +15569,11 @@ registerPlugin('flashMathTool', 'Exercices', {
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Questions Flash & Automatismes';
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Questions Flash';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`;
         grid.appendChild(btn);
+
+        this.loadPrefs();
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -14527,11 +15585,67 @@ registerPlugin('flashMathTool', 'Exercices', {
         });
     },
 
+    // ✅ Préférences (thèmes cochés, niveau, nombre de questions, minuteur) persistées dans localforage,
+    // pour retrouver sa configuration habituelle d'une session à l'autre.
+    loadPrefs: function () {
+        if (typeof localforage === 'undefined') return;
+        localforage.getItem('flashMathTool_prefs').then(prefs => {
+            if (!prefs) return;
+            if (Array.isArray(prefs.themes)) this.state.themes = prefs.themes.filter(id => this.themeMeta[id]);
+            if (typeof prefs.count === 'number') this.state.count = prefs.count;
+            if (typeof prefs.timerLength === 'number') this.state.timerLength = prefs.timerLength;
+            if (Array.isArray(prefs.levels)) this.state.levels = prefs.levels.filter(cl => [6, 5, 4, 3].includes(cl));
+            else if (typeof prefs.level === 'number') this.state.levels = prefs.level === 1 ? [6, 5] : [4, 3]; // migration ancien format
+            if (prefs.variants && typeof prefs.variants === 'object') this.state.variants = prefs.variants;
+            if (this.state.levels.length === 0) this.state.levels = [4, 3];
+            if (this.widgetEl) { this.renderThemeSidebar(); this.renderGrid(); }
+        });
+    },
+
+    savePrefs: function () {
+        if (typeof localforage === 'undefined') return;
+        localforage.setItem('flashMathTool_prefs', {
+            themes: this.state.themes,
+            count: this.state.count,
+            timerLength: this.state.timerLength,
+            levels: this.state.levels,
+            variants: this.state.variants
+        });
+    },
+
     edit: function (imgObj) {
         if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.state) return;
         this.editingImage = imgObj;
         this.state = JSON.parse(JSON.stringify(imgObj.pluginData.state));
+        // Migration des tampons posés avec l'ancien format (level unique, pas de variantes)
+        if (!Array.isArray(this.state.levels)) this.state.levels = this.state.level === 1 ? [6, 5] : [4, 3];
+        if (!this.state.variants || typeof this.state.variants !== 'object') this.state.variants = {};
         this.openWidget();
+    },
+
+    // Difficulté interne des générateurs : 2 si la 4e ou la 3e est cochée, sinon 1
+    difficultyLevel: function () {
+        const lv = this.state.levels || [4, 3];
+        return (lv.includes(4) || lv.includes(3)) ? 2 : 1;
+    },
+
+    // Variantes actives d'un thème, filtrées par minClass (ex: relatifs × exige 4e/3e)
+    activeVariants: function (themeId) {
+        const meta = this.themeMeta[themeId];
+        if (!meta || !meta.variants) return null;
+        const lv = this.state.levels || [4, 3];
+        const allowed = meta.variants.filter(v => !v.minClass || lv.some(cl => cl <= v.minClass));
+        const sel = this.state.variants[themeId];
+        const active = allowed.filter(v => !sel || sel.includes(v.id));
+        return active.length > 0 ? active : allowed;
+    },
+
+    makeOneQuestion: function (themeId) {
+        const lvl = this.difficultyLevel();
+        const variants = this.activeVariants(themeId);
+        const variant = variants ? variants[this.randInt(0, variants.length - 1)].id : undefined;
+        const gen = this.generators[themeId](this, lvl, variant);
+        return { q: gen.q, a: gen.a, exp: gen.exp, isCustom: false, theme: themeId };
     },
 
     generateQuestions: function () {
@@ -14541,19 +15655,101 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         while (this.state.questions.length < this.state.count && attempts < 100) {
             attempts++;
-            let theme = this.state.themes[Math.floor(Math.random() * this.state.themes.length)];
-            let gen = this.generators[theme](this);
+            const theme = this.state.themes[Math.floor(Math.random() * this.state.themes.length)];
+            const question = this.makeOneQuestion(theme);
 
             // Filtre anti-doublons
-            if (!this.state.questions.find(x => x.q === gen.q)) {
-                this.state.questions.push({ q: gen.q, a: gen.a, exp: gen.exp, isCustom: false });
+            if (!this.state.questions.find(x => x.q === question.q)) {
+                this.state.questions.push(question);
             }
         }
+    },
+
+    // Thèmes visibles pour les classes cochées (intersection non vide)
+    visibleThemeIds: function () {
+        const lv = this.state.levels || [4, 3];
+        return Object.keys(this.themeMeta).filter(id => this.themeMeta[id].classes.some(cl => lv.includes(cl)));
+    },
+
+    // Barre latérale : chips de thèmes (cliquables + draggables vers la feuille),
+    // groupées par catégorie, avec pastilles de variantes sous les chips actives.
+    renderThemeSidebar: function () {
+        const container = this.widgetEl.querySelector('#fl-theme-groups');
+        if (!container) return;
+
+        const visibleIds = this.visibleThemeIds();
+        // On retire de la sélection les thèmes hors des classes cochées
+        this.state.themes = this.state.themes.filter(id => visibleIds.includes(id));
+
+        const cats = {};
+        visibleIds.forEach(id => {
+            const meta = this.themeMeta[id];
+            if (!cats[meta.cat]) cats[meta.cat] = [];
+            cats[meta.cat].push({ id, meta });
+        });
+
+        const lv = this.state.levels || [4, 3];
+
+        container.innerHTML = Object.keys(cats).map(cat => `
+            <div class="fl-theme-cat">
+                <div class="fl-theme-cat-title">${cat}</div>
+                <div class="fl-chip-row">
+                ${cats[cat].map(t => {
+                    const on = this.state.themes.includes(t.id);
+                    const allowedVariants = (t.meta.variants || []).filter(v => !v.minClass || lv.some(cl => cl <= v.minClass));
+                    const sel = this.state.variants[t.id];
+                    // ✅ Les variantes vivent DANS la chip (à droite du libellé), donc toujours alignées avec leur thème
+                    const varsHtml = (on && allowedVariants.length > 0)
+                        ? `<span class="fl-chip-vars">${allowedVariants.map(v => `<span class="fl-var ${(!sel || sel.includes(v.id)) ? 'on' : ''}" data-theme="${t.id}" data-var="${v.id}" title="${v.title}">${v.short}</span>`).join('')}</span>`
+                        : '';
+                    return `<div class="fl-chip ${on ? 'on' : ''}" draggable="true" data-theme="${t.id}" title="Cliquer pour activer · Glisser sur la feuille pour ajouter une question">${t.meta.label}${varsHtml}</div>`;
+                }).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        // Clic sur une chip = activer/désactiver le thème (sauvegardé aussitôt)
+        container.querySelectorAll('.fl-chip').forEach(chip => {
+            chip.onclick = (e) => {
+                if (e.target.closest('.fl-var')) return; // les pastilles de variantes ont leur propre handler
+                const id = chip.dataset.theme;
+                if (this.state.themes.includes(id)) this.state.themes = this.state.themes.filter(t => t !== id);
+                else this.state.themes.push(id);
+                this.savePrefs();
+                this.renderThemeSidebar();
+            };
+            chip.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/fl-theme', chip.dataset.theme);
+                e.dataTransfer.effectAllowed = 'copy';
+            });
+        });
+
+        // Clic sur une pastille de variante = activer/désactiver cette variante
+        container.querySelectorAll('.fl-var').forEach(pill => {
+            pill.onclick = (e) => {
+                e.stopPropagation();
+                const themeId = pill.dataset.theme, varId = pill.dataset.var;
+                const meta = this.themeMeta[themeId];
+                const all = (meta.variants || []).map(v => v.id);
+                let sel = this.state.variants[themeId] || all.slice();
+                if (sel.includes(varId)) sel = sel.filter(v => v !== varId);
+                else sel.push(varId);
+                if (sel.length === 0) sel = all.slice(); // jamais zéro variante : on réactive tout
+                this.state.variants[themeId] = sel;
+                this.savePrefs();
+                this.renderThemeSidebar();
+            };
+        });
+
+        this.widgetEl.querySelectorAll('.fl-lvl-chip').forEach(btn => {
+            btn.classList.toggle('active', (this.state.levels || []).includes(parseInt(btn.dataset.class)));
+        });
     },
 
     openWidget: function () {
         if (this.widgetEl) {
             this.widgetEl.style.display = 'flex';
+            this.renderThemeSidebar();
             if (this.state.questions.length === 0) this.generateQuestions();
             this.renderGrid();
             return;
@@ -14562,7 +15758,7 @@ registerPlugin('flashMathTool', 'Exercices', {
         this.generateQuestions();
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:8vh; left:calc(50% - 480px); width:960px; height:80vh; background:#f8f9fa; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:max(12px, calc(50% - 645px)); width:min(1290px, calc(100vw - 24px)); height:89vh; background:#f8f9fa; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -14572,72 +15768,87 @@ registerPlugin('flashMathTool', 'Exercices', {
             
             .fl-sidebar { width:280px; background:#fff; border-right:1px solid #dfe6e9; padding:20px; display:flex; flex-direction:column; gap:20px; overflow-y:auto; }
             .fl-group-title { font-size:12px; font-weight:bold; color:#a4b0be; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; }
-            
-            .fl-theme-lbl { display:flex; align-items:center; gap:8px; font-size:13px; color:#2d3436; margin-bottom:6px; cursor:pointer; }
-            .fl-theme-lbl input { cursor:pointer; }
-            
+
+            .fl-lvl-row { display:flex; gap:6px; }
+            .fl-lvl-chip { flex:1; padding:8px 0; border:1.5px solid #e3e8ec; border-radius:8px; background:#fff; color:#8395a7; font-weight:700; font-size:12.5px; cursor:pointer; text-align:center; transition:all .15s; user-select:none; }
+            .fl-lvl-chip:hover { border-color:#c8d6e5; }
+            .fl-lvl-chip.active { border-color:#0984e3; color:#0984e3; background:#f0f7fd; }
+
+            .fl-theme-cat { margin-bottom:12px; }
+            .fl-theme-cat-title { font-size:10.5px; font-weight:700; color:#a4b0be; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:7px; }
+            .fl-chip-row { display:flex; flex-wrap:wrap; }
+            .fl-chip { display:inline-flex; align-items:center; padding:6px 11px; border-radius:8px; border:1.5px solid #e3e8ec; background:#fff; font-size:12.5px; font-weight:600; color:#57606f; cursor:grab; user-select:none; margin:0 6px 6px 0; transition:all .15s; }
+            .fl-chip:hover { border-color:#c8d6e5; }
+            .fl-chip.on { border-color:#74b9ff; background:#eaf4fd; color:#0984e3; }
+            .fl-chip:active { cursor:grabbing; }
+            .fl-chip-vars { display:inline-flex; gap:3px; margin-left:9px; padding-left:9px; border-left:1px solid #c9dff2; }
+            .fl-var { font-size:11px; padding:1px 7px; border-radius:5px; border:1px solid transparent; background:none; color:#9db8cf; cursor:pointer; font-weight:700; transition:all .15s; user-select:none; }
+            .fl-var:hover { border-color:#a8d1f5; }
+            .fl-var.on { background:#fff; color:#0984e3; border-color:#a8d1f5; }
+
+            .fl-sheet-wrap { flex:1; overflow:auto; padding:20px; display:flex; }
+            .fl-sheet { width:960px; min-height:679px; flex-shrink:0; margin:auto; background:#fff; border-radius:3px; box-shadow:0 10px 34px rgba(0,0,0,0.14); padding:26px 34px; display:flex; flex-direction:column; box-sizing:border-box; }
+            .fl-sheet.dragover { outline:2px dashed #0984e3; outline-offset:-8px; }
+            .fl-sheet-head { display:flex; justify-content:space-between; align-items:baseline; padding-bottom:8px; border-bottom:1px solid #eceff1; margin-bottom:10px; }
+            .fl-sheet-title { font-size:15px; font-weight:800; color:#2d3436; }
+            .fl-sheet-date { font-size:11px; color:#b2bec3; }
+            .fl-cols { flex:1; display:grid; grid-template-columns:1fr 1fr; align-content:start; }
+            .fl-col { padding:0 16px; min-width:0; }
+            .fl-col:first-child { padding-left:0; }
+            .fl-col + .fl-col { border-left:1px dashed #eceff1; }
+            .fl-srow { display:flex; align-items:flex-start; gap:7px; padding:8px 0; border-bottom:1px solid #f4f6f8; }
+            .fl-srow .fl-btn-del { opacity:0; transition:opacity .15s; }
+            .fl-srow:hover .fl-btn-del { opacity:1; }
+            .fl-sheet-empty { grid-column:1/-1; text-align:center; color:#b2bec3; font-size:13px; padding:70px 20px; }
+
             .fl-btn-action { background:#0984e3; color:#fff; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer; transition:0.2s; box-shadow:0 4px 6px rgba(9,132,227,0.2); text-align:center;}
             .fl-btn-action:hover { background:#74b9ff; transform:translateY(-1px); }
-            
-            .fl-main { flex:1; display:flex; flex-direction:column; background:#f1f2f6; position:relative; }
-            .fl-grid-view { padding:20px; overflow-y:auto; flex:1; }
-            .fl-q-item { display:flex; align-items:flex-start; padding:15px; border-bottom:1px solid #dfe6e9; background:#fff; border-radius:8px; margin-bottom:10px; box-shadow:0 2px 4px rgba(0,0,0,0.02);}
-            .fl-q-num { font-weight:bold; color:#0984e3; width:40px; margin-top:2px;}
-            
-            .fl-q-content-col { flex:1; display:flex; flex-direction:column; padding:0 10px; }
-            .fl-q-text { font-size:16px; color:#2d3436; line-height:1.4;}
-            .fl-q-exp { font-size:13px; color:#636e72; margin-top:10px; padding-top:10px; border-top:1px dashed #dfe6e9; display:none; line-height:1.4;}
-            .show-ans .fl-q-exp { display:block; }
-            
-            .fl-q-ans { font-weight:bold; color:#00b894; background:#e8f8f5; padding:8px 16px; border-radius:6px; opacity:0; transition:0.2s; min-width:100px; text-align:center; align-self:flex-start;}
-            .show-ans .fl-q-ans { opacity:1; }
-            
-            .fl-input-q { flex:1; padding:8px; border:1px dashed #0984e3; border-radius:4px; font-size:15px; margin:0 10px; outline:none; }
-            .fl-input-a { width:120px; padding:8px; border:1px dashed #00b894; border-radius:4px; font-size:15px; font-weight:bold; color:#00b894; outline:none; text-align:center; }
-            .fl-btn-del { background:none; border:none; color:#e74c3c; cursor:pointer; font-size:16px; margin-left:10px; }
 
-            .fl-footer-actions { padding:15px; border-top:1px solid #dfe6e9; display:flex; justify-content:space-between; align-items:center; background:#fdfdfd; gap:10px;}
+            .fl-main { flex:1; display:flex; flex-direction:column; background:#e9edf1; position:relative; }
+            .fl-q-num { font-weight:700; color:#0984e3; font-size:12px; min-width:24px; margin-top:1px; }
             
+            .fl-q-text { flex:1; font-size:13.5px; color:#2d3436; line-height:1.4; min-width:0; }
+            .fl-q-ans { font-weight:700; color:#00b894; background:#f0faf7; border:1px solid #d9f2e9; padding:3px 10px; border-radius:4px; opacity:0; transition:0.2s; min-width:52px; text-align:center; align-self:flex-start; font-size:12px; }
+            .show-ans .fl-q-ans { opacity:1; }
+
+            .fl-input-q { flex:1; padding:5px 7px; border:1px dashed #b7d8f3; border-radius:5px; font-size:12.5px; outline:none; min-width:0; }
+            .fl-input-a { width:70px; padding:5px; border:1px dashed #b7e5d4; border-radius:5px; font-size:12.5px; font-weight:700; color:#00b894; outline:none; text-align:center; }
+            .fl-btn-del { background:none; border:none; color:#e74c3c; cursor:pointer; font-size:12px; margin-left:2px; padding:2px; }
+
+            .fl-footer-actions { padding:0 22px 16px; display:flex; justify-content:center; align-items:center; gap:10px; }
+            .fl-btn-ghost { background:#fff; color:#57606f; border:1.5px solid #e3e8ec; box-shadow:none; }
+            .fl-btn-ghost:hover { background:#f6f8fa; border-color:#c8d6e5; transform:none; }
+
             /* CSS POUR ADAPTER LA TAILLE DES FIGURES SVG */
-            .fl-grid-view .math-fig { width: 140px; height: auto; margin-top: 10px; display:block; }
+            .fl-sheet .math-fig { width: 105px; height: auto; margin-top: 6px; display:block; }
             #fl-fullscreen-mode .math-fig { width: 350px; height: auto; margin: 30px auto; display:block; }
         `;
         this.widgetEl.appendChild(style);
 
-        const allThemes = [
-            { id: 'fractions', label: 'Fractions & Opérations' },
-            { id: 'puissances', label: 'Puissances & Écriture Sci.' },
-            { id: 'arithmetique', label: 'Arithmétique (Facteurs, Div)' },
-            { id: 'litteral', label: 'Calcul Littéral' },
-            { id: 'equations', label: 'Équations (1er degré)' },
-            { id: 'pourcentages', label: 'Proportionnalité & Pourcents' },
-            { id: 'stats', label: 'Statistiques (Moyenne)' },
-            { id: 'fonctions', label: 'Fonctions Affines' },
-            { id: 'geometrie', label: 'Géométrie (Pythagore)' },
-            { id: 'thales', label: 'Géométrie (Thalès)' },
-            { id: 'trigonometrie', label: 'Trigonométrie (SOHCAHTOA)' },
-            { id: 'probabilites', label: 'Probabilités Simples' },
-            { id: 'vitesses', label: 'Vitesses & Distances' },
-            { id: 'conversions', label: 'Grandeurs & Conversions' }
-        ];
-
-        let themeCheckboxes = allThemes.map(t => `
-            <label class="fl-theme-lbl"><input type="checkbox" value="${t.id}" class="chk-theme" ${this.state.themes.includes(t.id) ? 'checked' : ''}> ${t.label}</label>
-        `).join('');
-
         this.widgetEl.innerHTML += `
             <div class="fl-header" id="fl-drag-handle">
-                <div style="font-weight:900; font-size:18px; color:#2d3436; display:flex; align-items:center; gap:8px;">
+                <div style="font-weight:900; font-size:18px; color:#2d3436; display:flex; align-items:center; gap:10px;">
                     <span style="color:#0984e3;">AtoutMath</span> Questions Flash Pro
+                    <span id="fl-header-count" style="font-size:11px; font-weight:700; color:#0984e3; background:#e8f4fd; padding:4px 10px; border-radius:20px;"></span>
                 </div>
                 <button id="fl-btn-close" style="background:none; border:none; color:#d63031; cursor:pointer; font-weight:bold; font-size:18px;">✕</button>
             </div>
-            
+
             <div class="fl-body">
                 <div class="fl-sidebar">
                     <div>
-                        <div class="fl-group-title">Thèmes (Brevet)</div>
-                        ${themeCheckboxes}
+                        <div class="fl-group-title">Niveaux</div>
+                        <div class="fl-lvl-row">
+                            <button class="fl-lvl-chip" data-class="6">6e</button>
+                            <button class="fl-lvl-chip" data-class="5">5e</button>
+                            <button class="fl-lvl-chip" data-class="4">4e</button>
+                            <button class="fl-lvl-chip" data-class="3">3e</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="fl-group-title">Thèmes</div>
+                        <div id="fl-theme-groups"></div>
+                        <div style="font-size:11px; color:#b2bec3; margin-top:4px; line-height:1.4;">💡 Glissez un thème sur la feuille pour ajouter une question.</div>
                     </div>
                     <div>
                         <div class="fl-group-title">Configuration</div>
@@ -14658,16 +15869,40 @@ registerPlugin('flashMathTool', 'Exercices', {
                 </div>
                 
                 <div class="fl-main">
-                    <div class="fl-grid-view ${this.state.showAnswersInGrid ? 'show-ans' : ''}" id="fl-grid-list"></div>
+                    <div class="fl-sheet-wrap">
+                        <div class="fl-sheet ${this.state.showAnswersInGrid ? 'show-ans' : ''}" id="fl-sheet"></div>
+                    </div>
                     <div class="fl-footer-actions">
-                        <button class="fl-btn-action" id="fl-btn-toggle-ans" style="background:#f1f2f6; color:#2d3436; box-shadow:none;">${this.state.showAnswersInGrid ? 'Masquer' : 'Afficher'} Réponses</button>
-                        <button class="fl-btn-action" id="fl-btn-fullscreen" style="background:#9b59b6; box-shadow:0 4px 6px rgba(155,89,182,0.2);">🎬 Lancer Diaporama Plein Écran</button>
+                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-toggle-ans">${this.state.showAnswersInGrid ? 'Masquer' : 'Afficher'} les réponses</button>
+                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-fullscreen">🎬 Diaporama</button>
                         <button class="fl-btn-action" id="fl-btn-export" style="background:#00b894; box-shadow:0 4px 6px rgba(0,184,148,0.2);">✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}</button>
                     </div>
                 </div>
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+
+        // ✅ La feuille est une cible de drop : glisser une chip de thème = ajouter une question
+        const sheetEl = this.widgetEl.querySelector('#fl-sheet');
+        sheetEl.addEventListener('dragover', (e) => {
+            if (e.dataTransfer.types.includes('text/fl-theme')) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                sheetEl.classList.add('dragover');
+            }
+        });
+        sheetEl.addEventListener('dragleave', (e) => {
+            if (!sheetEl.contains(e.relatedTarget)) sheetEl.classList.remove('dragover');
+        });
+        sheetEl.addEventListener('drop', (e) => {
+            e.preventDefault();
+            sheetEl.classList.remove('dragover');
+            const themeId = e.dataTransfer.getData('text/fl-theme');
+            if (themeId && this.generators[themeId]) {
+                this.state.questions.push(this.makeOneQuestion(themeId));
+                this.renderGrid();
+            }
+        });
 
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#fl-drag-handle');
@@ -14677,24 +15912,37 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         this.widgetEl.querySelector('#fl-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; };
 
+        this.widgetEl.querySelectorAll('.fl-lvl-chip').forEach(btn => {
+            btn.onclick = () => {
+                const cl = parseInt(btn.dataset.class);
+                let lv = (this.state.levels || []).slice();
+                if (lv.includes(cl)) lv = lv.filter(x => x !== cl);
+                else lv.push(cl);
+                if (lv.length === 0) lv = [cl]; // toujours au moins une classe cochée
+                this.state.levels = lv;
+                this.renderThemeSidebar();
+                this.savePrefs();
+            };
+        });
+        this.renderThemeSidebar();
+
         this.widgetEl.querySelector('#fl-count-range').oninput = (e) => {
             this.state.count = parseInt(e.target.value);
             this.widgetEl.querySelector('#lbl-count').innerText = this.state.count;
+            this.savePrefs();
         };
         this.widgetEl.querySelector('#fl-timer-slider').oninput = (e) => {
             this.state.timerLength = parseInt(e.target.value);
             this.widgetEl.querySelector('#fl-timer-val').innerText = this.state.timerLength > 0 ? this.state.timerLength + 's' : 'Off';
+            this.savePrefs();
         };
 
         this.widgetEl.querySelector('#fl-btn-gen').onclick = () => {
-            let checked = [];
-            this.widgetEl.querySelectorAll('.chk-theme').forEach(chk => { if (chk.checked) checked.push(chk.value); });
-            this.state.themes = checked;
             this.state.showAnswersInGrid = false;
-            this.widgetEl.querySelector('#fl-btn-toggle-ans').innerText = 'Afficher Réponses';
-            this.widgetEl.querySelector('#fl-grid-list').classList.remove('show-ans');
+            this.widgetEl.querySelector('#fl-btn-toggle-ans').innerText = 'Afficher les réponses';
             this.generateQuestions();
             this.renderGrid();
+            this.savePrefs();
         };
 
         this.widgetEl.querySelector('#fl-btn-add-custom').onclick = () => {
@@ -14704,8 +15952,8 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         this.widgetEl.querySelector('#fl-btn-toggle-ans').onclick = (e) => {
             this.state.showAnswersInGrid = !this.state.showAnswersInGrid;
-            e.target.innerText = this.state.showAnswersInGrid ? 'Masquer Réponses' : 'Afficher Réponses';
-            this.widgetEl.querySelector('#fl-grid-list').classList.toggle('show-ans', this.state.showAnswersInGrid);
+            e.target.innerText = this.state.showAnswersInGrid ? 'Masquer les réponses' : 'Afficher les réponses';
+            this.widgetEl.querySelector('#fl-sheet').classList.toggle('show-ans', this.state.showAnswersInGrid);
         };
 
         this.widgetEl.querySelector('#fl-btn-fullscreen').onclick = () => this.launchFullscreenSlide();
@@ -14714,28 +15962,51 @@ registerPlugin('flashMathTool', 'Exercices', {
         this.renderGrid();
     },
 
+    // Rendu de la feuille A4 paysage (2 colonnes)
     renderGrid: function () {
-        const list = this.widgetEl.querySelector('#fl-grid-list');
-        list.innerHTML = this.state.questions.map((q, i) => `
-            <div class="fl-q-item">
+        const countBadge = this.widgetEl.querySelector('#fl-header-count');
+        if (countBadge) countBadge.textContent = `${this.state.questions.length} question${this.state.questions.length > 1 ? 's' : ''} · ${this.state.themes.length} thème${this.state.themes.length > 1 ? 's' : ''}`;
+
+        // ✅ Le libellé doit refléter le mode courant (édition d'un tampon existant ou nouvelle pose)
+        const exportBtn = this.widgetEl.querySelector('#fl-btn-export');
+        if (exportBtn) exportBtn.innerHTML = `✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}`;
+
+        const sheet = this.widgetEl.querySelector('#fl-sheet');
+        if (!sheet) return;
+        sheet.classList.toggle('show-ans', this.state.showAnswersInGrid);
+
+        const qs = this.state.questions;
+        const half = Math.ceil(qs.length / 2);
+        const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        const rowHtml = (q, i) => `
+            <div class="fl-srow">
                 <div class="fl-q-num">Q${i + 1}.</div>
                 ${q.isCustom
-                ? `<input type="text" class="fl-input-q" value="${q.q}" data-idx="${i}" placeholder="Tapez votre question...">
-                       <input type="text" class="fl-input-a" value="${q.a}" data-idx="${i}" placeholder="Réponse">`
-                : `<div class="fl-q-content-col">
-                           <div class="fl-q-text">${this.parseFrac(q.q)}</div>
-                           ${q.exp ? `<div class="fl-q-exp">${this.parseFrac(q.exp)}</div>` : ''}
-                       </div>
-                       <div class="fl-q-ans">${this.parseFrac(q.a)}</div>`
-            }
-                <button class="fl-btn-del" data-idx="${i}" title="Supprimer">🗑️</button>
-            </div>
-        `).join('');
+                ? `<input type="text" class="fl-input-q" value="${q.q}" data-idx="${i}" placeholder="Votre question...">
+                   <input type="text" class="fl-input-a" value="${q.a}" data-idx="${i}" placeholder="Rép.">`
+                : `<div class="fl-q-text">${this.parseFrac(q.q)}</div>
+                   <div class="fl-q-ans">${this.parseFrac(q.a)}</div>`}
+                <button class="fl-btn-del" data-idx="${i}" title="Supprimer">✕</button>
+            </div>`;
 
-        list.querySelectorAll('.fl-input-q').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].q = e.target.value; }; });
-        list.querySelectorAll('.fl-input-a').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].a = e.target.value; }; });
-        list.querySelectorAll('.fl-btn-del').forEach(btn => {
-            btn.onclick = (e) => { this.state.questions.splice(e.target.dataset.idx, 1); this.renderGrid(); };
+        sheet.innerHTML = `
+            <div class="fl-sheet-head">
+                <span class="fl-sheet-title">Questions Flash</span>
+                <span class="fl-sheet-date">${today}</span>
+            </div>
+            <div class="fl-cols">
+                ${qs.length === 0
+                ? `<div class="fl-sheet-empty">Feuille vide.<br/>Glissez un thème ici, ou cliquez sur « Générer la série ».</div>`
+                : `<div class="fl-col">${qs.slice(0, half).map((q, i) => rowHtml(q, i)).join('')}</div>
+                   <div class="fl-col">${qs.slice(half).map((q, i) => rowHtml(q, half + i)).join('')}</div>`}
+            </div>
+        `;
+
+        sheet.querySelectorAll('.fl-input-q').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].q = e.target.value; }; });
+        sheet.querySelectorAll('.fl-input-a').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].a = e.target.value; }; });
+        sheet.querySelectorAll('.fl-btn-del').forEach(btn => {
+            btn.onclick = (e) => { this.state.questions.splice(parseInt(e.target.dataset.idx), 1); this.renderGrid(); };
         });
     },
 
@@ -14748,7 +16019,7 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         this.fsElement = document.createElement('div');
         this.fsElement.id = 'fl-fullscreen-mode';
-        this.fsElement.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:#f8f9fa; z-index:9999999; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-family:sans-serif; user-select:none; overflow-y:auto;`;
+        this.fsElement.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:#f8f9fa; z-index:9999999; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-family: sans-serif; user-select:none; overflow-y:auto;`;
         document.body.appendChild(this.fsElement);
 
         try { this.fsElement.requestFullscreen(); } catch (e) { console.log("Fullscreen not supported"); }
@@ -14845,70 +16116,180 @@ registerPlugin('flashMathTool', 'Exercices', {
         if (this.fsElement) { this.fsElement.remove(); this.fsElement = null; }
     },
 
+    // Échappement XML : indispensable pour l'export SVG, car un "<" brut dans une question
+    // (ex: "utiliser < ou >") rend le SVG invalide et l'image du tampon ne charge jamais.
+    escXml: function (s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
+
+    renderPureSVG: function (str, startX, startY, color, fontSize, isBold, isCentered) {
+        let svg = "";
+        let extractedSvg = null;
+        if (str.includes('<svg')) {
+            let match = str.match(/<svg[^>]*>([\s\S]*?)<\/svg>/i);
+            if (match) {
+                extractedSvg = match[0];
+                str = str.replace(match[0], '');
+            }
+        }
+
+        let lines = str.split(/<br\s*\/?>/i);
+        let currentY = startY;
+
+        lines.forEach(line => {
+            if (!line.trim()) { currentY += fontSize * 1.5; return; }
+
+            // On ne retire que les vraies balises HTML (<span>, </b>...) : un "<" isolé
+            // suivi d'une espace (ex: "< ou >") est du texte mathématique à conserver
+            line = line.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+
+            // The syntax is [[F:num:den]]
+            let parts = line.split(/\[\[F:(.*?):(.*?)]\]/);
+
+            let totalW = 0;
+            if (isCentered) {
+                for (let i = 0; i < parts.length; i++) {
+                    if (i % 3 === 0) totalW += parts[i].trim().length * (fontSize * 0.6);
+                    else {
+                        let nL = parts[i].trim().length; let dL = parts[i + 1].trim().length;
+                        totalW += Math.max(nL, dL) * (fontSize * 0.6) + 10;
+                        i++;
+                    }
+                }
+            }
+
+            let curX = isCentered ? startX - totalW / 2 : startX;
+
+            for (let i = 0; i < parts.length; i++) {
+                if (i % 3 === 0) {
+                    let txt = parts[i].trim();
+                    if (txt) {
+                        svg += `<text x="${curX}" y="${currentY + fontSize}" font-family="sans-serif" font-size="${fontSize}" font-weight="${isBold ? 'bold' : 'normal'}" fill="${color}">${this.escXml(txt)}</text>`;
+                        curX += txt.length * (fontSize * 0.6) + 8;
+                    }
+                } else if (i % 3 === 1) {
+                    let num = parts[i].trim();
+                    let den = parts[i + 1].trim();
+                    let maxLen = Math.max(num.length, den.length);
+                    let fracW = maxLen * (fontSize * 0.6) + 10;
+
+                    svg += `<text x="${curX + fracW / 2}" y="${currentY + fontSize * 0.8}" font-family="sans-serif" font-size="${fontSize * 0.8}" font-weight="${isBold ? 'bold' : 'normal'}" fill="${color}" text-anchor="middle">${this.escXml(num)}</text>`;
+                    svg += `<line x1="${curX}" y1="${currentY + fontSize * 1.0}" x2="${curX + fracW}" y2="${currentY + fontSize * 1.0}" stroke="${color}" stroke-width="2"/>`;
+                    svg += `<text x="${curX + fracW / 2}" y="${currentY + fontSize * 1.8}" font-family="sans-serif" font-size="${fontSize * 0.8}" font-weight="${isBold ? 'bold' : 'normal'}" fill="${color}" text-anchor="middle">${this.escXml(den)}</text>`;
+
+                    curX += fracW + 8;
+                    i++;
+                }
+            }
+            currentY += fontSize * 2;
+        });
+
+        if (extractedSvg) {
+            let innerSvg = extractedSvg.replace(/<svg/i, `<svg x="${startX + 20}" y="${currentY}" width="165" height="107"`);
+            svg += innerSvg;
+        }
+
+        return svg;
+    },
+
     // ==========================================
-    // EXPORT AU TABLEAU (SVG Sécurisé + CACHE)
+    // EXPORT AU TABLEAU (mise en page paysage multi-colonnes + cache par question)
     // ==========================================
     exportToBoard: function () {
         if (this.state.questions.length === 0) return;
-        const padding = 30; const width = 800;
 
-        let totalH = padding + 50;
-        let rowHeights = [];
-        this.state.questions.forEach(q => {
-            let h = (q.q.includes('<svg') || q.q.includes('<br/>')) ? 160 : 70;
-            rowHeights.push(h);
-            totalH += h;
-        });
-        totalH += padding;
+        // ✅ Format "feuille A4 paysage" (297×210), toujours 2 colonnes — cohérent avec l'aperçu
+        const n = this.state.questions.length;
+        const width = 1122, minHeight = 794; // ratio A4 paysage
+        const padding = 42, colGap = 34;
+        const colWidth = (width - padding * 2 - colGap) / 2;
+        const ansW = 120, ansH = 38;
 
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalH}" viewBox="0 0 ${width} ${totalH}">`;
-        svg += `<rect width="${width}" height="${totalH}" fill="#ffffff" rx="12" stroke="#dfe6e9" stroke-width="2"/>`;
-        svg += `<text x="${padding}" y="${padding + 10}" font-family="sans-serif" font-size="20" font-weight="bold" fill="#0984e3">Questions Flash</text>`;
+        const perCol = Math.ceil(n / 2);
+        const columns = [
+            this.state.questions.slice(0, perCol).map((q, idx) => ({ q, num: idx + 1 })),
+            this.state.questions.slice(perCol).map((q, idx) => ({ q, num: perCol + idx + 1 }))
+        ];
 
-        let currentY = padding + 40;
-        const ansX = 550; const ansW = 200;
+        const rowH = (q) => q.q.includes('<svg') ? 185 : (q.q.includes('<br/>') ? 100 : 68);
+        const colHeights = columns.map(col => col.reduce((sum, item) => sum + rowH(item.q), 0));
+        const contentH = Math.max(...colHeights, 60);
+        const headerH = 52;
+        const totalH = Math.max(padding + headerH + contentH + padding, minHeight);
 
-        this.state.questions.forEach((q, i) => {
-            let h = rowHeights[i];
+        const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-            svg += `<text x="${padding}" y="${currentY + 24}" font-family="sans-serif" font-size="16" font-weight="bold" fill="#0984e3">Q${i + 1}.</text>`;
-            svg += `<foreignObject x="${padding + 40}" y="${currentY}" width="490" height="${h - 10}">
-                        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif; font-size:16px; color:#2d3436; display:flex; align-items:flex-start; height:100%; margin-top:10px;">
-                            ${this.parseFrac(q.q)}
-                        </div>
-                    </foreignObject>`;
+        // Taille d'affichage raisonnable sur le tableau, indépendante de la fenêtre
+        const maxDim = 950;
+        const scale = width > maxDim ? maxDim / width : 1;
+        const finalW = Math.round(width * scale);
+        const finalH = Math.round(totalH * scale);
 
-            svg += `<line x1="${padding}" y1="${currentY + h}" x2="${width - padding}" y2="${currentY + h}" stroke="#f1f2f6" stroke-width="1"/>`;
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${finalW}" height="${finalH}" viewBox="0 0 ${width} ${totalH}">`;
+        svg += `<rect width="${width}" height="${totalH}" fill="#ffffff" rx="6" stroke="#dfe6e9" stroke-width="1.5"/>`;
+        svg += `<text x="${padding}" y="${padding + 8}" font-family="sans-serif" font-size="21" font-weight="bold" fill="#2d3436">Questions Flash</text>`;
+        svg += `<text x="${width - padding}" y="${padding + 8}" text-anchor="end" font-family="sans-serif" font-size="12" fill="#b2bec3">${dateStr}</text>`;
+        svg += `<line x1="${padding}" y1="${padding + 22}" x2="${width - padding}" y2="${padding + 22}" stroke="#eceff1" stroke-width="1.5"/>`;
+        // Séparateur central discret entre les deux colonnes
+        svg += `<line x1="${width / 2}" y1="${padding + headerH}" x2="${width / 2}" y2="${totalH - padding}" stroke="#eceff1" stroke-width="1" stroke-dasharray="4 4"/>`;
 
-            svg += `<rect x="${ansX}" y="${currentY + h / 2 - 20}" width="${ansW}" height="40" fill="#e8f8f5" rx="4"/>`;
-            svg += `<foreignObject x="${ansX}" y="${currentY + h / 2 - 20}" width="${ansW}" height="40">
-                        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family:sans-serif; font-size:16px; font-weight:bold; color:#00b894; display:flex; align-items:center; justify-content:center; height:100%; width:100%;">
-                            ${this.parseFrac(q.a)}
-                        </div>
-                    </foreignObject>`;
+        const answerZones = [];
+        const topY = padding + headerH;
 
-            currentY += h;
+        columns.forEach((col, c) => {
+            const colX = padding + c * (colWidth + colGap);
+            let y = topY;
+            col.forEach(item => {
+                const h = rowH(item.q);
+
+                svg += `<text x="${colX}" y="${y + 16}" font-family="sans-serif" font-size="15" font-weight="bold" fill="#0984e3">Q${item.num}.</text>`;
+                svg += this.renderPureSVG(item.q.q, colX + 36, y, "#2d3436", 15, false, false);
+                svg += `<line x1="${colX}" y1="${y + h}" x2="${colX + colWidth}" y2="${y + h}" stroke="#f4f6f8" stroke-width="1"/>`;
+
+                const ax = colX + colWidth - ansW, ay = y + h / 2 - ansH / 2;
+                svg += `<rect x="${ax}" y="${ay}" width="${ansW}" height="${ansH}" fill="#f0faf7" stroke="#d9f2e9" stroke-width="1" rx="4"/>`;
+                svg += this.renderPureSVG(item.q.a, ax + ansW / 2, ay + ansH / 2 - 11, "#00b894", 15, true, true);
+
+                answerZones.push({ xFrac: ax / width, yFrac: ay / totalH, wFrac: ansW / width, hFrac: ansH / totalH, revealed: false });
+
+                y += h;
+            });
         });
         svg += `</svg>`;
         this.widgetEl.style.display = 'none';
 
         createStampFromSVG(svg, (stamp) => {
             if (this.editingImage) {
+                // ✅ Sans ceci, le moteur de dessin (qui indexe les images par src) ne trouve pas
+                // la nouvelle version et continue d'afficher l'ancien tampon (ou plus rien du tout).
+                if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
                 this.editingImage.src = stamp.src; this.editingImage.w = stamp.w; this.editingImage.h = stamp.h; this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
                 this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state));
-                this.editingImage.pluginData.cacheActive = true;
+                this.editingImage.pluginData.answerZones = answerZones;
                 this.editingImage = null;
                 if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); if (typeof setMode === 'function') setMode('pointer');
             } else {
                 this.currentStamp = stamp;
+                this.currentAnswerZones = answerZones;
                 if (typeof setMode === 'function') setMode('flashMathTool');
-                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser la série. Cliquez sur le cache gris pour corriger !", "#0984e3", "📚");
+                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser la série. Cliquez sur chaque cache gris pour révéler une réponse !", "#0984e3", "📚");
             }
         });
     },
 
+    drawCacheZone: function (ctx, x, y, w, h) {
+        ctx.save();
+        ctx.fillStyle = "#bdc3c7";
+        ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.min(6, h / 4)); ctx.fill();
+        ctx.fillStyle = "#2d3436";
+        ctx.font = `bold ${Math.max(9, h * 0.28)}px sans-serif`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("?", x + w / 2, y + h / 2);
+        ctx.restore();
+    },
+
     // ==========================================
-    // INTERCEPTEURS CANVAS (Cache Interactif Réparé)
+    // INTERCEPTEURS CANVAS (cache interactif, une zone par question)
     // ==========================================
     onPointerDown: function (pos) {
         if (typeof mode !== 'undefined' && mode === 'flashMathTool' && this.currentStamp) {
@@ -14917,20 +16298,25 @@ registerPlugin('flashMathTool', 'Exercices', {
                 id: typeof nextId !== 'undefined' ? nextId++ : Date.now(), x: pos.x - this.currentStamp.w / 2, y: pos.y - this.currentStamp.h / 2,
                 w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
                 src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
-                pluginData: { id: 'flashMathTool', state: JSON.parse(JSON.stringify(this.state)), cacheActive: true }
+                pluginData: { id: 'flashMathTool', state: JSON.parse(JSON.stringify(this.state)), answerZones: JSON.parse(JSON.stringify(this.currentAnswerZones || [])) }
             });
             if (typeof saveState === 'function') saveState(); if (typeof setMode === 'function') setMode('pointer');
-            this.currentStamp = null; if (typeof draw === 'function') draw(); return true;
+            this.currentStamp = null; this.currentAnswerZones = null; if (typeof draw === 'function') draw(); return true;
         }
 
         if (typeof mode !== 'undefined' && mode === 'pointer' && typeof images !== 'undefined') {
             for (let i = images.length - 1; i >= 0; i--) {
                 let img = images[i];
-                if (img.pluginData && img.pluginData.id === 'flashMathTool' && img.pluginData.cacheActive) {
-                    let cacheZoneX = img.x + img.w * 0.65;
-                    if (pos.x >= cacheZoneX && pos.x <= img.x + img.w && pos.y >= img.y && pos.y <= img.y + img.h) {
-                        img.pluginData.cacheActive = false;
-                        if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); return true;
+                if (img.pluginData && img.pluginData.id === 'flashMathTool' && img.pluginData.answerZones) {
+                    for (const zone of img.pluginData.answerZones) {
+                        if (zone.revealed) continue;
+                        const zx = img.x + zone.xFrac * img.w, zy = img.y + zone.yFrac * img.h;
+                        const zw = zone.wFrac * img.w, zh = zone.hFrac * img.h;
+                        if (pos.x >= zx && pos.x <= zx + zw && pos.y >= zy && pos.y <= zy + zh) {
+                            zone.revealed = true;
+                            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
+                            return true;
+                        }
                     }
                 }
             }
@@ -14940,19 +16326,25 @@ registerPlugin('flashMathTool', 'Exercices', {
 
     onDraw: function (ctx) {
         if (typeof mode !== 'undefined' && mode === 'flashMathTool' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
-            ctx.globalAlpha = 0.8; ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2); ctx.globalAlpha = 1.0;
+            let cx = mouseLogicalPos.x - this.currentStamp.w / 2;
+            let cy = mouseLogicalPos.y - this.currentStamp.h / 2;
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(this.currentStamp.img, cx, cy);
+            ctx.globalAlpha = 1.0;
+
+            (this.currentAnswerZones || []).forEach(zone => this.drawCacheZone(
+                ctx, cx + zone.xFrac * this.currentStamp.w, cy + zone.yFrac * this.currentStamp.h,
+                zone.wFrac * this.currentStamp.w, zone.hFrac * this.currentStamp.h
+            ));
         }
 
         if (typeof images !== 'undefined') {
             images.forEach(img => {
-                if (img.pluginData && img.pluginData.id === 'flashMathTool' && img.pluginData.cacheActive) {
-                    let ansX = img.x + 530; let startY = img.y + 60; let w = 240; let h = img.h - 90;
-                    ctx.save();
-                    ctx.fillStyle = "#bdc3c7"; ctx.beginPath(); ctx.roundRect(ansX, startY, w, h, 8); ctx.fill();
-                    ctx.translate(ansX + w / 2, startY + h / 2); ctx.rotate(-Math.PI / 2);
-                    ctx.fillStyle = "#2d3436"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                    ctx.fillText("CLIQUEZ POUR CORRIGER", 0, 0);
-                    ctx.restore();
+                if (img.pluginData && img.pluginData.id === 'flashMathTool' && img.pluginData.answerZones) {
+                    img.pluginData.answerZones.forEach(zone => {
+                        if (zone.revealed) return;
+                        this.drawCacheZone(ctx, img.x + zone.xFrac * img.w, img.y + zone.yFrac * img.h, zone.wFrac * img.w, zone.hFrac * img.h);
+                    });
                 }
             });
         }
@@ -14995,7 +16387,7 @@ registerPlugin('binaroTool', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 250px); width:500px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 250px); width:500px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -15501,7 +16893,7 @@ registerPlugin('pythagoreTool', 'Maths - Numérique', {
 
         this.widgetEl = document.createElement('div');
         // Interface plus large pour donner de la place à la preview, et sidebar plus compacte
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 420px); width:840px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 420px); width:840px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -16026,7 +17418,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 450px); width:900px; height:85vh; background:#f8f9fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Segoe UI', sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 450px); width:900px; height:85vh; background:#f8f9fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -17024,7 +18416,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
 
                 let mid = (sa.start + sa.end) / 2;
                 let textPos = polarToCartesian(0, 0, radius * 0.6, mid);
-                out += `<text x="${textPos.x}" y="${textPos.y}" fill="white" font-family="sans-serif" font-weight="bold" font-size="12" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid * 180 / Math.PI}, ${textPos.x}, ${textPos.y})">${sa.s.l}</text>`;
+                out += `<text x="${textPos.x}" y="${textPos.y}" fill="white" font-family="sans-serif" font-weight="bold" font-size="12" text-anchor="middle" dominant-baseline="middle" transform="rotate(${mid * 180 / Math.PI}, ${textPos.x}, ${textPos.y})">${xmlEsc(sa.s.l)}</text>`;
             }
 
             out += `<circle cx="0" cy="0" r="15" fill="#2d3436"/>`;
@@ -17093,9 +18485,9 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
             svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${color}" rx="2"/>`;
             let label = this.activeTool === 'cards' ? k.replace(' de Cœur', '♥').replace(' de Carreau', '♦').replace(' de Trèfle', '♣').replace(' de Pique', '♠') : k;
             if (keys.length > 8) {
-                svg += `<text x="${x + barW / 2}" y="${h - padY + 15}" font-family="sans-serif" font-size="12" fill="#636e72" text-anchor="start" transform="rotate(45, ${x + barW / 2}, ${h - padY + 15})">${label}</text>`;
+                svg += `<text x="${x + barW / 2}" y="${h - padY + 15}" font-family="sans-serif" font-size="12" fill="#636e72" text-anchor="start" transform="rotate(45, ${x + barW / 2}, ${h - padY + 15})">${xmlEsc(label)}</text>`;
             } else {
-                svg += `<text x="${x + barW / 2}" y="${h - padY + 15}" font-family="sans-serif" font-size="12" fill="#636e72" text-anchor="middle">${label}</text>`;
+                svg += `<text x="${x + barW / 2}" y="${h - padY + 15}" font-family="sans-serif" font-size="12" fill="#636e72" text-anchor="middle">${xmlEsc(label)}</text>`;
             }
 
             let freq = (eff / this.totalRolls * 100).toFixed(1) + "%";
@@ -17193,7 +18585,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         grid.appendChild(btn);
 
         const modalHTML = `
-        <div id="evol-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:10000; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family:-apple-system, sans-serif;">
+        <div id="evol-backdrop" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:10000; background:rgba(0,0,0,0.4); backdrop-filter:blur(2px); font-family: sans-serif;">
             <div id="evol-modal" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:950px; height:650px; background:#fdfdfd; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden;">
                 
                 <div style="position:relative; height:50px; background:#1f2937; color:white; display:flex; justify-content:space-between; align-items:center; padding:0 15px; user-select:none;">
@@ -17482,6 +18874,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
 
         let hoveredNode = this.state.nodes.find(n => Math.hypot(n.x - wx, n.y - wy) < 35);
         let hoveredArrow = this.findArrowTextAt(wx, wy);
+        this.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
 
         // Curseur
         if (this.currentTool === 'pan') {
@@ -17623,7 +19016,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         let screenX = x + this.viewport.x;
         let screenY = y + this.viewport.y;
 
-        inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family:sans-serif; font-size:15px; pointer-events:auto;`;
+        inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:15px; pointer-events:auto;`;
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
         this.htmlLayer.appendChild(inp);
@@ -17737,7 +19130,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
             } else {
                 // Zone de surbrillance si sélectionnée pour aider à voir ce qu'on bouge
                 if (isSelected) svg += `<rect x="${txtX - 35}" y="${txtY - 12}" width="70" height="24" rx="4" fill="#0984e3" opacity="0.1"/>`;
-                svg += `<text x="${txtX}" y="${txtY}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="15" fill="${nA.stroke}">${textStr}</text>`;
+                svg += `<text x="${txtX}" y="${txtY}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="15" fill="${nA.stroke}">${xmlEsc(textStr)}</text>`;
             }
 
             // La Hitbox pure est désormais traitée par findArrowTextAt en Javascript, donc ce div ne sert qu'à afficher les boutons
@@ -17776,8 +19169,12 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
             let isSelected = (this.selectedIds.type === 'node' && this.selectedIds.id === n.id);
             if (isSelected) svg += `<circle cx="${n.x}" cy="${n.y}" r="${R + 6}" fill="none" stroke="#0984e3" stroke-width="2" stroke-dasharray="4,4"/>`;
 
+            if (this.currentTool === 'arrow' && this.hoveredNodeId === n.id) {
+                svg += `<circle cx="${n.x}" cy="${n.y}" r="${R + 4}" fill="none" stroke="#2ecc71" stroke-width="4" opacity="0.6"/>`;
+            }
+
             svg += `<circle cx="${n.x}" cy="${n.y}" r="${R}" fill="${n.fill}" stroke="${n.stroke}" stroke-width="${n.strokeWidth}"/>`;
-            svg += `<text x="${n.x}" y="${n.y}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="16" fill="${n.stroke}">${n.label}</text>`;
+            svg += `<text x="${n.x}" y="${n.y}" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="16" fill="${n.stroke}">${xmlEsc(n.label)}</text>`;
         });
 
         svg += `</g>`;
@@ -17925,6 +19322,7 @@ class ScratchInterpreter {
   </g>
 </svg>`;
         this.catImg = new Image();
+        this.catImg.onload = () => { this.render(); };
         this.catImg.src = this.catSVG;
     }
 
@@ -17943,7 +19341,8 @@ class ScratchInterpreter {
             pen: JSON.parse(JSON.stringify(this.pen)),
             vars: JSON.parse(JSON.stringify(this.vars)),
             penPaths: JSON.parse(JSON.stringify(this.penPaths)),
-            currentPath: this.currentPath ? JSON.parse(JSON.stringify(this.currentPath)) : null
+            currentPath: this.currentPath ? JSON.parse(JSON.stringify(this.currentPath)) : null,
+            activeBlockId: this.activeBlockId || null
         });
     }
 
@@ -17955,6 +19354,20 @@ class ScratchInterpreter {
         this.vars = JSON.parse(JSON.stringify(state.vars));
         this.penPaths = JSON.parse(JSON.stringify(state.penPaths));
         this.currentPath = state.currentPath ? JSON.parse(JSON.stringify(state.currentPath)) : null;
+
+        // Highlight active block
+        if (this.plugin && this.plugin.allBlocks) {
+            this.plugin.allBlocks.forEach(b => {
+                if (b.pathEl) b.pathEl.style.filter = "var(--block-filter)";
+            });
+            if (state.activeBlockId) {
+                const activeBlock = this.plugin.allBlocks.find(b => b.id === state.activeBlockId);
+                if (activeBlock && activeBlock.pathEl) {
+                    activeBlock.pathEl.style.filter = "brightness(1.4) drop-shadow(0 0 4px rgba(0,0,0,0.5))";
+                }
+            }
+        }
+
         this.render();
     }
 
@@ -17966,6 +19379,7 @@ class ScratchInterpreter {
         this.history = [];
         this.stepCount = 0;
         this.isRunning = true;
+        this.activeBlockId = null;
         this.recordState(); // initial state
 
         let entryPoint = blocks.find(b => b.def.parts[0] === 'quand le drapeau vert est cliqué' && !b.parent);
@@ -17974,6 +19388,9 @@ class ScratchInterpreter {
         if (entryPoint) {
             await this.runStack(entryPoint);
         }
+
+        this.activeBlockId = null;
+        this.recordState(); // final state without highlight
 
         this.isRunning = false;
         this.isRecording = false;
@@ -18055,6 +19472,8 @@ class ScratchInterpreter {
             return;
         }
         this.stepCount++;
+        this.activeBlockId = block.id;
+        this.recordState();
 
         const text = block.def.parts[0];
         const args = await this.getArgs(block);
@@ -18374,6 +19793,13 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             this.widgetEl.style.display = 'flex';
             const previewEl = document.querySelector('#sc-preview-thumbnail');
             if (previewEl) previewEl.style.display = 'flex';
+
+            // Center the cat whenever we re-open the widget
+            if (this.interpreter && this.interpreter.sprite) {
+                this.previewPanX = -this.interpreter.sprite.x * this.previewZoom;
+                this.previewPanY = this.interpreter.sprite.y * this.previewZoom;
+                if (this.updatePreviewTransform) this.updatePreviewTransform();
+            }
             return;
         }
 
@@ -18384,7 +19810,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'scratch-plugin-wrap';
-        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:system-ui, -apple-system, sans-serif; border:1px solid #dfe6e9;`;
+        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Roboto', sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -18434,7 +19860,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
             .sc-block-group { cursor: grab; }
             .sc-block-path { stroke: var(--block-stroke); stroke-width: var(--block-stroke-width); fill-rule: evenodd; filter: var(--block-filter); transition: fill 0.2s, stroke 0.2s; }
-            .sc-block-text { fill: var(--text-color); font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 600; font-size: 13px; pointer-events: none; dominant-baseline: central; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+            .sc-block-text { fill: var(--text-color); font-family: sans-serif; font-weight: 600; font-size: 13px; pointer-events: none; dominant-baseline: central; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
             #scratch-plugin-wrap.style-bw .sc-block-text { text-shadow: none; }
             #scratch-plugin-wrap.opt-outline {
                 --block-stroke: #000; --block-stroke-width: 1.5px;
@@ -18452,7 +19878,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             }
             #scratch-plugin-wrap.style-bw .sc-block-path { stroke: #000; stroke-width: 1.5px; }
             #scratch-plugin-wrap.style-bw .sc-cat-dot { border-color: #000; }
-            .sc-input-field { width: 100%; height: 100%; border: none; outline: none; background: transparent; color: var(--input-text); font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; text-align: center; padding: 0; margin: 0; cursor: text; }
+            .sc-input-field { width: 100%; height: 100%; border: none; outline: none; background: transparent; color: var(--input-text); font-family: sans-serif; font-size: 13px; font-weight: 600; text-align: center; padding: 0; margin: 0; cursor: text; }
             .sc-slot-bg.num { fill: var(--input-bg); stroke: var(--slot-stroke); stroke-width: 1px; }
             .sc-slot-bg.bool { fill: var(--slot-hex-bg); stroke: var(--slot-stroke); stroke-width: 1px; }
             #sc-context-menu { position: absolute; display: none; background: white; border: 1px solid #ccc; box-shadow: 0 5px 15px rgba(0,0,0,0.1); border-radius: 6px; z-index: 1000; overflow:hidden;}
@@ -18533,6 +19959,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                             <button id="sc-btn-prev-zoom-out" title="Dézoomer" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">➖</button>
                             <button id="sc-btn-prev-zoom-reset" title="Réinitialiser" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">O</button>
                             <button id="sc-btn-prev-zoom-in" title="Zoomer" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">➕</button>
+                            <div style="width:1px; height:20px; background:#b2bec3; margin:0 5px;"></div>
+                            <button id="sc-btn-center-cat" title="Centrer sur le Chat" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">🐱</button>
                         </div>
                         <div id="sc-preview-canvas-wrap" style="flex:1; position:relative; background:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAAXNSR0IArs4c6QAAACVJREFUKFNjZCASMDKgAhgg/gMxIxnBRbBhQhXBhglVBBtGVQEAhF8Bwa2/9o4AAAAASUVORK5CYII=') repeat; overflow:hidden; cursor:grab;">
                             <div id="sc-preview-canvas-inner" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); pointer-events:none;">
@@ -18643,7 +20071,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         function getTextWidth(text) {
             const c = document.createElement("canvas");
             const ctx = c.getContext("2d");
-            ctx.font = "600 13px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif";
+            ctx.font = "600 13px sans-serif";
             return ctx.measureText(text).width;
         }
 
@@ -18655,6 +20083,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         class Block {
             constructor(def, x, y, parentSVG, isPalette = false) {
+                this.id = Math.random().toString(36).substr(2, 9);
                 this.def = def; this.type = def.type; this.cat = def.cat;
                 this.parent = null; this.next = null; this.child = null; this.child2 = null;
                 this.inputSlots = []; this.x = x; this.y = y;
@@ -18828,7 +20257,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                 this.parts.forEach(part => {
                     if (this.type === 'e-block' && part.val === 'sinon') return;
-                    if (part.type === 'label') { part.w = getTextWidth(part.val); part.h = 16; }
+                    if (part.type === 'label') { part.w = (part.val === '↻' || part.val === '↺') ? 16 : getTextWidth(part.val); part.h = 16; }
                     else if (part.type === 'input') {
                         const slot = part.spec;
                         if (slot.childBlock) { part.w = slot.childBlock.width; part.h = slot.childBlock.height; }
@@ -18850,10 +20279,29 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                     if (part.type === 'label') {
                         if ((this.type === 'reporter' || this.type === 'boolean') && cx <= 8) cx += 4;
-                        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                        t.classList.add("sc-block-text"); t.textContent = part.val;
-                        t.setAttribute("x", cx); t.setAttribute("y", midY);
-                        this.contentGroup.appendChild(t);
+                        if (part.val === '↻' || part.val === '↺') {
+                            // Icône vectorielle plutôt qu'un glyphe Unicode : évite les soucis de
+                            // police manquante lors du rendu SVG->image à l'export sur le tableau.
+                            const isCW = part.val === '↻';
+                            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                            g.setAttribute("transform", `translate(${cx}, ${midY - 8}) scale(0.6)`);
+                            g.setAttribute("fill", "none");
+                            g.style.stroke = "var(--text-color)";
+                            g.setAttribute("stroke-width", "2.5");
+                            g.setAttribute("stroke-linecap", "round");
+                            g.setAttribute("stroke-linejoin", "round");
+                            const poly = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            poly.setAttribute("d", isCW ? "M23 4 L23 10 L17 10" : "M1 4 L1 10 L7 10");
+                            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            arc.setAttribute("d", isCW ? "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" : "M3.51 15a9 9 0 1 0 2.13-9.36L1 10");
+                            g.appendChild(poly); g.appendChild(arc);
+                            this.contentGroup.appendChild(g);
+                        } else {
+                            const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                            t.classList.add("sc-block-text"); t.textContent = part.val;
+                            t.setAttribute("x", cx); t.setAttribute("y", midY);
+                            this.contentGroup.appendChild(t);
+                        }
                         cx += part.w + 8;
                     }
                     else if (part.type === 'input') {
@@ -19100,13 +20548,16 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         const wrap = this.widgetEl.querySelector('#sc-preview-canvas-wrap');
         const inner = this.widgetEl.querySelector('#sc-preview-canvas-inner');
         const scCanvas = this.widgetEl.querySelector('#sc-preview-canvas');
+        if (!this.interpreter && scCanvas) {
+            this.interpreter = new ScratchInterpreter(scCanvas, this);
+        }
         if (wrap && inner && scCanvas) {
             let isDraggingCanvas = false;
             let lastX, lastY;
 
             self.previewPanX = 0;
             self.previewPanY = 0;
-            self.previewZoom = 1;
+            self.previewZoom = 1.5; // Bigger from the start
 
             const updatePreviewTransform = () => {
                 inner.style.transform = `translate(calc(-50% + ${self.previewPanX}px), calc(-50% + ${self.previewPanY}px))`;
@@ -19121,10 +20572,18 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                     self.interpreter.render();
                 }
             };
+            self.updatePreviewTransform = updatePreviewTransform;
 
             this.widgetEl.querySelector('#sc-btn-prev-zoom-in').onclick = () => { self.previewZoom = Math.min(5, self.previewZoom + 0.2); updatePreviewTransform(); };
             this.widgetEl.querySelector('#sc-btn-prev-zoom-out').onclick = () => { self.previewZoom = Math.max(0.2, self.previewZoom - 0.2); updatePreviewTransform(); };
             this.widgetEl.querySelector('#sc-btn-prev-zoom-reset').onclick = () => { self.previewZoom = 1; self.previewPanX = 0; self.previewPanY = 0; updatePreviewTransform(); };
+            this.widgetEl.querySelector('#sc-btn-center-cat').onclick = () => {
+                if (self.interpreter && self.interpreter.sprite) {
+                    self.previewPanX = -self.interpreter.sprite.x * self.previewZoom;
+                    self.previewPanY = self.interpreter.sprite.y * self.previewZoom;
+                    updatePreviewTransform();
+                }
+            };
 
             wrap.onmousedown = (e) => {
                 isDraggingCanvas = true;
@@ -19148,18 +20607,16 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             wrap.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 if (e.ctrlKey) {
-                    // Pinch to zoom
                     const zoomDelta = e.deltaY * -0.01;
                     self.previewZoom = Math.max(0.2, Math.min(5, self.previewZoom + zoomDelta));
                 } else {
-                    // Two-finger pan (trackpad)
                     self.previewPanX -= e.deltaX;
                     self.previewPanY -= e.deltaY;
                 }
                 updatePreviewTransform();
             }, { passive: false });
 
-            setTimeout(updatePreviewTransform, 100);
+            updatePreviewTransform(); // Call immediately
         }
 
         // Drag logic for preview modal
@@ -19681,11 +21138,18 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         for (let i = 0; i < originalTexts.length; i++) {
             const computedStyle = window.getComputedStyle(originalTexts[i]);
             cloneTexts[i].style.fill = computedStyle.fill;
-            cloneTexts[i].style.fontFamily = computedStyle.fontFamily;
+            cloneTexts[i].style.fontFamily = "sans-serif";
+            cloneTexts[i].setAttribute("font-family", "sans-serif");
             cloneTexts[i].style.fontSize = computedStyle.fontSize;
-            cloneTexts[i].style.fontWeight = computedStyle.fontWeight;
+            // svg2pdf/jsPDF ne comprennent que les mots-clés 'normal'/'bold', pas les poids numériques
+            // que le navigateur renvoie toujours dans getComputedStyle (ex: "600").
+            cloneTexts[i].style.fontWeight = (parseInt(computedStyle.fontWeight, 10) || 400) >= 600 ? 'bold' : 'normal';
             cloneTexts[i].style.textShadow = computedStyle.textShadow;
             cloneTexts[i].setAttribute("dominant-baseline", "central");
+            // svg2pdf ignore dominant-baseline (propriété non supportée) et ne comprend que
+            // alignment-baseline : sans ça, le texte retombe sur la ligne de base par défaut
+            // au lieu d'être centré verticalement, d'où le décalage visible uniquement dans le PDF.
+            cloneTexts[i].setAttribute("alignment-baseline", "central");
         }
 
         const originalInputs = svg.querySelectorAll('input');
@@ -19705,8 +21169,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             text.setAttribute("x", w / 2);
             text.setAttribute("y", h / 2);
             text.setAttribute("dominant-baseline", "central");
+            text.setAttribute("alignment-baseline", "central");
             text.setAttribute("text-anchor", "middle");
-            text.style.fontFamily = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+            text.style.fontFamily = "sans-serif";
             text.style.fontSize = "12px";
             text.style.fontWeight = "bold";
 
@@ -19727,6 +21192,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         }
 
         this.widgetEl.style.display = 'none';
+        const previewEl = document.querySelector('#sc-preview-thumbnail');
+        if (previewEl) previewEl.style.display = 'none';
 
         const serializeBlock = (b) => {
             if (!b) return null;
@@ -19765,6 +21232,12 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         this.editingImage = imgObj;
         this.openWidget();
 
+        // Prevent double click bleed-through
+        if (this.widgetEl) {
+            this.widgetEl.style.pointerEvents = 'none';
+            setTimeout(() => { this.widgetEl.style.pointerEvents = 'auto'; }, 300);
+        }
+
         setTimeout(() => {
             // Nettoyage de l'espace de travail avant réédition pour éviter les duplications
             if (this.allBlocks) {
@@ -19792,6 +21265,10 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 if (obj.child) { b.child = deserializeBlock(obj.child, container); b.child.parent = b; }
                 if (obj.child2) { b.child2 = deserializeBlock(obj.child2, container); b.child2.parent = b; }
                 if (obj.next) { b.next = deserializeBlock(obj.next, container); b.next.parent = b; }
+
+                // CRITICAL: Re-render the block now that its children and inputs are attached,
+                // so it computes the correct totalHeight bottom-up.
+                b.render();
                 return b;
             };
 
@@ -20061,7 +21538,7 @@ registerPlugin('mathTaupeTool', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = `position:fixed; top:80px; left:60px; width:280px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;`;
+        this.widgetEl.style.cssText = `position:fixed; top:80px; left:60px; width:280px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -20535,7 +22012,7 @@ registerPlugin('tamaMathTool', 'Détente', {
             if (t.state === 'talking') {
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                 ctx.strokeStyle = '#2d3436'; ctx.lineWidth = 2;
-                ctx.font = 'bold 12px sans-serif';
+                ctx.font = 'bold 12px \'sans-serif\', sans-serif';
                 const textW = ctx.measureText(t.msg).width;
                 ctx.beginPath(); ctx.roundRect(-textW / 2 - 10, -t.size - 30, textW + 20, 24, 8);
                 ctx.fill(); ctx.stroke();
@@ -20607,6 +22084,962 @@ registerPlugin('tamaMathTool', 'Détente', {
         });
     }
 });
+
+// ==========================================
+// PLUGIN : FEUX D'ARTIFICE 2.0 (Son, Spinning, Multi-Explosions)
+// ==========================================
+registerPlugin('fireworksTool', 'Détente', {
+    widgetEl: null, canvas: null, ctx: null, animFrame: null,
+
+    rockets: [], particles: [],
+
+    // Moteur Audio natif
+    audioCtx: null,
+
+    state: {
+        duration: 30,
+        intensity: 2,
+        palette: 'classic',
+        sound: true,
+        startTime: 0,
+        isPlaying: false
+    },
+
+    palettes: {
+        classic: ['#ff4757', '#ffa502', '#2ed573', '#1e90ff', '#ffffff', '#ff6b81'],
+        pastel: ['#ff9ff3', '#feca57', '#ff6b6b', '#48dbfb', '#1dd1a1'],
+        neon: ['#ff00ff', '#00ffff', '#00ff00', '#ffff00'],
+        patriote: ['#0984e3', '#ffffff', '#d63031'],
+        or: ['#f1c40f', '#f39c12', '#e67e22', '#d35400', '#fff200']
+    },
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Feux d\'artifice (Audio & FX)';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>`;
+        grid.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (typeof setMode === 'function') setMode('pointer');
+            this.openWidget();
+        });
+    },
+
+    openWidget: function () {
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.style.cssText = `position:fixed; top:10vh; left:calc(50% - 150px); width:300px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .fw-header { background:#2d3436; color:#fff; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; font-size:15px; font-weight:bold; user-select:none; }
+            .fw-body { padding:15px; display:flex; flex-direction:column; gap:12px; }
+            .fw-group { display:flex; flex-direction:column; gap:6px; }
+            .fw-label { font-size:12px; font-weight:bold; color:#636e72; text-transform:uppercase; }
+            .fw-select { width:100%; padding:8px; border:1px solid #bdc3c7; border-radius:6px; font-family:inherit; outline:none; }
+            .fw-btn { background:#ff4757; color:#fff; padding:10px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:14px; transition:0.2s; margin-top:5px;}
+            .fw-btn:hover { background:#ff6b81; transform:translateY(-2px); box-shadow:0 4px 10px rgba(255,107,129,0.3);}
+        `;
+        this.widgetEl.appendChild(style);
+
+        this.widgetEl.innerHTML += `
+            <div class="fw-header" id="fw-drag-handle">
+                <div>🎆 Grand Spectacle</div>
+                <button id="fw-close" style="background:none; border:none; color:#ff7675; cursor:pointer; font-size:18px;">✕</button>
+            </div>
+            <div class="fw-body">
+                <div class="fw-group"><div class="fw-label">Durée</div><select id="fw-duration" class="fw-select"><option value="15">Rapide (15 sec)</option><option value="30" selected>Standard (30 sec)</option><option value="60">Long (1 min)</option></select></div>
+                <div class="fw-group"><div class="fw-label">Intensité</div><select id="fw-intensity" class="fw-select"><option value="1">Légère</option><option value="2" selected>Moyenne</option><option value="3">Forte (Nouvel An)</option></select></div>
+                <div class="fw-group"><div class="fw-label">Couleurs</div><select id="fw-palette" class="fw-select"><option value="classic" selected>Classique</option><option value="or">Pluie d'Or</option><option value="neon">Neon</option><option value="pastel">Pastel</option></select></div>
+                <div class="fw-group"><div class="fw-label">Son</div><select id="fw-sound" class="fw-select"><option value="true" selected>Activé (Bruitages)</option><option value="false">Désactivé (Silencieux)</option></select></div>
+                <button class="fw-btn" id="fw-start">LANCER LES FEUX !</button>
+            </div>
+        `;
+        document.body.appendChild(this.widgetEl);
+
+        let isDragging = false, startX, startY;
+        this.widgetEl.querySelector('#fw-drag-handle').onmousedown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
+        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        this.widgetEl.querySelector('#fw-close').onclick = () => this.widgetEl.style.display = 'none';
+
+        this.widgetEl.querySelector('#fw-start').onclick = () => {
+            this.state.duration = parseInt(this.widgetEl.querySelector('#fw-duration').value);
+            this.state.intensity = parseInt(this.widgetEl.querySelector('#fw-intensity').value);
+            this.state.palette = this.widgetEl.querySelector('#fw-palette').value;
+            this.state.sound = this.widgetEl.querySelector('#fw-sound').value === "true";
+
+            // Initialisation de l'AudioContext sur un geste utilisateur (obligatoire pour les navigateurs)
+            if (this.state.sound && !this.audioCtx) {
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+            this.widgetEl.style.display = 'none';
+            this.startShow();
+        };
+    },
+
+    // --- SYNTHÉTISATEUR AUDIO PUR JS ---
+    playSound: function (type) {
+        if (!this.state.sound || !this.audioCtx) return;
+
+        const ctx = this.audioCtx;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+
+        if (type === 'launch') {
+            // Sifflement de lancement (Bruit blanc filtré)
+            const bufferSize = ctx.sampleRate;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(800, now);
+            filter.frequency.exponentialRampToValueAtTime(300, now + 1);
+
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 1);
+
+            noise.connect(filter).connect(gain);
+            noise.start(); noise.stop(now + 1);
+
+        } else if (type === 'boom') {
+            // Grosse explosion sourde
+            const bufferSize = ctx.sampleRate * 2;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(400, now);
+            filter.frequency.exponentialRampToValueAtTime(50, now + 1.5);
+
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+
+            noise.connect(filter).connect(gain);
+            noise.start(); noise.stop(now + 1.5);
+
+        } else if (type === 'crackle') {
+            // Petit crépitement aigu
+            const bufferSize = ctx.sampleRate * 0.2;
+            const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+            const noise = ctx.createBufferSource();
+            noise.buffer = buffer;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.setValueAtTime(2000, now);
+
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+            noise.connect(filter).connect(gain);
+            noise.start(); noise.stop(now + 0.2);
+        }
+    },
+
+    startShow: function () {
+        this.stopShow();
+        this.state.isPlaying = true;
+        this.state.startTime = Date.now();
+        this.rockets = [];
+        this.particles = [];
+
+        this.canvas = document.createElement('canvas');
+        this.canvas.id = 'fw-canvas-overlay';
+        this.canvas.style.cssText = `position:fixed; top:0; left:0; width:100%; height:100%; z-index:999999; pointer-events:auto; background:rgba(10, 15, 30, 0.7); transition:opacity 1s; opacity:0;`;
+        document.body.appendChild(this.canvas);
+
+        this.resizeCanvas();
+        this.ctx = this.canvas.getContext('2d');
+
+        setTimeout(() => this.canvas.style.opacity = '1', 50);
+        this.canvas.addEventListener('mousedown', () => this.stopShow());
+        window.addEventListener('resize', () => this.resizeCanvas());
+
+        this.loop();
+    },
+
+    stopShow: function () {
+        this.state.isPlaying = false;
+        cancelAnimationFrame(this.animFrame);
+        if (this.canvas) {
+            this.canvas.style.opacity = '0';
+            setTimeout(() => {
+                if (this.canvas && this.canvas.parentNode) this.canvas.remove();
+                this.canvas = null;
+            }, 1000);
+        }
+    },
+
+    resizeCanvas: function () {
+        if (!this.canvas) return;
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    },
+
+    randomColor: function () {
+        const p = this.palettes[this.state.palette];
+        return p[Math.floor(Math.random() * p.length)];
+    },
+
+    launchRocket: function () {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const isSpinning = Math.random() > 0.7; // 30% de fusées tournantes
+
+        this.rockets.push({
+            x: w * 0.1 + Math.random() * (w * 0.8),
+            y: h,
+            vx: (Math.random() - 0.5) * 3,
+            vy: -(Math.random() * 6 + 12),
+            color: this.randomColor(),
+            targetY: h * 0.1 + Math.random() * (h * 0.4),
+            type: Math.random(),
+            isSpinning: isSpinning,
+            spinAngle: 0,
+            spinSpeed: (Math.random() - 0.5) * 0.5
+        });
+
+        this.playSound('launch');
+    },
+
+    explode: function (rocket, generation = 1) {
+        const isSecondary = generation > 1;
+        const count = isSecondary ? (10 + Math.random() * 10) : (60 + Math.random() * 60);
+        const style = rocket.type || Math.random();
+
+        if (!isSecondary) this.playSound('boom');
+
+        for (let i = 0; i < count; i++) {
+            let angle = Math.random() * Math.PI * 2;
+            let speed = isSecondary ? (Math.random() * 3 + 1) : (Math.random() * 6 + 2);
+            let friction = 0.95;
+            let gravity = 0.15;
+            let decay = Math.random() * 0.015 + 0.015;
+            let color = rocket.color;
+            let size = isSecondary ? 1.5 : (Math.random() * 2 + 1);
+            let multiExplode = false;
+
+            if (!isSecondary) {
+                if (style < 0.2) {
+                    gravity = 0.05; decay = Math.random() * 0.005 + 0.005; // Saule
+                } else if (style < 0.4) {
+                    speed = 5; // Pivoine
+                } else if (style < 0.7) {
+                    // CROSSETTE : ces particules exploseront à nouveau
+                    multiExplode = true;
+                    decay = Math.random() * 0.02 + 0.03; // Meurent plus vite avant la 2ème explosion
+                }
+            }
+
+            this.particles.push({
+                x: rocket.x, y: rocket.y,
+                lx: rocket.x, ly: rocket.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                color: color, alpha: 1,
+                decay: decay, friction: friction, gravity: gravity, size: size,
+                generation: generation,
+                multiExplode: multiExplode
+            });
+        }
+
+        if (!isSecondary) {
+            this.ctx.fillStyle = rocket.color;
+            this.ctx.globalAlpha = 0.3;
+            this.ctx.beginPath(); this.ctx.arc(rocket.x, rocket.y, 120, 0, Math.PI * 2); this.ctx.fill();
+        }
+    },
+
+    updateAndDraw: function () {
+        const w = this.canvas.width; const h = this.canvas.height; const ctx = this.ctx;
+
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'lighter';
+
+        // Fusées
+        for (let i = this.rockets.length - 1; i >= 0; i--) {
+            let r = this.rockets[i];
+
+            ctx.beginPath(); ctx.moveTo(r.x, r.y);
+
+            r.x += r.vx;
+            r.y += r.vy;
+            r.vy += 0.12;
+
+            // Effet tourbillon
+            if (r.isSpinning) {
+                r.x += Math.sin(r.spinAngle) * 5;
+                r.spinAngle += r.spinSpeed;
+                // Laisse des petites étincelles
+                if (Math.random() > 0.5) {
+                    this.particles.push({ x: r.x, y: r.y, lx: r.x, ly: r.y, vx: 0, vy: 0, color: '#f1c40f', alpha: 1, decay: 0.05, friction: 0.9, gravity: 0.1, size: 2, generation: 3 });
+                }
+            }
+
+            ctx.lineTo(r.x, r.y);
+            ctx.strokeStyle = r.color; ctx.lineWidth = 3; ctx.stroke();
+
+            if (r.vy >= -1 || r.y <= r.targetY) {
+                this.explode(r, 1);
+                this.rockets.splice(i, 1);
+            }
+        }
+
+        // Particules
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            let p = this.particles[i];
+
+            p.lx = p.x; p.ly = p.y;
+            p.vx *= p.friction; p.vy *= p.friction; p.vy += p.gravity;
+            p.x += p.vx; p.y += p.vy;
+            p.alpha -= p.decay;
+
+            if (p.alpha <= 0) {
+                // EXPLOSION SECONDAIRE (Crossettes / Crépitements)
+                if (p.generation === 1 && p.multiExplode) {
+                    this.explode(p, 2);
+                    if (Math.random() < 0.3) this.playSound('crackle'); // On limite pour ne pas saturer l'audio
+                }
+                this.particles.splice(i, 1);
+                continue;
+            }
+
+            ctx.beginPath(); ctx.moveTo(p.lx, p.ly); ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = p.color; ctx.lineWidth = p.size;
+            ctx.globalAlpha = p.alpha; ctx.stroke();
+
+            if (p.alpha > 0.5) {
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = p.color; ctx.fill();
+            }
+        }
+        ctx.globalAlpha = 1.0;
+        ctx.globalCompositeOperation = 'source-over';
+    },
+
+    loop: function () {
+        if (!this.state.isPlaying) return;
+
+        const elapsed = (Date.now() - this.state.startTime) / 1000;
+        const remaining = this.state.duration - elapsed;
+
+        if (remaining <= 0 && this.rockets.length === 0 && this.particles.length === 0) {
+            this.stopShow(); return;
+        }
+
+        let spawnChance = 0;
+        const isFinale = remaining > 0 && remaining < 5;
+
+        if (remaining > 0) {
+            let baseRate = 0.02 * this.state.intensity;
+
+            if (isFinale) baseRate *= 4;
+            else if (remaining > this.state.duration - 2) baseRate = 0.15;
+
+            spawnChance = baseRate;
+
+            if (Math.random() < spawnChance) {
+                this.launchRocket();
+                if (Math.random() < 0.3) this.launchRocket();
+            }
+        }
+
+        if (isFinale && remaining > 3) {
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${(remaining - 3) * 0.5})`;
+            this.ctx.font = "bold 40px sans-serif";
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText("BOUQUET FINAL !", this.canvas.width / 2, 100);
+        }
+
+        this.updateAndDraw();
+        this.animFrame = requestAnimationFrame(() => this.loop());
+    }
+});
+
+// ==========================================
+// PLUGIN : ACCORDEUR PRO (Onde, Instruments & Diapason)
+// ==========================================
+registerPlugin('tunerTool', 'Musique', {
+    widgetEl: null,
+    canvas: null,
+    ctx: null,
+    animFrame: null,
+
+    // Audio
+    audioCtx: null,
+    analyser: null,
+    mediaStreamSource: null,
+    stream: null,
+    buffer: null,
+
+    state: {
+        isListening: false,
+        mode: 'guitar', // 'chromatic', 'guitar', 'bass', 'ukulele', 'violin', 'banjo'
+        a4Frequency: 440,
+        currentPitch: -1,
+        noteString: '--',
+        centsOff: 0,
+        smoothedCents: 0, // Pour éviter la tremblote
+        closestStringIdx: -1
+    },
+
+    notesFR: ['Do', 'Do#', 'Ré', 'Ré#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'],
+    notesEN: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+
+    // Dictionnaire des instruments (Notes MIDI)
+    instruments: {
+        guitar: [
+            { note: 40, name: 'Mi (E2)' }, { note: 45, name: 'La (A2)' },
+            { note: 50, name: 'Ré (D3)' }, { note: 55, name: 'Sol (G3)' },
+            { note: 59, name: 'Si (B3)' }, { note: 64, name: 'Mi (E4)' }
+        ],
+        bass: [
+            { note: 28, name: 'Mi (E1)' }, { note: 33, name: 'La (A1)' },
+            { note: 38, name: 'Ré (D2)' }, { note: 43, name: 'Sol (G2)' }
+        ],
+        ukulele: [
+            { note: 67, name: 'Sol (G4)' }, { note: 60, name: 'Do (C4)' },
+            { note: 64, name: 'Mi (E4)' }, { note: 69, name: 'La (A4)' }
+        ],
+        violin: [
+            { note: 55, name: 'Sol (G3)' }, { note: 62, name: 'Ré (D4)' },
+            { note: 69, name: 'La (A4)' }, { note: 76, name: 'Mi (E5)' }
+        ],
+        banjo: [
+            { note: 67, name: 'Sol (G4)' }, { note: 50, name: 'Ré (D3)' },
+            { note: 55, name: 'Sol (G3)' }, { note: 59, name: 'Si (B3)' },
+            { note: 62, name: 'Ré (D4)' }
+        ]
+    },
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Accordeur Pro';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"/><path d="M8 2v5a4 4 0 0 0 8 0V2"/><path d="M12 10v12"/><path d="M10 22h4"/></svg>`;
+        grid.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (typeof setMode === 'function') setMode('pointer');
+            this.openWidget();
+        });
+    },
+
+    openWidget: function () {
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.style.cssText = `position:fixed; top:15vh; left:calc(50% - 175px); width:350px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .tu-header { background:#0a0e14; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #0abde3; user-select:none; }
+            .tu-header:active { cursor:grabbing; }
+            .tu-title { font-weight:900; font-size:16px; color:#0abde3; text-transform:uppercase; letter-spacing:1px; }
+            .tu-body { padding:15px; display:flex; flex-direction:column; gap:10px; align-items:center;}
+            
+            .tu-controls { display:flex; gap:10px; width:100%; }
+            .tu-select { flex:2; padding:6px; border:1px solid #576574; border-radius:6px; background:#2f3640; color:#fff; font-weight:bold; outline:none; font-size:12px;}
+            .tu-input { flex:1; padding:6px; border:1px solid #576574; border-radius:6px; background:#2f3640; color:#fff; text-align:center; font-weight:bold; font-size:12px; outline:none;}
+            
+            .tu-btn { background:#0abde3; color:#fff; padding:10px; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer; transition:0.2s; width:100%; text-transform:uppercase;}
+            .tu-btn:hover { background:#48dbfb; }
+            .tu-btn.stop { background:#ee5253; }
+            .tu-btn.stop:hover { background:#ff6b6b; }
+            
+            .tu-canvas { background:#2f3640; border-radius:8px; width:100%; height:180px; box-shadow:inset 0 2px 10px rgba(0,0,0,0.5); }
+            
+            .tu-fretboard { display:flex; justify-content:space-around; align-items:flex-end; width:100%; height:80px; background:linear-gradient(180deg, #3d291f, #2c1a11); border-radius:8px; border:1px solid #576574; padding:5px 15px; position:relative; overflow:hidden;}
+            .tu-fret { position:absolute; left:0; width:100%; height:2px; background:#bdc3c7; top:50%; box-shadow:0 1px 2px rgba(0,0,0,0.5);}
+            
+            .tu-string-wrapper { display:flex; flex-direction:column; align-items:center; z-index:2; height:100%; justify-content:space-between; width:30px;}
+            .tu-peg { width:24px; height:24px; border-radius:50%; background:#7f8fa6; border:2px solid #353b48; color:#fff; font-size:10px; font-weight:bold; display:flex; justify-content:center; align-items:center; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.5); transition:0.2s; user-select:none;}
+            .tu-peg:hover { background:#feca57; border-color:#fff; color:#2d3436; transform:scale(1.1);}
+            .tu-peg.tuned { background:#1dd1a1; border-color:#fff; color:#2d3436; box-shadow:0 0 10px #1dd1a1;}
+            
+            .tu-string { width:4px; height:45px; background:linear-gradient(90deg, #718093, #dcdde1, #718093); box-shadow:2px 0 3px rgba(0,0,0,0.5); transition:0.2s; border-radius:2px;}
+            .tu-string.tuned { background:linear-gradient(90deg, #10ac84, #1dd1a1, #10ac84); box-shadow:0 0 8px #1dd1a1; width:6px;}
+        `;
+        this.widgetEl.appendChild(style);
+
+        this.widgetEl.innerHTML += `
+            <div class="tu-header" id="tu-drag-handle">
+                <div class="tu-title">🎙️ Accordeur Studio</div>
+                <button id="tu-close" style="background:none; border:none; color:#ff6b6b; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
+            </div>
+            <div class="tu-body">
+                <div class="tu-controls">
+                    <select id="tu-mode" class="tu-select">
+                        <option value="chromatic">Auto (Chromatique)</option>
+                        <option value="guitar" selected>Guitare</option>
+                        <option value="bass">Basse</option>
+                        <option value="ukulele">Ukulélé</option>
+                        <option value="violin">Violon</option>
+                        <option value="banjo">Banjo</option>
+                    </select>
+                    <input type="number" id="tu-a4" class="tu-input" value="440" min="415" max="460" title="Fréquence du La (A4)">
+                </div>
+                
+                <canvas id="tu-canvas" class="tu-canvas" width="310" height="180"></canvas>
+                
+                <div id="tu-fretboard" class="tu-fretboard">
+                    <div class="tu-fret"></div>
+                    <!-- Strings injected here -->
+                </div>
+
+                <button id="tu-toggle" class="tu-btn">Activer le Micro</button>
+            </div>
+        `;
+        document.body.appendChild(this.widgetEl);
+
+        let isDragging = false, startX, startY;
+        const handle = this.widgetEl.querySelector('#tu-drag-handle');
+        handle.onmousedown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
+        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        this.widgetEl.querySelector('#tu-close').onclick = () => {
+            this.stopAudio();
+            this.widgetEl.style.display = 'none';
+        };
+
+        this.widgetEl.querySelector('#tu-mode').onchange = (e) => {
+            this.state.mode = e.target.value;
+            this.state.noteString = '--';
+            this.state.centsOff = 0;
+            this.state.closestStringIdx = -1;
+            this.renderFretboard();
+            this.drawTuner();
+        };
+
+        this.widgetEl.querySelector('#tu-a4').oninput = (e) => {
+            this.state.a4Frequency = parseFloat(e.target.value) || 440;
+        };
+
+        const btnToggle = this.widgetEl.querySelector('#tu-toggle');
+        btnToggle.onclick = () => {
+            if (this.state.isListening) {
+                this.stopAudio();
+                btnToggle.innerText = "Activer le Micro";
+                btnToggle.classList.remove('stop');
+            } else {
+                this.startAudio();
+                btnToggle.innerText = "Désactiver le Micro";
+                btnToggle.classList.add('stop');
+            }
+        };
+
+        this.canvas = this.widgetEl.querySelector('#tu-canvas');
+        this.ctx = this.canvas.getContext('2d');
+
+        this.renderFretboard();
+        this.drawTuner();
+    },
+
+    renderFretboard: function () {
+        const fretboard = this.widgetEl.querySelector('#tu-fretboard');
+        fretboard.innerHTML = '<div class="tu-fret"></div>'; // Reset
+
+        if (this.state.mode === 'chromatic') {
+            fretboard.style.display = 'none';
+            return;
+        }
+
+        fretboard.style.display = 'flex';
+        const strings = this.instruments[this.state.mode];
+
+        strings.forEach((s, idx) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'tu-string-wrapper';
+
+            const peg = document.createElement('div');
+            peg.className = 'tu-peg';
+            peg.id = `peg-${idx}`;
+            // Extrait le nom court de la note (ex: E2)
+            peg.innerText = s.name.match(/\((.*?)\)/)[1];
+
+            peg.onclick = () => {
+                const freq = this.frequencyFromNoteNumber(s.note);
+                this.playTone(freq);
+            };
+
+            const str = document.createElement('div');
+            str.className = 'tu-string';
+            str.id = `string-${idx}`;
+            // Ajustement visuel de l'épaisseur de la corde selon l'instrument
+            str.style.width = `${Math.max(2, 6 - idx)}px`;
+
+            wrap.appendChild(peg);
+            wrap.appendChild(str);
+            fretboard.appendChild(wrap);
+        });
+    },
+
+    // --- SYNTHÉTISATEUR DE CORDES ---
+    playTone: function (freq) {
+        if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+
+        // Son pincé (Triangle adouci)
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, this.audioCtx.currentTime);
+
+        // Enveloppe ADSR (Attack brève, Release exponentiel)
+        gain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.8, this.audioCtx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.audioCtx.currentTime + 3);
+
+        osc.connect(gain);
+        gain.connect(this.audioCtx.destination);
+
+        osc.start();
+        osc.stop(this.audioCtx.currentTime + 3);
+    },
+
+    startAudio: async function () {
+        try {
+            if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            this.analyser = this.audioCtx.createAnalyser();
+            this.analyser.fftSize = 4096;
+            this.buffer = new Float32Array(this.analyser.fftSize);
+
+            this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.mediaStreamSource = this.audioCtx.createMediaStreamSource(this.stream);
+            this.mediaStreamSource.connect(this.analyser);
+
+            this.state.isListening = true;
+            this.loop();
+        } catch (err) {
+            alert("Erreur d'accès au micro : " + err.message);
+        }
+    },
+
+    stopAudio: function () {
+        this.state.isListening = false;
+        cancelAnimationFrame(this.animFrame);
+        if (this.mediaStreamSource) this.mediaStreamSource.disconnect();
+        if (this.stream) this.stream.getTracks().forEach(track => track.stop());
+
+        this.state.currentPitch = -1;
+        this.state.noteString = '--';
+        this.state.centsOff = 0;
+        this.state.smoothedCents = 0;
+        this.state.closestStringIdx = -1;
+
+        this.updateFretboardVisuals();
+        this.drawTuner();
+    },
+
+    autoCorrelate: function (buf, sampleRate) {
+        let SIZE = buf.length;
+        let rms = 0;
+        for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+        rms = Math.sqrt(rms / SIZE);
+        if (rms < 0.015) return -1; // Seuil de bruit augmenté pour éviter les faux positifs
+
+        let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+        for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+        for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+        buf = buf.slice(r1, r2);
+        SIZE = buf.length;
+
+        let c = new Array(SIZE).fill(0);
+        for (let i = 0; i < SIZE; i++) {
+            for (let j = 0; j < SIZE - i; j++) {
+                c[i] = c[i] + buf[j] * buf[j + i];
+            }
+        }
+
+        let d = 0; while (c[d] > c[d + 1]) d++;
+        let maxval = -1, maxpos = -1;
+        for (let i = d; i < SIZE; i++) {
+            if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+        }
+        let t0 = maxpos;
+
+        let x1 = c[t0 - 1], x2 = c[t0], x3 = c[t0 + 1];
+        let a = (x1 + x3 - 2 * x2) / 2;
+        let b = (x3 - x1) / 2;
+        if (a) t0 = t0 - b / (2 * a);
+
+        return sampleRate / t0;
+    },
+
+    noteFromPitch: function (frequency) {
+        let noteNum = 12 * (Math.log(frequency / this.state.a4Frequency) / Math.log(2));
+        return Math.round(noteNum) + 69;
+    },
+
+    frequencyFromNoteNumber: function (note) {
+        return this.state.a4Frequency * Math.pow(2, (note - 69) / 12);
+    },
+
+    centsOffFromPitch: function (frequency, note) {
+        return Math.floor(1200 * Math.log(frequency / this.frequencyFromNoteNumber(note)) / Math.log(2));
+    },
+
+    loop: function () {
+        if (!this.state.isListening) return;
+
+        this.analyser.getFloatTimeDomainData(this.buffer);
+        let pitch = this.autoCorrelate(this.buffer, this.audioCtx.sampleRate);
+
+        if (pitch !== -1) {
+            this.state.currentPitch = pitch;
+
+            if (this.state.mode === 'chromatic') {
+                let noteNum = this.noteFromPitch(pitch);
+                let noteNameEN = this.notesEN[noteNum % 12];
+                let octave = Math.floor(noteNum / 12) - 1;
+
+                this.state.noteString = `${noteNameEN}${octave}`;
+                this.state.centsOff = this.centsOffFromPitch(pitch, noteNum);
+            } else {
+                let targetStrings = this.instruments[this.state.mode];
+                let closestString = targetStrings[0];
+                let minDiff = Infinity;
+                let closestNoteNum = 0;
+                let closestIdx = -1;
+
+                targetStrings.forEach((s, i) => {
+                    let targetFreq = this.frequencyFromNoteNumber(s.note);
+                    let diff = Math.abs(pitch - targetFreq);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestString = s;
+                        closestNoteNum = s.note;
+                        closestIdx = i;
+                    }
+                });
+
+                // Extrait juste le nom court de l'instrument
+                this.state.noteString = closestString.name.match(/\((.*?)\)/)[1];
+                this.state.centsOff = this.centsOffFromPitch(pitch, closestNoteNum);
+                this.state.closestStringIdx = closestIdx;
+            }
+
+            // Lissage de l'aiguille (Lerp) - PLUS LENT pour imiter Guitar Tuna
+            let targetCents = Math.max(-50, Math.min(50, this.state.centsOff));
+            this.state.smoothedCents += (targetCents - this.state.smoothedCents) * 0.04;
+
+            if (!this.pitchHistory) this.pitchHistory = [];
+            this.pitchHistory.unshift(this.state.smoothedCents);
+            if (this.pitchHistory.length > 150) this.pitchHistory.pop();
+
+        } else {
+            // Silence : l'aiguille revient lentement au centre
+            this.state.smoothedCents += (0 - this.state.smoothedCents) * 0.02;
+            this.state.closestStringIdx = -1;
+
+            if (this.pitchHistory && this.pitchHistory.length > 0 && this.pitchHistory[0] !== null) {
+                this.pitchHistory.unshift(null);
+            }
+        }
+
+        this.updateFretboardVisuals();
+        this.drawTuner();
+
+        this.animFrame = requestAnimationFrame(() => this.loop());
+    },
+
+    updateFretboardVisuals: function () {
+        if (this.state.mode === 'chromatic') return;
+
+        const pegs = this.widgetEl.querySelectorAll('.tu-peg');
+        const strings = this.widgetEl.querySelectorAll('.tu-string');
+
+        // Reset classes
+        pegs.forEach(p => p.classList.remove('tuned'));
+        strings.forEach(s => s.classList.remove('tuned'));
+
+        if (this.state.isListening && this.state.closestStringIdx !== -1) {
+            // Est-ce qu'on est accordé ? (marge de 5 cents)
+            if (Math.abs(this.state.centsOff) <= 5) {
+                const p = this.widgetEl.querySelector(`#peg-${this.state.closestStringIdx}`);
+                const s = this.widgetEl.querySelector(`#string-${this.state.closestStringIdx}`);
+                if (p) p.classList.add('tuned');
+                if (s) s.classList.add('tuned');
+            }
+        }
+    },
+
+    drawTuner: function () {
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // --- 1. GRAPHIQUE HORIZONTAL (Style Guitar Tuna) ---
+        const graphTop = 15;
+        const graphHeight = 80;
+        const graphMidY = graphTop + graphHeight / 2;
+
+        // Grille de fond pour le graphique
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = w; x >= 0; x -= 20) { ctx.moveTo(x, graphTop); ctx.lineTo(x, graphTop + graphHeight); }
+        for (let y = graphTop; y <= graphTop + graphHeight; y += 20) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+        ctx.stroke();
+
+        // Ligne horizontale pour la "bonne note" (0 cents)
+        ctx.beginPath();
+        ctx.moveTo(0, graphMidY);
+        ctx.lineTo(w, graphMidY);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        let isTuned = Math.abs(this.state.smoothedCents) <= 5 && this.state.currentPitch !== -1;
+
+        // Courbe d'historique (avance de droite à gauche)
+        if (this.pitchHistory && this.pitchHistory.length > 0) {
+            ctx.lineWidth = 4;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            let started = false;
+
+            let stepX = 3; // vitesse de défilement horizontal
+
+            for (let i = 0; i < this.pitchHistory.length; i++) {
+                let cents = this.pitchHistory[i];
+                let x = w - i * stepX;
+                if (x < 0) break; // Sortie d'écran à gauche
+
+                if (cents === null) {
+                    started = false;
+                    continue;
+                }
+
+                // Mappe les cents (-50 à +50) sur la hauteur du graph
+                let y = graphMidY - (cents / 50) * (graphHeight / 2);
+
+                if (!started) {
+                    ctx.moveTo(x, y);
+                    started = true;
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = isTuned ? '#1dd1a1' : '#feca57';
+            ctx.stroke();
+
+            // Point au bout de la courbe (le présent)
+            if (this.pitchHistory[0] !== null) {
+                let curY = graphMidY - (this.pitchHistory[0] / 50) * (graphHeight / 2);
+                ctx.beginPath();
+                ctx.arc(w, curY, 6, 0, Math.PI * 2);
+                ctx.fillStyle = isTuned ? '#1dd1a1' : '#feca57';
+                ctx.fill();
+            }
+        }
+
+        // --- 2. LE CADRAN ET L'AIGUILLE (En bas) ---
+        const cx = w / 2;
+        const cy = h - 10;
+        const radius = 90;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, Math.PI, 0);
+        ctx.lineWidth = 15;
+        ctx.strokeStyle = '#1e272e';
+        ctx.stroke();
+
+        let grad = ctx.createLinearGradient(cx - radius, cy, cx + radius, cy);
+        grad.addColorStop(0, '#ee5253');
+        grad.addColorStop(0.45, '#1dd1a1');
+        grad.addColorStop(0.55, '#1dd1a1');
+        grad.addColorStop(1, '#ee5253');
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, Math.PI, 0);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = grad;
+        ctx.stroke();
+
+        // 3. GRADUATIONS
+        for (let i = -50; i <= 50; i += 10) {
+            let angle = Math.PI + ((i + 50) / 100) * Math.PI;
+            let isCenter = (i === 0);
+            let innerRadius = isCenter ? radius - 15 : radius - 5;
+            let outerRadius = isCenter ? radius + 15 : radius + 5;
+
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(angle) * innerRadius, cy + Math.sin(angle) * innerRadius);
+            ctx.lineTo(cx + Math.cos(angle) * outerRadius, cy + Math.sin(angle) * outerRadius);
+            ctx.strokeStyle = isCenter ? '#1dd1a1' : '#c8d6e5';
+            ctx.lineWidth = isCenter ? 3 : 1;
+            ctx.stroke();
+        }
+
+        // 4. L'AIGUILLE LISSÉE
+        let angle = Math.PI + ((this.state.smoothedCents + 50) / 100) * Math.PI;
+        isTuned = Math.abs(this.state.smoothedCents) <= 5 && this.state.currentPitch !== -1;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(angle) * (radius - 10), cy + Math.sin(angle) * (radius - 10));
+        ctx.strokeStyle = isTuned ? '#1dd1a1' : '#feca57';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = isTuned ? '#1dd1a1' : '#feca57';
+        ctx.fill();
+
+        // 5. AFFICHAGE TEXTE
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = "bold 40px sans-serif";
+        ctx.fillText(this.state.noteString, cx, cy - 50);
+
+        ctx.font = "bold 14px sans-serif";
+        ctx.fillStyle = '#a4b0be';
+        let freqStr = (this.state.currentPitch !== -1 && this.state.isListening)
+            ? `${this.state.currentPitch.toFixed(1)} Hz`
+            : 'En attente...';
+        ctx.fillText(freqStr, cx, cy - 100);
+    }
+});
+
 // =========================================================
 // PLUGIN: TRACEUR DE FONCTIONS
 // =========================================================
@@ -20647,7 +23080,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Traceur de Fonctions (Pro)';
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Traceur de Fonctions';
         btn.innerHTML = this.icon;
         grid.appendChild(btn);
 
@@ -20661,7 +23094,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
     openWidget: function (existingState = null) {
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;`;
+            this.widgetEl.style.cssText = `position:fixed; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
 
 
             const style = document.createElement('style');
@@ -21133,7 +23566,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
             let cartUI = isCart ? `
                 <div class="fp-func-row" style="flex-direction: column; align-items: stretch;">
                     <div style="display:flex; gap:5px; align-items:center; width: 100%;">
-                        <span style="font-weight:bold; font-size:12px; color:${f.color}; font-family:sans-serif; width:16px;">C<sub>${idx + 1}</sub></span>
+                        <span style="font-weight:bold; font-size:12px; color:${f.color}; font-family: sans-serif; width:16px;">C<sub>${idx + 1}</sub></span>
                         <button class="fp-c-settings fp-tool-btn" style="padding:2px 4px; font-size:11px; background:none; border:none;" title="Paramètres">⚙️</button>
                         <div class="fp-c-type-switch" style="cursor:pointer; display:flex; align-items:center; background:#dfe6e9; border-radius:12px; padding:1px; width:45px; flex-shrink:0; position:relative;" title="Cartésien / Paramétrique">
                             <div style="position:absolute; width:24px; height:14px; background:#0984e3; border-radius:10px; transition:0.2s; left:${isCart ? '1px' : '25px'};"></div>
@@ -21160,7 +23593,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
             ` : `
                 <div class="fp-func-row" style="flex-direction: column; align-items: stretch;">
                     <div style="display:flex; gap:5px; align-items:center; width: 100%;">
-                        <span style="font-weight:bold; font-size:12px; color:${f.color}; font-family:sans-serif; width:16px;">C<sub>${idx + 1}</sub></span>
+                        <span style="font-weight:bold; font-size:12px; color:${f.color}; font-family: sans-serif; width:16px;">C<sub>${idx + 1}</sub></span>
                         <button class="fp-c-settings fp-tool-btn" style="padding:2px 4px; font-size:11px; background:none; border:none;" title="Paramètres">⚙️</button>
                         <div class="fp-c-type-switch" style="cursor:pointer; display:flex; align-items:center; background:#dfe6e9; border-radius:12px; padding:1px; width:45px; flex-shrink:0; position:relative;" title="Cartésien / Paramétrique">
                             <div style="position:absolute; width:24px; height:14px; background:#0984e3; border-radius:10px; transition:0.2s; left:${isCart ? '1px' : '25px'};"></div>
@@ -21357,7 +23790,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
         s = s.replace(/\s+/g, '');
         s = s.replace(/([0-9])([a-z\(])/g, '$1*$2');
         s = s.replace(/\)(?=[a-z0-9\(])/g, ')*');
-        s = s.replace(/([xt])\(/g, '$1*(');
+        s = s.replace(/(?<![a-z])([xt])\(/g, '$1*(');
         s = s.replace(/\^/g, '**');
 
         try {
@@ -21463,7 +23896,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
 
         ctx.strokeStyle = '#ecf0f1';
         ctx.fillStyle = '#7f8c8d';
-        ctx.font = '10px sans-serif';
+        ctx.font = "10px sans-serif";
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         for (let x = Math.floor(this.viewport.xmin / stepX) * stepX; x <= this.viewport.xmax; x += stepX) {
@@ -21625,7 +24058,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
             ctx.stroke();
 
             ctx.fillStyle = ctx.strokeStyle;
-            ctx.font = 'bold 12px sans-serif';
+            ctx.font = 'bold 12px \'sans-serif\', sans-serif';
             ctx.fillText('y = ' + this.antecedentY.toFixed(2), 10, antPy - 5);
 
             ctx.setLineDash([2, 4]);
@@ -21718,7 +24151,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                     ctx.lineWidth = 2; ctx.stroke();
 
                     ctx.fillStyle = '#2d3436';
-                    ctx.font = 'bold 12px sans-serif';
+                    ctx.font = 'bold 12px \'sans-serif\', sans-serif';
                     let text = `(${targetLogX.toFixed(2)}; ${targetLogY.toFixed(2)})`;
                     let textW = ctx.measureText(text).width;
                     let tx = targetPx + 8; let ty = targetPy - 8;
@@ -22263,6 +24696,802 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
     }
 });
 // =========================================================
+
+// =========================================================
+// PLUGIN: SUPER FRACTALES
+// =========================================================
+registerPlugin('superFractal', 'Maths - Géométrie', {
+    name: 'Super Fractales',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14M12 5l-2 2M12 5l2 2M12 19l-2-2M12 19l2-2M5 12l2-2M5 12l2 2M19 12l-2-2M19 12l-2 2M8.5 8.5L7 10M8.5 8.5L10 7M15.5 15.5L17 14M15.5 15.5L14 17M8.5 15.5L10 17M8.5 15.5L7 14M15.5 8.5L14 7M15.5 8.5L17 10"/></svg>',
+
+    widgetEl: null,
+    canvas: null,
+    ctx: null,
+    renderFrameId: null,
+
+    bbox: { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
+
+    state: {
+        mode: 'mandelbrot',
+        iterations: 4,
+        palette: 'fire',
+        fillColor1: '#0abde3',
+        fillColor2: '#0abde3',
+        strokeColor: '#000000',
+        globalGradient: true,
+        strokeWidth: 2,
+        treeAngle: 30,
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+        rotX: 0.3,
+        rotY: 0.5,
+        isDragging: false,
+        lastMouseX: 0,
+        lastMouseY: 0
+    },
+
+    palettes: {
+        fire: [[0, 0, 0], [200, 20, 0], [255, 150, 0], [255, 255, 0], [255, 255, 255]],
+        ocean: [[0, 0, 50], [0, 100, 200], [0, 200, 255], [200, 255, 255], [255, 255, 255]],
+        neon: [[20, 0, 40], [150, 0, 255], [0, 255, 255], [255, 0, 255], [255, 255, 255]],
+        bw: [[0, 0, 0], [255, 255, 255]]
+    },
+
+    mandelbrotPlaces: {
+        "Défaut": { z: 1, px: 0, py: 0 },
+        "Vallée des Hippocampes": { z: 150, px: -0.7436, py: 0.1318 },
+        "Spirale d'Or": { z: 2000, px: -0.761574, py: -0.0847596 },
+        "Mini-Mandelbrot": { z: 200, px: -1.75, py: 0 },
+        "Vallée des Éléphants": { z: 50, px: 0.273, py: 0.007 },
+        "Le Trident": { z: 10000, px: -1.25066, py: 0.02012 },
+        "Queue d'Hippocampe": { z: 15000, px: -0.7435669, py: 0.1314023 },
+        "L'Étoile de Mer": { z: 150000, px: -0.374004139, py: 0.659792175 },
+        "La Foudre": { z: 50000, px: -0.0452407411, py: 0.9868162204 }
+    },
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Super Fractales';
+        btn.innerHTML = this.icon;
+        grid.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            if (e.target.closest('button') !== btn) return;
+            if (this.widgetEl && this.widgetEl.style.display !== 'none') { this.widgetEl.style.display = 'none'; return; }
+            this.openWidget();
+        });
+    },
+
+    openWidget: function () {
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 370px); width:740px; background:#f5f6fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .fr-header { background:#ffffff; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #dcdde1; user-select:none; }
+            .fr-title { font-weight:900; font-size:16px; color:#2f3640; text-transform:uppercase; letter-spacing:1px; display:flex; align-items:center; gap:8px;}
+            .fr-title svg { width:20px; height:20px; stroke:#0abde3; }
+            .fr-layout { display:flex; flex-direction:row; height:500px; }
+            .fr-sidebar { width:260px; background:#ffffff; border-right:1px solid #dcdde1; padding:15px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+            .fr-main { flex:1; display:flex; flex-direction:column; position:relative; }
+            .fr-group { display:flex; flex-direction:column; gap:4px; }
+            .fr-label { font-size:11px; font-weight:bold; color:#7f8fa6; text-transform:uppercase; }
+            .fr-select { width:100%; padding:8px; border:1px solid #dcdde1; border-radius:6px; background:#f5f6fa; color:#2f3640; font-weight:bold; outline:none; font-size:12px; cursor:pointer;}
+            .fr-slider-wrapper { display:flex; align-items:center; gap:10px; }
+            .fr-slider { flex:1; cursor:pointer; }
+            .fr-val { font-size:12px; font-weight:bold; color:#0abde3; min-width:25px; text-align:right; }
+            .fr-color-row { display:flex; align-items:center; gap:8px; }
+            .fr-color { height:32px; flex:1; padding:2px; border-radius:6px; background:#ffffff; border:1px solid #dcdde1; cursor:pointer; }
+            .fr-canvas-container { position:relative; width:100%; height:100%; background:#000; overflow:hidden; cursor:grab; }
+            .fr-canvas-container:active { cursor:grabbing; }
+            .fr-canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+            .fr-canvas-grid { background-color: #ffffff; background-image: linear-gradient(#ecf0f1 1px, transparent 1px), linear-gradient(90deg, #ecf0f1 1px, transparent 1px); background-size: 20px 20px; }
+            .fr-btn { background:#0abde3; color:#fff; padding:12px; border:none; font-weight:bold; cursor:pointer; transition:0.2s; text-transform:uppercase; font-size:13px; letter-spacing:1px; margin: 10px; border-radius: 8px;}
+            .fr-btn:hover { background:#48dbfb; }
+            .fr-help { position:absolute; top:10px; right:10px; background:rgba(255,255,255,0.8); padding:5px 10px; border-radius:15px; font-size:11px; font-weight:bold; color:#2f3640; pointer-events:none; display:none; border:1px solid #dcdde1; }
+            .fr-checkbox-wrap { display:flex; align-items:center; gap:6px; margin-top:2px; }
+        `;
+        this.widgetEl.appendChild(style);
+
+        let placesHtml = '';
+        for (let p in this.mandelbrotPlaces) {
+            placesHtml += `<option value="${p}">${p}</option>`;
+        }
+
+        this.widgetEl.innerHTML += `
+            <div class="fr-header" id="fr-drag">
+                <div class="fr-title">${this.icon} Super Fractales</div>
+                <button id="fr-close" style="background:none; border:none; color:#ff6b6b; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
+            </div>
+            <div class="fr-layout">
+                <div class="fr-sidebar">
+                    <div class="fr-group">
+                        <div class="fr-label">Type de Fractale</div>
+                        <select id="fr-mode" class="fr-select">
+                            <option value="mandelbrot">Mandelbrot (2D)</option>
+                            <option value="sierpinski_carpet">Tapis de Sierpinski (2D)</option>
+                            <option value="sierpinski_triangle">Triangle de Sierpinski (2D)</option>
+                            <option value="koch_snowflake">Flocon de Koch (2D)</option>
+                            <option value="fractal_tree">Arbre Fractal (2D)</option>
+                            <option value="sierpinski_3d">Pyramide Sierpinski (3D)</option>
+                            <option value="menger_sponge">Éponge de Menger (3D)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="fr-group" id="fr-group-palette">
+                        <div class="fr-label">Palette</div>
+                        <select id="fr-palette" class="fr-select">
+                            <option value="fire">Feu</option>
+                            <option value="ocean">Océan</option>
+                            <option value="neon">Néon</option>
+                            <option value="bw">Noir & Blanc</option>
+                        </select>
+                    </div>
+                    
+                    <div class="fr-group" id="fr-group-places">
+                        <div class="fr-label">Lieux Connus</div>
+                        <select id="fr-places" class="fr-select">
+                            ${placesHtml}
+                        </select>
+                    </div>
+                    
+                    <div class="fr-group" id="fr-group-iter" style="display:none;">
+                        <div class="fr-label">Itérations</div>
+                        <div class="fr-slider-wrapper">
+                            <input type="range" id="fr-iter" class="fr-slider" min="1" max="7" value="4" />
+                            <div class="fr-val" id="fr-iter-val">4</div>
+                        </div>
+                    </div>
+
+                    <div class="fr-group" id="fr-group-angle" style="display:none;">
+                        <div class="fr-label">Angle (Branches)</div>
+                        <div class="fr-slider-wrapper">
+                            <input type="range" id="fr-angle" class="fr-slider" min="10" max="90" value="30" />
+                            <div class="fr-val" id="fr-angle-val">30°</div>
+                        </div>
+                    </div>
+                    
+                    <div class="fr-group" id="fr-group-stroke" style="display:none;">
+                        <div class="fr-label">Épaisseur (Contour)</div>
+                        <div class="fr-slider-wrapper">
+                            <input type="range" id="fr-stroke" class="fr-slider" min="0" max="10" value="2" />
+                            <div class="fr-val" id="fr-stroke-val">2</div>
+                        </div>
+                    </div>
+                    
+                    <div class="fr-group" id="fr-group-colors" style="display:none;">
+                        <div class="fr-label">Couleurs (Int. 1, Int. 2, Contour)</div>
+                        <div class="fr-color-row">
+                            <input type="color" id="fr-color1" class="fr-color" value="#0abde3" title="Intérieur 1" />
+                            <input type="color" id="fr-color2" class="fr-color" value="#0abde3" title="Intérieur 2 (Dégradé)" />
+                            <input type="color" id="fr-stroke-color" class="fr-color" value="#000000" title="Contour" />
+                        </div>
+                        <label class="fr-checkbox-wrap" id="fr-global-wrap">
+                            <input type="checkbox" id="fr-global-grad" checked />
+                            <span style="font-size:11px; font-weight:bold; color:#7f8fa6;">Dégradé Global</span>
+                        </label>
+                    </div>
+                    
+                </div>
+                <div class="fr-main">
+                    <div class="fr-canvas-container" id="fr-container">
+                        <canvas class="fr-canvas" id="fr-canvas"></canvas>
+                        <div class="fr-help" id="fr-help">Souris: Tourner/Glisser • Molette: Zoom</div>
+                    </div>
+                    <button id="fr-export" class="fr-btn">Tamponner</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(this.widgetEl);
+
+        let isDraggingModal = false;
+        let mStartX, mStartY, iMouseX, iMouseY;
+        const header = this.widgetEl.querySelector('#fr-drag');
+
+        header.onmousedown = (e) => {
+            if (e.target.closest('button')) return;
+            isDraggingModal = true;
+            iMouseX = e.clientX;
+            iMouseY = e.clientY;
+            const rect = this.widgetEl.getBoundingClientRect();
+            mStartX = rect.left;
+            mStartY = rect.top;
+            e.preventDefault();
+        };
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDraggingModal) return;
+            const dx = e.clientX - iMouseX;
+            const dy = e.clientY - iMouseY;
+            this.widgetEl.style.left = (mStartX + dx) + 'px';
+            this.widgetEl.style.top = (mStartY + dy) + 'px';
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDraggingModal = false;
+        });
+
+        this.widgetEl.querySelector('#fr-close').onclick = () => {
+            this.widgetEl.style.display = 'none';
+            if (typeof setMode === 'function') setMode('pointer');
+        };
+
+        const modeSel = this.widgetEl.querySelector('#fr-mode');
+        const palSel = this.widgetEl.querySelector('#fr-palette');
+        const placesSel = this.widgetEl.querySelector('#fr-places');
+        const iterSlider = this.widgetEl.querySelector('#fr-iter');
+        const strokeSlider = this.widgetEl.querySelector('#fr-stroke');
+        const angleSlider = this.widgetEl.querySelector('#fr-angle');
+        const color1Picker = this.widgetEl.querySelector('#fr-color1');
+        const color2Picker = this.widgetEl.querySelector('#fr-color2');
+        const strokeColorPicker = this.widgetEl.querySelector('#fr-stroke-color');
+        const globalGradCheck = this.widgetEl.querySelector('#fr-global-grad');
+
+        const container = this.widgetEl.querySelector('#fr-container');
+        const helpBadge = this.widgetEl.querySelector('#fr-help');
+
+        const grpPal = this.widgetEl.querySelector('#fr-group-palette');
+        const grpPlc = this.widgetEl.querySelector('#fr-group-places');
+        const grpIter = this.widgetEl.querySelector('#fr-group-iter');
+        const grpStrk = this.widgetEl.querySelector('#fr-group-stroke');
+        const grpAngl = this.widgetEl.querySelector('#fr-group-angle');
+        const grpCol = this.widgetEl.querySelector('#fr-group-colors');
+        const grpGlob = this.widgetEl.querySelector('#fr-global-wrap');
+
+        const updateUI = () => {
+            let m = this.state.mode;
+
+            if (m === 'mandelbrot') {
+                helpBadge.style.display = 'none';
+                grpPal.style.display = 'flex'; grpPlc.style.display = 'flex';
+                grpIter.style.display = 'none'; grpStrk.style.display = 'none';
+                grpAngl.style.display = 'none'; grpCol.style.display = 'none';
+                container.classList.remove('fr-canvas-grid');
+            } else {
+                helpBadge.style.display = 'block';
+                grpPal.style.display = 'none'; grpPlc.style.display = 'none';
+                grpIter.style.display = 'flex'; grpCol.style.display = 'flex';
+                grpStrk.style.display = 'flex';
+                container.classList.add('fr-canvas-grid');
+
+                if (m === 'menger_sponge') {
+                    iterSlider.max = 3;
+                    grpGlob.style.display = 'none';
+                } else if (m === 'sierpinski_3d' || m === 'koch_snowflake') {
+                    iterSlider.max = 5;
+                    grpGlob.style.display = 'none';
+                } else {
+                    iterSlider.max = 8;
+                    grpGlob.style.display = 'flex';
+                }
+
+                if (m === 'fractal_tree') {
+                    grpAngl.style.display = 'flex';
+                    grpGlob.style.display = 'none';
+                    helpBadge.innerText = "Souris: Glisser • Molette: Zoom";
+                } else if (m.includes('3d') || m === 'menger_sponge') {
+                    grpAngl.style.display = 'none';
+                    helpBadge.innerText = "Souris: Tourner en 3D • Molette: Zoom";
+                } else {
+                    grpAngl.style.display = 'none';
+                    helpBadge.innerText = "Souris: Glisser • Molette: Zoom";
+                }
+
+                if (parseInt(iterSlider.value) > parseInt(iterSlider.max)) {
+                    iterSlider.value = iterSlider.max;
+                    this.state.iterations = parseInt(iterSlider.value);
+                    this.widgetEl.querySelector('#fr-iter-val').innerText = iterSlider.value;
+                }
+            }
+        };
+
+        modeSel.onchange = (e) => {
+            this.state.mode = e.target.value;
+            this.state.zoom = 1; this.state.panX = 0; this.state.panY = 0;
+            this.state.rotX = 0.3; this.state.rotY = 0.5;
+            updateUI(); this.renderFractal();
+        };
+
+        palSel.onchange = (e) => { this.state.palette = e.target.value; this.renderFractal(); };
+        color1Picker.onchange = (e) => { this.state.fillColor1 = e.target.value; this.renderFractal(); };
+        color2Picker.onchange = (e) => { this.state.fillColor2 = e.target.value; this.renderFractal(); };
+        strokeColorPicker.onchange = (e) => { this.state.strokeColor = e.target.value; this.renderFractal(); };
+        globalGradCheck.onchange = (e) => { this.state.globalGradient = e.target.checked; this.renderFractal(); };
+
+        placesSel.onchange = (e) => {
+            let p = this.mandelbrotPlaces[e.target.value];
+            if (p) {
+                this.state.zoom = p.z; this.state.panX = p.px; this.state.panY = p.py;
+                this.renderFractal();
+            }
+        };
+
+        iterSlider.oninput = (e) => {
+            this.state.iterations = parseInt(e.target.value);
+            this.widgetEl.querySelector('#fr-iter-val').innerText = this.state.iterations;
+            this.renderFractal();
+        };
+
+        strokeSlider.oninput = (e) => {
+            this.state.strokeWidth = parseInt(e.target.value);
+            this.widgetEl.querySelector('#fr-stroke-val').innerText = this.state.strokeWidth;
+            this.renderFractal();
+        };
+
+        angleSlider.oninput = (e) => {
+            this.state.treeAngle = parseInt(e.target.value);
+            this.widgetEl.querySelector('#fr-angle-val').innerText = this.state.treeAngle + "°";
+            this.renderFractal();
+        };
+
+        this.canvas = this.widgetEl.querySelector('#fr-canvas');
+        this.ctx = this.canvas.getContext('2d');
+
+        const updateSize = () => {
+            const rect = container.getBoundingClientRect();
+            this.canvas.width = rect.width || 480;
+            this.canvas.height = rect.height || 400;
+            this.renderFractal();
+        };
+        setTimeout(updateSize, 100);
+
+        container.onmousedown = (e) => {
+            this.state.isDragging = true;
+            this.state.lastMouseX = e.clientX;
+            this.state.lastMouseY = e.clientY;
+        };
+        window.addEventListener('mouseup', () => this.state.isDragging = false);
+        window.addEventListener('mousemove', (e) => {
+            if (!this.state.isDragging || this.widgetEl.style.display === 'none') return;
+            const dx = e.clientX - this.state.lastMouseX;
+            const dy = e.clientY - this.state.lastMouseY;
+            this.state.lastMouseX = e.clientX;
+            this.state.lastMouseY = e.clientY;
+
+            if (this.state.mode === 'mandelbrot') {
+                let scaleX = 4 / (this.state.zoom * this.canvas.width);
+                let scaleY = 4 / (this.state.zoom * this.canvas.height);
+                this.state.panX -= dx * scaleX;
+                this.state.panY -= dy * scaleY;
+            } else if (this.state.mode.includes('3d') || this.state.mode === 'menger_sponge') {
+                this.state.rotY += dx * 0.01;
+                this.state.rotX += dy * 0.01;
+            } else {
+                this.state.panX += dx;
+                this.state.panY += dy;
+            }
+
+            if (!this.renderFrameId) {
+                this.renderFrameId = requestAnimationFrame(() => {
+                    this.renderFractal();
+                    this.renderFrameId = null;
+                });
+            }
+        });
+
+        container.onwheel = (e) => {
+            e.preventDefault();
+            const zoomFactor = 1.08;
+            if (e.deltaY < 0) this.state.zoom *= zoomFactor;
+            else this.state.zoom /= zoomFactor;
+            this.renderFractal();
+        };
+
+        this.widgetEl.querySelector('#fr-export').onclick = () => this.exportFractal();
+        updateUI();
+    },
+
+    getColor: function (t) {
+        const pal = this.palettes[this.state.palette];
+        if (t >= 1.0) return pal[pal.length - 1];
+        if (t <= 0.0) return pal[0];
+
+        const scaled = t * (pal.length - 1);
+        const idx = Math.floor(scaled);
+        const frac = scaled - idx;
+        const c1 = pal[idx]; const c2 = pal[idx + 1];
+
+        return [
+            Math.floor(c1[0] + (c2[0] - c1[0]) * frac),
+            Math.floor(c1[1] + (c2[1] - c1[1]) * frac),
+            Math.floor(c1[2] + (c2[2] - c1[2]) * frac)
+        ];
+    },
+
+    hexToRgb: function (hex) {
+        var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
+    },
+
+    interpolateColor: function (c1, c2, factor) {
+        let r1 = c1.r, g1 = c1.g, b1 = c1.b;
+        let r2 = c2.r, g2 = c2.g, b2 = c2.b;
+        return {
+            r: Math.round(r1 + factor * (r2 - r1)),
+            g: Math.round(g1 + factor * (g2 - g1)),
+            b: Math.round(b1 + factor * (b2 - b1))
+        };
+    },
+
+    // ---------------- 3D ENGINE MATHS ----------------
+    rotate3D: function (p, rx, ry) {
+        let y1 = p.y * Math.cos(rx) - p.z * Math.sin(rx);
+        let z1 = p.y * Math.sin(rx) + p.z * Math.cos(rx);
+        let x2 = p.x * Math.cos(ry) + z1 * Math.sin(ry);
+        let z2 = -p.x * Math.sin(ry) + z1 * Math.cos(ry);
+        return { x: x2, y: y1, z: z2 };
+    },
+
+    project3D: function (p) {
+        let fov = 400;
+        let cameraZ = 400;
+        let z = cameraZ - p.z;
+        let scale = z > 0 ? fov / z : 0.01;
+        return { x: p.x * scale, y: p.y * scale, z: p.z };
+    },
+
+    shadeColor: function (r, g, b, factor) {
+        let fr = Math.max(0, Math.min(255, r * factor));
+        let fg = Math.max(0, Math.min(255, g * factor));
+        let fb = Math.max(0, Math.min(255, b * factor));
+        return `rgb(${Math.floor(fr)},${Math.floor(fg)},${Math.floor(fb)})`;
+    },
+
+    getNormal: function (p1, p2, p3) {
+        let u = { x: p2.x - p1.x, y: p2.y - p1.y, z: p2.z - p1.z };
+        let v = { x: p3.x - p1.x, y: p3.y - p1.y, z: p3.z - p1.z };
+        let n = {
+            x: u.y * v.z - u.z * v.y,
+            y: u.z * v.x - u.x * v.z,
+            z: u.x * v.y - u.y * v.x
+        };
+        let len = Math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z) || 1;
+        return { x: n.x / len, y: n.y / len, z: n.z / len };
+    },
+
+    resetBBox: function () {
+        this.bbox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    },
+
+    updateBBox: function (x, y) {
+        if (x < this.bbox.minX) this.bbox.minX = x;
+        if (x > this.bbox.maxX) this.bbox.maxX = x;
+        if (y < this.bbox.minY) this.bbox.minY = y;
+        if (y > this.bbox.maxY) this.bbox.maxY = y;
+    },
+
+    buildPolygons3D: function (polys, outPaths, color1, color2, strokeC, strokeW, maxRadius) {
+        let rx = this.state.rotX;
+        let ry = this.state.rotY;
+
+        let light = { x: 0.3, y: -0.5, z: 0.8 };
+        let lenL = Math.sqrt(light.x * light.x + light.y * light.y + light.z * light.z);
+        light = { x: light.x / lenL, y: light.y / lenL, z: light.z / lenL };
+
+        let rgb1 = this.hexToRgb(color1);
+        let rgb2 = this.hexToRgb(color2);
+        let useGradient = color1 !== color2;
+
+        let projected = [];
+        for (let poly of polys) {
+            let ptsRotated = poly.map(p => this.rotate3D(p, rx, ry));
+            let ptsProjected = ptsRotated.map(p => this.project3D(p));
+
+            // Painter's algorithm sort by original rotated Z
+            let centerZ = ptsRotated.reduce((sum, p) => sum + p.z, 0) / ptsRotated.length;
+
+            let normal = this.getNormal(ptsRotated[0], ptsRotated[1], ptsRotated[2]);
+            if (normal.z <= 0) continue;
+
+            let baseRgb = rgb1;
+            if (useGradient) {
+                let origY = poly.reduce((sum, p) => sum + p.y, 0) / poly.length;
+                let factor = (origY + maxRadius) / (2 * maxRadius);
+                factor = Math.max(0, Math.min(1, factor));
+                baseRgb = this.interpolateColor(rgb1, rgb2, factor);
+            }
+
+            let dot = normal.x * light.x + normal.y * light.y + normal.z * light.z;
+            let brightness = 0.4 + 0.6 * Math.max(0, dot);
+            let fill = this.shadeColor(baseRgb.r, baseRgb.g, baseRgb.b, brightness);
+
+            projected.push({ pts: ptsProjected, z: centerZ, fill: fill });
+        }
+
+        projected.sort((a, b) => a.z - b.z);
+
+        for (let p of projected) {
+            for (let v of p.pts) { this.updateBBox(v.x, v.y); }
+            let pointsStr = p.pts.map(v => `${v.x.toFixed(2)},${v.y.toFixed(2)}`).join(' ');
+            let stroke = strokeW > 0 ? `stroke="${strokeC}" stroke-width="${strokeW}" stroke-linejoin="round"` : `stroke="${p.fill}" stroke-width="1" stroke-linejoin="round"`;
+            outPaths.push(`<polygon points="${pointsStr}" fill="${p.fill}" ${stroke} />`);
+        }
+    },
+
+    // ---------------- FRACTAL GENERATORS ----------------
+
+    renderFractal: function () {
+        if (!this.canvas) return;
+        if (this.state.mode === 'mandelbrot') {
+            this.renderMandelbrot();
+        } else {
+            this.renderVector();
+        }
+    },
+
+    renderMandelbrot: function () {
+        const w = this.canvas.width; const h = this.canvas.height;
+        const imgData = this.ctx.createImageData(w, h); const data = imgData.data;
+        const maxIter = Math.floor(100 + Math.log10(Math.max(1, this.state.zoom)) * 150);
+        const zoom = this.state.zoom; const panX = this.state.panX; const panY = this.state.panY;
+
+        for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+                let x0 = (px - w / 2) * 4 / (w * zoom) + panX;
+                let y0 = (py - h / 2) * 4 / (w * zoom) + panY;
+                let x = 0, y = 0, iter = 0, x2 = 0, y2 = 0;
+                while (x2 + y2 <= 4 && iter < maxIter) {
+                    y = 2 * x * y + y0; x = x2 - y2 + x0; x2 = x * x; y2 = y * y; iter++;
+                }
+                let idx = (py * w + px) * 4;
+                if (iter === maxIter) {
+                    data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; data[idx + 3] = 255;
+                } else {
+                    let log_zn = Math.log(x * x + y * y) / 2;
+                    let nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
+                    let smoothIter = iter + 1 - nu;
+                    let t = smoothIter / Math.min(maxIter, 200);
+                    if (t > 1) t = t % 1.0;
+                    let c = this.getColor(t);
+                    data[idx] = c[0]; data[idx + 1] = c[1]; data[idx + 2] = c[2]; data[idx + 3] = 255;
+                }
+            }
+        }
+        this.ctx.putImageData(imgData, 0, 0);
+    },
+
+    renderVector: function () {
+        let pathsStr = this.generateSVGString();
+        const w = this.canvas.width; const h = this.canvas.height;
+
+        let svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`;
+        svgStr += `<g transform="translate(${w / 2 + this.state.panX}, ${h / 2 + this.state.panY}) scale(${this.state.zoom})">`;
+        svgStr += pathsStr;
+        svgStr += `</g></svg>`;
+
+        let img = new Image();
+        img.onload = () => {
+            this.ctx.clearRect(0, 0, w, h);
+            this.ctx.fillStyle = "#ffffff";
+            this.ctx.fillRect(0, 0, w, h);
+            this.ctx.drawImage(img, 0, 0);
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+    },
+
+    generateSVGString: function () {
+        this.resetBBox();
+        let paths = [];
+        let iter = this.state.iterations;
+        let c1 = this.state.fillColor1;
+        let c2 = this.state.fillColor2;
+        let sc = this.state.strokeColor;
+        let sw = this.state.strokeWidth;
+
+        let useGradient = (c1 !== c2 && !this.state.mode.includes('3d') && this.state.mode !== 'menger_sponge' && this.state.mode !== 'fractal_tree');
+        let fillRef = useGradient ? 'url(#fr-grad)' : c1;
+
+        let strokeAttr = sw > 0 ? `stroke="${sc}" stroke-width="${sw}" stroke-linejoin="round"` : `stroke="${sc}" stroke-width="0"`;
+
+        if (this.state.mode === 'sierpinski_carpet') {
+            let size = 300;
+            const genCarpet = (x, y, s, it) => {
+                if (it === 1) {
+                    this.updateBBox(x - s / 2, y - s / 2); this.updateBBox(x + s / 2, y + s / 2);
+                    paths.push(`<rect x="${x - s / 2}" y="${y - s / 2}" width="${s}" height="${s}" fill="${fillRef}" ${strokeAttr} />`);
+                    return;
+                }
+                let third = s / 3;
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        if (i === 0 && j === 0) continue;
+                        genCarpet(x + i * third, y + j * third, third, it - 1);
+                    }
+                }
+            };
+            genCarpet(0, 0, size, iter);
+        } else if (this.state.mode === 'sierpinski_triangle') {
+            let size = 280;
+            let alt = size * Math.sqrt(3) / 2;
+            const genTri = (x1, y1, x2, y2, x3, y3, it) => {
+                if (it === 1) {
+                    this.updateBBox(x1, y1); this.updateBBox(x2, y2); this.updateBBox(x3, y3);
+                    paths.push(`<polygon points="${x1},${y1} ${x2},${y2} ${x3},${y3}" fill="${fillRef}" ${strokeAttr} />`);
+                    return;
+                }
+                let m12x = (x1 + x2) / 2, m12y = (y1 + y2) / 2;
+                let m23x = (x2 + x3) / 2, m23y = (y2 + y3) / 2;
+                let m31x = (x3 + x1) / 2, m31y = (y3 + y1) / 2;
+                genTri(x1, y1, m12x, m12y, m31x, m31y, it - 1);
+                genTri(m12x, m12y, x2, y2, m23x, m23y, it - 1);
+                genTri(m31x, m31y, m23x, m23y, x3, y3, it - 1);
+            };
+            genTri(-size / 2, alt / 3, size / 2, alt / 3, 0, -alt * 2 / 3, iter);
+        } else if (this.state.mode === 'koch_snowflake') {
+            let size = 300; let alt = size * Math.sqrt(3) / 2;
+            let dString = "";
+            const genKoch = (x1, y1, x2, y2, it, isFirst) => {
+                if (it === 1) {
+                    this.updateBBox(x1, y1); this.updateBBox(x2, y2);
+                    if (isFirst) dString += `M ${x1} ${y1} `;
+                    dString += `L ${x2} ${y2} `;
+                    return;
+                }
+                let dx = x2 - x1, dy = y2 - y1;
+                let pA = { x: x1 + dx / 3, y: y1 + dy / 3 };
+                let pC = { x: x1 + dx * 2 / 3, y: y1 + dy * 2 / 3 };
+                let vx = dx / 3, vy = dy / 3;
+                let cos60 = 0.5, sin60 = -Math.sqrt(3) / 2;
+                let pB = { x: pA.x + vx * cos60 - vy * sin60, y: pA.y + vx * sin60 + vy * cos60 };
+                genKoch(x1, y1, pA.x, pA.y, it - 1, isFirst);
+                genKoch(pA.x, pA.y, pB.x, pB.y, it - 1, false);
+                genKoch(pB.x, pB.y, pC.x, pC.y, it - 1, false);
+                genKoch(pC.x, pC.y, x2, y2, it - 1, false);
+            };
+            genKoch(-size / 2, -alt / 3, size / 2, -alt / 3, iter, true);
+            genKoch(size / 2, -alt / 3, 0, alt * 2 / 3, iter, false);
+            genKoch(0, alt * 2 / 3, -size / 2, -alt / 3, iter, false);
+            paths.push(`<path d="${dString} Z" fill="${fillRef}" ${strokeAttr} />`);
+        } else if (this.state.mode === 'sierpinski_3d') {
+            let size = 280;
+            let h = size * Math.sqrt(2 / 3);
+            let cy = h / 4;
+            let bAlt = size * Math.sqrt(3) / 2;
+            let p1 = { x: -size / 2, y: cy, z: bAlt / 3 };
+            let p2 = { x: size / 2, y: cy, z: bAlt / 3 };
+            let p3 = { x: 0, y: cy, z: -bAlt * 2 / 3 };
+            let p4 = { x: 0, y: cy - h, z: 0 };
+
+            let polys = [];
+            const gen3D = (p1, p2, p3, p4, it) => {
+                if (it === 1) {
+                    polys.push([p1, p3, p2]);
+                    polys.push([p1, p2, p4]);
+                    polys.push([p2, p3, p4]);
+                    polys.push([p3, p1, p4]);
+                    return;
+                }
+                let mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });
+                let m12 = mid(p1, p2), m13 = mid(p1, p3), m14 = mid(p1, p4);
+                let m23 = mid(p2, p3), m24 = mid(p2, p4), m34 = mid(p3, p4);
+                gen3D(p1, m12, m13, m14, it - 1);
+                gen3D(m12, p2, m23, m24, it - 1);
+                gen3D(m13, m23, p3, m34, it - 1);
+                gen3D(m14, m24, m34, p4, it - 1);
+            };
+            gen3D(p1, p2, p3, p4, iter);
+            this.buildPolygons3D(polys, paths, c1, c2, sc, sw, size / 2);
+        } else if (this.state.mode === 'menger_sponge') {
+            let size = 250;
+            let polys = [];
+            const addCube = (x, y, z, s) => {
+                let hs = s / 2;
+                hs = hs * 0.999;
+                let v = [
+                    { x: x - hs, y: y - hs, z: z - hs }, { x: x + hs, y: y - hs, z: z - hs }, { x: x + hs, y: y + hs, z: z - hs }, { x: x - hs, y: y + hs, z: z - hs },
+                    { x: x - hs, y: y - hs, z: z + hs }, { x: x + hs, y: y - hs, z: z + hs }, { x: x + hs, y: y + hs, z: z + hs }, { x: x - hs, y: y + hs, z: z + hs }
+                ];
+                polys.push([v[3], v[2], v[1], v[0]]);
+                polys.push([v[4], v[5], v[6], v[7]]);
+                polys.push([v[0], v[4], v[7], v[3]]);
+                polys.push([v[1], v[2], v[6], v[5]]);
+                polys.push([v[0], v[1], v[5], v[4]]);
+                polys.push([v[3], v[7], v[6], v[2]]);
+            };
+
+            const genSponge = (x, y, z, s, it) => {
+                if (it === 1) { addCube(x, y, z, s); return; }
+                let ts = s / 3;
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        for (let k = -1; k <= 1; k++) {
+                            let zeros = (i === 0 ? 1 : 0) + (j === 0 ? 1 : 0) + (k === 0 ? 1 : 0);
+                            if (zeros >= 2) continue;
+                            genSponge(x + i * ts, y + j * ts, z + k * ts, ts, it - 1);
+                        }
+                    }
+                }
+            };
+            genSponge(0, 0, 0, size, iter);
+            this.buildPolygons3D(polys, paths, c1, c2, sc, sw, size / 2);
+        } else if (this.state.mode === 'fractal_tree') {
+            let len = 120;
+            let ang = (this.state.treeAngle * Math.PI) / 180;
+            let tStroke = sw > 0 ? sw : 1;
+
+            const genTree2D = (x, y, currentAng, length, it) => {
+                this.updateBBox(x, y);
+                if (it === 0) return;
+                let x2 = x + Math.cos(currentAng) * length;
+                let y2 = y + Math.sin(currentAng) * length;
+
+                this.updateBBox(x2, y2);
+                let w = Math.max(0.5, it * tStroke * 0.3);
+                paths.push(`<line x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${sc}" stroke-width="${w}" stroke-linecap="round" />`);
+
+                genTree2D(x2, y2, currentAng - ang, length * 0.75, it - 1);
+                genTree2D(x2, y2, currentAng + ang, length * 0.75, it - 1);
+            };
+            genTree2D(0, 150, -Math.PI / 2, len, iter);
+        }
+
+        let defs = '';
+        if (useGradient) {
+            let units = this.state.globalGradient ? 'userSpaceOnUse' : 'objectBoundingBox';
+            let coords = '';
+            if (this.state.globalGradient) {
+                coords = `x1="0" y1="${this.bbox.minY}" x2="0" y2="${this.bbox.maxY}"`;
+            } else {
+                coords = `x1="0%" y1="0%" x2="0%" y2="100%"`;
+            }
+            defs = `<defs><linearGradient id="fr-grad" gradientUnits="${units}" ${coords}><stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/></linearGradient></defs>`;
+            paths.unshift(defs);
+        }
+
+        return paths.join('');
+    },
+
+    exportFractal: function () {
+        if (this.state.mode === 'mandelbrot') {
+            let dataUrl = this.canvas.toDataURL('image/png');
+            this.stampToBoard(dataUrl, this.canvas.width, this.canvas.height);
+        } else {
+            let pathsStr = this.generateSVGString();
+
+            let minX = this.bbox.minX === Infinity ? -200 : this.bbox.minX;
+            let minY = this.bbox.minY === Infinity ? -200 : this.bbox.minY;
+            let maxX = this.bbox.maxX === -Infinity ? 200 : this.bbox.maxX;
+            let maxY = this.bbox.maxY === -Infinity ? 200 : this.bbox.maxY;
+
+            let pad = parseInt(this.state.strokeWidth) + 10;
+            minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+            let w = maxX - minX;
+            let h = maxY - minY;
+
+            let physicalW = w * 0.5;
+            let physicalH = h * 0.5;
+
+            let svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${physicalW}" height="${physicalH}" viewBox="${minX} ${minY} ${w} ${h}">`;
+            svgStr += pathsStr + `</svg>`;
+
+            let dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+            this.stampToBoard(dataUrl, physicalW, physicalH);
+        }
+    },
+
+    stampToBoard: function (dataUrl, w, h) {
+        let img = new Image();
+        img.onload = () => {
+            if (typeof PluginManager !== 'undefined' && PluginManager.plugins['funcPlotter']) {
+                PluginManager.plugins['funcPlotter'].currentStamp = {
+                    src: dataUrl,
+                    img: img,
+                    w: w, h: h,
+                    pluginData: { type: 'superFractal', mode: this.state.mode }
+                };
+                if (typeof setMode === 'function') setMode('funcPlotter');
+                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour coller la fractale", "#0abde3", "🌀");
+                if (this.widgetEl) this.widgetEl.style.display = 'none';
+            }
+        };
+        img.src = dataUrl;
+    }
+});
+
+// =========================================================
 setTimeout(() => {
     document.querySelectorAll('#plugins-grid .btn').forEach(btn => {
         if (btn.title) {
@@ -22273,3 +25502,409 @@ setTimeout(() => {
         }
     });
 }, 500); // Petit délai pour s'assurer que les plugins sont bien chargés
+// =========================================================
+// Whack-A-Mole (Deluxe Edition)
+// =========================================================
+registerPlugin('whackAMole', 'Jeux', {
+    name: 'Super Taupe',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11"/><path d="M7 21v-6a5 5 0 0 1 10 0v6"/><circle cx="10" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="14" r="1" fill="currentColor" stroke="none"/><ellipse cx="12" cy="17" rx="3" ry="2"/></svg>',
+
+    widgetEl: null,
+    score: 0,
+    combo: 0,
+    timeLeft: 30,
+    timerInterval: null,
+    moleInterval: null,
+    isPlaying: false,
+    moles: [],
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Super Taupe Deluxe';
+        btn.innerHTML = this.icon;
+        grid.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            if (e.target.closest('button') !== btn) return;
+            if (this.widgetEl && this.widgetEl.style.display !== 'none') {
+                this.widgetEl.style.display = 'none';
+                this.stopGame();
+                return;
+            }
+            this.openWidget();
+        });
+    },
+
+    openWidget: function () {
+        if (this.widgetEl) {
+            this.widgetEl.style.display = 'flex';
+            this.resetGame();
+            return;
+        }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.style.cssText = `position:fixed; top:10vh; left:calc(50% - 250px); width:500px; background:#7CB342; border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,0.5), inset 0 10px 0 rgba(255,255,255,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:6px solid #558B2F; user-select:none; cursor: crosshair;`;
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .std-header { background:#558B2F; color:#FFF; padding:15px 20px; display:flex; justify-content:space-between; align-items:center; cursor:grab; box-shadow:0 4px 10px rgba(0,0,0,0.2); z-index:10; }
+            .std-title { font-weight:900; font-size:22px; text-transform:uppercase; display:flex; align-items:center; gap:10px; letter-spacing:1px; text-shadow:2px 2px 0 rgba(0,0,0,0.3); }
+            .std-title svg { width:28px; height:28px; stroke:#FFF; filter: drop-shadow(2px 2px 0 rgba(0,0,0,0.3)); }
+            .std-stats { display:flex; justify-content:space-between; padding:15px 25px; background:#689F38; color:#FFF; font-size:24px; font-weight:900; text-shadow:2px 2px 0 rgba(0,0,0,0.3); border-bottom:4px solid #558B2F; }
+            .std-combo { color:#FFEB3B; font-size:18px; position:absolute; top:80px; left:50%; transform:translateX(-50%); font-weight:900; text-shadow:2px 2px 0 #000; transition: transform 0.2s; }
+            .std-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; padding:30px 40px; background-image: radial-gradient(#8BC34A 15%, transparent 16%), radial-gradient(#8BC34A 15%, transparent 16%); background-size: 40px 40px; background-position: 0 0, 20px 20px; position:relative; z-index:1; }
+            .std-cell { position:relative; width:120px; height:120px; margin: 0 auto; display:flex; justify-content:center; align-items:flex-end; overflow:hidden; }
+            .std-dirt { position:absolute; bottom:0; left:0; width:120px; height:50px; z-index:2; pointer-events:none; }
+            .std-hole { position:absolute; bottom:35px; left:15px; width:90px; height:30px; background:#1B100E; border-radius:50%; box-shadow: inset 0 5px 10px rgba(0,0,0,0.8); z-index:0; }
+            
+            .std-mole-container { position:absolute; bottom:40px; left:25px; width:70px; height:80px; cursor:pointer; z-index:1; transform: translateY(120%); transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); transform-origin: bottom center; }
+            .std-mole-container.up { transform: translateY(0%); }
+            .std-mole-container.hit { transform: scaleY(0.4) scaleX(1.3) translateY(50%); opacity: 0; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events:none; }
+            
+            .std-svg-mole { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+            .std-svg-bomb { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; }
+            .std-svg-gold { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0; }
+
+            .std-mole-container[data-type="bomb"] .std-svg-mole { opacity: 0; }
+            .std-mole-container[data-type="bomb"] .std-svg-bomb { opacity: 1; }
+            
+            .std-mole-container[data-type="gold"] .std-svg-mole { opacity: 0; }
+            .std-mole-container[data-type="gold"] .std-svg-gold { opacity: 1; }
+            
+            .std-controls { display:flex; justify-content:center; padding:20px; background:#689F38; border-top:4px solid #558B2F; z-index:10; position:relative; }
+            .std-btn { background:#FF9800; color:white; border:none; padding:15px 40px; font-size:22px; font-weight:900; font-family: sans-serif; border-radius:40px; cursor:pointer; box-shadow:0 6px 0 #E65100, 0 10px 20px rgba(0,0,0,0.3); text-transform:uppercase; transition: all 0.1s; letter-spacing:1px; }
+            .std-btn:hover { background:#FFA726; transform:translateY(2px); box-shadow:0 4px 0 #E65100, 0 8px 15px rgba(0,0,0,0.3); }
+            .std-btn:active { transform:translateY(6px); box-shadow:0 0 0 #E65100; }
+            .std-gameover { position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(255,255,255,0.9); z-index:20; display:none; flex-direction:column; justify-content:center; align-items:center; color:#33691E; backdrop-filter: blur(5px); }
+            .std-gameover h2 { font-size:50px; margin-bottom:10px; color:#FF9800; text-transform:uppercase; text-shadow: 3px 3px 0 #E65100; }
+            .std-gameover p { font-size:30px; margin-bottom:30px; font-weight:900; text-shadow:1px 1px 0 rgba(0,0,0,0.1); }
+            
+            /* Bomb animation */
+            @keyframes fuse-spark { 0% { fill: #FFEB3B; transform: scale(1); } 50% { fill: #FF9800; transform: scale(1.5); } 100% { fill: #F44336; transform: scale(1); } }
+            .fuse-spark { animation: fuse-spark 0.2s infinite; transform-origin: 50% 15%; }
+        `;
+        this.widgetEl.appendChild(style);
+
+        // Standard Mole
+        const svgMole = `
+            <svg class="std-svg-mole" viewBox="0 0 100 100">
+                <path d="M20 100 V 50 A 30 30 0 0 1 80 50 V 100 Z" fill="#795548"/>
+                <path d="M35 100 V 65 A 15 15 0 0 1 65 65 V 100 Z" fill="#D7CCC8"/>
+                <circle cx="35" cy="45" r="5" fill="#000"/>
+                <circle cx="65" cy="45" r="5" fill="#000"/>
+                <circle cx="36" cy="43" r="2" fill="#fff"/>
+                <circle cx="66" cy="43" r="2" fill="#fff"/>
+                <ellipse cx="50" cy="55" rx="10" ry="7" fill="#F48FB1"/>
+                <ellipse cx="50" cy="53" rx="5" ry="3" fill="#F8BBD0"/>
+            </svg>
+        `;
+
+        // Gold Mole (Sunglasses)
+        const svgGold = `
+            <svg class="std-svg-gold" viewBox="0 0 100 100">
+                <path d="M20 100 V 50 A 30 30 0 0 1 80 50 V 100 Z" fill="#FFC107"/>
+                <path d="M35 100 V 65 A 15 15 0 0 1 65 65 V 100 Z" fill="#FFF8E1"/>
+                <path d="M 25 45 Q 35 35 45 45 Q 35 55 25 45 Z" fill="#000"/>
+                <path d="M 55 45 Q 65 35 75 45 Q 65 55 55 45 Z" fill="#000"/>
+                <path d="M 43 42 L 57 42" stroke="#000" stroke-width="3"/>
+                <ellipse cx="50" cy="55" rx="10" ry="7" fill="#F48FB1"/>
+                <ellipse cx="50" cy="53" rx="5" ry="3" fill="#F8BBD0"/>
+            </svg>
+        `;
+
+        // Bomb
+        const svgBomb = `
+            <svg class="std-svg-bomb" viewBox="0 0 100 100">
+                <circle cx="50" cy="65" r="30" fill="#212121"/>
+                <circle cx="40" cy="55" r="8" fill="#424242"/>
+                <rect x="45" y="28" width="10" height="12" fill="#757575"/>
+                <path d="M 50 28 Q 60 15 70 20" fill="none" stroke="#BCAAA4" stroke-width="3"/>
+                <circle cx="70" cy="20" r="4" class="fuse-spark" fill="#FF9800"/>
+            </svg>
+        `;
+
+        const dirtSvg = `
+            <svg viewBox="0 0 120 50" width="100%" height="100%">
+                <!-- Front rim that traces the exact lower edge of the hole -->
+                <path d="M 15 0 A 45 15 0 0 0 105 0 Q 115 50 60 50 Q 5 50 15 0 Z" fill="#3E2723" />
+                <path d="M 22 4 A 38 12 0 0 0 98 4 Q 105 45 60 45 Q 15 45 22 4 Z" fill="#4E342E" />
+                <!-- Removed grass triangles -->
+            </svg>
+        `;
+
+        let gridHtml = '';
+        for (let i = 0; i < 9; i++) {
+            gridHtml += `
+                <div class="std-cell">
+                    <div class="std-hole"></div>
+                    <div class="std-mole-container" id="std-mole-${i}" data-id="${i}" data-type="mole">
+                        ${svgMole}
+                        ${svgGold}
+                        ${svgBomb}
+                    </div>
+                    <div class="std-dirt">${dirtSvg}</div>
+                </div>
+            `;
+        }
+
+        this.widgetEl.innerHTML += `
+            <div class="std-header" id="std-drag">
+                <div class="std-title">${this.icon} SUPER TAUPE DELUXE</div>
+                <button id="std-close" style="background:none; border:none; color:#FFF; cursor:pointer; font-size:24px; font-weight:900;">✕</button>
+            </div>
+            <div class="std-stats">
+                <div>SCORE <span id="std-score" style="color:#FFEB3B;">0</span></div>
+                <div>TEMPS <span id="std-time" style="color:#FFEB3B;">30</span></div>
+            </div>
+            <div class="std-combo" id="std-combo"></div>
+            <div class="std-grid">
+                ${gridHtml}
+            </div>
+            <div class="std-controls">
+                <button class="std-btn" id="std-start">JOUER</button>
+            </div>
+            <div class="std-gameover" id="std-gameover">
+                <h2>Terminé !</h2>
+                <p>Ton score : <span id="std-final-score">0</span></p>
+                <button class="std-btn" id="std-restart">Rejouer</button>
+            </div>
+        `;
+        document.body.appendChild(this.widgetEl);
+
+        let isDragging = false;
+        let mStartX, mStartY, iMouseX, iMouseY;
+        const header = this.widgetEl.querySelector('#std-drag');
+        header.onmousedown = (e) => {
+            if (e.target.closest('button')) return;
+            isDragging = true;
+            iMouseX = e.clientX; iMouseY = e.clientY;
+            const rect = this.widgetEl.getBoundingClientRect();
+            mStartX = rect.left; mStartY = rect.top;
+            e.preventDefault();
+        };
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            this.widgetEl.style.left = (mStartX + e.clientX - iMouseX) + 'px';
+            this.widgetEl.style.top = (mStartY + e.clientY - iMouseY) + 'px';
+        });
+        window.addEventListener('mouseup', () => isDragging = false);
+
+        this.widgetEl.querySelector('#std-close').onclick = () => {
+            this.widgetEl.style.display = 'none';
+            this.stopGame();
+        };
+
+        this.moles = Array.from(this.widgetEl.querySelectorAll('.std-mole-container'));
+
+        const spawnParticles = (x, y, isBomb) => {
+            let colors = isBomb ? ['#212121', '#424242', '#FF5722', '#FFEB3B'] : ['#8D6E63', '#795548', '#FFEB3B', '#FFF'];
+            let count = isBomb ? 40 : 20;
+            for (let i = 0; i < count; i++) {
+                let p = document.createElement('div');
+                let color = colors[Math.floor(Math.random() * colors.length)];
+                let size = 6 + Math.random() * 10;
+                let isCircle = Math.random() > 0.5;
+                p.style.cssText = `position:absolute; width:${size}px; height:${size}px; background:${color}; border-radius:${isCircle ? '50%' : '0%'}; left:${x}px; top:${y}px; pointer-events:none; z-index:15; transform:translate(-50%,-50%);`;
+                this.widgetEl.appendChild(p);
+
+                let angle = Math.random() * Math.PI * 2;
+                let dist = 60 + Math.random() * 100;
+                let dx = Math.cos(angle) * dist;
+                let dy = Math.sin(angle) * dist;
+                let rot = Math.random() * 720 - 360;
+
+                p.animate([
+                    { transform: 'translate(-50%,-50%) scale(1) rotate(0deg)', opacity: 1 },
+                    { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0) rotate(${rot}deg)`, opacity: 0 }
+                ], { duration: 600 + Math.random() * 400, easing: 'cubic-bezier(0.25, 1, 0.5, 1)', fill: 'forwards' });
+                setTimeout(() => p.remove(), 1000);
+            }
+        };
+
+        this.moles.forEach(mole => {
+            mole.addEventListener('mousedown', (e) => {
+                if (!this.isPlaying) return;
+                if (mole.classList.contains('up') && !mole.classList.contains('hit')) {
+                    mole.classList.remove('up');
+                    mole.classList.add('hit');
+
+                    let type = mole.getAttribute('data-type');
+                    let pts = 0;
+
+                    const rect = mole.getBoundingClientRect();
+                    const wRect = this.widgetEl.getBoundingClientRect();
+                    const px = rect.left - wRect.left + rect.width / 2;
+                    const py = rect.top - wRect.top + rect.height / 2;
+
+                    if (type === 'bomb') {
+                        pts = -30;
+                        this.combo = 0;
+                        spawnParticles(px, py, true);
+
+                        // Shake screen
+                        this.widgetEl.animate([
+                            { transform: 'translate(10px, 0)' },
+                            { transform: 'translate(-10px, 0)' },
+                            { transform: 'translate(10px, 0)' },
+                            { transform: 'translate(-10px, 0)' },
+                            { transform: 'translate(0, 0)' }
+                        ], { duration: 300 });
+
+                    } else {
+                        this.combo++;
+                        let mult = 1;
+                        if (this.combo > 10) mult = 3;
+                        else if (this.combo > 4) mult = 2;
+
+                        pts = (type === 'gold' ? 50 : 10) * mult;
+                        spawnParticles(px, py, false);
+
+                        // Floating text
+                        let ft = document.createElement('div');
+                        ft.innerText = '+' + pts;
+                        ft.style.cssText = `position:absolute; left:${px}px; top:${py}px; font-size:24px; font-weight:900; color:#FFF; text-shadow:2px 2px 0 #000; z-index:20; transform:translate(-50%,-50%); pointer-events:none;`;
+                        this.widgetEl.appendChild(ft);
+                        ft.animate([
+                            { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 },
+                            { transform: 'translate(-50%,-100px) scale(1.5)', opacity: 0 }
+                        ], { duration: 800, easing: 'ease-out', fill: 'forwards' });
+                        setTimeout(() => ft.remove(), 800);
+                    }
+
+                    this.score += pts;
+                    if (this.score < 0) this.score = 0;
+                    this.updateScore();
+                    this.updateCombo();
+
+                    setTimeout(() => {
+                        mole.classList.remove('hit');
+                    }, 500);
+                }
+            });
+        });
+
+        this.widgetEl.querySelector('#std-start').onclick = () => this.startGame();
+        this.widgetEl.querySelector('#std-restart').onclick = () => {
+            this.widgetEl.querySelector('#std-gameover').style.display = 'none';
+            this.startGame();
+        };
+
+        this.resetGame();
+    },
+
+    updateCombo: function () {
+        const comboEl = this.widgetEl.querySelector('#std-combo');
+        if (this.combo > 1) {
+            let mult = 1;
+            if (this.combo > 10) mult = 3;
+            else if (this.combo > 4) mult = 2;
+            comboEl.innerText = `COMBO x${this.combo} (x${mult})`;
+            comboEl.animate([
+                { transform: 'translateX(-50%) scale(1.5)' },
+                { transform: 'translateX(-50%) scale(1)' }
+            ], { duration: 200 });
+        } else {
+            comboEl.innerText = '';
+        }
+    },
+
+    resetGame: function () {
+        this.score = 0;
+        this.combo = 0;
+        this.timeLeft = 30;
+        this.updateScore();
+        this.updateTime();
+        this.updateCombo();
+        this.moles.forEach(m => { m.classList.remove('up'); m.classList.remove('hit'); });
+    },
+
+    updateScore: function () {
+        this.widgetEl.querySelector('#std-score').innerText = this.score;
+        this.widgetEl.querySelector('#std-score').animate([
+            { transform: 'scale(1.3)' },
+            { transform: 'scale(1)' }
+        ], { duration: 200 });
+    },
+
+    updateTime: function () {
+        this.widgetEl.querySelector('#std-time').innerText = this.timeLeft + 's';
+    },
+
+    startGame: function () {
+        if (this.isPlaying) return;
+        this.resetGame();
+        this.isPlaying = true;
+        this.widgetEl.querySelector('#std-start').style.display = 'none';
+
+        this.timerInterval = setInterval(() => {
+            this.timeLeft--;
+            this.updateTime();
+            if (this.timeLeft <= 0) {
+                this.endGame();
+            }
+        }, 1000);
+
+        this.popMole();
+    },
+
+    popMole: function () {
+        if (!this.isPlaying) return;
+
+        let availableMoles = this.moles.filter(m => !m.classList.contains('up') && !m.classList.contains('hit'));
+        if (availableMoles.length > 0) {
+            let numMoles = Math.random() > 0.7 ? 2 : 1; // More chance for double
+            for (let i = 0; i < numMoles; i++) {
+                if (availableMoles.length === 0) break;
+                let idx = Math.floor(Math.random() * availableMoles.length);
+                let mole = availableMoles.splice(idx, 1)[0];
+
+                // Determine type
+                let rand = Math.random();
+                let type = 'mole';
+                if (rand > 0.9) type = 'gold';
+                else if (rand > 0.75) type = 'bomb';
+
+                mole.setAttribute('data-type', type);
+                mole.classList.add('up');
+
+                let minTime = 800;
+                let maxTime = 1500;
+                if (type === 'gold') { minTime = 500; maxTime = 900; } // Gold goes fast
+                if (type === 'bomb') { minTime = 1200; maxTime = 2000; }
+
+                let speedFactor = this.timeLeft / 30;
+                let stayTime = minTime + (maxTime - minTime) * Math.max(0.4, speedFactor);
+
+                setTimeout(() => {
+                    if (mole.classList.contains('up') && !mole.classList.contains('hit')) {
+                        mole.classList.remove('up');
+                        // if missed a normal mole, reset combo
+                        if (mole.getAttribute('data-type') === 'mole' || mole.getAttribute('data-type') === 'gold') {
+                            this.combo = 0;
+                            this.updateCombo();
+                        }
+                    }
+                }, stayTime);
+            }
+        }
+
+        let nextPop = 600 + Math.random() * 800;
+        this.moleInterval = setTimeout(() => this.popMole(), nextPop);
+    },
+
+    endGame: function () {
+        this.stopGame();
+        this.widgetEl.querySelector('#std-final-score').innerText = this.score;
+        this.widgetEl.querySelector('#std-gameover').style.display = 'flex';
+        this.widgetEl.querySelector('#std-start').style.display = 'block';
+    },
+
+    stopGame: function () {
+        this.isPlaying = false;
+        clearInterval(this.timerInterval);
+        clearTimeout(this.moleInterval);
+        this.moles.forEach(m => { m.classList.remove('up'); m.classList.remove('hit'); });
+    }
+});
+
+

@@ -11,6 +11,7 @@ let hasShownResizeHelp = false;
 let isLoupeActive = false;
 let isCropMode = false;
 let cropRect = null;
+let hasUnsavedChanges = false;
 
 let laserStrokes = [];
 let currentLaserStroke = null;
@@ -32,7 +33,7 @@ let activeStyle = {
     arrowStart: 0, arrowEnd: 0
 };
 let nextId = 1; let globalZ = 1;
-let points = []; let segments = []; let circles = []; let rectangles = []; let texts = [];
+let points = []; let segments = []; let circles = []; let rectangles = []; let texts = []; let htmlPostits = [];
 let freehands = []; let curves = []; let polygons = []; let images = []; let arcs = [];
 const imageCache = {};
 
@@ -44,17 +45,155 @@ const FLOAT_TOOLBAR_PADDING = 12;
 
 let mode = 'pointer'; let selectedItems = []; let hoveredObj = null;
 
+// ==========================================
+// QUADTREE POUR OPTIMISATION DU RENDU
+// ==========================================
+class Quadtree {
+    constructor(x, y, w, h, maxDepth = 4, maxObjects = 16) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+        this.maxDepth = maxDepth; this.maxObjects = maxObjects;
+        this.depth = 0;
+        this.objects = [];
+        this.nodes = [];
+    }
+
+    insert(obj) {
+        if (this.nodes.length > 0) {
+            const idx = this.getIndex(obj);
+            if (idx !== -1) {
+                this.nodes[idx].insert(obj);
+                return;
+            }
+        }
+
+        this.objects.push(obj);
+
+        if (this.objects.length > this.maxObjects && this.depth < this.maxDepth) {
+            this.split();
+        }
+    }
+
+    split() {
+        const subW = this.w / 2;
+        const subH = this.h / 2;
+        const x = this.x;
+        const y = this.y;
+
+        this.nodes[0] = new Quadtree(x + subW, y, subW, subH, this.maxDepth, this.maxObjects);
+        this.nodes[1] = new Quadtree(x, y, subW, subH, this.maxDepth, this.maxObjects);
+        this.nodes[2] = new Quadtree(x, y + subH, subW, subH, this.maxDepth, this.maxObjects);
+        this.nodes[3] = new Quadtree(x + subW, y + subH, subW, subH, this.maxDepth, this.maxObjects);
+
+        this.nodes.forEach(node => node.depth = this.depth + 1);
+
+        for (let i = this.objects.length - 1; i >= 0; i--) {
+            const idx = this.getIndex(this.objects[i]);
+            if (idx !== -1) {
+                this.nodes[idx].insert(this.objects[i]);
+                this.objects.splice(i, 1);
+            }
+        }
+    }
+
+    getIndex(obj) {
+        const verticalMidpoint = this.x + this.w / 2;
+        const horizontalMidpoint = this.y + this.h / 2;
+
+        const objBounds = this.getObjectBounds(obj);
+        const inTop = objBounds.y + objBounds.h < horizontalMidpoint;
+        const inBottom = objBounds.y >= horizontalMidpoint;
+        const inLeft = objBounds.x + objBounds.w < verticalMidpoint;
+        const inRight = objBounds.x >= verticalMidpoint;
+
+        if (inRight && inTop) return 0;
+        if (inLeft && inTop) return 1;
+        if (inLeft && inBottom) return 2;
+        if (inRight && inBottom) return 3;
+        return -1;
+    }
+
+    getObjectBounds(obj) {
+        if (obj.type === 'point') return { x: obj.x - 3, y: obj.y - 3, w: 6, h: 6 };
+        if (obj.type === 'circle') return { x: obj.x - obj.r, y: obj.y - obj.r, w: obj.r * 2, h: obj.r * 2 };
+        if (obj.type === 'segment' || obj.type === 'freehand' || obj.type === 'curve' || obj.type === 'polygon') {
+            const bounds = this.getBoundsForPoints(obj.points || (obj.p1_id ? [] : []));
+            if (obj.type === 'segment' && obj.p1_id) {
+                const p1 = points.find(p => p.id === obj.p1_id);
+                const p2 = points.find(p => p.id === obj.p2_id);
+                if (p1 && p2) return this.getBoundsForPoints([p1, p2]);
+            }
+            return bounds;
+        }
+        if (obj.type === 'rectangle') return { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+        if (obj.type === 'image') return { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+        if (obj.type === 'text') return { x: obj.x, y: obj.y, w: obj.width || 100, h: obj.fontSize || 24 };
+        if (obj.type === 'arc') {
+            const bounds = this.getBoundsForPoints([obj.start, obj.mid, obj.end]);
+            return bounds;
+        }
+        return { x: obj.x || 0, y: obj.y || 0, w: 10, h: 10 };
+    }
+
+    getBoundsForPoints(pts) {
+        if (!pts || pts.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        pts.forEach(p => {
+            if (p && typeof p.x !== 'undefined' && typeof p.y !== 'undefined') {
+                minX = Math.min(minX, p.x);
+                minY = Math.min(minY, p.y);
+                maxX = Math.max(maxX, p.x);
+                maxY = Math.max(maxY, p.y);
+            }
+        });
+        return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+    }
+
+    retrieve(rect) {
+        let result = [];
+        this.retrieveHelper(rect, result);
+        return result;
+    }
+
+    retrieveHelper(rect, result) {
+        if (this.objects.length > 0) {
+            result.push(...this.objects);
+        }
+
+        if (this.nodes.length === 0) return;
+
+        for (let node of this.nodes) {
+            if (this.isRectOverlapping(rect, { x: node.x, y: node.y, w: node.w, h: node.h })) {
+                node.retrieveHelper(rect, result);
+            }
+        }
+    }
+
+    isRectOverlapping(r1, r2) {
+        return !(r1.x + r1.w < r2.x || r1.x > r2.x + r2.w ||
+                 r1.y + r1.h < r2.y || r1.y > r2.y + r2.h);
+    }
+
+    clear() {
+        this.objects = [];
+        this.nodes = [];
+    }
+}
+
+let renderQuadtree = null;
+
 function getGroupMembers(groupId) {
     if (!groupId) return [];
     let members = [];
-    [{arr: points, t: 'point'}, {arr: segments, t: 'segment'}, {arr: circles, t: 'circle'}, {arr: rectangles, t: 'rectangle'}, {arr: texts, t: 'text'}, {arr: freehands, t: 'freehand'}, {arr: curves, t: 'curve'}, {arr: polygons, t: 'polygon'}, {arr: images, t: 'image'}, {arr: arcs, t: 'arc'}].forEach(collection => {
+    [{ arr: points, t: 'point' }, { arr: segments, t: 'segment' }, { arr: circles, t: 'circle' }, { arr: rectangles, t: 'rectangle' }, { arr: texts, t: 'text' }, { arr: freehands, t: 'freehand' }, { arr: curves, t: 'curve' }, { arr: polygons, t: 'polygon' }, { arr: images, t: 'image' }, { arr: arcs, t: 'arc' }].forEach(collection => {
         collection.arr.forEach(obj => {
-            if (obj.groupId === groupId) members.push({type: collection.t, id: obj.id, obj: obj});
+            if (obj.groupId === groupId) members.push({ type: collection.t, id: obj.id, obj: obj });
         });
     });
     return members;
 }
 let isSelectingBox = false; let selectionBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
+let isZoomBoxing = false; let zoomBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
+let isDrawingPostit = false; let postitBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
 let isPanningView = false; let isSpacePressed = false;
 let isDraggingObjs = false; let draggedHandle = null;
 let lastMouseX = 0, lastMouseY = 0; let lastRawX = 0, lastRawY = 0;
@@ -158,6 +297,38 @@ const ToolStyleArray = {
 };
 let ToolStyle = ToolStyleArray['default'];
 
+function drawRotationHandle(ctx, x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.6)"; // légère bordure noire
+    ctx.stroke();
+    
+    // Cercle fléché (rotation)
+    ctx.beginPath();
+    ctx.arc(0, 0, 4.5, -Math.PI/2, Math.PI);
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "#333333";
+    ctx.stroke();
+    
+    // Tête de la flèche
+    ctx.save();
+    ctx.rotate(-Math.PI/2);
+    ctx.beginPath();
+    ctx.moveTo(4.5, -2.5);
+    ctx.lineTo(7, 1.5);
+    ctx.lineTo(2, 1.5);
+    ctx.fillStyle = "#333333";
+    ctx.fill();
+    ctx.restore();
+    
+    ctx.restore();
+}
+
 // ==========================================
 // OUTILS DE GÉOMÉTRIE (AVEC EXPORT SVG VECTORIEL)
 // ==========================================
@@ -172,6 +343,7 @@ class CompassWidget {
         const currentLegLength = Math.max(baseLeg, (this.radius / 2) + 20);
         const h = Math.sqrt(currentLegLength ** 2 - (this.radius / 2) ** 2);
         const headX = this.radius / 2; const headY = -h;
+        if (Math.hypot(local.x - headX, local.y - (headY - 35)) < 15) return 'rotate';
         if (MathUtils.dist(local.x, local.y, this.radius, 0) < 20) return 'trace';
         if (MathUtils.distanceToSegment(local.x, local.y, headX, headY - 30, 0, 0) < 15) return 'move';
         const legStartX = this.radius; const legStartY = 0;
@@ -200,14 +372,16 @@ class CompassWidget {
         ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = style.widths.outline; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
         ctx.beginPath(); ctx.strokeStyle = style.colors.metalLight; ctx.lineWidth = style.widths.body; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
         ctx.save(); ctx.translate(this.radius, 0);
-        ctx.beginPath(); ctx.fillStyle = style.colors.lead; ctx.moveTo(0, 0); ctx.lineTo(1.5, -5); ctx.lineTo(-1.5, -5); ctx.fill();
+        const activeColor = (typeof activeStyle !== 'undefined') ? activeStyle.strokeColor : style.colors.lead;
+        const activeW = (typeof activeStyle !== 'undefined') ? Math.min(3, Math.max(0.5, activeStyle.lineWidth * 0.3)) : 1.5;
+        ctx.beginPath(); ctx.fillStyle = activeColor; ctx.moveTo(0, 0); ctx.lineTo(activeW, -5); ctx.lineTo(-activeW, -5); ctx.fill();
         ctx.beginPath(); ctx.fillStyle = style.colors.wood; ctx.moveTo(-1.5, -5); ctx.lineTo(1.5, -5); ctx.lineTo(5, -18); ctx.lineTo(-5, -18); ctx.fill();
-        const penH = 55; ctx.fillStyle = style.colors.pencil; ctx.strokeStyle = style.colors.outline; ctx.lineWidth = 1; ctx.fillRect(-5, -18 - penH, 10, penH); ctx.strokeRect(-5, -18 - penH, 10, penH);
+        const penH = 55; ctx.fillStyle = activeColor; ctx.strokeStyle = style.colors.outline; ctx.lineWidth = 1; ctx.fillRect(-5, -18 - penH, 10, penH); ctx.strokeRect(-5, -18 - penH, 10, penH);
         ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fillRect(-2, -18 - penH, 2, penH);
         ctx.translate(0, elbowY); ctx.beginPath(); ctx.fillStyle = style.colors.metalDark; ctx.strokeStyle = style.colors.outline; ctx.lineWidth = 1;
         if (ctx.roundRect) { ctx.roundRect(-7, -8, 14, 16, 2); ctx.fill(); ctx.stroke(); } else { ctx.rect(-7, -8, 14, 16); ctx.fill(); ctx.stroke(); }
         ctx.restore();
-        ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = style.widths.arm + 2; ctx.lineCap = "butt"; ctx.moveTo(elbowX - 10, elbowY - 10); ctx.lineTo(this.radius, elbowY - 10); ctx.stroke();
+        ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = style.widths.outline + 2; ctx.lineCap = "butt"; ctx.moveTo(elbowX - 10, elbowY - 10); ctx.lineTo(this.radius, elbowY - 10); ctx.stroke();
         ctx.beginPath(); ctx.strokeStyle = style.colors.metalLight; ctx.lineWidth = style.widths.arm; ctx.lineCap = "butt"; ctx.moveTo(elbowX - 10, elbowY - 10); ctx.lineTo(this.radius, elbowY - 10); ctx.stroke();
         ctx.save(); ctx.translate(elbowX, elbowY - 10); ctx.shadowColor = "rgba(0,0,0,0.3)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
         ctx.beginPath(); ctx.fillStyle = style.colors.knob; ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = "#000"; ctx.stroke();
@@ -218,6 +392,8 @@ class CompassWidget {
         ctx.save(); ctx.translate(headX, headY); ctx.beginPath(); ctx.fillStyle = style.colors.metalLight; ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = 1.5; ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.stroke();
         ctx.beginPath(); ctx.fillStyle = style.colors.joint; ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        
+        drawRotationHandle(ctx, headX, headY - 35);
         ctx.restore();
     }
     toSVG() {
@@ -248,7 +424,7 @@ class CompassWidget {
         svg += `<rect x="-7" y="${elbowY - 8}" width="14" height="16" rx="2" fill="${style.colors.metalDark}" stroke="${style.colors.outline}" stroke-width="1"/>`;
         svg += `</g>`;
 
-        svg += `<line x1="${elbowX - 10}" y1="${elbowY - 10}" x2="${this.radius}" y2="${elbowY - 10}" stroke="${style.colors.outline}" stroke-width="${style.widths.arm + 2}"/>`;
+        svg += `<line x1="${elbowX - 10}" y1="${elbowY - 10}" x2="${this.radius}" y2="${elbowY - 10}" stroke="${style.colors.outline}" stroke-width="${style.widths.outline + 2}"/>`;
         svg += `<line x1="${elbowX - 10}" y1="${elbowY - 10}" x2="${this.radius}" y2="${elbowY - 10}" stroke="${style.colors.metalLight}" stroke-width="${style.widths.arm}"/>`;
         svg += `<g transform="translate(${elbowX}, ${elbowY - 10})">`;
         svg += `<circle cx="0" cy="0" r="14" fill="${style.colors.knob}" stroke="#000" stroke-width="1"/>`;
@@ -270,15 +446,15 @@ class SetSquareWidget {
     toGlobal(lx, ly) { return { x: this.x + lx * Math.cos(this.angle) - ly * Math.sin(this.angle), y: this.y + lx * Math.sin(this.angle) + ly * Math.cos(this.angle) }; }
     toLocal(mx, my) { const dx = mx - this.x; const dy = my - this.y; return { x: dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle), y: dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle) }; }
     getHitZone(mx, my) {
-        const coll = 10; const l = this.toLocal(mx, my);
+        const l = this.toLocal(mx, my);
+        if (Math.hypot(l.x - (this.width + 15), l.y - 0) < 15) return 'rotate';
+        if (Math.hypot(l.x - 0, l.y - (this.height + 15)) < 15) return 'rotate';
         if (Math.sqrt((l.x - this.width) ** 2 + (l.y) ** 2) < 30) return 'resizeWidth';
         if (Math.sqrt((l.x) ** 2 + (l.y - this.height) ** 2) < 30) return 'resizeHeight';
-        if (l.x < coll && l.y < coll) return null;
         if (l.x > 35 && l.x < 65 && l.y > 35 && l.y < 65) return 'toggleSlide';
-        if (l.x <= coll && l.y <= coll) return null;
         if (l.x >= 0 && l.y >= 0 && l.y <= -this.height / this.width * l.x + this.height) {
-            if (l.y < 30) return this.slideMode ? 'slideX' : 'rotate';
-            if (l.x < 30) return this.slideMode ? 'slideY' : 'rotate';
+            if (l.y < 30 && this.slideMode) return 'slideX';
+            if (l.x < 30 && this.slideMode) return 'slideY';
             return 'move';
         } return null;
     }
@@ -300,10 +476,11 @@ class SetSquareWidget {
             const wAvailable = this.width * ((this.height - i) / this.height); if (wAvailable < 35) break;
             let len = 6; if (i % cm === 0) len = 14; else if (i % (cm / 2) === 0) len = 9;
             ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(len, i); ctx.stroke();
-            if (i > 0 && i % cm === 0) {
-                ctx.save(); ctx.translate(22, i); ctx.rotate(-Math.PI / 2); ctx.fillText(i / cm, 0, 0); ctx.restore();
-            }
+            if (i > 0 && i % cm === 0) { ctx.save(); ctx.translate(32, i); ctx.rotate(-Math.PI / 2); ctx.fillText(i / cm, 0, 0); ctx.restore(); }
         }
+
+        drawRotationHandle(ctx, this.width + 15, 0);
+        drawRotationHandle(ctx, 0, this.height + 15);
 
         if (!this.isStamp) {
             const btnColor = this.slideMode ? style.toggleBtn.active : style.toggleBtn.inactive;
@@ -343,13 +520,21 @@ class ProtractorWidget {
     toGlobal(lx, ly) { return { x: this.x + lx * Math.cos(this.angle) - ly * Math.sin(this.angle), y: this.y + lx * Math.sin(this.angle) + ly * Math.cos(this.angle) }; }
     toLocal(mx, my) { const dx = mx - this.x; const dy = my - this.y; return { x: dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle), y: dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle) }; }
     getHitZone(mx, my) {
-        const l = this.toLocal(mx, my); const d = Math.sqrt(l.x * l.x + l.y * l.y);
-        if (Math.abs(l.x) < 12 && l.y < -30 && l.y > -60) return 'toggleLock';
-        if (Math.abs(l.x) < 12 && l.y >= -85 && l.y <= -61) return 'toggleSwap';
-        if (Math.abs(l.x) < 12 && l.y >= -113 && l.y <= -89) return 'toggleDouble';
-        if (this.isLocked) { if (d < 30) return 'traceAngle'; return null; }
-        if (d < 20) return 'move'; if (d > this.radius - 30 && d < this.radius + 10 && l.y < 0) return 'rotate';
-        if (d < this.radius && l.y < 0) return 'move'; return null;
+        const l = this.toLocal(mx, my);
+        if (Math.hypot(l.x - (this.radius + 20), l.y) < 15) return 'rotate';
+        if (Math.hypot(l.x - (-this.radius - 20), l.y) < 15) return 'rotate';
+        
+        const d = Math.sqrt(l.x ** 2 + l.y ** 2);
+        if (l.x > -12 && l.x < 12 && l.y < -35 && l.y > -110 && !this.isStamp) {
+            if (l.y > -83) return 'toggleSwap';
+            if (l.y > -55) return 'toggleLock';
+            return 'toggleDouble';
+        }
+        if (d < 20) return 'move'; 
+        if (d > this.radius - 30 && d < this.radius + 10 && l.y < 0) return 'traceAngle';
+        if (l.y >= 0 && l.y <= 15 && l.x >= -this.radius && l.x <= this.radius) return 'move';
+        if (d <= this.radius && l.y < 0) return 'move';
+        return null;
     }
     draw(ctx) {
         ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
@@ -395,6 +580,10 @@ class ProtractorWidget {
             const lockColor = this.isLocked ? style.components.lockActive : style.components.lockInactive; drawIconBtn(-45, lockColor, this.isLocked ? 'lock' : 'unlock');
             drawIconBtn(-101, this.showDouble ? "#3498db" : "#bdc3c7", 'double');
         }
+        
+        drawRotationHandle(ctx, -this.radius - 20, 0);
+        drawRotationHandle(ctx, this.radius + 20, 0);
+        
         ctx.restore();
     }
     toSVG() {
@@ -432,9 +621,10 @@ class RulerWidget {
     toLocal(mx, my) { const dx = mx - this.x; const dy = my - this.y; return { x: dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle), y: dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle) }; }
     getHitZone(mx, my) {
         const l = this.toLocal(mx, my);
+        if (Math.hypot(l.x - (this.width + 25), l.y - this.height / 2) < 15) return 'rotate';
+        
         if (l.x >= 0 && l.x <= this.width && l.y >= 0 && l.y <= this.height) {
             if (l.x > this.width - 25) return 'resize';
-            if (l.y < 25 || l.x < 25) return 'rotate';
             return 'move';
         } return null;
     }
@@ -451,6 +641,8 @@ class RulerWidget {
             ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, len); ctx.stroke();
             if (i > 0 && i % cm === 0) ctx.fillText(i / cm, i, 28);
         }
+        
+        drawRotationHandle(ctx, this.width + 25, this.height / 2);
         ctx.restore();
     }
     toSVG() {
@@ -492,13 +684,14 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 function createNewPage() {
     return {
         points: [], segments: [], circles: [], rectangles: [], texts: [], freehands: [], curves: [], polygons: [], images: [], arcs: [],
+        htmlPostits: [],
         history: [], historyIndex: -1, panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1
     };
 }
 
 function syncPage() {
     if (currentPageIndex === -1 || !pages[currentPageIndex]) return;
-    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, history, historyIndex, panX, panY, zoom };
+    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom };
 }
 
 function initPages() {
@@ -513,14 +706,18 @@ function loadPage(index) {
     const p = pages[index];
 
     points = p.points || []; segments = p.segments || []; circles = p.circles || []; rectangles = p.rectangles || []; texts = p.texts || [];
-    freehands = p.freehands || []; curves = p.curves || []; polygons = p.polygons || []; images = p.images || []; arcs = p.arcs || [];
+    freehands = p.freehands || []; curves = p.curves || []; polygons = p.polygons || []; images = p.images || []; arcs = p.arcs || []; htmlPostits = p.htmlPostits || [];
     history = p.history || []; historyIndex = p.historyIndex !== undefined ? p.historyIndex : -1;
     panX = p.panX || window.innerWidth / 2; panY = p.panY || window.innerHeight / 2; zoom = p.zoom || 1;
 
     document.getElementById('zoom-slider').value = zoom;
+    const btnZoomToggle = document.getElementById('btn-zoom-toggle');
+    if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
+
     if (history.length === 0) saveState();
 
     updatePageUI(); clearSelection(); draw();
+    if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
 }
 
 function updatePageUI() {
@@ -540,17 +737,26 @@ function openDonationModal() { document.getElementById('donationModal').style.di
 function closeDonationModal() { document.getElementById('donationModal').style.display = 'none'; }
 
 let confirmCallback = null;
-function openConfirmModal(title, text, isDanger, callback) {
+let cancelCallback = null;
+function openConfirmModal(title, text, isDanger, callback, onCancel = null) {
     document.getElementById('confirm-title').innerText = title;
     document.getElementById('confirm-text').innerText = text;
     const yesBtn = document.getElementById('confirm-yes-btn');
     if (isDanger) { yesBtn.className = 'btn-action danger'; }
     else { yesBtn.className = 'btn-action primary'; }
     confirmCallback = callback;
+    cancelCallback = onCancel;
     document.getElementById('confirm-modal').style.display = 'flex';
 }
-function closeConfirmModal() { document.getElementById('confirm-modal').style.display = 'none'; confirmCallback = null; }
-
+function closeConfirmModal() { 
+    document.getElementById('confirm-modal').style.display = 'none'; 
+    confirmCallback = null; 
+    cancelCallback = null;
+}
+function triggerConfirmCancel() {
+    if (cancelCallback) cancelCallback();
+    closeConfirmModal();
+}
 function clearBoardAndPages() {
     images = []; polygons = []; curves = []; circles = []; arcs = [];
     rectangles = []; segments = []; freehands = []; points = []; texts = [];
@@ -578,6 +784,29 @@ function handleWorkspaceArrange() {
         barStyle.style.right = 'auto';
         barStyle.style.bottom = 'auto';
         barStyle.style.transform = 'translateX(-50%)';
+    }
+
+    const barTools = document.getElementById('bar-tools');
+    if (barTools) {
+        barTools.removeAttribute('data-dragged');
+        localStorage.removeItem('bar_tools_x');
+        localStorage.removeItem('bar_tools_y');
+        barTools.style.left = '12px';
+        barTools.style.top = '50%';
+        barTools.style.right = 'auto';
+        barTools.style.bottom = 'auto';
+        barTools.style.transform = 'translateY(-50%)';
+    }
+
+    if (typeof htmlPostits !== 'undefined' && htmlPostits.length > 0) {
+        let startX = -panX / zoom + 50 / zoom;
+        let startY = -panY / zoom + 100 / zoom;
+        htmlPostits.forEach((p, i) => {
+            p.x = startX + i * (40 / zoom);
+            p.y = startY + i * (40 / zoom);
+        });
+        saveState();
+        if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
     }
 }
 
@@ -619,6 +848,26 @@ function arrangeToolbars() {
 
         let bestX = startX - w;
         let bestY = startY;
+
+        if (bar.id === 'system-toolbar-main') {
+            bestX = 12;
+            bestY = window.innerHeight / 2 - h / 2;
+            
+            bar.style.transform = 'none';
+            bar.style.left = bestX + 'px';
+            bar.style.top = bestY + 'px';
+            bar.style.right = 'auto';
+            bar.style.bottom = 'auto';
+            
+            let tConfig = toolbars.find(t => t.id === bar.id);
+            if (tConfig) {
+                tConfig.x = bestX;
+                tConfig.y = bestY;
+            }
+            placed.push({ x: bestX, y: bestY, w: w, h: h });
+            return;
+        }
+
         let minDist = Infinity;
 
         const startXLeft = margin;
@@ -708,6 +957,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('btn-help').addEventListener('click', () => {
         document.getElementById('help-modal').style.display = 'flex';
+        const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
+        if (!hasSeenWelcome) {
+            localStorage.setItem('auTableau_welcome_v2', 'true');
+        }
     });
     document.getElementById('btn-fullscreen').addEventListener('click', () => {
         if (!document.fullscreenElement) {
@@ -746,6 +999,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
+            setMode(mode); // Rafraîchit l'affichage de la barre de style si le compas est activé
             draw();
             e.stopPropagation();
         });
@@ -804,30 +1058,65 @@ function cancelRestore() {
 // --- SAUVEGARDE ET HISTORIQUE ---
 function saveAppLocal() {
     syncPage();
-    let appState = { pages, nextId, globalZ, currentBgIndex };
+    
+    // Nettoyage avant sauvegarde pour éviter de surcharger IndexedDB
+    const cleanedPages = pages.map(p => {
+        const pCopy = { ...p };
+        // Les pdfMetadata sont conservés (c'est juste des métadonnées légères)
+        return pCopy;
+    });
+    
+    let appState = { pages: cleanedPages, nextId, globalZ, currentBgIndex };
 
     // NOUVEAU : On utilise localforage. Plus besoin de JSON.stringify !
     localforage.setItem(AUTO_SAVE_KEY, appState).catch((e) => {
         console.error("Erreur de sauvegarde IndexedDB :", e);
         // Fallback de sécurité extrême au cas où
-        const cleanedPages = pages.map(p => ({
+        const ultraCleanedPages = cleanedPages.map(p => ({
             ...p, images: (p.images || []).map(img => img.isBg ? { ...img, src: "" } : img)
         }));
-        localforage.setItem(AUTO_SAVE_KEY, { pages: cleanedPages, nextId, globalZ, currentBgIndex });
+        localforage.setItem(AUTO_SAVE_KEY, { pages: ultraCleanedPages, nextId, globalZ, currentBgIndex });
     });
+}
+
+// === CALCUL DE TAILLE ===
+function calculateObjectSize(obj) {
+    try {
+        const json = JSON.stringify(obj);
+        const bytes = new Blob([json]).size;
+        return bytes / (1024 * 1024); // en MB
+    } catch (e) {
+        return 0;
+    }
+}
+
+function formatSize(mb) {
+    if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
+    return mb.toFixed(1) + ' MB';
+}
+
+function showMediasWarning(sizeWithMedias, sizeWithoutMedias) {
+    return `
+📊 Taille estimée:
+   • Avec images/PDFs: ${formatSize(sizeWithMedias)}
+   • Sans images: ${formatSize(sizeWithoutMedias)} (garde PDFs vectoriels)
+
+⚠️  Pour une clé USB ou export rapide, choisir "Sans images"
+    Les PDFs originaux seront toujours conservés.
+    `;
 }
 
 function saveState() {
     if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
-    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs });
+    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits });
     if (historyIndex >= 0 && history[historyIndex] === state) return;
     history.push(state); historyIndex++;
-    
+
     if (typeof hasUnsavedChanges !== 'undefined') {
         hasUnsavedChanges = true;
         updateUnsavedIndicator();
     }
-    
+
     saveAppLocal();
 }
 
@@ -841,7 +1130,7 @@ function restoreState(stateData) {
         pages = state.pages; nextId = state.nextId || 1; globalZ = state.globalZ || 1; currentBgIndex = state.currentBgIndex || 0;
     }
     else {
-        pages = [{ points: state.points || [], segments: state.segments || [], circles: state.circles || [], rectangles: state.rectangles || [], texts: state.texts || [], freehands: state.freehands || [], curves: state.curves || [], polygons: state.polygons || [], images: state.images || [], arcs: state.arcs || [], history: state.history || [], historyIndex: state.historyIndex !== undefined ? state.historyIndex : -1, panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1 }]; nextId = state.nextId || 1; globalZ = state.globalZ || 1;
+        pages = [{ points: state.points || [], segments: state.segments || [], circles: state.circles || [], rectangles: state.rectangles || [], texts: state.texts || [], freehands: state.freehands || [], curves: state.curves || [], polygons: state.polygons || [], images: state.images || [], arcs: state.arcs || [], htmlPostits: state.htmlPostits || [], history: state.history || [], historyIndex: state.historyIndex !== undefined ? state.historyIndex : -1, panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1 }]; nextId = state.nextId || 1; globalZ = state.globalZ || 1;
     }
 
     pages.forEach(p => {
@@ -858,9 +1147,10 @@ function undo() {
         const state = JSON.parse(history[historyIndex]);
         points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
         texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || [];
+        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
         creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
         saveAppLocal(); draw();
+        if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
     }
 }
 
@@ -870,23 +1160,62 @@ function redo() {
         const state = JSON.parse(history[historyIndex]);
         points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
         texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || [];
+        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
         creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
         saveAppLocal(); draw();
+        if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
     }
 }
 
 document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-redo').addEventListener('click', redo);
 
-document.getElementById('btn-clear').addEventListener('click', () => {
-    openConfirmModal("Tout effacer", "Voulez-vous vraiment créer un nouveau document vide ?", true, clearBoardAndPages);
-});
+const btnClearMenu = document.getElementById('btn-clear');
+if (btnClearMenu) {
+    btnClearMenu.addEventListener('click', () => {
+        openConfirmModal("Tout effacer", "Voulez-vous vraiment créer un nouveau document vide ?", true, clearBoardAndPages);
+    });
+}
 
 const btnTrashNow = document.getElementById('btn-trash-now');
 if (btnTrashNow) {
     btnTrashNow.addEventListener('click', () => {
-        openConfirmModal("Tout effacer", "Voulez-vous vraiment tout effacer ?", true, clearBoardAndPages);
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-title').innerText = "Tout effacer";
+        document.getElementById('confirm-text').innerText = "Voulez-vous vraiment tout effacer ? Vous pouvez aussi réinitialiser l'interface d'origine.";
+
+        const btnContainer = modal.querySelector('div[style*="display: flex; gap"]');
+        btnContainer.innerHTML = '';
+
+        // Bouton Annuler
+        const btnCancel = document.createElement('button');
+        btnCancel.className = 'btn-action secondary';
+        btnCancel.textContent = 'Annuler';
+        btnCancel.style.flex = '1';
+        btnCancel.onclick = () => modal.style.display = 'none';
+        btnContainer.appendChild(btnCancel);
+
+        // Bouton Effacer
+        const btnDelete = document.createElement('button');
+        btnDelete.className = 'btn-action danger';
+        btnDelete.textContent = 'Effacer';
+        btnDelete.style.flex = '1';
+        btnDelete.onclick = () => { clearBoardAndPages(); modal.style.display = 'none'; };
+        btnContainer.appendChild(btnDelete);
+
+        // Bouton Réinitialiser interface
+        const btnReset = document.createElement('button');
+        btnReset.className = 'btn-action primary';
+        btnReset.textContent = 'Réinitialiser l\'interface';
+        btnReset.style.flex = '1';
+        btnReset.onclick = () => {
+            clearBoardAndPages();
+            localStorage.clear();
+            location.reload();
+        };
+        btnContainer.appendChild(btnReset);
+
+        modal.style.display = 'flex';
     });
 }
 
@@ -894,10 +1223,51 @@ if (btnTrashNow) {
 
 document.getElementById('btn-load').addEventListener('click', () => { document.getElementById('file-loader').click(); });
 document.getElementById('file-loader').addEventListener('change', (e) => {
-    const file = e.target.files[0]; if (!file) return;
+    const file = e.target.files[0];
+    if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = (e) => { restoreState(e.target.result); showToast("Projet chargé !"); };
-    reader.readAsText(file); e.target.value = '';
+    reader.onload = async (e) => {
+        try {
+            const fileSize = calculateObjectSize(JSON.parse(e.target.result));
+            const data = JSON.parse(e.target.result);
+
+            // Vérifier si c'est le nouveau format { id, name, data } ou l'ancien { pages }
+            if (data.id && data.name && data.data) {
+                // Nouveau format d'export de tableau
+                const boardName = data.name || "Tableau importé";
+                currentBoardName = boardName;
+                const input = document.getElementById('project-name-input');
+                if (input) input.value = boardName;
+
+                // Charger les données
+                restoreState(data.data);
+                showToast(`📥 Tableau importé ! (${formatSize(fileSize)})`);
+
+                // Vérifier s'il y a des PDFs manquants
+                checkMissingPdfs();
+
+                // ✅ Réconcilier les classes (élèves) éventuellement incluses dans l'export
+                if (data.classes && typeof ClassesStore !== 'undefined') {
+                    await ClassesStore.reconcileImport(data.classes);
+                }
+            } else if (data.pages) {
+                // Ancien format - juste les pages
+                restoreState(data);
+                showToast("Projet chargé !");
+
+                // Vérifier aussi les PDFs manquants pour l'ancien format
+                checkMissingPdfs();
+            } else {
+                showToast("❌ Format de fichier non reconnu");
+            }
+        } catch (err) {
+            console.error("Erreur import :", err);
+            showToast("❌ Erreur lors du chargement du fichier");
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
 });
 // ==========================================
 // WIDGET TEMPS & GESTION DE CLASSE
@@ -1603,12 +1973,26 @@ function generateSVGString(rect, keepBg) {
         } else if (item.type === 'segment') {
             const p1 = getObjectById('point', obj.p1_id), p2 = getObjectById('point', obj.p2_id);
             if (p1 && p2) {
-                svg += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${color}" stroke-width="${w}" stroke-dasharray="${dash}" stroke-linecap="round" />`;
-                if (obj.arrowStart) {
+                let x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
+                if (obj.lineType === 'droite' || obj.lineType === 'demi-droite') {
+                    const dx = x2 - x1, dy = y2 - y1;
+                    if (dx !== 0 || dy !== 0) {
+                        const len = 100000;
+                        const mag = Math.hypot(dx, dy);
+                        const nx = dx / mag, ny = dy / mag;
+                        const isDemi = (obj.lineType === 'demi-droite');
+                        x1 = isDemi ? p1.x : p1.x - nx * len;
+                        y1 = isDemi ? p1.y : p1.y - ny * len;
+                        x2 = p2.x + nx * len;
+                        y2 = p2.y + ny * len;
+                    }
+                }
+                svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${w}" stroke-dasharray="${dash}" stroke-linecap="round" />`;
+                if (obj.arrowStart && (!obj.lineType || obj.lineType === 'segment')) {
                     const svgAngle = Math.atan2(p1.y - p2.y, p1.x - p2.x);
                     svg += getSvgArrowHead(p1.x, p1.y, svgAngle, color, w, 1, obj.arrowStart);
                 }
-                if (obj.arrowEnd) {
+                if (obj.arrowEnd && (!obj.lineType || obj.lineType === 'segment')) {
                     const svgAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
                     svg += getSvgArrowHead(p2.x, p2.y, svgAngle, color, w, 1, obj.arrowEnd);
                 }
@@ -1868,7 +2252,7 @@ document.getElementById('btn-cancel-export').addEventListener('click', () => {
 
 
 // --- 3. Fonction de Capture Améliorée (Qualité) ---
-function performCapture(action) {
+async function performCapture(action) {
     const keepBg = document.getElementById('export-bg').checked;
 
     // Gestion de la Qualité (si le menu n'existe pas, on met 2 par défaut)
@@ -1885,18 +2269,32 @@ function performCapture(action) {
 
     draw();
 
-    let rx = wasCropMode && currentRect ? Math.min(currentRect.startX, currentRect.endX) : 0;
-    let ry = wasCropMode && currentRect ? Math.min(currentRect.startY, currentRect.endY) : 0;
-    let rw = wasCropMode && currentRect ? Math.abs(currentRect.endX - currentRect.startX) : canvas.width;
-    let rh = wasCropMode && currentRect ? Math.abs(currentRect.endY - currentRect.startY) : canvas.height;
+    let rx, ry, rw, rh;
+    if (wasCropMode && currentRect) {
+        rx = Math.min(currentRect.startX, currentRect.endX);
+        ry = Math.min(currentRect.startY, currentRect.endY);
+        rw = Math.abs(currentRect.endX - currentRect.startX);
+        rh = Math.abs(currentRect.endY - currentRect.startY);
+    } else {
+        const box = getAutoBoundingBox(40);
+        rx = box.startX;
+        ry = box.startY;
+        rw = box.endX - box.startX;
+        rh = box.endY - box.startY;
+    }
 
     // L'export SVG reste en Vectoriel (Qualité Infinie)
     if (action === 'svg') {
         const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, keepBg);
         const blob = new Blob([svgStr], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `AuTableau_${Date.now()}.svg`; a.click();
-        URL.revokeObjectURL(url);
+        const a = document.createElement('a'); a.href = url; a.download = `AuTableau_${Date.now()}.svg`; 
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 500);
         showToast("Fichier SVG exporté !");
 
         selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
@@ -1906,19 +2304,34 @@ function performCapture(action) {
     }
 
     // Rendu en image (PNG, PDF, Copie)
-    setTimeout(() => {
-        let targetCanvas = canvas;
+    setTimeout(async () => {
+        const oldW = canvas.width; const oldH = canvas.height;
+        const oldPanX = panX; const oldPanY = panY; const oldZoom = zoom;
+        let targetCanvas;
 
-        // C'est ici que la qualité opère ! On multiplie la taille du canvas
-        if (wasCropMode && currentRect && rw > 10 && rh > 10) {
+        try {
+            // On recadre physiquement le canvas principal sur la zone d'export
+            canvas.width = rw * qualityScale;
+            canvas.height = rh * qualityScale;
+            panX = (oldPanX - rx) * qualityScale;
+            panY = (oldPanY - ry) * qualityScale;
+            zoom = oldZoom * qualityScale;
+            
+            draw();
+
+            // On copie le résultat dans un canvas secondaire pour éviter les problèmes asynchrones
             targetCanvas = document.createElement('canvas');
-            targetCanvas.width = rw * qualityScale;
-            targetCanvas.height = rh * qualityScale;
-            const tCtx = targetCanvas.getContext('2d');
-
-            // On étire le dessin pour gagner en résolution
-            tCtx.scale(qualityScale, qualityScale);
-            tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+            targetCanvas.width = canvas.width;
+            targetCanvas.height = canvas.height;
+            targetCanvas.getContext('2d').drawImage(canvas, 0, 0);
+        } finally {
+            // On restaure IMMÉDIATEMENT le vrai canvas pour éviter les clignotements
+            canvas.width = oldW; canvas.height = oldH;
+            panX = oldPanX; panY = oldPanY; zoom = oldZoom;
+            
+            selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
+            cropRect = null; exportPopover.classList.remove('visible');
+            syncStyleWithSelection(); draw();
         }
 
         if (action === 'png') {
@@ -1944,6 +2357,132 @@ function performCapture(action) {
                 showToast("Fichier PDF exporté !");
             } else { showToast("Erreur : Moteur PDF non chargé."); }
         }
+        else if (action === 'pdf-vector') {
+            console.log("=== EXPORT VECTORIEL (1 page) ===");
+            console.log("window.jspdf présent:", !!window.jspdf);
+
+            if (window.jspdf || window.jsPDF) {
+                const jsPDF = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
+                const pdfObj = new jsPDF({ orientation: rw > rh ? 'l' : 'p', unit: 'px', format: [rw, rh] });
+
+                try {
+                    // Police intégrée en base64 (corrige les accents, fonctionne aussi en file://)
+                    if (!window.NUNITO_FONT_BASE64) throw new Error('Police Nunito non chargée');
+                    pdfObj.addFileToVFS('Nunito-Regular.ttf', window.NUNITO_FONT_BASE64);
+                    pdfObj.addFont('Nunito-Regular.ttf', 'Nunito', 'normal');
+                    pdfObj.addFont('Nunito-Regular.ttf', 'sans-serif', 'normal');
+                    pdfObj.addFont('Nunito-Regular.ttf', 'Helvetica', 'normal');
+                    pdfObj.addFont('Nunito-Regular.ttf', 'Arial', 'normal');
+                    pdfObj.addFont('Nunito-Regular.ttf', 'Verdana', 'normal');
+                    pdfObj.addFont('Nunito-Regular.ttf', 'Tahoma', 'normal');
+                } catch (err) {
+                    console.warn("Impossible de charger la police UTF-8, les accents pourraient être corrompus", err);
+                }
+
+                console.log("typeof pdfObj.svg:", typeof pdfObj.svg);
+                if (typeof pdfObj.svg !== 'function') {
+                    console.error("Erreur critique : pdfObj.svg n'est pas une fonction. jsPDF ne trouve pas svg2pdf.");
+                    return showToast("Erreur : svg2pdf n'est pas correctement chargé.");
+                }
+
+                let useHybrid = false;
+                const pData = pages[currentPageIndex];
+                let pdfBgImg = null;
+                // Note: fusion PDF désactivée (PDFs stockés comme métadonnées, pas données binaires)
+                // if (pData && pData.sourcePdfData && window.PDFLib) {
+                //     pdfBgImg = pData.images.find(img => img.isBg) || (pData.images.length > 0 ? pData.images[0] : null);
+                //     if (pdfBgImg) useHybrid = true;
+                // }
+
+                const oldImages = [...images];
+                if (useHybrid) {
+                    images = images.filter(img => img.id !== pdfBgImg.id);
+                }
+
+                const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, useHybrid ? false : keepBg);
+                
+                if (useHybrid) images = oldImages;
+
+                console.log("Longueur du SVG généré:", svgStr.length);
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgStr, "image/svg+xml");
+                const svgElement = svgDoc.documentElement;
+
+                svgElement.style.position = 'absolute';
+                svgElement.style.top = '-9999px';
+                svgElement.style.left = '-9999px';
+                document.body.appendChild(svgElement);
+
+                console.log("Lancement de pdfObj.svg()...");
+                pdfObj.svg(svgElement, { x: 0, y: 0, width: rw, height: rh }).then(async () => {
+                    console.log("Génération terminée avec succès.");
+                    document.body.removeChild(svgElement);
+                    
+                    if (useHybrid) {
+                        try {
+                            showToast("Fusion avec le PDF d'origine... ⏳");
+                            const annotPdfBytes = pdfObj.output('arraybuffer');
+                            
+                            const { PDFDocument } = window.PDFLib;
+                            const sourceDoc = await PDFDocument.load(pData.sourcePdfData);
+                            const mergedDoc = await PDFDocument.create();
+                            
+                            const [copiedPage] = await mergedDoc.copyPages(sourceDoc, [pData.sourcePdfPageNum || 0]);
+                            const mergedPage = mergedDoc.addPage(copiedPage);
+                            
+                            // Approche 100% robuste pour pdf-lib :
+                            const annotDocLib = await PDFDocument.load(annotPdfBytes);
+                            const [copiedAnnotPage] = await mergedDoc.copyPages(annotDocLib, [0]);
+                            const annotEmbeddedPage = await mergedDoc.embedPage(copiedAnnotPage);
+                            
+                            const imgStartX = (pdfBgImg.x) * zoom + panX;
+                            const imgStartY = (pdfBgImg.y) * zoom + panY;
+                            const imgW = pdfBgImg.w * zoom;
+                            const imgH = pdfBgImg.h * zoom;
+                            
+                            const drawX = (rx - imgStartX) / imgW * mergedPage.getWidth();
+                            const drawY = mergedPage.getHeight() - (ry + rh - imgStartY) / imgH * mergedPage.getHeight();
+                            const drawW = rw / imgW * mergedPage.getWidth();
+                            const drawH = rh / imgH * mergedPage.getHeight();
+                            
+                            mergedPage.drawPage(annotEmbeddedPage, { x: drawX, y: drawY, width: drawW, height: drawH });
+                            
+                            if (wasCropMode) {
+                                mergedPage.setCropBox(drawX, drawY, drawW, drawH);
+                            }
+                            
+                            const finalPdfBytes = await mergedDoc.save();
+                            const blob = new Blob([finalPdfBytes], { type: "application/pdf" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a'); 
+                            a.href = url; 
+                            a.download = `AuTableau_Hybride_${Date.now()}.pdf`; 
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                            }, 500);
+                            showToast("Fichier PDF vectoriel exporté !");
+                        } catch (err) {
+                            console.error("Erreur hybrid:", err);
+                            showToast("Erreur lors de la fusion vectorielle.");
+                            pdfObj.save(`AuTableau_Vect_${Date.now()}.pdf`);
+                        }
+                    } else {
+                        pdfObj.save(`AuTableau_Vect_${Date.now()}.pdf`);
+                        showToast("Fichier PDF vectoriel exporté !");
+                    }
+                }).catch(err => {
+                    if (document.body.contains(svgElement)) document.body.removeChild(svgElement);
+                    showToast("Erreur lors de la génération vectorielle.");
+                    console.error("Erreur dans pdfObj.svg() :", err);
+                });
+            } else {
+                console.error("Erreur : jsPDF non trouvé.");
+                showToast("Erreur : Moteur PDF non chargé.");
+            }
+        }
 
         selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
         isCropMode = false; cropRect = null; exportPopover.classList.remove('visible');
@@ -1957,6 +2496,13 @@ function performCapture(action) {
 // ==========================================
 const btnExportPage = document.getElementById('btn-export-page');
 let selectedFormat = null;
+let selectedScope = 'page';
+
+function updateExportButtonLabel() {
+    const btn = document.getElementById('btn-do-export');
+    if (!btn) return;
+    btn.innerText = selectedScope === 'all' ? 'Exporter TOUTES les pages' : 'Exporter la page';
+}
 
 // Action A : Bouton "Recadrer une zone"
 if (btnCapture) {
@@ -2005,21 +2551,41 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         // Mise à jour de l'interface
         const desc = document.getElementById('format-description');
         const settings = document.getElementById('settings-png-pdf');
-        const btnPdfAll = document.getElementById('btn-do-export-pdf-all');
+        const scopeContainer = document.getElementById('export-scope-container');
+        const supportsMultiPage = (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector');
+
+        if (scopeContainer) scopeContainer.style.display = supportsMultiPage ? 'block' : 'none';
+        if (!supportsMultiPage) {
+            selectedScope = 'page';
+            document.querySelectorAll('.btn-scope-choice').forEach(b => {
+                b.style.borderColor = b.dataset.scope === 'page' ? '#0984e3' : '#dfe6e9';
+            });
+        }
+        updateExportButtonLabel();
 
         if (selectedFormat === 'png') {
             desc.innerText = "PNG : Idéal pour intégrer dans un document ou partager sur le web.";
             settings.style.display = 'block';
-            if (btnPdfAll) btnPdfAll.style.display = 'none';
         } else if (selectedFormat === 'svg') {
             desc.innerText = "SVG : Format vectoriel parfait pour imprimer en grand ou modifier plus tard.";
             settings.style.display = 'none';
-            if (btnPdfAll) btnPdfAll.style.display = 'none';
         } else if (selectedFormat === 'pdf') {
-            desc.innerText = "PDF : Format idéal pour archiver ou imprimer des documents de cours.";
+            desc.innerText = "PDF : Format image classique, idéal pour archiver ou imprimer.";
             settings.style.display = 'block';
-            if (btnPdfAll) btnPdfAll.style.display = 'block';
+        } else if (selectedFormat === 'pdf-vector') {
+            desc.innerText = "PDF Vect. : PDF vectoriel pur. Attention: les plugins complexes ne seront pas visibles.";
+            settings.style.display = 'none'; // Pas besoin de qualité x2 pour du vectoriel
         }
+    });
+});
+
+// Logique de sélection de la portée (page actuelle / toutes les pages)
+document.querySelectorAll('.btn-scope-choice').forEach(btn => {
+    btn.addEventListener('click', () => {
+        selectedScope = btn.dataset.scope;
+        document.querySelectorAll('.btn-scope-choice').forEach(b => b.style.borderColor = '#dfe6e9');
+        btn.style.borderColor = '#0984e3';
+        updateExportButtonLabel();
     });
 });
 
@@ -2038,94 +2604,17 @@ const btnDoExport = document.getElementById('btn-do-export');
 if (btnDoExport) {
     btnDoExport.addEventListener('click', () => {
         if (!selectedFormat) return showToast("Veuillez choisir un format !");
-        performCapture(selectedFormat);
+        if (selectedScope === 'all' && (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector')) {
+            exportAllPagesPdf();
+        } else {
+            performCapture(selectedFormat);
+        }
     });
 }
 
-// --- 3. Fonction de Capture ---
-function performCapture(action) {
-    const keepBg = document.getElementById('export-bg').checked;
-
-    // Gestion de la Qualité (si le menu n'existe pas, on met 2 par défaut)
-    const qualitySelect = document.getElementById('export-quality');
-    const qualityScale = qualitySelect ? parseInt(qualitySelect.value) : 2;
-
-    const oldSel = [...selectedItems]; clearSelection();
-
-    let oldAxes = showAxes;
-    if (!keepBg) { showAxes = 0; isExportingTransparent = true; }
-
-    const wasCropMode = isCropMode; const currentRect = cropRect;
-    isCropMode = false;
-
-    draw();
-
-    let rx = wasCropMode && currentRect ? Math.min(currentRect.startX, currentRect.endX) : 0;
-    let ry = wasCropMode && currentRect ? Math.min(currentRect.startY, currentRect.endY) : 0;
-    let rw = wasCropMode && currentRect ? Math.abs(currentRect.endX - currentRect.startX) : canvas.width;
-    let rh = wasCropMode && currentRect ? Math.abs(currentRect.endY - currentRect.startY) : canvas.height;
-
-    // L'export SVG reste en Vectoriel (Qualité Infinie)
-    if (action === 'svg') {
-        const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, keepBg);
-        const blob = new Blob([svgStr], { type: "image/svg+xml" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `AuTableau_${Date.now()}.svg`; a.click();
-        URL.revokeObjectURL(url);
-        showToast("Fichier SVG exporté !");
-
-        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
-        cropRect = null; if (exportPopover) exportPopover.classList.remove('visible');
-        syncStyleWithSelection(); draw();
-        return;
-    }
-
-    // Rendu en image (PNG, PDF, Copie)
-    setTimeout(() => {
-        // C'est ici que la qualité opère ! On multiplie la taille du canvas
-        let targetCanvas = document.createElement('canvas');
-        targetCanvas.width = rw * qualityScale;
-        targetCanvas.height = rh * qualityScale;
-        const tCtx = targetCanvas.getContext('2d');
-
-        // On étire le dessin pour gagner en résolution
-        tCtx.scale(qualityScale, qualityScale);
-        tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
-
-        if (action === 'png') {
-            const data = targetCanvas.toDataURL("image/png");
-            const a = document.createElement('a'); a.href = data; a.download = `AuTableau_${Date.now()}.png`; a.click();
-            showToast("Image PNG exportée !");
-        }
-        else if (action === 'copy') {
-            targetCanvas.toBlob(async (blob) => {
-                try {
-                    const item = new ClipboardItem({ "image/png": blob });
-                    await navigator.clipboard.write([item]);
-                    showToast("Image copiée dans le presse-papiers !");
-                } catch (err) { showToast("Erreur lors de la copie."); console.error(err); }
-            }, 'image/png');
-        }
-        else if (action === 'pdf') {
-            if (window.jspdf && window.jspdf.jsPDF) {
-                const dataUrl = targetCanvas.toDataURL("image/jpeg", 1.0);
-                const pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
-                pdf.addImage(dataUrl, 'JPEG', 0, 0, rw, rh);
-                pdf.save(`AuTableau_${Date.now()}.pdf`);
-                showToast("Fichier PDF exporté !");
-            } else { showToast("Erreur : Moteur PDF non chargé."); }
-        }
-
-        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
-        isCropMode = false; cropRect = null; if (exportPopover) exportPopover.classList.remove('visible');
-        syncStyleWithSelection(); draw();
-    }, 100);
-}
 
 // --- 4. LE BOUTON MAGIQUE : PDF DE TOUTES LES PAGES ---
-const btnExportAllPdf = document.getElementById('btn-do-export-pdf-all');
-if (btnExportAllPdf) {
-    btnExportAllPdf.addEventListener('click', async () => {
+async function exportAllPagesPdf() {
         if (!window.jspdf || !window.jspdf.jsPDF) return showToast("Erreur : Moteur PDF non chargé.");
 
         showToast("Génération du PDF complet en cours... ⏳");
@@ -2169,20 +2658,57 @@ if (btnExportAllPdf) {
             // Petite pause pour garantir que le canvas a fini de charger les formules et images
             await new Promise(r => setTimeout(r, 100));
 
-            const tempC = document.createElement('canvas');
-            tempC.width = rw * qualityScale;
-            tempC.height = rh * qualityScale;
-            const tCtx = tempC.getContext('2d');
-            tCtx.scale(qualityScale, qualityScale);
-            tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
-
             // Ajout dans le document PDF
             if (!pdf) {
                 pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
+
+                if (selectedFormat === 'pdf-vector') {
+                    try {
+                        if (!window.NUNITO_FONT_BASE64) throw new Error('Police Nunito non chargée');
+                        pdf.addFileToVFS('Nunito-Regular.ttf', window.NUNITO_FONT_BASE64);
+                        pdf.addFont('Nunito-Regular.ttf', 'sans-serif', 'normal');
+                        pdf.addFont('Nunito-Regular.ttf', 'Arial', 'normal');
+                        pdf.addFont('Nunito-Regular.ttf', 'Verdana', 'normal');
+                        pdf.addFont('Nunito-Regular.ttf', 'Tahoma', 'normal');
+                    } catch (err) {
+                        console.warn("Impossible de charger la police UTF-8", err);
+                    }
+                }
             } else {
                 pdf.addPage([rw, rh], rw > rh ? 'landscape' : 'portrait');
             }
-            pdf.addImage(tempC.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, rw, rh);
+
+            if (selectedFormat === 'pdf-vector' && typeof pdf.svg === 'function') {
+                console.log(`=== EXPORT VECTORIEL (PAGE ${i + 1}/${pages.length}) ===`);
+                const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, keepBg);
+                console.log("Longueur du SVG généré:", svgStr.length);
+                const parser = new DOMParser();
+                const svgDoc = parser.parseFromString(svgStr, "image/svg+xml");
+                const svgElement = svgDoc.documentElement;
+
+                svgElement.style.position = 'absolute';
+                svgElement.style.top = '-9999px';
+                svgElement.style.left = '-9999px';
+                document.body.appendChild(svgElement);
+
+                try {
+                    console.log("Lancement de pdf.svg()...");
+                    await pdf.svg(svgElement, { x: 0, y: 0, width: rw, height: rh });
+                    console.log("Génération terminée avec succès.");
+                } catch (e) { console.error("Erreur svg2pdf", e); }
+                document.body.removeChild(svgElement);
+            } else {
+                if (selectedFormat === 'pdf-vector') {
+                    console.warn(`Fallback bitmap utilisé pour la page ${i + 1} car pdf.svg n'est pas une fonction.`);
+                }
+                const tempC = document.createElement('canvas');
+                tempC.width = rw * qualityScale;
+                tempC.height = rh * qualityScale;
+                const tCtx = tempC.getContext('2d');
+                tCtx.scale(qualityScale, qualityScale);
+                tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+                pdf.addImage(tempC.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, rw, rh);
+            }
         }
 
         // 3. Restauration parfaite de l'état initial
@@ -2201,7 +2727,6 @@ if (btnExportAllPdf) {
 
         pdf.save(`AuTableau_Complet_${Date.now()}.pdf`);
         showToast("✅ PDF Multi-pages téléchargé !");
-    });
 }
 // --- HELPER DYNAMIQUE POUR L'EDITEUR WYSIWYG ---
 function updateWysiwygPosition() {
@@ -2235,6 +2760,7 @@ function updateWysiwygPosition() {
         wysiwygText.style.transform = `translate(0, 0)`;
     }
     if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+    if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
 }
 function toggleLoupe() {
     isLoupeActive = !isLoupeActive;
@@ -2284,7 +2810,7 @@ window.addEventListener('keydown', (e) => {
             itemsToDelete.set(item.type + '-' + item.id, item);
             if (obj.groupId) {
                 getGroupMembers(obj.groupId).forEach(member => {
-                    itemsToDelete.set(member.type + '-' + member.id, {type: member.type, id: member.id});
+                    itemsToDelete.set(member.type + '-' + member.id, { type: member.type, id: member.id });
                 });
             }
         });
@@ -2388,7 +2914,7 @@ function bindPluginDragGhost(button, toolId) {
             }
             setDragGhostFromButton(button, e.clientX, e.clientY);
             setFloatingGhostState(false);
-        }, 150);
+        }, 400);
     });
 
     button.addEventListener('pointermove', () => {
@@ -2721,19 +3247,19 @@ window.addEventListener('pointerup', (e) => {
 });
 
 document.addEventListener('dragenter', (e) => {
-    if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+    if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
         e.preventDefault();
         if (dropOverlay) dropOverlay.style.display = 'flex';
     }
 });
 document.addEventListener('dragover', (e) => {
-    if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+    if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
         e.preventDefault();
         if (dropOverlay) dropOverlay.style.display = 'flex';
     }
 });
 document.addEventListener('dragleave', (e) => {
-    if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+    if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
         e.preventDefault();
         if (e.relatedTarget === null || e.relatedTarget.nodeName === "HTML") {
             if (dropOverlay) dropOverlay.style.display = 'none';
@@ -2744,6 +3270,18 @@ document.addEventListener('dragleave', (e) => {
 document.addEventListener('drop', (e) => {
     e.preventDefault();
     if (dropOverlay) dropOverlay.style.display = 'none';
+
+    // Vérifier si c'est un tableau dragué depuis l'explorateur
+    const boardData = e.dataTransfer.getData('application/json');
+    if (boardData) {
+        try {
+            const data = JSON.parse(boardData);
+            if (data.type === 'board') {
+                promptLoadBoard(data.id);
+                return;
+            }
+        } catch (err) { }
+    }
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         let imageDropCount = 0;
@@ -2764,10 +3302,23 @@ document.addEventListener('drop', (e) => {
                 continue;
             }
 
+            // Si c'est un MP3
+            if (file.type === 'audio/mpeg' || file.name.toLowerCase().endsWith('.mp3')) {
+                handleMp3Drop(file);
+                continue;
+            }
+
+            // Si c'est une vidéo
+            if (file.type.match('video.*') || /\.(mp4|webm|mov|ogg)$/i.test(file.name)) {
+                handleVideoDrop(file);
+                continue;
+            }
+
             // Si c'est une image
             if (file.type.match('image.*')) {
                 const reader = new FileReader();
                 const currentOffsetIndex = imageDropCount; // On mémorise le numéro de l'image pour le décalage
+                const fileName = file.name; // ✅ Stocker le nom original du fichier
                 imageDropCount++;
 
                 reader.onload = (f) => {
@@ -2789,6 +3340,7 @@ document.addEventListener('drop', (e) => {
                             w: w, h: h,
                             cx: 0, cy: 0, cw: img.width, ch: img.height,
                             src: src,
+                            fileName: fileName, // ✅ Ajouter le nom du fichier
                             z: globalZ++
                         });
 
@@ -2889,12 +3441,14 @@ function updateStyleBarContext() {
     barStyle.style.bottom = 'auto';
     barStyle.style.transform = 'translateX(-50%)';
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
+    if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
     // --- NOUVEAU : On ajoute 'ctx-point' pour les outils segment, curve et polygon ---
     if (targetType === 'point') barStyle.classList.add('ctx-point');
-    else if (['segment', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
-    else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi'].includes(targetType)) barStyle.classList.add('ctx-line');
+    else if (['segment', 'droite', 'demi-droite', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
+    else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) barStyle.classList.add('ctx-line');
     else if (targetType === 'text') barStyle.classList.add('ctx-text');
+    else if (targetType === 'image') { /* Afficher juste le cadenas et les calques */ }
     else {
         barStyle.classList.remove('visible');
         barStyle.removeAttribute('data-dragged');
@@ -2923,11 +3477,51 @@ function updateStyleBarContext() {
         document.getElementById('btn-arrow-start').classList.toggle('active', activeStyle.arrowStart > 0 || hasAnyArrowStart);
         document.getElementById('btn-arrow-end').innerHTML = getArrowIcon(activeStyle.arrowEnd, false);
         document.getElementById('btn-arrow-end').classList.toggle('active', activeStyle.arrowEnd > 0 || hasAnyArrowEnd);
+
+        // Synchro du bouton Global Lock (Barre du bas)
+        const btnGlobalLock = document.getElementById('btn-global-lock');
+        if (btnGlobalLock) {
+            const svg = btnGlobalLock.querySelector('svg');
+            if (isAllLocked) {
+                btnGlobalLock.classList.add('active');
+                if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`;
+            } else {
+                btnGlobalLock.classList.remove('active');
+                if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`;
+            }
+        }
+
+        // Synchro du bouton Minimize Post-it
+        const btnMinimizePostit = document.getElementById('btn-minimize-postit');
+        if (btnMinimizePostit) {
+            if (selectedItems.length === 1 && selectedItems[0].type === 'text') {
+                const t = getObjectById('text', selectedItems[0].id);
+                if (t && t.bubbleShape === 'postit') {
+                    btnMinimizePostit.style.display = 'flex';
+                    if (t.isMinimized) {
+                        btnMinimizePostit.classList.add('active');
+                    } else {
+                        btnMinimizePostit.classList.remove('active');
+                    }
+                } else {
+                    btnMinimizePostit.style.display = 'none';
+                }
+            } else {
+                btnMinimizePostit.style.display = 'none';
+            }
+        }
     } else {
         document.getElementById('btn-arrow-start').innerHTML = getArrowIcon(activeStyle.arrowStart, true);
         document.getElementById('btn-arrow-start').classList.toggle('active', activeStyle.arrowStart > 0);
         document.getElementById('btn-arrow-end').innerHTML = getArrowIcon(activeStyle.arrowEnd, false);
         document.getElementById('btn-arrow-end').classList.toggle('active', activeStyle.arrowEnd > 0);
+
+        const btnGlobalLock = document.getElementById('btn-global-lock');
+        if (btnGlobalLock) {
+            const svg = btnGlobalLock.querySelector('svg');
+            btnGlobalLock.classList.remove('active');
+            if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`;
+        }
     }
 }
 
@@ -2938,7 +3532,7 @@ function pushStyleToObject() {
             projInput.style.fontSize = activeStyle.fontSize + 'px';
             projInput.style.color = activeStyle.strokeColor;
             if (activeStyle.fontFamily) projInput.style.fontFamily = activeStyle.fontFamily;
-            
+
             const tempSpan = document.createElement('span');
             tempSpan.style.font = getComputedStyle(projInput).font;
             tempSpan.style.fontSize = activeStyle.fontSize + 'px';
@@ -2968,6 +3562,7 @@ function pushStyleToObject() {
 
         if (!obj.locked) {
             obj.strokeColor = activeStyle.strokeColor; obj.strokeOpacity = activeStyle.strokeOpacity;
+            if (obj.color !== undefined) obj.color = activeStyle.strokeColor;
             if (obj.fillColor !== undefined) { obj.fillColor = activeStyle.fillColor; obj.fillOpacity = activeStyle.fillOpacity; obj.isFilled = activeStyle.isFilled; }
             if (obj.shape !== undefined) obj.shape = activeStyle.pointShape;
             if (obj.width !== undefined) obj.width = activeStyle.lineWidth;
@@ -2985,6 +3580,18 @@ function pushStyleToObject() {
         }
     }); saveState(); draw();
 }
+
+document.getElementById('btn-global-lock')?.addEventListener('click', () => {
+    if (selectedItems.length === 0) {
+        showToast("Sélectionnez d'abord un objet à cadenasser/décadenasser");
+        return;
+    }
+    const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
+    const newState = !isAllLocked;
+    selectedItems.forEach(i => { const o = getObjectById(i.type, i.id); if (o) o.locked = newState; });
+    updateStyleBarContext(); saveState(); draw();
+    showToast(newState ? "Sélection verrouillée" : "Sélection déverrouillée");
+});
 
 document.getElementById('btn-lock').addEventListener('click', () => {
     const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
@@ -3048,7 +3655,7 @@ function setMode(newMode) {
     creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; wysiwygText.style.display = 'none'; editingTextId = null;
     clearSelection();
 
-    if (['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode)) {
+    if (['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon', 'postit'].includes(mode) || (typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) {
         updateStyleBarContext();
     } else {
         const barStyle = document.getElementById('bar-style');
@@ -3064,6 +3671,21 @@ document.querySelectorAll('.btn[data-mode]').forEach(btn => {
     btn.addEventListener('click', (e) => {
         if (btn.dataset.mode === 'eraser' && mode === 'eraser') setMode('pointer');
         else setMode(btn.dataset.mode);
+
+        if (btn.dataset.mode === 'postit') {
+            let s = 250;
+            let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}"><defs><filter id="p-shd"><feDropShadow dx="2" dy="5" stdDeviation="4" flood-opacity="0.25"/></filter></defs><rect x="10" y="10" width="${s - 20}" height="${s - 20}" fill="#ffeaa7" filter="url(#p-shd)"/><polygon points="${s - 10},${s - 40} ${s - 40},${s - 10} ${s - 10},${s - 10}" fill="#000" opacity="0.12"/><path d="M ${s - 40} ${s - 10} Q ${s - 25} ${s - 25} ${s - 10} ${s - 40}" fill="none" stroke="#e5d443" stroke-width="1"/></svg>`;
+            const b64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+            let img = new Image();
+            img.onload = () => {
+                window.postitStamp = { img: img, w: s, h: s, src: img.src };
+                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour coller le Post-It !");
+            };
+            img.src = b64;
+        } else {
+            window.postitStamp = null;
+        }
+        
         e.stopPropagation();
     });
 });
@@ -3365,7 +3987,7 @@ function findObjectAt(lx, ly) {
     return bestHit;
 }
 
-function clearSelection() { selectedItems = []; if (!['point', 'segment', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode)) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
+function clearSelection() { selectedItems = []; if (!['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode) && !(typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
 function isSelected(type, id) { return selectedItems.some(item => item.type === type && item.id === id); }
 function selectObject(objInfo) {
     selectedItems = [objInfo];
@@ -3428,6 +4050,14 @@ function finalizeText() {
                 }
             } else if (tempTextLogicalPos) {
                 const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: activeStyle.strokeColor, fontSize: activeStyle.fontSize, lineHeight: activeStyle.lineHeight, z: globalZ++ };
+                if (tempTextLogicalPos.isBubble) {
+                    newText.isBubble = true;
+                    newText.bubbleShape = tempTextLogicalPos.bubbleShape;
+                    newText.bubblePad = tempTextLogicalPos.bubblePad;
+                    newText.fixedWidth = tempTextLogicalPos.fixedWidth;
+                    newText.fixedHeight = tempTextLogicalPos.fixedHeight;
+                    newText.fillColor = tempTextLogicalPos.fillColor;
+                }
                 texts.push(newText); hasChanged = true; processMath(newText);
             }
         } else if (editingTextId) { deleteObject('text', editingTextId); hasChanged = true; }
@@ -3455,7 +4085,7 @@ canvas.addEventListener('pointerdown', (e) => {
     let wType = '';
 
     // NOUVEAU : On gèle l'interception si on utilise un outil de dessin
-    const isDrawingTool = ['segment', 'circle', 'rectangle', 'freehand', 'highlighter', 'curve', 'polygon', 'point'].includes(mode);
+    const isDrawingTool = ['segment', 'circle', 'rectangle', 'freehand', 'highlighter', 'curve', 'polygon', 'point', 'postit'].includes(mode);
 
     if (!isDrawingTool) {
         for (let i = widgetZOrder.length - 1; i >= 0; i--) {
@@ -3513,6 +4143,7 @@ canvas.addEventListener('pointerdown', (e) => {
     if (wysiwygText.style.display === 'block') { finalizeText(); return; }
 
     lastMouseX = e.clientX; lastMouseY = e.clientY;
+    lastDownClientX = e.clientX; lastDownClientY = e.clientY;
 
     if (e.button === 2 || e.button === 1 || isSpacePressed || mode === 'move') { isPanningView = true; updateCursor(); return; }
 
@@ -3520,12 +4151,26 @@ canvas.addEventListener('pointerdown', (e) => {
     let actionPos = magnetMode ? snapToGrid(rawPos.x, rawPos.y) : rawPos;
     if (clickedObj && clickedObj.type === 'point') actionPos = { x: getObjectById('point', clickedObj.id).x, y: getObjectById('point', clickedObj.id).y };
 
+    if (isZoomBoxing && zoomBox) {
+        zoomBox.endX = rawPos.x;
+        zoomBox.endY = rawPos.y;
+        requestAnimationFrame(draw);
+        return;
+    }
+
     if (mode === 'laser') {
         currentLaserStroke = [];
         laserStrokes.push(currentLaserStroke);
         currentLaserStroke.push({ x: rawPos.x, y: rawPos.y, time: Date.now() });
         requestAnimationFrame(draw);
         return;
+    }
+
+    if (mode === 'postit') {
+        clearSelection();
+        isDrawingPostit = true;
+        postitBox = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y };
+        updateCursor(); draw(); return;
     }
 
     if (mode === 'eraser') {
@@ -3562,6 +4207,13 @@ canvas.addEventListener('pointerdown', (e) => {
     if (mode === 'pointer') {
         if (clickedObj) { if (!isSelected(clickedObj.type, clickedObj.id)) selectObject(clickedObj); isDraggingObjs = true; }
         else { clearSelection(); isSelectingBox = true; selectionBox = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y }; }
+        updateCursor(); draw(); return;
+    }
+
+    if (mode === 'zoom-box') {
+        clearSelection();
+        isZoomBoxing = true;
+        zoomBox = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y };
         updateCursor(); draw(); return;
     }
 
@@ -3639,6 +4291,21 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('dblclick', (e) => {
     const rawPos = getRawLogicalPos(e); const clickedObj = findObjectAt(rawPos.x, rawPos.y);
+    if (clickedObj && clickedObj.type === 'image') {
+        const imgObj = getObjectById('image', clickedObj.id);
+        if (imgObj && imgObj.pluginData && imgObj.pluginData.id) {
+            const plugin = PluginManager.plugins[imgObj.pluginData.id];
+            if (plugin && typeof plugin.edit === 'function') {
+                // ✅ On ferme le menu contextuel d'image (cadenas/proportions/crop/corbeille)
+                // avant d'ouvrir la modale du plugin, sinon il flotte par-dessus
+                const quickMenu = document.getElementById('quick-edit-menu');
+                if (quickMenu) quickMenu.classList.remove('visible');
+                clearSelection();
+                plugin.edit(imgObj);
+                return;
+            }
+        }
+    }
     if (clickedObj && clickedObj.type === 'text') {
         const t = getObjectById('text', clickedObj.id);
         if (t.locked) return;
@@ -3763,7 +4430,7 @@ canvas.addEventListener('pointermove', (e) => {
         const currentDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
         const currentCenter = { x: (pts[0].clientX + pts[1].clientX) / 2, y: (pts[0].clientY + pts[1].clientY) / 2 };
         const zoomDelta = currentDist / initialPinchDist; let newZoom = initialZoom * zoomDelta;
-        if (newZoom < 0.2) newZoom = 0.2; if (newZoom > 5) newZoom = 5;
+        if (newZoom < 0.2) newZoom = 0.2; if (newZoom > 10) newZoom = 10;
         const mouseLogX = (currentCenter.x - initialPanX) / initialZoom; const mouseLogY = (currentCenter.y - initialPanY) / initialZoom;
         zoom = newZoom; document.getElementById('zoom-slider').value = zoom;
         panX = currentCenter.x - mouseLogX * zoom; panY = currentCenter.y - mouseLogY * zoom;
@@ -3848,6 +4515,8 @@ canvas.addEventListener('pointermove', (e) => {
     }
 
     if (isSelectingBox) { selectionBox.endX = rawPos.x; selectionBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
+    if (isZoomBoxing) { zoomBox.endX = rawPos.x; zoomBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
+    if (isDrawingPostit && postitBox) { postitBox.endX = rawPos.x; postitBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
 
     hoveredObj = findObjectAt(rawPos.x, rawPos.y);
 
@@ -3995,14 +4664,14 @@ canvas.addEventListener('pointermove', (e) => {
         let dx = currentLog.x - getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY }).x;
         let dy = currentLog.y - getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY }).y;
 
-        let ptsToMove = new Set(); let txtsToMove = new Set(); let freehandsToMove = new Set(); let imgsToMove = new Set();
+        let ptsToMove = new Set(); let txtsToMove = new Set(); let freehandsToMove = new Set(); let imgsToMove = new Set(); let arcsToMove = new Set();
         let itemsToProcessMap = new Map();
         selectedItems.forEach(item => {
             itemsToProcessMap.set(item.type + '-' + item.id, item);
             const obj = getObjectById(item.type, item.id);
             if (obj && obj.groupId) {
                 getGroupMembers(obj.groupId).forEach(member => {
-                    itemsToProcessMap.set(member.type + '-' + member.id, {type: member.type, id: member.id});
+                    itemsToProcessMap.set(member.type + '-' + member.id, { type: member.type, id: member.id });
                 });
             }
         });
@@ -4019,10 +4688,12 @@ canvas.addEventListener('pointermove', (e) => {
             else if (item.type === 'rectangle') { const r = getObjectById('rectangle', item.id); if (r) { ptsToMove.add(r.p1_id); ptsToMove.add(r.p2_id); } }
             else if (item.type === 'curve') { const cu = getObjectById('curve', item.id); if (cu) { cu.points.forEach(p => ptsToMove.add(p)); } }
             else if (item.type === 'polygon') { const po = getObjectById('polygon', item.id); if (po) { po.points.forEach(p => ptsToMove.add(p)); } }
+            else if (item.type === 'arc') arcsToMove.add(item.id);
             else if (item.type === 'text') txtsToMove.add(item.id); else if (item.type === 'freehand') freehandsToMove.add(item.id); else if (item.type === 'image') imgsToMove.add(item.id);
         });
         ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy; } });
         freehandsToMove.forEach(fid => { const f = getObjectById('freehand', fid); if (f) { f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); } }); imgsToMove.forEach(iid => { const i = getObjectById('image', iid); if (i) { i.x += dx; i.y += dy; } });
+        arcsToMove.forEach(aid => { const a = getObjectById('arc', aid); if (a) { a.cx += dx; a.cy += dy; } });
 
         lastMouseX = panX + currentLog.x * zoom;
         lastMouseY = panY + currentLog.y * zoom;
@@ -4088,6 +4759,21 @@ function handlePointerUp(e) {
         return;
     }
 
+    if (creationStartPointId !== null && ['segment', 'droite', 'demi-droite', 'circle', 'rectangle'].includes(mode)) {
+        const dist = Math.hypot(e.clientX - lastDownClientX, e.clientY - lastDownClientY);
+        if (dist > 5) {
+            let actionPos = magnetMode ? snapToGrid(getRawLogicalPos(e).x, getRawLogicalPos(e).y) : getRawLogicalPos(e);
+            let ptId = nextId++;
+            points.push({ id: ptId, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+
+            if (mode === 'segment' || mode === 'droite' || mode === 'demi-droite') segments.push({ id: nextId++, p1_id: creationStartPointId, p2_id: ptId, lineType: mode, color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, arrowStart: activeStyle.arrowStart, arrowEnd: activeStyle.arrowEnd, z: globalZ++ });
+            if (mode === 'circle') circles.push({ id: nextId++, center_id: creationStartPointId, edge_id: ptId, color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, z: globalZ++ });
+            if (mode === 'rectangle') rectangles.push({ id: nextId++, p1_id: creationStartPointId, p2_id: ptId, color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, z: globalZ++ });
+            saveState();
+            creationStartPointId = null; mouseLogicalPos = null;
+        }
+    }
+
     if (mode === 'laser') {
         currentLaserStroke = null;
         return;
@@ -4105,7 +4791,68 @@ function handlePointerUp(e) {
         polygons.forEach(po => { let inside = true; po.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'polygon', id: po.id }); });
         freehands.forEach(f => { let inside = true; f.points.forEach(p => { if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'freehand', id: f.id }); });
         images.forEach(img => { if (img.x >= minX && img.x + img.w <= maxX && img.y >= minY && img.y + img.h <= maxY) selectedItems.push({ type: 'image', id: img.id }); });
+        arcs.forEach(a => { if (a.cx >= minX && a.cx <= maxX && a.cy >= minY && a.cy <= maxY) selectedItems.push({ type: 'arc', id: a.id }); });
         if (selectedItems.length > 0) { updateStyleBarContext(); } draw();
+    }
+
+    if (isZoomBoxing) {
+        isZoomBoxing = false;
+        const minX = Math.min(zoomBox.startX, zoomBox.endX);
+        const maxX = Math.max(zoomBox.startX, zoomBox.endX);
+        const minY = Math.min(zoomBox.startY, zoomBox.endY);
+        const maxY = Math.max(zoomBox.startY, zoomBox.endY);
+        const w = maxX - minX;
+        const h = maxY - minY;
+        if (w > 10 / zoom && h > 10 / zoom) {
+            const margin = 50;
+            const targetZoomX = (window.innerWidth - margin * 2) / w;
+            const targetZoomY = (window.innerHeight - margin * 2) / h;
+            let targetZoom = Math.min(targetZoomX, targetZoomY);
+            if (targetZoom < 0.2) targetZoom = 0.2;
+            if (targetZoom > 10) targetZoom = 10;
+            zoom = targetZoom;
+            panX = window.innerWidth / 2 - ((minX + maxX) / 2) * zoom;
+            panY = window.innerHeight / 2 - ((minY + maxY) / 2) * zoom;
+            const zoomSlider = document.getElementById('zoom-slider');
+            const btnZoomToggle = document.getElementById('btn-zoom-toggle');
+            if (zoomSlider) zoomSlider.value = zoom;
+            if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
+            if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+        }
+        setMode('pointer');
+        draw(); return;
+    }
+
+    if (isDrawingPostit) {
+        isDrawingPostit = false;
+        const minX = Math.min(postitBox.startX, postitBox.endX);
+        const maxX = Math.max(postitBox.startX, postitBox.endX);
+        const minY = Math.min(postitBox.startY, postitBox.endY);
+        const maxY = Math.max(postitBox.startY, postitBox.endY);
+        const w = maxX - minX;
+        const h = maxY - minY;
+
+        if (w > 20 && h > 20) {
+            const newHtmlPostit = {
+                id: nextId++,
+                x: minX,
+                y: minY,
+                w: Math.max(w, 150),
+                h: Math.max(h, 150),
+                content: "",
+                bg: "#fdfd96", // retro yellow default
+                minimized: false,
+                z: globalZ++
+            };
+            htmlPostits.push(newHtmlPostit);
+            saveState();
+            if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+        }
+        
+        setMode('pointer');
+        postitBox = null;
+        document.querySelectorAll('.btn[data-mode="postit"]').forEach(b => b.classList.remove('active'));
+        draw(); return;
     }
 
     if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; activeGuides = { x: [], y: [] }; }
@@ -4126,7 +4873,7 @@ canvas.addEventListener('wheel', (e) => {
         let newZoom = zoom * zoomFactor;
 
         if (newZoom < 0.2) newZoom = 0.2;
-        if (newZoom > 5) newZoom = 5;
+        if (newZoom > 10) newZoom = 10;
 
         document.getElementById('zoom-slider').value = newZoom;
         panX = e.clientX - mouseLogX * newZoom;
@@ -4158,6 +4905,22 @@ document.getElementById('grid-weight-slider').addEventListener('input', (e) => {
 const btnMagnet = document.getElementById('btn-magnet'); btnMagnet.addEventListener('click', () => { magnetMode = !magnetMode; btnMagnet.classList.toggle('active', magnetMode); draw(); });
 document.getElementById('btn-cycle').onclick = () => { currentBgIndex = (currentBgIndex + 1) % backgrounds.length; draw(); };
 const btnAxes = document.getElementById('btn-axes'); btnAxes.onclick = () => { showAxes = (showAxes + 1) % 3; btnAxes.classList.remove('active', 'active-1', 'active-2'); if (showAxes > 0) btnAxes.classList.add('active', `active-${showAxes}`); draw(); };
+
+function buildRenderQuadtree(minX, maxX, minY, maxY) {
+    const padding = 100;
+    renderQuadtree = new Quadtree(minX - padding, minY - padding, (maxX - minX) + padding * 2, (maxY - minY) + padding * 2);
+
+    images.forEach(o => renderQuadtree.insert({ ...o, type: 'image' }));
+    polygons.forEach(o => renderQuadtree.insert({ ...o, type: 'polygon' }));
+    curves.forEach(o => renderQuadtree.insert({ ...o, type: 'curve' }));
+    circles.forEach(o => renderQuadtree.insert({ ...o, type: 'circle' }));
+    arcs.forEach(o => renderQuadtree.insert({ ...o, type: 'arc' }));
+    rectangles.forEach(o => renderQuadtree.insert({ ...o, type: 'rectangle' }));
+    segments.forEach(o => renderQuadtree.insert({ ...o, type: 'segment' }));
+    freehands.forEach(o => renderQuadtree.insert({ ...o, type: 'freehand' }));
+    points.forEach(o => renderQuadtree.insert({ ...o, type: 'point' }));
+    texts.forEach(o => renderQuadtree.insert({ ...o, type: 'text' }));
+}
 
 function draw() {
     const bg = backgrounds[currentBgIndex]; const logicalStep = bg === 'seyes' ? 40 : (bg === 'millimetre' ? 100 : 30);
@@ -4191,17 +4954,15 @@ function draw() {
             }
         }
 
+        buildRenderQuadtree(minX, maxX, minY, maxY);
+        const viewportRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+        const visibleObjects = renderQuadtree.retrieve(viewportRect);
+
         let displayList = [];
-        images.forEach(o => displayList.push({ type: 'image', obj: o }));
-        polygons.forEach(o => displayList.push({ type: 'polygon', obj: o }));
-        curves.forEach(o => displayList.push({ type: 'curve', obj: o }));
-        circles.forEach(o => displayList.push({ type: 'circle', obj: o }));
-        arcs.forEach(o => displayList.push({ type: 'arc', obj: o }));
-        rectangles.forEach(o => displayList.push({ type: 'rectangle', obj: o }));
-        segments.forEach(o => displayList.push({ type: 'segment', obj: o }));
-        freehands.forEach(o => displayList.push({ type: 'freehand', obj: o }));
-        points.forEach(o => displayList.push({ type: 'point', obj: o }));
-        texts.forEach(o => displayList.push({ type: 'text', obj: o }));
+        visibleObjects.forEach(o => {
+            displayList.push({ type: o.type, obj: o });
+        });
+
         if (isDrawingFreehand && currentFreehand) {
             displayList.push({ type: 'freehand', obj: currentFreehand });
         }
@@ -4447,8 +5208,21 @@ function draw() {
                         if (lineW > maxW) maxW = lineW;
                         return lineW;
                     });
-                    w = maxW; h = lines.length * lineHeight; startX = obj.align === 'center' ? obj.x - maxW / 2 : obj.x;
-                    if (obj.isBubble && w < 20) { w = 150; h = 30; }
+                    
+                    if (obj.fixedWidth && obj.fixedHeight) {
+                        w = Math.max(maxW, obj.fixedWidth);
+                        h = Math.max(lines.length * lineHeight, obj.fixedHeight);
+                    } else {
+                        w = maxW; 
+                        h = lines.length * lineHeight; 
+                    }
+                    
+                    if (obj.isMinimized && obj.bubbleShape === 'postit') {
+                        w = 40; h = 40;
+                    }
+                    
+                    startX = obj.align === 'center' ? obj.x + (obj.fixedWidth ? obj.fixedWidth/2 : 0) - w / 2 : obj.x;
+                    if (obj.isBubble && w < 20 && !obj.isMinimized) { w = 150; h = 30; }
                 }
 
                 obj._cachedW = w; obj._cachedH = h; obj._cachedStartX = startX;
@@ -4534,6 +5308,8 @@ function draw() {
                         ctx.fill();
                         ctx.stroke();
 
+                    } else if (obj.bubbleShape === "postit") {
+                        // Pas de queue pour le post-it !
                     } else {
 
                         angleT = Math.atan2(locTailY - bcy, locTailX - bcx);
@@ -4607,6 +5383,8 @@ function draw() {
 
                         ctx.closePath();
 
+                    } else if (obj.bubbleShape === "postit") {
+                        ctx.rect(bx, by, bw, bh);
                     } else {
 
                         ctx.ellipse(bcx, bcy, bw / 2, bh / 2, 0, 0, Math.PI * 2);
@@ -4615,11 +5393,37 @@ function draw() {
                     ctx.fill();
                     ctx.stroke();
 
+                    // --- Ajout du coin corné pour le Post-it ---
+                    if (obj.bubbleShape === "postit" && !obj.isMinimized) {
+                        const foldSize = Math.min(30, bw * 0.3, bh * 0.3); // Taille proportionnelle
+                        const right = bx + bw;
+                        const bottom = by + bh;
+
+                        // Triangle d'ombre
+                        ctx.beginPath();
+                        ctx.moveTo(right, bottom - foldSize);
+                        ctx.lineTo(right - foldSize, bottom);
+                        ctx.lineTo(right, bottom);
+                        ctx.closePath();
+                        ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+                        ctx.fill();
+
+                        // Courbe du pli
+                        ctx.beginPath();
+                        ctx.moveTo(right - foldSize, bottom);
+                        ctx.quadraticCurveTo(right - foldSize/2, bottom - foldSize/2, right, bottom - foldSize);
+                        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        
+                        // Masquer la bordure originale sous le pli (optionnel, mais la courbe s'en charge)
+                    }
+
                     // ==========================================
                     // 4. FAUSSE FUSION
                     // ==========================================
 
-                    if (obj.bubbleShape !== "cloud") {
+                    if (obj.bubbleShape !== "cloud" && obj.bubbleShape !== "postit") {
 
                         const shrink = border / (2 * lw);
 
@@ -4685,7 +5489,7 @@ function draw() {
                 // ==========================================
                 // 2. DESSIN DU TEXTE 
                 // ==========================================
-                if (obj.id !== editingTextId) {
+                if (obj.id !== editingTextId && !obj.isMinimized) {
                     if (obj.mathImg) {
                         ctx.shadowBlur = (!isExportingTransparent && sc && !obj.isBubble) ? 10 * lw : 0;
                         ctx.shadowColor = (!isExportingTransparent && sc && !obj.isBubble) ? sc : "transparent";
@@ -4866,6 +5670,23 @@ function draw() {
             ctx.fillRect(selectionBox.startX, selectionBox.startY, w, h); ctx.strokeRect(selectionBox.startX, selectionBox.startY, w, h); ctx.setLineDash([]);
         }
 
+        if (isZoomBoxing && !isExportingTransparent) {
+            ctx.fillStyle = "rgba(0, 184, 148, 0.1)"; ctx.strokeStyle = "#00b894"; ctx.lineWidth = lw; ctx.setLineDash([lw * 5, lw * 5]);
+            const w = zoomBox.endX - zoomBox.startX, h = zoomBox.endY - zoomBox.startY;
+            ctx.fillRect(zoomBox.startX, zoomBox.startY, w, h); ctx.strokeRect(zoomBox.startX, zoomBox.startY, w, h); ctx.setLineDash([]);
+        }
+
+        if (isDrawingPostit && !isExportingTransparent) {
+            ctx.fillStyle = hexToRgba(activeStyle.fillColor || "#ffeaa7", 0.5); 
+            ctx.strokeStyle = activeStyle.strokeColor || "#f1c40f"; 
+            ctx.lineWidth = 2 * lw; 
+            ctx.setLineDash([lw * 6, lw * 6]);
+            const w = postitBox.endX - postitBox.startX, h = postitBox.endY - postitBox.startY;
+            ctx.fillRect(postitBox.startX, postitBox.startY, w, h); 
+            ctx.strokeRect(postitBox.startX, postitBox.startY, w, h); 
+            ctx.setLineDash([]);
+        }
+
         if (!isExportingTransparent && laserStrokes.length > 0) {
             let needsRedraw = false;
             const now = Date.now();
@@ -5000,6 +5821,7 @@ function draw() {
         ctx.save();
         ctx.translate(panX, panY);
         ctx.scale(zoom, zoom);
+        
         PluginManager.trigger('onDraw', ctx, panX, panY, zoom);
         ctx.restore();
 
@@ -5025,16 +5847,198 @@ function showToast(msg) {
 
 // --- MOTEUR D'IMPORTATION PDF ---
 if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = window.getPdfWorkerUrl ? window.getPdfWorkerUrl() : './lib/pdfjs/pdf.worker.min.js';
 }
 
 // ==========================================
 // MOTEUR D'IMPORTATION PDF (AVEC SÉLECTEUR DE QUALITÉ)
 // ==========================================
 let currentPdfQuality = 2.5; // Qualité standard par défaut
+let currentPdfMargin = 120; // Marge de sécurité par défaut
 
 if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = window.getPdfWorkerUrl ? window.getPdfWorkerUrl() : './lib/pdfjs/pdf.worker.min.js';
+}
+
+function createPdfMetadata(file, pageNum) {
+    // Créer des métadonnées légères du PDF (pas les données binaires)
+    return {
+        fileName: file.name,
+        fileSize: file.size,
+        fileModified: file.lastModified,
+        fileHash: `${file.name}_${file.size}_${file.lastModified}`, // Hash simple
+        pageNum: pageNum,
+        importedAt: Date.now()
+    };
+}
+
+function checkMissingMedias() {
+    // Détecter les médias manquants (PDFs + images) après import
+    const missingMedias = [];
+    pages.forEach((p, idx) => {
+        if (p.pdfMetadata) {
+            missingMedias.push({ pageIndex: idx, type: 'pdf', metadata: p.pdfMetadata });
+        }
+        // ✅ Images qui auraient dû être exportées mais sont manquantes
+        if (p.images && p.images.length > 0) {
+            p.images.forEach((img, iidx) => {
+                // Si c'est une data URL vide ou un placeholder, l'image est manquante
+                if (!img.src || img.src.length < 50) {
+                    missingMedias.push({
+                        pageIndex: idx,
+                        type: 'image',
+                        metadata: { fileName: img.fileName || `Image ${iidx + 1}` }
+                    });
+                }
+            });
+        }
+    });
+
+    if (missingMedias.length === 0) return; // Aucun média à réimporter
+
+    // Créer modale pour réimporter les médias
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
+
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 25px; max-width: 500px; box-shadow: var(--shadow-hover);';
+
+    box.innerHTML = `
+        <h3 style="margin-top: 0; color: var(--accent); margin-bottom: 15px;">📄 Réimporter les PDFs</h3>
+        <p style="font-size: 14px; color: var(--ink); margin-bottom: 15px;">
+            Ce tableau contient ${missingMedias.length} PDF${missingMedias.length > 1 ? 's' : ''} qui doivent être réimportés pour retrouver vos annotations avec les bons PDFs en arrière-plan.
+        </p>
+        <div style="background: var(--bg); border-radius: 6px; padding: 12px; margin-bottom: 15px; font-size: 12px; max-height: 150px; overflow-y: auto;">
+    `;
+
+    missingMedias.forEach((item, idx) => {
+        box.innerHTML += `
+            <div style="padding: 6px 0; border-bottom: 1px solid var(--border);">
+                <strong>Page ${item.pageIndex + 1}</strong> : ${item.metadata.fileName}
+            </div>
+        `;
+    });
+
+    box.innerHTML += `
+        </div>
+        <p style="font-size: 12px; color: var(--muted); margin-bottom: 15px;">
+            ⚠️ Si vous ne trouvez pas les PDFs originaux, vos annotations restent sauvegardées, mais l'arrière-plan PDF ne s'affichera pas.
+        </p>
+        <div style="display: flex; gap: 10px;">
+            <button id="media-skip-btn" class="btn-action secondary" style="flex: 1; padding: 10px;">Continuer sans PDFs</button>
+            <button id="media-reload-btn" class="btn-action primary" style="flex: 1; padding: 10px;">Sélectionner les PDFs</button>
+        </div>
+    `;
+
+    // ⚠️ IMPORTANT: Ajouter box à modal AVANT d'ajouter au DOM
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    document.getElementById('media-skip-btn').onclick = () => {
+        document.body.removeChild(modal);
+    };
+
+    document.getElementById('media-reload-btn').onclick = () => {
+        document.body.removeChild(modal);
+        promptReloadMedias(missingMedias);
+    };
+}
+
+// Alias pour compatibilité
+function checkMissingPdfs() {
+    checkMissingMedias();
+}
+
+function promptReloadMedias(missingMedias) {
+    // Créer un input file multi-select pour charger les PDFs
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf';
+
+    input.onchange = (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        showToast(`⏳ Chargement des ${files.length} PDF${files.length > 1 ? 's' : ''}...`);
+
+        // Pour chaque média manquant, essayer de trouver le fichier correspondant
+        missingMedias.forEach(item => {
+            if (item.type !== 'pdf') return; // Seuls les PDFs sont réimportables
+
+            const matchingFile = files.find(f => {
+                const hash = `${f.name}_${f.size}_${f.lastModified}`;
+                return hash === item.metadata.fileHash;
+            });
+
+            if (matchingFile) {
+                // Charger le PDF à la bonne position dans la page
+                loadPdfAtPageIndex(matchingFile, item.pageIndex, item.metadata.pageNum);
+            } else {
+                // Chercher par nom au moins
+                const nameSimilar = files.find(f => f.name === item.metadata.fileName);
+                if (nameSimilar) {
+                    loadPdfAtPageIndex(nameSimilar, item.pageIndex, item.metadata.pageNum);
+                }
+            }
+        });
+
+        showToast("✅ PDFs réimportés !");
+    };
+
+    input.click();
+}
+
+function loadPdfAtPageIndex(file, pageIndex, pdfPageNum) {
+    // Charger un PDF dans une page existante (lors de la réimportation)
+    const reader = new FileReader();
+
+    reader.onload = async (e) => {
+        try {
+            const originalBuffer = e.target.result;
+            const pdfBytesForPdfJs = new Uint8Array(originalBuffer.slice(0));
+
+            const pdf = await pdfjsLib.getDocument(pdfBytesForPdfJs).promise;
+            const page = await pdf.getPage(pdfPageNum + 1);
+            const viewport = page.getViewport({ scale: 2 });
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = viewport.width;
+            tempCanvas.height = viewport.height;
+            const context = tempCanvas.getContext('2d');
+
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+            const jpegQuality = 0.85;
+            const dataUrl = tempCanvas.toDataURL('image/jpeg', jpegQuality);
+
+            // Remplacer l'image de fond dans la page
+            const targetPage = pages[pageIndex];
+            if (targetPage) {
+                const bgImg = targetPage.images.find(img => img.isBg);
+                if (bgImg) {
+                    bgImg.src = dataUrl;
+                    imageCache[dataUrl] = new Image();
+                    imageCache[dataUrl].src = dataUrl;
+                } else {
+                    // Ajouter l'image comme fond si elle n'existe pas
+                    const w = viewport.width / 2, h = viewport.height / 2;
+                    const newImgObj = { id: nextId++, x: -w / 2, y: -h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: dataUrl, z: -999, isBg: true };
+                    targetPage.images.push(newImgObj);
+                }
+                targetPage.pdfMetadata = createPdfMetadata(file, pdfPageNum);
+                renderThumbnails();
+                draw();
+            }
+        } catch (err) {
+            console.error("Erreur chargement PDF réimporté :", err);
+            showToast("⚠️ Erreur lors du chargement du PDF");
+        }
+    };
+
+    reader.readAsArrayBuffer(file);
 }
 
 async function loadPdf(file) {
@@ -5043,8 +6047,12 @@ async function loadPdf(file) {
 
     reader.onload = async (e) => {
         try {
-            const typedarray = new Uint8Array(e.target.result);
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            // Cloner le buffer pour éviter que pdf.js ne le détruise/transfère au Worker
+            const originalBuffer = e.target.result;
+            const pdfBytesForPdfLib = new Uint8Array(originalBuffer);
+            const pdfBytesForPdfJs = new Uint8Array(originalBuffer.slice(0));
+            
+            const pdf = await pdfjsLib.getDocument(pdfBytesForPdfJs).promise;
             const numPages = pdf.numPages;
 
             syncPage();
@@ -5056,6 +6064,22 @@ async function loadPdf(file) {
             if (!isEmpty) startPageIdx = pages.length;
 
             let firstPageW = 0, firstPageH = 0;
+            
+            // 🌟 INJECTION DE LA BARRE DE CHARGEMENT 🌟
+            let loadingOverlay = document.getElementById('pdf-loading-overlay');
+            if (!loadingOverlay) {
+                loadingOverlay = document.createElement('div');
+                loadingOverlay.id = 'pdf-loading-overlay';
+                loadingOverlay.style.cssText = 'position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:white; padding:15px 25px; border-radius:30px; z-index:999999; font-family:sans-serif; font-size:14px; font-weight:bold; box-shadow:0 10px 25px rgba(0,0,0,0.3); display:flex; flex-direction:column; align-items:center; gap:10px; backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,0.1);';
+                document.body.appendChild(loadingOverlay);
+            }
+            loadingOverlay.innerHTML = `
+                <div id="pdf-loading-text">Chargement du PDF (0/${numPages})</div>
+                <div style="width:200px;height:8px;background:rgba(255,255,255,0.2);border-radius:4px;overflow:hidden;">
+                    <div id="pdf-loading-progress" style="width:0%;height:100%;background:#00d2d3;transition:width 0.2s;"></div>
+                </div>
+            `;
+            loadingOverlay.style.display = 'flex';
 
             for (let i = 1; i <= numPages; i++) {
                 const page = await pdf.getPage(i);
@@ -5076,6 +6100,18 @@ async function loadPdf(file) {
                 const jpegQuality = currentPdfQuality > 3 ? 0.75 : 0.85;
                 const dataUrl = tempCanvas.toDataURL('image/jpeg', jpegQuality);
 
+                // Génération de la miniature pour le panneau latéral
+                const thumbCanvas = document.createElement('canvas');
+                const scale = 160 / tempCanvas.width;
+                thumbCanvas.width = 160;
+                thumbCanvas.height = tempCanvas.height * scale;
+                const thumbCtx = thumbCanvas.getContext('2d');
+                thumbCtx.fillStyle = '#ffffff';
+                thumbCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+                thumbCtx.scale(scale, scale);
+                thumbCtx.drawImage(tempCanvas, 0, 0);
+                const thumbDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.5);
+
                 const targetIdx = startPageIdx + (i - 1);
                 if (targetIdx >= pages.length) pages.push(createNewPage());
 
@@ -5083,39 +6119,71 @@ async function loadPdf(file) {
                     const img = new Image();
                     img.onload = () => {
                         const w = img.width; const h = img.height;
-
-                        if (i === 1) { firstPageW = w; firstPageH = h; }
-
                         const newImgObj = { id: nextId++, x: -w / 2, y: -h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: dataUrl, z: -999, isBg: true };
                         pages[targetIdx].images.push(newImgObj);
+                        pages[targetIdx].thumbnail = thumbDataUrl;
+                        // Stocker les métadonnées du PDF (pas les données binaires)
+                        pages[targetIdx].pdfMetadata = createPdfMetadata(file, i - 1);
                         imageCache[dataUrl] = img;
+
+                        if (i === 1) {
+                            firstPageW = w; firstPageH = h;
+                            
+                            // AFFICHAGE IMMÉDIAT DE LA PREMIÈRE PAGE AVEC MARGE
+                            let targetZoom = 1;
+                            const padding = currentPdfMargin; // Marge paramétrable
+                            const scaleX = canvas.width / (firstPageW + padding * 2);
+                            const scaleY = canvas.height / (firstPageH + padding * 2);
+            
+                            targetZoom = Math.min(scaleX, scaleY);
+                            if (targetZoom < 0.1) targetZoom = 0.1;
+                            if (targetZoom > 10) targetZoom = 10;
+                            
+                            // Eviter que syncPage (dans loadPage) n'écrase notre nouveau zoom !
+                            zoom = targetZoom;
+                            panX = canvas.width / 2;
+                            panY = canvas.height / 2;
+
+                            pages[startPageIdx].zoom = targetZoom;
+                            pages[startPageIdx].panX = panX;
+                            pages[startPageIdx].panY = panY;
+                            
+                            loadPage(startPageIdx);
+                            if (typeof renderThumbnails === 'function') renderThumbnails();
+                        }
+
                         resolve();
                     };
                     img.src = dataUrl;
                 });
+                
+                // Mise à jour de la barre de chargement
+                const progress = Math.round((i / numPages) * 100);
+                const progressEl = document.getElementById('pdf-loading-progress');
+                const textEl = document.getElementById('pdf-loading-text');
+                if (progressEl) progressEl.style.width = progress + '%';
+                if (textEl) textEl.innerText = `Chargement du PDF (${i}/${numPages})`;
             }
 
-            loadPage(startPageIdx);
+            // Application du zoom à TOUTES les autres pages générées
+            let finalZoom = pages[startPageIdx].zoom;
+            let finalPanX = pages[startPageIdx].panX;
+            let finalPanY = pages[startPageIdx].panY;
 
-            if (firstPageW > 0 && firstPageH > 0) {
-                const padding = 50;
-                const scaleX = canvas.width / (firstPageW + padding * 2);
-                const scaleY = canvas.height / (firstPageH + padding * 2);
-
-                zoom = Math.min(scaleX, scaleY);
-                if (zoom < 0.1) zoom = 0.1;
-                if (zoom > 5) zoom = 5;
-
-                panX = canvas.width / 2;
-                panY = canvas.height / 2;
-
-                const zoomSlider = document.getElementById('zoom-slider');
-                const btnZoomToggle = document.getElementById('btn-zoom-toggle');
-                if (zoomSlider) zoomSlider.value = zoom;
-                if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
-
-                draw();
+            for (let i = 1; i < numPages; i++) {
+                const idx = startPageIdx + i;
+                if (pages[idx]) {
+                    pages[idx].zoom = finalZoom;
+                    pages[idx].panX = finalPanX;
+                    pages[idx].panY = finalPanY;
+                }
             }
+
+            if (typeof renderThumbnails === 'function') renderThumbnails();
+            updatePageUI();
+            
+            // Masquer la barre de chargement
+            if (loadingOverlay) loadingOverlay.style.display = 'none';
 
             showToast("PDF importé avec succès ! (" + numPages + " pages)");
 
@@ -5134,26 +6202,102 @@ document.addEventListener('DOMContentLoaded', () => {
     if (importBtn && pdfLoader) {
         importBtn.addEventListener('click', () => pdfLoader.click());
         pdfLoader.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            loadPdf(file);
+            if (!e.target.files || e.target.files.length === 0) return;
+            
+            let imageDropCount = 0;
+            let pdfDropped = false;
+
+            for (let i = 0; i < e.target.files.length; i++) {
+                const file = e.target.files[i];
+
+                if (file.type === 'application/pdf') {
+                    if (!pdfDropped) {
+                        loadPdf(file);
+                        pdfDropped = true;
+                    } else {
+                        if (typeof showToast === 'function') showToast("Veuillez importer un seul PDF à la fois.");
+                    }
+                    continue;
+                }
+
+                if (file.type === 'audio/mpeg' || file.name.toLowerCase().endsWith('.mp3')) {
+                    handleMp3Drop(file);
+                    continue;
+                }
+
+                if (file.type.match('video.*') || /\.(mp4|webm|mov|ogg)$/i.test(file.name)) {
+                    handleVideoDrop(file);
+                    continue;
+                }
+
+                if (file.type.match('image.*')) {
+                    const reader = new FileReader();
+                    const currentOffsetIndex = imageDropCount;
+                    imageDropCount++;
+
+                    reader.onload = (f) => {
+                        const src = f.target.result;
+                        const img = new Image();
+                        img.onload = () => {
+                            let w = img.width, h = img.height;
+                            if (w > 800) { h *= 800 / w; w = 800; }
+
+                            const offset = currentOffsetIndex * (30 / zoom);
+                            
+                            // Placer l'image au centre de l'écran
+                            const rect = canvas.getBoundingClientRect();
+                            const cx = rect.width / 2;
+                            const cy = rect.height / 2;
+
+                            const lx = (cx - panX) / zoom + offset;
+                            const ly = (cy - panY) / zoom + offset;
+
+                            images.push({
+                                id: nextId++,
+                                x: lx - w / 2, y: ly - h / 2,
+                                w: w, h: h,
+                                cx: 0, cy: 0, cw: img.width, ch: img.height,
+                                src: src,
+                                z: globalZ++
+                            });
+
+                            imageCache[src] = img;
+
+                            if (typeof saveState === 'function') saveState();
+                            if (typeof draw === 'function') draw();
+                        };
+                        img.src = src;
+                    };
+                    reader.readAsDataURL(file);
+                    continue;
+                }
+            }
             e.target.value = '';
         });
 
-        // 🌟 INJECTION DU SÉLECTEUR DE QUALITÉ 🌟
+        // 🌟 INJECTION DU SÉLECTEUR DE QUALITÉ ET MARGE 🌟
         // Vérifie si le sélecteur existe pour ne pas le créer deux fois
         if (!document.getElementById('pdf-quality-select')) {
             const selectContainer = document.createElement('div');
             selectContainer.style.cssText = "display:inline-flex; align-items:center; margin-left:10px; font-family:sans-serif; font-size:13px; color:#636e72;";
 
             selectContainer.innerHTML = `
-                <label style="margin-right:5px; font-weight:bold;">Qualité :</label>
-                <select id="pdf-quality-select" style="padding:4px; border-radius:4px; border:1px solid #ccc; outline:none; cursor:pointer; background:#f8f9fa;">
-                    <option value="1.5">Basse (Rapide)</option>
-                    <option value="2.5" selected>Standard</option>
-                    <option value="4.0">Haute (HD)</option>
-                    <option value="5.0">Ultra HD (Lent)</option>
-                </select>
+                <div style="display:flex; flex-direction:column; gap:8px; margin: 5px 0;">
+                    <div style="display:flex; align-items:center;">
+                        <label style="margin-right:5px; font-weight:bold; min-width: 65px;">Qualité :</label>
+                        <select id="pdf-quality-select" style="padding:4px; border-radius:4px; border:1px solid #ccc; outline:none; cursor:pointer; background:#f8f9fa;">
+                            <option value="1.5">Basse (Rapide)</option>
+                            <option value="2.5" selected>Standard</option>
+                            <option value="4.0">Haute (HD)</option>
+                            <option value="5.0">Ultra HD (Lent)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; align-items:center;">
+                        <label style="margin-right:5px; font-weight:bold; min-width: 65px;" title="Marge de sécurité autour de la page">Marge :</label>
+                        <input type="range" id="pdf-margin-slider" min="0" max="400" step="10" value="120" style="width:70px; margin-right:5px; cursor:pointer;">
+                        <span id="pdf-margin-val" style="font-size:11px; min-width: 35px;">120px</span>
+                    </div>
+                </div>
             `;
 
             // On glisse ce petit menu juste à côté du bouton "Importer PDF" dans ton HTML
@@ -5162,6 +6306,11 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('pdf-quality-select').addEventListener('change', (e) => {
                 currentPdfQuality = parseFloat(e.target.value);
                 showToast("Qualité d'importation fixée sur : " + e.target.options[e.target.selectedIndex].text);
+            });
+            
+            document.getElementById('pdf-margin-slider').addEventListener('input', (e) => {
+                currentPdfMargin = parseInt(e.target.value);
+                document.getElementById('pdf-margin-val').innerText = currentPdfMargin + "px";
             });
         }
     }
@@ -5472,6 +6621,7 @@ window.addEventListener('mousemove', (e) => {
 });
 window.addEventListener('mouseup', () => isDraggingCalc = false);
 
+
 // --- 3. Moteur Mathématique Évolué ---
 document.querySelectorAll('.calc-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -5600,8 +6750,11 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
 // GESTION DES MENUS DÉROULANTS ET SLIDERS
 // ==========================================
 
-const btnMainMenu = document.getElementById('btn-main-menu');
-const popupMainMenu = document.getElementById('main-popup-menu');
+const btnImportMenu = document.getElementById('btn-import-menu');
+const popupImport = document.getElementById('import-popup-menu');
+
+const btnExportMenu = document.getElementById('btn-export-menu');
+const popupExport = document.getElementById('export-popup-menu');
 
 const btnZoomToggle = document.getElementById('btn-zoom-toggle');
 const popupZoom = document.getElementById('popup-zoom');
@@ -5611,14 +6764,16 @@ const popupGrid = document.getElementById('popup-grid');
 
 // Fonction pour tout fermer
 function closeAllPopups() {
-    if (popupMainMenu) popupMainMenu.classList.remove('show');
+    if (popupImport) popupImport.classList.remove('show');
+    if (popupExport) popupExport.classList.remove('show');
     if (popupZoom) popupZoom.classList.remove('show');
     if (popupGrid) popupGrid.classList.remove('show');
 }
 
-// Ajouter le Toggle sur les 3 boutons
+// Ajouter le Toggle sur les boutons
 [
-    { btn: btnMainMenu, popup: popupMainMenu },
+    { btn: btnImportMenu, popup: popupImport },
+    { btn: btnExportMenu, popup: popupExport },
     { btn: btnZoomToggle, popup: popupZoom },
     { btn: btnGridToggle, popup: popupGrid }
 ].forEach(pair => {
@@ -5792,6 +6947,14 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
             container.appendChild(wrap); inputElements.push(inp);
             return;
         }
+        else if (field.type === 'checkbox') {
+            inp = document.createElement('input');
+            inp.type = 'checkbox';
+            inp.checked = !!field.value;
+            inp.style.width = '20px';
+            inp.style.height = '20px';
+            inp.style.cursor = 'pointer';
+        }
         else {
             inp = document.createElement('input');
             inp.type = field.type || 'text'; inp.value = field.value || '';
@@ -5802,7 +6965,7 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
 
         inp.addEventListener(field.type === 'select' ? 'change' : 'input', () => {
             if (onChange && typeof onChange === 'function') {
-                const results = inputElements.map(i => i.value);
+                const results = inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value);
                 const svgPreview = onChange(results);
                 if (svgPreview && previewBox) previewBox.innerHTML = svgPreview;
             }
@@ -5817,7 +6980,7 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
 
     if (onChange && typeof onChange === 'function') {
         // Appelle la fonction onChange pour dessiner l'aperçu au chargement
-        const initialSvg = onChange(inputElements.map(i => i.value), previewBox);
+        const initialSvg = onChange(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value), previewBox);
         // Si onChange retourne une chaîne, on l'injecte. Si elle gère l'injection elle-même (comme pour la pyramide), initialSvg sera vide, ce qui est parfait.
         if (initialSvg && previewBox && typeof initialSvg === 'string') previewBox.innerHTML = initialSvg;
     }
@@ -5826,7 +6989,7 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
     const newBtnOk = btnOk.cloneNode(true); const newBtnCancel = btnCancel.cloneNode(true);
     btnOk.parentNode.replaceChild(newBtnOk, btnOk); btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
-    newBtnOk.addEventListener('click', () => { promptModal.style.display = 'none'; if (onValidate) onValidate(inputElements.map(i => i.value)); });
+    newBtnOk.addEventListener('click', () => { promptModal.style.display = 'none'; if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value)); });
     newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; });
 }
 // =========================================================
@@ -6021,9 +7184,8 @@ function updateQuickMenu() {
                     // ACTION FORCÉE
                     btnRatio.onpointerdown = (e) => {
                         e.preventDefault(); e.stopPropagation();
-                        obj.ratioLocked = !isRatioActive; // Inverse l'état actuel
-                        if (obj.ratioLocked) obj.isCropping = false; // Désactive le crop si on active le ratio
-                        updateQuickMenu(); draw(); saveState();
+                        obj.ratioLocked = (obj.ratioLocked === false) ? true : false;
+                        updateQuickMenu(); saveState(); draw();
                     };
                 }
 
@@ -6064,7 +7226,7 @@ function updateQuickMenu() {
                         itemsToDelete.set(item.type + '-' + item.id, item);
                         if (obj.groupId) {
                             getGroupMembers(obj.groupId).forEach(member => {
-                                itemsToDelete.set(member.type + '-' + member.id, {type: member.type, id: member.id});
+                                itemsToDelete.set(member.type + '-' + member.id, { type: member.type, id: member.id });
                             });
                         }
                     });
@@ -6148,7 +7310,7 @@ if (btnRecordCanvas) {
         // Démarrage
         recordedChunks = [];
         try {
-            document.getElementById('main-popup-menu').classList.remove('active'); // Ferme le menu
+            if (typeof closeAllPopups === 'function') closeAllPopups(); // Ferme le menu Exporter
             const stream = canvas.captureStream(30);
 
             const options = { mimeType: 'video/webm; codecs=vp9' };
@@ -6278,6 +7440,10 @@ function initFavoritesDock() {
         const bindPluginSourceButtons = () => {
             pluginGrid.querySelectorAll('.btn').forEach(btn => {
                 const toolId = btn.getAttribute('data-tooltip') || btn.title;
+                const normalizedId = normalizePluginId(toolId);
+                if (normalizedId && !btn.dataset.pluginKey) {
+                    btn.dataset.pluginKey = normalizedId;
+                }
                 bindPluginDragGhost(btn, toolId);
             });
         };
@@ -7137,6 +8303,111 @@ function renderFloatingToolbars() {
     getStoredFloatingToolbars().forEach(toolbar => renderFloatingToolbar(toolbar));
 }
 
+let pluginSearchMatches = [];
+let pluginSearchActiveIndex = -1;
+
+function normalizePluginSearchText(s) {
+    return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+function togglePluginSearch() {
+    const wrap = document.getElementById('plugin-search-wrap');
+    const input = document.getElementById('plugin-search-input');
+    if (!wrap || !input) return;
+    const isOpen = wrap.classList.toggle('open');
+    if (isOpen) {
+        input.focus();
+    } else {
+        input.value = '';
+        closePluginSearchResults();
+    }
+}
+
+function closePluginSearchResults() {
+    const resultsEl = document.getElementById('plugin-search-results');
+    if (resultsEl) { resultsEl.classList.remove('open'); resultsEl.innerHTML = ''; }
+    pluginSearchMatches = [];
+    pluginSearchActiveIndex = -1;
+}
+
+function closePluginSearch() {
+    const wrap = document.getElementById('plugin-search-wrap');
+    const input = document.getElementById('plugin-search-input');
+    if (wrap) wrap.classList.remove('open');
+    if (input) input.value = '';
+    closePluginSearchResults();
+}
+
+function filterPluginSearch(query) {
+    const resultsEl = document.getElementById('plugin-search-results');
+    if (!resultsEl) return;
+    query = normalizePluginSearchText(query.trim());
+
+    if (!query) { closePluginSearchResults(); return; }
+
+    const getPluginName = (btn) => btn.getAttribute('data-tooltip') || btn.title || '';
+
+    pluginSearchMatches = Array.from(document.querySelectorAll('#plugins-grid .btn'))
+        .filter(btn => getPluginName(btn) && normalizePluginSearchText(getPluginName(btn)).includes(query))
+        .slice(0, 8);
+    pluginSearchActiveIndex = -1;
+
+    if (pluginSearchMatches.length === 0) {
+        resultsEl.innerHTML = `<div class="plugin-search-empty">Aucun outil trouvé</div>`;
+    } else {
+        resultsEl.innerHTML = pluginSearchMatches.map((btn, i) =>
+            `<button type="button" class="plugin-search-item" data-idx="${i}">${getPluginName(btn)}<span class="cat">${btn.dataset.category || ''}</span></button>`
+        ).join('');
+        resultsEl.querySelectorAll('.plugin-search-item').forEach((el, i) => {
+            el.addEventListener('click', () => selectPluginSearchResult(i));
+        });
+    }
+    resultsEl.classList.add('open');
+}
+
+function selectPluginSearchResult(idx) {
+    const btn = pluginSearchMatches[idx];
+    if (!btn) return;
+    const category = btn.dataset.category;
+    if (category) {
+        const tabBtn = document.querySelector(`#plugin-tabs .btn[data-cat="${CSS.escape(category)}"]`);
+        if (tabBtn) tabBtn.click();
+    }
+    btn.click();
+    closePluginSearch();
+}
+
+function handlePluginSearchKeydown(e) {
+    const resultsEl = document.getElementById('plugin-search-results');
+    if (e.key === 'Escape') {
+        closePluginSearch();
+        e.target.blur();
+        return;
+    }
+    if (!pluginSearchMatches.length) return;
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        pluginSearchActiveIndex += (e.key === 'ArrowDown' ? 1 : -1);
+        if (pluginSearchActiveIndex < 0) pluginSearchActiveIndex = pluginSearchMatches.length - 1;
+        if (pluginSearchActiveIndex >= pluginSearchMatches.length) pluginSearchActiveIndex = 0;
+        resultsEl.querySelectorAll('.plugin-search-item').forEach((el, i) => {
+            el.classList.toggle('active', i === pluginSearchActiveIndex);
+        });
+        resultsEl.querySelectorAll('.plugin-search-item')[pluginSearchActiveIndex]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        selectPluginSearchResult(pluginSearchActiveIndex >= 0 ? pluginSearchActiveIndex : 0);
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('plugin-search-wrap');
+    if (wrap && wrap.classList.contains('open') && !wrap.contains(e.target)) {
+        closePluginSearch();
+    }
+});
+
 function togglePluginDrawer(event) {
     if (event) event.preventDefault();
     const drawer = document.getElementById('bar-plugins');
@@ -7318,7 +8589,7 @@ window.addEventListener('keydown', (e) => {
                 // Décalage pour objets sans points (Images, Textes, Freehands, Arcs)
                 if (newObj.x !== undefined) newObj.x += offset;
                 if (newObj.y !== undefined) newObj.y += offset;
-                if (newObj.cx !== undefined) { newObj.cx += offset; newObj.cy += offset; }
+                // ✅ Ne pas décaler cx/cy (ce sont les coords de crop, pas de position)
                 if (clip.type === 'freehand' && newObj.points) {
                     newObj.points.forEach(pt => { pt.x += offset; pt.y += offset; });
                 }
@@ -7356,6 +8627,1182 @@ window.addEventListener('keydown', (e) => {
 // 🚀 Lancement blindé (Essaie au chargement, et force après 1.5s au cas où)
 window.addEventListener('load', initFavoritesDock);
 setTimeout(initFavoritesDock, 1500);
+
+// ==============================================================================
+// MODULE : TOOLTIPS DYNAMIQUES (élément unique positionné en JS, ne sort jamais de l'écran)
+// ==============================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    const dtTooltip = document.createElement('div');
+    dtTooltip.id = 'dt-tooltip';
+    document.body.appendChild(dtTooltip);
+
+    let dtShowTimer = null;
+    let dtCurrentEl = null;
+
+    function positionDtTooltip(el) {
+        const r = el.getBoundingClientRect();
+        dtTooltip.style.left = '0px';
+        dtTooltip.style.top = '0px';
+        const tw = dtTooltip.offsetWidth;
+        const th = dtTooltip.offsetHeight;
+
+        let left = r.left + r.width / 2 - tw / 2;
+        let top = r.top - th - 10;
+
+        if (top < 4) top = r.bottom + 10; // Pas de place au-dessus -> ouvre en dessous
+        top = Math.min(top, window.innerHeight - th - 6);
+        left = Math.max(6, Math.min(left, window.innerWidth - tw - 6));
+
+        dtTooltip.style.left = left + 'px';
+        dtTooltip.style.top = top + 'px';
+    }
+
+    document.addEventListener('mouseover', (e) => {
+        const el = e.target.closest('[data-tooltip]');
+        if (!el || el === dtCurrentEl) return;
+        const text = el.getAttribute('data-tooltip');
+        if (!text) return;
+
+        clearTimeout(dtShowTimer);
+        dtCurrentEl = el;
+        dtShowTimer = setTimeout(() => {
+            if (dtCurrentEl !== el) return;
+            dtTooltip.textContent = text;
+            dtTooltip.classList.add('visible');
+            positionDtTooltip(el);
+        }, 500);
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const el = e.target.closest('[data-tooltip]');
+        if (!el) return;
+        clearTimeout(dtShowTimer);
+        dtCurrentEl = null;
+        dtTooltip.classList.remove('visible');
+    });
+
+    window.addEventListener('scroll', () => dtTooltip.classList.remove('visible'), true);
+});
+
+// ==============================================================================
+// MODULE : GESTION DES CLASSES (élèves) — stockage partagé (localforage)
+// Utilisé par le gestionnaire de classes (bouton "Mes classes") et par les
+// plugins pédagogiques comme randomDrawTool (tirage au sort & groupes).
+// ==============================================================================
+const CLASSES_STORAGE_KEY = 'auTableau_classes_v2';
+
+const ClassesStore = {
+    _cache: null,
+
+    newId(prefix) {
+        return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    },
+
+    async loadAll() {
+        if (this._cache) return this._cache;
+        let classes = await localforage.getItem(CLASSES_STORAGE_KEY);
+        if (!classes) classes = await this._migrateLegacy();
+        this._cache = classes || [];
+        return this._cache;
+    },
+
+    // Migration ponctuelle depuis l'ancien format de randomDrawTool
+    // (localStorage['auTableau_classes'] = { nomClasse: ["Elève 1", ...] })
+    async _migrateLegacy() {
+        try {
+            const legacy = localStorage.getItem('auTableau_classes');
+            if (!legacy) return [];
+            const parsed = JSON.parse(legacy);
+            const migrated = Object.keys(parsed).map(name => ({
+                id: this.newId('class'),
+                name,
+                students: (parsed[name] || []).map(sName => ({ id: this.newId('stu'), name: sName })),
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            }));
+            if (migrated.length > 0) await localforage.setItem(CLASSES_STORAGE_KEY, migrated);
+            return migrated;
+        } catch (e) {
+            console.error('Erreur migration classes legacy', e);
+            return [];
+        }
+    },
+
+    async saveAll(classes) {
+        this._cache = classes;
+        await localforage.setItem(CLASSES_STORAGE_KEY, classes);
+    },
+
+    // Fusionne des classes importées avec le stock local. En cas de conflit
+    // (même id ou même nom, mais liste d'élèves différente), affiche une popup
+    // demandant à l'utilisateur de choisir : garder la mienne / garder l'importée / fusionner.
+    async reconcileImport(importedClasses) {
+        if (!importedClasses || importedClasses.length === 0) return this.loadAll();
+
+        const local = await this.loadAll();
+        const conflicts = [];
+        const toAdd = [];
+
+        importedClasses.forEach(importedC => {
+            const match = local.find(c => c.id === importedC.id) || local.find(c => c.name === importedC.name);
+            if (!match) {
+                toAdd.push({ ...importedC, id: importedC.id || this.newId('class') });
+            } else {
+                const localNames = JSON.stringify((match.students || []).map(s => s.name).sort());
+                const importedNames = JSON.stringify((importedC.students || []).map(s => s.name).sort());
+                if (localNames !== importedNames) conflicts.push({ local: match, imported: importedC });
+            }
+        });
+
+        if (toAdd.length > 0) await this.saveAll(local.concat(toAdd));
+        if (conflicts.length === 0) return this.loadAll();
+
+        for (const conflict of conflicts) {
+            const resolution = await new Promise(resolve => showClassConflictModal(conflict, resolve));
+            const all = await this.loadAll();
+            const idx = all.findIndex(c => c.id === conflict.local.id);
+            if (idx < 0) continue;
+
+            if (resolution === 'imported') {
+                all[idx] = { ...conflict.imported, id: conflict.local.id, updatedAt: Date.now() };
+            } else if (resolution === 'merge') {
+                const existingNames = new Set((conflict.local.students || []).map(s => s.name));
+                const merged = [...(conflict.local.students || [])];
+                (conflict.imported.students || []).forEach(s => {
+                    if (!existingNames.has(s.name)) { merged.push({ id: s.id || this.newId('stu'), name: s.name }); existingNames.add(s.name); }
+                });
+                all[idx] = { ...conflict.local, students: merged, updatedAt: Date.now() };
+            }
+            // resolution === 'mine' -> ne rien changer
+            await this.saveAll(all);
+        }
+        return this.loadAll();
+    }
+};
+window.ClassesStore = ClassesStore;
+
+function showClassConflictModal(conflict, callback) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100001; display: flex; justify-content: center; align-items: center;';
+
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 25px; max-width: 480px; box-shadow: var(--shadow-hover);';
+
+    const localNames = (conflict.local.students || []).map(s => s.name);
+    const importedNames = (conflict.imported.students || []).map(s => s.name);
+    const mergedCount = new Set([...localNames, ...importedNames]).size;
+
+    box.innerHTML = `
+        <h3 style="margin-top: 0; color: var(--accent);">⚠️ Conflit sur la classe "${conflict.local.name}"</h3>
+        <p style="font-size: 13px; color: var(--muted);">Cette classe existe déjà avec une liste d'élèves différente. Que voulez-vous faire ?</p>
+        <div style="display:flex; gap:12px; margin: 15px 0; font-size:12px;">
+            <div style="flex:1; background:var(--bg); border-radius:6px; padding:8px; max-height:150px; overflow-y:auto;">
+                <strong>Ma version (${localNames.length})</strong>
+                <div style="color:var(--muted); margin-top:4px;">${localNames.join(', ') || '(vide)'}</div>
+            </div>
+            <div style="flex:1; background:var(--bg); border-radius:6px; padding:8px; max-height:150px; overflow-y:auto;">
+                <strong>Version importée (${importedNames.length})</strong>
+                <div style="color:var(--muted); margin-top:4px;">${importedNames.join(', ') || '(vide)'}</div>
+            </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+            <button class="btn-action secondary" id="cc-keep-mine">Garder la mienne</button>
+            <button class="btn-action secondary" id="cc-keep-imported">Garder celle importée</button>
+            <button class="btn-action primary" id="cc-merge">Fusionner (${mergedCount} élèves)</button>
+        </div>
+    `;
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    const close = (resolution) => { document.body.removeChild(modal); callback(resolution); };
+    box.querySelector('#cc-keep-mine').onclick = () => close('mine');
+    box.querySelector('#cc-keep-imported').onclick = () => close('imported');
+    box.querySelector('#cc-merge').onclick = () => close('merge');
+}
+
+// ==============================================================================
+// MODULE : GESTIONNAIRE DE CLASSES (interface — bouton "Mes classes")
+// ==============================================================================
+async function openClassManagerModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
+
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 720px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover);';
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    const state = {
+        classes: await ClassesStore.loadAll(),
+        selectedId: null,
+        dragIndex: null
+    };
+    state.selectedId = state.classes[0] ? state.classes[0].id : null;
+
+    function getSelected() {
+        return state.classes.find(c => c.id === state.selectedId) || null;
+    }
+
+    function persist() {
+        ClassesStore.saveAll(state.classes);
+    }
+
+    function parseNamesFromText(text) {
+        return text.split(/\r?\n/)
+            .map(line => line.split(/\t|,/)[0].trim())
+            .filter(name => name.length > 0);
+    }
+
+    function render() {
+        const selected = getSelected();
+
+        const listHtml = state.classes.length === 0
+            ? `<div style="padding:12px; font-size:12px; color:var(--muted);">Aucune classe. Créez-en une !</div>`
+            : state.classes.map(c => `
+                <div class="cm-class-item" data-id="${c.id}"
+                     style="padding:10px 12px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px; ${c.id === state.selectedId ? 'background:var(--accent-soft); color:var(--accent); font-weight:600;' : ''}">
+                    <span>${c.name || '(sans nom)'}</span>
+                    <span style="font-size:11px; color:var(--muted);">${(c.students || []).length}</span>
+                </div>
+            `).join('');
+
+        let detailHtml = `<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--muted); font-size:13px;">Sélectionnez ou créez une classe</div>`;
+
+        if (selected) {
+            const studentsHtml = (selected.students || []).map((s, idx) => `
+                <div class="cm-student-row" draggable="true" data-idx="${idx}"
+                     style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--bg); margin-bottom:4px; cursor:grab;">
+                    <span style="color:var(--muted); font-size:12px;">⠿</span>
+                    <span style="flex:1; font-size:13px;">${s.name}</span>
+                    <button class="cm-toggle-front" data-idx="${idx}" title="Prioritaire 1er rang"
+                            style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.frontRow ? '1' : '0.25'};">⭐</button>
+                    <button class="cm-del-student" data-idx="${idx}" style="border:none; background:none; cursor:pointer; color:var(--muted); font-size:14px;">🗑️</button>
+                </div>
+            `).join('') || `<div style="font-size:12px; color:var(--muted); padding:8px;">Aucun élève. Ajoutez-en ou importez une liste.</div>`;
+
+            detailHtml = `
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+                    <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe"
+                           style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:14px; font-weight:600;">
+                    <button id="cm-seating-plan" class="btn-action secondary" style="padding:8px 12px;">🪑 Plan de classe</button>
+                    <button id="cm-delete-class" class="btn-action secondary" style="padding:8px 12px; color:#d63031;">🗑️ Supprimer</button>
+                </div>
+
+                <div style="display:flex; gap:6px; margin-bottom:10px;">
+                    <input type="text" id="cm-add-student-input" placeholder="Nom de l'élève..." style="flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
+                    <button id="cm-add-student-btn" class="btn-action primary" style="padding:6px 12px; font-size:12px;">+ Ajouter</button>
+                </div>
+
+                <div id="cm-students-list" style="max-height:220px; overflow-y:auto; margin-bottom:12px;">
+                    ${studentsHtml}
+                </div>
+                <div style="font-size:11px; color:var(--muted); margin:-6px 0 12px 2px;">⭐ = clique pour marquer un élève prioritaire au 1er rang (utilisé par le plan de classe)</div>
+
+                <div style="border-top:1px solid var(--border); padding-top:10px;">
+                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase;">Importer une liste (copier-coller depuis un tableur, ou fichier .csv)</label>
+                    <textarea id="cm-paste-area" placeholder="Collez ici une liste d'élèves (un par ligne, ou copié depuis Excel/Sheets)" style="width:100%; height:60px; margin-top:6px; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px; box-sizing:border-box; resize:vertical;"></textarea>
+                    <div style="display:flex; gap:8px; margin-top:6px;">
+                        <button id="cm-import-paste-btn" class="btn-action secondary" style="flex:1; padding:6px; font-size:12px;">📋 Importer le texte collé</button>
+                        <button id="cm-import-file-btn" class="btn-action secondary" style="flex:1; padding:6px; font-size:12px;">📄 Importer un fichier .csv</button>
+                        <input type="file" id="cm-import-file-input" accept=".csv,.txt" style="display:none;">
+                    </div>
+                </div>
+            `;
+        }
+
+        box.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; color:var(--accent);">👥 Mes classes</h3>
+                <button id="cm-close" style="border:none; background:none; font-size:20px; cursor:pointer; color:var(--muted);">&times;</button>
+            </div>
+            <div style="display:flex; gap:15px; flex:1; min-height:0;">
+                <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column;">
+                    <button id="cm-new-class" class="btn-action primary" style="margin-bottom:10px; padding:8px;">+ Nouvelle classe</button>
+                    <div style="overflow-y:auto; flex:1;">${listHtml}</div>
+                </div>
+                <div style="flex:1; min-width:0; border-left:1px solid var(--border); padding-left:15px; overflow-y:auto;">
+                    ${detailHtml}
+                </div>
+            </div>
+        `;
+
+        attachEvents();
+    }
+
+    function attachEvents() {
+        box.querySelector('#cm-close').onclick = () => document.body.removeChild(modal);
+
+        box.querySelector('#cm-new-class').onclick = () => {
+            const newClass = { id: ClassesStore.newId('class'), name: 'Nouvelle classe', students: [], createdAt: Date.now(), updatedAt: Date.now() };
+            state.classes.push(newClass);
+            state.selectedId = newClass.id;
+            persist();
+            render();
+        };
+
+        box.querySelectorAll('.cm-class-item').forEach(el => {
+            el.onclick = () => { state.selectedId = el.dataset.id; render(); };
+        });
+
+        const nameInput = box.querySelector('#cm-class-name');
+        if (nameInput) {
+            nameInput.onchange = () => {
+                const c = getSelected();
+                if (c) { c.name = nameInput.value.trim() || 'Classe sans nom'; c.updatedAt = Date.now(); persist(); render(); }
+            };
+        }
+
+        const delBtn = box.querySelector('#cm-delete-class');
+        if (delBtn) {
+            delBtn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                openConfirmModal(
+                    "Supprimer la classe",
+                    `Supprimer la classe "${c.name}" et ses ${(c.students || []).length} élève(s) ? Cette action est irréversible.`,
+                    true,
+                    () => {
+                        state.classes = state.classes.filter(cl => cl.id !== c.id);
+                        state.selectedId = state.classes[0] ? state.classes[0].id : null;
+                        persist();
+                        render();
+                    }
+                );
+            };
+        }
+
+        const seatingBtn = box.querySelector('#cm-seating-plan');
+        if (seatingBtn) {
+            seatingBtn.onclick = () => {
+                const c = getSelected();
+                if (c) openSeatingPlanEditor(c.id);
+            };
+        }
+
+        box.querySelectorAll('.cm-toggle-front').forEach(btn => {
+            btn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                const idx = parseInt(btn.dataset.idx);
+                c.students[idx].frontRow = !c.students[idx].frontRow;
+                c.updatedAt = Date.now();
+                persist();
+                render();
+            };
+        });
+
+        const addBtn = box.querySelector('#cm-add-student-btn');
+        const addInput = box.querySelector('#cm-add-student-input');
+        function addStudent() {
+            const c = getSelected();
+            if (!c || !addInput.value.trim()) return;
+            c.students = c.students || [];
+            c.students.push({ id: ClassesStore.newId('stu'), name: addInput.value.trim() });
+            c.updatedAt = Date.now();
+            persist();
+            render();
+        }
+        if (addBtn) addBtn.onclick = addStudent;
+        if (addInput) addInput.onkeydown = (e) => { if (e.key === 'Enter') addStudent(); };
+
+        box.querySelectorAll('.cm-del-student').forEach(btn => {
+            btn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                const idx = parseInt(btn.dataset.idx);
+                c.students.splice(idx, 1);
+                c.updatedAt = Date.now();
+                persist();
+                render();
+            };
+        });
+
+        // Réordonner par glisser-déposer
+        box.querySelectorAll('.cm-student-row').forEach(row => {
+            row.addEventListener('dragstart', () => { state.dragIndex = parseInt(row.dataset.idx); row.style.opacity = '0.4'; });
+            row.addEventListener('dragend', () => { row.style.opacity = ''; });
+            row.addEventListener('dragover', (e) => e.preventDefault());
+            row.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const targetIdx = parseInt(row.dataset.idx);
+                const c = getSelected();
+                if (!c || state.dragIndex === null || state.dragIndex === targetIdx) return;
+                const [moved] = c.students.splice(state.dragIndex, 1);
+                c.students.splice(targetIdx, 0, moved);
+                state.dragIndex = null;
+                c.updatedAt = Date.now();
+                persist();
+                render();
+            });
+        });
+
+        const importPasteBtn = box.querySelector('#cm-import-paste-btn');
+        if (importPasteBtn) {
+            importPasteBtn.onclick = () => {
+                const c = getSelected();
+                const textarea = box.querySelector('#cm-paste-area');
+                if (!c || !textarea.value.trim()) return;
+                const names = parseNamesFromText(textarea.value);
+                const existing = new Set((c.students || []).map(s => s.name));
+                let added = 0;
+                names.forEach(name => {
+                    if (!existing.has(name)) { c.students.push({ id: ClassesStore.newId('stu'), name }); existing.add(name); added++; }
+                });
+                c.updatedAt = Date.now();
+                persist();
+                render();
+                if (typeof showToast === 'function') showToast(`✅ ${added} élève${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''}`);
+            };
+        }
+
+        const importFileBtn = box.querySelector('#cm-import-file-btn');
+        const importFileInput = box.querySelector('#cm-import-file-input');
+        if (importFileBtn && importFileInput) {
+            importFileBtn.onclick = () => importFileInput.click();
+            importFileInput.onchange = () => {
+                const file = importFileInput.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const c = getSelected();
+                    if (!c) return;
+                    const names = parseNamesFromText(e.target.result);
+                    const existing = new Set((c.students || []).map(s => s.name));
+                    let added = 0;
+                    names.forEach(name => {
+                        if (!existing.has(name)) { c.students.push({ id: ClassesStore.newId('stu'), name }); existing.add(name); added++; }
+                    });
+                    c.updatedAt = Date.now();
+                    persist();
+                    render();
+                    if (typeof showToast === 'function') showToast(`✅ ${added} élève${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''}`);
+                };
+                reader.readAsText(file);
+                importFileInput.value = '';
+            };
+        }
+    }
+
+    render();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btnClasses = document.getElementById('btn-classes-menu');
+    if (btnClasses) btnClasses.addEventListener('click', () => openClassManagerModal());
+
+    // ✅ "Plugin virtuel" : permet au double-clic natif sur une image (canvas.addEventListener('dblclick', ...))
+    // de rouvrir l'éditeur de plan de classe quand l'image tamponnée porte pluginData.id === 'seatingPlan'.
+    if (typeof PluginManager !== 'undefined') {
+        PluginManager.register('seatingPlan', {
+            edit: function (imgObj) {
+                if (imgObj.pluginData && imgObj.pluginData.classId) {
+                    openSeatingPlanEditor(imgObj.pluginData.classId);
+                }
+            }
+        });
+    }
+});
+
+// ==============================================================================
+// MODULE : PLAN DE CLASSE (placement des élèves sur des tables/îlots)
+// ==============================================================================
+const SP_SEAT_W = 70;
+const SP_GRID_STEP = 20;
+function spSnap(v) { return Math.round(v / SP_GRID_STEP) * SP_GRID_STEP; }
+function spCols(capacity) { return Math.max(1, Math.ceil(Math.sqrt(capacity))); }
+
+const SEATING_TEMPLATES = [
+    { label: '4×4 tables doubles (32)', rows: 4, cols: 4, capacity: 2 },
+    { label: '3×3 tables doubles (18)', rows: 3, cols: 3, capacity: 2 },
+    { label: '5×3 tables doubles (30)', rows: 5, cols: 3, capacity: 2 },
+    { label: '6×5 tables simples (30)', rows: 6, cols: 5, capacity: 1 },
+    { label: '6 îlots de 4 (24)', rows: 2, cols: 3, capacity: 4 },
+    { label: '4 îlots de 6 (24)', rows: 2, cols: 2, capacity: 6 }
+];
+
+async function openSeatingPlanEditor(classId) {
+    const allClasses = await ClassesStore.loadAll();
+    const classObj = allClasses.find(c => c.id === classId);
+    if (!classObj) return;
+    if (!classObj.seatingPlan || !Array.isArray(classObj.seatingPlan.tables)) classObj.seatingPlan = { tables: [] };
+    const plan = classObj.seatingPlan;
+
+    if (!document.getElementById('seating-plan-style')) {
+        const style = document.createElement('style');
+        style.id = 'seating-plan-style';
+        style.innerHTML = `
+            [class^="sp-"], [class*=" sp-"] { box-sizing: border-box; }
+            .sp-canvas-wrap { flex:1; overflow:auto; position:relative;
+                background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+                background-size: ${SP_GRID_STEP}px ${SP_GRID_STEP}px; }
+            .sp-canvas { position:relative; min-width:100%; min-height:100%; }
+            .sp-tool-btn { flex:1; padding:8px 4px; font-size:11px; }
+            .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); }
+            .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px; }
+            .sp-table-resize-group { display:flex; align-items:center; gap:2px; }
+            .sp-table-resize { cursor:pointer; font-weight:900; color:var(--muted); padding:0 5px; font-size:13px; line-height:18px; border-radius:4px; }
+            .sp-table-resize:hover { color:var(--accent); background:var(--accent-soft); }
+            .sp-table-cap { font-size:10px; color:var(--muted); min-width:12px; text-align:center; }
+            .sp-table-del { font-size:11px; color:#d63031; cursor:pointer; opacity:0; transition:opacity 0.15s; padding:0 2px; }
+            .sp-table:hover .sp-table-del { opacity:1; }
+            .sp-teacher-desk { border-color:#6c5ce7; background:rgba(108,92,231,0.08); }
+            .sp-seats-grid { display:grid; gap:4px; padding:6px; }
+            .sp-seat { background:var(--bg); border:1px dashed var(--border); border-radius:6px; font-size:11px; display:flex; align-items:center; justify-content:center; text-align:center; padding:3px; overflow:hidden; min-width:64px; min-height:40px; color:var(--muted); }
+            .sp-seat.filled { background:var(--accent-soft); border:1px solid var(--accent); font-weight:600; color:var(--ink); cursor:grab; }
+            .sp-seat.dragover { border-color:#00b894 !important; background:rgba(0,184,148,0.15) !important; }
+            .sp-seat-name { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; line-height:1.15; }
+            .sp-sidebar { width:220px; flex-shrink:0; border-left:1px solid var(--border); padding:12px; overflow-y:auto; }
+            .sp-chip { background:var(--bg); border:1px solid var(--border); padding:8px 10px; border-radius:6px; font-size:12px; margin-bottom:6px; cursor:grab; box-shadow:0 2px 4px rgba(0,0,0,0.06); word-break:break-word; }
+            .sp-chip.frontrow { border-left:3px solid #fdcb6e; }
+            .sp-left-col { width:210px; flex-shrink:0; border-right:1px solid var(--border); padding:14px 12px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+            .sp-section-label { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.4px; margin:14px 0 2px; }
+            .sp-section-label:first-child { margin-top:0; }
+            .sp-left-btn { width:100%; padding:8px 10px; font-size:12px; text-align:left; box-sizing:border-box; }
+            .sp-left-select { width:100%; padding:6px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--ink); font-size:12px; box-sizing:border-box; }
+            .sp-checkbox-row { display:flex; align-items:center; gap:6px; font-size:12px; padding:4px 0; }
+            .sp-front-marker { position:sticky; top:0; left:0; width:100%; text-align:center; padding:6px; font-size:11px; font-weight:700; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted); background:linear-gradient(to bottom, var(--bg) 60%, transparent); z-index:5; pointer-events:none; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.75); z-index: 100002; display:flex; justify-content:center; align-items:center;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; width: 96vw; height: 92vh; max-width: 1500px; display:flex; flex-direction:column; overflow:hidden; box-shadow: var(--shadow-hover);';
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    let dragStudentId = null, dragFromTableId = null, dragFromSeatIdx = null;
+    let currentTool = 'select';
+
+    function persist() { ClassesStore.saveAll(allClasses); }
+
+    function newTable(capacity) {
+        const cols = spCols(capacity);
+        const regularCount = plan.tables.filter(t => !t.isTeacherDesk).length;
+        const offset = (regularCount % 6) * (SP_SEAT_W + 15);
+        plan.tables.push({
+            id: ClassesStore.newId('table'),
+            x: spSnap(40 + offset), y: spSnap(70),
+            capacity, cols,
+            seats: Array(capacity).fill(null)
+        });
+        persist();
+        render();
+    }
+
+    function addTeacherDesk() {
+        if (plan.tables.some(t => t.isTeacherDesk)) {
+            if (typeof showToast === 'function') showToast("Il y a déjà un bureau du prof — déplace-le si besoin.");
+            return;
+        }
+        plan.tables.push({ id: ClassesStore.newId('desk'), x: spSnap(700), y: spSnap(15), isTeacherDesk: true, seats: [] });
+        persist();
+        render();
+    }
+
+    function resizeTable(tableId, delta) {
+        const t = plan.tables.find(tt => tt.id === tableId);
+        if (!t || t.isTeacherDesk) return;
+        const newCapacity = Math.max(1, Math.min(12, t.capacity + delta));
+        if (newCapacity === t.capacity) return;
+
+        if (newCapacity < t.capacity) {
+            const removed = t.seats.slice(newCapacity).filter(Boolean);
+            t.seats = t.seats.slice(0, newCapacity);
+            if (removed.length > 0 && typeof showToast === 'function') showToast(`${removed.length} élève(s) libéré(s) de la table`);
+        } else {
+            t.seats = t.seats.concat(Array(newCapacity - t.capacity).fill(null));
+        }
+        t.capacity = newCapacity;
+        t.cols = spCols(newCapacity);
+        persist();
+        render();
+    }
+
+    function applyTemplate(idx) {
+        const tmpl = SEATING_TEMPLATES[idx];
+        if (!tmpl) return;
+
+        const desk = plan.tables.find(t => t.isTeacherDesk);
+        plan.tables = desk ? [desk] : [];
+
+        const cols = spCols(tmpl.capacity);
+        const tableW = cols * SP_SEAT_W + 12;
+        const rowsInTable = Math.ceil(tmpl.capacity / cols);
+        const tableH = rowsInTable * 44 + 24;
+
+        // ✅ Étale la grille sur tout l'espace visible du canevas, pas juste un coin
+        const wrapEl = box.querySelector('.sp-canvas-wrap');
+        const startX = 30, startY = 60;
+        const availW = Math.max(wrapEl.clientWidth - startX * 2, tableW);
+        const availH = Math.max(wrapEl.clientHeight - startY - 30, tableH);
+
+        const stepX = tmpl.cols > 1 ? Math.max(tableW + 25, (availW - tableW) / (tmpl.cols - 1)) : 0;
+        const stepY = tmpl.rows > 1 ? Math.max(tableH + 35, (availH - tableH) / (tmpl.rows - 1)) : 0;
+
+        for (let r = 0; r < tmpl.rows; r++) {
+            for (let c = 0; c < tmpl.cols; c++) {
+                plan.tables.push({
+                    id: ClassesStore.newId('table'),
+                    x: spSnap(startX + c * stepX),
+                    y: spSnap(startY + r * stepY),
+                    capacity: tmpl.capacity, cols,
+                    seats: Array(tmpl.capacity).fill(null)
+                });
+            }
+        }
+        persist();
+        render();
+        if (typeof showToast === 'function') showToast(`✅ Modèle appliqué (${tmpl.rows * tmpl.cols} tables)`);
+    }
+
+    function resetPlan() {
+        openConfirmModal(
+            "Réinitialiser le plan",
+            "Supprimer toutes les tables et îlots du plan de classe ? (le bureau du prof est conservé)",
+            true,
+            () => {
+                const desk = plan.tables.find(t => t.isTeacherDesk);
+                plan.tables = desk ? [desk] : [];
+                persist();
+                render();
+                if (typeof showToast === 'function') showToast("🔄 Plan réinitialisé");
+            }
+        );
+    }
+
+    function spRoundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+
+    function spWrapText(ctx, text, cx, cy, maxWidth, lineHeight) {
+        const words = text.split(' ');
+        let lines = [], line = '';
+        words.forEach(word => {
+            const test = line ? line + ' ' + word : word;
+            if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+            else line = test;
+        });
+        if (line) lines.push(line);
+        if (lines.length > 2) lines = [lines[0], lines[1].slice(0, Math.max(0, lines[1].length - 1)) + '…'];
+        const startY = cy - ((lines.length - 1) * lineHeight) / 2 + 4;
+        lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
+    }
+
+    // Dessine le plan (indépendamment du zoom/scroll du modal) sur un <canvas> offscreen,
+    // utilisé à la fois pour l'export PDF et pour le tampon sur le tableau.
+    function renderSeatingPlanToCanvas() {
+        const tables = plan.tables;
+        if (tables.length === 0) return null;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        tables.forEach(t => {
+            const w = t.isTeacherDesk ? 150 : (t.cols * SP_SEAT_W + 12);
+            const rows = t.isTeacherDesk ? 1 : Math.ceil(t.capacity / t.cols);
+            const h = t.isTeacherDesk ? 50 : (rows * 46 + 26);
+            minX = Math.min(minX, t.x); minY = Math.min(minY, t.y);
+            maxX = Math.max(maxX, t.x + w); maxY = Math.max(maxY, t.y + h);
+        });
+
+        const PAD = 30, TITLE_H = 34, scale = 2;
+        const contentW = maxX - minX, contentH = maxY - minY;
+
+        const canvasEl = document.createElement('canvas');
+        canvasEl.width = (contentW + PAD * 2) * scale;
+        canvasEl.height = (contentH + PAD * 2 + TITLE_H) * scale;
+        const ctx = canvasEl.getContext('2d');
+        ctx.scale(scale, scale);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, contentW + PAD * 2, contentH + PAD * 2 + TITLE_H);
+
+        ctx.fillStyle = '#2d3436';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Plan de classe — ${classObj.name}`, PAD, 24);
+
+        tables.forEach(t => {
+            const tx = t.x - minX + PAD;
+            const ty = t.y - minY + PAD + TITLE_H;
+
+            if (t.isTeacherDesk) {
+                ctx.fillStyle = 'rgba(108,92,231,0.12)';
+                ctx.strokeStyle = '#6c5ce7';
+                ctx.lineWidth = 2;
+                spRoundRect(ctx, tx, ty, 150, 50, 8); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#2d3436';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('🧑‍🏫 Bureau du prof', tx + 75, ty + 30);
+                return;
+            }
+
+            const rows = Math.ceil(t.capacity / t.cols);
+            const w = t.cols * SP_SEAT_W + 12;
+            const h = rows * 46 + 26;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#636e72';
+            ctx.lineWidth = 2;
+            spRoundRect(ctx, tx, ty, w, h, 8); ctx.fill(); ctx.stroke();
+
+            t.seats.forEach((sid, idx) => {
+                const col = idx % t.cols, row = Math.floor(idx / t.cols);
+                const sx = tx + 6 + col * SP_SEAT_W;
+                const sy = ty + 20 + row * 46;
+                const sw = SP_SEAT_W - 6, sh = 40;
+
+                ctx.fillStyle = sid ? '#e8e4fd' : '#f1f2f6';
+                ctx.strokeStyle = sid ? '#6c5ce7' : '#b2bec3';
+                ctx.lineWidth = 1;
+                ctx.setLineDash(sid ? [] : [3, 2]);
+                spRoundRect(ctx, sx, sy, sw, sh, 5); ctx.fill(); ctx.stroke();
+                ctx.setLineDash([]);
+
+                if (sid) {
+                    ctx.fillStyle = '#2d3436';
+                    ctx.font = '600 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    spWrapText(ctx, (isFrontRow(sid) ? '⭐ ' : '') + studentName(sid), sx + sw / 2, sy + sh / 2, sw - 4, 12);
+                }
+            });
+        });
+
+        return canvasEl;
+    }
+
+    function exportToPdf() {
+        const canvasEl = renderSeatingPlanToCanvas();
+        if (!canvasEl) { if (typeof showToast === 'function') showToast('Ajoute au moins une table avant d\'exporter.'); return; }
+        try {
+            if (!window.jspdf || !window.jspdf.jsPDF) { if (typeof showToast === 'function') showToast('❌ Moteur PDF non chargé.'); return; }
+            const imgData = canvasEl.toDataURL('image/png');
+            const w = canvasEl.width, h = canvasEl.height;
+            const doc = new window.jspdf.jsPDF({ orientation: w > h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
+            doc.addImage(imgData, 'PNG', 0, 0, w, h);
+            doc.save(`Plan_de_classe_${(classObj.name || 'classe').replace(/[^a-z0-9]+/gi, '_')}.pdf`);
+            if (typeof showToast === 'function') showToast('📄 PDF exporté !');
+        } catch (e) {
+            console.error('Erreur export PDF plan de classe', e);
+            if (typeof showToast === 'function') showToast('❌ Erreur export PDF');
+        }
+    }
+
+    function stampToBoard() {
+        const canvasEl = renderSeatingPlanToCanvas();
+        if (!canvasEl) { if (typeof showToast === 'function') showToast('Ajoute au moins une table avant de tamponner.'); return; }
+
+        const dataUrl = canvasEl.toDataURL('image/png');
+        let w = canvasEl.width / 2, h = canvasEl.height / 2; // /2 : compense le scale=2 utilisé pour la netteté
+        if (w > 900) { h *= 900 / w; w = 900; }
+
+        const curZoom = (typeof zoom !== 'undefined' && zoom) ? zoom : 1;
+        const curPanX = typeof panX !== 'undefined' ? panX : 0;
+        const curPanY = typeof panY !== 'undefined' ? panY : 0;
+        const lx = (window.innerWidth / 2 - curPanX) / curZoom;
+        const ly = (window.innerHeight / 2 - curPanY) / curZoom;
+
+        const img = new Image();
+        img.onload = () => {
+            images.push({
+                id: nextId++, x: lx - w / 2, y: ly - h / 2, w, h,
+                cx: 0, cy: 0, cw: img.width, ch: img.height,
+                src: dataUrl, fileName: `Plan_${classObj.name}.png`, z: globalZ++,
+                // ✅ Permet le double-clic sur l'image pour rouvrir l'éditeur de plan de cette classe
+                pluginData: { id: 'seatingPlan', classId: classObj.id }
+            });
+            imageCache[dataUrl] = img;
+            if (typeof saveState === 'function') saveState();
+            if (typeof draw === 'function') draw();
+            if (typeof showToast === 'function') showToast('🖼️ Plan tamponné ! Double-clic dessus pour le rééditer.');
+            // ✅ Fermer l'éditeur ET la fenêtre "Mes classes" ouverte derrière
+            document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+        };
+        img.src = dataUrl;
+    }
+
+    function getAssignedIds() {
+        const set = new Set();
+        plan.tables.forEach(t => t.seats.forEach(sid => { if (sid) set.add(sid); }));
+        return set;
+    }
+
+    function getUnassignedStudents() {
+        const assigned = getAssignedIds();
+        return (classObj.students || []).filter(s => !assigned.has(s.id));
+    }
+
+    // Position approximative (en pixels) de chaque siège, calculée à partir de la table
+    // et de la position du siège dans sa grille interne (col/row selon t.cols).
+    function getSeatPositions() {
+        const list = [];
+        plan.tables.forEach(t => {
+            if (t.isTeacherDesk) return;
+            t.seats.forEach((_, idx) => {
+                const col = idx % t.cols;
+                const row = Math.floor(idx / t.cols);
+                list.push({ tableId: t.id, seatIdx: idx, x: t.x + col * SP_SEAT_W, y: t.y + row * 46 });
+            });
+        });
+        return list;
+    }
+
+    // Regroupe les sièges par "lignes" selon primaryAxis (avec tolérance), trie les lignes,
+    // puis trie les sièges de chaque ligne selon secondaryAxis.
+    function clusterAndOrder(seatPositions, primaryAxis, secondaryAxis) {
+        const sorted = [...seatPositions].sort((a, b) => a[primaryAxis] - b[primaryAxis]);
+        const groups = [];
+        sorted.forEach(s => {
+            let g = groups.find(gr => Math.abs(gr.val - s[primaryAxis]) < 40);
+            if (!g) { g = { val: s[primaryAxis], items: [] }; groups.push(g); }
+            g.items.push(s);
+        });
+        groups.sort((a, b) => a.val - b.val);
+        const ordered = [];
+        groups.forEach(g => {
+            g.items.sort((a, b) => a[secondaryAxis] - b[secondaryAxis]);
+            ordered.push(...g.items);
+        });
+        return ordered;
+    }
+
+    // direction 'row' : rangée par rangée, du plus proche du tableau au plus loin (gauche → droite dans chaque rangée)
+    // direction 'col' : colonne par colonne, de la gauche vers la droite (devant → derrière dans chaque colonne)
+    function computeSeatOrder(direction) {
+        const seatPositions = getSeatPositions();
+        return direction === 'col'
+            ? clusterAndOrder(seatPositions, 'x', 'y')
+            : clusterAndOrder(seatPositions, 'y', 'x');
+    }
+
+    function autoFill(order, respectFrontRow, direction) {
+        plan.tables.forEach(t => t.seats = t.seats.map(() => null));
+
+        let roster = [...(classObj.students || [])];
+        if (order === 'alpha') roster.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+        else if (order === 'random') {
+            for (let i = roster.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [roster[i], roster[j]] = [roster[j], roster[i]];
+            }
+        }
+
+        const ordered = respectFrontRow
+            ? [...roster.filter(s => s.frontRow), ...roster.filter(s => !s.frontRow)]
+            : roster;
+
+        const slots = computeSeatOrder(direction);
+        let placed = 0;
+        for (let i = 0; i < slots.length && i < ordered.length; i++) {
+            const table = plan.tables.find(t => t.id === slots[i].tableId);
+            table.seats[slots[i].seatIdx] = ordered[i].id;
+            placed++;
+        }
+
+        persist();
+        render();
+
+        const leftover = ordered.length - placed;
+        if (typeof showToast === 'function') {
+            showToast(leftover > 0
+                ? `⚠️ ${placed} placé(s), ${leftover} sans place (pas assez de sièges)`
+                : `✅ ${placed} élève(s) placé(s)`);
+        }
+    }
+
+    function studentName(id) {
+        const s = (classObj.students || []).find(st => st.id === id);
+        return s ? s.name : '?';
+    }
+    function isFrontRow(id) {
+        const s = (classObj.students || []).find(st => st.id === id);
+        return !!(s && s.frontRow);
+    }
+
+    function render() {
+        const unassigned = getUnassignedStudents();
+
+        const tablesHtml = plan.tables.map(t => {
+            if (t.isTeacherDesk) {
+                return `
+                    <div class="sp-table sp-teacher-desk" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:150px;">
+                        <div class="sp-table-handle" data-table="${t.id}">
+                            <span></span>
+                            <span class="sp-table-del" data-table="${t.id}" title="Supprimer">🗑️</span>
+                        </div>
+                        <div style="padding:14px 10px; text-align:center; font-size:12px; font-weight:700; color:var(--ink);">🧑‍🏫 Bureau du prof</div>
+                    </div>
+                `;
+            }
+            const seatsHtml = t.seats.map((sid, idx) => sid
+                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
+                : `<div class="sp-seat" data-table="${t.id}" data-seat="${idx}">+</div>`
+            ).join('');
+            return `
+                <div class="sp-table" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:${t.cols * SP_SEAT_W + 12}px;">
+                    <div class="sp-table-handle" data-table="${t.id}">
+                        <span class="sp-table-resize-group">
+                            <span class="sp-table-resize" data-table="${t.id}" data-delta="-1" title="Retirer une place">−</span>
+                            <span class="sp-table-cap">${t.capacity}</span>
+                            <span class="sp-table-resize" data-table="${t.id}" data-delta="1" title="Ajouter une place">+</span>
+                        </span>
+                        <span class="sp-table-del" data-table="${t.id}" title="Supprimer la table">🗑️</span>
+                    </div>
+                    <div class="sp-seats-grid" style="grid-template-columns: repeat(${t.cols}, 1fr);">${seatsHtml}</div>
+                </div>
+            `;
+        }).join('');
+
+        const sidebarHtml = unassigned.length === 0
+            ? `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">Tous les élèves sont placés 🎉</div>`
+            : unassigned.map(s => `<div class="sp-chip ${s.frontRow ? 'frontrow' : ''}" draggable="true" data-student="${s.id}">${s.frontRow ? '⭐ ' : ''}${s.name}</div>`).join('');
+
+        const templateOptions = SEATING_TEMPLATES.map((t, i) => `<option value="${i}">${t.label}</option>`).join('');
+
+        box.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
+                <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${classObj.name}</h3>
+                <button id="sp-close" style="border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted);">&times;</button>
+            </div>
+            <div style="display:flex; flex:1; min-height:0;">
+                <div class="sp-left-col">
+                    <label class="sp-section-label" style="margin-top:0;">Outil</label>
+                    <div style="display:flex; gap:4px;">
+                        <button class="btn-action ${currentTool === 'select' ? 'primary' : 'secondary'} sp-tool-btn" data-tool="select">🖱️ Sélection</button>
+                        <button class="btn-action ${currentTool === 'hand' ? 'primary' : 'secondary'} sp-tool-btn" data-tool="hand">🖐️ Main</button>
+                    </div>
+
+                    <label class="sp-section-label">Tables & îlots</label>
+                    <button data-add="1" class="btn-action secondary sp-left-btn">+ Table simple</button>
+                    <button data-add="2" class="btn-action secondary sp-left-btn">+ Table double</button>
+                    <button data-add="4" class="btn-action secondary sp-left-btn">+ Îlot (4)</button>
+                    <button data-add="6" class="btn-action secondary sp-left-btn">+ Îlot (6)</button>
+                    <button id="sp-add-desk" class="btn-action secondary sp-left-btn">+ 🧑‍🏫 Bureau du prof</button>
+
+                    <label class="sp-section-label">Modèle de classe</label>
+                    <select id="sp-template" class="sp-left-select">
+                        <option value="">Choisir...</option>
+                        ${templateOptions}
+                    </select>
+                    <button id="sp-apply-template" class="btn-action primary sp-left-btn">Appliquer</button>
+                    <button id="sp-reset-plan" class="btn-action secondary sp-left-btn" style="color:#d63031;">🔄 Réinitialiser</button>
+
+                    <label class="sp-section-label">Remplissage auto</label>
+                    <select id="sp-order" class="sp-left-select">
+                        <option value="alpha" selected>Ordre alphabétique</option>
+                        <option value="list">Ordre de la liste</option>
+                        <option value="random">Aléatoire</option>
+                    </select>
+                    <select id="sp-direction" class="sp-left-select" style="margin-top:6px;">
+                        <option value="row" selected>Par rangée (⟶)</option>
+                        <option value="col">Par colonne (⟱)</option>
+                    </select>
+                    <label class="sp-checkbox-row">
+                        <input type="checkbox" id="sp-respect-front" checked> Priorité 1er rang ⭐
+                    </label>
+                    <button id="sp-autofill" class="btn-action primary sp-left-btn">🔀 Remplir auto</button>
+                    <button id="sp-clear-seats" class="btn-action secondary sp-left-btn">Vider les places</button>
+
+                    <label class="sp-section-label">Export</label>
+                    <button id="sp-export-pdf" class="btn-action secondary sp-left-btn">📄 Export PDF</button>
+                    <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>
+                </div>
+                <div class="sp-canvas-wrap">
+                    <div class="sp-front-marker">⬆️ Tableau / avant de la classe</div>
+                    <div class="sp-canvas" id="sp-canvas">${tablesHtml}</div>
+                </div>
+                <div class="sp-sidebar">
+                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:8px;">Non placés (${unassigned.length})</label>
+                    ${sidebarHtml}
+                </div>
+            </div>
+        `;
+
+        attachEvents();
+    }
+
+    function attachEvents() {
+        box.querySelector('#sp-close').onclick = () => document.body.removeChild(modal);
+
+        box.querySelectorAll('[data-add]').forEach(btn => {
+            btn.onclick = () => newTable(parseInt(btn.dataset.add));
+        });
+
+        box.querySelector('#sp-add-desk').onclick = addTeacherDesk;
+
+        box.querySelector('#sp-apply-template').onclick = () => {
+            const val = box.querySelector('#sp-template').value;
+            if (val === '') { if (typeof showToast === 'function') showToast('Choisis un modèle dans la liste.'); return; }
+            applyTemplate(parseInt(val));
+        };
+
+        box.querySelector('#sp-reset-plan').onclick = resetPlan;
+
+        box.querySelector('#sp-export-pdf').onclick = exportToPdf;
+        box.querySelector('#sp-stamp-board').onclick = stampToBoard;
+
+        const canvasWrapEl = box.querySelector('.sp-canvas-wrap');
+        box.querySelectorAll('.sp-tool-btn').forEach(btn => {
+            btn.onclick = () => {
+                currentTool = btn.dataset.tool;
+                box.querySelectorAll('.sp-tool-btn').forEach(b => b.className = 'btn-action secondary sp-tool-btn');
+                btn.className = 'btn-action primary sp-tool-btn';
+                canvasWrapEl.style.cursor = currentTool === 'hand' ? 'grab' : 'default';
+            };
+        });
+        canvasWrapEl.style.cursor = currentTool === 'hand' ? 'grab' : 'default';
+
+        // Outil Main : glisser sur le canevas pour le faire défiler
+        canvasWrapEl.addEventListener('mousedown', (e) => {
+            if (currentTool !== 'hand' || e.target.closest('.sp-table')) return;
+            e.preventDefault();
+            const startX = e.clientX, startY = e.clientY;
+            const scrollLeft0 = canvasWrapEl.scrollLeft, scrollTop0 = canvasWrapEl.scrollTop;
+            canvasWrapEl.style.cursor = 'grabbing';
+
+            function onMove(ev) {
+                canvasWrapEl.scrollLeft = scrollLeft0 - (ev.clientX - startX);
+                canvasWrapEl.scrollTop = scrollTop0 - (ev.clientY - startY);
+            }
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                canvasWrapEl.style.cursor = 'grab';
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+
+        box.querySelectorAll('.sp-table-resize').forEach(el => {
+            el.onclick = (e) => {
+                e.stopPropagation();
+                resizeTable(el.dataset.table, parseInt(el.dataset.delta));
+            };
+        });
+
+        box.querySelector('#sp-autofill').onclick = () => {
+            const order = box.querySelector('#sp-order').value;
+            const direction = box.querySelector('#sp-direction').value;
+            const respect = box.querySelector('#sp-respect-front').checked;
+            autoFill(order, respect, direction);
+        };
+
+        box.querySelector('#sp-clear-seats').onclick = () => {
+            plan.tables.forEach(t => t.seats = t.seats.map(() => null));
+            persist();
+            render();
+        };
+
+        box.querySelectorAll('.sp-table-del').forEach(el => {
+            el.onclick = (e) => {
+                e.stopPropagation();
+                plan.tables = plan.tables.filter(t => t.id !== el.dataset.table);
+                persist();
+                render();
+            };
+        });
+
+        // Déplacement des tables à la souris, aligné sur la grille
+        const canvas = box.querySelector('#sp-canvas');
+        box.querySelectorAll('.sp-table-handle').forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                if (currentTool !== 'select') return;
+                if (e.target.classList.contains('sp-table-del') || e.target.classList.contains('sp-table-resize')) return;
+                const table = plan.tables.find(t => t.id === handle.dataset.table);
+                const canvasRect = canvas.getBoundingClientRect();
+                const startX = e.clientX - canvasRect.left - table.x;
+                const startY = e.clientY - canvasRect.top - table.y;
+                const tableEl = handle.closest('.sp-table');
+
+                function onMove(ev) {
+                    table.x = Math.max(0, spSnap(ev.clientX - canvasRect.left - startX));
+                    table.y = Math.max(0, spSnap(ev.clientY - canvasRect.top - startY));
+                    tableEl.style.left = table.x + 'px';
+                    tableEl.style.top = table.y + 'px';
+                }
+                function onUp() {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    persist();
+                }
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            });
+        });
+
+        // Glisser-déposer des élèves (liste <-> siège, siège <-> siège)
+        box.querySelectorAll('.sp-chip').forEach(chip => {
+            chip.addEventListener('dragstart', () => {
+                dragStudentId = chip.dataset.student; dragFromTableId = null; dragFromSeatIdx = null;
+            });
+        });
+
+        box.querySelectorAll('.sp-seat.filled').forEach(seat => {
+            seat.addEventListener('dragstart', () => {
+                dragStudentId = null;
+                dragFromTableId = seat.dataset.table;
+                dragFromSeatIdx = parseInt(seat.dataset.seat);
+            });
+        });
+
+        box.querySelectorAll('.sp-seat').forEach(seat => {
+            seat.addEventListener('dragover', (e) => { e.preventDefault(); seat.classList.add('dragover'); });
+            seat.addEventListener('dragleave', () => seat.classList.remove('dragover'));
+            seat.addEventListener('drop', (e) => {
+                e.preventDefault();
+                seat.classList.remove('dragover');
+                const targetTable = plan.tables.find(t => t.id === seat.dataset.table);
+                const targetSeatIdx = parseInt(seat.dataset.seat);
+
+                if (dragFromTableId !== null) {
+                    const fromTable = plan.tables.find(t => t.id === dragFromTableId);
+                    const movingId = fromTable.seats[dragFromSeatIdx];
+                    const targetCurrent = targetTable.seats[targetSeatIdx];
+                    targetTable.seats[targetSeatIdx] = movingId;
+                    fromTable.seats[dragFromSeatIdx] = targetCurrent;
+                } else if (dragStudentId) {
+                    // L'occupant éventuel du siège cible redevient automatiquement "non placé" au ré-affichage
+                    targetTable.seats[targetSeatIdx] = dragStudentId;
+                }
+                dragStudentId = null; dragFromTableId = null; dragFromSeatIdx = null;
+                persist();
+                render();
+            });
+        });
+
+        // Déposer un élève sur la barre latérale = le retirer de son siège
+        const sidebar = box.querySelector('.sp-sidebar');
+        sidebar.addEventListener('dragover', (e) => e.preventDefault());
+        sidebar.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (dragFromTableId !== null) {
+                const fromTable = plan.tables.find(t => t.id === dragFromTableId);
+                fromTable.seats[dragFromSeatIdx] = null;
+                dragFromTableId = null; dragFromSeatIdx = null;
+                persist();
+                render();
+            }
+        });
+    }
+
+    render();
+}
 
 // ==============================================================================
 // MODULE : TRIEUR DE DIAPOSITIVES (MINIATURES LATÉRALES EN TEMPS RÉEL)
@@ -7483,7 +9930,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Si pas d'image, pixel transparent en attendant le sync
             img.src = p.thumbnail || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
             if (isActive) img.id = 'active-thumb-img'; // L'identifiant magique pour le Temps Réel
-            img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover';
+            img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'contain'; img.style.backgroundColor = '#ffffff';
             box.appendChild(img);
 
             const num = document.createElement('div');
@@ -7495,13 +9942,15 @@ document.addEventListener('DOMContentLoaded', () => {
             box.appendChild(num);
 
             const delBtn = document.createElement('div');
-            delBtn.innerHTML = '×';
+            delBtn.innerHTML = '🗑️';
             delBtn.title = "Supprimer cette page";
             delBtn.style.cssText = `
-                position: absolute; top: 4px; right: 4px; background: #d63031;
-                color: white; font-size: 15px; width: 20px; height: 20px; border-radius: 50%;
-                display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s;
+                position: absolute; top: 4px; right: 4px; background: rgba(214, 48, 49, 0.9);
+                color: white; font-size: 14px; width: 24px; height: 24px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center; opacity: 0; transition: all 0.2s; cursor: pointer;
             `;
+            delBtn.addEventListener('mouseenter', () => delBtn.style.background = '#d63031');
+            delBtn.addEventListener('mouseleave', () => delBtn.style.background = 'rgba(214, 48, 49, 0.9)');
             box.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
             box.addEventListener('mouseleave', () => delBtn.style.opacity = '0');
 
@@ -7820,6 +10269,7 @@ function filterExplorerTree() {
 let savedTableaux = [];
 let savedInterfaces = [];
 
+
 function loadExplorerData() {
     // Interfaces in localStorage
     try {
@@ -7833,7 +10283,6 @@ function loadExplorerData() {
         renderExplorerLists();
     });
 }
-let hasUnsavedChanges = false;
 let currentBoardName = "";
 
 function updateUnsavedIndicator() {
@@ -7856,7 +10305,22 @@ function initProjectName() {
 document.addEventListener('DOMContentLoaded', () => {
     loadExplorerData();
     initProjectName();
-    
+
+    const btnMinPostit = document.getElementById('btn-minimize-postit');
+    if (btnMinPostit) {
+        btnMinPostit.addEventListener('click', (e) => {
+            if (selectedItems.length === 1 && selectedItems[0].type === 'text') {
+                const t = getObjectById('text', selectedItems[0].id);
+                if (t && t.bubbleShape === 'postit') {
+                    t.isMinimized = !t.isMinimized;
+                    saveState();
+                    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+                    draw();
+                }
+            }
+        });
+    }
+
     const projInput = document.getElementById('project-name-input');
     if (projInput) {
         projInput.addEventListener('change', (e) => {
@@ -7876,16 +10340,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!wrapper.matches(':focus-within')) wrapper.classList.remove('editing');
                 }, 200);
             });
-            
+
             const btnPlus = document.getElementById('project-title-plus');
             const btnMinus = document.getElementById('project-title-minus');
             const colorPicker = document.getElementById('project-title-color');
-            
+
             const updateTitleStyle = () => {
                 const currentFontSize = parseInt(getComputedStyle(projInput).fontSize) || 24;
                 const newColor = colorPicker.value;
                 projInput.style.color = newColor;
-                
+
                 const tempSpan = document.createElement('span');
                 tempSpan.style.font = getComputedStyle(projInput).font;
                 tempSpan.style.fontSize = currentFontSize + 'px';
@@ -7893,7 +10357,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.appendChild(tempSpan);
                 projInput.style.width = (tempSpan.offsetWidth + 20) + 'px';
                 document.body.removeChild(tempSpan);
-                
+
                 if (!window.appState) window.appState = {};
                 window.appState.projectTitleStyle = {
                     fontSize: currentFontSize,
@@ -7931,7 +10395,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
                 }, 500);
-                
+
                 colorPicker.addEventListener('input', () => {
                     updateTitleStyle();
                 });
@@ -7966,6 +10430,10 @@ function renderExplorerLists() {
 let isCompletingInline = false;
 let draggedItemId = null;
 
+const TREE_ICON_FOLDER = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+const TREE_ICON_TABLEAU = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+const TREE_ICON_INTERFACE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+
 function buildTree(items, parentId) {
     const ul = document.createElement('div');
     ul.className = parentId ? 'folder-children' : 'tree-root';
@@ -7976,7 +10444,7 @@ function buildTree(items, parentId) {
         const li = document.createElement('div');
         li.className = 'tree-item inline-create';
         li.innerHTML = `
-            <span class="icon">${inlineCreationState.type === 'folder' ? '📁' : (currentExplorerTab === 'tableaux' ? '📄' : '🖼️')}</span>
+            <span class="icon">${inlineCreationState.type === 'folder' ? TREE_ICON_FOLDER : (currentExplorerTab === 'tableaux' ? TREE_ICON_TABLEAU : TREE_ICON_INTERFACE)}</span>
             <input type="text" id="inline-create-input" placeholder="Nom..." style="width:100%; border:none; outline:none; background:transparent; font-size:13px; color:inherit; padding-left: 8px;">
         `;
         ul.appendChild(li);
@@ -8048,7 +10516,7 @@ function buildTree(items, parentId) {
                 <div class="folder-toggle">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </div>
-                <span class="icon">📁</span> <span class="label" style="font-weight:600;">${item.name}</span>
+                <span class="icon">${TREE_ICON_FOLDER}</span> <span class="label" style="font-weight:600;">${item.name}</span>
             `;
             treeItem.onclick = (e) => {
                 if (e.target.closest('.folder-toggle')) {
@@ -8059,24 +10527,81 @@ function buildTree(items, parentId) {
                 }
             };
         } else {
-            const icon = currentExplorerTab === 'tableaux' ? '📄' : '🖼️';
-            treeItem.innerHTML = `<span class="icon" style="margin-left: 20px;">${icon}</span> <span class="label">${item.name}</span>`;
+            const icon = currentExplorerTab === 'tableaux' ? TREE_ICON_TABLEAU : TREE_ICON_INTERFACE;
+            const isRenaming = renamingItemId === item.id;
+            const labelHTML = isRenaming
+                ? `<input type="text" id="rename-input-${item.id}" class="rename-input" value="${item.name}" />`
+                : `<span class="label">${item.name}</span>`;
 
-            treeItem.onclick = () => {
-                selectedFolderId = null;
-                if (currentExplorerTab === 'tableaux') {
-                    selectedBoardId = item.id;
-                    loadBoard(item.id);
-                } else {
-                    selectedInterfaceId = item.id;
-                    loadInterface(item.id);
+            treeItem.innerHTML = `
+                <span class="icon" style="margin-left: 20px;">${icon}</span>
+                ${labelHTML}
+                <div class="tree-item-actions">
+                    <button class="tree-action-btn" title="Ouvrir" onclick="${currentExplorerTab === 'tableaux' ? `promptLoadBoard('${item.id}')` : `promptLoadInterface('${item.id}')`}; event.stopPropagation();" style="padding:4px 6px; font-size:12px;">⏎</button>
+                    <button class="tree-action-btn" title="Renommer" onclick="renameItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">✎</button>
+                    <button class="tree-action-btn danger" title="Supprimer" onclick="promptDeleteItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">🗑</button>
+                </div>
+            `;
+
+            // Drag and drop sur le canvas
+            if (currentExplorerTab === 'tableaux') {
+                treeItem.draggable = true;
+                treeItem.ondragstart = (e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'board', id: item.id }));
+                    draggedItemId = item.id;
+                };
+            }
+
+
+            let clickCount = 0;
+            let clickTimer = null;
+
+            treeItem.onclick = (e) => {
+                if (e.target.closest('.tree-action-btn')) return;
+
+                clickCount++;
+                if (clickCount === 1) {
+                    clickTimer = setTimeout(() => {
+                        // Simple clic : sélectionner seulement
+                        selectedFolderId = null;
+                        if (currentExplorerTab === 'tableaux') {
+                            selectedBoardId = item.id;
+                        } else {
+                            selectedInterfaceId = item.id;
+                        }
+                        renderExplorerLists();
+                        clickCount = 0;
+                    }, 300);
+                } else if (clickCount === 2) {
+                    // Double-clic : renommer
+                    clearTimeout(clickTimer);
+                    renameItem(item.id, currentExplorerTab);
+                    clickCount = 0;
                 }
-                renderExplorerLists();
             };
 
+            // Entrée pour charger le tableau sélectionné
+            treeItem.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !renamingItemId) {
+                    if (currentExplorerTab === 'tableaux') {
+                        promptLoadBoard(item.id);
+                    } else {
+                        promptLoadInterface(item.id);
+                    }
+                }
+            });
+
             let hoverTimer;
-            treeItem.onmouseenter = (e) => { hoverTimer = setTimeout(() => showTooltip(e, item), 400); };
-            treeItem.onmouseleave = () => { clearTimeout(hoverTimer); hideTooltip(); };
+            if (currentExplorerTab === 'tableaux') {
+                treeItem.onmouseenter = (e) => {
+                    hoverTimer = setTimeout(() => showTooltip(e, item), 1500);
+                };
+                treeItem.onmouseleave = () => {
+                    clearTimeout(hoverTimer);
+                    hideTooltip();
+                };
+            }
         }
 
         el.appendChild(treeItem);
@@ -8194,19 +10719,35 @@ function renderTrashList() {
         div.style.justifyContent = 'space-between';
         div.style.alignItems = 'center';
         div.style.padding = '4px 8px';
+        div.style.gap = '4px';
         const nameSpan = document.createElement('span');
         nameSpan.className = 'label';
-        nameSpan.innerText = (item.type === 'folder' ? '📁 ' : '📄 ') + item.name;
+        nameSpan.innerHTML = `<span class="icon">${item.type === 'folder' ? TREE_ICON_FOLDER : TREE_ICON_TABLEAU}</span> ${item.name}`;
+
+        const btnStyle = 'font-size: 10px; padding: 2px 6px; cursor: pointer; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--ink); transition: all 0.2s;';
+
         const restoreBtn = document.createElement('button');
         restoreBtn.innerText = 'Restaurer';
-        restoreBtn.style.fontSize = '10px';
-        restoreBtn.style.padding = '2px 6px';
-        restoreBtn.style.cursor = 'pointer';
-        restoreBtn.style.borderRadius = '4px';
-        restoreBtn.style.border = '1px solid var(--border)';
+        restoreBtn.style.cssText = btnStyle;
         restoreBtn.onclick = () => restoreFromTrash(item.id);
+
+        const restoreResetBtn = document.createElement('button');
+        restoreResetBtn.innerText = 'Réinit.';
+        restoreResetBtn.style.cssText = btnStyle + ' background: rgba(231, 76, 60, 0.1); color: #e74c3c; border-color: #e74c3c;';
+        restoreResetBtn.title = 'Restaurer et réinitialiser l\'interface';
+        restoreResetBtn.onclick = () => {
+            if (confirm('Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?')) {
+                restoreFromTrash(item.id);
+                setTimeout(() => {
+                    localStorage.clear();
+                    location.reload();
+                }, 500);
+            }
+        };
+
         div.appendChild(nameSpan);
         div.appendChild(restoreBtn);
+        div.appendChild(restoreResetBtn);
         trashListEl.appendChild(div);
     });
 }
@@ -8228,6 +10769,139 @@ function moveItemToFolder(itemId, targetFolderId) {
         saveExplorerList();
         renderExplorerLists();
     }
+}
+
+let renamingItemId = null;
+
+function promptLoadBoard(boardId) {
+    // Check if canvas has content (not just unsavedChanges flag)
+    const canvasHasContent = points.length > 0 || segments.length > 0 || circles.length > 0 ||
+                             rectangles.length > 0 || texts.length > 0 || freehands.length > 0 ||
+                             curves.length > 0 || polygons.length > 0 || images.length > 0 ||
+                             arcs.length > 0 || htmlPostits.length > 0;
+
+    // Demander de sauvegarder s'il y a des modifications
+    if (canvasHasContent && hasUnsavedChanges) {
+        openConfirmModal(
+            "Enregistrer le tableau courant ?",
+            "Vous avez des modifications non sauvegardées.",
+            false,
+            () => { saveState(); loadBoard(boardId); },
+            () => { loadBoard(boardId); }
+        );
+    } else {
+        loadBoard(boardId);
+    }
+}
+
+function promptLoadInterface(interfaceId) {
+    const canvasHasContent = points.length > 0 || segments.length > 0 || circles.length > 0 ||
+                             rectangles.length > 0 || texts.length > 0 || freehands.length > 0 ||
+                             curves.length > 0 || polygons.length > 0 || images.length > 0 ||
+                             arcs.length > 0 || htmlPostits.length > 0;
+
+    if (canvasHasContent && hasUnsavedChanges) {
+        openConfirmModal(
+            "Enregistrer le tableau courant ?",
+            "Vous avez des modifications non sauvegardées.",
+            false,
+            () => { saveState(); loadInterface(interfaceId); },
+            () => { loadInterface(interfaceId); }
+        );
+    } else {
+        loadInterface(interfaceId);
+    }
+}
+
+function promptDeleteItem(itemId, tab) {
+    const list = tab === 'tableaux' ? savedTableaux : savedInterfaces;
+    const item = list.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Custom modal pour suppression avec option restauration
+    const modal = document.getElementById('confirm-modal');
+    document.getElementById('confirm-title').innerText = `Supprimer "${item.name}" ?`;
+    document.getElementById('confirm-text').innerText = "Cet élément sera déplacé à la corbeille.";
+
+    const btnContainer = modal.querySelector('div[style*="display: flex; gap"]');
+    btnContainer.innerHTML = '';
+
+    // Bouton Annuler
+    const btnCancel = document.createElement('button');
+    btnCancel.className = 'btn-action secondary';
+    btnCancel.textContent = 'Annuler';
+    btnCancel.style.flex = '1';
+    btnCancel.onclick = () => modal.style.display = 'none';
+    btnContainer.appendChild(btnCancel);
+
+    // Bouton Supprimer
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn-action danger';
+    btnDelete.textContent = 'Supprimer';
+    btnDelete.style.flex = '1';
+    btnDelete.onclick = () => { moveToTrash(itemId); modal.style.display = 'none'; };
+    btnContainer.appendChild(btnDelete);
+
+    // Bouton Restaurer interface
+    const btnRestore = document.createElement('button');
+    btnRestore.className = 'btn-action primary';
+    btnRestore.textContent = 'Restaurer interface';
+    btnRestore.style.flex = '1';
+    btnRestore.onclick = () => {
+        moveToTrash(itemId);
+        if (confirm('Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?')) {
+            localStorage.clear();
+            location.reload();
+        }
+        modal.style.display = 'none';
+    };
+    btnContainer.appendChild(btnRestore);
+
+    modal.style.display = 'flex';
+}
+
+function renameItem(itemId, tab) {
+    const list = tab === 'tableaux' ? savedTableaux : savedInterfaces;
+    const item = list.find(i => i.id === itemId);
+    if (!item) return;
+
+    renamingItemId = itemId;
+    renderExplorerLists();
+
+    setTimeout(() => {
+        const input = document.getElementById(`rename-input-${itemId}`);
+        if (input) {
+            input.focus();
+            input.select();
+            input.addEventListener('blur', () => finishRename(itemId, tab));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') finishRename(itemId, tab);
+                else if (e.key === 'Escape') cancelRename();
+            });
+        }
+    }, 10);
+}
+
+function finishRename(itemId, tab) {
+    const input = document.getElementById(`rename-input-${itemId}`);
+    if (!input) return;
+
+    const newName = input.value.trim();
+    const list = tab === 'tableaux' ? savedTableaux : savedInterfaces;
+    const item = list.find(i => i.id === itemId);
+
+    if (newName && item) {
+        item.name = newName;
+        saveExplorerList();
+    }
+
+    renamingItemId = null;
+    renderExplorerLists();
+}
+
+function cancelRename() {
+    renamingItemId = null;
+    renderExplorerLists();
 }
 
 function saveExplorerList() {
@@ -8285,7 +10959,8 @@ const handleSaveClick = () => {
     }
 };
 
-document.getElementById('btn-save').addEventListener('click', handleSaveClick);
+const btnSave = document.getElementById('btn-save');
+if (btnSave) btnSave.addEventListener('click', handleSaveClick);
 
 const btnExplorerSave = document.getElementById('btn-explorer-save');
 if (btnExplorerSave) btnExplorerSave.addEventListener('click', handleSaveClick);
@@ -8352,6 +11027,7 @@ function _doSaveBoard(name, id) {
 }
 
 function loadBoard(id) {
+    hideTooltip();
     localforage.getItem('data_' + id).then(data => {
         if (data) {
             restoreState(data);
@@ -8433,6 +11109,7 @@ function _doSaveInterface(name, id) {
 }
 
 function loadInterface(id) {
+    hideTooltip();
     const intf = savedInterfaces.find(i => i.id === id);
     if (intf && intf.data) {
         if (intf.data.favorites) localStorage.setItem('board_favorites', JSON.stringify(intf.data.favorites));
@@ -8496,7 +11173,8 @@ function renderCalendar() {
         const dStr = new Date(currentCalYear, currentCalMonth, day).toLocaleDateString();
 
         // Vérifier les sauvegardes pour cette date
-        const savesForDay = savedTableaux.filter(t => t.date === dStr).concat(savedInterfaces.filter(i => i.date === dStr));
+        const savesForDay = savedTableaux.filter(t => t.date === dStr).map(t => ({ ...t, _kind: 'tableau' }))
+            .concat(savedInterfaces.filter(i => i.date === dStr).map(i => ({ ...i, _kind: 'interface' })));
         if (savesForDay.length > 0) {
             el.classList.add('has-save');
         }
@@ -8530,12 +11208,12 @@ function showCalendarResults(dateStr, saves) {
         d.style.justifyContent = 'space-between';
         d.style.alignItems = 'center';
 
-        const typeIcon = s.id.startsWith('tb_') ? '📄' : '🖼️';
-        const typeStr = s.id.startsWith('tb_') ? 'Tableau' : 'Interface';
+        const typeIcon = s._kind === 'tableau' ? TREE_ICON_TABLEAU : TREE_ICON_INTERFACE;
+        const typeStr = s._kind === 'tableau' ? 'Tableau' : 'Interface';
 
         d.innerHTML = `
             <div>
-                <div style="font-weight:600; font-size:14px;">${typeIcon} ${s.name}</div>
+                <div style="font-weight:600; font-size:14px; display:flex; align-items:center; gap:6px;"><span class="icon">${typeIcon}</span> ${s.name}</div>
                 <div style="font-size:11px; color:var(--muted);">${typeStr} - ${s.time}</div>
             </div>
             <button class="btn-action secondary" style="padding:4px 12px; font-size:12px;">Ouvrir</button>
@@ -8543,7 +11221,7 @@ function showCalendarResults(dateStr, saves) {
 
         d.querySelector('button').onclick = () => {
             closeCalendarModal();
-            if (s.id.startsWith('tb_')) {
+            if (s._kind === 'tableau') {
                 switchDrawerTab('tableaux');
                 selectedBoardId = s.id;
                 loadBoard(s.id);
@@ -8629,28 +11307,904 @@ function createNewFolder() {
     renderExplorerLists();
 }
 
-async function exportWorkspace() {
+async function getWorkspaceData() {
+    const tableaux = await localforage.getItem('auTableau_tableaux_list') || [];
+    const autoSave = await localforage.getItem('AuTableau_AutoSave') || null;
+
+    const interfaces = JSON.parse(localStorage.getItem('auTableau_interfaces_list') || '[]');
+    const toolbars = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]');
+    const favorites = JSON.parse(localStorage.getItem('board_favorites') || '[]');
+
+    // Le contenu réel de chaque tableau est stocké séparément (clé 'data_<id>'),
+    // la liste ci-dessus ne contient que les métadonnées (nom, aperçu...).
+    const boardsData = {};
+    for (const t of tableaux) {
+        if (t.type === 'folder') continue;
+        const content = await localforage.getItem('data_' + t.id);
+        if (content) boardsData[t.id] = content;
+    }
+
+    return {
+        version: "1.0",
+        timestamp: Date.now(),
+        tableaux: tableaux,
+        boardsData: boardsData,
+        autoSave: autoSave,
+        interfaces: interfaces,
+        toolbars: toolbars,
+        favorites: favorites
+    };
+}
+
+// === EXPORT CE TABLEAU ===
+const btnExportCurrentBoard = document.getElementById('btn-export-current-board');
+if (btnExportCurrentBoard) {
+    btnExportCurrentBoard.addEventListener('click', promptExportCurrentBoard);
+}
+
+function hasMedias(boardData) {
+    // Vérifier s'il y a des images
+    if (boardData && boardData.pages) {
+        return boardData.pages.some(p => p.images && p.images.length > 0);
+    }
+    return false;
+}
+
+function showExportOptionsModal(board) {
+    debugLog("🎨 INFO", "showExportOptionsModal() appelée");
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
+    debugLog("📦 INFO", "Modal créée");
+
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 25px; max-width: 500px; box-shadow: var(--shadow-hover);';
+    debugLog("📦 INFO", "Box créée");
+
+    // Comptage rapide (sans deep copy)
+    debugLog("🔢 INFO", "Comptage des médias...");
+    const pagesTotalCount = board.data.pages.length;
+    const filesList = [];
+    let pdfCount = 0, imageCount = 0;
+
+    const t0 = performance.now();
+    board.data.pages.forEach((p, pidx) => {
+        if (p.images && p.images.length > 0) {
+            p.images.forEach((img, iidx) => {
+                // ✅ Utiliser le nom original du fichier si disponible, sinon générer un nom
+                const fname = img.fileName || `Image ${iidx + 1}`;
+                if (!filesList.find(f => f.name === fname)) {
+                    filesList.push({ name: fname, type: 'image', id: `img_${pidx}_${iidx}` });
+                }
+                imageCount++;
+            });
+        }
+        if (p.pdfMetadata) {
+            const pdfName = `PDF Page ${pidx + 1}`;
+            if (!filesList.find(f => f.name === pdfName)) {
+                filesList.push({ name: pdfName, type: 'pdf', id: `pdf_${pidx}` });
+            }
+            pdfCount++;
+        }
+    });
+    const t1 = performance.now();
+    debugLog("✅ OK", `Comptage terminé en ${(t1 - t0).toFixed(2)}ms`, { pdfCount, imageCount, filesList: filesList.length, pagesTotalCount });
+
+    const state = {
+        includeMedias: true, // Images + PDFs convertis en images
+        includeHistory: false, // Désactivé par défaut (économise ~90%)
+        includePdfs: true, // ✅ PDFs comme images - activé par défaut (avec position/taille/transformations)
+        selectedFiles: new Set(filesList.map(f => f.id)),
+        selectedPages: new Set(Array.from({length: pagesTotalCount}, (_, i) => i))
+    };
+
+    // Build HTML avec options avancées complètes
+    let advancedHtml = '';
+
+    // Section Fichiers importés
+    if (filesList.length > 0) {
+        advancedHtml += `
+            <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+                <label style="display: block; font-size: 11px; font-weight: bold; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">Fichiers importés (${filesList.length})</label>
+                <div style="max-height: 120px; overflow-y: auto; background: var(--bg); border-radius: 4px; padding: 8px;">
+        `;
+        filesList.forEach(file => {
+            // Extraire extension et type
+            const ext = file.name.split('.').pop().toUpperCase() || file.type.toUpperCase();
+            const typeLabel = file.type === 'pdf' ? 'PDF' : 'IMAGE';
+            const icon = file.type === 'pdf' ? '📄' : '🖼️';
+
+            advancedHtml += `
+                <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
+                    <input type="checkbox" class="export-file-checkbox" data-id="${file.id}" checked style="cursor: pointer;">
+                    <span>${icon} ${file.name}</span>
+                    <span style="color: var(--muted); font-size: 11px;">(${ext})</span>
+                </label>
+            `;
+        });
+        advancedHtml += `</div></div>`;
+    }
+
+    // Section Options supplémentaires
+    advancedHtml += `
+        <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+            <label style="display: block; font-size: 11px; font-weight: bold; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">Options</label>
+            <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="export-pdfs-checkbox" checked style="cursor: pointer;">
+                <span>Inclure les PDFs (position/taille/rotation)</span>
+                <span style="color: var(--muted); font-size: 10px;">+${pdfCount > 0 ? Math.round((imageCount * 50) / 1024) : 0} MB</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
+                <input type="checkbox" id="export-history-checkbox" style="cursor: pointer;">
+                <span>Inclure l'historique (Undo/Redo)</span>
+                <span style="color: var(--muted); font-size: 10px;">+90% taille</span>
+            </label>
+        </div>
+    `;
+
+    // Section Pages
+    advancedHtml += `
+        <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+            <label style="display: block; font-size: 11px; font-weight: bold; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">Pages (${pagesTotalCount})</label>
+            <div style="max-height: 120px; overflow-y: auto; background: var(--bg); border-radius: 4px; padding: 8px;">
+    `;
+
+    if (pagesTotalCount <= 5) {
+        for (let i = 0; i < pagesTotalCount; i++) {
+            advancedHtml += `
+                <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
+                    <input type="checkbox" class="export-page-checkbox" data-page="${i}" checked style="cursor: pointer;">
+                    <span>Page ${i + 1}</span>
+                </label>
+            `;
+        }
+    } else {
+        advancedHtml += `
+            <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px; margin-bottom: 8px;">
+                <input type="radio" name="page-range" value="all" checked style="cursor: pointer;">
+                <span>Toutes les ${pagesTotalCount} pages</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
+                <input type="radio" name="page-range" value="specific" style="cursor: pointer;">
+                <span>Pages spécifiques</span>
+            </label>
+            <div id="page-range-input" style="display: none; padding: 8px; background: var(--accent-soft); border-radius: 4px; margin-top: 8px; font-size: 11px;">
+                <input type="text" id="pages-input" placeholder="Ex: 1,3,5-7" style="width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; box-sizing: border-box;">
+            </div>
+        `;
+    }
+
+    advancedHtml += `</div></div>`;
+
+    let summaryText = `${filesList.length} fichier${filesList.length !== 1 ? 's' : ''} — Toutes pages`;
+
+    // Estimation rapide (affichée immédiatement)
+    const estimateSizes = () => {
+        try {
+            let est = 0;
+            board.data.pages.forEach(p => {
+                est += (p.points?.length || 0) * 100;
+                est += (p.segments?.length || 0) * 150;
+                est += (p.images?.length || 0) * 50000; // Images en base64 sont volumineuses
+                est += (p.texts?.length || 0) * 200;
+            });
+            return Math.max(5000, est);
+        } catch {
+            return 50000;
+        }
+    };
+
+    let sizeLight = estimateSizes();
+    let sizeComplete = sizeLight + (board.data.pages.reduce((sum, p) => sum + (p.images?.length || 0), 0) * 50000);
+
+    // Mettre à jour avec la vraie taille EN ARRIÈRE-PLAN
+    const calculateRealSizes = () => {
+        try {
+            // Créer les objets exactement comme ils seront exportés
+            const dataLéger = {
+                id: board.id,
+                name: board.name,
+                data: {
+                    pages: board.data.pages.map(p => ({
+                        points: p.points || [],
+                        segments: p.segments || [],
+                        circles: p.circles || [],
+                        rectangles: p.rectangles || [],
+                        texts: p.texts || [],
+                        freehands: p.freehands || [],
+                        curves: p.curves || [],
+                        polygons: p.polygons || [],
+                        arcs: p.arcs || [],
+                        htmlPostits: p.htmlPostits || [],
+                        history: p.history || [],
+                        historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+                        panX: p.panX || 0,
+                        panY: p.panY || 0,
+                        zoom: p.zoom || 1,
+                        pdfMetadata: p.pdfMetadata,
+                        images: []
+                    })),
+                    nextId: board.data.nextId,
+                    globalZ: board.data.globalZ,
+                    currentBgIndex: board.data.currentBgIndex
+                }
+            };
+
+            const dataComplet = {
+                id: board.id,
+                name: board.name,
+                data: {
+                    pages: board.data.pages.map(p => ({
+                        points: p.points || [],
+                        segments: p.segments || [],
+                        circles: p.circles || [],
+                        rectangles: p.rectangles || [],
+                        texts: p.texts || [],
+                        freehands: p.freehands || [],
+                        curves: p.curves || [],
+                        polygons: p.polygons || [],
+                        arcs: p.arcs || [],
+                        htmlPostits: p.htmlPostits || [],
+                        history: p.history || [],
+                        historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+                        panX: p.panX || 0,
+                        panY: p.panY || 0,
+                        zoom: p.zoom || 1,
+                        pdfMetadata: p.pdfMetadata,
+                        images: p.images || []
+                    })),
+                    nextId: board.data.nextId,
+                    globalZ: board.data.globalZ,
+                    currentBgIndex: board.data.currentBgIndex
+                }
+            };
+
+            // Mesurer les vraies tailles
+            const realSizeLéger = new Blob([JSON.stringify(dataLéger)], { type: "application/json" }).size;
+            const realSizeComplet = new Blob([JSON.stringify(dataComplet)], { type: "application/json" }).size;
+
+            return { realSizeLéger, realSizeComplet };
+        } catch (e) {
+            debugLog("⚠️ WARN", "Erreur calcul taille réelle", e);
+            return null;
+        }
+    };
+
+    // Lancer le calcul en arrière-plan et mettre à jour l'affichage
+    if (requestIdleCallback) {
+        requestIdleCallback(() => {
+            const real = calculateRealSizes();
+            if (real) {
+                sizeLight = real.realSizeLéger;
+                sizeComplete = real.realSizeComplet;
+                const lightBtn = document.getElementById('export-light-btn');
+                const fullBtn = document.getElementById('export-full-btn');
+                if (lightBtn) lightBtn.innerHTML = `📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>`;
+                if (fullBtn) fullBtn.innerHTML = `📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>`;
+                debugLog("✅ OK", "Tailles mises à jour", { Léger: `${formatSize(sizeLight / 1024 / 1024)}`, Complet: `${formatSize(sizeComplete / 1024 / 1024)}` });
+            }
+        });
+    } else {
+        setTimeout(() => {
+            const real = calculateRealSizes();
+            if (real) {
+                sizeLight = real.realSizeLéger;
+                sizeComplete = real.realSizeComplet;
+                const lightBtn = document.getElementById('export-light-btn');
+                const fullBtn = document.getElementById('export-full-btn');
+                if (lightBtn) lightBtn.innerHTML = `📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>`;
+                if (fullBtn) fullBtn.innerHTML = `📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>`;
+            }
+        }, 100);
+    }
+
+    let summaryTextSizes = `${filesList.length} fichier${filesList.length !== 1 ? 's' : ''} — Toutes pages`;
+
+    box.innerHTML = `
+        <h3 style="margin-top: 0; color: var(--accent); margin-bottom: 10px;">Exporter "${board.name}"</h3>
+
+        <div style="margin-bottom: 20px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="export-light-btn" class="btn-action secondary" style="flex: 1; padding: 12px; font-size: 13px; font-weight: bold;">
+                    📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>
+                </button>
+                <button id="export-full-btn" class="btn-action primary" style="flex: 1; padding: 12px; font-size: 13px; font-weight: bold;">
+                    📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>
+                </button>
+            </div>
+
+            <div id="options-panel" style="border: 1px solid var(--border); border-radius: 6px; background: var(--bg-hover);">
+                <button id="options-toggle" style="width: 100%; padding: 12px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: bold; color: var(--muted); text-transform: uppercase;">
+                    <span>▼ Options avancées</span>
+                    <span id="options-summary" style="font-size: 11px; font-weight: normal; color: var(--ink);">${summaryText}</span>
+                </button>
+                <div id="options-content" style="padding: 0 12px 12px 12px; display: none; border-top: 1px solid var(--border);">
+                    ${advancedHtml}
+                </div>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <button id="export-cancel-btn" class="btn-action secondary" style="flex: 1; padding: 10px;">Annuler</button>
+            <button id="export-next-btn" class="btn-action primary" style="flex: 1; padding: 10px;">Suivant →</button>
+        </div>
+    `;
+
+    debugLog("📝 INFO", "Construction du HTML terminée");
+
+    // ⚠️ IMPORTANT: Ajouter box à modal AVANT d'ajouter au DOM
+    modal.appendChild(box);
+
+    debugLog("📍 INFO", "Ajout de la modal au DOM...");
+
+    const t2 = performance.now();
+    document.body.appendChild(modal);
+    const t3 = performance.now();
+
+    debugLog("✅ OK", `Modal ajoutée au DOM en ${(t3 - t2).toFixed(2)}ms`);
+
+    // Event listeners - accéder aux éléments APRÈS les avoir ajoutés au DOM
+    debugLog("🔗 INFO", "Configuration des event listeners...");
+
+    const toggleBtn = document.getElementById('options-toggle');
+    const content = document.getElementById('options-content');
+    let isOpen = false;
+
+    debugLog(`${toggleBtn ? '✅' : '❌'} INFO`, "Éléments trouvés", { toggleBtn: !!toggleBtn, content: !!content });
+
+    if (toggleBtn) {
+        debugLog("🎯 INFO", "Toggle button configuré");
+        toggleBtn.onclick = () => {
+            isOpen = !isOpen;
+            content.style.display = isOpen ? 'block' : 'none';
+            toggleBtn.querySelector('span').textContent = isOpen ? '▲ Options avancées' : '▼ Options avancées';
+        };
+    }
+
+    // PDFs checkbox
+    const pdfsCheckbox = document.getElementById('export-pdfs-checkbox');
+    if (pdfsCheckbox) {
+        pdfsCheckbox.onchange = () => {
+            state.includePdfs = pdfsCheckbox.checked;
+            updateOptionsSummary();
+        };
+    }
+
+    // Historique checkbox
+    const historyCheckbox = document.getElementById('export-history-checkbox');
+    if (historyCheckbox) {
+        historyCheckbox.onchange = () => {
+            state.includeHistory = historyCheckbox.checked;
+            updateOptionsSummary();
+        };
+    }
+
+    // Fichiers checkboxes
+    document.querySelectorAll('.export-file-checkbox').forEach(cb => {
+        cb.onchange = () => {
+            if (cb.checked) {
+                state.selectedFiles.add(cb.dataset.id);
+            } else {
+                state.selectedFiles.delete(cb.dataset.id);
+            }
+            updateOptionsSummary();
+        };
+    });
+
+    // Pages checkboxes
+    document.querySelectorAll('.export-page-checkbox').forEach(cb => {
+        cb.onchange = () => {
+            if (cb.checked) {
+                state.selectedPages.add(parseInt(cb.dataset.page));
+            } else {
+                state.selectedPages.delete(parseInt(cb.dataset.page));
+            }
+            updateOptionsSummary();
+        };
+    });
+
+    // Radio pour pages
+    document.querySelectorAll('input[name="page-range"]').forEach(radio => {
+        radio.onchange = () => {
+            const rangeInput = document.getElementById('page-range-input');
+            if (radio.value === 'specific') {
+                rangeInput.style.display = 'block';
+            } else {
+                rangeInput.style.display = 'none';
+                state.selectedPages = new Set(Array.from({length: pagesTotalCount}, (_, i) => i));
+            }
+            updateOptionsSummary();
+        };
+    });
+
+    function updateOptionsSummary() {
+        const filesCount = state.selectedFiles.size;
+        const pagesCount = state.selectedPages.size;
+        let summary = filesCount === filesList.length ? 'Tous fichiers' : `${filesCount} fichier${filesCount > 1 ? 's' : ''}`;
+        summary += ` — ${pagesCount === pagesTotalCount ? 'Toutes pages' : `${pagesCount} page${pagesCount > 1 ? 's' : ''}`}`;
+        const el = document.getElementById('options-summary');
+        if (el) el.textContent = summary;
+    }
+
+    debugLog("🔘 INFO", "Configuration des boutons...");
+
+    const lightBtn = document.getElementById('export-light-btn');
+    const fullBtn = document.getElementById('export-full-btn');
+    const cancelBtn = document.getElementById('export-cancel-btn');
+    const nextBtn = document.getElementById('export-next-btn');
+
+    debugLog(`${lightBtn && fullBtn && cancelBtn && nextBtn ? '✅' : '❌'} INFO`, "Boutons trouvés", {
+        lightBtn: !!lightBtn,
+        fullBtn: !!fullBtn,
+        cancelBtn: !!cancelBtn,
+        nextBtn: !!nextBtn
+    });
+
+    if (lightBtn) lightBtn.onclick = () => { debugLog("💾 INFO", "Léger cliqué"); state.includeMedias = false; proceedToNaming(); };
+    if (fullBtn) fullBtn.onclick = () => { debugLog("💾 INFO", "Complet cliqué"); state.includeMedias = true; proceedToNaming(); };
+    if (cancelBtn) cancelBtn.onclick = () => { debugLog("❌ INFO", "Annuler cliqué"); document.body.removeChild(modal); };
+    if (nextBtn) nextBtn.onclick = proceedToNaming;
+
+    debugLog("✅ SUCCESS", "showExportOptionsModal() configurée complètement !");
+
+    function proceedToNaming() {
+        debugLog("➡️ INFO", "proceedToNaming() appelée", { includeMedias: state.includeMedias, includeHistory: state.includeHistory, selectedPages: state.selectedPages.size });
+
+        document.body.removeChild(modal);
+        debugLog("📍 INFO", "Modal fermée");
+
+        // Créer le board filtré SANS deep copy (pour éviter de bloquer le navigateur)
+        debugLog("📋 INFO", "Filtrage des pages...", { pagesSelected: state.selectedPages.size });
+        const pagesArr = Array.from(state.selectedPages).sort((a, b) => a - b);
+
+        // Créer un board simplifié avec juste les pages sélectionnées
+        debugLog("🔧 INFO", "Création du board filtré");
+        const filteredBoard = {
+            id: board.id,
+            name: board.name,
+            data: {
+                pages: pagesArr.map(i => board.data.pages[i]),
+                nextId: board.data.nextId,
+                globalZ: board.data.globalZ,
+                currentBgIndex: board.data.currentBgIndex
+            }
+        };
+        debugLog("✅ OK", "Board filtré créé", { pagesCount: filteredBoard.data.pages.length });
+
+        // Stocker les options pour l'export
+        window._exportOptions = { includeHistory: state.includeHistory, includePdfs: state.includePdfs };
+
+        debugLog("📤 INFO", "Appel de exportCurrentBoard()");
+        exportCurrentBoard(state.includeMedias, filteredBoard);
+    }
+}
+
+function promptExportCurrentBoard() {
+    debugLog("📤 START", "promptExportCurrentBoard() appelé", { selectedBoardId, currentBoardName });
+
+    // Récupérer le tableau courant
+    let board = null;
+
+    if (selectedBoardId) {
+        board = savedTableaux.find(t => t.id === selectedBoardId);
+        debugLog("📋 INFO", "Board trouvé dans savedTableaux", { id: board?.id, name: board?.name });
+    }
+
+    if (!board) {
+        const boardName = (currentBoardName && currentBoardName.trim()) ? currentBoardName : "Tableau sans titre";
+        debugLog("📝 INFO", "Création d'un board temporaire", { boardName, pagesCount: pages.length });
+
+        board = {
+            id: 'current_export_' + Date.now(),
+            name: boardName,
+            data: { pages: pages.map((p, idx) => ({
+                points: p.points || [],
+                segments: p.segments || [],
+                circles: p.circles || [],
+                rectangles: p.rectangles || [],
+                texts: p.texts || [],
+                freehands: p.freehands || [],
+                curves: p.curves || [],
+                polygons: p.polygons || [],
+                images: p.images || [],
+                arcs: p.arcs || [],
+                htmlPostits: p.htmlPostits || [],
+                history: p.history || [],
+                historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
+                panX: p.panX || 0,
+                panY: p.panY || 0,
+                zoom: p.zoom || 1,
+                pdfMetadata: p.pdfMetadata
+            })), nextId, globalZ, currentBgIndex }
+        };
+    }
+
+    if (!board) {
+        debugLog("❌ ERROR", "Aucun board disponible");
+        showToast("❌ Aucun tableau à exporter");
+        return;
+    }
+
+    debugLog("✅ INFO", "Board créé/trouvé", { id: board.id, name: board.name, pagesCount: board.data.pages.length });
+
+    // Vérifier s'il y a des médias
+    debugLog("🔍 INFO", "Vérification des médias...");
+    const hasMedia = hasMedias(board.data);
+    debugLog(`${hasMedia ? '📸' : '📄'} INFO`, `Médias détectés: ${hasMedia}`);
+
+    if (!hasMedia) {
+        debugLog("🚀 INFO", "Pas de médias, aller direct au nommage");
+        // Pas de médias → aller directement au nommage
+        showExportNameModal(board.name, '.prof', (finalName) => {
+            debugLog("📝 INFO", "Nom choisi", { finalName });
+            doExportCurrentBoard(true, board, finalName);
+        });
+        return;
+    }
+
+    // Avec médias → afficher panneau d'options
+    debugLog("⚙️ INFO", "Affichage du panneau d'options");
+    showExportOptionsModal(board);
+}
+
+function generateNameProposals(baseName) {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const h = String(today.getHours()).padStart(2, '0');
+    const min = String(today.getMinutes()).padStart(2, '0');
+
+    const monthFr = today.toLocaleDateString('fr-FR', { month: 'long' });
+    const monthShort = monthFr.substring(0, 3);
+
+    return [
+        `${y}/${m}/${d} - ${baseName}`,
+        `${y}/${m}/${d} ${h}:${min} - ${baseName}`,
+        `${baseName} ${y}-${m}-${d}`,
+        `${baseName}`,
+        `${d} ${monthShort} ${y} - ${baseName}`,
+        `${baseName} (${d}.${m}.${y})`,
+        `${y}-${m}-${d}_${h}-${min} - ${baseName}`,
+        `Tableau ${y}${m}${d}`
+    ];
+}
+
+function showExportNameModal(baseName, extension, onConfirm) {
+    const proposals = generateNameProposals(baseName);
+    let selectedName = proposals[0];
+
+    // Créer modale
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
+
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 25px; max-width: 650px; box-shadow: var(--shadow-hover);';
+
+    // Propositions sur 2 colonnes
+    let proposalsHtml = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px;">';
+    proposals.forEach((p, idx) => {
+        proposalsHtml += `
+            <button class="proposal-btn ${idx === 0 ? 'active' : ''}" data-name="${p}"
+                style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: pointer; transition: all 0.2s; font-size: 12px; text-align: left; font-family: monospace; word-break: break-word;">
+                ${p}
+            </button>
+        `;
+    });
+    proposalsHtml += '</div>';
+
+    box.innerHTML = `
+        <h3 style="margin-top: 0; color: var(--accent); margin-bottom: 15px;">Nommer l'export</h3>
+
+        <label style="display: block; font-size: 12px; font-weight: bold; color: var(--muted); margin-bottom: 10px; text-transform: uppercase;">Propositions rapides</label>
+        ${proposalsHtml}
+
+        <label style="display: block; font-size: 12px; font-weight: bold; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; margin-top: 15px;">Ou personnaliser</label>
+        <input type="text" id="export-name-input" value="${selectedName}" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 14px; box-sizing: border-box; margin-bottom: 15px; font-family: monospace;">
+
+        <div style="padding: 12px; background: var(--accent-soft); border-radius: 6px; margin-bottom: 20px; font-size: 12px; word-break: break-all;">
+            <strong>Fichier :</strong> <span id="export-name-preview" style="font-family: monospace;">${selectedName}</span>${extension}
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <button id="export-cancel" class="btn-action secondary" style="flex: 1; padding: 10px;">Annuler</button>
+            <button id="export-confirm" class="btn-action primary" style="flex: 1; padding: 10px;">Exporter</button>
+        </div>
+    `;
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    const input = document.getElementById('export-name-input');
+    const preview = document.getElementById('export-name-preview');
+    const proposalBtns = box.querySelectorAll('.proposal-btn');
+    const btnCancel = document.getElementById('export-cancel');
+    const btnConfirm = document.getElementById('export-confirm');
+
+    // Maj aperçu
+    const updatePreview = () => {
+        const name = input.value.trim() || proposals[0].label;
+        preview.textContent = name;
+        selectedName = name;
+    };
+
+    // Clic propositions
+    proposalBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            proposalBtns.forEach(b => {
+                b.style.borderColor = 'var(--border)';
+                b.style.backgroundColor = 'var(--bg)';
+            });
+            btn.style.borderColor = 'var(--accent)';
+            btn.style.backgroundColor = 'var(--accent-soft)';
+            input.value = btn.dataset.name;
+            updatePreview();
+        });
+    });
+
+    // Input personnalisé
+    input.addEventListener('input', updatePreview);
+
+    btnCancel.onclick = () => {
+        document.body.removeChild(modal);
+    };
+
+    btnConfirm.onclick = () => {
+        document.body.removeChild(modal);
+        onConfirm(selectedName);
+    };
+
+    input.focus();
+}
+
+function promptExportName(includeMedias, boardObj) {
+    showExportNameModal(boardObj.name, '.prof', (finalName) => {
+        doExportCurrentBoard(includeMedias, boardObj, finalName);
+    });
+}
+
+// Logger avec timestamp
+function debugLog(level, msg, data = null) {
+    const time = new Date().toLocaleTimeString();
+    const prefix = `[${time}] ${level}`;
+    console.log(`%c${prefix} ${msg}`, `color: ${level.includes('❌') ? 'red' : level.includes('✅') ? 'green' : 'blue'}; font-weight: bold;`);
+    if (data) console.log(data);
+}
+
+async function doExportCurrentBoard(includeMedias, board, fileName) {
+    try {
+        debugLog("🚀 START", "Début export", { includeMedias, boardId: board.id, boardName: board.name });
+        showToast("⏳ Préparation de l'export...");
+
+        debugLog("📊 INFO", "Analyse du board", {
+            pagesCount: board.data.pages.length,
+            pagesContent: board.data.pages.map((p, i) => ({
+                page: i,
+                points: p.points?.length || 0,
+                images: p.images?.length || 0,
+                texts: p.texts?.length || 0,
+                pdfMetadata: p.pdfMetadata ? '✅' : '❌'
+            }))
+        });
+
+        // Construction du board à exporter
+        debugLog("🔧 INFO", "Construction de dataToExport...", { includeHistory: window._exportOptions?.includeHistory, includePdfs: window._exportOptions?.includePdfs });
+        const dataToExport = {
+            id: board.id,
+            name: board.name,
+            data: {
+                pages: board.data.pages.map(p => {
+                    // ✅ Filtrer les images du PDF si includePdfs est false
+                    let imagesToExport = includeMedias ? (p.images || []) : [];
+                    let pdfMetadataToExport = p.pdfMetadata;
+
+                    if (!window._exportOptions?.includePdfs && p.pdfMetadata) {
+                        // Exclure les images du PDF (isBg: true) mais garder les images importées directement
+                        imagesToExport = imagesToExport.filter(img => !img.isBg);
+                    } else if (window._exportOptions?.includePdfs && p.pdfMetadata) {
+                        // ✅ Si les images du PDF sont incluses, ne pas exporter les métadonnées (elles seraient inutiles)
+                        pdfMetadataToExport = null;
+                    }
+
+                    return {
+                        points: p.points || [],
+                        segments: p.segments || [],
+                        circles: p.circles || [],
+                        rectangles: p.rectangles || [],
+                        texts: p.texts || [],
+                        freehands: p.freehands || [],
+                        curves: p.curves || [],
+                        polygons: p.polygons || [],
+                        arcs: p.arcs || [],
+                        htmlPostits: p.htmlPostits || [],
+                        // ✅ Inclure l'historique seulement si l'option est activée
+                        history: window._exportOptions?.includeHistory ? (p.history || []) : [],
+                        historyIndex: window._exportOptions?.includeHistory ? (p.historyIndex !== undefined ? p.historyIndex : -1) : -1,
+                        panX: p.panX || 0,
+                        panY: p.panY || 0,
+                        zoom: p.zoom || 1,
+                        pdfMetadata: pdfMetadataToExport,
+                        images: imagesToExport
+                    };
+                }),
+                nextId: board.data.nextId,
+                globalZ: board.data.globalZ,
+                currentBgIndex: board.data.currentBgIndex
+            }
+        };
+
+        // ✅ Inclure les classes (élèves) stockées, utilisées par randomDrawTool etc.
+        if (typeof ClassesStore !== 'undefined') {
+            dataToExport.classes = await ClassesStore.loadAll();
+        }
+
+        debugLog("📦 INFO", "Objet prêt pour stringify");
+        showToast("⏳ Sérialisation...");
+
+        const t1 = performance.now();
+        debugLog("⏱️ INFO", "Début JSON.stringify()...");
+        const dataStr = JSON.stringify(dataToExport);
+        const t2 = performance.now();
+        debugLog("✅ OK", `Stringify terminé en ${(t2 - t1).toFixed(2)}ms`, { strLength: dataStr.length });
+
+        showToast("⏳ Téléchargement...");
+        debugLog("📝 INFO", "Création du Blob...");
+
+        const blob = new Blob([dataStr], { type: "application/json" });
+        const finalSize = blob.size;
+        debugLog("✅ OK", "Blob créé", { sizeBytes: finalSize, sizeMB: (finalSize / 1024 / 1024).toFixed(2) });
+
+        debugLog("🔗 INFO", "Création du lien de téléchargement...");
+        const url = URL.createObjectURL(blob);
+        debugLog("✅ OK", "ObjectURL créé");
+
+        debugLog("⬇️ INFO", "Déclenchement du téléchargement...");
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${fileName}.prof`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+            debugLog("🧹 INFO", "ObjectURL révoqué");
+        }, 100);
+
+        debugLog("✅ SUCCESS", "Export terminé avec succès !", { fileName, size: `${(finalSize / 1024 / 1024).toFixed(2)} MB` });
+        showToast(`✅ Exporté ! ${formatSize(finalSize / 1024 / 1024)}`);
+    } catch (err) {
+        debugLog("❌ ERROR", "Erreur dans l'export", { error: err.message, stack: err.stack });
+        showToast("❌ Erreur d'exportation");
+    }
+}
+
+function exportCurrentBoard(includeMedias = true, boardObj = null) {
+    debugLog("📥 INFO", "exportCurrentBoard() appelée", { includeMedias, hasBoardObj: !!boardObj });
+
+    let board = boardObj;
+
+    if (!board) {
+        debugLog("⚠️ INFO", "Pas de boardObj, chercher/créer un board");
+        if (selectedBoardId) {
+            board = savedTableaux.find(t => t.id === selectedBoardId);
+        } else if (currentBoardName) {
+            board = {
+                id: 'current_export_' + Date.now(),
+                name: currentBoardName,
+                data: { pages: [{ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom }], nextId, globalZ, currentBgIndex }
+            };
+        }
+    }
+
+    if (!board) return;
+
+    promptExportName(includeMedias, board);
+}
+
+function promptExportWorkspace() {
+    const modal = document.getElementById('workspace-options-modal');
+    const titleEl = document.getElementById('ws-options-title');
+    const textEl = document.getElementById('ws-options-text');
+
+    titleEl.innerText = "Exporter tous les tableaus";
+    titleEl.style.color = "#0984e3";
+
+    // Estimer les tailles
+    let totalSizeWithImages = 0;
+    let totalSizeWithoutImages = 0;
+
+    if (savedTableaux && savedTableaux.length > 0) {
+        savedTableaux.forEach(t => {
+            if (t.data) {
+                const dataWithImages = calculateObjectSize(t.data);
+                totalSizeWithImages += dataWithImages;
+
+                // Estimer sans images et PDFs
+                const dataCopy = JSON.parse(JSON.stringify(t.data));
+                if (dataCopy.pages) {
+                    dataCopy.pages.forEach(p => {
+                        if (p.images) p.images = [];
+                            });
+                }
+                totalSizeWithoutImages += calculateObjectSize(dataCopy);
+            }
+        });
+    }
+
+    textEl.innerHTML = `${showMediasWarning(totalSizeWithImages, totalSizeWithoutImages)}`;
+
+    // Recréer les boutons (effacer tous les anciens)
+    const modalBox = modal.querySelector('.modal-box');
+    const existingBtns = modalBox.querySelectorAll('div[style*="display: flex"]');
+    existingBtns.forEach(btn => {
+        if (btn !== textEl && btn.parentNode === modalBox) {
+            btn.remove();
+        }
+    });
+
+    const newBtnDiv = document.createElement('div');
+    newBtnDiv.style.cssText = 'display: flex; gap: 10px; margin-top: 20px;';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.className = 'btn-action secondary';
+    btnCancel.textContent = 'Annuler';
+    btnCancel.style.flex = '1';
+    btnCancel.onclick = () => { modal.style.display = 'none'; };
+    newBtnDiv.appendChild(btnCancel);
+
+    const btnLightweight = document.createElement('button');
+    btnLightweight.className = 'btn-action secondary';
+    btnLightweight.textContent = `Léger (${formatSize(totalSizeWithoutImages)})`;
+    btnLightweight.style.flex = '1';
+    btnLightweight.onclick = () => { modal.style.display = 'none'; exportWorkspace(true, false); };
+    newBtnDiv.appendChild(btnLightweight);
+
+    const btnComplete = document.createElement('button');
+    btnComplete.className = 'btn-action primary';
+    btnComplete.textContent = `Complet (${formatSize(totalSizeWithImages)})`;
+    btnComplete.style.flex = '1';
+    btnComplete.onclick = () => { modal.style.display = 'none'; exportWorkspace(true, true); };
+    newBtnDiv.appendChild(btnComplete);
+
+    modalBox.appendChild(newBtnDiv);
+    modal.style.display = 'flex';
+}
+
+async function exportWorkspace(includeInterface, includeMedias = true) {
     try {
         if (typeof showToast === 'function') showToast("⏳ Préparation de l'exportation...");
 
-        const tableaux = await localforage.getItem('auTableau_tableaux_list') || [];
-        const autoSave = await localforage.getItem('AuTableau_AutoSave') || null;
+        const workspaceData = await getWorkspaceData();
 
-        const interfaces = JSON.parse(localStorage.getItem('auTableau_interfaces_list') || '[]');
-        const toolbars = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]');
-        const favorites = JSON.parse(localStorage.getItem('board_favorites') || '[]');
+        // ✅ Inclure les classes (élèves) stockées, utilisées par randomDrawTool etc.
+        if (typeof ClassesStore !== 'undefined') {
+            workspaceData.classes = await ClassesStore.loadAll();
+        }
 
-        const workspaceData = {
-            version: "1.0",
-            timestamp: Date.now(),
-            tableaux: tableaux,
-            autoSave: autoSave,
-            interfaces: interfaces,
-            toolbars: toolbars,
-            favorites: favorites
-        };
+        if (!includeInterface) {
+            delete workspaceData.interfaces;
+            delete workspaceData.toolbars;
+            delete workspaceData.favorites;
+        }
+
+        // Si export léger, supprimer les images et PDFs
+        if (!includeMedias && workspaceData.tableaux) {
+            workspaceData.tableaux.forEach(t => {
+                if (t.data && t.data.pages) {
+                    t.data.pages.forEach(p => {
+                        if (p.images) p.images = [];
+                            });
+                }
+            });
+        }
 
         const dataStr = JSON.stringify(workspaceData);
+        const finalSize = calculateObjectSize(JSON.parse(dataStr));
         const blob = new Blob([dataStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
 
@@ -8665,10 +12219,82 @@ async function exportWorkspace() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        if (typeof showToast === 'function') showToast("✅ Espace exporté !");
+        if (typeof showToast === 'function') showToast(`✅ Espace exporté ! (${formatSize(finalSize)})`);
     } catch (err) {
         console.error("Erreur export :", err);
         if (typeof showToast === 'function') showToast("❌ Erreur d'exportation.");
+    }
+}
+
+function processWorkspaceData(data) {
+    if (Array.isArray(data)) {
+        console.log("Ancien format de sauvegarde détecté (tableau). Conversion en cours...");
+        data = {
+            version: "1.0",
+            tableaux: data,
+            autoSave: true
+        };
+    } else if (!data.version && !data.tableaux && !data.interfaces) {
+        console.error("Données reçues :", data);
+        throw new Error("Format invalide. Le fichier ne contient pas les données attendues.");
+    }
+
+    async function doImport(data, includeInterface) {
+        if (typeof showToast === 'function') showToast("⏳ Restauration...");
+
+        if (data.tableaux) await localforage.setItem('auTableau_tableaux_list', data.tableaux);
+        if (data.autoSave) await localforage.setItem('AuTableau_AutoSave', data.autoSave);
+
+        if (data.boardsData) {
+            for (const id in data.boardsData) {
+                await localforage.setItem('data_' + id, data.boardsData[id]);
+            }
+        }
+
+        if (includeInterface) {
+            if (data.interfaces) localStorage.setItem('auTableau_interfaces_list', JSON.stringify(data.interfaces));
+            if (data.toolbars) localStorage.setItem('board_floating_toolbars', JSON.stringify(data.toolbars));
+            if (data.favorites) localStorage.setItem('board_favorites', JSON.stringify(data.favorites));
+        }
+
+        // ✅ Réconcilier les classes (élèves) éventuellement incluses dans l'export
+        // (avant le reload, pour laisser le temps à l'utilisateur de résoudre les conflits éventuels)
+        if (data.classes && typeof ClassesStore !== 'undefined') {
+            if (typeof showToast === 'function') showToast("✅ Restauration réussie !");
+            await ClassesStore.reconcileImport(data.classes);
+            showToast("🔄 Rechargement...");
+            setTimeout(() => window.location.reload(), 800);
+            return;
+        }
+
+        if (typeof showToast === 'function') showToast("✅ Restauration réussie ! Rechargement...");
+        setTimeout(() => window.location.reload(), 1500);
+    }
+
+    if (data.interfaces || data.toolbars) {
+        const modal = document.getElementById('workspace-options-modal');
+        document.getElementById('ws-options-title').innerText = "Restaurer l'espace";
+        document.getElementById('ws-options-title').style.color = "#d63031";
+        document.getElementById('ws-options-text').innerText = "Ce fichier contient une interface (menus, favoris). Voulez-vous l'importer en plus de vos tableaux ? (Attention, cela remplacera vos données actuelles).";
+        document.getElementById('ws-options-yes-btn').innerText = "Importer avec l'interface";
+        document.getElementById('ws-options-no-btn').innerText = "Seulement les tableaux";
+        
+        modal.style.display = 'flex';
+        document.getElementById('ws-options-yes-btn').onclick = () => {
+            modal.style.display = 'none';
+            doImport(data, true);
+        };
+        document.getElementById('ws-options-no-btn').onclick = () => {
+            modal.style.display = 'none';
+            doImport(data, false);
+        };
+    } else {
+        openConfirmModal(
+            "Restaurer l'espace",
+            "L'importation va remplacer tous vos tableaux actuels. Continuer ?",
+            true,
+            () => doImport(data, false)
+        );
     }
 }
 
@@ -8679,30 +12305,1275 @@ function importWorkspace(file) {
     reader.onload = async (e) => {
         try {
             const data = JSON.parse(e.target.result);
-            if (!data.version || (!data.tableaux && !data.interfaces)) throw new Error("Format invalide.");
-
-            openConfirmModal(
-                "Restaurer l'espace",
-                "L'importation va remplacer tous les tableaux et interfaces actuels. Continuer ?",
-                true,
-                async () => {
-                    if (typeof showToast === 'function') showToast("⏳ Restauration...");
-
-                    if (data.tableaux) await localforage.setItem('auTableau_tableaux_list', data.tableaux);
-                    if (data.autoSave) await localforage.setItem('AuTableau_AutoSave', data.autoSave);
-
-                    if (data.interfaces) localStorage.setItem('auTableau_interfaces_list', JSON.stringify(data.interfaces));
-                    if (data.toolbars) localStorage.setItem('board_floating_toolbars', JSON.stringify(data.toolbars));
-                    if (data.favorites) localStorage.setItem('board_favorites', JSON.stringify(data.favorites));
-
-                    if (typeof showToast === 'function') showToast("✅ Restauration réussie ! Rechargement...");
-                    setTimeout(() => window.location.reload(), 1500);
-                }
-            );
+            processWorkspaceData(data);
         } catch (err) {
             console.error("Erreur import :", err);
             if (typeof showToast === 'function') showToast("❌ Fichier invalide.");
         }
     };
     reader.readAsText(file);
+}
+// ==============================================================
+// HTML DOM POST-ITS WIDGET
+// ==============================================================
+
+function renderHtmlPostits() {
+    const container = document.getElementById('html-postits-container');
+    if (!container) return;
+    
+    // On garde la trace des post-its rendus pour éviter de les recréer (on les met à jour)
+    const existing = Array.from(container.children);
+    const existingIds = existing.map(el => parseInt(el.dataset.id));
+    
+    // Supprimer ceux qui n'existent plus dans le state
+    existing.forEach(el => {
+        if (!htmlPostits.find(p => p.id === parseInt(el.dataset.id))) {
+            el.remove();
+        }
+    });
+
+    htmlPostits.forEach(p => {
+        let el = container.querySelector(`[data-id="${p.id}"]`);
+        
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'html-postit';
+            el.dataset.id = p.id;
+            
+            el.innerHTML = `
+                <div class="html-postit-header">
+                    <div class="html-postit-colors">
+                        <span class="postit-dot cycle-color"></span>
+                        <button class="btn-font-minus" style="margin-left: 6px;" title="Réduire la police">-</button>
+                        <button class="btn-font-cycle" title="Changer la police">A</button>
+                        <button class="btn-font-plus" title="Agrandir la police">+</button>
+                    </div>
+                    <div class="html-postit-actions">
+                        <button class="btn-min-postit" title="Minimiser"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
+                        <button class="btn-close-postit" title="Fermer"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                    </div>
+                </div>
+                <textarea class="html-postit-body"></textarea>
+            `;
+            el.style.backgroundColor = p.bg;
+            container.appendChild(el);
+            
+            const header = el.querySelector('.html-postit-header');
+            const body = el.querySelector('.html-postit-body');
+            
+            el.querySelector('.cycle-color').style.backgroundColor = p.bg;
+            body.style.backgroundColor = p.bg; // Force body color explicitly
+            body.style.fontSize = (p.fontSize || 20) + 'px';
+            body.style.fontFamily = p.fontFamily || 'Kalam';
+            
+            // Interaction: Colors
+            const retroColors = ['#fdfd96', '#ffb7b2', '#b5ead7', '#c7ceea', '#e2f0cb', '#e0c3fc', '#ffdac1', '#f0e6ef', '#a0e8af', '#ffffff'];
+            el.querySelector('.cycle-color').addEventListener('click', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    let idx = retroColors.indexOf(currentP.bg);
+                    idx = (idx + 1) % retroColors.length;
+                    currentP.bg = retroColors[idx];
+                    el.style.backgroundColor = currentP.bg;
+                    body.style.backgroundColor = currentP.bg; // Force body color explicitly
+                    el.querySelector('.cycle-color').style.backgroundColor = currentP.bg;
+                    saveState();
+                }
+            });
+            
+            // Interaction: Fonts
+            const retroFonts = ['Kalam', 'Caveat', 'Comic Sans MS', 'Arial', 'Courier New'];
+            el.querySelector('.btn-font-minus').addEventListener('click', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    currentP.fontSize = Math.max(10, (currentP.fontSize || 20) - 2);
+                    body.style.fontSize = currentP.fontSize + 'px';
+                    saveState();
+                }
+            });
+            el.querySelector('.btn-font-plus').addEventListener('click', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    currentP.fontSize = Math.min(72, (currentP.fontSize || 20) + 2);
+                    body.style.fontSize = currentP.fontSize + 'px';
+                    saveState();
+                }
+            });
+            el.querySelector('.btn-font-cycle').addEventListener('click', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    let idx = retroFonts.indexOf(currentP.fontFamily || 'Kalam');
+                    idx = (idx + 1) % retroFonts.length;
+                    currentP.fontFamily = retroFonts[idx];
+                    body.style.fontFamily = currentP.fontFamily;
+                    saveState();
+                }
+            });
+            
+            // Interaction: Minimize
+            el.querySelector('.btn-min-postit').addEventListener('click', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    currentP.minimized = !currentP.minimized;
+                    if (currentP.minimized) {
+                        el.classList.add('minimized');
+                    } else {
+                        el.classList.remove('minimized');
+                    }
+                    saveState();
+                }
+            });
+            
+            // Interaction: Close
+            el.querySelector('.btn-close-postit').addEventListener('click', () => {
+                htmlPostits = htmlPostits.filter(hp => hp.id !== p.id);
+                saveState();
+                renderHtmlPostits();
+            });
+            
+            // Interaction: Text content
+            body.value = p.content;
+            body.addEventListener('input', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) currentP.content = body.value;
+                // on ne saveState pas à chaque frappe sinon ça lag
+            });
+            body.addEventListener('change', () => {
+                const currentP = htmlPostits.find(hp => hp.id === p.id);
+                if (currentP) {
+                    currentP.content = body.value;
+                    saveState();
+                }
+            });
+            
+            // Resize observer pour sauvegarder la taille
+            let resizeTimeout = null;
+            new ResizeObserver(() => {
+                if (!p.minimized && el.offsetWidth > 0) {
+                    // Convert back to logical coords
+                    p.w = el.offsetWidth / zoom;
+                    p.h = el.offsetHeight / zoom;
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => saveState(), 300);
+                }
+            }).observe(el);
+            
+            // Interaction: Dragging
+            let isDragging = false;
+            let startX, startY;
+            header.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('.postit-dot, .btn-min-postit, .btn-close-postit, .btn-font-minus, .btn-font-cycle, .btn-font-plus')) return;
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                header.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+            header.addEventListener('pointermove', (e) => {
+                if (isDragging) {
+                    const dx = (e.clientX - startX) / zoom;
+                    const dy = (e.clientY - startY) / zoom;
+                    p.x += dx;
+                    p.y += dy;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    renderHtmlPostits(); // update this postit visually
+                }
+            });
+            header.addEventListener('pointerup', (e) => {
+                if (isDragging) {
+                    isDragging = false;
+                    header.releasePointerCapture(e.pointerId);
+                    saveState();
+                }
+            });
+        }
+        
+        // Mise à jour de l'apparence
+        el.style.backgroundColor = p.bg;
+        el.querySelector('.html-postit-body').style.backgroundColor = p.bg;
+        
+        // La couleur du coin
+        const afterStyle = document.createElement('style');
+        afterStyle.innerHTML = `.html-postit[data-id="${p.id}"]::after { border-left-color: rgba(255,255,255,0.4); border-bottom-color: rgba(0,0,0,0.15); }`;
+        if(!document.head.querySelector(`style[data-postit-id="${p.id}"]`)) {
+            afterStyle.dataset.postitId = p.id;
+            document.head.appendChild(afterStyle);
+        }
+
+        if (p.minimized) {
+            el.classList.add('minimized');
+            el.style.left = (p.x * zoom + panX) + 'px';
+            el.style.top = (p.y * zoom + panY) + 'px';
+            el.style.width = (p.w * zoom) + 'px';
+            // height est forcé par CSS
+        } else {
+            el.classList.remove('minimized');
+            el.style.left = (p.x * zoom + panX) + 'px';
+            el.style.top = (p.y * zoom + panY) + 'px';
+            el.style.width = (p.w * zoom) + 'px';
+            el.style.height = (p.h * zoom) + 'px';
+        }
+        
+        // Mise à l'échelle du texte si on zoome (approximation CSS scale ou font-size)
+        const body = el.querySelector('.html-postit-body');
+        body.style.fontSize = (20 * zoom) + 'px';
+        
+        el.style.zIndex = p.z || 10;
+    });
+}
+
+function formatTime(seconds) {
+    if (isNaN(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function ensureMediaPlayerStyles() {
+    if (document.getElementById('media-player-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'media-player-styles';
+    style.innerHTML = `
+        .media-player-panel {
+            position: fixed; bottom: 20px; right: 20px; width: 320px; min-width: 260px; max-width: 800px;
+            display: flex; flex-direction: column;
+            background: var(--surface, rgba(255, 255, 255, 0.92)); color: var(--ink, #2d3436); border-radius: 14px;
+            box-shadow: var(--shadow-hover, 0 12px 32px rgba(0, 0, 0, .15));
+            backdrop-filter: blur(16px);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            z-index: 100000;
+            border: 1px solid var(--border, #dfe6e9);
+            user-select: none;
+            overflow: hidden;
+        }
+        .media-player-panel.video-panel { width: 420px; }
+        .media-player-panel:fullscreen, .media-player-panel:-webkit-full-screen {
+            width: 100vw !important; height: 100vh !important; max-width: 100vw;
+            border-radius: 0; background: #000;
+        }
+        /* En plein écran, la vidéo est centrée en position fixe : elle ne bouge jamais,
+           les contrôles deviennent une surcouche flottante par-dessus. */
+        .media-player-panel:fullscreen .media-video-el, .media-player-panel:-webkit-full-screen .media-video-el {
+            /* fixed (et non absolute) : la vidéo est nichée dans .media-body, position:fixed
+               l'échappe de ce conteneur pour se centrer sur le viewport entier, indépendamment
+               de l'affichage/masquage des contrôles. */
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
+            width: auto; height: auto; max-width: 100vw; max-height: 100vh; object-fit: contain; margin: 0;
+        }
+        .media-player-panel:fullscreen .media-header, .media-player-panel:-webkit-full-screen .media-header {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+            background: linear-gradient(rgba(0,0,0,0.7), transparent);
+            padding: 16px; transition: opacity 0.25s ease;
+        }
+        .media-player-panel:fullscreen .media-body, .media-player-panel:-webkit-full-screen .media-body {
+            position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+            background: linear-gradient(transparent, rgba(0,0,0,0.75) 45%);
+            padding: 40px 20px 16px !important; transition: opacity 0.25s ease;
+        }
+        .media-player-panel:fullscreen .media-playlist, .media-player-panel:-webkit-full-screen .media-playlist {
+            display: none;
+        }
+        .media-player-panel:fullscreen.controls-hidden .media-header,
+        .media-player-panel:fullscreen.controls-hidden .media-body,
+        .media-player-panel:-webkit-full-screen.controls-hidden .media-header,
+        .media-player-panel:-webkit-full-screen.controls-hidden .media-body {
+            opacity: 0; pointer-events: none;
+        }
+        .media-player-panel:fullscreen.controls-hidden,
+        .media-player-panel:-webkit-full-screen.controls-hidden {
+            cursor: none;
+        }
+        .media-player-panel.minimized { resize: none; min-height: 0; height: auto !important; }
+
+        .media-header {
+            background: transparent; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;
+            cursor: grab;
+        }
+        .media-title { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+
+        .media-btn {
+            background: none; border: none; color: var(--muted, #636e72); cursor: pointer;
+            transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; border-radius: 50%;
+        }
+        .media-btn:hover { color: var(--ink, #2d3436); background: var(--border, #dfe6e9); }
+        .media-btn.active-btn { color: var(--accent, #6c5ce7); background: var(--accent-soft, rgba(108, 92, 231, 0.15)); }
+        .media-btn:active { transform: scale(0.9); }
+        .media-btn-play {
+            width: 38px; height: 38px; background: var(--accent, #6c5ce7); color: #fff;
+        }
+        .media-btn-play:hover { background: var(--accent, #6c5ce7); opacity: 0.85; color: #fff; }
+
+        .media-video-el {
+            width: 100%; display: block; background: #000; border-radius: 10px; margin-bottom: 10px;
+        }
+
+        .media-progress-wrapper { position: relative; margin: 4px 0 22px; padding-top: 24px; }
+        .media-progress-container {
+            width: 100%; height: 6px; position: relative; cursor: pointer;
+            background: var(--bg, #f5f6fa); border-radius: 999px; overflow: hidden;
+        }
+        .media-progress-bar { height: 100%; background: var(--accent, #6c5ce7); width: 0%; pointer-events: none; border-radius: 999px; }
+        .media-ab-fill { position: absolute; top: 0; height: 100%; background: var(--accent-soft, rgba(108, 92, 231, 0.25)); z-index: 1; display: none; }
+        .media-time-row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.68rem; font-family: monospace; color: var(--muted, #636e72); }
+
+        .media-ab-pointer {
+            position: absolute; top: 22px; cursor: ew-resize; transform: translateX(-50%); z-index: 5;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--muted, #636e72); border: 2px solid var(--surface, #fff);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            transition: background-color 0.2s;
+        }
+        .media-ab-pointer:hover, .media-ab-pointer.active { background: var(--accent, #6c5ce7); }
+        .media-ab-label {
+            position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+            font-size: 0.55rem; color: var(--muted, #636e72); pointer-events: none; white-space: nowrap; font-family: monospace;
+        }
+
+        .media-slider-row { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--muted, #636e72); }
+        .media-slider {
+            -webkit-appearance: none; appearance: none; width: 60px; height: 4px; border-radius: 999px;
+            background: var(--border, #dfe6e9); accent-color: var(--accent, #6c5ce7); cursor: pointer;
+        }
+        .media-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+            background: var(--accent, #6c5ce7); cursor: pointer;
+        }
+        .media-slider::-moz-range-thumb {
+            width: 12px; height: 12px; border-radius: 50%; border: none;
+            background: var(--accent, #6c5ce7); cursor: pointer;
+        }
+
+        .media-playlist {
+            list-style: none; padding: 4px; margin: 0; overflow-y: auto; max-height: 150px;
+            border-top: 1px solid var(--border, #dfe6e9); background: var(--bg, #f5f6fa);
+        }
+        .media-playlist li {
+            padding: 7px 10px; font-size: 0.78rem; border-radius: 8px; margin-bottom: 2px;
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: grab;
+        }
+        .media-playlist li.active { background: var(--accent, #6c5ce7); color: #fff; }
+        .media-playlist li:hover:not(.active) { background: var(--accent-soft, rgba(108, 92, 231, 0.12)); }
+        .media-delete-btn {
+            background: none; border: none; color: var(--muted, #636e72); cursor: pointer; padding: 2px 6px; display:flex; align-items:center; justify-content:center; border-radius: 50%;
+        }
+        .media-delete-btn:hover { color: var(--red, #e74c3c); }
+    `;
+    document.head.appendChild(style);
+}
+
+function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
+    let playlist = [];
+    let currentIndex = 0;
+    let container = null;
+    let mediaEl = null;
+
+    let loopStart = null, loopEnd = null, loopMode = 0; // 0: off, 1: all, 2: one
+    let isABLooping = false;
+    let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+    const svgPrev = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>`;
+    const svgPlay = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+    const svgPause = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+    const svgNext = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>`;
+    const svgLoop = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>`;
+    const svgPlaySel = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/><path d="M3 4v16h2V4H3zm16 0v16h2V4h-2z"/></svg>`;
+    const svgMin = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 12h16v2H4z"/></svg>`;
+    const svgClose = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
+    const svgFullscreen = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
+
+    const id = (suffix) => `${idPrefix}-${suffix}`;
+    const el = (suffix) => document.getElementById(id(suffix));
+
+    function build() {
+        container = document.createElement('div');
+        container.id = id('player');
+        container.className = 'media-player-panel' + (mediaType === 'video' ? ' video-panel' : '');
+
+        container.innerHTML = `
+            <div id="${id('header')}" class="media-header">
+                <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1;">
+                    <span style="font-size: 0.9rem;">${icon}</span>
+                    <span id="${id('title')}" class="media-title">${defaultTitle}</span>
+                </div>
+
+                <div id="${id('mini-controls')}" style="display: none; align-items: center; gap: 2px; margin: 0 10px;">
+                    <button class="media-btn" id="${id('mini-prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
+                    <button class="media-btn" id="${id('mini-play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
+                    <button class="media-btn" id="${id('mini-next')}" data-tooltip="Piste suivante">${svgNext}</button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 2px;">
+                    ${mediaType === 'video' ? `<button class="media-btn" id="${id('fullscreen')}" data-tooltip="Plein écran">${svgFullscreen}</button>` : ''}
+                    <button class="media-btn" id="${id('minimize')}" data-tooltip="Réduire">${svgMin}</button>
+                    <button class="media-btn" id="${id('close')}" data-tooltip="Fermer">${svgClose}</button>
+                </div>
+            </div>
+
+            <div id="${id('body')}" class="media-body" style="padding: 4px 14px 14px; display: flex; flex-direction: column;">
+                ${mediaType === 'video' ? `<${mediaType} id="${id('media')}" class="media-video-el"></${mediaType}>` : `<${mediaType} id="${id('media')}" style="display:none;"></${mediaType}>`}
+
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <button class="media-btn" id="${id('prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
+                        <button class="media-btn media-btn-play" id="${id('play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
+                        <button class="media-btn" id="${id('next')}" data-tooltip="Piste suivante">${svgNext}</button>
+                    </div>
+
+                    <div class="media-slider-row">
+                        <span>Vol</span>
+                        <input type="range" class="media-slider" id="${id('volume')}" min="0" max="1" step="0.05" value="1">
+                    </div>
+                </div>
+
+                <div id="${id('progress-wrapper')}" class="media-progress-wrapper">
+                    <div id="${id('progress-container')}" class="media-progress-container">
+                        <div id="${id('ab-fill')}" class="media-ab-fill" style="left: 0%; width: 100%;"></div>
+                        <div id="${id('progress-bar')}" class="media-progress-bar"></div>
+                    </div>
+                    <div class="media-ab-pointer" id="${id('ab-thumb-a')}" style="left: 0%;" title="Point A">
+                        <span class="media-ab-label" id="${id('ab-time-a')}">0:00</span>
+                    </div>
+                    <div class="media-ab-pointer" id="${id('ab-thumb-b')}" style="left: 100%;" title="Point B">
+                        <span class="media-ab-label" id="${id('ab-time-b')}">0:00</span>
+                    </div>
+                    <div class="media-time-row">
+                        <span id="${id('time-current')}">0:00</span>
+                        <span id="${id('time-duration')}">0:00</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <button class="media-btn" id="${id('toggle-loop')}" data-tooltip="Mode de boucle (Désactivé / Tout / Un)" style="position: relative;">
+                            ${svgLoop}
+                            <span id="${id('loop-badge')}" style="position:absolute; top:0px; right:0px; background:var(--accent, #6c5ce7); color:#fff; font-size:8px; border-radius:50%; width:12px; height:12px; display:none; align-items:center; justify-content:center; font-weight:bold;">1</span>
+                        </button>
+                        <button class="media-btn" id="${id('play-selection')}" data-tooltip="Activer boucle A-B">${svgPlaySel}</button>
+                    </div>
+
+                    <div class="media-slider-row">
+                        <span>Vit.</span>
+                        <input type="range" class="media-slider" id="${id('speed-slider')}" min="0.5" max="2" step="0.1" value="1">
+                        <span id="${id('speed-display')}" style="min-width: 25px; text-align: right;">1.0x</span>
+                    </div>
+                </div>
+            </div>
+
+            <ul id="${id('playlist')}" class="media-playlist"></ul>
+        `;
+        document.body.appendChild(container);
+        mediaEl = el('media');
+
+        setupEvents();
+        setupABSliders();
+        setupDragMove();
+        setupResizer();
+    }
+
+    function renderPlaylist() {
+        const list = el('playlist');
+        list.innerHTML = '';
+
+        playlist.forEach((track, index) => {
+            const li = document.createElement('li');
+            li.draggable = true;
+            li.dataset.index = index;
+            if (index === currentIndex) li.classList.add('active');
+
+            li.innerHTML = `
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">${index + 1}. ${track.name}</span>
+                <button class="media-delete-btn" title="Supprimer">${svgClose}</button>
+            `;
+
+            li.ondblclick = () => {
+                currentIndex = index;
+                playCurrent();
+            };
+
+            const delBtn = li.querySelector('.media-delete-btn');
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (playlist.length === 1) {
+                    el('close').click();
+                    return;
+                }
+                playlist.splice(index, 1);
+                if (currentIndex === index) {
+                    currentIndex = Math.min(index, playlist.length - 1);
+                    playCurrent();
+                } else if (currentIndex > index) {
+                    currentIndex--;
+                }
+                renderPlaylist();
+            };
+
+            li.ondragstart = (e) => {
+                e.dataTransfer.setData('text/plain', index);
+                li.style.opacity = '0.5';
+            };
+            li.ondragend = () => { li.style.opacity = '1'; };
+            li.ondragover = (e) => { e.preventDefault(); };
+            li.ondrop = (e) => {
+                e.preventDefault();
+                const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                const toIndex = index;
+                if (fromIndex !== toIndex) {
+                    const moved = playlist.splice(fromIndex, 1)[0];
+                    playlist.splice(toIndex, 0, moved);
+                    if (currentIndex === fromIndex) currentIndex = toIndex;
+                    else if (currentIndex > fromIndex && currentIndex <= toIndex) currentIndex--;
+                    else if (currentIndex < fromIndex && currentIndex >= toIndex) currentIndex++;
+                    renderPlaylist();
+                }
+            };
+
+            list.appendChild(li);
+        });
+    }
+
+    function playCurrent() {
+        if (playlist.length === 0) return;
+        const track = playlist[currentIndex];
+        el('title').textContent = track.name;
+
+        mediaEl.src = track.url;
+        mediaEl.play().catch(e => console.warn(e));
+
+        el('play').innerHTML = svgPause;
+        el('mini-play').innerHTML = svgPause;
+
+        loopStart = null;
+        loopEnd = null;
+        const thumbA = el('ab-thumb-a');
+        const thumbB = el('ab-thumb-b');
+        const fill = el('ab-fill');
+        if (thumbA && thumbB && fill) {
+            thumbA.style.left = '0%';
+            thumbB.style.left = '100%';
+            fill.style.left = '0%';
+            fill.style.width = '100%';
+            fill.style.display = 'none';
+            el('ab-time-a').textContent = "0:00";
+            el('ab-time-b').textContent = "0:00";
+        }
+
+        renderPlaylist();
+    }
+
+    function setupEvents() {
+        const playBtn = el('play');
+        const miniPlayBtn = el('mini-play');
+        const prevBtns = [el('prev'), el('mini-prev')];
+        const nextBtns = [el('next'), el('mini-next')];
+        const progressCont = el('progress-container');
+        const progressBar = el('progress-bar');
+        const timeCurrent = el('time-current');
+        const timeDuration = el('time-duration');
+        const volSlider = el('volume');
+
+        const togglePlay = () => {
+            if (mediaEl.paused) {
+                mediaEl.play();
+                playBtn.innerHTML = svgPause;
+                miniPlayBtn.innerHTML = svgPause;
+            } else {
+                mediaEl.pause();
+                playBtn.innerHTML = svgPlay;
+                miniPlayBtn.innerHTML = svgPlay;
+            }
+        };
+        playBtn.onclick = togglePlay;
+        miniPlayBtn.onclick = togglePlay;
+
+        const playNext = () => {
+            if (playlist.length === 0) return;
+            currentIndex = (currentIndex + 1) % playlist.length;
+            playCurrent();
+        };
+        const playPrev = () => {
+            if (playlist.length === 0) return;
+            currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+            playCurrent();
+        };
+
+        nextBtns.forEach(btn => btn.onclick = playNext);
+        prevBtns.forEach(btn => btn.onclick = playPrev);
+        mediaEl.onended = () => {
+            if (loopMode === 2) {
+                mediaEl.currentTime = 0;
+                mediaEl.play();
+            } else if (loopMode === 1) {
+                playNext();
+            } else {
+                if (currentIndex < playlist.length - 1) {
+                    playNext();
+                } else {
+                    mediaEl.pause();
+                    playBtn.innerHTML = svgPlay;
+                    miniPlayBtn.innerHTML = svgPlay;
+                }
+            }
+        };
+
+        progressCont.onclick = (e) => {
+            if (!mediaEl.duration) return;
+            const rect = progressCont.getBoundingClientRect();
+            const percent = (e.clientX - rect.left) / rect.width;
+            mediaEl.currentTime = percent * mediaEl.duration;
+        };
+
+        mediaEl.ontimeupdate = () => {
+            if (!mediaEl.duration) return;
+
+            const validAB = (loopStart !== null && loopEnd !== null);
+
+            if (isABLooping && validAB) {
+                if (mediaEl.currentTime >= loopEnd) {
+                    mediaEl.currentTime = loopStart;
+                    mediaEl.play().catch(() => {});
+                } else if (mediaEl.currentTime < loopStart) {
+                    mediaEl.currentTime = loopStart;
+                }
+            }
+
+            const percent = (mediaEl.currentTime / mediaEl.duration) * 100;
+            timeCurrent.textContent = formatTime(mediaEl.currentTime);
+            timeDuration.textContent = formatTime(mediaEl.duration);
+            progressBar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+
+            if (loopEnd === null && mediaEl.duration > 0) {
+                const timeB = el('ab-time-b');
+                if (timeB && timeB.textContent === "0:00" && parseFloat(el('ab-thumb-b').style.left) === 100) {
+                    timeB.textContent = formatTime(mediaEl.duration);
+                }
+            }
+        };
+
+        volSlider.oninput = (e) => { mediaEl.volume = e.target.value; };
+
+        const speedSlider = el('speed-slider');
+        const speedDisplay = el('speed-display');
+        speedSlider.oninput = (e) => {
+            const speed = parseFloat(e.target.value);
+            mediaEl.playbackRate = speed;
+            speedDisplay.textContent = speed.toFixed(1) + 'x';
+        };
+
+        const minBtn = el('minimize');
+        const closeBtn = el('close');
+        const bodyEl = el('body');
+        const playlistEl = el('playlist');
+        const miniControls = el('mini-controls');
+
+        minBtn.onclick = () => {
+            if (bodyEl.style.display === 'none') {
+                bodyEl.style.display = 'flex';
+                playlistEl.style.display = 'block';
+                miniControls.style.display = 'none';
+                container.classList.remove('minimized');
+            } else {
+                bodyEl.style.display = 'none';
+                playlistEl.style.display = 'none';
+                miniControls.style.display = 'flex';
+                container.classList.add('minimized');
+            }
+        };
+
+        closeBtn.onclick = () => {
+            mediaEl.pause();
+            container.style.display = 'none';
+            playlist = [];
+            currentIndex = 0;
+        };
+
+        if (mediaType === 'video') {
+            const fsBtn = el('fullscreen');
+            if (fsBtn) {
+                fsBtn.onclick = () => {
+                    // Plein écran du panneau entier (pas juste la vidéo) pour garder les contrôles visibles.
+                    if (container.requestFullscreen) {
+                        container.requestFullscreen().catch(() => {});
+                    } else if (container.webkitRequestFullscreen) {
+                        container.webkitRequestFullscreen();
+                    } else if (mediaEl.webkitEnterFullscreen) {
+                        // iOS Safari : pas de plein écran générique, seule la vidéo peut passer en plein écran natif.
+                        mediaEl.webkitEnterFullscreen();
+                    }
+                };
+            }
+
+            // Masquage automatique des contrôles en plein écran si la souris ne bouge plus.
+            let hideControlsTimer = null;
+            const isThisFullscreen = () => {
+                const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+                return fsEl === container;
+            };
+            const showControls = () => {
+                if (!isThisFullscreen()) return;
+                container.classList.remove('controls-hidden');
+                clearTimeout(hideControlsTimer);
+                hideControlsTimer = setTimeout(() => {
+                    container.classList.add('controls-hidden');
+                }, 3000);
+            };
+            container.addEventListener('mousemove', showControls);
+            container.addEventListener('mouseleave', () => {
+                if (isThisFullscreen()) container.classList.add('controls-hidden');
+            });
+            const onFullscreenChange = () => {
+                clearTimeout(hideControlsTimer);
+                container.classList.remove('controls-hidden');
+                if (isThisFullscreen()) showControls();
+            };
+            document.addEventListener('fullscreenchange', onFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+        }
+    }
+
+    function setupABSliders() {
+        const track = el('progress-wrapper');
+        const thumbA = el('ab-thumb-a');
+        const thumbB = el('ab-thumb-b');
+        const timeA = el('ab-time-a');
+        const timeB = el('ab-time-b');
+        const fill = el('ab-fill');
+        const loopBtn = el('toggle-loop');
+        const playSelBtn = el('play-selection');
+
+        let activeThumb = null;
+
+        const getPercent = (clientX) => {
+            const rect = track.getBoundingClientRect();
+            let p = (clientX - rect.left) / rect.width;
+            return Math.max(0, Math.min(1, p));
+        };
+
+        const updateLoopState = () => {
+            if (!mediaEl.duration) return;
+            const pA = parseFloat(thumbA.style.left) / 100;
+            const pB = parseFloat(thumbB.style.left) / 100;
+
+            loopStart = pA * mediaEl.duration;
+            loopEnd = pB * mediaEl.duration;
+
+            timeA.textContent = formatTime(loopStart);
+            timeB.textContent = formatTime(loopEnd);
+
+            if (pA === 0 && pB === 1) {
+                fill.style.display = 'none';
+            } else {
+                fill.style.display = 'block';
+                if (isABLooping && (mediaEl.currentTime < loopStart || mediaEl.currentTime > loopEnd)) {
+                    mediaEl.currentTime = loopStart;
+                }
+            }
+        };
+
+        const onMove = (e) => {
+            if (!activeThumb) return;
+            let percent = getPercent(e.clientX) * 100;
+
+            const pA = parseFloat(thumbA.style.left);
+            const pB = parseFloat(thumbB.style.left);
+
+            if (activeThumb === thumbA) {
+                if (percent > pB) percent = pB;
+                thumbA.style.left = percent + '%';
+                fill.style.left = percent + '%';
+                fill.style.width = (pB - percent) + '%';
+            } else {
+                if (percent < pA) percent = pA;
+                thumbB.style.left = percent + '%';
+                fill.style.width = (percent - pA) + '%';
+            }
+
+            if (mediaEl.duration) {
+                timeA.textContent = formatTime((parseFloat(thumbA.style.left) / 100) * mediaEl.duration);
+                timeB.textContent = formatTime((parseFloat(thumbB.style.left) / 100) * mediaEl.duration);
+            }
+        };
+
+        const syncABLoopUI = () => {
+            if (isABLooping) {
+                playSelBtn.classList.add('active-btn');
+                playSelBtn.setAttribute('data-tooltip', 'Désactiver boucle A-B');
+            } else {
+                playSelBtn.classList.remove('active-btn');
+                playSelBtn.setAttribute('data-tooltip', 'Activer boucle A-B');
+            }
+        };
+
+        const onUp = () => {
+            if (activeThumb) {
+                activeThumb.classList.remove('active');
+                activeThumb = null;
+                if (parseFloat(thumbA.style.left) > 0 || parseFloat(thumbB.style.left) < 100) {
+                    isABLooping = true;
+                    syncABLoopUI();
+                }
+                updateLoopState();
+            }
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+
+        const startDrag = (thumb, e) => {
+            activeThumb = thumb;
+            thumb.classList.add('active');
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            e.stopPropagation();
+        };
+
+        thumbA.onmousedown = (e) => startDrag(thumbA, e);
+        thumbB.onmousedown = (e) => startDrag(thumbB, e);
+
+        const loopBadge = el('loop-badge');
+
+        const syncLoopUI = () => {
+            if (loopMode === 0) {
+                loopBtn.classList.remove('active-btn');
+                loopBadge.style.display = 'none';
+            } else if (loopMode === 1) {
+                loopBtn.classList.add('active-btn');
+                loopBadge.style.display = 'none';
+            } else if (loopMode === 2) {
+                loopBtn.classList.add('active-btn');
+                loopBadge.style.display = 'flex';
+            }
+        };
+
+        loopBtn.onclick = () => {
+            loopMode = (loopMode + 1) % 3;
+            syncLoopUI();
+        };
+
+        playSelBtn.onclick = () => {
+            if (!mediaEl.duration) return;
+            isABLooping = !isABLooping;
+            syncABLoopUI();
+            if (isABLooping) {
+                const pA = parseFloat(thumbA.style.left) / 100;
+                mediaEl.currentTime = pA * mediaEl.duration;
+                mediaEl.play().catch(() => {});
+            }
+        };
+    }
+
+    function setupDragMove() {
+        const headerEl = el('header');
+        headerEl.addEventListener('mousedown', (e) => {
+            if (e.target.tagName.toLowerCase() === 'button') return;
+            isDragging = true;
+            headerEl.style.cursor = 'grabbing';
+            const rect = container.getBoundingClientRect();
+            dragStartX = e.clientX - rect.left;
+            dragStartY = e.clientY - rect.top;
+
+            container.style.bottom = 'auto';
+            container.style.right = 'auto';
+            container.style.left = rect.left + 'px';
+            container.style.top = rect.top + 'px';
+
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            container.style.left = (e.clientX - dragStartX) + 'px';
+            container.style.top = (e.clientY - dragStartY) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                headerEl.style.cursor = 'grab';
+            }
+        });
+    }
+
+    function setupResizer() {
+        const resizer = document.createElement('div');
+        resizer.style.cssText = 'position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: ew-resize; z-index: 100;';
+        container.appendChild(resizer);
+
+        let isResizing = false;
+        let startW, startX;
+
+        resizer.onmousedown = (e) => {
+            isResizing = true;
+            const rect = container.getBoundingClientRect();
+
+            if (container.style.bottom || container.style.right) {
+                container.style.bottom = 'auto';
+                container.style.right = 'auto';
+                container.style.left = rect.left + 'px';
+                container.style.top = rect.top + 'px';
+            }
+
+            startW = rect.width;
+            startX = e.clientX;
+            e.stopPropagation();
+            e.preventDefault();
+        };
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            let newW = startW + (e.clientX - startX);
+            newW = Math.max(260, Math.min(newW, 800));
+            container.style.width = newW + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) isResizing = false;
+        });
+    }
+
+    function handleDrop(file) {
+        ensureMediaPlayerStyles();
+        if (!container) build();
+
+        playlist.push({
+            id: 'track_' + Date.now() + Math.random(),
+            name: file.name.replace(/\.[^/.]+$/, ""),
+            url: URL.createObjectURL(file)
+        });
+
+        if (container.style.display === 'none' || playlist.length === 1) {
+            container.style.display = 'block';
+            currentIndex = playlist.length - 1;
+            playCurrent();
+        } else {
+            renderPlaylist();
+        }
+    }
+
+    return { handleDrop };
+}
+
+const audioMediaPlayer = createMediaPlayer({ mediaType: 'audio', idPrefix: 'mp3', defaultTitle: 'Lecteur Audio', icon: '🎵' });
+const videoMediaPlayer = createMediaPlayer({ mediaType: 'video', idPrefix: 'vidp', defaultTitle: 'Lecteur Vidéo', icon: '🎬' });
+
+function handleMp3Drop(file) { audioMediaPlayer.handleDrop(file); }
+function handleVideoDrop(file) { videoMediaPlayer.handleDrop(file); }
+
+// ==========================================
+// GUIDED TOUR SYSTEM
+// ==========================================
+let currentTourStep = 0;
+const tourSteps = [
+    {
+        title: "✏️ Bienvenue dans Au Tableau",
+        text: "Découvrez les 4 zones principales de ce tableau blanc numérique !",
+        position: "center"
+    },
+    {
+        title: "📦 Zone Plugins - En Haut",
+        text: "Barre EN HAUT : créez vos toolbars personnalisées ou utilisez les modules (Mathjax, Python, Scratch, etc.).",
+        elementId: "bar-plugins",
+        position: "bottom"
+    },
+    {
+        title: "🎨 Barre d'Outils Principale - À GAUCHE",
+        text: "Tous vos outils : sélection, tracé libre, surligneur, gomme, formes géométriques, instruments, texte, etc.",
+        elementId: "system-toolbar-main",
+        position: "center"
+    },
+    {
+        title: "🧲 Contrôles - En Bas",
+        text: "Aimant magnétique, zoom, grille, calculatrice, horloge, chrono, sonomètre, et plus.",
+        elementId: "bottom-drawer",
+        position: "top"
+    },
+    {
+        title: "📁 Mes Tableaux - À DROITE",
+        text: "Explorez vos fichiers, créez de nouveaux tableaux, organisez vos dossiers.",
+        elementId: "right-drawer",
+        position: "left"
+    },
+    {
+        title: "🎯 C'est parti !",
+        text: "Vous connaissez les zones principales. Retrouvez l'aide (?) en bas à droite pour plus de détails.",
+        position: "center"
+    }
+];
+
+function startGuidedTour() {
+    currentTourStep = 0;
+    showTourStep(0);
+}
+
+function showTourStep(stepIdx) {
+    if (stepIdx < 0 || stepIdx >= tourSteps.length) {
+        closeTour();
+        return;
+    }
+
+    currentTourStep = stepIdx;
+    const step = tourSteps[stepIdx];
+
+    const tooltip = document.getElementById('guided-tour-tooltip');
+    tooltip.style.display = 'block';
+
+    document.getElementById('tour-step-title').textContent = step.title;
+    document.getElementById('tour-step-text').textContent = step.text;
+    document.getElementById('tour-step-counter').textContent = `${stepIdx + 1}/${tourSteps.length}`;
+
+    // Ouvrir/afficher les drawers et toolbar si nécessaire
+    const needsDelay = step.elementId === 'bottom-drawer' || step.elementId === 'right-drawer';
+
+    if (step.elementId === 'bar-plugins') {
+        const barPlugins = document.getElementById('bar-plugins');
+        if (barPlugins) barPlugins.style.display = 'flex';
+    }
+    if (step.elementId === 'bar-tools') {
+        const toolbar = document.getElementById('bar-tools');
+        if (toolbar) toolbar.style.display = 'block';
+    }
+    if (step.elementId === 'bottom-drawer') {
+        const drawer = document.getElementById('bottom-drawer');
+        if (drawer) drawer.classList.add('open');
+    }
+    if (step.elementId === 'right-drawer') {
+        const drawer = document.getElementById('right-drawer');
+        if (drawer) drawer.classList.add('open');
+    }
+
+    const doHighlight = () => {
+        let highlightInfo = null;
+        if (step.customRect) {
+            highlightInfo = addHighlight(null, step.customRect);
+        } else if (step.elementId) {
+            highlightInfo = addHighlight(step.elementId);
+        }
+    };
+
+    if (needsDelay) {
+        setTimeout(doHighlight, 300);
+    } else {
+        doHighlight();
+    }
+
+    // Texte toujours au centre
+    const tooltipWidth = 300;
+    const tooltipHeight = 150;
+    const left = Math.max(10, Math.min(window.innerWidth / 2 - tooltipWidth / 2, window.innerWidth - tooltipWidth - 10));
+    const top = Math.max(10, Math.min(window.innerHeight / 2 - tooltipHeight / 2, window.innerHeight - tooltipHeight - 10));
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+
+    document.getElementById('btn-tour-prev').onclick = () => showTourStep(currentTourStep - 1);
+    document.getElementById('btn-tour-next').onclick = () => showTourStep(currentTourStep + 1);
+}
+
+function addHighlight(elementId, customRect) {
+    let rect;
+
+    if (customRect) {
+        rect = customRect;
+    } else if (elementId) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const bRect = el.getBoundingClientRect();
+        rect = { left: bRect.left, top: bRect.top, width: bRect.width, height: bRect.height };
+    } else {
+        return;
+    }
+
+    const padding = 15;
+
+    let canvas = document.getElementById('tour-highlight-canvas');
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.id = 'tour-highlight-canvas';
+        canvas.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 9996;
+        `;
+        document.body.appendChild(canvas);
+    }
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.clearRect(
+        rect.left - padding,
+        rect.top - padding,
+        rect.width + padding * 2,
+        rect.height + padding * 2
+    );
+
+    ctx.strokeStyle = '#6c5ce7';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = 'rgba(108, 92, 231, 0.8)';
+    ctx.shadowBlur = 15;
+    ctx.strokeRect(
+        rect.left - padding,
+        rect.top - padding,
+        rect.width + padding * 2,
+        rect.height + padding * 2
+    );
+
+    document.body.appendChild(canvas);
+
+    return {
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+        rect: rect
+    };
+}
+
+function removeHighlight() {
+    const canvas = document.getElementById('tour-highlight-canvas');
+    if (canvas) canvas.remove();
+}
+
+function closeTour() {
+    document.getElementById('guided-tour-overlay').style.display = 'none';
+    document.getElementById('guided-tour-tooltip').style.display = 'none';
+    removeHighlight();
+    localStorage.setItem('auTableau_tour_seen', 'true');
+    currentTourStep = 0;
+}
+
+function processMath(textObj) {
+    // LaTeX n'est pas supporté pour le rendu canvas - garder le texte brut
+    // Les formules $...$ seront affichées comme texte ordinaire
+}
+
+function debugShowElements() {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'debug-canvas';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    canvas.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 99999;
+    `;
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    ctx.font = '12px Arial';
+    ctx.lineWidth = 2;
+
+    const elements = [
+        { id: 'bar-tools', color: '#FF6B6B', label: 'Bar Tools' },
+        { id: 'bar-plugins', color: '#4ECDC4', label: 'Bar Plugins' },
+        { id: 'btn-import-menu', color: '#45B7D1', label: 'Import Menu' },
+        { id: 'btn-magnet', color: '#FFA07A', label: 'Magnet' },
+        { id: 'btn-help', color: '#98D8C8', label: 'Help' },
+        { id: 'right-drawer', color: '#F7DC6F', label: 'Right Drawer' },
+        { id: 'bottom-drawer', color: '#BB8FCE', label: 'Bottom Drawer' },
+    ];
+
+    elements.forEach(el => {
+        const elem = document.getElementById(el.id);
+        if (elem) {
+            const rect = elem.getBoundingClientRect();
+            const surface = (rect.width * rect.height).toFixed(0);
+
+            ctx.strokeStyle = el.color;
+            ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+
+            ctx.fillStyle = el.color;
+            const text = `${el.label} [${rect.left.toFixed(0)},${rect.top.toFixed(0)}] ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} (${surface})`;
+            ctx.fillText(text, rect.left + 5, rect.top + 15);
+
+            console.log(`${el.label}: x=${rect.left.toFixed(0)}, y=${rect.top.toFixed(0)}, w=${rect.width.toFixed(0)}, h=${rect.height.toFixed(0)}, surface=${surface}`);
+        }
+    });
+
+    console.log('\n✅ Elements visualisés sur le canvas !');
+    console.log(`Window size: ${window.innerWidth} x ${window.innerHeight}`);
+}
+
+function debugRemoveElements() {
+    const canvas = document.getElementById('debug-canvas');
+    if (canvas) canvas.remove();
+}
+
+const btnStartTour = document.getElementById('btn-start-tour');
+const btnHelpTour = document.getElementById('btn-help-tour');
+
+if (btnStartTour) {
+    btnStartTour.addEventListener('click', () => {
+        document.getElementById('help-modal').style.display = 'none';
+        startGuidedTour();
+    });
+}
+
+if (btnHelpTour) {
+    btnHelpTour.addEventListener('click', () => {
+        document.getElementById('help-modal').style.display = 'none';
+        startGuidedTour();
+    });
+}
+
+setTimeout(() => {
+    const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
+    if (!hasSeenWelcome) {
+        showToast("💡 Consultez l'aide (?) en bas à droite !");
+        localStorage.setItem('auTableau_welcome_v2', 'true');
+    }
+}, 1000);
+
+function openDonateModal() {
+    document.getElementById('donate-modal').style.display = 'flex';
+}
+
+function closeDonateModal() {
+    document.getElementById('donate-modal').style.display = 'none';
+}
+
+document.getElementById('donate-modal').addEventListener('click', function (e) {
+    if (e.target === this) {
+        closeDonateModal();
+    }
+});
+
+function openFormulaModal() {
+    const modal = document.getElementById('formula-modal');
+    const input = document.getElementById('formula-input');
+    const preview = document.getElementById('formula-preview');
+
+    input.value = '';
+    preview.innerHTML = 'Aperçu en temps réel';
+    modal.style.display = 'flex';
+    input.focus();
+}
+
+function closeFormulaModal() {
+    document.getElementById('formula-modal').style.display = 'none';
+}
+
+function insertFormula() {
+    const input = document.getElementById('formula-input');
+    const formula = input.value.trim();
+    if (!formula) return;
+
+    showToast('✅ Formule insérée !');
+    closeFormulaModal();
+}
+
+if (document.getElementById('formula-modal')) {
+    document.getElementById('formula-modal').addEventListener('click', function (e) {
+        if (e.target === this) {
+            closeFormulaModal();
+        }
+    });
 }
