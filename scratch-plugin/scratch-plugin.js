@@ -114,6 +114,7 @@ class ScratchInterpreter {
   </g>
 </svg>`;
         this.catImg = new Image();
+        this.catImg.onload = () => { this.render(); };
         this.catImg.src = this.catSVG;
     }
 
@@ -132,7 +133,8 @@ class ScratchInterpreter {
             pen: JSON.parse(JSON.stringify(this.pen)),
             vars: JSON.parse(JSON.stringify(this.vars)),
             penPaths: JSON.parse(JSON.stringify(this.penPaths)),
-            currentPath: this.currentPath ? JSON.parse(JSON.stringify(this.currentPath)) : null
+            currentPath: this.currentPath ? JSON.parse(JSON.stringify(this.currentPath)) : null,
+            activeBlockId: this.activeBlockId || null
         });
     }
 
@@ -144,6 +146,20 @@ class ScratchInterpreter {
         this.vars = JSON.parse(JSON.stringify(state.vars));
         this.penPaths = JSON.parse(JSON.stringify(state.penPaths));
         this.currentPath = state.currentPath ? JSON.parse(JSON.stringify(state.currentPath)) : null;
+
+        // Highlight active block
+        if (this.plugin && this.plugin.allBlocks) {
+            this.plugin.allBlocks.forEach(b => {
+                if (b.pathEl) b.pathEl.style.filter = "var(--block-filter)";
+            });
+            if (state.activeBlockId) {
+                const activeBlock = this.plugin.allBlocks.find(b => b.id === state.activeBlockId);
+                if (activeBlock && activeBlock.pathEl) {
+                    activeBlock.pathEl.style.filter = "brightness(1.4) drop-shadow(0 0 4px rgba(0,0,0,0.5))";
+                }
+            }
+        }
+
         this.render();
     }
 
@@ -155,6 +171,7 @@ class ScratchInterpreter {
         this.history = [];
         this.stepCount = 0;
         this.isRunning = true;
+        this.activeBlockId = null;
         this.recordState(); // initial state
 
         let entryPoint = blocks.find(b => b.def.parts[0] === 'quand le drapeau vert est cliqué' && !b.parent);
@@ -163,6 +180,9 @@ class ScratchInterpreter {
         if (entryPoint) {
             await this.runStack(entryPoint);
         }
+
+        this.activeBlockId = null;
+        this.recordState(); // final state without highlight
 
         this.isRunning = false;
         this.isRecording = false;
@@ -244,6 +264,8 @@ class ScratchInterpreter {
             return;
         }
         this.stepCount++;
+        this.activeBlockId = block.id;
+        this.recordState();
 
         const text = block.def.parts[0];
         const args = await this.getArgs(block);
@@ -563,6 +585,13 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             this.widgetEl.style.display = 'flex';
             const previewEl = document.querySelector('#sc-preview-thumbnail');
             if (previewEl) previewEl.style.display = 'flex';
+
+            // Center the cat whenever we re-open the widget
+            if (this.interpreter && this.interpreter.sprite) {
+                this.previewPanX = -this.interpreter.sprite.x * this.previewZoom;
+                this.previewPanY = this.interpreter.sprite.y * this.previewZoom;
+                if (this.updatePreviewTransform) this.updatePreviewTransform();
+            }
             return;
         }
 
@@ -573,7 +602,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'scratch-plugin-wrap';
-        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:system-ui, -apple-system, sans-serif; border:1px solid #dfe6e9;`;
+        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Roboto', sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -619,11 +648,16 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             .sc-palette { flex: 1; overflow-y: auto; padding: 20px 15px; background: #ffffff; }
 
             .sc-workspace { flex: 1; position: relative; overflow: visible; z-index: 20; }
-            .sc-workspace svg { width: 100%; height: 100%; overflow: visible; }
+            .sc-workspace svg { width: 100%; height: 100%; overflow: visible; touch-action: none; }
 
-            .sc-block-group { cursor: grab; }
+            .sc-block-group { cursor: grab; touch-action: none; }
+            .sc-palette > div { touch-action: none; }
+            #sc-preview-thumbnail { max-width: min(480px, 36vw); max-height: min(420px, 32vh); }
+            @media (max-width: 1000px) {
+                #scratch-plugin-wrap .sc-sidebar { width: 270px; }
+            }
             .sc-block-path { stroke: var(--block-stroke); stroke-width: var(--block-stroke-width); fill-rule: evenodd; filter: var(--block-filter); transition: fill 0.2s, stroke 0.2s; }
-            .sc-block-text { fill: var(--text-color); font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 600; font-size: 13px; pointer-events: none; dominant-baseline: central; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+            .sc-block-text { fill: var(--text-color); font-family: sans-serif; font-weight: 600; font-size: 13px; pointer-events: none; dominant-baseline: central; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
             #scratch-plugin-wrap.style-bw .sc-block-text { text-shadow: none; }
             #scratch-plugin-wrap.opt-outline {
                 --block-stroke: #000; --block-stroke-width: 1.5px;
@@ -641,7 +675,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             }
             #scratch-plugin-wrap.style-bw .sc-block-path { stroke: #000; stroke-width: 1.5px; }
             #scratch-plugin-wrap.style-bw .sc-cat-dot { border-color: #000; }
-            .sc-input-field { width: 100%; height: 100%; border: none; outline: none; background: transparent; color: var(--input-text); font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; text-align: center; padding: 0; margin: 0; cursor: text; }
+            .sc-input-field { width: 100%; height: 100%; border: none; outline: none; background: transparent; color: var(--input-text); font-family: sans-serif; font-size: 13px; font-weight: 600; text-align: center; padding: 0; margin: 0; cursor: text; }
             .sc-slot-bg.num { fill: var(--input-bg); stroke: var(--slot-stroke); stroke-width: 1px; }
             .sc-slot-bg.bool { fill: var(--slot-hex-bg); stroke: var(--slot-stroke); stroke-width: 1px; }
             #sc-context-menu { position: absolute; display: none; background: white; border: 1px solid #ccc; box-shadow: 0 5px 15px rgba(0,0,0,0.1); border-radius: 6px; z-index: 1000; overflow:hidden;}
@@ -722,6 +756,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                             <button id="sc-btn-prev-zoom-out" title="Dézoomer" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">➖</button>
                             <button id="sc-btn-prev-zoom-reset" title="Réinitialiser" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">O</button>
                             <button id="sc-btn-prev-zoom-in" title="Zoomer" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">➕</button>
+                            <div style="width:1px; height:20px; background:#b2bec3; margin:0 5px;"></div>
+                            <button id="sc-btn-center-cat" title="Centrer sur le Chat" style="cursor:pointer; border:none; background:white; border-radius:3px; padding:2px 6px;">🐱</button>
                         </div>
                         <div id="sc-preview-canvas-wrap" style="flex:1; position:relative; background:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAAXNSR0IArs4c6QAAACVJREFUKFNjZCASMDKgAhgg/gMxIxnBRbBhQhXBhglVBBtGVQEAhF8Bwa2/9o4AAAAASUVORK5CYII=') repeat; overflow:hidden; cursor:grab;">
                             <div id="sc-preview-canvas-inner" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); pointer-events:none;">
@@ -762,12 +798,15 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         // --- DRAG FENÊTRE ---
         let isDraggingWindow = false, startX, startY;
         const handle = this.widgetEl.querySelector('#sc-drag-handle');
-        handle.onmousedown = (e) => {
+        // Pointer Events : la fenêtre se déplace aussi au doigt/stylet
+        handle.addEventListener('pointerdown', (e) => {
             if (e.target.closest('button') || e.target.closest('select') || e.target.closest('label')) return;
             isDraggingWindow = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-        };
-        window.addEventListener('mousemove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDraggingWindow = false; });
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) { } }
+        });
+        handle.addEventListener('pointermove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        handle.addEventListener('pointerup', () => { isDraggingWindow = false; });
+        handle.addEventListener('pointercancel', () => { isDraggingWindow = false; });
 
         // --- EVENTS UI ---
         this.widgetEl.querySelector('#sc-btn-close').onclick = () => {
@@ -832,7 +871,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         function getTextWidth(text) {
             const c = document.createElement("canvas");
             const ctx = c.getContext("2d");
-            ctx.font = "600 13px 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif";
+            ctx.font = "600 13px sans-serif";
             return ctx.measureText(text).width;
         }
 
@@ -844,6 +883,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         class Block {
             constructor(def, x, y, parentSVG, isPalette = false) {
+                this.id = Math.random().toString(36).substr(2, 9);
+                this.isPalette = isPalette;
                 this.def = def; this.type = def.type; this.cat = def.cat;
                 this.parent = null; this.next = null; this.child = null; this.child2 = null;
                 this.inputSlots = []; this.x = x; this.y = y;
@@ -895,45 +936,75 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 }
             }
 
+            detachFromParent() {
+                if (!this.parent) return;
+                const box = this.el.getBoundingClientRect();
+                const svgPt = getSVGPos({ clientX: box.left, clientY: box.top });
+
+                const slot = this.parent.inputSlots.find(s => s.childBlock === this);
+                if (slot) {
+                    slot.childBlock = null;
+                    this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
+                    this.updatePosition(svgPt.x, svgPt.y);
+                    this.parent.bubbleResize();
+                }
+                else if (this.parent.next === this) {
+                    this.parent.next = null;
+                    this.parent.updateLayoutChain();
+                    this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
+                    this.updatePosition(svgPt.x, svgPt.y);
+                }
+                else if (this.parent.child === this) {
+                    this.parent.child = null;
+                    this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
+                    this.updatePosition(svgPt.x, svgPt.y);
+                    this.parent.render();
+                }
+                else if (this.parent.child2 === this) {
+                    this.parent.child2 = null;
+                    this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
+                    this.updatePosition(svgPt.x, svgPt.y);
+                    this.parent.render();
+                }
+                this.parent = null;
+            }
+
             initInteractions() {
-                this.el.onmousedown = (e) => {
+                // Pointer Events, et non la souris : sur tablette le doigt doit pouvoir
+                // saisir, déplacer et emboîter les blocs. En deçà du seuil de 8px, le
+                // geste reste un simple appui (le bloc n'est pas détaché de son parent).
+                this.el.addEventListener('pointerdown', (e) => {
                     if (self.teacherMode) return;
-                    if (e.button === 2) return;
+                    if (e.button !== undefined && e.button !== 0) return;
+                    if (e.target.tagName === 'INPUT' || (e.target.closest && e.target.closest('foreignObject'))) return;
                     e.stopPropagation();
+                    e.preventDefault();
 
-                    if (this.parent) {
-                        const box = this.el.getBoundingClientRect();
-                        const svgPt = getSVGPos({ clientX: box.left, clientY: box.top });
+                    const start = { x: e.clientX, y: e.clientY };
+                    let engaged = false;
+                    if (this.el.setPointerCapture) { try { this.el.setPointerCapture(e.pointerId); } catch (err) { } }
 
-                        const slot = this.parent.inputSlots.find(s => s.childBlock === this);
-                        if (slot) {
-                            slot.childBlock = null;
-                            this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
-                            this.updatePosition(svgPt.x, svgPt.y);
-                            this.parent.bubbleResize();
+                    // Écouteurs sur document : beginDrag ré-insère l'élément dans le DOM
+                    // (passage au premier plan), ce qui annulerait une capture posée sur lui
+                    const onMove = (ev) => {
+                        if (!engaged && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 8) return;
+                        if (!engaged) {
+                            engaged = true;
+                            this.detachFromParent();
+                            this.beginDrag(ev);
                         }
-                        else if (this.parent.next === this) {
-                            this.parent.next = null;
-                            this.parent.updateLayoutChain();
-                            this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
-                            this.updatePosition(svgPt.x, svgPt.y);
-                        }
-                        else if (this.parent.child === this) {
-                            this.parent.child = null;
-                            this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
-                            this.updatePosition(svgPt.x, svgPt.y);
-                            this.parent.render();
-                        }
-                        else if (this.parent.child2 === this) {
-                            this.parent.child2 = null;
-                            this.appendStackTo(this, self.widgetEl.querySelector('#sc-zoom-layer'));
-                            this.updatePosition(svgPt.x, svgPt.y);
-                            this.parent.render();
-                        }
-                        this.parent = null;
-                    }
-                    this.startDrag(e);
-                };
+                        this.dragMove(ev);
+                    };
+                    const onUp = (ev) => {
+                        document.removeEventListener('pointermove', onMove);
+                        document.removeEventListener('pointerup', onUp);
+                        document.removeEventListener('pointercancel', onUp);
+                        if (engaged) this.dragEnd(ev);
+                    };
+                    document.addEventListener('pointermove', onMove);
+                    document.addEventListener('pointerup', onUp);
+                    document.addEventListener('pointercancel', onUp);
+                });
 
                 this.el.oncontextmenu = (e) => {
                     e.preventDefault(); e.stopPropagation();
@@ -946,10 +1017,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 }
             }
 
-            startDrag(e, isNew = false) {
+            beginDrag(e, isNew = false) {
                 this.el.classList.add('dragging');
                 const zoomLayer = self.widgetEl.querySelector('#sc-zoom-layer');
-                const sidebar = self.widgetEl.querySelector('#sc-sidebar');
 
                 if (this.el.parentNode !== zoomLayer) {
                     this.appendStackTo(this, zoomLayer);
@@ -962,48 +1032,48 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 }
 
                 const pt = getSVGPos(e);
-                const ox = pt.x - this.x; const oy = pt.y - this.y;
+                this._dragOX = pt.x - this.x; this._dragOY = pt.y - this.y;
+                this._dragFresh = isNew; // bloc tout juste tiré de la palette
+            }
 
-                const move = (ev) => {
-                    const p = getSVGPos(ev);
-                    this.updatePosition(p.x - ox, p.y - oy);
+            dragMove(ev) {
+                const p = getSVGPos(ev);
+                this.updatePosition(p.x - this._dragOX, p.y - this._dragOY);
 
-                    const rect = self.widgetEl.getBoundingClientRect();
-                    const relX = ev.clientX - rect.left;
+                const sidebar = self.widgetEl.querySelector('#sc-sidebar');
+                const rect = self.widgetEl.getBoundingClientRect();
+                const relX = ev.clientX - rect.left;
+                const sbW = sidebar.offsetWidth;
 
-                    if (relX >= 350) isNew = false;
+                if (relX >= sbW) this._dragFresh = false;
 
-                    if (relX < 350 && !isNew) { // 350 = sidebar width
-                        sidebar.classList.add('trash-zone');
-                        self.widgetEl.querySelector('#sc-snap-indicator').style.display = "none";
-                    } else {
-                        sidebar.classList.remove('trash-zone');
-                        self.checkSnap(this);
-                    }
-                };
-
-                const up = (ev) => {
-                    this.el.classList.remove('dragging');
+                if (relX < sbW && !this._dragFresh) { // au-dessus de la palette = corbeille
+                    sidebar.classList.add('trash-zone');
+                    self.widgetEl.querySelector('#sc-snap-indicator').style.display = "none";
+                } else {
                     sidebar.classList.remove('trash-zone');
+                    self.checkSnap(this);
+                }
+            }
 
-                    const rect = self.widgetEl.getBoundingClientRect();
-                    const relX = ev.clientX - rect.left;
+            dragEnd(ev) {
+                this.el.classList.remove('dragging');
+                const sidebar = self.widgetEl.querySelector('#sc-sidebar');
+                sidebar.classList.remove('trash-zone');
 
-                    if (relX < 350) {
-                        let current = this;
-                        while (current) {
-                            current.el.remove();
-                            self.allBlocks = self.allBlocks.filter(b => b !== current);
-                            current = current.next;
-                        }
-                    } else {
-                        self.applySnap(this);
+                const rect = self.widgetEl.getBoundingClientRect();
+                const relX = ev.clientX - rect.left;
+
+                if (relX < sidebar.offsetWidth) {
+                    let current = this;
+                    while (current) {
+                        current.el.remove();
+                        self.allBlocks = self.allBlocks.filter(b => b !== current);
+                        current = current.next;
                     }
-                    window.removeEventListener('mousemove', move);
-                    window.removeEventListener('mouseup', up);
-                };
-
-                window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+                } else {
+                    self.applySnap(this);
+                }
             }
 
             render() {
@@ -1017,7 +1087,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                 this.parts.forEach(part => {
                     if (this.type === 'e-block' && part.val === 'sinon') return;
-                    if (part.type === 'label') { part.w = getTextWidth(part.val); part.h = 16; }
+                    if (part.type === 'label') { part.w = (part.val === '↻' || part.val === '↺') ? 16 : getTextWidth(part.val); part.h = 16; }
                     else if (part.type === 'input') {
                         const slot = part.spec;
                         if (slot.childBlock) { part.w = slot.childBlock.width; part.h = slot.childBlock.height; }
@@ -1039,10 +1109,29 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                     if (part.type === 'label') {
                         if ((this.type === 'reporter' || this.type === 'boolean') && cx <= 8) cx += 4;
-                        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                        t.classList.add("sc-block-text"); t.textContent = part.val;
-                        t.setAttribute("x", cx); t.setAttribute("y", midY);
-                        this.contentGroup.appendChild(t);
+                        if (part.val === '↻' || part.val === '↺') {
+                            // Icône vectorielle plutôt qu'un glyphe Unicode : évite les soucis de
+                            // police manquante lors du rendu SVG->image à l'export sur le tableau.
+                            const isCW = part.val === '↻';
+                            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                            g.setAttribute("transform", `translate(${cx}, ${midY - 8}) scale(0.6)`);
+                            g.setAttribute("fill", "none");
+                            g.style.stroke = "var(--text-color)";
+                            g.setAttribute("stroke-width", "2.5");
+                            g.setAttribute("stroke-linecap", "round");
+                            g.setAttribute("stroke-linejoin", "round");
+                            const poly = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            poly.setAttribute("d", isCW ? "M23 4 L23 10 L17 10" : "M1 4 L1 10 L7 10");
+                            const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            arc.setAttribute("d", isCW ? "M20.49 15a9 9 0 1 1-2.12-9.36L23 10" : "M3.51 15a9 9 0 1 0 2.13-9.36L1 10");
+                            g.appendChild(poly); g.appendChild(arc);
+                            this.contentGroup.appendChild(g);
+                        } else {
+                            const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                            t.classList.add("sc-block-text"); t.textContent = part.val;
+                            t.setAttribute("x", cx); t.setAttribute("y", midY);
+                            this.contentGroup.appendChild(t);
+                        }
                         cx += part.w + 8;
                     }
                     else if (part.type === 'input') {
@@ -1064,7 +1153,15 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                                 const inp = document.createElement("input");
                                 inp.value = slot.val; inp.className = "sc-input-field";
 
+                                // En palette, le champ ne doit pas capter le doigt :
+                                // c'est le chip entier qui se glisse vers l'espace de travail
+                                if (this.isPalette) { inp.readOnly = true; inp.tabIndex = -1; inp.style.pointerEvents = 'none'; }
+
                                 inp.onmousedown = e => {
+                                    if (self.teacherMode) { e.preventDefault(); e.stopPropagation(); }
+                                    else { e.stopPropagation(); }
+                                };
+                                inp.onpointerdown = e => {
                                     if (self.teacherMode) { e.preventDefault(); e.stopPropagation(); }
                                     else { e.stopPropagation(); }
                                 };
@@ -1216,12 +1313,50 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                 b.updatePosition(2, 2);
                 w.appendChild(svg);
-                w.onmousedown = (e) => {
+                // Pointer Events + seuil (mécanique AtoutMath) : un appui bref AJOUTE le
+                // bloc dans l'espace de travail, un glissé horizontal l'EXTRAIT sous le
+                // doigt, un glissé vertical fait DÉFILER la palette (pas de défilement
+                // natif au doigt : le body est en touch-action:none).
+                w.addEventListener('pointerdown', (e) => {
                     if (self.teacherMode) return;
-                    e.preventDefault(); const pt = getSVGPos(e);
-                    const nb = new this.BlockClass(def, pt.x - b.width / 2, pt.y - b.topRowHeight / 2, self.widgetEl.querySelector('#sc-zoom-layer'));
-                    nb.startDrag(e, true);
-                };
+                    if (e.button !== undefined && e.button !== 0) return;
+                    e.preventDefault();
+
+                    const start = { x: e.clientX, y: e.clientY };
+                    let nb = null, scrolling = false, lastY = e.clientY;
+                    if (w.setPointerCapture) { try { w.setPointerCapture(e.pointerId); } catch (err) { } }
+
+                    const onMove = (ev) => {
+                        if (!nb && !scrolling) {
+                            const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+                            if (Math.hypot(dx, dy) < 8) return;
+                            if (ev.pointerType !== 'mouse' && Math.abs(dy) > Math.abs(dx) * 1.5) {
+                                scrolling = true; lastY = ev.clientY; return;
+                            }
+                            const pt = getSVGPos(ev);
+                            nb = new self.BlockClass(def, pt.x - b.width / 2, pt.y - b.topRowHeight / 2, self.widgetEl.querySelector('#sc-zoom-layer'));
+                            nb.beginDrag(ev, true);
+                        }
+                        if (scrolling) { pad.scrollTop += lastY - ev.clientY; lastY = ev.clientY; return; }
+                        nb.dragMove(ev);
+                    };
+                    const onUp = (ev) => {
+                        w.removeEventListener('pointermove', onMove);
+                        w.removeEventListener('pointerup', onUp);
+                        w.removeEventListener('pointercancel', onUp);
+                        if (nb) { nb.dragEnd(ev); return; }
+                        if (scrolling || ev.type === 'pointercancel') return;
+                        // Simple appui : le bloc se pose tout seul dans l'espace de travail
+                        const ws = self.widgetEl.querySelector('.sc-workspace').getBoundingClientRect();
+                        self._tapDropCount = ((self._tapDropCount || 0) % 8) + 1;
+                        const pt = getSVGPos({ clientX: ws.left + 40 + self._tapDropCount * 16, clientY: ws.top + 30 + self._tapDropCount * 20 });
+                        new self.BlockClass(def, pt.x, pt.y, self.widgetEl.querySelector('#sc-zoom-layer'));
+                        self.blocksModified = true;
+                    };
+                    w.addEventListener('pointermove', onMove);
+                    w.addEventListener('pointerup', onUp);
+                    w.addEventListener('pointercancel', onUp);
+                });
                 pad.appendChild(w);
             });
         };
@@ -1289,13 +1424,16 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         const wrap = this.widgetEl.querySelector('#sc-preview-canvas-wrap');
         const inner = this.widgetEl.querySelector('#sc-preview-canvas-inner');
         const scCanvas = this.widgetEl.querySelector('#sc-preview-canvas');
+        if (!this.interpreter && scCanvas) {
+            this.interpreter = new ScratchInterpreter(scCanvas, this);
+        }
         if (wrap && inner && scCanvas) {
             let isDraggingCanvas = false;
             let lastX, lastY;
 
             self.previewPanX = 0;
             self.previewPanY = 0;
-            self.previewZoom = 1;
+            self.previewZoom = 1.5; // Bigger from the start
 
             const updatePreviewTransform = () => {
                 inner.style.transform = `translate(calc(-50% + ${self.previewPanX}px), calc(-50% + ${self.previewPanY}px))`;
@@ -1310,18 +1448,29 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                     self.interpreter.render();
                 }
             };
+            self.updatePreviewTransform = updatePreviewTransform;
 
             this.widgetEl.querySelector('#sc-btn-prev-zoom-in').onclick = () => { self.previewZoom = Math.min(5, self.previewZoom + 0.2); updatePreviewTransform(); };
             this.widgetEl.querySelector('#sc-btn-prev-zoom-out').onclick = () => { self.previewZoom = Math.max(0.2, self.previewZoom - 0.2); updatePreviewTransform(); };
             this.widgetEl.querySelector('#sc-btn-prev-zoom-reset').onclick = () => { self.previewZoom = 1; self.previewPanX = 0; self.previewPanY = 0; updatePreviewTransform(); };
+            this.widgetEl.querySelector('#sc-btn-center-cat').onclick = () => {
+                if (self.interpreter && self.interpreter.sprite) {
+                    self.previewPanX = -self.interpreter.sprite.x * self.previewZoom;
+                    self.previewPanY = self.interpreter.sprite.y * self.previewZoom;
+                    updatePreviewTransform();
+                }
+            };
 
-            wrap.onmousedown = (e) => {
+            // Pointer Events : le pan de l'aperçu marche aussi au doigt
+            wrap.addEventListener('pointerdown', (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
                 isDraggingCanvas = true;
                 wrap.style.cursor = 'grabbing';
                 lastX = e.clientX;
                 lastY = e.clientY;
-            };
-            window.addEventListener('mousemove', (e) => {
+                if (wrap.setPointerCapture) { try { wrap.setPointerCapture(e.pointerId); } catch (err) { } }
+            });
+            wrap.addEventListener('pointermove', (e) => {
                 if (isDraggingCanvas) {
                     self.previewPanX += e.clientX - lastX;
                     self.previewPanY += e.clientY - lastY;
@@ -1330,25 +1479,25 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                     updatePreviewTransform();
                 }
             });
-            window.addEventListener('mouseup', () => {
+            const endPreviewPan = () => {
                 isDraggingCanvas = false;
                 if (wrap) wrap.style.cursor = 'grab';
-            });
+            };
+            wrap.addEventListener('pointerup', endPreviewPan);
+            wrap.addEventListener('pointercancel', endPreviewPan);
             wrap.addEventListener('wheel', (e) => {
                 e.preventDefault();
                 if (e.ctrlKey) {
-                    // Pinch to zoom
                     const zoomDelta = e.deltaY * -0.01;
                     self.previewZoom = Math.max(0.2, Math.min(5, self.previewZoom + zoomDelta));
                 } else {
-                    // Two-finger pan (trackpad)
                     self.previewPanX -= e.deltaX;
                     self.previewPanY -= e.deltaY;
                 }
                 updatePreviewTransform();
             }, { passive: false });
 
-            setTimeout(updatePreviewTransform, 100);
+            updatePreviewTransform(); // Call immediately
         }
 
         // Drag logic for preview modal
@@ -1870,11 +2019,18 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         for (let i = 0; i < originalTexts.length; i++) {
             const computedStyle = window.getComputedStyle(originalTexts[i]);
             cloneTexts[i].style.fill = computedStyle.fill;
-            cloneTexts[i].style.fontFamily = computedStyle.fontFamily;
+            cloneTexts[i].style.fontFamily = "sans-serif";
+            cloneTexts[i].setAttribute("font-family", "sans-serif");
             cloneTexts[i].style.fontSize = computedStyle.fontSize;
-            cloneTexts[i].style.fontWeight = computedStyle.fontWeight;
+            // svg2pdf/jsPDF ne comprennent que les mots-clés 'normal'/'bold', pas les poids numériques
+            // que le navigateur renvoie toujours dans getComputedStyle (ex: "600").
+            cloneTexts[i].style.fontWeight = (parseInt(computedStyle.fontWeight, 10) || 400) >= 600 ? 'bold' : 'normal';
             cloneTexts[i].style.textShadow = computedStyle.textShadow;
             cloneTexts[i].setAttribute("dominant-baseline", "central");
+            // svg2pdf ignore dominant-baseline (propriété non supportée) et ne comprend que
+            // alignment-baseline : sans ça, le texte retombe sur la ligne de base par défaut
+            // au lieu d'être centré verticalement, d'où le décalage visible uniquement dans le PDF.
+            cloneTexts[i].setAttribute("alignment-baseline", "central");
         }
 
         const originalInputs = svg.querySelectorAll('input');
@@ -1894,8 +2050,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             text.setAttribute("x", w / 2);
             text.setAttribute("y", h / 2);
             text.setAttribute("dominant-baseline", "central");
+            text.setAttribute("alignment-baseline", "central");
             text.setAttribute("text-anchor", "middle");
-            text.style.fontFamily = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+            text.style.fontFamily = "sans-serif";
             text.style.fontSize = "12px";
             text.style.fontWeight = "bold";
 
@@ -1916,6 +2073,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         }
 
         this.widgetEl.style.display = 'none';
+        const previewEl = document.querySelector('#sc-preview-thumbnail');
+        if (previewEl) previewEl.style.display = 'none';
 
         const serializeBlock = (b) => {
             if (!b) return null;
@@ -1954,6 +2113,12 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         this.editingImage = imgObj;
         this.openWidget();
 
+        // Prevent double click bleed-through
+        if (this.widgetEl) {
+            this.widgetEl.style.pointerEvents = 'none';
+            setTimeout(() => { this.widgetEl.style.pointerEvents = 'auto'; }, 300);
+        }
+
         setTimeout(() => {
             // Nettoyage de l'espace de travail avant réédition pour éviter les duplications
             if (this.allBlocks) {
@@ -1981,6 +2146,10 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 if (obj.child) { b.child = deserializeBlock(obj.child, container); b.child.parent = b; }
                 if (obj.child2) { b.child2 = deserializeBlock(obj.child2, container); b.child2.parent = b; }
                 if (obj.next) { b.next = deserializeBlock(obj.next, container); b.next.parent = b; }
+
+                // CRITICAL: Re-render the block now that its children and inputs are attached,
+                // so it computes the correct totalHeight bottom-up.
+                b.render();
                 return b;
             };
 
@@ -2021,3 +2190,4 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         return false;
     }
 });
+

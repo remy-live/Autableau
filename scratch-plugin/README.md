@@ -46,6 +46,16 @@ Sans ces fonctions, l'éditeur reste pleinement utilisable ; seule la fonction �
 
 Si un élément `#plugins-grid` existe dans la page, `init()` y ajoute automatiquement un bouton d'ouverture de l'outil.
 
+## Tablette / tactile
+
+La construction des blocs fonctionne entièrement au doigt et au stylet (Pointer Events + capture, seuil tap/glisser de 8 px) :
+
+- **appui bref** sur un bloc de la palette : le bloc s'ajoute dans l'espace de travail ;
+- **glissé horizontal** depuis la palette : le bloc s'extrait et suit le doigt ;
+- **glissé vertical** sur la palette : la palette défile ;
+- glisser un bloc de l'espace de travail vers la palette le supprime (corbeille) ;
+- l'emboîtement, le pan de l'aperçu et le déplacement de la fenêtre marchent aussi au doigt.
+
 ## Origine
 
-Code extrait tel quel des lignes 17866–19834 de `plugin.js` d'Autableau (sections « PLUGIN : SCRATCH BLOCKS » et classe `ScratchInterpreter`), sans modification — seul le shim d'en-tête a été ajouté.
+Code extrait tel quel de la section « PLUGIN : SCRATCH BLOCKS » (+ classe `ScratchInterpreter`) du `plugin.js` d'Autableau, sans modification — seul le shim d'en-tête a été ajouté. Régénéré depuis la version du 10/08/2026 (portage tactile de la construction des blocs).
