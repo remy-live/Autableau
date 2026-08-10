@@ -207,6 +207,9 @@ let currentTracingArc = null;
 let activeGuides = { x: [], y: [] };
 
 let activePointers = new Map();
+// Pose de tampon au doigt/stylet : id du pointeur qui fait glisser le fantôme,
+// la pose n'est validée qu'au relâchement (pointerup).
+let touchStampPointerId = null;
 let initialPinchDist = null; let initialPinchCenter = null;
 let initialPanX = 0; let initialPanY = 0; let initialZoom = 1;
 
@@ -4077,6 +4080,17 @@ canvas.addEventListener('pointerdown', (e) => {
 
     const rawPos = getRawLogicalPos(e);
     lastRawX = rawPos.x; lastRawY = rawPos.y;
+
+    // --- TAMPON TACTILE : au doigt/stylet, le contact affiche le fantôme, la pose se fait au relâcher ---
+    if (touchStampPointerId !== null) return; // une pose de tampon est déjà en cours, on ignore les autres doigts
+    if ((e.pointerType === 'touch' || e.pointerType === 'pen') && activePointers.size === 1
+        && mode !== 'pointer' && typeof hasPendingStamp === 'function' && hasPendingStamp()) {
+        touchStampPointerId = e.pointerId;
+        mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+        draw();
+        return;
+    }
+
     // Si un plugin gère le clic (ex: l'outil fraction est actif), on arrête le code normal
     if (PluginManager.trigger('onPointerDown', rawPos, e)) return;
 
@@ -4344,6 +4358,16 @@ canvas.addEventListener('pointermove', (e) => {
     if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, e);
     const rawPos = getRawLogicalPos(e);
     lastRawX = rawPos.x; lastRawY = rawPos.y;
+
+    // Tampon tactile en cours : le fantôme suit le doigt/stylet
+    if (touchStampPointerId !== null) {
+        if (e.pointerId === touchStampPointerId) {
+            mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+            requestAnimationFrame(draw);
+        }
+        return;
+    }
+
     if (isLoupeActive) requestAnimationFrame(draw);
     if (PluginManager.trigger('onPointerMove', rawPos, e)) return;
 
@@ -4705,6 +4729,20 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', handlePointerUp); canvas.addEventListener('pointercancel', handlePointerUp); canvas.addEventListener('pointerout', handlePointerUp);
 
 function handlePointerUp(e) {
+    // Tampon tactile : la pose est validée au relâchement du doigt/stylet
+    if (touchStampPointerId !== null && e.pointerId === touchStampPointerId) {
+        if (e.type === 'pointerout') return; // capture active, le doigt est toujours posé
+        touchStampPointerId = null;
+        activePointers.delete(e.pointerId);
+        if (activePointers.size === 0) isPanningView = false;
+        if (e.type === 'pointerup') {
+            const rawPos = getRawLogicalPos(e);
+            mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+            PluginManager.trigger('onPointerDown', rawPos, e); // les plugins valident la pose ici
+        }
+        draw();
+        return;
+    }
     if (PluginManager.trigger('onPointerUp', e)) return;
     if (draggedWidget) {
         if (draggedWidget instanceof CompassWidget && draggedWidgetMode === 'trace') {
