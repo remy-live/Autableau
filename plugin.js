@@ -1671,7 +1671,7 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
             const style = document.createElement('style'); style.id = 'f-style';
             style.innerHTML = `
                 #f-palette { position:fixed; width:360px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
-                .f-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
+                .f-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; touch-action:none; }
                 #edit-banner-f { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner-f:hover { background:#c0392b; }
                 .f-content { padding:15px; }
@@ -1746,14 +1746,19 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.f-header');
-        header.onmousedown = (e) => { isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top; };
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest && e.target.closest('button')) return;
+            if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) { } }
+            isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top;
+        });
         const onMouseMove = (e) => { if (isDragging) { this.paletteEl.style.left = (e.clientX - offsetX) + 'px'; this.paletteEl.style.top = (e.clientY - offsetY) + 'px'; } };
         const onMouseUp = () => isDragging = false;
-        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('pointermove', onMouseMove); document.addEventListener('pointerup', onMouseUp); document.addEventListener('pointercancel', onMouseUp);
 
         this.paletteEl.querySelector('#edit-banner-f').onclick = () => this.exitEditMode();
         this.paletteEl.querySelector('#f-close').onclick = () => {
-            document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp);
+            document.removeEventListener('pointermove', onMouseMove); document.removeEventListener('pointerup', onMouseUp); document.removeEventListener('pointercancel', onMouseUp);
             document.body.removeChild(this.paletteEl); this.paletteEl = null; this.currentStamp = null; this.exitEditMode(); setMode('pointer');
         };
 
@@ -1914,7 +1919,7 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
             const style = document.createElement('style'); style.id = 'a-style';
             style.innerHTML = `
                 #a-palette { position:fixed; width:340px; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s; }
-                .a-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
+                .a-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; touch-action:none; }
                 #edit-banner { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner:hover { background:#c0392b; }
                 .a-content { padding:12px; }
@@ -2036,15 +2041,20 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.a-header');
-        header.onmousedown = (e) => { isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top; };
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest && e.target.closest('button')) return;
+            if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) { } }
+            isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top;
+        });
         const onMouseMove = (e) => { if (isDragging) { this.paletteEl.style.left = (e.clientX - offsetX) + 'px'; this.paletteEl.style.top = (e.clientY - offsetY) + 'px'; } };
         const onMouseUp = () => isDragging = false;
-        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('pointermove', onMouseMove); document.addEventListener('pointerup', onMouseUp); document.addEventListener('pointercancel', onMouseUp);
 
         this.paletteEl.querySelector('#edit-banner').onclick = () => this.exitEditMode();
 
         this.paletteEl.querySelector('#a-close').onclick = () => {
-            document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp);
+            document.removeEventListener('pointermove', onMouseMove); document.removeEventListener('pointerup', onMouseUp); document.removeEventListener('pointercancel', onMouseUp);
             clearInterval(this.gridCheckInterval); document.body.removeChild(this.paletteEl); this.paletteEl = null; this.currentStamp = null; this.exitEditMode(); setMode('pointer');
         };
 
@@ -3453,15 +3463,21 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
 
         // Déplacement de la fenêtre
         let isDragging = false, offset = { x: 0, y: 0 };
-        this.widgetEl.querySelector('#sound-header').onmousedown = (e) => {
+        const soundHeader = this.widgetEl.querySelector('#sound-header');
+        soundHeader.style.touchAction = 'none';
+        soundHeader.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.tagName === 'BUTTON') return;
+            if (soundHeader.setPointerCapture) { try { soundHeader.setPointerCapture(e.pointerId); } catch (err) {} }
             isDragging = true;
             offset = { x: e.clientX - this.widgetEl.offsetLeft, y: e.clientY - this.widgetEl.offsetTop };
-        };
-        window.addEventListener('mousemove', (e) => {
+        });
+        document.addEventListener('pointermove', (e) => {
             if (isDragging) { this.widgetEl.style.left = (e.clientX - offset.x) + 'px'; this.widgetEl.style.top = (e.clientY - offset.y) + 'px'; }
         });
-        window.addEventListener('mouseup', () => isDragging = false);
+        const soundEndDrag = () => isDragging = false;
+        document.addEventListener('pointerup', soundEndDrag);
+        document.addEventListener('pointercancel', soundEndDrag);
 
         // Écouteurs
         this.widgetEl.querySelector('#sound-thresh').oninput = (e) => {
@@ -5036,30 +5052,34 @@ registerPlugin('solid3DTool', 'Maths - Géométrie', {
     createCanvasRemote: function (id, pd) {
         if (document.getElementById('solid-3d-remote')) document.getElementById('solid-3d-remote').remove();
         const remote = document.createElement('div'); remote.id = 'solid-3d-remote';
-        remote.style.cssText = "position:absolute; top:100px; left:100px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; flex-direction:column; padding: 15px 25px; gap: 10px; border: 2px solid #2d3436; font-family: sans-serif; width: 350px; cursor:move;";
+        remote.style.cssText = "position:absolute; top:100px; left:100px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; flex-direction:column; padding: 15px 25px; gap: 10px; border: 2px solid #2d3436; font-family: sans-serif; width: 350px; cursor:move; touch-action:none;";
 
         let isDragging = false, startX, startY, startLeft, startTop;
-        remote.onmousedown = (e) => {
+        remote.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'LABEL') return;
+            if (remote.setPointerCapture) { try { remote.setPointerCapture(e.pointerId); } catch (err) { } }
             isDragging = true;
             startX = e.clientX; startY = e.clientY;
             startLeft = parseInt(remote.style.left || 100);
             startTop = parseInt(remote.style.top || 100);
-        };
+        });
         const onMove = (e) => {
             if (!isDragging) return;
             remote.style.left = (startLeft + e.clientX - startX) + 'px';
             remote.style.top = (startTop + e.clientY - startY) + 'px';
         };
         const onUp = () => isDragging = false;
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
 
         // Clean up events on remove
         const oldRemove = remote.remove;
         remote.remove = function () {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            document.removeEventListener('pointercancel', onUp);
             oldRemove.call(this);
         };
 
@@ -6219,8 +6239,8 @@ registerPlugin('popcornTool', 'Jeux', {
             if (e.key === 'ArrowRight') this.keys.right = false;
         });
 
-        // Suivi de la souris GLOBALE (même en dehors du canvas)
-        window.addEventListener('mousemove', (e) => {
+        // Suivi du pointeur GLOBAL (même en dehors du canvas) — souris ou doigt
+        window.addEventListener('pointermove', (e) => {
             if (this.game.state === 'playing' && !this.keys.left && !this.keys.right && this.canvas) {
                 const rect = this.canvas.getBoundingClientRect();
                 this.paddle.x = (e.clientX - rect.left) - this.paddle.width / 2;
@@ -6308,9 +6328,17 @@ registerPlugin('popcornTool', 'Jeux', {
 
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#pop-drag-handle');
-        handle.onmousedown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest('button')) return;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
+            isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
+        });
+        document.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        const popEndDrag = () => { isDragging = false; };
+        document.addEventListener('pointerup', popEndDrag);
+        document.addEventListener('pointercancel', popEndDrag);
 
         this.widgetEl.querySelector('#pop-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; cancelAnimationFrame(this.animFrame); };
 
@@ -6324,7 +6352,9 @@ registerPlugin('popcornTool', 'Jeux', {
             this.game.state = 'title'; this.updateUI();
         };
 
-        this.canvas.addEventListener('mousedown', (e) => {
+        this.canvas.style.touchAction = 'none';
+        this.canvas.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             const rect = this.canvas.getBoundingClientRect();
             const rx = e.clientX - rect.left; const ry = e.clientY - rect.top;
 
@@ -7417,12 +7447,17 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
             let isDragging = false, startX, startY;
             const header = this.widgetEl.querySelector('.geg-header');
-            header.onmousedown = (e) => {
+            header.style.touchAction = 'none';
+            header.addEventListener('pointerdown', (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
                 if (e.target.closest('button')) return;
+                if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) {} }
                 isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-            };
-            window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-            window.addEventListener('mouseup', () => { isDragging = false; });
+            });
+            document.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+            const gegEndDrag = () => { isDragging = false; };
+            document.addEventListener('pointerup', gegEndDrag);
+            document.addEventListener('pointercancel', gegEndDrag);
 
             this.widgetEl.querySelector('#geg-close').onclick = () => this.widgetEl.style.display = 'none';
             this.widgetEl.querySelector('#geg-generate').onclick = () => this.generateAndStamp();
@@ -10340,7 +10375,7 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
                         </button>
                     </div>
 
-                    <div id="mol-workspace" style="flex:1; position:relative; overflow:hidden; background:#fafafa;">
+                    <div id="mol-workspace" style="flex:1; position:relative; overflow:hidden; background:#fafafa; touch-action:none;">
                         <svg id="mol-svg-layer" width="100%" height="100%" style="position:absolute; top:0; left:0; pointer-events:none;"></svg>
                         <div id="mol-html-layer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
                     </div>
@@ -10394,9 +10429,16 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         document.getElementById('mol-b-triple').onclick = () => this.setBondType(3);
         document.getElementById('mol-t-delete').onclick = () => this.deleteSelected();
 
-        this.workspace.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.workspace.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.workspace.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.tagName !== 'INPUT' && !e.target.closest('#mol-fixed-toolbar') && this.workspace.setPointerCapture) {
+                try { this.workspace.setPointerCapture(e.pointerId); } catch (err) { }
+            }
+            this.onMouseDown(e);
+        });
+        this.workspace.addEventListener('pointermove', (e) => this.onMouseMove(e));
+        window.addEventListener('pointerup', (e) => this.onMouseUp(e));
+        window.addEventListener('pointercancel', (e) => this.onMouseUp(e));
         this.workspace.addEventListener('dblclick', (e) => this.onDoubleClick(e));
 
         btn.addEventListener('click', (e) => {
@@ -10789,6 +10831,7 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:16px; pointer-events:auto;`;
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
+        inp.addEventListener('pointerdown', e => e.stopPropagation());
         this.htmlLayer.appendChild(inp);
         setTimeout(() => { inp.focus(); inp.select(); }, 10);
 
@@ -11448,7 +11491,8 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         });
 
         // Boutons flottants Ajout/Suppression
-        this.htmlLayer.addEventListener('mousedown', (e) => {
+        this.htmlLayer.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             let btn = e.target.closest('.tab-str-btn');
             if (btn) {
                 let action = btn.dataset.act;
@@ -11465,9 +11509,14 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
             }
         });
 
-        this.workspace.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.workspace.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.workspace.style.touchAction = 'none';
+        this.workspace.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            this.onMouseDown(e);
+        });
+        this.workspace.addEventListener('pointermove', (e) => this.onMouseMove(e));
+        window.addEventListener('pointerup', (e) => this.onMouseUp(e));
+        window.addEventListener('pointercancel', (e) => this.onMouseUp(e));
         this.workspace.addEventListener('dblclick', (e) => this.onDoubleClick(e));
 
         btn.addEventListener('click', (e) => {
@@ -11881,6 +11930,7 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
 
     onMouseDown: function (e) {
         if (this.isEditingText || e.target.tagName === 'INPUT' || e.target.closest('#tab-fixed-toolbar')) return;
+        if (e.pointerId !== undefined && this.workspace.setPointerCapture) { try { this.workspace.setPointerCapture(e.pointerId); } catch (err) {} }
 
         let rect = this.workspace.getBoundingClientRect();
         let mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -12003,6 +12053,7 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         }
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
+        inp.addEventListener('pointerdown', e => e.stopPropagation());
         this.htmlLayer.appendChild(inp);
         setTimeout(() => { inp.focus(); inp.select(); }, 10);
 
@@ -12472,16 +12523,20 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         this.widgetEl.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('keydown', (e) => e.stopPropagation()); });
 
         let isDragging = false, startX, startY;
-        this.widgetEl.querySelector('.drag-handle-dw').onmousedown = (e) => {
+        const dwHandle = this.widgetEl.querySelector('.drag-handle-dw');
+        dwHandle.style.touchAction = 'none';
+        dwHandle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button')) return;
+            if (dwHandle.setPointerCapture) { try { dwHandle.setPointerCapture(e.pointerId); } catch (err) {} }
             isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-        };
+        });
         const onMouseMove = (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } };
         const onMouseUp = () => isDragging = false;
-        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('pointermove', onMouseMove); document.addEventListener('pointerup', onMouseUp); document.addEventListener('pointercancel', onMouseUp);
 
         this.widgetEl.querySelector('.dw-close').onclick = () => {
-            document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp);
+            document.removeEventListener('pointermove', onMouseMove); document.removeEventListener('pointerup', onMouseUp); document.removeEventListener('pointercancel', onMouseUp);
             this.closeWidget();
         };
 
@@ -13070,7 +13125,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
             .pix-color-num { font-size:12px; font-weight:bold; color:white; mix-blend-mode:difference; pointer-events:none; }
 
             #pix-canvas-wrapper { position:relative; box-shadow:0 10px 30px rgba(0,0,0,0.1); border:2px solid #bdc3c7; background:white; }
-            #pix-canvas { image-rendering: pixelated; cursor: crosshair; display:block; }
+            #pix-canvas { image-rendering: pixelated; cursor: crosshair; display:block; touch-action:none; }
             #pix-grid-canvas { position:absolute; top:0; left:0; pointer-events:none; }
             
             #pix-preview-container { position:absolute; top:20px; right:20px; width:120px; height:120px; background:white; border:2px solid #bdc3c7; border-radius:6px; box-shadow:0 5px 15px rgba(0,0,0,0.1); display:flex; justify-content:center; align-items:center; overflow:hidden; }
@@ -13179,7 +13234,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
             <div style="background:white; border-radius:10px; padding:20px; display:flex; flex-direction:column; align-items:center; gap:15px; max-width:90%;">
                 <h3 style="margin:0; color:#2d3436;">✂️ Recadrer l'image</h3>
                 <div style="position:relative; max-width:800px; max-height:500px; overflow:hidden; border:2px solid #bdc3c7; background:#ecf0f1; border-radius:4px;" id="pix-crop-wrapper">
-                    <canvas id="pix-crop-canvas" style="cursor:crosshair;"></canvas>
+                    <canvas id="pix-crop-canvas" style="cursor:crosshair; touch-action:none;"></canvas>
                 </div>
                 <div style="display:flex; gap:10px; width:100%; justify-content:flex-end;">
                     <button id="pix-crop-cancel" style="padding:8px 16px; border-radius:6px; background:#f1f2f6; border:none; cursor:pointer; font-weight:bold;">Annuler</button>
@@ -13252,14 +13307,25 @@ registerPlugin('pixelStudioTool', 'Jeux', {
         };
 
         // Canvas Events
-        this.canvas.addEventListener('mousedown', (e) => this.handleMouse(e, true));
-        this.canvas.addEventListener('mousemove', (e) => this.handleMouse(e, false));
-        window.addEventListener('mouseup', () => { if (this.isDrawing) { this.isDrawing = false; this.saveHistory(); } });
+        this.canvas.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (this.canvas.setPointerCapture) { try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { } }
+            this.handleMouse(e, true);
+        });
+        this.canvas.addEventListener('pointermove', (e) => this.handleMouse(e, false));
+        const pixEndDraw = () => { if (this.isDrawing) { this.isDrawing = false; this.saveHistory(); } };
+        window.addEventListener('pointerup', pixEndDraw);
+        window.addEventListener('pointercancel', pixEndDraw);
 
         // Crop Events
-        this.cropCanvas.addEventListener('mousedown', (e) => this.handleCropMouse(e, 'down'));
-        this.cropCanvas.addEventListener('mousemove', (e) => this.handleCropMouse(e, 'move'));
-        this.cropCanvas.addEventListener('mouseup', (e) => this.handleCropMouse(e, 'up'));
+        this.cropCanvas.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (this.cropCanvas.setPointerCapture) { try { this.cropCanvas.setPointerCapture(e.pointerId); } catch (err) { } }
+            this.handleCropMouse(e, 'down');
+        });
+        this.cropCanvas.addEventListener('pointermove', (e) => this.handleCropMouse(e, 'move'));
+        this.cropCanvas.addEventListener('pointerup', (e) => this.handleCropMouse(e, 'up'));
+        this.cropCanvas.addEventListener('pointercancel', (e) => this.handleCropMouse(e, 'up'));
 
         // Boutons Démos et Import
         document.getElementById('pix-demo-select').onchange = (e) => {
@@ -14604,7 +14670,7 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
             const style = document.createElement('style'); style.id = 'c-style';
             style.innerHTML = `
                 #c-palette { position:fixed; width:max-content; min-width:330px; max-width:90vw; background:#fff; border-radius:8px; box-shadow:0 15px 40px rgba(0,0,0,0.3); z-index:9000; font-family: sans-serif; overflow:hidden; border:1px solid #dfe6e9; user-select:none; transition: box-shadow 0.3s;}
-                .c-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; }
+                .c-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe6e9; cursor:move; touch-action:none; }
                 #edit-banner-c { display:none; background:#e74c3c; color:white; text-align:center; padding:6px; font-weight:bold; font-size:12px; cursor:pointer; }
                 #edit-banner-c:hover { background:#c0392b; }
                 .c-controls { display:flex; justify-content:space-between; align-items:center; background:#f1f2f6; padding:8px 12px; border-radius:6px; margin-bottom:10px; font-size:13px; font-weight:bold; }
@@ -14670,15 +14736,20 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.c-header');
-        header.onmousedown = (e) => { isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top; };
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest && e.target.closest('button')) return;
+            if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) { } }
+            isDragging = true; const rect = this.paletteEl.getBoundingClientRect(); offsetX = e.clientX - rect.left; offsetY = e.clientY - rect.top;
+        });
         const onMouseMove = (e) => { if (isDragging) { this.paletteEl.style.left = (e.clientX - offsetX) + 'px'; this.paletteEl.style.top = (e.clientY - offsetY) + 'px'; } };
         const onMouseUp = () => isDragging = false;
-        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('pointermove', onMouseMove); document.addEventListener('pointerup', onMouseUp); document.addEventListener('pointercancel', onMouseUp);
 
         this.paletteEl.querySelector('#edit-banner-c').onclick = () => this.exitEditMode();
 
         this.paletteEl.querySelector('#c-close').onclick = () => {
-            document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp);
+            document.removeEventListener('pointermove', onMouseMove); document.removeEventListener('pointerup', onMouseUp); document.removeEventListener('pointercancel', onMouseUp);
             clearInterval(this.gridCheckInterval); document.body.removeChild(this.paletteEl); this.paletteEl = null; this.currentStamp = null; this.exitEditMode(); setMode('pointer');
         };
 
@@ -15024,12 +15095,17 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
         // --- DRAG FENETRE ---
         let isDraggingWin = false, startX, startY;
         const handle = this.widgetEl.querySelector('#spr-drag-handle');
-        handle.onmousedown = (e) => {
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button')) return;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
             isDraggingWin = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-        };
-        window.addEventListener('mousemove', (e) => { if (isDraggingWin) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDraggingWin = false; this.isSelecting = false; this.stopFill(); });
+        });
+        document.addEventListener('pointermove', (e) => { if (isDraggingWin) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        const sprPointerEnd = () => { isDraggingWin = false; this.isSelecting = false; this.stopFill(); };
+        document.addEventListener('pointerup', sprPointerEnd);
+        document.addEventListener('pointercancel', sprPointerEnd);
 
         // --- MASQUAGE ID ---
         this.widgetEl.querySelector('#spr-active-id').onclick = () => {
@@ -15068,7 +15144,7 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
         borderBtn.onclick = (e) => { e.stopPropagation(); borderMenu.classList.toggle('visible'); borderBtn.classList.toggle('active'); };
 
         // Masquer si on clique ailleurs, sauf DANS le menu
-        document.addEventListener('mousedown', (e) => {
+        document.addEventListener('pointerdown', (e) => {
             if (!borderMenu.contains(e.target) && e.target !== borderBtn) {
                 borderMenu.classList.remove('visible'); borderBtn.classList.remove('active');
             }
@@ -15106,8 +15182,12 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
 
         // --- DRAG HANDLE OVERLAY ---
         const fillHandle = this.widgetEl.querySelector('#spr-fill-handle');
-        fillHandle.onmousedown = (e) => {
+        fillHandle.style.touchAction = 'none';
+        fillHandle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             e.stopPropagation();
+            // Pas de capture : l'extension du remplissage repose sur les pointerenter des cellules
+            if (fillHandle.releasePointerCapture) { try { fillHandle.releasePointerCapture(e.pointerId); } catch (err) {} }
             this.isFilling = true;
             let minC = 999, minR = 999, maxC = -1, maxR = -1;
             this.selectedCells.forEach(id => {
@@ -15119,7 +15199,7 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
             });
             this.fillSourceRange = { minCol: minC, minRow: minR, maxCol: maxC, maxRow: maxR };
             this.fillEnd = this.makeId(maxC, maxR);
-        };
+        });
 
         this.buildGridHTML();
         this.renderTable();
@@ -15232,14 +15312,19 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
         grid.innerHTML = html;
 
         grid.querySelectorAll('.spr-td').forEach(td => {
-            td.onmousedown = (e) => {
+            td.style.touchAction = 'none';
+            td.onpointerdown = (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
                 if (this.editingCell) return;
+                // Libère la capture implicite (tactile) : l'extension de sélection
+                // repose sur les pointerenter des autres cellules
+                if (td.releasePointerCapture) { try { td.releasePointerCapture(e.pointerId); } catch (err) {} }
                 this.isSelecting = true; this.selStart = td.dataset.id;
                 this.selectedCells.clear(); this.selectedCells.add(this.selStart);
                 this.updateFormulaBar(); this.renderTable();
             };
 
-            td.onmouseenter = (e) => {
+            td.onpointerenter = (e) => {
                 if (this.isSelecting) {
                     this.selectedCells = new Set(this.getRange(this.selStart, td.dataset.id));
                     this.updateFormulaBar(); this.renderTable();
@@ -17914,12 +17999,17 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
         // --- DRAG ---
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#rl-drag-handle');
-        handle.onmousedown = (e) => {
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button')) return;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
             isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-        };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        });
+        document.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        const rlEndDrag = () => { isDragging = false; };
+        document.addEventListener('pointerup', rlEndDrag);
+        document.addEventListener('pointercancel', rlEndDrag);
 
         // --- EVENTS ---
         this.widgetEl.querySelector('#rl-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; this.stopAnimation(); };
@@ -19082,9 +19172,14 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         document.getElementById('evol-t-weight').oninput = (e) => this.updateSelectedProp('strokeWidth', parseInt(e.target.value));
         document.getElementById('evol-t-delete').onclick = () => this.deleteSelected();
 
-        this.workspace.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.workspace.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.workspace.style.touchAction = 'none';
+        this.workspace.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            this.onMouseDown(e);
+        });
+        this.workspace.addEventListener('pointermove', (e) => this.onMouseMove(e));
+        window.addEventListener('pointerup', (e) => this.onMouseUp(e));
+        window.addEventListener('pointercancel', (e) => this.onMouseUp(e));
         this.workspace.addEventListener('dblclick', (e) => this.onDoubleClick(e));
 
         btn.addEventListener('click', (e) => {
@@ -19171,6 +19266,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
     // ==========================================
     onMouseDown: function (e) {
         if (this.isEditingText || e.target.tagName === 'INPUT') return;
+        if (e.pointerId !== undefined && this.workspace.setPointerCapture) { try { this.workspace.setPointerCapture(e.pointerId); } catch (err) {} }
 
         let rect = this.workspace.getBoundingClientRect();
         let mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -19402,6 +19498,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         inp.style.cssText = `position:absolute; left:${screenX - (width / 2)}px; top:${screenY - 16}px; width:${width}px; height:32px; box-sizing:border-box; text-align:center; font-weight:bold; outline:none; border:2px solid #0984e3; border-radius:6px; box-shadow:0 4px 15px rgba(0,0,0,0.15); z-index:10005; font-family: sans-serif; font-size:15px; pointer-events:auto;`;
 
         inp.addEventListener('mousedown', e => e.stopPropagation());
+        inp.addEventListener('pointerdown', e => e.stopPropagation());
         this.htmlLayer.appendChild(inp);
         setTimeout(() => { inp.focus(); inp.select(); }, 10);
 
@@ -22147,12 +22244,17 @@ registerPlugin('mathTaupeTool', 'Jeux', {
 
         let isDraggingWindow = false, startX, startY;
         const handle = this.widgetEl.querySelector('#tm-drag-handle');
-        handle.onmousedown = (e) => {
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button') || e.target.tagName === 'SELECT') return;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
             isDraggingWindow = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-        };
-        window.addEventListener('mousemove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDraggingWindow = false; });
+        });
+        document.addEventListener('pointermove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        const tmEndDrag = () => { isDraggingWindow = false; };
+        document.addEventListener('pointerup', tmEndDrag);
+        document.addEventListener('pointercancel', tmEndDrag);
 
         this.widgetEl.querySelector('#tm-close').onclick = () => {
             this.widgetEl.style.display = 'none';
@@ -22697,9 +22799,18 @@ registerPlugin('fireworksTool', 'Détente', {
         document.body.appendChild(this.widgetEl);
 
         let isDragging = false, startX, startY;
-        this.widgetEl.querySelector('#fw-drag-handle').onmousedown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDragging = false);
+        const fwHandle = this.widgetEl.querySelector('#fw-drag-handle');
+        fwHandle.style.touchAction = 'none';
+        fwHandle.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.tagName === 'BUTTON') return;
+            if (fwHandle.setPointerCapture) { try { fwHandle.setPointerCapture(e.pointerId); } catch (err) {} }
+            isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
+        });
+        document.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        const fwEndDrag = () => isDragging = false;
+        document.addEventListener('pointerup', fwEndDrag);
+        document.addEventListener('pointercancel', fwEndDrag);
 
         this.widgetEl.querySelector('#fw-close').onclick = () => this.widgetEl.style.display = 'none';
 
@@ -22811,7 +22922,7 @@ registerPlugin('fireworksTool', 'Détente', {
         this.ctx = this.canvas.getContext('2d');
 
         setTimeout(() => this.canvas.style.opacity = '1', 50);
-        this.canvas.addEventListener('mousedown', () => this.stopShow());
+        this.canvas.addEventListener('pointerdown', () => this.stopShow());
         window.addEventListener('resize', () => this.resizeCanvas());
 
         this.loop();
@@ -23734,12 +23845,17 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
 
             let isDraggingWindow = false, startX, startY;
             const handle = this.widgetEl.querySelector('#fp-drag-handle');
-            handle.onmousedown = (e) => {
+            handle.style.touchAction = 'none';
+            handle.addEventListener('pointerdown', (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
                 if (e.target.closest('button')) return;
+                if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) {} }
                 isDraggingWindow = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
-            };
-            window.addEventListener('mousemove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-            window.addEventListener('mouseup', () => { isDraggingWindow = false; });
+            });
+            document.addEventListener('pointermove', (e) => { if (isDraggingWindow) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+            const fpEndWinDrag = () => { isDraggingWindow = false; };
+            document.addEventListener('pointerup', fpEndWinDrag);
+            document.addEventListener('pointercancel', fpEndWinDrag);
 
             this.widgetEl.querySelector('#fp-close').onclick = () => this.widgetEl.style.display = 'none';
             this.widgetEl.querySelector('#fp-add-btn').onclick = () => this.addFunction();
@@ -23848,7 +23964,10 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
             this.canvas = this.widgetEl.querySelector('#fp-canvas');
             this.ctx = this.canvas.getContext('2d');
 
-            this.canvas.onmousedown = (e) => {
+            this.canvas.style.touchAction = 'none';
+            this.canvas.onpointerdown = (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
+                if (this.canvas.setPointerCapture) { try { this.canvas.setPointerCapture(e.pointerId); } catch (err) {} }
                 let rect = this.canvas.getBoundingClientRect();
                 let cy = e.clientY - rect.top;
 
@@ -23864,7 +23983,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                 this.dragMoved = false;
             };
 
-            this.canvas.onmousemove = (e) => {
+            this.canvas.onpointermove = (e) => {
                 let rect = this.canvas.getBoundingClientRect();
                 this.mouseX = e.clientX - rect.left;
                 this.mouseY = e.clientY - rect.top;
@@ -23892,7 +24011,8 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                 this.renderCanvas();
             };
 
-            this.canvas.onmouseup = () => { this.isDragging = false; this.draggingAntecedent = false; };
+            this.canvas.onpointerup = () => { this.isDragging = false; this.draggingAntecedent = false; };
+            this.canvas.onpointercancel = () => { this.isDragging = false; this.draggingAntecedent = false; };
             this.canvas.onmouseleave = () => { this.isDragging = false; this.draggingAntecedent = false; this.mouseX = null; this.mouseY = null; this.renderCanvas(); };
 
             this.canvas.onclick = (e) => {
@@ -25426,8 +25546,11 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
         let mStartX, mStartY, iMouseX, iMouseY;
         const header = this.widgetEl.querySelector('#fr-drag');
 
-        header.onmousedown = (e) => {
+        header.style.touchAction = 'none';
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button')) return;
+            if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) {} }
             isDraggingModal = true;
             iMouseX = e.clientX;
             iMouseY = e.clientY;
@@ -25435,9 +25558,9 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
             mStartX = rect.left;
             mStartY = rect.top;
             e.preventDefault();
-        };
+        });
 
-        window.addEventListener('mousemove', (e) => {
+        document.addEventListener('pointermove', (e) => {
             if (!isDraggingModal) return;
             const dx = e.clientX - iMouseX;
             const dy = e.clientY - iMouseY;
@@ -25445,9 +25568,9 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
             this.widgetEl.style.top = (mStartY + dy) + 'px';
         });
 
-        window.addEventListener('mouseup', () => {
-            isDraggingModal = false;
-        });
+        const frEndModalDrag = () => { isDraggingModal = false; };
+        document.addEventListener('pointerup', frEndModalDrag);
+        document.addEventListener('pointercancel', frEndModalDrag);
 
         this.widgetEl.querySelector('#fr-close').onclick = () => {
             this.widgetEl.style.display = 'none';
@@ -25573,13 +25696,18 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
         };
         setTimeout(updateSize, 100);
 
-        container.onmousedown = (e) => {
+        container.style.touchAction = 'none';
+        container.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (container.setPointerCapture) { try { container.setPointerCapture(e.pointerId); } catch (err) {} }
             this.state.isDragging = true;
             this.state.lastMouseX = e.clientX;
             this.state.lastMouseY = e.clientY;
-        };
-        window.addEventListener('mouseup', () => this.state.isDragging = false);
-        window.addEventListener('mousemove', (e) => {
+        });
+        const frEndPan = () => this.state.isDragging = false;
+        document.addEventListener('pointerup', frEndPan);
+        document.addEventListener('pointercancel', frEndPan);
+        document.addEventListener('pointermove', (e) => {
             if (!this.state.isDragging || this.widgetEl.style.display === 'none') return;
             const dx = e.clientX - this.state.lastMouseX;
             const dy = e.clientY - this.state.lastMouseY;
@@ -26209,20 +26337,25 @@ registerPlugin('whackAMole', 'Jeux', {
         let isDragging = false;
         let mStartX, mStartY, iMouseX, iMouseY;
         const header = this.widgetEl.querySelector('#std-drag');
-        header.onmousedown = (e) => {
+        header.style.touchAction = 'none';
+        header.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('button')) return;
+            if (header.setPointerCapture) { try { header.setPointerCapture(e.pointerId); } catch (err) {} }
             isDragging = true;
             iMouseX = e.clientX; iMouseY = e.clientY;
             const rect = this.widgetEl.getBoundingClientRect();
             mStartX = rect.left; mStartY = rect.top;
             e.preventDefault();
-        };
-        window.addEventListener('mousemove', (e) => {
+        });
+        document.addEventListener('pointermove', (e) => {
             if (!isDragging) return;
             this.widgetEl.style.left = (mStartX + e.clientX - iMouseX) + 'px';
             this.widgetEl.style.top = (mStartY + e.clientY - iMouseY) + 'px';
         });
-        window.addEventListener('mouseup', () => isDragging = false);
+        const stdEndDrag = () => isDragging = false;
+        document.addEventListener('pointerup', stdEndDrag);
+        document.addEventListener('pointercancel', stdEndDrag);
 
         this.widgetEl.querySelector('#std-close').onclick = () => {
             this.widgetEl.style.display = 'none';
@@ -26257,7 +26390,9 @@ registerPlugin('whackAMole', 'Jeux', {
         };
 
         this.moles.forEach(mole => {
-            mole.addEventListener('mousedown', (e) => {
+            mole.style.touchAction = 'none';
+            mole.addEventListener('pointerdown', (e) => {
+                if (e.button !== undefined && e.button !== 0) return;
                 if (!this.isPlaying) return;
                 if (mole.classList.contains('up') && !mole.classList.contains('hit')) {
                     mole.classList.remove('up');
