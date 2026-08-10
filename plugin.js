@@ -2777,7 +2777,7 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
     },
 
     onDraw: function (ctx) {
-        if (typeof mode !== 'undefined' && mode === 'money' && this.currentStamp && typeof mouseLogicalPos !== 'undefined') {
+        if (typeof mode !== 'undefined' && mode === 'money' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
             ctx.globalAlpha = 0.7;
             ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2);
             ctx.globalAlpha = 1.0;
@@ -7328,7 +7328,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
     openWidget: function (existingState = null) {
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; font-family: sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
+            this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; font-family: sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
 
             this.widgetEl.innerHTML = `
                 <div class="geg-header" style="background:#1e272e; color:#fff; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; font-weight:bold;">
@@ -23629,7 +23629,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
     openWidget: function (existingState = null) {
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:10000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
+            this.widgetEl.style.cssText = `position:fixed; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
 
 
             const style = document.createElement('style');
