@@ -2059,7 +2059,7 @@ function generateSVGString(rect, keepBg) {
                     const fontSize = obj.fontSize || 24;
                     const fontFamily = obj.fontFamily || 'sans-serif';
                     const lineHeight = obj.lineHeight || Math.round(fontSize * 1.2);
-                    let startY = obj.y + (fontSize * 0.1);
+                    let startY = obj.y + (fontSize * 0.1) + (lineHeight - fontSize * 1.2) / 2;
 
                     let maxW = 0;
                     const lineMetrics = lines.map(line => {
@@ -2081,7 +2081,9 @@ function generateSVGString(rect, keepBg) {
                     if (obj.isBubble && maxW < 20) { maxW = 150; }
 
                     let transformAttr = "";
-                    const cx = obj.x + (maxW / 2);
+                    // Convention canvas : en centré sans largeur fixe, obj.x est le CENTRE du bloc
+                    const exX = (align === 'center' && !obj.fixedWidth) ? obj.x - maxW / 2 : obj.x;
+                    const cx = exX + (maxW / 2);
                     const cy = obj.y + ((lines.length * lineHeight) / 2);
                     if (angle !== 0) {
                         transformAttr = ` transform="rotate(${angleDeg}, ${cx}, ${cy})"`;
@@ -2093,7 +2095,7 @@ function generateSVGString(rect, keepBg) {
                     if (obj.isBubble) {
                         let pad = obj.bubblePad !== undefined ? obj.bubblePad : 25;
                         let bw = maxW + pad * 2; let bh = (lines.length * lineHeight) + pad * 2;
-                        let bx = obj.x - pad; let by = obj.y - pad;
+                        let bx = exX - pad; let by = obj.y - pad;
 
                         let locTailX = obj.tailX; let locTailY = obj.tailY;
                         if (angle !== 0) {
@@ -2142,9 +2144,9 @@ function generateSVGString(rect, keepBg) {
                     // Export du texte
                     lines.forEach((line, i) => {
                         const lineWidth = lineMetrics[i];
-                        let curX = obj.x;
-                        if (align === 'center') curX = obj.x + (maxW / 2) - (lineWidth / 2);
-                        else if (align === 'right') curX = obj.x + maxW - lineWidth;
+                        let curX = exX;
+                        if (align === 'center') curX = exX + (maxW / 2) - (lineWidth / 2);
+                        else if (align === 'right') curX = exX + maxW - lineWidth;
 
                         svg += `<text x="${curX}" y="${startY + i * lineHeight}" font-family="${fontFamily}" font-size="${fontSize}px" dominant-baseline="hanging" xml:space="preserve">`;
 
@@ -2736,18 +2738,22 @@ function updateWysiwygPosition() {
     if (wysiwygText.style.display === 'block') {
         let currentSize = activeStyle.fontSize;
         let currentFont = activeStyle.fontFamily || 'sans-serif';
+        let currentAlign = activeStyle.textAlign || 'left';
+        let currentColor = activeStyle.strokeColor;
+        let anchorX = null, anchorY = null, fixedW = 0;
 
         if (editingTextId) {
             const t = getObjectById('text', editingTextId);
             if (t) {
                 currentSize = t.fontSize || activeStyle.fontSize;
                 currentFont = t.fontFamily || 'sans-serif';
-                wysiwygText.style.left = (t.x * zoom + panX) + 'px';
-                wysiwygText.style.top = (t.y * zoom + panY) + 'px';
+                currentAlign = t.align || 'left';
+                currentColor = t.color || t.strokeColor || activeStyle.strokeColor;
+                anchorX = t.x; anchorY = t.y; fixedW = t.fixedWidth || 0;
             }
         } else if (tempTextLogicalPos) {
-            wysiwygText.style.left = (tempTextLogicalPos.x * zoom + panX) + 'px';
-            wysiwygText.style.top = (tempTextLogicalPos.y * zoom + panY) + 'px';
+            anchorX = tempTextLogicalPos.x; anchorY = tempTextLogicalPos.y;
+            fixedW = tempTextLogicalPos.fixedWidth || 0;
         }
 
         wysiwygText.style.fontSize = (currentSize * zoom) + 'px';
@@ -2758,9 +2764,18 @@ function updateWysiwygPosition() {
             if (t && t.lineHeight) currentLH = t.lineHeight;
         }
         wysiwygText.style.lineHeight = (currentLH * zoom) + 'px';
-        wysiwygText.style.color = activeStyle.strokeColor;
-        wysiwygText.style.textAlign = activeStyle.textAlign || 'left';
+        wysiwygText.style.color = currentColor;
+        wysiwygText.style.textAlign = currentAlign;
         wysiwygText.style.transform = `translate(0, 0)`;
+
+        // Même convention que le rendu canvas : en centré (sans largeur fixe), x est le CENTRE du texte.
+        // La police/taille sont posées AVANT la mesure d'offsetWidth pour que la largeur soit juste.
+        if (anchorX !== null) {
+            let left = anchorX * zoom + panX;
+            if (currentAlign === 'center') left = (anchorX + fixedW / 2) * zoom + panX - wysiwygText.offsetWidth / 2;
+            wysiwygText.style.left = left + 'px';
+            wysiwygText.style.top = (anchorY * zoom + panY) + 'px';
+        }
     }
     if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
     if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
@@ -4046,13 +4061,15 @@ function finalizeText() {
             if (editingTextId) {
                 const t = getObjectById('text', editingTextId);
                 if (t && !t.locked) {
-                    if (t.content !== val || t.color !== activeStyle.strokeColor || t.fontSize !== activeStyle.fontSize) {
-                        t.content = val; t.color = activeStyle.strokeColor; t.fontSize = activeStyle.fontSize;
+                    // Taille, police, alignement et interligne sont déjà écrits directement
+                    // sur l'objet par la barre d'outils : seul le contenu se valide ici.
+                    if (t.content !== val) {
+                        t.content = val;
                         hasChanged = true; processMath(t);
                     }
                 }
             } else if (tempTextLogicalPos) {
-                const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: activeStyle.strokeColor, fontSize: activeStyle.fontSize, lineHeight: activeStyle.lineHeight, z: globalZ++ };
+                const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: activeStyle.strokeColor, fontSize: activeStyle.fontSize, fontFamily: activeStyle.fontFamily || 'sans-serif', align: activeStyle.textAlign || 'left', lineHeight: activeStyle.lineHeight, z: globalZ++ };
                 if (tempTextLogicalPos.isBubble) {
                     newText.isBubble = true;
                     newText.bubbleShape = tempTextLogicalPos.bubbleShape;
@@ -4072,6 +4089,12 @@ function finalizeText() {
 wysiwygText.addEventListener('blur', finalizeText);
 wysiwygText.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); finalizeText(); canvas.focus(); }
+});
+// En centré, la boîte de saisie doit rester centrée sur son ancre pendant la frappe
+wysiwygText.addEventListener('input', () => {
+    const t = editingTextId ? getObjectById('text', editingTextId) : null;
+    const align = t ? (t.align || 'left') : (activeStyle.textAlign || 'left');
+    if (align === 'center') updateWysiwygPosition();
 });
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -4328,12 +4351,13 @@ canvas.addEventListener('dblclick', (e) => {
         // NOUVEAU : On utilise innerHTML pour récupérer le gras/couleur sauvegardé !
         wysiwygText.innerHTML = t.content;
 
+        // La barre d'outils lit activeStyle : on la synchronise sur le texte édité
+        activeStyle.textAlign = t.align || 'left';
+
         wysiwygText.style.display = 'block';
-        wysiwygText.style.left = (t.x * zoom + panX) + 'px'; wysiwygText.style.top = (t.y * zoom + panY) + 'px';
-        wysiwygText.style.fontFamily = 'sans-serif';
-        const lh = t.lineHeight || Math.round(t.fontSize * 1.2);
-        wysiwygText.style.lineHeight = (lh * zoom) + 'px';
-        wysiwygText.style.fontSize = (t.fontSize * zoom) + 'px'; wysiwygText.style.color = t.color || t.strokeColor;
+        // Position, police, taille, interligne, couleur et alignement : tout est
+        // dérivé de l'objet édité, avec la même convention que le rendu canvas.
+        updateWysiwygPosition();
         setTimeout(() => {
             wysiwygText.focus();
             const range = document.createRange(); range.selectNodeContents(wysiwygText); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
@@ -5264,6 +5288,10 @@ function draw() {
                 }
 
                 obj._cachedW = w; obj._cachedH = h; obj._cachedStartX = startX;
+                // Le quadtree de rendu travaille sur des COPIES : on réécrit les métriques
+                // sur l'objet d'origine, sinon le hit-test et la sélection lisent du vide
+                const origText = getObjectById('text', obj.id);
+                if (origText) { origText._cachedW = w; origText._cachedH = h; origText._cachedStartX = startX; }
                 const cx = startX + w / 2; const cy = obj.y + h / 2;
 
                 ctx.save();
@@ -5534,7 +5562,9 @@ function draw() {
                         ctx.drawImage(obj.mathImg, startX, obj.y, w, h);
                     } else {
                         const align = obj.align || 'left';
-                        let startY = obj.y + (fontSize * 0.1);
+                        // Le demi-interligne : le DOM centre chaque ligne dans sa line-box,
+                        // on compense pour que le rendu tombe au même endroit que la saisie
+                        let startY = obj.y + (fontSize * 0.1) + (lineHeight - fontSize * 1.2) / 2;
                         ctx.textBaseline = 'top';
                         ctx.textAlign = 'left'; // 🌟 C'EST CECI QUI RÉPARE LE DÉCALAGE !
 
@@ -6374,7 +6404,16 @@ if (textToolbar) {
                     activeStyle.textAlign = alignMode;
                     if (editingTextId) {
                         const t = getObjectById('text', editingTextId);
-                        if (t) t.align = alignMode;
+                        if (t) {
+                            // En centré, x est le centre du bloc : on convertit l'ancre
+                            // pour que le texte ne saute pas au changement d'alignement
+                            if (!t.fixedWidth && (t.align || 'left') !== alignMode) {
+                                const sx = (t._cachedStartX !== undefined) ? t._cachedStartX : t.x;
+                                const w = t._cachedW || 0;
+                                t.x = (alignMode === 'center') ? sx + w / 2 : sx;
+                            }
+                            t.align = alignMode;
+                        }
                     }
                     if (typeof wysiwygText !== 'undefined' && wysiwygText) wysiwygText.style.textAlign = alignMode;
                     if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
