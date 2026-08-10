@@ -6623,12 +6623,131 @@ registerPlugin('popcornTool', 'Jeux', {
 });
 
 // ==========================================
-// 2. ARBRE STUDIO (Fractions Vraies + Bug Cache Corrigé)
+// 2. ARBRE DE PROBABILITÉS (Studio : fractions, produits des chemins, contrôle des sommes)
 // ==========================================
 registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
-    currentStamp: null, currentTreeData: null,
+    widgetEl: null, currentStamp: null, currentTreeData: null, editingImage: null,
+    tree: null, selectedId: null, nextNodeId: 100,
+    opts: { curved: false, showPaths: true, checkSums: true },
+    _measureCtx: null,
+
+    // ---------- Arithmétique des fractions ----------
+    _gcd: function (a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const t = b; b = a % b; a = t; } return a || 1; },
+    _simp: function (f) { const g = this._gcd(f.num, f.den); return { num: f.num / g, den: f.den / g }; },
+    // "1/4", "0,25", "25%", "1" → fraction ; "p", "x", vide → null (symbolique)
+    parseProb: function (str) {
+        if (str === undefined || str === null) return null;
+        const s = String(str).trim().replace(',', '.');
+        if (!s) return null;
+        let m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+        if (m) { const den = parseInt(m[2], 10); return den ? this._simp({ num: parseInt(m[1], 10), den: den }) : null; }
+        m = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+        if (m) {
+            const dec = (m[1].split('.')[1] || '').length;
+            const p = Math.pow(10, dec);
+            return this._simp({ num: Math.round(parseFloat(m[1]) * p), den: 100 * p });
+        }
+        m = s.match(/^(\d+)(?:\.(\d+))?$/);
+        if (m) {
+            const dec = (m[2] || '').length;
+            const p = Math.pow(10, dec);
+            return this._simp({ num: Math.round(parseFloat(s) * p), den: p });
+        }
+        return null;
+    },
+    _fracMul: function (a, b) { return this._simp({ num: a.num * b.num, den: a.den * b.den }); },
+    _fracAdd: function (a, b) { return this._simp({ num: a.num * b.den + b.num * a.den, den: a.den * b.den }); },
+    _fracIsOne: function (f) { return f.num === f.den; },
+    formatFrac: function (f) { return f.den === 1 ? String(f.num) : f.num + '/' + f.den; },
+
+    // Somme des probabilités des enfants d'un nœud (null si une branche est symbolique)
+    _childrenSum: function (n) {
+        if (!n.children || n.children.length === 0) return null;
+        let sum = { num: 0, den: 1 };
+        for (let i = 0; i < n.children.length; i++) {
+            const f = this.parseProb(n.children[i].prob);
+            if (!f) return null;
+            sum = this._fracAdd(sum, f);
+        }
+        return sum;
+    },
+
+    _measure: function (txt, size, bold) {
+        if (!this._measureCtx) this._measureCtx = document.createElement('canvas').getContext('2d');
+        this._measureCtx.font = (bold ? 'bold ' : '') + size + 'px sans-serif';
+        return this._measureCtx.measureText(txt).width;
+    },
+
+    _defaultTree: function () {
+        return {
+            id: 1, name: 'Départ', prob: '', bar: false, children: [
+                { id: 2, name: 'A', prob: '1/4', bar: false, children: [] },
+                { id: 3, name: 'A', prob: '3/4', bar: true, children: [] }
+            ]
+        };
+    },
+
+    _templates: {
+        piece: function () {
+            return {
+                id: 1, name: 'Départ', prob: '', bar: false, children: [
+                    { id: 2, name: 'P', prob: '1/2', bar: false, children: [] },
+                    { id: 3, name: 'F', prob: '1/2', bar: false, children: [] }
+                ]
+            };
+        },
+        deux: function () {
+            let id = 2;
+            const lvl2 = function () {
+                return [
+                    { id: id++, name: 'A', prob: '1/4', bar: false, children: [] },
+                    { id: id++, name: 'A', prob: '3/4', bar: true, children: [] }
+                ];
+            };
+            return {
+                id: 1, name: 'Départ', prob: '', bar: false, children: [
+                    { id: id++, name: 'A', prob: '1/4', bar: false, children: lvl2() },
+                    { id: id++, name: 'A', prob: '3/4', bar: true, children: lvl2() }
+                ]
+            };
+        },
+        trois: function () {
+            return {
+                id: 1, name: 'Départ', prob: '', bar: false, children: [
+                    { id: 2, name: 'R', prob: '1/6', bar: false, children: [] },
+                    { id: 3, name: 'V', prob: '2/6', bar: false, children: [] },
+                    { id: 4, name: 'B', prob: '3/6', bar: false, children: [] }
+                ]
+            };
+        },
+        vierge: function () {
+            return {
+                id: 1, name: 'Départ', prob: '', bar: false, children: [
+                    { id: 2, name: '?', prob: '', bar: false, children: [] },
+                    { id: 3, name: '?', prob: '', bar: false, children: [] }
+                ]
+            };
+        }
+    },
+
+    findNode: function (n, id) {
+        if (n.id === id) return n;
+        for (let i = 0; i < n.children.length; i++) { const r = this.findNode(n.children[i], id); if (r) return r; }
+        return null;
+    },
+    _findParent: function (n, id) {
+        for (let i = 0; i < n.children.length; i++) {
+            if (n.children[i].id === id) return n;
+            const r = this._findParent(n.children[i], id);
+            if (r) return r;
+        }
+        return null;
+    },
+    _updateNextId: function (n) { if (n.id >= this.nextNodeId) this.nextNodeId = n.id + 1; n.children.forEach(this._updateNextId, this); },
+
     init: function () {
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'probatree'; btn.title = 'Probabilité';
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'probatree'; btn.title = 'Arbre de probabilités';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 12h4"/>
     <path d="M8 12l4-6h4"/>
@@ -6638,263 +6757,446 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
     <circle cx="12" cy="6" r="1.5" fill="currentColor" stroke="none"/>
     <circle cx="12" cy="18" r="1.5" fill="currentColor" stroke="none"/>
 </svg>`;
-        document.getElementById('plugins-grid').appendChild(btn);
-
+        grid.appendChild(btn);
         btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); setMode('probatree');
-            this.openStudio(null, (stamp, treeData) => {
-                this.currentStamp = stamp; this.currentTreeData = treeData;
-                showToast("Arbre généré ! (Échap pour annuler)"); draw();
-            });
             e.stopPropagation();
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (typeof setMode === 'function') setMode('pointer');
+            this.editingImage = null;
+            this.openWidget();
         });
     },
+
     edit: function (imgObj) {
-        this.openStudio(imgObj.pluginData.args, (stamp, treeData) => {
-            // CORRECTION CACHE ICI AUSSI
-            if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
-
-            imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h;
-            imgObj.cw = stamp.w; imgObj.ch = stamp.h; imgObj.pluginData.args = treeData;
-            draw(); saveState();
-        });
+        this.editingImage = imgObj;
+        this.openWidget();
     },
 
-    openStudio: function (initialData, onValidate) {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;justify-content:center;align-items:center;";
+    openWidget: function () {
+        const self = this;
 
-        const box = document.createElement('div');
-        box.style.cssText = "width:90%;height:85%;background:#fff;border-radius:12px;display:flex;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.4); font-family: sans-serif;";
+        // État de départ : arbre édité, ou dernier arbre, ou arbre par défaut
+        if (this.editingImage && this.editingImage.pluginData && this.editingImage.pluginData.args) {
+            const args = JSON.parse(JSON.stringify(this.editingImage.pluginData.args));
+            if (args && args.id) { this.tree = args; }
+            if (args && args._opts) { this.opts = Object.assign({ curved: false, showPaths: true, checkSums: true }, args._opts); delete args._opts; }
+        } else if (!this.tree) {
+            this.tree = this._defaultTree();
+        }
+        this.selectedId = null;
+        this.nextNodeId = 100;
+        this._updateNextId(this.tree);
 
-        box.innerHTML = `
-            <div style="width:300px; background:#f8f9fa; border-right:1px solid #dfe6e9; padding:20px; display:flex; flex-direction:column; gap:15px;">
-                <h3 style="margin:0; color:#2d3436; font-size:18px;">🌳 Arbre Studio</h3>
-                <div id="tree-sel-none" style="color:#636e72; font-size:13px; margin-top:20px; text-align:center; padding: 20px; border: 2px dashed #b2bec3; border-radius: 8px;">
-                    Cliquez sur un nœud de l'arbre pour le modifier.
-                </div>
-                
-                <div id="tree-sel-panel" style="display:none; flex-direction:column; gap:12px;">
+        if (this.widgetEl) {
+            this.widgetEl.style.display = 'flex';
+            this._syncOptsUI();
+            this.updateSidePanel();
+            this.renderTree();
+            return;
+        }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.id = 'pt-wrap';
+        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 440px); width:880px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #pt-wrap .pt-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #dfe6e9; }
+            #pt-wrap .pt-header:active { cursor:grabbing; }
+            #pt-wrap .pt-body { display:flex; flex:1; overflow:hidden; }
+            #pt-wrap .pt-side { width:250px; background:#fdfdfd; border-right:1px solid #dfe6e9; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; font-size:13px; }
+            #pt-wrap .pt-preview { flex:1; background:radial-gradient(circle at center, #ffffff 0%, #f1f2f6 100%); display:flex; align-items:center; justify-content:center; overflow:auto; padding:20px; }
+            #pt-wrap .pt-preview svg { max-width:100%; max-height:100%; }
+            #pt-wrap .pt-footer { padding:10px 15px; border-top:1px solid #dfe6e9; display:flex; gap:10px; justify-content:flex-end; background:#f8f9fa; }
+            #pt-wrap .pt-label { font-weight:bold; font-size:11px; color:#636e72; text-transform:uppercase; letter-spacing:0.5px; }
+            #pt-wrap .pt-group { background:#fff; border:1px solid #dfe6e9; border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px; }
+            #pt-wrap .pt-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+            #pt-wrap input[type=text] { padding:7px 8px; border:1px solid #b2bec3; border-radius:4px; font-size:14px; width:100%; box-sizing:border-box; }
+            #pt-wrap input[type=text]:focus { outline:none; border-color:#0984e3; }
+            #pt-wrap .pt-btn { padding:8px 10px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:13px; transition:filter 0.15s; }
+            #pt-wrap .pt-btn:hover { filter:brightness(1.08); }
+            #pt-wrap .pt-btn-ghost { background:#f1f2f6; color:#2d3436; border:1px solid #dfe6e9; }
+            #pt-wrap .pt-btn-blue { background:linear-gradient(135deg, #0984e3, #6c5ce7); color:#fff; }
+            #pt-wrap .pt-btn-green { background:linear-gradient(135deg, #00b894, #00cec9); color:#fff; }
+            #pt-wrap .pt-btn-red { background:#fff0f0; color:#d63031; border:1px solid #fab1a0; }
+            #pt-wrap .pt-btn-main { padding:11px 20px; font-size:14px; box-shadow:0 4px 6px rgba(0,0,0,0.1); }
+            #pt-wrap .pt-tpl { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+            #pt-wrap .pt-toggle { width:34px; height:18px; min-width:34px; background:#bdc3c7; border-radius:18px; position:relative; cursor:pointer; transition:background 0.2s; }
+            #pt-wrap .pt-toggle::after { content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; background:#fff; border-radius:50%; transition:left 0.2s; }
+            #pt-wrap .pt-toggle.on { background:#0984e3; }
+            #pt-wrap .pt-toggle.on::after { left:18px; }
+            #pt-wrap .pt-hint { font-size:12px; color:#636e72; text-align:center; padding:14px 8px; border:2px dashed #dfe6e9; border-radius:8px; }
+            #pt-wrap .pt-sum-warn { font-size:12px; color:#d63031; font-weight:bold; }
+            #pt-wrap svg g[data-id] { cursor:pointer; }
+        `;
+        this.widgetEl.appendChild(style);
+
+        const content = document.createElement('div');
+        content.style.cssText = "display:flex; flex-direction:column; flex:1; overflow:hidden;";
+        content.innerHTML = `
+            <div class="pt-header" id="pt-drag-handle">
+                <div style="font-weight:900; font-size:15px; color:#2d3436;">🌳 Arbre de probabilités</div>
+                <button id="pt-btn-close" style="background:none; border:none; color:#d63031; cursor:pointer; font-weight:bold; font-size:16px;">✕</button>
+            </div>
+            <div class="pt-body">
+                <div class="pt-side">
                     <div>
-                        <label style="font-size:12px; font-weight:bold; color:#636e72;">Nom de l'événement</label>
-                        <div style="display:flex; gap:8px;">
-                            <input type="text" id="tree-inp-name" style="flex:1; padding:8px; border:1px solid #b2bec3; border-radius:4px; font-size:14px;">
-                            <button id="tree-btn-bar" style="padding:8px 12px; border:1px solid #b2bec3; background:#fff; border-radius:4px; cursor:pointer; font-weight:bold;" title="Événement contraire">A̅</button>
+                        <div class="pt-label" style="margin-bottom:6px;">Modèles</div>
+                        <div class="pt-tpl">
+                            <button class="pt-btn pt-btn-ghost" data-tpl="piece">🪙 Pièce</button>
+                            <button class="pt-btn pt-btn-ghost" data-tpl="deux">🔁 2 niveaux</button>
+                            <button class="pt-btn pt-btn-ghost" data-tpl="trois">🎨 3 issues</button>
+                            <button class="pt-btn pt-btn-ghost" data-tpl="vierge">📝 À compléter</button>
                         </div>
                     </div>
-                    <div>
-                        <label style="font-size:12px; font-weight:bold; color:#636e72;">Probabilité (ex: 1/3, p)</label>
-                        <input type="text" id="tree-inp-prob" placeholder="Utilisez / pour une vraie fraction" style="width:100%; padding:8px; border:1px solid #b2bec3; border-radius:4px; box-sizing:border-box; font-size:14px;">
+                    <div id="pt-sel-none" class="pt-hint">Cliquez sur un nœud de l'arbre pour le modifier.</div>
+                    <div id="pt-sel-panel" class="pt-group" style="display:none;">
+                        <div>
+                            <div class="pt-label">Événement</div>
+                            <div style="display:flex; gap:6px; margin-top:4px;">
+                                <input type="text" id="pt-inp-name">
+                                <button id="pt-btn-bar" class="pt-btn pt-btn-ghost" title="Événement contraire (barre)" style="min-width:38px;">A&#772;</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="pt-label">Probabilité</div>
+                            <input type="text" id="pt-inp-prob" placeholder="1/4 · 0,25 · 25% · p" style="margin-top:4px;">
+                            <button id="pt-btn-compl" class="pt-btn pt-btn-ghost" style="width:100%; margin-top:6px;">🧮 Compléter à 1</button>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button id="pt-btn-add" class="pt-btn pt-btn-green" style="flex:1;">+ Enfant</button>
+                            <button id="pt-btn-add2" class="pt-btn pt-btn-green" style="flex:1;" title="Ajouter deux branches A / A barre">+ A / A&#772;</button>
+                        </div>
+                        <button id="pt-btn-del" class="pt-btn pt-btn-red" style="width:100%;">🗑 Supprimer la branche</button>
                     </div>
-                    <div style="display:flex; gap:8px; margin-top:10px;">
-                        <button id="tree-btn-add" style="flex:1; padding:10px; background:#00b894; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">+ Enfant</button>
-                        <button id="tree-btn-del" style="flex:1; padding:10px; background:#d63031; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">Supprimer</button>
+                    <div class="pt-group">
+                        <div class="pt-label">Affichage</div>
+                        <div class="pt-row"><span>Probabilités des chemins</span><div class="pt-toggle" id="pt-tog-paths"></div></div>
+                        <div class="pt-row"><span>Contrôle des sommes</span><div class="pt-toggle" id="pt-tog-sums"></div></div>
+                        <div class="pt-row"><span>Branches courbes</span><div class="pt-toggle" id="pt-tog-curved"></div></div>
                     </div>
                 </div>
-                
-                <div style="flex:1"></div>
-                <button id="tree-btn-valid" style="padding:14px; background:#0984e3; color:white; border:none; border-radius:6px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow: 0 4px 6px rgba(9, 132, 227, 0.3);">✅ Terminer l'Arbre</button>
-                <button id="tree-btn-cancel" style="padding:10px; background:transparent; color:#636e72; border:1px solid #b2bec3; border-radius:6px; font-size:14px; cursor:pointer;">Annuler</button>
+                <div class="pt-preview" id="pt-preview"></div>
             </div>
-            <div style="flex:1; background:#ffffff; position:relative; overflow:hidden;" id="tree-canvas-container">
-                <svg id="tree-svg-workspace" width="100%" height="100%"><g id="tree-svg-group" transform="translate(50, 50)"></g></svg>
+            <div class="pt-footer">
+                <button id="pt-btn-cancel" class="pt-btn pt-btn-ghost pt-btn-main">Annuler</button>
+                <button id="pt-btn-valid" class="pt-btn pt-btn-blue pt-btn-main">✅ Poser au tableau</button>
             </div>
         `;
-        overlay.appendChild(box);
-        document.body.appendChild(overlay);
+        this.widgetEl.appendChild(content);
+        document.body.appendChild(this.widgetEl);
 
-        let tree = initialData ? JSON.parse(JSON.stringify(initialData)) : {
-            id: 1, name: 'Départ', prob: '', bar: false, children: [
-                { id: 2, name: 'S', prob: '1/4', bar: false, children: [] },
-                { id: 3, name: 'S', prob: '3/4', bar: true, children: [] }
-            ]
+        // --- Déplacement de la fenêtre par le header ---
+        const handle = this.widgetEl.querySelector('#pt-drag-handle');
+        let isDragging = false, startX = 0, startY = 0;
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
+            isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop;
+        });
+        window.addEventListener('pointermove', (e) => { if (isDragging) { self.widgetEl.style.left = (e.clientX - startX) + 'px'; self.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => { isDragging = false; });
+
+        // --- Boutons ---
+        const $ = (sel) => this.widgetEl.querySelector(sel);
+        $('#pt-btn-close').onclick = () => this.closeWidget();
+        $('#pt-btn-cancel').onclick = () => this.closeWidget();
+        $('#pt-btn-valid').onclick = () => this.exportToBoard();
+
+        this.widgetEl.querySelectorAll('[data-tpl]').forEach(b => {
+            b.onclick = () => {
+                self.tree = self._templates[b.dataset.tpl]();
+                self.selectedId = null; self.nextNodeId = 100; self._updateNextId(self.tree);
+                self.updateSidePanel(); self.renderTree();
+            };
+        });
+
+        $('#pt-inp-name').oninput = function () { const n = self.findNode(self.tree, self.selectedId); if (n) { n.name = this.value; self.renderTree(); } };
+        $('#pt-inp-prob').oninput = function () { const n = self.findNode(self.tree, self.selectedId); if (n) { n.prob = this.value; self.renderTree(); } };
+        $('#pt-btn-bar').onclick = () => { const n = self.findNode(self.tree, self.selectedId); if (n) { n.bar = !n.bar; self.updateSidePanel(); self.renderTree(); } };
+        $('#pt-btn-add').onclick = () => {
+            const n = self.findNode(self.tree, self.selectedId);
+            if (n) { n.children.push({ id: self.nextNodeId++, name: '?', prob: '', bar: false, children: [] }); self.renderTree(); }
+        };
+        $('#pt-btn-add2').onclick = () => {
+            const n = self.findNode(self.tree, self.selectedId);
+            if (n) {
+                n.children.push({ id: self.nextNodeId++, name: 'A', prob: '', bar: false, children: [] });
+                n.children.push({ id: self.nextNodeId++, name: 'A', prob: '', bar: true, children: [] });
+                self.renderTree();
+            }
+        };
+        $('#pt-btn-del').onclick = () => {
+            if (self.selectedId === 1) return;
+            const p = self._findParent(self.tree, self.selectedId);
+            if (p) { p.children = p.children.filter(c => c.id !== self.selectedId); self.selectedId = null; self.updateSidePanel(); self.renderTree(); }
+        };
+        $('#pt-btn-compl').onclick = () => {
+            const n = self.findNode(self.tree, self.selectedId);
+            const p = self._findParent(self.tree, self.selectedId);
+            if (!n || !p) return;
+            let sum = { num: 0, den: 1 }, ok = true;
+            p.children.forEach(c => {
+                if (c.id === n.id) return;
+                const f = self.parseProb(c.prob);
+                if (!f) ok = false; else sum = self._fracAdd(sum, f);
+            });
+            if (!ok || sum.num > sum.den) { if (typeof showToast === 'function') showToast("Impossible : branches sœurs non numériques ou somme > 1"); return; }
+            n.prob = self.formatFrac(self._simp({ num: sum.den - sum.num, den: sum.den }));
+            self.updateSidePanel(); self.renderTree();
         };
 
-        let nextNodeId = 100;
-        function updateNextId(n) { if (n.id >= nextNodeId) nextNodeId = n.id + 1; n.children.forEach(updateNextId); }
-        updateNextId(tree);
+        const bindToggle = (id, prop) => {
+            const el = $(id);
+            el.onclick = () => { self.opts[prop] = !self.opts[prop]; el.classList.toggle('on', self.opts[prop]); self.renderTree(); };
+        };
+        bindToggle('#pt-tog-paths', 'showPaths');
+        bindToggle('#pt-tog-sums', 'checkSums');
+        bindToggle('#pt-tog-curved', 'curved');
 
-        let selectedId = null;
+        // Échap ferme le studio (sans gêner la saisie dans les champs)
+        this._escHandler = (e) => { if (e.key === 'Escape' && self.widgetEl && self.widgetEl.style.display !== 'none') { e.stopPropagation(); self.closeWidget(); } };
+        document.addEventListener('keydown', this._escHandler, true);
 
-        const selNone = document.getElementById('tree-sel-none');
-        const selPanel = document.getElementById('tree-sel-panel');
-        const inpName = document.getElementById('tree-inp-name');
-        const inpProb = document.getElementById('tree-inp-prob');
-        const btnBar = document.getElementById('tree-btn-bar');
-        const btnAdd = document.getElementById('tree-btn-add');
-        const btnDel = document.getElementById('tree-btn-del');
-        const svgGroup = document.getElementById('tree-svg-group');
-        const svgWorkspace = document.getElementById('tree-svg-workspace');
+        this._syncOptsUI();
+        this.updateSidePanel();
+        this.renderTree();
+    },
 
-        function findNode(n, id) { if (n.id === id) return n; for (let c of n.children) { let res = findNode(c, id); if (res) return res; } return null; }
-        function deleteNode(n, id) { let idx = n.children.findIndex(c => c.id === id); if (idx > -1) { n.children.splice(idx, 1); return true; } for (let c of n.children) { if (deleteNode(c, id)) return true; } return false; }
+    _syncOptsUI: function () {
+        if (!this.widgetEl) return;
+        this.widgetEl.querySelector('#pt-tog-paths').classList.toggle('on', this.opts.showPaths);
+        this.widgetEl.querySelector('#pt-tog-sums').classList.toggle('on', this.opts.checkSums);
+        this.widgetEl.querySelector('#pt-tog-curved').classList.toggle('on', this.opts.curved);
+        this.widgetEl.querySelector('#pt-btn-valid').innerHTML = this.editingImage ? '💾 Mettre à jour' : '✅ Poser au tableau';
+    },
 
-        function updateUI() {
-            if (!selectedId) { selNone.style.display = 'block'; selPanel.style.display = 'none'; return; }
-            const node = findNode(tree, selectedId);
-            if (!node) return;
-            selNone.style.display = 'none'; selPanel.style.display = 'flex';
-            inpName.value = node.name;
-            inpProb.value = node.prob;
-            btnBar.style.background = node.bar ? '#dfe6e9' : '#fff';
-            btnDel.style.display = (node.id === 1) ? 'none' : 'block';
-            inpName.disabled = (node.id === 1);
-            inpProb.disabled = (node.id === 1);
-            btnBar.disabled = (node.id === 1);
-        }
+    closeWidget: function () {
+        if (this.widgetEl) this.widgetEl.style.display = 'none';
+        this.editingImage = null;
+    },
 
-        inpName.oninput = () => { let n = findNode(tree, selectedId); if (n) { n.name = inpName.value; render(); } };
-        inpProb.oninput = () => { let n = findNode(tree, selectedId); if (n) { n.prob = inpProb.value; render(); } };
-        btnBar.onclick = () => { let n = findNode(tree, selectedId); if (n) { n.bar = !n.bar; updateUI(); render(); } };
-        btnAdd.onclick = () => { let n = findNode(tree, selectedId); if (n) { n.children.push({ id: nextNodeId++, name: 'A', prob: 'p', bar: false, children: [] }); render(); } };
-        btnDel.onclick = () => { if (selectedId !== 1) { deleteNode(tree, selectedId); selectedId = null; updateUI(); render(); } };
+    updateSidePanel: function () {
+        const none = this.widgetEl.querySelector('#pt-sel-none');
+        const panel = this.widgetEl.querySelector('#pt-sel-panel');
+        if (!this.selectedId) { none.style.display = 'block'; panel.style.display = 'none'; return; }
+        const n = this.findNode(this.tree, this.selectedId);
+        if (!n) { this.selectedId = null; none.style.display = 'block'; panel.style.display = 'none'; return; }
+        none.style.display = 'none'; panel.style.display = 'flex';
+        const isRoot = (n.id === 1);
+        const inpName = this.widgetEl.querySelector('#pt-inp-name');
+        const inpProb = this.widgetEl.querySelector('#pt-inp-prob');
+        inpName.value = n.name; inpName.disabled = isRoot;
+        inpProb.value = n.prob; inpProb.disabled = isRoot;
+        this.widgetEl.querySelector('#pt-btn-bar').disabled = isRoot;
+        this.widgetEl.querySelector('#pt-btn-bar').style.background = n.bar ? '#dfe6e9' : '';
+        this.widgetEl.querySelector('#pt-btn-compl').disabled = isRoot;
+        this.widgetEl.querySelector('#pt-btn-del').style.display = isRoot ? 'none' : 'block';
+    },
 
-        function layout(n, depth, counter) {
+    // ---------- Mise en page ----------
+    _layout: function () {
+        const self = this;
+        const ROW = 82;
+        let maxLabelW = 0;
+
+        const prepare = (n) => {
+            const w = Math.max(30, self._measure(n.name || '', 17, true) + 22);
+            n._w = (n.id === 1) ? 14 : w;
+            if (n._w > maxLabelW) maxLabelW = n._w;
+            n.children.forEach(prepare);
+        };
+        prepare(this.tree);
+
+        const LEVEL = Math.max(215, maxLabelW + 135);
+        const counter = { v: 0 };
+        const place = (n, depth) => {
+            n._x = depth * LEVEL;
             if (!n.children || n.children.length === 0) {
-                n.x = depth * 220; n.y = counter.val * 100; counter.val++;
+                n._y = counter.v * ROW; counter.v++;
             } else {
-                n.children.forEach(c => layout(c, depth + 1, counter));
-                n.x = depth * 220; n.y = (n.children[0].y + n.children[n.children.length - 1].y) / 2;
+                n.children.forEach(c => place(c, depth + 1));
+                n._y = (n.children[0]._y + n.children[n.children.length - 1]._y) / 2;
             }
-        }
+        };
+        place(this.tree, 0);
+    },
 
-        function render() {
-            let counter = { val: 0 };
-            layout(tree, 0, counter);
-            svgGroup.innerHTML = '';
+    // ---------- Génération du SVG (aperçu ET export : une seule source de vérité) ----------
+    generateSVG: function (isExport) {
+        const self = this;
+        const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        this._layout();
 
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            function getBounds(n) { if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x; if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y; n.children.forEach(getBounds); }
-            getBounds(tree);
-            const wBox = svgWorkspace.clientWidth; const hBox = svgWorkspace.clientHeight;
-            const offsetX = (wBox - (maxX - minX)) / 2 - minX;
-            const offsetY = (hBox - (maxY - minY)) / 2 - minY;
-            svgGroup.setAttribute('transform', `translate(${offsetX}, ${offsetY})`);
+        const C_LINE = '#2d3436', C_PROB = '#0984e3', C_PATH = '#00b894', C_WARN = '#d63031', C_SEL = '#6c5ce7';
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const addB = (x1, y1, x2, y2) => { if (x1 < minX) minX = x1; if (y1 < minY) minY = y1; if (x2 > maxX) maxX = x2; if (y2 > maxY) maxY = y2; };
 
-            function drawLinks(n) {
-                n.children.forEach(c => {
-                    const midX = (n.x + c.x) / 2; const midY = (n.y + c.y) / 2;
-                    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                    path.setAttribute('d', `M ${n.x} ${n.y} C ${midX} ${n.y}, ${midX} ${c.y}, ${c.x} ${c.y}`);
-                    path.setAttribute('fill', 'none'); path.setAttribute('stroke', '#2d3436'); path.setAttribute('stroke-width', '3');
-                    svgGroup.appendChild(path);
+        let links = '', nodes = '', overlays = '';
 
-                    if (c.prob) {
-                        const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-
-                        // 🌟 LOGIQUE DES VRAIES FRACTIONS 🌟
-                        if (c.prob.includes('/')) {
-                            const parts = c.prob.split('/');
-                            const num = parts[0]; const den = parts[1];
-                            const w = Math.max(num.length, den.length) * 10 + 16;
-                            const h = 40;
-
-                            bg.setAttribute('x', midX - w / 2); bg.setAttribute('y', midY - h / 2);
-                            bg.setAttribute('width', w); bg.setAttribute('height', h);
-                            bg.setAttribute('fill', '#ffffff'); bg.setAttribute('rx', '6');
-                            svgGroup.appendChild(bg);
-
-                            // Numérateur
-                            const tNum = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                            tNum.setAttribute('x', midX); tNum.setAttribute('y', midY - 8);
-                            tNum.setAttribute('text-anchor', 'middle'); tNum.setAttribute('font-family', "sans-serif"); tNum.setAttribute('font-size', '14px'); tNum.setAttribute('fill', '#0984e3');
-                            tNum.textContent = num;
-                            svgGroup.appendChild(tNum);
-
-                            // Trait de fraction
-                            const bar = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                            bar.setAttribute('x1', midX - w / 2 + 6); bar.setAttribute('y1', midY);
-                            bar.setAttribute('x2', midX + w / 2 - 6); bar.setAttribute('y2', midY);
-                            bar.setAttribute('stroke', '#0984e3'); bar.setAttribute('stroke-width', '2');
-                            svgGroup.appendChild(bar);
-
-                            // Dénominateur
-                            const tDen = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                            tDen.setAttribute('x', midX); tDen.setAttribute('y', midY + 14);
-                            tDen.setAttribute('text-anchor', 'middle'); tDen.setAttribute('font-family', "sans-serif"); tDen.setAttribute('font-size', '14px'); tDen.setAttribute('fill', '#0984e3');
-                            tDen.textContent = den;
-                            svgGroup.appendChild(tDen);
-
-                        } else {
-                            // Affichage normal si ce n'est pas une fraction
-                            const w = c.prob.length * 10 + 16;
-                            bg.setAttribute('x', midX - w / 2); bg.setAttribute('y', midY - 14);
-                            bg.setAttribute('width', w); bg.setAttribute('height', 28);
-                            bg.setAttribute('fill', '#ffffff'); bg.setAttribute('rx', '6');
-                            svgGroup.appendChild(bg);
-
-                            const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                            txt.setAttribute('x', midX); txt.setAttribute('y', midY);
-                            txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('dominant-baseline', 'central');
-                            txt.setAttribute('font-family', "sans-serif"); txt.setAttribute('font-size', '16px'); txt.setAttribute('fill', '#0984e3');
-                            txt.textContent = c.prob;
-                            svgGroup.appendChild(txt);
-                        }
-                    }
-                    drawLinks(c);
-                });
+        // Étiquette de probabilité (fraction empilée ou texte) centrée en (x, y)
+        const probLabel = (probStr, x, y) => {
+            const f = self.parseProb(probStr);
+            const isFrac = f && f.den !== 1 && String(probStr).indexOf('/') > -1;
+            let out = '';
+            if (isFrac) {
+                const wNum = self._measure(String(f.num), 13, false);
+                const wDen = self._measure(String(f.den), 13, false);
+                const w = Math.max(wNum, wDen, 12) + 14;
+                const h = 38;
+                addB(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
+                out += `<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="7" fill="#ffffff" stroke="#dfe6e9" stroke-width="1"/>`;
+                out += `<text x="${x}" y="${y - 5}" text-anchor="middle" font-family="sans-serif" font-size="13" fill="${C_PROB}">${f.num}</text>`;
+                out += `<line x1="${x - w / 2 + 6}" y1="${y}" x2="${x + w / 2 - 6}" y2="${y}" stroke="${C_PROB}" stroke-width="1.5"/>`;
+                out += `<text x="${x}" y="${y + 14}" text-anchor="middle" font-family="sans-serif" font-size="13" fill="${C_PROB}">${f.den}</text>`;
+            } else {
+                const txt = String(probStr);
+                const w = Math.max(self._measure(txt, 14, false), 12) + 14;
+                addB(x - w / 2, y - 13.5, x + w / 2, y + 13.5);
+                out += `<rect x="${x - w / 2}" y="${y - 13.5}" width="${w}" height="27" rx="7" fill="#ffffff" stroke="#dfe6e9" stroke-width="1"/>`;
+                out += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-style="italic" fill="${C_PROB}">${esc(txt)}</text>`;
             }
-            function drawNodes(n) {
-                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-                g.style.cursor = 'pointer';
-                g.onclick = (e) => { e.stopPropagation(); selectedId = n.id; updateUI(); render(); };
-
-                if (selectedId === n.id) {
-                    const halo = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                    halo.setAttribute('cx', n.x); halo.setAttribute('cy', n.y); halo.setAttribute('r', '24');
-                    halo.setAttribute('fill', 'none'); halo.setAttribute('stroke', '#0984e3'); halo.setAttribute('stroke-width', '2'); halo.setAttribute('stroke-dasharray', '4,2');
-                    g.appendChild(halo);
-                }
-
-                const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-                c.setAttribute('cx', n.x); c.setAttribute('cy', n.y); c.setAttribute('r', n.id === 1 ? '6' : '18');
-                c.setAttribute('fill', n.id === 1 ? '#2d3436' : '#ffffff');
-                if (n.id !== 1) { c.setAttribute('stroke', '#2d3436'); c.setAttribute('stroke-width', '3'); }
-                g.appendChild(c);
-
-                if (n.id !== 1) {
-                    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                    t.setAttribute('x', n.x); t.setAttribute('y', n.y);
-                    t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'central');
-                    t.setAttribute('font-family', "sans-serif"); t.setAttribute('font-size', '18px'); t.setAttribute('font-weight', 'bold'); t.setAttribute('fill', '#2d3436');
-                    if (n.bar) t.setAttribute('text-decoration', 'overline');
-                    t.textContent = n.name;
-                    g.appendChild(t);
-                }
-                svgGroup.appendChild(g);
-                n.children.forEach(drawNodes);
-            }
-            drawLinks(tree); drawNodes(tree);
-        }
-
-        svgWorkspace.onclick = () => { selectedId = null; updateUI(); render(); };
-
-        document.getElementById('tree-btn-cancel').onclick = () => document.body.removeChild(overlay);
-        document.getElementById('tree-btn-valid').onclick = () => {
-            selectedId = null; render();
-
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-            function getBounds(n) { if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x; if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y; n.children.forEach(getBounds); }
-            getBounds(tree);
-
-            const padding = 40;
-            const finalW = maxX - minX + padding * 2;
-            const finalH = maxY - minY + padding * 2;
-
-            let exportSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - padding} ${minY - padding} ${finalW} ${finalH}" width="${finalW}" height="${finalH}">`;
-            exportSvg += svgGroup.innerHTML;
-            exportSvg += `</svg>`;
-
-            document.body.removeChild(overlay);
-
-            let base64 = btoa(unescape(encodeURIComponent(exportSvg)));
-            const img = new Image();
-            img.onload = () => onValidate({ img: img, src: img.src, w: finalW, h: finalH }, tree);
-            img.src = "data:image/svg+xml;base64," + base64;
+            return out;
         };
 
-        updateUI();
-        setTimeout(render, 50);
+        // Produit des probabilités le long du chemin racine → feuille
+        const pathProduct = (chain) => {
+            let prod = { num: 1, den: 1 };
+            for (let i = 0; i < chain.length; i++) {
+                const f = self.parseProb(chain[i].prob);
+                if (!f) return null;
+                prod = self._fracMul(prod, f);
+            }
+            return prod;
+        };
+
+        const walk = (n, chain) => {
+            const isRoot = (n.id === 1);
+            const halfW = n._w / 2;
+
+            // --- Nœud ---
+            if (isRoot) {
+                addB(n._x - 7, n._y - 7, n._x + 7, n._y + 7);
+                nodes += `<g data-id="${n.id}">`;
+                if (!isExport && self.selectedId === n.id) nodes += `<circle cx="${n._x}" cy="${n._y}" r="13" fill="none" stroke="${C_SEL}" stroke-width="2" stroke-dasharray="4,2"/>`;
+                nodes += `<circle cx="${n._x}" cy="${n._y}" r="6" fill="${C_LINE}"/></g>`;
+            } else {
+                const h = 30;
+                addB(n._x - halfW, n._y - h / 2, n._x + halfW, n._y + h / 2);
+                nodes += `<g data-id="${n.id}">`;
+                if (!isExport && self.selectedId === n.id) nodes += `<rect x="${n._x - halfW - 4}" y="${n._y - h / 2 - 4}" width="${n._w + 8}" height="${h + 8}" rx="${h / 2 + 4}" fill="none" stroke="${C_SEL}" stroke-width="2" stroke-dasharray="5,3"/>`;
+                nodes += `<rect x="${n._x - halfW}" y="${n._y - h / 2}" width="${n._w}" height="${h}" rx="${h / 2}" fill="#ffffff" stroke="${C_LINE}" stroke-width="2"/>`;
+                nodes += `<text x="${n._x}" y="${n._y + 1}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="17" font-weight="bold" fill="${C_LINE}"${n.bar ? ' text-decoration="overline"' : ''}>${esc(n.name)}</text>`;
+                nodes += `</g>`;
+            }
+
+            // --- Contrôle de la somme des branches ---
+            if (self.opts.checkSums && !isExport && n.children && n.children.length > 0) {
+                const sum = self._childrenSum(n);
+                if (sum && !self._fracIsOne(sum)) {
+                    const wy = n._y + (isRoot ? 22 : 30);
+                    overlays += `<text x="${n._x}" y="${wy}" text-anchor="middle" font-family="sans-serif" font-size="12" font-weight="bold" fill="${C_WARN}">⚠ Σ = ${self.formatFrac(sum)} ≠ 1</text>`;
+                    addB(n._x - 50, wy - 12, n._x + 50, wy + 4);
+                }
+            }
+
+            // --- Branches vers les enfants ---
+            n.children.forEach(c => {
+                const x1 = n._x + halfW + 5, y1 = n._y;
+                const x2 = c._x - c._w / 2 - 5, y2 = c._y;
+                if (self.opts.curved) {
+                    const mx = (x1 + x2) / 2;
+                    links += `<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" fill="none" stroke="${C_LINE}" stroke-width="2.5" stroke-linecap="round"/>`;
+                } else {
+                    links += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${C_LINE}" stroke-width="2.5" stroke-linecap="round"/>`;
+                }
+                if (c.prob !== '' && c.prob !== undefined && c.prob !== null) {
+                    const t = 0.5;
+                    overlays += probLabel(c.prob, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t);
+                }
+                walk(c, chain.concat([c]));
+            });
+
+            // --- Probabilité du chemin en bout de feuille ---
+            if (self.opts.showPaths && (!n.children || n.children.length === 0) && !isRoot && chain.length > 0) {
+                const prod = pathProduct(chain);
+                if (prod) {
+                    const txt = 'P = ' + self.formatFrac(prod);
+                    const w = self._measure(txt, 14, true) + 18;
+                    const px = n._x + halfW + 16;
+                    addB(px, n._y - 13, px + w, n._y + 13);
+                    overlays += `<rect x="${px}" y="${n._y - 13}" width="${w}" height="26" rx="13" fill="#eafaf5" stroke="${C_PATH}" stroke-width="1.5"/>`;
+                    overlays += `<text x="${px + w / 2}" y="${n._y + 1}" text-anchor="middle" dominant-baseline="central" font-family="sans-serif" font-size="14" font-weight="bold" fill="${C_PATH}">${txt}</text>`;
+                }
+            }
+        };
+        walk(this.tree, []);
+
+        if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100; }
+        const pad = 25;
+        const w = Math.ceil(maxX - minX + pad * 2);
+        const h = Math.ceil(maxY - minY + pad * 2);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" width="${w}" height="${h}">${links}${overlays}${nodes}</svg>`;
+        return { svg: svg, w: w, h: h };
+    },
+
+    renderTree: function () {
+        if (!this.widgetEl) return;
+        const self = this;
+        const preview = this.widgetEl.querySelector('#pt-preview');
+        const result = this.generateSVG(false);
+        preview.innerHTML = result.svg;
+        const svgEl = preview.querySelector('svg');
+        if (svgEl) {
+            // L'aperçu s'adapte au cadre sans déformer (le viewBox garde le ratio)
+            svgEl.removeAttribute('width'); svgEl.removeAttribute('height');
+            svgEl.style.width = result.w + 'px';
+            svgEl.style.height = 'auto';
+            svgEl.style.maxWidth = '100%';
+            svgEl.style.maxHeight = '100%';
+        }
+        preview.querySelectorAll('g[data-id]').forEach(g => {
+            g.addEventListener('click', (e) => {
+                e.stopPropagation();
+                self.selectedId = parseInt(g.dataset.id, 10);
+                self.updateSidePanel(); self.renderTree();
+                const inp = self.widgetEl.querySelector('#pt-inp-name');
+                if (inp && !inp.disabled) inp.select();
+            });
+        });
+        preview.onclick = () => { self.selectedId = null; self.updateSidePanel(); self.renderTree(); };
+    },
+
+    exportToBoard: function () {
+        const self = this;
+        const hadSelection = this.selectedId;
+        this.selectedId = null;
+        const result = this.generateSVG(true);
+        this.selectedId = hadSelection;
+
+        const treeData = JSON.parse(JSON.stringify(this.tree));
+        treeData._opts = Object.assign({}, this.opts);
+
+        this.widgetEl.style.display = 'none';
+        createStampFromSVG(result.svg, (stamp) => {
+            if (self.editingImage) {
+                self.editingImage.src = stamp.src; self.editingImage.w = stamp.w; self.editingImage.h = stamp.h;
+                self.editingImage.cx = 0; self.editingImage.cy = 0;
+                self.editingImage.cw = stamp.w; self.editingImage.ch = stamp.h;
+                self.editingImage.pluginData.args = treeData;
+                self.editingImage = null;
+                if (typeof saveState === 'function') saveState();
+                if (typeof draw === 'function') draw();
+                if (typeof setMode === 'function') setMode('pointer');
+                if (typeof showToast === 'function') showToast("💾 Arbre mis à jour !");
+            } else {
+                self.currentStamp = stamp;
+                self.currentTreeData = treeData;
+                if (typeof setMode === 'function') setMode('probatree');
+                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser l'arbre");
+                if (typeof draw === 'function') draw();
+            }
+        });
     },
 
     onPointerMove: function (rawPos) {
@@ -6909,11 +7211,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
     },
     onPointerDown: function (rawPos) {
         if (mode === 'probatree' && this.currentStamp) {
-            // 🌟 LE FIX DU BUG EST ICI 🌟 : On donne l'image en direct au système de cache du script principal
-            if (typeof imageCache !== 'undefined') {
-                imageCache[this.currentStamp.src] = this.currentStamp.img;
-            }
-
+            if (typeof imageCache !== 'undefined') imageCache[this.currentStamp.src] = this.currentStamp.img;
             images.push({ id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2, w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++, pluginData: { id: 'probabilityTreeTool', args: this.currentTreeData } });
             saveState(); setMode('pointer'); this.currentStamp = null; draw(); return true;
         }
