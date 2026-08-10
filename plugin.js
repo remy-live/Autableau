@@ -20244,6 +20244,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             .sc-block-group { cursor: grab; touch-action: none; }
             .sc-palette > div { touch-action: none; }
             #sc-preview-thumbnail { max-width: min(480px, 36vw); max-height: min(420px, 32vh); }
+            #sc-preview-dock { flex-shrink: 0; border-top: 2px solid #dfe6e9; background: #fff; }
+            #sc-preview-dock:empty { display: none; }
             @media (max-width: 1000px) {
                 #scratch-plugin-wrap .sc-sidebar { width: 270px; }
             }
@@ -20320,6 +20322,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                 <div class="sc-sidebar" id="sc-sidebar">
                     <div class="sc-cat-filters" id="sc-cat-filters"></div>
                     <div class="sc-palette" id="sc-palette-scroll"></div>
+                    <div id="sc-preview-dock"></div>
                 </div>
                 <div class="sc-workspace">
                     <div style="position:absolute; bottom: 10px; right: 10px; z-index: 999; display:flex; justify-content:flex-end; gap: 5px;">
@@ -21054,6 +21057,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
             // Pointer Events : le pan de l'aperçu marche aussi au doigt
             wrap.addEventListener('pointerdown', (e) => {
+                if (self.previewDocked) return; // ancré : le clic sert à détacher
                 if (e.button !== undefined && e.button !== 0) return;
                 isDraggingCanvas = true;
                 wrap.style.cursor = 'grabbing';
@@ -21091,13 +21095,68 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             updatePreviewTransform(); // Call immediately
         }
 
-        // Drag logic for preview modal
+        // --- Aperçu : ANCRÉ dans la barre latérale par défaut, DÉTACHABLE au clic ---
+        // Un clic sur l'image le détache en fenêtre flottante déplaçable ;
+        // l'épingle 📌 le ré-ancre dans la fenêtre du plugin.
         const previewEl = this.widgetEl.querySelector('#sc-preview-thumbnail');
-        document.body.appendChild(previewEl); // Detach from parent modal
-
+        const dockEl = this.widgetEl.querySelector('#sc-preview-dock');
         const headerEl = previewEl.querySelector('#sc-preview-header');
+        const titleEl = headerEl.querySelector('span');
+        const wrapEl = previewEl.querySelector('#sc-preview-canvas-wrap');
+
+        const pinBtn = document.createElement('button');
+        pinBtn.id = 'sc-btn-preview-dock';
+        pinBtn.title = "Ré-ancrer l'aperçu dans la fenêtre";
+        pinBtn.textContent = '📌';
+        pinBtn.style.cssText = "font-size:10px; padding:2px 6px; cursor:pointer; background:#0984e3; color:white; border:none; border-radius:3px;";
+        headerEl.querySelector('div').insertBefore(pinBtn, headerEl.querySelector('#sc-btn-preview-stamp'));
+
+        const dockPreview = () => {
+            self.previewDocked = true;
+            dockEl.appendChild(previewEl);
+            previewEl.style.cssText = "position:relative; width:100%; height:240px; background:white; overflow:hidden; display:flex; flex-direction:column; border:none; border-radius:0; box-shadow:none; resize:none; max-width:none; max-height:none;";
+            titleEl.textContent = 'Aperçu — cliquer pour détacher';
+            wrapEl.style.cursor = 'pointer';
+            headerEl.style.cursor = 'default';
+            pinBtn.style.display = 'none';
+            // Zoom ajusté à la largeur du panneau ancré (le zoom flottant est mémorisé)
+            if (self.previewZoom) self._floatZoom = self.previewZoom;
+            requestAnimationFrame(() => {
+                const w = wrapEl.clientWidth || 260;
+                self.previewZoom = Math.max(0.3, Math.min(1.5, (w - 8) / 480));
+                if (self.updatePreviewTransform) self.updatePreviewTransform();
+            });
+        };
+
+        const undockPreview = () => {
+            self.previewDocked = false;
+            const ws = self.widgetEl.querySelector('.sc-workspace').getBoundingClientRect();
+            document.body.appendChild(previewEl);
+            previewEl.style.cssText = "position:fixed; z-index:999999; width:480px; height:360px; background:white; border:2px solid #dfe6e9; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.2); overflow:hidden; display:flex; flex-direction:column; resize:both;";
+            previewEl.style.top = Math.max(8, ws.top + 12) + 'px';
+            previewEl.style.right = Math.max(8, window.innerWidth - ws.right + 12) + 'px';
+            titleEl.textContent = 'Aperçu (déplaçable)';
+            wrapEl.style.cursor = 'grab';
+            headerEl.style.cursor = 'move';
+            pinBtn.style.display = '';
+            self.previewZoom = self._floatZoom || 1.5;
+            if (self.updatePreviewTransform) self.updatePreviewTransform();
+        };
+
+        pinBtn.onclick = (e) => { e.stopPropagation(); dockPreview(); };
+
+        // Clic sur l'aperçu ancré (hors boutons) = détachement
+        previewEl.addEventListener('click', (e) => {
+            if (!self.previewDocked) return;
+            if (e.target.closest('button, input, select, label')) return;
+            undockPreview();
+        });
+
+        // Déplacement par l'en-tête : seulement en mode flottant
         let isDraggingPreview = false, pStartX, pStartY, initX, initY;
         headerEl.onpointerdown = (e) => {
+            if (self.previewDocked) return;
+            if (e.target.closest('button, input, select, label')) return;
             isDraggingPreview = true;
             pStartX = e.clientX; pStartY = e.clientY;
             const rect = previewEl.getBoundingClientRect();
@@ -21106,15 +21165,19 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             previewEl.style.right = 'auto';
             previewEl.style.left = initX + 'px';
             previewEl.style.top = initY + 'px';
+            if (headerEl.setPointerCapture) { try { headerEl.setPointerCapture(e.pointerId); } catch (err) { } }
             e.stopPropagation();
         };
-        window.addEventListener('pointermove', (e) => {
+        headerEl.addEventListener('pointermove', (e) => {
             if (isDraggingPreview) {
                 previewEl.style.left = (initX + e.clientX - pStartX) + 'px';
                 previewEl.style.top = (initY + e.clientY - pStartY) + 'px';
             }
         });
-        window.addEventListener('pointerup', () => { isDraggingPreview = false; });
+        headerEl.addEventListener('pointerup', () => { isDraggingPreview = false; });
+        headerEl.addEventListener('pointercancel', () => { isDraggingPreview = false; });
+
+        dockPreview(); // état par défaut : intégré à la fenêtre
 
         // Templates dropdown logic
         this.widgetEl.querySelector('#sc-template-sel').onchange = (e) => {
