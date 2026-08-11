@@ -1891,9 +1891,7 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
                 id: nextId++, x: pos.x - this.currentStamp.w / 2, y: pos.y - this.currentStamp.h / 2, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, w: this.currentStamp.w, h: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++,
                 pluginData: { id: 'fingerCountingTool', args: { config: JSON.parse(JSON.stringify(this.config)) } }
             });
-            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
-            this.currentStamp = null;
-            if (typeof setMode === 'function') setMode('pointer');
+            // Palette persistante : le tampon reste armé pour poser plusieurs mains
             saveState(); draw(); return true;
         } return false;
     }
@@ -2265,9 +2263,7 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
                     }
                 }
             });
-            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
-            this.currentStamp = null;
-            if (typeof setMode === 'function') setMode('pointer');
+            // Palette persistante : le tampon reste armé pour composer une expression
             saveState(); draw(); return true;
         } return false;
     }
