@@ -10264,8 +10264,17 @@ if (btnTextSnap) {
     });
 }
 
-window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; draw(); });
-canvas.width = window.innerWidth; canvas.height = window.innerHeight; draw();
+// Le bitmap doit suivre la taille RÉELLEMENT affichée du canvas (CSS 100vw/100vh),
+// pas window.innerHeight : sur téléphone, la barre d'adresse rend 100vh ≠ innerHeight
+// et tout le tableau était étiré → clics et rendu décalés partout.
+function resizeBoardCanvas() {
+    canvas.width = canvas.clientWidth || window.innerWidth;
+    canvas.height = canvas.clientHeight || window.innerHeight;
+    draw();
+}
+window.addEventListener('resize', resizeBoardCanvas);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeBoardCanvas);
+resizeBoardCanvas();
 
 // ==========================================
 // EXPLORATEUR, SAUVEGARDES & METADONNEES
