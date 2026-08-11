@@ -4753,6 +4753,14 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', handlePointerUp); canvas.addEventListener('pointercancel', handlePointerUp); canvas.addEventListener('pointerout', handlePointerUp);
 
 function handlePointerUp(e) {
+    // pointerout partage ce gestionnaire comme filet de sécurité, mais pendant un
+    // vrai geste le canvas garde le pointeur capturé (setPointerCapture) : les
+    // événements lui arrivent même hors de la fenêtre. Un pointerout SANS bouton
+    // enfoncé n'est donc qu'un survol sortant (passage sous la barre d'outils, un
+    // panneau, sortie de fenêtre) et ne doit rien valider — sinon le 2e point d'un
+    // segment/cercle/rectangle se posait tout seul à l'endroit du survol.
+    if (e.type === 'pointerout' && !e.buttons) return;
+
     // Tampon tactile : la pose est validée au relâchement du doigt/stylet
     if (touchStampPointerId !== null && e.pointerId === touchStampPointerId) {
         if (e.type === 'pointerout') return; // capture active, le doigt est toujours posé
