@@ -1891,6 +1891,9 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
                 id: nextId++, x: pos.x - this.currentStamp.w / 2, y: pos.y - this.currentStamp.h / 2, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, w: this.currentStamp.w, h: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++,
                 pluginData: { id: 'fingerCountingTool', args: { config: JSON.parse(JSON.stringify(this.config)) } }
             });
+            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
             saveState(); draw(); return true;
         } return false;
     }
@@ -2262,6 +2265,9 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
                     }
                 }
             });
+            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
             saveState(); draw(); return true;
         } return false;
     }
@@ -3322,9 +3328,11 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                 src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
                 pluginData: { id: 'circuitTool', state: JSON.parse(JSON.stringify(this.state)) }
             });
+            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
             if (typeof saveState === 'function') saveState();
             if (typeof draw === 'function') draw();
-            // On renvoie "true" pour intercepter le clic et on NE RESET PAS le tampon pour qu'il reste actif indéfiniment
             return true;
         }
         return false;
@@ -13055,8 +13063,12 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                 pluginData: this.currentStamp.pluginData
             });
 
+            // Une pose suffit : on libère le tampon (plus de fantôme qui suit le curseur)
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
             if (typeof saveState === 'function') saveState();
-            return true; // Reste armé pour tamponner en série
+            if (typeof draw === 'function') draw();
+            return true;
         }
         return false;
     },
