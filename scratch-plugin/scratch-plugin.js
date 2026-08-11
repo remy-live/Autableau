@@ -651,6 +651,13 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             .sc-workspace svg { width: 100%; height: 100%; overflow: visible; touch-action: none; }
 
             .sc-block-group { cursor: grab; touch-action: none; }
+            /* Bloc fantôme pendant le glissement (repris d'AtoutMath) : le bloc
+               déplacé s'allège et se décolle, sa vignette d'origine s'estompe. */
+            /* L'ombre passe par --block-filter : les blocs portent un style en ligne
+               « filter: var(--block-filter) » qui l'emporterait sur toute règle CSS. */
+            .sc-block-group.dragging { opacity: 0.7; cursor: grabbing; --block-filter: drop-shadow(0 8px 12px rgba(0,0,0,0.35)); }
+            .sc-block-group.dragging .sc-block-text { opacity: 0.9; }
+            .sc-palette > div.sc-drag-source { opacity: 0.3; transition: opacity 0.15s; }
             .sc-palette > div { touch-action: none; }
             #sc-preview-thumbnail { max-width: min(480px, 36vw); max-height: min(420px, 32vh); }
             #sc-preview-dock { flex-shrink: 0; border-top: 2px solid #dfe6e9; background: #fff; }
@@ -801,6 +808,24 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         // --- DRAG FENÊTRE ---
         let isDraggingWindow = false, startX, startY;
         const handle = this.widgetEl.querySelector('#sc-drag-handle');
+        // Filet de sécurité : quoi qu'il arrive (bouton relâché hors de la fenêtre,
+        // capture de pointeur avortée, événement perdu), un relâchement termine
+        // toujours le glissement en cours. Sans ça, la palette pouvait rester
+        // bloquée en mode corbeille, plus rien n'étant cliquable.
+        const releaseAnyDrag = (ev) => {
+            if (!this.widgetEl) return;
+            if (this.activeDrag) { try { this.activeDrag.dragEnd(ev); } catch (err) { } this.activeDrag = null; }
+            const sb = this.widgetEl.querySelector('#sc-sidebar');
+            if (sb) sb.classList.remove('trash-zone');
+            const ind = this.widgetEl.querySelector('#sc-snap-indicator');
+            if (ind) ind.style.display = 'none';
+            this.widgetEl.querySelectorAll('.sc-block-group.dragging').forEach(el => el.classList.remove('dragging'));
+            this.widgetEl.querySelectorAll('.sc-palette > div.sc-drag-source').forEach(el => el.classList.remove('sc-drag-source'));
+        };
+        window.addEventListener('pointerup', releaseAnyDrag);
+        window.addEventListener('pointercancel', releaseAnyDrag);
+        window.addEventListener('blur', releaseAnyDrag);
+
         // Pointer Events : la fenêtre se déplace aussi au doigt/stylet
         handle.addEventListener('pointerdown', (e) => {
             if (e.target.closest('button') || e.target.closest('select') || e.target.closest('label')) return;
@@ -1022,6 +1047,8 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
             beginDrag(e, isNew = false) {
                 this.el.classList.add('dragging');
+                this._dragging = true;
+                self.activeDrag = this; // suivi central : permet de terminer un glissement orphelin
                 const zoomLayer = self.widgetEl.querySelector('#sc-zoom-layer');
 
                 if (this.el.parentNode !== zoomLayer) {
@@ -1060,6 +1087,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             }
 
             dragEnd(ev) {
+                if (!this._dragging) return; // idempotent : le filet de sécurité peut doubler l'appel
+                this._dragging = false;
+                if (self.activeDrag === this) self.activeDrag = null;
                 this.el.classList.remove('dragging');
                 const sidebar = self.widgetEl.querySelector('#sc-sidebar');
                 sidebar.classList.remove('trash-zone');
@@ -1327,8 +1357,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
                     const start = { x: e.clientX, y: e.clientY };
                     let nb = null, scrolling = false, lastY = e.clientY;
-                    if (w.setPointerCapture) { try { w.setPointerCapture(e.pointerId); } catch (err) { } }
 
+                    // Écouteurs sur document (et non sur la vignette) : si la capture du
+                    // pointeur échoue ou se perd, le relâchement est tout de même reçu.
                     const onMove = (ev) => {
                         if (!nb && !scrolling) {
                             const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
@@ -1338,15 +1369,17 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                             }
                             const pt = getSVGPos(ev);
                             nb = new self.BlockClass(def, pt.x - b.width / 2, pt.y - b.topRowHeight / 2, self.widgetEl.querySelector('#sc-zoom-layer'));
+                            w.classList.add('sc-drag-source'); // la vignette d'origine s'estompe
                             nb.beginDrag(ev, true);
                         }
                         if (scrolling) { pad.scrollTop += lastY - ev.clientY; lastY = ev.clientY; return; }
                         nb.dragMove(ev);
                     };
                     const onUp = (ev) => {
-                        w.removeEventListener('pointermove', onMove);
-                        w.removeEventListener('pointerup', onUp);
-                        w.removeEventListener('pointercancel', onUp);
+                        document.removeEventListener('pointermove', onMove);
+                        document.removeEventListener('pointerup', onUp);
+                        document.removeEventListener('pointercancel', onUp);
+                        w.classList.remove('sc-drag-source');
                         if (nb) { nb.dragEnd(ev); return; }
                         if (scrolling || ev.type === 'pointercancel') return;
                         // Simple appui : le bloc se pose tout seul dans l'espace de travail
@@ -1356,9 +1389,9 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                         new self.BlockClass(def, pt.x, pt.y, self.widgetEl.querySelector('#sc-zoom-layer'));
                         self.blocksModified = true;
                     };
-                    w.addEventListener('pointermove', onMove);
-                    w.addEventListener('pointerup', onUp);
-                    w.addEventListener('pointercancel', onUp);
+                    document.addEventListener('pointermove', onMove);
+                    document.addEventListener('pointerup', onUp);
+                    document.addEventListener('pointercancel', onUp);
                 });
                 pad.appendChild(w);
             });
@@ -2253,4 +2286,3 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         return false;
     }
 });
-
