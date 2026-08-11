@@ -18214,6 +18214,9 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
                 if (!this.stats[res]) this.stats[res] = 0;
                 this.stats[res]++;
                 this.totalRolls++;
+                // Sans ça, « Exporter Visuel » n'a aucun résultat à dessiner
+                // après un tirage en série et ne faisait rien du tout.
+                this.lastFinalRes = res;
             }
         }
         this.updateUI();
@@ -18911,7 +18914,10 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
     },
 
     exportVisualToBoard: function () {
-        if (!this.lastFinalRes) return;
+        if (!this.lastFinalRes) {
+            if (typeof showToast === 'function') showToast("Lancez d'abord un tirage pour exporter le visuel", "#e17055", "🎲");
+            return;
+        }
         let svg = this.generateSVG(this.lastFinalRes);
 
         this.widgetEl.style.display = 'none';
