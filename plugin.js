@@ -26638,3 +26638,474 @@ registerPlugin('whackAMole', 'Jeux', {
 });
 
 
+
+// ==========================================
+// CARTES À JOUER (tampon : une carte, une famille entière, ou une sélection)
+// ==========================================
+registerPlugin('playingCardsTool', 'Maths - Numérique', {
+    widgetEl: null, currentStamp: null, currentState: null, editingImage: null,
+
+    SUITS: [
+        { k: 'spade', sym: '♠', label: 'Pique', color: '#2d3436' },
+        { k: 'heart', sym: '♥', label: 'Cœur', color: '#d63031' },
+        { k: 'diamond', sym: '♦', label: 'Carreau', color: '#d63031' },
+        { k: 'club', sym: '♣', label: 'Trèfle', color: '#2d3436' }
+    ],
+    RANKS: ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'V', 'D', 'R'],
+
+    CW: 100, CH: 140,
+
+    // Emplacement des enseignes pour les cartes numérotées (repère de la carte)
+    PIPS: {
+        'A': [[50, 70]],
+        '2': [[50, 32], [50, 108]],
+        '3': [[50, 32], [50, 70], [50, 108]],
+        '4': [[31, 32], [69, 32], [31, 108], [69, 108]],
+        '5': [[31, 32], [69, 32], [50, 70], [31, 108], [69, 108]],
+        '6': [[31, 32], [69, 32], [31, 70], [69, 70], [31, 108], [69, 108]],
+        '7': [[31, 32], [69, 32], [50, 51], [31, 70], [69, 70], [31, 108], [69, 108]],
+        '8': [[31, 32], [69, 32], [50, 51], [31, 70], [69, 70], [50, 89], [31, 108], [69, 108]],
+        '9': [[31, 32], [69, 32], [31, 57], [69, 57], [50, 70], [31, 83], [69, 83], [31, 108], [69, 108]],
+        '10': [[31, 32], [69, 32], [50, 45], [31, 57], [69, 57], [31, 83], [69, 83], [50, 95], [31, 108], [69, 108]]
+    },
+
+    state: { sel: [], style: 'portraits', layout: 'auto', size: 1, back: false },
+
+    // ---------- Dessin des enseignes (dans un carré de 100, centré en 50,50) ----------
+    suitShape: function (k, color) {
+        if (k === 'heart') return `<path d="M50 88C22 64 10 48 10 34c0-13 10-22 22-22 8 0 15 4 18 11 3-7 10-11 18-11 12 0 22 9 22 22 0 14-12 30-40 54z" fill="${color}"/>`;
+        if (k === 'diamond') return `<path d="M50 8 84 50 50 92 16 50z" fill="${color}"/>`;
+        if (k === 'spade') return `<path d="M50 10c14 18 38 30 38 48 0 13-9 21-20 21-8 0-14-4-17-10 0 9 3 17 10 23H39c7-6 10-14 10-23-3 6-9 10-17 10-11 0-20-8-20-21 0-18 24-30 38-48z" fill="${color}"/>`;
+        return `<g fill="${color}"><circle cx="50" cy="31" r="17"/><circle cx="28" cy="59" r="17"/><circle cx="72" cy="59" r="17"/><path d="M44 62h12l7 28H37z"/></g>`;
+    },
+    suitAt: function (k, color, x, y, size) {
+        const s = size / 100;
+        return `<g transform="translate(${x} ${y}) scale(${s}) translate(-50 -50)">${this.suitShape(k, color)}</g>`;
+    },
+
+    // ---------- Figures (R / D / V) ----------
+    // Dessinées dans un carré de 100, centré en 50,50 — trois styles au choix.
+    figure: function (rank, style, color) {
+        const C = color;
+        if (style === 'sobre') {
+            return `<text x="50" y="52" text-anchor="middle" dominant-baseline="central" font-family="serif" font-size="52" font-weight="bold" fill="${C}">${rank}</text>`;
+        }
+        if (style === 'couronnes') {
+            // Roi : couronne à trois pointes, joyaux et bandeau
+            if (rank === 'R') return `<g fill="${C}">`
+                + `<path d="M20 70 25 33 38 50 50 27 62 50 75 33 80 70Z"/>`
+                + `<rect x="19" y="73" width="62" height="10" rx="5"/>`
+                + `<circle cx="25" cy="28" r="5"/><circle cx="50" cy="21" r="5.5"/><circle cx="75" cy="28" r="5"/>`
+                + `<circle cx="50" cy="60" r="5" fill="#fff"/></g>`;
+            // Dame : diadème aux arcs adoucis
+            if (rank === 'D') return `<g fill="${C}">`
+                + `<path d="M23 70 27 46C32 39 36 43 39 51 42 33 46 27 50 27s8 6 11 24c3-8 7-12 12-5l4 24Z"/>`
+                + `<rect x="21" y="73" width="58" height="9" rx="4.5"/>`
+                + `<circle cx="27" cy="41" r="4.5"/><circle cx="50" cy="22" r="5"/><circle cx="73" cy="41" r="4.5"/>`
+                + `<circle cx="50" cy="60" r="4.5" fill="#fff"/></g>`;
+            // Valet : fleur de lys
+            return `<g fill="${C}">`
+                + `<path d="M50 14c-5 9-5 21 0 30 5-9 5-21 0-30z"/>`
+                + `<path d="M50 45C40 33 26 35 25 46c-1 10 12 14 25 6z"/>`
+                + `<path d="M50 45c10-12 24-10 25 1 1 10-12 14-25 6z"/>`
+                + `<rect x="33" y="56" width="34" height="8" rx="4"/>`
+                + `<path d="M44 64h12l4 22H40z"/></g>`;
+        }
+        // « portraits » : un buste au trait, à la façon d'une gravure simple
+        const W = 2.6;
+        const head = `<circle cx="50" cy="47" r="14" fill="#fff" stroke="${C}" stroke-width="${W}"/>`;
+        const eyes = `<circle cx="45" cy="45" r="1.9" fill="${C}"/><circle cx="55" cy="45" r="1.9" fill="${C}"/>`;
+        const bust = `<path d="M24 92c0-14 11-23 26-23s26 9 26 23" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`;
+        const collar = `<path d="M38 71 50 80 62 71" fill="none" stroke="${C}" stroke-width="${W}" stroke-linejoin="round" stroke-linecap="round" fill-opacity="0"/>`;
+        const jewel = `<circle cx="50" cy="86" r="3.2" fill="${C}"/>`;
+        if (rank === 'R') return `<g>${bust}${collar}${jewel}${head}${eyes}`
+            + `<path d="M40 56c2 10 5 15 10 15s8-5 10-15" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
+            + `<path d="M34 34 38 19l6 9 6-12 6 12 6-9 4 15z" fill="${C}"/>`
+            + `<circle cx="38" cy="16" r="2.6" fill="${C}"/><circle cx="50" cy="12" r="2.9" fill="${C}"/><circle cx="62" cy="16" r="2.6" fill="${C}"/></g>`;
+        if (rank === 'D') return `<g>${bust}`
+            + `<path d="M35 42c-6 15-5 33-1 47M65 42c6 15 5 33 1 47" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
+            + `${collar}${jewel}${head}${eyes}`
+            + `<path d="M43 57c2 4 5 6 7 6s5-2 7-6" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
+            + `<path d="M37 34 41 23l5 8 4-10 4 10 5-8 4 11z" fill="${C}"/>`
+            + `<circle cx="50" cy="19" r="2.7" fill="${C}"/></g>`;
+        return `<g>${bust}${collar}${jewel}${head}${eyes}`
+            + `<path d="M43 57c2 4 5 6 7 6s5-2 7-6" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
+            + `<path d="M34 37c-1-13 7-20 16-20s17 7 16 20z" fill="${C}"/>`
+            + `<path d="M65 25c8-9 16-8 19-3-8 1-13 5-15 12z" fill="${C}"/></g>`;
+    },
+
+    // ---------- Une carte ----------
+    cardSVG: function (suitIdx, rank, style, back) {
+        const CW = this.CW, CH = this.CH;
+        let out = `<rect x="1.5" y="1.5" width="${CW - 3}" height="${CH - 3}" rx="9" fill="#ffffff" stroke="#2d3436" stroke-width="3"/>`;
+        if (back) {
+            out += `<rect x="8" y="8" width="${CW - 16}" height="${CH - 16}" rx="5" fill="#0984e3"/>`;
+            for (let i = -3; i <= 6; i++) {
+                out += `<path d="M${8 + i * 22} 8 L${8 + i * 22 + 124} 132" stroke="#74b9ff" stroke-width="3" fill="none" clip-path="url(#pcClip)"/>`;
+                out += `<path d="M${8 + i * 22} 132 L${8 + i * 22 + 124} 8" stroke="#74b9ff" stroke-width="3" fill="none" clip-path="url(#pcClip)"/>`;
+            }
+            return out;
+        }
+        const s = this.SUITS[suitIdx];
+        // Indices dans les coins (haut-gauche, et bas-droit à l'envers)
+        const fs = rank === '10' ? 18 : 21; // le « 10 » est large : on l'écrit un peu plus petit
+        const idx = (x, y, rot) =>
+            `<g transform="translate(${x} ${y}) rotate(${rot})">`
+            + `<text x="0" y="0" text-anchor="middle" font-family="sans-serif" font-size="${fs}" font-weight="bold" fill="${s.color}">${rank}</text>`
+            + this.suitAt(s.k, s.color, 0, 15, 15) + `</g>`;
+        out += idx(13, 25, 0) + idx(CW - 13, CH - 25, 180);
+
+        if (['V', 'D', 'R'].indexOf(rank) !== -1) {
+            out += `<rect x="20" y="26" width="${CW - 40}" height="${CH - 52}" rx="6" fill="none" stroke="${s.color}" stroke-width="1.5" opacity="0.45"/>`;
+            out += `<g transform="translate(50 70) scale(0.74) translate(-50 -50)">${this.figure(rank, style, s.color)}</g>`;
+            out += this.suitAt(s.k, s.color, 30, 104, 15) + this.suitAt(s.k, s.color, 70, 36, 15);
+        } else {
+            const pips = this.PIPS[rank] || [];
+            const size = rank === 'A' ? 42 : 21;
+            pips.forEach(([x, y]) => {
+                const flip = (rank !== 'A' && y > 70);
+                out += flip
+                    ? `<g transform="rotate(180 ${x} ${y})">${this.suitAt(s.k, s.color, x, y, size)}</g>`
+                    : this.suitAt(s.k, s.color, x, y, size);
+            });
+        }
+        return out;
+    },
+
+    // ---------- Sélection ----------
+    key: function (si, r) { return si + ':' + r; },
+    isSel: function (si, r) { return this.state.sel.indexOf(this.key(si, r)) !== -1; },
+    toggle: function (si, r) {
+        const k = this.key(si, r), i = this.state.sel.indexOf(k);
+        if (i === -1) this.state.sel.push(k); else this.state.sel.splice(i, 1);
+    },
+    orderedSel: function () {
+        const out = [];
+        this.SUITS.forEach((s, si) => this.RANKS.forEach(r => { if (this.isSel(si, r)) out.push([si, r]); }));
+        return out;
+    },
+
+    // ---------- Composition du tampon ----------
+    generateSVG: function () {
+        const CW = this.CW, CH = this.CH, gap = 10;
+        const cards = this.orderedSel();
+        if (!cards.length) return null;
+
+        let layout = this.state.layout;
+        if (layout === 'auto') {
+            const suits = {}; cards.forEach(([si]) => suits[si] = 1);
+            layout = (cards.length <= 6 || Object.keys(suits).length === 1) ? 'row' : 'grid';
+        }
+
+        let placed = [], w = 0, h = 0;
+        if (layout === 'row') {
+            cards.forEach((c, i) => placed.push([c, i * (CW + gap), 0]));
+            w = cards.length * CW + (cards.length - 1) * gap; h = CH;
+        } else if (layout === 'column') {
+            cards.forEach((c, i) => placed.push([c, 0, i * (CH + gap)]));
+            w = CW; h = cards.length * CH + (cards.length - 1) * gap;
+        } else { // grille : une ligne par famille
+            let row = 0, maxCols = 0;
+            this.SUITS.forEach((s, si) => {
+                const ofSuit = cards.filter(c => c[0] === si);
+                if (!ofSuit.length) return;
+                ofSuit.forEach((c, i) => placed.push([c, i * (CW + gap), row * (CH + gap)]));
+                maxCols = Math.max(maxCols, ofSuit.length); row++;
+            });
+            w = maxCols * CW + (maxCols - 1) * gap; h = row * CH + (row - 1) * gap;
+        }
+
+        let body = '';
+        placed.forEach(([[si, r], x, y]) => {
+            body += `<g transform="translate(${x} ${y})">${this.cardSVG(si, r, this.state.style, this.state.back)}</g>`;
+        });
+        const pad = 6, k = this.state.size;
+        const W = Math.round((w + pad * 2) * k), H = Math.round((h + pad * 2) * k);
+        const defs = `<defs><clipPath id="pcClip"><rect x="8" y="8" width="${CW - 16}" height="${CH - 16}" rx="5"/></clipPath></defs>`;
+        return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}">${defs}${body}</svg>`, w: W, h: H };
+    },
+
+    // ---------- Interface ----------
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Cartes à jouer';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="11" height="15" rx="2"/><path d="M16.5 6.2 19 5.4a2 2 0 0 1 2.5 1.3l3 9"/><path d="M8.5 9.5 7 12l1.5 2.5L10 12z"/></svg>`;
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (typeof setMode === 'function') setMode('pointer');
+            this.editingImage = null;
+            this.openWidget();
+        });
+    },
+
+    edit: function (imgObj) {
+        this.editingImage = imgObj;
+        if (imgObj.pluginData && imgObj.pluginData.state) {
+            this.state = Object.assign({ sel: [], style: 'portraits', layout: 'auto', size: 1, back: false },
+                JSON.parse(JSON.stringify(imgObj.pluginData.state)));
+        }
+        this.openWidget();
+    },
+
+    openWidget: function () {
+        const self = this;
+        if (this.widgetEl) {
+            this.widgetEl.style.display = 'flex';
+            this.syncUI(); this.renderPreview();
+            return;
+        }
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.id = 'pc-wrap';
+        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 450px); width:900px; height:86vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #pc-wrap .pc-header { background:#f8f9fa; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #dfe6e9; touch-action:none; }
+            #pc-wrap .pc-header:active { cursor:grabbing; }
+            #pc-wrap .pc-body { display:flex; flex:1; overflow:hidden; }
+            #pc-wrap .pc-side { width:210px; background:#fdfdfd; border-right:1px solid #dfe6e9; padding:12px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+            #pc-wrap .pc-main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+            #pc-wrap .pc-label { font-weight:bold; font-size:11px; color:#636e72; text-transform:uppercase; letter-spacing:.5px; }
+            #pc-wrap .pc-seg { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+            #pc-wrap .pc-seg button { flex:1; min-width:56px; padding:6px 4px; border:1px solid #dfe6e9; background:#fff; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; color:#2d3436; }
+            #pc-wrap .pc-seg button.on { background:#0984e3; color:#fff; border-color:#0984e3; }
+            #pc-wrap .pc-grid { padding:12px; overflow:auto; border-bottom:1px solid #dfe6e9; }
+            #pc-wrap table.pc-tab { border-collapse:separate; border-spacing:4px; }
+            #pc-wrap .pc-cell { width:42px; height:34px; border:1px solid #dfe6e9; border-radius:6px; background:#fff; cursor:pointer; font-weight:bold; font-size:13px; line-height:1; padding:0; }
+            #pc-wrap .pc-cell:hover { border-color:#b2bec3; }
+            #pc-wrap .pc-cell.on { background:#eaf4fd; border-color:#0984e3; box-shadow:inset 0 0 0 1px #0984e3; }
+            #pc-wrap .pc-suitbtn { width:34px; height:34px; border:1px solid #dfe6e9; border-radius:6px; background:#fff; cursor:pointer; font-size:17px; font-weight:bold; padding:0; }
+            #pc-wrap .pc-preview { flex:1; background:radial-gradient(circle at center,#fff 0%,#f1f2f6 100%); display:flex; align-items:center; justify-content:center; overflow:auto; padding:14px; }
+            #pc-wrap .pc-footer { padding:10px 15px; border-top:1px solid #dfe6e9; display:flex; gap:10px; justify-content:space-between; align-items:center; background:#f8f9fa; }
+            #pc-wrap .pc-btn { padding:11px 20px; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:14px; box-shadow:0 4px 6px rgba(0,0,0,.1); }
+            #pc-wrap .pc-ghost { background:#f1f2f6; color:#2d3436; border:1px solid #dfe6e9; box-shadow:none; }
+            #pc-wrap .pc-blue { background:linear-gradient(135deg,#0984e3,#6c5ce7); color:#fff; }
+            #pc-wrap input[type=range] { width:100%; }
+        `;
+        this.widgetEl.appendChild(style);
+
+        const content = document.createElement('div');
+        content.style.cssText = "display:flex; flex-direction:column; flex:1; overflow:hidden;";
+        content.innerHTML = `
+            <div class="pc-header" id="pc-drag">
+                <div style="font-weight:900; font-size:15px; color:#2d3436;">🃏 Cartes à jouer</div>
+                <button id="pc-close" style="background:none;border:none;color:#d63031;cursor:pointer;font-weight:bold;font-size:16px;">✕</button>
+            </div>
+            <div class="pc-body">
+                <div class="pc-side">
+                    <div>
+                        <div class="pc-label">Style des figures</div>
+                        <div class="pc-seg" id="pc-style">
+                            <button data-v="portraits">Portraits</button>
+                            <button data-v="couronnes">Emblèmes</button>
+                            <button data-v="sobre">Sobre</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="pc-label">Disposition</div>
+                        <div class="pc-seg" id="pc-layout">
+                            <button data-v="auto">Auto</button>
+                            <button data-v="row">Ligne</button>
+                            <button data-v="column">Colonne</button>
+                            <button data-v="grid">Grille</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="pc-label">Taille · <span id="pc-size-val">100</span>%</div>
+                        <input type="range" id="pc-size" min="50" max="200" step="10" value="100">
+                    </div>
+                    <div>
+                        <div class="pc-label">Sélection rapide</div>
+                        <div class="pc-seg" id="pc-quick">
+                            <button data-q="all">Tout</button>
+                            <button data-q="none">Rien</button>
+                            <button data-q="figures">Figures</button>
+                            <button data-q="aces">As</button>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="pc-label">Dos de carte</div>
+                        <div class="pc-seg" id="pc-back"><button data-v="0">Face</button><button data-v="1">Dos</button></div>
+                    </div>
+                    <div style="flex:1"></div>
+                    <div style="font-size:11px;color:#b2bec3;line-height:1.4;">Cliquez une carte dans la grille pour l'ajouter. Le symbole d'une famille sélectionne ou retire la famille entière.</div>
+                </div>
+                <div class="pc-main">
+                    <div class="pc-grid" id="pc-grid"></div>
+                    <div class="pc-preview" id="pc-preview"></div>
+                </div>
+            </div>
+            <div class="pc-footer">
+                <div id="pc-count" style="font-size:12px;color:#636e72;font-weight:bold;"></div>
+                <div style="display:flex;gap:10px;">
+                    <button id="pc-cancel" class="pc-btn pc-ghost">Annuler</button>
+                    <button id="pc-valid" class="pc-btn pc-blue">✅ Poser au tableau</button>
+                </div>
+            </div>`;
+        this.widgetEl.appendChild(content);
+        document.body.appendChild(this.widgetEl);
+
+        // Déplacement de la fenêtre (souris et doigt)
+        const handle = this.widgetEl.querySelector('#pc-drag');
+        let drag = false, sx = 0, sy = 0;
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
+            drag = true; sx = e.clientX - self.widgetEl.offsetLeft; sy = e.clientY - self.widgetEl.offsetTop;
+            if (handle.setPointerCapture) { try { handle.setPointerCapture(e.pointerId); } catch (err) { } }
+        });
+        handle.addEventListener('pointermove', (e) => { if (drag) { self.widgetEl.style.left = (e.clientX - sx) + 'px'; self.widgetEl.style.top = (e.clientY - sy) + 'px'; } });
+        handle.addEventListener('pointerup', () => { drag = false; });
+        handle.addEventListener('pointercancel', () => { drag = false; });
+
+        const $ = sel => this.widgetEl.querySelector(sel);
+        $('#pc-close').onclick = () => this.closeWidget();
+        $('#pc-cancel').onclick = () => this.closeWidget();
+        $('#pc-valid').onclick = () => this.exportToBoard();
+
+        const seg = (id, prop, cast) => this.widgetEl.querySelectorAll(id + ' button').forEach(b => {
+            b.onclick = () => { self.state[prop] = cast ? cast(b.dataset.v) : b.dataset.v; self.syncUI(); self.renderPreview(); };
+        });
+        seg('#pc-style', 'style'); seg('#pc-layout', 'layout');
+        seg('#pc-back', 'back', v => v === '1');
+
+        $('#pc-size').oninput = function () {
+            self.state.size = parseInt(this.value, 10) / 100;
+            self.widgetEl.querySelector('#pc-size-val').textContent = this.value;
+            self.renderPreview();
+        };
+
+        this.widgetEl.querySelectorAll('#pc-quick button').forEach(b => {
+            b.onclick = () => {
+                const q = b.dataset.q;
+                if (q === 'none') self.state.sel = [];
+                else if (q === 'all') { self.state.sel = []; self.SUITS.forEach((s, si) => self.RANKS.forEach(r => self.state.sel.push(self.key(si, r)))); }
+                else if (q === 'figures') { self.state.sel = []; self.SUITS.forEach((s, si) => ['V', 'D', 'R'].forEach(r => self.state.sel.push(self.key(si, r)))); }
+                else if (q === 'aces') { self.state.sel = []; self.SUITS.forEach((s, si) => self.state.sel.push(self.key(si, 'A'))); }
+                self.buildGrid(); self.syncUI(); self.renderPreview();
+            };
+        });
+
+        // Échap ferme la fenêtre
+        this._esc = (e) => { if (e.key === 'Escape' && self.widgetEl && self.widgetEl.style.display !== 'none') { e.stopPropagation(); self.closeWidget(); } };
+        document.addEventListener('keydown', this._esc, true);
+
+        this.buildGrid(); this.syncUI(); this.renderPreview();
+    },
+
+    buildGrid: function () {
+        const self = this, box = this.widgetEl.querySelector('#pc-grid');
+        let html = '<table class="pc-tab"><tr><td></td>';
+        this.RANKS.forEach(r => html += `<td style="text-align:center;font-size:11px;font-weight:bold;color:#636e72">${r}</td>`);
+        html += '</tr>';
+        this.SUITS.forEach((s, si) => {
+            html += `<tr><td><button class="pc-suitbtn" data-suit="${si}" style="color:${s.color}" title="${s.label} — tout sélectionner">${s.sym}</button></td>`;
+            this.RANKS.forEach(r => {
+                html += `<td><button class="pc-cell${this.isSel(si, r) ? ' on' : ''}" data-si="${si}" data-r="${r}" style="color:${s.color}">${r}${s.sym}</button></td>`;
+            });
+            html += '</tr>';
+        });
+        box.innerHTML = html + '</table>';
+        box.querySelectorAll('.pc-cell').forEach(b => {
+            b.onclick = () => {
+                self.toggle(parseInt(b.dataset.si, 10), b.dataset.r);
+                b.classList.toggle('on');
+                self.syncUI(); self.renderPreview();
+            };
+        });
+        box.querySelectorAll('.pc-suitbtn').forEach(b => {
+            b.onclick = () => {
+                const si = parseInt(b.dataset.suit, 10);
+                const full = self.RANKS.every(r => self.isSel(si, r));
+                self.RANKS.forEach(r => {
+                    const has = self.isSel(si, r);
+                    if (full && has) self.toggle(si, r);
+                    else if (!full && !has) self.toggle(si, r);
+                });
+                self.buildGrid(); self.syncUI(); self.renderPreview();
+            };
+        });
+    },
+
+    syncUI: function () {
+        if (!this.widgetEl) return;
+        const set = (id, val) => this.widgetEl.querySelectorAll(id + ' button').forEach(b => b.classList.toggle('on', b.dataset.v === val));
+        set('#pc-style', this.state.style);
+        set('#pc-layout', this.state.layout);
+        set('#pc-back', this.state.back ? '1' : '0');
+        const n = this.state.sel.length;
+        this.widgetEl.querySelector('#pc-count').textContent = n === 0 ? 'Aucune carte sélectionnée' : (n + ' carte' + (n > 1 ? 's' : '') + ' sélectionnée' + (n > 1 ? 's' : ''));
+        this.widgetEl.querySelector('#pc-valid').innerHTML = this.editingImage ? '💾 Mettre à jour' : '✅ Poser au tableau';
+    },
+
+    renderPreview: function () {
+        const box = this.widgetEl.querySelector('#pc-preview');
+        const res = this.generateSVG();
+        if (!res) { box.innerHTML = '<div style="color:#b2bec3;font-size:13px">Choisissez au moins une carte ci-dessus.</div>'; return; }
+        box.innerHTML = res.svg;
+        const el = box.querySelector('svg');
+        el.removeAttribute('width'); el.removeAttribute('height');
+        el.style.maxWidth = '100%'; el.style.maxHeight = '100%';
+        el.style.width = res.w + 'px'; el.style.height = 'auto';
+    },
+
+    closeWidget: function () {
+        if (this.widgetEl) this.widgetEl.style.display = 'none';
+        this.editingImage = null;
+    },
+
+    exportToBoard: function () {
+        const self = this, res = this.generateSVG();
+        if (!res) { if (typeof showToast === 'function') showToast("Choisissez au moins une carte", "#e17055", "🃏"); return; }
+        const snapshot = JSON.parse(JSON.stringify(this.state));
+        this.widgetEl.style.display = 'none';
+        createStampFromSVG(res.svg, (stamp) => {
+            if (self.editingImage) {
+                self.editingImage.src = stamp.src; self.editingImage.w = stamp.w; self.editingImage.h = stamp.h;
+                self.editingImage.cx = 0; self.editingImage.cy = 0;
+                self.editingImage.cw = stamp.w; self.editingImage.ch = stamp.h;
+                self.editingImage.pluginData.state = snapshot;
+                self.editingImage = null;
+                if (typeof saveState === 'function') saveState();
+                if (typeof draw === 'function') draw();
+                if (typeof setMode === 'function') setMode('pointer');
+                if (typeof showToast === 'function') showToast("💾 Cartes mises à jour !");
+            } else {
+                self.currentStamp = stamp; self.currentState = snapshot;
+                if (typeof setMode === 'function') setMode('playingCards');
+                if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser les cartes");
+                if (typeof draw === 'function') draw();
+            }
+        });
+    },
+
+    onPointerMove: function (rawPos) {
+        if (mode === 'playingCards' && this.currentStamp) { mouseLogicalPos = { x: rawPos.x, y: rawPos.y }; if (typeof draw === 'function') draw(); }
+        return false;
+    },
+    onDraw: function (ctx) {
+        if (mode === 'playingCards' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2, this.currentStamp.w, this.currentStamp.h);
+            ctx.globalAlpha = 1.0;
+        }
+    },
+    onPointerDown: function (rawPos) {
+        if (mode === 'playingCards' && this.currentStamp) {
+            if (typeof imageCache !== 'undefined') imageCache[this.currentStamp.src] = this.currentStamp.img;
+            images.push({
+                id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2,
+                w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0,
+                cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++,
+                pluginData: { id: 'playingCardsTool', state: this.currentState }
+            });
+            // Une pose suffit : on libère le tampon
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
+            saveState(); draw(); return true;
+        }
+        return false;
+    }
+});
