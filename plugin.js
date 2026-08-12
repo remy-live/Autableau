@@ -1,13 +1,23 @@
 // ==========================================
 // ERGONOMIE GLOBALE DES PLUGINS (Touche Échap)
 // ==========================================
+// Quelques outils tamponnent à chaque clic sans passer par currentStamp : ils
+// fabriquent leur image au moment de la pose (l'horloge aléatoire tire une heure
+// différente à chaque fois) ou dessinent en direct. Faute de tampon « en
+// attente », ils n'avaient ni pastille d'annulation ni sortie par Échap : une
+// fois l'outil choisi, chaque clic posait un objet sans moyen visible d'arrêter.
+const MODES_TAMPON_SANS_STAMP = ['randomClock', 'place_bubble', 'extremeStampTool', 'tamaMathTool'];
+function isArmedStampMode() {
+    return typeof mode !== 'undefined' && MODES_TAMPON_SANS_STAMP.indexOf(mode) !== -1;
+}
+
 // Y a-t-il un tampon en attente de pose ? (utilisé par la pastille tactile d'annulation)
 function hasPendingStamp() {
     if (!window.PluginManager || !PluginManager.plugins) return false;
     for (let key in PluginManager.plugins) {
         if (PluginManager.plugins[key].currentStamp) return true;
     }
-    return false;
+    return isArmedStampMode();
 }
 
 // Annule le tampon en attente de tous les plugins. Renvoie true si quelque chose a été annulé.
@@ -24,6 +34,9 @@ function cancelPendingStamps() {
             canceled = true;
         }
     }
+
+    // Outils armés par le mode seul : quitter le mode suffit à les désarmer
+    if (!canceled && isArmedStampMode()) canceled = true;
 
     if (canceled) {
         if (typeof setMode === 'function') setMode('pointer'); // Retour à la flèche
