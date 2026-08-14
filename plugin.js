@@ -26669,7 +26669,7 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         '10': [[31, 32], [69, 32], [50, 45], [31, 57], [69, 57], [31, 83], [69, 83], [50, 95], [31, 108], [69, 108]]
     },
 
-    state: { sel: [], style: 'portraits', layout: 'auto', size: 1, back: false },
+    state: { sel: [], style: 'silhouettes', layout: 'auto', size: 1, back: false },
 
     // ---------- Dessin des enseignes (dans un carré de 100, centré en 50,50) ----------
     suitShape: function (k, color) {
@@ -26690,48 +26690,32 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         if (style === 'sobre') {
             return `<text x="50" y="52" text-anchor="middle" dominant-baseline="central" font-family="serif" font-size="52" font-weight="bold" fill="${C}">${rank}</text>`;
         }
-        if (style === 'couronnes') {
-            // Roi : couronne à trois pointes, joyaux et bandeau
-            if (rank === 'R') return `<g fill="${C}">`
-                + `<path d="M20 70 25 33 38 50 50 27 62 50 75 33 80 70Z"/>`
-                + `<rect x="19" y="73" width="62" height="10" rx="5"/>`
-                + `<circle cx="25" cy="28" r="5"/><circle cx="50" cy="21" r="5.5"/><circle cx="75" cy="28" r="5"/>`
-                + `<circle cx="50" cy="60" r="5" fill="#fff"/></g>`;
-            // Dame : diadème aux arcs adoucis
-            if (rank === 'D') return `<g fill="${C}">`
-                + `<path d="M23 70 27 46C32 39 36 43 39 51 42 33 46 27 50 27s8 6 11 24c3-8 7-12 12-5l4 24Z"/>`
-                + `<rect x="21" y="73" width="58" height="9" rx="4.5"/>`
-                + `<circle cx="27" cy="41" r="4.5"/><circle cx="50" cy="22" r="5"/><circle cx="73" cy="41" r="4.5"/>`
-                + `<circle cx="50" cy="60" r="4.5" fill="#fff"/></g>`;
-            // Valet : fleur de lys
-            return `<g fill="${C}">`
-                + `<path d="M50 14c-5 9-5 21 0 30 5-9 5-21 0-30z"/>`
-                + `<path d="M50 45C40 33 26 35 25 46c-1 10 12 14 25 6z"/>`
-                + `<path d="M50 45c10-12 24-10 25 1 1 10-12 14-25 6z"/>`
-                + `<rect x="33" y="56" width="34" height="8" rx="4"/>`
-                + `<path d="M44 64h12l4 22H40z"/></g>`;
+        if (style === 'silhouettes') {
+            // Buste de profil, aplat plein : lisible même en tout petit
+            const tete = `<path d="M30 92c0-13 5-20 14-24l0-8c-6-5-10-13-10-22 0-14 10-24 24-24 13 0 22 9 22 22 0 6-2 11-5 14l6 4-6 4 0 6c0 6-5 9-11 9l0 5c10 4 16 11 16 24z" fill="${C}"/>`;
+            if (rank === 'R') return `<g>${tete}<path d="M28 20 33 2l8 10 9-14 9 14 8-10 5 18z" fill="${C}"/></g>`;
+            if (rank === 'D') return `<g>${tete}<path d="M31 21 36 6l7 9 7-12 7 12 7-9 5 15z" fill="${C}"/>`
+                + `<path d="M74 44c8 10 8 30 2 46" fill="none" stroke="${C}" stroke-width="6" stroke-linecap="round"/></g>`;
+            return `<g>${tete}<path d="M28 24c-2-15 8-24 22-24s24 9 22 24z" fill="${C}"/>`
+                + `<path d="M70 10c10-11 20-9 24-3-10 1-16 6-19 14z" fill="${C}"/></g>`;
         }
-        // « portraits » : un buste au trait, à la façon d'une gravure simple
-        const W = 2.6;
-        const head = `<circle cx="50" cy="47" r="14" fill="#fff" stroke="${C}" stroke-width="${W}"/>`;
-        const eyes = `<circle cx="45" cy="45" r="1.9" fill="${C}"/><circle cx="55" cy="45" r="1.9" fill="${C}"/>`;
-        const bust = `<path d="M24 92c0-14 11-23 26-23s26 9 26 23" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`;
-        const collar = `<path d="M38 71 50 80 62 71" fill="none" stroke="${C}" stroke-width="${W}" stroke-linejoin="round" stroke-linecap="round" fill-opacity="0"/>`;
-        const jewel = `<circle cx="50" cy="86" r="3.2" fill="${C}"/>`;
-        if (rank === 'R') return `<g>${bust}${collar}${jewel}${head}${eyes}`
-            + `<path d="M40 56c2 10 5 15 10 15s8-5 10-15" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
-            + `<path d="M34 34 38 19l6 9 6-12 6 12 6-9 4 15z" fill="${C}"/>`
-            + `<circle cx="38" cy="16" r="2.6" fill="${C}"/><circle cx="50" cy="12" r="2.9" fill="${C}"/><circle cx="62" cy="16" r="2.6" fill="${C}"/></g>`;
-        if (rank === 'D') return `<g>${bust}`
-            + `<path d="M35 42c-6 15-5 33-1 47M65 42c6 15 5 33 1 47" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
-            + `${collar}${jewel}${head}${eyes}`
-            + `<path d="M43 57c2 4 5 6 7 6s5-2 7-6" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
-            + `<path d="M37 34 41 23l5 8 4-10 4 10 5-8 4 11z" fill="${C}"/>`
-            + `<circle cx="50" cy="19" r="2.7" fill="${C}"/></g>`;
-        return `<g>${bust}${collar}${jewel}${head}${eyes}`
-            + `<path d="M43 57c2 4 5 6 7 6s5-2 7-6" fill="none" stroke="${C}" stroke-width="${W}" stroke-linecap="round"/>`
-            + `<path d="M34 37c-1-13 7-20 16-20s17 7 16 20z" fill="${C}"/>`
-            + `<path d="M65 25c8-9 16-8 19-3-8 1-13 5-15 12z" fill="${C}"/></g>`;
+        // « emblemes » — sert aussi de motif aux cartes « royales »
+        // Roi : couronne haute à pointes vives. Dame : diadème bas à arcs ronds.
+        if (rank === 'R') return `<g fill="${C}">`
+            + `<path d="M12 76 18 20 36 46 50 14 64 46 82 20 88 76Z"/>`
+            + `<rect x="11" y="80" width="78" height="13" rx="6.5"/>`
+            + `<circle cx="18" cy="13" r="7"/><circle cx="50" cy="6" r="7.5"/><circle cx="82" cy="13" r="7"/></g>`;
+        if (rank === 'D') return `<g fill="${C}">`
+            + `<path d="M16 76C14 56 20 44 30 44c7 0 11 6 13 14 2-14 4-24 7-24s5 10 7 24c2-8 6-14 13-14 10 0 16 12 14 32Z"/>`
+            + `<rect x="15" y="80" width="70" height="12" rx="6"/>`
+            + `<circle cx="30" cy="38" r="6"/><circle cx="50" cy="27" r="7"/><circle cx="70" cy="38" r="6"/></g>`;
+        // Valet : fleur de lys
+        return `<g fill="${C}">`
+            + `<path d="M50 6c-6 13-6 28 0 40 6-12 6-27 0-40z"/>`
+            + `<path d="M50 48C37 31 18 34 17 49c-1 14 16 19 33 9z"/>`
+            + `<path d="M50 48c13-17 32-14 33 1 1 14-16 19-33 9z"/>`
+            + `<rect x="29" y="63" width="42" height="11" rx="5.5"/>`
+            + `<path d="M41 74h18l5 24H36z"/></g>`;
     },
 
     // ---------- Une carte ----------
@@ -26757,8 +26741,17 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
 
         if (['V', 'D', 'R'].indexOf(rank) !== -1) {
             out += `<rect x="20" y="26" width="${CW - 40}" height="${CH - 52}" rx="6" fill="none" stroke="${s.color}" stroke-width="1.5" opacity="0.45"/>`;
-            out += `<g transform="translate(50 70) scale(0.74) translate(-50 -50)">${this.figure(rank, style, s.color)}</g>`;
-            out += this.suitAt(s.k, s.color, 30, 104, 15) + this.suitAt(s.k, s.color, 70, 36, 15);
+            if (style === 'royales') {
+                // Mise en page classique : une moitié droite, l'autre retournée
+                const demi = `<g transform="translate(48 49) scale(0.46) translate(-50 -50)">${this.figure(rank, 'emblemes', s.color)}</g>`
+                    + this.suitAt(s.k, s.color, 71, 37, 14);
+                out += demi + `<g transform="rotate(180 50 70)">${demi}</g>`
+                    + `<line x1="20" y1="70" x2="80" y2="70" stroke="${s.color}" stroke-width="1.2" opacity="0.45"/>`;
+            } else {
+                const sc = style === 'emblemes' ? 0.60 : (style === 'silhouettes' ? 0.70 : 0.74);
+                out += `<g transform="translate(50 70) scale(${sc}) translate(-50 -50)">${this.figure(rank, style, s.color)}</g>`;
+                out += this.suitAt(s.k, s.color, 30, 104, 15) + this.suitAt(s.k, s.color, 70, 36, 15);
+            }
         } else {
             const pips = this.PIPS[rank] || [];
             const size = rank === 'A' ? 42 : 21;
@@ -26844,8 +26837,11 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
     edit: function (imgObj) {
         this.editingImage = imgObj;
         if (imgObj.pluginData && imgObj.pluginData.state) {
-            this.state = Object.assign({ sel: [], style: 'portraits', layout: 'auto', size: 1, back: false },
+            this.state = Object.assign({ sel: [], style: 'silhouettes', layout: 'auto', size: 1, back: false },
                 JSON.parse(JSON.stringify(imgObj.pluginData.state)));
+            // Anciens noms de styles : on les fait correspondre aux nouveaux
+            const MAJ = { portraits: 'silhouettes', couronnes: 'emblemes' };
+            if (MAJ[this.state.style]) this.state.style = MAJ[this.state.style];
         }
         this.openWidget();
     },
@@ -26899,8 +26895,9 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
                     <div>
                         <div class="pc-label">Style des figures</div>
                         <div class="pc-seg" id="pc-style">
-                            <button data-v="portraits">Portraits</button>
-                            <button data-v="couronnes">Emblèmes</button>
+                            <button data-v="silhouettes">Silhouettes</button>
+                            <button data-v="emblemes">Emblèmes</button>
+                            <button data-v="royales">Royales</button>
                             <button data-v="sobre">Sobre</button>
                         </div>
                     </div>
