@@ -27257,12 +27257,12 @@ registerPlugin('quizBattleTool', 'Jeux', {
         if (!this.widgetEl) return;
         const sel = this.widgetEl.querySelector('#qz-class');
         if (!sel) return;
-        sel.innerHTML = '<option value="">— Choisir une classe —</option>';
+        // Le mode libre vient en premier : on peut lancer sans rien préparer
+        sel.innerHTML = '<option value="free">🎤 Sans liste — le prof désigne</option>';
         this.classes.forEach((c, i) => {
             const n = (c.students || []).length;
             sel.innerHTML += `<option value="${i}">${c.name} (${n} élève${n > 1 ? 's' : ''})</option>`;
         });
-        if (!this.classes.length) sel.innerHTML = '<option value="">Aucune classe — utilisez « Mes classes »</option>';
     },
 
     // ---------- Fenêtre ----------
@@ -27388,6 +27388,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
                                 <div style="display:flex;gap:10px;justify-content:center">
                                     <button class="qz-ko" style="font-size:15px;padding:10px 15px" id="qz-elim">💀 Éliminer</button>
                                     <button class="qz-ok" style="font-size:15px;padding:10px 15px" id="qz-pardon">🛡️ Pardonner</button>
+                                    <button class="qz-ok qz-hide" style="font-size:15px;padding:10px 22px" id="qz-next">➡️ Continuer</button>
                                 </div>
                             </div>
                         </div>
@@ -27479,6 +27480,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
         $('#qz-false').onclick = () => self.answer(false);
         $('#qz-elim').onclick = () => self.eliminate();
         $('#qz-pardon').onclick = () => self.pardon();
+        $('#qz-next').onclick = () => self.startTurn('');
         $('#qz-reveal').onclick = () => { $('#qz-ans').classList.remove('qz-hide'); $('#qz-reveal').classList.add('qz-hide'); };
         $('#qz-podium').onclick = () => self.stampPodium();
 
@@ -27543,25 +27545,33 @@ registerPlugin('quizBattleTool', 'Jeux', {
 
     // ---------- Partie ----------
     startGame: function () {
-        const idx = this.$('#qz-class').value;
-        if (idx === '') { if (typeof showToast === 'function') showToast("Choisissez une classe"); return; }
-        const cls = this.classes[parseInt(idx, 10)];
-        const names = (cls.students || []).map(s => s.name).filter(Boolean);
-        if (!names.length) { if (typeof showToast === 'function') showToast("Cette classe n'a aucun élève"); return; }
+        const v = this.$('#qz-class').value;
+        this.freeMode = (v === 'free' || v === '');
+        let names = [];
+        if (!this.freeMode) {
+            const cls = this.classes[parseInt(v, 10)];
+            names = (cls.students || []).map(s => s.name).filter(Boolean);
+            if (!names.length) { if (typeof showToast === 'function') showToast("Cette classe n'a aucun élève"); return; }
+        }
 
         const key = this.$('#qz-mods .qz-mod.on').dataset.k;
         this.questionsDB = this.MODULES[key];
         this.aliveList = names.slice(); this.deadList = []; this.bagQ = []; this.bagStudents = [];
         this.scores = {}; names.forEach(n => this.scores[n] = 0);
+        this.tally = { ok: 0, ko: 0 };
         this.current = ''; this.started = true;
 
         this.$('#qz-setup').classList.add('qz-hide');
         this.$('#qz-left').classList.remove('qz-hide');
-        this.$('#qz-right').classList.remove('qz-hide');
         this.$('#qz-set-btn').classList.remove('qz-hide');
         this.$('#qz-home').classList.remove('qz-hide');
+        // Sans liste : pas de colonne d'élèves, pas de podium, et le bouton
+        // annonce simplement la question suivante — le prof désigne de vive voix.
+        this.$('#qz-right').classList.toggle('qz-hide', this.freeMode);
+        this.$('#qz-pick').textContent = this.freeMode ? '▶️ Question suivante' : '🎲 Tirer au sort (suivant)';
+        this.$('#qz-student').classList.toggle('qz-hide', this.freeMode);
         this.updateModeInfo();
-        this.updateLists();
+        if (this.freeMode) this.resetArena(); else this.updateLists();
     },
 
     backToSetup: function () {
@@ -27623,6 +27633,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
     },
 
     pickRandom: function () {
+        if (this.freeMode) { this.startTurn(''); return; }
         if (!this.aliveList.length) return;
         if (!this.bagStudents.length) {
             this.bagStudents = this.aliveList.slice().sort(() => Math.random() - 0.5);
@@ -27639,6 +27650,12 @@ registerPlugin('quizBattleTool', 'Jeux', {
         this.$('#qz-main-ctrl').classList.remove('qz-hide');
         const ind = this.$('#qz-ind');
         ind.classList.remove('qz-inv');
+        if (this.freeMode) {
+            this.target = 1; this.timeLeft = this.cfg.cTemps;
+            ind.textContent = `✅ ${this.tally.ok}   ❌ ${this.tally.ko}`;
+            this.loadQuestion(); this.startChrono();
+            return;
+        }
         if (this.mode === 'classique') { this.target = 1; ind.classList.add('qz-inv'); this.timeLeft = this.cfg.cTemps; }
         else if (this.mode === 'rafale') { this.target = this.cfg.rObj; ind.textContent = `Question 1 / ${this.target}`; this.timeLeft = this.cfg.rTemps; }
         else { this.target = this.cfg.sCible; ind.textContent = `Score : 0 / ${this.target}`; this.timeLeft = this.cfg.sTemps; }
@@ -27677,12 +27694,28 @@ registerPlugin('quizBattleTool', 'Jeux', {
         this.$('#qz-ans').classList.remove('qz-hide');
         this.$('#qz-main-ctrl').classList.add('qz-hide');
         this.$('#qz-dec-title').textContent = title;
+        // Sans liste, personne n'est éliminé : un seul bouton pour poursuivre
+        this.$('#qz-elim').classList.toggle('qz-hide', !!this.freeMode);
+        this.$('#qz-pardon').classList.toggle('qz-hide', !!this.freeMode);
+        this.$('#qz-next').classList.toggle('qz-hide', !this.freeMode);
         this.$('#qz-dec').style.display = 'flex';
     },
-    timeOut: function () { this.showSolution("⏳ Temps écoulé !"); },
+    timeOut: function () {
+        if (this.freeMode) this.tally.ko++;
+        this.showSolution("⏳ Temps écoulé !");
+        if (this.freeMode) this.$('#qz-ind').textContent = `✅ ${this.tally.ok}   ❌ ${this.tally.ko}`;
+    },
 
     answer: function (ok) {
         const ind = this.$('#qz-ind');
+        if (this.freeMode) {
+            clearInterval(this.timerId);
+            if (ok) this.tally.ok++; else this.tally.ko++;
+            ind.textContent = `✅ ${this.tally.ok}   ❌ ${this.tally.ko}`;
+            if (ok) { this.startTurn(''); return; }   // juste : on enchaîne
+            this.showSolution("❌ Mauvaise réponse");  // faux : on montre et on explique
+            return;
+        }
         if (this.mode === 'sprint') {
             if (ok) {
                 this.scores[this.current]++; this.curScore++;
@@ -27727,9 +27760,10 @@ registerPlugin('quizBattleTool', 'Jeux', {
         this.$('#qz-student').textContent = "Suivant...";
         this.$('#qz-timer').querySelector('span').textContent = "--";
         this.$('#qz-timer').style.color = '#ffa502';
-        this.$('#qz-qtext').textContent = "Cliquez sur Tirer au sort";
+        this.$('#qz-qtext').textContent = this.freeMode ? "Cliquez sur Question suivante" : "Cliquez sur Tirer au sort";
         this.$('#qz-canvas').getContext('2d').clearRect(0, 0, 280, 200);
-        this.updateLists();
+        if (this.freeMode) { this.$('#qz-ind').classList.remove('qz-inv'); this.$('#qz-ind').textContent = `✅ ${this.tally.ok}   ❌ ${this.tally.ko}`; }
+        else this.updateLists();
     },
 
     // ---------- Podium tamponnable ----------
