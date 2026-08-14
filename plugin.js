@@ -26669,7 +26669,7 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         '10': [[31, 32], [69, 32], [50, 45], [31, 57], [69, 57], [31, 83], [69, 83], [50, 95], [31, 108], [69, 108]]
     },
 
-    state: { sel: [], style: 'silhouettes', layout: 'auto', size: 1, back: false },
+    state: { sel: [], style: 'illustrees', layout: 'auto', size: 1, back: false },
 
     // ---------- Dessin des enseignes (dans un carré de 100, centré en 50,50) ----------
     suitShape: function (k, color) {
@@ -26740,6 +26740,10 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         out += idx(13, 25, 0) + idx(CW - 13, CH - 25, 180);
 
         if (['V', 'D', 'R'].indexOf(rank) !== -1) {
+            // Style « illustrées » : les figures vectorisées, appelées depuis les <defs>
+            if (style === 'illustrees' && typeof PC_FIGURES !== 'undefined' && PC_FIGURES[rank]) {
+                return out + `<use href="#pcFig${rank}" xlink:href="#pcFig${rank}"/>`;
+            }
             out += `<rect x="20" y="26" width="${CW - 40}" height="${CH - 52}" rx="6" fill="none" stroke="${s.color}" stroke-width="1.5" opacity="0.45"/>`;
             if (style === 'royales') {
                 // Mise en page classique : une moitié droite, l'autre retournée
@@ -26814,8 +26818,18 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         });
         const pad = 6, k = this.state.size;
         const W = Math.round((w + pad * 2) * k), H = Math.round((h + pad * 2) * k);
-        const defs = `<defs><clipPath id="pcClip"><rect x="8" y="8" width="${CW - 16}" height="${CH - 16}" rx="5"/></clipPath></defs>`;
-        return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}">${defs}${body}</svg>`, w: W, h: H };
+        let defs = `<clipPath id="pcClip"><rect x="8" y="8" width="${CW - 16}" height="${CH - 16}" rx="5"/></clipPath>`;
+        // Les illustrations ne sont écrites qu'une fois par tampon, quel que soit
+        // le nombre de cartes : chaque figure y fait simplement référence.
+        if (this.state.style === 'illustrees' && typeof PC_FIGURES !== 'undefined') {
+            const used = {};
+            cards.forEach(([, r]) => { if (PC_FIGURES[r]) used[r] = 1; });
+            Object.keys(used).forEach(r => { defs += `<g id="pcFig${r}">${PC_FIGURES[r]}</g>`; });
+        }
+        return {
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}"><defs>${defs}</defs>${body}</svg>`,
+            w: W, h: H
+        };
     },
 
     // ---------- Interface ----------
@@ -26895,6 +26909,7 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
                     <div>
                         <div class="pc-label">Style des figures</div>
                         <div class="pc-seg" id="pc-style">
+                            <button data-v="illustrees">Illustrées</button>
                             <button data-v="silhouettes">Silhouettes</button>
                             <button data-v="emblemes">Emblèmes</button>
                             <button data-v="royales">Royales</button>
