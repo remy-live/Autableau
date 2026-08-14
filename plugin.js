@@ -27121,3 +27121,674 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         return false;
     }
 });
+
+// ==========================================
+// LE DÉFI DU PROF — jeu de classe (portage du logiciel de l'utilisateur)
+// Tout est enfermé dans l'objet du plugin : le fichier définit déjà
+// cx, cy, c, rad et drawText au niveau global, une redéclaration casserait tout.
+// ==========================================
+registerPlugin('quizBattleTool', 'Jeux', {
+    widgetEl: null, currentStamp: null, currentState: null,
+
+    // --- état de la partie ---
+    classes: [], aliveList: [], deadList: [], scores: {}, bagStudents: [],
+    questionsDB: [], bagQ: [], mode: 'classique',
+    current: '', timerId: null, timeLeft: 0, curScore: 0, target: 1,
+    started: false,
+    cfg: { cTemps: 10, rObj: 3, rTemps: 8, sTemps: 30, sCible: 3 },
+
+    // --- banques de questions (contenu mathématique d'origine, intact) ---
+    MODULES: (function () {
+        const rad = d => d * Math.PI / 180;
+        const cx = 140, cy = 100;
+        const col = { rose: '#ff6b81', bleu: '#1e90ff', vert: '#2ed573', orange: '#ffa502', violet: '#9b59b6', menthe: '#1dd1a1', jaune: '#eccc68' };
+        const rInt = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+        const r5 = (a, b) => (Math.floor(Math.random() * ((b / 5) - (a / 5) + 1)) + (a / 5)) * 5;
+        const rRot = () => Math.floor(Math.random() * 24) * 15;
+        const ray = (ctx, x, y, a, len, color = '#2f3542', lw = 4) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len * Math.cos(rad(a)), y + len * Math.sin(rad(a))); ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.stroke(); };
+        const arc = (ctx, x, y, r, s, e, color, fill = false) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, rad(s), rad(e), false); if (fill) { ctx.fillStyle = color; ctx.globalAlpha = 0.7; ctx.fill(); ctx.globalAlpha = 1; } else { ctx.strokeStyle = color; ctx.lineWidth = 5; ctx.stroke(); } };
+        const txt = (ctx, t, x, y, f = 'bold 18px sans-serif') => { ctx.fillStyle = '#2f3542'; ctx.font = f; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, x, y); };
+        const eq = (ctx, t) => { ctx.fillStyle = '#3742fa'; ctx.font = 'bold 32px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, cx, cy); };
+        const pos = (r, a) => ({ x: cx + r * Math.cos(rad(a)), y: cy + r * Math.sin(rad(a)) });
+        const rot = (lx, ly, d) => { let r = rad(d); return { x: cx + lx * Math.cos(r) - ly * Math.sin(r), y: cy + lx * Math.sin(r) + ly * Math.cos(r) }; };
+
+        const rep = (n, f) => { let a = []; for (let i = 0; i < n; i++) a.push({ generate: f }); return a; };
+
+        return {
+            angles: [
+                { generate: () => { let R = rRot(); return { text: "Nature de cet angle ?", ans: "Aigu", draw: c => { ray(c, cx, cy, R, 80); ray(c, cx, cy, R - 40, 80); arc(c, cx, cy, 40, R - 40, R, col.rose, true); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Nature de cet angle ?", ans: "Obtus", draw: c => { ray(c, cx, cy, R, 80); ray(c, cx, cy, R - 135, 80); arc(c, cx, cy, 35, R - 135, R, col.bleu, true); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Comment s'appelle-t-il ?", ans: "Droit", draw: c => { ray(c, cx, cy, R, 80); ray(c, cx, cy, R - 90, 80); let p1 = pos(20, R), p2 = rot(20, -20, R), p3 = pos(20, R - 90); c.beginPath(); c.moveTo(p1.x, p1.y); c.lineTo(p2.x, p2.y); c.lineTo(p3.x, p3.y); c.strokeStyle = col.vert; c.lineWidth = 3; c.stroke(); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Comment s'appelle-t-il ?", ans: "Plat", draw: c => { ray(c, cx, cy, R, 80); ray(c, cx, cy, R - 180, 80); arc(c, cx, cy, 35, R - 180, R, col.orange, true); txt(c, "•", cx, cy); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Nom de cette paire ?", ans: "Complémentaires", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R - 90, 90); ray(c, cx, cy, R - 35, 100); arc(c, cx, cy, 45, R - 90, R - 35, col.bleu, true); arc(c, cx, cy, 45, R - 35, R, col.rose, true); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Nom de cette paire ?", ans: "Supplémentaires", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R - 180, 90); ray(c, cx, cy, R - 60, 100); arc(c, cx, cy, 45, R - 180, R - 60, col.violet, true); arc(c, cx, cy, 45, R - 60, R, col.jaune, true); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Quel mot les décrit ?", ans: "Adjacents", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R - 50, 90); ray(c, cx, cy, R - 120, 90); arc(c, cx, cy, 40, R - 120, R - 50, col.menthe, true); arc(c, cx, cy, 40, R - 50, R, col.orange, true); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Quel mot les décrit ?", ans: "Opposés / sommet", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R + 180, 90); ray(c, cx, cy, R + 50, 90); ray(c, cx, cy, R + 230, 90); arc(c, cx, cy, 35, R + 50, R + 180, col.rose, true); arc(c, cx, cy, 35, R + 230, R + 360, col.rose, true); } }; } },
+                { generate: () => { let v = r5(15, 75), R = rRot(); return { text: "Calcule l'angle ?", ans: (90 - v) + "°", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R - 90, 90); ray(c, cx, cy, R - v, 100); arc(c, cx, cy, 50, R - 90, R - v, col.menthe, true); arc(c, cx, cy, 50, R - v, R, col.orange, true); let p1 = pos(65, R - v / 2); txt(c, v + "°", p1.x, p1.y); let p2 = pos(65, R - 90 + (90 - v) / 2); txt(c, "?", p2.x, p2.y); } }; } },
+                { generate: () => { let v = r5(25, 155), R = rRot(); return { text: "Calcule l'angle ?", ans: (180 - v) + "°", draw: c => { ray(c, cx, cy, R, 90); ray(c, cx, cy, R - 180, 90); ray(c, cx, cy, R - v, 100); arc(c, cx, cy, 45, R - 180, R - v, col.bleu, true); arc(c, cx, cy, 45, R - v, R, col.rose, true); let p1 = pos(65, R - v / 2); txt(c, v + "°", p1.x, p1.y); let p2 = pos(65, R - 180 + (180 - v) / 2); txt(c, "?", p2.x, p2.y); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Position de ces angles ?", ans: "Correspondants", draw: c => { c.save(); c.translate(cx, cy); c.rotate(rad(R)); c.translate(-cx, -cy); c.beginPath(); c.moveTo(cx - 110, cy - 40); c.lineTo(cx + 110, cy - 40); c.lineWidth = 4; c.stroke(); c.beginPath(); c.moveTo(cx - 110, cy + 40); c.lineTo(cx + 110, cy + 40); c.stroke(); c.beginPath(); c.moveTo(cx - 70, cy - 80); c.lineTo(cx + 50, cy + 80); c.stroke(); arc(c, cx - 40, cy - 40, 30, 0, 53, col.menthe, true); arc(c, cx + 20, cy + 40, 30, 0, 53, col.menthe, true); c.restore(); } }; } },
+                { generate: () => { let R = rRot(); return { text: "Position de ces angles ?", ans: "Alternes-internes", draw: c => { c.save(); c.translate(cx, cy); c.rotate(rad(R)); c.translate(-cx, -cy); c.beginPath(); c.moveTo(cx - 110, cy - 40); c.lineTo(cx + 110, cy - 40); c.lineWidth = 4; c.stroke(); c.beginPath(); c.moveTo(cx - 110, cy + 40); c.lineTo(cx + 110, cy + 40); c.stroke(); c.beginPath(); c.moveTo(cx - 70, cy - 80); c.lineTo(cx + 50, cy + 80); c.stroke(); arc(c, cx - 40, cy - 40, 30, 53, 180, col.violet, true); arc(c, cx + 20, cy + 40, 30, 233, 360, col.orange, true); c.restore(); } }; } }
+            ],
+            mental: [
+                { generate: () => { let a = rInt(2, 9), b = rInt(3, 9); return { text: "Multiplication ninja", ans: a * b, draw: c => eq(c, `${a} × ${b} = ?`) }; } },
+                { generate: () => { let a = rInt(11, 20), b = rInt(2, 5); return { text: "Multiplication rapide", ans: a * b, draw: c => eq(c, `${a} × ${b} = ?`) }; } },
+                { generate: () => { let a = rInt(20, 90), b = rInt(15, 45); return { text: "Addition", ans: a + b, draw: c => eq(c, `${a} + ${b} = ?`) }; } },
+                { generate: () => { let a = rInt(50, 100), b = rInt(15, 45); return { text: "Soustraction", ans: a - b, draw: c => eq(c, `${a} - ${b} = ?`) }; } },
+                { generate: () => { let r = rInt(3, 9), d = rInt(2, 8); return { text: "Division", ans: r, draw: c => eq(c, `${r * d} ÷ ${d} = ?`) }; } },
+                { generate: () => { let a = rInt(2, 5), b = rInt(2, 5), d = rInt(2, 5); return { text: "Priorité opératoire !", ans: a + b * d, draw: c => eq(c, `${a} + ${b} × ${d} = ?`) }; } }
+            ],
+            fractions: (function () {
+                let arr = [];
+                for (let i = 0; i < 8; i++) {
+                    arr.push({
+                        generate: () => {
+                            const bases = [[1, 2], [1, 3], [2, 3], [1, 4], [3, 4], [1, 5], [2, 5], [3, 5], [4, 5], [1, 6], [5, 6], [1, 8], [3, 8]];
+                            const b = bases[rInt(0, bases.length - 1)], k = rInt(2, 9);
+                            return { text: "Simplifie la fraction", ans: `${b[0]}/${b[1]}`, draw: c => { c.fillStyle = '#3742fa'; c.font = 'bold 45px monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(b[0] * k, cx, cy - 25); c.beginPath(); c.moveTo(cx - 35, cy); c.lineTo(cx + 35, cy); c.strokeStyle = '#3742fa'; c.lineWidth = 5; c.stroke(); c.fillText(b[1] * k, cx, cy + 25); } };
+                        }
+                    });
+                    arr.push({
+                        generate: () => {
+                            const d = rInt(3, 8), n = rInt(1, d - 1);
+                            return { text: "Quelle est l'abscisse ?", ans: `${n}/${d}`, draw: c => { const sx = 40, ex = 240, y = cy + 20; c.beginPath(); c.moveTo(sx - 15, y); c.lineTo(ex + 15, y); c.strokeStyle = '#2f3542'; c.lineWidth = 3; c.stroke(); for (let j = 0; j <= d; j++) { const px = sx + j * ((ex - sx) / d); c.beginPath(); c.moveTo(px, y - 10); c.lineTo(px, y + 10); c.stroke(); if (j === 0) txt(c, "0", px, y + 25, 'bold 22px sans-serif'); if (j === d) txt(c, "1", px, y + 25, 'bold 22px sans-serif'); } const ax = sx + n * ((ex - sx) / d); c.beginPath(); c.moveTo(ax, y - 45); c.lineTo(ax, y - 15); c.strokeStyle = col.rose; c.lineWidth = 4; c.stroke(); c.beginPath(); c.moveTo(ax - 8, y - 25); c.lineTo(ax, y - 13); c.lineTo(ax + 8, y - 25); c.stroke(); } };
+                        }
+                    });
+                }
+                return arr;
+            })(),
+            pythagore: rep(15, () => { let a = rInt(2, 10), b = rInt(2, 10); return { text: "Tables de multiplication", ans: a * b, draw: c => eq(c, `${a} × ${b} = ?`) }; }),
+            relatifs_add: rep(15, () => { let a = rInt(1, 10) * (Math.random() < .5 ? 1 : -1), b = rInt(1, 10) * (Math.random() < .5 ? 1 : -1); return { text: "Calcule l'addition", ans: a + b, draw: c => eq(c, `${a < 0 ? `(${a})` : a} + ${b < 0 ? `(${b})` : b} = ?`) }; }),
+            relatifs_mult: rep(15, () => { let a = rInt(1, 10) * (Math.random() < .5 ? 1 : -1), b = rInt(1, 10) * (Math.random() < .5 ? 1 : -1); return { text: "Calcule le produit", ans: a * b, draw: c => eq(c, `${a < 0 ? `(${a})` : a} × ${b < 0 ? `(${b})` : b} = ?`) }; })
+        };
+    })(),
+
+    MODULE_LIST: [
+        ['angles', '📐', 'Angles'], ['fractions', '🍕', 'Fractions'], ['mental', '🧮', 'Calcul mental'],
+        ['pythagore', '🔢', 'Tables'], ['relatifs_add', '➕➖', 'Relatifs (add.)'], ['relatifs_mult', '✖️➖', 'Relatifs (mult.)']
+    ],
+
+    // ==========================================
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Le Défi du Prof';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>`;
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (typeof setMode === 'function') setMode('pointer');
+            this.openWidget();
+        });
+    },
+
+    // ---------- Classes partagées ----------
+    loadClasses: function () {
+        const self = this;
+        if (typeof ClassesStore === 'undefined') { this.fillClassSelect(); return; }
+        ClassesStore.loadAll().then(cls => {
+            self.classes = cls || [];
+            return self.importLegacy();
+        }).then(() => self.fillClassSelect()).catch(() => self.fillClassSelect());
+    },
+
+    // Reprise des classes de la version autonome du jeu, sans écraser l'existant
+    importLegacy: function () {
+        const self = this;
+        let raw = null;
+        try { raw = localStorage.getItem('profgames_classes_data'); } catch (e) { return Promise.resolve(); }
+        if (!raw) return Promise.resolve();
+        let old; try { old = JSON.parse(raw); } catch (e) { return Promise.resolve(); }
+        const known = new Set(this.classes.map(c => (c.name || '').toLowerCase()));
+        const toAdd = Object.keys(old).filter(n => !known.has(n.toLowerCase())).map(n => ({
+            id: ClassesStore.newId('cls'), name: n,
+            students: String(old[n]).split(',').map(s => s.trim()).filter(Boolean).map(s => ({ id: ClassesStore.newId('stu'), name: s })),
+            updatedAt: Date.now()
+        }));
+        if (!toAdd.length) return Promise.resolve();
+        const all = this.classes.concat(toAdd);
+        return ClassesStore.saveAll(all).then(() => {
+            self.classes = all;
+            if (typeof showToast === 'function') showToast(`${toAdd.length} classe(s) du Défi du Prof reprises dans « Mes classes »`);
+        });
+    },
+
+    fillClassSelect: function () {
+        if (!this.widgetEl) return;
+        const sel = this.widgetEl.querySelector('#qz-class');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Choisir une classe —</option>';
+        this.classes.forEach((c, i) => {
+            const n = (c.students || []).length;
+            sel.innerHTML += `<option value="${i}">${c.name} (${n} élève${n > 1 ? 's' : ''})</option>`;
+        });
+        if (!this.classes.length) sel.innerHTML = '<option value="">Aucune classe — utilisez « Mes classes »</option>';
+    },
+
+    // ---------- Fenêtre ----------
+    openWidget: function () {
+        const self = this;
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; this.loadClasses(); return; }
+
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.id = 'qz-wrap';
+        this.widgetEl.style.cssText = "position:fixed; top:3vh; left:2vw; width:96vw; height:92vh; background:#eef2ff; border-radius:14px; box-shadow:0 25px 60px rgba(0,0,0,.35); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Nunito',sans-serif; border:1px solid #dfe4ea;";
+
+        const st = document.createElement('style');
+        st.innerHTML = `
+            #qz-wrap.qz-fs { top:0 !important; left:0 !important; width:100% !important; height:100% !important; max-width:none !important; max-height:none !important; border-radius:0 !important; }
+            #qz-wrap .qz-head { background:#fff; padding:9px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #dfe4ea; cursor:grab; touch-action:none; flex-shrink:0; }
+            #qz-wrap .qz-head:active { cursor:grabbing; }
+            #qz-wrap .qz-title { font-weight:900; font-size:15px; color:#3742fa; }
+            #qz-wrap .qz-hbtn { background:#f1f2f6; border:none; width:36px; height:36px; border-radius:50%; font-size:16px; cursor:pointer; margin-left:6px; }
+            #qz-wrap .qz-hbtn:hover { background:#dfe4ea; }
+            #qz-wrap .qz-body { flex:1; overflow:hidden; display:flex; }
+            #qz-wrap .qz-setup { margin:auto; background:#fff; border-radius:18px; padding:22px; width:min(760px,92%); max-height:100%; overflow:auto; box-shadow:0 12px 30px rgba(0,0,0,.08); }
+            #qz-wrap h2 { font-size:17px; color:#2f3542; margin:0 0 10px; }
+            #qz-wrap .qz-sec { background:#f8f9fa; border:1px solid #dfe4ea; border-radius:14px; padding:14px 16px; margin-bottom:16px; }
+            #qz-wrap select, #qz-wrap input[type=text] { width:100%; padding:10px; border-radius:10px; border:2px solid #ced6e0; font:inherit; font-size:15px; box-sizing:border-box; }
+            #qz-wrap .qz-mods { display:flex; gap:9px; flex-wrap:wrap; }
+            #qz-wrap .qz-mod { flex:1 1 130px; border:2px solid #dfe4ea; border-radius:14px; padding:11px; background:#fff; text-align:center; cursor:pointer; transition:.15s; }
+            #qz-wrap .qz-mod:hover { border-color:#1e90ff; background:#f8fbff; }
+            #qz-wrap .qz-mod.on { border-color:#1e90ff; background:#f0f7ff; border-width:3px; box-shadow:0 4px 10px rgba(30,144,255,.2); }
+            #qz-wrap .qz-mod i { font-style:normal; font-size:27px; display:block; margin-bottom:4px; }
+            #qz-wrap .qz-mod b { font-size:13px; }
+            #qz-wrap .qz-start { background:#2ed573; color:#fff; border:none; font-size:20px; padding:14px 34px; border-radius:14px; box-shadow:0 5px 0 #26b361; cursor:pointer; font-weight:900; }
+            #qz-wrap .qz-start:active { transform:translateY(4px); box-shadow:none; }
+            #qz-wrap .qz-left { flex:3; padding:14px; display:flex; flex-direction:column; align-items:center; overflow:hidden; }
+            #qz-wrap .qz-right { flex:1; min-width:230px; background:#fff; border-left:2px solid #dfe4ea; padding:12px; display:flex; flex-direction:column; overflow:hidden; }
+            #qz-wrap .qz-bar { display:flex; justify-content:space-between; align-items:center; width:100%; max-width:820px; margin-bottom:8px; flex-shrink:0; }
+            #qz-wrap .qz-info { background:#fff; padding:7px 18px; border-radius:50px; font-weight:900; color:#ff6b81; font-size:13px; text-transform:uppercase; letter-spacing:1px; }
+            #qz-wrap .qz-card { background:#fff; border-radius:18px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,.1); width:100%; max-width:820px; flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:14px; box-sizing:border-box; margin-bottom:9px; overflow:auto; }
+            #qz-wrap .qz-name { font-size:min(6vh,42px); color:#ff6b81; font-weight:900; text-transform:uppercase; letter-spacing:2px; }
+            #qz-wrap .qz-ind { height:22px; color:#3742fa; font-weight:bold; font-size:17px; }
+            #qz-wrap .qz-timer { font-size:min(6vh,45px); font-weight:900; color:#ffa502; margin:4px 0 8px; }
+            #qz-wrap canvas { background:#fff; border:2px dashed #ced6e0; border-radius:14px; display:block; width:100%; max-width:280px; max-height:26vh; margin-bottom:8px; }
+            #qz-wrap .qz-q { font-size:21px; font-weight:bold; color:#3742fa; margin-bottom:8px; }
+            #qz-wrap .qz-ansbox { min-height:38px; display:flex; align-items:center; justify-content:center; margin-bottom:4px; }
+            #qz-wrap .qz-reveal { background:#f1f2f6; color:#57606f; padding:8px 15px; font-size:15px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; }
+            #qz-wrap .qz-ans { font-size:20px; color:#2ed573; font-weight:900; background:#f1fef5; padding:6px 15px; border-radius:8px; border:2px solid #2ed573; }
+            #qz-wrap .qz-ctrl { min-height:70px; display:flex; align-items:center; justify-content:center; width:100%; }
+            #qz-wrap .qz-ok, #qz-wrap .qz-ko { color:#fff; border:none; border-radius:10px; font-size:19px; font-weight:bold; padding:12px 24px; cursor:pointer; margin:0 7px; }
+            #qz-wrap .qz-ok { background:#2ed573; box-shadow:0 5px 0 #26b361; }
+            #qz-wrap .qz-ko { background:#ff4757; box-shadow:0 5px 0 #d63031; }
+            #qz-wrap .qz-ok:active, #qz-wrap .qz-ko:active, #qz-wrap .qz-pick:active { transform:translateY(4px); box-shadow:none; }
+            #qz-wrap .qz-dec { display:none; background:#fff3cd; padding:10px; border-radius:12px; border:2px solid #ffeeba; max-width:420px; width:100%; flex-direction:column; gap:8px; }
+            #qz-wrap .qz-dec h3 { margin:0; font-size:15px; text-align:center; color:#e17055; border:none; padding:0; }
+            #qz-wrap .qz-pick { background:#1e90ff; color:#fff; border:none; border-radius:14px; font-size:20px; font-weight:bold; padding:15px; width:100%; max-width:820px; cursor:pointer; box-shadow:0 5px 0 #0c69c5; text-transform:uppercase; flex-shrink:0; }
+            #qz-wrap .qz-h3 { color:#2f3542; border-bottom:2px solid #f1f2f6; padding-bottom:7px; margin:4px 0 8px; font-size:15px; display:flex; justify-content:space-between; align-items:center; font-weight:900; }
+            #qz-wrap .qz-list { list-style:none; padding:0; margin:0; flex:1; overflow-y:auto; }
+            #qz-wrap .qz-stu { display:flex; justify-content:space-between; align-items:center; padding:9px; margin-bottom:5px; border-radius:8px; font-weight:bold; cursor:pointer; font-size:15px; border:1px solid #dfe4ea; background:#fff; }
+            #qz-wrap .qz-stu:hover { border-color:#1e90ff; color:#1e90ff; background:#f8fbff; }
+            #qz-wrap .qz-stu.dead { background:#f1f2f6; color:#a4b0be; text-decoration:line-through; cursor:default; }
+            #qz-wrap .qz-score { background:#ffd32a; color:#2f3542; padding:2px 8px; border-radius:20px; font-size:12px; font-weight:900; border:1px solid #f1c40f; }
+            #qz-wrap .qz-act { background:none; border:none; font-size:17px; cursor:pointer; padding:0 0 0 8px; opacity:.5; }
+            #qz-wrap .qz-act:hover { opacity:1; transform:scale(1.2); }
+            #qz-wrap .qz-modal { position:absolute; inset:0; background:rgba(47,53,66,.75); z-index:20; display:none; align-items:center; justify-content:center; }
+            #qz-wrap .qz-modal.on { display:flex; }
+            #qz-wrap .qz-mbox { background:#fff; padding:22px; border-radius:18px; width:min(560px,92%); max-height:85%; overflow:auto; position:relative; }
+            #qz-wrap .qz-close { position:absolute; top:12px; right:16px; font-size:26px; color:#a4b0be; cursor:pointer; background:none; border:none; }
+            #qz-wrap .qz-set { margin-bottom:14px; padding-bottom:10px; border-bottom:1px dashed #ced6e0; }
+            #qz-wrap .qz-set label { font-size:15px; font-weight:bold; display:flex; align-items:center; gap:8px; cursor:pointer; }
+            #qz-wrap .qz-sl { padding-left:24px; margin-top:5px; }
+            #qz-wrap .qz-sl input[type=range] { width:100%; touch-action:none; }
+            #qz-wrap .qz-slh { display:flex; justify-content:space-between; font-size:13px; font-weight:bold; color:#57606f; }
+            #qz-wrap .qz-hide { display:none !important; }
+            #qz-wrap .qz-inv { visibility:hidden; }
+            @media (max-width:820px) { #qz-wrap .qz-body { flex-direction:column; } #qz-wrap .qz-right { border-left:none; border-top:2px solid #dfe4ea; max-height:34%; } }
+        `;
+        this.widgetEl.appendChild(st);
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex; flex-direction:column; flex:1; overflow:hidden; position:relative;';
+        wrap.innerHTML = `
+            <div class="qz-head" id="qz-drag">
+                <div class="qz-title">🚀 Le Défi du Prof</div>
+                <div>
+                    <button class="qz-hbtn" id="qz-help-btn" title="Guide">❓</button>
+                    <button class="qz-hbtn qz-hide" id="qz-set-btn" title="Réglages">⚙️</button>
+                    <button class="qz-hbtn qz-hide" id="qz-home" title="Menu">🏠</button>
+                    <button class="qz-hbtn" id="qz-fs" title="Plein écran">⛶</button>
+                    <button class="qz-hbtn" id="qz-x" title="Fermer" style="color:#ff4757">✕</button>
+                </div>
+            </div>
+            <div class="qz-body" id="qz-body">
+                <div class="qz-setup" id="qz-setup">
+                    <div class="qz-sec">
+                        <h2>1. La classe</h2>
+                        <select id="qz-class"></select>
+                        <div style="font-size:12px;color:#a4b0be;margin-top:7px">Les classes sont celles de « Mes classes » : saisies une fois, elles servent à tous les outils.</div>
+                    </div>
+                    <div class="qz-sec">
+                        <h2>2. Le module</h2>
+                        <div class="qz-mods" id="qz-mods"></div>
+                    </div>
+                    <div style="text-align:center"><button class="qz-start" id="qz-go">🔥 Lancer l'arène !</button></div>
+                </div>
+
+                <div class="qz-left qz-hide" id="qz-left">
+                    <div class="qz-bar"><div></div><div class="qz-info" id="qz-mode-info">Mode classique</div></div>
+                    <div class="qz-card">
+                        <div class="qz-name" id="qz-student">Prêt ?</div>
+                        <div class="qz-ind qz-inv" id="qz-ind">Score : 0 / 3</div>
+                        <div class="qz-timer" id="qz-timer">⏳ <span>--</span></div>
+                        <canvas id="qz-canvas" width="280" height="200"></canvas>
+                        <div class="qz-q" id="qz-qtext">Cliquez sur Tirer au sort</div>
+                        <div class="qz-ansbox">
+                            <button class="qz-reveal qz-hide" id="qz-reveal">👁️ Révéler</button>
+                            <div class="qz-ans qz-hide" id="qz-ans"></div>
+                        </div>
+                        <div class="qz-ctrl">
+                            <div id="qz-main-ctrl" class="qz-hide">
+                                <button class="qz-ok" id="qz-true">☑️ VRAI</button>
+                                <button class="qz-ko" id="qz-false">✖️ FAUX</button>
+                            </div>
+                            <div class="qz-dec" id="qz-dec">
+                                <h3 id="qz-dec-title">⏳ Temps écoulé !</h3>
+                                <div style="display:flex;gap:10px;justify-content:center">
+                                    <button class="qz-ko" style="font-size:15px;padding:10px 15px" id="qz-elim">💀 Éliminer</button>
+                                    <button class="qz-ok" style="font-size:15px;padding:10px 15px" id="qz-pardon">🛡️ Pardonner</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="qz-pick" id="qz-pick">🎲 Tirer au sort (suivant)</button>
+                </div>
+
+                <div class="qz-right qz-hide" id="qz-right">
+                    <div class="qz-h3"><span>🧍 Debout</span><span id="qz-n-alive">0</span></div>
+                    <ul class="qz-list" id="qz-alive"></ul>
+                    <div class="qz-h3"><span>🔴 Éliminés</span><span id="qz-n-dead">0</span></div>
+                    <ul class="qz-list" id="qz-dead" style="flex:.4"></ul>
+                    <button class="qz-start" id="qz-podium" style="font-size:15px;padding:11px;margin-top:8px;box-shadow:0 4px 0 #26b361">🏆 Tamponner le podium</button>
+                </div>
+            </div>
+
+            <div class="qz-modal" id="qz-help">
+                <div class="qz-mbox">
+                    <button class="qz-close" data-close="qz-help">&times;</button>
+                    <h2>📖 Guide du maître du jeu</h2>
+                    <p><b>Le concept :</b> accumuler des points et être le dernier survivant.</p>
+                    <h4 style="color:#3742fa;margin-bottom:4px">La mise en scène 🧍🪑</h4>
+                    <p>Tous les élèves se lèvent. En cas d'erreur, l'éliminé s'assied.</p>
+                    <ul style="line-height:1.55">
+                        <li>« Tirer au sort » pioche dans un sac : tout le monde passe avant que ça ne reboucle.</li>
+                        <li>L'élève répond à l'oral, vous tranchez avec <b>VRAI</b> ou <b>FAUX</b>.</li>
+                        <li>En cas d'erreur ou de temps écoulé, la réponse s'affiche et le jeu attend : vous pouvez expliquer avant d'éliminer ou de pardonner.</li>
+                        <li>Les flèches ⬆️ ⬇️ de la liste permettent de repêcher ou d'éliminer à la main.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="qz-modal" id="qz-settings">
+                <div class="qz-mbox">
+                    <button class="qz-close" data-close="qz-settings">&times;</button>
+                    <h2>⚙️ Choisir le challenge</h2>
+                    <div class="qz-set">
+                        <label><input type="radio" name="qz-mode" value="classique" checked> Survie classique</label>
+                        <div class="qz-sl"><div class="qz-slh"><span>Temps</span><span id="qz-v-ct">10 s</span></div><input type="range" id="qz-ct" min="2" max="60" value="10"></div>
+                    </div>
+                    <div class="qz-set">
+                        <label><input type="radio" name="qz-mode" value="rafale"> Rafale mortelle</label>
+                        <div class="qz-sl"><div class="qz-slh"><span>Objectif</span><span id="qz-v-ro">3 Q</span></div><input type="range" id="qz-ro" min="2" max="10" value="3"></div>
+                        <div class="qz-sl"><div class="qz-slh"><span>Temps par question</span><span id="qz-v-rt">8 s</span></div><input type="range" id="qz-rt" min="2" max="30" value="8"></div>
+                    </div>
+                    <div class="qz-set" style="border:none">
+                        <label><input type="radio" name="qz-mode" value="sprint"> Sprint (contre-la-montre)</label>
+                        <div class="qz-sl"><div class="qz-slh"><span>Temps global</span><span id="qz-v-st">30 s</span></div><input type="range" id="qz-st" min="10" max="120" step="5" value="30"></div>
+                        <div class="qz-sl"><div class="qz-slh"><span>Cible</span><span id="qz-v-sc">3 justes</span></div><input type="range" id="qz-sc" min="1" max="20" value="3"></div>
+                    </div>
+                </div>
+            </div>`;
+        this.widgetEl.appendChild(wrap);
+        document.body.appendChild(this.widgetEl);
+
+        this.bind();
+        this.loadClasses();
+        this.renderModules();
+        this.updateModeInfo();
+    },
+
+    $: function (sel) { return this.widgetEl.querySelector(sel); },
+
+    bind: function () {
+        const self = this, $ = s => this.$(s);
+
+        // déplacement de la fenêtre (souris et doigt)
+        const h = $('#qz-drag'); let drag = false, sx = 0, sy = 0;
+        h.addEventListener('pointerdown', e => {
+            if (e.target.closest('button') || self.widgetEl.classList.contains('qz-fs')) return;
+            drag = true; sx = e.clientX - self.widgetEl.offsetLeft; sy = e.clientY - self.widgetEl.offsetTop;
+            if (h.setPointerCapture) { try { h.setPointerCapture(e.pointerId); } catch (err) { } }
+        });
+        h.addEventListener('pointermove', e => { if (drag) { self.widgetEl.style.left = (e.clientX - sx) + 'px'; self.widgetEl.style.top = (e.clientY - sy) + 'px'; } });
+        h.addEventListener('pointerup', () => drag = false);
+        h.addEventListener('pointercancel', () => drag = false);
+
+        $('#qz-x').onclick = () => self.close();
+        $('#qz-fs').onclick = () => self.toggleFullscreen();
+        $('#qz-help-btn').onclick = () => $('#qz-help').classList.add('on');
+        $('#qz-set-btn').onclick = () => $('#qz-settings').classList.add('on');
+        $('#qz-home').onclick = () => self.backToSetup();
+        this.widgetEl.querySelectorAll('.qz-close').forEach(b => b.onclick = () => $('#' + b.dataset.close).classList.remove('on'));
+        this.widgetEl.querySelectorAll('.qz-modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('on'); }));
+
+        $('#qz-go').onclick = () => self.startGame();
+        $('#qz-pick').onclick = () => self.pickRandom();
+        $('#qz-true').onclick = () => self.answer(true);
+        $('#qz-false').onclick = () => self.answer(false);
+        $('#qz-elim').onclick = () => self.eliminate();
+        $('#qz-pardon').onclick = () => self.pardon();
+        $('#qz-reveal').onclick = () => { $('#qz-ans').classList.remove('qz-hide'); $('#qz-reveal').classList.add('qz-hide'); };
+        $('#qz-podium').onclick = () => self.stampPodium();
+
+        const sliders = [['#qz-ct', '#qz-v-ct', ' s', 'cTemps'], ['#qz-ro', '#qz-v-ro', ' Q', 'rObj'],
+        ['#qz-rt', '#qz-v-rt', ' s', 'rTemps'], ['#qz-st', '#qz-v-st', ' s', 'sTemps'], ['#qz-sc', '#qz-v-sc', ' justes', 'sCible']];
+        sliders.forEach(([id, lab, suf, key]) => {
+            $(id).addEventListener('input', function () { $(lab).textContent = this.value + suf; self.cfg[key] = parseInt(this.value, 10); self.updateModeInfo(); });
+        });
+        this.widgetEl.querySelectorAll('input[name="qz-mode"]').forEach(r => r.addEventListener('change', () => { self.mode = r.value; self.updateModeInfo(); }));
+
+        // Échap : ferme d'abord une boîte, puis le plein écran, puis la fenêtre
+        this._esc = (e) => {
+            if (e.key !== 'Escape' || !self.widgetEl || self.widgetEl.style.display === 'none') return;
+            const open = self.widgetEl.querySelector('.qz-modal.on');
+            if (open) { e.stopPropagation(); open.classList.remove('on'); return; }
+            if (document.fullscreenElement) return; // le navigateur sort du plein écran
+            e.stopPropagation(); self.close();
+        };
+        document.addEventListener('keydown', this._esc, true);
+        document.addEventListener('fullscreenchange', () => {
+            const on = document.fullscreenElement === self.widgetEl;
+            self.widgetEl.classList.toggle('qz-fs', on);
+            const b = self.$('#qz-fs'); if (b) { b.textContent = on ? '⤡' : '⛶'; b.title = on ? 'Quitter le plein écran' : 'Plein écran'; }
+        });
+    },
+
+    toggleFullscreen: function () {
+        const el = this.widgetEl;
+        if (document.fullscreenElement === el) { document.exitFullscreen(); return; }
+        if (el.requestFullscreen) {
+            el.requestFullscreen().catch(() => { if (typeof showToast === 'function') showToast("Plein écran refusé par le navigateur"); });
+        } else if (typeof showToast === 'function') showToast("Plein écran non pris en charge");
+    },
+
+    close: function () {
+        if (document.fullscreenElement === this.widgetEl) document.exitFullscreen();
+        clearInterval(this.timerId);
+        this.widgetEl.style.display = 'none';
+    },
+
+    renderModules: function () {
+        const self = this, box = this.$('#qz-mods');
+        box.innerHTML = '';
+        this.MODULE_LIST.forEach(([key, icon, label], i) => {
+            const d = document.createElement('div');
+            d.className = 'qz-mod' + (i === 0 ? ' on' : '');
+            d.dataset.k = key;
+            d.innerHTML = `<i>${icon}</i><b>${label}</b>`;
+            d.onclick = () => { box.querySelectorAll('.qz-mod').forEach(x => x.classList.remove('on')); d.classList.add('on'); };
+            box.appendChild(d);
+        });
+    },
+
+    updateModeInfo: function () {
+        if (!this.widgetEl) return;
+        const c = this.cfg;
+        const t = this.mode === 'classique' ? `🎯 1 question (${c.cTemps} s)`
+            : this.mode === 'rafale' ? `🔫 Rafale (${c.rObj} questions)`
+                : `⏱️ Sprint (${c.sCible} justes en ${c.sTemps} s)`;
+        this.$('#qz-mode-info').textContent = t;
+    },
+
+    // ---------- Partie ----------
+    startGame: function () {
+        const idx = this.$('#qz-class').value;
+        if (idx === '') { if (typeof showToast === 'function') showToast("Choisissez une classe"); return; }
+        const cls = this.classes[parseInt(idx, 10)];
+        const names = (cls.students || []).map(s => s.name).filter(Boolean);
+        if (!names.length) { if (typeof showToast === 'function') showToast("Cette classe n'a aucun élève"); return; }
+
+        const key = this.$('#qz-mods .qz-mod.on').dataset.k;
+        this.questionsDB = this.MODULES[key];
+        this.aliveList = names.slice(); this.deadList = []; this.bagQ = []; this.bagStudents = [];
+        this.scores = {}; names.forEach(n => this.scores[n] = 0);
+        this.current = ''; this.started = true;
+
+        this.$('#qz-setup').classList.add('qz-hide');
+        this.$('#qz-left').classList.remove('qz-hide');
+        this.$('#qz-right').classList.remove('qz-hide');
+        this.$('#qz-set-btn').classList.remove('qz-hide');
+        this.$('#qz-home').classList.remove('qz-hide');
+        this.updateModeInfo();
+        this.updateLists();
+    },
+
+    backToSetup: function () {
+        clearInterval(this.timerId);
+        this.started = false;
+        this.$('#qz-setup').classList.remove('qz-hide');
+        this.$('#qz-left').classList.add('qz-hide');
+        this.$('#qz-right').classList.add('qz-hide');
+        this.$('#qz-set-btn').classList.add('qz-hide');
+        this.$('#qz-home').classList.add('qz-hide');
+    },
+
+    updateLists: function () {
+        const self = this;
+        this.$('#qz-n-alive').textContent = this.aliveList.length;
+        this.$('#qz-n-dead').textContent = this.deadList.length;
+        const ua = this.$('#qz-alive'), ud = this.$('#qz-dead');
+        ua.innerHTML = ''; ud.innerHTML = '';
+        this.aliveList.forEach(n => {
+            const li = document.createElement('li');
+            li.className = 'qz-stu';
+            li.innerHTML = `<span></span><span style="display:flex;align-items:center"><span class="qz-score">⭐ ${this.scores[n]}</span><button class="qz-act" title="Éliminer">⬇️</button></span>`;
+            li.firstChild.textContent = n;
+            li.onclick = () => self.startTurn(n);
+            li.querySelector('.qz-act').onclick = e => { e.stopPropagation(); self.manual(n, false); };
+            ua.appendChild(li);
+        });
+        this.deadList.forEach(n => {
+            const li = document.createElement('li');
+            li.className = 'qz-stu dead';
+            li.innerHTML = `<span></span><span style="display:flex;align-items:center"><span class="qz-score">⭐ ${this.scores[n]}</span><button class="qz-act" title="Repêcher">⬆️</button></span>`;
+            li.firstChild.textContent = n;
+            li.querySelector('.qz-act').onclick = e => { e.stopPropagation(); self.manual(n, true); };
+            ud.appendChild(li);
+        });
+        if (this.aliveList.length === 1 && this.deadList.length > 0) {
+            this.$('#qz-student').textContent = "🏆 GAGNANT !";
+            this.$('#qz-qtext').textContent = this.aliveList[0] + " a survécu !";
+            this.$('#qz-main-ctrl').classList.add('qz-hide');
+            this.$('#qz-pick').classList.add('qz-hide');
+            this.$('#qz-timer').querySelector('span').textContent = "✨";
+        } else {
+            this.$('#qz-pick').classList.remove('qz-hide');
+        }
+    },
+
+    manual: function (name, revive) {
+        if (revive) {
+            this.deadList = this.deadList.filter(s => s !== name);
+            if (this.aliveList.indexOf(name) === -1) this.aliveList.push(name);
+            if (this.bagStudents.indexOf(name) === -1) this.bagStudents.push(name);
+            this.updateLists();
+        } else {
+            this.aliveList = this.aliveList.filter(s => s !== name);
+            this.bagStudents = this.bagStudents.filter(s => s !== name);
+            if (this.deadList.indexOf(name) === -1) this.deadList.push(name);
+            if (this.current === name) this.resetArena(); else this.updateLists();
+        }
+    },
+
+    pickRandom: function () {
+        if (!this.aliveList.length) return;
+        if (!this.bagStudents.length) {
+            this.bagStudents = this.aliveList.slice().sort(() => Math.random() - 0.5);
+            if (this.bagStudents[this.bagStudents.length - 1] === this.current && this.aliveList.length > 1) {
+                this.bagStudents.unshift(this.bagStudents.pop());
+            }
+        }
+        this.startTurn(this.bagStudents.pop());
+    },
+
+    startTurn: function (name) {
+        this.current = name; this.curScore = 0;
+        this.$('#qz-dec').style.display = 'none';
+        this.$('#qz-main-ctrl').classList.remove('qz-hide');
+        const ind = this.$('#qz-ind');
+        ind.classList.remove('qz-inv');
+        if (this.mode === 'classique') { this.target = 1; ind.classList.add('qz-inv'); this.timeLeft = this.cfg.cTemps; }
+        else if (this.mode === 'rafale') { this.target = this.cfg.rObj; ind.textContent = `Question 1 / ${this.target}`; this.timeLeft = this.cfg.rTemps; }
+        else { this.target = this.cfg.sCible; ind.textContent = `Score : 0 / ${this.target}`; this.timeLeft = this.cfg.sTemps; }
+        this.loadQuestion();
+        this.startChrono();
+    },
+
+    loadQuestion: function () {
+        if (!this.bagQ.length) this.bagQ = this.questionsDB.map((_, i) => i).sort(() => Math.random() - 0.5);
+        const q = this.questionsDB[this.bagQ.pop()].generate();
+        this.$('#qz-student').textContent = this.current;
+        this.$('#qz-qtext').textContent = q.text;
+        this.$('#qz-reveal').classList.remove('qz-hide');
+        const a = this.$('#qz-ans'); a.classList.add('qz-hide'); a.textContent = q.ans;
+        const ctx = this.$('#qz-canvas').getContext('2d');
+        ctx.clearRect(0, 0, 280, 200);
+        q.draw(ctx);
+    },
+
+    startChrono: function () {
+        const self = this;
+        clearInterval(this.timerId);
+        const disp = this.$('#qz-timer').querySelector('span');
+        const tick = () => {
+            disp.textContent = self.timeLeft;
+            self.$('#qz-timer').style.color = self.timeLeft <= 3 ? '#ff4757' : '#ffa502';
+            if (self.timeLeft <= 0) { clearInterval(self.timerId); disp.textContent = "Temps !"; self.timeOut(); }
+            self.timeLeft--;
+        };
+        tick();
+        this.timerId = setInterval(tick, 1000);
+    },
+
+    showSolution: function (title) {
+        this.$('#qz-reveal').classList.add('qz-hide');
+        this.$('#qz-ans').classList.remove('qz-hide');
+        this.$('#qz-main-ctrl').classList.add('qz-hide');
+        this.$('#qz-dec-title').textContent = title;
+        this.$('#qz-dec').style.display = 'flex';
+    },
+    timeOut: function () { this.showSolution("⏳ Temps écoulé !"); },
+
+    answer: function (ok) {
+        const ind = this.$('#qz-ind');
+        if (this.mode === 'sprint') {
+            if (ok) {
+                this.scores[this.current]++; this.curScore++;
+                ind.textContent = `Score : ${this.curScore} / ${this.target}`;
+                if (this.curScore >= this.target) { clearInterval(this.timerId); this.pardon(); return; }
+            }
+            this.loadQuestion();
+            return;
+        }
+        clearInterval(this.timerId);
+        if (!ok) { this.showSolution("❌ Mauvaise réponse !"); return; }
+        this.scores[this.current]++;
+        if (this.mode === 'classique') { this.pardon(); return; }
+        this.curScore++;
+        if (this.curScore >= this.target) { this.pardon(); return; }
+        ind.textContent = `Question ${this.curScore + 1} / ${this.target}`;
+        this.timeLeft = this.cfg.rTemps;
+        this.loadQuestion();
+        this.startChrono();
+    },
+
+    eliminate: function () {
+        this.aliveList = this.aliveList.filter(s => s !== this.current);
+        this.bagStudents = this.bagStudents.filter(s => s !== this.current);
+        if (this.deadList.indexOf(this.current) === -1) this.deadList.push(this.current);
+        this.resetArena();
+    },
+
+    pardon: function () {
+        this.aliveList = this.aliveList.filter(s => s !== this.current);
+        this.aliveList.splice(Math.floor(Math.random() * (this.aliveList.length + 1)), 0, this.current);
+        this.resetArena();
+    },
+
+    resetArena: function () {
+        clearInterval(this.timerId);
+        this.$('#qz-dec').style.display = 'none';
+        this.$('#qz-main-ctrl').classList.add('qz-hide');
+        this.$('#qz-ind').classList.add('qz-inv');
+        this.$('#qz-reveal').classList.add('qz-hide');
+        this.$('#qz-ans').classList.add('qz-hide');
+        this.$('#qz-student').textContent = "Suivant...";
+        this.$('#qz-timer').querySelector('span').textContent = "--";
+        this.$('#qz-timer').style.color = '#ffa502';
+        this.$('#qz-qtext').textContent = "Cliquez sur Tirer au sort";
+        this.$('#qz-canvas').getContext('2d').clearRect(0, 0, 280, 200);
+        this.updateLists();
+    },
+
+    // ---------- Podium tamponnable ----------
+    podiumSVG: function () {
+        const names = Object.keys(this.scores);
+        if (!names.length) return null;
+        const rank = names.sort((a, b) => this.scores[b] - this.scores[a] || a.localeCompare(b));
+        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const W = 420, rowH = 34, top = 74, H = top + rank.length * rowH + 18;
+        const med = ['🥇', '🥈', '🥉'];
+        let b = `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="16" fill="#ffffff" stroke="#3742fa" stroke-width="3"/>`;
+        b += `<rect x="1" y="1" width="${W - 2}" height="52" rx="16" fill="#3742fa"/><rect x="1" y="38" width="${W - 2}" height="15" fill="#3742fa"/>`;
+        b += `<text x="${W / 2}" y="34" text-anchor="middle" font-family="sans-serif" font-size="21" font-weight="bold" fill="#ffffff">🏆 Le Défi du Prof</text>`;
+        rank.forEach((n, i) => {
+            const y = top + i * rowH;
+            if (i % 2 === 0) b += `<rect x="12" y="${y - 20}" width="${W - 24}" height="${rowH - 4}" rx="7" fill="#f6f7fb"/>`;
+            b += `<text x="26" y="${y}" font-family="sans-serif" font-size="16" font-weight="bold" fill="#2f3542">${i < 3 ? med[i] : (i + 1) + '.'}</text>`;
+            b += `<text x="62" y="${y}" font-family="sans-serif" font-size="16" fill="#2f3542">${esc(n)}</text>`;
+            b += `<text x="${W - 26}" y="${y}" text-anchor="end" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ff9f1a">⭐ ${this.scores[n]}</text>`;
+        });
+        return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${b}</svg>`, w: W, h: H };
+    },
+
+    stampPodium: function () {
+        const self = this, res = this.podiumSVG();
+        if (!res) { if (typeof showToast === 'function') showToast("Lancez une partie d'abord"); return; }
+        if (document.fullscreenElement === this.widgetEl) document.exitFullscreen();
+        this.widgetEl.style.display = 'none';
+        createStampFromSVG(res.svg, stamp => {
+            self.currentStamp = stamp;
+            if (typeof setMode === 'function') setMode('quizBattle');
+            if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser le podium");
+            if (typeof draw === 'function') draw();
+        });
+    },
+
+    onPointerMove: function (rawPos) {
+        if (mode === 'quizBattle' && this.currentStamp) { mouseLogicalPos = { x: rawPos.x, y: rawPos.y }; if (typeof draw === 'function') draw(); }
+        return false;
+    },
+    onDraw: function (ctx) {
+        if (mode === 'quizBattle' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2, this.currentStamp.w, this.currentStamp.h);
+            ctx.globalAlpha = 1;
+        }
+    },
+    onPointerDown: function (rawPos) {
+        if (mode === 'quizBattle' && this.currentStamp) {
+            if (typeof imageCache !== 'undefined') imageCache[this.currentStamp.src] = this.currentStamp.img;
+            images.push({
+                id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2,
+                w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0,
+                cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++
+            });
+            this.currentStamp = null;
+            if (typeof setMode === 'function') setMode('pointer');
+            saveState(); draw(); return true;
+        }
+        return false;
+    }
+});
