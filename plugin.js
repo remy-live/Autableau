@@ -261,7 +261,9 @@ function updatePluginStampInPlace(imgObj, stamp, state, opts) {
         if (!imgObj.pluginData) imgObj.pluginData = {};
         imgObj.pluginData.state = state;
     }
-    if (typeof saveState === 'function') saveState();
+    // opts.skipHistory : réglage en direct (curseur), on n'écrit dans
+    // l'historique qu'au relâchement — saveState() sérialise tout le tableau.
+    if (!opts.skipHistory && typeof saveState === 'function') saveState();
     if (typeof draw === 'function') draw();
     if (!opts.quiet) {
         if (typeof setMode === 'function') setMode('pointer');
@@ -307,6 +309,18 @@ window.placeGeneratedStamp = placeGeneratedStamp;
 // ==========================================
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const stampCapsCache = new WeakMap();
+// Mémoire du SVG décodé de chaque tampon : décoder puis ré-encoder une grosse
+// image à chaque cran du curseur est justement ce qui faisait ramer le réglage.
+const stampSVGCache = new WeakMap();
+
+function getStampSVG(imgObj) {
+    const cached = stampSVGCache.get(imgObj);
+    if (cached && cached.src === imgObj.src) return cached.svg;
+    const svg = decodeStampSVG(imgObj.src);
+    if (svg) stampSVGCache.set(imgObj, { src: imgObj.src, svg });
+    return svg;
+}
+function rememberStampSVG(imgObj, src, svg) { stampSVGCache.set(imgObj, { src, svg }); }
 
 function decodeStampSVG(src) {
     if (typeof src !== 'string' || src.indexOf('data:image/svg+xml') !== 0) return null;
@@ -328,7 +342,7 @@ function getPluginStampCaps(imgObj) {
     const cached = stampCapsCache.get(imgObj);
     if (cached && cached.src === imgObj.src) return cached.caps;
 
-    const svg = decodeStampSVG(imgObj.src);
+    const svg = getStampSVG(imgObj);
     let caps = none;
     if (svg) {
         const args = imgObj.pluginData.args;
@@ -348,10 +362,11 @@ function getPluginStampCaps(imgObj) {
 }
 
 // opts : { color: '#rrggbb' } et/ou { widthScale: n }  (1 = épaisseur d'origine)
+// opts.live : réglage en cours (curseur) — pas d'écriture dans l'historique
 function restylePluginStamp(imgObj, opts) {
     const caps = getPluginStampCaps(imgObj);
     if (!caps.color && !caps.width) return false;
-    let svg = decodeStampSVG(imgObj.src);
+    let svg = getStampSVG(imgObj);
     if (!svg) return false;
 
     const pd = imgObj.pluginData;
@@ -381,14 +396,18 @@ function restylePluginStamp(imgObj, opts) {
     }
 
     if (!changed) return false;
-    createStampFromSVG(svg, (stamp) => updatePluginStampInPlace(imgObj, stamp, undefined, { quiet: true }));
+    const newSVG = svg;
+    createStampFromSVG(newSVG, (stamp) => {
+        rememberStampSVG(imgObj, stamp.src, newSVG);
+        updatePluginStampInPlace(imgObj, stamp, undefined, { quiet: true, skipHistory: !!opts.live });
+    });
     return true;
 }
 
 window.isRecolorablePluginImage = (o) => getPluginStampCaps(o).color;
 window.isRestrokablePluginImage = (o) => getPluginStampCaps(o).width;
-window.recolorPluginImage = (o, color) => restylePluginStamp(o, { color });
-window.restrokePluginImage = (o, widthScale) => restylePluginStamp(o, { widthScale });
+window.recolorPluginImage = (o, color, live) => restylePluginStamp(o, { color, live });
+window.restrokePluginImage = (o, widthScale, live) => restylePluginStamp(o, { widthScale, live });
 window.getPluginStampStrokeScale = (o) => (o && o.pluginData && o.pluginData.strokeScale) || 1;
 window.getPluginStampColor = (o) => {
     const caps = getPluginStampCaps(o);

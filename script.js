@@ -1869,12 +1869,13 @@ function generateSVGString(rect, keepBg) {
                 const cy = obj.y + (obj.h / 2);
                 transformAttr = ` transform="rotate(${angleDeg}, ${cx}, ${cy})"`;
             }
+            const opacityAttr = (obj.opacity !== undefined && obj.opacity < 1) ? ` opacity="${obj.opacity}"` : "";
             if (obj.cw !== undefined && obj.ch !== undefined && imageCache[obj.src]) {
                 const origW = imageCache[obj.src].width || obj.cw;
                 const origH = imageCache[obj.src].height || obj.ch;
-                svg += `<svg x="${obj.x}" y="${obj.y}" width="${obj.w}" height="${obj.h}" viewBox="${obj.cx || 0} ${obj.cy || 0} ${obj.cw} ${obj.ch}"${transformAttr}><image href="${obj.src}" x="0" y="0" width="${origW}" height="${origH}" preserveAspectRatio="none" /></svg>`;
+                svg += `<svg x="${obj.x}" y="${obj.y}" width="${obj.w}" height="${obj.h}" viewBox="${obj.cx || 0} ${obj.cy || 0} ${obj.cw} ${obj.ch}"${transformAttr}${opacityAttr}><image href="${obj.src}" x="0" y="0" width="${origW}" height="${origH}" preserveAspectRatio="none" /></svg>`;
             } else {
-                svg += `<image href="${obj.src}" x="${obj.x}" y="${obj.y}" width="${obj.w}" height="${obj.h}"${transformAttr} preserveAspectRatio="none" />`;
+                svg += `<image href="${obj.src}" x="${obj.x}" y="${obj.y}" width="${obj.w}" height="${obj.h}"${transformAttr}${opacityAttr} preserveAspectRatio="none" />`;
             }
 
         } else if (item.type === 'freehand') {
@@ -3403,16 +3404,53 @@ function applyPluginStampStyle(opts) {
         if (it.type !== 'image') return;
         const o = getObjectById('image', it.id);
         if (!o || o.locked) return;
-        if (opts.color && typeof recolorPluginImage === 'function' && recolorPluginImage(o, opts.color)) touched = true;
-        if (opts.widthScale && typeof restrokePluginImage === 'function' && restrokePluginImage(o, opts.widthScale)) touched = true;
+        if (opts.color && typeof recolorPluginImage === 'function' && recolorPluginImage(o, opts.color, opts.live)) touched = true;
+        if (opts.widthScale && typeof restrokePluginImage === 'function' && restrokePluginImage(o, opts.widthScale, opts.live)) touched = true;
     });
     return touched;
 }
 
-let stampWidthTimer = null;
-function applyPluginStampWidthDebounced(scale) {
-    clearTimeout(stampWidthTimer);
-    stampWidthTimer = setTimeout(() => applyPluginStampStyle({ widthScale: scale }), 180);
+// Le curseur d'épaisseur régénère le SVG des tampons : opération lourde.
+// On n'en garde qu'une en vol à la fois et on n'écrit dans l'historique
+// qu'au relâchement du curseur (sinon chaque cran sauvegarde tout le tableau).
+let stampWidthBusy = false;
+let stampWidthPending = null;
+function applyPluginStampWidthLive(scale) {
+    stampWidthPending = scale;
+    if (stampWidthBusy) return;
+    stampWidthBusy = true;
+    const run = () => {
+        const value = stampWidthPending;
+        stampWidthPending = null;
+        applyPluginStampStyle({ widthScale: value, live: true });
+        // On laisse le navigateur peindre avant d'enchaîner
+        requestAnimationFrame(() => {
+            if (stampWidthPending !== null && stampWidthPending !== value) run();
+            else stampWidthBusy = false;
+        });
+    };
+    run();
+}
+function commitPluginStampWidth(scale) {
+    stampWidthPending = null;
+    stampWidthBusy = false;
+    applyPluginStampStyle({ widthScale: scale });
+    saveState();
+}
+
+// Opacité des tampons : simple attribut de rendu, aucun SVG à régénérer
+function applyPluginStampOpacity(value, commit) {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
+    let touched = false;
+    selectedItems.forEach(it => {
+        if (it.type !== 'image') return;
+        const o = getObjectById('image', it.id);
+        if (!o || o.locked) return;
+        o.opacity = value;
+        touched = true;
+    });
+    if (touched) { draw(); if (commit) saveState(); }
+    return touched;
 }
 
 // Vrai si la sélection ne contient que des images
@@ -3449,7 +3487,16 @@ document.querySelectorAll('.color-dot').forEach(dot => {
     });
 });
 document.getElementById('popover-custom-color').addEventListener('input', (e) => { document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); if (popoverTarget === 'stroke') activeStyle.strokeColor = e.target.value; else { activeStyle.fillColor = e.target.value; activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); applyPluginStampStyle({ color: e.target.value }); });
-document.getElementById('opacity-slider').addEventListener('input', (e) => { if (popoverTarget === 'stroke') activeStyle.strokeOpacity = parseFloat(e.target.value); else { activeStyle.fillOpacity = parseFloat(e.target.value); activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); });
+document.getElementById('opacity-slider').addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    // Sur une sélection de tampons, le curseur règle l'opacité de l'image
+    if (selectionIsOnlyImages()) { applyPluginStampOpacity(v, false); return; }
+    if (popoverTarget === 'stroke') activeStyle.strokeOpacity = v; else { activeStyle.fillOpacity = v; activeStyle.isFilled = true; }
+    updateColorIndicator(); pushStyleToObject();
+});
+document.getElementById('opacity-slider').addEventListener('change', (e) => {
+    if (selectionIsOnlyImages()) applyPluginStampOpacity(parseFloat(e.target.value), true);
+});
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
 // --- GESTION SELECTION ET STYLES ---
@@ -3570,7 +3617,12 @@ function syncStampStyleControls() {
     if (!selectionIsOnlyImages()) {
         colorBtn.style.display = '';
         widthBox.style.display = '';
-        if (opacityBox) opacityBox.style.display = '';
+        if (opacityBox) {
+            opacityBox.style.display = '';
+            opacityBox.firstChild.textContent = 'Opacité : ';
+        }
+        document.querySelectorAll('#color-popover .color-grid, #color-popover .popover-tabs')
+            .forEach(el => { el.style.display = ''; });
         return;
     }
 
@@ -3578,10 +3630,23 @@ function syncStampStyleControls() {
     const canColor = objs.some(o => typeof isRecolorablePluginImage === 'function' && isRecolorablePluginImage(o));
     const canWidth = objs.some(o => typeof isRestrokablePluginImage === 'function' && isRestrokablePluginImage(o));
 
-    colorBtn.style.display = canColor ? '' : 'none';
+    // Le bouton couleur reste accessible même sans recoloration possible :
+    // il porte aussi le réglage d'opacité du tampon.
+    colorBtn.style.display = '';
     widthBox.style.display = canWidth ? '' : 'none';
-    if (opacityBox) opacityBox.style.display = 'none';
-    if (!canColor) document.getElementById('color-popover')?.classList.remove('visible');
+    if (opacityBox) {
+        opacityBox.style.display = '';
+        opacityBox.firstChild.textContent = 'Opacité du tampon : ';
+        const op = objs.length ? (objs[0].opacity === undefined ? 1 : objs[0].opacity) : 1;
+        const input = document.getElementById('opacity-slider');
+        if (input && document.activeElement !== input) input.value = op;
+    }
+    // Les onglets Contour/Fond n'ont pas de sens sur un tampon : la pastille
+    // recolore le dessin entier.
+    const tabs = document.querySelector('#color-popover .popover-tabs');
+    if (tabs) tabs.style.display = 'none';
+    const grid = document.querySelector('#color-popover .color-grid');
+    if (grid) grid.style.display = canColor ? '' : 'none';
 
     // Le curseur reflète l'épaisseur courante du tampon sélectionné
     if (canWidth && objs.length && typeof getPluginStampStrokeScale === 'function') {
@@ -3623,6 +3688,9 @@ function pushStyleToObject() {
         wysiwygText.style.color = activeStyle.strokeColor;
     }
     if (selectedItems.length === 0) return;
+    // Les images ne portent aucun de ces styles : inutile de sérialiser tout
+    // le tableau à chaque cran de curseur (c'est ce qui faisait ramer).
+    if (selectedItems.every(i => i.type === 'image')) return;
     selectedItems.forEach(item => {
         const obj = getObjectById(item.type, item.id); if (!obj) return;
 
@@ -3689,8 +3757,11 @@ document.getElementById('btn-dash').addEventListener('click', () => { const dash
 document.getElementById('line-width').addEventListener('input', (e) => {
     activeStyle.lineWidth = parseInt(e.target.value);
     pushStyleToObject();
-    // Les tampons de plugins sont régénérés (opération lourde) : on temporise
-    applyPluginStampWidthDebounced(activeStyle.lineWidth / 3);
+    applyPluginStampWidthLive(activeStyle.lineWidth / 3);
+});
+document.getElementById('line-width').addEventListener('change', (e) => {
+    // Relâchement du curseur : on fige la valeur dans l'historique
+    if (selectionIsOnlyImages()) commitPluginStampWidth(parseInt(e.target.value) / 3);
 });
 document.getElementById('font-size').addEventListener('input', (e) => { activeStyle.fontSize = parseInt(e.target.value); pushStyleToObject(); });
 
@@ -5135,7 +5206,12 @@ function draw() {
 
                 // 3. Dessiner l'image (en compensant la translation)
                 if (imageCache[obj.src]) {
+                    // Opacité propre au tampon (1 = opaque, valeur par défaut)
+                    const imgAlpha = (obj.opacity === undefined) ? 1 : obj.opacity;
+                    const prevAlpha = ctx.globalAlpha;
+                    if (imgAlpha < 1) ctx.globalAlpha = prevAlpha * imgAlpha;
                     ctx.drawImage(imageCache[obj.src], obj.cx, obj.cy, obj.cw, obj.ch, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                    ctx.globalAlpha = prevAlpha;
                 }
 
                 // 4. Dessiner le cadre de sélection et les poignées
