@@ -237,6 +237,36 @@ window.xmlEsc = xmlEsc;
 // Ce compteur invalide les préparations en cours au moment d'une annulation.
 let stampGeneration = 0;
 function invalidatePendingStampLoads() { stampGeneration++; }
+
+// Réédition d'un tampon déjà posé : on remplace son image sur place, sans
+// redemander un clic sur le tableau. Le centre et l'échelle sont conservés.
+function updatePluginStampInPlace(imgObj, stamp, state) {
+    if (!imgObj || !stamp) return false;
+    const scaleX = (imgObj.cw ? imgObj.w / imgObj.cw : 1) || 1;
+    const scaleY = (imgObj.ch ? imgObj.h / imgObj.ch : 1) || 1;
+    const centerX = imgObj.x + imgObj.w / 2;
+    const centerY = imgObj.y + imgObj.h / 2;
+
+    if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
+    imgObj.src = stamp.src;
+    imgObj.cx = 0; imgObj.cy = 0;
+    imgObj.cw = stamp.w; imgObj.ch = stamp.h;
+    imgObj.w = stamp.w * scaleX;
+    imgObj.h = stamp.h * scaleY;
+    imgObj.x = centerX - imgObj.w / 2;
+    imgObj.y = centerY - imgObj.h / 2;
+
+    if (state !== undefined) {
+        if (!imgObj.pluginData) imgObj.pluginData = {};
+        imgObj.pluginData.state = state;
+    }
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    if (typeof setMode === 'function') setMode('pointer');
+    if (typeof showToast === 'function') showToast("Tampon mis à jour");
+    return true;
+}
+window.updatePluginStampInPlace = updatePluginStampInPlace;
 window.invalidatePendingStampLoads = invalidatePendingStampLoads;
 
 function createStampFromSVG(svgStr, callback) {
@@ -9285,27 +9315,52 @@ registerPlugin('tangramTool', 'Jeux', {
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.buildTangram(); });
         grid.appendChild(btn);
     },
+    // Dissection classique du carré, exprimée en quarts de côté (u = s/4).
+    // Les 7 pièces pavent exactement le carré : 2 grands triangles (4u² chacun),
+    // 1 moyen (2u²), 2 petits (1u²), 1 carré (2u²) et 1 parallélogramme (2u²).
+    PIECES: [
+        { name: 'Grand triangle', pts: [[0, 0], [4, 0], [2, 2]], col: '#e74c3c' },
+        { name: 'Grand triangle', pts: [[0, 0], [2, 2], [0, 4]], col: '#3498db' },
+        { name: 'Triangle moyen', pts: [[4, 2], [4, 4], [2, 4]], col: '#e84393' },
+        { name: 'Petit triangle', pts: [[2, 2], [3, 1], [3, 3]], col: '#f1c40f' },
+        { name: 'Carré', pts: [[2, 2], [3, 3], [2, 4], [1, 3]], col: '#9b59b6' },
+        { name: 'Petit triangle', pts: [[0, 4], [1, 3], [2, 4]], col: '#e67e22' },
+        { name: 'Parallélogramme', pts: [[4, 0], [4, 2], [3, 3], [3, 1]], col: '#2ecc71' }
+    ],
+
     buildTangram: function () {
         const cx = (window.innerWidth / 2 - panX) / zoom;
         const cy = (window.innerHeight / 2 - panY) / zoom;
-        const s = 200;
-        const pieces = [
-            { pts: `0,0 ${s},0 ${s / 2},${s / 2}`, col: '#e74c3c' },
-            { pts: `0,0 ${s / 2},${s / 2} 0,${s}`, col: '#3498db' },
-            { pts: `${s},${s} ${s},0 ${s / 2},${s / 2}`, col: '#2ecc71' },
-            { pts: `${s / 2},${s / 2} ${s},${s / 2} ${s * 0.75},${s * 0.75}`, col: '#f1c40f' },
-            { pts: `${s / 2},${s / 2} ${s / 2},${s} ${s * 0.25},${s * 0.75}`, col: '#9b59b6' },
-            { pts: `${s / 2},${s / 2} ${s * 0.75},${s * 0.75} ${s / 2},${s} ${s * 0.25},${s * 0.75}`, col: '#e67e22' },
-            { pts: `0,${s} ${s / 2},${s} ${s * 0.75},${s * 0.75} ${s * 0.25},${s * 0.75}`, col: '#1abc9c' }
-        ];
+        const s = 280, u = s / 4;
+        const pad = 2; // place pour le contour (stroke-width 2, centré sur l'arête)
+        const originX = cx - s / 2, originY = cy - s / 2;
 
-        pieces.forEach((p, i) => {
-            let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}"><polygon points="${p.pts}" fill="${p.col}" stroke="#2d3436" stroke-width="2"/></svg>`;
-            let img = new Image();
+        let placed = 0;
+        this.PIECES.forEach((p) => {
+            const abs = p.pts.map(([a, b]) => [a * u, b * u]);
+            const minX = Math.min(...abs.map(q => q[0])), maxX = Math.max(...abs.map(q => q[0]));
+            const minY = Math.min(...abs.map(q => q[1])), maxY = Math.max(...abs.map(q => q[1]));
+            // Chaque pièce est dessinée dans un SVG au plus juste : la zone de
+            // sélection épouse la figure au lieu d'un grand carré vide.
+            const w = (maxX - minX) + pad * 2, h = (maxY - minY) + pad * 2;
+            const local = abs.map(([a, b]) => `${(a - minX + pad).toFixed(2)},${(b - minY + pad).toFixed(2)}`).join(' ');
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polygon points="${local}" fill="${p.col}" stroke="#2d3436" stroke-width="2" stroke-linejoin="round"/></svg>`;
+
+            const img = new Image();
             img.onload = () => {
                 if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                images.push({ id: nextId++, x: cx - s / 2 + (Math.random() * 60 - 30), y: cy - s / 2 + (Math.random() * 60 - 30), w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++ });
-                if (i === pieces.length - 1) { if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("🔺 Pièces de Tangram prêtes !"); }
+                // Position absolue : les 7 pièces reconstituent le carré d'origine
+                images.push({
+                    id: nextId++,
+                    x: originX + minX - pad, y: originY + minY - pad,
+                    w, h, cx: 0, cy: 0, cw: w, ch: h,
+                    src: img.src, z: globalZ++, tangramPiece: p.name
+                });
+                if (++placed === this.PIECES.length) {
+                    if (typeof saveState === 'function') saveState();
+                    if (typeof draw === 'function') draw();
+                    showToast("🔺 Tangram posé en carré : glissez les pièces !");
+                }
             };
             img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
         });
@@ -10538,6 +10593,8 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         document.querySelector('[data-tool="select"]').click();
         let cBtn = document.querySelector('.mol-el-btn[data-el="C"]');
         if (cBtn) cBtn.click();
+        const okBtn = document.getElementById('mol-m-ok');
+        if (okBtn) okBtn.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser';
         this.render();
     },
     close: function () { this.backdrop.style.display = 'none'; this.editingImage = null; this.isEditingText = false; },
@@ -11039,17 +11096,15 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
         this.currentTool = oldTool;
         this.render();
 
+        // On mémorise la cible AVANT close() : close() remet editingImage à null
+        // et le rendu du tampon est asynchrone (chargement de l'image).
+        const target = this.editingImage;
         this.close();
 
         // 4. Création du tampon avec le SVG pur (Vectoriel)
         createStampFromSVG(exportSVG, (stamp) => {
-            if (this.editingImage) {
-                this.editingImage.src = stamp.src;
-                this.editingImage.w = stamp.w; this.editingImage.h = stamp.h;
-                this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
-                this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state));
-                this.editingImage = null;
-                saveState(); draw(); setMode('pointer');
+            if (target) {
+                updatePluginStampInPlace(target, stamp, JSON.parse(JSON.stringify(this.state)));
             } else {
                 this.currentStamp = stamp;
                 this.currentState = JSON.parse(JSON.stringify(this.state));
@@ -11560,6 +11615,8 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     open: function () {
         this.backdrop.style.display = 'block';
         document.querySelector('[data-tool="select"]').click();
+        const okBtn = document.getElementById('tab-m-ok');
+        if (okBtn) okBtn.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser';
         this.render();
     },
     close: function () { this.backdrop.style.display = 'none'; this.editingImage = null; this.isEditingText = false; },
@@ -12242,15 +12299,12 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
 
         exportSVG += `</g></svg>`;
 
+        const target = this.editingImage; // mémorisé avant close() (qui l'efface)
         this.close();
 
         createStampFromSVG(exportSVG, (stamp) => {
-            if (this.editingImage) {
-                this.editingImage.src = stamp.src; this.editingImage.w = stamp.w; this.editingImage.h = stamp.h;
-                this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
-                this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state));
-                this.editingImage = null;
-                saveState(); draw(); setMode('pointer');
+            if (target) {
+                updatePluginStampInPlace(target, stamp, JSON.parse(JSON.stringify(this.state)));
             } else {
                 this.currentStamp = stamp;
                 this.currentState = JSON.parse(JSON.stringify(this.state));
@@ -13384,6 +13438,8 @@ registerPlugin('pixelStudioTool', 'Jeux', {
 
     open: function () {
         this.backdrop.style.display = 'block';
+        const okBtn = document.getElementById('pix-m-ok');
+        if (okBtn) okBtn.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser';
         this.drawAll();
     },
     close: function () { this.backdrop.style.display = 'none'; this.editingImage = null; },
@@ -13833,13 +13889,12 @@ registerPlugin('pixelStudioTool', 'Jeux', {
         }
 
         exportSVG += `</g></svg>`;
+        const target = this.editingImage; // mémorisé avant close() (qui l'efface)
         this.close();
 
         createStampFromSVG(exportSVG, (stamp) => {
-            if (this.editingImage) {
-                this.editingImage.src = stamp.src; this.editingImage.w = stamp.w; this.editingImage.h = stamp.h; this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
-                this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state)); this.editingImage = null;
-                saveState(); draw(); setMode('pointer');
+            if (target) {
+                updatePluginStampInPlace(target, stamp, JSON.parse(JSON.stringify(this.state)));
             } else {
                 this.currentStamp = stamp; this.currentState = JSON.parse(JSON.stringify(this.state));
                 if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser le Pixel Art");
@@ -19232,6 +19287,8 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         this.backdrop.style.display = 'block';
         this.selectedIds = { type: null, id: null };
         document.querySelector('[data-tool="select"]').click();
+        const okBtn = document.getElementById('evol-m-ok');
+        if (okBtn) okBtn.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser';
         this.render();
     },
     close: function () { this.backdrop.style.display = 'none'; this.editingImage = null; this.isEditingText = false; },
@@ -19725,15 +19782,12 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
         exportSVG = exportSVG.replace(/<rect[^>]*stroke-dasharray="2,2"[^>]*><\/rect>/g, '');
         exportSVG = exportSVG.replace(/<text[^>]*>\.\.\.<\/text>/g, '');
 
+        const target = this.editingImage; // mémorisé avant close() (qui l'efface)
         this.close();
 
         createStampFromSVG(exportSVG, (stamp) => {
-            if (this.editingImage) {
-                this.editingImage.src = stamp.src; this.editingImage.w = stamp.w; this.editingImage.h = stamp.h;
-                this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
-                this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state));
-                this.editingImage = null;
-                saveState(); draw(); setMode('pointer');
+            if (target) {
+                updatePluginStampInPlace(target, stamp, JSON.parse(JSON.stringify(this.state)));
             } else {
                 this.currentStamp = stamp;
                 this.currentState = JSON.parse(JSON.stringify(this.state));
