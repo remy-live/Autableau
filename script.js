@@ -4394,6 +4394,9 @@ canvas.addEventListener('dblclick', (e) => {
                 plugin.edit(imgObj);
                 return;
             }
+            // Tampon issu d'un plugin qui ne propose pas de réédition :
+            // on le dit, plutôt que de laisser croire à un double-clic manqué.
+            if (plugin) { showToast("Ce tampon ne se réédite pas."); return; }
         }
     }
     if (clickedObj && clickedObj.type === 'text') {

@@ -271,6 +271,34 @@ function updatePluginStampInPlace(imgObj, stamp, state, opts) {
 }
 window.updatePluginStampInPlace = updatePluginStampInPlace;
 
+// Tampon « généré depuis un formulaire » : pose une nouvelle image au centre
+// de l'écran, ou met à jour celle qu'on est en train de rééditer (double-clic).
+// Les arguments du formulaire sont mémorisés pour permettre la réédition.
+function placeGeneratedStamp(pluginId, svgStr, args, target, toast) {
+    createStampFromSVG(svgStr, (stamp) => {
+        if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
+        if (target) {
+            target.pluginData = { id: pluginId, args };
+            updatePluginStampInPlace(target, stamp, undefined, { quiet: true });
+            if (typeof showToast === 'function') showToast("Tampon mis à jour");
+            return;
+        }
+        const w = stamp.w, h = stamp.h;
+        images.push({
+            id: nextId++,
+            x: (window.innerWidth / 2 - panX) / zoom - w / 2,
+            y: (window.innerHeight / 2 - panY) / zoom - h / 2,
+            w, h, cx: 0, cy: 0, cw: w, ch: h,
+            src: stamp.src, z: globalZ++,
+            pluginData: { id: pluginId, args }
+        });
+        if (typeof saveState === 'function') saveState();
+        if (typeof draw === 'function') draw();
+        if (toast && typeof showToast === 'function') showToast(toast);
+    });
+}
+window.placeGeneratedStamp = placeGeneratedStamp;
+
 // ==========================================
 // RESTYLAGE RAPIDE DES TAMPONS (barre de style)
 // Les pastilles de couleur et le curseur d'épaisseur agissent directement sur
@@ -2929,6 +2957,9 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
         };
         return map[type]();
     },
+
+    // Double-clic sur une pièce/un billet : on rouvre la palette de monnaie
+    edit: function () { this.toggleWidget(); },
 
     onDraw: function (ctx) {
         if (typeof mode !== 'undefined' && mode === 'money' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
@@ -9179,9 +9210,17 @@ registerPlugin('symmetryGeneratorTool', 'Exercices', {
             btn.classList.add('active');
             if (typeof setMode === 'function') setMode('symmetry');
 
-            openCustomPrompt("Symétrie", [
+            this.openPrompt();
+            e.stopPropagation();
+        });
+    },
+
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
+            openCustomPrompt(target ? "Modifier la symétrie" : "Symétrie", [
                 {
-                    type: 'select', label: 'Modèle', value: 'space', options: [
+                    type: 'select', label: 'Modèle', value: pre[0] || 'space', options: [
                         { value: 'space', label: '🚀 Vaisseau' }, { value: 'house', label: '🏠 Maison' }, { value: 'robot', label: '🤖 Robot' },
                         { value: 'butterfly', label: '🦋 Papillon' }, { value: 'tree', label: '🌲 Sapin' }, { value: 'castle', label: '🏰 Château' }, { value: 'fish', label: '🐟 Poisson' }
                     ]
@@ -9192,6 +9231,7 @@ registerPlugin('symmetryGeneratorTool', 'Exercices', {
 
                 // 🌟 4ème paramètre (ACTION) : Création du tampon natif !
                 (res) => {
+                    if (target) { placeGeneratedStamp('symmetryGeneratorTool', this.getSymmetrySVG(res[0], true), res, target); return; }
                     if (typeof createStampFromSVG === 'function') {
                         createStampFromSVG(this.getSymmetrySVG(res[0], true), (stamp) => {
                             this.currentStamp = stamp;
@@ -9200,8 +9240,6 @@ registerPlugin('symmetryGeneratorTool', 'Exercices', {
                         });
                     }
                 });
-            e.stopPropagation();
-        });
     },
 
     // Génération du SVG Brut
@@ -9261,7 +9299,8 @@ registerPlugin('symmetryGeneratorTool', 'Exercices', {
                 h: this.currentStamp.h,
                 cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
                 src: this.currentStamp.src,
-                z: typeof globalZ !== 'undefined' ? globalZ++ : 1000
+                z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
+                pluginData: { id: 'symmetryGeneratorTool', args: this.currentArgs }
             });
             if (typeof saveState === 'function') saveState();
             if (typeof setMode === 'function') setMode('pointer'); // Retour au mode sélection après le clic
@@ -9482,14 +9521,16 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
         grid.appendChild(btn);
     },
-    openPrompt: function () {
-        openCustomPrompt("Division Posée", [
-            { type: 'number', label: 'Dividende', value: Math.floor(Math.random() * 900) + 100 },
-            { type: 'number', label: 'Diviseur', value: Math.floor(Math.random() * 8) + 2 },
-            { type: 'color', label: 'Couleur', value: '#2d3436' }
-        ], null, (res) => this.buildDivision(res[0], res[1], res[2]));
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const p = prefill || [];
+        openCustomPrompt(target ? "Modifier la Division" : "Division Posée", [
+            { type: 'number', label: 'Dividende', value: p[0] !== undefined ? p[0] : Math.floor(Math.random() * 900) + 100 },
+            { type: 'number', label: 'Diviseur', value: p[1] !== undefined ? p[1] : Math.floor(Math.random() * 8) + 2 },
+            { type: 'color', label: 'Couleur', value: p[2] || '#2d3436' }
+        ], null, (res) => this.buildDivision(res[0], res[1], res[2], target));
     },
-    buildDivision: function (dividende, diviseur, color) {
+    buildDivision: function (dividende, diviseur, color, target) {
         let w = 250, h = 250;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
         svg += `<text x="10" y="45" font-family="sans-serif" font-weight="bold" font-size="34" fill="${color}" letter-spacing="6">${dividende}</text>`;
@@ -9497,14 +9538,7 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
         svg += `<line x1="130" y1="10" x2="130" y2="${h - 10}" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`;
         svg += `<line x1="130" y1="55" x2="240" y2="55" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`;
         svg += `</svg>`;
-
-        let img = new Image();
-        img.onload = () => {
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - w / 2, y: (window.innerHeight / 2 - panY) / zoom - h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++ });
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("➗ Gabarit de division généré !");
-        };
-        img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        placeGeneratedStamp('divisionTool', svg, [dividende, diviseur, color], target, "➗ Gabarit de division généré !");
     }
 });
 
@@ -9519,13 +9553,15 @@ registerPlugin('polygonTool', 'Maths - Géométrie', {
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
         grid.appendChild(btn);
     },
-    openPrompt: function () {
-        openCustomPrompt("Polygone Régulier", [
-            { type: 'select', label: 'Côtés', value: '6', options: [{ value: '3', label: 'Triangle' }, { value: '5', label: 'Pentagone' }, { value: '6', label: 'Hexagone' }, { value: '8', label: 'Octogone' }, { value: '10', label: 'Décagone' }] },
-            { type: 'color', label: 'Couleur', value: '#0984e3' }
-        ], null, (res) => this.buildPolygon(parseInt(res[0]), res[1]));
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const p = prefill || [];
+        openCustomPrompt(target ? "Modifier le Polygone" : "Polygone Régulier", [
+            { type: 'select', label: 'Côtés', value: String(p[0] || '6'), options: [{ value: '3', label: 'Triangle' }, { value: '5', label: 'Pentagone' }, { value: '6', label: 'Hexagone' }, { value: '8', label: 'Octogone' }, { value: '10', label: 'Décagone' }] },
+            { type: 'color', label: 'Couleur', value: p[1] || '#0984e3' }
+        ], null, (res) => this.buildPolygon(parseInt(res[0]), res[1], target));
     },
-    buildPolygon: function (sides, color) {
+    buildPolygon: function (sides, color, target) {
         let s = 300, r = 140, cx = 150, cy = 150;
         let pts = "";
         for (let i = 0; i < sides; i++) {
@@ -9533,14 +9569,7 @@ registerPlugin('polygonTool', 'Maths - Géométrie', {
             pts += `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)} `;
         }
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}"><polygon points="${pts.trim()}" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="4" stroke-linejoin="round"/></svg>`;
-
-        let img = new Image();
-        img.onload = () => {
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - s / 2, y: (window.innerHeight / 2 - panY) / zoom - s / 2, w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++ });
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast(`💠 Polygone à ${sides} côtés généré !`);
-        };
-        img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        placeGeneratedStamp('polygonTool', svg, [String(sides), color], target, `💠 Polygone à ${sides} côtés généré !`);
     }
 });
 
@@ -9567,6 +9596,9 @@ registerPlugin('boggleTool', 'Jeux', {
         };
     },
     getBoggleSVG: function (size, letters) {
+        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(this.getBoggleSVGString(size, letters))));
+    },
+    getBoggleSVGString: function (size, letters) {
         let s = 400, cs = s / size;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}">`;
         svg += `<rect width="${s}" height="${s}" fill="#2d3436" rx="12"/>`;
@@ -9577,16 +9609,23 @@ registerPlugin('boggleTool', 'Jeux', {
                 svg += `<text x="${c * cs + cs / 2}" y="${r * cs + cs / 2}" font-family="sans-serif" font-weight="bold" font-size="${size > 4 ? 32 : 44}" fill="#d63031" text-anchor="middle" dominant-baseline="central">${char}</text>`;
             }
         }
-        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg + `</svg>`)));
+        return svg + `</svg>`;
     },
-    openPrompt: function () {
-        // Force un tirage initial
-        const size = 4;
+    edit: function (imgObj) {
+        const args = imgObj.pluginData.args || [];
+        this.lastLetters = args[1] || '';
+        this.openPrompt(args, imgObj);
+    },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
+        const size = parseInt(pre[0]) || 4;
         const alpha = "EEEEEAAAAAIIIIIOOOONNNNRRRRTTTTSSSSLLLLUUUUDDDMMMGGGBBCCPPFFHHVVYYJQKWXZ";
-        this.lastLetters = ""; for (let i = 0; i < 16; i++) this.lastLetters += alpha[Math.floor(Math.random() * alpha.length)];
+        if (!this.lastLetters || this.lastLetters.length !== size * size) {
+            this.lastLetters = ""; for (let i = 0; i < size * size; i++) this.lastLetters += alpha[Math.floor(Math.random() * alpha.length)];
+        }
 
-        openCustomPrompt("Grille de Boggle", [
-            { type: 'select', label: 'Taille', value: '4', options: [{ value: '3', label: '3x3 (9 dés)' }, { value: '4', label: '4x4 (16 dés)' }, { value: '5', label: '5x5 (25 dés)' }] }
+        openCustomPrompt(target ? "Modifier la Grille de Boggle" : "Grille de Boggle", [
+            { type: 'select', label: 'Taille', value: String(size), options: [{ value: '3', label: '3x3 (9 dés)' }, { value: '4', label: '4x4 (16 dés)' }, { value: '5', label: '5x5 (25 dés)' }] }
         ],
             // Zone d'aperçu dynamique avec bouton "Remélanger" fonctionnel
             (res) => {
@@ -9599,17 +9638,11 @@ registerPlugin('boggleTool', 'Jeux', {
                 <button type="button" class="btn-action secondary" style="padding:5px 12px; font-size:13px; font-weight:bold; cursor:pointer;" onclick="boggleToolRemix(parseInt(document.querySelector('.prompt-input').value))">🎲 Remélanger</button>
             </div>`;
             },
-            (res) => this.buildBoggle(parseInt(res[0])));
+            (res) => this.buildBoggle(parseInt(res[0]), target));
     },
-    buildBoggle: function (size) {
-        let s = 400;
-        let img = new Image();
-        img.onload = () => {
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - s / 2, y: (window.innerHeight / 2 - panY) / zoom - s / 2, w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++ });
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("🎲 Grille de dés lancée !");
-        };
-        img.src = this.getBoggleSVG(size, this.lastLetters);
+    buildBoggle: function (size, target) {
+        placeGeneratedStamp('boggleTool', this.getBoggleSVGString(size, this.lastLetters),
+            [String(size), this.lastLetters], target, "🎲 Grille de dés lancée !");
     }
 });
 
@@ -9641,13 +9674,15 @@ registerPlugin('petitBacTool', 'Jeux', {
             }
         };
     },
-    openPrompt: function () {
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
         const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const initialLetter = alpha[Math.floor(Math.random() * alpha.length)];
+        const initialLetter = pre[1] || alpha[Math.floor(Math.random() * alpha.length)];
 
-        openCustomPrompt("Jeu du Petit Bac", [
+        openCustomPrompt(target ? "Modifier la grille du Petit Bac" : "Jeu du Petit Bac", [
             // 🌟 ON UTILISE LA MÉMOIRE POUR PRÉ-REMPLIR LE CHAMP 🌟
-            { type: 'text', label: 'Catégories (séparées par virgules)', value: this.lastCategories },
+            { type: 'text', label: 'Catégories (séparées par virgules)', value: pre[0] || this.lastCategories },
             { type: 'hidden', id: 'petitbac-hidden-letter', value: initialLetter }
         ],
             (res) => {
@@ -9661,7 +9696,7 @@ registerPlugin('petitBacTool', 'Jeux', {
                 // 🌟 ON SAUVEGARDE CE QUE LE PROF A TAPÉ DANS LA MÉMOIRE 🌟
                 this.lastCategories = res[0];
                 const finalLetter = document.getElementById('petitbac-hidden-letter')?.value || initialLetter;
-                this.buildBac(res[0], finalLetter);
+                this.buildBac(res[0], finalLetter, target);
             });
     },
 
@@ -9697,25 +9732,15 @@ registerPlugin('petitBacTool', 'Jeux', {
         return { svgStr: svg, w: w, h: totalH };
     },
 
-    buildBac: function (catsStr, letter) {
+    buildBac: function (catsStr, letter, target) {
         let data = this.getBacSVG(catsStr, letter);
-
-        let img = new Image();
-        img.onload = () => {
-            let cx = (window.innerWidth / 2 - panX) / zoom;
-            let cy = (window.innerHeight / 2 - panY) / zoom;
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-
-            this.currentBacId = nextId++;
-            images.push({ id: this.currentBacId, x: cx - data.w / 2, y: cy - data.h / 2, w: data.w, h: data.h, cx: 0, cy: 0, cw: data.w, ch: data.h, src: img.src, z: globalZ++ });
-
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
-            showToast(`📝 Grille Petit Bac prête (Lettre ${letter}) !`);
-
-            // 🌟 APPARITION DE LA TÉLÉCOMMANDE SUR LE CANVAS 🌟
+        placeGeneratedStamp('petitBacTool', data.svgStr, [catsStr, letter], target,
+            `📝 Grille Petit Bac prête (Lettre ${letter}) !`);
+        // L'identifiant de la grille active suit la dernière image posée/modifiée
+        setTimeout(() => {
+            this.currentBacId = target ? target.id : (images.length ? images[images.length - 1].id : null);
             this.createRemote(catsStr);
-        };
-        img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(data.svgStr)));
+        }, 80);
     },
 
     createRemote: function (catsStr) {
@@ -9747,6 +9772,7 @@ registerPlugin('petitBacTool', 'Jeux', {
                 img.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
                     imgObj.src = img.src;
+                    imgObj.pluginData = { id: 'petitBacTool', args: [catsStr, newLetter] };
                     draw(); saveState();
                     showToast(`Nouvelle lettre : ${newLetter} !`);
 
@@ -9771,7 +9797,7 @@ registerPlugin('petitBacTool', 'Jeux', {
 });
 
 registerPlugin('weatherTool', 'Outils Profs', {
-    currentStamp: null,
+    currentStamp: null, currentArgs: null,
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
         const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Météo du Jour';
@@ -9790,15 +9816,17 @@ registerPlugin('weatherTool', 'Outils Profs', {
         });
         grid.appendChild(btn);
     },
-    openPrompt: function () {
-        openCustomPrompt("Météo du Jour", [
-            { type: 'select', label: 'Temps', value: 'sun', options: [{ value: 'sun', label: '☀️ Soleil' }, { value: 'cloud', label: '☁️ Nuageux' }, { value: 'rain', label: '🌧️ Pluie' }, { value: 'snow', label: '❄️ Neige' }] }
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
+        openCustomPrompt(target ? "Modifier la météo" : "Météo du Jour", [
+            { type: 'select', label: 'Temps', value: pre[0] || 'sun', options: [{ value: 'sun', label: '☀️ Soleil' }, { value: 'cloud', label: '☁️ Nuageux' }, { value: 'rain', label: '🌧️ Pluie' }, { value: 'snow', label: '❄️ Neige' }] }
         ], null, (res) => {
             document.querySelectorAll('#bar-tools .btn, #plugins-grid .btn').forEach(b => b.classList.remove('active'));
-            this.buildWeather(res[0]);
+            this.buildWeather(res[0], target);
         });
     },
-    buildWeather: function (type) {
+    buildWeather: function (type, target) {
         let s = 150;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}">`;
         if (type === 'sun') {
@@ -9817,6 +9845,10 @@ registerPlugin('weatherTool', 'Outils Profs', {
         }
         svg += `</svg>`;
 
+        // Réédition : on remplace le tampon existant, sans repasser par un clic
+        if (target) { placeGeneratedStamp('weatherTool', svg, [type], target); return; }
+
+        this.currentArgs = [type];
         let img = new Image();
         img.onload = () => {
             this.currentStamp = { img: img, w: s, h: s, src: img.src };
@@ -9845,7 +9877,8 @@ registerPlugin('weatherTool', 'Outils Profs', {
                 h: this.currentStamp.h,
                 cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
                 src: this.currentStamp.src,
-                z: typeof globalZ !== 'undefined' ? globalZ++ : 1000
+                z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
+                pluginData: { id: 'weatherTool', args: this.currentArgs }
             });
             if (typeof saveState === 'function') saveState();
             if (typeof setMode === 'function') setMode('pointer');
@@ -9878,16 +9911,18 @@ registerPlugin('calendarTool', 'Outils Profs', {
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
         grid.appendChild(btn);
     },
-    openPrompt: function () {
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
         const currentYear = new Date().getFullYear();
         const currentMonth = new Date().getMonth().toString();
 
-        openCustomPrompt("Générateur de Calendrier", [
-            { type: 'select', label: 'Vue agenda', value: 'month', options: [{ value: 'day', label: 'Journée (Emploi du temps)' }, { value: 'week', label: 'Semaine (7 colonnes)' }, { value: 'month', label: 'Mois complet (Grille)' }, { value: 'year', label: 'Aperçu Annuel (12 Mois)' }] },
-            { type: 'select', label: 'Mois cible', value: currentMonth, options: [{ value: '0', label: 'Janvier' }, { value: '1', label: 'Février' }, { value: '2', label: 'Mars' }, { value: '3', label: 'Avril' }, { value: '4', label: 'Mai' }, { value: '5', label: 'Juin' }, { value: '6', label: 'Juillet' }, { value: '7', label: 'Août' }, { value: '8', label: 'Septembre' }, { value: '9', label: 'Octobre' }, { value: '10', label: 'Novembre' }, { value: '11', label: 'Décembre' }] },
-            { type: 'number', label: 'Année', value: currentYear },
-            { type: 'select', label: 'Style de couleur', value: '#0984e3', options: [{ value: '#0984e3', label: '🔵 Bleu Google Agenda' }, { value: '#e74c3c', label: '🔴 Rouge Éduc' }, { value: '#2ecc71', label: '🟢 Vert Thème' }, { value: '#9b59b6', label: '🟣 Violet Rituels' }, { value: '#2d3436', label: '⚫ Ardoise' }] },
-            { type: 'select', label: 'Options d\'écriture', value: 'yes', options: [{ value: 'yes', label: 'Ajouter des lignes d\'écriture' }, { value: 'no', label: 'Gabarit épuré / blanc' }] }
+        openCustomPrompt(target ? "Modifier le calendrier" : "Générateur de Calendrier", [
+            { type: 'select', label: 'Vue agenda', value: pre[0] || 'month', options: [{ value: 'day', label: 'Journée (Emploi du temps)' }, { value: 'week', label: 'Semaine (7 colonnes)' }, { value: 'month', label: 'Mois complet (Grille)' }, { value: 'year', label: 'Aperçu Annuel (12 Mois)' }] },
+            { type: 'select', label: 'Mois cible', value: pre[1] !== undefined ? String(pre[1]) : currentMonth, options: [{ value: '0', label: 'Janvier' }, { value: '1', label: 'Février' }, { value: '2', label: 'Mars' }, { value: '3', label: 'Avril' }, { value: '4', label: 'Mai' }, { value: '5', label: 'Juin' }, { value: '6', label: 'Juillet' }, { value: '7', label: 'Août' }, { value: '8', label: 'Septembre' }, { value: '9', label: 'Octobre' }, { value: '10', label: 'Novembre' }, { value: '11', label: 'Décembre' }] },
+            { type: 'number', label: 'Année', value: pre[2] !== undefined ? pre[2] : currentYear },
+            { type: 'select', label: 'Style de couleur', value: pre[3] || '#0984e3', options: [{ value: '#0984e3', label: '🔵 Bleu Google Agenda' }, { value: '#e74c3c', label: '🔴 Rouge Éduc' }, { value: '#2ecc71', label: '🟢 Vert Thème' }, { value: '#9b59b6', label: '🟣 Violet Rituels' }, { value: '#2d3436', label: '⚫ Ardoise' }] },
+            { type: 'select', label: 'Options d\'écriture', value: pre[4] || 'yes', options: [{ value: 'yes', label: 'Ajouter des lignes d\'écriture' }, { value: 'no', label: 'Gabarit épuré / blanc' }] }
         ],
             // 🌟 APERÇU LIVE TECHNIQUE UNIQUE ET PROPRE 🌟
             (res) => {
@@ -9908,11 +9943,11 @@ registerPlugin('calendarTool', 'Outils Profs', {
                 const yearNum = parseInt(res[2]) || currentYear;
                 const themeCol = res[3];
                 const linesOpt = res[4] === 'yes';
-                this.buildCalendarTarget(view, monthIdx, yearNum, themeCol, linesOpt);
+                this.buildCalendarTarget(view, monthIdx, yearNum, themeCol, linesOpt, target);
             });
     },
 
-    getCalendarSVGString: function (view, month, year, color, hasLines, isPreview = false) {
+    getCalendarSVGString: function (view, month, year, color, hasLines, isPreview = false, isRaw = false) {
         const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
         let w = 550, h = 420;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
@@ -9976,18 +10011,13 @@ registerPlugin('calendarTool', 'Outils Profs', {
             }
         }
         svg += `</svg>`;
-        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        return isRaw ? svg : "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     },
 
-    buildCalendarTarget: function (view, month, year, color, hasLines) {
-        let w = 550, h = 420;
-        let img = new Image();
-        img.onload = () => {
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - w / 2, y: (window.innerHeight / 2 - panY) / zoom - h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++ });
-            if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("📅 Support d'agenda inséré avec succès !");
-        };
-        img.src = this.getCalendarSVGString(view, month, year, color, hasLines, false);
+    buildCalendarTarget: function (view, month, year, color, hasLines, target) {
+        const svg = this.getCalendarSVGString(view, month, year, color, hasLines, false, true);
+        placeGeneratedStamp('calendarTool', svg, [view, String(month), String(year), color, hasLines ? 'yes' : 'no'],
+            target, "📅 Support d'agenda inséré avec succès !");
     }
 });
 
@@ -10002,9 +10032,11 @@ registerPlugin('qrCodeTool', 'Outils Profs', {
         btn.addEventListener('click', (e) => { e.stopPropagation(); this.openPrompt(); if (typeof closeAllPopups === 'function') closeAllPopups(); });
         grid.appendChild(btn);
     },
-    openPrompt: function () {
-        openCustomPrompt("Créer un QR Code", [
-            { type: 'text', label: 'Adresse web (URL)', value: 'https://' }
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
+        openCustomPrompt(target ? "Modifier le QR Code" : "Créer un QR Code", [
+            { type: 'text', label: 'Adresse web (URL)', value: pre[0] || 'https://' }
         ], null, (res) => {
             if (!res[0] || res[0] === 'https://') return;
             if (typeof qrcode !== 'function') { showToast("❌ Générateur de QR Code non disponible."); return; }
@@ -10023,7 +10055,14 @@ registerPlugin('qrCodeTool', 'Outils Profs', {
             let img = new Image();
             img.onload = () => {
                 if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - s / 2, y: (window.innerHeight / 2 - panY) / zoom - s / 2, w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++ });
+                const stamp = { img: img, src: img.src, w: s, h: s };
+                if (target) {
+                    target.pluginData = { id: 'qrCodeTool', args: [res[0]] };
+                    updatePluginStampInPlace(target, stamp, undefined, { quiet: true });
+                    showToast("📱 QR Code mis à jour !");
+                    return;
+                }
+                images.push({ id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - s / 2, y: (window.innerHeight / 2 - panY) / zoom - s / 2, w: s, h: s, cx: 0, cy: 0, cw: s, ch: s, src: img.src, z: globalZ++, pluginData: { id: 'qrCodeTool', args: [res[0]] } });
                 if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); showToast("📱 QR Code importé au tableau !");
             };
             img.src = qr.createDataURL(cellSize, margin);
@@ -14020,7 +14059,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
 });
 
 registerPlugin('geometryStampTool', 'Maths - Géométrie', {
-    currentStamp: null,
+    currentStamp: null, currentArgs: null,
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
         const btn = document.createElement('button'); btn.className = 'btn';
@@ -14037,9 +14076,17 @@ registerPlugin('geometryStampTool', 'Maths - Géométrie', {
             btn.classList.add('active');
             if (typeof setMode === 'function') setMode('geomStamp');
 
-            openCustomPrompt("Figures Géométriques", [
+            this.openPrompt();
+        });
+        grid.appendChild(btn);
+    },
+
+    edit: function (imgObj) { this.openPrompt(imgObj.pluginData.args, imgObj); },
+    openPrompt: function (prefill, target) {
+        const pre = prefill || [];
+        openCustomPrompt(target ? "Modifier la figure" : "Figures Géométriques", [
                 {
-                    type: 'select', label: 'Figure', value: 'square', options: [
+                    type: 'select', label: 'Figure', value: pre[0] || 'square', options: [
                         { value: 'square', label: '🟥 Carré' },
                         { value: 'rect', label: '▭ Rectangle' },
                         { value: 'rhombus', label: '♢ Losange' },
@@ -14051,15 +14098,14 @@ registerPlugin('geometryStampTool', 'Maths - Géométrie', {
                         { value: 'circle', label: '◯ Cercle' }
                     ]
                 },
-                { type: 'color', label: 'Couleur', value: '#2d3436' },
-                { type: 'checkbox', label: 'Codage', value: true },
-                { type: 'checkbox', label: 'Diagonales', value: false }
-            ], (res) => { return this.buildShape(res[0], res[1], res[2], res[3], true); }, (res) => { this.buildShape(res[0], res[1], res[2], res[3], false); });
-        });
-        grid.appendChild(btn);
+                { type: 'color', label: 'Couleur', value: pre[1] || '#2d3436' },
+                { type: 'checkbox', label: 'Codage', value: pre.length ? !!pre[2] : true },
+                { type: 'checkbox', label: 'Diagonales', value: pre.length ? !!pre[3] : false }
+            ], (res) => { return this.buildShape(res[0], res[1], res[2], res[3], true); },
+                (res) => { this.buildShape(res[0], res[1], res[2], res[3], false, target); });
     },
 
-    buildShape: function (shape, color, codage, diag, isPreview) {
+    buildShape: function (shape, color, codage, diag, isPreview, target) {
         let s = 200;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${isPreview ? '100%' : s}" height="${isPreview ? '100%' : s}">`;
         let style = `fill="transparent" stroke="${color}" stroke-width="4" stroke-linejoin="round"`;
@@ -14173,6 +14219,10 @@ registerPlugin('geometryStampTool', 'Maths - Géométrie', {
 
         if (isPreview) return svg;
 
+        // Réédition : le tampon posé est remplacé sur place
+        if (target) { placeGeneratedStamp('geometryStampTool', svg, [shape, color, codage, diag], target); return; }
+
+        this.currentArgs = [shape, color, codage, diag];
         let img = new Image();
         img.onload = () => {
             this.currentStamp = { img: img, w: s, h: s, src: img.src };
@@ -14198,7 +14248,8 @@ registerPlugin('geometryStampTool', 'Maths - Géométrie', {
                 x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2,
                 w: this.currentStamp.w, h: this.currentStamp.h,
                 cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
-                src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000
+                src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
+                pluginData: { id: 'geometryStampTool', args: this.currentArgs }
             });
             if (typeof saveState === 'function') saveState();
             if (typeof setMode === 'function') setMode('pointer');
@@ -14650,13 +14701,15 @@ registerPlugin('arrowTool', 'Maths - Géométrie', {
         grid.appendChild(btn);
     },
 
-    openLivePreview: function () {
-        let currentStyle = 'straight'; let currentColor = '#e74c3c';
+    edit: function (imgObj) { this.openLivePreview(imgObj.pluginData.args, imgObj); },
+    openLivePreview: function (prefill, target) {
+        const pre = prefill || [];
+        let currentStyle = pre[0] || 'straight'; let currentColor = pre[1] || '#e74c3c';
 
         const modal = document.createElement('div'); modal.className = 'live-modal-backdrop';
         let html = `
             <div class="live-modal-box" style="width: 500px;">
-                <div class="live-modal-header">↗️ La Fabrique à Flèches</div>
+                <div class="live-modal-header">↗️ ${target ? 'Modifier la flèche' : 'La Fabrique à Flèches'}</div>
                 <div class="live-modal-body">
                     <div class="live-modal-preview" id="arrow-preview-container"></div>
                     <div class="live-modal-controls" style="width: 200px;">
@@ -14674,7 +14727,7 @@ registerPlugin('arrowTool', 'Maths - Géométrie', {
                 </div>
                 <div class="live-modal-footer">
                     <button class="btn-action secondary" id="btn-arrow-cancel">Annuler</button>
-                    <button class="btn-action primary" id="btn-arrow-validate">Créer la Flèche</button>
+                    <button class="btn-action primary" id="btn-arrow-validate">${target ? '💾 Mettre à jour' : 'Créer la Flèche'}</button>
                 </div>
             </div>`;
         modal.innerHTML = html; document.body.appendChild(modal);
@@ -14682,17 +14735,21 @@ registerPlugin('arrowTool', 'Maths - Géométrie', {
         const previewDiv = document.getElementById('arrow-preview-container');
         const updatePreview = () => { previewDiv.innerHTML = this.generateSVG(currentStyle, currentColor); };
 
+        document.getElementById('arrow-style-select').value = currentStyle;
+        document.getElementById('arrow-color').value = currentColor;
         document.getElementById('arrow-style-select').addEventListener('change', (e) => { currentStyle = e.target.value; updatePreview(); });
         document.getElementById('arrow-color').addEventListener('input', (e) => { currentColor = e.target.value; updatePreview(); });
 
         document.getElementById('btn-arrow-cancel').addEventListener('click', () => { document.body.removeChild(modal); });
         document.getElementById('btn-arrow-validate').addEventListener('click', () => {
             const finalSVG = this.generateSVG(currentStyle, currentColor, true);
+            document.body.removeChild(modal);
+            if (target) { placeGeneratedStamp('arrowTool', finalSVG, [currentStyle, currentColor], target); return; }
+            this.currentArgs = [currentStyle, currentColor];
             let img = new Image();
             img.onload = () => {
                 this.currentStamp = { img: img, w: 200, h: 100, src: img.src };
                 if (typeof showToast === 'function') showToast("📌 Cliquez pour placer la flèche !");
-                document.body.removeChild(modal);
             };
             img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(finalSVG)));
         });
@@ -14734,7 +14791,8 @@ registerPlugin('arrowTool', 'Maths - Géométrie', {
                 x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2,
                 w: this.currentStamp.w, h: this.currentStamp.h,
                 cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
-                src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000
+                src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
+                pluginData: { id: 'arrowTool', args: this.currentArgs }
             });
             if (typeof saveState === 'function') saveState();
             if (typeof setMode === 'function') setMode('pointer');
@@ -17382,6 +17440,16 @@ registerPlugin('binaroTool', 'Jeux', {
     // ==========================================
     // INTERCEPTEURS CANVAS (Pour le Cache)
     // ==========================================
+
+    // Double-clic sur la grille : masque ou révèle la solution
+    edit: function (imgObj) {
+        const pd = imgObj.pluginData;
+        if (!pd || !pd.state || !pd.state.withSolution) { showToast("Cette grille n'a pas de solution jointe."); return; }
+        pd.cacheActive = !pd.cacheActive;
+        if (typeof saveState === 'function') saveState();
+        if (typeof draw === 'function') draw();
+        showToast(pd.cacheActive ? "🙈 Solution masquée" : "👀 Solution révélée");
+    },
 
     onPointerDown: function (pos) {
         // 1. Pose du tampon
