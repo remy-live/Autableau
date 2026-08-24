@@ -240,8 +240,9 @@ function invalidatePendingStampLoads() { stampGeneration++; }
 
 // Réédition d'un tampon déjà posé : on remplace son image sur place, sans
 // redemander un clic sur le tableau. Le centre et l'échelle sont conservés.
-function updatePluginStampInPlace(imgObj, stamp, state) {
+function updatePluginStampInPlace(imgObj, stamp, state, opts) {
     if (!imgObj || !stamp) return false;
+    opts = opts || {};
     const scaleX = (imgObj.cw ? imgObj.w / imgObj.cw : 1) || 1;
     const scaleY = (imgObj.ch ? imgObj.h / imgObj.ch : 1) || 1;
     const centerX = imgObj.x + imgObj.w / 2;
@@ -262,11 +263,109 @@ function updatePluginStampInPlace(imgObj, stamp, state) {
     }
     if (typeof saveState === 'function') saveState();
     if (typeof draw === 'function') draw();
-    if (typeof setMode === 'function') setMode('pointer');
-    if (typeof showToast === 'function') showToast("Tampon mis à jour");
+    if (!opts.quiet) {
+        if (typeof setMode === 'function') setMode('pointer');
+        if (typeof showToast === 'function') showToast("Tampon mis à jour");
+    }
     return true;
 }
 window.updatePluginStampInPlace = updatePluginStampInPlace;
+
+// ==========================================
+// RESTYLAGE RAPIDE DES TAMPONS (barre de style)
+// Les pastilles de couleur et le curseur d'épaisseur agissent directement sur
+// le SVG du tampon sélectionné : on retrouve la couleur d'origine dans les
+// arguments du plugin (pluginData.args) et on la remplace dans le dessin.
+// ==========================================
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const stampCapsCache = new WeakMap();
+
+function decodeStampSVG(src) {
+    if (typeof src !== 'string' || src.indexOf('data:image/svg+xml') !== 0) return null;
+    const comma = src.indexOf(',');
+    if (comma < 0) return null;
+    const payload = src.slice(comma + 1);
+    try {
+        if (/;base64/i.test(src.slice(0, comma))) return decodeURIComponent(escape(atob(payload)));
+        return decodeURIComponent(payload);
+    } catch (e) { return null; }
+}
+
+function escapeForRegExp(str) { return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Ce que ce tampon accepte : recoloration et/ou changement d'épaisseur
+function getPluginStampCaps(imgObj) {
+    const none = { color: false, width: false, colorIndex: -1 };
+    if (!imgObj || !imgObj.pluginData) return none;
+    const cached = stampCapsCache.get(imgObj);
+    if (cached && cached.src === imgObj.src) return cached.caps;
+
+    const svg = decodeStampSVG(imgObj.src);
+    let caps = none;
+    if (svg) {
+        const args = imgObj.pluginData.args;
+        let idx = -1;
+        if (Array.isArray(args)) {
+            idx = args.findIndex(a => typeof a === 'string' && HEX_COLOR_RE.test(a)
+                && new RegExp(escapeForRegExp(a), 'i').test(svg));
+        }
+        caps = {
+            color: idx >= 0,
+            width: /stroke-width\s*[=:]\s*"?\s*[\d.]+/.test(svg),
+            colorIndex: idx
+        };
+    }
+    stampCapsCache.set(imgObj, { src: imgObj.src, caps });
+    return caps;
+}
+
+// opts : { color: '#rrggbb' } et/ou { widthScale: n }  (1 = épaisseur d'origine)
+function restylePluginStamp(imgObj, opts) {
+    const caps = getPluginStampCaps(imgObj);
+    if (!caps.color && !caps.width) return false;
+    let svg = decodeStampSVG(imgObj.src);
+    if (!svg) return false;
+
+    const pd = imgObj.pluginData;
+    let changed = false;
+
+    if (opts.color && caps.color) {
+        const old = pd.args[caps.colorIndex];
+        if (String(old).toLowerCase() !== String(opts.color).toLowerCase()) {
+            svg = svg.replace(new RegExp(escapeForRegExp(old), 'gi'), opts.color);
+            pd.args = pd.args.slice();
+            pd.args[caps.colorIndex] = opts.color;
+            changed = true;
+        }
+    }
+
+    if (opts.widthScale && caps.width) {
+        const prev = pd.strokeScale || 1;
+        const next = Math.max(0.2, Math.min(4, opts.widthScale));
+        if (Math.abs(next - prev) > 0.01) {
+            const k = next / prev;
+            svg = svg
+                .replace(/stroke-width\s*=\s*"([\d.]+)"/g, (m, n) => `stroke-width="${+(parseFloat(n) * k).toFixed(3)}"`)
+                .replace(/stroke-width\s*:\s*([\d.]+)/g, (m, n) => `stroke-width:${+(parseFloat(n) * k).toFixed(3)}`);
+            pd.strokeScale = next;
+            changed = true;
+        }
+    }
+
+    if (!changed) return false;
+    createStampFromSVG(svg, (stamp) => updatePluginStampInPlace(imgObj, stamp, undefined, { quiet: true }));
+    return true;
+}
+
+window.isRecolorablePluginImage = (o) => getPluginStampCaps(o).color;
+window.isRestrokablePluginImage = (o) => getPluginStampCaps(o).width;
+window.recolorPluginImage = (o, color) => restylePluginStamp(o, { color });
+window.restrokePluginImage = (o, widthScale) => restylePluginStamp(o, { widthScale });
+window.getPluginStampStrokeScale = (o) => (o && o.pluginData && o.pluginData.strokeScale) || 1;
+window.getPluginStampColor = (o) => {
+    const caps = getPluginStampCaps(o);
+    return caps.color ? o.pluginData.args[caps.colorIndex] : null;
+};
 window.invalidatePendingStampLoads = invalidatePendingStampLoads;
 
 function createStampFromSVG(svgStr, callback) {

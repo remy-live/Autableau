@@ -3393,6 +3393,33 @@ document.querySelectorAll('.toolbar').forEach(bar => {
     }
 });
 
+// --- RESTYLAGE DES TAMPONS DE PLUGINS DEPUIS LA BARRE DE STYLE ---
+// Les pastilles de couleur et le curseur d'épaisseur agissent aussi sur les
+// tampons (fractions, horloges, dés...) : le SVG du tampon est régénéré.
+function applyPluginStampStyle(opts) {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
+    let touched = false;
+    selectedItems.forEach(it => {
+        if (it.type !== 'image') return;
+        const o = getObjectById('image', it.id);
+        if (!o || o.locked) return;
+        if (opts.color && typeof recolorPluginImage === 'function' && recolorPluginImage(o, opts.color)) touched = true;
+        if (opts.widthScale && typeof restrokePluginImage === 'function' && restrokePluginImage(o, opts.widthScale)) touched = true;
+    });
+    return touched;
+}
+
+let stampWidthTimer = null;
+function applyPluginStampWidthDebounced(scale) {
+    clearTimeout(stampWidthTimer);
+    stampWidthTimer = setTimeout(() => applyPluginStampStyle({ widthScale: scale }), 180);
+}
+
+// Vrai si la sélection ne contient que des images
+function selectionIsOnlyImages() {
+    return selectedItems.length > 0 && selectedItems.every(i => i.type === 'image');
+}
+
 // --- POPOVER COULEUR ---
 const colorPopover = document.getElementById('color-popover'); const btnColorPopover = document.getElementById('btn-color-popover'); const colorIndicator = document.getElementById('color-indicator');
 let popoverTarget = 'stroke';
@@ -3418,9 +3445,10 @@ document.querySelectorAll('.color-dot').forEach(dot => {
         document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); dot.classList.add('active');
         if (popoverTarget === 'stroke') { activeStyle.strokeColor = dot.dataset.color; } else { activeStyle.fillColor = dot.dataset.color; activeStyle.isFilled = true; }
         updateColorIndicator(); pushStyleToObject();
+        applyPluginStampStyle({ color: dot.dataset.color });
     });
 });
-document.getElementById('popover-custom-color').addEventListener('input', (e) => { document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); if (popoverTarget === 'stroke') activeStyle.strokeColor = e.target.value; else { activeStyle.fillColor = e.target.value; activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); });
+document.getElementById('popover-custom-color').addEventListener('input', (e) => { document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); if (popoverTarget === 'stroke') activeStyle.strokeColor = e.target.value; else { activeStyle.fillColor = e.target.value; activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); applyPluginStampStyle({ color: e.target.value }); });
 document.getElementById('opacity-slider').addEventListener('input', (e) => { if (popoverTarget === 'stroke') activeStyle.strokeOpacity = parseFloat(e.target.value); else { activeStyle.fillOpacity = parseFloat(e.target.value); activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
@@ -3526,6 +3554,41 @@ function updateStyleBarContext() {
             if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`;
         }
     }
+
+    syncStampStyleControls();
+}
+
+// Sur une sélection d'images (tampons), on n'affiche la pastille de couleur et
+// le curseur d'épaisseur que s'ils agissent vraiment sur le tampon — et jamais
+// l'opacité : un tampon est opaque par nature.
+function syncStampStyleControls() {
+    const colorBtn = document.getElementById('btn-color-popover');
+    const widthBox = document.getElementById('line-width')?.closest('.slider-container');
+    const opacityBox = document.querySelector('#color-popover .opacity-container');
+    if (!colorBtn || !widthBox) return;
+
+    if (!selectionIsOnlyImages()) {
+        colorBtn.style.display = '';
+        widthBox.style.display = '';
+        if (opacityBox) opacityBox.style.display = '';
+        return;
+    }
+
+    const objs = selectedItems.map(i => getObjectById('image', i.id)).filter(Boolean);
+    const canColor = objs.some(o => typeof isRecolorablePluginImage === 'function' && isRecolorablePluginImage(o));
+    const canWidth = objs.some(o => typeof isRestrokablePluginImage === 'function' && isRestrokablePluginImage(o));
+
+    colorBtn.style.display = canColor ? '' : 'none';
+    widthBox.style.display = canWidth ? '' : 'none';
+    if (opacityBox) opacityBox.style.display = 'none';
+    if (!canColor) document.getElementById('color-popover')?.classList.remove('visible');
+
+    // Le curseur reflète l'épaisseur courante du tampon sélectionné
+    if (canWidth && objs.length && typeof getPluginStampStrokeScale === 'function') {
+        const input = document.getElementById('line-width');
+        const scale = getPluginStampStrokeScale(objs[0]);
+        if (input && document.activeElement !== input) input.value = Math.round(scale * 3);
+    }
 }
 
 function pushStyleToObject() {
@@ -3623,7 +3686,12 @@ document.getElementById('btn-z-down').addEventListener('click', () => { let minZ
 
 document.getElementById('btn-shape').addEventListener('click', () => { const shapes = ['circle', 'cross', 'square', 'pixel']; const icons = { 'circle': '<circle cx="12" cy="12" r="6"/>', 'cross': '<line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3"/>', 'square': '<rect x="6" y="6" width="12" height="12"/>', 'pixel': '<rect x="10" y="10" width="4" height="4" fill="currentColor"/>' }; activeStyle.pointShape = shapes[(shapes.indexOf(activeStyle.pointShape) + 1) % shapes.length]; document.getElementById('icon-shape').innerHTML = icons[activeStyle.pointShape]; pushStyleToObject(); });
 document.getElementById('btn-dash').addEventListener('click', () => { const dashes = ['solid', 'dashed', 'dotted']; const icons = { 'solid': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3"/>', 'dashed': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="6,4"/>', 'dotted': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="2,4"/>' }; activeStyle.lineDash = dashes[(dashes.indexOf(activeStyle.lineDash) + 1) % dashes.length]; document.getElementById('icon-dash').innerHTML = icons[activeStyle.lineDash]; pushStyleToObject(); });
-document.getElementById('line-width').addEventListener('input', (e) => { activeStyle.lineWidth = parseInt(e.target.value); pushStyleToObject(); });
+document.getElementById('line-width').addEventListener('input', (e) => {
+    activeStyle.lineWidth = parseInt(e.target.value);
+    pushStyleToObject();
+    // Les tampons de plugins sont régénérés (opération lourde) : on temporise
+    applyPluginStampWidthDebounced(activeStyle.lineWidth / 3);
+});
 document.getElementById('font-size').addEventListener('input', (e) => { activeStyle.fontSize = parseInt(e.target.value); pushStyleToObject(); });
 
 // --- CHANGEMENT DE MODE ET GESTION UI ---
@@ -7430,8 +7498,8 @@ function updateQuickMenu() {
                 } else {
                     colorContainer.style.display = 'flex';
                     const refObj = obj || getObjectById(selectedItems[0].type, selectedItems[0].id) || {};
-                    let curColor = refObj.color || refObj.strokeColor
-                        || (refObj.pluginData && refObj.pluginData.state && refObj.pluginData.state.color) || '#2d3436';
+                    let curColor = (refObj.pluginData && typeof getPluginStampColor === 'function' ? getPluginStampColor(refObj) : null)
+                        || refObj.color || refObj.strokeColor || '#2d3436';
 
                     document.querySelectorAll('#quick-colors-container div').forEach(d => {
                         const c = d.dataset.color;
