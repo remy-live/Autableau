@@ -3490,12 +3490,26 @@ document.getElementById('popover-custom-color').addEventListener('input', (e) =>
 document.getElementById('opacity-slider').addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
     // Sur une sélection de tampons, le curseur règle l'opacité de l'image
-    if (selectionIsOnlyImages()) { applyPluginStampOpacity(v, false); return; }
+    if (selectionIsOnlyImages()) {
+        applyPluginStampOpacity(v, false);
+        const twin = document.getElementById('stamp-opacity');
+        if (twin) twin.value = v;
+        return;
+    }
     if (popoverTarget === 'stroke') activeStyle.strokeOpacity = v; else { activeStyle.fillOpacity = v; activeStyle.isFilled = true; }
     updateColorIndicator(); pushStyleToObject();
 });
 document.getElementById('opacity-slider').addEventListener('change', (e) => {
     if (selectionIsOnlyImages()) applyPluginStampOpacity(parseFloat(e.target.value), true);
+});
+// Curseur d'opacité de la barre de style (visible dès qu'un tampon est sélectionné)
+document.getElementById('stamp-opacity')?.addEventListener('input', (e) => {
+    applyPluginStampOpacity(parseFloat(e.target.value), false);
+    const twin = document.getElementById('opacity-slider');
+    if (twin) twin.value = e.target.value;
+});
+document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
+    applyPluginStampOpacity(parseFloat(e.target.value), true);
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
@@ -3614,9 +3628,12 @@ function syncStampStyleControls() {
     const opacityBox = document.querySelector('#color-popover .opacity-container');
     if (!colorBtn || !widthBox) return;
 
+    const stampOpacityBox = document.getElementById('stamp-opacity-box');
+
     if (!selectionIsOnlyImages()) {
         colorBtn.style.display = '';
         widthBox.style.display = '';
+        if (stampOpacityBox) stampOpacityBox.style.display = 'none';
         if (opacityBox) {
             opacityBox.style.display = '';
             opacityBox.firstChild.textContent = 'Opacité : ';
@@ -3647,6 +3664,14 @@ function syncStampStyleControls() {
     if (tabs) tabs.style.display = 'none';
     const grid = document.querySelector('#color-popover .color-grid');
     if (grid) grid.style.display = canColor ? '' : 'none';
+
+    // Curseur d'opacité, directement dans la barre (sans ouvrir le popover)
+    if (stampOpacityBox) {
+        stampOpacityBox.style.display = objs.length ? 'flex' : 'none';
+        const input = document.getElementById('stamp-opacity');
+        const op = objs.length ? (objs[0].opacity === undefined ? 1 : objs[0].opacity) : 1;
+        if (input && document.activeElement !== input) input.value = op;
+    }
 
     // Le curseur reflète l'épaisseur courante du tampon sélectionné
     if (canWidth && objs.length && typeof getPluginStampStrokeScale === 'function') {

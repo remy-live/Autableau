@@ -287,6 +287,25 @@ html {
     pointer-events: auto;
 }
 
+/* Écrans étroits (téléphone) : la barre de style s'adapte au lieu de déborder.
+   width:max-content est indispensable : la barre est en position fixed à
+   left:50%, sans quoi la largeur disponible tombe à 50vw et elle se replie
+   inutilement sur les grands écrans. */
+#bar-style {
+    box-sizing: border-box;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 4px;
+}
+
+@media (max-width: 520px) {
+    #bar-style .slider-container input[type="range"] {
+        width: 70px;
+    }
+}
+
 /* Tiroir des plugins restauré */
 #bar-plugins,
 #bar-plugins.drawer-top {
