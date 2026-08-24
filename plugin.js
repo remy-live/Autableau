@@ -354,6 +354,10 @@ function getPluginStampCaps(imgObj) {
         caps = {
             color: idx >= 0,
             width: /stroke-width\s*[=:]\s*"?\s*[\d.]+/.test(svg),
+            // Remplissage translucide codé en dur dans le dessin (ex. les
+            // fractions : fill-opacity="0.4"). C'est lui qui empêchait le
+            // tampon de devenir vraiment opaque.
+            fill: /fill-opacity\s*[=:]\s*"?\s*(0?\.\d+|0)\b/.test(svg),
             colorIndex: idx
         };
     }
@@ -395,6 +399,17 @@ function restylePluginStamp(imgObj, opts) {
         }
     }
 
+    if (opts.fillOpacity !== undefined && caps.fill) {
+        const v = Math.max(0.05, Math.min(1, opts.fillOpacity));
+        if (Math.abs((pd.fillOpacity === undefined ? null : pd.fillOpacity) - v) > 0.001 || pd.fillOpacity === undefined) {
+            svg = svg
+                .replace(/fill-opacity\s*=\s*"[\d.]+"/g, `fill-opacity="${v}"`)
+                .replace(/fill-opacity\s*:\s*[\d.]+/g, `fill-opacity:${v}`);
+            pd.fillOpacity = v;
+            changed = true;
+        }
+    }
+
     if (!changed) return false;
     const newSVG = svg;
     createStampFromSVG(newSVG, (stamp) => {
@@ -409,6 +424,16 @@ window.isRestrokablePluginImage = (o) => getPluginStampCaps(o).width;
 window.recolorPluginImage = (o, color, live) => restylePluginStamp(o, { color, live });
 window.restrokePluginImage = (o, widthScale, live) => restylePluginStamp(o, { widthScale, live });
 window.getPluginStampStrokeScale = (o) => (o && o.pluginData && o.pluginData.strokeScale) || 1;
+window.isFillOpacityStamp = (o) => getPluginStampCaps(o).fill;
+window.setPluginStampFillOpacity = (o, v, live) => restylePluginStamp(o, { fillOpacity: v, live });
+window.getPluginStampFillOpacity = (o) => {
+    if (!o || !o.pluginData) return 1;
+    if (o.pluginData.fillOpacity !== undefined) return o.pluginData.fillOpacity;
+    // Valeur d'origine lue dans le dessin
+    const svg = getStampSVG(o);
+    const m = svg && svg.match(/fill-opacity\s*[=:]\s*"?\s*(0?\.\d+|0)\b/);
+    return m ? parseFloat(m[1]) : 1;
+};
 window.getPluginStampColor = (o) => {
     const caps = getPluginStampCaps(o);
     return caps.color ? o.pluginData.args[caps.colorIndex] : null;

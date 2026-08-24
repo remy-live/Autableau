@@ -3438,19 +3438,57 @@ function commitPluginStampWidth(scale) {
     saveState();
 }
 
-// Opacité des tampons : simple attribut de rendu, aucun SVG à régénérer
+// Opacité d'un tampon. Deux cas :
+//  - le dessin a un remplissage translucide codé en dur (fractions, réglettes,
+//    tuiles...) : c'est lui qu'on règle, sinon le tampon ne peut jamais devenir
+//    opaque, quelle que soit la transparence globale de l'image ;
+//  - sinon : simple alpha de l'image, instantané.
 function applyPluginStampOpacity(value, commit) {
     if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
     let touched = false;
+    let needsRegen = false;
     selectedItems.forEach(it => {
         if (it.type !== 'image') return;
         const o = getObjectById('image', it.id);
         if (!o || o.locked) return;
-        o.opacity = value;
+        if (typeof isFillOpacityStamp === 'function' && isFillOpacityStamp(o)) {
+            if (typeof setPluginStampFillOpacity === 'function' && setPluginStampFillOpacity(o, value, !commit)) needsRegen = true;
+            o.opacity = 1;
+        } else {
+            o.opacity = value;
+        }
         touched = true;
     });
-    if (touched) { draw(); if (commit) saveState(); }
+    if (touched && !needsRegen) { draw(); if (commit) saveState(); }
+    else if (touched && commit) saveState();
     return touched;
+}
+
+// Le réglage du remplissage régénère le SVG : même cadence que l'épaisseur
+let stampOpacityBusy = false;
+let stampOpacityPending = null;
+function applyPluginStampOpacityLive(value) {
+    stampOpacityPending = value;
+    if (stampOpacityBusy) return;
+    stampOpacityBusy = true;
+    const run = () => {
+        const v = stampOpacityPending;
+        stampOpacityPending = null;
+        applyPluginStampOpacity(v, false);
+        requestAnimationFrame(() => {
+            if (stampOpacityPending !== null && stampOpacityPending !== v) run();
+            else stampOpacityBusy = false;
+        });
+    };
+    run();
+}
+
+// Valeur à afficher dans le curseur pour l'objet sélectionné
+function currentStampOpacity(o) {
+    if (!o) return 1;
+    if (typeof isFillOpacityStamp === 'function' && isFillOpacityStamp(o)
+        && typeof getPluginStampFillOpacity === 'function') return getPluginStampFillOpacity(o);
+    return o.opacity === undefined ? 1 : o.opacity;
 }
 
 // Vrai si la sélection ne contient que des images
@@ -3491,7 +3529,7 @@ document.getElementById('opacity-slider').addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
     // Sur une sélection de tampons, le curseur règle l'opacité de l'image
     if (selectionIsOnlyImages()) {
-        applyPluginStampOpacity(v, false);
+        applyPluginStampOpacityLive(v);
         const twin = document.getElementById('stamp-opacity');
         if (twin) twin.value = v;
         return;
@@ -3504,11 +3542,12 @@ document.getElementById('opacity-slider').addEventListener('change', (e) => {
 });
 // Curseur d'opacité de la barre de style (visible dès qu'un tampon est sélectionné)
 document.getElementById('stamp-opacity')?.addEventListener('input', (e) => {
-    applyPluginStampOpacity(parseFloat(e.target.value), false);
+    applyPluginStampOpacityLive(parseFloat(e.target.value));
     const twin = document.getElementById('opacity-slider');
     if (twin) twin.value = e.target.value;
 });
 document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
+    stampOpacityPending = null; stampOpacityBusy = false;
     applyPluginStampOpacity(parseFloat(e.target.value), true);
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
@@ -3654,7 +3693,7 @@ function syncStampStyleControls() {
     if (opacityBox) {
         opacityBox.style.display = '';
         opacityBox.firstChild.textContent = 'Opacité du tampon : ';
-        const op = objs.length ? (objs[0].opacity === undefined ? 1 : objs[0].opacity) : 1;
+        const op = objs.length ? currentStampOpacity(objs[0]) : 1;
         const input = document.getElementById('opacity-slider');
         if (input && document.activeElement !== input) input.value = op;
     }
@@ -3669,7 +3708,7 @@ function syncStampStyleControls() {
     if (stampOpacityBox) {
         stampOpacityBox.style.display = objs.length ? 'flex' : 'none';
         const input = document.getElementById('stamp-opacity');
-        const op = objs.length ? (objs[0].opacity === undefined ? 1 : objs[0].opacity) : 1;
+        const op = objs.length ? currentStampOpacity(objs[0]) : 1;
         if (input && document.activeElement !== input) input.value = op;
     }
 
