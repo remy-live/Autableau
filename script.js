@@ -14,6 +14,8 @@ let cropRect = null;
 let hasUnsavedChanges = false;
 
 let laserStrokes = [];
+const LASER_LIFETIME = 1200;   // durée de vie d'un point du faisceau (ms)
+const LASER_SMOOTHING = 0.5;   // 0 = figé, 1 = brut : lissage du tracé du laser
 let currentLaserStroke = null;
 
 let backgrounds = ['blanc', 'carreau', 'seyes', 'millimetre', 'point', 'isometrique'];
@@ -2819,24 +2821,7 @@ window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); } }
     if (e.code === 'Space') { e.preventDefault(); isSpacePressed = true; updateCursor(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItems.length > 0) {
-        let deletedSomething = false;
-        let itemsToDelete = new Map();
-        selectedItems.forEach(item => {
-            const obj = getObjectById(item.type, item.id);
-            if (!obj) return;
-            if (obj.locked && !obj.groupId) return;
-            itemsToDelete.set(item.type + '-' + item.id, item);
-            if (obj.groupId) {
-                getGroupMembers(obj.groupId).forEach(member => {
-                    itemsToDelete.set(member.type + '-' + member.id, { type: member.type, id: member.id });
-                });
-            }
-        });
-        Array.from(itemsToDelete.values()).forEach(item => {
-            const obj = getObjectById(item.type, item.id);
-            if (obj && (obj.groupId || !obj.locked)) { deleteObject(item.type, item.id); deletedSomething = true; }
-        });
-        if (deletedSomething) { clearSelection(); saveState(); draw(); }
+        deleteSelection();
     }
 });
 
@@ -4489,7 +4474,21 @@ canvas.addEventListener('pointermove', (e) => {
     if (e.buttons === 0 && !activePointers.has(e.pointerId)) { isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; draggedHandle = null; activeGuides = { x: [], y: [] }; }
 
     if (mode === 'laser' && currentLaserStroke) {
-        currentLaserStroke.push({ x: rawPos.x, y: rawPos.y, time: Date.now() });
+        // Lissage du tracé : on suit le pointeur avec un filtre passe-bas
+        // pour éviter les angles vifs dus à l'échantillonnage.
+        const last = currentLaserStroke[currentLaserStroke.length - 1];
+        let nx = rawPos.x, ny = rawPos.y;
+        if (last) {
+            nx = last.x + (rawPos.x - last.x) * LASER_SMOOTHING;
+            ny = last.y + (rawPos.y - last.y) * LASER_SMOOTHING;
+            // Pointeur quasi immobile : on rafraîchit juste le point, sans en empiler
+            if (Math.hypot(nx - last.x, ny - last.y) < 0.8 / zoom) {
+                last.time = Date.now();
+                requestAnimationFrame(draw);
+                return;
+            }
+        }
+        currentLaserStroke.push({ x: nx, y: ny, time: Date.now() });
         requestAnimationFrame(draw);
         return;
     }
@@ -5766,35 +5765,63 @@ function draw() {
         if (!isExportingTransparent && laserStrokes.length > 0) {
             let needsRedraw = false;
             const now = Date.now();
+            ctx.save();
+            // 'butt' : les quadratiques se raccordent tangentiellement, des bouts
+            // ronds créeraient des perles plus opaques à chaque jonction.
+            ctx.lineCap = 'butt';
+            ctx.lineJoin = 'round';
             laserStrokes.forEach(stroke => {
-                const validPoints = stroke.filter(p => now - p.time < 1200);
-                if (validPoints.length > 0) needsRedraw = true;
+                const pts = stroke.filter(p => now - p.time < LASER_LIFETIME);
+                if (pts.length > 0) needsRedraw = true;
+                if (pts.length < 2) {
+                    if (pts.length === 1) {
+                        const op = Math.max(0, 1 - ((now - pts[0].time) / LASER_LIFETIME));
+                        ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 3.2 * lw, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(231, 76, 60, ${op})`; ctx.fill();
+                    }
+                    return;
+                }
 
-                if (validPoints.length > 1) {
-                    for (let i = 0; i < validPoints.length - 1; i++) {
-                        const p1 = validPoints[i];
-                        const p2 = validPoints[i + 1];
-                        const age = now - p1.time;
-                        const opacity = Math.max(0, 1 - (age / 1200));
+                // Tracé adouci : chaque point devient le point de contrôle d'une
+                // quadratique reliant les milieux de segments (Catmull-Rom simplifié).
+                // Passe 0 = halo diffus, passe 1 = cœur du faisceau.
+                for (let pass = 0; pass < 2; pass++) {
+                    for (let i = 1; i < pts.length; i++) {
+                        const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+                        const op = Math.max(0, 1 - ((now - p0.time) / LASER_LIFETIME));
+                        if (op <= 0.01) continue;
+
+                        const fromX = (i === 1) ? p0.x : (p0.x + p1.x) / 2;
+                        const fromY = (i === 1) ? p0.y : (p0.y + p1.y) / 2;
+                        const toX = p2 ? (p1.x + p2.x) / 2 : p1.x;
+                        const toY = p2 ? (p1.y + p2.y) / 2 : p1.y;
 
                         ctx.beginPath();
-                        ctx.moveTo(p1.x, p1.y);
-                        ctx.lineTo(p2.x, p2.y);
-                        ctx.strokeStyle = `rgba(231, 76, 60, ${opacity})`;
-                        ctx.lineWidth = 6 * lw;
-                        ctx.lineCap = 'butt';
-                        ctx.lineJoin = 'round';
+                        ctx.moveTo(fromX, fromY);
+                        ctx.quadraticCurveTo(p1.x, p1.y, toX, toY);
+                        if (pass === 0) {
+                            ctx.strokeStyle = `rgba(231, 76, 60, ${op * 0.16})`;
+                            ctx.lineWidth = 13 * lw;
+                        } else {
+                            ctx.strokeStyle = `rgba(231, 76, 60, ${op})`;
+                            ctx.lineWidth = 6 * lw * (0.55 + 0.45 * op); // s'affine en s'estompant
+                        }
                         ctx.stroke();
                     }
-                    ctx.beginPath(); ctx.arc(validPoints[0].x, validPoints[0].y, 3 * lw, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(231, 76, 60, ${Math.max(0, 1 - ((now - validPoints[0].time) / 1200))})`; ctx.fill();
-
-                    const lastP = validPoints[validPoints.length - 1];
-                    ctx.beginPath(); ctx.arc(lastP.x, lastP.y, 3 * lw, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(231, 76, 60, ${Math.max(0, 1 - ((now - lastP.time) / 1200))})`; ctx.fill();
                 }
+
+                // Pointe lumineuse
+                const lastP = pts[pts.length - 1];
+                const opTip = Math.max(0, 1 - ((now - lastP.time) / LASER_LIFETIME));
+                const glow = ctx.createRadialGradient(lastP.x, lastP.y, 0, lastP.x, lastP.y, 11 * lw);
+                glow.addColorStop(0, `rgba(255, 230, 225, ${opTip})`);
+                glow.addColorStop(0.35, `rgba(231, 76, 60, ${opTip * 0.85})`);
+                glow.addColorStop(1, 'rgba(231, 76, 60, 0)');
+                ctx.beginPath(); ctx.arc(lastP.x, lastP.y, 11 * lw, 0, Math.PI * 2);
+                ctx.fillStyle = glow; ctx.fill();
             });
-            laserStrokes = laserStrokes.filter(stroke => stroke.length > 0 && now - stroke[stroke.length - 1].time < 1200);
+            ctx.restore();
+            laserStrokes = laserStrokes.filter(stroke => stroke.length > 0 && now - stroke[stroke.length - 1].time < LASER_LIFETIME);
             if (needsRedraw) requestAnimationFrame(draw);
         }
 
@@ -7154,6 +7181,84 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) toggleFocusMode();
 });
 
+// Boîte englobante logique d'un objet, quel que soit son type (null si indéterminable)
+function getItemLogicalBounds(type, obj) {
+    if (!obj) return null;
+    const fromPoints = (pts) => {
+        let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
+        pts.forEach(p => { if (p) { mx = Math.min(mx, p.x); my = Math.min(my, p.y); Mx = Math.max(Mx, p.x); My = Math.max(My, p.y); } });
+        if (mx === Infinity) return null;
+        return { bx: mx, by: my, bw: Mx - mx, bh: My - my };
+    };
+    if (type === 'image') return { bx: obj.x, by: obj.y, bw: obj.w, bh: obj.h };
+    if (type === 'text') return { bx: obj._cachedStartX || obj.x, by: obj.y, bw: obj._cachedW || 100, bh: obj._cachedH || 50 };
+    if (type === 'point') return { bx: obj.x, by: obj.y, bw: 0, bh: 0 };
+    if (type === 'circle') {
+        const c = getObjectById('point', obj.center_id), e = getObjectById('point', obj.edge_id);
+        if (!c || !e) return null;
+        const r = Math.hypot(e.x - c.x, e.y - c.y);
+        return { bx: c.x - r, by: c.y - r, bw: 2 * r, bh: 2 * r };
+    }
+    if (type === 'rectangle') {
+        const p1 = getObjectById('point', obj.p1_id), p2 = getObjectById('point', obj.p2_id);
+        return fromPoints([p1, p2]);
+    }
+    if (type === 'segment') {
+        const p1 = getObjectById('point', obj.p1_id), p2 = getObjectById('point', obj.p2_id);
+        return fromPoints([p1, p2]);
+    }
+    if ((type === 'polygon' || type === 'curve') && obj.points) return fromPoints(obj.points.map(id => getObjectById('point', id)));
+    if (type === 'freehand' && obj.points) return fromPoints(obj.points);
+    if (type === 'arc' && obj.radius !== undefined) {
+        return { bx: obj.cx - obj.radius, by: obj.cy - obj.radius, bw: 2 * obj.radius, bh: 2 * obj.radius };
+    }
+    return null;
+}
+
+// Boîte englobante de toute la sélection courante
+function getSelectionLogicalBounds() {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return null;
+    let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
+    selectedItems.forEach(item => {
+        const b = getItemLogicalBounds(item.type, getObjectById(item.type, item.id));
+        if (!b) return;
+        mx = Math.min(mx, b.bx); my = Math.min(my, b.by);
+        Mx = Math.max(Mx, b.bx + b.bw); My = Math.max(My, b.by + b.bh);
+    });
+    if (mx === Infinity) return null;
+    return { bx: mx, by: my, bw: Mx - mx, bh: My - my };
+}
+
+// Supprime toute la sélection (et les groupes associés). Respecte le verrouillage.
+function deleteSelection() {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
+    let itemsToDelete = new Map();
+    let blockedByLock = false;
+    selectedItems.forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (!obj) return;
+        if (obj.locked && !obj.groupId) { blockedByLock = true; return; }
+        itemsToDelete.set(item.type + '-' + item.id, item);
+        if (obj.groupId) {
+            getGroupMembers(obj.groupId).forEach(member => {
+                itemsToDelete.set(member.type + '-' + member.id, { type: member.type, id: member.id });
+            });
+        }
+    });
+    let deletedSomething = false;
+    Array.from(itemsToDelete.values()).forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (obj && (obj.groupId || !obj.locked)) { deleteObject(item.type, item.id); deletedSomething = true; }
+        else if (obj) blockedByLock = true;
+    });
+    if (!deletedSomething) {
+        if (blockedByLock && typeof showToast === 'function') showToast("Sélection verrouillée : déverrouille-la pour la supprimer.");
+        return false;
+    }
+    clearSelection(); saveState(); draw();
+    return true;
+}
+
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
@@ -7180,17 +7285,24 @@ function updateQuickMenu() {
 
             dot.onpointerdown = (e) => {
                 e.preventDefault(); e.stopPropagation();
-                if (selectedItems.length === 1) {
-                    const obj = getObjectById(selectedItems[0].type, selectedItems[0].id);
-                    if (obj) {
-                        if (obj.strokeColor !== undefined) obj.strokeColor = c;
-                        if (obj.color !== undefined) obj.color = c;
-                        if (obj.fillColor && obj.isFilled) obj.fillColor = c;
-                        activeStyle.strokeColor = c;
-                        if (typeof updateColorIndicator === 'function') updateColorIndicator();
-                        saveState(); draw(); updateQuickMenu();
+                if (!selectedItems.length) return;
+                let touched = false;
+                selectedItems.forEach(item => {
+                    const obj = getObjectById(item.type, item.id);
+                    if (!obj) return;
+                    if (item.type === 'image') {
+                        if (typeof recolorPluginImage === 'function' && recolorPluginImage(obj, c)) touched = true;
+                        return;
                     }
-                }
+                    if (obj.strokeColor !== undefined) obj.strokeColor = c;
+                    if (obj.color !== undefined) obj.color = c;
+                    if (obj.fillColor && obj.isFilled) obj.fillColor = c;
+                    touched = true;
+                });
+                if (!touched) return;
+                activeStyle.strokeColor = c;
+                if (typeof updateColorIndicator === 'function') updateColorIndicator();
+                saveState(); draw(); updateQuickMenu();
             };
             colorContainer.appendChild(dot);
         });
@@ -7198,41 +7310,37 @@ function updateQuickMenu() {
     }
 
     // 2. Affichage et positionnement du menu
-    if (typeof selectedItems !== 'undefined' && selectedItems.length === 1) {
-        const type = selectedItems[0].type;
-        const obj = getObjectById(type, selectedItems[0].id);
+    if (typeof selectedItems !== 'undefined' && selectedItems.length >= 1) {
+        const isMulti = selectedItems.length > 1;
+        const type = isMulti ? null : selectedItems[0].type;
+        const obj = isMulti ? null : getObjectById(type, selectedItems[0].id);
+        const bounds = getSelectionLogicalBounds();
 
-        if (obj && ['image', 'text', 'point', 'polygon', 'rectangle', 'circle'].includes(type)) {
-            let bx = 0, by = 0, bw = 0, bh = 0;
-            if (type === 'image') { bx = obj.x; by = obj.y; bw = obj.w; bh = obj.h; }
-            else if (type === 'text') { bx = obj._cachedStartX || obj.x; by = obj.y; bw = obj._cachedW || 100; bh = obj._cachedH || 50; }
-            else if (type === 'point') { bx = obj.x; by = obj.y; }
-            else if (type === 'circle') {
-                const c = getObjectById('point', obj.center_id), e = getObjectById('point', obj.edge_id);
-                if (c && e) { const r = Math.hypot(e.x - c.x, e.y - c.y); bx = c.x - r; by = c.y - r; bw = 2 * r; bh = 2 * r; }
-            }
-            else if (type === 'rectangle') {
-                const p1 = getObjectById('point', obj.p1_id), p2 = getObjectById('point', obj.p2_id);
-                if (p1 && p2) { bx = Math.min(p1.x, p2.x); by = Math.min(p1.y, p2.y); bw = Math.abs(p2.x - p1.x); bh = Math.abs(p2.y - p1.y); }
-            }
-            else if (type === 'polygon' && obj.pointIds) {
-                let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
-                obj.pointIds.forEach(id => { const p = getObjectById('point', id); if (p) { mx = Math.min(mx, p.x); my = Math.min(my, p.y); Mx = Math.max(Mx, p.x); My = Math.max(My, p.y); } });
-                if (mx !== Infinity) { bx = mx; by = my; bw = Mx - mx; bh = My - my; }
-            }
+        if (bounds && (isMulti || obj)) {
+            const bx = bounds.bx, by = bounds.by, bw = bounds.bw, bh = bounds.bh;
 
-            const screenX = (bx + bw / 2) * zoom + panX;
-            const screenY = (by + bh) * zoom + panY + 20;
+            let screenX = (bx + bw / 2) * zoom + panX;
+            let screenY = (by + bh) * zoom + panY + 20;
 
+            quickMenu.classList.add('visible');
+            // Maintient le menu dans l'écran (indispensable sur tablette)
+            const mw = quickMenu.offsetWidth || 220, mh = quickMenu.offsetHeight || 40;
+            const pad = 8;
+            screenX = Math.max(mw / 2 + pad, Math.min(window.innerWidth - mw / 2 - pad, screenX));
+            if (screenY + mh > window.innerHeight - pad) {
+                const above = by * zoom + panY - mh - 20;
+                screenY = above > pad ? above : Math.max(pad, window.innerHeight - mh - pad);
+            }
+            screenY = Math.max(pad, screenY);
             quickMenu.style.left = screenX + 'px';
             quickMenu.style.top = screenY + 'px';
-            quickMenu.classList.add('visible');
 
             // 3. GESTION DU CADENAS (Affichage + Action)
             const btnLock = document.getElementById('btn-quick-lock');
             const iconLock = document.getElementById('icon-quick-lock');
             if (btnLock && iconLock) {
-                if (obj.locked) {
+                const allLocked = selectedItems.every(it => { const o = getObjectById(it.type, it.id); return o && o.locked; });
+                if (allLocked) {
                     btnLock.classList.add('active');
                     iconLock.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`;
                 } else {
@@ -7243,7 +7351,7 @@ function updateQuickMenu() {
                 // ACTION FORCÉE AU TOUCHER/CLIC
                 btnLock.onpointerdown = (e) => {
                     e.preventDefault(); e.stopPropagation();
-                    obj.locked = !obj.locked;
+                    selectedItems.forEach(it => { const o = getObjectById(it.type, it.id); if (o) o.locked = !allLocked; });
                     updateQuickMenu(); draw(); saveState();
                 };
             }
@@ -7304,30 +7412,26 @@ function updateQuickMenu() {
             if (btnDelete) {
                 btnDelete.onpointerdown = (e) => {
                     e.preventDefault(); e.stopPropagation();
-                    let itemsToDelete = new Map();
-                    selectedItems.forEach(item => {
-                        const obj = getObjectById(item.type, item.id);
-                        if (!obj) return;
-                        itemsToDelete.set(item.type + '-' + item.id, item);
-                        if (obj.groupId) {
-                            getGroupMembers(obj.groupId).forEach(member => {
-                                itemsToDelete.set(member.type + '-' + member.id, { type: member.type, id: member.id });
-                            });
-                        }
-                    });
-                    Array.from(itemsToDelete.values()).forEach(item => deleteObject(item.type, item.id));
-                    clearSelection(); draw(); saveState(); hideQuickMenu();
+                    deleteSelection();
                 };
             }
 
             // 6. GESTION DE LA VISIBILITÉ DES COULEURS
             const colorContainer = document.getElementById('quick-colors-container');
             if (colorContainer) {
-                if (type === 'image') {
-                    colorContainer.style.display = 'none'; // Cache les couleurs pour les images/tampons
+                // Une image simple n'est recolorable que si c'est un tampon de plugin qui l'accepte
+                const colorable = selectedItems.some(it => {
+                    if (it.type !== 'image') return true;
+                    const o = getObjectById('image', it.id);
+                    return o && typeof isRecolorablePluginImage === 'function' && isRecolorablePluginImage(o);
+                });
+                if (!colorable) {
+                    colorContainer.style.display = 'none'; // Cache les couleurs pour les images/tampons non colorables
                 } else {
                     colorContainer.style.display = 'flex';
-                    let curColor = obj.color || obj.strokeColor || '#2d3436';
+                    const refObj = obj || getObjectById(selectedItems[0].type, selectedItems[0].id) || {};
+                    let curColor = refObj.color || refObj.strokeColor
+                        || (refObj.pluginData && refObj.pluginData.state && refObj.pluginData.state.color) || '#2d3436';
 
                     document.querySelectorAll('#quick-colors-container div').forEach(d => {
                         const c = d.dataset.color;
@@ -8722,7 +8826,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(dtTooltip);
 
     let dtShowTimer = null;
+    let dtHideTimer = null;
     let dtCurrentEl = null;
+    let dtLastPointerType = 'mouse';
+    const DT_TOUCH_LIFETIME = 2200; // ms : durée d'affichage au doigt (pas de "mouseout" sur tablette)
+
+    function hideDtTooltip() {
+        clearTimeout(dtShowTimer);
+        clearTimeout(dtHideTimer);
+        dtCurrentEl = null;
+        dtTooltip.classList.remove('visible');
+    }
 
     function positionDtTooltip(el) {
         const r = el.getBoundingClientRect();
@@ -8749,24 +8863,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text) return;
 
         clearTimeout(dtShowTimer);
+        clearTimeout(dtHideTimer);
         dtCurrentEl = el;
+        const isTouch = (dtLastPointerType === 'touch' || dtLastPointerType === 'pen');
         dtShowTimer = setTimeout(() => {
             if (dtCurrentEl !== el) return;
             dtTooltip.textContent = text;
             dtTooltip.classList.add('visible');
             positionDtTooltip(el);
-        }, 500);
+            // Au doigt/stylet, aucun "mouseout" ne viendra : on temporise la disparition
+            if (isTouch) dtHideTimer = setTimeout(hideDtTooltip, DT_TOUCH_LIFETIME);
+        }, isTouch ? 350 : 500);
     });
 
     document.addEventListener('mouseout', (e) => {
         const el = e.target.closest('[data-tooltip]');
         if (!el) return;
-        clearTimeout(dtShowTimer);
-        dtCurrentEl = null;
-        dtTooltip.classList.remove('visible');
+        hideDtTooltip();
     });
 
-    window.addEventListener('scroll', () => dtTooltip.classList.remove('visible'), true);
+    // Sur tablette : mémorise le type de pointeur et masque l'infobulle dès qu'on touche
+    document.addEventListener('pointerdown', (e) => {
+        dtLastPointerType = e.pointerType || 'mouse';
+        hideDtTooltip();
+    }, true);
+    document.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') dtLastPointerType = 'mouse'; }, true);
+    document.addEventListener('pointercancel', hideDtTooltip, true);
+    window.addEventListener('blur', hideDtTooltip);
+
+    window.addEventListener('scroll', hideDtTooltip, true);
 });
 
 // ==============================================================================
