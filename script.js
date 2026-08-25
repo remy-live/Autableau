@@ -1379,9 +1379,23 @@ function twTick(timestamp) {
         twTime.innerHTML = formatTwTime(currentMs, true);
     } else if (twMode === 'timer' && isTwRunning) {
         if (!timeIsFrozen) currentMs -= delta;
+
+        // Décompte sonore des dernières secondes
+        if (twAlarmCountdown && currentMs > 0) {
+            const secLeft = Math.ceil(currentMs / 1000);
+            if (secLeft <= 5 && secLeft !== twLastBeepSecond) {
+                twLastBeepSecond = secLeft;
+                twCountdownBeep(false);
+            }
+        }
+
         if (currentMs <= 0) {
             currentMs = 0; isTwRunning = false;
+            twLastBeepSecond = null;
             btnPause.style.display = 'none'; btnPlay.style.display = 'block';
+            playTwAlarm();
+            twWidget.classList.add('danger-alert');
+            setTimeout(() => twWidget.classList.remove('danger-alert'), 3000);
             if (typeof showToast === 'function') showToast("⏳ Minuteur terminé !");
         }
         twTime.innerHTML = formatTwTime(currentMs, false);
@@ -1403,7 +1417,10 @@ document.getElementById('btn-toggle-time').addEventListener('click', () => {
     twWidget.style.display = twWidget.style.display === 'flex' ? 'none' : 'flex';
     if (twWidget.style.display === 'flex' && twMode === 'clock') startTwLoop();
 });
-document.getElementById('btn-tw-close').addEventListener('click', () => twWidget.style.display = 'none');
+document.getElementById('btn-tw-close').addEventListener('click', () => {
+    if (typeof twStopAlarm === 'function') twStopAlarm();
+    twWidget.style.display = 'none';
+});
 document.getElementById('btn-tw-min').addEventListener('click', () => twWidget.classList.toggle('tw-min'));
 document.getElementById('btn-tw-fs').addEventListener('click', () => twWidget.classList.toggle('tw-fs'));
 
@@ -1424,6 +1441,11 @@ document.querySelectorAll('.tw-tab').forEach(tab => {
         isTwRunning = false;
         btnPause.style.display = 'none'; btnPlay.style.display = 'block';
         btnLap.style.display = 'none'; lapsContainer.style.display = 'none';
+
+        twStopAlarm();
+        twLastBeepSecond = null;
+        const alarmBox = document.getElementById('tw-alarm');
+        if (alarmBox) alarmBox.style.display = (twMode === 'timer') ? 'flex' : 'none';
 
         if (twMode === 'clock') {
             document.getElementById('tw-controls').style.display = 'none';
@@ -1452,6 +1474,8 @@ btnPlay.addEventListener('click', () => {
         twTime.innerHTML = formatTwTime(currentMs, false);
     }
     isTwRunning = true;
+    twLastBeepSecond = null;
+    twAudioCtx(); // débloque le son : les navigateurs l'exigent sur un geste
     btnPlay.style.display = 'none'; btnPause.style.display = 'block';
     if (twMode === 'stopwatch') btnLap.style.display = 'block';
     startTwLoop();
@@ -1464,6 +1488,8 @@ btnPause.addEventListener('click', () => {
 });
 
 btnReset.addEventListener('click', () => {
+    twStopAlarm(); twLastBeepSecond = null;
+    twWidget.classList.remove('danger-alert');
     isTwRunning = false; btnPause.style.display = 'none'; btnPlay.style.display = 'block';
     btnLap.style.display = 'none'; currentMs = 0;
     if (twMode === 'stopwatch') { twTime.innerHTML = formatTwTime(0, true); recordedLaps = []; renderLaps(); }
@@ -1480,6 +1506,95 @@ function renderLaps() {
         <div class="tw-lap-item"><span>Tour ${i + 1}</span><span>${formatTwTime(lap, true)} <span class="tw-lap-del" onclick="deleteLap(${i})">✕</span></span></div>
     `).reverse().join('');
 }
+
+// ==============================================================================
+// SONNERIE DU MINUTEUR
+// Sons de synthèse (Web Audio) : aucun fichier, fonctionne hors ligne.
+// ==============================================================================
+let twAlarmSound = localStorage.getItem('autableau_tw_alarm') || 'carillon';
+let twAlarmCountdown = localStorage.getItem('autableau_tw_alarm_countdown') === '1';
+let twAlarmNodes = [];
+let twLastBeepSecond = null;
+
+function twAudioCtx() {
+    try {
+        if (typeof initAudio === 'function') return initAudio();
+        if (!window.SharedAudioCtx) window.SharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (window.SharedAudioCtx.state === 'suspended') window.SharedAudioCtx.resume();
+        return window.SharedAudioCtx;
+    } catch (e) { return null; }
+}
+
+function twStopAlarm() {
+    twAlarmNodes.forEach(n => { try { n.stop(); } catch (e) { } });
+    twAlarmNodes = [];
+}
+
+// Une note : montée rapide puis extinction naturelle
+function twNote(ctx, freq, start, dur, vol, type) {
+    const t0 = ctx.currentTime + start;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.03);
+    twAlarmNodes.push(osc);
+}
+
+function playTwAlarm(kind) {
+    const sound = kind || twAlarmSound;
+    if (sound === 'none') return;
+    const ctx = twAudioCtx();
+    if (!ctx) return;
+    twStopAlarm();
+
+    if (sound === 'bip') {
+        for (let i = 0; i < 3; i++) twNote(ctx, 880, i * 0.24, 0.16, 0.28, 'square');
+    } else if (sound === 'carillon') {
+        // Do - Mi - Sol - Do, façon carillon d'école
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+            twNote(ctx, f, i * 0.22, 1.1, 0.26, 'triangle');
+            twNote(ctx, f * 2, i * 0.22, 0.55, 0.07, 'sine'); // harmonique, pour le timbre métallique
+        });
+    } else if (sound === 'minuterie') {
+        // Sonnerie mécanique : petits coups très rapprochés
+        for (let i = 0; i < 22; i++) {
+            twNote(ctx, i % 2 ? 2100 : 2450, i * 0.07, 0.06, 0.16, 'square');
+        }
+    } else if (sound === 'alarme') {
+        for (let i = 0; i < 8; i++) twNote(ctx, i % 2 ? 660 : 880, i * 0.22, 0.2, 0.25, 'sawtooth');
+    }
+}
+
+// Petit bip de décompte des dernières secondes
+function twCountdownBeep(isLast) {
+    const ctx = twAudioCtx();
+    if (!ctx) return;
+    twNote(ctx, isLast ? 1200 : 800, 0, 0.09, 0.18, 'sine');
+}
+
+function twSyncAlarmUI() {
+    const sel = document.getElementById('tw-alarm-sound');
+    const chk = document.getElementById('tw-alarm-countdown');
+    if (sel) sel.value = twAlarmSound;
+    if (chk) chk.checked = twAlarmCountdown;
+}
+
+document.getElementById('tw-alarm-sound')?.addEventListener('change', (e) => {
+    twAlarmSound = e.target.value;
+    localStorage.setItem('autableau_tw_alarm', twAlarmSound);
+    playTwAlarm(twAlarmSound); // aperçu immédiat du choix
+});
+document.getElementById('tw-alarm-countdown')?.addEventListener('change', (e) => {
+    twAlarmCountdown = e.target.checked;
+    localStorage.setItem('autableau_tw_alarm_countdown', twAlarmCountdown ? '1' : '0');
+});
+document.getElementById('btn-tw-alarm-test')?.addEventListener('click', () => playTwAlarm());
+twSyncAlarmUI();
 
 // --- REGLAGES DU SONOMÈTRE ---
 document.getElementById('tw-slider-thresh').addEventListener('input', (e) => {

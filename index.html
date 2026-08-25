@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 
 <body>
@@ -432,6 +432,24 @@
             <button class="tw-action secondary" id="btn-tw-pause" style="display:none;">Pause</button>
             <button class="tw-action secondary" id="btn-tw-lap" style="display:none;">Tour</button>
             <button class="tw-action secondary" id="btn-tw-reset">Reset</button>
+        </div>
+
+        <div id="tw-alarm" style="display:none;">
+            <div class="tw-alarm-row">
+                <span class="tw-alarm-label">🔔 Sonnerie</span>
+                <select id="tw-alarm-sound" class="tw-select tw-alarm-select">
+                    <option value="carillon">Carillon</option>
+                    <option value="bip">Bips</option>
+                    <option value="minuterie">Minuteur de cuisine</option>
+                    <option value="alarme">Alarme</option>
+                    <option value="none">Aucune</option>
+                </select>
+                <button class="tw-action secondary tw-alarm-test" id="btn-tw-alarm-test"
+                    title="Écouter la sonnerie">▶</button>
+            </div>
+            <label class="tw-alarm-check">
+                <input type="checkbox" id="tw-alarm-countdown"> Bip des 5 dernières secondes
+            </label>
         </div>
 
         <div id="tw-laps"></div>
@@ -1261,7 +1279,7 @@
     </div>
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
-    <script src="script.js?v=41"></script>
+    <script src="script.js?v=42"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=50"></script>
     <script src="cloud_drive.js?v=9"></script>
