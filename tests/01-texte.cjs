@@ -219,14 +219,16 @@ module.exports = async function (browser) {
         r.verifie(`barre d'édition dans l'écran (${nom})`, place.dansEcran);
     }
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
 
     // Centrer une ligne seule doit produire un effet visible : sans cadre, le
     // bloc fait exactement la largeur du texte et le bouton semble mort.
     await tableauVierge(page);
     await page.evaluate(() => setMode('text'));
     await page.mouse.click(220, 380);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     await page.keyboard.type('df fsdf');
+    await page.waitForTimeout(150);
     await page.click('#text-toolbar .tt-tab[data-panel="align"]');
     await page.waitForTimeout(200);
 
@@ -254,6 +256,50 @@ module.exports = async function (browser) {
     r.egal('centrage : la ligne porte l\'alignement', centre.align, 'center');
     r.verifie('centrage : le bloc reçoit un cadre plus large', centre.bloc > centre.ligne + 40, `bloc ${centre.bloc}, ligne ${centre.ligne}`);
     r.verifie('centrage : décalage visible', centre.decalage > 20, `${centre.decalage} px`);
+
+    // Police et taille sur une portion sélectionnée : le reste du bloc ne bouge pas
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(300, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('alpha beta');
+    await page.waitForTimeout(150);
+
+    // Sélectionne « alpha » uniquement
+    await page.evaluate(() => {
+        const z = document.getElementById('wysiwyg-text');
+        const n = z.firstChild.nodeType === 3 ? z.firstChild : z.firstChild.firstChild;
+        const r = document.createRange();
+        r.setStart(n, 0); r.setEnd(n, 5);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    });
+    await page.click('#text-toolbar .tt-tab[data-panel="size"]');
+    await page.waitForTimeout(150);
+    await page.click('#btn-font-cycle');
+    await page.waitForTimeout(100);
+    for (let i = 0; i < 10; i++) { await page.click('#btn-size-up'); }
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+
+    const seg = await page.evaluate(() => {
+        const t = texts[0];
+        const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+        const segs = lay.lines[0].segs.map(s => ({
+            txt: s.text,
+            taille: s.style && s.style.fontSize ? Math.round(s.style.fontSize) : null,
+            police: (s.style && s.style.fontFamily) || null
+        }));
+        return { segs, base: t.fontSize, lignes: lay.lines.length };
+    });
+    const premier = seg.segs[0] || {};
+    const dernier = seg.segs[seg.segs.length - 1] || {};
+    r.verifie('sélection : le bloc garde sa taille de base', seg.base === 24, `base ${seg.base}`);
+    r.verifie('sélection : la portion grandit', premier.taille === 34, JSON.stringify(seg.segs));
+    r.verifie('sélection : la portion change de police', !!premier.police && premier.police !== 'sans-serif', JSON.stringify(seg.segs));
+    r.verifie('sélection : le reste du texte est intact', seg.segs.length > 1 && !dernier.taille, JSON.stringify(seg.segs));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

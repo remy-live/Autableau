@@ -2433,8 +2433,10 @@ function generateSVGString(rect, keepBg) {
                             const fs = seg.style.italic ? 'italic' : 'normal';
                             const td = seg.style.underline ? 'underline' : 'none';
                             const fc = seg.style.color || color;
+                            const ff = seg.style.fontFamily ? ` font-family="${seg.style.fontFamily}"` : '';
+                            const sz = seg.style.fontSize ? ` font-size="${seg.style.fontSize * (L.size / (obj.fontSize || 24))}px"` : '';
                             const escapedText = seg.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                            svg += `<tspan font-weight="${fw}" font-style="${fs}" text-decoration="${td}" fill="${fc}">${escapedText}</tspan>`;
+                            svg += `<tspan font-weight="${fw}" font-style="${fs}" text-decoration="${td}" fill="${fc}"${ff}${sz}>${escapedText}</tspan>`;
                         });
                         svg += `</text>`;
                     });
@@ -4386,10 +4388,15 @@ function layoutTextObject(obj, measureCtx) {
     const baseLH = obj.lineHeight || Math.round(baseSize * 1.2);
     const col = obj.colWidth || 0;
 
+    // Taille et police d'un segment : celles qu'il porte, sinon celles du bloc
+    const tailleSeg = (style, size) => (style && style.fontSize) ? style.fontSize * (size / baseSize) : size;
+    const policeSeg = (style) => (style && style.fontFamily) || fontFamily;
+
     const measure = (text, style, size) => {
         if (!text) return 0;
-        if (!measureCtx) return text.length * size * 0.55; // secours si pas de contexte
-        measureCtx.font = `${style && style.italic ? 'italic ' : ''}${(style && style.bold) ? 'bold ' : ''}${size}px ${fontFamily}`;
+        const s = tailleSeg(style, size);
+        if (!measureCtx) return text.length * s * 0.55; // secours si pas de contexte
+        measureCtx.font = `${style && style.italic ? 'italic ' : ''}${(style && style.bold) ? 'bold ' : ''}${s}px ${policeSeg(style)}`;
         return measureCtx.measureText(text).width;
     };
 
@@ -4470,6 +4477,19 @@ function layoutTextObject(obj, measureCtx) {
         }
 
         const st = { ...style };
+        // Police et taille propres à une portion de texte (sélection)
+        const famille = (node.style && node.style.fontFamily) || (node.getAttribute && node.getAttribute('face')) || '';
+        if (famille) st.fontFamily = famille.replace(/^["']|["']$/g, '');
+        // Taille propre à une portion : « em »/« % » sont relatifs à la taille
+        // héritée (c'est ce qu'écrit la barre d'outils, insensible au zoom),
+        // « px » est lu tel quel pour le contenu collé.
+        const px = node.style && node.style.fontSize;
+        if (px) {
+            const herite = style.fontSize || baseSize;
+            if (/px$/.test(px)) st.fontSize = parseFloat(px);
+            else if (/em$/.test(px)) st.fontSize = parseFloat(px) * herite;
+            else if (/%$/.test(px)) st.fontSize = parseFloat(px) / 100 * herite;
+        }
         if (name === 'B' || name === 'STRONG' || (node.style && node.style.fontWeight === 'bold')) st.bold = true;
         if (name === 'I' || name === 'EM' || (node.style && node.style.fontStyle === 'italic')) st.italic = true;
         if (name === 'U' || (node.style && node.style.textDecoration && node.style.textDecoration.includes('underline'))) st.underline = true;
@@ -4542,15 +4562,20 @@ function layoutTextObject(obj, measureCtx) {
 
         wrap(p, avail, size).forEach((segs, i) => {
             let segsW = 0;
-            segs.forEach(s => { segsW += measure(s.text, s.style, size); });
+            let tailleMax = size;
+            segs.forEach(s => {
+                segsW += measure(s.text, s.style, size);
+                tailleMax = Math.max(tailleMax, tailleSeg(s.style, size));
+            });
+            const lhLigne = (tailleMax > size) ? lh * (tailleMax / size) : lh;
             const contentW = (i === 0 ? markerW : markerW) + segsW; // le retrait de continuation garde la gouttière
             maxW = Math.max(maxW, indentPx + contentW);
             lines.push({
-                segs, size, lineHeight: lh, y,
+                segs, size, lineHeight: lhLigne, y,
                 indent: indentPx, marker: i === 0 ? p.marker : null, markerW,
-                bold: p.bold, contentW, align: p.align || null
+                bold: p.bold, contentW, align: p.align || null, tailleMax
             });
-            y += lh;
+            y += lhLigne;
         });
     });
 
@@ -6519,8 +6544,15 @@ function draw() {
                         lines.forEach((L) => {
                             // Le demi-interligne : le DOM centre chaque ligne dans sa
                             // line-box, on compense pour retomber sur la saisie
-                            const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
-                            const setFont = (st) => { ctx.font = `${st.italic ? 'italic ' : ''}${(st.bold || L.bold) ? 'bold ' : ''}${L.size}px ${fontFamily}`; };
+                            const grande = L.tailleMax || L.size;
+                            const lineY = obj.y + L.y + (grande * 0.1) + (L.lineHeight - grande * 1.2) / 2;
+                            // Taille et police propres au segment (sélection partielle)
+                            const tailleDe = (st) => (st && st.fontSize) ? st.fontSize * (L.size / (obj.fontSize || 24)) : L.size;
+                            const setFont = (st) => {
+                                ctx.font = `${st.italic ? 'italic ' : ''}${(st.bold || L.bold) ? 'bold ' : ''}${tailleDe(st)}px ${(st && st.fontFamily) || fontFamily}`;
+                            };
+                            // Les segments de tailles différentes partagent la même ligne de base
+                            const basY = (st) => lineY + (grande - tailleDe(st));
 
                             const alignL = L.align || align;
                             let curX = startX + L.indent;
@@ -6530,19 +6562,21 @@ function draw() {
                             if (L.marker) {
                                 setFont({ bold: L.bold });
                                 ctx.fillStyle = renderColor;
-                                ctx.fillText(L.marker, curX, lineY);
+                                ctx.fillText(L.marker, curX, basY({}));
                             }
                             curX += L.markerW;
 
                             L.segs.forEach(seg => {
                                 setFont(seg.style);
+                                const ty = basY(seg.style);
+                                const ts = tailleDe(seg.style);
                                 ctx.fillStyle = seg.style.color || renderColor;
-                                ctx.fillText(seg.text, curX, lineY);
+                                ctx.fillText(seg.text, curX, ty);
                                 const sw = ctx.measureText(seg.text).width;
                                 if (seg.style.underline) {
                                     ctx.beginPath();
-                                    ctx.moveTo(curX, lineY + L.size * 1.1); ctx.lineTo(curX + sw, lineY + L.size * 1.1);
-                                    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, L.size * 0.08); ctx.stroke();
+                                    ctx.moveTo(curX, ty + ts * 1.1); ctx.lineTo(curX + sw, ty + ts * 1.1);
+                                    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, ts * 0.08); ctx.stroke();
                                 }
                                 curX += sw;
                             });
@@ -7594,25 +7628,84 @@ if (textToolbar) {
 const fonts = ['sans-serif', 'serif', 'monospace', "'Comic Sans MS', cursive"];
 let currentFontIndex = 0;
 
-const btnFontCycle = document.getElementById('btn-font-cycle');
-if (btnFontCycle) {
-    btnFontCycle.addEventListener('click', () => {
-        currentFontIndex = (currentFontIndex + 1) % fonts.length;
-        const newFont = fonts[currentFontIndex];
+// Une sélection non vide dans la zone de saisie : police et taille ne doivent
+// alors changer QUE sur les mots surlignés, pas sur tout le bloc.
+function selectionDansSaisie() {
+    if (!wysiwygText || wysiwygText.style.display !== 'block') return null;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const r = sel.getRangeAt(0);
+    let n = r.commonAncestorContainer;
+    if (n.nodeType === 3) n = n.parentNode;
+    if (!n || !wysiwygText.contains(n)) return null;
+    return r;
+}
 
-        activeStyle.fontFamily = newFont;
-        btnFontCycle.style.fontFamily = newFont;
+function tailleDeBaseSaisie() {
+    if (editingTextId) {
+        const t = getObjectById('text', editingTextId);
+        if (t && t.fontSize) return t.fontSize;
+    }
+    return activeStyle.fontSize || 24;
+}
 
-        if (editingTextId) {
-            const t = getObjectById('text', editingTextId);
-            if (t) t.fontFamily = newFont;
+// Taille (logique) du texte à l'endroit où commence la sélection
+function tailleSelectionCourante() {
+    const r = selectionDansSaisie();
+    if (!r) return null;
+    let n = r.startContainer;
+    if (n.nodeType === 3) n = n.parentNode;
+    if (!n || !n.nodeType) return null;
+    const px = parseFloat(getComputedStyle(n).fontSize);
+    if (!px) return null;
+    return px / (zoom || 1);
+}
+
+function appliquerPoliceSelection(font) {
+    if (document.activeElement !== wysiwygText) wysiwygText.focus();
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand('fontName', false, font);
+}
+
+// La taille d'une portion est écrite en « em » : elle suit le zoom de la vue
+// et reste juste si l'on agrandit ensuite tout le bloc.
+function appliquerTailleSelection(pxLogique) {
+    const base = tailleDeBaseSaisie() || 24;
+    const ratio = Math.max(0.2, Math.min(8, pxLogique / base));
+    if (document.activeElement !== wysiwygText) wysiwygText.focus();
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand('fontSize', false, '7'); // marqueur, converti juste après
+    const marques = wysiwygText.querySelectorAll('font[size="7"], [style*="xxx-large"]');
+    marques.forEach(el => {
+        let cible = el;
+        if (el.tagName === 'FONT') {
+            const s = document.createElement('span');
+            s.innerHTML = el.innerHTML;
+            const face = el.getAttribute('face');
+            const col = el.getAttribute('color');
+            if (face) s.style.fontFamily = face;
+            if (col) s.style.color = col;
+            el.replaceWith(s);
+            cible = s;
         }
-        updateWysiwygPosition();
-        draw();
+        cible.style.fontSize = (Math.round(ratio * 1000) / 1000) + 'em';
+        // Une taille imbriquée se cumulerait : on nettoie les descendants
+        cible.querySelectorAll('[style*="font-size"]').forEach(d => { d.style.fontSize = ''; });
     });
 }
 
 function changeFontSize(delta) {
+    // Sélection en cours : on ne touche qu'à elle
+    if (selectionDansSaisie()) {
+        const courante = tailleSelectionCourante() || tailleDeBaseSaisie();
+        let cible = Math.round(courante) + delta;
+        if (cible < 10) cible = 10;
+        if (cible > 200) cible = 200;
+        appliquerTailleSelection(cible);
+        if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+        return;
+    }
+
     let currentSize = activeStyle.fontSize;
     if (editingTextId) {
         const t = getObjectById('text', editingTextId);
@@ -7631,6 +7724,29 @@ function changeFontSize(delta) {
     }
     updateWysiwygPosition();
     draw();
+}
+
+const btnFontCycle = document.getElementById('btn-font-cycle');
+if (btnFontCycle) {
+    btnFontCycle.addEventListener('click', () => {
+        currentFontIndex = (currentFontIndex + 1) % fonts.length;
+        const newFont = fonts[currentFontIndex];
+        btnFontCycle.style.fontFamily = newFont;
+
+        // Sélection en cours : seule la portion surlignée change de police
+        if (selectionDansSaisie()) {
+            appliquerPoliceSelection(newFont);
+            return;
+        }
+
+        activeStyle.fontFamily = newFont;
+        if (editingTextId) {
+            const t = getObjectById('text', editingTextId);
+            if (t) t.fontFamily = newFont;
+        }
+        updateWysiwygPosition();
+        draw();
+    });
 }
 
 const btnSizeUp = document.getElementById('btn-size-up');
@@ -7980,12 +8096,17 @@ function closeAllPopups() {
             const isShowing = pair.popup.classList.contains('show');
             closeAllPopups(); // Ferme les autres
             if (!isShowing) pair.popup.classList.add('show'); // Ouvre celui-ci
+            // Le menu contextuel d'objet s'efface pendant qu'un menu est ouvert
+            if (typeof updateQuickMenu === 'function') updateQuickMenu();
         });
     }
 });
 
 // Fermer les pop-ups si on clique n'importe où ailleurs sur la page
-window.addEventListener('click', closeAllPopups);
+window.addEventListener('click', () => {
+    closeAllPopups();
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+});
 
 // Empêcher la fermeture si on clique À L'INTÉRIEUR du pop-up (ex: manipuler le slider)
 document.querySelectorAll('.popup-content').forEach(popup => {
@@ -8344,9 +8465,22 @@ function deleteSelection() {
     return true;
 }
 
+// Un menu ou une fenêtre ouverte prime sur le petit menu contextuel d'objet :
+// celui-ci n'a pas à flotter par-dessus ce que l'enseignant vient d'ouvrir.
+function unMenuEstOuvert() {
+    if (document.querySelector('.popup-content.show')) return true;
+    if (document.querySelector('#export-popover.visible, #color-popover.visible')) return true;
+    const boites = document.querySelectorAll('#custom-prompt-modal, #confirm-modal, .live-modal-backdrop, [id$="-backdrop"]');
+    for (const el of boites) {
+        if (el.isConnected && getComputedStyle(el).display !== 'none') return true;
+    }
+    return false;
+}
+
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
+    if (unMenuEstOuvert()) { quickMenu.classList.remove('visible'); return; }
 
     // 1. Injection des pastilles de couleur
     if (!document.getElementById('quick-colors-container')) {

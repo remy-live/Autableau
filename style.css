@@ -3118,7 +3118,7 @@ body.dark-mode {
     opacity: 0;
     visibility: hidden;
     transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 1000;
+    z-index: 16000;  /* au-dessus du menu contextuel d'objet (15000) */
     display: flex;
 }
 
