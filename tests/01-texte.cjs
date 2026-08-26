@@ -308,6 +308,107 @@ module.exports = async function (browser) {
     r.verifie('sélection : la portion change de police', !!premier.police && premier.police !== 'sans-serif', JSON.stringify(seg.segs));
     r.verifie('sélection : le reste du texte est intact', seg.segs.length > 1 && !dernier.taille, JSON.stringify(seg.segs));
 
+    // Changer la taille d'un mot ne doit pas effacer les couleurs déjà posées
+    // ailleurs, ni déteindre sur le reste du bloc.
+    await page.waitForTimeout(250);
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(300, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('rouge vert');
+    await page.waitForTimeout(150);
+
+    const choisir = (d, f) => page.evaluate(([d, f]) => {
+        const z = document.getElementById('wysiwyg-text');
+        const n = document.createTreeWalker(z, NodeFilter.SHOW_TEXT).nextNode();
+        const r = document.createRange();
+        r.setStart(n, d); r.setEnd(n, f);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }, [d, f]);
+
+    await choisir(0, 5);                       // « rouge »
+    await page.click('#text-toolbar .tt-tab[data-panel="color"]');
+    await page.waitForTimeout(150);
+    await page.click('#text-toolbar .tt-panel[data-panel="color"] .swatch[data-color="#d63031"]');
+    await page.waitForTimeout(150);
+
+    // Puis on agrandit « vert » seulement
+    await page.evaluate(() => {
+        const z = document.getElementById('wysiwyg-text');
+        const noeuds = [];
+        const w = document.createTreeWalker(z, NodeFilter.SHOW_TEXT);
+        while (w.nextNode()) noeuds.push(w.currentNode);
+        const cible = noeuds.find(n => n.nodeValue.includes('vert'));
+        const i = cible.nodeValue.indexOf('vert');
+        const r = document.createRange();
+        r.setStart(cible, i); r.setEnd(cible, i + 4);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    });
+    await page.click('#text-toolbar .tt-tab[data-panel="size"]');
+    await page.waitForTimeout(150);
+    for (let i = 0; i < 6; i++) await page.click('#btn-size-up');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+
+    const mixte = await page.evaluate(() => {
+        const t = texts[0];
+        const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+        return {
+            base: t.fontSize,
+            segs: lay.lines[0].segs.map(s => ({
+                txt: s.text,
+                couleur: (s.style && s.style.color) || null,
+                taille: s.style && s.style.fontSize ? Math.round(s.style.fontSize) : null
+            }))
+        };
+    });
+    const rouge = mixte.segs.find(s => s.txt.includes('rouge'));
+    const vert = mixte.segs.find(s => s.txt.includes('vert'));
+    r.verifie('taille d\'un mot : la couleur de l\'autre survit', !!(rouge && rouge.couleur), JSON.stringify(mixte.segs));
+    r.verifie('taille d\'un mot : le mot coloré garde sa taille', !!rouge && !rouge.taille, JSON.stringify(mixte.segs));
+    r.verifie('taille d\'un mot : seul ce mot grandit', !!vert && vert.taille === 30, JSON.stringify(mixte.segs));
+    r.verifie('taille d\'un mot : le bloc ne bouge pas', mixte.base === 24, `base ${mixte.base}`);
+
+    // Pendant la saisie, le cadre de sélection figé sur les anciennes
+    // dimensions ne doit plus s'afficher (ni le menu rapide).
+    await page.waitForTimeout(250);
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(340, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('Bonjour');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+
+    const pt = await page.evaluate(() => {
+        setMode('pointer');
+        const t = texts[0];
+        return { x: (t._cachedStartX + t._cachedW / 2) * zoom + panX, y: (t.y + t._cachedH / 2) * zoom + panY };
+    });
+    await page.mouse.click(pt.x, pt.y);
+    await page.waitForTimeout(300);
+    const avant = await page.evaluate(() => ({
+        sel: selectedItems.length,
+        menu: document.getElementById('quick-edit-menu').classList.contains('visible')
+    }));
+    r.verifie('clic simple : objet sélectionné', avant.sel === 1);
+    r.verifie('clic simple : menu rapide affiché', avant.menu);
+
+    await page.mouse.dblclick(pt.x, pt.y);
+    await page.waitForTimeout(400);
+    const pendant = await page.evaluate(() => ({
+        edite: !!editingTextId,
+        menu: document.getElementById('quick-edit-menu').classList.contains('visible')
+    }));
+    r.verifie('réédition : la saisie est ouverte', pendant.edite);
+    r.verifie('réédition : plus de menu rapide en travers', !pendant.menu);
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    const finSaisie = await page.evaluate(() => ({ edite: !!editingTextId }));
+    r.verifie('après la saisie : édition close', !finSaisie.edite);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

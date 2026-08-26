@@ -4165,7 +4165,7 @@ function setMode(newMode) {
 
     if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
 
-    creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; wysiwygText.style.display = 'none'; editingTextId = null;
+    creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; wysiwygText.style.display = 'none'; editingTextId = null; if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
     clearSelection();
 
     if (['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon', 'postit'].includes(mode) || (typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) {
@@ -4798,6 +4798,7 @@ function finalizeText() {
         } else if (editingTextId) { deleteObject('text', editingTextId); hasChanged = true; }
 
         wysiwygText.style.display = 'none'; wysiwygText.innerText = ''; editingTextId = null; tempTextLogicalPos = null;
+        if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
         if (hasChanged) { saveState(); draw(); }
     }
 }
@@ -6588,7 +6589,10 @@ function draw() {
                 // 3. SÉLECTION GLOBALE
                 // ==========================================
                 ctx.shadowBlur = 0;
-                if (isSel && !isExportingTransparent) {
+                // Pendant la saisie, le texte vit dans la zone HTML : le cadre
+                // resterait figé sur les dimensions d'avant, à côté du texte
+                // qu'on est en train de taper. On ne le dessine donc pas.
+                if (isSel && !isExportingTransparent && obj.id !== editingTextId) {
                     ctx.strokeStyle = "#6c5ce7"; ctx.lineWidth = lw * 2;
                     if (!obj.isBubble) ctx.strokeRect(startX, obj.y, w, h);
                     if (!obj.locked) {
@@ -7585,7 +7589,7 @@ if (textToolbar) {
 
             dot.addEventListener('click', (e) => {
                 e.stopPropagation();
-                document.execCommand('foreColor', false, c);
+                appliquerCouleurTexte(c);
                 activeStyle.strokeColor = c; // Applique la couleur pour la suite de la frappe
                 updateActiveSwatch(c);
             });
@@ -7609,7 +7613,7 @@ if (textToolbar) {
         // Quand l'utilisateur choisit une couleur dans la roulette
         textColorPicker.addEventListener('input', (e) => {
             const c = e.target.value;
-            document.execCommand('foreColor', false, c);
+            appliquerCouleurTexte(c);
             activeStyle.strokeColor = c;
             updateActiveSwatch(''); // Efface la bordure des pastilles fixes
             wheelBtn.style.borderColor = '#b2bec3'; // Met la bordure sur la roulette
@@ -7630,15 +7634,44 @@ let currentFontIndex = 0;
 
 // Une sélection non vide dans la zone de saisie : police et taille ne doivent
 // alors changer QUE sur les mots surlignés, pas sur tout le bloc.
+//
+// La sélection disparaît quand on tape un bouton de la barre sur tablette :
+// on retient donc la dernière plage surlignée, et on ne l'oublie que si
+// l'utilisateur reclique VOLONTAIREMENT dans le texte (ou ferme la saisie).
+let dernierePlageSaisie = null;
+
+function plageDansSaisie(r) {
+    if (!r || !wysiwygText || wysiwygText.style.display !== 'block') return null;
+    if (r.collapsed) return null;
+    let n = r.commonAncestorContainer;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    if (!n || !wysiwygText.contains(n)) return null;
+    return r;
+}
+
 function selectionDansSaisie() {
     if (!wysiwygText || wysiwygText.style.display !== 'block') return null;
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-    const r = sel.getRangeAt(0);
-    let n = r.commonAncestorContainer;
-    if (n.nodeType === 3) n = n.parentNode;
-    if (!n || !wysiwygText.contains(n)) return null;
-    return r;
+    if (sel && sel.rangeCount) {
+        const vive = plageDansSaisie(sel.getRangeAt(0));
+        if (vive) return vive;
+    }
+    return plageDansSaisie(dernierePlageSaisie);
+}
+
+function oublierSelectionSaisie() { dernierePlageSaisie = null; }
+
+document.addEventListener('selectionchange', () => {
+    if (!wysiwygText || wysiwygText.style.display !== 'block') return;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const r = plageDansSaisie(sel.getRangeAt(0));
+    if (r) dernierePlageSaisie = r.cloneRange();
+});
+
+if (wysiwygText) {
+    // Un clic dans le texte = nouvelle intention : la portion mémorisée saute
+    wysiwygText.addEventListener('pointerdown', () => { dernierePlageSaisie = null; });
 }
 
 function tailleDeBaseSaisie() {
@@ -7655,13 +7688,26 @@ function tailleSelectionCourante() {
     return st && st.taille ? st.taille : null;
 }
 
+// L'élément qui porte réellement le style au début de la plage. Après un
+// habillage, la borne est posée AVANT un <span> : il faut descendre dedans,
+// sinon on relit le style du parent et un clic sur deux serait perdu.
+function elementAuDebut(r) {
+    let n = r.startContainer;
+    if (n.nodeType === 1) {
+        const enfant = n.childNodes[r.startOffset];
+        if (enfant) n = enfant;
+    }
+    while (n && n.nodeType === 1 && n.firstChild) n = n.firstChild;
+    if (n && n.nodeType === 3) n = n.parentNode;
+    return (n && n.nodeType === 1) ? n : null;
+}
+
 // Taille (logique), police et couleur au début de la sélection
 function styleSelectionCourante() {
     const r = selectionDansSaisie();
     if (!r) return null;
-    let n = r.startContainer;
-    if (n.nodeType === 3) n = n.parentNode;
-    if (!n || n.nodeType !== 1) return null;
+    const n = elementAuDebut(r);
+    if (!n || !wysiwygText.contains(n)) return null;
     const cs = getComputedStyle(n);
     const px = parseFloat(cs.fontSize);
     return {
@@ -7671,36 +7717,112 @@ function styleSelectionCourante() {
     };
 }
 
-function appliquerPoliceSelection(font) {
-    if (document.activeElement !== wysiwygText) wysiwygText.focus();
-    document.execCommand('styleWithCSS', false, true);
-    document.execCommand('fontName', false, font);
+// Les nœuds de texte réellement touchés par la plage
+function noeudsTexteDeLaPlage(r) {
+    let racine = r.commonAncestorContainer;
+    if (racine.nodeType !== 1) racine = racine.parentNode;
+    const sortie = [];
+    const marcheur = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT);
+    while (marcheur.nextNode()) {
+        const n = marcheur.currentNode;
+        if (!n.nodeValue || !n.nodeValue.length) continue;
+        if (!wysiwygText.contains(n)) continue;
+        if (r.intersectsNode(n)) sortie.push(n);
+    }
+    // Un nœud simplement frôlé par une borne ne compte pas
+    return sortie.filter(n => {
+        if (n === r.startContainer && r.startOffset >= n.nodeValue.length) return false;
+        if (n === r.endContainer && r.endOffset <= 0) return false;
+        return true;
+    });
 }
 
-// La taille d'une portion est écrite en « em » : elle suit le zoom de la vue
-// et reste juste si l'on agrandit ensuite tout le bloc.
-function appliquerTailleSelection(pxLogique) {
-    const base = tailleDeBaseSaisie() || 24;
-    const ratio = Math.max(0.2, Math.min(8, pxLogique / base));
-    if (document.activeElement !== wysiwygText) wysiwygText.focus();
-    document.execCommand('styleWithCSS', false, true);
-    document.execCommand('fontSize', false, '7'); // marqueur, converti juste après
-    const marques = wysiwygText.querySelectorAll('font[size="7"], [style*="xxx-large"]');
-    marques.forEach(el => {
-        let cible = el;
-        if (el.tagName === 'FONT') {
-            const s = document.createElement('span');
-            s.innerHTML = el.innerHTML;
-            const face = el.getAttribute('face');
-            const col = el.getAttribute('color');
-            if (face) s.style.fontFamily = face;
-            if (col) s.style.color = col;
-            el.replaceWith(s);
-            cible = s;
+// Habille chaque morceau sélectionné d'un <span>, sans passer par execCommand :
+// les couleurs, le gras et les liens déjà posés restent intacts.
+function habillerSelection(decorer) {
+    const r = selectionDansSaisie();
+    if (!r) return false;
+    const noeuds = noeudsTexteDeLaPlage(r);
+    if (!noeuds.length) return false;
+
+    const debutN = r.startContainer, debutO = r.startOffset;
+    const finN = r.endContainer, finO = r.endOffset;
+    const spans = [];
+
+    noeuds.forEach(n => {
+        let cible = n;
+        // On coupe d'abord la fin, sinon les offsets de début ne valent plus rien
+        if (cible === finN && finO < cible.nodeValue.length) cible.splitText(finO);
+        if (cible === debutN && debutO > 0) cible = cible.splitText(debutO);
+        if (!cible.nodeValue) return;
+        // Un <span> qui n'habille QUE ce morceau est réutilisé : sans cela,
+        // chaque clic empilerait une couche de plus.
+        const p = cible.parentNode;
+        let span;
+        if (p && p.tagName === 'SPAN' && p.childNodes.length === 1) {
+            span = p;
+        } else {
+            span = document.createElement('span');
+            p.insertBefore(span, cible);
+            span.appendChild(cible);
         }
-        cible.style.fontSize = (Math.round(ratio * 1000) / 1000) + 'em';
+        decorer(span);
+        spans.push(span);
+    });
+
+    if (!spans.length) return false;
+
+    // On remet le surlignage sur ce qu'on vient d'habiller
+    const nouvelle = document.createRange();
+    nouvelle.setStartBefore(spans[0]);
+    nouvelle.setEndAfter(spans[spans.length - 1]);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(nouvelle);
+    dernierePlageSaisie = nouvelle.cloneRange();
+    return true;
+}
+
+// La couleur suit le même chemin : si une portion est surlignée (même si la
+// tablette a escamoté le surlignage en tapant le bouton), elle seule change.
+function appliquerCouleurTexte(c) {
+    if (selectionDansSaisie() && habillerSelection(span => {
+        span.style.color = c;
+        span.querySelectorAll('[style*="color"], font[color]').forEach(d => {
+            if (d.style) d.style.color = '';
+            if (d.removeAttribute) d.removeAttribute('color');
+        });
+    })) return;
+    document.execCommand('foreColor', false, c);
+}
+
+function appliquerPoliceSelection(font) {
+    return habillerSelection(span => {
+        span.style.fontFamily = font;
+        span.querySelectorAll('[style*="font-family"], font[face]').forEach(d => {
+            if (d.style) d.style.fontFamily = '';
+            if (d.removeAttribute) d.removeAttribute('face');
+        });
+    });
+}
+
+// La taille d'une portion est écrite en « em », relative à ce dont elle hérite :
+// elle suit le zoom de la vue et reste juste si l'on agrandit ensuite le bloc.
+function appliquerTailleSelection(pxLogique) {
+    return habillerSelection(span => {
+        const parent = span.parentNode;
+        let herite = tailleDeBaseSaisie();
+        if (parent && parent.nodeType === 1) {
+            const px = parseFloat(getComputedStyle(parent).fontSize);
+            if (px) herite = px / (zoom || 1);
+        }
+        const ratio = Math.max(0.2, Math.min(8, pxLogique / (herite || 24)));
+        span.style.fontSize = (Math.round(ratio * 1000) / 1000) + 'em';
         // Une taille imbriquée se cumulerait : on nettoie les descendants
-        cible.querySelectorAll('[style*="font-size"]').forEach(d => { d.style.fontSize = ''; });
+        span.querySelectorAll('[style*="font-size"], font[size]').forEach(d => {
+            if (d.style) d.style.fontSize = '';
+            if (d.removeAttribute) d.removeAttribute('size');
+        });
     });
 }
 
@@ -7711,9 +7833,10 @@ function changeFontSize(delta) {
         let cible = Math.round(courante) + delta;
         if (cible < 10) cible = 10;
         if (cible > 200) cible = 200;
-        appliquerTailleSelection(cible);
-        if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
-        return;
+        if (appliquerTailleSelection(cible)) {
+            if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+            return;
+        }
     }
 
     let currentSize = activeStyle.fontSize;
@@ -7744,10 +7867,7 @@ if (btnFontCycle) {
         btnFontCycle.style.fontFamily = newFont;
 
         // Sélection en cours : seule la portion surlignée change de police
-        if (selectionDansSaisie()) {
-            appliquerPoliceSelection(newFont);
-            return;
-        }
+        if (selectionDansSaisie() && appliquerPoliceSelection(newFont)) return;
 
         activeStyle.fontFamily = newFont;
         if (editingTextId) {
@@ -8508,6 +8628,9 @@ function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
     if (unMenuEstOuvert()) { quickMenu.classList.remove('visible'); return; }
+    // En pleine saisie, la barre d'édition suffit : le menu rapide se poserait
+    // en travers du texte voisin.
+    if (editingTextId) { quickMenu.classList.remove('visible'); return; }
 
     // 1. Injection des pastilles de couleur
     if (!document.getElementById('quick-colors-container')) {
