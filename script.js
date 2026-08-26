@@ -1883,14 +1883,59 @@ function recognizeShape() {
             });
             recognized = true; shapeName = "Cercle";
         } else if (simPts.length === 4) {
-            const p1Id = nextId++; const p2Id = nextId++;
-            points.push({ id: p1Id, x: minX, y: minY, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
-            points.push({ id: p2Id, x: maxX, y: maxY, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
-            rectangles.push({
-                id: nextId++, p1_id: p1Id, p2_id: p2Id, color: currentFreehand.color, width: currentFreehand.width, dash: currentFreehand.dash,
-                isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, z: globalZ++
+            // Quatre sommets : rectangle droit, losange, ou quadrilatère quelconque.
+            // Avant, tout finissait en rectangle construit sur la boîte englobante,
+            // ce qui transformait n'importe quel losange en rectangle.
+            const qcx = minX + w / 2, qcy = minY + h / 2;
+            const diamond = [
+                { x: qcx, y: minY }, { x: maxX, y: qcy }, { x: qcx, y: maxY }, { x: minX, y: qcy }
+            ];
+            // Un losange, c'est quatre côtés égaux. On ne le redresse sur la
+            // boîte que s'il est déjà posé sur la pointe : sinon on garderait
+            // l'aire mais on ferait pivoter le dessin de l'utilisateur.
+            const sides = simPts.map((p, i) => {
+                const q = simPts[(i + 1) % 4];
+                return Math.hypot(q.x - p.x, q.y - p.y);
             });
-            recognized = true; shapeName = "Rectangle";
+            const avgSide = (sides[0] + sides[1] + sides[2] + sides[3]) / 4;
+            const isDiamond = avgSide > 0 && sides.every(l => Math.abs(l - avgSide) < avgSide * 0.22);
+            const upright = diamond.every(t => simPts.some(p => Math.hypot(p.x - t.x, p.y - t.y) < diag * 0.08));
+
+            // Rectangle droit : chaque côté est à moins de 15° d'un axe.
+            // (Test sur l'angle et non sur un écart en pixels : un carré incliné
+            // passait pour un rectangle et se retrouvait redressé de force.)
+            const isAxisRect = simPts.every((p, i) => {
+                const q = simPts[(i + 1) % 4];
+                const ang = Math.abs(Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI) % 90;
+                return ang < 15 || ang > 75;
+            });
+
+            if (isAxisRect) {
+                const p1Id = nextId++; const p2Id = nextId++;
+                points.push({ id: p1Id, x: minX, y: minY, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+                points.push({ id: p2Id, x: maxX, y: maxY, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+                rectangles.push({
+                    id: nextId++, p1_id: p1Id, p2_id: p2Id, color: currentFreehand.color, width: currentFreehand.width, dash: currentFreehand.dash,
+                    isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, z: globalZ++
+                });
+                recognized = true; shapeName = "Rectangle";
+            } else {
+                // Le losange est redressé sur la boîte englobante ; les autres
+                // quadrilatères gardent les sommets tracés.
+                const corners = (isDiamond && upright) ? diamond : simPts;
+                let quadIds = [];
+                corners.forEach((p) => {
+                    const pId = nextId++;
+                    points.push({ id: pId, x: p.x, y: p.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+                    quadIds.push(pId);
+                });
+                polygons.push({
+                    id: nextId++, points: quadIds, color: currentFreehand.color, width: currentFreehand.width, dash: currentFreehand.dash,
+                    isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, isClosed: true, z: globalZ++
+                });
+                recognized = true;
+                shapeName = isDiamond ? "Losange" : "Quadrilatère";
+            }
         } else if (simPts.length >= 3 && simPts.length <= 6) {
             let polyPointIds = [];
             simPts.forEach((p) => {
