@@ -2109,6 +2109,17 @@ input[type=range]::-moz-range-thumb {
     min-height: 1em;
 }
 
+/* Titres et listes pendant la saisie : mêmes proportions qu'au rendu final */
+#wysiwyg-text h1 { font-size: 1.6em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.6em; }
+#wysiwyg-text h2 { font-size: 1.3em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.3em; }
+#wysiwyg-text h3 { font-size: 1.15em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.15em; }
+#wysiwyg-text h1:first-child,
+#wysiwyg-text h2:first-child,
+#wysiwyg-text h3:first-child { margin-top: 0; }
+#wysiwyg-text ul,
+#wysiwyg-text ol { margin: 0; padding-left: 1.4em; }
+#wysiwyg-text li { margin: 0; }
+
 #wysiwyg-text:empty:before {
     content: attr(data-placeholder);
     color: #b2bec3;
@@ -2795,6 +2806,13 @@ body.dark-mode {
     display: flex;
     align-items: center;
     gap: 6px;
+    /* La barre s'adapte à l'écran au lieu de sortir du cadre sur tablette */
+    box-sizing: border-box;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 4px;
+    width: max-content;
+    max-width: calc(100vw - 24px);
     padding: 8px 14px !important;
     background: rgba(255, 255, 255, 0.85) !important;
     backdrop-filter: blur(12px);

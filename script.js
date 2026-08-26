@@ -1289,6 +1289,8 @@ const btnReset = document.getElementById('btn-tw-reset');
 const btnLap = document.getElementById('btn-tw-lap');
 const lapsContainer = document.getElementById('tw-laps');
 
+let textResizeHint = null; // libellé affiché pendant le redimensionnement d'un texte
+
 let twMode = 'clock';
 let twInterval = null, currentMs = 0, isTwRunning = false, twLastTick = 0;
 let recordedLaps = [];
@@ -2140,60 +2142,16 @@ function generateSVGString(rect, keepBg) {
                     }
                     svg += `<image href="${obj.mathImg.src}" x="${obj.x}" y="${obj.y}" width="${obj.mathW}" height="${obj.mathH}"${transformAttr} />`;
                 } else {
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = obj.content;
-                    const lines = []; let currentLine = [];
-
-                    function parseNode(node, currentStyle) {
-                        if (node.nodeType === Node.TEXT_NODE) {
-                            const textParts = node.textContent.replace(/\u200B/g, '').split('\n');
-                            textParts.forEach((txt, idx) => {
-                                if (txt.length > 0) currentLine.push({ text: txt, style: { ...currentStyle } });
-                                if (idx < textParts.length - 1) {
-                                    lines.push(currentLine); currentLine = [];
-                                }
-                            });
-                        } else if (node.nodeName === 'BR') {
-                            lines.push(currentLine); currentLine = [];
-                        } else if (node.nodeName === 'DIV' || node.nodeName === 'P') {
-                            if (currentLine.length > 0) { lines.push(currentLine); currentLine = []; }
-                            const newStyle = { ...currentStyle };
-                            Array.from(node.childNodes).forEach(c => parseNode(c, newStyle));
-                            if (currentLine.length > 0) { lines.push(currentLine); currentLine = []; }
-                        } else {
-                            const newStyle = { ...currentStyle };
-                            if (node.nodeName === 'B' || node.nodeName === 'STRONG' || (node.style && node.style.fontWeight === 'bold')) newStyle.bold = true;
-                            if (node.nodeName === 'I' || node.nodeName === 'EM' || (node.style && node.style.fontStyle === 'italic')) newStyle.italic = true;
-                            if (node.nodeName === 'U' || (node.style && node.style.textDecoration && node.style.textDecoration.includes('underline'))) newStyle.underline = true;
-                            if (node.style && node.style.color) newStyle.color = node.style.color;
-                            if (node.hasAttribute && node.hasAttribute('color')) newStyle.color = node.getAttribute('color');
-                            Array.from(node.childNodes).forEach(c => parseNode(c, newStyle));
-                        }
-                    }
-                    Array.from(tempDiv.childNodes).forEach(c => parseNode(c, {}));
-                    if (currentLine.length > 0 || lines.length === 0) lines.push(currentLine);
-
                     const align = obj.align || 'left';
                     const fontSize = obj.fontSize || 24;
                     const fontFamily = obj.fontFamily || 'sans-serif';
                     const lineHeight = obj.lineHeight || Math.round(fontSize * 1.2);
-                    let startY = obj.y + (fontSize * 0.1) + (lineHeight - fontSize * 1.2) / 2;
 
-                    let maxW = 0;
-                    const lineMetrics = lines.map(line => {
-                        let textWidth = 0;
-                        line.forEach(seg => {
-                            // Pseudo-mesure via context existant ou estimation si indisponible
-                            if (typeof ctx !== 'undefined') {
-                                ctx.font = `${seg.style.italic ? 'italic ' : ''}${seg.style.bold ? 'bold ' : ''}${fontSize}px ${fontFamily}`;
-                                textWidth += ctx.measureText(seg.text).width;
-                            } else {
-                                textWidth += seg.text.length * (fontSize * 0.6); // Fallback très basique
-                            }
-                        });
-                        if (textWidth > maxW) maxW = textWidth;
-                        return textWidth;
-                    });
+                    // Même moteur de mise en page que le rendu à l'écran
+                    const measureCtx = (typeof ctx !== 'undefined') ? ctx : null;
+                    const layout = layoutTextObject(obj, measureCtx);
+                    const lines = layout.lines;
+                    let maxW = layout.width;
 
                     // Forcer une largeur minimale si c'est une bulle vide
                     if (obj.isBubble && maxW < 20) { maxW = 150; }
@@ -2202,7 +2160,8 @@ function generateSVGString(rect, keepBg) {
                     // Convention canvas : en centré sans largeur fixe, obj.x est le CENTRE du bloc
                     const exX = (align === 'center' && !obj.fixedWidth) ? obj.x - maxW / 2 : obj.x;
                     const cx = exX + (maxW / 2);
-                    const cy = obj.y + ((lines.length * lineHeight) / 2);
+                    const blockH = Math.max(layout.height, obj.minHeight || 0);
+                    const cy = obj.y + (blockH / 2);
                     if (angle !== 0) {
                         transformAttr = ` transform="rotate(${angleDeg}, ${cx}, ${cy})"`;
                     }
@@ -2212,7 +2171,7 @@ function generateSVGString(rect, keepBg) {
                     // 🌟 EXPORT VECTORIEL DES BULLES INTERACTIVES
                     if (obj.isBubble) {
                         let pad = obj.bubblePad !== undefined ? obj.bubblePad : 25;
-                        let bw = maxW + pad * 2; let bh = (lines.length * lineHeight) + pad * 2;
+                        let bw = maxW + pad * 2; let bh = blockH + pad * 2;
                         let bx = exX - pad; let by = obj.y - pad;
 
                         let locTailX = obj.tailX; let locTailY = obj.tailY;
@@ -2260,24 +2219,26 @@ function generateSVGString(rect, keepBg) {
                     }
 
                     // Export du texte
-                    lines.forEach((line, i) => {
-                        const lineWidth = lineMetrics[i];
-                        let curX = exX;
-                        if (align === 'center') curX = exX + (maxW / 2) - (lineWidth / 2);
-                        else if (align === 'right') curX = exX + maxW - lineWidth;
+                    lines.forEach((L) => {
+                        const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
+                        let curX = exX + L.indent;
+                        if (align === 'center') curX = exX + (maxW - L.contentW) / 2;
+                        else if (align === 'right') curX = exX + maxW - L.contentW;
 
-                        svg += `<text x="${curX}" y="${startY + i * lineHeight}" font-family="${fontFamily}" font-size="${fontSize}px" dominant-baseline="hanging" xml:space="preserve">`;
+                        if (L.marker) {
+                            svg += `<text x="${curX}" y="${lineY}" font-family="${fontFamily}" font-size="${L.size}px" font-weight="${L.bold ? 'bold' : 'normal'}" fill="${color}" dominant-baseline="hanging" xml:space="preserve">${L.marker}</text>`;
+                        }
+                        curX += L.markerW;
 
-                        line.forEach(seg => {
-                            const fw = seg.style.bold ? 'bold' : 'normal';
+                        svg += `<text x="${curX}" y="${lineY}" font-family="${fontFamily}" font-size="${L.size}px" dominant-baseline="hanging" xml:space="preserve">`;
+                        L.segs.forEach(seg => {
+                            const fw = (seg.style.bold || L.bold) ? 'bold' : 'normal';
                             const fs = seg.style.italic ? 'italic' : 'normal';
                             const td = seg.style.underline ? 'underline' : 'none';
                             const fc = seg.style.color || color;
                             const escapedText = seg.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
                             svg += `<tspan font-weight="${fw}" font-style="${fs}" text-decoration="${td}" fill="${fc}">${escapedText}</tspan>`;
                         });
-
                         svg += `</text>`;
                     });
 
@@ -2858,7 +2819,7 @@ function updateWysiwygPosition() {
         let currentFont = activeStyle.fontFamily || 'sans-serif';
         let currentAlign = activeStyle.textAlign || 'left';
         let currentColor = activeStyle.strokeColor;
-        let anchorX = null, anchorY = null, fixedW = 0;
+        let anchorX = null, anchorY = null, fixedW = 0, colW = 0;
 
         if (editingTextId) {
             const t = getObjectById('text', editingTextId);
@@ -2868,10 +2829,22 @@ function updateWysiwygPosition() {
                 currentAlign = t.align || 'left';
                 currentColor = t.color || t.strokeColor || activeStyle.strokeColor;
                 anchorX = t.x; anchorY = t.y; fixedW = t.fixedWidth || 0;
+                colW = t.colWidth || 0;
             }
         } else if (tempTextLogicalPos) {
             anchorX = tempTextLogicalPos.x; anchorY = tempTextLogicalPos.y;
             fixedW = tempTextLogicalPos.fixedWidth || 0;
+            colW = tempTextLogicalPos.colWidth || 0;
+        }
+
+        // Colonne : la saisie se replie exactement comme le rendu final
+        if (colW > 0) {
+            wysiwygText.style.whiteSpace = 'pre-wrap';
+            wysiwygText.style.width = (colW * zoom) + 'px';
+            wysiwygText.style.maxWidth = 'none';
+        } else {
+            wysiwygText.style.whiteSpace = 'nowrap';
+            wysiwygText.style.width = 'auto';
         }
 
         wysiwygText.style.fontSize = (currentSize * zoom) + 'px';
@@ -2890,7 +2863,7 @@ function updateWysiwygPosition() {
         // La police/taille sont posées AVANT la mesure d'offsetWidth pour que la largeur soit juste.
         if (anchorX !== null) {
             let left = anchorX * zoom + panX;
-            if (currentAlign === 'center') left = (anchorX + fixedW / 2) * zoom + panX - wysiwygText.offsetWidth / 2;
+            if (currentAlign === 'center' && !colW) left = (anchorX + fixedW / 2) * zoom + panX - wysiwygText.offsetWidth / 2;
             wysiwygText.style.left = left + 'px';
             wysiwygText.style.top = (anchorY * zoom + panY) + 'px';
         }
@@ -4060,6 +4033,16 @@ function getHandleAt(lx, ly, obj, type) {
             if (Math.abs(unrotatedX - hx[i]) <= hw && Math.abs(unrotatedY - hy[i]) <= hw) return hNames[i];
         }
     }
+    // Texte : côtés = largeur de colonne, coins = agrandir tout le bloc
+    if (type === 'text' && !obj.isBubble && !obj.mathImg) {
+        const hx = [startX, startX + w, startX + w, startX, startX + w];
+        const hy = [startY, startY, startY + h, startY + h, startY + h / 2];
+        const hNames = ['TL', 'TR', 'BR', 'BL', 'R'];
+        for (let i = 0; i < 5; i++) {
+            if (Math.abs(unrotatedX - hx[i]) <= hw && Math.abs(unrotatedY - hy[i]) <= hw) return hNames[i];
+        }
+        if (Math.abs(unrotatedX - startX) <= hw && Math.abs(unrotatedY - (startY + h / 2)) <= hw) return 'L';
+    }
     return null;
 }
 
@@ -4169,6 +4152,175 @@ function getObjectById(type, id) {
     if (type === 'polygon') return polygons.find(p => p.id === id); if (type === 'image') return images.find(i => i.id === id);
     if (type === 'arc') return arcs.find(a => a.id === id);
     return null;
+}
+
+// ==============================================================================
+// MISE EN PAGE DU TEXTE (partagée par le rendu canvas et l'export SVG)
+// Analyse le HTML du bloc (gras, italique, souligné, couleurs, titres, listes)
+// puis calcule les lignes, en repliant le texte si le bloc a une largeur de
+// colonne (obj.colWidth). Sans colonne, le comportement est celui d'avant :
+// on ne coupe que sur les retours à la ligne explicites.
+// ==============================================================================
+const TEXT_HEADING_FACTOR = { H1: 1.6, H2: 1.3, H3: 1.15 };
+
+function layoutTextObject(obj, measureCtx) {
+    const baseSize = obj.fontSize || 24;
+    const fontFamily = obj.fontFamily || 'sans-serif';
+    const baseLH = obj.lineHeight || Math.round(baseSize * 1.2);
+    const col = obj.colWidth || 0;
+
+    const measure = (text, style, size) => {
+        if (!text) return 0;
+        if (!measureCtx) return text.length * size * 0.55; // secours si pas de contexte
+        measureCtx.font = `${style && style.italic ? 'italic ' : ''}${(style && style.bold) ? 'bold ' : ''}${size}px ${fontFamily}`;
+        return measureCtx.measureText(text).width;
+    };
+
+    // --- 1. HTML -> paragraphes ---
+    const paras = [];
+    let cur = null;
+    const openPara = (props) => { cur = { segs: [], marker: null, indent: 0, factor: 1, bold: false, ...(props || {}) }; paras.push(cur); return cur; };
+    const para = () => cur || openPara();
+    // Un paragraphe vide juste avant une liste ou un titre est un artefact du
+    // HTML de l'éditeur, pas une ligne voulue : on le récupère.
+    const reuseEmptyPara = () => {
+        if (cur && cur.segs.length === 0 && paras[paras.length - 1] === cur) { paras.pop(); cur = null; }
+    };
+
+    const container = document.createElement('div');
+    container.innerHTML = (obj.content === undefined || obj.content === null) ? ' ' : obj.content;
+
+    function walk(node, style, ctxBlock) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const parts = node.textContent.replace(/[\u200B\uFEFF]/g, '').split('\n');
+            parts.forEach((txt, i) => {
+                if (i > 0) openPara(ctxBlock);
+                if (txt.length > 0) para().segs.push({ text: txt, style: { ...style } });
+            });
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const name = node.nodeName;
+
+        if (name === 'BR') { openPara(ctxBlock); return; }
+
+        if (name === 'UL' || name === 'OL') {
+            reuseEmptyPara();
+            const ordered = (name === 'OL');
+            let n = parseInt(node.getAttribute('start')) || 1;
+            Array.from(node.children).forEach(li => {
+                if (li.nodeName !== 'LI') { walk(li, style, ctxBlock); return; }
+                openPara({ ...ctxBlock, marker: ordered ? `${n++}.` : '•', indent: (ctxBlock.indent || 0) + 1 });
+                Array.from(li.childNodes).forEach(c => walk(c, style, { ...ctxBlock, indent: (ctxBlock.indent || 0) + 1 }));
+            });
+            openPara(ctxBlock); // on repart en paragraphe normal après la liste
+            return;
+        }
+
+        if (TEXT_HEADING_FACTOR[name]) {
+            reuseEmptyPara();
+            const block = { ...ctxBlock, factor: TEXT_HEADING_FACTOR[name], bold: true };
+            openPara(block);
+            Array.from(node.childNodes).forEach(c => walk(c, { ...style, bold: true }, block));
+            openPara(ctxBlock);
+            return;
+        }
+
+        if (name === 'DIV' || name === 'P' || name === 'LI') {
+            if (cur && cur.segs.length > 0) openPara(ctxBlock);
+            const block = name === 'LI' ? { ...ctxBlock, marker: '•', indent: (ctxBlock.indent || 0) + 1 } : ctxBlock;
+            if (name === 'LI') openPara(block);
+            Array.from(node.childNodes).forEach(c => walk(c, style, block));
+            openPara(ctxBlock);
+            return;
+        }
+
+        const st = { ...style };
+        if (name === 'B' || name === 'STRONG' || (node.style && node.style.fontWeight === 'bold')) st.bold = true;
+        if (name === 'I' || name === 'EM' || (node.style && node.style.fontStyle === 'italic')) st.italic = true;
+        if (name === 'U' || (node.style && node.style.textDecoration && node.style.textDecoration.includes('underline'))) st.underline = true;
+        if (node.style && node.style.color) st.color = node.style.color;
+        if (node.hasAttribute && node.hasAttribute('color')) st.color = node.getAttribute('color');
+        Array.from(node.childNodes).forEach(c => walk(c, st, ctxBlock));
+    }
+
+    // Pas de paragraphe ouvert d'avance : il naît au premier contenu rencontré,
+    // sinon une liste ou un titre en tête de bloc créerait une ligne vide.
+    if (!obj.mathImg) {
+        Array.from(container.childNodes).forEach(c => walk(c, {}, {}));
+    }
+    // Un paragraphe vide en fin d'analyse est un artefact, sauf s'il est seul
+    while (paras.length > 1 && paras[paras.length - 1].segs.length === 0) paras.pop();
+    if (paras.length === 0) openPara();
+
+    // --- 2. Repli d'un paragraphe dans la largeur disponible ---
+    const wrap = (p, avail, size) => {
+        const out = [];
+        let line = [], lineW = 0;
+        const flush = () => { out.push(line); line = []; lineW = 0; };
+
+        p.segs.forEach(seg => {
+            const style = { ...seg.style, bold: seg.style.bold || p.bold };
+            const tokens = seg.text.match(/\s+|\S+/g) || [];
+            tokens.forEach(tok => {
+                const w = measure(tok, style, size);
+                if (/^\s+$/.test(tok)) {
+                    if (line.length === 0) return;      // pas d'espace en tête de ligne
+                    line.push({ text: tok, style }); lineW += w;
+                    return;
+                }
+                if (avail !== Infinity && lineW + w > avail && line.length > 0) {
+                    while (line.length && /^\s+$/.test(line[line.length - 1].text)) {
+                        lineW -= measure(line[line.length - 1].text, line[line.length - 1].style, size);
+                        line.pop();
+                    }
+                    flush();
+                }
+                if (avail !== Infinity && w > avail) {
+                    // Mot plus long que la colonne : coupure caractère par caractère
+                    let chunk = '';
+                    for (const ch of tok) {
+                        if (measure(chunk + ch, style, size) > avail && chunk) {
+                            line.push({ text: chunk, style }); flush(); chunk = ch;
+                        } else chunk += ch;
+                    }
+                    if (chunk) { line.push({ text: chunk, style }); lineW += measure(chunk, style, size); }
+                    return;
+                }
+                line.push({ text: tok, style }); lineW += w;
+            });
+        });
+        if (line.length > 0 || out.length === 0) flush();
+        return out;
+    };
+
+    // --- 3. Assemblage des lignes ---
+    const lines = [];
+    let y = 0, maxW = 0;
+    paras.forEach(p => {
+        const size = Math.round(baseSize * p.factor);
+        const lh = Math.round(baseLH * p.factor);
+        // Un peu d'air avant un titre, sauf s'il ouvre le bloc
+        if (p.factor > 1 && lines.length > 0) y += Math.round(baseLH * 0.4);
+        const indentPx = (p.indent || 0) * size * 1.4;
+        const markerW = p.marker ? measure(p.marker + ' ', { bold: p.bold }, size) : 0;
+        const avail = col > 0 ? Math.max(size, col - indentPx - markerW) : Infinity;
+
+        wrap(p, avail, size).forEach((segs, i) => {
+            let segsW = 0;
+            segs.forEach(s => { segsW += measure(s.text, s.style, size); });
+            const contentW = (i === 0 ? markerW : markerW) + segsW; // le retrait de continuation garde la gouttière
+            maxW = Math.max(maxW, indentPx + contentW);
+            lines.push({
+                segs, size, lineHeight: lh, y,
+                indent: indentPx, marker: i === 0 ? p.marker : null, markerW,
+                bold: p.bold, contentW
+            });
+            y += lh;
+        });
+    });
+
+    return { lines, maxW, width: col > 0 ? col : maxW, height: y };
 }
 
 function snapToGrid(lx, ly) {
@@ -4373,6 +4525,7 @@ function finalizeText() {
                 }
             } else if (tempTextLogicalPos) {
                 const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: activeStyle.strokeColor, fontSize: activeStyle.fontSize, fontFamily: activeStyle.fontFamily || 'sans-serif', align: activeStyle.textAlign || 'left', lineHeight: activeStyle.lineHeight, z: globalZ++ };
+                if (tempTextLogicalPos.colWidth) newText.colWidth = tempTextLogicalPos.colWidth;
                 if (tempTextLogicalPos.isBubble) {
                     newText.isBubble = true;
                     newText.bubbleShape = tempTextLogicalPos.bubbleShape;
@@ -4390,11 +4543,165 @@ function finalizeText() {
     }
 }
 wysiwygText.addEventListener('blur', finalizeText);
+// Applique un style de bloc (titre, paragraphe) à la ligne courante.
+// execCommand('formatBlock') ne fait rien quand la ligne n'est pas déjà dans
+// un bloc — cas d'une zone de saisie vierge : on crée alors le bloc à la main.
+function applyBlockTag(tag) {
+    const inTag = () => {
+        const sel = window.getSelection();
+        let n = sel && sel.anchorNode;
+        while (n && n !== wysiwygText) {
+            if (n.nodeType === 1 && n.nodeName.toLowerCase() === tag) return true;
+            n = n.parentNode;
+        }
+        return false;
+    };
+    document.execCommand('formatBlock', false, tag === 'p' ? '<div>' : `<${tag}>`);
+    if (tag === 'p' || inTag()) return;
+
+    document.execCommand('insertHTML', false, `<${tag}><span id="__cursor_anchor"></span></${tag}>`);
+    const marker = document.getElementById('__cursor_anchor');
+    if (marker && marker.parentNode) {
+        const host = marker.parentNode;
+        marker.remove();
+        // Un bloc totalement vide ne peut pas recevoir le curseur : il lui faut
+        // un <br>, sinon le curseur retombe avant le bloc et la frappe s'égare.
+        if (!host.firstChild) host.appendChild(document.createElement('br'));
+        const r = document.createRange();
+        r.selectNodeContents(host); r.collapse(true);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(r);
+    }
+}
+
 wysiwygText.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); finalizeText(); canvas.focus(); }
+
+    // Tabulation : retrait / retrait négatif dans les listes, sans quitter la saisie
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        document.execCommand(e.shiftKey ? 'outdent' : 'indent', false, null);
+        return;
+    }
+
+    // Raccourcis de frappe : « - » puis espace = puce, « 1. » = liste numérotée,
+    // « # » ou « ## » = titre. On les déclenche sur la barre d'espace.
+    if (e.key === ' ') {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !sel.isCollapsed) return;
+        const node = sel.anchorNode;
+        if (!node || node.nodeType !== Node.TEXT_NODE) return;
+        const before = node.textContent.slice(0, sel.anchorOffset);
+        // uniquement en tout début de ligne
+        if (!/^\s*(-|\*|1\.|#|##)$/.test(before)) return;
+        const token = before.trim();
+
+        e.preventDefault();
+        const range = document.createRange();
+        range.setStart(node, sel.anchorOffset - token.length);
+        range.setEnd(node, sel.anchorOffset);
+        range.deleteContents();
+        // Indispensable : on replace le curseur après la suppression, sinon la
+        // commande suivante s'applique à une position périmée
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        // Une ligne vidée de son marqueur doit garder un <br>, sinon elle
+        // fusionne avec la précédente et la commande porte sur la mauvaise ligne
+        let blk = sel.anchorNode;
+        while (blk && blk !== wysiwygText && !(blk.nodeType === 1 && /^(DIV|P|H1|H2|H3|LI)$/.test(blk.nodeName))) blk = blk.parentNode;
+        if (blk && blk !== wysiwygText && !blk.textContent.trim() && !blk.querySelector('br')) {
+            blk.appendChild(document.createElement('br'));
+            const r2 = document.createRange();
+            r2.selectNodeContents(blk); r2.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r2);
+        }
+
+        if (token === '-' || token === '*') document.execCommand('insertUnorderedList', false, null);
+        else if (token === '1.') document.execCommand('insertOrderedList', false, null);
+        else if (token === '#') applyBlockTag('h1');
+        else if (token === '##') applyBlockTag('h2');
+        if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+    }
 });
+
+// --- Collage depuis Word / LibreOffice / une page web ---
+// On garde le sens (gras, italique, souligné, titres, listes, retours à la
+// ligne) et on jette tout le reste : styles Word, polices, tableaux, images.
+wysiwygText.addEventListener('paste', (e) => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const html = dt.getData('text/html');
+    e.preventDefault();
+
+    if (!html) {
+        const plain = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+        document.execCommand('insertHTML', false,
+            plain.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>').join('<br>'));
+        return;
+    }
+
+    const KEEP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', UL: 'ul', OL: 'ol', LI: 'li', BR: 'br', P: 'div', DIV: 'div', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h3' };
+    const src = document.createElement('div');
+    src.innerHTML = html;
+
+    const clean = (node) => {
+        const frag = document.createDocumentFragment();
+        Array.from(node.childNodes).forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+                frag.appendChild(document.createTextNode(child.textContent.replace(/\s+/g, ' ')));
+                return;
+            }
+            if (child.nodeType !== Node.ELEMENT_NODE) return;
+
+            // Word et LibreOffice portent le gras/italique par un style en ligne
+            const cs = child.style || {};
+            const emphases = [];
+            if (/bold|^[6-9]00$/.test(cs.fontWeight || '')) emphases.push('b');
+            if ((cs.fontStyle || '') === 'italic') emphases.push('i');
+            if (((cs.textDecoration || '') + (cs.textDecorationLine || '')).includes('underline')) emphases.push('u');
+
+            const tag = KEEP[child.nodeName];
+            let inner = (tag === 'br') ? document.createDocumentFragment() : clean(child);
+            emphases.forEach(t => { const e = document.createElement(t); e.appendChild(inner); inner = e; });
+
+            if (!tag) { frag.appendChild(inner); return; } // on garde le contenu, pas la balise
+            const el = document.createElement(tag);
+            if (tag !== 'br') el.appendChild(inner);
+            frag.appendChild(el);
+        });
+        return frag;
+    };
+
+    const outDiv = document.createElement('div');
+    outDiv.appendChild(clean(src));
+    let out = outDiv.innerHTML.replace(/<div>\s*<\/div>/g, '<br>').trim();
+    document.execCommand('insertHTML', false, out || '');
+    if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+});
+// Repli automatique : dès que la ligne atteint le bord du tableau, le bloc
+// prend une largeur de colonne et le texte revient à la ligne tout seul.
+// (Ajustable ensuite avec les poignées latérales.)
+function autoWrapWhileTyping() {
+    const t = editingTextId ? getObjectById('text', editingTextId) : null;
+    const target = t || tempTextLogicalPos;
+    if (!target || target.colWidth) return false;
+
+    const left = wysiwygText.getBoundingClientRect().left;
+    const available = (window.innerWidth - left - 30) / zoom;
+    if (available < 120) return false;
+    if (wysiwygText.scrollWidth / zoom <= available) return false;
+
+    target.colWidth = Math.round(available);
+    updateWysiwygPosition();
+    if (t) draw();
+    return true;
+}
+
 // En centré, la boîte de saisie doit rester centrée sur son ancre pendant la frappe
 wysiwygText.addEventListener('input', () => {
+    autoWrapWhileTyping();
     const t = editingTextId ? getObjectById('text', editingTextId) : null;
     const align = t ? (t.align || 'left') : (activeStyle.textAlign || 'left');
     if (align === 'center') updateWysiwygPosition();
@@ -4792,7 +5099,7 @@ canvas.addEventListener('pointermove', (e) => {
         requestAnimationFrame(draw); return;
     }
 
-    if (e.buttons === 0 && !activePointers.has(e.pointerId)) { isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; draggedHandle = null; activeGuides = { x: [], y: [] }; }
+    if (e.buttons === 0 && !activePointers.has(e.pointerId)) { isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
 
     if (mode === 'laser' && currentLaserStroke) {
         // Lissage du tracé : on suit le pointeur avec un filtre passe-bas
@@ -4937,6 +5244,52 @@ canvas.addEventListener('pointermove', (e) => {
                 let dx = uX - (obj._cachedStartX + obj._cachedW);
                 let dy = uY - (obj.y + obj._cachedH);
                 obj.bubblePad = Math.max(10, Math.max(dx, dy));
+            }
+            else if (type === 'text') {
+                // Côtés = largeur de colonne (le texte se replie, la police ne bouge pas)
+                // Coins  = agrandissement proportionnel (police + colonne)
+                const angle = obj.angle || 0;
+                const wNow = obj._cachedW || 100, hNow = obj._cachedH || 50;
+                const sxNow = obj._cachedStartX !== undefined ? obj._cachedStartX : obj.x;
+                const cX = sxNow + wNow / 2, cY = obj.y + hNow / 2;
+                const unrot = (px, py) => ({
+                    x: Math.cos(-angle) * (px - cX) - Math.sin(-angle) * (py - cY) + cX,
+                    y: Math.sin(-angle) * (px - cX) + Math.cos(-angle) * (py - cY) + cY
+                });
+                const now = unrot(rawPos.x, rawPos.y);
+                const prevRaw = getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY });
+                const prev = unrot(prevRaw.x, prevRaw.y);
+                const isCorner = ['TL', 'TR', 'BL', 'BR'].includes(draggedHandle);
+                const minCol = (obj.fontSize || 24) * 3;
+
+                if (!isCorner) {
+                    const dx = now.x - prev.x;
+                    let col = obj.colWidth || wNow;
+                    if (draggedHandle === 'R') col += dx;
+                    else { col -= dx; }
+                    col = Math.max(minCol, col);
+                    if (draggedHandle === 'L') obj.x += (obj.colWidth || wNow) - col;
+                    obj.colWidth = col;
+                    textResizeHint = `Colonne : ${Math.round(col)} px`;
+                } else {
+                    // Facteur d'échelle : distance au coin opposé, qui reste fixe
+                    const ax = draggedHandle.includes('L') ? sxNow + wNow : sxNow;
+                    const ay = draggedHandle.includes('T') ? obj.y + hNow : obj.y;
+                    const dNow = Math.hypot(now.x - ax, now.y - ay);
+                    const dPrev = Math.hypot(prev.x - ax, prev.y - ay);
+                    let k = (dPrev > 2) ? dNow / dPrev : 1;
+                    k = Math.max(0.7, Math.min(1.4, k));
+
+                    const oldSize = obj.fontSize || 24;
+                    const newSize = Math.max(8, Math.min(400, oldSize * k));
+                    const ratio = newSize / oldSize;
+                    obj.fontSize = Math.round(newSize * 10) / 10;
+                    if (obj.lineHeight) obj.lineHeight = Math.round(obj.lineHeight * ratio * 10) / 10;
+                    if (obj.colWidth) obj.colWidth = obj.colWidth * ratio;
+                    if (draggedHandle.includes('L')) obj.x -= wNow * (ratio - 1);
+                    if (draggedHandle.includes('T')) obj.y -= hNow * (ratio - 1);
+                    textResizeHint = `Taille : ${Math.round(obj.fontSize)} px`;
+                }
             }
             else if (type === 'image') {
                 const angle = obj.angle || 0;
@@ -5245,7 +5598,7 @@ function handlePointerUp(e) {
         draw(); return;
     }
 
-    if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; activeGuides = { x: [], y: [] }; }
+    if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
     if (isDrawingFreehand) { isDrawingFreehand = false; if (currentFreehand.points.length > 1) { freehands.push(currentFreehand); saveState(); } currentFreehand = null; }
     updateCursor(); draw();
 }
@@ -5555,67 +5908,27 @@ function draw() {
             else if (item.type === 'text') {
                 let w = 0, h = 0, startX = obj._cachedStartX || obj.x;
 
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = obj.content || " ";
-                const lines = []; let currentLine = [];
-
-                function parseNode(node, currentStyle) {
-                    if (node.nodeType === Node.TEXT_NODE) {
-                        const textParts = node.textContent.replace(/\u200B/g, '').split('\n');
-                        textParts.forEach((txt, idx) => {
-                            if (txt.length > 0) currentLine.push({ text: txt, style: { ...currentStyle } });
-                            if (idx < textParts.length - 1) { lines.push(currentLine); currentLine = []; }
-                        });
-                    } else if (node.nodeName === 'BR') { lines.push(currentLine); currentLine = []; }
-                    else if (node.nodeName === 'DIV' || node.nodeName === 'P') {
-                        if (currentLine.length > 0) { lines.push(currentLine); currentLine = []; }
-                        const newStyle = { ...currentStyle };
-                        Array.from(node.childNodes).forEach(c => parseNode(c, newStyle));
-                        if (currentLine.length > 0) { lines.push(currentLine); currentLine = []; }
-                    } else {
-                        const newStyle = { ...currentStyle };
-                        if (node.nodeName === 'B' || node.nodeName === 'STRONG' || (node.style && node.style.fontWeight === 'bold')) newStyle.bold = true;
-                        if (node.nodeName === 'I' || node.nodeName === 'EM' || (node.style && node.style.fontStyle === 'italic')) newStyle.italic = true;
-                        if (node.nodeName === 'U' || (node.style && node.style.textDecoration && node.style.textDecoration.includes('underline'))) newStyle.underline = true;
-                        if (node.style && node.style.color) newStyle.color = node.style.color;
-                        Array.from(node.childNodes).forEach(c => parseNode(c, newStyle));
-                    }
-                }
-                if (!obj.mathImg) {
-                    Array.from(tempDiv.childNodes).forEach(c => parseNode(c, {}));
-                    if (currentLine.length > 0 || lines.length === 0) lines.push(currentLine);
-                }
-
                 const fontSize = obj.fontSize || 24;
                 const fontFamily = obj.fontFamily || 'sans-serif';
                 const lineHeight = obj.lineHeight || Math.round(fontSize * 1.2);
-                let maxW = 0;
+                const layout = obj.mathImg ? null : layoutTextObject(obj, ctx);
+                const lines = layout ? layout.lines : [];
 
                 if (obj.mathImg) {
                     w = obj.mathW; h = obj.mathH; startX = obj.x;
                 } else {
-                    const lineMetrics = lines.map(line => {
-                        let lineW = 0;
-                        line.forEach(seg => {
-                            ctx.font = `${seg.style.italic ? 'italic ' : ''}${seg.style.bold ? 'bold ' : ''}${fontSize}px ${fontFamily}`;
-                            lineW += ctx.measureText(seg.text).width;
-                        });
-                        if (lineW > maxW) maxW = lineW;
-                        return lineW;
-                    });
-                    
                     if (obj.fixedWidth && obj.fixedHeight) {
-                        w = Math.max(maxW, obj.fixedWidth);
-                        h = Math.max(lines.length * lineHeight, obj.fixedHeight);
+                        w = Math.max(layout.width, obj.fixedWidth);
+                        h = Math.max(layout.height, obj.fixedHeight);
                     } else {
-                        w = maxW; 
-                        h = lines.length * lineHeight; 
+                        w = layout.width;
+                        h = Math.max(layout.height, obj.minHeight || 0);
                     }
-                    
+
                     if (obj.isMinimized && obj.bubbleShape === 'postit') {
                         w = 40; h = 40;
                     }
-                    
+
                     startX = obj.align === 'center' ? obj.x + (obj.fixedWidth ? obj.fixedWidth/2 : 0) - w / 2 : obj.x;
                     if (obj.isBubble && w < 20 && !obj.isMinimized) { w = 150; h = 30; }
                 }
@@ -5895,32 +6208,37 @@ function draw() {
                         ctx.drawImage(obj.mathImg, startX, obj.y, w, h);
                     } else {
                         const align = obj.align || 'left';
-                        // Le demi-interligne : le DOM centre chaque ligne dans sa line-box,
-                        // on compense pour que le rendu tombe au même endroit que la saisie
-                        let startY = obj.y + (fontSize * 0.1) + (lineHeight - fontSize * 1.2) / 2;
                         ctx.textBaseline = 'top';
                         ctx.textAlign = 'left'; // 🌟 C'EST CECI QUI RÉPARE LE DÉCALAGE !
 
-                        lines.forEach((line, i) => {
-                            let lineW = 0;
-                            line.forEach(seg => {
-                                ctx.font = `${seg.style.italic ? 'italic ' : ''}${seg.style.bold ? 'bold ' : ''}${fontSize}px ${fontFamily}`;
-                                lineW += ctx.measureText(seg.text).width;
-                            });
-                            let curX = startX;
-                            if (align === 'center') curX = startX + (w / 2) - (lineW / 2);
-                            else if (align === 'right') curX = startX + w - lineW;
+                        lines.forEach((L) => {
+                            // Le demi-interligne : le DOM centre chaque ligne dans sa
+                            // line-box, on compense pour retomber sur la saisie
+                            const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
+                            const setFont = (st) => { ctx.font = `${st.italic ? 'italic ' : ''}${(st.bold || L.bold) ? 'bold ' : ''}${L.size}px ${fontFamily}`; };
 
-                            line.forEach(seg => {
-                                ctx.font = `${seg.style.italic ? 'italic ' : ''}${seg.style.bold ? 'bold ' : ''}${fontSize}px ${fontFamily}`;
+                            let curX = startX + L.indent;
+                            if (align === 'center') curX = startX + (w - L.contentW) / 2;
+                            else if (align === 'right') curX = startX + w - L.contentW;
+
+                            if (L.marker) {
+                                setFont({ bold: L.bold });
+                                ctx.fillStyle = renderColor;
+                                ctx.fillText(L.marker, curX, lineY);
+                            }
+                            curX += L.markerW;
+
+                            L.segs.forEach(seg => {
+                                setFont(seg.style);
                                 ctx.fillStyle = seg.style.color || renderColor;
-                                ctx.fillText(seg.text, curX, startY + i * lineHeight);
+                                ctx.fillText(seg.text, curX, lineY);
+                                const sw = ctx.measureText(seg.text).width;
                                 if (seg.style.underline) {
-                                    const sw = ctx.measureText(seg.text).width;
-                                    ctx.beginPath(); ctx.moveTo(curX, startY + i * lineHeight + fontSize * 1.1); ctx.lineTo(curX + sw, startY + i * lineHeight + fontSize * 1.1);
-                                    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, fontSize * 0.08); ctx.stroke();
+                                    ctx.beginPath();
+                                    ctx.moveTo(curX, lineY + L.size * 1.1); ctx.lineTo(curX + sw, lineY + L.size * 1.1);
+                                    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, L.size * 0.08); ctx.stroke();
                                 }
-                                curX += ctx.measureText(seg.text).width;
+                                curX += sw;
                             });
                         });
                     }
@@ -5938,6 +6256,42 @@ function draw() {
                         ctx.beginPath(); ctx.moveTo(cx, obj.y - (obj.isBubble ? (obj.bubblePad || 20) * lw : 0)); ctx.lineTo(cx, rotY); ctx.stroke();
                         ctx.beginPath(); ctx.arc(cx, rotY, 6 * lw, 0, Math.PI * 2);
                         ctx.fillStyle = "#a29bfe"; ctx.fill(); ctx.stroke();
+
+                        // Poignées du bloc de texte : coins = agrandir, côtés = colonne
+                        if (!obj.isBubble && !obj.mathImg) {
+                            const hr = 6 * lw;
+                            ctx.lineWidth = lw * 2;
+                            // Coins (ronds, violets) : agrandissement proportionnel
+                            [[startX, obj.y], [startX + w, obj.y], [startX + w, obj.y + h], [startX, obj.y + h]].forEach(([px, py]) => {
+                                ctx.beginPath(); ctx.arc(px, py, hr, 0, Math.PI * 2);
+                                ctx.fillStyle = "#ffffff"; ctx.fill();
+                                ctx.strokeStyle = "#6c5ce7"; ctx.stroke();
+                            });
+                            // Côtés (barrettes verticales bleues) : largeur de colonne
+                            [[startX, obj.y + h / 2], [startX + w, obj.y + h / 2]].forEach(([px, py]) => {
+                                ctx.beginPath();
+                                if (ctx.roundRect) ctx.roundRect(px - hr * 0.55, py - hr * 1.6, hr * 1.1, hr * 3.2, hr * 0.5);
+                                else ctx.rect(px - hr * 0.55, py - hr * 1.6, hr * 1.1, hr * 3.2);
+                                ctx.fillStyle = "#0984e3"; ctx.fill();
+                                ctx.strokeStyle = "#ffffff"; ctx.stroke();
+                            });
+                        }
+                    }
+
+                    // Indication pendant le redimensionnement
+                    if (textResizeHint && draggedHandle && !isExportingTransparent) {
+                        const pad = 6 * lw;
+                        ctx.font = `bold ${13 * lw}px sans-serif`;
+                        const tw = ctx.measureText(textResizeHint).width;
+                        // au-dessus du bloc : le menu rapide occupe le dessous
+                        const bxh = startX + w / 2 - tw / 2 - pad, byh = obj.y - 34 * lw;
+                        ctx.fillStyle = "rgba(45,52,54,0.92)";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(bxh, byh, tw + pad * 2, 22 * lw, 6 * lw);
+                        else ctx.rect(bxh, byh, tw + pad * 2, 22 * lw);
+                        ctx.fill();
+                        ctx.fillStyle = "#ffffff"; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+                        ctx.fillText(textResizeHint, bxh + pad, byh + 4 * lw);
                     }
                 }
                 ctx.restore();
@@ -6786,8 +7140,26 @@ if (textToolbar) {
                 const command = btn.getAttribute('data-command');
                 if (command) document.execCommand(command, false, null);
             }
+            // --- Listes à puces / numérotées ---
+            else if (btn.classList.contains('btn-list')) {
+                wysiwygText.focus();
+                document.execCommand(btn.getAttribute('data-list'), false, null);
+                if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+            }
         });
     });
+
+    // --- Styles de paragraphe : Corps / Titre / Sous-titre ---
+    const paraSelect = document.getElementById('text-para-style');
+    if (paraSelect && !paraSelect.dataset.bound) {
+        paraSelect.dataset.bound = 'true';
+        paraSelect.addEventListener('change', (e) => {
+            const tag = e.target.value;
+            wysiwygText.focus();
+            applyBlockTag(tag);
+            if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+        });
+    }
 
     // 3. Remplacement du sélecteur unique par les Pastilles + Roulette
     const textColorPicker = document.getElementById('text-color-picker');

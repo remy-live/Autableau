@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="style.css?v=11">
 </head>
 
 <body>
@@ -81,6 +81,34 @@
                 <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path>
                 <line x1="4" y1="21" x2="20" y2="21"></line>
             </svg></button>
+
+        <select id="text-para-style" class="text-tool-input" title="Style de paragraphe"
+            style="padding: 3px 4px; font-size: 12px; max-width: 100px;">
+            <option value="p">Corps</option>
+            <option value="h1">Titre</option>
+            <option value="h2">Sous-titre</option>
+        </select>
+        <button class="btn btn-list" data-list="insertUnorderedList" title="Liste à puces" style="padding: 4px;"><svg
+                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linecap="round">
+                <circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"></circle>
+                <circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"></circle>
+                <circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"></circle>
+                <line x1="9" y1="6" x2="21" y2="6"></line>
+                <line x1="9" y1="12" x2="21" y2="12"></line>
+                <line x1="9" y1="18" x2="21" y2="18"></line>
+            </svg></button>
+        <button class="btn btn-list" data-list="insertOrderedList" title="Liste numérotée" style="padding: 4px;"><svg
+                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor"
+                stroke-width="2" fill="none" stroke-linecap="round">
+                <text x="1" y="8" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">1</text>
+                <text x="1" y="14.5" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">2</text>
+                <text x="1" y="21" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">3</text>
+                <line x1="9" y1="6" x2="21" y2="6"></line>
+                <line x1="9" y1="12" x2="21" y2="12"></line>
+                <line x1="9" y1="18" x2="21" y2="18"></line>
+            </svg></button>
+        <div style="width: 1px; height: 16px; background: #ccc; margin: 0 2px;"></div>
 
         <input type="color" id="text-color-picker" title="Couleur" style="display:none;">
         <div style="width: 1px; height: 16px; background: #ccc; margin: 0 2px;" id="color-separator"></div>
@@ -1279,7 +1307,7 @@
     </div>
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
-    <script src="script.js?v=42"></script>
+    <script src="script.js?v=43"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=50"></script>
     <script src="cloud_drive.js?v=9"></script>
