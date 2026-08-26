@@ -3050,7 +3050,7 @@ function updateWysiwygPosition() {
             const t = getObjectById('text', editingTextId);
             if (t && t.lineHeight) currentLH = t.lineHeight;
         }
-        wysiwygText.style.lineHeight = (currentLH * zoom) + 'px';
+        appliquerInterligneSaisie(currentLH, currentSize);
         wysiwygText.style.color = currentColor;
         wysiwygText.style.textAlign = currentAlign;
         wysiwygText.style.transform = `translate(0, 0)`;
@@ -3113,7 +3113,7 @@ window.addEventListener('keydown', (e) => {
 
 
 // On cache la barre quand on a fini
-wysiwygText.addEventListener('blur', () => { textToolbar.style.display = 'none'; });
+wysiwygText.addEventListener('blur', () => { textToolbar.style.display = 'none'; if (typeof fermerTiroirsTexte === 'function') fermerTiroirsTexte(); });
 
 window.addEventListener('keyup', (e) => {
 
@@ -3940,6 +3940,26 @@ function updateStyleBarContext() {
     }
 
     syncStampStyleControls();
+    syncTextStyleControls();
+}
+
+// Un texte n'a ni épaisseur de trait ni opacité de remplissage, et sa couleur
+// se règle dans la barre d'édition. On n'affiche donc pas ces contrôles ici :
+// ils n'agissaient sur rien et encombraient la barre.
+function syncTextStyleControls() {
+    const colorBtn = document.getElementById('btn-color-popover');
+    const widthBox = document.getElementById('line-width')?.closest('.slider-container');
+    const stampOpacityBox = document.getElementById('stamp-opacity-box');
+    const quickColors = document.getElementById('quick-colors-container');
+    const seulementDesTextes = typeof selectedItems !== 'undefined' && selectedItems.length > 0
+        && selectedItems.every(i => i.type === 'text');
+    if (!seulementDesTextes) return;
+
+    if (colorBtn) colorBtn.style.display = 'none';
+    if (widthBox) widthBox.style.display = 'none';
+    if (stampOpacityBox) stampOpacityBox.style.display = 'none';
+    if (quickColors) quickColors.style.display = 'none';
+    document.getElementById('color-popover')?.classList.remove('visible');
 }
 
 // Sur une sélection d'images (tampons), on n'affiche la pastille de couleur et
@@ -4494,10 +4514,10 @@ function layoutTextObject(obj, measureCtx) {
     const lines = [];
     let y = 0, maxW = 0;
     paras.forEach(p => {
-        const size = Math.round(baseSize * p.factor);
-        const lh = Math.round(baseLH * p.factor);
+        const size = baseSize * p.factor;
+        const lh = baseLH * p.factor;
         // Un peu d'air avant un titre, sauf s'il ouvre le bloc
-        if (p.factor > 1 && lines.length > 0) y += Math.round(baseLH * 0.4);
+        if (p.factor > 1 && lines.length > 0) y += baseLH * 0.4;
         const indentPx = (p.indent || 0) * size * 1.4;
         const markerW = p.marker ? measure(p.marker + ' ', { bold: p.bold }, size) : 0;
         const avail = col > 0 ? Math.max(size, col - indentPx - markerW) : Infinity;
@@ -5112,7 +5132,7 @@ canvas.addEventListener('pointerdown', (e) => {
             wysiwygText.style.display = 'block';
             wysiwygText.style.fontFamily = 'sans-serif';
             const lh = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
-            wysiwygText.style.lineHeight = (lh * zoom) + 'px';
+            appliquerInterligneSaisie(lh, activeStyle.fontSize);
             wysiwygText.style.padding = '0';
 
             updateWysiwygPosition();
@@ -7346,16 +7366,39 @@ if (textToolbar) {
     });
 
     // --- Styles de paragraphe : Corps / Titre / Sous-titre ---
-    const paraSelect = document.getElementById('text-para-style');
-    if (paraSelect && !paraSelect.dataset.bound) {
-        paraSelect.dataset.bound = 'true';
-        paraSelect.addEventListener('change', (e) => {
-            const tag = e.target.value;
+    document.querySelectorAll('#text-toolbar [data-block]').forEach(btn => {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = 'true';
+        btn.addEventListener('click', () => {
             wysiwygText.focus();
-            applyBlockTag(tag);
+            applyBlockTag(btn.getAttribute('data-block'));
+            fermerTiroirsTexte();
             if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
         });
-    }
+    });
+
+    // --- Tiroirs de la barre de texte ---
+    document.querySelectorAll('#text-toolbar .tt-tab').forEach(tab => {
+        if (tab.dataset.bound) return;
+        tab.dataset.bound = 'true';
+        tab.addEventListener('click', () => {
+            const nom = tab.getAttribute('data-panel');
+            const panneau = document.querySelector(`#text-toolbar .tt-panel[data-panel="${nom}"]`);
+            const ouvert = panneau && panneau.classList.contains('tt-open');
+            fermerTiroirsTexte();
+            if (panneau && !ouvert) {
+                panneau.classList.add('tt-open');
+                tab.classList.add('tt-open');
+                // Le tiroir doit rester dans l'écran
+                panneau.style.left = '0px';
+                const r = panneau.getBoundingClientRect();
+                if (r.right > window.innerWidth - 8) {
+                    panneau.style.left = Math.max(-r.left + 8, window.innerWidth - 8 - r.right) + 'px';
+                }
+            }
+            wysiwygText.focus();
+        });
+    });
 
     // 3. Remplacement du sélecteur unique par les Pastilles + Roulette
     const textColorPicker = document.getElementById('text-color-picker');
@@ -7428,7 +7471,9 @@ if (textToolbar) {
         });
 
         colorContainer.appendChild(wheelBtn);
-        textToolbar.appendChild(colorContainer);
+        // Les pastilles vivent dans le tiroir « couleur », pas dans la rangée
+        const panneauCouleur = document.querySelector('#text-toolbar .tt-panel[data-panel="color"]');
+        (panneauCouleur || textToolbar).appendChild(colorContainer);
     }
 }
 
@@ -7514,6 +7559,21 @@ if (btnSizeDown) btnSizeDown.addEventListener('click', () => changeFontSize(-1))
 // ===================================================
 // POSITIONNEMENT ET SYNCHRONISATION DE LA BARRE
 // ===================================================
+// Applique l'interligne à la zone de saisie. Valeur SANS unité : un titre en
+// hérite proportionnellement à sa propre taille, exactement comme le fait le
+// moteur de rendu du canvas. En px, les titres étaient décalés de 15 px.
+function appliquerInterligneSaisie(lhLogique, sizeLogique) {
+    if (!wysiwygText) return;
+    const taille = sizeLogique || parseFloat(wysiwygText.style.fontSize) / (zoom || 1) || 24;
+    wysiwygText.style.lineHeight = String((lhLogique / taille) || 1.2);
+    wysiwygText.style.setProperty('--tt-lh', (lhLogique * zoom) + 'px');
+}
+
+function fermerTiroirsTexte() {
+    document.querySelectorAll('#text-toolbar .tt-panel.tt-open, #text-toolbar .tt-tab.tt-open')
+        .forEach(el => el.classList.remove('tt-open'));
+}
+
 function updateTextToolbarPosition() {
     if (!textToolbar || !wysiwygText) return;
 
@@ -7532,6 +7592,14 @@ function updateTextToolbarPosition() {
             }
         }
         if (sizeDisplay) sizeDisplay.innerText = currentSize;
+        const sizeDisplay2 = document.getElementById('text-size-display-2');
+        if (sizeDisplay2) sizeDisplay2.innerText = currentSize;
+        const pastille = document.getElementById('tt-color-dot');
+        if (pastille) {
+            let couleur = activeStyle.strokeColor;
+            if (editingTextId) { const t = getObjectById('text', editingTextId); if (t) couleur = t.color || t.strokeColor || couleur; }
+            pastille.style.background = couleur;
+        }
         if (btnFontCycle) btnFontCycle.style.fontFamily = currentFont;
         // -------------------------------------------------------
 
@@ -8315,6 +8383,7 @@ function updateQuickMenu() {
             if (colorContainer) {
                 // Une image simple n'est recolorable que si c'est un tampon de plugin qui l'accepte
                 const colorable = selectedItems.some(it => {
+                    if (it.type === 'text') return false;   // la couleur d'un texte se règle en édition
                     if (it.type !== 'image') return true;
                     const o = getObjectById('image', it.id);
                     return o && typeof isRecolorablePluginImage === 'function' && isRecolorablePluginImage(o);
@@ -11233,7 +11302,7 @@ function changeLineHeight(delta) {
         const t = getObjectById('text', editingTextId);
         if (t) {
             applyToText(t);
-            wysiwygText.style.lineHeight = (newLH * zoom) + 'px';
+            appliquerInterligneSaisie(newLH, (editingTextId && getObjectById('text', editingTextId) ? getObjectById('text', editingTextId).fontSize : activeStyle.fontSize));
         }
     } else if (selectedItems.length > 0) {
         selectedItems.forEach(item => {
@@ -11275,7 +11344,7 @@ if (btnTextSnap) {
                 const t = getObjectById('text', editingTextId);
                 if (t) applyToText(t);
                 wysiwygText.style.top = (t.y * zoom + panY) + 'px';
-                wysiwygText.style.lineHeight = (spacing * zoom) + 'px';
+                appliquerInterligneSaisie(spacing, (t && t.fontSize) || activeStyle.fontSize);
             } else if (selectedItems.length > 0) {
                 selectedItems.forEach(item => {
                     const obj = getObjectById(item.type, item.id);

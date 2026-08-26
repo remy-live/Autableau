@@ -91,6 +91,79 @@ module.exports = async function (browser) {
     r.verifie('raccourci « - » : liste', /<li>/.test(html), html.slice(0, 90));
     await page.keyboard.press('Escape');
 
+    // Saisie et rendu doivent tomber exactement au même endroit
+    const ecarts = await page.evaluate(() => {
+        const cas = [
+            ['texte simple', 'Une ligne de texte'],
+            ['deux lignes', 'Ligne un<div>Ligne deux</div>'],
+            ['titre + corps', '<h1>Titre</h1><div>corps</div>'],
+            ['sous-titre', '<h2>Sous-titre</h2><div>corps</div>'],
+            ['liste', '<ul><li>un</li><li>deux</li></ul>'],
+            ['titre + liste', '<h1>Titre</h1><ul><li>un</li><li>deux</li></ul>']
+        ];
+        return cas.map(([nom, h]) => {
+            texts.length = 0;
+            const t = { id: nextId++, x: -300, y: -200, content: h, fontSize: 24, lineHeight: 29, color: '#2d3436', fontFamily: 'sans-serif', align: 'left', z: globalZ++ };
+            texts.push(t); draw();
+            const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+
+            const clone = document.getElementById('wysiwyg-text').cloneNode(false);
+            Object.assign(clone.style, { display: 'block', position: 'absolute', left: '-9999px', fontSize: '24px', fontFamily: 'sans-serif', whiteSpace: 'pre-wrap', width: '600px' });
+            clone.style.lineHeight = String(29 / 24);
+            clone.style.setProperty('--tt-lh', '29px');
+            clone.innerHTML = h;
+            document.body.appendChild(clone);
+            const htmlH = clone.getBoundingClientRect().height;
+            document.body.removeChild(clone);
+            return { nom, ecart: Math.round(lay.height - htmlH) };
+        });
+    });
+    ecarts.forEach(e => r.verifie(`saisie et rendu identiques : ${e.nom}`, Math.abs(e.ecart) <= 1, `${e.ecart} px d'écart`));
+
+    // Barre d'édition : compacte et tenant sur une tablette
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(400, 400);
+    await page.waitForTimeout(300);
+    const barre = await page.evaluate(() => {
+        const t = document.getElementById('text-toolbar');
+        const rc = t.getBoundingClientRect();
+        return { largeur: Math.round(rc.width), boutons: t.querySelectorAll(':scope > .btn').length, tiroirs: t.querySelectorAll('.tt-panel').length };
+    });
+    r.verifie('barre d\'édition compacte', barre.largeur < 420, `${barre.largeur} px`);
+    r.verifie('barre d\'édition : contrôles regroupés', barre.boutons <= 9, `${barre.boutons} boutons`);
+    r.verifie('barre d\'édition : tiroirs présents', barre.tiroirs === 5, `${barre.tiroirs} tiroirs`);
+
+    // Le style de paragraphe s'applique (l'ancienne liste déroulante ne s'ouvrait pas)
+    await page.keyboard.type('Ma leçon');
+    await page.click('#text-toolbar .tt-tab[data-panel="para"]');
+    await page.waitForTimeout(200);
+    await page.click('#text-toolbar [data-block="h1"]');
+    await page.waitForTimeout(250);
+    const applique = await page.evaluate(() => document.getElementById('wysiwyg-text').innerHTML);
+    r.verifie('bouton « Titre » applique le style', /<h1>/.test(applique), applique.slice(0, 80));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+
+    // Sur un texte sélectionné, pas de contrôles inertes dans la barre de style
+    await page.evaluate(() => {
+        texts.length = 0;
+        texts.push({ id: nextId++, x: -100, y: -50, content: 'Ma leçon', fontSize: 24, color: '#2d3436', fontFamily: 'sans-serif', align: 'left', z: globalZ++ });
+        setMode('pointer'); selectedItems = [{ type: 'text', id: texts[0].id }];
+        updateStyleBarContext(); draw();
+    });
+    await page.waitForTimeout(250);
+    const barreStyle = await page.evaluate(() => {
+        const vis = (el) => el ? getComputedStyle(el).display !== 'none' : false;
+        return {
+            couleur: vis(document.getElementById('btn-color-popover')),
+            epaisseur: vis(document.getElementById('line-width').closest('.slider-container')),
+            pastilles: vis(document.getElementById('quick-colors-container'))
+        };
+    });
+    r.verifie('texte sélectionné : pas de pastilles de couleur', !barreStyle.couleur && !barreStyle.pastilles);
+    r.verifie('texte sélectionné : pas de curseur d\'épaisseur', !barreStyle.epaisseur);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

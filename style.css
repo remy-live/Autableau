@@ -2109,10 +2109,13 @@ input[type=range]::-moz-range-thumb {
     min-height: 1em;
 }
 
-/* Titres et listes pendant la saisie : mêmes proportions qu'au rendu final */
-#wysiwyg-text h1 { font-size: 1.6em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.6em; }
-#wysiwyg-text h2 { font-size: 1.3em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.3em; }
-#wysiwyg-text h3 { font-size: 1.15em; font-weight: bold; margin: 0.4em 0 0 0; line-height: 1.15em; }
+/* Titres et listes pendant la saisie : mêmes proportions qu'au rendu final.
+   Pas de line-height ici : il est hérité sans unité, donc recalculé sur la
+   taille du titre — c'est ce que fait le moteur du canvas. La marge est
+   exprimée dans l'interligne du bloc (--tt-lh), pas dans celui du titre. */
+#wysiwyg-text h1 { font-size: 1.6em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
+#wysiwyg-text h2 { font-size: 1.3em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
+#wysiwyg-text h3 { font-size: 1.15em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
 #wysiwyg-text h1:first-child,
 #wysiwyg-text h2:first-child,
 #wysiwyg-text h3:first-child { margin-top: 0; }
@@ -4863,4 +4866,125 @@ dark-mode .title-btn:hover {
     width: 16px;
     height: 16px;
     cursor: pointer;
+}
+
+/* ==========================================================================
+   BARRE DE TEXTE : rangée compacte + tiroirs
+   Objectif : utilisable au doigt sur tablette, sans mur de boutons.
+   ========================================================================== */
+#text-toolbar {
+    position: absolute;
+    z-index: 10000;
+    padding: 5px 7px !important;
+    gap: 3px;
+    border-radius: 12px !important;
+    white-space: nowrap;
+}
+
+#text-toolbar > .btn {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    font-size: 15px;
+    font-weight: bold;
+    position: relative;
+}
+
+#text-toolbar .tt-tab.tt-open {
+    background: #6c5ce7;
+    color: #fff;
+}
+
+#text-toolbar .tt-size-badge {
+    position: absolute;
+    right: 2px;
+    bottom: 1px;
+    font-size: 9px;
+    font-weight: bold;
+    opacity: 0.75;
+}
+
+#text-toolbar .tt-tab-color #tt-color-dot {
+    display: block;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #2d3436;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(0, 0, 0, 0.15);
+    margin: 0 auto;
+}
+
+/* --- Tiroirs --- */
+#text-toolbar .tt-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    padding: 8px;
+    gap: 6px;
+    flex-direction: column;
+    max-width: min(320px, calc(100vw - 24px));
+    z-index: 2;
+}
+
+#text-toolbar .tt-panel.tt-open {
+    display: flex;
+}
+
+#text-toolbar .tt-panel[data-panel="align"] {
+    flex-direction: row;
+}
+
+#text-toolbar .tt-panel .btn {
+    min-width: 40px;
+    height: 40px;
+    padding: 0 10px;
+    font-size: 15px;
+    border-radius: 9px;
+}
+
+#text-toolbar .tt-panel .btn.tt-wide {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 14px;
+}
+
+#text-toolbar .tt-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#text-toolbar .tt-label {
+    font-size: 13px;
+    color: #636e72;
+    min-width: 74px;
+    font-weight: bold;
+}
+
+#text-toolbar .tt-val {
+    font-size: 14px;
+    font-weight: bold;
+    min-width: 30px;
+    text-align: center;
+}
+
+#text-toolbar .tt-panel #text-quick-colors {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    border-left: none !important;
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+}
+
+#text-toolbar .tt-panel #text-quick-colors .swatch,
+#text-toolbar .tt-panel #text-quick-colors .wheel {
+    width: 34px !important;
+    height: 34px !important;
 }
