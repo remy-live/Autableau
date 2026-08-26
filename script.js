@@ -4979,6 +4979,28 @@ function autoWrapWhileTyping() {
     return true;
 }
 
+// Centrer ou aligner à droite n'a de sens que si le bloc est plus large que la
+// ligne. Sans colonne, un bloc fait exactement la largeur de son texte : le
+// bouton semblait mort. On lui donne donc un cadre, ajustable ensuite avec les
+// poignées latérales.
+function donnerUnCadreAuBloc(alignMode) {
+    if (alignMode === 'left') return;
+    const t = editingTextId ? getObjectById('text', editingTextId) : null;
+    const cible = t || tempTextLogicalPos;
+    if (!cible || cible.colWidth) return;
+
+    const naturelle = Math.max(60, (wysiwygText.scrollWidth || 120) / (zoom || 1));
+    const gauche = wysiwygText.getBoundingClientRect().left;
+    const disponible = (window.innerWidth - gauche - 30) / (zoom || 1);
+    // Un petit texte ne doit pas se retrouver avec un cadre large comme l'écran
+    const plafond = Math.max(naturelle * 3, 280);
+    const largeur = Math.round(Math.max(naturelle, Math.min(disponible, plafond)));
+    if (largeur <= naturelle + 4) return;
+
+    cible.colWidth = largeur;
+    if (t && typeof draw === 'function') draw();
+}
+
 // En centré, la boîte de saisie doit rester centrée sur son ancre pendant la frappe
 wysiwygText.addEventListener('input', () => {
     autoWrapWhileTyping();
@@ -7406,6 +7428,7 @@ if (textToolbar) {
                     const cmd = { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight' }[alignMode];
                     if (cmd) document.execCommand(cmd, false, null);
                     activeStyle.textAlign = alignMode;
+                    donnerUnCadreAuBloc(alignMode);
                     fermerTiroirsTexte();
                     if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
                     if (typeof draw === 'function') draw();
@@ -7469,7 +7492,15 @@ if (textToolbar) {
             if (panneau && !ouvert) {
                 panneau.classList.add('tt-open');
                 tab.classList.add('tt-open');
-                // Le tiroir doit rester dans l'écran
+
+                // Le tiroir s'ouvre du côté opposé au texte : si la barre est
+                // au-dessus du bloc, il descendrait pile sur ce qu'on écrit.
+                const barre = textToolbar.getBoundingClientRect();
+                const saisie = wysiwygText.getBoundingClientRect();
+                const barreAuDessus = barre.bottom <= saisie.top + 2;
+                panneau.classList.toggle('tt-up', barreAuDessus);
+
+                // ... et il doit rester dans l'écran
                 panneau.style.left = '0px';
                 const r = panneau.getBoundingClientRect();
                 if (r.right > window.innerWidth - 8) {

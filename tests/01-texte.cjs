@@ -220,6 +220,41 @@ module.exports = async function (browser) {
     }
     await page.keyboard.press('Escape');
 
+    // Centrer une ligne seule doit produire un effet visible : sans cadre, le
+    // bloc fait exactement la largeur du texte et le bouton semble mort.
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(220, 380);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('df fsdf');
+    await page.click('#text-toolbar .tt-tab[data-panel="align"]');
+    await page.waitForTimeout(200);
+
+    const tiroir = await page.evaluate(() => {
+        const p = document.querySelector('.tt-panel[data-panel="align"]').getBoundingClientRect();
+        const w = document.getElementById('wysiwyg-text').getBoundingClientRect();
+        return {
+            recouvre: !(p.bottom <= w.top || p.top >= w.bottom || p.right <= w.left || p.left >= w.right),
+            dansEcran: p.top >= 0 && p.bottom <= window.innerHeight && p.left >= 0 && p.right <= window.innerWidth
+        };
+    });
+    r.verifie('tiroir ouvert : ne recouvre pas le texte', !tiroir.recouvre);
+    r.verifie('tiroir ouvert : reste dans l\'écran', tiroir.dansEcran);
+
+    await page.click('#text-toolbar .btn-align[data-align="center"]');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+    const centre = await page.evaluate(() => {
+        const t = texts[0];
+        const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+        const L = lay.lines[0];
+        return { bloc: Math.round(lay.width), ligne: Math.round(L.contentW), align: L.align, decalage: Math.round((lay.width - L.contentW) / 2) };
+    });
+    r.egal('centrage : la ligne porte l\'alignement', centre.align, 'center');
+    r.verifie('centrage : le bloc reçoit un cadre plus large', centre.bloc > centre.ligne + 40, `bloc ${centre.bloc}, ligne ${centre.ligne}`);
+    r.verifie('centrage : décalage visible', centre.decalage > 20, `${centre.decalage} px`);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

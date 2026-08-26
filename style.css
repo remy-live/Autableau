@@ -4936,6 +4936,12 @@ dark-mode .title-btn:hover {
     display: flex;
 }
 
+/* Tiroir ouvert vers le haut, quand la barre surplombe le texte */
+#text-toolbar .tt-panel.tt-up {
+    top: auto;
+    bottom: calc(100% + 6px);
+}
+
 #text-toolbar .tt-panel[data-panel="align"] {
     flex-direction: row;
 }
