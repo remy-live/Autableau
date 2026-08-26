@@ -7651,14 +7651,24 @@ function tailleDeBaseSaisie() {
 
 // Taille (logique) du texte à l'endroit où commence la sélection
 function tailleSelectionCourante() {
+    const st = styleSelectionCourante();
+    return st && st.taille ? st.taille : null;
+}
+
+// Taille (logique), police et couleur au début de la sélection
+function styleSelectionCourante() {
     const r = selectionDansSaisie();
     if (!r) return null;
     let n = r.startContainer;
     if (n.nodeType === 3) n = n.parentNode;
-    if (!n || !n.nodeType) return null;
-    const px = parseFloat(getComputedStyle(n).fontSize);
-    if (!px) return null;
-    return px / (zoom || 1);
+    if (!n || n.nodeType !== 1) return null;
+    const cs = getComputedStyle(n);
+    const px = parseFloat(cs.fontSize);
+    return {
+        taille: px ? px / (zoom || 1) : null,
+        police: cs.fontFamily || null,
+        couleur: cs.color || null
+    };
 }
 
 function appliquerPoliceSelection(font) {
@@ -7801,34 +7811,51 @@ function fermerTiroirsTexte() {
         .forEach(el => el.classList.remove('tt-open'));
 }
 
+// La barre affiche la taille, la police et la couleur de ce sur quoi le
+// prochain clic va agir : la portion surlignée s'il y en a une, le bloc sinon.
+function syncBadgesTexte() {
+    if (!wysiwygText || wysiwygText.style.display !== 'block') return;
+
+    let currentSize = activeStyle.fontSize;
+    let currentFont = activeStyle.fontFamily || 'sans-serif';
+    let couleur = activeStyle.strokeColor;
+    if (editingTextId) {
+        const t = getObjectById('text', editingTextId);
+        if (t) {
+            currentSize = t.fontSize || activeStyle.fontSize;
+            currentFont = t.fontFamily || 'sans-serif';
+            couleur = t.color || t.strokeColor || couleur;
+        }
+    }
+
+    const portion = styleSelectionCourante();
+    if (portion) {
+        if (portion.taille) currentSize = Math.round(portion.taille);
+        if (portion.police) currentFont = portion.police;
+        if (portion.couleur) couleur = portion.couleur;
+    }
+
+    const sizeDisplay = document.getElementById('text-size-display');
+    if (sizeDisplay) sizeDisplay.innerText = Math.round(currentSize);
+    const sizeDisplay2 = document.getElementById('text-size-display-2');
+    if (sizeDisplay2) sizeDisplay2.innerText = Math.round(currentSize);
+    const pastille = document.getElementById('tt-color-dot');
+    if (pastille) pastille.style.background = couleur;
+    if (btnFontCycle) btnFontCycle.style.fontFamily = currentFont;
+}
+
+// Rafraîchit les pastilles quand on surligne un mot à la souris ou au doigt
+document.addEventListener('selectionchange', () => {
+    if (wysiwygText && wysiwygText.style.display === 'block') syncBadgesTexte();
+});
+
 function updateTextToolbarPosition() {
     if (!textToolbar || !wysiwygText) return;
 
     if (wysiwygText.style.display === 'block') {
         textToolbar.style.display = 'flex';
 
-        // --- SYNCHRONISATION DES BOUTONS DE TAILLE ET POLICE ---
-        const sizeDisplay = document.getElementById('text-size-display');
-        let currentSize = activeStyle.fontSize;
-        let currentFont = activeStyle.fontFamily || 'sans-serif';
-        if (editingTextId) {
-            const t = getObjectById('text', editingTextId);
-            if (t) {
-                currentSize = t.fontSize || activeStyle.fontSize;
-                currentFont = t.fontFamily || 'sans-serif';
-            }
-        }
-        if (sizeDisplay) sizeDisplay.innerText = currentSize;
-        const sizeDisplay2 = document.getElementById('text-size-display-2');
-        if (sizeDisplay2) sizeDisplay2.innerText = currentSize;
-        const pastille = document.getElementById('tt-color-dot');
-        if (pastille) {
-            let couleur = activeStyle.strokeColor;
-            if (editingTextId) { const t = getObjectById('text', editingTextId); if (t) couleur = t.color || t.strokeColor || couleur; }
-            pastille.style.background = couleur;
-        }
-        if (btnFontCycle) btnFontCycle.style.fontFamily = currentFont;
-        // -------------------------------------------------------
+        syncBadgesTexte();
 
         const rect = wysiwygText.getBoundingClientRect();
         const tbHeight = textToolbar.offsetHeight || 40;

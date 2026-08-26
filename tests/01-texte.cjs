@@ -280,7 +280,14 @@ module.exports = async function (browser) {
     await page.click('#btn-font-cycle');
     await page.waitForTimeout(100);
     for (let i = 0; i < 10; i++) { await page.click('#btn-size-up'); }
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(200);
+
+    const badge = await page.evaluate(() => ({
+        taille: document.getElementById('text-size-display').innerText,
+        bloc: texts[0] ? texts[0].fontSize : null
+    }));
+    r.egal('sélection : la barre affiche la taille de la portion', badge.taille, '34');
+
     await page.keyboard.press('Escape');
     await page.waitForTimeout(350);
 
