@@ -256,23 +256,54 @@ const MathUtils = {
 // ==========================================
 const PluginManager = {
     plugins: {},
+    faulty: {},   // plugins mis en quarantaine après une erreur
     // Enregistrer un nouveau plugin
     register: function (name, pluginObj) {
         this.plugins[name] = pluginObj;
-        if (typeof pluginObj.init === 'function') pluginObj.init();
+        try {
+            if (typeof pluginObj.init === 'function') pluginObj.init();
+        } catch (e) {
+            console.error(`Plugin « ${name} » : échec de l'initialisation`, e);
+            this.faulty[name] = true;
+            return;
+        }
         console.log(`🔌 Plugin chargé : ${name}`);
     },
-    // Déclencher un événement pour tous les plugins
+    // Déclencher un événement pour tous les plugins.
+    // Chaque plugin est isolé : une erreur dans l'un ne doit pas figer le
+    // rendu ni les interactions de tout le tableau (c'est déjà arrivé).
     trigger: function (eventName, ...args) {
         let handled = false;
-        Object.values(this.plugins).forEach(plugin => {
-            if (typeof plugin[eventName] === 'function') {
+        for (const name in this.plugins) {
+            if (this.faulty[name]) continue;
+            const plugin = this.plugins[name];
+            if (typeof plugin[eventName] !== 'function') continue;
+            try {
                 if (plugin[eventName](...args)) handled = true; // Si un plugin renvoie "true", il prend la main
+            } catch (e) {
+                console.error(`Plugin « ${name} » : erreur dans ${eventName}`, e);
+                this.faulty[name] = true;   // on l'écarte pour ne pas répéter l'erreur à chaque image
+                if (typeof showToast === 'function') showToast(`⚠️ Outil « ${name} » désactivé après une erreur`);
             }
-        });
+        }
         return handled;
     }
 };
+
+// Filet de sécurité global : une erreur inattendue ne doit pas laisser
+// l'enseignant devant un tableau figé sans explication.
+(function installErrorSafetyNet() {
+    let lastReport = 0;
+    const report = (msg) => {
+        const now = Date.now();
+        if (now - lastReport < 8000) return; // on n'inonde pas la classe de messages
+        lastReport = now;
+        if (typeof showToast === 'function') showToast("⚠️ Un problème est survenu. Votre travail est conservé — enregistrez-le par sécurité.");
+        console.error('Au Tableau :', msg);
+    };
+    window.addEventListener('error', (e) => report(e.message || e.error));
+    window.addEventListener('unhandledrejection', (e) => report((e.reason && e.reason.message) || e.reason));
+})();
 
 const ToolStyleArray = {
     default: {
@@ -1061,28 +1092,59 @@ function cancelRestore() {
 }
 
 // --- SAUVEGARDE ET HISTORIQUE ---
-function saveAppLocal() {
-    syncPage();
-    
-    // Nettoyage avant sauvegarde pour éviter de surcharger IndexedDB
-    const cleanedPages = pages.map(p => {
+// Pages débarrassées de l'historique d'annulation : celui-ci ne survit pas au
+// rechargement, il n'a donc rien à faire dans la sauvegarde ni dans un fichier.
+// (Il pesait à lui seul 110 Mo réécrits à chaque action sur un tableau chargé.)
+function pagesForStorage() {
+    return pages.map(p => {
         const pCopy = { ...p };
-        // Les pdfMetadata sont conservés (c'est juste des métadonnées légères)
+        delete pCopy.history;
+        delete pCopy.historyIndex;
+        pCopy.images = packImages(p.images);   // sources mutualisées dans la table d'images
         return pCopy;
     });
-    
-    let appState = { pages: cleanedPages, nextId, globalZ, currentBgIndex };
+}
 
-    // NOUVEAU : On utilise localforage. Plus besoin de JSON.stringify !
-    localforage.setItem(AUTO_SAVE_KEY, appState).catch((e) => {
+// Charge utile complète d'un enregistrement : pages allégées + table d'images
+function stateForStorage() {
+    const storedPages = pagesForStorage();
+    return { pages: storedPages, assets: collectAssets(storedPages), nextId, globalZ, currentBgIndex };
+}
+
+let autoSaveTimer = null;
+let autoSaveWriting = false;
+
+// Écriture réelle dans IndexedDB
+function writeAppLocal() {
+    syncPage();
+    const appState = stateForStorage();
+    const cleanedPages = appState.pages;
+
+    autoSaveWriting = true;
+    return localforage.setItem(AUTO_SAVE_KEY, appState).catch((e) => {
         console.error("Erreur de sauvegarde IndexedDB :", e);
         // Fallback de sécurité extrême au cas où
         const ultraCleanedPages = cleanedPages.map(p => ({
             ...p, images: (p.images || []).map(img => img.isBg ? { ...img, src: "" } : img)
         }));
-        localforage.setItem(AUTO_SAVE_KEY, { pages: ultraCleanedPages, nextId, globalZ, currentBgIndex });
-    });
+        return localforage.setItem(AUTO_SAVE_KEY, { pages: ultraCleanedPages, assets: appState.assets, nextId, globalZ, currentBgIndex });
+    }).finally(() => { autoSaveWriting = false; });
 }
+
+// Sauvegarde automatique temporisée : une écriture après la salve d'actions,
+// au lieu d'une écriture complète à chaque clic.
+function saveAppLocal(immediate) {
+    if (immediate) {
+        clearTimeout(autoSaveTimer); autoSaveTimer = null;
+        return writeAppLocal();
+    }
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => { autoSaveTimer = null; writeAppLocal(); }, 1500);
+}
+
+// On n'attend pas la temporisation si l'onglet passe en arrière-plan ou se ferme
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && autoSaveTimer) saveAppLocal(true); });
+window.addEventListener('pagehide', () => { if (autoSaveTimer) saveAppLocal(true); });
 
 // === CALCUL DE TAILLE ===
 function calculateObjectSize(obj) {
@@ -1111,11 +1173,97 @@ function showMediasWarning(sizeWithMedias, sizeWithoutMedias) {
     `;
 }
 
+// ==============================================================================
+// RÉSERVOIR D'IMAGES
+// Une même image (tampon posé dix fois, photo réutilisée) était recopiée en
+// entier dans chaque objet, dans chaque instantané d'annulation et dans chaque
+// fichier enregistré. On ne garde qu'un exemplaire de chaque source, désigné
+// par une référence. Le code de dessin, lui, continue de voir un `src` normal.
+// ==============================================================================
+const assetIdBySrc = new Map();
+const assetSrcById = new Map();
+
+// Identifiant dérivé du contenu : deux fichiers différents ne peuvent pas
+// réutiliser le même identifiant pour deux images différentes (import .prof).
+function assetHash(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(36);
+}
+
+function assetRef(src) {
+    if (typeof src !== 'string' || src.length < 256) return null; // trop court : rien à gagner
+    let id = assetIdBySrc.get(src);
+    if (id === undefined) {
+        id = 'a' + assetHash(src) + src.length.toString(36);
+        assetIdBySrc.set(src, id);
+        assetSrcById.set(id, src);
+    }
+    return id;
+}
+
+function packImages(arr) {
+    return (arr || []).map(img => {
+        if (!img || img.srcRef) return img;
+        const id = assetRef(img.src);
+        if (!id) return img;
+        const copy = { ...img, srcRef: id };
+        delete copy.src;
+        return copy;
+    });
+}
+
+function unpackImages(arr) {
+    return (arr || []).map(img => {
+        if (!img || !img.srcRef) return img;
+        const copy = { ...img, src: assetSrcById.get(img.srcRef) || '' };
+        delete copy.srcRef;
+        return copy;
+    });
+}
+
+// Table des images à joindre à un enregistrement, pour les seules références utilisées
+function collectAssets(pagesArr) {
+    const used = {};
+    (pagesArr || []).forEach(p => (p.images || []).forEach(img => {
+        if (img && img.srcRef && assetSrcById.has(img.srcRef)) used[img.srcRef] = assetSrcById.get(img.srcRef);
+    }));
+    return used;
+}
+
+// Réinjecte les sources d'un fichier dans le réservoir avant de déballer
+function adoptAssets(assets) {
+    if (!assets) return;
+    Object.keys(assets).forEach(id => {
+        const src = assets[id];
+        if (!src) return;
+        assetSrcById.set(id, src);
+        if (!assetIdBySrc.has(src)) assetIdBySrc.set(src, id);
+    });
+}
+
+// Plafond de l'historique d'annulation : en nombre et en poids. Sans cela,
+// 40 actions sur un tableau de 3,7 Mo occupaient 146 Mo de mémoire.
+const HISTORY_MAX_ENTRIES = 200;
+const HISTORY_MAX_BYTES = 24 * 1024 * 1024;
+
+function trimHistory() {
+    let bytes = 0;
+    for (let i = 0; i < history.length; i++) bytes += history[i].length;
+    while (history.length > 5 && (history.length > HISTORY_MAX_ENTRIES || bytes > HISTORY_MAX_BYTES)) {
+        bytes -= history[0].length;
+        history.shift();
+        historyIndex--;
+    }
+    if (historyIndex < 0) historyIndex = 0;
+}
+
 function saveState() {
     if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
-    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits });
+    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits });
     if (historyIndex >= 0 && history[historyIndex] === state) return;
     history.push(state); historyIndex++;
+    trimHistory();
 
     if (typeof hasUnsavedChanges !== 'undefined') {
         hasUnsavedChanges = true;
@@ -1131,6 +1279,8 @@ function restoreState(stateData) {
     // NOUVEAU : Compatibilité hybride (Fichier texte VS Objet localForage)
     const state = typeof stateData === 'string' ? JSON.parse(stateData) : stateData;
 
+    adoptAssets(state.assets);   // fichiers récents : les sources sont dans une table commune
+
     if (state.pages) {
         pages = state.pages; nextId = state.nextId || 1; globalZ = state.globalZ || 1; currentBgIndex = state.currentBgIndex || 0;
     }
@@ -1139,6 +1289,7 @@ function restoreState(stateData) {
     }
 
     pages.forEach(p => {
+        p.images = unpackImages(p.images);   // les anciens fichiers passent ici sans changement
         (p.images || []).forEach(img => { if (!imageCache[img.src] && img.src !== "") { const i = new Image(); i.src = img.src; imageCache[img.src] = i; i.onload = () => requestAnimationFrame(draw); } });
         (p.texts || []).forEach(t => { if (t.content.includes('$')) createMathImage(t.content, t.color || t.strokeColor, t.fontSize, (img, w, h) => { if (img) { t.mathImg = img; t.mathW = w; t.mathH = h; draw(); } }); });
     });
@@ -1152,7 +1303,7 @@ function undo() {
         const state = JSON.parse(history[historyIndex]);
         points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
         texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
+        polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
         creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
         saveAppLocal(); draw();
         if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
@@ -1165,7 +1316,7 @@ function redo() {
         const state = JSON.parse(history[historyIndex]);
         points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
         texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = state.images || []; arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
+        polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
         creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
         saveAppLocal(); draw();
         if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
@@ -11954,7 +12105,9 @@ function saveCurrentBoard() {
 
 function _doSaveBoard(name, id) {
     const now = new Date();
-    const appState = { pages, nextId, globalZ, currentBgIndex };
+    syncPage();
+    // sans l'historique d'annulation, et images mutualisées
+    const appState = stateForStorage();
 
     const existingIndex = savedTableaux.findIndex(t => t.id === id);
     let existingObj = {};
@@ -12480,8 +12633,6 @@ function showExportOptionsModal(board) {
                         polygons: p.polygons || [],
                         arcs: p.arcs || [],
                         htmlPostits: p.htmlPostits || [],
-                        history: p.history || [],
-                        historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
                         panX: p.panX || 0,
                         panY: p.panY || 0,
                         zoom: p.zoom || 1,
@@ -12509,8 +12660,6 @@ function showExportOptionsModal(board) {
                         polygons: p.polygons || [],
                         arcs: p.arcs || [],
                         htmlPostits: p.htmlPostits || [],
-                        history: p.history || [],
-                        historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
                         panX: p.panX || 0,
                         panY: p.panY || 0,
                         zoom: p.zoom || 1,
@@ -12773,8 +12922,6 @@ function promptExportCurrentBoard() {
                 images: p.images || [],
                 arcs: p.arcs || [],
                 htmlPostits: p.htmlPostits || [],
-                history: p.history || [],
-                historyIndex: p.historyIndex !== undefined ? p.historyIndex : -1,
                 panX: p.panX || 0,
                 panY: p.panY || 0,
                 zoom: p.zoom || 1,
@@ -13058,7 +13205,8 @@ function exportCurrentBoard(includeMedias = true, boardObj = null) {
             board = {
                 id: 'current_export_' + Date.now(),
                 name: currentBoardName,
-                data: { pages: [{ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom }], nextId, globalZ, currentBgIndex }
+                // sans l'historique d'annulation : il alourdissait le fichier sans servir
+                data: { pages: [{ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, panX, panY, zoom }], nextId, globalZ, currentBgIndex }
             };
         }
     }
