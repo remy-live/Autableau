@@ -28,6 +28,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `02-persistance.cjs` | coût d'une action, plafond de l'historique, historique absent des sauvegardes, mutualisation des images, rechargement complet, annuler/rétablir avec images, compatibilité des fichiers antérieurs |
 | `03-tampons.cjs` | recoloration d'un tampon, épaisseur, opacité du remplissage, réédition au double-clic sans duplication |
 | `04-formes-et-tactile.cjs` | reconnaissance losange / rectangle / parallélogramme / triangle / cercle, lasso et suppression au doigt, isolation d'un plugin fautif, fenêtres de plugins qui tiennent en 768×1024 |
+| `05-wysiwyg.cjs` | ce qui est tapé est ce qui sort : nombre de lignes, largeur, espacement, couleurs et tailles comparés entre la zone de saisie et le rendu du tableau (couleur en cours de frappe, gras, mot agrandi, mot coloré, liste, titre, réédition) |
 
 ## Ajouter un test
 

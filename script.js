@@ -3017,7 +3017,7 @@ function updateWysiwygPosition() {
         let currentSize = activeStyle.fontSize;
         let currentFont = activeStyle.fontFamily || 'sans-serif';
         let currentAlign = activeStyle.textAlign || 'left';
-        let currentColor = activeStyle.strokeColor;
+        let currentColor = couleurBlocSaisie || activeStyle.strokeColor;
         let anchorX = null, anchorY = null, fixedW = 0, colW = 0;
 
         if (editingTextId) {
@@ -4755,6 +4755,9 @@ function deleteObject(type, id) {
     else if (type === 'arc') arcs = arcs.filter(a => a.id !== id);
 }
 
+// Couleur de base du bloc en cours de saisie (voir l'ouverture en mode texte)
+let couleurBlocSaisie = null;
+
 function finalizeText() {
     if (wysiwygText.style.display === 'block') {
         const val = wysiwygText.innerHTML.trim(); let hasChanged = false; // <-- On utilise innerHTML !
@@ -4783,7 +4786,7 @@ function finalizeText() {
                     }
                 }
             } else if (tempTextLogicalPos) {
-                const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: activeStyle.strokeColor, fontSize: activeStyle.fontSize, fontFamily: activeStyle.fontFamily || 'sans-serif', align: activeStyle.textAlign || 'left', lineHeight: activeStyle.lineHeight, z: globalZ++ };
+                const newText = { id: nextId++, x: tempTextLogicalPos.x, y: tempTextLogicalPos.y, content: val, color: couleurBlocSaisie || activeStyle.strokeColor, fontSize: activeStyle.fontSize, fontFamily: activeStyle.fontFamily || 'sans-serif', align: activeStyle.textAlign || 'left', lineHeight: activeStyle.lineHeight, z: globalZ++ };
                 if (tempTextLogicalPos.colWidth) newText.colWidth = tempTextLogicalPos.colWidth;
                 if (tempTextLogicalPos.isBubble) {
                     newText.isBubble = true;
@@ -4798,6 +4801,7 @@ function finalizeText() {
         } else if (editingTextId) { deleteObject('text', editingTextId); hasChanged = true; }
 
         wysiwygText.style.display = 'none'; wysiwygText.innerText = ''; editingTextId = null; tempTextLogicalPos = null;
+        couleurBlocSaisie = null;
         if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
         if (hasChanged) { saveState(); draw(); }
     }
@@ -5243,6 +5247,10 @@ canvas.addEventListener('pointerdown', (e) => {
                 x: actionPos.x,
                 y: actionPos.y - offsetY
             };
+            // Couleur du bloc = celle en vigueur À L'OUVERTURE. Choisir une
+            // autre couleur ensuite ne doit repeindre que ce qui suit, pas ce
+            // qui est déjà écrit.
+            couleurBlocSaisie = activeStyle.strokeColor;
 
             wysiwygText.style.display = 'block';
             wysiwygText.style.fontFamily = 'sans-serif';
