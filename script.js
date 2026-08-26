@@ -1084,11 +1084,41 @@ function confirmRestore() {
     });
 }
 
+// « Nouveau tableau » : la session précédente n'est pas jetée, elle rejoint
+// « Mes tableaux ». Un clic trop rapide ne doit pas faire perdre un cours.
 function cancelRestore() {
-    localforage.removeItem(AUTO_SAVE_KEY).then(() => {
+    const fermer = () => {
         document.getElementById('restore-modal').style.display = 'none';
         initPages();
-    });
+    };
+
+    localforage.getItem(AUTO_SAVE_KEY).then((saved) => {
+        if (!saved) return null;
+        const maintenant = new Date();
+        const id = 'tb_' + Date.now();
+        const fiche = {
+            id,
+            name: 'Session du ' + maintenant.toLocaleDateString()
+                + ' à ' + maintenant.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            date: maintenant.toLocaleDateString(),
+            time: maintenant.toLocaleTimeString(),
+            timestamp: Date.now()
+        };
+        // La liste est relue dans la foulée : elle n'est pas forcément chargée
+        // en mémoire au moment où la modale s'affiche.
+        return localforage.getItem('auTableau_tableaux_list').then((liste) => {
+            const l = Array.isArray(liste) ? liste : [];
+            l.push(fiche);
+            l.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            savedTableaux = l;
+            return Promise.all([
+                localforage.setItem('auTableau_tableaux_list', l),
+                localforage.setItem('data_' + id, saved)
+            ]);
+        }).then(() => {
+            if (typeof showToast === 'function') showToast('Session précédente rangée dans « Mes tableaux »');
+        });
+    }).catch(() => null).then(() => localforage.removeItem(AUTO_SAVE_KEY)).then(fermer, fermer);
 }
 
 // --- SAUVEGARDE ET HISTORIQUE ---
@@ -3105,6 +3135,18 @@ window.addEventListener('keydown', (e) => {
         else if (mode === 'curve' && currentCurvePoints.length > 0) { currentCurvePoints.pop(); canceledSomething = true; }
         else if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite' || mode === 'circle' || mode === 'rectangle') && creationStartPointId !== null) { creationStartPointId = null; canceledSomething = true; }
         if (canceledSomething) { mouseLogicalPos = null; draw(); if (e.key === 'Backspace') e.preventDefault(); return; }
+
+        // L'aide annonce « Échap : quitter le mode spécial ». Sans ceci, on
+        // restait coincé en laser, gomme ou surligneur jusqu'à retrouver le
+        // bouton flèche.
+        if (e.key === 'Escape' && mode !== 'pointer'
+            && !(typeof unMenuEstOuvert === 'function' && unMenuEstOuvert())) {
+            setMode('pointer');
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn, #plugins-grid .btn')
+                .forEach(b => b.classList.remove('active'));
+            draw();
+            return;
+        }
     }
     if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); } }
     if (e.code === 'Space') { e.preventDefault(); isSpacePressed = true; updateCursor(); }
@@ -5431,7 +5473,11 @@ canvas.addEventListener('pointermove', (e) => {
         const currentCenter = { x: (pts[0].clientX + pts[1].clientX) / 2, y: (pts[0].clientY + pts[1].clientY) / 2 };
         const zoomDelta = currentDist / initialPinchDist; let newZoom = initialZoom * zoomDelta;
         if (newZoom < 0.2) newZoom = 0.2; if (newZoom > 10) newZoom = 10;
-        const mouseLogX = (currentCenter.x - initialPanX) / initialZoom; const mouseLogY = (currentCenter.y - initialPanY) / initialZoom;
+        // Le point du tableau saisi au départ reste sous le milieu des deux
+        // doigts : le repère est le centre INITIAL, sinon deux doigts qui
+        // glissent sans s'écarter ne déplacent pas la vue.
+        const depart = initialPinchCenter || currentCenter;
+        const mouseLogX = (depart.x - initialPanX) / initialZoom; const mouseLogY = (depart.y - initialPanY) / initialZoom;
         zoom = newZoom; document.getElementById('zoom-slider').value = zoom;
         panX = currentCenter.x - mouseLogX * zoom; panY = currentCenter.y - mouseLogY * zoom;
         updateWysiwygPosition();
@@ -6719,19 +6765,19 @@ function draw() {
             }
         }
 
-        if (mode === 'circle' && creationStartPointId && mouseLogicalPos) {
+        if (mode === 'circle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId); ctx.beginPath(); ctx.arc(startP.x, startP.y, Math.hypot(mouseLogicalPos.x - startP.x, mouseLogicalPos.y - startP.y), 0, Math.PI * 2);
             if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
             ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
         }
-        if (mode === 'rectangle' && creationStartPointId && mouseLogicalPos) {
+        if (mode === 'rectangle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
             ctx.beginPath();
             ctx.rect(Math.min(startP.x, mouseLogicalPos.x), Math.min(startP.y, mouseLogicalPos.y), Math.abs(mouseLogicalPos.x - startP.x), Math.abs(mouseLogicalPos.y - startP.y));
             if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
             ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
         }
-        if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite') && creationStartPointId && mouseLogicalPos) {
+        if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite') && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
 
             if (mouseLogicalPos.x === startP.x || mouseLogicalPos.y === startP.y) {

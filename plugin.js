@@ -653,16 +653,39 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         // 1. Chargement de MathJax (Pour la génération du SVG vectoriel final sur le tableau)
         if (!window.MathJax) {
             window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }, svg: { fontCache: 'global' } };
-            let scriptJax = document.createElement('script');
-            scriptJax.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
-            scriptJax.async = true;
-            document.head.appendChild(scriptJax);
+            // MathJax est fourni avec l'application : pas de requête vers
+            // l'extérieur, l'outil doit marcher en classe sans connexion.
+            if (!document.getElementById('MathJax-script')) {
+                let scriptJax = document.createElement('script');
+                scriptJax.id = 'MathJax-script';
+                scriptJax.src = './lib/mathjax/tex-svg.js';
+                scriptJax.async = true;
+                document.head.appendChild(scriptJax);
+            }
         }
 
         // 2. Chargement de MathLive (Pour le super éditeur visuel et le clavier virtuel)
         if (!customElements.get('math-field')) {
+            // Les polices et les sons sont déclarés à la main (voir polices.css) :
+            // ouverte depuis un dossier, la page ne peut pas les charger elle-même
+            // et l'éditeur de formules s'affichait alors sans ses symboles.
+            if (!document.getElementById('mathlive-polices')) {
+                const lien = document.createElement('link');
+                lien.id = 'mathlive-polices';
+                lien.rel = 'stylesheet';
+                lien.href = './lib/mathlive/polices.css';
+                document.head.appendChild(lien);
+            }
             let scriptLive = document.createElement('script');
             scriptLive.src = './lib/mathlive/mathlive.min.js';
+            scriptLive.onload = () => {
+                try {
+                    if (window.MathfieldElement) {
+                        window.MathfieldElement.fontsDirectory = null;
+                        window.MathfieldElement.soundsDirectory = null;
+                    }
+                } catch (e) { /* version sans ces réglages : on continue */ }
+            };
             document.head.appendChild(scriptLive);
 
             // CSS pour le clavier MathLive
@@ -6027,7 +6050,21 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
     currentStamp: null, currentArgs: null,
 
     // Le constructeur parfait de SVG
+    // Assemble le SVG final à partir du tracé brut d'un pays
+    habillerCarte: function (viewBox, inner, color) {
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="${viewBox}">
+                    <g fill="${color}" stroke="#2d3436" stroke-width="10">
+                        ${inner}
+                    </g>
+                </svg>`;
+    },
+
     fetchMap: function (code, color, callback) {
+        // Les pays proposés sont fournis avec l'application : en classe, sans
+        // connexion, la carte doit sortir quand même.
+        const local = window.CARTES_LOCALES && window.CARTES_LOCALES[code];
+        if (local) { callback(this.habillerCarte(local.viewBox, local.inner, color)); return; }
+
         fetch(`https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${code}/vector.svg`)
             .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
             .then(svgText => {
@@ -6040,14 +6077,8 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
                 innerContent = innerContent.replace(/fill="[^"]*"/ig, "");
                 innerContent = innerContent.replace(/stroke="[^"]*"/ig, "");
 
-                let cleanSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="${viewBox}">
-                    <g fill="${color}" stroke="#2d3436" stroke-width="10">
-                        ${innerContent}
-                    </g>
-                </svg>`;
-                callback(cleanSvg);
-            }).catch(err => {
-                //  console.error("[MAP] Erreur réseau:", err);
+                callback(this.habillerCarte(viewBox, innerContent, color));
+            }).catch(() => {
                 callback(null);
             });
     },
@@ -6085,7 +6116,10 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
                     const previewBox = document.getElementById('custom-prompt-preview');
                     if (previewBox) previewBox.innerHTML = '<div style="text-align:center; padding:20px;">Chargement...</div>';
                     this.fetchMap(res[0], res[1], (svg) => {
-                        if (svg && previewBox) previewBox.innerHTML = svg.replace(/width="400" height="400"/, 'width="100%" height="100%"');
+                        if (!previewBox) return;
+                        previewBox.innerHTML = svg
+                            ? svg.replace(/width="400" height="400"/, 'width="100%" height="100%"')
+                            : '<div style="text-align:center; padding:20px;">Carte indisponible (pas de connexion)</div>';
                     });
                     return "";
                 },
@@ -6118,7 +6152,10 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
             (res) => {
                 const previewBox = document.getElementById('custom-prompt-preview');
                 this.fetchMap(res[0], res[1], (svg) => {
-                    if (svg && previewBox) previewBox.innerHTML = svg.replace(/width="400" height="400"/, 'width="100%" height="100%"');
+                    if (!previewBox) return;
+                    previewBox.innerHTML = svg
+                        ? svg.replace(/width="400" height="400"/, 'width="100%" height="100%"')
+                        : '<div style="text-align:center; padding:20px;">Carte indisponible (pas de connexion)</div>';
                 });
                 return "Chargement...";
             },
