@@ -164,6 +164,62 @@ module.exports = async function (browser) {
     r.verifie('texte sélectionné : pas de pastilles de couleur', !barreStyle.couleur && !barreStyle.pastilles);
     r.verifie('texte sélectionné : pas de curseur d\'épaisseur', !barreStyle.epaisseur);
 
+    // Alignement ligne par ligne (et non plus tout le bloc d'un coup)
+    const lignes = await page.evaluate(() => {
+        texts.length = 0;
+        const t = {
+            id: nextId++, x: -300, y: -200, fontSize: 24, lineHeight: 29, color: '#2d3436', fontFamily: 'sans-serif', align: 'left', z: globalZ++,
+            content: '<div>gauche</div><div style="text-align:center">centre</div><div style="text-align:right">droite</div>'
+        };
+        texts.push(t); draw();
+        const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+        return lay.lines.map(l => ({ txt: l.segs.map(s => s.text).join(''), align: l.align }));
+    });
+    r.egal('alignement par ligne', lignes.map(l => l.align), [null, 'center', 'right']);
+    r.egal('alignement : pas de ligne parasite', lignes.map(l => l.txt), ['gauche', 'centre', 'droite']);
+
+    // Lignes vides : ni perdues, ni dupliquées
+    const vides = await page.evaluate(() => {
+        const essai = (h) => {
+            texts.length = 0;
+            const t = { id: nextId++, x: 0, y: 0, content: h, fontSize: 24, lineHeight: 29, color: '#2d3436', fontFamily: 'sans-serif', align: 'left', z: globalZ++ };
+            texts.push(t);
+            return layoutTextObject(t, document.getElementById('board').getContext('2d')).lines.map(l => l.segs.map(s => s.text).join(''));
+        };
+        return {
+            une: essai('<div>un</div><div><br></div><div>deux</div>'),
+            deux: essai('<div>un</div><div><br></div><div><br></div><div>deux</div>'),
+            suite: essai('<div>un</div><div>deux</div>')
+        };
+    });
+    r.egal('une ligne vide reste une ligne vide', vides.une, ['un', '', 'deux']);
+    r.egal('deux lignes vides restent deux', vides.deux, ['un', '', '', 'deux']);
+    r.egal('deux paragraphes : pas de vide entre eux', vides.suite, ['un', 'deux']);
+
+    // La barre d'édition ne doit jamais recouvrir le texte qu'on écrit
+    for (const [nom, y, nbLignes] of [['en haut', 60, 2], ['au milieu', 350, 2], ['en bas', 640, 1], ['bloc haut', 120, 12]]) {
+        await page.evaluate(() => { texts.length = 0; selectedItems = []; draw(); });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        await page.evaluate(() => setMode('text'));
+        await page.mouse.click(300, y);
+        await page.waitForTimeout(280);
+        for (let i = 0; i < nbLignes; i++) {
+            await page.keyboard.type('Ligne ' + (i + 1));
+            if (i < nbLignes - 1) await page.keyboard.press('Enter');
+        }
+        await page.waitForTimeout(200);
+        const place = await page.evaluate(() => {
+            const t = document.getElementById('text-toolbar').getBoundingClientRect();
+            const w = document.getElementById('wysiwyg-text').getBoundingClientRect();
+            const chevauche = !(t.bottom <= w.top || t.top >= w.bottom || t.right <= w.left || t.left >= w.right);
+            return { chevauche, dansEcran: t.top >= 0 && t.bottom <= window.innerHeight };
+        });
+        r.verifie(`barre d'édition ne masque pas le texte (${nom})`, !place.chevauche);
+        r.verifie(`barre d'édition dans l'écran (${nom})`, place.dansEcran);
+    }
+    await page.keyboard.press('Escape');
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

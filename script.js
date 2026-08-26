@@ -2417,9 +2417,10 @@ function generateSVGString(rect, keepBg) {
                     // Export du texte
                     lines.forEach((L) => {
                         const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
+                        const alignL = L.align || align;
                         let curX = exX + L.indent;
-                        if (align === 'center') curX = exX + (maxW - L.contentW) / 2;
-                        else if (align === 'right') curX = exX + maxW - L.contentW;
+                        if (alignL === 'center') curX = exX + (maxW - L.contentW) / 2;
+                        else if (alignL === 'right') curX = exX + maxW - L.contentW;
 
                         if (L.marker) {
                             svg += `<text x="${curX}" y="${lineY}" font-family="${fontFamily}" font-size="${L.size}px" font-weight="${L.bold ? 'bold' : 'normal'}" fill="${color}" dominant-baseline="hanging" xml:space="preserve">${L.marker}</text>`;
@@ -4395,7 +4396,7 @@ function layoutTextObject(obj, measureCtx) {
     // --- 1. HTML -> paragraphes ---
     const paras = [];
     let cur = null;
-    const openPara = (props) => { cur = { segs: [], marker: null, indent: 0, factor: 1, bold: false, ...(props || {}) }; paras.push(cur); return cur; };
+    const openPara = (props) => { cur = { segs: [], marker: null, indent: 0, factor: 1, bold: false, align: null, ...(props || {}) }; paras.push(cur); return cur; };
     const para = () => cur || openPara();
     // Un paragraphe vide juste avant une liste ou un titre est un artefact du
     // HTML de l'éditeur, pas une ligne voulue : on le récupère.
@@ -4405,6 +4406,13 @@ function layoutTextObject(obj, measureCtx) {
 
     const container = document.createElement('div');
     container.innerHTML = (obj.content === undefined || obj.content === null) ? ' ' : obj.content;
+
+    // Alignement propre à un paragraphe (posé par les boutons d'alignement
+    // pendant la saisie) : il l'emporte sur celui du bloc entier.
+    const alignDe = (node) => {
+        const v = (node.style && node.style.textAlign) || node.getAttribute?.('align') || '';
+        return /^(left|center|right|justify)$/.test(v) ? (v === 'justify' ? 'left' : v) : null;
+    };
 
     function walk(node, style, ctxBlock) {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -4418,7 +4426,13 @@ function layoutTextObject(obj, measureCtx) {
         if (node.nodeType !== Node.ELEMENT_NODE) return;
         const name = node.nodeName;
 
-        if (name === 'BR') { openPara(ctxBlock); return; }
+        if (name === 'BR') {
+            // Un <br> seul dans un bloc n'est qu'un repère pour rendre la ligne
+            // vide visible : il ne doit pas créer une seconde ligne vide.
+            const repere = !node.nextSibling && cur && cur.segs.length === 0;
+            if (!repere) openPara(ctxBlock);
+            return;
+        }
 
         if (name === 'UL' || name === 'OL') {
             reuseEmptyPara();
@@ -4436,6 +4450,8 @@ function layoutTextObject(obj, measureCtx) {
         if (TEXT_HEADING_FACTOR[name]) {
             reuseEmptyPara();
             const block = { ...ctxBlock, factor: TEXT_HEADING_FACTOR[name], bold: true };
+            const alTitre = alignDe(node);
+            if (alTitre) block.align = alTitre;
             openPara(block);
             Array.from(node.childNodes).forEach(c => walk(c, { ...style, bold: true }, block));
             openPara(ctxBlock);
@@ -4443,9 +4459,11 @@ function layoutTextObject(obj, measureCtx) {
         }
 
         if (name === 'DIV' || name === 'P' || name === 'LI') {
-            if (cur && cur.segs.length > 0) openPara(ctxBlock);
-            const block = name === 'LI' ? { ...ctxBlock, marker: '•', indent: (ctxBlock.indent || 0) + 1 } : ctxBlock;
-            if (name === 'LI') openPara(block);
+            reuseEmptyPara();   // sinon chaque bloc laisse derrière lui une ligne vide
+            const propre = alignDe(node);
+            let block = propre ? { ...ctxBlock, align: propre } : ctxBlock;
+            if (name === 'LI') block = { ...block, marker: '•', indent: (ctxBlock.indent || 0) + 1 };
+            openPara(block);
             Array.from(node.childNodes).forEach(c => walk(c, style, block));
             openPara(ctxBlock);
             return;
@@ -4530,7 +4548,7 @@ function layoutTextObject(obj, measureCtx) {
             lines.push({
                 segs, size, lineHeight: lh, y,
                 indent: indentPx, marker: i === 0 ? p.marker : null, markerW,
-                bold: p.bold, contentW
+                bold: p.bold, contentW, align: p.align || null
             });
             y += lh;
         });
@@ -4759,10 +4777,53 @@ function finalizeText() {
     }
 }
 wysiwygText.addEventListener('blur', finalizeText);
+// Le premier paragraphe d'une saisie est un simple nœud texte à la racine :
+// aucune commande de bloc (titre, alignement, liste) ne peut s'y appliquer, et
+// les rattrapages laissaient parfois une ligne vide surdimensionnée.
+// On enveloppe donc toute suite d'éléments en ligne dans un <div>.
+function normaliserLignesSaisie() {
+    if (!wysiwygText) return;
+    const estBloc = (n) => n.nodeType === 1 && /^(DIV|P|H1|H2|H3|UL|OL|LI|BLOCKQUOTE)$/.test(n.nodeName);
+
+    // Repère la position du curseur pour la restituer après remaniement
+    const sel = window.getSelection();
+    let ancre = null, offset = 0;
+    if (sel && sel.rangeCount && wysiwygText.contains(sel.anchorNode)) { ancre = sel.anchorNode; offset = sel.anchorOffset; }
+
+    let modifie = false;
+    let enfants = Array.from(wysiwygText.childNodes);
+    let paquet = [];
+    const vider = () => {
+        if (!paquet.length) return;
+        const vide = paquet.every(n => n.nodeType === Node.TEXT_NODE && !n.textContent.trim());
+        if (!vide) {
+            const bloc = document.createElement('div');
+            wysiwygText.insertBefore(bloc, paquet[0]);
+            paquet.forEach(n => bloc.appendChild(n));
+            modifie = true;
+        }
+        paquet = [];
+    };
+    enfants.forEach(n => {
+        if (estBloc(n)) { vider(); return; }
+        if (n.nodeType === 1 && n.nodeName === 'BR') { paquet.push(n); vider(); return; }
+        paquet.push(n);
+    });
+    vider();
+
+    if (modifie && ancre && wysiwygText.contains(ancre)) {
+        try {
+            const r = document.createRange();
+            r.setStart(ancre, Math.min(offset, ancre.length !== undefined ? ancre.length : offset));
+            r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+        } catch (e) { /* le curseur reste où le navigateur l'a laissé */ }
+    }
+}
+
 // Applique un style de bloc (titre, paragraphe) à la ligne courante.
-// execCommand('formatBlock') ne fait rien quand la ligne n'est pas déjà dans
-// un bloc — cas d'une zone de saisie vierge : on crée alors le bloc à la main.
 function applyBlockTag(tag) {
+    normaliserLignesSaisie();
     const inTag = () => {
         const sel = window.getSelection();
         let n = sel && sel.anchorNode;
@@ -4774,6 +4835,9 @@ function applyBlockTag(tag) {
     };
     document.execCommand('formatBlock', false, tag === 'p' ? '<div>' : `<${tag}>`);
     if (tag === 'p' || inTag()) return;
+    // Filet : uniquement si la zone est réellement dépourvue de bloc, sinon on
+    // créerait un second bloc vide à côté de celui que formatBlock vient de poser
+    if (wysiwygText.querySelector('div, p, h1, h2, h3, li')) return;
 
     document.execCommand('insertHTML', false, `<${tag}><span id="__cursor_anchor"></span></${tag}>`);
     const marker = document.getElementById('__cursor_anchor');
@@ -4921,6 +4985,9 @@ wysiwygText.addEventListener('input', () => {
     const t = editingTextId ? getObjectById('text', editingTextId) : null;
     const align = t ? (t.align || 'left') : (activeStyle.textAlign || 'left');
     if (align === 'center') updateWysiwygPosition();
+    // Le bloc grandit à la frappe : la barre placée en dessous finirait par le
+    // recouvrir si on ne la replaçait pas.
+    else if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
 });
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -6433,9 +6500,10 @@ function draw() {
                             const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
                             const setFont = (st) => { ctx.font = `${st.italic ? 'italic ' : ''}${(st.bold || L.bold) ? 'bold ' : ''}${L.size}px ${fontFamily}`; };
 
+                            const alignL = L.align || align;
                             let curX = startX + L.indent;
-                            if (align === 'center') curX = startX + (w - L.contentW) / 2;
-                            else if (align === 'right') curX = startX + w - L.contentW;
+                            if (alignL === 'center') curX = startX + (w - L.contentW) / 2;
+                            else if (alignL === 'right') curX = startX + w - L.contentW;
 
                             if (L.marker) {
                                 setFont({ bold: L.bold });
@@ -7331,6 +7399,18 @@ if (textToolbar) {
             // --- Gestion de l'alignement ---
             if (btn.classList.contains('btn-align')) {
                 const alignMode = btn.getAttribute('data-align');
+                if (alignMode && wysiwygText && wysiwygText.style.display === 'block') {
+                    // En saisie : on aligne la ligne (ou les lignes sélectionnées), pas tout le bloc
+                    wysiwygText.focus();
+                    normaliserLignesSaisie();
+                    const cmd = { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight' }[alignMode];
+                    if (cmd) document.execCommand(cmd, false, null);
+                    activeStyle.textAlign = alignMode;
+                    fermerTiroirsTexte();
+                    if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+                    if (typeof draw === 'function') draw();
+                    return;
+                }
                 if (alignMode) {
                     activeStyle.textAlign = alignMode;
                     if (editingTextId) {
@@ -7607,9 +7687,21 @@ function updateTextToolbarPosition() {
         const tbHeight = textToolbar.offsetHeight || 40;
         const tbWidth = textToolbar.offsetWidth || 350; // On récupère la largeur réelle de la barre
 
-        // Calcul du positionnement vertical
-        let topPos = rect.top - tbHeight - 15;
-        if (topPos < 10) topPos = rect.bottom + 15;
+        // Positionnement vertical : au-dessus si la place existe, sinon en dessous
+        // du bloc. La barre ne doit jamais recouvrir le texte qu'on est en train
+        // d'écrire, ni sortir de l'écran.
+        const marge = 14;
+        const placeDessus = rect.top - tbHeight - marge;
+        const placeDessous = rect.bottom + marge;
+        let topPos;
+        if (placeDessus >= 10) topPos = placeDessus;
+        else if (placeDessous + tbHeight <= window.innerHeight - 10) topPos = placeDessous;
+        else {
+            // Ni au-dessus ni en dessous : on se colle au bord le plus dégagé
+            topPos = (rect.top > window.innerHeight - rect.bottom)
+                ? Math.max(10, rect.top - tbHeight - marge)
+                : Math.min(window.innerHeight - tbHeight - 10, rect.bottom + marge);
+        }
 
         // Calcul du positionnement horizontal avec ANTI-DÉBORDEMENT
         let leftPos = rect.left;
