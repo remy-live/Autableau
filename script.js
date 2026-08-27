@@ -12070,12 +12070,180 @@ let savedTableaux = [];
 let savedInterfaces = [];
 
 
+
+// ===================================================
+// INTERFACES FOURNIES
+// Un tableau de 83 outils fait peur. Ces interfaces prêtes à l'emploi ne
+// montrent que ce dont on a besoin : les barres posées sur le tableau et les
+// favoris changent, rien n'est supprimé — le tiroir complet reste accessible.
+//
+// Deux façons de désigner un outil, imposées par le reste du code :
+//   - un outil du tableau par son identifiant ou son mode ('freehand', 'ruler')
+//   - un plugin par son LIBELLÉ exact, celui de son infobulle.
+// La barre principale garde l'identifiant « system-toolbar-main », sinon
+// l'application la reconstruit complète au démarrage suivant.
+// ===================================================
+const OUTILS_ESSENTIELS = ['btn-undo', 'btn-redo', 'pointer', 'move', 'freehand', 'text', 'eraser'];
+
+function barrePrincipale(items, y) {
+    return {
+        id: 'system-toolbar-main', name: 'Outils', x: 20, y: y || 80,
+        titlePalette: 'default', palette: 'default', borderPalette: 'default',
+        iconSize: '1', cols: 2, protected: true,
+        initialItems: [...items], items: [...items]
+    };
+}
+
+function barreSecondaire(id, name, x, items) {
+    return {
+        id, name, x, y: 80,
+        titlePalette: 'default', palette: 'default', borderPalette: 'default',
+        iconSize: '1', cols: 2, items: [...items]
+    };
+}
+
+const INTERFACES_FOURNIES = [
+    {
+        cle: 'maternelle',
+        nom: 'Maternelle — grande section',
+        outils: [...OUTILS_ESSENTIELS, 'highlighter'],
+        matiere: ['Mains & Comptage', 'Dés à jouer', 'Horloge Pédagogique',
+                  'Calendrier & Affichages', 'Météo du Jour', 'Signalisation'],
+        titreMatiere: 'En classe'
+    },
+    {
+        cle: 'cycle2',
+        nom: 'CP – CE1 (cycle 2)',
+        outils: [...OUTILS_ESSENTIELS, 'highlighter', 'ruler'],
+        matiere: ["Lignes d'écriture", 'Matériel Base 10', 'Réglettes Cuisenaire',
+                  'Tableau de Numération', 'Kit Monnaie', 'Horloge Pédagogique',
+                  'Mains & Comptage', 'Fraction Visuelle'],
+        titreMatiere: 'Lire, écrire, compter'
+    },
+    {
+        cle: 'cycle3',
+        nom: 'CE2 – CM2 (cycle 3)',
+        outils: [...OUTILS_ESSENTIELS, 'highlighter', 'segment', 'rectangle', 'circle',
+                 'ruler', 'setsquare', 'compass'],
+        matiere: ['Fraction Visuelle', 'Tableau de Conversion', 'Division Posée',
+                  'Tableau de Proportionnalité', 'Symétrie', 'Pyramides Additives',
+                  'Frise Historique', 'Cartes Géographiques'],
+        titreMatiere: 'Cycle 3'
+    },
+    {
+        cle: 'college',
+        nom: 'Collège',
+        outils: [...OUTILS_ESSENTIELS, 'point', 'segment', 'droite', 'circle', 'polygon',
+                 'ruler', 'setsquare', 'protractor', 'compass'],
+        matiere: ['Formules Mathématiques', 'Repère Cartésien', 'Figures Géométriques',
+                  'Tuiles Algébriques', 'Angles à mesurer', 'Graphique Statistique',
+                  'Molécules 2D', 'Circuits Électriques', 'Frise Historique'],
+        titreMatiere: 'Collège'
+    },
+    {
+        cle: 'lycee',
+        nom: 'Lycée',
+        outils: [...OUTILS_ESSENTIELS, 'point', 'segment', 'droite', 'curve', 'circle',
+                 'polygon', 'ruler', 'compass'],
+        matiere: ['Formules Mathématiques', 'Traceur de Fonctions', 'Tableau Signes & Variations',
+                  'Repère Cartésien', 'Arbre de probabilités', 'Évolutions Successives',
+                  'Tableur Interactif', 'Molécules 2D', 'Verrerie'],
+        titreMatiere: 'Lycée'
+    },
+    {
+        cle: 'minimale',
+        nom: 'Minimale — écrire et dessiner',
+        outils: ['btn-undo', 'pointer', 'freehand', 'text', 'eraser'],
+        matiere: [],
+        titreMatiere: null
+    },
+    {
+        cle: 'conduite',
+        nom: 'Conduite de classe',
+        outils: OUTILS_ESSENTIELS,
+        matiere: ['Tirage au sort & Groupes', 'Sonomètre de Classe', 'Signalisation',
+                  'Calendrier & Affichages', 'Météo du Jour', 'Questions Flash',
+                  'Popcorn', 'Le Défi du Prof'],
+        titreMatiere: 'La classe'
+    },
+    {
+        cle: 'complete',
+        nom: 'Complète — tout sous la main',
+        outils: ['btn-undo', 'btn-redo', 'pointer', 'move', 'freehand', 'highlighter', 'text',
+                 'postit', 'point', 'segment', 'demi-droite', 'droite', 'curve', 'circle',
+                 'polygon', 'rectangle', 'laser', 'eraser', 'ruler', 'setsquare',
+                 'protractor', 'compass'],
+        matiere: ['Formules Mathématiques', 'Fraction Visuelle', 'Repère Cartésien',
+                  'Figures Géométriques', 'Tableau de Conversion', 'Graphique Statistique'],
+        titreMatiere: 'Maths',
+        classe: ['Tirage au sort & Groupes', 'Sonomètre de Classe', 'Calendrier & Affichages',
+                 'Questions Flash']
+    }
+];
+
+function fabriquerInterfaceFournie(modele) {
+    const barres = [barrePrincipale(modele.outils)];
+    const colonnesOutils = Math.ceil(modele.outils.length / 2);
+    let x = 140;
+    if (modele.matiere && modele.matiere.length) {
+        barres.push(barreSecondaire('iface-' + modele.cle + '-matiere', modele.titreMatiere || 'Outils', x, modele.matiere));
+        x += 120;
+    }
+    if (modele.classe && modele.classe.length) {
+        barres.push(barreSecondaire('iface-' + modele.cle + '-classe', 'La classe', x, modele.classe));
+    }
+    return {
+        id: 'iface_fournie_' + modele.cle,
+        name: modele.nom,
+        date: 'Interface fournie', time: '',
+        timestamp: 0,          // les interfaces fournies restent en bas de liste
+        fournie: true,
+        colonnesOutils,
+        data: {
+            favorites: [...(modele.matiere || []), ...(modele.classe || [])],
+            toolbars: barres,
+            barStyleX: null,
+            barStyleY: null
+        }
+    };
+}
+
+// Remet les interfaces fournies, y compris celles qui avaient été supprimées
+function restaurerInterfacesFournies() {
+    savedInterfaces = savedInterfaces.filter(i => !(i.fournie || String(i.id).startsWith('iface_fournie_')));
+    semerInterfacesFournies();
+    try {
+        localStorage.setItem('auTableau_interfaces_list', JSON.stringify(savedInterfaces));
+    } catch (e) { /* espace saturé */ }
+    if (typeof renderExplorerLists === 'function') renderExplorerLists();
+    if (typeof showToast === 'function') showToast('Interfaces fournies remises en place');
+}
+
+// Les interfaces fournies sont (re)posées au démarrage : elles complètent la
+// liste sans écraser celles que l'enseignant a créées ou renommées.
+function semerInterfacesFournies() {
+    let touche = false;
+    INTERFACES_FOURNIES.forEach(modele => {
+        const id = 'iface_fournie_' + modele.cle;
+        if (savedInterfaces.some(i => i.id === id)) return;
+        savedInterfaces.push(fabriquerInterfaceFournie(modele));
+        touche = true;
+    });
+    if (touche) {
+        try {
+            localStorage.setItem('auTableau_interfaces_list', JSON.stringify(savedInterfaces));
+        } catch (e) { /* espace saturé : la liste reste en mémoire pour la session */ }
+    }
+    return touche;
+}
+
 function loadExplorerData() {
     // Interfaces in localStorage
     try {
         const intData = localStorage.getItem('auTableau_interfaces_list');
         if (intData) savedInterfaces = JSON.parse(intData);
     } catch (e) { }
+    semerInterfacesFournies();
 
     // Tableaux in localforage
     localforage.getItem('auTableau_tableaux_list').then(data => {
@@ -12222,6 +12390,12 @@ function renderExplorerLists() {
     const treeHtml = buildTree(filteredList, null);
     if (treeHtml) {
         container.appendChild(treeHtml);
+    } else if (currentExplorerTab === 'interfaces' && !query) {
+        container.innerHTML = `<div style="padding:14px; color:#636e72; font-size:12px; text-align:center; line-height:1.6;">
+            Aucune interface.<br>
+            <button class="btn-action" style="margin-top:10px; padding:6px 12px; font-size:12px;"
+                onclick="restaurerInterfacesFournies()">Remettre les interfaces fournies</button>
+        </div>`;
     } else {
         container.innerHTML = `<div style="padding:10px; color:#636e72; font-size:12px; text-align:center;">Aucun document trouvé.</div>`;
     }

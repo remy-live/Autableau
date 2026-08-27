@@ -32,6 +32,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `06-parcours.cjs` | chaque outil de dessin, raccourcis (Ctrl+Z/Y, Suppr, Espace, Échap), pages, gestes à deux doigts (déplacer, pincer), reprise de session après rechargement |
 | `07-plugins.cjs` | les 81 plugins s'ouvrent sans erreur et tiennent dans un écran de tablette ; carte disponible hors connexion |
 | `08-gestes-de-classe.cjs` | dupliquer (sommets recopiés, groupes, verrou, Ctrl+D, annulation), rideau (poignées, Échap, au doigt), projecteur (déplacement, diamètre) |
+| `09-interfaces.cjs` | les huit interfaces fournies (niveaux, minimale, complète, conduite de classe) : outils existants, barres qui ne se recouvrent pas, chargement effectif, suppression puis remise |
 
 ## Ajouter un test
 
