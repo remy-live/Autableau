@@ -234,6 +234,52 @@ module.exports = async function (browser) {
     r.verifie('réédition : couleurs conservées',
         memeCouleurs, JSON.stringify({ canvas: canvasRe.lignes.map(l => l.couleurs), html: htmlRe.map(l => l.couleurs) }));
 
+    // Position VERTICALE de la première ligne dans son bloc : le navigateur
+    // centre chaque ligne dans son interligne, le tableau doit faire pareil.
+    // Sans cela, le texte remonte dès qu'on élargit l'interligne.
+    const interlignes = await page.evaluate(() => {
+        const cas = [[24, 29], [40, 48], [40, 80], [24, 60], [60, 66]];
+        return cas.map(([fs, lh]) => {
+            texts.length = 0;
+            const t = { id: nextId++, x: 0, y: 0, content: 'Ligne un<div>Ligne deux</div>',
+                        fontSize: fs, lineHeight: lh, color: '#000', fontFamily: 'sans-serif', align: 'left', z: globalZ++ };
+            texts.push(t); draw();
+            const lay = layoutTextObject(t, document.getElementById('board').getContext('2d'));
+            const canvas = lay.lines[0].y + (lay.lines[0].demiInterligne || 0);
+
+            const clone = document.getElementById('wysiwyg-text').cloneNode(false);
+            Object.assign(clone.style, { display: 'block', position: 'absolute', left: '-9999px', top: '0px',
+                fontSize: fs + 'px', fontFamily: 'sans-serif', whiteSpace: 'pre-wrap', width: '600px' });
+            clone.style.lineHeight = String(lh / fs);
+            clone.style.setProperty('--tt-lh', lh + 'px');
+            clone.innerHTML = t.content;
+            document.body.appendChild(clone);
+            const base = clone.getBoundingClientRect();
+            const n = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT).nextNode();
+            const rr = document.createRange(); rr.selectNodeContents(n);
+            const html = rr.getBoundingClientRect().top - base.top;
+            document.body.removeChild(clone);
+            return { fs, lh, ecart: Math.round((canvas - html) * 10) / 10 };
+        });
+    });
+    interlignes.forEach(c => {
+        r.verifie(`première ligne au bon niveau (police ${c.fs}, interligne ${c.lh})`,
+            Math.abs(c.ecart) <= 1, `${c.ecart} px d'écart`);
+    });
+
+    // Un bloc centré AVEC une colonne : x est le bord gauche des deux côtés.
+    // C'est là que la réédition partait une demi-colonne trop loin.
+    const centreEnColonne = await page.evaluate(() => {
+        texts.length = 0;
+        const t = { id: nextId++, x: -300, y: -100, content: 'fdsdsfddfsfds<div>fdsfds</div>',
+                    fontSize: 40, lineHeight: 48, colWidth: 600, align: 'center',
+                    color: '#e74c3c', fontFamily: 'sans-serif', align: 'center', z: globalZ++ };
+        texts.push(t); draw();
+        return { gauche: Math.round(t._cachedStartX), x: t.x, largeur: Math.round(t._cachedW) };
+    });
+    r.egal('bloc centré avec colonne : x reste le bord gauche', centreEnColonne.gauche, centreEnColonne.x);
+    r.egal('bloc centré avec colonne : la largeur est la colonne', centreEnColonne.largeur, 600);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

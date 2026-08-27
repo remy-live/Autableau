@@ -2384,7 +2384,8 @@ function generateSVGString(rect, keepBg) {
 
                     let transformAttr = "";
                     // Convention canvas : en centré sans largeur fixe, obj.x est le CENTRE du bloc
-                    const exX = (align === 'center' && !obj.fixedWidth) ? obj.x - maxW / 2 : obj.x;
+                    // Même convention qu'à l'écran (voir le rendu canvas)
+                    const exX = (align === 'center' && !obj.fixedWidth && !obj.colWidth) ? obj.x - maxW / 2 : obj.x;
                     const cx = exX + (maxW / 2);
                     const blockH = Math.max(layout.height, obj.minHeight || 0);
                     const cy = obj.y + (blockH / 2);
@@ -2446,7 +2447,9 @@ function generateSVGString(rect, keepBg) {
 
                     // Export du texte
                     lines.forEach((L) => {
-                        const lineY = obj.y + L.y + (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2;
+                        const lineY = obj.y + L.y + (L.demiInterligne !== undefined
+                            ? L.demiInterligne
+                            : (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2);
                         const alignL = L.align || align;
                         let curX = exX + L.indent;
                         if (alignL === 'center') curX = exX + (maxW - L.contentW) / 2;
@@ -4438,6 +4441,17 @@ function layoutTextObject(obj, measureCtx) {
     const tailleSeg = (style, size) => (style && style.fontSize) ? style.fontSize * (size / baseSize) : size;
     const policeSeg = (style) => (style && style.fontFamily) || fontFamily;
 
+    // Hauteur qu'occupe naturellement une ligne de cette police : c'est elle
+    // que le navigateur centre dans l'interligne. On la MESURE au lieu de la
+    // supposer, sinon le texte remonte dès qu'on élargit l'interligne.
+    const hauteurNaturelle = (size, style) => {
+        if (!measureCtx) return size * 1.15;
+        measureCtx.font = `${style && style.italic ? 'italic ' : ''}${(style && style.bold) ? 'bold ' : ''}${size}px ${policeSeg(style)}`;
+        const m = measureCtx.measureText('Mg');
+        const h = (m.fontBoundingBoxAscent || 0) + (m.fontBoundingBoxDescent || 0);
+        return h > 0 ? h : size * 1.15;
+    };
+
     const measure = (text, style, size) => {
         if (!text) return 0;
         const s = tailleSeg(style, size);
@@ -4614,12 +4628,14 @@ function layoutTextObject(obj, measureCtx) {
                 tailleMax = Math.max(tailleMax, tailleSeg(s.style, size));
             });
             const lhLigne = (tailleMax > size) ? lh * (tailleMax / size) : lh;
+            // Le navigateur centre la ligne dans son interligne : on fait pareil.
+            const demiInterligne = (lhLigne - hauteurNaturelle(tailleMax, { bold: p.bold })) / 2;
             const contentW = (i === 0 ? markerW : markerW) + segsW; // le retrait de continuation garde la gouttière
             maxW = Math.max(maxW, indentPx + contentW);
             lines.push({
                 segs, size, lineHeight: lhLigne, y,
                 indent: indentPx, marker: i === 0 ? p.marker : null, markerW,
-                bold: p.bold, contentW, align: p.align || null, tailleMax
+                bold: p.bold, contentW, align: p.align || null, tailleMax, demiInterligne
             });
             y += lhLigne;
         });
@@ -6318,7 +6334,14 @@ function draw() {
                         w = 40; h = 40;
                     }
 
-                    startX = obj.align === 'center' ? obj.x + (obj.fixedWidth ? obj.fixedWidth/2 : 0) - w / 2 : obj.x;
+                    // Deux conventions selon que le bloc a un cadre ou non :
+                    //  - avec une colonne, x est le bord GAUCHE et le centrage
+                    //    se fait à l'intérieur du cadre (comme dans la saisie) ;
+                    //  - sans colonne, la largeur est celle du texte : x est
+                    //    alors le point d'ancrage, c'est-à-dire le CENTRE.
+                    startX = (obj.align === 'center' && !obj.colWidth)
+                        ? obj.x + (obj.fixedWidth ? obj.fixedWidth / 2 : 0) - w / 2
+                        : obj.x;
                     if (obj.isBubble && w < 20 && !obj.isMinimized) { w = 150; h = 30; }
                 }
 
@@ -6604,7 +6627,9 @@ function draw() {
                             // Le demi-interligne : le DOM centre chaque ligne dans sa
                             // line-box, on compense pour retomber sur la saisie
                             const grande = L.tailleMax || L.size;
-                            const lineY = obj.y + L.y + (grande * 0.1) + (L.lineHeight - grande * 1.2) / 2;
+                            const lineY = obj.y + L.y + (L.demiInterligne !== undefined
+                                ? L.demiInterligne
+                                : (grande * 0.1) + (L.lineHeight - grande * 1.2) / 2);
                             // Taille et police propres au segment (sélection partielle)
                             const tailleDe = (st) => (st && st.fontSize) ? st.fontSize * (L.size / (obj.fontSize || 24)) : L.size;
                             const setFont = (st) => {
