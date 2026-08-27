@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="style.css?v=16">
 </head>
 
 <body>
@@ -213,6 +213,12 @@
         <div class="rideau-poignee" data-bord="droite"></div>
     </div>
     <div id="spot-calque" hidden><div id="spot-trou"></div></div>
+    <button id="masque-fermer" title="Fermer le rideau / le projecteur (Échap)">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none"
+            stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+    </button>
 
     <div id="toast-container"></div>
     <div class="project-name-wrapper" id="project-name-wrapper">
@@ -1346,7 +1352,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=55"></script>
+    <script src="script.js?v=56"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=52"></script>
     <script>

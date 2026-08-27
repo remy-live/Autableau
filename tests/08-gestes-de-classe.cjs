@@ -149,6 +149,61 @@ module.exports = async function (browser) {
         await tab.page.waitForTimeout(45);
     };
 
+    // Un objet sélectionné : son menu rapide ne doit pas flotter sur le rideau
+    await tab.page.evaluate(() => {
+        freehands.push({ id: nextId++, points: [{ x: -60, y: -40 }, { x: 60, y: 40 }], color: '#000', width: 5, z: globalZ++ });
+        setMode('pointer'); selectedItems = [{ type: 'freehand', id: freehands[0].id }]; draw();
+    });
+    await tab.page.waitForTimeout(300);
+    r.verifie('menu rapide visible avant le rideau',
+        await tab.page.evaluate(() => document.getElementById('quick-edit-menu').classList.contains('visible')));
+
+    await tab.page.evaluate(() => document.getElementById('btn-rideau').click());
+    await tab.page.waitForTimeout(400);
+
+    const couverture = await tab.page.evaluate(() => {
+        const haut = document.elementFromPoint(window.innerWidth / 2, 40);
+        const coin = document.elementFromPoint(window.innerWidth - 40, window.innerHeight - 40);
+        return {
+            barreCouverte: !!(haut && haut.closest('#rideau')),
+            coinCouvert: !!(coin && coin.closest('#rideau')),
+            menu: document.getElementById('quick-edit-menu').classList.contains('visible'),
+            croix: document.getElementById('masque-fermer').classList.contains('visible')
+        };
+    });
+    r.verifie('le rideau passe au-dessus des barres d\'outils', couverture.barreCouverte, JSON.stringify(couverture));
+    r.verifie('le rideau couvre jusqu\'aux coins', couverture.coinCouvert);
+    r.verifie('le menu rapide s\'efface derrière le rideau', !couverture.menu);
+    r.verifie('une croix de fermeture apparaît', couverture.croix);
+
+    const croix = await tab.page.evaluate(() => {
+        const b = document.getElementById('masque-fermer').getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    const surLaCroix = await tab.page.evaluate((c) => {
+        const el = document.elementFromPoint(c.x, c.y);
+        return !!(el && (el.id === 'masque-fermer' || el.closest('#masque-fermer')));
+    }, croix);
+    r.verifie('la croix reste atteignable au-dessus du rideau', surLaCroix);
+
+    await touche('touchStart', [croix]);
+    await touche('touchEnd', []);
+    await tab.page.waitForTimeout(350);
+    r.verifie('un appui sur la croix referme le rideau',
+        await tab.page.evaluate(() => document.getElementById('rideau').hidden));
+    r.verifie('le menu rapide revient ensuite',
+        await tab.page.evaluate(() => document.getElementById('quick-edit-menu').classList.contains('visible')));
+
+    // Le projecteur se ferme de la même façon, sans clavier
+    await tab.page.evaluate(() => document.getElementById('btn-spot').click());
+    await tab.page.waitForTimeout(350);
+    await touche('touchStart', [croix]);
+    await touche('touchEnd', []);
+    await tab.page.waitForTimeout(350);
+    r.verifie('un appui sur la croix referme le projecteur',
+        await tab.page.evaluate(() => document.getElementById('spot-calque').hidden));
+
+    // Puis on rouvre le rideau pour l'essai au doigt sur les poignées
     await tab.page.evaluate(() => document.getElementById('btn-rideau').click());
     await tab.page.waitForTimeout(300);
     const pt = await tab.page.evaluate(() => {

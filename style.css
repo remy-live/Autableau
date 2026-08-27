@@ -5007,7 +5007,9 @@ dark-mode .title-btn:hover {
     background: #2d3436;
     background-image: repeating-linear-gradient(135deg,
             rgba(255, 255, 255, 0.035) 0 12px, rgba(255, 255, 255, 0) 12px 24px);
-    z-index: 14000;
+    /* Au-dessus de TOUT : barres d'outils, menus, tiroirs. Ce qui est masqué
+       doit l'être vraiment. Seul le bouton de fermeture passe par-dessus. */
+    z-index: 999990;
     touch-action: none;
     cursor: move;
     box-shadow: 0 0 30px rgba(0, 0, 0, 0.45);
@@ -5051,7 +5053,7 @@ dark-mode .title-btn:hover {
 #spot-calque {
     position: fixed;
     inset: 0;
-    z-index: 14000;
+    z-index: 999990;
     touch-action: none;
     cursor: move;
 }
@@ -5065,3 +5067,26 @@ dark-mode .title-btn:hover {
     box-shadow: 0 0 0 9999px rgba(20, 22, 24, 0.82);
     transform: translate(-50%, -50%);
 }
+
+/* Seule échappatoire quand le rideau ou le projecteur couvre l'écran : sur
+   tablette, il n'y a pas de touche Échap. */
+#masque-fermer {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    width: 46px;
+    height: 46px;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    color: #2d3436;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 999991;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+#masque-fermer.visible { display: flex; }
+#masque-fermer:hover { background: #f1f2f6; }

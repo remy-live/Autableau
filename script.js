@@ -8833,6 +8833,7 @@ function updateQuickMenu() {
     // En pleine saisie, la barre d'édition suffit : le menu rapide se poserait
     // en travers du texte voisin.
     if (editingTextId) { quickMenu.classList.remove('visible'); return; }
+    if (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert()) { quickMenu.classList.remove('visible'); return; }
 
     // 1. Injection des pastilles de couleur
     if (!document.getElementById('quick-colors-container')) {
@@ -15390,7 +15391,15 @@ if (document.getElementById('formula-modal')) {
     const spotTrou = document.getElementById('spot-trou');
     const btnRideau = document.getElementById('btn-rideau');
     const btnSpot = document.getElementById('btn-spot');
+    const btnFermer = document.getElementById('masque-fermer');
     if (!rideau || !spotCalque) return;
+
+    // Le rideau couvre toute l'interface : sans cette croix, on ne pourrait
+    // plus rien fermer sur une tablette, faute de touche Échap.
+    const majFermeture = () => {
+        if (!btnFermer) return;
+        btnFermer.classList.toggle('visible', !rideau.hidden || !spotCalque.hidden);
+    };
 
     // --- RIDEAU ---
     // Bornes en pixels écran : le rideau ne suit ni le zoom ni le
@@ -15412,12 +15421,16 @@ if (document.getElementById('formula-modal')) {
         if (rideauVisible()) {
             rideau.hidden = true;
             btnRideau.classList.remove('active');
+            majFermeture();
+            if (typeof draw === 'function') draw();
             return;
         }
         cadre = cadrePlein();
         poserCadre();
         rideau.hidden = false;
         btnRideau.classList.add('active');
+        majFermeture();
+        if (typeof draw === 'function') draw();
         if (typeof showToast === 'function') showToast('Rideau : glisse les poignées pour dévoiler');
     }
 
@@ -15475,12 +15488,16 @@ if (document.getElementById('formula-modal')) {
         if (spotVisible()) {
             spotCalque.hidden = true;
             btnSpot.classList.remove('active');
+            majFermeture();
+            if (typeof draw === 'function') draw();
             return;
         }
         spot = { x: window.innerWidth / 2, y: window.innerHeight / 2, r: Math.min(200, window.innerWidth / 5) };
         poserSpot();
         spotCalque.hidden = false;
         btnSpot.classList.add('active');
+        majFermeture();
+        if (typeof draw === 'function') draw();
         if (typeof showToast === 'function') showToast('Projecteur : glisse pour déplacer, molette ou pincement pour la taille');
     }
 
@@ -15534,6 +15551,10 @@ if (document.getElementById('formula-modal')) {
     // --- Commandes ---
     if (btnRideau) btnRideau.addEventListener('click', basculerRideau);
     if (btnSpot) btnSpot.addEventListener('click', basculerSpot);
+    if (btnFermer) btnFermer.addEventListener('click', () => {
+        if (spotVisible()) basculerSpot();
+        if (rideauVisible()) basculerRideau();
+    });
 
     // Échap referme ce qui masque le tableau, avant tout le reste
     window.addEventListener('keydown', (e) => {
@@ -15553,4 +15574,6 @@ if (document.getElementById('formula-modal')) {
 
     window.basculerRideau = basculerRideau;
     window.basculerSpot = basculerSpot;
+    // Le menu rapide n'a rien à faire par-dessus un tableau masqué
+    window.unMasqueEstOuvert = () => rideauVisible() || spotVisible();
 })();
