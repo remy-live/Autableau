@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=14">
+    <link rel="stylesheet" href="style.css?v=15">
 </head>
 
 <body>
@@ -185,6 +185,14 @@
             </svg>
         </button>
 
+        <button class="btn-quick" id="btn-quick-duplicate" title="Dupliquer (Ctrl+D)">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+        </button>
+
         <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
 
         <button class="btn-quick danger" id="btn-quick-delete" title="Supprimer">
@@ -195,6 +203,16 @@
             </svg>
         </button>
     </div>
+
+    <!-- Rideau : masque une partie du tableau, on fait glisser les poignées
+         pour révéler au fur et à mesure. Spot : éclaire une seule zone. -->
+    <div id="rideau" hidden>
+        <div class="rideau-poignee" data-bord="haut"></div>
+        <div class="rideau-poignee" data-bord="bas"></div>
+        <div class="rideau-poignee" data-bord="gauche"></div>
+        <div class="rideau-poignee" data-bord="droite"></div>
+    </div>
+    <div id="spot-calque" hidden><div id="spot-trou"></div></div>
 
     <div id="toast-container"></div>
     <div class="project-name-wrapper" id="project-name-wrapper">
@@ -260,7 +278,9 @@
                         <li><strong>Règle/Équerre :</strong> Glisser pour positionner</li>
                         <li><strong>Rapporteur :</strong> Clic au centre + rotation</li>
                         <li><strong>Compas :</strong> Point fixe + rotation & écart</li>
-                    </ul>
+                    <li><b>Rideau :</b> masquer le tableau, glisser les poignées pour dévoiler</li>
+                        <li><b>Projecteur :</b> n'éclairer qu'une zone (molette ou pincement pour la taille)</li>
+                        </ul>
                 </div>
                 <div>
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
@@ -289,6 +309,7 @@
                     <div><code>L</code> Loupe</div>
                     <div><code>Échap</code> Quitter mode spécial</div>
                     <div><code>Suppr</code> Effacer sélection</div>
+                    <div><code>Ctrl+D</code> Dupliquer la sélection</div>
                 </div>
             </div>
 
@@ -944,6 +965,17 @@
                         <line x1="11" y1="8" x2="11" y2="14"></line>
                         <line x1="8" y1="11" x2="14" y2="11"></line>
                     </svg></button>
+                <button class="btn" id="btn-rideau" data-tooltip="Rideau (masquer / révéler)"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <path d="M3 13h18" />
+                        <path d="M3 8h18" stroke-dasharray="2 2" />
+                    </svg></button>
+                <button class="btn" id="btn-spot" data-tooltip="Projecteur (éclairer une zone)"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <circle cx="12" cy="12" r="5" />
+                        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
+                    </svg></button>
                 <button class="btn" id="btn-cycle" data-tooltip="Fonds"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path
@@ -1314,7 +1346,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=53"></script>
+    <script src="script.js?v=54"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=52"></script>
     <script>

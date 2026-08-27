@@ -4994,3 +4994,74 @@ dark-mode .title-btn:hover {
     width: 34px !important;
     height: 34px !important;
 }
+
+/* ===========================================================
+   RIDEAU ET PROJECTEUR
+   Deux gestes de tableau : masquer une partie et la révéler au
+   fur et à mesure, ou n'éclairer qu'une zone. Ce sont des
+   calques HTML : ils ne touchent pas au dessin et n'apparaissent
+   donc ni à l'export ni dans la sauvegarde.
+   =========================================================== */
+#rideau {
+    position: fixed;
+    background: #2d3436;
+    background-image: repeating-linear-gradient(135deg,
+            rgba(255, 255, 255, 0.035) 0 12px, rgba(255, 255, 255, 0) 12px 24px);
+    z-index: 14000;
+    touch-action: none;
+    cursor: move;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.45);
+}
+
+#rideau[hidden] { display: none; }
+
+.rideau-poignee {
+    position: absolute;
+    background: #b2bec3;
+    border-radius: 999px;
+    touch-action: none;
+}
+
+/* Les poignées débordent du rideau : on les attrape même quand il
+   ne reste qu'un mince bandeau. */
+.rideau-poignee[data-bord="haut"],
+.rideau-poignee[data-bord="bas"] {
+    left: 50%;
+    width: 84px;
+    height: 12px;
+    margin-left: -42px;
+    cursor: ns-resize;
+}
+
+.rideau-poignee[data-bord="haut"] { top: -6px; }
+.rideau-poignee[data-bord="bas"] { bottom: -6px; }
+
+.rideau-poignee[data-bord="gauche"],
+.rideau-poignee[data-bord="droite"] {
+    top: 50%;
+    width: 12px;
+    height: 84px;
+    margin-top: -42px;
+    cursor: ew-resize;
+}
+
+.rideau-poignee[data-bord="gauche"] { left: -6px; }
+.rideau-poignee[data-bord="droite"] { right: -6px; }
+
+#spot-calque {
+    position: fixed;
+    inset: 0;
+    z-index: 14000;
+    touch-action: none;
+    cursor: move;
+}
+
+#spot-calque[hidden] { display: none; }
+
+#spot-trou {
+    position: absolute;
+    border-radius: 50%;
+    /* L'ombre portée démesurée assombrit tout SAUF le disque */
+    box-shadow: 0 0 0 9999px rgba(20, 22, 24, 0.82);
+    transform: translate(-50%, -50%);
+}

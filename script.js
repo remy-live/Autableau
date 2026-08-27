@@ -3148,7 +3148,11 @@ window.addEventListener('keydown', (e) => {
             return;
         }
     }
-    if (e.ctrlKey || e.metaKey) { if (e.key === 'z') { e.preventDefault(); undo(); } if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); } }
+    if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z') { e.preventDefault(); undo(); }
+        if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); }
+        if ((e.key === 'd' || e.key === 'D') && selectedItems.length > 0) { e.preventDefault(); duplicateSelection(); }
+    }
     if (e.code === 'Space') { e.preventDefault(); isSpacePressed = true; updateCursor(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItems.length > 0) {
         deleteSelection();
@@ -8666,6 +8670,125 @@ function deleteSelection() {
     return true;
 }
 
+// Duplique la sélection. Les figures (segment, cercle, rectangle, polygone,
+// courbe) ne portent pas leurs sommets : elles renvoient à des points. On
+// recopie donc les points ET on redirige les renvois vers les copies, sinon
+// déplacer la copie déplacerait aussi l'original.
+const ECART_COPIE = 24;
+
+function duplicateSelection() {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
+
+    // 1. Ce qu'on copie : la sélection, plus les groupes entiers
+    const aCopier = new Map();
+    let bloqueParVerrou = false;
+    selectedItems.forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (!obj) return;
+        if (obj.locked && !obj.groupId) { bloqueParVerrou = true; return; }
+        aCopier.set(item.type + '-' + item.id, { type: item.type, id: item.id });
+        if (obj.groupId) {
+            getGroupMembers(obj.groupId).forEach(m => aCopier.set(m.type + '-' + m.id, { type: m.type, id: m.id }));
+        }
+    });
+    if (!aCopier.size) {
+        if (bloqueParVerrou && typeof showToast === 'function') showToast("Sélection verrouillée : déverrouille-la pour la dupliquer.");
+        return false;
+    }
+
+    // 2. Les points dont dépendent les figures copiées suivent le mouvement
+    const pointsUtiles = new Set();
+    aCopier.forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (!obj) return;
+        if (item.type === 'segment' || item.type === 'rectangle') { pointsUtiles.add(obj.p1_id); pointsUtiles.add(obj.p2_id); }
+        if (item.type === 'circle') { pointsUtiles.add(obj.center_id); pointsUtiles.add(obj.edge_id); }
+        if ((item.type === 'polygon' || item.type === 'curve') && Array.isArray(obj.points)) obj.points.forEach(id => pointsUtiles.add(id));
+    });
+
+    const tableau = { point: points, segment: segments, circle: circles, rectangle: rectangles,
+                      text: texts, freehand: freehands, curve: curves, polygon: polygons,
+                      image: images, arc: arcs };
+
+    const nouveauxIds = new Map();       // ancien id de point -> nouvel id
+    const nouveauxGroupes = new Map();   // ancien groupe -> nouveau groupe
+    const copies = [];
+
+    const copierPoint = (id) => {
+        if (nouveauxIds.has(id)) return nouveauxIds.get(id);
+        const p = getObjectById('point', id);
+        if (!p) return null;
+        const c = { ...p, id: nextId++, x: p.x + ECART_COPIE, y: p.y + ECART_COPIE, z: globalZ++ };
+        delete c.groupId;
+        points.push(c);
+        nouveauxIds.set(id, c.id);
+        return c.id;
+    };
+
+    pointsUtiles.forEach(id => { if (id !== undefined && id !== null) copierPoint(id); });
+
+    // 3. Les objets eux-mêmes
+    Array.from(aCopier.values()).forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (!obj || !tableau[item.type]) return;
+        // Un point déjà recopié parce qu'une figure en dépend n'est pas dupliqué deux fois
+        if (item.type === 'point' && nouveauxIds.has(obj.id)) {
+            copies.push({ type: 'point', id: nouveauxIds.get(obj.id) });
+            return;
+        }
+
+        const c = JSON.parse(JSON.stringify(obj));
+        c.id = nextId++;
+        c.z = globalZ++;
+        delete c.locked;
+        delete c._cachedW; delete c._cachedH; delete c._cachedStartX;
+
+        if (obj.groupId) {
+            if (!nouveauxGroupes.has(obj.groupId)) nouveauxGroupes.set(obj.groupId, 'g' + nextId++);
+            c.groupId = nouveauxGroupes.get(obj.groupId);
+        }
+
+        switch (item.type) {
+            case 'point':
+                c.x += ECART_COPIE; c.y += ECART_COPIE;
+                nouveauxIds.set(obj.id, c.id);
+                break;
+            case 'segment': case 'rectangle':
+                c.p1_id = copierPoint(obj.p1_id); c.p2_id = copierPoint(obj.p2_id);
+                break;
+            case 'circle':
+                c.center_id = copierPoint(obj.center_id); c.edge_id = copierPoint(obj.edge_id);
+                break;
+            case 'polygon': case 'curve':
+                c.points = (obj.points || []).map(id => copierPoint(id)).filter(id => id !== null);
+                break;
+            case 'freehand':
+                c.points = (obj.points || []).map(pt => ({ ...pt, x: pt.x + ECART_COPIE, y: pt.y + ECART_COPIE }));
+                break;
+            case 'text': case 'image':
+                c.x += ECART_COPIE; c.y += ECART_COPIE;
+                if (c.tailX !== undefined) { c.tailX += ECART_COPIE; c.tailY += ECART_COPIE; }
+                if (item.type === 'text') { c.mathImg = obj.mathImg; }   // l'image de formule se partage
+                break;
+            case 'arc':
+                c.cx += ECART_COPIE; c.cy += ECART_COPIE;
+                break;
+        }
+
+        tableau[item.type].push(c);
+        copies.push({ type: item.type, id: c.id });
+    });
+
+    if (!copies.length) return false;
+
+    // 4. La copie devient la sélection : on peut la déplacer aussitôt
+    selectedItems = copies.filter(c => c.type !== 'point' || copies.length === 1);
+    if (!selectedItems.length) selectedItems = copies;
+    saveState(); draw();
+    if (typeof showToast === 'function') showToast(copies.length > 1 ? "Copie posée" : "Copie posée (glisse-la)");
+    return true;
+}
+
 // Un menu ou une fenêtre ouverte prime sur le petit menu contextuel d'objet :
 // celui-ci n'a pas à flotter par-dessus ce que l'enseignant vient d'ouvrir.
 function unMenuEstOuvert() {
@@ -8829,6 +8952,14 @@ function updateQuickMenu() {
             } else {
                 if (btnRatio) btnRatio.style.display = 'none';
                 if (btnCrop) btnCrop.style.display = 'none';
+            }
+
+            const btnDup = document.getElementById('btn-quick-duplicate');
+            if (btnDup) {
+                btnDup.onpointerdown = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    duplicateSelection();
+                };
             }
 
             const btnDelete = document.getElementById('btn-quick-delete');
@@ -15217,3 +15348,184 @@ if (document.getElementById('formula-modal')) {
         }
     });
 }
+
+// ===================================================
+// RIDEAU ET PROJECTEUR
+// Deux gestes de tableau blanc que les logiciels de TBI ont tous :
+//  - le rideau masque une partie du tableau et se retire à la demande,
+//    pour dévoiler une correction ligne par ligne ;
+//  - le projecteur n'éclaire qu'une zone, pour concentrer l'attention.
+// Ce sont des calques HTML posés par-dessus le tableau : ils ne modifient
+// pas le dessin, n'apparaissent ni à l'export ni dans la sauvegarde, et
+// disparaissent au rechargement.
+// ===================================================
+(function () {
+    const rideau = document.getElementById('rideau');
+    const spotCalque = document.getElementById('spot-calque');
+    const spotTrou = document.getElementById('spot-trou');
+    const btnRideau = document.getElementById('btn-rideau');
+    const btnSpot = document.getElementById('btn-spot');
+    if (!rideau || !spotCalque) return;
+
+    // --- RIDEAU ---
+    // Bornes en pixels écran : le rideau ne suit ni le zoom ni le
+    // déplacement du tableau, il masque une portion de l'ÉCRAN.
+    let cadre = null;
+
+    const poserCadre = () => {
+        rideau.style.left = cadre.gauche + 'px';
+        rideau.style.top = cadre.haut + 'px';
+        rideau.style.width = Math.max(0, cadre.droite - cadre.gauche) + 'px';
+        rideau.style.height = Math.max(0, cadre.bas - cadre.haut) + 'px';
+    };
+
+    const cadrePlein = () => ({ gauche: 0, haut: 0, droite: window.innerWidth, bas: window.innerHeight });
+
+    function rideauVisible() { return !rideau.hidden; }
+
+    function basculerRideau() {
+        if (rideauVisible()) {
+            rideau.hidden = true;
+            btnRideau.classList.remove('active');
+            return;
+        }
+        cadre = cadrePlein();
+        poserCadre();
+        rideau.hidden = false;
+        btnRideau.classList.add('active');
+        if (typeof showToast === 'function') showToast('Rideau : glisse les poignées pour dévoiler');
+    }
+
+    // Glisser le rideau entier, ou l'un de ses bords
+    let prise = null;
+    rideau.addEventListener('pointerdown', (e) => {
+        const bord = e.target.dataset ? e.target.dataset.bord : null;
+        prise = { bord: bord || null, x: e.clientX, y: e.clientY, depart: { ...cadre } };
+        rideau.setPointerCapture(e.pointerId);
+        e.preventDefault(); e.stopPropagation();
+    });
+
+    rideau.addEventListener('pointermove', (e) => {
+        if (!prise) return;
+        const dx = e.clientX - prise.x, dy = e.clientY - prise.y;
+        const d = prise.depart;
+        if (!prise.bord) {
+            cadre = { gauche: d.gauche + dx, droite: d.droite + dx, haut: d.haut + dy, bas: d.bas + dy };
+        } else if (prise.bord === 'haut') {
+            cadre.haut = Math.min(d.haut + dy, d.bas - 20);
+        } else if (prise.bord === 'bas') {
+            cadre.bas = Math.max(d.bas + dy, d.haut + 20);
+        } else if (prise.bord === 'gauche') {
+            cadre.gauche = Math.min(d.gauche + dx, d.droite - 20);
+        } else if (prise.bord === 'droite') {
+            cadre.droite = Math.max(d.droite + dx, d.gauche + 20);
+        }
+        poserCadre();
+        e.preventDefault();
+    });
+
+    const lacherRideau = (e) => {
+        if (!prise) return;
+        prise = null;
+        if (rideau.hasPointerCapture && e.pointerId !== undefined && rideau.hasPointerCapture(e.pointerId)) {
+            rideau.releasePointerCapture(e.pointerId);
+        }
+    };
+    rideau.addEventListener('pointerup', lacherRideau);
+    rideau.addEventListener('pointercancel', lacherRideau);
+
+    // --- PROJECTEUR ---
+    let spot = { x: 0, y: 0, r: 160 };
+
+    const poserSpot = () => {
+        spotTrou.style.left = spot.x + 'px';
+        spotTrou.style.top = spot.y + 'px';
+        spotTrou.style.width = (spot.r * 2) + 'px';
+        spotTrou.style.height = (spot.r * 2) + 'px';
+    };
+
+    function spotVisible() { return !spotCalque.hidden; }
+
+    function basculerSpot() {
+        if (spotVisible()) {
+            spotCalque.hidden = true;
+            btnSpot.classList.remove('active');
+            return;
+        }
+        spot = { x: window.innerWidth / 2, y: window.innerHeight / 2, r: Math.min(200, window.innerWidth / 5) };
+        poserSpot();
+        spotCalque.hidden = false;
+        btnSpot.classList.add('active');
+        if (typeof showToast === 'function') showToast('Projecteur : glisse pour déplacer, molette ou pincement pour la taille');
+    }
+
+    let priseSpot = false;
+    spotCalque.addEventListener('pointerdown', (e) => {
+        priseSpot = true;
+        spot.x = e.clientX; spot.y = e.clientY;
+        poserSpot();
+        spotCalque.setPointerCapture(e.pointerId);
+        e.preventDefault(); e.stopPropagation();
+    });
+    spotCalque.addEventListener('pointermove', (e) => {
+        if (!priseSpot) return;
+        spot.x = e.clientX; spot.y = e.clientY;
+        poserSpot();
+        e.preventDefault();
+    });
+    const lacherSpot = (e) => {
+        priseSpot = false;
+        if (spotCalque.hasPointerCapture && e.pointerId !== undefined && spotCalque.hasPointerCapture(e.pointerId)) {
+            spotCalque.releasePointerCapture(e.pointerId);
+        }
+    };
+    spotCalque.addEventListener('pointerup', lacherSpot);
+    spotCalque.addEventListener('pointercancel', lacherSpot);
+
+    spotCalque.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        spot.r = Math.max(40, Math.min(900, spot.r - e.deltaY * 0.3));
+        poserSpot();
+    }, { passive: false });
+
+    // Pincer à deux doigts règle le diamètre
+    let ecartDepart = null, rayonDepart = null;
+    spotCalque.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 2) return;
+        ecartDepart = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        rayonDepart = spot.r;
+    }, { passive: true });
+    spotCalque.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 2 || !ecartDepart) return;
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        spot.r = Math.max(40, Math.min(900, rayonDepart * (d / ecartDepart)));
+        spot.x = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        spot.y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        poserSpot();
+        e.preventDefault();
+    }, { passive: false });
+    spotCalque.addEventListener('touchend', () => { ecartDepart = null; }, { passive: true });
+
+    // --- Commandes ---
+    if (btnRideau) btnRideau.addEventListener('click', basculerRideau);
+    if (btnSpot) btnSpot.addEventListener('click', basculerSpot);
+
+    // Échap referme ce qui masque le tableau, avant tout le reste
+    window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (spotVisible()) { basculerSpot(); e.stopImmediatePropagation(); return; }
+        if (rideauVisible()) { basculerRideau(); e.stopImmediatePropagation(); }
+    }, true);
+
+    // La fenêtre change de taille : le rideau garde ses proportions
+    window.addEventListener('resize', () => {
+        if (!rideauVisible() || !cadre) return;
+        const plein = cadrePlein();
+        cadre.droite = Math.min(cadre.droite, plein.droite);
+        cadre.bas = Math.min(cadre.bas, plein.bas);
+        poserCadre();
+    });
+
+    window.basculerRideau = basculerRideau;
+    window.basculerSpot = basculerSpot;
+})();
