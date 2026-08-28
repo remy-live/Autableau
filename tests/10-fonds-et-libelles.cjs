@@ -129,8 +129,11 @@ module.exports = async function (browser) {
     r.verifie('« ?libelles » : le nom apparaît sous l\'icône',
         avecLibelles.m.classe && /Fraction|Matériel|Tableau|Axe/.test(avecLibelles.m.libelle || ''),
         JSON.stringify(avecLibelles.m.libelle));
-    r.verifie('« ?libelles » : le bouton s\'agrandit pour le texte', avecLibelles.m.hauteurBouton > 50,
+    r.verifie('« ?libelles » : le bouton s\'agrandit juste ce qu\'il faut',
+        avecLibelles.m.hauteurBouton > 44 && avecLibelles.m.hauteurBouton <= 56,
         `${avecLibelles.m.hauteurBouton} px`);
+    r.verifie('« ?libelles » : les noms trop longs sont raccourcis',
+        !/Proportionnalité|Générateur de|Jeu d/.test(avecLibelles.m.libelle || '') , avecLibelles.m.libelle);
     r.verifie('« ?libelles » : rien ne déborde de l\'écran',
         !avecLibelles.m.debordeBas && !avecLibelles.m.debordeDroite, JSON.stringify(avecLibelles.m));
     r.verifie('« ?libelles » : tous les outils restent affichés', avecLibelles.m.visibles === parDefaut.m.visibles,

@@ -15650,9 +15650,66 @@ if (document.getElementById('formula-modal')) {
     } catch (e) { return; }
     if (!valeur) return;
 
+    // Sous une icône, « Tableau de Proportionnalité » se coupe. Ces noms courts
+    // ne servent QUE dans cet essai : les infobulles gardent le nom complet.
+    const NOMS_COURTS = {
+        'Formules Mathématiques': 'Formules', 'Matériel Base 10': 'Base 10',
+        'Fraction Visuelle': 'Fractions', 'Cartes à jouer': 'Cartes',
+        'Tableau de Conversion': 'Conversions', 'Tableau de Numération': 'Numération',
+        'Tableau de Proportionnalité': 'Proportions', 'Tableau Signes & Variations': 'Signes & variations',
+        'Axe Mathématique': 'Axe gradué', 'Repère Cartésien': 'Repère',
+        'Horloge Pédagogique': 'Horloge', 'Horloge aléatoire': 'Horloge au hasard',
+        'Mains & Comptage': 'Comptage', 'Tuiles Algébriques': 'Tuiles algébriques',
+        'Graphique Statistique': 'Statistiques', 'Cible (Probas)': 'Cible',
+        'Kit Monnaie': 'Monnaie', 'Arbre de probabilités': 'Arbre de probas',
+        'Réglettes Cuisenaire': 'Cuisenaire', 'Tableur Interactif': 'Tableur',
+        'Tables de Pythagore': 'Pythagore', 'Laboratoire Aléatoire': 'Labo au hasard',
+        'Évolutions Successives': 'Évolutions', 'Division Posée': 'Division',
+        'Traceur de Fonctions': 'Fonctions', 'Super Fractales': 'Fractales',
+        'Solides 3D': 'Solides', 'Patrons de Solides': 'Patrons', 'Visionneuse 3D': 'Vue 3D',
+        'Polygones Réguliers': 'Polygones', 'Figures Géométriques': 'Figures',
+        'Fabrique à Flèches': 'Flèches', 'Tampon Instruments': 'Instruments',
+        'Circuits Électriques': 'Circuits', 'Composants Électriques': 'Composants',
+        'Molécules 2D': 'Molécules', 'Sonomètre de Classe': 'Sonomètre',
+        'Piano Virtuel': 'Piano', 'Métronome Pro': 'Métronome', 'Accordeur Pro': 'Accordeur',
+        'Portée Musicale': 'Portée', 'Frise Historique': 'Frise', 'Cartes Géographiques': 'Cartes',
+        "Lignes d'écriture": 'Lignes', 'Météo du Jour': 'Météo',
+        'Calendrier & Affichages': 'Calendrier', 'Tableaux & Logigrammes': 'Logigrammes',
+        'Tirage au sort & Groupes': 'Tirage au sort', 'Bulles BD Interactives': 'Bulles BD',
+        'Générateur de Labyrinthes': 'Labyrinthes', 'Générateur de Dominos': 'Dominos',
+        'Générateur de Binaro': 'Binaro', "Générateur d'Exercices": 'Exercices',
+        'Grille de Sudoku': 'Sudoku', 'Grille Boggle': 'Boggle',
+        'Le Mot le Plus Long': 'Mot le plus long', 'Le Compte est Bon': 'Compte est bon',
+        'Le Défi du Prof': 'Défi du prof', 'Jeu du Pendu': 'Pendu', 'Jeu de Dames': 'Dames',
+        'Jeu de Tangram': 'Tangram', "Jeu d'Échecs (Clic Droit pour designs)": 'Échecs',
+        'Pyramides Additives': 'Pyramides', 'Angles à mesurer': 'Angles',
+        'Dés à jouer': 'Dés', 'Algorithmes (Scratch)': 'Scratch',
+        "Feux d'artifice (Audio & FX)": "Feux d'artifice", 'Super Taupe Deluxe': 'Super Taupe',
+        'Ménagerie Mathématique': 'Ménagerie', 'Mascotte Top-Down': 'Mascotte',
+        'Tampon Extrême': 'Tampons', 'Pixel Studio': 'Pixels'
+    };
+
+    const nommer = () => {
+        const grille = document.getElementById('plugins-grid');
+        if (!grille) return;
+        grille.querySelectorAll('.btn').forEach(btn => {
+            const complet = btn.getAttribute('data-tooltip') || btn.title || '';
+            if (!complet) return;
+            const court = NOMS_COURTS[complet] || complet;
+            if (btn.dataset.libelle !== court) btn.dataset.libelle = court;
+        });
+    };
+
     const poser = () => {
         document.body.classList.add('libelles-outils');
         if (valeur === 'couleur' || valeur === 'couleurs') document.body.classList.add('libelles-couleur');
+        nommer();
+        // Les plugins garnissent la grille après nous : on repasse à leur suite
+        const grille = document.getElementById('plugins-grid');
+        if (grille && window.MutationObserver) {
+            new MutationObserver(() => nommer()).observe(grille, { childList: true, subtree: true });
+        }
+        window.addEventListener('load', () => setTimeout(nommer, 300));
     };
     if (document.body) poser();
     else document.addEventListener('DOMContentLoaded', poser);
