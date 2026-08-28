@@ -5090,3 +5090,64 @@ dark-mode .title-btn:hover {
 
 #masque-fermer.visible { display: flex; }
 #masque-fermer:hover { background: #f1f2f6; }
+
+/* ===========================================================
+   ESSAI : LIBELLÉS SOUS LES ICÔNES  (adresse « ?libelles »)
+   Rien ici ne s'applique sans la classe posée par le paramètre
+   d'adresse : l'affichage d'origine reste intact par défaut.
+   =========================================================== */
+body.libelles-outils #plugins-grid {
+    max-width: none !important;
+    gap: 4px 2px !important;
+    align-content: flex-start;
+    max-height: 46vh;
+    overflow-y: auto;
+}
+
+body.libelles-outils #plugins-grid .btn {
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    width: 78px !important;
+    height: auto !important;
+    min-height: 62px;
+    padding: 6px 3px 5px !important;
+    gap: 3px;
+    border-radius: 10px;
+}
+
+body.libelles-outils #plugins-grid .btn svg {
+    flex: 0 0 auto;
+}
+
+body.libelles-outils #plugins-grid .btn::after {
+    content: attr(data-tooltip);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    width: 100%;
+    font-size: 9.5px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+    color: #636e72;
+    text-align: center;
+    pointer-events: none;
+}
+
+body.dark-mode.libelles-outils #plugins-grid .btn::after { color: #b2bec3; }
+
+/* L'étoile des favoris reprend sa place au-dessus du libellé */
+body.libelles-outils #plugins-grid .btn .fav-star-icon { top: 2px; right: 4px; }
+
+/* Une teinte par rubrique : on repère « maths » ou « jeux » sans lire */
+body.libelles-couleur #plugins-grid .btn[data-category^="Maths"] { background: rgba(9, 132, 227, 0.10); }
+body.libelles-couleur #plugins-grid .btn[data-category="Jeux"] { background: rgba(0, 184, 148, 0.12); }
+body.libelles-couleur #plugins-grid .btn[data-category="Outils Profs"] { background: rgba(108, 92, 231, 0.12); }
+body.libelles-couleur #plugins-grid .btn[data-category="Exercices"] { background: rgba(253, 203, 110, 0.22); }
+body.libelles-couleur #plugins-grid .btn[data-category="Physique-Chimie"] { background: rgba(225, 112, 85, 0.12); }
+body.libelles-couleur #plugins-grid .btn[data-category="Musique"] { background: rgba(232, 67, 147, 0.10); }
+body.libelles-couleur #plugins-grid .btn[data-category="Histoire-Géographie"] { background: rgba(214, 137, 16, 0.14); }
+body.libelles-couleur #plugins-grid .btn[data-category="Français"] { background: rgba(214, 48, 49, 0.10); }
+body.libelles-couleur #plugins-grid .btn[data-category="Informatique"] { background: rgba(45, 52, 54, 0.08); }
+body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background: rgba(0, 206, 201, 0.12); }

@@ -18,8 +18,11 @@ const LASER_LIFETIME = 1200;   // durée de vie d'un point du faisceau (ms)
 const LASER_SMOOTHING = 0.5;   // 0 = figé, 1 = brut : lissage du tracé du laser
 let currentLaserStroke = null;
 
-let backgrounds = ['blanc', 'carreau', 'seyes', 'millimetre', 'point', 'isometrique'];
-const bgColors = { millimetre: '#fdf6e3', default: '#ffffff' };
+let backgrounds = ['blanc', 'carreau', 'seyes', 'seyes-marge', 'copie', 'millimetre', 'point', 'isometrique'];
+const bgColors = { millimetre: '#fdf6e3', copie: '#e9edf0', default: '#ffffff' };
+// Une « page » de référence pour les fonds qui imitent une feuille : le
+// tableau est infini, on répète donc la feuille au lieu d'en poser une seule.
+const PAGE_L = 1600, PAGE_H = 2264, MARGE_X = 120;
 let currentBgIndex = 0;
 
 let isDarkMode = false;
@@ -1916,6 +1919,85 @@ function drawCarreau(minX, maxX, minY, maxY, lw, gw) { ctx.beginPath(); for (let
 function drawPoint(minX, maxX, minY, maxY, lw, gw) { const radius = 1.5 * lw * gw; ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.35)"; ctx.beginPath(); for (let x = Math.floor(minX / 30) * 30; x < maxX; x += 30) { for (let y = Math.floor(minY / 30) * 30; y < maxY; y += 30) { ctx.moveTo(x, y); ctx.arc(x, y, radius, 0, Math.PI * 2); } } ctx.fill(); }
 function drawMillimetre(minX, maxX, minY, maxY, lw, gw) { const size = 10; const drawLayer = (stepMult, color, widthMult) => { const step = size * stepMult; ctx.beginPath(); for (let x = Math.floor(minX / step) * step; x < maxX; x += step) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } for (let y = Math.floor(minY / step) * step; y < maxY; y += step) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = color; ctx.lineWidth = lw * widthMult * gw; ctx.stroke(); }; drawLayer(1, isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(230, 126, 34, 0.18)", 1); drawLayer(5, isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(230, 126, 34, 0.45)", 1.5); drawLayer(10, isDarkMode ? "rgba(255,255,255,0.4)" : "#e67e22", 2.2); }
 function drawSeyes(minX, maxX, minY, maxY, lw, gw) { const size = 40; const sub = size / 4; ctx.beginPath(); for (let x = Math.floor(minX / size) * size; x < maxX; x += size) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(116, 185, 255, 0.35)"; ctx.lineWidth = lw * gw; ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / sub) * sub; y < maxY; y += sub) { if (y % size !== 0) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } } ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / size) * size; y < maxY; y += size) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(108, 92, 231, 0.45)"; ctx.lineWidth = lw * 1.6 * gw; ctx.stroke(); }
+// Seyès avec la marge rouge de la page de cahier. La marge se répète au
+// rythme d'une feuille : où qu'on se déplace, on en a une sous la main.
+function drawSeyesMarge(minX, maxX, minY, maxY, lw, gw) {
+    drawSeyes(minX, maxX, minY, maxY, lw, gw);
+    ctx.beginPath();
+    for (let x = Math.floor(minX / PAGE_L) * PAGE_L; x < maxX + PAGE_L; x += PAGE_L) {
+        const mx = x + MARGE_X;
+        if (mx < minX || mx > maxX) continue;
+        ctx.moveTo(mx, minY); ctx.lineTo(mx, maxY);
+    }
+    ctx.strokeStyle = isDarkMode ? "rgba(255, 118, 117, 0.55)" : "rgba(214, 48, 49, 0.65)";
+    ctx.lineWidth = lw * 1.8 * gw;
+    ctx.stroke();
+}
+
+// Fond « copie d'examen » : des feuilles blanches avec en-tête à remplir,
+// marge rouge et lignes. Pour projeter un devoir, une correction type, ou
+// montrer aux élèves comment on présente une copie.
+function drawCopie(minX, maxX, minY, maxY, lw, gw) {
+    const enTeteH = 200;
+    const debutX = Math.floor(minX / PAGE_L) * PAGE_L;
+    const debutY = Math.floor(minY / PAGE_H) * PAGE_H;
+    const encre = isDarkMode ? "#dfe6e9" : "#2d3436";
+    const trait = isDarkMode ? "rgba(255,255,255,0.28)" : "rgba(45, 52, 54, 0.35)";
+
+    for (let px = debutX; px < maxX + PAGE_L; px += PAGE_L) {
+        for (let py = debutY; py < maxY + PAGE_H; py += PAGE_H) {
+            if (px > maxX || py > maxY || px + PAGE_L < minX || py + PAGE_H < minY) continue;
+
+            // La feuille
+            ctx.fillStyle = isDarkMode ? "#22282b" : "#ffffff";
+            ctx.fillRect(px, py, PAGE_L, PAGE_H);
+            ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.18)";
+            ctx.lineWidth = lw * 1.2 * gw;
+            ctx.strokeRect(px, py, PAGE_L, PAGE_H);
+
+            // L'en-tête : deux cases à gauche, deux à droite
+            ctx.strokeStyle = trait;
+            ctx.lineWidth = lw * 1.4 * gw;
+            ctx.strokeRect(px + 60, py + 50, PAGE_L - 120, enTeteH);
+            ctx.beginPath();
+            ctx.moveTo(px + PAGE_L / 2, py + 50); ctx.lineTo(px + PAGE_L / 2, py + 50 + enTeteH);
+            ctx.moveTo(px + 60, py + 50 + enTeteH / 2); ctx.lineTo(px + PAGE_L - 60, py + 50 + enTeteH / 2);
+            ctx.stroke();
+
+            ctx.fillStyle = encre;
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'left';
+            ctx.font = `600 ${26}px sans-serif`;
+            const cases = [
+                ['NOM :', px + 80, py + 50 + enTeteH / 4],
+                ['PRÉNOM :', px + 80, py + 50 + (enTeteH * 3) / 4],
+                ['CLASSE :', px + PAGE_L / 2 + 20, py + 50 + enTeteH / 4],
+                ['DATE :', px + PAGE_L / 2 + 20, py + 50 + (enTeteH * 3) / 4]
+            ];
+            cases.forEach(([txt, cx, cy]) => ctx.fillText(txt, cx, cy));
+
+            // Les lignes d'écriture, sous l'en-tête
+            const hautLignes = py + 50 + enTeteH + 80;
+            ctx.beginPath();
+            for (let y = hautLignes; y < py + PAGE_H - 60; y += 40) {
+                ctx.moveTo(px + 60, y); ctx.lineTo(px + PAGE_L - 60, y);
+            }
+            ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.14)" : "rgba(116, 185, 255, 0.45)";
+            ctx.lineWidth = lw * gw;
+            ctx.stroke();
+
+            // La marge
+            ctx.beginPath();
+            ctx.moveTo(px + MARGE_X, py + 50 + enTeteH + 40);
+            ctx.lineTo(px + MARGE_X, py + PAGE_H - 60);
+            ctx.strokeStyle = isDarkMode ? "rgba(255, 118, 117, 0.55)" : "rgba(214, 48, 49, 0.65)";
+            ctx.lineWidth = lw * 1.8 * gw;
+            ctx.stroke();
+        }
+    }
+    ctx.textBaseline = 'alphabetic';
+}
+
 function drawIsometrique(minX, maxX, minY, maxY, lw, gw) { const h = 30 * Math.sqrt(3) / 2; ctx.beginPath(); for (let x = Math.floor(minX / h) * h; x < maxX; x += h) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } const slope = 1 / Math.sqrt(3); for (let k = Math.floor((minY - maxX * slope) / 30); k <= Math.ceil((maxY - minX * slope) / 30); k++) { ctx.moveTo(minX, minX * slope + k * 30); ctx.lineTo(maxX, maxX * slope + k * 30); } for (let k = Math.floor((minY + minX * slope) / 30); k <= Math.ceil((maxY + maxX * slope) / 30); k++) { ctx.moveTo(minX, -minX * slope + k * 30); ctx.lineTo(maxX, -maxX * slope + k * 30); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"; ctx.lineWidth = lw * gw; ctx.stroke(); }
 
 function drawSpline(ctx, ptIds, appendPos, isClosed) {
@@ -4646,7 +4728,7 @@ function layoutTextObject(obj, measureCtx) {
 
 function snapToGrid(lx, ly) {
     const bg = backgrounds[currentBgIndex]; let snapX = 30, snapY = 30;
-    if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
+    if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
     return { x: Math.round(lx / snapX) * snapX, y: Math.round(ly / snapY) * snapY };
 }
 function distToSegment(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
@@ -6071,14 +6153,15 @@ function buildRenderQuadtree(minX, maxX, minY, maxY) {
 }
 
 function draw() {
-    const bg = backgrounds[currentBgIndex]; const logicalStep = bg === 'seyes' ? 40 : (bg === 'millimetre' ? 100 : 30);
+    const bg = backgrounds[currentBgIndex];
+    const logicalStep = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
 
     if (isExportingTransparent) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     } else {
-        ctx.fillStyle = (bg === 'millimetre') ?
-            (isDarkMode ? '#2d3436' : bgColors.millimetre) :
-            (isDarkMode ? '#1e272e' : bgColors.default);
+        ctx.fillStyle = (bg === 'millimetre') ? (isDarkMode ? '#2d3436' : bgColors.millimetre)
+            : (bg === 'copie') ? (isDarkMode ? '#15191b' : bgColors.copie)
+            : (isDarkMode ? '#1e272e' : bgColors.default);
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
@@ -6088,7 +6171,7 @@ function draw() {
         const lw = 1 / zoom; const minX = -panX / zoom; const maxX = (canvas.width - panX) / zoom; const minY = -panY / zoom; const maxY = (canvas.height - panY) / zoom;
 
         if (!isExportingTransparent) {
-            if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
+            if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes-marge') drawSeyesMarge(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'copie') drawCopie(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
 
             if (showAxes > 0) {
                 ctx.beginPath(); ctx.moveTo(0, minY); ctx.lineTo(0, maxY); ctx.moveTo(minX, 0); ctx.lineTo(maxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
@@ -6739,7 +6822,7 @@ function draw() {
 
                 // Si on a une grille (pas de fond uni), on "force" le point sur les intersections
                 if (bg !== 'blanc' && bg !== 'noir') {
-                    const step = (bg === 'seyes') ? 40 : (bg === 'millimetre' ? 100 : 30); // 30 est la valeur par défaut (carreaux)
+                    const step = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30); // 30 est la valeur par défaut (carreaux)
                     ghostX = Math.round(mouseLogicalPos.x / step) * step;
                     ghostY = Math.round(mouseLogicalPos.y / step) * step;
                 }
@@ -11944,7 +12027,7 @@ if (btnTextSnap) {
         let spacing = null;
 
         // Tailles de base de tes grilles
-        if (bg === 'seyes') spacing = 40;
+        if (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') spacing = 40;
         else if (bg === 'carreau') spacing = 30;
         else if (bg === 'millimetre') spacing = 10;
 
@@ -15548,6 +15631,32 @@ if (document.getElementById('formula-modal')) {
         }
     });
 }
+
+// ===================================================
+// ESSAI : LIBELLÉS SOUS LES ICÔNES
+// Deux enseignants ont dit la même chose : on ne reconnaît pas les icônes
+// sans les survoler. Le nom de chaque outil est déjà dans son attribut
+// « data-tooltip » et sa rubrique dans « data-category » — il suffit de les
+// afficher. L'essai est derrière une adresse pour ne rien imposer :
+//     index.html?libelles      (noms sous les icônes)
+//     index.html?libelles=couleur   (noms + une teinte par rubrique)
+// Sans paramètre, l'affichage ne change pas d'un pixel.
+// ===================================================
+(function () {
+    let valeur = null;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('libelles')) valeur = params.get('libelles') || 'oui';
+    } catch (e) { return; }
+    if (!valeur) return;
+
+    const poser = () => {
+        document.body.classList.add('libelles-outils');
+        if (valeur === 'couleur' || valeur === 'couleurs') document.body.classList.add('libelles-couleur');
+    };
+    if (document.body) poser();
+    else document.addEventListener('DOMContentLoaded', poser);
+})();
 
 // ===================================================
 // RIDEAU ET PROJECTEUR
