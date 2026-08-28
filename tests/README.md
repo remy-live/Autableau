@@ -33,7 +33,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `07-plugins.cjs` | les 81 plugins s'ouvrent sans erreur et tiennent dans un écran de tablette ; carte disponible hors connexion |
 | `08-gestes-de-classe.cjs` | dupliquer (sommets recopiés, groupes, verrou, Ctrl+D, annulation), rideau (poignées, Échap, au doigt), projecteur (déplacement, diamètre) |
 | `09-interfaces.cjs` | les huit interfaces fournies (niveaux, minimale, complète, conduite de classe) : outils existants, barres qui ne se recouvrent pas, chargement effectif, suppression puis remise |
-| `10-fonds-et-libelles.cjs` | fonds « Seyès avec marge » et « copie d'examen » (marge tracée, en-tête écrit, aimant identique au Seyès), et l'essai des libellés sous les icônes derrière `?libelles` (l'affichage par défaut ne bouge pas) |
+| `10-fonds-et-libelles.cjs` | fonds « cahier » et « copie d'examen » (feuille blanche sur gris clair, marge tracée, en-tête que le cahier n'a pas, aimant identique au Seyès), et les libellés sous les icônes : pastille à trois états, réglage mémorisé, bloc compact, et l'affichage par défaut qui ne bouge pas |
 
 ## Ajouter un test
 

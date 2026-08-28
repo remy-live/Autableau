@@ -5097,7 +5097,9 @@ dark-mode .title-btn:hover {
    d'adresse : l'affichage d'origine reste intact par défaut.
    =========================================================== */
 body.libelles-outils #plugins-grid {
-    max-width: none !important;
+    /* Un bloc compact de deux ou trois rangées plutôt qu'une longue bande :
+       l'œil balaie moins loin, et la barre reste dans son cadre. */
+    max-width: min(760px, 92vw) !important;
     gap: 4px 2px !important;
     align-content: flex-start;
     max-height: 46vh;

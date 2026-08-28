@@ -36,23 +36,37 @@ module.exports = async function (browser) {
     r.verifie('Seyès avec marge : la marge est tracée', rougeMarge > 200, `${rougeMarge} pixels rouges`);
     r.verifie('copie d\'examen : la marge est tracée', rougeCopie > 200, `${rougeCopie} pixels rouges`);
 
-    // La copie doit porter son en-tête : on cherche les cadres et le texte
-    const copie = await page.evaluate(() => {
-        currentBgIndex = backgrounds.indexOf('copie');
-        zoom = 0.42; panX = 120; panY = 60;
+    // La copie doit porter son en-tête : on compare la même vue avec et sans.
+    // Le cadre et les intitulés font une encre grise que le cahier n'a pas.
+    const encreEnTete = (nom) => page.evaluate((n) => {
+        currentBgIndex = backgrounds.indexOf(n);
+        zoom = 0.5; panX = 300; panY = 40;
         draw();
         const cv = document.getElementById('board');
-        const d = cv.getContext('2d').getImageData(0, 0, Math.min(1000, cv.width), Math.min(600, cv.height)).data;
-        let sombre = 0, blanc = 0;
+        const d = cv.getContext('2d').getImageData(300, 40, 800, 160).data;   // le haut de la feuille
+        let encre = 0, blanc = 0, gris = 0;
         for (let i = 0; i < d.length; i += 4) {
             const [x, y, z] = [d[i], d[i + 1], d[i + 2]];
-            if (x < 90 && y < 90 && z < 90) sombre++;         // le texte de l'en-tête
-            if (x > 248 && y > 248 && z > 248) blanc++;        // la feuille
+            const neutre = Math.abs(x - y) < 14 && Math.abs(y - z) < 14;
+            if (neutre && x > 90 && x < 205) encre++;          // cadre et intitulés
+            if (x > 248 && y > 248 && z > 248) blanc++;         // la feuille
         }
-        return { sombre, blanc };
-    });
-    r.verifie('la copie affiche un en-tête écrit', copie.sombre > 300, `${copie.sombre} pixels d'encre`);
-    r.verifie('la copie pose des feuilles blanches', copie.blanc > 50000, `${copie.blanc} pixels blancs`);
+        // le fond autour de la feuille, mesuré à gauche
+        const g = cv.getContext('2d').getImageData(20, 300, 200, 200).data;
+        for (let i = 0; i < g.length; i += 4) {
+            if (g[i] > 215 && g[i] < 245 && Math.abs(g[i] - g[i + 2]) < 12) gris++;
+        }
+        return { encre, blanc, gris };
+    }, nom);
+
+    const enTeteCopie = await encreEnTete('copie');
+    const enTeteCahier = await encreEnTete('seyes-marge');
+    r.verifie('la copie porte un en-tête que le cahier n\'a pas',
+        enTeteCopie.encre > enTeteCahier.encre + 400,
+        `copie ${enTeteCopie.encre}, cahier ${enTeteCahier.encre}`);
+    r.verifie('la copie est une feuille blanche', enTeteCopie.blanc > 30000, `${enTeteCopie.blanc} pixels blancs`);
+    r.verifie('avec du gris clair tout autour', enTeteCopie.gris > 20000, `${enTeteCopie.gris} pixels gris`);
+    r.verifie('le cahier aussi est posé sur du gris', enTeteCahier.gris > 20000, `${enTeteCahier.gris} pixels gris`);
 
     // Le pas de la grille suit, sinon l'aimant et l'interligne tomberaient à côté
     const pas = await page.evaluate(() => {
@@ -145,7 +159,61 @@ module.exports = async function (browser) {
         avecCouleur.m.couleur && avecCouleur.m.fondBouton !== parDefaut.m.fondBouton,
         `${avecCouleur.m.fondBouton} contre ${parDefaut.m.fondBouton}`);
 
-    const toutesErreurs = [...parDefaut.errs, ...avecLibelles.errs, ...avecCouleur.errs];
+    // La pastille « Libellés » : trois états, et le réglage se retient
+    const ctxP = await browser.newContext({ viewport: { width: 1280, height: 850 } });
+    const pageP = await ctxP.newPage();
+    const errsP = [];
+    pageP.on('pageerror', e => errsP.push(e.message.slice(0, 120)));
+    await pageP.goto(APP_URL);
+    await pageP.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
+    await pageP.keyboard.press('Escape');
+    await pageP.waitForTimeout(400);
+
+    const etat = () => pageP.evaluate(() => ({
+        actif: document.body.classList.contains('libelles-outils'),
+        couleur: document.body.classList.contains('libelles-couleur'),
+        memoire: localStorage.getItem('board_libelles'),
+        pastille: document.getElementById('btn-libelles').classList.contains('active')
+    }));
+    const cliquer = async () => {
+        await pageP.evaluate(() => document.getElementById('btn-libelles').click());
+        await pageP.waitForTimeout(250);
+    };
+
+    const depart = await etat();
+    r.verifie('au démarrage, pas de libellés', !depart.actif && !depart.pastille, JSON.stringify(depart));
+    await cliquer();
+    const un = await etat();
+    r.verifie('un clic : les noms apparaissent', un.actif && !un.couleur && un.pastille, JSON.stringify(un));
+    await cliquer();
+    const deux = await etat();
+    r.verifie('deux clics : les couleurs de rubrique aussi', deux.actif && deux.couleur, JSON.stringify(deux));
+    await cliquer();
+    const trois = await etat();
+    r.verifie('trois clics : retour à l\'affichage d\'origine', !trois.actif && !trois.couleur, JSON.stringify(trois));
+
+    await cliquer();
+    await pageP.reload();
+    await pageP.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
+    await pageP.waitForTimeout(600);
+    const apresRechargement = await etat();
+    r.verifie('le réglage survit au rechargement', apresRechargement.actif, JSON.stringify(apresRechargement));
+
+    // Un bloc de deux ou trois rangées, pas une bande d'un bout à l'autre
+    const bloc = await pageP.evaluate(() => {
+        const d = document.getElementById('bar-plugins'); if (d) d.classList.add('open');
+        const o = Array.from(document.querySelectorAll('.btn')).find(x => (x.getAttribute('data-tooltip') || '') === 'Maths - Numérique');
+        if (o) o.click();
+        const r = document.getElementById('plugins-grid').getBoundingClientRect();
+        return { largeur: Math.round(r.width), hauteur: Math.round(r.height), ecran: window.innerWidth };
+    });
+    await pageP.waitForTimeout(300);
+    r.verifie('la grille reste un bloc compact', bloc.largeur <= 780 && bloc.largeur < bloc.ecran * 0.7,
+        `${bloc.largeur} px de large pour un écran de ${bloc.ecran}`);
+    r.verifie('deux ou trois rangées', bloc.hauteur >= 90 && bloc.hauteur <= 200, `${bloc.hauteur} px de haut`);
+    await ctxP.close();
+
+    const toutesErreurs = [...parDefaut.errs, ...avecLibelles.errs, ...avecCouleur.errs, ...errsP];
     r.verifie('aucune erreur JS sur les libellés', toutesErreurs.length === 0, toutesErreurs.slice(0, 3).join(' | '));
 
     return r.bilan();

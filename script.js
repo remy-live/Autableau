@@ -19,10 +19,10 @@ const LASER_SMOOTHING = 0.5;   // 0 = figé, 1 = brut : lissage du tracé du las
 let currentLaserStroke = null;
 
 let backgrounds = ['blanc', 'carreau', 'seyes', 'seyes-marge', 'copie', 'millimetre', 'point', 'isometrique'];
-const bgColors = { millimetre: '#fdf6e3', copie: '#e9edf0', default: '#ffffff' };
+const bgColors = { millimetre: '#fdf6e3', copie: '#e6eaed', default: '#ffffff' };
 // Une « page » de référence pour les fonds qui imitent une feuille : le
 // tableau est infini, on répète donc la feuille au lieu d'en poser une seule.
-const PAGE_L = 1600, PAGE_H = 2264, MARGE_X = 120;
+const PAGE_L = 1600, PAGE_H = 2264, MARGE_X = 130, ESPACE_PAGE = 90;
 let currentBgIndex = 0;
 
 let isDarkMode = false;
@@ -1919,82 +1919,120 @@ function drawCarreau(minX, maxX, minY, maxY, lw, gw) { ctx.beginPath(); for (let
 function drawPoint(minX, maxX, minY, maxY, lw, gw) { const radius = 1.5 * lw * gw; ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.35)"; ctx.beginPath(); for (let x = Math.floor(minX / 30) * 30; x < maxX; x += 30) { for (let y = Math.floor(minY / 30) * 30; y < maxY; y += 30) { ctx.moveTo(x, y); ctx.arc(x, y, radius, 0, Math.PI * 2); } } ctx.fill(); }
 function drawMillimetre(minX, maxX, minY, maxY, lw, gw) { const size = 10; const drawLayer = (stepMult, color, widthMult) => { const step = size * stepMult; ctx.beginPath(); for (let x = Math.floor(minX / step) * step; x < maxX; x += step) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } for (let y = Math.floor(minY / step) * step; y < maxY; y += step) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = color; ctx.lineWidth = lw * widthMult * gw; ctx.stroke(); }; drawLayer(1, isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(230, 126, 34, 0.18)", 1); drawLayer(5, isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(230, 126, 34, 0.45)", 1.5); drawLayer(10, isDarkMode ? "rgba(255,255,255,0.4)" : "#e67e22", 2.2); }
 function drawSeyes(minX, maxX, minY, maxY, lw, gw) { const size = 40; const sub = size / 4; ctx.beginPath(); for (let x = Math.floor(minX / size) * size; x < maxX; x += size) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(116, 185, 255, 0.35)"; ctx.lineWidth = lw * gw; ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / sub) * sub; y < maxY; y += sub) { if (y % size !== 0) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } } ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / size) * size; y < maxY; y += size) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(108, 92, 231, 0.45)"; ctx.lineWidth = lw * 1.6 * gw; ctx.stroke(); }
-// Seyès avec la marge rouge de la page de cahier. La marge se répète au
-// rythme d'une feuille : où qu'on se déplace, on en a une sous la main.
-function drawSeyesMarge(minX, maxX, minY, maxY, lw, gw) {
-    drawSeyes(minX, maxX, minY, maxY, lw, gw);
+// --- FONDS « FEUILLE » ---------------------------------------------------
+// Une seule feuille par ligne, empilées vers le bas comme un document, et du
+// gris clair tout autour : c'est ce qu'on projette quand on montre une copie.
+// (Une feuille répétée en damier faisait mosaïque, et pas copie d'examen.)
+function feuillesVisibles(minY, maxY) {
+    const pas = PAGE_H + ESPACE_PAGE;
+    const tops = [];
+    for (let y = Math.floor(minY / pas) * pas; y < maxY + pas; y += pas) tops.push(y);
+    return tops;
+}
+
+// La réglure Seyès, tracée à l'intérieur d'un rectangle
+function reglureSeyes(x0, y0, x1, y1, lw, gw) {
+    const size = 40, sub = size / 4;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+
     ctx.beginPath();
-    for (let x = Math.floor(minX / PAGE_L) * PAGE_L; x < maxX + PAGE_L; x += PAGE_L) {
-        const mx = x + MARGE_X;
-        if (mx < minX || mx > maxX) continue;
-        ctx.moveTo(mx, minY); ctx.lineTo(mx, maxY);
+    for (let y = Math.ceil(y0 / sub) * sub; y < y1; y += sub) {
+        if (y % size === 0) continue;
+        ctx.moveTo(x0, y); ctx.lineTo(x1, y);
     }
-    ctx.strokeStyle = isDarkMode ? "rgba(255, 118, 117, 0.55)" : "rgba(214, 48, 49, 0.65)";
+    ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(116, 185, 255, 0.30)";
+    ctx.lineWidth = lw * gw; ctx.stroke();
+
+    ctx.beginPath();
+    for (let y = Math.ceil(y0 / size) * size; y < y1; y += size) {
+        ctx.moveTo(x0, y); ctx.lineTo(x1, y);
+    }
+    ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.20)" : "rgba(108, 92, 231, 0.38)";
+    ctx.lineWidth = lw * 1.5 * gw; ctx.stroke();
+    ctx.restore();
+}
+
+// La feuille elle-même : blanche, posée sur le gris, avec une ombre douce
+function poserFeuille(py, lw, gw) {
+    ctx.save();
+    ctx.shadowColor = isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(45, 52, 54, 0.18)';
+    ctx.shadowBlur = 26; ctx.shadowOffsetY = 8;
+    ctx.fillStyle = isDarkMode ? "#232a2d" : "#ffffff";
+    ctx.fillRect(0, py, PAGE_L, PAGE_H);
+    ctx.restore();
+    ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.10)" : "rgba(45, 52, 54, 0.14)";
+    ctx.lineWidth = lw * gw;
+    ctx.strokeRect(0, py, PAGE_L, PAGE_H);
+}
+
+function margeRouge(px, y0, y1, lw, gw) {
+    ctx.beginPath();
+    ctx.moveTo(px + MARGE_X, y0); ctx.lineTo(px + MARGE_X, y1);
+    ctx.strokeStyle = isDarkMode ? "rgba(255, 118, 117, 0.5)" : "rgba(214, 48, 49, 0.6)";
     ctx.lineWidth = lw * 1.8 * gw;
     ctx.stroke();
 }
 
-// Fond « copie d'examen » : des feuilles blanches avec en-tête à remplir,
-// marge rouge et lignes. Pour projeter un devoir, une correction type, ou
-// montrer aux élèves comment on présente une copie.
+// Cahier : une feuille de Seyès avec sa marge, rien de plus.
+function drawSeyesMarge(minX, maxX, minY, maxY, lw, gw) {
+    feuillesVisibles(minY, maxY).forEach(py => {
+        if (py > maxY || py + PAGE_H < minY) return;
+        poserFeuille(py, lw, gw);
+        reglureSeyes(0, py + 60, PAGE_L, py + PAGE_H - 60, lw, gw);
+        margeRouge(0, py + 60, py + PAGE_H - 60, lw, gw);
+    });
+}
+
+// Copie d'examen : la même feuille, avec l'en-tête à remplir et la case note.
 function drawCopie(minX, maxX, minY, maxY, lw, gw) {
-    const enTeteH = 200;
-    const debutX = Math.floor(minX / PAGE_L) * PAGE_L;
-    const debutY = Math.floor(minY / PAGE_H) * PAGE_H;
-    const encre = isDarkMode ? "#dfe6e9" : "#2d3436";
-    const trait = isDarkMode ? "rgba(255,255,255,0.28)" : "rgba(45, 52, 54, 0.35)";
+    const M = 70;                  // marge intérieure de la feuille
+    const H = 200;                 // hauteur de l'en-tête
+    const largeurNote = 260;
+    const encre = isDarkMode ? "rgba(223, 230, 233, 0.75)" : "rgba(45, 52, 54, 0.62)";
+    const trait = isDarkMode ? "rgba(255,255,255,0.28)" : "rgba(45, 52, 54, 0.42)";
 
-    for (let px = debutX; px < maxX + PAGE_L; px += PAGE_L) {
-        for (let py = debutY; py < maxY + PAGE_H; py += PAGE_H) {
-            if (px > maxX || py > maxY || px + PAGE_L < minX || py + PAGE_H < minY) continue;
+    feuillesVisibles(minY, maxY).forEach(py => {
+        if (py > maxY || py + PAGE_H < minY) return;
+        poserFeuille(py, lw, gw);
 
-            // La feuille
-            ctx.fillStyle = isDarkMode ? "#22282b" : "#ffffff";
-            ctx.fillRect(px, py, PAGE_L, PAGE_H);
-            ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.18)";
-            ctx.lineWidth = lw * 1.2 * gw;
-            ctx.strokeRect(px, py, PAGE_L, PAGE_H);
+        const hx = M, hy = py + 60, hw = PAGE_L - M * 2;
+        const xNote = hx + hw - largeurNote;
 
-            // L'en-tête : deux cases à gauche, deux à droite
-            ctx.strokeStyle = trait;
-            ctx.lineWidth = lw * 1.4 * gw;
-            ctx.strokeRect(px + 60, py + 50, PAGE_L - 120, enTeteH);
-            ctx.beginPath();
-            ctx.moveTo(px + PAGE_L / 2, py + 50); ctx.lineTo(px + PAGE_L / 2, py + 50 + enTeteH);
-            ctx.moveTo(px + 60, py + 50 + enTeteH / 2); ctx.lineTo(px + PAGE_L - 60, py + 50 + enTeteH / 2);
-            ctx.stroke();
+        // Le cadre de l'en-tête, sa séparation horizontale et la case note
+        ctx.strokeStyle = trait;
+        ctx.lineWidth = lw * 1.6 * gw;
+        ctx.strokeRect(hx, hy, hw, H);
+        ctx.beginPath();
+        ctx.moveTo(hx, hy + H / 2); ctx.lineTo(xNote, hy + H / 2);
+        ctx.moveTo(xNote, hy); ctx.lineTo(xNote, hy + H);
+        ctx.moveTo(hx + (xNote - hx) / 2, hy); ctx.lineTo(hx + (xNote - hx) / 2, hy + H);
+        ctx.stroke();
 
-            ctx.fillStyle = encre;
-            ctx.textBaseline = 'middle';
-            ctx.textAlign = 'left';
-            ctx.font = `600 ${26}px sans-serif`;
-            const cases = [
-                ['NOM :', px + 80, py + 50 + enTeteH / 4],
-                ['PRÉNOM :', px + 80, py + 50 + (enTeteH * 3) / 4],
-                ['CLASSE :', px + PAGE_L / 2 + 20, py + 50 + enTeteH / 4],
-                ['DATE :', px + PAGE_L / 2 + 20, py + 50 + (enTeteH * 3) / 4]
-            ];
-            cases.forEach(([txt, cx, cy]) => ctx.fillText(txt, cx, cy));
+        // Les intitulés, discrets : la copie doit rester à remplir
+        ctx.fillStyle = encre;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.font = `600 20px sans-serif`;
+        const demi = hx + (xNote - hx) / 2;
+        ctx.fillText('NOM', hx + 22, hy + H / 4);
+        ctx.fillText('PRÉNOM', hx + 22, hy + (H * 3) / 4);
+        ctx.fillText('CLASSE', demi + 22, hy + H / 4);
+        ctx.fillText('DATE', demi + 22, hy + (H * 3) / 4);
 
-            // Les lignes d'écriture, sous l'en-tête
-            const hautLignes = py + 50 + enTeteH + 80;
-            ctx.beginPath();
-            for (let y = hautLignes; y < py + PAGE_H - 60; y += 40) {
-                ctx.moveTo(px + 60, y); ctx.lineTo(px + PAGE_L - 60, y);
-            }
-            ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.14)" : "rgba(116, 185, 255, 0.45)";
-            ctx.lineWidth = lw * gw;
-            ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.font = `600 20px sans-serif`;
+        ctx.fillText('NOTE', xNote + largeurNote / 2, hy + 34);
+        ctx.font = `300 46px sans-serif`;
+        ctx.fillText('/ 20', xNote + largeurNote / 2, hy + H - 52);
+        ctx.textAlign = 'left';
 
-            // La marge
-            ctx.beginPath();
-            ctx.moveTo(px + MARGE_X, py + 50 + enTeteH + 40);
-            ctx.lineTo(px + MARGE_X, py + PAGE_H - 60);
-            ctx.strokeStyle = isDarkMode ? "rgba(255, 118, 117, 0.55)" : "rgba(214, 48, 49, 0.65)";
-            ctx.lineWidth = lw * 1.8 * gw;
-            ctx.stroke();
-        }
-    }
+        // Le corps de la copie
+        const hautLignes = hy + H + 70;
+        const basLignes = py + PAGE_H - 70;
+        reglureSeyes(M, hautLignes, PAGE_L - M, basLignes, lw, gw);
+        margeRouge(0, hautLignes, basLignes, lw, gw);
+    });
     ctx.textBaseline = 'alphabetic';
 }
 
@@ -6160,7 +6198,7 @@ function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     } else {
         ctx.fillStyle = (bg === 'millimetre') ? (isDarkMode ? '#2d3436' : bgColors.millimetre)
-            : (bg === 'copie') ? (isDarkMode ? '#15191b' : bgColors.copie)
+            : (bg === 'copie' || bg === 'seyes-marge') ? (isDarkMode ? '#15191b' : bgColors.copie)
             : (isDarkMode ? '#1e272e' : bgColors.default);
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
@@ -15643,12 +15681,19 @@ if (document.getElementById('formula-modal')) {
 // Sans paramètre, l'affichage ne change pas d'un pixel.
 // ===================================================
 (function () {
-    let valeur = null;
+    // Trois états : rien, les noms, les noms avec une teinte par rubrique.
+    // Le réglage se garde d'une fois sur l'autre ; l'adresse ?libelles=... reste
+    // utile pour montrer l'essai à quelqu'un sans toucher à ses réglages.
+    const CLE = 'board_libelles';
+    const ETATS = ['non', 'oui', 'couleur'];
+    let valeur = 'non';
     try {
         const params = new URLSearchParams(window.location.search);
         if (params.has('libelles')) valeur = params.get('libelles') || 'oui';
-    } catch (e) { return; }
-    if (!valeur) return;
+        else valeur = localStorage.getItem(CLE) || 'non';
+    } catch (e) { valeur = 'non'; }
+    if (valeur === 'couleurs') valeur = 'couleur';
+    if (!ETATS.includes(valeur)) valeur = 'oui';
 
     // Sous une icône, « Tableau de Proportionnalité » se coupe. Ces noms courts
     // ne servent QUE dans cet essai : les infobulles gardent le nom complet.
@@ -15700,19 +15745,38 @@ if (document.getElementById('formula-modal')) {
         });
     };
 
+    const appliquer = () => {
+        document.body.classList.toggle('libelles-outils', valeur !== 'non');
+        document.body.classList.toggle('libelles-couleur', valeur === 'couleur');
+        const pastille = document.getElementById('btn-libelles');
+        if (pastille) pastille.classList.toggle('active', valeur !== 'non');
+        if (valeur !== 'non') nommer();
+    };
+
     const poser = () => {
-        document.body.classList.add('libelles-outils');
-        if (valeur === 'couleur' || valeur === 'couleurs') document.body.classList.add('libelles-couleur');
-        nommer();
+        appliquer();
         // Les plugins garnissent la grille après nous : on repasse à leur suite
         const grille = document.getElementById('plugins-grid');
         if (grille && window.MutationObserver) {
-            new MutationObserver(() => nommer()).observe(grille, { childList: true, subtree: true });
+            new MutationObserver(() => { if (valeur !== 'non') nommer(); })
+                .observe(grille, { childList: true, subtree: true });
         }
-        window.addEventListener('load', () => setTimeout(nommer, 300));
+        window.addEventListener('load', () => setTimeout(() => { if (valeur !== 'non') nommer(); }, 300));
     };
     if (document.body) poser();
     else document.addEventListener('DOMContentLoaded', poser);
+
+    // La pastille « Libellés » de la barre du bas fait le tour des trois états
+    window.basculerLibelles = function () {
+        valeur = ETATS[(ETATS.indexOf(valeur) + 1) % ETATS.length];
+        try { localStorage.setItem(CLE, valeur); } catch (e) { /* stockage refusé */ }
+        appliquer();
+        if (typeof showToast === 'function') {
+            showToast(valeur === 'non' ? 'Libellés masqués'
+                : valeur === 'oui' ? 'Nom des outils affiché'
+                : 'Nom des outils, avec une couleur par rubrique');
+        }
+    };
 })();
 
 // ===================================================
