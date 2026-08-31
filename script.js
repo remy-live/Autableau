@@ -302,7 +302,13 @@ const PluginManager = {
 // l'enseignant devant un tableau figé sans explication.
 (function installErrorSafetyNet() {
     let lastReport = 0;
+    // Certaines alertes ne concernent pas l'enseignant : ouvert depuis un
+    // dossier (file://), le lecteur de PDF n'arrive pas à démarrer son
+    // « worker » et le dit — mais il rend quand même les pages. Inutile de
+    // faire peur pour ça.
+    const BRUIT = /importScripts|WorkerGlobalScope|pdf\.worker|ResizeObserver loop/i;
     const report = (msg) => {
+        if (BRUIT.test(String(msg || ''))) { console.warn('Au Tableau (sans conséquence) :', msg); return; }
         const now = Date.now();
         if (now - lastReport < 8000) return; // on n'inonde pas la classe de messages
         lastReport = now;
@@ -3796,7 +3802,7 @@ document.addEventListener('drop', (e) => {
             // Si c'est un PDF
             if (file.type === 'application/pdf') {
                 if (!pdfDropped) {
-                    loadPdf(file);
+                    if (importPdfFeuilletable) poserPdfFeuilletable(file); else loadPdf(file);
                     pdfDropped = true; // On limite à 1 PDF à la fois pour ne pas faire exploser la mémoire
                 } else {
                     if (typeof showToast === 'function') showToast("Veuillez importer un seul PDF à la fois.");
@@ -8032,6 +8038,95 @@ function loadPdfAtPageIndex(file, pageIndex, pdfPageNum) {
     reader.readAsArrayBuffer(file);
 }
 
+// ===================================================
+// UN PDF POSÉ SUR LE TABLEAU, QU'ON FEUILLETTE SUR PLACE
+// L'import classique fabrique une page de tableau par page du document :
+// parfait pour annoter tout un sujet. Mais pour montrer trois pages d'un
+// manuel, c'est lourd. Ici, le document reste UN objet : on tourne ses pages
+// avec deux flèches, sans multiplier les pages du tableau.
+// (Le document vit le temps de la session : après un rechargement, l'image
+// reste, mais il faut le rouvrir pour le feuilleter à nouveau.)
+// ===================================================
+const documentsPdf = new Map();          // clé → { doc, nom }
+let importPdfFeuilletable = false;
+try { importPdfFeuilletable = localStorage.getItem('board_pdf_feuilletable') === '1'; } catch (e) { /* stockage refusé */ }
+
+function reglerImportPdf(feuilletable) {
+    importPdfFeuilletable = !!feuilletable;
+    try { localStorage.setItem('board_pdf_feuilletable', importPdfFeuilletable ? '1' : '0'); } catch (e) { /* stockage refusé */ }
+}
+
+async function dessinerPagePdf(doc, numero) {
+    const page = await doc.getPage(numero);
+    const viewport = page.getViewport({ scale: currentPdfQuality });
+    const c = document.createElement('canvas');
+    c.width = viewport.width; c.height = viewport.height;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport }).promise;
+    return { src: c.toDataURL('image/jpeg', currentPdfQuality > 3 ? 0.75 : 0.85), l: c.width, h: c.height };
+}
+
+function chargerImage(src) {
+    return new Promise((resolve) => {
+        const i = new Image();
+        i.onload = () => { imageCache[src] = i; resolve(i); };
+        i.onerror = () => resolve(null);
+        i.src = src;
+    });
+}
+
+async function poserPdfFeuilletable(file) {
+    if (!window.pdfjsLib) { showToast('Le lecteur de PDF n\'est pas disponible'); return; }
+    showToast('Ouverture du document…');
+    try {
+        const octets = new Uint8Array(await file.arrayBuffer());
+        const doc = await pdfjsLib.getDocument(octets.slice(0)).promise;
+        const cle = 'pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        documentsPdf.set(cle, { doc, nom: file.name });
+
+        const rendu = await dessinerPagePdf(doc, 1);
+        const img = await chargerImage(rendu.src);
+
+        // La page occupe les trois quarts de ce qu'on voit, sans déformation
+        const dispoL = (window.innerWidth * 0.75) / zoom;
+        const dispoH = (window.innerHeight * 0.75) / zoom;
+        const k = Math.min(dispoL / rendu.l, dispoH / rendu.h);
+        const l = Math.round(rendu.l * k), h = Math.round(rendu.h * k);
+        const cx = (window.innerWidth / 2 - panX) / zoom;
+        const cy = (window.innerHeight / 2 - panY) / zoom;
+
+        images.push({
+            id: nextId++, x: cx - l / 2, y: cy - h / 2, w: l, h: h,
+            cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
+            src: rendu.src, img: img, fileName: file.name, z: globalZ++,
+            pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name }
+        });
+        selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
+        saveState(); draw();
+        if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        showToast(`📄 « ${file.name} » posé — ${doc.numPages} page(s), utilisez ◀ ▶ pour feuilleter`);
+    } catch (e) {
+        console.error(e);
+        showToast('PDF illisible : ' + (e.message || e));
+    }
+}
+
+async function feuilleterPdf(imgObj, delta) {
+    const d = imgObj && imgObj.pluginData && documentsPdf.get(imgObj.pluginData.cle);
+    if (!d) return;
+    const numero = Math.min(Math.max(1, imgObj.pluginData.page + delta), imgObj.pluginData.pages);
+    if (numero === imgObj.pluginData.page) return;
+    const rendu = await dessinerPagePdf(d.doc, numero);
+    const img = await chargerImage(rendu.src);
+    imgObj.src = rendu.src;
+    imgObj.img = img;
+    imgObj.cx = 0; imgObj.cy = 0; imgObj.cw = rendu.l; imgObj.ch = rendu.h;
+    imgObj.pluginData.page = numero;
+    saveState(); draw();
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+}
+
 async function loadPdf(file) {
     showToast(`Création des pages (Qualité: ${currentPdfQuality}x)... Veuillez patienter ⏳`);
     const reader = new FileReader();
@@ -8214,7 +8309,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (file.type === 'application/pdf') {
                     if (!pdfDropped) {
-                        loadPdf(file);
+                        if (importPdfFeuilletable) poserPdfFeuilletable(file); else loadPdf(file);
                         pdfDropped = true;
                     } else {
                         if (typeof showToast === 'function') showToast("Veuillez importer un seul PDF à la fois.");
@@ -8300,6 +8395,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         </select>
                     </div>
                     <div style="display:flex; align-items:center;">
+                        <label style="margin-right:5px; font-weight:bold; min-width: 65px;" title="Comment le PDF arrive sur le tableau">PDF :</label>
+                        <select id="pdf-mode-select" style="padding:4px; border-radius:4px; border:1px solid #ccc; outline:none; cursor:pointer; background:#f8f9fa;">
+                            <option value="pages">Une page de tableau par page</option>
+                            <option value="feuillet">Document feuilletable</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; align-items:center;">
                         <label style="margin-right:5px; font-weight:bold; min-width: 65px;" title="Marge de sécurité autour de la page">Marge :</label>
                         <input type="range" id="pdf-margin-slider" min="0" max="400" step="10" value="120" style="width:70px; margin-right:5px; cursor:pointer;">
                         <span id="pdf-margin-val" style="font-size:11px; min-width: 35px;">120px</span>
@@ -8315,6 +8417,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast("Qualité d'importation fixée sur : " + e.target.options[e.target.selectedIndex].text);
             });
             
+            const choixPdf = document.getElementById('pdf-mode-select');
+            if (choixPdf) {
+                choixPdf.value = importPdfFeuilletable ? 'feuillet' : 'pages';
+                choixPdf.addEventListener('change', (e) => {
+                    reglerImportPdf(e.target.value === 'feuillet');
+                    showToast(importPdfFeuilletable
+                        ? 'Le PDF sera posé en un seul objet, feuilletable sur place'
+                        : 'Le PDF remplira une page du tableau par page du document');
+                });
+            }
+
             document.getElementById('pdf-margin-slider').addEventListener('input', (e) => {
                 currentPdfMargin = parseInt(e.target.value);
                 document.getElementById('pdf-margin-val').innerText = currentPdfMargin + "px";
@@ -9728,6 +9841,23 @@ function updateQuickMenu() {
             // 4. GESTION DE LA CHAÎNE ET ROGNAGE (Affichage + Action)
             const btnRatio = document.getElementById('btn-quick-ratio');
             const btnCrop = document.getElementById('btn-quick-crop');
+
+            // --- FEUILLETER UN DOCUMENT PDF POSÉ SUR LE TABLEAU ---
+            const cadrePdf = document.getElementById('quick-pdf');
+            if (cadrePdf) {
+                const pdf = (type === 'image' && obj.pluginData && obj.pluginData.id === 'pdfDoc') ? obj.pluginData : null;
+                const vivant = pdf && documentsPdf.has(pdf.cle);
+                cadrePdf.style.display = vivant ? 'flex' : 'none';
+                if (vivant) {
+                    document.getElementById('quick-pdf-info').innerText = pdf.page + ' / ' + pdf.pages;
+                    const prev = document.getElementById('btn-pdf-prev');
+                    const next = document.getElementById('btn-pdf-next');
+                    prev.style.opacity = pdf.page > 1 ? '1' : '0.35';
+                    next.style.opacity = pdf.page < pdf.pages ? '1' : '0.35';
+                    prev.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); feuilleterPdf(obj, -1); };
+                    next.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); feuilleterPdf(obj, 1); };
+                }
+            }
 
             if (type === 'image') {
                 // --- BOUTON PROPORTIONS (Chaîne) ---

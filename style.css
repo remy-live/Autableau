@@ -5527,3 +5527,46 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .dark-mode .exp-bouton, .dark-mode #exp-recherche, .dark-mode #exp-tri {
     background: #232b32; color: #dfe6e9; border-color: #3d4852;
 }
+
+/* Les quatre présentations de l'explorateur */
+#exp-corps.exp-details { padding: 0; }
+
+.exp-detail {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 92px 74px 74px;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-bottom: 1px solid #f1f2f6;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.exp-detail:hover { background: #f5f3ff; }
+.exp-detail .exp-vignette { font-size: 17px; width: 26px; }
+.exp-detail .exp-nom { font-weight: 600; }
+.exp-colonne { font-size: 11px; color: #95a5a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.exp-detail-entete {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    cursor: default;
+    font-size: 11px;
+    font-weight: 700;
+    color: #95a5a6;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.exp-detail-entete:hover { background: #f8f9fa; }
+.exp-detail-entete span { color: #95a5a6; font-weight: 700; font-size: 11px; }
+
+#exp-corps.exp-mosaique { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+#exp-corps.exp-mosaique .exp-carte-image { height: 126px; }
+#exp-corps.exp-mosaique .exp-carte .exp-vignette { font-size: 42px; }
+#exp-corps.exp-mosaique .exp-vignette img { max-height: 126px; }
+
+.dark-mode .exp-detail { border-color: #2f3941; }
+.dark-mode .exp-detail:hover { background: #2f3941; }
+.dark-mode .exp-detail-entete, .dark-mode .exp-detail-entete:hover { background: #232b32; }

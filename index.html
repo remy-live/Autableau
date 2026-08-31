@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=24">
+    <link rel="stylesheet" href="style.css?v=25">
 </head>
 
 <body>
@@ -195,6 +195,11 @@
 
         <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
 
+        <div id="quick-pdf" style="display:none; align-items:center; gap:2px; padding-right:8px; margin-right:6px; border-right:1px solid #dfe6e9;">
+            <button class="btn-quick" id="btn-pdf-prev" title="Page précédente du document">◀</button>
+            <span id="quick-pdf-info" style="font-size:12px; font-weight:600; min-width:54px; text-align:center; color:#636e72;">1 / 1</span>
+            <button class="btn-quick" id="btn-pdf-next" title="Page suivante du document">▶</button>
+        </div>
         <button class="btn-quick danger" id="btn-quick-delete" title="Supprimer">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -335,10 +340,13 @@
                 <div>
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
-                        <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer</li>
+                        <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Deux modes, au choix
+                            dans le menu Importer : une page de tableau par page du document, ou le
+                            <b>document feuilletable</b> — posé en un seul objet, avec ◀ ▶ pour tourner ses pages.</li>
                         <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
-                            sur place) ou Google Drive quand le tableau est en ligne. Liste ou aperçus, recherche et tri.</li>
+                            sur place) ou Google Drive quand le tableau est en ligne. Quatre présentations (liste,
+                            détails, aperçus, mosaïque), recherche et tri.</li>
                         <li><strong>Importer un document :</strong> Word (.docx), LibreOffice (.odt) ou texte (.txt, .csv) —
                             titres, gras, italique et listes sont conservés</li>
                         <li><strong>Coller (Ctrl+V) :</strong> une image, ou du texte venu de Word / LibreOffice / d'une
@@ -1468,11 +1476,11 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=73"></script>
+    <script src="script.js?v=74"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
-    <script src="./lib/cloud/explorateur.js?v=1"></script>
+    <script src="./lib/cloud/explorateur.js?v=2"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
     <script src="./lib/cloud/drive.js?v=5"></script>
     <script>

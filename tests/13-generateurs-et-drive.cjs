@@ -414,11 +414,10 @@ module.exports = async function (browser) {
     r.egal('et seul le formulaire est grisé', liste.grisees, 1);
 
     const vues = await pageWeb.evaluate(async () => {
-        document.getElementById('exp-vue').click();
-        await new Promise(r => setTimeout(r, 150));
+        const suivant = async () => { document.getElementById('exp-vue').click(); await new Promise(r => setTimeout(r, 130)); };
+        while (Explorateur.etat.vue !== 'apercus') await suivant();
         const grille = { classe: document.getElementById('exp-corps').className, cartes: document.querySelectorAll('.exp-carte').length };
-        document.getElementById('exp-vue').click();
-        await new Promise(r => setTimeout(r, 150));
+        while (Explorateur.etat.vue !== 'liste') await suivant();
         const liste = { classe: document.getElementById('exp-corps').className, lignes: document.querySelectorAll('.exp-ligne').length };
         // la recherche filtre la liste
         const champ = document.getElementById('exp-recherche');
@@ -441,6 +440,27 @@ module.exports = async function (browser) {
     });
     r.verifie('on peut passer en aperçus', /exp-grille/.test(vues.grille.classe) && vues.grille.cartes === 4, JSON.stringify(vues.grille));
     r.verifie('et revenir à la liste', !/exp-grille/.test(vues.liste.classe) && vues.liste.lignes === 4, JSON.stringify(vues.liste));
+
+    // Quatre présentations en tout, dont un tableau détaillé et une mosaïque
+    const quatre = await pageWeb.evaluate(async () => {
+        const vus = [];
+        for (let i = 0; i < 4; i++) {
+            vus.push({
+                vue: Explorateur.etat.vue,
+                classe: document.getElementById('exp-corps').className,
+                colonnes: document.querySelectorAll('.exp-detail-entete span').length,
+                elements: document.querySelectorAll('.exp-ligne, .exp-carte, .exp-detail:not(.exp-detail-entete)').length
+            });
+            document.getElementById('exp-vue').click();
+            await new Promise(r => setTimeout(r, 120));
+        }
+        return vus;
+    });
+    r.egal('quatre présentations se succèdent', quatre.map(v => v.vue), ['liste', 'details', 'apercus', 'mosaique']);
+    r.verifie('la vue « détails » a ses colonnes',
+        quatre[1].colonnes === 5 && /exp-details/.test(quatre[1].classe), JSON.stringify(quatre[1]));
+    r.verifie('la mosaïque garde les mêmes fichiers',
+        quatre[3].elements === 4 && /exp-mosaique/.test(quatre[3].classe), JSON.stringify(quatre[3]));
     r.egal('la recherche filtre les fichiers', vues.filtre, 1);
     r.verifie('le tri par taille met le plus gros devant',
         /Brevet blanc/.test(vues.premierParTaille), vues.premierParTaille);

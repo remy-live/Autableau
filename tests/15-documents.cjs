@@ -112,6 +112,29 @@ Objectif : comprendre les **fractions**.
 2. comparer
 Fin de la séance.`;
 
+// Un PDF de trois pages, écrit à la main : aucune dépendance à installer.
+function petitPdf() {
+    const pages = ['Page une', 'Page deux', 'Page trois'];
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+    ];
+    pages.forEach((t, i) => {
+        objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + 2 * i} 0 R >>`);
+        const flux = `BT /F1 24 Tf 40 150 Td (${t}) Tj ET`;
+        objs.push(`<< /Length ${flux.length} >>\nstream\n${flux}\nendstream`);
+    });
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
 module.exports = async function (browser) {
     const r = creerRapport('Documents importés');
     const { context, page, erreurs } = await ouvrirApp(browser);
@@ -311,6 +334,74 @@ module.exports = async function (browser) {
         return { avant, apres: texts.length };
     });
     r.egal('un document illisible ne pose rien et ne casse rien', casse.apres, casse.avant);
+
+    // --- UN PDF POSÉ SUR LE TABLEAU, QU'ON FEUILLETTE ---
+    const pdf = Array.from(petitPdf());
+    const posePdf = await page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 800));
+        const i = images[0];
+        return i ? {
+            images: images.length, pages: pages.length,
+            page: i.pluginData.page, total: i.pluginData.pages, nom: i.pluginData.nom,
+            large: i.w > 200, proportion: Math.abs(i.w / i.h - 400 / 300) < 0.05,
+            src: (i.src || '').slice(0, 20)
+        } : null;
+    }, { octets: pdf });
+    r.verifie('le PDF est posé en un seul objet', !!posePdf && posePdf.images === 1, JSON.stringify(posePdf));
+    r.verifie('il ne crée pas de pages de tableau', !!posePdf && posePdf.pages === 1, JSON.stringify(posePdf));
+    r.egal('il connaît son nombre de pages', posePdf && posePdf.total, 3);
+    r.verifie('la page est posée à une taille lisible et sans déformation',
+        !!posePdf && posePdf.large && posePdf.proportion, JSON.stringify(posePdf));
+
+    const feuillete = await page.evaluate(async () => {
+        const img = images[0];
+        const avant = img.src;
+        await feuilleterPdf(img, 1);
+        await new Promise(r => setTimeout(r, 500));
+        const page2 = { page: img.pluginData.page, change: img.src !== avant };
+        await feuilleterPdf(img, 1);
+        await new Promise(r => setTimeout(r, 500));
+        await feuilleterPdf(img, 1);      // au-delà de la dernière : rien ne bouge
+        await new Promise(r => setTimeout(r, 300));
+        const fin = img.pluginData.page;
+        await feuilleterPdf(img, -1);
+        await new Promise(r => setTimeout(r, 500));
+        return { page2, fin, retour: img.pluginData.page, taille: { w: Math.round(img.w), h: Math.round(img.h) } };
+    });
+    r.verifie('▶ tourne la page et redessine', feuillete.page2.page === 2 && feuillete.page2.change, JSON.stringify(feuillete));
+    r.egal('on ne dépasse pas la dernière page', feuillete.fin, 3);
+    r.egal('◀ revient en arrière', feuillete.retour, 2);
+
+    const menu = await page.evaluate(() => {
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateQuickMenu();
+        const cadre = document.getElementById('quick-pdf');
+        return {
+            visible: getComputedStyle(cadre).display !== 'none',
+            info: document.getElementById('quick-pdf-info').innerText
+        };
+    });
+    r.verifie('le menu rapide affiche les flèches du document', menu.visible, JSON.stringify(menu));
+    r.egal('avec le numéro de page', menu.info, '2 / 3');
+
+    const surImageOrdinaire = await page.evaluate(() => {
+        images.push({ id: nextId++, x: 0, y: 0, w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, src: '', z: globalZ++ });
+        selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
+        updateQuickMenu();
+        return getComputedStyle(document.getElementById('quick-pdf')).display;
+    });
+    r.egal('et pas sur une image ordinaire', surImageOrdinaire, 'none');
+
+    const reglage = await page.evaluate(() => {
+        reglerImportPdf(true);
+        const a = { actif: importPdfFeuilletable, memoire: localStorage.getItem('board_pdf_feuilletable') };
+        reglerImportPdf(false);
+        return a;
+    });
+    r.verifie('le mode d\'import du PDF se règle et se retient',
+        reglage.actif === true && reglage.memoire === '1', JSON.stringify(reglage));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
