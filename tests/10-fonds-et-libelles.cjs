@@ -34,7 +34,8 @@ module.exports = async function (browser) {
     const rougeCopie = await encreRouge('copie');
     r.verifie('Seyès simple : pas de marge rouge', rougeSeyes === 0, `${rougeSeyes} pixels rouges`);
     r.verifie('Seyès avec marge : la marge est tracée', rougeMarge > 200, `${rougeMarge} pixels rouges`);
-    r.verifie('copie d\'examen : la marge est tracée', rougeCopie > 200, `${rougeCopie} pixels rouges`);
+    // La marge rouge appartient au cahier : une copie d'examen n'en a pas.
+    r.verifie('copie d\'examen : pas de marge rouge', rougeCopie === 0, `${rougeCopie} pixels rouges`);
 
     // La copie doit porter son en-tête : on compare la même vue avec et sans.
     // Le cadre et les intitulés font une encre grise que le cahier n'a pas.
@@ -71,14 +72,15 @@ module.exports = async function (browser) {
     // Le pas de la grille suit, sinon l'aimant et l'interligne tomberaient à côté
     const pas = await page.evaluate(() => {
         const mesures = {};
-        ['seyes', 'seyes-marge', 'copie'].forEach(nom => {
+        ['seyes', 'seyes-marge', 'copie', 'carreau'].forEach(nom => {
             currentBgIndex = backgrounds.indexOf(nom);
             mesures[nom] = snapToGrid(97, 97);
         });
         return mesures;
     });
     r.egal('« Seyès avec marge » s\'aimante comme le Seyès', pas['seyes-marge'], pas['seyes']);
-    r.egal('« copie » s\'aimante comme le Seyès', pas['copie'], pas['seyes']);
+    // La copie est quadrillée : elle s'aimante sur ses carreaux
+    r.egal('« copie » s\'aimante sur ses carreaux', pas['copie'], pas['carreau']);
 
     // Le bouton « Fonds » parcourt bien les huit fonds sans casser
     const tour = await page.evaluate(() => {

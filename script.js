@@ -19,6 +19,10 @@ const LASER_SMOOTHING = 0.5;   // 0 = figé, 1 = brut : lissage du tracé du las
 let currentLaserStroke = null;
 
 let backgrounds = ['blanc', 'carreau', 'seyes', 'seyes-marge', 'copie', 'millimetre', 'point', 'isometrique'];
+// Ce que vaut UNE case de la grille sur les axes gradués : 1 par défaut, mais
+// on trace aussi bien des dixièmes que des dizaines.
+let pasAxes = 1;
+try { pasAxes = parseFloat(localStorage.getItem('board_pas_axes')) || 1; } catch (e) { pasAxes = 1; }
 const bgColors = { millimetre: '#fdf6e3', copie: '#e6eaed', default: '#ffffff' };
 // Une « page » de référence pour les fonds qui imitent une feuille : le
 // tableau est infini, on répète donc la feuille au lieu d'en poser une seule.
@@ -1953,6 +1957,20 @@ function reglureSeyes(x0, y0, x1, y1, lw, gw) {
     ctx.restore();
 }
 
+// Le quadrillage 5×5 des copies d'examen, tracé à l'intérieur d'un rectangle
+function reglurePetitsCarreaux(x0, y0, x1, y1, lw, gw) {
+    const pas = 30;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+    ctx.beginPath();
+    for (let x = Math.ceil(x0 / pas) * pas; x < x1; x += pas) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    for (let y = Math.ceil(y0 / pas) * pas; y < y1; y += pas) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.13)" : "rgba(116, 149, 185, 0.32)";
+    ctx.lineWidth = lw * gw;
+    ctx.stroke();
+    ctx.restore();
+}
+
 // La feuille elle-même : blanche, posée sur le gris, avec une ombre douce
 function poserFeuille(py, lw, gw) {
     ctx.save();
@@ -2027,11 +2045,11 @@ function drawCopie(minX, maxX, minY, maxY, lw, gw) {
         ctx.fillText('/ 20', xNote + largeurNote / 2, hy + H - 52);
         ctx.textAlign = 'left';
 
-        // Le corps de la copie
-        const hautLignes = hy + H + 70;
+        // Le corps de la copie : petits carreaux, comme une vraie copie
+        // d'examen — et sans marge rouge, qui appartient au cahier.
+        const hautLignes = hy + H + 60;
         const basLignes = py + PAGE_H - 70;
-        reglureSeyes(M, hautLignes, PAGE_L - M, basLignes, lw, gw);
-        margeRouge(0, hautLignes, basLignes, lw, gw);
+        reglurePetitsCarreaux(M, hautLignes, PAGE_L - M, basLignes, lw, gw);
     });
     ctx.textBaseline = 'alphabetic';
 }
@@ -4766,7 +4784,9 @@ function layoutTextObject(obj, measureCtx) {
 
 function snapToGrid(lx, ly) {
     const bg = backgrounds[currentBgIndex]; let snapX = 30, snapY = 30;
-    if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
+    // La copie d'examen est quadrillée en 30×30 : elle s'aimante sur ses
+    // carreaux, pas sur l'interligne du Seyès.
+    if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes' || bg === 'seyes-marge') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
     return { x: Math.round(lx / snapX) * snapX, y: Math.round(ly / snapY) * snapY };
 }
 function distToSegment(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
@@ -6136,8 +6156,11 @@ canvas.addEventListener('wheel', (e) => {
         const mouseLogX = (e.clientX - panX) / zoom;
         const mouseLogY = (e.clientY - panY) / zoom;
 
-        // Calcul du zoom (très fluide sur Trackpad)
-        let zoomFactor = Math.exp(-e.deltaY / 100);
+        // Un cran de molette envoie deltaY ≈ 100 : à /100, chaque cran
+        // multipliait le zoom par 2,7 — beaucoup trop brutal. Le pavé tactile,
+        // lui, envoie de petites valeurs en rafale : la formule exponentielle
+        // reste, on l'adoucit seulement.
+        let zoomFactor = Math.exp(-e.deltaY / 450);
         let newZoom = zoom * zoomFactor;
 
         if (newZoom < 0.2) newZoom = 0.2;
@@ -6219,9 +6242,16 @@ function draw() {
                 ctx.beginPath(); ctx.moveTo(0, minY); ctx.lineTo(0, maxY); ctx.moveTo(minX, 0); ctx.lineTo(maxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
                 if (showAxes === 2) {
                     ctx.fillStyle = isDarkMode ? "#b2bec3" : "#2d3436"; ctx.font = `${12 * lw}px sans-serif`; ctx.beginPath(); ctx.textAlign = "center"; ctx.textBaseline = "top";
-                    for (let x = Math.floor(minX / logicalStep) * logicalStep; x <= maxX; x += logicalStep) if (x !== 0) { ctx.moveTo(x, -4 * lw); ctx.lineTo(x, 4 * lw); ctx.fillText(Math.round(x / logicalStep), x, 8 * lw); }
+                    // Une case vaut « pasAxes » : on affiche autant de décimales
+                    // qu'il en faut, sans jamais écrire « 0.30000000000000004 ».
+                    const decimales = Math.max(0, Math.min(4, String(pasAxes).replace(/^\d*\.?/, '').length));
+                    const etiquette = (n) => {
+                        const v = n * pasAxes;
+                        return decimales ? v.toFixed(decimales).replace('.', ',') : String(Math.round(v));
+                    };
+                    for (let x = Math.floor(minX / logicalStep) * logicalStep; x <= maxX; x += logicalStep) if (x !== 0) { ctx.moveTo(x, -4 * lw); ctx.lineTo(x, 4 * lw); ctx.fillText(etiquette(Math.round(x / logicalStep)), x, 8 * lw); }
                     ctx.textAlign = "right"; ctx.textBaseline = "middle";
-                    for (let y = Math.floor(minY / logicalStep) * logicalStep; y <= maxY; y += logicalStep) if (y !== 0) { ctx.moveTo(-4 * lw, y); ctx.lineTo(4 * lw, y); ctx.fillText(Math.round(-y / logicalStep), -8 * lw, y); }
+                    for (let y = Math.floor(minY / logicalStep) * logicalStep; y <= maxY; y += logicalStep) if (y !== 0) { ctx.moveTo(-4 * lw, y); ctx.lineTo(4 * lw, y); ctx.fillText(etiquette(Math.round(-y / logicalStep)), -8 * lw, y); }
                     ctx.stroke();
                 }
             }
@@ -15856,10 +15886,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ouvrirPanneauAppui(bouton, 'Fond du tableau', entrees);
     });
 
-    // Axes : les trois états, nommés
+    // Axes : les trois états, puis ce que vaut une case
     poserAppuiLong(document.getElementById('btn-axes'), (bouton) => {
         const etats = ['Aucun axe', 'Axes discrets', 'Axes marqués et gradués'];
-        ouvrirPanneauAppui(bouton, 'Axes', etats.map((nom, i) => ({
+        const entrees = etats.map((nom, i) => ({
             nom, actif: showAxes === i,
             action: () => {
                 showAxes = i;
@@ -15868,7 +15898,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (showAxes > 0) b.classList.add('active', `active-${showAxes}`);
                 draw();
             }
-        })));
+        }));
+
+        entrees.push({ separateur: 'Une case vaut' });
+        [0.1, 0.5, 1, 2, 5, 10, 100].forEach(pas => entrees.push({
+            nom: String(pas).replace('.', ','),
+            actif: Math.abs(pasAxes - pas) < 1e-9,
+            action: () => {
+                pasAxes = pas;
+                try { localStorage.setItem('board_pas_axes', String(pas)); } catch (e) { /* stockage refusé */ }
+                if (showAxes !== 2) {          // le pas ne se voit qu'en axes gradués
+                    showAxes = 2;
+                    const b = document.getElementById('btn-axes');
+                    b.classList.add('active', 'active-2');
+                }
+                draw();
+            }
+        }));
+
+        ouvrirPanneauAppui(bouton, 'Axes', entrees);
     });
 
     // Classes : les outils qui s'appuient sur la liste des élèves

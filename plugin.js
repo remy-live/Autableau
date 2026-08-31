@@ -7613,7 +7613,27 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         grid.appendChild(btn);
     },
 
+    CLE_MEMOIRE: 'geg_derniers_reglages',
+
+    memoriser: function (etat) {
+        try { localStorage.setItem(this.CLE_MEMOIRE, JSON.stringify(etat)); } catch (e) { /* stockage refusé */ }
+    },
+
+    rappeler: function () {
+        try {
+            const brut = localStorage.getItem(this.CLE_MEMOIRE);
+            return brut ? JSON.parse(brut) : null;
+        } catch (e) { return null; }
+    },
+
     openWidget: function (existingState = null) {
+        // Deux entrées différentes dans la même fenêtre :
+        //  — réédition d'un tampon : son état prime, la fenêtre passe en mode
+        //    « mise à jour » (questions figées, quantité verrouillée) ;
+        //  — ouverture ordinaire : on re-coche seulement les derniers réglages,
+        //    et on génère bien de NOUVELLES questions.
+        const enReedition = !!existingState;
+        if (!existingState) existingState = this.rappeler();
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
             this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; font-family: sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
@@ -7741,7 +7761,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         }
 
         this.widgetEl.style.display = 'flex';
-        this.currentState = existingState || null;
+        this.currentState = enReedition ? existingState : null;
 
         let ansWrap = this.widgetEl.querySelector('#geg-answers-wrap');
         let btnGen = this.widgetEl.querySelector('#geg-generate');
@@ -7751,8 +7771,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         let chkAns = this.widgetEl.querySelector('#geg-show-ans');
 
         if (existingState) {
-            ansWrap.style.display = 'flex';
-            btnGen.innerText = "Mettre à jour le tableau";
+            ansWrap.style.display = enReedition ? 'flex' : 'none';
+            btnGen.innerText = enReedition ? "Mettre à jour le tableau" : "Générer et Tamponner";
 
             this.currentTheme = existingState.theme;
             const themes = this.widgetEl.querySelectorAll('.geg-theme-btn');
@@ -7767,8 +7787,15 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             if (selCols) selCols.value = existingState.forceCols || 'auto';
             chkAns.checked = existingState.showAnswers;
 
-            selCount.disabled = true;
-            this.disableOptions();
+            // Seule la réédition verrouille la quantité et les options : sur des
+            // réglages simplement mémorisés, tout reste modifiable.
+            if (enReedition) {
+                selCount.disabled = true;
+                this.disableOptions();
+            } else {
+                selCount.disabled = false;
+                this.editingImgObj = null;
+            }
         } else {
             ansWrap.style.display = 'none';
             btnGen.innerText = "Générer et Tamponner";
@@ -8032,6 +8059,12 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             state.timer = timer;
             state.forceCols = colsVal;
         }
+
+        // On garde les réglages (thème, types, quantité, colonnes) pour la
+        // prochaine ouverture — pas les questions, qui se régénèrent.
+        this.memoriser({ theme: state.theme, types: state.types, group: state.group,
+                         count: state.count, timer: state.timer, forceCols: state.forceCols,
+                         showAnswers: state.showAnswers, questions: [] });
 
         let svg = this.createSVG(state);
 
@@ -16097,6 +16130,7 @@ registerPlugin('flashMathTool', 'Exercices', {
         levels: [4, 3], // classes cochées : sous-ensemble de [6, 5, 4, 3]
         variants: {}, // { themeId: [variantIds actives] } — absent = toutes actives
         count: 5,
+        formatFeuille: 'juste',   // 'juste' = la feuille s'arrête au contenu, 'a4' = format fixe
         timerLength: 0,
         questions: [],
         showAnswersInGrid: false
@@ -16465,6 +16499,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             if (Array.isArray(prefs.levels)) this.state.levels = prefs.levels.filter(cl => [6, 5, 4, 3].includes(cl));
             else if (typeof prefs.level === 'number') this.state.levels = prefs.level === 1 ? [6, 5] : [4, 3]; // migration ancien format
             if (prefs.variants && typeof prefs.variants === 'object') this.state.variants = prefs.variants;
+            if (prefs.formatFeuille === 'a4' || prefs.formatFeuille === 'juste') this.state.formatFeuille = prefs.formatFeuille;
             if (this.state.levels.length === 0) this.state.levels = [4, 3];
             if (this.widgetEl) { this.renderThemeSidebar(); this.renderGrid(); }
         });
@@ -16477,7 +16512,8 @@ registerPlugin('flashMathTool', 'Exercices', {
             count: this.state.count,
             timerLength: this.state.timerLength,
             levels: this.state.levels,
-            variants: this.state.variants
+            variants: this.state.variants,
+            formatFeuille: this.state.formatFeuille
         });
     },
 
@@ -16743,6 +16779,7 @@ registerPlugin('flashMathTool', 'Exercices', {
                     <div class="fl-footer-actions">
                         <button class="fl-btn-action fl-btn-ghost" id="fl-btn-toggle-ans">${this.state.showAnswersInGrid ? 'Masquer' : 'Afficher'} les réponses</button>
                         <button class="fl-btn-action fl-btn-ghost" id="fl-btn-fullscreen">🎬 Diaporama</button>
+                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-format">${this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Feuille au plus juste'}</button>
                         <button class="fl-btn-action" id="fl-btn-export" style="background:#00b894; box-shadow:0 4px 6px rgba(0,184,148,0.2);">✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}</button>
                     </div>
                 </div>
@@ -16825,6 +16862,17 @@ registerPlugin('flashMathTool', 'Exercices', {
         };
 
         this.widgetEl.querySelector('#fl-btn-fullscreen').onclick = () => this.launchFullscreenSlide();
+        const btnFormat = this.widgetEl.querySelector('#fl-btn-format');
+        if (btnFormat) btnFormat.onclick = () => {
+            this.state.formatFeuille = (this.state.formatFeuille === 'a4') ? 'juste' : 'a4';
+            btnFormat.innerText = this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Feuille au plus juste';
+            if (typeof showToast === 'function') {
+                showToast(this.state.formatFeuille === 'a4'
+                    ? 'Le tampon gardera le format A4'
+                    : 'Le tampon s\'arrêtera au contenu');
+            }
+        };
+
         this.widgetEl.querySelector('#fl-btn-export').onclick = () => this.exportToBoard();
 
         this.renderGrid();
@@ -17073,17 +17121,27 @@ registerPlugin('flashMathTool', 'Exercices', {
         const colWidth = (width - padding * 2 - colGap) / 2;
         const ansW = 120, ansH = 38;
 
-        const perCol = Math.ceil(n / 2);
-        const columns = [
-            this.state.questions.slice(0, perCol).map((q, idx) => ({ q, num: idx + 1 })),
-            this.state.questions.slice(perCol).map((q, idx) => ({ q, num: perCol + idx + 1 }))
-        ];
-
         const rowH = (q) => q.q.includes('<svg') ? 185 : (q.q.includes('<br/>') ? 100 : 68);
-        const colHeights = columns.map(col => col.reduce((sum, item) => sum + rowH(item.q), 0));
-        const contentH = Math.max(...colHeights, 60);
+
+        // Les questions vont dans la colonne la moins remplie EN HAUTEUR : une
+        // question avec figure pèse trois questions courtes, et remplir « la
+        // moitié à gauche, la moitié à droite » laissait un grand vide.
+        const columns = [[], []];
+        const hauteurs = [0, 0];
+        this.state.questions.forEach((q, idx) => {
+            const c = (hauteurs[0] <= hauteurs[1]) ? 0 : 1;
+            columns[c].push({ q, num: idx + 1 });
+            hauteurs[c] += rowH(q);
+        });
+
+        const contentH = Math.max(hauteurs[0], hauteurs[1], 60);
         const headerH = 52;
-        const totalH = Math.max(padding + headerH + contentH + padding, minHeight);
+        // Par défaut la feuille s'arrête au contenu : quatre questions ne
+        // méritent pas une page A4 aux trois quarts vide.
+        const hauteurJuste = padding + headerH + contentH + padding;
+        const totalH = (this.state.formatFeuille === 'a4')
+            ? Math.max(hauteurJuste, minHeight)
+            : hauteurJuste;
 
         const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -17124,7 +17182,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             });
         });
         svg += `</svg>`;
-        this.widgetEl.style.display = 'none';
+        if (this.widgetEl) this.widgetEl.style.display = 'none';
 
         createStampFromSVG(svg, (stamp) => {
             if (this.editingImage) {

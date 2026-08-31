@@ -33,9 +33,10 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `07-plugins.cjs` | les 81 plugins s'ouvrent sans erreur et tiennent dans un écran de tablette ; carte disponible hors connexion |
 | `08-gestes-de-classe.cjs` | dupliquer (sommets recopiés, groupes, verrou, Ctrl+D, annulation), rideau (poignées, Échap, au doigt), projecteur (déplacement, diamètre) |
 | `09-interfaces.cjs` | les huit interfaces fournies (niveaux, minimale, complète, conduite de classe) : outils existants, barres qui ne se recouvrent pas, chargement effectif, suppression puis remise |
-| `10-fonds-et-libelles.cjs` | fonds « cahier » et « copie d'examen » (feuille blanche sur gris clair, marge tracée, en-tête que le cahier n'a pas, aimant identique au Seyès), et les libellés sous les icônes : pastille à trois états, réglage mémorisé, bloc compact, et l'affichage par défaut qui ne bouge pas |
+| `10-fonds-et-libelles.cjs` | fonds « cahier » et « copie d'examen » (feuille blanche sur gris clair, marge tracée pour le cahier seulement, en-tête que le cahier n'a pas, aimant sur la bonne réglure), et les libellés sous les icônes : pastille à trois états, réglage mémorisé, bloc compact, et l'affichage par défaut qui ne bouge pas |
 | `11-reglages.cjs` | astuce du jour (une par jour, désactivable), roue de la date (quatre formats, heure, titre écrit à la main respecté), panneau de la barre des plugins, rangées d'icônes équilibrées, panneau d'une barre flottante au-dessus des voisines |
 | `12-equations-et-gestes.cjs` | équations ax + b = cx + d dans les deux générateurs (chaque réponse est vérifiée en résolvant l'équation), niveaux filtrés par classe, appui long sur Fonds / Axes / Classes, cadrage automatique sur la feuille |
+| `13-generateurs-et-drive.cjs` | molette adoucie et ancrée sous le curseur, copie d'examen quadrillée en petits carreaux, pas des graduations des axes (0,1 à 100, mémorisé), réglages retenus par le générateur d'exercices sans passer en mode « mise à jour », feuille de questions flash à la taille du contenu et colonnes équilibrées en hauteur, bouton Drive caché en `file://` et actif en http |
 
 ## Ajouter un test
 
