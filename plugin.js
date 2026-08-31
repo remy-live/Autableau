@@ -452,6 +452,43 @@ function createStampFromSVG(svgStr, callback) {
     img.src = svgData;
 }
 
+// ==========================================
+// TAMPONS « AU PLUS GRAND »
+// Une feuille d'exercices posée à sa taille naturelle est illisible du fond
+// de la classe : par défaut, le tampon est agrandi pour occuper l'écran.
+// Le réglage est commun aux deux générateurs et se retient.
+// ==========================================
+const CLE_TAMPON_GRAND = 'board_tampon_grand';
+let tamponAuPlusGrand = true;
+try {
+    const memoire = localStorage.getItem(CLE_TAMPON_GRAND);
+    if (memoire !== null) tamponAuPlusGrand = memoire === '1';
+} catch (e) { /* stockage refusé */ }
+
+function reglerTamponAuPlusGrand(valeur) {
+    tamponAuPlusGrand = !!valeur;
+    try { localStorage.setItem(CLE_TAMPON_GRAND, tamponAuPlusGrand ? '1' : '0'); } catch (e) { /* stockage refusé */ }
+}
+window.reglerTamponAuPlusGrand = reglerTamponAuPlusGrand;
+window.tamponEstAuPlusGrand = () => tamponAuPlusGrand;
+
+// cw/ch gardent la taille réelle de l'image (le découpage source) ; w/h sont
+// la taille d'affichage sur le tableau.
+function ajusterTampon(stamp, part = 0.85) {
+    if (!stamp) return stamp;
+    stamp.cw = stamp.cw || stamp.w;
+    stamp.ch = stamp.ch || stamp.h;
+    if (!tamponAuPlusGrand) return stamp;
+    const z = (typeof zoom === 'number' && zoom > 0) ? zoom : 1;
+    const k = Math.min((window.innerWidth * part) / z / stamp.w, (window.innerHeight * part) / z / stamp.h);
+    if (isFinite(k) && k > 0) {
+        stamp.w = Math.round(stamp.w * k);
+        stamp.h = Math.round(stamp.h * k);
+    }
+    return stamp;
+}
+window.ajusterTampon = ajusterTampon;
+
 function createRasterStampFromSVG(svgStr, callback, scale = 2) {
     const svgData = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
     const img = new Image();
@@ -7706,6 +7743,11 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
                             </div>
                         </div>
                         
+                        <div style="background:#f1f2f6; padding:8px; border-radius:6px; display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="geg-plus-grand" style="width:14px; height:14px; cursor:pointer;">
+                            <label for="geg-plus-grand" style="font-weight:bold; font-size:12px; color:#2d3436; cursor:pointer;">Au plus grand : la feuille occupe le tableau</label>
+                        </div>
+
                         <div id="geg-answers-wrap" style="display:none; background:#f1f2f6; padding:8px; border-radius:6px; align-items:center; gap:8px;">
                             <input type="checkbox" id="geg-show-ans" style="width:14px; height:14px; cursor:pointer;">
                             <label for="geg-show-ans" style="font-weight:bold; font-size:12px; color:#e15f41; cursor:pointer;">Afficher les réponses sur le tableau</label>
@@ -7762,6 +7804,13 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
         this.widgetEl.style.display = 'flex';
         this.currentState = enReedition ? existingState : null;
+
+        const casePlusGrand = this.widgetEl.querySelector('#geg-plus-grand');
+        if (casePlusGrand && !casePlusGrand.dataset.branche) {
+            casePlusGrand.dataset.branche = 'oui';
+            casePlusGrand.addEventListener('change', () => reglerTamponAuPlusGrand(casePlusGrand.checked));
+        }
+        if (casePlusGrand) casePlusGrand.checked = tamponEstAuPlusGrand();
 
         let ansWrap = this.widgetEl.querySelector('#geg-answers-wrap');
         let btnGen = this.widgetEl.querySelector('#geg-generate');
@@ -8095,7 +8144,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
                 this.widgetEl.style.display = 'none'; // Only close if creating new stamp
                 if (typeof setMode === 'function') setMode('globalExerciseGenerator');
-                this.currentStamp = stamp;
+                this.currentStamp = ajusterTampon(stamp);
             });
         }
 
@@ -8235,8 +8284,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
                     w: this.currentStamp.w,
                     h: this.currentStamp.h,
                     cx: 0, cy: 0,
-                    cw: this.currentStamp.w,
-                    ch: this.currentStamp.h,
+                    cw: this.currentStamp.cw || this.currentStamp.w,
+                    ch: this.currentStamp.ch || this.currentStamp.h,
                     src: this.currentStamp.src,
                     img: this.currentStamp.img, // Fix missing img in images array just in case
                     z: (typeof globalZ !== 'undefined' ? globalZ++ : 1),
@@ -8287,7 +8336,9 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
     onDraw: function (ctx) {
         if (typeof mode !== 'undefined' && mode === 'globalExerciseGenerator' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
             ctx.globalAlpha = 0.7;
-            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2);
+            // à la taille de pose : le fantôme doit annoncer la vraie feuille
+            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2,
+                mouseLogicalPos.y - this.currentStamp.h / 2, this.currentStamp.w, this.currentStamp.h);
             ctx.globalAlpha = 1.0;
         }
     }
@@ -16780,6 +16831,7 @@ registerPlugin('flashMathTool', 'Exercices', {
                         <button class="fl-btn-action fl-btn-ghost" id="fl-btn-toggle-ans">${this.state.showAnswersInGrid ? 'Masquer' : 'Afficher'} les réponses</button>
                         <button class="fl-btn-action fl-btn-ghost" id="fl-btn-fullscreen">🎬 Diaporama</button>
                         <button class="fl-btn-action fl-btn-ghost" id="fl-btn-format">${this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Feuille au plus juste'}</button>
+                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-taille">${tamponEstAuPlusGrand() ? 'Posée au plus grand' : 'Posée en taille réelle'}</button>
                         <button class="fl-btn-action" id="fl-btn-export" style="background:#00b894; box-shadow:0 4px 6px rgba(0,184,148,0.2);">✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}</button>
                     </div>
                 </div>
@@ -16862,6 +16914,17 @@ registerPlugin('flashMathTool', 'Exercices', {
         };
 
         this.widgetEl.querySelector('#fl-btn-fullscreen').onclick = () => this.launchFullscreenSlide();
+        const btnTaille = this.widgetEl.querySelector('#fl-btn-taille');
+        if (btnTaille) btnTaille.onclick = () => {
+            reglerTamponAuPlusGrand(!tamponEstAuPlusGrand());
+            btnTaille.innerText = tamponEstAuPlusGrand() ? 'Posée au plus grand' : 'Posée en taille réelle';
+            if (typeof showToast === 'function') {
+                showToast(tamponEstAuPlusGrand()
+                    ? 'La feuille posée occupera tout le tableau'
+                    : 'La feuille sera posée à sa taille naturelle');
+            }
+        };
+
         const btnFormat = this.widgetEl.querySelector('#fl-btn-format');
         if (btnFormat) btnFormat.onclick = () => {
             this.state.formatFeuille = (this.state.formatFeuille === 'a4') ? 'juste' : 'a4';
@@ -17195,7 +17258,7 @@ registerPlugin('flashMathTool', 'Exercices', {
                 this.editingImage = null;
                 if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw(); if (typeof setMode === 'function') setMode('pointer');
             } else {
-                this.currentStamp = stamp;
+                this.currentStamp = ajusterTampon(stamp);
                 this.currentAnswerZones = answerZones;
                 if (typeof setMode === 'function') setMode('flashMathTool');
                 if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser la série. Cliquez sur chaque cache gris pour révéler une réponse !", "#0984e3", "📚");
@@ -17222,7 +17285,8 @@ registerPlugin('flashMathTool', 'Exercices', {
             if (typeof imageCache !== 'undefined') imageCache[this.currentStamp.src] = this.currentStamp.img;
             images.push({
                 id: typeof nextId !== 'undefined' ? nextId++ : Date.now(), x: pos.x - this.currentStamp.w / 2, y: pos.y - this.currentStamp.h / 2,
-                w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h,
+                w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0,
+                cw: this.currentStamp.cw || this.currentStamp.w, ch: this.currentStamp.ch || this.currentStamp.h,
                 src: this.currentStamp.src, z: typeof globalZ !== 'undefined' ? globalZ++ : 1000,
                 pluginData: { id: 'flashMathTool', state: JSON.parse(JSON.stringify(this.state)), answerZones: JSON.parse(JSON.stringify(this.currentAnswerZones || [])) }
             });
@@ -17255,7 +17319,9 @@ registerPlugin('flashMathTool', 'Exercices', {
             let cx = mouseLogicalPos.x - this.currentStamp.w / 2;
             let cy = mouseLogicalPos.y - this.currentStamp.h / 2;
             ctx.globalAlpha = 0.8;
-            ctx.drawImage(this.currentStamp.img, cx, cy);
+            // à la taille de pose, pas à la taille naturelle : sinon le fantôme
+            // ne ressemble pas à ce qu'on obtient
+            ctx.drawImage(this.currentStamp.img, cx, cy, this.currentStamp.w, this.currentStamp.h);
             ctx.globalAlpha = 1.0;
 
             (this.currentAnswerZones || []).forEach(zone => this.drawCacheZone(
@@ -28271,4 +28337,548 @@ registerPlugin('quizBattleTool', 'Jeux', {
         }
         return false;
     }
+});
+
+// ==========================================
+// PLUGIN : POINTS DE CLASSE
+// Le geste que les enseignants font déjà au tableau — deux colonnes, un
+// smiley content, un smiley pas content — mais qui compte tout seul et se
+// souvient d'une séance à l'autre.
+//
+// Les points vivent SUR l'élève, dans « Mes classes » : ils suivent donc la
+// classe partout (plan de classe, tirage au sort, sauvegarde, export).
+// Chaque élève a un avatar-monstre tiré au sort à partir de son identifiant
+// — donc toujours le même — que l'on peut ensuite personnaliser.
+// ==========================================
+registerPlugin('classPointsTool', 'Outils Profs', {
+    CLE_REGLAGES: 'board_points_reglages',
+    reglages: { seuilNote: 20, seuilRetenue: 5, affichage: 'deux' },   // 'deux' totaux ou 'solde'
+    classes: [], classeId: null, mode: 'plus', historique: [],
+    widgetEl: null, editionAvatar: null, panneauReglages: false, currentStamp: null,
+
+    // ---------- Réglages ----------
+    lireReglages: function () {
+        try {
+            const brut = localStorage.getItem(this.CLE_REGLAGES);
+            if (brut) Object.assign(this.reglages, JSON.parse(brut));
+        } catch (e) { /* stockage refusé */ }
+    },
+    ecrireReglages: function () {
+        try { localStorage.setItem(this.CLE_REGLAGES, JSON.stringify(this.reglages)); } catch (e) { /* stockage refusé */ }
+    },
+
+    // ---------- Avatars ----------
+    TEINTES: ['#e17055', '#0984e3', '#00b894', '#6c5ce7', '#fdcb6e', '#d63031',
+              '#00cec9', '#e84393', '#fd79a8', '#55efc4', '#a29bfe', '#fab1a0'],
+    CORPS: ['rond', 'goutte', 'bloc', 'poilu'],
+    BOUCHES: ['sourire', 'dents', 'o', 'trait'],
+    CORNES: ['aucune', 'pointes', 'antennes', 'oreilles'],
+
+    // Toujours le même monstre pour le même élève : on tire au sort à partir
+    // de son identifiant, pas au hasard à chaque affichage.
+    empreinte: function (texte) {
+        let h = 0;
+        const s = String(texte || '');
+        for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+        // Deux identifiants voisins (« stu_1 » et « stu_2 ») ne diffèrent que
+        // par les bits de poids faible : sans ce brassage, tous les élèves
+        // d'une classe héritaient des mêmes cornes.
+        h ^= h >>> 16; h = Math.imul(h, 0x7feb352d) >>> 0;
+        h ^= h >>> 15; h = Math.imul(h, 0x846ca68b) >>> 0;
+        h ^= h >>> 16;
+        return h >>> 0;
+    },
+
+    traitsAvatar: function (eleve) {
+        const h = this.empreinte(eleve.id || eleve.name);
+        const auto = {
+            teinte: this.TEINTES[h % this.TEINTES.length],
+            corps: this.CORPS[(h >> 3) % this.CORPS.length],
+            yeux: 1 + ((h >> 6) % 3),
+            bouche: this.BOUCHES[(h >> 9) % this.BOUCHES.length],
+            cornes: this.CORNES[(h >> 12) % this.CORNES.length]
+        };
+        return Object.assign(auto, eleve.avatar || {});
+    },
+
+    avatarSVG: function (eleve, taille) {
+        const t = this.traitsAvatar(eleve);
+        const T = taille || 64;
+        if (t.image) {
+            return `<img src="${t.image}" alt="" style="width:${T}px; height:${T}px; border-radius:12px; object-fit:cover; display:block;">`;
+        }
+
+        const sombre = '#2d3436';
+        let corps = '';
+        if (t.corps === 'rond') corps = `<circle cx="50" cy="56" r="36" fill="${t.teinte}"/>`;
+        else if (t.corps === 'goutte') corps = `<path d="M50 16 C74 34 86 50 86 62 A36 36 0 0 1 14 62 C14 50 26 34 50 16 Z" fill="${t.teinte}"/>`;
+        else if (t.corps === 'bloc') corps = `<rect x="16" y="22" width="68" height="70" rx="16" fill="${t.teinte}"/>`;
+        else {
+            // le monstre poilu : un rond mordu tout autour
+            let d = '';
+            for (let i = 0; i < 16; i++) {
+                const a = (i / 16) * Math.PI * 2;
+                const r = (i % 2 === 0) ? 38 : 30;
+                const x = 50 + r * Math.cos(a), y = 56 + r * Math.sin(a);
+                d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+            }
+            corps = `<path d="${d}Z" fill="${t.teinte}"/>`;
+        }
+
+        let cornes = '';
+        if (t.cornes === 'pointes') cornes = `<path d="M30 30 L18 2 L46 20 Z" fill="${t.teinte}"/><path d="M70 30 L82 2 L54 20 Z" fill="${t.teinte}"/>`;
+        else if (t.cornes === 'antennes') cornes = `<line x1="34" y1="26" x2="26" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="26" cy="6" r="5" fill="${t.teinte}"/>`
+            + `<line x1="66" y1="26" x2="74" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="74" cy="6" r="5" fill="${t.teinte}"/>`;
+        else if (t.cornes === 'oreilles') cornes = `<ellipse cx="10" cy="48" rx="12" ry="16" fill="${t.teinte}"/><ellipse cx="90" cy="48" rx="12" ry="16" fill="${t.teinte}"/>`;
+
+        let yeux = '';
+        const oeil = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#ffffff"/><circle cx="${x}" cy="${y + 1}" r="${r * 0.45}" fill="${sombre}"/>`;
+        if (t.yeux === 1) yeux = oeil(50, 50, 16);
+        else if (t.yeux === 2) yeux = oeil(37, 50, 11) + oeil(63, 50, 11);
+        else yeux = oeil(32, 48, 9) + oeil(50, 44, 9) + oeil(68, 48, 9);
+
+        let bouche = '';
+        if (t.bouche === 'sourire') bouche = `<path d="M36 72 Q50 84 64 72" stroke="${sombre}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+        else if (t.bouche === 'dents') bouche = `<path d="M34 70 h32 v10 h-32 Z" fill="#ffffff" stroke="${sombre}" stroke-width="2"/><line x1="42" y1="70" x2="42" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="50" y1="70" x2="50" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="58" y1="70" x2="58" y2="80" stroke="${sombre}" stroke-width="2"/>`;
+        else if (t.bouche === 'o') bouche = `<ellipse cx="50" cy="75" rx="9" ry="7" fill="${sombre}"/>`;
+        else bouche = `<line x1="38" y1="75" x2="62" y2="75" stroke="${sombre}" stroke-width="4" stroke-linecap="round"/>`;
+
+        return `<svg viewBox="0 0 100 100" width="${T}" height="${T}" style="display:block;">${cornes}${corps}${yeux}${bouche}</svg>`;
+    },
+
+    // ---------- Données ----------
+    pointsDe: function (eleve) {
+        if (!eleve.pts) eleve.pts = { plus: 0, moins: 0, etoiles: 0 };
+        return eleve.pts;
+    },
+
+    classeCourante: function () {
+        return this.classes.find(c => c.id === this.classeId) || this.classes[0] || null;
+    },
+
+    sauver: function () {
+        if (typeof ClassesStore !== 'undefined') ClassesStore.saveAll(this.classes);
+    },
+
+    init: function () {
+        this.lireReglages();
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.title = 'Points de classe';
+        btn.setAttribute('data-tooltip', 'Points de classe');
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3Z"/><path d="M7 11l4-7a2 2 0 0 1 3 2l-1 5h5a2 2 0 0 1 2 2.4l-1.4 6A2 2 0 0 1 16.6 21H7"/></svg>`;
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof setMode === 'function') setMode('pointer');
+            this.ouvrir();
+        });
+    },
+
+    ouvrir: function () {
+        if (this.widgetEl && this.widgetEl.style.display !== 'none') { this.widgetEl.style.display = 'none'; return; }
+        const suite = () => { this.construire(); this.rendre(); };
+        if (typeof ClassesStore !== 'undefined') {
+            ClassesStore.loadAll().then(cls => {
+                this.classes = cls || [];
+                if (!this.classeId && this.classes[0]) this.classeId = this.classes[0].id;
+                suite();
+            }).catch(suite);
+        } else suite();
+    },
+
+    construire: function () {
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+        const el = document.createElement('div');
+        el.id = 'points-widget';
+        el.style.cssText = 'position:fixed; top:70px; left:120px; width:780px; max-width:94vw; max-height:86vh; background:#fff;'
+            + 'border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; font-family:sans-serif;'
+            + 'border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;';
+        el.innerHTML = `
+            <div id="pts-entete" style="background:#2d3436; color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; cursor:grab;">
+                <b style="flex:1;">🏅 Points de classe</b>
+                <button id="pts-reglages" title="Réglages" style="background:none; border:none; color:#dfe6e9; font-size:16px; cursor:pointer;">⚙️</button>
+                <button id="pts-fermer" title="Fermer" style="background:none; border:none; color:#ff7675; font-size:16px; cursor:pointer;">✕</button>
+            </div>
+            <div id="pts-barre" style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #dfe6e9; flex-wrap:wrap;"></div>
+            <div id="pts-corps" style="padding:12px 14px; overflow-y:auto; flex:1; background:#f8f9fa;"></div>`;
+        document.body.appendChild(el);
+        this.widgetEl = el;
+
+        // Sur une tablette, une fenêtre de 780 px posée à 120 px du bord sort
+        // de l'écran : on la ramène toujours dedans.
+        const boite = el.getBoundingClientRect();
+        el.style.left = Math.max(8, Math.min(120, window.innerWidth - boite.width - 8)) + 'px';
+        el.style.top = Math.max(8, Math.min(70, window.innerHeight - boite.height - 8)) + 'px';
+
+        const entete = el.querySelector('#pts-entete');
+        let glisse = false, dx = 0, dy = 0;
+        entete.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON') return;
+            glisse = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - el.offsetTop;
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!glisse) return;
+            el.style.left = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - dx)) + 'px';
+            el.style.top = Math.max(0, Math.min(window.innerHeight - 60, e.clientY - dy)) + 'px';
+        });
+        window.addEventListener('mouseup', () => { glisse = false; });
+
+        el.querySelector('#pts-fermer').addEventListener('click', () => { el.style.display = 'none'; });
+        el.querySelector('#pts-reglages').addEventListener('click', () => {
+            this.panneauReglages = !this.panneauReglages;
+            this.editionAvatar = null;
+            this.rendre();
+        });
+    },
+
+    // ---------- Affichage ----------
+    rendre: function () {
+        if (!this.widgetEl) return;
+        const barre = this.widgetEl.querySelector('#pts-barre');
+        const corps = this.widgetEl.querySelector('#pts-corps');
+        const classe = this.classeCourante();
+
+        const options = this.classes.map(c =>
+            `<option value="${c.id}" ${c.id === (classe && classe.id) ? 'selected' : ''}>${c.name || 'Classe'}</option>`).join('');
+
+        barre.innerHTML = `
+            <select id="pts-classe" style="padding:6px 8px; border:1px solid #dfe6e9; border-radius:6px; font-size:13px;">
+                ${options || '<option>Aucune classe</option>'}
+            </select>
+            <div style="display:flex; border:1px solid #dfe6e9; border-radius:8px; overflow:hidden;">
+                <button id="pts-mode-plus" style="border:none; padding:7px 14px; font-size:14px; cursor:pointer; font-weight:bold;
+                        background:${this.mode === 'plus' ? '#00b894' : '#fff'}; color:${this.mode === 'plus' ? '#fff' : '#636e72'};">👍 Bonus</button>
+                <button id="pts-mode-moins" style="border:none; padding:7px 14px; font-size:14px; cursor:pointer; font-weight:bold;
+                        background:${this.mode === 'moins' ? '#d63031' : '#fff'}; color:${this.mode === 'moins' ? '#fff' : '#636e72'};">👎 Malus</button>
+            </div>
+            <button id="pts-annuler" title="Annuler le dernier point" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">↶</button>
+            <div style="flex:1;"></div>
+            <button id="pts-poser" style="border:none; background:#0984e3; color:#fff; border-radius:8px; padding:7px 12px; font-weight:bold; cursor:pointer;">📌 Poser au tableau</button>`;
+
+        barre.querySelector('#pts-classe').addEventListener('change', (e) => {
+            this.classeId = e.target.value; this.editionAvatar = null; this.rendre();
+        });
+        barre.querySelector('#pts-mode-plus').addEventListener('click', () => { this.mode = 'plus'; this.rendre(); });
+        barre.querySelector('#pts-mode-moins').addEventListener('click', () => { this.mode = 'moins'; this.rendre(); });
+        barre.querySelector('#pts-annuler').addEventListener('click', () => this.annuler());
+        barre.querySelector('#pts-poser').addEventListener('click', () => this.poserAuTableau());
+
+        if (this.panneauReglages) { corps.innerHTML = this.htmlReglages(); this.brancherReglages(); return; }
+        if (this.editionAvatar) { corps.innerHTML = this.htmlAvatar(); this.brancherAvatar(); return; }
+
+        if (!classe || !(classe.students || []).length) {
+            corps.innerHTML = `<div style="padding:30px; text-align:center; color:#636e72; font-size:13px;">
+                Aucun élève. Créez une classe dans « Mes classes », en bas du tableau.</div>`;
+            return;
+        }
+
+        corps.innerHTML = `<div id="pts-grille" style="display:flex; flex-wrap:wrap; gap:10px;">`
+            + classe.students.map((s, i) => this.carte(s, i)).join('') + `</div>`;
+
+        corps.querySelectorAll('.pts-carte').forEach(carte => {
+            carte.addEventListener('click', (e) => {
+                if (e.target.closest('.pts-crayon')) { this.editionAvatar = carte.dataset.id; this.rendre(); return; }
+                if (e.target.closest('.pts-note')) { this.convertirEnNote(carte.dataset.id); return; }
+                this.compter(carte.dataset.id, this.mode === 'plus' ? 1 : -1);
+            });
+        });
+    },
+
+    carte: function (eleve, index) {
+        const p = this.pointsDe(eleve);
+        const solde = p.plus - p.moins;
+        const pretNote = p.plus >= this.reglages.seuilNote;
+        const retenue = p.moins >= this.reglages.seuilRetenue;
+        const cadre = pretNote ? '#00b894' : (retenue ? '#d63031' : '#dfe6e9');
+
+        const compteur = this.reglages.affichage === 'solde'
+            ? `<span style="background:${solde < 0 ? '#d63031' : '#00b894'}; color:#fff; border-radius:10px; padding:1px 8px; font-weight:bold; font-size:12px;">${solde > 0 ? '+' : ''}${solde}</span>`
+            : `<span style="background:#00b894; color:#fff; border-radius:10px; padding:1px 7px; font-weight:bold; font-size:12px;">${p.plus}</span>
+               <span style="background:#d63031; color:#fff; border-radius:10px; padding:1px 7px; font-weight:bold; font-size:12px;">${p.moins}</span>`;
+
+        const etoiles = p.etoiles ? `<div style="font-size:11px; line-height:1;">${'⭐'.repeat(Math.min(5, p.etoiles))}${p.etoiles > 5 ? ' ×' + p.etoiles : ''}</div>` : '';
+
+        return `<div class="pts-carte" data-id="${eleve.id}" title="${eleve.name}"
+                     style="position:relative; width:104px; padding:8px 6px 6px; background:#fff; border:2px solid ${cadre};
+                            border-radius:12px; text-align:center; cursor:pointer; user-select:none;">
+            <button class="pts-crayon" title="Personnaliser l'avatar"
+                    style="position:absolute; top:2px; right:2px; border:none; background:none; cursor:pointer; font-size:11px; opacity:0.45;">✏️</button>
+            ${pretNote ? `<button class="pts-note" title="Convertir en note et remettre à zéro" style="position:absolute; top:2px; left:2px; border:none; background:none; cursor:pointer; font-size:13px;">🎓</button>` : ''}
+            <div style="display:flex; justify-content:center;">${this.avatarSVG(eleve, 56)}</div>
+            <div style="font-size:11px; font-weight:600; color:#2d3436; margin:4px 0 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${index + 1}. ${eleve.name}</div>
+            <div style="display:flex; gap:3px; justify-content:center; align-items:center;">${compteur}</div>
+            ${etoiles}
+        </div>`;
+    },
+
+    // ---------- Compter ----------
+    compter: function (eleveId, delta) {
+        const classe = this.classeCourante(); if (!classe) return;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
+        const p = this.pointsDe(eleve);
+        if (delta > 0) p.plus += delta; else p.moins += -delta;
+        this.historique.push({ classeId: classe.id, eleveId, delta });
+        if (this.historique.length > 200) this.historique.shift();
+        this.sauver();
+        this.rendre();
+
+        if (delta < 0 && p.moins === this.reglages.seuilRetenue && typeof showToast === 'function') {
+            showToast(`⚠️ ${eleve.name} atteint ${p.moins} points négatifs`);
+        }
+        if (delta > 0 && p.plus === this.reglages.seuilNote && typeof showToast === 'function') {
+            showToast(`🎓 ${eleve.name} atteint ${p.plus} points : la note peut être mise`);
+        }
+    },
+
+    annuler: function () {
+        const dernier = this.historique.pop();
+        if (!dernier) { if (typeof showToast === 'function') showToast('Rien à annuler'); return; }
+        const classe = this.classes.find(c => c.id === dernier.classeId);
+        const eleve = classe && (classe.students || []).find(s => s.id === dernier.eleveId);
+        if (!eleve) return;
+        const p = this.pointsDe(eleve);
+        if (dernier.delta > 0) p.plus = Math.max(0, p.plus - dernier.delta);
+        else p.moins = Math.max(0, p.moins + dernier.delta);
+        this.sauver();
+        this.rendre();
+    },
+
+    // Le seuil atteint : on retire les points convertis et on ajoute une étoile
+    convertirEnNote: function (eleveId) {
+        const classe = this.classeCourante(); if (!classe) return;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
+        const p = this.pointsDe(eleve);
+        if (p.plus < this.reglages.seuilNote) return;
+        p.plus -= this.reglages.seuilNote;
+        p.etoiles = (p.etoiles || 0) + 1;
+        this.sauver();
+        this.rendre();
+        if (typeof showToast === 'function') {
+            showToast(`⭐ ${eleve.name} : note mise, ${this.reglages.seuilNote} points retirés (reste ${p.plus})`);
+        }
+    },
+
+    // ---------- Réglages ----------
+    htmlReglages: function () {
+        const r = this.reglages;
+        return `<div style="max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:14px;">
+            <div>
+                <label style="font-size:12px; font-weight:bold; color:#636e72;">AFFICHAGE DES POINTS</label>
+                <div style="display:flex; gap:8px; margin-top:6px;">
+                    <button class="pts-aff" data-v="deux" style="flex:1; padding:8px; border-radius:8px; cursor:pointer; font-size:13px;
+                            border:2px solid ${r.affichage === 'deux' ? '#0984e3' : '#dfe6e9'}; background:#fff;">Deux totaux (+ et −)</button>
+                    <button class="pts-aff" data-v="solde" style="flex:1; padding:8px; border-radius:8px; cursor:pointer; font-size:13px;
+                            border:2px solid ${r.affichage === 'solde' ? '#0984e3' : '#dfe6e9'}; background:#fff;">Le solde seulement</button>
+                </div>
+                <div style="font-size:11px; color:#636e72; margin-top:5px;">En début d'année, les deux totaux ; ensuite le solde, pour ne pas accabler ceux qui ont des points négatifs.</div>
+            </div>
+            <div style="display:flex; gap:14px;">
+                <div style="flex:1;">
+                    <label style="font-size:12px; font-weight:bold; color:#636e72;">POINTS POUR UNE NOTE</label>
+                    <input type="number" id="pts-seuil-note" min="1" max="200" value="${r.seuilNote}"
+                           style="width:100%; padding:8px; border:1px solid #dfe6e9; border-radius:6px; margin-top:6px; font-size:14px;">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:12px; font-weight:bold; color:#636e72;">POINTS NÉGATIFS POUR UNE RETENUE</label>
+                    <input type="number" id="pts-seuil-retenue" min="1" max="200" value="${r.seuilRetenue}"
+                           style="width:100%; padding:8px; border:1px solid #dfe6e9; border-radius:6px; margin-top:6px; font-size:14px;">
+                </div>
+            </div>
+            <div style="border-top:1px solid #dfe6e9; padding-top:12px; display:flex; gap:8px;">
+                <button id="pts-raz" style="flex:1; padding:9px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Remettre les points de la classe à zéro</button>
+                <button id="pts-retour" style="padding:9px 16px; border:none; background:#2d3436; color:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Retour</button>
+            </div>
+        </div>`;
+    },
+
+    brancherReglages: function () {
+        const el = this.widgetEl;
+        el.querySelectorAll('.pts-aff').forEach(b => b.addEventListener('click', () => {
+            this.reglages.affichage = b.dataset.v; this.ecrireReglages(); this.rendre();
+        }));
+        const note = el.querySelector('#pts-seuil-note');
+        const retenue = el.querySelector('#pts-seuil-retenue');
+        note.addEventListener('change', () => {
+            this.reglages.seuilNote = Math.max(1, parseInt(note.value) || 20); this.ecrireReglages();
+        });
+        retenue.addEventListener('change', () => {
+            this.reglages.seuilRetenue = Math.max(1, parseInt(retenue.value) || 5); this.ecrireReglages();
+        });
+        el.querySelector('#pts-retour').addEventListener('click', () => { this.panneauReglages = false; this.rendre(); });
+        el.querySelector('#pts-raz').addEventListener('click', () => {
+            const classe = this.classeCourante(); if (!classe) return;
+            if (!confirm(`Remettre à zéro les points de « ${classe.name} » ? Les étoiles déjà gagnées sont conservées.`)) return;
+            (classe.students || []).forEach(s => { const p = this.pointsDe(s); p.plus = 0; p.moins = 0; });
+            this.historique = [];
+            this.sauver();
+            this.panneauReglages = false;
+            this.rendre();
+        });
+    },
+
+    // ---------- Avatar ----------
+    htmlAvatar: function () {
+        const classe = this.classeCourante();
+        const eleve = classe && (classe.students || []).find(s => s.id === this.editionAvatar);
+        if (!eleve) return '';
+        const t = this.traitsAvatar(eleve);
+        const ligne = (titre, cle, valeurs, rendu) => `
+            <div style="margin-bottom:10px;">
+                <label style="font-size:11px; font-weight:bold; color:#636e72;">${titre}</label>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:5px;">
+                    ${valeurs.map(v => `<button class="pts-trait" data-cle="${cle}" data-v="${v}"
+                        style="padding:5px 9px; border-radius:8px; cursor:pointer; font-size:12px; background:#fff;
+                               border:2px solid ${String(t[cle]) === String(v) ? '#0984e3' : '#dfe6e9'};">${rendu(v)}</button>`).join('')}
+                </div>
+            </div>`;
+
+        return `<div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="text-align:center;">
+                <div style="background:#fff; border:2px solid #dfe6e9; border-radius:14px; padding:10px;">${this.avatarSVG(eleve, 110)}</div>
+                <div style="font-size:12px; font-weight:600; margin-top:6px;">${eleve.name}</div>
+                <button id="pts-hasard" style="margin-top:8px; width:100%; padding:6px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:12px;">🎲 Au hasard</button>
+                <button id="pts-image" style="margin-top:6px; width:100%; padding:6px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:12px;">🖼️ Une image</button>
+                <input type="file" id="pts-fichier" accept="image/*" style="display:none;">
+                <button id="pts-defaut" style="margin-top:6px; width:100%; padding:6px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:12px;">↺ Monstre d'origine</button>
+            </div>
+            <div style="flex:1;">
+                ${ligne('COULEUR', 'teinte', this.TEINTES, v => `<span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${v};"></span>`)}
+                ${ligne('CORPS', 'corps', this.CORPS, v => v)}
+                ${ligne('YEUX', 'yeux', [1, 2, 3], v => v === 1 ? '1 œil' : v + ' yeux')}
+                ${ligne('BOUCHE', 'bouche', this.BOUCHES, v => v)}
+                ${ligne('SUR LA TÊTE', 'cornes', this.CORNES, v => v)}
+                <button id="pts-avatar-ok" style="margin-top:6px; padding:8px 18px; border:none; background:#00b894; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Terminé</button>
+            </div>
+        </div>`;
+    },
+
+    brancherAvatar: function () {
+        const el = this.widgetEl;
+        const classe = this.classeCourante();
+        const eleve = classe && (classe.students || []).find(s => s.id === this.editionAvatar);
+        if (!eleve) return;
+
+        const poser = (cle, valeur) => {
+            eleve.avatar = Object.assign({}, this.traitsAvatar(eleve), { [cle]: valeur });
+            delete eleve.avatar.image;
+            this.sauver(); this.rendre();
+        };
+
+        el.querySelectorAll('.pts-trait').forEach(b => b.addEventListener('click', () => {
+            const v = b.dataset.cle === 'yeux' ? parseInt(b.dataset.v) : b.dataset.v;
+            poser(b.dataset.cle, v);
+        }));
+
+        el.querySelector('#pts-hasard').addEventListener('click', () => {
+            const pioche = (a) => a[Math.floor(Math.random() * a.length)];
+            eleve.avatar = {
+                teinte: pioche(this.TEINTES), corps: pioche(this.CORPS),
+                yeux: pioche([1, 2, 3]), bouche: pioche(this.BOUCHES), cornes: pioche(this.CORNES)
+            };
+            this.sauver(); this.rendre();
+        });
+
+        el.querySelector('#pts-defaut').addEventListener('click', () => {
+            delete eleve.avatar; this.sauver(); this.rendre();
+        });
+
+        const fichier = el.querySelector('#pts-fichier');
+        el.querySelector('#pts-image').addEventListener('click', () => fichier.click());
+        fichier.addEventListener('change', (e) => {
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            const lecteur = new FileReader();
+            lecteur.onload = (ev) => {
+                // On réduit l'image : une classe entière de photos en pleine
+                // taille ferait un fichier de sauvegarde énorme.
+                const img = new Image();
+                img.onload = () => {
+                    const c = document.createElement('canvas');
+                    c.width = c.height = 128;
+                    const g = c.getContext('2d');
+                    const cote = Math.min(img.width, img.height);
+                    g.drawImage(img, (img.width - cote) / 2, (img.height - cote) / 2, cote, cote, 0, 0, 128, 128);
+                    eleve.avatar = { image: c.toDataURL('image/jpeg', 0.8) };
+                    this.sauver(); this.rendre();
+                };
+                img.src = ev.target.result;
+            };
+            lecteur.readAsDataURL(f);
+        });
+
+        el.querySelector('#pts-avatar-ok').addEventListener('click', () => { this.editionAvatar = null; this.rendre(); });
+    },
+
+    // ---------- Poser au tableau ----------
+    poserAuTableau: function () {
+        const classe = this.classeCourante();
+        if (!classe || !(classe.students || []).length) return;
+        const eleves = classe.students;
+        const cols = eleves.length > 16 ? 3 : 2;
+        const lignes = Math.ceil(eleves.length / cols);
+        const cellW = 300, cellH = 46, enTete = 58, marge = 16;
+        const L = cols * cellW + marge * 2;
+        const H = enTete + lignes * cellH + marge;
+
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${H}" viewBox="0 0 ${L} ${H}">`;
+        svg += `<rect x="1" y="1" width="${L - 2}" height="${H - 2}" rx="10" fill="#ffffff" stroke="#dfe6e9" stroke-width="2"/>`;
+        svg += `<text x="${marge}" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#2d3436">${classe.name || 'Classe'} — points</text>`;
+        svg += `<line x1="${marge}" y1="${enTete - 12}" x2="${L - marge}" y2="${enTete - 12}" stroke="#dfe6e9" stroke-width="2"/>`;
+
+        eleves.forEach((e, i) => {
+            const c = i % cols, r = Math.floor(i / cols);
+            const x = marge + c * cellW, y = enTete + r * cellH + 20;
+            const p = this.pointsDe(e);
+            svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="16" fill="#2d3436">${i + 1}. ${this.echapper(e.name)}</text>`;
+            if (this.reglages.affichage === 'solde') {
+                const solde = p.plus - p.moins;
+                svg += `<text x="${x + cellW - 60}" y="${y}" font-family="sans-serif" font-size="16" font-weight="bold" fill="${solde < 0 ? '#d63031' : '#00b894'}">${solde > 0 ? '+' : ''}${solde}</text>`;
+            } else {
+                svg += `<text x="${x + cellW - 96}" y="${y}" font-family="sans-serif" font-size="16" font-weight="bold" fill="#00b894">+${p.plus}</text>`;
+                svg += `<text x="${x + cellW - 56}" y="${y}" font-family="sans-serif" font-size="16" font-weight="bold" fill="#d63031">−${p.moins}</text>`;
+            }
+            if (p.etoiles) svg += `<text x="${x + cellW - 26}" y="${y}" font-family="sans-serif" font-size="14" fill="#fdcb6e">★${p.etoiles}</text>`;
+        });
+        svg += `</svg>`;
+
+        createStampFromSVG(svg, (stamp) => {
+            this.currentStamp = ajusterTampon(stamp, 0.7);
+            if (this.widgetEl) this.widgetEl.style.display = 'none';
+            if (typeof setMode === 'function') setMode('classPointsTool');
+            if (typeof showToast === 'function') showToast('📌 Cliquez sur le tableau pour poser les points');
+        });
+    },
+
+    echapper: function (t) {
+        return String(t || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    },
+
+    onPointerDown: function (rawPos) {
+        if (typeof mode !== 'undefined' && mode === 'classPointsTool' && this.currentStamp) {
+            images.push({
+                id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2,
+                w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0,
+                cw: this.currentStamp.cw || this.currentStamp.w, ch: this.currentStamp.ch || this.currentStamp.h,
+                src: this.currentStamp.src, img: this.currentStamp.img,
+                z: globalZ++, pluginData: { id: 'classPointsTool' }
+            });
+            saveState(); setMode('pointer'); this.currentStamp = null; draw();
+            return true;
+        }
+        return false;
+    },
+
+    onDraw: function (ctx) {
+        if (typeof mode !== 'undefined' && mode === 'classPointsTool' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            ctx.globalAlpha = 0.7;
+            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2,
+                mouseLogicalPos.y - this.currentStamp.h / 2, this.currentStamp.w, this.currentStamp.h);
+            ctx.globalAlpha = 1.0;
+        }
+    },
+
+    edit: function () { this.ouvrir(); }
 });

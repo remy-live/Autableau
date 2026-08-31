@@ -16441,7 +16441,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Classes : les outils qui s'appuient sur la liste des élèves
     poserAppuiLong(document.getElementById('btn-classes-menu'), (bouton) => {
-        const outils = ['Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
+        const outils = ['Points de classe', 'Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
         const entrees = [{
             nom: 'Gérer mes classes',
             action: () => { if (typeof openClassManagerModal === 'function') openClassManagerModal(); }
@@ -16752,6 +16752,8 @@ const ASTUCES = [
       texte: "Pendant la saisie, surlignez un mot : la couleur, la taille et la police ne s'appliquent qu'à lui. Sans surlignage, elles agissent sur tout le bloc." },
     { titre: 'Retrouver un outil par son nom',
       texte: "La loupe de la barre des outils cherche parmi les 83 outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
+    { titre: 'Les points de la classe',
+      texte: "Dans « Outils Profs », l'outil « Points de classe » affiche vos élèves avec un petit monstre. Un clic donne un bonus, le bouton « Malus » inverse le geste, et l'on peut poser le tableau des points sur le tableau. À 20 points, l'élève gagne une étoile et le compteur repart à zéro — le seuil se règle." },
     { titre: 'Votre cours arrive tel quel',
       texte: "Glissez un fichier Word (.docx), LibreOffice (.odt) ou texte sur le tableau — ou passez par le menu « Importer ». Les titres, le gras, l'italique et les listes sont conservés, et le texte reste modifiable comme si vous l'aviez tapé." },
     { titre: 'Le point d\'intersection',
