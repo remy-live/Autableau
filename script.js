@@ -6171,7 +6171,11 @@ document.getElementById('zoom-slider').addEventListener('input', (e) => {
 
 document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); draw(); });
 const btnMagnet = document.getElementById('btn-magnet'); btnMagnet.addEventListener('click', () => { magnetMode = !magnetMode; btnMagnet.classList.toggle('active', magnetMode); draw(); });
-document.getElementById('btn-cycle').onclick = () => { currentBgIndex = (currentBgIndex + 1) % backgrounds.length; draw(); };
+document.getElementById('btn-cycle').onclick = () => {
+    currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
+    if (typeof cadrerSurLaFeuille === 'function') cadrerSurLaFeuille();
+    draw();
+};
 const btnAxes = document.getElementById('btn-axes'); btnAxes.onclick = () => { showAxes = (showAxes + 1) % 3; btnAxes.classList.remove('active', 'active-1', 'active-2'); if (showAxes > 0) btnAxes.classList.add('active', `active-${showAxes}`); draw(); };
 
 function buildRenderQuadtree(minX, maxX, minY, maxY) {
@@ -15676,6 +15680,211 @@ if (document.getElementById('formula-modal')) {
         }
     });
 }
+
+// Les fonds « feuille » posent une page à un endroit précis du tableau : si
+// l'on se trouvait ailleurs, on ne voyait qu'un bout de feuille sur du gris.
+// En choisissant l'un de ces fonds, on se recadre donc sur la page la plus
+// proche, entière et centrée.
+const FONDS_FEUILLE = ['seyes-marge', 'copie'];
+
+function cadrerSurLaFeuille() {
+    const bg = backgrounds[currentBgIndex];
+    if (!FONDS_FEUILLE.includes(bg)) return;
+    const canvas = document.getElementById('board');
+    if (!canvas) return;
+
+    const largeurEcran = canvas.clientWidth || window.innerWidth;
+    const hauteurEcran = canvas.clientHeight || window.innerHeight;
+
+    // La page qu'on regarde déjà : celle dont le haut est le plus proche
+    const pas = PAGE_H + ESPACE_PAGE;
+    const hautVue = -panY / zoom;
+    const page = Math.max(0, Math.round(hautVue / pas));
+    const hautPage = page * pas;
+
+    // On l'affiche en entier, entre les barres d'outils : sinon l'en-tête de
+    // la copie se retrouve caché derrière celle du haut.
+    const hauteurBarre = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el || !el.offsetParent) return 0;
+        return Math.min(200, el.getBoundingClientRect().height + 16);
+    };
+    const enHaut = Math.max(30, hauteurBarre('#bar-plugins'));
+    const enBas = Math.max(30, hauteurBarre('#bar-bottom, .drawer-bottom, #bottom-bar'));
+    const libre = Math.max(200, hauteurEcran - enHaut - enBas);
+
+    const echelle = Math.min((largeurEcran - 80) / PAGE_L, libre / PAGE_H);
+    zoom = Math.max(0.15, Math.min(3, echelle));
+    panX = (largeurEcran - PAGE_L * zoom) / 2;
+    panY = enHaut + (libre - PAGE_H * zoom) / 2 - hautPage * zoom;
+
+    const curseurZoom = document.getElementById('zoom-slider');
+    if (curseurZoom) curseurZoom.value = zoom;
+    const boutonZoom = document.getElementById('btn-zoom-toggle');
+    if (boutonZoom) boutonZoom.innerText = Math.round(zoom * 100) + '%';
+}
+
+// ===================================================
+// APPUI LONG SUR UN BOUTON
+// Certains boutons cachent des réglages : on garde le doigt appuyé une demi-
+// seconde pour les ouvrir. Un geste invisible ne sert à personne : chaque
+// bouton concerné reçoit un petit repère en coin (voir « .a-appui-long »).
+// ===================================================
+const DUREE_APPUI_LONG = 500;
+
+function poserAppuiLong(bouton, action) {
+    if (!bouton || bouton.dataset.appuiLong === 'oui') return;
+    bouton.dataset.appuiLong = 'oui';
+    bouton.classList.add('a-appui-long');
+
+    let minuteur = null;
+    let declenche = false;
+
+    const arreter = () => { clearTimeout(minuteur); minuteur = null; };
+
+    bouton.addEventListener('pointerdown', (e) => {
+        declenche = false;
+        arreter();
+        minuteur = setTimeout(() => {
+            declenche = true;
+            action(bouton, e);
+        }, DUREE_APPUI_LONG);
+    });
+
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
+        bouton.addEventListener(ev, arreter));
+
+    // Un appui long ne doit pas déclencher AUSSI l'action courte du bouton
+    bouton.addEventListener('click', (e) => {
+        if (declenche) { e.preventDefault(); e.stopImmediatePropagation(); declenche = false; }
+    }, true);
+
+    // Le clic droit ouvre le même panneau : c'est le réflexe sur ordinateur
+    bouton.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        action(bouton, e);
+    });
+}
+
+// Un panneau flottant partagé par tous les appuis longs
+function ouvrirPanneauAppui(bouton, titre, entrees) {
+    fermerPanneauAppui();
+    const panneau = document.createElement('div');
+    panneau.className = 'reglages-popup visible panneau-appui';
+    panneau.id = 'panneau-appui';
+
+    const t = document.createElement('div');
+    t.className = 'rp-titre';
+    t.innerText = titre;
+    panneau.appendChild(t);
+
+    entrees.forEach(entree => {
+        if (entree.separateur) {
+            const st = document.createElement('div');
+            st.className = 'rp-titre';
+            st.innerText = entree.separateur;
+            panneau.appendChild(st);
+            return;
+        }
+        const b = document.createElement('button');
+        b.className = 'rp-choix' + (entree.actif ? ' actif' : '');
+        b.innerText = entree.nom;
+        b.addEventListener('click', () => {
+            try { entree.action(); } catch (err) { console.error(err); }
+            fermerPanneauAppui();
+        });
+        panneau.appendChild(b);
+    });
+
+    document.body.appendChild(panneau);
+
+    // Posé près du bouton, sans jamais sortir de l'écran
+    const r = bouton.getBoundingClientRect();
+    const p = panneau.getBoundingClientRect();
+    let gauche = Math.min(r.left, window.innerWidth - p.width - 10);
+    let haut = r.top - p.height - 10;
+    if (haut < 10) haut = Math.min(r.bottom + 10, window.innerHeight - p.height - 10);
+    panneau.style.position = 'fixed';
+    panneau.style.left = Math.max(10, gauche) + 'px';
+    panneau.style.top = Math.max(10, haut) + 'px';
+    panneau.style.right = 'auto';
+
+    setTimeout(() => {
+        document.addEventListener('pointerdown', fermerSiDehors, true);
+    }, 0);
+}
+
+function fermerSiDehors(e) {
+    const panneau = document.getElementById('panneau-appui');
+    if (panneau && !panneau.contains(e.target)) fermerPanneauAppui();
+}
+
+function fermerPanneauAppui() {
+    const panneau = document.getElementById('panneau-appui');
+    if (panneau) panneau.remove();
+    document.removeEventListener('pointerdown', fermerSiDehors, true);
+}
+
+const NOMS_FONDS = {
+    blanc: 'Page blanche', carreau: 'Petits carreaux', seyes: 'Seyès',
+    'seyes-marge': 'Cahier (Seyès et marge)', copie: "Copie d'examen",
+    millimetre: 'Papier millimétré', point: 'Points', isometrique: 'Isométrique'
+};
+
+const TEINTES_PAPIER = [
+    { nom: 'Blanc', valeur: '#ffffff' },
+    { nom: 'Crème', valeur: '#fdf6e3' },
+    { nom: 'Gris très clair', valeur: '#f2f4f6' },
+    { nom: 'Vert d\'eau', valeur: '#eef7f2' },
+    { nom: 'Bleu pâle', valeur: '#eef3fb' }
+];
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Fonds : choisir directement, au lieu de faire défiler huit fonds
+    poserAppuiLong(document.getElementById('btn-cycle'), (bouton) => {
+        const entrees = backgrounds.map((nom, i) => ({
+            nom: NOMS_FONDS[nom] || nom,
+            actif: i === currentBgIndex,
+            action: () => { currentBgIndex = i; cadrerSurLaFeuille(); draw(); }
+        }));
+        entrees.push({ separateur: 'Couleur du papier' });
+        TEINTES_PAPIER.forEach(t => entrees.push({
+            nom: t.nom,
+            actif: bgColors.default === t.valeur,
+            action: () => { bgColors.default = t.valeur; draw(); }
+        }));
+        ouvrirPanneauAppui(bouton, 'Fond du tableau', entrees);
+    });
+
+    // Axes : les trois états, nommés
+    poserAppuiLong(document.getElementById('btn-axes'), (bouton) => {
+        const etats = ['Aucun axe', 'Axes discrets', 'Axes marqués et gradués'];
+        ouvrirPanneauAppui(bouton, 'Axes', etats.map((nom, i) => ({
+            nom, actif: showAxes === i,
+            action: () => {
+                showAxes = i;
+                const b = document.getElementById('btn-axes');
+                b.classList.remove('active', 'active-1', 'active-2');
+                if (showAxes > 0) b.classList.add('active', `active-${showAxes}`);
+                draw();
+            }
+        })));
+    });
+
+    // Classes : les outils qui s'appuient sur la liste des élèves
+    poserAppuiLong(document.getElementById('btn-classes-menu'), (bouton) => {
+        const outils = ['Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
+        const entrees = [{
+            nom: 'Gérer mes classes',
+            action: () => { if (typeof openClassManagerModal === 'function') openClassManagerModal(); }
+        }, { separateur: 'Outils qui utilisent les classes' }];
+        outils.forEach(nom => {
+            const source = (typeof getPluginSourceButton === 'function') ? getPluginSourceButton(nom) : null;
+            if (source) entrees.push({ nom, action: () => source.click() });
+        });
+        ouvrirPanneauAppui(bouton, 'Mes classes', entrees);
+    });
+});
 
 // ===================================================
 // RÉPARTITION DES ICÔNES SUR DEUX RANGÉES

@@ -7825,7 +7825,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         }
         else if (this.currentTheme === 'equation') {
             typesToRender = [
-                { v: 'equation_easy', l: 'Facile (x+a=b)' }, { v: 'equation_med', l: 'Moyen (ax=b)' }, { v: 'equation_hard', l: 'Avancé (ax+b=c)' }
+                { v: 'equation_easy', l: 'Facile (x+a=b)' }, { v: 'equation_med', l: 'Moyen (ax=b)' }, { v: 'equation_hard', l: 'Avancé (ax+b=c)' },
+                { v: 'equation_2m', l: 'Expert (ax+b=cx+d)' }, { v: 'equation_2m_neg', l: 'Expert + (relatifs)' }
             ];
         }
         else if (this.currentTheme === 'conv') {
@@ -7901,6 +7902,33 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
                 if (type === 'equation_easy') { let n = Math.floor(Math.random() * 20) + 1, x = Math.floor(Math.random() * 20) + 1; q = `x + ${n} = ${x + n}  ➔  x =`; a = `${x}`; }
                 else if (type === 'equation_med') { let n = Math.floor(Math.random() * 9) + 2, x = Math.floor(Math.random() * 11) + 2; q = `${n}x = ${n * x}  ➔  x =`; a = `${x}`; }
                 else if (type === 'equation_hard') { let n = Math.floor(Math.random() * 4) + 2, x = Math.floor(Math.random() * 10) + 1, b = Math.floor(Math.random() * 10) + 1; q = `${n}x + ${b} = ${(n * x) + b}  ➔  x =`; a = `${x}`; }
+                else if (type === 'equation_2m' || type === 'equation_2m_neg') {
+                    // ax + b = cx + d, avec l'inconnue des deux côtés.
+                    // On part de la solution : elle tombe donc toujours juste.
+                    const relatifs = (type === 'equation_2m_neg');
+                    const x = relatifs
+                        ? (Math.floor(Math.random() * 17) - 8)          // de -8 à 8
+                        : (Math.floor(Math.random() * 12) + 1);         // de 1 à 12
+                    let A = Math.floor(Math.random() * 7) + 2;          // 2 à 8
+                    let C = Math.floor(Math.random() * 6) + 1;          // 1 à 6
+                    if (relatifs && Math.random() < 0.4) C = -C;
+                    if (A === C) A = C + (relatifs ? 2 : 1);            // sinon l'inconnue disparaît
+                    let b = relatifs
+                        ? (Math.floor(Math.random() * 21) - 10)
+                        : (Math.floor(Math.random() * 12) + 1);
+                    if (b === 0 && x === 0) b = 5;                      // sinon on obtient « 3x = -2x »
+                    const d = (A - C) * x + b;                          // l'égalité est vraie par construction
+
+                    const membre = (coef, cst, cote) => {
+                        let t = (coef === 1 ? 'x' : coef === -1 ? '-x' : `${coef}x`);
+                        if (cst > 0) t += ` + ${cst}`;
+                        else if (cst < 0) t += ` - ${Math.abs(cst)}`;
+                        else if (cote === 'droite' && cst === 0) t += '';
+                        return t;
+                    };
+                    q = `${membre(A, b, 'gauche')} = ${membre(C, d, 'droite')}  ➔  x =`;
+                    a = `${x}`;
+                }
             }
 
             else if (theme === 'conv') {
@@ -8056,6 +8084,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         let cellW = 320;
         if (state.theme === 'conj') cellW = 380;
         if (state.theme === 'equation' || state.theme === 'relatifs') cellW = 320;
+        // ax + b = cx + d tient mal en 320 : on élargit quand ces types sont demandés
+        if (state.theme === 'equation' && (state.types || []).some(t => String(t).startsWith('equation_2m'))) cellW = 400;
 
         let cellH = 65; // un peu plus grand pour aérer le tableau
         let paddingX = 0; // Bordure intérieure gère les marges
@@ -16036,7 +16066,16 @@ registerPlugin('flashMathTool', 'Exercices', {
             ]
         },
         litteral: { label: 'Calcul littéral', cat: 'Calcul & Nombres', classes: [5, 4, 3] },
-        equations: { label: 'Équations', cat: 'Calcul & Nombres', classes: [4, 3] },
+        equations: {
+            label: 'Équations', cat: 'Calcul & Nombres', classes: [5, 4, 3],
+            variants: [
+                { id: 'somme', short: 'x+a=b', title: 'x + a = b' },
+                { id: 'produit', short: 'ax=b', title: 'ax = b' },
+                { id: 'affine', short: 'ax+b=c', title: 'ax + b = c' },
+                { id: 'deuxmembres', short: 'ax+b=cx+d', title: 'ax + b = cx + d', minClass: 4 },
+                { id: 'relatifs', short: '± cx+d', title: 'ax + b = cx + d, avec des relatifs', minClass: 3 }
+            ]
+        },
         fonctions: { label: 'Fonctions affines', cat: 'Calcul & Nombres', classes: [3] },
         aires: {
             label: 'Aires & Périmètres', cat: 'Géométrie', classes: [6, 5, 4, 3],
@@ -16141,11 +16180,58 @@ registerPlugin('flashMathTool', 'Exercices', {
                 return { q: `Calculer pour x = ${x} : ${a}x + ${b}`, a: `${a * x + b}`, exp: `On remplace x par ${x} : ${a} × ${x} + ${b} = ${a * x} + ${b} = ${a * x + b}.` };
             }
         },
-        equations: (self) => {
-            let a = self.randInt(2, 6); let sol = self.randInt(-5, 5); let b = self.randInt(1, 10); let c = a * sol + b;
+        equations: (self, lvl, variante) => {
+            // Un membre écrit proprement : « x », « -x », « 3x - 2 »…
+            const membre = (coef, cst) => {
+                let t = (coef === 1) ? 'x' : (coef === -1) ? '-x' : `${coef}x`;
+                if (cst > 0) t += ` + ${cst}`;
+                else if (cst < 0) t += ` - ${Math.abs(cst)}`;
+                return t;
+            };
+
+            if (variante === 'somme') {
+                const sol = self.randInt(1, 20), b = self.randInt(1, 20);
+                return {
+                    q: `Résoudre : x + ${b} = ${sol + b}`, a: `x = ${sol}`,
+                    exp: `On retire ${b} des deux côtés : x = ${sol + b} − ${b} = ${sol}.`
+                };
+            }
+
+            if (variante === 'produit') {
+                const a = self.randInt(2, 9), sol = self.randInt(2, 12);
+                return {
+                    q: `Résoudre : ${a}x = ${a * sol}`, a: `x = ${sol}`,
+                    exp: `On divise les deux côtés par ${a} : x = ${a * sol} ÷ ${a} = ${sol}.`
+                };
+            }
+
+            if (variante === 'deuxmembres' || variante === 'relatifs') {
+                // On part de la solution : le résultat tombe toujours juste.
+                const relatifs = (variante === 'relatifs');
+                const sol = relatifs ? self.randInt(-8, 8) : self.randInt(1, 12);
+                let A = self.randInt(2, 8);
+                let C = self.randInt(1, 6);
+                if (relatifs && Math.random() < 0.4) C = -C;
+                if (A === C) A = C + (relatifs ? 2 : 1);        // sinon l'inconnue s'en va
+                let b = relatifs ? self.randInt(-10, 10) : self.randInt(1, 12);
+                if (b === 0 && sol === 0) b = 5;                 // sinon on obtient « 3x = -2x »
+                const d = (A - C) * sol + b;
+                const restant = A - C;
+                const cote = d - b;
+                return {
+                    q: `Résoudre : ${membre(A, b)} = ${membre(C, d)}`,
+                    a: `x = ${sol}`,
+                    exp: `On rassemble les x d'un côté : ${membre(A, 0)} − ${membre(C, 0)} = ${d} − ${b}, `
+                        + `soit ${restant}x = ${cote}, donc x = ${cote} ÷ ${restant} = ${sol}.`
+                };
+            }
+
+            // Par défaut, l'équation affine ax + b = c
+            const a = self.randInt(2, 6); const sol = self.randInt(-5, 5);
+            const b = self.randInt(1, 10); const c = a * sol + b;
             return {
                 q: `Résoudre : ${a}x + ${b} = ${c}`, a: `x = ${sol}`,
-                exp: `On isole x : ${a}x = ${c} - ${b} ➔ ${a}x = ${c - b} ➔ x = ${c - b} / ${a} = ${sol}.`
+                exp: `On isole x : ${a}x = ${c} − ${b} ➔ ${a}x = ${c - b} ➔ x = ${c - b} ÷ ${a} = ${sol}.`
             };
         },
         pourcentages: (self) => {

@@ -35,6 +35,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `09-interfaces.cjs` | les huit interfaces fournies (niveaux, minimale, complète, conduite de classe) : outils existants, barres qui ne se recouvrent pas, chargement effectif, suppression puis remise |
 | `10-fonds-et-libelles.cjs` | fonds « cahier » et « copie d'examen » (feuille blanche sur gris clair, marge tracée, en-tête que le cahier n'a pas, aimant identique au Seyès), et les libellés sous les icônes : pastille à trois états, réglage mémorisé, bloc compact, et l'affichage par défaut qui ne bouge pas |
 | `11-reglages.cjs` | astuce du jour (une par jour, désactivable), roue de la date (quatre formats, heure, titre écrit à la main respecté), panneau de la barre des plugins, rangées d'icônes équilibrées, panneau d'une barre flottante au-dessus des voisines |
+| `12-equations-et-gestes.cjs` | équations ax + b = cx + d dans les deux générateurs (chaque réponse est vérifiée en résolvant l'équation), niveaux filtrés par classe, appui long sur Fonds / Axes / Classes, cadrage automatique sur la feuille |
 
 ## Ajouter un test
 
