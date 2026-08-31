@@ -415,6 +415,29 @@ class CompassWidget {
         const elbowX = this.radius; const elbowY = -25;
         ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = style.widths.outline; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
         ctx.beginPath(); ctx.strokeStyle = style.colors.metalLight; ctx.lineWidth = style.widths.body; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
+        // Pastille de l'ouverture : 50 px = 1 cm, comme les graduations de la
+        // règle. On la contre-tourne pour qu'elle reste lisible quel que soit
+        // l'angle du compas.
+        ctx.save();
+        ctx.translate(this.radius / 2, 30);
+        ctx.rotate(-this.angle);
+        const texte = (this.radius / 50).toFixed(1).replace('.', ',') + ' cm';
+        ctx.font = '600 13px sans-serif';
+        const larg = ctx.measureText(texte).width + 16;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-larg / 2, -11, larg, 22, 11); else ctx.rect(-larg / 2, -11, larg, 22);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(45,52,54,0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#2d3436';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(texte, 0, 1);
+        ctx.restore();
+        ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+
         ctx.save(); ctx.translate(this.radius, 0);
         const activeColor = (typeof activeStyle !== 'undefined') ? activeStyle.strokeColor : style.colors.lead;
         const activeW = (typeof activeStyle !== 'undefined') ? Math.min(3, Math.max(0.5, activeStyle.lineWidth * 0.3)) : 1.5;
@@ -5808,6 +5831,8 @@ canvas.addEventListener('pointerdown', (e) => {
                 targetWidget.startAngle = targetWidget.angle;
                 targetWidget.lastMouseAngle = Math.atan2(rawPos.y - targetWidget.y, rawPos.x - targetWidget.x);
                 targetWidget.totalRotation = 0;
+                targetWidget.minRotation = 0;
+                targetWidget.maxRotation = 0;
             }
         }
         draw();
@@ -6111,25 +6136,32 @@ canvas.addEventListener('pointermove', (e) => {
             w.angle = w.startAngle + w.totalRotation;
             w.lastMouseAngle = mouseAngle;
 
-            if (Math.abs(w.totalRotation) > 0.001) {
-                const isCCW = (w.totalRotation < 0);
-                const endAngle = w.startAngle + w.totalRotation;
+            // Un compas laisse son trait : revenir sur ses pas n'efface pas ce
+            // qu'on vient de tracer. On garde donc le plus loin atteint de
+            // chaque côté, et l'arc va de l'un à l'autre — repartir en sens
+            // inverse au-delà du départ allonge l'arc de l'autre côté.
+            w.minRotation = Math.min(w.minRotation || 0, w.totalRotation);
+            w.maxRotation = Math.max(w.maxRotation || 0, w.totalRotation);
+            const etendue = Math.min(w.maxRotation - w.minRotation, Math.PI * 2);
+            const debut = w.startAngle + w.minRotation;
 
+            if (etendue > 0.001) {
                 if (!currentTracingArc) {
                     currentTracingArc = {
                         id: nextId++,
                         type: 'arc',
                         cx: w.x, cy: w.y, radius: w.radius,
-                        startAngle: w.startAngle, endAngle: endAngle,
-                        counterClockwise: isCCW,
+                        startAngle: debut, endAngle: debut + etendue,
+                        counterClockwise: false,
                         color: activeStyle.strokeColor,
                         width: activeStyle.lineWidth,
                         dash: activeStyle.lineDash,
                         z: globalZ++
                     };
                 } else {
-                    currentTracingArc.endAngle = endAngle;
-                    currentTracingArc.counterClockwise = isCCW;
+                    currentTracingArc.startAngle = debut;
+                    currentTracingArc.endAngle = debut + etendue;
+                    currentTracingArc.counterClockwise = false;
                     currentTracingArc.radius = w.radius;
                     currentTracingArc.cx = w.x;
                     currentTracingArc.cy = w.y;

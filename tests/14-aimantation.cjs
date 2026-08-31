@@ -499,6 +499,72 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => { setMode('pointer'); draw(); });
 
+    // --- LE COMPAS : PASTILLE D'OUVERTURE ET TRACÉ QUI NE S'EFFACE PAS ---
+    const pastille = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        setMode('pointer');
+        if (!activeWidgets.compass) document.querySelector('.btn[data-widget="compass"]').click();
+        const w = widgets.compass;
+        w.x = 500; w.y = 450; w.radius = 220; w.angle = 0;
+        // on espionne les textes écrits sur le tableau
+        const ecrits = [];
+        const vrai = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t, ...r) { ecrits.push(String(t)); return vrai.call(this, t, ...r); };
+        draw();
+        w.radius = 75;
+        draw();
+        CanvasRenderingContext2D.prototype.fillText = vrai;
+        return ecrits;
+    });
+    r.verifie('le compas affiche son ouverture en centimètres',
+        pastille.includes('4,4 cm'), pastille.filter(t => /cm/.test(t)).join(' · '));
+    r.verifie('et elle suit l\'écartement', pastille.includes('1,5 cm'),
+        pastille.filter(t => /cm/.test(t)).join(' · '));
+
+    const trace = await page.evaluate(() => {
+        arcs.length = 0;
+        const w = widgets.compass;
+        w.x = 500; w.y = 450; w.radius = 220; w.angle = 0;
+        activeStyle.strokeColor = '#e74c3c';
+        draw();
+        return { x: w.x, y: w.y, r: w.radius };
+    });
+    const surLeCercle = (deg) => ({
+        x: trace.x + trace.r * Math.cos(deg * Math.PI / 180),
+        y: trace.y + trace.r * Math.sin(deg * Math.PI / 180)
+    });
+    const depart = surLeCercle(0);
+    await page.mouse.move(depart.x, depart.y);
+    await page.mouse.down();
+    for (let a = 5; a <= 120; a += 5) { const p = surLeCercle(a); await page.mouse.move(p.x, p.y); }
+    const avance = await page.evaluate(() => currentTracingArc
+        ? Math.round((currentTracingArc.endAngle - currentTracingArc.startAngle) * 180 / Math.PI) : null);
+    for (let a = 115; a >= 30; a -= 5) { const p = surLeCercle(a); await page.mouse.move(p.x, p.y); }
+    const retour = await page.evaluate(() => currentTracingArc
+        ? Math.round((currentTracingArc.endAngle - currentTracingArc.startAngle) * 180 / Math.PI) : null);
+    for (let a = 25; a >= -40; a -= 5) { const p = surLeCercle(a); await page.mouse.move(p.x, p.y); }
+    const audela = await page.evaluate(() => currentTracingArc ? {
+        etendue: Math.round((currentTracingArc.endAngle - currentTracingArc.startAngle) * 180 / Math.PI),
+        debut: Math.round(currentTracingArc.startAngle * 180 / Math.PI)
+    } : null);
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const arcPose = await page.evaluate(() => arcs.length
+        ? Math.round((arcs[arcs.length - 1].endAngle - arcs[arcs.length - 1].startAngle) * 180 / Math.PI) : null);
+
+    r.verifie('le compas trace un arc de 120°', avance >= 115 && avance <= 125, String(avance));
+    r.verifie('revenir sur ses pas n\'efface pas le trait déjà tracé',
+        retour >= 115 && retour <= 125, `${retour}° après être revenu à 30°`);
+    r.verifie('repartir au-delà du départ allonge l\'arc de l\'autre côté',
+        !!audela && audela.etendue >= 155 && audela.etendue <= 165 && audela.debut <= -35,
+        JSON.stringify(audela));
+    r.verifie('et l\'arc posé garde toute son étendue', arcPose >= 155 && arcPose <= 165, String(arcPose));
+
+    await page.evaluate(() => {
+        document.querySelector('.btn[data-widget="compass"]').click();
+        arcs.length = 0; draw();
+    });
+
     // --- LE TRACÉ À MAIN LEVÉE RESTE LIBRE ---
     await page.evaluate(() => {
         document.querySelector('.btn[data-widget="ruler"]').click();   // on range la règle
