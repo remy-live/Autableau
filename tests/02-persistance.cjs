@@ -93,6 +93,106 @@ module.exports = async function (browser) {
     r.egal('ancien format : image chargée', ancien.images, 1);
     r.verifie('ancien format : source intacte', ancien.source);
 
+    // --- LE POIDS ANNONCÉ, ET LES FICHIERS QUI MANQUENT ---
+    const poids = await page.evaluate(() => ({
+        octets: formatSize(300),
+        ko: formatSize(4200),
+        mo: formatSize(3.2 * 1024 * 1024),
+        // calculateObjectSize compte en octets, comme tout le reste
+        mesure: calculateObjectSize({ a: 'x'.repeat(1000) })
+    }));
+    r.egal('les petits poids s\'écrivent en octets', poids.octets, '300 octets');
+    r.egal('puis en kilooctets', poids.ko, '4,1 Ko');
+    r.egal('puis en mégaoctets', poids.mo, '3,2 Mo');
+    r.verifie('et la mesure est bien en octets, pas en mégaoctets',
+        poids.mesure > 1000 && poids.mesure < 1100, String(poids.mesure));
+
+    // Une image un peu grosse quitte l'objet pour une table commune : le
+    // fichier exporté doit emporter cette table, sinon il perd ses images.
+    const exporte = await page.evaluate(() => {
+        images.length = 0;
+        const src = 'data:image/png;base64,' + 'A'.repeat(3000);
+        images.push({ id: nextId++, x: 0, y: 0, w: 60, h: 60, cx: 0, cy: 0, cw: 32, ch: 32,
+                      src, fileName: 'photo.png', z: globalZ++ });
+        syncPage();
+        const etat = stateForStorage();
+        const pagesExp = etat.pages.map(p => ({ images: p.images || [] }));
+        const table = collectAssets(pagesExp);
+        const complet = JSON.stringify({ data: { pages: pagesExp, assets: table } });
+        return {
+            objetAllege: !!(etat.pages[currentPageIndex].images[0].srcRef),
+            tableRemplie: Object.keys(table).length,
+            complet: complet.length,
+            emporteLaSource: complet.includes('AAAA')
+        };
+    });
+    r.verifie('l\'objet ne porte qu\'une référence', exporte.objetAllege, JSON.stringify(exporte));
+    r.egal('et la table des images en contient la source', exporte.tableRemplie, 1);
+    r.verifie('le fichier exporté emporte bien cette table',
+        exporte.emporteLaSource && exporte.complet > 3000, JSON.stringify(exporte));
+
+    const trous = await page.evaluate(() => {
+        images.length = 0;
+        images.push({ id: nextId++, x: -100, y: -60, w: 200, h: 120, cx: 0, cy: 0, cw: 200, ch: 120,
+                      src: '', fileName: 'lecon-3.png', z: globalZ++ });
+        syncPage();
+        const manquantes = imagesManquantes();
+        // le dessin ne doit pas laisser un trou muet
+        const ecrits = [];
+        const vrai = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t, ...q) { ecrits.push(String(t)); return vrai.call(this, t, ...q); };
+        draw();
+        CanvasRenderingContext2D.prototype.fillText = vrai;
+        // et saisir une poignée ne doit pas planter
+        let plante = false;
+        try {
+            selectedItems = [{ type: 'image', id: images[0].id }];
+            draggedHandle = 'R';
+            draggingItem = { type: 'image', id: images[0].id };
+            const o = images[0];
+            const source = imageCache[o.src];
+            const natW = source ? source.naturalWidth : (o.cw || o.w);
+            if (!(natW > 0)) plante = true;
+        } catch (e) { plante = true; }
+        draggedHandle = null; draggingItem = null; selectedItems = [];
+        return {
+            combien: manquantes.length,
+            nom: manquantes[0] && manquantes[0].obj.fileName,
+            leDit: ecrits.some(t => /manquant/i.test(t)),
+            nommeLeFichier: ecrits.includes('lecon-3.png'),
+            plante,
+            menu: !!document.getElementById('btn-retrouver-images')
+        };
+    });
+    r.egal('une image sans fichier est repérée', trous.combien, 1);
+    r.egal('avec le nom du fichier qui manque', trous.nom, 'lecon-3.png');
+    r.verifie('le tableau le dit à la place de l\'image', trous.leDit, JSON.stringify(trous));
+    r.verifie('et nomme le fichier attendu', trous.nommeLeFichier, JSON.stringify(trous));
+    r.verifie('saisir sa poignée ne plante pas', !trous.plante, JSON.stringify(trous));
+    r.verifie('le menu Importer propose de les retrouver', trous.menu);
+
+    const rendu = await page.evaluate(async () => {
+        const b64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAJUlEQVR42u3NMQEAAAgDoC252R0eDCRQcndVAQCA/QMAAAAAgAcXvQQBtZPGigAAAABJRU5ErkJggg==';
+        const bin = atob(b64); const u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        // un fichier au mauvais nom ne rend rien
+        retrouverLesImages([new File([u], 'autre-chose.png', { type: 'image/png' })]);
+        await new Promise(r => setTimeout(r, 400));
+        const apresMauvais = imagesManquantes().length;
+        retrouverLesImages([new File([u], 'lecon-3.png', { type: 'image/png' })]);
+        await new Promise(r => setTimeout(r, 600));
+        return {
+            apresMauvais,
+            restantes: imagesManquantes().length,
+            source: (images[0].src || '').slice(0, 15),
+            dessinable: !!imageCache[images[0].src]
+        };
+    });
+    r.egal('un fichier qui ne correspond pas ne rend rien', rendu.apresMauvais, 1);
+    r.egal('le bon fichier rend son image', rendu.restantes, 0);
+    r.verifie('elle retrouve sa source et redevient dessinable',
+        rendu.source.startsWith('data:image') && rendu.dessinable, JSON.stringify(rendu));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

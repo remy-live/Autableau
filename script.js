@@ -449,7 +449,7 @@ function drawRotationHandle(ctx, x, y) {
 // OUTILS DE GÉOMÉTRIE (AVEC EXPORT SVG VECTORIEL)
 // ==========================================
 
-const POIGNEE_ECART = 42;      // distance de la poignée ↔ à la molette
+const POIGNEE_ECART = 30;      // distance de la poignée ↔ à la molette
 
 class CompassWidget {
     constructor(x, y) { this.x = x; this.y = y; this.radius = 120; this.angle = 0; this.legLength = 320; this.widgetRotationOffset = 0; }
@@ -1299,19 +1299,22 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 window.addEventListener('pagehide', () => { if (autoSaveTimer) saveAppLocal(true); });
 
 // === CALCUL DE TAILLE ===
+// Poids réel d'un objet une fois écrit en JSON, EN OCTETS. Tout ce qui parle
+// de taille dans l'application compte en octets : mélanger octets et mégaoctets
+// est la façon la plus sûre d'annoncer « 0 KB » pour un fichier de 3 Mo.
 function calculateObjectSize(obj) {
     try {
-        const json = JSON.stringify(obj);
-        const bytes = new Blob([json]).size;
-        return bytes / (1024 * 1024); // en MB
+        return new Blob([JSON.stringify(obj)], { type: 'application/json' }).size;
     } catch (e) {
         return 0;
     }
 }
 
-function formatSize(mb) {
-    if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
-    return mb.toFixed(1) + ' MB';
+function formatSize(octets) {
+    const n = Number(octets) || 0;
+    if (n < 1024) return Math.round(n) + ' octets';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0).replace('.', ',') + ' Ko';
+    return (n / (1024 * 1024)).toFixed(1).replace('.', ',') + ' Mo';
 }
 
 function showMediasWarning(sizeWithMedias, sizeWithoutMedias) {
@@ -1453,6 +1456,9 @@ function restoreState(stateData) {
     });
 
     loadPage(0);
+    // Un tableau enregistré sans les fichiers arrive avec des trous : on le
+    // dit tout de suite plutôt que de laisser croire à un tableau abîmé.
+    if (typeof signalerImagesManquantes === 'function') setTimeout(signalerImagesManquantes, 400);
 }
 
 function undo() {
@@ -5078,6 +5084,24 @@ function coinsDuRectangle(r) {
     return [{ x: p1.x, y: p1.y }, { x: p2.x, y: p1.y }, { x: p2.x, y: p2.y }, { x: p1.x, y: p2.y }];
 }
 
+// Un arc tracé au compas n'est qu'un cercle dont on ne garde qu'une portion.
+// On le décrit donc comme un cercle assorti de son étendue angulaire : le
+// même calcul d'intersection sert pour les deux, il suffit d'écarter les
+// solutions qui tombent en dehors de l'arc. Sans cela, un arc de compas ne
+// croisait rien — ni une droite, ni un cercle, ni un autre arc.
+function surLArc(c, x, y) {
+    if (c.a0 === undefined || c.a1 === undefined) return true;   // un cercle entier
+    const TOUR = Math.PI * 2;
+    let etendue = c.a1 - c.a0;
+    if (Math.abs(etendue) >= TOUR - 1e-9) return true;           // l'arc a fait le tour
+    let t = Math.atan2(y - c.y, x - c.x) - c.a0;
+    if (etendue < 0) { t = -t; etendue = -etendue; }
+    t = ((t % TOUR) + TOUR) % TOUR;
+    // Une petite marge : un point posé pile au bout de l'arc en fait partie
+    const marge = Math.min(0.02, 6 / Math.max(1, c.r));
+    return t <= etendue + marge || t >= TOUR - marge;
+}
+
 function cerclesGeometriques(pos, portee) {
     const res = [];
     circles.forEach(c => {
@@ -5087,6 +5111,12 @@ function cerclesGeometriques(pos, portee) {
         if (r < 1) return;
         if (pos && Math.abs(Math.hypot(pos.x - centre.x, pos.y - centre.y) - r) > portee) return;
         res.push({ x: centre.x, y: centre.y, r, ref: { k: 'cercle', id: c.id } });
+    });
+    arcs.forEach(a => {
+        if (!a || !(a.radius > 1)) return;
+        if (pos && Math.abs(Math.hypot(pos.x - a.cx, pos.y - a.cy) - a.radius) > portee) return;
+        res.push({ x: a.cx, y: a.cy, r: a.radius, a0: a.startAngle, a1: a.endAngle,
+                   ref: { k: 'arc', id: a.id } });
     });
     return res;
 }
@@ -5122,6 +5152,11 @@ function resoudreRef(ref) {
         const centre = getObjectById('point', c.center_id), bord = getObjectById('point', c.edge_id);
         if (!centre || !bord) return null;
         return { x: centre.x, y: centre.y, r: Math.hypot(bord.x - centre.x, bord.y - centre.y) };
+    }
+    if (ref.k === 'arc') {
+        const a = arcs.find(x => x && x.id === ref.id);
+        if (!a || !(a.radius > 0)) return null;
+        return { x: a.cx, y: a.cy, r: a.radius, a0: a.startAngle, a1: a.endAngle };
     }
     return null;
 }
@@ -5177,7 +5212,8 @@ function interDroiteCercle(d, c) {
     const rac = Math.sqrt(delta);
     const ts = delta < 1e-9 ? [-B / (2 * A)] : [(-B - rac) / (2 * A), (-B + rac) / (2 * A)];
     return ts.filter(t => surLaPortion(t, d.type))
-        .map(t => ({ x: d.a.x + t * dx, y: d.a.y + t * dy }));
+        .map(t => ({ x: d.a.x + t * dx, y: d.a.y + t * dy }))
+        .filter(p => surLArc(c, p.x, p.y));
 }
 
 function interCercles(c1, c2) {
@@ -5187,8 +5223,11 @@ function interCercles(c1, c2) {
     const a = (c1.r * c1.r - c2.r * c2.r + d * d) / (2 * d);
     const h = Math.sqrt(Math.max(0, c1.r * c1.r - a * a));
     const mx = c1.x + a * dx / d, my = c1.y + a * dy / d;
-    if (h < 1e-9) return [{ x: mx, y: my }];
-    return [{ x: mx + h * dy / d, y: my - h * dx / d }, { x: mx - h * dy / d, y: my + h * dx / d }];
+    const sols = h < 1e-9
+        ? [{ x: mx, y: my }]
+        : [{ x: mx + h * dy / d, y: my - h * dx / d }, { x: mx - h * dy / d, y: my + h * dx / d }];
+    // Deux arcs ne se croisent que là où ils existent tous les deux
+    return sols.filter(p => surLArc(c1, p.x, p.y) && surLArc(c2, p.x, p.y));
 }
 
 // L'intersection la plus proche du curseur, s'il y en a une à portée.
@@ -6621,8 +6660,11 @@ canvas.addEventListener('pointermove', (e) => {
 
                 const scaleX = obj.cw / obj.w;
                 const scaleY = obj.ch / obj.h;
-                const natW = imageCache[obj.src].naturalWidth;
-                const natH = imageCache[obj.src].naturalHeight;
+                // Une image dont le fichier manque n'a pas de taille naturelle :
+                // sans ce garde-fou, la saisie d'une poignée plantait le tableau.
+                const source = imageCache[obj.src];
+                const natW = source ? source.naturalWidth : (obj.cw || obj.w);
+                const natH = source ? source.naturalHeight : (obj.ch || obj.h);
 
                 // ========================================================
                 // 🛠️ MOTEUR DE REDIMENSIONNEMENT & ROGNAGE "PRO"
@@ -7170,6 +7212,8 @@ function draw() {
                     if (imgAlpha < 1) ctx.globalAlpha = prevAlpha * imgAlpha;
                     ctx.drawImage(imageCache[obj.src], obj.cx, obj.cy, obj.cw, obj.ch, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
                     ctx.globalAlpha = prevAlpha;
+                } else if (imageManquante(obj) && !isExportingTransparent) {
+                    dessinerImageManquante(ctx, obj, lw);
                 }
 
                 // 4. Dessiner le cadre de sélection et les poignées
@@ -8407,6 +8451,121 @@ let glissePage = null;
 // règle avec la même barre : les gestes sont les mêmes. Un PDF y gagne en
 // plus ses flèches de page.
 // Le document est-il montré en entier, ou n'en voit-on qu'un morceau ?
+// Un tableau enregistré « sans les fichiers », ou dont la table d'images est
+// absente, garde ses objets mais plus leur contenu. Ne rien dessiner laissait
+// un trou invisible et pourtant sélectionnable : on montre une vignette qui
+// dit ce qui manque et de quel fichier il s'agit.
+function imageManquante(obj) {
+    return !!obj && obj.type !== 'text' && !imageCache[obj.src]
+        && obj.w > 0 && obj.h > 0;
+}
+
+function dessinerImageManquante(ctx, obj, lw) {
+    const w = obj.w, h = obj.h;
+    ctx.save();
+    ctx.fillStyle = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(45,52,54,0.04)';
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.strokeStyle = isDarkMode ? '#7f8c8d' : '#b2bec3';
+    ctx.lineWidth = Math.max(lw, 1) * 1.5;
+    ctx.setLineDash([8 * lw, 6 * lw]);
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.setLineDash([]);
+
+    const corps = Math.max(9, Math.min(16, Math.min(w, h) / 7));
+    ctx.fillStyle = isDarkMode ? '#95a5a6' : '#8a9599';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = (corps * 2) + 'px sans-serif';
+    ctx.fillText('🖼', 0, -corps * 1.1);
+    ctx.font = '600 ' + corps + 'px sans-serif';
+    ctx.fillText('Fichier manquant', 0, corps * 0.6);
+    if (obj.fileName) {
+        ctx.font = (corps * 0.85) + 'px sans-serif';
+        const nom = obj.fileName.length > 28 ? obj.fileName.slice(0, 27) + '…' : obj.fileName;
+        ctx.fillText(nom, 0, corps * 2);
+    }
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+}
+
+// Les images d'un tableau dont la source n'a pas pu être retrouvée, sur
+// TOUTES les pages : le trou est souvent sur une page qu'on n'a pas ouverte.
+function imagesManquantes() {
+    const manquantes = [];
+    (pages || []).forEach((p, i) => {
+        const liste = (i === currentPageIndex) ? images : (p.images || []);
+        (liste || []).forEach(o => { if (imageManquante(o)) manquantes.push({ page: i, obj: o }); });
+    });
+    return manquantes;
+}
+
+// Prévenir à l'ouverture, et proposer de retrouver les fichiers sur le disque.
+// On les rattache par leur nom : c'est ce que l'enseignant reconnaît, et c'est
+// la seule chose qu'un enregistrement « sans les fichiers » ait conservée.
+function signalerImagesManquantes() {
+    const manquantes = imagesManquantes();
+    if (!manquantes.length) return;
+    const noms = manquantes.map(m => m.obj.fileName).filter(Boolean);
+    const combien = manquantes.length;
+    if (typeof showToast === 'function') {
+        showToast(`⚠️ ${combien} image${combien > 1 ? 's' : ''} sans fichier`
+            + (noms.length ? ' : ' + noms.slice(0, 3).join(', ') + (noms.length > 3 ? '…' : '') : '')
+            + ' — menu Importer › « Retrouver les images »');
+    }
+}
+
+// Rattache les fichiers choisis aux images qui les attendent, par leur nom.
+function retrouverLesImages(fichiers) {
+    const manquantes = imagesManquantes();
+    if (!manquantes.length) {
+        if (typeof showToast === 'function') showToast('Aucune image ne manque sur ce tableau');
+        return;
+    }
+    let rendues = 0, restant = fichiers.length;
+    if (!restant) return;
+
+    const fini = () => {
+        if (--restant > 0) return;
+        if (typeof saveState === 'function') saveState();
+        if (typeof draw === 'function') draw();
+        const reste = imagesManquantes().length;
+        if (typeof showToast === 'function') {
+            showToast(rendues
+                ? `${rendues} image${rendues > 1 ? 's' : ''} retrouvée${rendues > 1 ? 's' : ''}`
+                    + (reste ? ` — il en manque encore ${reste}` : '')
+                : 'Aucun de ces fichiers ne correspond aux images manquantes');
+        }
+    };
+
+    Array.from(fichiers).forEach(f => {
+        const cibles = manquantes.filter(m => m.obj.fileName === f.name);
+        if (!cibles.length) { fini(); return; }
+        const lecteur = new FileReader();
+        lecteur.onerror = fini;
+        lecteur.onload = (ev) => {
+            const src = ev.target.result;
+            const img = new Image();
+            img.onerror = fini;
+            img.onload = () => {
+                imageCache[src] = img;
+                cibles.forEach(m => {
+                    m.obj.src = src;
+                    // Un enregistrement léger a pu perdre la découpe : on la
+                    // remet sur l'image entière plutôt que sur du vide.
+                    if (!(m.obj.cw > 0) || !(m.obj.ch > 0)) {
+                        m.obj.cx = 0; m.obj.cy = 0;
+                        m.obj.cw = img.naturalWidth; m.obj.ch = img.naturalHeight;
+                    }
+                    rendues++;
+                });
+                fini();
+            };
+            img.src = src;
+        };
+        lecteur.readAsDataURL(f);
+    });
+}
+
 function documentEstRogne(obj) {
     const nat = obj && imageCache[obj.src];
     if (!nat || !nat.naturalWidth) return false;
@@ -15164,120 +15323,43 @@ function showExportOptionsModal(board) {
 
     let summaryText = `${filesList.length} fichier${filesList.length !== 1 ? 's' : ''} — Toutes pages`;
 
-    // Estimation rapide (affichée immédiatement)
-    const estimateSizes = () => {
-        try {
-            let est = 0;
-            board.data.pages.forEach(p => {
-                est += (p.points?.length || 0) * 100;
-                est += (p.segments?.length || 0) * 150;
-                est += (p.images?.length || 0) * 50000; // Images en base64 sont volumineuses
-                est += (p.texts?.length || 0) * 200;
-            });
-            return Math.max(5000, est);
-        } catch {
-            return 50000;
-        }
+    // ---------------------------------------------------
+    // LE POIDS DU FICHIER
+    // Il était deviné (100 octets par point, 50 000 par image) puis « corrigé »
+    // par une mesure qui oubliait la table d'images : les deux chiffres étaient
+    // faux, et le complet comptait même ses images deux fois. On mesure
+    // maintenant exactement ce qui sera écrit, table comprise — c'est un
+    // stringify, il est rapide, et il dit la vérité du premier coup.
+    // ---------------------------------------------------
+    const poidsDeLexport = (avecMedias) => {
+        const pages = (board.data.pages || []).map(p => ({
+            points: p.points || [], segments: p.segments || [], circles: p.circles || [],
+            rectangles: p.rectangles || [], texts: p.texts || [], freehands: p.freehands || [],
+            curves: p.curves || [], polygons: p.polygons || [], arcs: p.arcs || [],
+            htmlPostits: p.htmlPostits || [],
+            panX: p.panX || 0, panY: p.panY || 0, zoom: p.zoom || 1,
+            pdfMetadata: p.pdfMetadata,
+            images: avecMedias ? (p.images || []) : []
+        }));
+        const charge = {
+            id: board.id, name: board.name,
+            data: {
+                pages,
+                assets: (typeof collectAssets === 'function' && avecMedias) ? collectAssets(pages) : {},
+                nextId: board.data.nextId, globalZ: board.data.globalZ,
+                currentBgIndex: board.data.currentBgIndex
+            }
+        };
+        return new Blob([JSON.stringify(charge)], { type: 'application/json' }).size;
     };
 
-    let sizeLight = estimateSizes();
-    let sizeComplete = sizeLight + (board.data.pages.reduce((sum, p) => sum + (p.images?.length || 0), 0) * 50000);
-
-    // Mettre à jour avec la vraie taille EN ARRIÈRE-PLAN
-    const calculateRealSizes = () => {
-        try {
-            // Créer les objets exactement comme ils seront exportés
-            const dataLéger = {
-                id: board.id,
-                name: board.name,
-                data: {
-                    pages: board.data.pages.map(p => ({
-                        points: p.points || [],
-                        segments: p.segments || [],
-                        circles: p.circles || [],
-                        rectangles: p.rectangles || [],
-                        texts: p.texts || [],
-                        freehands: p.freehands || [],
-                        curves: p.curves || [],
-                        polygons: p.polygons || [],
-                        arcs: p.arcs || [],
-                        htmlPostits: p.htmlPostits || [],
-                        panX: p.panX || 0,
-                        panY: p.panY || 0,
-                        zoom: p.zoom || 1,
-                        pdfMetadata: p.pdfMetadata,
-                        images: []
-                    })),
-                    nextId: board.data.nextId,
-                    globalZ: board.data.globalZ,
-                    currentBgIndex: board.data.currentBgIndex
-                }
-            };
-
-            const dataComplet = {
-                id: board.id,
-                name: board.name,
-                data: {
-                    pages: board.data.pages.map(p => ({
-                        points: p.points || [],
-                        segments: p.segments || [],
-                        circles: p.circles || [],
-                        rectangles: p.rectangles || [],
-                        texts: p.texts || [],
-                        freehands: p.freehands || [],
-                        curves: p.curves || [],
-                        polygons: p.polygons || [],
-                        arcs: p.arcs || [],
-                        htmlPostits: p.htmlPostits || [],
-                        panX: p.panX || 0,
-                        panY: p.panY || 0,
-                        zoom: p.zoom || 1,
-                        pdfMetadata: p.pdfMetadata,
-                        images: p.images || []
-                    })),
-                    nextId: board.data.nextId,
-                    globalZ: board.data.globalZ,
-                    currentBgIndex: board.data.currentBgIndex
-                }
-            };
-
-            // Mesurer les vraies tailles
-            const realSizeLéger = new Blob([JSON.stringify(dataLéger)], { type: "application/json" }).size;
-            const realSizeComplet = new Blob([JSON.stringify(dataComplet)], { type: "application/json" }).size;
-
-            return { realSizeLéger, realSizeComplet };
-        } catch (e) {
-            debugLog("⚠️ WARN", "Erreur calcul taille réelle", e);
-            return null;
-        }
-    };
-
-    // Lancer le calcul en arrière-plan et mettre à jour l'affichage
-    if (requestIdleCallback) {
-        requestIdleCallback(() => {
-            const real = calculateRealSizes();
-            if (real) {
-                sizeLight = real.realSizeLéger;
-                sizeComplete = real.realSizeComplet;
-                const lightBtn = document.getElementById('export-light-btn');
-                const fullBtn = document.getElementById('export-full-btn');
-                if (lightBtn) lightBtn.innerHTML = `📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>`;
-                if (fullBtn) fullBtn.innerHTML = `📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>`;
-                debugLog("✅ OK", "Tailles mises à jour", { Léger: `${formatSize(sizeLight / 1024 / 1024)}`, Complet: `${formatSize(sizeComplete / 1024 / 1024)}` });
-            }
-        });
-    } else {
-        setTimeout(() => {
-            const real = calculateRealSizes();
-            if (real) {
-                sizeLight = real.realSizeLéger;
-                sizeComplete = real.realSizeComplet;
-                const lightBtn = document.getElementById('export-light-btn');
-                const fullBtn = document.getElementById('export-full-btn');
-                if (lightBtn) lightBtn.innerHTML = `📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>`;
-                if (fullBtn) fullBtn.innerHTML = `📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>`;
-            }
-        }, 100);
+    let sizeLight, sizeComplete;
+    try {
+        sizeLight = poidsDeLexport(false);
+        sizeComplete = poidsDeLexport(true);
+    } catch (e) {
+        debugLog("⚠️ WARN", "Poids de l'export incalculable", e);
+        sizeLight = sizeComplete = 0;
     }
 
     let summaryTextSizes = `${filesList.length} fichier${filesList.length !== 1 ? 's' : ''} — Toutes pages`;
@@ -15288,10 +15370,10 @@ function showExportOptionsModal(board) {
         <div style="margin-bottom: 20px;">
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
                 <button id="export-light-btn" class="btn-action secondary" style="flex: 1; padding: 12px; font-size: 13px; font-weight: bold;">
-                    📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight / 1024 / 1024)}</span>
+                    📦 Léger<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeLight)}</span>
                 </button>
                 <button id="export-full-btn" class="btn-action primary" style="flex: 1; padding: 12px; font-size: 13px; font-weight: bold;">
-                    📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete / 1024 / 1024)}</span>
+                    📁 Complet<br/><span style="font-size: 11px; font-weight: normal;">${formatSize(sizeComplete)}</span>
                 </button>
             </div>
 
@@ -15715,6 +15797,13 @@ async function doExportCurrentBoard(includeMedias, board, fileName) {
             }
         };
 
+        // Les images d'un tableau ne sont plus recopiées dans chaque objet :
+        // l'objet porte une référence, et les sources vivent dans une table
+        // commune. Sans elle dans le fichier, l'export « Complet » ne
+        // contenait que des références vides — toutes les images étaient
+        // perdues à la réouverture, et le fichier pesait quelques octets.
+        dataToExport.data.assets = collectAssets(dataToExport.data.pages);
+
         // ✅ Inclure les classes (élèves) stockées, utilisées par randomDrawTool etc.
         if (typeof ClassesStore !== 'undefined') {
             dataToExport.classes = await ClassesStore.loadAll();
@@ -15754,7 +15843,7 @@ async function doExportCurrentBoard(includeMedias, board, fileName) {
         }, 100);
 
         debugLog("✅ SUCCESS", "Export terminé avec succès !", { fileName, size: `${(finalSize / 1024 / 1024).toFixed(2)} MB` });
-        showToast(`✅ Exporté ! ${formatSize(finalSize / 1024 / 1024)}`);
+        showToast(`✅ Exporté ! ${formatSize(finalSize)}`);
     } catch (err) {
         debugLog("❌ ERROR", "Erreur dans l'export", { error: err.message, stack: err.stack });
         showToast("❌ Erreur d'exportation");
@@ -15808,8 +15897,11 @@ function promptExportWorkspace() {
                 if (dataCopy.pages) {
                     dataCopy.pages.forEach(p => {
                         if (p.images) p.images = [];
-                            });
+                    });
                 }
+                // Vider les images sans vider la table où vivent leurs sources
+                // laissait tout le poids dans la version « légère ».
+                delete dataCopy.assets;
                 totalSizeWithoutImages += calculateObjectSize(dataCopy);
             }
         });
@@ -15871,19 +15963,20 @@ async function exportWorkspace(includeInterface, includeMedias = true) {
             delete workspaceData.favorites;
         }
 
-        // Si export léger, supprimer les images et PDFs
+        // Si export léger, supprimer les images ET la table où vivent leurs
+        // sources : sans cela le fichier « léger » pesait aussi lourd que
+        // l'autre, les images étant simplement devenues invisibles.
         if (!includeMedias && workspaceData.tableaux) {
             workspaceData.tableaux.forEach(t => {
                 if (t.data && t.data.pages) {
-                    t.data.pages.forEach(p => {
-                        if (p.images) p.images = [];
-                            });
+                    t.data.pages.forEach(p => { if (p.images) p.images = []; });
+                    delete t.data.assets;
                 }
             });
         }
 
         const dataStr = JSON.stringify(workspaceData);
-        const finalSize = calculateObjectSize(JSON.parse(dataStr));
+        const finalSize = new Blob([dataStr], { type: 'application/json' }).size;
         const blob = new Blob([dataStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
 
@@ -17491,6 +17584,21 @@ const TEINTES_PAPIER = [
 
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
+
+    const btnRetrouver = document.getElementById('btn-retrouver-images');
+    const entreeRetrouver = document.getElementById('retrouver-loader');
+    if (btnRetrouver && entreeRetrouver) {
+        btnRetrouver.addEventListener('click', () => {
+            const combien = imagesManquantes().length;
+            if (!combien) { if (typeof showToast === 'function') showToast('Aucune image ne manque sur ce tableau'); return; }
+            if (typeof showToast === 'function') showToast(`Choisissez le${combien > 1 ? 's' : ''} fichier${combien > 1 ? 's' : ''} d'origine`);
+            entreeRetrouver.click();
+        });
+        entreeRetrouver.addEventListener('change', (e) => {
+            retrouverLesImages(e.target.files || []);
+            e.target.value = '';
+        });
+    }
     majPastilleZoom(); majPastilleGrille(); majInterrupteursBarre();
     poserRaccourcisSurLesBoutons();
     // Les barres flottantes recopient les boutons : on repasse quand c'est fait

@@ -434,6 +434,12 @@
                             page web — il devient un bloc de texte posé sur le tableau. <b>Ctrl+Maj+V</b> ne colle que le
                             texte, sans la mise en forme.</li>
                         <li><strong>Exporter :</strong> Menu Exporter en PNG/PDF</li>
+                        <li><strong>Enregistrer avec ou sans les fichiers :</strong> « Complet » emporte les images
+                            dans le fichier ; « Léger » ne garde que les tracés, et le poids annoncé est celui du
+                            fichier qui sera vraiment écrit. Un tableau rouvert sans ses images ne perd rien
+                            d'autre : chaque image manquante se voit en pointillés, avec le nom du fichier attendu,
+                            et le menu Importer propose <b>« Retrouver les images manquantes »</b> — choisissez les
+                            fichiers d'origine, ils se rattachent par leur nom.</li>
                         <li><strong>Sauvegarder :</strong> Auto-sauvegarde local</li>
                     </ul>
                 </div>
@@ -1013,6 +1019,7 @@
                     <button class="menu-item" id="btn-import-pdf"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span> Importer Média (PDF, Image, MP3, Vidéo...)</button>
                     <button class="menu-item" id="btn-import-doc"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg></span> Importer un document (Word, LibreOffice, texte)</button>
                     <button class="menu-item" id="btn-drive"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L2 14l3 5 6-11z"></path><path d="M16 3H8l6 11h8z"></path><path d="M5 19h14l3-5H8z"></path></svg></span> Ouvrir un fichier (ordinateur ou nuage)</button>
+                    <button class="menu-item" id="btn-retrouver-images"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> Retrouver les images manquantes</button>
                     <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Ouvrir un tableau (.prof)</button>
                 </div>
             </div>
@@ -1080,6 +1087,7 @@
 
             <input type="file" id="file-loader" accept=".prof,.json" style="display:none;">
             <input type="file" id="doc-loader" accept=".txt,.md,.csv,.docx,.odt" multiple style="display:none;">
+    <input type="file" id="retrouver-loader" accept="image/*" multiple style="display:none;">
             <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.csv,.docx,.odt" multiple style="display:none;">
 
             <div class="divider"></div>
@@ -1594,7 +1602,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=82"></script>
+    <script src="script.js?v=83"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=58"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

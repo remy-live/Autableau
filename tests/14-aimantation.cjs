@@ -149,6 +149,84 @@ module.exports = async function (browser) {
         droiteInfinie.source === 'intersection' && droiteInfinie.x === 300 && droiteInfinie.y === 300,
         JSON.stringify(droiteInfinie));
 
+    // --- LES ARCS DU COMPAS CROISENT AUSSI ---
+    // Un arc n'est qu'un cercle dont on ne garde qu'un morceau : il doit
+    // croiser les droites, les cercles et les autres arcs — mais seulement là
+    // où il existe vraiment.
+    const avecArcs = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0; arcs.length = 0;
+        const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+        const a = P(-200, 0), b = P(200, 0);
+        segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, z: globalZ++ });
+        // le demi-cercle du HAUT (y négatif à l'écran) : de 180° à 360°
+        arcs.push({ id: nextId++, type: 'arc', cx: 0, cy: 0, radius: 100,
+                    startAngle: Math.PI, endAngle: Math.PI * 2, z: globalZ++ });
+        // un cercle entier, dessiné au compas lui aussi
+        arcs.push({ id: nextId++, type: 'arc', cx: 150, cy: 0, radius: 100,
+                    startAngle: 0, endAngle: Math.PI * 2, z: globalZ++ });
+
+        const formes = cerclesGeometriques(null, 0);
+        const droites = droitesGeometriques(null, 0);
+        const arrondi = (l) => l.map(p => [Math.round(p.x), Math.round(p.y)]).sort((u, v) => u[0] - v[0]);
+        return {
+            comptees: formes.length,
+            surLeSegment: arrondi(interDroiteCercle(droites[0], formes[0])),
+            arcContreArc: arrondi(interCercles(formes[0], formes[1])),
+            // le cercle entier est centré en (150,0) : il coupe l'axe en 50 et
+            // 250, mais 250 tombe au-delà du bout du segment
+            toutLeCercle: arrondi(interDroiteCercle(droites[0], formes[1]))
+        };
+    });
+    r.egal('les arcs comptent parmi les formes qui peuvent se croiser', avecArcs.comptees, 2);
+    r.egal('un arc croise un segment à ses deux bouts', avecArcs.surLeSegment, [[-100, 0], [100, 0]]);
+    r.egal('deux arcs ne se croisent que là où ils existent tous les deux',
+        avecArcs.arcContreArc, [[75, -66]]);
+    r.egal('un tour complet croise là où le segment existe encore', avecArcs.toutLeCercle, [[50, 0]]);
+
+    const accrocheArc = await page.evaluate(() => {
+        aimant = { grille: false, outils: false, intersections: true };
+        zoom = 1;
+        const p = positionAimantee({ x: -97, y: 3 });
+        return { source: p.source, x: Math.round(p.x), y: Math.round(p.y) };
+    });
+    r.verifie('le curseur s\'accroche au croisement d\'un arc',
+        accrocheArc.source === 'intersection' && accrocheArc.x === -100 && accrocheArc.y === 0,
+        JSON.stringify(accrocheArc));
+
+    const horsArc = await page.evaluate(() => {
+        // sous le demi-cercle du haut, le croisement n'existe pas
+        arcs[0].startAngle = Math.PI * 1.2;
+        arcs[0].endAngle = Math.PI * 1.8;      // un petit arc en haut, loin du segment
+        return positionAimantee({ x: -97, y: 3 }).source;
+    });
+    r.verifie('un arc trop court ne croise rien', horsArc !== 'intersection', String(horsArc));
+
+    const pointQuiSuit = await page.evaluate(() => {
+        arcs[0].startAngle = Math.PI; arcs[0].endAngle = Math.PI * 2;
+        const trouve = intersectionProche({ x: -101, y: 2 }, 12);
+        if (!trouve) return { trouve: false };
+        const p = { id: nextId++, x: trouve.x, y: trouve.y, depend: { refs: trouve.refs }, z: globalZ++ };
+        points.push(p);
+        const genres = trouve.refs.map(r => r.k).sort();
+        arcs[0].cx = 40;                       // on déplace l'arc
+        majPointsDependants();
+        const apres = { x: Math.round(p.x), y: Math.round(p.y) };
+        arcs.length = 0;                       // l'arc disparaît
+        majPointsDependants();
+        return { trouve: true, genres, apres, libere: p.depend === undefined };
+    });
+
+    // On rend le tableau tel qu'on l'a trouvé : les vérifications suivantes
+    // partent d'un aimant complet et d'une figure vide.
+    await page.evaluate(() => {
+        arcs.length = 0; points.length = 0; segments.length = 0; circles.length = 0;
+        aimant = { grille: true, outils: true, intersections: true };
+    });
+    r.verifie('le croisement sait qu\'il appartient à un arc', pointQuiSuit.trouve, JSON.stringify(pointQuiSuit));
+    r.egal('et à quoi d\'autre', pointQuiSuit.genres, ['arc', 'segment']);
+    r.egal('le point suit l\'arc quand celui-ci se déplace', pointQuiSuit.apres, { x: -60, y: 0 });
+    r.verifie('et redevient libre si l\'arc est effacé', pointQuiSuit.libere, JSON.stringify(pointQuiSuit));
+
     // Droite et cercle : deux points, on prend le plus proche du curseur
     const avecCercle = await page.evaluate(() => {
         points.length = 0; segments.length = 0; circles.length = 0;
