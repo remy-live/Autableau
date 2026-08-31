@@ -1052,6 +1052,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     document.getElementById('btn-help').addEventListener('click', () => {
+        remplirAideRaccourcis();
         document.getElementById('help-modal').style.display = 'flex';
         const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
         if (!hasSeenWelcome) {
@@ -3311,12 +3312,115 @@ function toggleLoupe() {
 
     requestAnimationFrame(draw);
 }
+// ===================================================
+// LES RACCOURCIS DES OUTILS
+// Une seule table : elle sert à la fois à écouter le clavier, à écrire la
+// touche dans l'infobulle du bouton et à remplir l'aide. Ajouter un outil,
+// c'est ajouter une ligne ici — rien d'autre à tenir à jour.
+//
+// Les outils de tous les jours prennent une lettre (l'initiale quand elle
+// est libre), la géométrie prend les chiffres : ils forment une famille et
+// se trouvent sans quitter la rangée du haut.
+// ===================================================
+const RACCOURCIS_OUTILS = [
+    { touche: 'S', mode: 'pointer', nom: 'Sélection' },
+    { touche: 'M', mode: 'move', nom: 'Main (déplacer la vue)' },
+    { touche: 'C', mode: 'freehand', nom: 'Crayon' },
+    { touche: 'U', mode: 'highlighter', nom: 'Surligneur' },
+    { touche: 'G', mode: 'eraser', nom: 'Gomme' },
+    { touche: 'T', mode: 'text', nom: 'Texte' },
+    { touche: 'N', mode: 'postit', nom: 'Note (post-it)' },
+    { touche: 'P', mode: 'laser', nom: 'Pointeur laser' },
+    { touche: 'Z', mode: 'zoom-box', nom: 'Zoom sur une sélection' },
+    { touche: '1', mode: 'point', nom: 'Point' },
+    { touche: '2', mode: 'segment', nom: 'Segment' },
+    { touche: '3', mode: 'droite', nom: 'Droite' },
+    { touche: '4', mode: 'demi-droite', nom: 'Demi-droite' },
+    { touche: '5', mode: 'circle', nom: 'Cercle' },
+    { touche: '6', mode: 'rectangle', nom: 'Rectangle' },
+    { touche: '7', mode: 'polygon', nom: 'Polygone' },
+    { touche: '8', mode: 'curve', nom: 'Courbe' }
+];
+
+// Les gestes qui ne changent pas d'outil mais qu'on veut sous la main
+const RACCOURCIS_GESTES = [
+    { touche: 'L', bouton: 'btn-loupe', nom: 'Loupe' },
+    { touche: 'A', bouton: 'btn-magnet', nom: 'Aimant' },
+    { touche: 'X', bouton: 'btn-axes', nom: 'Axes' },
+    { touche: 'F', bouton: 'btn-cycle', nom: 'Fond suivant' },
+    { touche: 'R', bouton: 'btn-rideau', nom: 'Rideau' },
+    { touche: 'E', bouton: 'btn-spot', nom: 'Projecteur (éclairer une zone)' }
+];
+
+// On ne détourne pas une frappe quand l'utilisateur écrit, ni quand une
+// fenêtre est ouverte par-dessus le tableau.
+function onEcritAilleurs(e) {
+    // La cible de l'événement, mais aussi ce qui a vraiment le curseur :
+    // certains claviers virtuels envoient la frappe à la fenêtre.
+    const champ = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    if (champ(e.target) || champ(document.activeElement)) return true;
+    if (typeof editingTextId !== 'undefined' && editingTextId) return true;
+    // Les modales dorment dans la page en display:none : seule celle qu'on
+    // voit vraiment doit garder le clavier pour elle. (Elles sont en position
+    // fixe : « offsetParent » y vaut toujours null, il ne dit rien.)
+    return Array.from(document.querySelectorAll('.modal-backdrop, #avatar-atelier, #points-widget'))
+        .some(m => m.getClientRects().length > 0);
+}
+
+function declencherRaccourci(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return false;
+    if (onEcritAilleurs(e)) return false;
+
+    const t = (e.key || '').toUpperCase();
+
+    const outil = RACCOURCIS_OUTILS.find(r => r.touche === t);
+    if (outil) {
+        // On clique le vrai bouton : le post-it, la gomme et les autres ont
+        // chacun leur petite cérémonie, on ne la refait pas ici.
+        const btn = document.querySelector('.btn[data-mode="' + outil.mode + '"]');
+        if (btn) btn.click();
+        else setMode(outil.mode);
+        if (typeof showToast === 'function') showToast(outil.nom);
+        return true;
+    }
+
+    const geste = RACCOURCIS_GESTES.find(r => r.touche === t);
+    if (geste) {
+        const btn = document.getElementById(geste.bouton);
+        if (btn) { btn.click(); return true; }
+    }
+    return false;
+}
+
+// L'aide se remplit depuis la même table : elle ne peut pas raconter
+// autre chose que ce que le clavier fait vraiment.
+function remplirAideRaccourcis() {
+    const peindre = (id, lignes) => {
+        const cible = document.getElementById(id);
+        if (!cible) return;
+        cible.innerHTML = lignes.map(r => `<div><code>${r.touche}</code> ${r.nom}</div>`).join('');
+    };
+    peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS);
+    peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES);
+}
+
+// La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :
+// « data-tooltip » sert aussi de nom d'outil sous l'icône, il doit rester net.
+function poserRaccourcisSurLesBoutons() {
+    RACCOURCIS_OUTILS.forEach(r => {
+        document.querySelectorAll('.btn[data-mode="' + r.mode + '"]')
+            .forEach(b => b.setAttribute('data-raccourci', r.touche));
+    });
+    RACCOURCIS_GESTES.forEach(r => {
+        const b = document.getElementById(r.bouton);
+        if (b) b.setAttribute('data-raccourci', r.touche);
+    });
+}
+
 // --- GESTION CLAVIER ---
 window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-    if ((e.key === 'l' || e.key === 'L') && !e.repeat) {
-        toggleLoupe();
-    }
+    if (declencherRaccourci(e)) { e.preventDefault(); return; }
     if (mode === 'randomClock') {
         setMode('pointer');
 
@@ -11599,6 +11703,14 @@ document.addEventListener('DOMContentLoaded', () => {
         dtShowTimer = setTimeout(() => {
             if (dtCurrentEl !== el) return;
             dtTooltip.textContent = text;
+            // La touche, s'il y en a une, se lit comme une petite touche de clavier
+            const touche = el.getAttribute('data-raccourci');
+            if (touche) {
+                const k = document.createElement('kbd');
+                k.className = 'dt-touche';
+                k.textContent = touche;
+                dtTooltip.appendChild(k);
+            }
             dtTooltip.classList.add('visible');
             positionDtTooltip(el);
             // Au doigt/stylet, aucun "mouseout" ne viendra : on temporise la disparition
@@ -17174,6 +17286,9 @@ const TEINTES_PAPIER = [
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
     majPastilleZoom(); majPastilleGrille(); majInterrupteursBarre();
+    poserRaccourcisSurLesBoutons();
+    // Les barres flottantes recopient les boutons : on repasse quand c'est fait
+    window.addEventListener('load', () => setTimeout(poserRaccourcisSurLesBoutons, 800));
 
     // Fonds : choisir directement, au lieu de faire défiler huit fonds
     poserAppuiLong(document.getElementById('btn-cycle'), (bouton) => {

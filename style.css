@@ -5696,3 +5696,50 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     background: rgba(162, 155, 254, 0.25);
     color: #ffffff;
 }
+
+/* La touche de raccourci, dans l'infobulle d'un bouton */
+.dt-touche {
+    display: inline-block;
+    margin-left: 7px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+/* L'aide : les raccourcis, en trois familles */
+.aide-sous-titre {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin: 14px 0 6px;
+}
+
+.aide-sous-titre:first-of-type {
+    margin-top: 8px;
+}
+
+.aide-raccourcis {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 6px 12px;
+    font-size: 12px;
+}
+
+.aide-raccourcis code {
+    display: inline-block;
+    min-width: 20px;
+    text-align: center;
+    padding: 1px 6px;
+    margin-right: 6px;
+    border-radius: 4px;
+    background: rgba(128, 128, 128, 0.14);
+    border: 1px solid var(--border);
+    font-weight: 700;
+}

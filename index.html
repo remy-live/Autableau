@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=28">
+    <link rel="stylesheet" href="style.css?v=29">
 </head>
 
 <body>
@@ -423,18 +423,31 @@
 
             <div style="border-top: 1px solid var(--border); padding-top: 15px;">
                 <h3 style="color: var(--accent); margin-top: 0;">⌨️ Raccourcis Clavier</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
+
+                <div class="aide-sous-titre">Choisir un outil</div>
+                <div class="aide-raccourcis" id="aide-raccourcis-outils"></div>
+
+                <div class="aide-sous-titre">Un geste, une touche</div>
+                <div class="aide-raccourcis" id="aide-raccourcis-gestes"></div>
+
+                <div class="aide-sous-titre">Partout</div>
+                <div class="aide-raccourcis">
                     <div><code>Ctrl+Z</code> Annuler</div>
                     <div><code>Ctrl+Y</code> Refaire</div>
                     <div><code>Espace</code> Panoramique (maintenir)</div>
-                    <div><code>L</code> Loupe</div>
-                    <div><code>Échap</code> Quitter mode spécial</div>
-                    <div><code>Suppr</code> Effacer sélection</div>
+                    <div><code>Ctrl+A</code> Tout sélectionner</div>
                     <div><code>Ctrl+D</code> Dupliquer la sélection</div>
+                    <div><code>Ctrl+C</code> / <code>Ctrl+V</code> Copier / coller</div>
                     <div><code>Ctrl+Maj+V</code> Coller sans mise en forme</div>
-                    <div style="margin-top:10px;"><button class="btn-action secondary" style="font-size:12px; padding:6px 12px;"
-                            onclick="document.getElementById('help-modal').style.display='none'; montrerAstuce(true);">💡 Voir les astuces</button></div>
+                    <div><code>Suppr</code> Effacer la sélection</div>
+                    <div><code>Échap</code> Revenir à la sélection</div>
                 </div>
+                <div style="margin-top:12px; font-size:11px; color:var(--muted);">
+                    Les touches ne fonctionnent que sur le tableau : pendant que vous écrivez dans
+                    un texte ou une fenêtre, elles restent des lettres ordinaires.
+                </div>
+                <div style="margin-top:10px;"><button class="btn-action secondary" style="font-size:12px; padding:6px 12px;"
+                        onclick="document.getElementById('help-modal').style.display='none'; montrerAstuce(true);">💡 Voir les astuces</button></div>
             </div>
 
             <div style="margin-top: 15px; display: flex; gap: 10px;">
@@ -1084,7 +1097,7 @@
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     <rect x="7" y="7" width="8" height="8" stroke-dasharray="2 2" fill="none"></rect>
                 </svg></button>
-                <button class="btn" id="btn-loupe" data-tooltip="Loupe (L)" onclick="toggleLoupe()"><svg
+                <button class="btn" id="btn-loupe" data-tooltip="Loupe" onclick="toggleLoupe()"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -1555,7 +1568,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=77"></script>
+    <script src="script.js?v=78"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=57"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
