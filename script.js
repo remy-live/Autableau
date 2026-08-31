@@ -2054,11 +2054,13 @@ function drawSeyes(minX, maxX, minY, maxY, lw, gw) { const size = 40; const sub 
 // Une seule feuille par ligne, empilées vers le bas comme un document, et du
 // gris clair tout autour : c'est ce qu'on projette quand on montre une copie.
 // (Une feuille répétée en damier faisait mosaïque, et pas copie d'examen.)
+// UNE feuille, pas un rouleau. Le fond se répétait à l'infini vers le haut et
+// vers le bas : on voyait deux en-têtes de copie l'un sous l'autre, ce qui ne
+// veut rien dire — une copie d'examen, c'est une feuille. Pour en avoir une
+// autre, on ajoute une page au tableau (le « + » de la barre du bas).
 function feuillesVisibles(minY, maxY) {
-    const pas = PAGE_H + ESPACE_PAGE;
-    const tops = [];
-    for (let y = Math.floor(minY / pas) * pas; y < maxY + pas; y += pas) tops.push(y);
-    return tops;
+    if (0 > maxY || PAGE_H < minY) return [];      // la feuille est hors de vue
+    return [0];
 }
 
 // La réglure Seyès, tracée à l'intérieur d'un rectangle
@@ -17437,27 +17439,30 @@ function cadrerSurLaFeuille() {
     const largeurEcran = canvas.clientWidth || window.innerWidth;
     const hauteurEcran = canvas.clientHeight || window.innerHeight;
 
-    // La page qu'on regarde déjà : celle dont le haut est le plus proche
-    const pas = PAGE_H + ESPACE_PAGE;
-    const hautVue = -panY / zoom;
-    const page = Math.max(0, Math.round(hautVue / pas));
-    const hautPage = page * pas;
-
-    // On l'affiche en entier, entre les barres d'outils : sinon l'en-tête de
-    // la copie se retrouve caché derrière celle du haut.
+    // On la cadre sur la LARGEUR du tableau, en gardant une marge de chaque
+    // côté : une A4 entière tenait dans la hauteur, mais à 30 % — illisible du
+    // fond de la classe. La feuille remplit donc l'écran en largeur et on
+    // descend dedans, comme sur une vraie copie.
+    // Les barres sont en position fixe : « offsetParent » y vaut toujours null
+    // et la mesure rendait 0 — l'en-tête de la copie finissait caché dessous.
     const hauteurBarre = (sel) => {
         const el = document.querySelector(sel);
-        if (!el || !el.offsetParent) return 0;
+        if (!el || !el.getClientRects().length) return 0;
         return Math.min(200, el.getBoundingClientRect().height + 16);
     };
     const enHaut = Math.max(30, hauteurBarre('#bar-plugins'));
     const enBas = Math.max(30, hauteurBarre('#bar-bottom, .drawer-bottom, #bottom-bar'));
     const libre = Math.max(200, hauteurEcran - enHaut - enBas);
 
-    const echelle = Math.min((largeurEcran - 80) / PAGE_L, libre / PAGE_H);
-    zoom = Math.max(0.15, Math.min(3, echelle));
+    // Une marge d'environ 4 % de chaque côté, jamais moins de 24 px
+    const marge = Math.max(24, Math.round(largeurEcran * 0.04));
+    zoom = Math.max(0.15, Math.min(3, (largeurEcran - marge * 2) / PAGE_L));
     panX = (largeurEcran - PAGE_L * zoom) / 2;
-    panY = enHaut + (libre - PAGE_H * zoom) / 2 - hautPage * zoom;
+    // Le haut de la feuille juste sous la barre du haut : on voit l'en-tête,
+    // et le reste se découvre en descendant. Si elle tient en entier, on la
+    // centre plutôt que de la coller en haut.
+    const hauteurFeuille = PAGE_H * zoom;
+    panY = hauteurFeuille <= libre ? enHaut + (libre - hauteurFeuille) / 2 : enHaut;
 
     const curseurZoom = document.getElementById('zoom-slider');
     if (curseurZoom) curseurZoom.value = zoom;

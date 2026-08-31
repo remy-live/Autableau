@@ -7765,6 +7765,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
                 </div>
 
                 <div class="pw-pied">
+                    <button class="pw-btn" id="geg-relancer" title="Retirer d'autres questions, sans rien changer aux réglages">🎲 Autre tirage</button>
                     <span class="pw-espace"></span>
                     <button class="pw-btn primaire" id="geg-generate">Générer et tamponner</button>
                 </div>
@@ -7787,6 +7788,13 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
             this.widgetEl.querySelector('#geg-close').onclick = () => this.widgetEl.style.display = 'none';
             this.widgetEl.querySelector('#geg-generate').onclick = () => this.generateAndStamp();
+            // Voir un autre tirage AVANT de poser : il fallait jusqu'ici
+            // toucher un réglage au hasard pour que l'aperçu se renouvelle.
+            this.widgetEl.querySelector('#geg-relancer').onclick = () => {
+                this.currentState = null;
+                this.updatePreview();
+                if (typeof showToast === 'function') showToast('Nouveau tirage');
+            };
 
             const themes = this.widgetEl.querySelectorAll('.geg-theme-btn');
             themes.forEach(t => {
@@ -8097,6 +8105,10 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             state.showAnswers = showAnswers;
             state.forceCols = colsVal;
         }
+        // L'aperçu tirait des questions qu'il ne gardait pas : on tamponnait
+        // ensuite un AUTRE tirage que celui qu'on venait de regarder. On garde
+        // donc ce tirage-ci ; tout changement de réglage le remet à zéro.
+        this.currentState = state;
 
         let svg = this.createSVG(state);
         let previewWrap = this.widgetEl.querySelector('#geg-preview');
@@ -8113,7 +8125,13 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         let colsVal = this.widgetEl.querySelector('#geg-cols').value;
 
         let types = this.getCheckedTypes();
-        if (types.length === 0) return;
+        if (types.length === 0) {
+            // Avant, le bouton ne faisait rien du tout : on cherchait la panne.
+            if (typeof showToast === 'function') showToast('Choisissez au moins un type d\'exercice');
+            const zone = this.widgetEl.querySelector('#geg-options');
+            if (zone) { zone.classList.add('geg-manque'); setTimeout(() => zone.classList.remove('geg-manque'), 1200); }
+            return;
+        }
 
         let state = this.currentState;
         if (!state) {
@@ -16629,7 +16647,11 @@ registerPlugin('flashMathTool', 'Exercices', {
 
     generateQuestions: function () {
         if (this.state.themes.length === 0) return;
-        this.state.questions = [];
+        // Ce qu'on a écrit soi-même ou épinglé n'est pas du tirage au sort :
+        // relancer la série ne doit pas l'emporter. On le garde dans l'ordre,
+        // et on complète autour.
+        const gardees = (this.state.questions || []).filter(q => q && (q.epinglee || q.isCustom));
+        this.state.questions = gardees.slice(0, this.state.count);
         let attempts = 0;
 
         while (this.state.questions.length < this.state.count && attempts < 100) {
@@ -16681,16 +16703,30 @@ registerPlugin('flashMathTool', 'Exercices', {
                     const varsHtml = (on && allowedVariants.length > 0)
                         ? `<span class="fl-chip-vars">${allowedVariants.map(v => `<span class="fl-var ${(!sel || sel.includes(v.id)) ? 'on' : ''}" data-theme="${t.id}" data-var="${v.id}" title="${v.title}">${v.short}</span>`).join('')}</span>`
                         : '';
-                    return `<div class="fl-chip ${on ? 'on' : ''}" draggable="true" data-theme="${t.id}" title="Cliquer pour activer · Glisser sur la feuille pour ajouter une question">${t.meta.label}${varsHtml}</div>`;
+                    // Le « + » ajoute une question tout de suite : le
+                    // glisser-déposer restait le seul chemin, et il est
+                    // impraticable au doigt sur une tablette.
+                    return `<div class="fl-chip ${on ? 'on' : ''}" draggable="true" data-theme="${t.id}" title="Cliquer pour activer ou éteindre ce thème · Glisser sur la feuille pour ajouter une question">${t.meta.label}${varsHtml}<button class="fl-chip-plus" data-theme="${t.id}" title="Ajouter une question de ce thème à la feuille">+</button></div>`;
                 }).join('')}
                 </div>
             </div>
         `).join('');
 
         // Clic sur une chip = activer/désactiver le thème (sauvegardé aussitôt)
+        container.querySelectorAll('.fl-chip-plus').forEach(plus => {
+            plus.onclick = (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.dataset.theme;
+                if (!this.generators[id]) return;
+                this.state.questions.push(this.makeOneQuestion(id));
+                this.renderGrid();
+            };
+        });
+
         container.querySelectorAll('.fl-chip').forEach(chip => {
             chip.onclick = (e) => {
                 if (e.target.closest('.fl-var')) return; // les pastilles de variantes ont leur propre handler
+                if (e.target.closest('.fl-chip-plus')) return;
                 const id = chip.dataset.theme;
                 if (this.state.themes.includes(id)) this.state.themes = this.state.themes.filter(t => t !== id);
                 else this.state.themes.push(id);
@@ -16787,6 +16823,10 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-chip:hover { border-color:var(--pw-accent); color:var(--pw-encre); }
             .fl-chip.on { border-color:var(--pw-accent); background:var(--pw-accent-doux); color:var(--pw-accent); }
             .fl-chip:active { cursor:grabbing; }
+            .fl-chip-plus { border:none; background:none; color:var(--pw-gris); cursor:pointer; font-size:15px; font-weight:700;
+                            line-height:1; padding:0 2px 0 8px; margin-left:auto; }
+            .fl-chip-plus:hover { color:var(--pw-accent); }
+            .fl-chip.on .fl-chip-plus { color:var(--pw-accent); }
             .fl-chip-vars { display:inline-flex; gap:3px; margin-left:9px; padding-left:9px; border-left:1px solid var(--pw-trait); }
             .fl-var { font-size:11px; padding:1px 7px; border-radius:5px; border:1px solid transparent; background:none; color:var(--pw-gris); cursor:pointer; font-weight:700; transition:all .15s; user-select:none; }
             .fl-var:hover { border-color:var(--pw-accent); }
@@ -16806,8 +16846,17 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-col:first-child { padding-left:0; }
             .fl-col + .fl-col { border-left:1px dashed #eceff1; }
             .fl-srow { display:flex; align-items:flex-start; gap:7px; padding:8px 0; border-bottom:1px solid #f4f6f8; }
-            .fl-srow .fl-btn-del { opacity:0; transition:opacity .15s; }
-            .fl-srow:hover .fl-btn-del { opacity:1; }
+            .fl-srow.epinglee { background:#fffdf3; box-shadow:inset 3px 0 0 #fdcb6e; padding-left:6px; }
+            .fl-srow-actions { display:flex; gap:1px; flex:none; margin-left:auto; }
+            .fl-btn-ligne { background:none; border:none; cursor:pointer; font-size:12px; line-height:1; padding:2px 3px;
+                            border-radius:4px; opacity:0; transition:opacity .15s; }
+            .fl-btn-ligne:hover { background:#eef2f5; }
+            .fl-srow:hover .fl-btn-ligne { opacity:0.75; }
+            .fl-srow:hover .fl-btn-ligne:hover { opacity:1; }
+            .fl-srow.epinglee .fl-btn-epingle { opacity:1; }
+            /* Au doigt, aucun survol ne viendra : les boutons restent visibles */
+            @media (hover: none) { .fl-btn-ligne { opacity:0.7; } }
+            .fl-btn-del { color:#e74c3c; }
             .fl-sheet-empty { grid-column:1/-1; text-align:center; color:#b2bec3; font-size:13px; padding:70px 20px; }
 
             .fl-btn-action { background:var(--pw-accent); color:#fff; border:none; padding:11px; border-radius:9px; font-weight:700; cursor:pointer; transition:0.2s; text-align:center; font-size:13px; }
@@ -16822,7 +16871,7 @@ registerPlugin('flashMathTool', 'Exercices', {
 
             .fl-input-q { flex:1; padding:5px 7px; border:1px dashed #b7d8f3; border-radius:5px; font-size:12.5px; outline:none; min-width:0; }
             .fl-input-a { width:70px; padding:5px; border:1px dashed #b7e5d4; border-radius:5px; font-size:12.5px; font-weight:700; color:#00b894; outline:none; text-align:center; }
-            .fl-btn-del { background:none; border:none; color:#e74c3c; cursor:pointer; font-size:12px; margin-left:2px; padding:2px; }
+
 
             /* Le pied : les interrupteurs disent s'ils sont allumés, et une
                seule action porte la couleur — celle qui pose la feuille. */
@@ -16863,7 +16912,7 @@ registerPlugin('flashMathTool', 'Exercices', {
                     <div>
                         <div class="fl-group-title">Thèmes</div>
                         <div id="fl-theme-groups"></div>
-                        <div class="fl-aide">💡 Glissez un thème sur la feuille pour ajouter une question.</div>
+                        <div class="fl-aide">💡 Le <b>+</b> d'un thème ajoute une question. Sur la feuille : 🎲 en relance une, 📍 la garde.</div>
                     </div>
                     <div>
                         <div class="fl-group-title">Configuration</div>
@@ -17026,14 +17075,19 @@ registerPlugin('flashMathTool', 'Exercices', {
         const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 
         const rowHtml = (q, i) => `
-            <div class="fl-srow">
+            <div class="fl-srow${q.epinglee ? ' epinglee' : ''}">
                 <div class="fl-q-num">Q${i + 1}.</div>
                 ${q.isCustom
                 ? `<input type="text" class="fl-input-q" value="${q.q}" data-idx="${i}" placeholder="Votre question...">
                    <input type="text" class="fl-input-a" value="${q.a}" data-idx="${i}" placeholder="Rép.">`
                 : `<div class="fl-q-text">${this.parseFrac(q.q)}</div>
                    <div class="fl-q-ans">${this.parseFrac(q.a)}</div>`}
-                <button class="fl-btn-del" data-idx="${i}" title="Supprimer">✕</button>
+                <span class="fl-srow-actions">
+                    ${q.isCustom ? '' : `<button class="fl-btn-ligne fl-btn-relancer" data-idx="${i}" title="Une autre question du même thème">🎲</button>`}
+                    <button class="fl-btn-ligne fl-btn-epingle" data-idx="${i}"
+                            title="${q.epinglee ? 'Ne plus garder cette question' : 'Garder cette question quand on relance la série'}">${q.epinglee ? '📌' : '📍'}</button>
+                    <button class="fl-btn-ligne fl-btn-del" data-idx="${i}" title="Supprimer">✕</button>
+                </span>
             </div>`;
 
         sheet.innerHTML = `
@@ -17043,7 +17097,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             </div>
             <div class="fl-cols">
                 ${qs.length === 0
-                ? `<div class="fl-sheet-empty">Feuille vide.<br/>Glissez un thème ici, ou cliquez sur « Générer la série ».</div>`
+                ? `<div class="fl-sheet-empty">Feuille vide.<br/>Cliquez « Générer la série », ou le « + » d'un thème pour ajouter une question.</div>`
                 : `<div class="fl-col">${qs.slice(0, half).map((q, i) => rowHtml(q, i)).join('')}</div>
                    <div class="fl-col">${qs.slice(half).map((q, i) => rowHtml(q, half + i)).join('')}</div>`}
             </div>
@@ -17051,8 +17105,40 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         sheet.querySelectorAll('.fl-input-q').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].q = e.target.value; }; });
         sheet.querySelectorAll('.fl-input-a').forEach(inp => { inp.oninput = (e) => { this.state.questions[e.target.dataset.idx].a = e.target.value; }; });
+        const rang = (e) => parseInt(e.currentTarget.dataset.idx, 10);
         sheet.querySelectorAll('.fl-btn-del').forEach(btn => {
-            btn.onclick = (e) => { this.state.questions.splice(parseInt(e.target.dataset.idx), 1); this.renderGrid(); };
+            btn.onclick = (e) => { this.state.questions.splice(rang(e), 1); this.renderGrid(); };
+        });
+        // Une seule question ne convient pas ? On la retire du tirage sans
+        // toucher aux autres — avant, il fallait relancer toute la série.
+        sheet.querySelectorAll('.fl-btn-relancer').forEach(btn => {
+            btn.onclick = (e) => {
+                const i = rang(e);
+                const ancienne = this.state.questions[i];
+                if (!ancienne) return;
+                const theme = ancienne.theme || this.state.themes[Math.floor(Math.random() * this.state.themes.length)];
+                if (!theme || !this.generators[theme]) return;
+                // Relancer doit donner AUTRE CHOSE : on refuse la question
+                // qu'on avait déjà, et celles qui sont ailleurs sur la feuille.
+                for (let essai = 0; essai < 20; essai++) {
+                    const neuve = this.makeOneQuestion(theme);
+                    const identique = neuve.q === ancienne.q;
+                    const dejaLa = this.state.questions.some((q, j) => j !== i && q.q === neuve.q);
+                    if ((!identique && !dejaLa) || essai === 19) { this.state.questions[i] = neuve; break; }
+                }
+                this.renderGrid();
+            };
+        });
+        sheet.querySelectorAll('.fl-btn-epingle').forEach(btn => {
+            btn.onclick = (e) => {
+                const q = this.state.questions[rang(e)];
+                if (!q) return;
+                q.epinglee = !q.epinglee;
+                this.renderGrid();
+                if (typeof showToast === 'function') {
+                    showToast(q.epinglee ? 'Question gardée pour les prochaines séries' : 'Question rendue au tirage');
+                }
+            };
         });
     },
 

@@ -166,14 +166,26 @@ module.exports = async function (browser) {
         const cv = document.getElementById('board');
         const gauche = panX, haut = panY;
         const droite = panX + PAGE_L * zoom, bas = panY + PAGE_H * zoom;
+        const largeur = droite - gauche;
         return {
-            entiere: gauche > -5 && haut > -5 && droite < cv.clientWidth + 5 && bas < cv.clientHeight + 5,
-            centree: Math.abs(gauche - (cv.clientWidth - (droite - gauche)) / 2) < 3,
+            // La feuille prend la largeur du tableau, avec une marge de part
+            // et d'autre : elle n'est plus rapetissée pour tenir en hauteur.
+            profiteDeLaLargeur: largeur > cv.clientWidth * 0.8 && largeur < cv.clientWidth - 20,
+            margeGauche: Math.round(gauche),
+            margeDroite: Math.round(cv.clientWidth - droite),
+            centree: Math.abs(gauche - (cv.clientWidth - largeur) / 2) < 3,
+            hautVisible: haut > 20 && haut < cv.clientHeight / 2,
+            uneSeuleFeuille: feuillesVisibles(-8000, 20000).length,
             zoom: Math.round(zoom * 100) / 100
         };
     });
-    r.verifie('choisir un fond « page » cadre la feuille en entier', cadrage.entiere, JSON.stringify(cadrage));
+    r.verifie('la feuille profite de la largeur du tableau', cadrage.profiteDeLaLargeur, JSON.stringify(cadrage));
+    r.verifie('en laissant une vraie marge de chaque côté',
+        cadrage.margeGauche > 20 && Math.abs(cadrage.margeGauche - cadrage.margeDroite) <= 1,
+        JSON.stringify(cadrage));
     r.verifie('et la centre', cadrage.centree, JSON.stringify(cadrage));
+    r.verifie('son en-tête reste sous la barre du haut, pas dessous', cadrage.hautVisible, JSON.stringify(cadrage));
+    r.egal('le fond ne se répète pas : une feuille, une seule', cadrage.uneSeuleFeuille, 1);
 
     const pasDeCadrage = await page.evaluate(() => {
         currentBgIndex = backgrounds.indexOf('seyes');

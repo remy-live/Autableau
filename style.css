@@ -6126,3 +6126,8 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .exp-reglage-retour.erreur { color: #d63031; }
+
+/* Le générateur signale le réglage qui manque, au lieu de ne rien faire */
+@keyframes pw-manque { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.geg-manque { animation: pw-manque 0.25s 2; }
+.geg-manque .pw-pastille { border-color: #e17055; }

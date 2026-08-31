@@ -165,7 +165,10 @@ module.exports = async function (browser) {
             bouton: q('#geg-generate').innerText,
             quantiteModifiable: !q('#geg-count').disabled,
             optionsModifiables: !Array.from(t.widgetEl.querySelectorAll('.geg-opt-check')).some(c => c.disabled),
-            enReedition: t.currentState !== null
+            // « currentState » porte désormais le tirage de l'aperçu : ce qui
+            // dit qu'on rédite un tampon, c'est l'objet qu'on est en train de
+            // modifier.
+            enReedition: t.editingImgObj !== null && t.editingImgObj !== undefined
         };
         t.widgetEl.style.display = 'none';
         return etat;
@@ -363,6 +366,110 @@ module.exports = async function (browser) {
         charte.uneSeuleAction === 1 && charte.piedFlash >= 4, JSON.stringify(charte));
     r.verifie('« Générer la série » reste sous la main quand la liste défile',
         charte.actionsEpinglees, JSON.stringify(charte));
+
+    // --- L'ERGONOMIE : AJOUTER, RELANCER, GARDER ---
+    const gestes = await page.evaluate(async () => {
+        const fl = PluginManager.plugins.flashMathTool;
+        fl.openWidget();
+        await new Promise(r => setTimeout(r, 300));
+        const el = document.getElementById('fl-widget');
+
+        // Le « + » d'un thème ajoute une question sans glisser-déposer
+        const avant = fl.state.questions.length;
+        const plus = el.querySelector('.fl-chip-plus');
+        const themeVise = plus.dataset.theme;
+        plus.click();
+        await new Promise(r => setTimeout(r, 150));
+        const apresPlus = fl.state.questions.length;
+        const derniere = fl.state.questions[fl.state.questions.length - 1];
+
+        // Le clic sur la chip elle-même garde son sens : allumer le thème
+        const chip = el.querySelector('.fl-chip');
+        const themeChip = chip.dataset.theme;
+        const etaitAllume = fl.state.themes.includes(themeChip);
+        chip.click();
+        await new Promise(r => setTimeout(r, 150));
+        const bascule = fl.state.themes.includes(themeChip) !== etaitAllume;
+        el.querySelector('.fl-chip').click();          // on remet comme avant
+        await new Promise(r => setTimeout(r, 150));
+
+        return {
+            avant, apresPlus, themeVise,
+            questionDuBonTheme: derniere && derniere.theme === themeVise,
+            bascule
+        };
+    });
+    r.egal('le « + » d\'un thème ajoute une question', gestes.apresPlus, gestes.avant + 1);
+    r.verifie('et c\'est une question de ce thème-là', gestes.questionDuBonTheme, JSON.stringify(gestes));
+    r.verifie('cliquer la pastille allume toujours le thème', gestes.bascule, JSON.stringify(gestes));
+
+    const relance = await page.evaluate(async () => {
+        const fl = PluginManager.plugins.flashMathTool;
+        const el = document.getElementById('fl-widget');
+        fl.state.count = 5;
+        fl.generateQuestions();
+        fl.renderGrid();
+        await new Promise(r => setTimeout(r, 150));
+
+        const textes = () => fl.state.questions.map(q => q.q);
+        const avant = textes();
+        el.querySelectorAll('.fl-btn-relancer')[1].click();
+        await new Promise(r => setTimeout(r, 150));
+        const apres = textes();
+        const changees = apres.filter((t, i) => t !== avant[i]).length;
+
+        // Épingler puis relancer toute la série : la question reste
+        el.querySelectorAll('.fl-btn-epingle')[0].click();
+        await new Promise(r => setTimeout(r, 150));
+        const gardee = fl.state.questions[0].q;
+        const epinglee = !!fl.state.questions[0].epinglee;
+        el.querySelector('#fl-btn-gen').click();
+        await new Promise(r => setTimeout(r, 250));
+        const survit = fl.state.questions.some(q => q.q === gardee && q.epinglee);
+
+        // Une question écrite à la main survit aussi
+        fl.state.questions.push({ q: 'Ma question à moi', a: '42', isCustom: true });
+        el.querySelector('#fl-btn-gen').click();
+        await new Promise(r => setTimeout(r, 250));
+        const custom = fl.state.questions.some(q => q.isCustom && q.q === 'Ma question à moi');
+
+        return { changees, epinglee, survit, custom, total: fl.state.questions.length };
+    });
+    r.egal('🎲 ne relance qu\'une seule question', relance.changees, 1);
+    r.verifie('📍 épingle la question', relance.epinglee, JSON.stringify(relance));
+    r.verifie('et elle survit à une nouvelle série', relance.survit, JSON.stringify(relance));
+    r.verifie('une question écrite à la main survit aussi', relance.custom, JSON.stringify(relance));
+    r.verifie('sans que la feuille déborde du nombre demandé', relance.total <= 6, JSON.stringify(relance));
+
+    const tirage = await page.evaluate(async () => {
+        const geg = PluginManager.plugins.globalExerciseGenerator;
+        geg.openWidget();
+        await new Promise(r => setTimeout(r, 300));
+        const el = document.getElementById('geg-widget');
+        const relancer = el.querySelector('#geg-relancer');
+        geg.updatePreview();
+        const avant = JSON.stringify(geg.currentState && geg.currentState.questions);
+        const apercuTenu = !!(geg.currentState && geg.currentState.questions);
+        relancer.click();
+        await new Promise(r => setTimeout(r, 250));
+        const apres = JSON.stringify(geg.currentState && geg.currentState.questions);
+
+        // Sans type coché, le bouton disait tout et ne faisait rien
+        el.querySelectorAll('.geg-opt-check').forEach(c => { c.checked = false; });
+        const cartes = images.length;
+        el.querySelector('#geg-generate').click();
+        await new Promise(r => setTimeout(r, 200));
+        const rienPose = images.length === cartes;
+        const signale = el.querySelector('#geg-options').classList.contains('geg-manque');
+        el.querySelectorAll('.geg-opt-check')[0].checked = true;
+        return { boutonLa: !!relancer, apercuTenu, change: avant !== apres, rienPose, signale };
+    });
+    r.verifie('le générateur propose un autre tirage', tirage.boutonLa);
+    r.verifie('l\'aperçu retient son tirage : on tamponne ce qu\'on voit',
+        tirage.apercuTenu, JSON.stringify(tirage));
+    r.verifie('et il change vraiment les questions', tirage.change, JSON.stringify(tirage));
+    r.verifie('sans type coché, rien n\'est posé sur le tableau', tirage.rienPose, JSON.stringify(tirage));
+    r.verifie('mais on le signale au lieu de ne rien faire', tirage.signale, JSON.stringify(tirage));
 
     const nuit = await page.evaluate(async () => {
         toggleDarkMode();
