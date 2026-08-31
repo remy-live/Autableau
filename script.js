@@ -5633,8 +5633,13 @@ wysiwygText.addEventListener('keydown', (e) => {
 // reste du collage (styles Word, tableaux, images de puces…) est jeté.
 function nettoyerHtmlColle(html) {
     const KEEP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', UL: 'ul', OL: 'ol', LI: 'li', BR: 'br', P: 'div', DIV: 'div', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h3' };
+    // Word, Pages et LibreOffice envoient leur feuille de style avec le texte.
+    // Sans cette liste, « p.p1 {margin: 0.0px…} » se collait tel quel sur le
+    // tableau : ces balises et TOUT leur contenu partent à la poubelle.
+    const POUBELLE = { STYLE: 1, SCRIPT: 1, HEAD: 1, META: 1, LINK: 1, TITLE: 1, NOSCRIPT: 1, BASE: 1, XML: 1, COLGROUP: 1, COL: 1 };
     const src = document.createElement('div');
     src.innerHTML = html;
+    src.querySelectorAll('style, script, head, meta, link, title, noscript, base').forEach(n => n.remove());
 
     const clean = (node) => {
         const frag = document.createDocumentFragment();
@@ -5644,6 +5649,7 @@ function nettoyerHtmlColle(html) {
                 return;
             }
             if (child.nodeType !== Node.ELEMENT_NODE) return;
+            if (POUBELLE[child.nodeName]) return;
 
             // Word et LibreOffice portent le gras/italique par un style en ligne
             const cs = child.style || {};
@@ -5675,22 +5681,45 @@ function texteBrutEnHtml(brut) {
         .join('');
 }
 
+// Ctrl+Maj+V colle SANS la mise en forme : c'est le geste habituel, et il
+// évite d'avoir à nettoyer un collage trop riche après coup.
+let collageSansMiseEnForme = false;
+
 wysiwygText.addEventListener('paste', (e) => {
     const dt = e.clipboardData;
     if (!dt) return;
-    const html = dt.getData('text/html');
+    const html = collageSansMiseEnForme ? '' : dt.getData('text/html');
+    const brut = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
     e.preventDefault();
 
     if (!html) {
-        const plain = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
         document.execCommand('insertHTML', false,
-            plain.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>').join('<br>'));
-        return;
+            brut.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>').join('<br>'));
+    } else {
+        document.execCommand('insertHTML', false, nettoyerHtmlColle(html) || '');
+        if (typeof showToast === 'function') showToast('Collé avec la mise en forme — Ctrl+Maj+V pour ne coller que le texte');
     }
 
-    document.execCommand('insertHTML', false, nettoyerHtmlColle(html) || '');
+    // Rien ne reste en surbrillance : le curseur se pose à la fin du collage
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+        const r = sel.getRangeAt(0);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+    }
+    collageSansMiseEnForme = false;
     if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
 });
+
+// Le raccourci arrive AVANT le collage : on lève un drapeau que le gestionnaire
+// de collage consomme, ici comme sur le tableau.
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+        collageSansMiseEnForme = true;
+        setTimeout(() => { collageSansMiseEnForme = false; }, 400);
+    }
+}, true);
 
 // Coller du texte SUR LE TABLEAU (hors saisie) : un bloc de texte apparaît,
 // avec ses titres, son gras et ses listes. Avant, un Ctrl+V venu de Word ou
@@ -5716,7 +5745,9 @@ function collerTexteSurLeTableau(html, brut) {
     selectedItems = [{ type: 'text', id: bloc.id }];
     saveState();
     draw();
-    if (typeof showToast === 'function') showToast('📋 Texte collé');
+    if (typeof showToast === 'function') {
+        showToast(html ? '📋 Texte collé — Ctrl+Maj+V pour ne coller que le texte' : '📋 Texte collé');
+    }
     return true;
 }
 // Repli automatique : dès que la ligne atteint le bord du tableau, le bloc
@@ -12669,8 +12700,9 @@ window.addEventListener('paste', (e) => {
     // page web… Il devient un bloc de texte posé sur le tableau.
     if (!imagePasted) {
         const dt = e.clipboardData || e.originalEvent.clipboardData;
-        const html = dt.getData('text/html');
+        const html = collageSansMiseEnForme ? '' : dt.getData('text/html');
         const brut = dt.getData('text/plain');
+        collageSansMiseEnForme = false;
         if ((html || brut) && collerTexteSurLeTableau(html, brut)) e.preventDefault();
         return;
     }

@@ -229,6 +229,56 @@ module.exports = async function (browser) {
     r.verifie('du texte brut donne aussi un bloc, ligne par ligne',
         /<div>Première ligne<\/div><div>Deuxième ligne<\/div>/.test(colleBrut || ''), colleBrut);
 
+    // Word, Pages et LibreOffice envoient leur feuille de style avec le texte
+    const styleColle = await page.evaluate(() => {
+        texts.length = 0;
+        const dt = new DataTransfer();
+        dt.setData('text/html', `<meta charset="utf-8"><style>p.p1 {margin: 0.0px; font: 13.0px 'Helvetica Neue'}</style>`
+            + `<p class="p1">Le cours du jour</p><p class="p1">Deuxième ligne</p>`);
+        dt.setData('text/plain', 'Le cours du jour\nDeuxième ligne');
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        return texts[0] ? texts[0].content : '';
+    });
+    r.verifie('la feuille de style de Word n\'arrive pas sur le tableau',
+        !/margin|font:|Helvetica|p\.p1/.test(styleColle), styleColle.slice(0, 140));
+    r.verifie('mais le texte, oui', /Le cours du jour/.test(styleColle) && /Deuxième ligne/.test(styleColle), styleColle.slice(0, 140));
+
+    // Ctrl+Maj+V : rien que le texte
+    const sansMiseEnForme = await page.evaluate(() => {
+        texts.length = 0;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'V', ctrlKey: true, shiftKey: true, bubbles: true }));
+        const dt = new DataTransfer();
+        dt.setData('text/html', '<h1>Un titre</h1><p>Avec du <b>gras</b></p>');
+        dt.setData('text/plain', 'Un titre\nAvec du gras');
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        return texts[0] ? texts[0].content : '';
+    });
+    r.verifie('Ctrl+Maj+V ne colle que le texte',
+        !/<h1>|<b>/.test(sansMiseEnForme) && /Un titre/.test(sansMiseEnForme), sansMiseEnForme);
+
+    // Dans un bloc en cours de saisie : pas de style, et rien en surbrillance
+    const dansLaSaisie = await page.evaluate(() => {
+        texts.length = 0;
+        panX = 0; panY = 0; zoom = 1;
+        setMode('text');
+        const zone = document.getElementById('wysiwyg-text');
+        zone.style.display = 'block';
+        zone.innerHTML = '';
+        zone.focus();
+        const dt = new DataTransfer();
+        dt.setData('text/html', `<style>p.p1 {font: 13px 'Helvetica'}</style><p class="p1">Bonjour la classe</p>`);
+        dt.setData('text/plain', 'Bonjour la classe');
+        zone.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        const sel = window.getSelection();
+        const res = { html: zone.innerHTML, surbrillance: sel ? String(sel).length : 0 };
+        zone.style.display = 'none'; zone.innerHTML = '';
+        setMode('pointer');
+        return res;
+    });
+    r.verifie('dans un bloc, la feuille de style est jetée aussi',
+        !/font:|Helvetica|p\.p1/.test(dansLaSaisie.html), dansLaSaisie.html.slice(0, 140));
+    r.egal('et rien ne reste en surbrillance après le collage', dansLaSaisie.surbrillance, 0);
+
     const rien = await page.evaluate(() => {
         texts.length = 0;
         const dt = new DataTransfer();

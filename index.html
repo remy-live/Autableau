@@ -341,7 +341,8 @@
                         <li><strong>Importer un document :</strong> Word (.docx), LibreOffice (.odt) ou texte (.txt, .csv) —
                             titres, gras, italique et listes sont conservés</li>
                         <li><strong>Coller (Ctrl+V) :</strong> une image, ou du texte venu de Word / LibreOffice / d'une
-                            page web — il devient un bloc de texte posé sur le tableau</li>
+                            page web — il devient un bloc de texte posé sur le tableau. <b>Ctrl+Maj+V</b> ne colle que le
+                            texte, sans la mise en forme.</li>
                         <li><strong>Exporter :</strong> Menu Exporter en PNG/PDF</li>
                         <li><strong>Sauvegarder :</strong> Auto-sauvegarde local</li>
                     </ul>
@@ -366,6 +367,7 @@
                     <div><code>Échap</code> Quitter mode spécial</div>
                     <div><code>Suppr</code> Effacer sélection</div>
                     <div><code>Ctrl+D</code> Dupliquer la sélection</div>
+                    <div><code>Ctrl+Maj+V</code> Coller sans mise en forme</div>
                     <div style="margin-top:10px;"><button class="btn-action secondary" style="font-size:12px; padding:6px 12px;"
                             onclick="document.getElementById('help-modal').style.display='none'; montrerAstuce(true);">💡 Voir les astuces</button></div>
                 </div>
@@ -1451,7 +1453,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=71"></script>
+    <script src="script.js?v=72"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
