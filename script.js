@@ -4916,12 +4916,59 @@ function intersectionProche(pos, tolerance) {
     return meilleur ? { x: meilleur.x, y: meilleur.y } : null;
 }
 
+// Le point de la figure le plus proche, s'il est à portée.
+function pointProche(pos, portee) {
+    let meilleur = null, min = portee;
+    points.forEach(p => {
+        const d = Math.hypot(p.x - pos.x, p.y - pos.y);
+        if (d < min) { min = d; meilleur = p; }
+    });
+    return meilleur ? { x: meilleur.x, y: meilleur.y } : null;
+}
+
+function projeterSurDroite(pos, d) {
+    const dx = d.b.x - d.a.x, dy = d.b.y - d.a.y;
+    const l2 = dx * dx + dy * dy;
+    if (!l2) return null;
+    let t = ((pos.x - d.a.x) * dx + (pos.y - d.a.y) * dy) / l2;
+    if (d.type === 'segment') t = Math.max(0, Math.min(1, t));
+    else if (d.type === 'demi-droite') t = Math.max(0, t);
+    return { x: d.a.x + t * dx, y: d.a.y + t * dy };
+}
+
+// Le point du tracé le plus proche : sert à poser un outil LE LONG d'un
+// trait ou d'un cercle, pas à guider le curseur.
+function projectionSurTrace(pos, portee) {
+    let meilleur = null, min = portee;
+    droitesGeometriques(pos, portee).forEach(d => {
+        const proj = projeterSurDroite(pos, d);
+        if (!proj) return;
+        const dist = Math.hypot(proj.x - pos.x, proj.y - pos.y);
+        if (dist < min) { min = dist; meilleur = proj; }
+    });
+    cerclesGeometriques(pos, portee).forEach(c => {
+        const dc = Math.hypot(pos.x - c.x, pos.y - c.y);
+        if (dc < 1e-6) return;
+        const dist = Math.abs(dc - c.r);
+        if (dist < min) { min = dist; meilleur = { x: c.x + (pos.x - c.x) * c.r / dc, y: c.y + (pos.y - c.y) * c.r / dc }; }
+    });
+    return meilleur;
+}
+
 // Le bord d'une règle, d'une équerre ou d'un rapporteur posé sur le tableau.
 // Le trait se pose contre l'outil, décalé d'une demi-épaisseur, comme un
-// crayon qui longe le plastique.
+// crayon qui longe le plastique. Les origines (angle de l'équerre, zéro de la
+// règle, centre du rapporteur) attirent aussi : c'est de là qu'on mesure.
 function accrocheOutils(raw) {
     const portee = 10 / zoom;
     const offset = (activeStyle.lineWidth || 2) / 2;
+
+    for (const nom of ['setsquare', 'ruler', 'protractor', 'compass']) {
+        if (!activeWidgets[nom] || !widgets[nom]) continue;
+        const w = widgets[nom];
+        const l = w.toLocal(raw.x, raw.y);
+        if (Math.abs(l.x) < portee && Math.abs(l.y) < portee) return w.toGlobal(0, 0);
+    }
 
     if (activeWidgets.setsquare && widgets.setsquare) {
         const w = widgets.setsquare, l = w.toLocal(raw.x, raw.y);
@@ -4952,22 +4999,100 @@ function accrocheOutils(raw) {
 }
 
 // La position retenue pour un clic ou un tracé, aimant compris.
+// L'ordre est celui de GeoMaster : l'outil qu'on a posé sur le tableau passe
+// avant la figure, la figure avant le quadrillage.
 // « source » sert au dessin du point fantôme.
 function positionAimantee(raw, options = {}) {
     if (!magnetMode) return { x: raw.x, y: raw.y, source: null };
-    if (aimant.intersections && !options.sansIntersection) {
-        const i = intersectionProche(raw);
-        if (i) return { x: i.x, y: i.y, source: 'intersection' };
-    }
     if (aimant.outils) {
         const t = accrocheOutils(raw);
         if (t) return { x: t.x, y: t.y, source: 'outil' };
+    }
+    if (aimant.intersections && !options.sansIntersection) {
+        const p = pointProche(raw, 12 / zoom);
+        if (p) return { x: p.x, y: p.y, source: 'point' };
+        const i = intersectionProche(raw);
+        if (i) return { x: i.x, y: i.y, source: 'intersection' };
     }
     if (aimant.grille && !options.sansGrille) {
         const g = snapToGrid(raw.x, raw.y);
         return { x: g.x, y: g.y, source: 'grille' };
     }
     return { x: raw.x, y: raw.y, source: null };
+}
+
+// ---------------------------------------------------
+// L'OUTIL QU'ON DÉPLACE SE CALE, LUI AUSSI
+// La règle se pose sur un point, le long d'un trait, ou s'aligne sur
+// l'équerre (parallèles et perpendiculaires) ; la pointe du compas se pose
+// sur le zéro de la règle pour reporter une longueur.
+// ---------------------------------------------------
+let reperOutil = null;      // petit repère dessiné quand un outil s'est calé
+
+// Règle et équerre s'alignent l'une sur l'autre dès que leurs directions sont
+// à 4° près, parallèles ou perpendiculaires.
+function alignerOutils(w, cible, portee) {
+    let autre = null;
+    if (w instanceof RulerWidget && activeWidgets.setsquare && widgets.setsquare) autre = widgets.setsquare;
+    else if (w instanceof SetSquareWidget && activeWidgets.ruler && widgets.ruler) autre = widgets.ruler;
+    if (!autre) return null;
+
+    const limite = 4 * Math.PI / 180;
+    const modPi = (a) => { let r = a % Math.PI; if (r < 0) r += Math.PI; return r; };
+    const ecart = (a, b) => { const d = Math.abs(modPi(a) - modPi(b)); return Math.min(d, Math.PI - d); };
+
+    for (const angle of [autre.angle, autre.angle + Math.PI / 2]) {
+        if (ecart(w.angle, angle) > limite) continue;
+        const dx = Math.cos(angle), dy = Math.sin(angle);
+        const v = (cible.x - autre.x) * dx + (cible.y - autre.y) * dy;
+        const p = { x: autre.x + v * dx, y: autre.y + v * dy };
+        if (Math.hypot(cible.x - p.x, cible.y - p.y) > portee) continue;
+        // on garde le sens le plus proche de l'orientation actuelle
+        const distAngle = (a) => Math.abs(Math.atan2(Math.sin(w.angle - a), Math.cos(w.angle - a)));
+        w.angle = distAngle(angle) < distAngle(angle + Math.PI) ? angle : angle + Math.PI;
+        return p;
+    }
+    return null;
+}
+
+function poserOutil(w, cible) {
+    reperOutil = null;
+    if (!magnetMode || !aimant.outils) return cible;
+    const portee = 15 / zoom;
+
+    const aligne = alignerOutils(w, cible, portee);
+    if (aligne) return aligne;
+
+    // La pointe du compas sur le zéro de la règle : le geste du report de
+    // longueur. Prioritaire, sinon un point voisin la volerait.
+    if (w instanceof CompassWidget && activeWidgets.ruler && widgets.ruler) {
+        const org = widgets.ruler.toGlobal(0, 0);
+        if (Math.hypot(cible.x - org.x, cible.y - org.y) < portee) { reperOutil = org; return org; }
+    }
+
+    if (aimant.intersections) {
+        const p = pointProche(cible, portee);
+        if (p) { reperOutil = p; return p; }
+        const i = intersectionProche(cible, portee);
+        if (i) { reperOutil = i; return i; }
+    }
+
+    const proj = projectionSurTrace(cible, portee);
+    if (proj) { reperOutil = proj; return proj; }
+
+    return cible;
+}
+
+// L'écartement du compas se prend sur un point : c'est ainsi qu'on reporte
+// exactement une longueur AB.
+function pointerCompasVers(w, x, y) {
+    reperOutil = null;
+    if (magnetMode && aimant.outils) {
+        const portee = 12 / zoom;
+        const p = pointProche({ x, y }, portee) || (aimant.intersections ? intersectionProche({ x, y }, portee) : null);
+        if (p) { reperOutil = p; return p; }
+    }
+    return { x, y };
 }
 
 function distToSegment(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
@@ -5740,8 +5865,9 @@ canvas.addEventListener('pointermove', (e) => {
         const ry = rawPos.y;
 
         if (modeW === 'move') {
-            w.x = rx - widgetOffset.x;
-            w.y = ry - widgetOffset.y;
+            const pose = poserOutil(w, { x: rx - widgetOffset.x, y: ry - widgetOffset.y });
+            w.x = pose.x;
+            w.y = pose.y;
         } else if (modeW === 'slideX' || modeW === 'slideY') {
             const dx = rx - dragStartMouse.x;
             const dy = ry - dragStartMouse.y;
@@ -5751,10 +5877,18 @@ canvas.addEventListener('pointermove', (e) => {
             w.x = dragStartWidget.x + dot * Math.cos(axisAngle);
             w.y = dragStartWidget.y + dot * Math.sin(axisAngle);
         } else if (modeW === 'rotate') {
-            w.angle = Math.atan2(ry - w.y, rx - w.x) - widgetRotationOffset;
+            if (w instanceof CompassWidget) {
+                const bout = pointerCompasVers(w, w.x + w.radius * Math.cos(Math.atan2(ry - w.y, rx - w.x) - widgetRotationOffset),
+                                                  w.y + w.radius * Math.sin(Math.atan2(ry - w.y, rx - w.x) - widgetRotationOffset));
+                w.angle = Math.atan2(bout.y - w.y, bout.x - w.x);
+            } else {
+                w.angle = Math.atan2(ry - w.y, rx - w.x) - widgetRotationOffset;
+            }
         } else if (modeW === 'resize' && w instanceof CompassWidget) {
-            w.radius = Math.hypot(rx - w.x, ry - w.y);
-            w.angle = Math.atan2(ry - w.y, rx - w.x);
+            // L'écartement se prend sur un point de la figure quand il y en a un
+            const bout = pointerCompasVers(w, rx, ry);
+            w.radius = Math.hypot(bout.x - w.x, bout.y - w.y);
+            w.angle = Math.atan2(bout.y - w.y, bout.x - w.x);
         } else if (modeW === 'resize' && w instanceof RulerWidget) {
             const local = w.toLocal(rx, ry);
             if (local.x > 100) w.width = local.x;
@@ -6181,6 +6315,7 @@ function handlePointerUp(e) {
 
         draggedWidget = null;
         draggedWidgetMode = null;
+        reperOutil = null;
     }
 
     clearTimeout(shapeRecognitionTimeout);
@@ -6344,7 +6479,26 @@ document.getElementById('zoom-slider').addEventListener('input', (e) => {
 });
 
 document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); draw(); });
-const btnMagnet = document.getElementById('btn-magnet'); btnMagnet.addEventListener('click', () => { magnetMode = !magnetMode; btnMagnet.classList.toggle('active', magnetMode); draw(); });
+// L'aimant dit sur quoi il attire : sans ça, on ne devine ni ce qu'il fait,
+// ni qu'un appui long permet de le régler.
+function resumeAimant() {
+    const sources = [];
+    if (aimant.grille) sources.push('quadrillage');
+    if (aimant.outils) sources.push('outils');
+    if (aimant.intersections) sources.push('points et intersections');
+    return sources.join(' + ');
+}
+const btnMagnet = document.getElementById('btn-magnet');
+btnMagnet.addEventListener('click', () => {
+    magnetMode = !magnetMode;
+    btnMagnet.classList.toggle('active', magnetMode);
+    if (typeof showToast === 'function') {
+        showToast(magnetMode
+            ? `🧲 Aimant : ${resumeAimant()} — appui long pour choisir`
+            : 'Aimant désactivé');
+    }
+    draw();
+});
 document.getElementById('btn-cycle').onclick = () => {
     currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
     if (typeof cadrerSurLaFeuille === 'function') cadrerSurLaFeuille();
@@ -7059,6 +7213,15 @@ function draw() {
                     ctx.stroke();
                 }
             }
+        }
+
+        // L'outil qu'on déplace s'est calé : on montre sur quoi.
+        if (reperOutil && draggedWidget) {
+            ctx.beginPath();
+            ctx.arc(reperOutil.x, reperOutil.y, lw * 8, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(0, 184, 148, 0.9)";
+            ctx.lineWidth = lw * 2;
+            ctx.stroke();
         }
 
         if (currentTracingArc) {
@@ -9588,6 +9751,11 @@ function clonePluginButton(sourceBtn, toolId) {
     clone.querySelectorAll('.fav-star, .fav-star-icon').forEach(star => star.remove());
     clone.setAttribute('data-tooltip', originalTitle);
     clone.addEventListener('click', () => sourceBtn.click());
+    // Les réglages cachés derrière un appui long suivent la copie
+    if (sourceBtn.actionAppuiLong && typeof poserAppuiLong === 'function') {
+        delete clone.dataset.appuiLong;
+        poserAppuiLong(clone, () => sourceBtn.actionAppuiLong(clone));
+    }
     bindPluginDragGhost(clone, toolId);
     return clone;
 }
@@ -15917,6 +16085,9 @@ function poserAppuiLong(bouton, action) {
     if (!bouton || bouton.dataset.appuiLong === 'oui') return;
     bouton.dataset.appuiLong = 'oui';
     bouton.classList.add('a-appui-long');
+    // Mémorisée pour que les copies du bouton (barres flottantes, interfaces)
+    // gardent leur appui long : sans ça, l'outil déplacé perdait ses réglages.
+    bouton.actionAppuiLong = action;
 
     let minuteur = null;
     let declenche = false;
@@ -16085,7 +16256,7 @@ document.addEventListener('DOMContentLoaded', () => {
             { separateur: "S'aimanter sur" },
             { nom: 'Le quadrillage', actif: aimant.grille, action: () => bascule('grille') },
             { nom: 'Les outils de géométrie', actif: aimant.outils, action: () => bascule('outils') },
-            { nom: 'Les points d\'intersection', actif: aimant.intersections, action: () => bascule('intersections') }
+            { nom: 'Les points et les intersections', actif: aimant.intersections, action: () => bascule('intersections') }
         ]);
     };
     poserAppuiLong(document.getElementById('btn-magnet'), ouvrirPanneauAimant);

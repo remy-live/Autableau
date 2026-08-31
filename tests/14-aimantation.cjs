@@ -108,7 +108,9 @@ module.exports = async function (browser) {
     const avecCercle = await page.evaluate(() => {
         points.length = 0; segments.length = 0; circles.length = 0;
         points.push({ id: 1, x: 0, y: 300 }, { id: 2, x: 600, y: 300 },     // horizontale y = 300
-                     { id: 3, x: 300, y: 300 }, { id: 4, x: 400, y: 300 }); // cercle de centre (300,300), rayon 100
+                     { id: 3, x: 300, y: 300 }, { id: 4, x: 300, y: 400 }); // cercle de centre (300,300), rayon 100
+        // le point du bord est placé en bas : les deux croisements avec la
+        // droite ne sont donc portés par aucun point existant
         segments.push({ id: 5, p1_id: 1, p2_id: 2 });
         circles.push({ id: 6, center_id: 3, edge_id: 4 });
         return {
@@ -190,6 +192,93 @@ module.exports = async function (browser) {
         return p.source;
     });
     r.verifie('on peut débrayer l\'aimantation aux outils', sansOutils !== 'outil', String(sansOutils));
+
+    // --- L'OUTIL QU'ON DÉPLACE SE CALE AUSSI (repris de GeoMaster) ---
+    const outilSurPoint = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        points.push({ id: 1, x: 600, y: 400 });
+        const w = widgets.ruler;
+        const pose = poserOutil(w, { x: 607, y: 396 });          // 8 px du point
+        const loin = poserOutil(w, { x: 900, y: 400 });
+        return { pose, loin };
+    });
+    r.verifie('une règle déplacée se pose sur un point de la figure',
+        outilSurPoint.pose.x === 600 && outilSurPoint.pose.y === 400, JSON.stringify(outilSurPoint.pose));
+    r.verifie('mais pas quand elle en est loin',
+        outilSurPoint.loin.x === 900, JSON.stringify(outilSurPoint.loin));
+
+    const outilSurTrace = await page.evaluate(() => {
+        points.length = 0; segments.length = 0;
+        points.push({ id: 1, x: 200, y: 500 }, { id: 2, x: 800, y: 500 });
+        segments.push({ id: 3, p1_id: 1, p2_id: 2 });
+        return poserOutil(widgets.ruler, { x: 500, y: 508 });     // 8 px au-dessus du trait
+    });
+    r.verifie('elle se pose aussi LE LONG d\'un trait',
+        outilSurTrace.x === 500 && outilSurTrace.y === 500, JSON.stringify(outilSurTrace));
+
+    const outilSurCercle = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        points.push({ id: 1, x: 500, y: 500 }, { id: 2, x: 700, y: 500 });
+        circles.push({ id: 3, center_id: 1, edge_id: 2 });
+        const p = poserOutil(widgets.ruler, { x: 500, y: 308 });  // rayon 200, donc bord à y = 300
+        return { p, ecart: Math.abs(Math.hypot(p.x - 500, p.y - 500) - 200) };
+    });
+    r.verifie('et sur le bord d\'un cercle', outilSurCercle.ecart < 0.01, JSON.stringify(outilSurCercle));
+
+    // Règle et équerre s'alignent : le geste des parallèles
+    const alignement = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        document.querySelector('.btn[data-widget="setsquare"]').click();
+        const eq = widgets.setsquare, regle = widgets.ruler;
+        eq.x = 400; eq.y = 400; eq.angle = 0.5;
+        regle.angle = 0.5 + 0.03;                 // ~1,7° d'écart : dans la tolérance de 4°
+        const pose = poserOutil(regle, { x: eq.x + 200 * Math.cos(0.5) + 6, y: eq.y + 200 * Math.sin(0.5) + 6 });
+        const surLaDroite = Math.abs((pose.x - eq.x) * Math.sin(0.5) - (pose.y - eq.y) * Math.cos(0.5));
+        return { angleRegle: regle.angle, angleEquerre: eq.angle, surLaDroite };
+    });
+    r.verifie('la règle s\'aligne exactement sur l\'équerre',
+        Math.abs(alignement.angleRegle - alignement.angleEquerre) < 1e-9, JSON.stringify(alignement));
+    r.verifie('et glisse le long de son bord', alignement.surLaDroite < 0.01, JSON.stringify(alignement));
+
+    const perpendiculaire = await page.evaluate(() => {
+        const eq = widgets.setsquare, regle = widgets.ruler;
+        eq.angle = 0.5;
+        regle.angle = 0.5 + Math.PI / 2 + 0.02;    // presque perpendiculaire
+        poserOutil(regle, { x: eq.x + 4, y: eq.y + 4 });
+        const ecart = Math.abs(regle.angle - (eq.angle + Math.PI / 2));
+        return { ecart, angle: regle.angle };
+    });
+    r.verifie('presque perpendiculaire devient exactement perpendiculaire',
+        perpendiculaire.ecart < 1e-9, JSON.stringify(perpendiculaire));
+
+    // La pointe du compas se pose sur le zéro de la règle (report de longueur)
+    const compasSurRegle = await page.evaluate(() => {
+        document.querySelector('.btn[data-widget="compass"]').click();
+        const zero = widgets.ruler.toGlobal(0, 0);
+        const pose = poserOutil(widgets.compass, { x: zero.x + 6, y: zero.y - 5 });
+        return { pose, zero };
+    });
+    r.verifie('la pointe du compas se pose sur le zéro de la règle',
+        Math.abs(compasSurRegle.pose.x - compasSurRegle.zero.x) < 0.01
+        && Math.abs(compasSurRegle.pose.y - compasSurRegle.zero.y) < 0.01,
+        JSON.stringify(compasSurRegle));
+
+    // L'écartement du compas se prend sur un point : la longueur est exacte
+    const ecartement = await page.evaluate(() => {
+        points.length = 0;
+        points.push({ id: 1, x: 900, y: 300 });
+        const w = widgets.compass;
+        w.x = 600; w.y = 300;
+        const bout = pointerCompasVers(w, 894, 306);
+        return { bout, longueurExacte: Math.hypot(bout.x - w.x, bout.y - w.y) };
+    });
+    r.verifie('le compas prend son écartement sur un point de la figure',
+        ecartement.longueurExacte === 300, JSON.stringify(ecartement));
+
+    await page.evaluate(() => {
+        ['setsquare', 'compass'].forEach(n => document.querySelector(`.btn[data-widget="${n}"]`).click());
+        points.length = 0;
+    });
 
     // --- LE TRACÉ À MAIN LEVÉE RESTE LIBRE ---
     await page.evaluate(() => {
