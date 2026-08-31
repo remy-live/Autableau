@@ -328,6 +328,60 @@ module.exports = async function (browser) {
     r.verifie('sa géométrie est retenue d\'une fois sur l\'autre',
         fenetre.memoire.w === 820 || fenetre.memoire.h === 560, JSON.stringify(fenetre.memoire));
 
+    // --- LES DEUX FENÊTRES SUIVENT LA MÊME CHARTE ---
+    const charte = await page.evaluate(async () => {
+        PluginManager.plugins.globalExerciseGenerator.openWidget();
+        PluginManager.plugins.flashMathTool.openWidget();
+        await new Promise(r => setTimeout(r, 500));
+        const geg = document.getElementById('geg-widget');
+        const fl = document.getElementById('fl-widget');
+        const lu = (el, prop) => getComputedStyle(el).getPropertyValue(prop).trim();
+        return {
+            deux: !!geg && !!fl,
+            classees: !!geg && geg.classList.contains('pw') && !!fl && fl.classList.contains('pw'),
+            memeAccent: lu(geg, '--pw-accent') === lu(fl, '--pw-accent'),
+            accentClair: lu(geg, '--pw-accent'),
+            fondClair: lu(geg, '--pw-fond'),
+            rail: !!geg.querySelector('.pw-rail-item.actif'),
+            pastilles: geg.querySelectorAll('.pw-pastille').length,
+            pastilleAllumee: geg.querySelectorAll('.pw-pastille.actif').length,
+            jauge: (geg.querySelector('#geg-jauge') || {}).innerText,
+            piedFlash: fl.querySelectorAll('.fl-footer-actions .pw-btn').length,
+            uneSeuleAction: fl.querySelectorAll('.fl-footer-actions .fl-btn-poser').length,
+            actionsEpinglees: !!fl.querySelector('.fl-sidebar-actions #fl-btn-gen')
+        };
+    });
+    r.verifie('les deux fenêtres existent', charte.deux, JSON.stringify(charte));
+    r.verifie('et portent toutes deux la charte commune', charte.classees, JSON.stringify(charte));
+    r.verifie('avec la même couleur d\'accent', charte.memeAccent, charte.accentClair);
+    r.verifie('le rail du générateur montre le thème choisi', charte.rail);
+    r.verifie('ses types d\'exercices sont des pastilles',
+        charte.pastilles >= 4 && charte.pastilleAllumee >= 1, JSON.stringify(charte));
+    r.verifie('l\'en-tête annonce ce que contiendra la feuille',
+        /\d+ question/.test(charte.jauge || ''), charte.jauge);
+    r.verifie('le pied des questions flash n\'a qu\'une action colorée',
+        charte.uneSeuleAction === 1 && charte.piedFlash >= 4, JSON.stringify(charte));
+    r.verifie('« Générer la série » reste sous la main quand la liste défile',
+        charte.actionsEpinglees, JSON.stringify(charte));
+
+    const nuit = await page.evaluate(async () => {
+        toggleDarkMode();
+        await new Promise(r => setTimeout(r, 200));
+        const geg = document.getElementById('geg-widget');
+        const fond = getComputedStyle(geg).backgroundColor;
+        // « rgb(30, 38, 43) » : on veut simplement du sombre, pas du blanc
+        const n = (fond.match(/\d+/g) || []).map(Number);
+        const sombre = n.length >= 3 && (n[0] + n[1] + n[2]) / 3 < 90;
+        // La feuille d'aperçu, elle, reste du papier blanc
+        const feuille = document.querySelector('#fl-widget .fl-sheet');
+        const p = (getComputedStyle(feuille).backgroundColor.match(/\d+/g) || []).map(Number);
+        const blanche = p.length >= 3 && (p[0] + p[1] + p[2]) / 3 > 230;
+        toggleDarkMode();
+        return { fond, sombre, blanche };
+    });
+    r.verifie('en mode nuit, la fenêtre s\'assombrit', nuit.sombre, nuit.fond);
+    r.verifie('mais la feuille reste du papier blanc', nuit.blanche, JSON.stringify(nuit));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
 

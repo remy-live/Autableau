@@ -5743,3 +5743,324 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     border: 1px solid var(--border);
     font-weight: 700;
 }
+
+/* ============================================================
+   LES FENÊTRES D'OUTILS — UNE SEULE CHARTE
+   Le générateur d'exercices et les questions flash étaient dessinés chacun
+   dans son coin, en styles écrits à la main dans le JavaScript. Tout passe
+   ici : même en-tête, même rail de thèmes, mêmes champs, même pied de page,
+   et le mode nuit une seule fois pour les deux.
+   Préfixe « pw- » pour « plugin window ».
+   ============================================================ */
+.pw {
+    --pw-fond: #ffffff;
+    --pw-fond2: #f7f8fa;
+    --pw-trait: #e3e7ea;
+    --pw-encre: #232b2f;
+    --pw-gris: #6d787e;
+    --pw-accent: #0984e3;
+    --pw-accent-doux: #e8f4fd;
+
+    position: fixed;
+    z-index: 100000;
+    background: var(--pw-fond);
+    color: var(--pw-encre);
+    border: 1px solid var(--pw-trait);
+    border-radius: 14px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    max-height: 92vh;
+}
+
+.dark-mode .pw {
+    --pw-fond: #1e262b;
+    --pw-fond2: #172025;
+    --pw-trait: #333f46;
+    --pw-encre: #e6ecef;
+    --pw-gris: #9aa7ae;
+    --pw-accent: #4aa8f0;
+    --pw-accent-doux: #17303f;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* --- En-tête --- */
+.pw-entete {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    background: var(--pw-fond);
+    border-bottom: 1px solid var(--pw-trait);
+    cursor: grab;
+    touch-action: none;
+    flex: none;
+}
+
+.pw-entete:active { cursor: grabbing; }
+
+.pw-titre {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+}
+
+.pw-marque {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--pw-accent);
+    margin-right: 2px;
+}
+
+.pw-jauge {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--pw-accent);
+    background: var(--pw-accent-doux);
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+
+.pw-entete .pw-espace { flex: 1; }
+
+.pw-icone {
+    border: none;
+    background: none;
+    color: var(--pw-gris);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 5px 7px;
+    border-radius: 7px;
+}
+
+.pw-icone:hover { background: var(--pw-fond2); color: var(--pw-encre); }
+.pw-icone.fermer:hover { background: #fdecea; color: #d63031; }
+.dark-mode .pw-icone.fermer:hover { background: #48232a; color: #ff7675; }
+
+/* --- Corps : un rail à gauche, un panneau à droite --- */
+.pw-corps { display: flex; flex: 1; min-height: 0; }
+
+.pw-rail {
+    width: 186px;
+    flex: none;
+    border-right: 1px solid var(--pw-trait);
+    background: var(--pw-fond2);
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.pw-rail-titre {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--pw-gris);
+    padding: 8px 14px 4px;
+}
+
+.pw-rail-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 9px 14px;
+    border: none;
+    border-left: 3px solid transparent;
+    background: none;
+    color: var(--pw-gris);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pw-rail-item:hover { color: var(--pw-encre); background: rgba(128, 128, 128, 0.08); }
+
+.pw-rail-item.actif {
+    border-left-color: var(--pw-accent);
+    background: var(--pw-fond);
+    color: var(--pw-encre);
+}
+
+.pw-panneau {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* --- Blocs de réglages --- */
+.pw-bloc {
+    border: 1px solid var(--pw-trait);
+    border-radius: 10px;
+    padding: 11px 12px;
+    background: var(--pw-fond);
+}
+
+.pw-bloc-titre {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--pw-gris);
+    margin-bottom: 8px;
+}
+
+.pw-rangee { display: flex; gap: 10px; flex-wrap: wrap; }
+.pw-rangee > * { flex: 1 1 130px; min-width: 0; }
+
+.pw-champ { display: flex; flex-direction: column; gap: 4px; }
+
+.pw-champ > label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--pw-gris);
+}
+
+.pw-select,
+.pw-nombre {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--pw-trait);
+    border-radius: 8px;
+    background: var(--pw-fond);
+    color: var(--pw-encre);
+    font: inherit;
+    cursor: pointer;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.pw-select:focus,
+.pw-nombre:focus { border-color: var(--pw-accent); box-shadow: 0 0 0 3px var(--pw-accent-doux); }
+
+/* --- Pastilles à cocher --- */
+.pw-pastilles { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.pw-pastille {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border: 1.5px solid var(--pw-trait);
+    border-radius: 999px;
+    background: var(--pw-fond);
+    color: var(--pw-gris);
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.pw-pastille:hover { border-color: var(--pw-accent); color: var(--pw-encre); }
+
+.pw-pastille.actif {
+    border-color: var(--pw-accent);
+    background: var(--pw-accent-doux);
+    color: var(--pw-accent);
+}
+
+.pw-pastille input { display: none; }
+
+/* --- Interrupteur en ligne --- */
+.pw-bascule {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px 11px;
+    border: 1px solid var(--pw-trait);
+    border-radius: 10px;
+    background: var(--pw-fond2);
+    cursor: pointer;
+}
+
+.pw-bascule input { margin: 2px 0 0; width: 15px; height: 15px; cursor: pointer; flex: none; }
+.pw-bascule b { font-size: 12px; font-weight: 600; display: block; }
+.pw-bascule small { color: var(--pw-gris); font-size: 11px; }
+
+/* --- Aperçu, sur fond de papier --- */
+.pw-apercu-cadre {
+    border-top: 1px solid var(--pw-trait);
+    background: var(--pw-fond2);
+    padding: 10px 14px 14px;
+    flex: none;
+}
+
+.pw-apercu-titre {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--pw-gris);
+    margin-bottom: 7px;
+    text-align: center;
+}
+
+.pw-apercu {
+    width: 100%;
+    height: 230px;
+    overflow: hidden;
+    border: 1px solid var(--pw-trait);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.07);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* --- Pied de page --- */
+.pw-pied {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border-top: 1px solid var(--pw-trait);
+    background: var(--pw-fond);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.pw-pied .pw-espace { flex: 1; }
+
+.pw-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 9px 15px;
+    border: 1px solid var(--pw-trait);
+    border-radius: 9px;
+    background: var(--pw-fond);
+    color: var(--pw-encre);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pw-btn:hover { background: var(--pw-fond2); border-color: var(--pw-gris); }
+
+.pw-btn.primaire {
+    border-color: transparent;
+    background: var(--pw-accent);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(9, 132, 227, 0.3);
+}
+
+.pw-btn.primaire:hover { background: #0b76c9; border-color: transparent; }
+.dark-mode .pw-btn.primaire:hover { background: #6bb8f3; }
+
+.pw-btn.actif { border-color: var(--pw-accent); background: var(--pw-accent-doux); color: var(--pw-accent); }
+.pw-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* Sur une tablette, la fenêtre prend la largeur qu'il reste */
+@media (max-width: 900px) {
+    .pw { width: auto !important; left: 8px !important; right: 8px !important; }
+    .pw-rail { width: 132px; }
+}

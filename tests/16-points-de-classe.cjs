@@ -311,6 +311,128 @@ module.exports = async function (browser) {
     r.egal('le plan de classe montre l\'avatar des élèves non placés', plan.chips, 3);
     r.egal('et celui des élèves assis', plan.places, 3);
 
+    // --- L'AVATAR EST OPTIONNEL ---
+    const sansMonstre = await page.evaluate(() => {
+        const e = { id: 'stu_3', name: 'Ana Belle' };
+        AvatarsEleves.regler(true);
+        const avec = AvatarsEleves.svg(e, 40);
+        AvatarsEleves.regler(false);
+        const sans = AvatarsEleves.svg(e, 40);
+        const memoire = localStorage.getItem('board_avatars');
+        // une photo posée exprès survit à l'extinction des monstres
+        const photo = { id: 'stu_4', name: 'Bo', avatar: { image: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' } };
+        const avecPhoto = AvatarsEleves.svg(photo, 40);
+        AvatarsEleves.regler(true);
+        return {
+            avec, sans, memoire, avecPhoto,
+            initiales: AvatarsEleves.initiales('Ana Belle'),
+            uneLettre: AvatarsEleves.initiales('Zoé'),
+            memeCouleur: AvatarsEleves.traits(e).teinte
+        };
+    });
+    r.verifie('avec les monstres, on dessine un monstre',
+        /path|circle|rect/.test(sansMonstre.avec) && !/<text/.test(sansMonstre.avec));
+    r.verifie('sans les monstres, on écrit les initiales',
+        /<text/.test(sansMonstre.sans) && sansMonstre.sans.includes('AB'), sansMonstre.sans.slice(0, 120));
+    r.verifie('en gardant la couleur de l\'élève',
+        sansMonstre.sans.includes(sansMonstre.memeCouleur), sansMonstre.memeCouleur);
+    r.egal('deux prénoms donnent deux lettres', sansMonstre.initiales, 'AB');
+    r.egal('un seul prénom en donne une', sansMonstre.uneLettre, 'Z');
+    r.egal('le réglage se retient', sansMonstre.memoire, '0');
+    r.verifie('une photo posée à la main reste affichée', /<img/.test(sansMonstre.avecPhoto));
+
+    const dansLesClasses = await page.evaluate(async () => {
+        document.getElementById('btn-classes-menu').click();
+        await new Promise(r => setTimeout(r, 600));
+        const boite = document.getElementById('cm-avatars');
+        const out = { interrupteur: !!boite, coche: boite && boite.checked };
+        if (boite) {
+            boite.checked = false;
+            boite.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            out.eteint = !AvatarsEleves.actifs;
+            out.initialesAffichees = /<text/.test(document.querySelector('.cm-avatar').innerHTML);
+            const re = document.getElementById('cm-avatars');
+            re.checked = true;
+            re.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 300));
+            out.rallume = AvatarsEleves.actifs;
+        }
+        return out;
+    });
+    r.verifie('« Mes classes » propose l\'interrupteur', dansLesClasses.interrupteur, JSON.stringify(dansLesClasses));
+    r.verifie('le décocher éteint les monstres partout', dansLesClasses.eteint, JSON.stringify(dansLesClasses));
+    r.verifie('et la liste montre aussitôt les initiales', dansLesClasses.initialesAffichees, JSON.stringify(dansLesClasses));
+    r.verifie('le recocher les rallume', dansLesClasses.rallume, JSON.stringify(dansLesClasses));
+
+    // --- DONNER DES POINTS DEPUIS « MES CLASSES » ---
+    const parLesClasses = await page.evaluate(async () => {
+        await ClassesStore.saveAll([
+            { id: 'cx', name: 'Autre', students: [{ id: 'x0', name: 'Xa' }] },
+            { id: 'cav', name: 'Essai avatars', students: ['Ana', 'Bo', 'Cy'].map((n, i) => ({ id: 'av_' + i, name: n })) }
+        ]);
+        const modale = document.getElementById('class-manager-modal');
+        if (modale) modale.remove();
+        document.getElementById('btn-classes-menu').click();
+        await new Promise(r => setTimeout(r, 600));
+        // on sélectionne la deuxième classe avant d'ouvrir les points
+        const ligne = document.querySelector('#class-manager-modal .cm-class-item[data-id="cav"]');
+        if (ligne) ligne.click();
+        await new Promise(r => setTimeout(r, 300));
+        document.getElementById('cm-points').click();
+        await new Promise(r => setTimeout(r, 700));
+        const w = document.getElementById('points-widget');
+        return {
+            bouton: true,
+            widget: !!w,
+            modaleFermee: !document.getElementById('class-manager-modal'),
+            classe: PluginManager.plugins.classPointsTool.classeId,
+            cartes: w ? w.querySelectorAll('.pts-carte').length : 0
+        };
+    });
+    r.verifie('« Mes classes » ouvre le tableau des points', parLesClasses.widget, JSON.stringify(parLesClasses));
+    r.verifie('en refermant la fenêtre des classes', parLesClasses.modaleFermee, JSON.stringify(parLesClasses));
+    r.verifie('sur la classe qu\'on regardait, pas la première venue',
+        parLesClasses.classe === 'cav' && parLesClasses.cartes === 3, JSON.stringify(parLesClasses));
+
+    const pointsDonnes = await page.evaluate(async () => {
+        const outil = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        // On vise l'élève par son identifiant : l'ordre des cartes ne doit
+        // pas décider de ce que le test vérifie.
+        const carte = (id) => w.querySelector('.pts-carte[data-id="' + id + '"]');
+        w.querySelector('#pts-mode-plus').click();
+        carte('av_0').click();
+        carte('av_0').click();
+        w.querySelector('#pts-mode-moins').click();
+        carte('av_1').click();
+        await new Promise(r => setTimeout(r, 200));
+        // On relève des nombres, pas l'objet : l'annulation qui suit le
+        // modifierait sous nos pieds.
+        const lire = (id) => {
+            const c = outil.classes.find(x => x.id === 'cav');
+            const e = (c.students || []).find(s => s.id === id);
+            const p = (e && e.pts) || {};
+            return { plus: p.plus || 0, moins: p.moins || 0 };
+        };
+        const av0 = lire('av_0'), av1 = lire('av_1');
+        const enregistre = await ClassesStore.loadAll();
+        const relu = enregistre.find(c => c.id === 'cav');
+        const reluAv0 = relu && (relu.students || []).find(s => s.id === 'av_0');
+        w.querySelector('#pts-annuler').click();
+        await new Promise(r => setTimeout(r, 150));
+        return {
+            plus: av0.plus,
+            moins: av1.moins,
+            surLeleve: !!(reluAv0 && reluAv0.pts && reluAv0.pts.plus === 2),
+            apresAnnulation: lire('av_1').moins
+        };
+    });
+    r.egal('deux clics en Bonus donnent deux points', pointsDonnes.plus, 2);
+    r.egal('un clic en Malus en retire un', pointsDonnes.moins, 1);
+    r.verifie('les points sont écrits sur l\'élève, dans sa classe', pointsDonnes.surLeleve, JSON.stringify(pointsDonnes));
+    r.egal('↶ annule le dernier point donné', pointsDonnes.apresAnnulation, 0);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

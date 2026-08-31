@@ -7673,94 +7673,100 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         if (!existingState) existingState = this.rappeler();
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:80px; left:120px; width:750px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; font-family: sans-serif; border:1px solid #dfe6e9; overflow:hidden; display:flex; flex-direction:column;`;
+            this.widgetEl.id = 'geg-widget';
+            this.widgetEl.className = 'pw';
+            this.widgetEl.style.cssText = 'top:80px; left:120px; width:760px; max-width:94vw;';
 
             this.widgetEl.innerHTML = `
-                <div class="geg-header" style="background:#1e272e; color:#fff; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; font-weight:bold;">
-                    <div>📝 Générateur d'exercices</div>
-                    <button id="geg-close" style="background:none; border:none; color:#ff7675; cursor:pointer; font-size:16px;">✕</button>
+                <div class="pw-entete geg-header">
+                    <span class="pw-titre">📝 Générateur d'exercices</span>
+                    <span class="pw-jauge" id="geg-jauge"></span>
+                    <span class="pw-espace"></span>
+                    <button class="pw-icone fermer" id="geg-close" title="Fermer">✕</button>
                 </div>
-                <div style="display:flex; flex:1;">
-                    <!-- LEFT COLUMN : Themes -->
-                    <div style="width:200px; border-right:1px solid #dfe6e9; background:#f8f9fa; display:flex; flex-direction:column;">
-                        <div style="padding:10px; font-size:12px; font-weight:bold; color:#636e72; text-transform:uppercase;">Thèmes</div>
-                        <div id="geg-themes" style="display:flex; flex-direction:column;">
-                            <div class="geg-theme-btn active" data-theme="math" style="padding:12px 15px; cursor:pointer; border-left:4px solid #0984e3; background:#fff; font-weight:bold; color:#2d3436;">Mathématiques</div>
-                            <div class="geg-theme-btn" data-theme="relatifs" style="padding:12px 15px; cursor:pointer; border-left:4px solid transparent; font-weight:bold; color:#636e72;">Nombres Relatifs</div>
-                            <div class="geg-theme-btn" data-theme="equation" style="padding:12px 15px; cursor:pointer; border-left:4px solid transparent; font-weight:bold; color:#636e72;">Équations</div>
-                            <div class="geg-theme-btn" data-theme="conv" style="padding:12px 15px; cursor:pointer; border-left:4px solid transparent; font-weight:bold; color:#636e72;">Conversions</div>
-                            <div class="geg-theme-btn" data-theme="conj" style="padding:12px 15px; cursor:pointer; border-left:4px solid transparent; font-weight:bold; color:#636e72;">Conjugaison</div>
+
+                <div class="pw-corps">
+                    <div class="pw-rail">
+                        <div class="pw-rail-titre">Thèmes</div>
+                        <div id="geg-themes">
+                            <button class="pw-rail-item geg-theme-btn actif active" data-theme="math">Mathématiques</button>
+                            <button class="pw-rail-item geg-theme-btn" data-theme="relatifs">Nombres relatifs</button>
+                            <button class="pw-rail-item geg-theme-btn" data-theme="equation">Équations</button>
+                            <button class="pw-rail-item geg-theme-btn" data-theme="conv">Conversions</button>
+                            <button class="pw-rail-item geg-theme-btn" data-theme="conj">Conjugaison</button>
                         </div>
                     </div>
-                    
-                    <!-- RIGHT COLUMN : Options & Preview -->
-                    <div style="flex:1; display:flex; flex-direction:column; padding:15px; gap:12px; background:#fff;">
-                        <div style="font-weight:bold; font-size:14px; color:#2d3436;">Types d'exercices (Mixables)</div>
-                        <div id="geg-options" style="display:flex; flex-wrap:wrap; gap:10px;">
-                            <!-- Dynamically populated based on theme -->
-                        </div>
-                        
-                        <!-- Groups for conjugation -->
-                        <div id="geg-group-wrap" style="display:none; flex-direction:column; gap:4px; margin-top:5px;">
-                            <label style="font-weight:bold; font-size:12px; color:#2d3436;">Groupe Verbal</label>
-                            <select id="geg-opt-group" style="padding:6px; border:1px solid #dfe6e9; border-radius:6px; outline:none; font-size:13px; width:200px;">
-                                <option value="all">Mélangés (Tous les groupes)</option>
-                                <option value="g1">1er Groupe (-er)</option>
-                                <option value="g2">2ème Groupe (-ir)</option>
-                                <option value="g3">3ème Groupe (irréguliers)</option>
-                            </select>
-                        </div>
-                        
-                        <div style="display:flex; gap:10px; margin-top:5px;">
-                            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                                <label style="font-weight:bold; font-size:12px; color:#2d3436;">Quantité</label>
-                                <select id="geg-count" style="padding:6px; border:1px solid #dfe6e9; border-radius:6px; outline:none; font-size:13px;">
-                                    <option value="10">10 questions</option>
-                                    <option value="15">15 questions</option>
-                                    <option value="20" selected>20 questions</option>
-                                    <option value="30">30 questions</option>
-                                    <option value="40">40 questions</option>
+
+                    <div class="pw-panneau">
+                        <div class="pw-bloc">
+                            <div class="pw-bloc-titre">Types d'exercices — on peut en mélanger plusieurs</div>
+                            <div id="geg-options" class="pw-pastilles"></div>
+                            <div id="geg-group-wrap" class="pw-champ" style="display:none; margin-top:10px; max-width:240px;">
+                                <label for="geg-opt-group">Groupe verbal</label>
+                                <select id="geg-opt-group" class="pw-select">
+                                    <option value="all">Mélangés (tous les groupes)</option>
+                                    <option value="g1">1er groupe (-er)</option>
+                                    <option value="g2">2e groupe (-ir)</option>
+                                    <option value="g3">3e groupe (irréguliers)</option>
                                 </select>
                             </div>
-                            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                                <label style="font-weight:bold; font-size:12px; color:#2d3436;">Colonnes</label>
-                                <select id="geg-cols" style="padding:6px; border:1px solid #dfe6e9; border-radius:6px; outline:none; font-size:13px;">
-                                    <option value="auto">Auto</option>
-                                    <option value="1">1</option>
-                                    <option value="2">2</option>
-                                    <option value="3">3</option>
-                                    <option value="4">4</option>
-                                </select>
-                            </div>
-                            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-                                <label style="font-weight:bold; font-size:12px; color:#2d3436;">Minuteur</label>
-                                <select id="geg-timer" style="padding:6px; border:1px solid #dfe6e9; border-radius:6px; outline:none; font-size:13px;">
-                                    <option value="0">Libre</option>
-                                    <option value="1">1 minute</option>
-                                    <option value="3">3 minutes</option>
-                                    <option value="5">5 minutes</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div style="background:#f1f2f6; padding:8px; border-radius:6px; display:flex; align-items:center; gap:8px;">
-                            <input type="checkbox" id="geg-plus-grand" style="width:14px; height:14px; cursor:pointer;">
-                            <label for="geg-plus-grand" style="font-weight:bold; font-size:12px; color:#2d3436; cursor:pointer;">Au plus grand : la feuille occupe le tableau</label>
                         </div>
 
-                        <div id="geg-answers-wrap" style="display:none; background:#f1f2f6; padding:8px; border-radius:6px; align-items:center; gap:8px;">
-                            <input type="checkbox" id="geg-show-ans" style="width:14px; height:14px; cursor:pointer;">
-                            <label for="geg-show-ans" style="font-weight:bold; font-size:12px; color:#e15f41; cursor:pointer;">Afficher les réponses sur le tableau</label>
+                        <div class="pw-bloc">
+                            <div class="pw-bloc-titre">La feuille</div>
+                            <div class="pw-rangee">
+                                <div class="pw-champ">
+                                    <label for="geg-count">Quantité</label>
+                                    <select id="geg-count" class="pw-select">
+                                        <option value="10">10 questions</option>
+                                        <option value="15">15 questions</option>
+                                        <option value="20" selected>20 questions</option>
+                                        <option value="30">30 questions</option>
+                                        <option value="40">40 questions</option>
+                                    </select>
+                                </div>
+                                <div class="pw-champ">
+                                    <label for="geg-cols">Colonnes</label>
+                                    <select id="geg-cols" class="pw-select">
+                                        <option value="auto">Auto</option>
+                                        <option value="1">1</option>
+                                        <option value="2">2</option>
+                                        <option value="3">3</option>
+                                        <option value="4">4</option>
+                                    </select>
+                                </div>
+                                <div class="pw-champ">
+                                    <label for="geg-timer">Minuteur</label>
+                                    <select id="geg-timer" class="pw-select">
+                                        <option value="0">Libre</option>
+                                        <option value="1">1 minute</option>
+                                        <option value="3">3 minutes</option>
+                                        <option value="5">5 minutes</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        
-                        <button id="geg-generate" style="background:#0984e3; color:#fff; border:none; padding:10px; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer; transition:0.2s;">Générer et Tamponner</button>
+
+                        <label class="pw-bascule" for="geg-plus-grand">
+                            <input type="checkbox" id="geg-plus-grand">
+                            <span><b>Au plus grand</b><small>La feuille occupe tout le tableau, lisible du fond de la classe.</small></span>
+                        </label>
+
+                        <label class="pw-bascule" id="geg-answers-wrap" for="geg-show-ans" style="display:none;">
+                            <input type="checkbox" id="geg-show-ans">
+                            <span><b>Afficher les réponses</b><small>Les corrigés apparaissent sur la feuille déjà posée.</small></span>
+                        </label>
                     </div>
                 </div>
-                
-                <!-- PREVIEW BOX -->
-                <div style="border-top:1px solid #dfe6e9; background:#f5f6fa; padding:10px; display:flex; flex-direction:column; align-items:center;">
-                    <div style="font-weight:bold; font-size:11px; color:#636e72; margin-bottom:5px;">Aperçu Complet</div>
-                    <div id="geg-preview" style="width:100%; height:250px; overflow:hidden; border:1px solid #bdc3c7; border-radius:6px; background:#fff; box-shadow:0 4px 10px rgba(0,0,0,0.05); display:flex; justify-content:center; align-items:center;"></div>
+
+                <div class="pw-apercu-cadre">
+                    <div class="pw-apercu-titre">Aperçu de la feuille</div>
+                    <div id="geg-preview" class="pw-apercu"></div>
+                </div>
+
+                <div class="pw-pied">
+                    <span class="pw-espace"></span>
+                    <button class="pw-btn primaire" id="geg-generate">Générer et tamponner</button>
                 </div>
             `;
             document.body.appendChild(this.widgetEl);
@@ -7786,8 +7792,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             themes.forEach(t => {
                 t.onclick = () => {
 
-                    themes.forEach(th => { th.classList.remove('active'); th.style.background = 'transparent'; th.style.borderLeftColor = 'transparent'; th.style.color = '#636e72'; });
-                    t.classList.add('active'); t.style.background = '#fff'; t.style.borderLeftColor = '#0984e3'; t.style.color = '#2d3436';
+                    themes.forEach(th => th.classList.remove('active', 'actif'));
+                    t.classList.add('active', 'actif');
                     this.currentTheme = t.dataset.theme;
                     this.renderOptions();
                     this.updatePreview();
@@ -7795,6 +7801,12 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             });
 
             this.widgetEl.addEventListener('change', (e) => {
+                // La pastille s'allume avec sa case : on ne lit pas un état
+                // caché pour savoir ce qui est coché.
+                if (e.target.classList && e.target.classList.contains('geg-opt-check')) {
+                    const p = e.target.closest('.pw-pastille');
+                    if (p) p.classList.toggle('actif', e.target.checked);
+                }
                 if (e.target.id !== 'geg-show-ans') {
                     this.currentState = null; // force regen
                 }
@@ -7821,14 +7833,10 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
         if (existingState) {
             ansWrap.style.display = enReedition ? 'flex' : 'none';
-            btnGen.innerText = enReedition ? "Mettre à jour le tableau" : "Générer et Tamponner";
+            btnGen.innerText = enReedition ? "Mettre à jour le tableau" : "Générer et tamponner";
 
             this.currentTheme = existingState.theme;
-            const themes = this.widgetEl.querySelectorAll('.geg-theme-btn');
-            themes.forEach(t => {
-                t.style.background = 'transparent'; t.style.borderLeftColor = 'transparent'; t.style.color = '#636e72';
-                if (t.dataset.theme === this.currentTheme) { t.style.background = '#fff'; t.style.borderLeftColor = '#0984e3'; t.style.color = '#2d3436'; }
-            });
+            this.marquerTheme(this.currentTheme);
 
             this.renderOptions(existingState);
             selCount.value = existingState.count;
@@ -7847,14 +7855,10 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             }
         } else {
             ansWrap.style.display = 'none';
-            btnGen.innerText = "Générer et Tamponner";
+            btnGen.innerText = "Générer et tamponner";
 
             this.currentTheme = 'math';
-            const themes = this.widgetEl.querySelectorAll('.geg-theme-btn');
-            themes.forEach(t => {
-                t.style.background = 'transparent'; t.style.borderLeftColor = 'transparent'; t.style.color = '#636e72';
-                if (t.dataset.theme === 'math') { t.style.background = '#fff'; t.style.borderLeftColor = '#0984e3'; t.style.color = '#2d3436'; }
-            });
+            this.marquerTheme('math');
 
             this.renderOptions();
             selCount.disabled = false;
@@ -7865,6 +7869,25 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
         }
 
         this.updatePreview();
+    },
+
+    // Ce que la feuille va contenir, écrit dans l'en-tête : on le voit sans
+    // relire les trois blocs de réglages.
+    majJauge: function () {
+        const j = this.widgetEl && this.widgetEl.querySelector('#geg-jauge');
+        if (!j) return;
+        const n = parseInt((this.widgetEl.querySelector('#geg-count') || {}).value, 10) || 0;
+        const types = this.widgetEl.querySelectorAll('.geg-opt-check:checked').length;
+        j.innerText = n + ' question' + (n > 1 ? 's' : '')
+            + (types ? ' · ' + types + ' type' + (types > 1 ? 's' : '') : '');
+    },
+
+    // Le thème allumé se marque d'une classe, plus de six propriétés repeintes
+    marquerTheme: function (theme) {
+        this.widgetEl.querySelectorAll('.geg-theme-btn').forEach(t => {
+            t.classList.toggle('active', t.dataset.theme === theme);
+            t.classList.toggle('actif', t.dataset.theme === theme);
+        });
     },
 
     renderOptions: function (state = null) {
@@ -7878,8 +7901,8 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
             options.forEach((o, i) => {
                 let isChecked = selectedVals ? selectedVals.includes(o.v) : (i === 0);
                 html += `
-                <label style="display:flex; align-items:center; gap:5px; background:#f1f2f6; padding:6px 10px; border-radius:20px; font-size:12px; cursor:pointer; user-select:none;">
-                    <input type="checkbox" class="geg-opt-check" value="${o.v}" ${isChecked ? 'checked' : ''} style="cursor:pointer;">
+                <label class="pw-pastille${isChecked ? ' actif' : ''}">
+                    <input type="checkbox" class="geg-opt-check" value="${o.v}" ${isChecked ? 'checked' : ''}>
                     ${o.l}
                 </label>`;
             });
@@ -8048,6 +8071,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
 
     updatePreview: function () {
         if (!this.widgetEl) return;
+        this.majJauge();
         let count = parseInt(this.widgetEl.querySelector('#geg-count').value);
         let showAnswers = this.widgetEl.querySelector('#geg-show-ans').checked;
         let groupEl = this.widgetEl.querySelector('#geg-opt-group');
@@ -16701,9 +16725,27 @@ registerPlugin('flashMathTool', 'Exercices', {
         });
     },
 
+    // Les trois interrupteurs du pied disent leur état ; on les rafraîchit
+    // tous ensemble, pour qu'aucun ne mente après un aller-retour.
+    majPied: function () {
+        if (!this.widgetEl) return;
+        const poser = (id, allume, texte) => {
+            const b = this.widgetEl.querySelector('#' + id);
+            if (!b) return;
+            b.classList.toggle('actif', !!allume);
+            if (texte) b.innerText = texte;
+        };
+        poser('fl-btn-toggle-ans', this.state.showAnswersInGrid);
+        poser('fl-btn-format', this.state.formatFeuille === 'a4',
+            '📄 ' + (this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Au plus juste'));
+        poser('fl-btn-taille', tamponEstAuPlusGrand(),
+            '🔍 ' + (tamponEstAuPlusGrand() ? 'Au plus grand' : 'Taille réelle'));
+    },
+
     openWidget: function () {
         if (this.widgetEl) {
             this.widgetEl.style.display = 'flex';
+            this.majPied();
             this.renderThemeSidebar();
             if (this.state.questions.length === 0) this.generateQuestions();
             this.renderGrid();
@@ -16713,36 +16755,48 @@ registerPlugin('flashMathTool', 'Exercices', {
         this.generateQuestions();
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:max(12px, calc(50% - 645px)); width:min(1290px, calc(100vw - 24px)); height:89vh; background:#f8f9fa; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.id = 'fl-widget';
+        // « pw » apporte la charte commune aux fenêtres d'outils : les couleurs,
+        // les boutons, et le mode nuit une bonne fois pour toutes.
+        this.widgetEl.className = 'pw';
+        this.widgetEl.style.cssText = "top:4vh; left:max(12px, calc(50% - 645px)); width:min(1290px, calc(100vw - 24px)); height:90vh; max-height:92vh; background:var(--pw-fond2);";
 
         const style = document.createElement('style');
         style.innerHTML = `
-            .fl-header { background:#fff; padding:15px 20px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid #dfe6e9; user-select:none; }
+            .fl-header { background:var(--pw-fond); padding:13px 18px; display:flex; justify-content:space-between; align-items:center; cursor:grab; border-bottom:1px solid var(--pw-trait); user-select:none; flex:none; }
             .fl-header:active { cursor:grabbing; }
-            .fl-body { display:flex; flex:1; overflow:hidden; }
-            
-            .fl-sidebar { width:280px; background:#fff; border-right:1px solid #dfe6e9; padding:20px; display:flex; flex-direction:column; gap:20px; overflow-y:auto; }
-            .fl-group-title { font-size:12px; font-weight:bold; color:#a4b0be; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; }
+            .fl-body { display:flex; flex:1; overflow:hidden; min-height:0; }
+
+            .fl-sidebar { width:280px; flex:none; background:var(--pw-fond); border-right:1px solid var(--pw-trait); display:flex; flex-direction:column; min-height:0; }
+            .fl-sidebar-defile { flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:18px; }
+            /* Les deux actions restent sous la main : la liste des thèmes est
+               longue, on ne veut pas la remonter pour régénérer une série. */
+            .fl-sidebar-actions { flex:none; padding:12px 18px; border-top:1px solid var(--pw-trait);
+                                  background:var(--pw-fond); display:flex; flex-direction:column; gap:8px; }
+            .fl-group-title { font-size:10px; font-weight:700; color:var(--pw-gris); text-transform:uppercase; letter-spacing:0.7px; margin-bottom:9px; }
 
             .fl-lvl-row { display:flex; gap:6px; }
-            .fl-lvl-chip { flex:1; padding:8px 0; border:1.5px solid #e3e8ec; border-radius:8px; background:#fff; color:#8395a7; font-weight:700; font-size:12.5px; cursor:pointer; text-align:center; transition:all .15s; user-select:none; }
-            .fl-lvl-chip:hover { border-color:#c8d6e5; }
-            .fl-lvl-chip.active { border-color:#0984e3; color:#0984e3; background:#f0f7fd; }
+            .fl-lvl-chip { flex:1; padding:8px 0; border:1.5px solid var(--pw-trait); border-radius:8px; background:var(--pw-fond); color:var(--pw-gris); font-weight:700; font-size:12.5px; cursor:pointer; text-align:center; transition:all .15s; user-select:none; }
+            .fl-lvl-chip:hover { border-color:var(--pw-accent); color:var(--pw-encre); }
+            .fl-lvl-chip.active { border-color:var(--pw-accent); color:var(--pw-accent); background:var(--pw-accent-doux); }
 
             .fl-theme-cat { margin-bottom:12px; }
-            .fl-theme-cat-title { font-size:10.5px; font-weight:700; color:#a4b0be; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:7px; }
+            .fl-theme-cat-title { font-size:10px; font-weight:700; color:var(--pw-gris); text-transform:uppercase; letter-spacing:0.6px; margin-bottom:7px; }
             .fl-chip-row { display:flex; flex-wrap:wrap; }
-            .fl-chip { display:inline-flex; align-items:center; padding:6px 11px; border-radius:8px; border:1.5px solid #e3e8ec; background:#fff; font-size:12.5px; font-weight:600; color:#57606f; cursor:grab; user-select:none; margin:0 6px 6px 0; transition:all .15s; }
-            .fl-chip:hover { border-color:#c8d6e5; }
-            .fl-chip.on { border-color:#74b9ff; background:#eaf4fd; color:#0984e3; }
+            .fl-chip { display:inline-flex; align-items:center; padding:6px 11px; border-radius:8px; border:1.5px solid var(--pw-trait); background:var(--pw-fond); font-size:12.5px; font-weight:600; color:var(--pw-gris); cursor:grab; user-select:none; margin:0 6px 6px 0; transition:all .15s; }
+            .fl-chip:hover { border-color:var(--pw-accent); color:var(--pw-encre); }
+            .fl-chip.on { border-color:var(--pw-accent); background:var(--pw-accent-doux); color:var(--pw-accent); }
             .fl-chip:active { cursor:grabbing; }
-            .fl-chip-vars { display:inline-flex; gap:3px; margin-left:9px; padding-left:9px; border-left:1px solid #c9dff2; }
-            .fl-var { font-size:11px; padding:1px 7px; border-radius:5px; border:1px solid transparent; background:none; color:#9db8cf; cursor:pointer; font-weight:700; transition:all .15s; user-select:none; }
-            .fl-var:hover { border-color:#a8d1f5; }
-            .fl-var.on { background:#fff; color:#0984e3; border-color:#a8d1f5; }
+            .fl-chip-vars { display:inline-flex; gap:3px; margin-left:9px; padding-left:9px; border-left:1px solid var(--pw-trait); }
+            .fl-var { font-size:11px; padding:1px 7px; border-radius:5px; border:1px solid transparent; background:none; color:var(--pw-gris); cursor:pointer; font-weight:700; transition:all .15s; user-select:none; }
+            .fl-var:hover { border-color:var(--pw-accent); }
+            .fl-var.on { background:var(--pw-fond); color:var(--pw-accent); border-color:var(--pw-accent); }
 
+            .fl-aide { font-size:11px; color:var(--pw-gris); margin-top:4px; line-height:1.4; }
+
+            /* La feuille reste blanche même la nuit : c'est du papier. */
             .fl-sheet-wrap { flex:1; overflow:auto; padding:20px; display:flex; }
-            .fl-sheet { width:960px; min-height:679px; flex-shrink:0; margin:auto; background:#fff; border-radius:3px; box-shadow:0 10px 34px rgba(0,0,0,0.14); padding:26px 34px; display:flex; flex-direction:column; box-sizing:border-box; }
+            .fl-sheet { width:960px; min-height:679px; flex-shrink:0; margin:auto; background:#fff; color:#2d3436; border-radius:3px; box-shadow:0 10px 34px rgba(0,0,0,0.18); padding:26px 34px; display:flex; flex-direction:column; box-sizing:border-box; }
             .fl-sheet.dragover { outline:2px dashed #0984e3; outline-offset:-8px; }
             .fl-sheet-head { display:flex; justify-content:space-between; align-items:baseline; padding-bottom:8px; border-bottom:1px solid #eceff1; margin-bottom:10px; }
             .fl-sheet-title { font-size:15px; font-weight:800; color:#2d3436; }
@@ -16756,12 +16810,12 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-srow:hover .fl-btn-del { opacity:1; }
             .fl-sheet-empty { grid-column:1/-1; text-align:center; color:#b2bec3; font-size:13px; padding:70px 20px; }
 
-            .fl-btn-action { background:#0984e3; color:#fff; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer; transition:0.2s; box-shadow:0 4px 6px rgba(9,132,227,0.2); text-align:center;}
-            .fl-btn-action:hover { background:#74b9ff; transform:translateY(-1px); }
+            .fl-btn-action { background:var(--pw-accent); color:#fff; border:none; padding:11px; border-radius:9px; font-weight:700; cursor:pointer; transition:0.2s; text-align:center; font-size:13px; }
+            .fl-btn-action:hover { filter:brightness(1.08); }
 
-            .fl-main { flex:1; display:flex; flex-direction:column; background:#e9edf1; position:relative; }
+            .fl-main { flex:1; display:flex; flex-direction:column; background:var(--pw-fond2); position:relative; min-width:0; }
             .fl-q-num { font-weight:700; color:#0984e3; font-size:12px; min-width:24px; margin-top:1px; }
-            
+
             .fl-q-text { flex:1; font-size:13.5px; color:#2d3436; line-height:1.4; min-width:0; }
             .fl-q-ans { font-weight:700; color:#00b894; background:#f0faf7; border:1px solid #d9f2e9; padding:3px 10px; border-radius:4px; opacity:0; transition:0.2s; min-width:52px; text-align:center; align-self:flex-start; font-size:12px; }
             .show-ans .fl-q-ans { opacity:1; }
@@ -16770,9 +16824,13 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-input-a { width:70px; padding:5px; border:1px dashed #b7e5d4; border-radius:5px; font-size:12.5px; font-weight:700; color:#00b894; outline:none; text-align:center; }
             .fl-btn-del { background:none; border:none; color:#e74c3c; cursor:pointer; font-size:12px; margin-left:2px; padding:2px; }
 
-            .fl-footer-actions { padding:0 22px 16px; display:flex; justify-content:center; align-items:center; gap:10px; }
-            .fl-btn-ghost { background:#fff; color:#57606f; border:1.5px solid #e3e8ec; box-shadow:none; }
-            .fl-btn-ghost:hover { background:#f6f8fa; border-color:#c8d6e5; transform:none; }
+            /* Le pied : les interrupteurs disent s'ils sont allumés, et une
+               seule action porte la couleur — celle qui pose la feuille. */
+            .fl-footer-actions { padding:11px 18px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+                                 border-top:1px solid var(--pw-trait); background:var(--pw-fond); flex:none; }
+            .fl-footer-actions .pw-espace { flex:1; }
+            .fl-btn-poser { border-color:transparent; background:#00b894; color:#fff; box-shadow:0 2px 8px rgba(0,184,148,0.28); }
+            .fl-btn-poser:hover { background:#00a383; border-color:transparent; }
 
             /* CSS POUR ADAPTER LA TAILLE DES FIGURES SVG */
             .fl-sheet .math-fig { width: 105px; height: auto; margin-top: 6px; display:block; }
@@ -16782,15 +16840,17 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         this.widgetEl.innerHTML += `
             <div class="fl-header" id="fl-drag-handle">
-                <div style="font-weight:900; font-size:18px; color:#2d3436; display:flex; align-items:center; gap:10px;">
-                    <span style="color:#0984e3;">AtoutMath</span> Questions Flash Pro
-                    <span id="fl-header-count" style="font-size:11px; font-weight:700; color:#0984e3; background:#e8f4fd; padding:4px 10px; border-radius:20px;"></span>
+                <div style="display:flex; align-items:center; gap:9px;">
+                    <span class="pw-marque">AtoutMath</span>
+                    <span class="pw-titre" style="font-size:16px;">Questions Flash Pro</span>
+                    <span class="pw-jauge" id="fl-header-count"></span>
                 </div>
-                <button id="fl-btn-close" style="background:none; border:none; color:#d63031; cursor:pointer; font-weight:bold; font-size:18px;">✕</button>
+                <button class="pw-icone fermer" id="fl-btn-close" title="Fermer">✕</button>
             </div>
 
             <div class="fl-body">
                 <div class="fl-sidebar">
+                  <div class="fl-sidebar-defile">
                     <div>
                         <div class="fl-group-title">Niveaux</div>
                         <div class="fl-lvl-row">
@@ -16803,24 +16863,27 @@ registerPlugin('flashMathTool', 'Exercices', {
                     <div>
                         <div class="fl-group-title">Thèmes</div>
                         <div id="fl-theme-groups"></div>
-                        <div style="font-size:11px; color:#b2bec3; margin-top:4px; line-height:1.4;">💡 Glissez un thème sur la feuille pour ajouter une question.</div>
+                        <div class="fl-aide">💡 Glissez un thème sur la feuille pour ajouter une question.</div>
                     </div>
                     <div>
                         <div class="fl-group-title">Configuration</div>
                         <div style="margin-bottom:15px;">
-                            <label style="font-size:13px; color:#2d3436; margin-bottom:5px; display:block;">Nombre de questions : <span id="lbl-count" style="font-weight:bold; color:#0984e3;">${this.state.count}</span></label>
+                            <label style="font-size:12px; color:var(--pw-encre); margin-bottom:5px; display:block;">Nombre de questions : <span id="lbl-count" style="font-weight:bold; color:var(--pw-accent);">${this.state.count}</span></label>
                             <input type="range" id="fl-count-range" min="1" max="15" value="${this.state.count}" style="width:100%;">
                         </div>
                         <div>
-                            <label style="font-size:13px; color:#2d3436; margin-bottom:5px; display:block;">Durée Diapo. (secondes) :</label>
+                            <label style="font-size:12px; color:var(--pw-encre); margin-bottom:5px; display:block;">Durée d'une diapo (secondes) :</label>
                             <div style="display:flex; align-items:center; gap:10px;">
                                 <input type="range" id="fl-timer-slider" min="0" max="120" step="5" value="${this.state.timerLength}" style="flex:1;">
                                 <span id="fl-timer-val" style="font-weight:bold; color:#00b894; width:35px;">${this.state.timerLength > 0 ? this.state.timerLength + 's' : 'Off'}</span>
                             </div>
                         </div>
                     </div>
-                    <button class="fl-btn-action" id="fl-btn-gen" style="background:#2d3436;">🔄 Générer la série</button>
-                    <button class="fl-btn-action" id="fl-btn-add-custom" style="background:#fff; color:#0984e3; border:2px dashed #0984e3; box-shadow:none;">✏️ + Question Libre</button>
+                  </div>
+                  <div class="fl-sidebar-actions">
+                    <button class="fl-btn-action" id="fl-btn-gen">🔄 Générer la série</button>
+                    <button class="pw-btn" id="fl-btn-add-custom" style="border-style:dashed; color:var(--pw-accent); border-color:var(--pw-accent); width:100%;">✏️ Question libre</button>
+                  </div>
                 </div>
                 
                 <div class="fl-main">
@@ -16828,11 +16891,15 @@ registerPlugin('flashMathTool', 'Exercices', {
                         <div class="fl-sheet ${this.state.showAnswersInGrid ? 'show-ans' : ''}" id="fl-sheet"></div>
                     </div>
                     <div class="fl-footer-actions">
-                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-toggle-ans">${this.state.showAnswersInGrid ? 'Masquer' : 'Afficher'} les réponses</button>
-                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-fullscreen">🎬 Diaporama</button>
-                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-format">${this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Feuille au plus juste'}</button>
-                        <button class="fl-btn-action fl-btn-ghost" id="fl-btn-taille">${tamponEstAuPlusGrand() ? 'Posée au plus grand' : 'Posée en taille réelle'}</button>
-                        <button class="fl-btn-action" id="fl-btn-export" style="background:#00b894; box-shadow:0 4px 6px rgba(0,184,148,0.2);">✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}</button>
+                        <button class="pw-btn${this.state.showAnswersInGrid ? ' actif' : ''}" id="fl-btn-toggle-ans"
+                                title="Voir les corrigés dans l'aperçu">👁 Réponses</button>
+                        <button class="pw-btn${this.state.formatFeuille === 'a4' ? ' actif' : ''}" id="fl-btn-format"
+                                title="Feuille A4 entière, ou coupée au plus juste sous la dernière question">📄 ${this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Au plus juste'}</button>
+                        <button class="pw-btn${tamponEstAuPlusGrand() ? ' actif' : ''}" id="fl-btn-taille"
+                                title="La feuille occupe tout le tableau, ou garde sa taille réelle">🔍 ${tamponEstAuPlusGrand() ? 'Au plus grand' : 'Taille réelle'}</button>
+                        <span class="pw-espace"></span>
+                        <button class="pw-btn" id="fl-btn-fullscreen" title="Projeter les questions une par une">🎬 Diaporama</button>
+                        <button class="pw-btn fl-btn-poser" id="fl-btn-export">✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au tableau'}</button>
                     </div>
                 </div>
             </div>
@@ -16896,7 +16963,7 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         this.widgetEl.querySelector('#fl-btn-gen').onclick = () => {
             this.state.showAnswersInGrid = false;
-            this.widgetEl.querySelector('#fl-btn-toggle-ans').innerText = 'Afficher les réponses';
+            this.majPied();
             this.generateQuestions();
             this.renderGrid();
             this.savePrefs();
@@ -16907,17 +16974,17 @@ registerPlugin('flashMathTool', 'Exercices', {
             this.renderGrid();
         };
 
-        this.widgetEl.querySelector('#fl-btn-toggle-ans').onclick = (e) => {
+        this.widgetEl.querySelector('#fl-btn-toggle-ans').onclick = () => {
             this.state.showAnswersInGrid = !this.state.showAnswersInGrid;
-            e.target.innerText = this.state.showAnswersInGrid ? 'Masquer les réponses' : 'Afficher les réponses';
             this.widgetEl.querySelector('#fl-sheet').classList.toggle('show-ans', this.state.showAnswersInGrid);
+            this.majPied();
         };
 
         this.widgetEl.querySelector('#fl-btn-fullscreen').onclick = () => this.launchFullscreenSlide();
         const btnTaille = this.widgetEl.querySelector('#fl-btn-taille');
         if (btnTaille) btnTaille.onclick = () => {
             reglerTamponAuPlusGrand(!tamponEstAuPlusGrand());
-            btnTaille.innerText = tamponEstAuPlusGrand() ? 'Posée au plus grand' : 'Posée en taille réelle';
+            this.majPied();
             if (typeof showToast === 'function') {
                 showToast(tamponEstAuPlusGrand()
                     ? 'La feuille posée occupera tout le tableau'
@@ -16928,7 +16995,7 @@ registerPlugin('flashMathTool', 'Exercices', {
         const btnFormat = this.widgetEl.querySelector('#fl-btn-format');
         if (btnFormat) btnFormat.onclick = () => {
             this.state.formatFeuille = (this.state.formatFeuille === 'a4') ? 'juste' : 'a4';
-            btnFormat.innerText = this.state.formatFeuille === 'a4' ? 'Feuille A4' : 'Feuille au plus juste';
+            this.majPied();
             if (typeof showToast === 'function') {
                 showToast(this.state.formatFeuille === 'a4'
                     ? 'Le tampon gardera le format A4'
@@ -16948,7 +17015,7 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         // ✅ Le libellé doit refléter le mode courant (édition d'un tampon existant ou nouvelle pose)
         const exportBtn = this.widgetEl.querySelector('#fl-btn-export');
-        if (exportBtn) exportBtn.innerHTML = `✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au Tableau'}`;
+        if (exportBtn) exportBtn.innerHTML = `✅ ${this.editingImage ? 'Mettre à jour' : 'Tamponner au tableau'}`;
 
         const sheet = this.widgetEl.querySelector('#fl-sheet');
         if (!sheet) return;
@@ -28409,12 +28476,21 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         });
     },
 
-    ouvrir: function () {
-        if (this.widgetEl && this.widgetEl.style.display !== 'none') { this.widgetEl.style.display = 'none'; return; }
+    // Appelé sans argument par le bouton de la palette, ou avec l'identifiant
+    // d'une classe quand on arrive depuis « Mes classes » : on ouvre alors
+    // directement sur elle, sans la rechercher dans la liste.
+    ouvrir: function (classeId) {
+        if (!classeId && this.widgetEl && this.widgetEl.style.display !== 'none') {
+            this.widgetEl.style.display = 'none';
+            return;
+        }
+        this.panneauReglages = false;
+        this.editionAvatar = null;
         const suite = () => { this.construire(); this.rendre(); };
         if (typeof ClassesStore !== 'undefined') {
             ClassesStore.loadAll().then(cls => {
                 this.classes = cls || [];
+                if (classeId && this.classes.some(c => c.id === classeId)) this.classeId = classeId;
                 if (!this.classeId && this.classes[0]) this.classeId = this.classes[0].id;
                 suite();
             }).catch(suite);
@@ -28599,6 +28675,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const r = this.reglages;
         return `<div style="max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:14px;">
             <div>
+                <label style="font-size:12px; font-weight:bold; color:#636e72;">AVATARS</label>
+                <div style="display:flex; gap:8px; margin-top:6px;">
+                    <button class="pts-avatars" data-v="1" style="flex:1; padding:8px; border-radius:8px; cursor:pointer; font-size:13px;
+                            border:2px solid ${AvatarsEleves.actifs ? '#0984e3' : '#dfe6e9'}; background:#fff;">Petits monstres</button>
+                    <button class="pts-avatars" data-v="0" style="flex:1; padding:8px; border-radius:8px; cursor:pointer; font-size:13px;
+                            border:2px solid ${AvatarsEleves.actifs ? '#dfe6e9' : '#0984e3'}; background:#fff;">Initiales seulement</button>
+                </div>
+                <div style="font-size:11px; color:#636e72; margin-top:5px;">Les photos posées à la main restent affichées dans les deux cas.</div>
+            </div>
+            <div>
                 <label style="font-size:12px; font-weight:bold; color:#636e72;">AFFICHAGE DES POINTS</label>
                 <div style="display:flex; gap:8px; margin-top:6px;">
                     <button class="pts-aff" data-v="deux" style="flex:1; padding:8px; border-radius:8px; cursor:pointer; font-size:13px;
@@ -28631,6 +28717,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const el = this.widgetEl;
         el.querySelectorAll('.pts-aff').forEach(b => b.addEventListener('click', () => {
             this.reglages.affichage = b.dataset.v; this.ecrireReglages(); this.rendre();
+        }));
+        el.querySelectorAll('.pts-avatars').forEach(b => b.addEventListener('click', () => {
+            AvatarsEleves.regler(b.dataset.v === '1'); this.rendre();
         }));
         const note = el.querySelector('#pts-seuil-note');
         const retenue = el.querySelector('#pts-seuil-retenue');

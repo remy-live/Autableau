@@ -11880,12 +11880,45 @@ const AvatarsEleves = {
         return Object.assign(auto, e.avatar || {});
     },
 
+    // Les monstres ne plaisent pas à tout le monde, et au lycée ils font
+    // enfantins : on peut les éteindre. Le réglage est ici, une seule fois —
+    // « Mes classes », le plan de classe et les points le suivent sans rien
+    // avoir à savoir.
+    CLE_ACTIFS: 'board_avatars',
+    actifs: true,
+    lireReglage: function () {
+        try { this.actifs = localStorage.getItem(this.CLE_ACTIFS) !== '0'; } catch (e) { /* stockage refusé */ }
+        return this.actifs;
+    },
+    regler: function (allumes) {
+        this.actifs = !!allumes;
+        try { localStorage.setItem(this.CLE_ACTIFS, this.actifs ? '1' : '0'); } catch (e) { /* stockage refusé */ }
+    },
+
+    initiales: function (nom) {
+        const mots = String(nom || '?').trim().split(/[\s-]+/).filter(Boolean);
+        return ((mots[0] || '?')[0] + (mots[1] ? mots[1][0] : '')).toUpperCase();
+    },
+
+    // Sans monstre, on garde la couleur et on écrit les initiales : la classe
+    // reste lisible d'un coup d'œil, sans dessin.
+    pastille: function (eleve, taille) {
+        const T = taille || 64;
+        const t = this.traits(eleve);
+        return `<svg viewBox="0 0 100 100" width="${T}" height="${T}" style="display:block;">`
+            + `<rect x="4" y="4" width="92" height="92" rx="22" fill="${t.teinte}"/>`
+            + `<text x="50" y="50" text-anchor="middle" dominant-baseline="central" fill="#ffffff"`
+            + ` font-family="sans-serif" font-weight="700" font-size="42">${this.initiales(eleve && eleve.name)}</text></svg>`;
+    },
+
     svg: function (eleve, taille) {
         const t = this.traits(eleve);
         const T = taille || 64;
         if (t.image) {
             return `<img src="${t.image}" alt="" style="width:${T}px; height:${T}px; border-radius:${Math.round(T / 5)}px; object-fit:cover; display:block;">`;
         }
+        // Une photo posée exprès reste affichée ; c'est le monstre qui s'éteint.
+        if (!this.actifs) return this.pastille(eleve, T);
 
         const sombre = '#2d3436';
         let corps = '';
@@ -11966,6 +11999,7 @@ const AvatarsEleves = {
         });
     }
 };
+AvatarsEleves.lireReglage();
 window.AvatarsEleves = AvatarsEleves;
 
 // Le petit atelier qui s'ouvre quand on clique l'avatar d'un élève, dans
@@ -12092,7 +12126,13 @@ function showClassConflictModal(conflict, callback) {
 // MODULE : GESTIONNAIRE DE CLASSES (interface — bouton "Mes classes")
 // ==============================================================================
 async function openClassManagerModal() {
+    // Deux appels de suite empilaient deux fenêtres identiques l'une sur
+    // l'autre : la seconde cachait la première, qui restait là.
+    const ancienne = document.getElementById('class-manager-modal');
+    if (ancienne) ancienne.remove();
+
     const modal = document.createElement('div');
+    modal.id = 'class-manager-modal';
     modal.className = 'modal-backdrop';
     modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
 
@@ -12157,6 +12197,7 @@ async function openClassManagerModal() {
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                     <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe"
                            style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:14px; font-weight:600;">
+                    <button id="cm-points" class="btn-action primary" style="padding:8px 12px;">🏅 Points</button>
                     <button id="cm-seating-plan" class="btn-action secondary" style="padding:8px 12px;">🪑 Plan de classe</button>
                     <button id="cm-delete-class" class="btn-action secondary" style="padding:8px 12px; color:#d63031;">🗑️ Supprimer</button>
                 </div>
@@ -12169,7 +12210,12 @@ async function openClassManagerModal() {
                 <div id="cm-students-list" style="max-height:220px; overflow-y:auto; margin-bottom:12px;">
                     ${studentsHtml}
                 </div>
-                <div style="font-size:11px; color:var(--muted); margin:-6px 0 12px 2px;">⭐ = clique pour marquer un élève prioritaire au 1er rang (utilisé par le plan de classe)</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-6px 0 12px 2px;">
+                    <div style="font-size:11px; color:var(--muted);">⭐ = clique pour marquer un élève prioritaire au 1er rang (utilisé par le plan de classe)</div>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; cursor:pointer;">
+                        <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars dessinés
+                    </label>
+                </div>
 
                 <div style="border-top:1px solid var(--border); padding-top:10px;">
                     <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase;">Importer une liste (copier-coller depuis un tableur, ou fichier .csv)</label>
@@ -12241,6 +12287,33 @@ async function openClassManagerModal() {
                         render();
                     }
                 );
+            };
+        }
+
+        const avatarsBox = box.querySelector('#cm-avatars');
+        if (avatarsBox) {
+            avatarsBox.onchange = () => {
+                AvatarsEleves.regler(avatarsBox.checked);
+                render();
+                if (typeof showToast === 'function') {
+                    showToast(avatarsBox.checked ? 'Avatars dessinés' : 'Initiales seulement');
+                }
+            };
+        }
+
+        // Le tableau des points : la classe s'affiche en grand, on donne les
+        // points d'un doigt. C'est l'outil « Points de classe », ouvert ici
+        // sur la classe qu'on est en train de regarder.
+        const pointsBtn = box.querySelector('#cm-points');
+        if (pointsBtn) {
+            pointsBtn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
+                if (!outil) { if (typeof showToast === 'function') showToast('L\'outil Points n\'est pas disponible'); return; }
+                persist();
+                modal.remove();
+                outil.ouvrir(c.id);
             };
         }
 
