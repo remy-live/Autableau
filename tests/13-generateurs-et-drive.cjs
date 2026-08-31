@@ -261,19 +261,40 @@ module.exports = async function (browser) {
     r.verifie('et le bouton dit lequel est actif',
         !!bascule && /A4|juste/i.test(bascule.apres.texte), bascule && bascule.apres.texte);
 
-    // --- DRIVE : rien de promis là où ça ne marche pas ---
+    // --- L'EXPLORATEUR : DEUX SOURCES, UNE FENÊTRE DÉPLAÇABLE ---
     const enLocal = await page.evaluate(() => {
         const b = document.getElementById('btn-drive');
+        b.click();
+        const f = document.getElementById('explorateur');
+        const boite = f.getBoundingClientRect();
         return {
             existe: !!b,
             visible: b ? getComputedStyle(b).display !== 'none' : false,
             disponible: typeof driveDisponible === 'function' ? driveDisponible() : null,
-            protocole: location.protocol
+            fenetre: getComputedStyle(f).display !== 'none',
+            deplacable: !!document.getElementById('exp-entete'),
+            sources: Array.from(f.querySelectorAll('.exp-source')).map(x => x.dataset.source),
+            depot: !!document.getElementById('exp-depot'),
+            dansEcran: boite.left >= 0 && boite.top >= 0 && boite.right <= window.innerWidth + 1 && boite.bottom <= window.innerHeight + 1
         };
     });
-    r.verifie('le bouton Drive existe dans le menu', enLocal.existe);
-    r.verifie('mais reste caché en local (file://)', !enLocal.visible, JSON.stringify(enLocal));
-    r.egal('et Drive s\'annonce indisponible', enLocal.disponible, false);
+    r.verifie('le menu propose d\'ouvrir un fichier', enLocal.existe && enLocal.visible, JSON.stringify(enLocal));
+    r.verifie('l\'explorateur s\'ouvre dans une fenêtre déplaçable',
+        enLocal.fenetre && enLocal.deplacable, JSON.stringify(enLocal));
+    r.verifie('et tient dans l\'écran', enLocal.dansEcran, JSON.stringify(enLocal));
+    r.egal('il propose l\'ordinateur et le nuage', enLocal.sources, ['ordi', 'drive']);
+    r.verifie('en local, il s\'ouvre sur « Mon ordinateur » et sa zone de dépôt', enLocal.depot, JSON.stringify(enLocal));
+    r.egal('Drive, lui, s\'annonce indisponible', enLocal.disponible, false);
+
+    const driveEnLocal = await page.evaluate(() => {
+        document.querySelector('.exp-source[data-source="drive"]').click();
+        const texte = document.getElementById('exp-corps').innerText;
+        document.getElementById('exp-fermer').click();
+        return { texte, ferme: getComputedStyle(document.getElementById('explorateur')).display === 'none' };
+    });
+    r.verifie('cliquer sur Drive en local explique pourquoi il ne peut pas marcher',
+        /http|configur/i.test(driveEnLocal.texte), driveEnLocal.texte.slice(0, 120));
+    r.verifie('et la fenêtre se ferme', driveEnLocal.ferme);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
@@ -299,7 +320,7 @@ module.exports = async function (browser) {
             entree: !!document.getElementById('pdf-loader')
         };
     });
-    r.verifie('en ligne, le bouton Drive apparaît', enLigne.visible, JSON.stringify(enLigne));
+    r.verifie('en ligne, le bouton d\'ouverture est là', enLigne.visible, JSON.stringify(enLigne));
     r.egal('et Drive s\'annonce disponible', enLigne.disponible, true);
     r.verifie('l\'identifiant client est bien fourni par la configuration', enLigne.identifiant);
     r.verifie('l\'import réutilise l\'entrée de fichiers de l\'application', enLigne.entree);
@@ -325,12 +346,55 @@ module.exports = async function (browser) {
         r.verifie(`Drive propose « ${cas} »`, types[cas] === true, JSON.stringify(types)));
     r.verifie('mais pas un formulaire Google, qui ne s\'ouvre pas', types.formulaire === false, JSON.stringify(types));
 
-    const fenetre = await pageWeb.evaluate(() => {
+    // Un faux Google et un faux Drive : on vérifie la liste, pas le réseau
+    const liste = await pageWeb.evaluate(async () => {
+        window.google = { accounts: { oauth2: { initTokenClient: (o) => ({
+            requestAccessToken: () => o.callback({ access_token: 'faux' })
+        }) } } };
+        const vraiFetch = window.fetch;
+        window.fetch = async (url, opt) => {
+            if (String(url).includes('googleapis.com/drive')) {
+                return { ok: true, json: async () => ({ files: [
+                    { id: '1', name: 'Cours 5e', mimeType: 'application/vnd.google-apps.folder' },
+                    { id: '2', name: 'Brevet blanc.pdf', mimeType: 'application/pdf', size: '2411724' },
+                    { id: '3', name: 'Les fractions.docx', mimeType: 'application/octet-stream', size: '48213' },
+                    { id: '4', name: 'Formulaire', mimeType: 'application/vnd.google-apps.form' }
+                ] }) };
+            }
+            return vraiFetch(url, opt);
+        };
         ouvrirDrive();
-        const o = document.getElementById('drive-overlay');
-        return { ouverte: !!o && o.style.display === 'flex', titre: o ? o.innerText.slice(0, 60) : '' };
+        await new Promise(r => setTimeout(r, 350));
+        const f = document.getElementById('explorateur');
+        const lignes = Array.from(f.querySelectorAll('.exp-ligne'));
+        return {
+            ouverte: getComputedStyle(f).display !== 'none',
+            source: f.querySelector('.exp-source[data-source="drive"]').style.background,
+            nombre: lignes.length,
+            textes: lignes.map(l => l.innerText.replace(/\s+/g, ' ').trim()),
+            grisees: lignes.filter(l => parseFloat(l.style.opacity) < 1).length
+        };
     });
-    r.verifie('la fenêtre de l\'explorateur s\'ouvre', fenetre.ouverte, JSON.stringify(fenetre));
+    r.verifie('la fenêtre s\'ouvre sur Drive quand on le demande', liste.ouverte, JSON.stringify(liste));
+    r.egal('les fichiers du dossier sont listés', liste.nombre, 4);
+    r.verifie('avec leur poids en clair', /47 Ko/.test(liste.textes.join(' | ')), liste.textes.join(' | '));
+    r.verifie('les dossiers sont annoncés comme tels', /Cours 5e Dossier/.test(liste.textes.join(' | ')), liste.textes.join(' | '));
+    r.egal('et seul le formulaire est grisé', liste.grisees, 1);
+
+    const navigation = await pageWeb.evaluate(async () => {
+        Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => /Cours 5e/.test(l.innerText)).click();
+        await new Promise(r => setTimeout(r, 300));
+        const chemin = document.getElementById('exp-chemin').innerText;
+        const retour = !!document.getElementById('exp-retour');
+        document.getElementById('exp-retour').click();
+        await new Promise(r => setTimeout(r, 300));
+        return { chemin, retour, revenu: document.getElementById('exp-chemin').innerText };
+    });
+    r.verifie('entrer dans un dossier met à jour le chemin',
+        /Mon Drive › Cours 5e/.test(navigation.chemin), JSON.stringify(navigation));
+    r.verifie('un bouton « Retour » apparaît alors', navigation.retour);
+    r.verifie('et il ramène au dossier parent', navigation.revenu === 'Mon Drive', JSON.stringify(navigation));
 
     r.verifie('aucune erreur JS en ligne', errsWeb.length === 0, errsWeb.join(' | '));
     await ctxWeb.close();

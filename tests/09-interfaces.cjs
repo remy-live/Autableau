@@ -13,6 +13,16 @@ const ATTENDUES = [
     'Complète — tout sous la main'
 ];
 
+// Charger une interface redémarre l'application. Attendre « 2,5 s » ne suffit
+// pas : si la machine est chargée, on lisait encore l'ANCIENNE page, avec sa
+// barre complète. On marque donc le document, et on attend qu'il ait disparu.
+async function chargerInterface(page, id) {
+    await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
+    await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 20000 });
+    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
+    await page.waitForTimeout(600);
+}
+
 module.exports = async function (browser) {
     const r = creerRapport('Interfaces');
     const { context, page, erreurs } = await ouvrirApp(browser);
@@ -61,10 +71,7 @@ module.exports = async function (browser) {
     r.verifie('les barres ne se posent pas l\'une sur l\'autre', chevauchements.length === 0, chevauchements.join(' | '));
 
     // Chargement d'une interface : le tableau redémarre avec la bonne panoplie
-    await page.evaluate(() => loadInterface('iface_fournie_minimale'));
-    await page.waitForTimeout(2500);
-    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
-    await page.waitForTimeout(500);
+    await chargerInterface(page, 'iface_fournie_minimale');
 
     const minimale = await page.evaluate(() => {
         const barres = getStoredFloatingToolbars();
@@ -84,9 +91,7 @@ module.exports = async function (browser) {
     r.verifie('la barre est bien affichée', minimale.rendues >= 1, `${minimale.rendues} barre(s) rendue(s)`);
 
     // Une interface de niveau pose ses deux barres, garnies
-    await page.evaluate(() => loadInterface('iface_fournie_college'));
-    await page.waitForTimeout(2500);
-    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
+    await chargerInterface(page, 'iface_fournie_college');
     await page.waitForTimeout(600);
 
     const college = await page.evaluate(() => {
