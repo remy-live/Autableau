@@ -20,7 +20,15 @@ async function chargerInterface(page, id) {
     await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
     await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 20000 });
     await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
-    await page.waitForTimeout(600);
+    // Le démarrage réécrit les barres (migration, remise en place) : sous
+    // charge, un délai fixe lisait parfois l'état d'avant. On attend que les
+    // barres ne bougent plus, ce qui est le vrai signal.
+    await page.waitForFunction(() => {
+        const vu = JSON.stringify(getStoredFloatingToolbars());
+        const stable = window.__barresVues === vu;
+        window.__barresVues = vu;
+        return stable && document.querySelectorAll('#custom-bars-container > *').length > 0;
+    }, { timeout: 20000, polling: 400 });
 }
 
 module.exports = async function (browser) {

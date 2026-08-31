@@ -6064,3 +6064,65 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     .pw { width: auto !important; left: 8px !important; right: 8px !important; }
     .pw-rail { width: 132px; }
 }
+
+/* Le formulaire d'une source à relier (Nextcloud, et demain les autres) */
+.exp-reglage {
+    max-width: 460px;
+    margin: 0 auto;
+    padding: 18px 4px;
+    text-align: left;
+}
+
+.exp-reglage h4 { margin: 0 0 6px; font-size: 15px; color: var(--ink); }
+
+.exp-reglage p { margin: 0 0 14px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+.exp-reglage label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.exp-reglage input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 13px;
+    outline: none;
+}
+
+.exp-reglage input:focus { border-color: var(--accent); }
+
+.exp-reglage small {
+    display: block;
+    margin: 5px 0 14px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.exp-reglage-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+.exp-bouton-fort {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+
+.exp-reglage-retour {
+    margin-top: 10px;
+    font-size: 12px;
+    min-height: 16px;
+    color: var(--muted);
+}
+
+.exp-reglage-retour.erreur { color: #d63031; }

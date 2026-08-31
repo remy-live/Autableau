@@ -283,7 +283,7 @@ module.exports = async function (browser) {
     r.verifie('l\'explorateur s\'ouvre dans une fenêtre déplaçable',
         enLocal.fenetre && enLocal.deplacable, JSON.stringify(enLocal));
     r.verifie('et tient dans l\'écran', enLocal.dansEcran, JSON.stringify(enLocal));
-    r.egal('il propose l\'ordinateur et le nuage', enLocal.sources, ['ordi', 'drive']);
+    r.egal('il propose l\'ordinateur et les nuages', enLocal.sources, ['ordi', 'drive', 'nextcloud']);
     r.verifie('en local, il s\'ouvre sur « Mon ordinateur » et sa zone de dépôt', enLocal.depot, JSON.stringify(enLocal));
     r.egal('Drive, lui, s\'annonce indisponible', enLocal.disponible, false);
 
@@ -381,6 +381,126 @@ module.exports = async function (browser) {
     });
     r.verifie('en mode nuit, la fenêtre s\'assombrit', nuit.sombre, nuit.fond);
     r.verifie('mais la feuille reste du papier blanc', nuit.blanche, JSON.stringify(nuit));
+
+    // --- LE NUAGE : CHACUN RELIE LE SIEN ---
+    const nuage = await page.evaluate(async () => {
+        // Aucune adresse ne doit être écrite d'avance dans le code
+        const enDur = /remote\.php\/dav\/files\/[a-z]/i.test(
+            Array.from(document.scripts).map(s => s.src).join(' '));
+        await ouvrirExplorateur('nextcloud');
+        await new Promise(r => setTimeout(r, 350));
+        return {
+            enDur,
+            source: !!document.querySelector('.exp-source[data-source="nextcloud"]'),
+            cliquable: !document.querySelector('.exp-source[data-source="nextcloud"]').classList.contains('indispo'),
+            formulaire: !!document.getElementById('nc-url'),
+            adresseVide: (document.getElementById('nc-url') || {}).value,
+            motDePasseMasque: (document.getElementById('nc-mdp') || {}).type,
+            memoire: localStorage.getItem('board_nextcloud')
+        };
+    });
+    r.verifie('le nuage figure parmi les sources', nuage.source, JSON.stringify(nuage));
+    r.verifie('et reste cliquable tant qu\'il n\'est pas relié', nuage.cliquable, JSON.stringify(nuage));
+    r.verifie('il propose son formulaire au lieu d\'un refus', nuage.formulaire, JSON.stringify(nuage));
+    r.egal('aucune adresse n\'est écrite d\'avance', nuage.adresseVide, '');
+    r.egal('le mot de passe ne s\'affiche pas en clair', nuage.motDePasseMasque, 'password');
+    r.egal('et rien n\'est retenu tant qu\'on n\'a pas relié', nuage.memoire, null);
+
+    const refus = await page.evaluate(async () => {
+        const dire = () => document.getElementById('nc-retour').textContent;
+        const essayer = (adresse, mdp) => {
+            document.getElementById('nc-url').value = adresse;
+            document.getElementById('nc-mdp').value = mdp || '';
+            document.getElementById('nc-relier').click();
+            return dire();
+        };
+        return {
+            vide: essayer('', 'x'),
+            malFormee: essayer('https://nuage.example/fichiers', 'x'),
+            sansMdp: essayer('https://nuage.example/remote.php/dav/files/moi', ''),
+            memoire: localStorage.getItem('board_nextcloud')
+        };
+    });
+    r.verifie('une adresse vide est refusée avec la marche à suivre',
+        /remote\.php/.test(refus.vide), refus.vide);
+    r.verifie('une adresse qui n\'est pas du WebDAV aussi',
+        /remote\.php/.test(refus.malFormee), refus.malFormee);
+    r.verifie('le mot de passe manquant est signalé',
+        /mot de passe/i.test(refus.sansMdp), refus.sansMdp);
+    r.egal('aucun de ces essais n\'est mémorisé', refus.memoire, null);
+
+    // Un serveur WebDAV simulé : on vérifie l'appel, la lecture et le refus
+    const branche = await page.evaluate(async () => {
+        const XML = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">
+            <d:response><d:href>/remote.php/dav/files/moi/</d:href><d:propstat><d:prop>
+              <d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>
+            <d:response><d:href>/remote.php/dav/files/moi/Cours/</d:href><d:propstat><d:prop>
+              <d:resourcetype><d:collection/></d:resourcetype>
+              <d:getlastmodified>Mon, 01 Sep 2025 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>
+            <d:response><d:href>/remote.php/dav/files/moi/le%20cours.pdf</d:href><d:propstat><d:prop>
+              <d:resourcetype/><d:getcontentlength>2048</d:getcontentlength>
+              <d:getcontenttype>application/pdf</d:getcontenttype>
+              <d:getlastmodified>Tue, 02 Sep 2025 08:30:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response>
+          </d:multistatus>`;
+        const vrai = window.fetch;
+        const vus = [];
+        window.fetch = async (url, opts = {}) => {
+            vus.push({ url: String(url), methode: opts.method || 'GET', auth: (opts.headers || {}).Authorization || '' });
+            if ((opts.method || '') === 'PROPFIND') {
+                const jeton = String((opts.headers || {}).Authorization || '').replace(/^Basic /, '');
+                let clair = ''; try { clair = atob(jeton); } catch (e) { /* pas du base64 */ }
+                if (clair !== 'moi:mapasse') {
+                    return new Response('', { status: 401 });
+                }
+                return new Response(XML, { status: 207 });
+            }
+            return new Response(new Blob(['%PDF-1.4']), { status: 200 });
+        };
+        const out = {};
+        try {
+            // mauvais mot de passe d'abord
+            document.getElementById('nc-url').value = 'https://nuage09.example.fr/remote.php/dav/files/moi';
+            document.getElementById('nc-mdp').value = 'pasbon';
+            document.getElementById('nc-relier').click();
+            await new Promise(r => setTimeout(r, 250));
+            out.refuse = document.getElementById('nc-retour').textContent;
+            out.riendedanslamemoire = localStorage.getItem('board_nextcloud');
+
+            document.getElementById('nc-mdp').value = 'mapasse';
+            document.getElementById('nc-relier').click();
+            await new Promise(r => setTimeout(r, 450));
+            out.relie = NuageNextcloud.dispo();
+            out.retenu = JSON.parse(localStorage.getItem('board_nextcloud') || '{}');
+            out.lignes = Array.from(document.querySelectorAll('.exp-ligne, .exp-item, .exp-case')).length;
+
+            const liste = await NuageNextcloud.lister('');
+            out.contenu = liste.map(f => ({ nom: f.nom, dossier: f.dossier, taille: f.taille }));
+            const fichier = await NuageNextcloud.telecharger(liste.find(f => !f.dossier));
+            out.fichier = { nom: fichier.name, type: fichier.type, octets: fichier.size };
+            out.appels = vus.length;
+            out.auth = vus.some(v => /^Basic /.test(v.auth));
+            out.propfind = vus.some(v => v.methode === 'PROPFIND');
+        } finally {
+            window.fetch = vrai;
+            localStorage.removeItem('board_nextcloud');
+        }
+        return out;
+    });
+    r.verifie('un mot de passe refusé est annoncé clairement',
+        /refus/i.test(branche.refuse || ''), branche.refuse);
+    r.egal('et il n\'est surtout pas mémorisé', branche.riendedanslamemoire, null);
+    r.verifie('des identifiants valides relient la source', branche.relie, JSON.stringify(branche));
+    r.verifie('l\'adresse et l\'identifiant sont retenus, lus dans le lien collé',
+        branche.retenu.utilisateur === 'moi' && /nuage09\.example\.fr/.test(branche.retenu.url || ''),
+        JSON.stringify(branche.retenu));
+    r.verifie('le serveur est interrogé en PROPFIND, avec l\'authentification',
+        branche.propfind && branche.auth, JSON.stringify(branche));
+    r.egal('le dossier est lu : ses sous-dossiers et ses fichiers',
+        branche.contenu, [{ nom: 'Cours', dossier: true, taille: 0 },
+                          { nom: 'le cours.pdf', dossier: false, taille: 2048 }]);
+    r.verifie('un fichier revient avec son nom décodé et son type',
+        branche.fichier.nom === 'le cours.pdf' && branche.fichier.type === 'application/pdf',
+        JSON.stringify(branche.fichier));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
