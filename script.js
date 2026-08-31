@@ -11721,6 +11721,219 @@ const ClassesStore = {
 };
 window.ClassesStore = ClassesStore;
 
+// ===================================================
+// LES AVATARS DES ÉLÈVES
+// Chaque élève a son petit monstre, tiré au sort à partir de son identifiant
+// — donc toujours le même, d'une séance à l'autre et d'un écran à l'autre —
+// que l'on peut ensuite personnaliser trait par trait, ou remplacer par une
+// photo. L'avatar vit sur l'élève, dans « Mes classes » : il suit la classe
+// partout (points, plan de classe, tirage au sort, export).
+//
+// Le dessin est écrit ici, une seule fois, pour que « Mes classes » et les
+// plugins montrent exactement le même monstre.
+// ===================================================
+const AvatarsEleves = {
+    TEINTES: ['#e17055', '#0984e3', '#00b894', '#6c5ce7', '#fdcb6e', '#d63031',
+              '#00cec9', '#e84393', '#fd79a8', '#55efc4', '#a29bfe', '#fab1a0'],
+    CORPS: ['rond', 'goutte', 'bloc', 'poilu'],
+    BOUCHES: ['sourire', 'dents', 'o', 'trait'],
+    CORNES: ['aucune', 'pointes', 'antennes', 'oreilles'],
+    YEUX: [1, 2, 3],
+
+    // Toujours le même monstre pour le même élève : on tire au sort à partir
+    // de son identifiant, pas au hasard à chaque affichage.
+    empreinte: function (texte) {
+        let h = 0;
+        const s = String(texte || '');
+        for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+        // Deux identifiants voisins (« stu_1 » et « stu_2 ») ne diffèrent que
+        // par les bits de poids faible : sans ce brassage, tous les élèves
+        // d'une classe héritaient des mêmes cornes.
+        h ^= h >>> 16; h = Math.imul(h, 0x7feb352d) >>> 0;
+        h ^= h >>> 15; h = Math.imul(h, 0x846ca68b) >>> 0;
+        h ^= h >>> 16;
+        return h >>> 0;
+    },
+
+    traits: function (eleve) {
+        const e = eleve || {};
+        const h = this.empreinte(e.id || e.name);
+        const auto = {
+            teinte: this.TEINTES[h % this.TEINTES.length],
+            corps: this.CORPS[(h >> 3) % this.CORPS.length],
+            yeux: 1 + ((h >> 6) % 3),
+            bouche: this.BOUCHES[(h >> 9) % this.BOUCHES.length],
+            cornes: this.CORNES[(h >> 12) % this.CORNES.length]
+        };
+        return Object.assign(auto, e.avatar || {});
+    },
+
+    svg: function (eleve, taille) {
+        const t = this.traits(eleve);
+        const T = taille || 64;
+        if (t.image) {
+            return `<img src="${t.image}" alt="" style="width:${T}px; height:${T}px; border-radius:${Math.round(T / 5)}px; object-fit:cover; display:block;">`;
+        }
+
+        const sombre = '#2d3436';
+        let corps = '';
+        if (t.corps === 'rond') corps = `<circle cx="50" cy="56" r="36" fill="${t.teinte}"/>`;
+        else if (t.corps === 'goutte') corps = `<path d="M50 16 C74 34 86 50 86 62 A36 36 0 0 1 14 62 C14 50 26 34 50 16 Z" fill="${t.teinte}"/>`;
+        else if (t.corps === 'bloc') corps = `<rect x="16" y="22" width="68" height="70" rx="16" fill="${t.teinte}"/>`;
+        else {
+            // le monstre poilu : un rond mordu tout autour
+            let d = '';
+            for (let i = 0; i < 16; i++) {
+                const a = (i / 16) * Math.PI * 2;
+                const r = (i % 2 === 0) ? 38 : 30;
+                const x = 50 + r * Math.cos(a), y = 56 + r * Math.sin(a);
+                d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+            }
+            corps = `<path d="${d}Z" fill="${t.teinte}"/>`;
+        }
+
+        let cornes = '';
+        if (t.cornes === 'pointes') cornes = `<path d="M30 30 L18 2 L46 20 Z" fill="${t.teinte}"/><path d="M70 30 L82 2 L54 20 Z" fill="${t.teinte}"/>`;
+        else if (t.cornes === 'antennes') cornes = `<line x1="34" y1="26" x2="26" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="26" cy="6" r="5" fill="${t.teinte}"/>`
+            + `<line x1="66" y1="26" x2="74" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="74" cy="6" r="5" fill="${t.teinte}"/>`;
+        else if (t.cornes === 'oreilles') cornes = `<ellipse cx="10" cy="48" rx="12" ry="16" fill="${t.teinte}"/><ellipse cx="90" cy="48" rx="12" ry="16" fill="${t.teinte}"/>`;
+
+        let yeux = '';
+        const oeil = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#ffffff"/><circle cx="${x}" cy="${y + 1}" r="${r * 0.45}" fill="${sombre}"/>`;
+        if (t.yeux === 1) yeux = oeil(50, 50, 16);
+        else if (t.yeux === 2) yeux = oeil(37, 50, 11) + oeil(63, 50, 11);
+        else yeux = oeil(32, 48, 9) + oeil(50, 44, 9) + oeil(68, 48, 9);
+
+        let bouche = '';
+        if (t.bouche === 'sourire') bouche = `<path d="M36 72 Q50 84 64 72" stroke="${sombre}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+        else if (t.bouche === 'dents') bouche = `<path d="M34 70 h32 v10 h-32 Z" fill="#ffffff" stroke="${sombre}" stroke-width="2"/><line x1="42" y1="70" x2="42" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="50" y1="70" x2="50" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="58" y1="70" x2="58" y2="80" stroke="${sombre}" stroke-width="2"/>`;
+        else if (t.bouche === 'o') bouche = `<ellipse cx="50" cy="75" rx="9" ry="7" fill="${sombre}"/>`;
+        else bouche = `<line x1="38" y1="75" x2="62" y2="75" stroke="${sombre}" stroke-width="4" stroke-linecap="round"/>`;
+
+        return `<svg viewBox="0 0 100 100" width="${T}" height="${T}" style="display:block;">${cornes}${corps}${yeux}${bouche}</svg>`;
+    },
+
+    // Changer un trait fige les autres tels qu'ils sont : sinon régler la
+    // couleur ferait aussi bouger la bouche.
+    poser: function (eleve, cle, valeur) {
+        eleve.avatar = Object.assign({}, this.traits(eleve), { [cle]: valeur });
+        delete eleve.avatar.image;
+    },
+
+    auHasard: function (eleve) {
+        const pioche = (a) => a[Math.floor(Math.random() * a.length)];
+        eleve.avatar = {
+            teinte: pioche(this.TEINTES), corps: pioche(this.CORPS),
+            yeux: pioche(this.YEUX), bouche: pioche(this.BOUCHES), cornes: pioche(this.CORNES)
+        };
+    },
+
+    dorigine: function (eleve) { delete eleve.avatar; },
+
+    // Une classe entière de photos en pleine taille ferait un fichier de
+    // sauvegarde énorme : on recadre au carré et on réduit à 128 px.
+    photo: function (eleve, fichier) {
+        return new Promise((resolve, reject) => {
+            const lecteur = new FileReader();
+            lecteur.onerror = () => reject(new Error('Image illisible'));
+            lecteur.onload = (ev) => {
+                const img = new Image();
+                img.onerror = () => reject(new Error('Image illisible'));
+                img.onload = () => {
+                    const c = document.createElement('canvas');
+                    c.width = c.height = 128;
+                    const g = c.getContext('2d');
+                    const cote = Math.min(img.width, img.height);
+                    g.drawImage(img, (img.width - cote) / 2, (img.height - cote) / 2, cote, cote, 0, 0, 128, 128);
+                    eleve.avatar = { image: c.toDataURL('image/jpeg', 0.8) };
+                    resolve(eleve.avatar);
+                };
+                img.src = ev.target.result;
+            };
+            lecteur.readAsDataURL(fichier);
+        });
+    }
+};
+window.AvatarsEleves = AvatarsEleves;
+
+// Le petit atelier qui s'ouvre quand on clique l'avatar d'un élève, dans
+// « Mes classes ». « enregistrer » est rappelé à chaque changement : la
+// fenêtre ne sait pas où vivent les données, elle ne fait que les modifier.
+function ouvrirReglageAvatar(eleve, enregistrer) {
+    const ancien = document.getElementById('avatar-atelier');
+    if (ancien) ancien.remove();
+
+    const fond = document.createElement('div');
+    fond.id = 'avatar-atelier';
+    fond.className = 'modal-backdrop';
+    fond.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100002;'
+        + 'display:flex; align-items:center; justify-content:center;';
+
+    const ligne = (titre, cle, valeurs, rendu) => {
+        const t = AvatarsEleves.traits(eleve);
+        return `<div style="margin-bottom:10px;">
+            <div style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">${titre}</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                ${valeurs.map(v => `<button class="av-trait" data-cle="${cle}" data-v="${v}"
+                    style="padding:5px 9px; border-radius:8px; cursor:pointer; font-size:12px; background:var(--bg); color:var(--ink);
+                           border:2px solid ${String(t[cle]) === String(v) ? 'var(--accent)' : 'var(--border)'};">${rendu(v)}</button>`).join('')}
+            </div></div>`;
+    };
+
+    const boite = document.createElement('div');
+    boite.className = 'modal-box';
+    boite.style.cssText = 'background:var(--panel, #fff); color:var(--ink); border-radius:14px; padding:18px;'
+        + 'width:560px; max-width:94vw; max-height:90vh; overflow-y:auto; box-shadow:0 20px 50px rgba(0,0,0,0.3);'
+        + 'text-align:left;';
+
+    const peindre = () => {
+        boite.innerHTML = `
+            <div style="display:flex; gap:18px; align-items:flex-start;">
+                <div style="text-align:center; flex:none;">
+                    <div id="av-apercu" style="background:#fff; border:2px solid var(--border); border-radius:14px; padding:10px;">${AvatarsEleves.svg(eleve, 110)}</div>
+                    <div style="font-size:12px; font-weight:600; margin-top:6px;">${eleve.name || ''}</div>
+                    <button id="av-hasard" class="btn-action secondary" style="margin-top:8px; width:100%; padding:6px; font-size:12px;">🎲 Au hasard</button>
+                    <button id="av-image" class="btn-action secondary" style="margin-top:6px; width:100%; padding:6px; font-size:12px;">🖼️ Une photo</button>
+                    <input type="file" id="av-fichier" accept="image/*" style="display:none;">
+                    <button id="av-defaut" class="btn-action secondary" style="margin-top:6px; width:100%; padding:6px; font-size:12px;">↺ Monstre d'origine</button>
+                </div>
+                <div style="flex:1;">
+                    ${ligne('Couleur', 'teinte', AvatarsEleves.TEINTES, v => `<span style="display:inline-block; width:16px; height:16px; border-radius:4px; background:${v};"></span>`)}
+                    ${ligne('Corps', 'corps', AvatarsEleves.CORPS, v => v)}
+                    ${ligne('Yeux', 'yeux', AvatarsEleves.YEUX, v => v === 1 ? '1 œil' : v + ' yeux')}
+                    ${ligne('Bouche', 'bouche', AvatarsEleves.BOUCHES, v => v)}
+                    ${ligne('Sur la tête', 'cornes', AvatarsEleves.CORNES, v => v)}
+                    <button id="av-fini" class="btn-action primary" style="margin-top:6px; padding:8px 18px;">Terminé</button>
+                </div>
+            </div>`;
+
+        const change = () => { enregistrer(); peindre(); };
+
+        boite.querySelectorAll('.av-trait').forEach(b => b.onclick = () => {
+            AvatarsEleves.poser(eleve, b.dataset.cle, b.dataset.cle === 'yeux' ? parseInt(b.dataset.v, 10) : b.dataset.v);
+            change();
+        });
+        boite.querySelector('#av-hasard').onclick = () => { AvatarsEleves.auHasard(eleve); change(); };
+        boite.querySelector('#av-defaut').onclick = () => { AvatarsEleves.dorigine(eleve); change(); };
+
+        const fichier = boite.querySelector('#av-fichier');
+        boite.querySelector('#av-image').onclick = () => fichier.click();
+        fichier.onchange = (e) => {
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            AvatarsEleves.photo(eleve, f).then(change)
+                .catch(() => { if (typeof showToast === 'function') showToast('Image illisible'); });
+        };
+        boite.querySelector('#av-fini').onclick = () => fond.remove();
+    };
+
+    peindre();
+    fond.appendChild(boite);
+    fond.addEventListener('click', (e) => { if (e.target === fond) fond.remove(); });
+    document.body.appendChild(fond);
+}
+window.ouvrirReglageAvatar = ouvrirReglageAvatar;
+
 function showClassConflictModal(conflict, callback) {
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
@@ -11819,7 +12032,9 @@ async function openClassManagerModal() {
                 <div class="cm-student-row" draggable="true" data-idx="${idx}"
                      style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--bg); margin-bottom:4px; cursor:grab;">
                     <span style="color:var(--muted); font-size:12px;">⠿</span>
-                    <span style="flex:1; font-size:13px;">${s.name}</span>
+                    <button class="cm-avatar" data-idx="${idx}" title="Changer l'avatar de ${s.name}"
+                            style="border:1px solid var(--border); background:#fff; border-radius:8px; padding:2px; cursor:pointer; line-height:0; flex:none;">${AvatarsEleves.svg(s, 30)}</button>
+                    <span style="flex:1; font-size:13px; text-align:left;">${s.name}</span>
                     <button class="cm-toggle-front" data-idx="${idx}" title="Prioritaire 1er rang"
                             style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.frontRow ? '1' : '0.25'};">⭐</button>
                     <button class="cm-del-student" data-idx="${idx}" style="border:none; background:none; cursor:pointer; color:var(--muted); font-size:14px;">🗑️</button>
@@ -11924,6 +12139,15 @@ async function openClassManagerModal() {
                 if (c) openSeatingPlanEditor(c.id);
             };
         }
+
+        box.querySelectorAll('.cm-avatar').forEach(btn => {
+            btn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                const eleve = c.students[parseInt(btn.dataset.idx)];
+                if (eleve) ouvrirReglageAvatar(eleve, () => { c.updatedAt = Date.now(); persist(); render(); });
+            };
+        });
 
         box.querySelectorAll('.cm-toggle-front').forEach(btn => {
             btn.onclick = () => {
@@ -12096,6 +12320,8 @@ async function openSeatingPlanEditor(classId) {
             .sp-seat { background:var(--bg); border:1px dashed var(--border); border-radius:6px; font-size:11px; display:flex; align-items:center; justify-content:center; text-align:center; padding:3px; overflow:hidden; min-width:64px; min-height:40px; color:var(--muted); }
             .sp-seat.filled { background:var(--accent-soft); border:1px solid var(--accent); font-weight:600; color:var(--ink); cursor:grab; }
             .sp-seat.dragover { border-color:#00b894 !important; background:rgba(0,184,148,0.15) !important; }
+            .sp-seat { gap:4px; }
+            .sp-seat-avatar, .sp-chip-avatar { flex:none; line-height:0; display:inline-block; vertical-align:middle; margin-right:4px; }
             .sp-seat-name { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; line-height:1.15; }
             .sp-sidebar { width:220px; flex-shrink:0; border-left:1px solid var(--border); padding:12px; overflow-y:auto; }
             .sp-chip { background:var(--bg); border:1px solid var(--border); padding:8px 10px; border-radius:6px; font-size:12px; margin-bottom:6px; cursor:grab; box-shadow:0 2px 4px rgba(0,0,0,0.06); word-break:break-word; }
@@ -12474,6 +12700,11 @@ async function openSeatingPlanEditor(classId) {
         const s = (classObj.students || []).find(st => st.id === id);
         return !!(s && s.frontRow);
     }
+    // Sur un plan bien rempli, le petit monstre se repère plus vite qu'un nom
+    function studentAvatar(id, taille) {
+        const s = (classObj.students || []).find(st => st.id === id);
+        return s ? AvatarsEleves.svg(s, taille) : '';
+    }
 
     function render() {
         const unassigned = getUnassignedStudents();
@@ -12491,7 +12722,7 @@ async function openSeatingPlanEditor(classId) {
                 `;
             }
             const seatsHtml = t.seats.map((sid, idx) => sid
-                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
+                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-avatar">${studentAvatar(sid, 20)}</span><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
                 : `<div class="sp-seat" data-table="${t.id}" data-seat="${idx}">+</div>`
             ).join('');
             return `
@@ -12511,7 +12742,7 @@ async function openSeatingPlanEditor(classId) {
 
         const sidebarHtml = unassigned.length === 0
             ? `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">Tous les élèves sont placés 🎉</div>`
-            : unassigned.map(s => `<div class="sp-chip ${s.frontRow ? 'frontrow' : ''}" draggable="true" data-student="${s.id}">${s.frontRow ? '⭐ ' : ''}${s.name}</div>`).join('');
+            : unassigned.map(s => `<div class="sp-chip ${s.frontRow ? 'frontrow' : ''}" draggable="true" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${s.frontRow ? '⭐ ' : ''}${s.name}</div>`).join('');
 
         const templateOptions = SEATING_TEMPLATES.map((t, i) => `<option value="${i}">${t.label}</option>`).join('');
 

@@ -217,6 +217,100 @@ module.exports = async function (browser) {
     r.verifie('et elle est cochée', boutons.coche);
     r.verifie('les questions flash aussi ont le réglage', boutons.flash);
 
+    // --- LES AVATARS, PARTOUT OÙ IL Y A DES ÉLÈVES ---
+    const partage = await page.evaluate(() => {
+        const plugin = PluginManager.plugins.classPointsTool;
+        const e = { id: 'stu_essai', name: 'Camille' };
+        return {
+            module: !!window.AvatarsEleves,
+            memeDessin: plugin.avatarSVG(e, 40) === AvatarsEleves.svg(e, 40),
+            memesTeintes: plugin.TEINTES === AvatarsEleves.TEINTES,
+            stable: AvatarsEleves.svg(e, 40) === AvatarsEleves.svg(e, 40)
+        };
+    });
+    r.verifie('le dessin des avatars est écrit une seule fois', partage.module && partage.memeDessin,
+        JSON.stringify(partage));
+    r.verifie('l\'outil Points et « Mes classes » partagent les mêmes traits', partage.memesTeintes);
+    r.verifie('un même élève garde toujours le même monstre', partage.stable);
+
+    const varies = await page.evaluate(() => {
+        const eleves = Array.from({ length: 16 }, (_, i) => ({ id: 'stu_' + i, name: 'E' + i }));
+        const dessins = eleves.map(e => AvatarsEleves.svg(e, 40));
+        const cornes = eleves.map(e => AvatarsEleves.traits(e).cornes);
+        return { distincts: new Set(dessins).size, cornes: new Set(cornes).size };
+    });
+    r.verifie('seize élèves voisins ont seize monstres différents', varies.distincts >= 14, JSON.stringify(varies));
+    r.verifie('et pas tous les mêmes cornes', varies.cornes >= 3, JSON.stringify(varies));
+
+    const regle = await page.evaluate(() => {
+        const e = { id: 'stu_9', name: 'Sacha' };
+        const avant = AvatarsEleves.traits(e);
+        AvatarsEleves.poser(e, 'teinte', '#000000');
+        const apres = AvatarsEleves.traits(e);
+        const fige = apres.bouche === avant.bouche && apres.corps === avant.corps;
+        AvatarsEleves.auHasard(e);
+        const auHasard = Object.keys(e.avatar).sort().join(',');
+        AvatarsEleves.dorigine(e);
+        return { teinte: apres.teinte, fige, auHasard, remis: e.avatar === undefined,
+                 dorigine: AvatarsEleves.traits(e).teinte === avant.teinte };
+    });
+    r.egal('changer un trait le change vraiment', regle.teinte, '#000000');
+    r.verifie('sans faire bouger les autres', regle.fige, JSON.stringify(regle));
+    r.egal('« au hasard » tire les cinq traits', regle.auHasard, 'bouche,cornes,corps,teinte,yeux');
+    r.verifie('« monstre d\'origine » rend son avatar de départ',
+        regle.remis && regle.dorigine, JSON.stringify(regle));
+
+    const mesClasses = await page.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'cav', name: 'Essai avatars',
+            students: ['Ana', 'Bo', 'Cy'].map((n, i) => ({ id: 'av_' + i, name: n })) }]);
+        document.getElementById('btn-classes-menu').click();
+        await new Promise(r => setTimeout(r, 600));
+        const vignettes = document.querySelectorAll('.cm-avatar');
+        const out = { vignettes: vignettes.length, distincts: new Set(Array.from(vignettes).map(v => v.innerHTML)).size };
+        if (vignettes[1]) {
+            vignettes[1].click();
+            await new Promise(r => setTimeout(r, 300));
+            const atelier = document.getElementById('avatar-atelier');
+            out.atelier = !!atelier;
+            if (atelier) {
+                const avant = atelier.querySelector('#av-apercu').innerHTML;
+                atelier.querySelector('#av-hasard').click();
+                await new Promise(r => setTimeout(r, 300));
+                const apres = document.getElementById('avatar-atelier');
+                out.change = apres.querySelector('#av-apercu').innerHTML !== avant;
+                const enregistre = await ClassesStore.loadAll();
+                const classe = enregistre.find(c => c.id === 'cav');
+                out.enregistre = !!(classe && classe.students[1].avatar);
+                document.getElementById('avatar-atelier').querySelector('#av-fini').click();
+                out.referme = !document.getElementById('avatar-atelier');
+            }
+        }
+        return out;
+    });
+    r.egal('« Mes classes » montre un avatar par élève', mesClasses.vignettes, 3);
+    r.egal('et ils sont tous différents', mesClasses.distincts, 3);
+    r.verifie('cliquer l\'avatar ouvre son atelier', mesClasses.atelier, JSON.stringify(mesClasses));
+    r.verifie('« au hasard » change le monstre sous les yeux', mesClasses.change, JSON.stringify(mesClasses));
+    r.verifie('et le changement est enregistré sur l\'élève', mesClasses.enregistre, JSON.stringify(mesClasses));
+    r.verifie('« Terminé » referme l\'atelier', mesClasses.referme, JSON.stringify(mesClasses));
+
+    const plan = await page.evaluate(async () => {
+        const ferme = document.querySelector('#class-manager-modal .modal-close, #avatar-atelier');
+        if (ferme) ferme.remove();
+        await openSeatingPlanEditor('cav');
+        await new Promise(r => setTimeout(r, 500));
+        const chips = document.querySelectorAll('.sp-chip-avatar').length;
+        const t = document.getElementById('sp-template');
+        if (t) { t.value = '0'; t.dispatchEvent(new Event('change', { bubbles: true })); }
+        document.getElementById('sp-apply-template').click();
+        await new Promise(r => setTimeout(r, 400));
+        document.getElementById('sp-autofill').click();
+        await new Promise(r => setTimeout(r, 400));
+        return { chips, places: document.querySelectorAll('.sp-seat-avatar').length };
+    });
+    r.egal('le plan de classe montre l\'avatar des élèves non placés', plan.chips, 3);
+    r.egal('et celui des élèves assis', plan.places, 3);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

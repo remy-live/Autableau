@@ -28368,83 +28368,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     },
 
     // ---------- Avatars ----------
-    TEINTES: ['#e17055', '#0984e3', '#00b894', '#6c5ce7', '#fdcb6e', '#d63031',
-              '#00cec9', '#e84393', '#fd79a8', '#55efc4', '#a29bfe', '#fab1a0'],
-    CORPS: ['rond', 'goutte', 'bloc', 'poilu'],
-    BOUCHES: ['sourire', 'dents', 'o', 'trait'],
-    CORNES: ['aucune', 'pointes', 'antennes', 'oreilles'],
+    // Le monstre est dessiné par AvatarsEleves (script.js) : « Mes classes »
+    // et cet outil montrent ainsi exactement le même élève.
+    get TEINTES() { return AvatarsEleves.TEINTES; },
+    get CORPS() { return AvatarsEleves.CORPS; },
+    get BOUCHES() { return AvatarsEleves.BOUCHES; },
+    get CORNES() { return AvatarsEleves.CORNES; },
 
-    // Toujours le même monstre pour le même élève : on tire au sort à partir
-    // de son identifiant, pas au hasard à chaque affichage.
-    empreinte: function (texte) {
-        let h = 0;
-        const s = String(texte || '');
-        for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
-        // Deux identifiants voisins (« stu_1 » et « stu_2 ») ne diffèrent que
-        // par les bits de poids faible : sans ce brassage, tous les élèves
-        // d'une classe héritaient des mêmes cornes.
-        h ^= h >>> 16; h = Math.imul(h, 0x7feb352d) >>> 0;
-        h ^= h >>> 15; h = Math.imul(h, 0x846ca68b) >>> 0;
-        h ^= h >>> 16;
-        return h >>> 0;
-    },
-
-    traitsAvatar: function (eleve) {
-        const h = this.empreinte(eleve.id || eleve.name);
-        const auto = {
-            teinte: this.TEINTES[h % this.TEINTES.length],
-            corps: this.CORPS[(h >> 3) % this.CORPS.length],
-            yeux: 1 + ((h >> 6) % 3),
-            bouche: this.BOUCHES[(h >> 9) % this.BOUCHES.length],
-            cornes: this.CORNES[(h >> 12) % this.CORNES.length]
-        };
-        return Object.assign(auto, eleve.avatar || {});
-    },
-
-    avatarSVG: function (eleve, taille) {
-        const t = this.traitsAvatar(eleve);
-        const T = taille || 64;
-        if (t.image) {
-            return `<img src="${t.image}" alt="" style="width:${T}px; height:${T}px; border-radius:12px; object-fit:cover; display:block;">`;
-        }
-
-        const sombre = '#2d3436';
-        let corps = '';
-        if (t.corps === 'rond') corps = `<circle cx="50" cy="56" r="36" fill="${t.teinte}"/>`;
-        else if (t.corps === 'goutte') corps = `<path d="M50 16 C74 34 86 50 86 62 A36 36 0 0 1 14 62 C14 50 26 34 50 16 Z" fill="${t.teinte}"/>`;
-        else if (t.corps === 'bloc') corps = `<rect x="16" y="22" width="68" height="70" rx="16" fill="${t.teinte}"/>`;
-        else {
-            // le monstre poilu : un rond mordu tout autour
-            let d = '';
-            for (let i = 0; i < 16; i++) {
-                const a = (i / 16) * Math.PI * 2;
-                const r = (i % 2 === 0) ? 38 : 30;
-                const x = 50 + r * Math.cos(a), y = 56 + r * Math.sin(a);
-                d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
-            }
-            corps = `<path d="${d}Z" fill="${t.teinte}"/>`;
-        }
-
-        let cornes = '';
-        if (t.cornes === 'pointes') cornes = `<path d="M30 30 L18 2 L46 20 Z" fill="${t.teinte}"/><path d="M70 30 L82 2 L54 20 Z" fill="${t.teinte}"/>`;
-        else if (t.cornes === 'antennes') cornes = `<line x1="34" y1="26" x2="26" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="26" cy="6" r="5" fill="${t.teinte}"/>`
-            + `<line x1="66" y1="26" x2="74" y2="8" stroke="${sombre}" stroke-width="3"/><circle cx="74" cy="6" r="5" fill="${t.teinte}"/>`;
-        else if (t.cornes === 'oreilles') cornes = `<ellipse cx="10" cy="48" rx="12" ry="16" fill="${t.teinte}"/><ellipse cx="90" cy="48" rx="12" ry="16" fill="${t.teinte}"/>`;
-
-        let yeux = '';
-        const oeil = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#ffffff"/><circle cx="${x}" cy="${y + 1}" r="${r * 0.45}" fill="${sombre}"/>`;
-        if (t.yeux === 1) yeux = oeil(50, 50, 16);
-        else if (t.yeux === 2) yeux = oeil(37, 50, 11) + oeil(63, 50, 11);
-        else yeux = oeil(32, 48, 9) + oeil(50, 44, 9) + oeil(68, 48, 9);
-
-        let bouche = '';
-        if (t.bouche === 'sourire') bouche = `<path d="M36 72 Q50 84 64 72" stroke="${sombre}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
-        else if (t.bouche === 'dents') bouche = `<path d="M34 70 h32 v10 h-32 Z" fill="#ffffff" stroke="${sombre}" stroke-width="2"/><line x1="42" y1="70" x2="42" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="50" y1="70" x2="50" y2="80" stroke="${sombre}" stroke-width="2"/><line x1="58" y1="70" x2="58" y2="80" stroke="${sombre}" stroke-width="2"/>`;
-        else if (t.bouche === 'o') bouche = `<ellipse cx="50" cy="75" rx="9" ry="7" fill="${sombre}"/>`;
-        else bouche = `<line x1="38" y1="75" x2="62" y2="75" stroke="${sombre}" stroke-width="4" stroke-linecap="round"/>`;
-
-        return `<svg viewBox="0 0 100 100" width="${T}" height="${T}" style="display:block;">${cornes}${corps}${yeux}${bouche}</svg>`;
-    },
+    empreinte: function (texte) { return AvatarsEleves.empreinte(texte); },
+    traitsAvatar: function (eleve) { return AvatarsEleves.traits(eleve); },
+    avatarSVG: function (eleve, taille) { return AvatarsEleves.svg(eleve, taille); },
 
     // ---------- Données ----------
     pointsDe: function (eleve) {
@@ -28762,8 +28695,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (!eleve) return;
 
         const poser = (cle, valeur) => {
-            eleve.avatar = Object.assign({}, this.traitsAvatar(eleve), { [cle]: valeur });
-            delete eleve.avatar.image;
+            AvatarsEleves.poser(eleve, cle, valeur);
             this.sauver(); this.rendre();
         };
 
@@ -28773,16 +28705,12 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         }));
 
         el.querySelector('#pts-hasard').addEventListener('click', () => {
-            const pioche = (a) => a[Math.floor(Math.random() * a.length)];
-            eleve.avatar = {
-                teinte: pioche(this.TEINTES), corps: pioche(this.CORPS),
-                yeux: pioche([1, 2, 3]), bouche: pioche(this.BOUCHES), cornes: pioche(this.CORNES)
-            };
+            AvatarsEleves.auHasard(eleve);
             this.sauver(); this.rendre();
         });
 
         el.querySelector('#pts-defaut').addEventListener('click', () => {
-            delete eleve.avatar; this.sauver(); this.rendre();
+            AvatarsEleves.dorigine(eleve); this.sauver(); this.rendre();
         });
 
         const fichier = el.querySelector('#pts-fichier');
@@ -28790,23 +28718,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         fichier.addEventListener('change', (e) => {
             const f = e.target.files && e.target.files[0];
             if (!f) return;
-            const lecteur = new FileReader();
-            lecteur.onload = (ev) => {
-                // On réduit l'image : une classe entière de photos en pleine
-                // taille ferait un fichier de sauvegarde énorme.
-                const img = new Image();
-                img.onload = () => {
-                    const c = document.createElement('canvas');
-                    c.width = c.height = 128;
-                    const g = c.getContext('2d');
-                    const cote = Math.min(img.width, img.height);
-                    g.drawImage(img, (img.width - cote) / 2, (img.height - cote) / 2, cote, cote, 0, 0, 128, 128);
-                    eleve.avatar = { image: c.toDataURL('image/jpeg', 0.8) };
-                    this.sauver(); this.rendre();
-                };
-                img.src = ev.target.result;
-            };
-            lecteur.readAsDataURL(f);
+            AvatarsEleves.photo(eleve, f)
+                .then(() => { this.sauver(); this.rendre(); })
+                .catch(() => { if (typeof showToast === 'function') showToast('Image illisible'); });
         });
 
         el.querySelector('#pts-avatar-ok').addEventListener('click', () => { this.editionAvatar = null; this.rendre(); });
