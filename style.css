@@ -5570,3 +5570,129 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .dark-mode .exp-detail { border-color: #2f3941; }
 .dark-mode .exp-detail:hover { background: #2f3941; }
 .dark-mode .exp-detail-entete, .dark-mode .exp-detail-entete:hover { background: #232b32; }
+
+/* ===================================================
+   LA BARRE DU DOCUMENT (PDF posé sur le tableau)
+   Elle se pose sous le cadre et le suit : régler le cadre d'un côté,
+   faire coulisser la page de l'autre — deux gestes qui se marchaient dessus.
+   =================================================== */
+#barre-document {
+    display: none;
+    position: fixed;
+    z-index: 14000;
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 10px;
+    padding: 5px 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+    gap: 6px;
+    align-items: center;
+    font-family: sans-serif;
+    font-size: 13px;
+    white-space: nowrap;
+    transform: translateX(-50%);
+}
+
+#barre-document.visible { display: flex; }
+#doc-pages { display: flex; align-items: center; gap: 2px; }
+#doc-info { min-width: 46px; text-align: center; font-weight: 600; color: #334155; }
+
+.doc-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #334155;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.doc-btn:hover { background: #eef2ff; }
+.doc-btn.actif { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
+.doc-fermer { color: #e11d48; }
+.doc-fermer:hover { background: #fee2e2; }
+.doc-sep { width: 1px; height: 20px; background: rgba(0, 0, 0, 0.12); display: inline-block; }
+#doc-opacite { width: 74px; accent-color: #0284c7; cursor: pointer; }
+
+.dark-mode #barre-document { background: rgba(30, 39, 46, 0.97); border-color: #3d4852; }
+.dark-mode .doc-btn { color: #dfe6e9; }
+.dark-mode .doc-btn:hover { background: #2f3941; }
+.dark-mode #doc-info { color: #dfe6e9; }
+
+/* ============================================================
+   LA BARRE DU BAS : DES ICÔNES, ET LA VALEUR EN PASTILLE
+   Le zoom et l'épaisseur du quadrillage gardent leur dessin d'outil et
+   portent leur valeur du moment en tout petit dessous : on reconnaît le
+   bouton à sa forme, on lit le réglage sans l'ouvrir.
+   ============================================================ */
+.btn.btn-valeur {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    line-height: 1;
+    padding: 2px 6px;
+    min-width: 46px;
+}
+
+.btn.btn-valeur .stroke-icon,
+.btn.btn-valeur svg {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+}
+
+.pastille-valeur {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    color: var(--muted);
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+.btn.btn-valeur:hover .pastille-valeur,
+.btn.btn-valeur.active .pastille-valeur {
+    color: inherit;
+}
+
+.dark-mode .pastille-valeur {
+    color: #b2bec3;
+}
+
+/* Les interrupteurs de la rangée du bas : un témoin dit s'ils sont allumés */
+.category-pill.interrupteur {
+    gap: 6px;
+    padding-left: 8px;
+}
+
+.category-pill .temoin {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(128, 128, 128, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+    flex: none;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+
+.category-pill.allume {
+    background: var(--accent-soft);
+    color: var(--ink);
+    border-color: var(--accent-soft);
+}
+
+.category-pill.allume .temoin {
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
+}
+
+.dark-mode .category-pill.allume {
+    background: rgba(162, 155, 254, 0.25);
+    color: #ffffff;
+}

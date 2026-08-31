@@ -215,6 +215,59 @@ module.exports = async function (browser) {
     r.verifie('la grille reste un bloc compact', bloc.largeur <= 780 && bloc.largeur < bloc.ecran * 0.7,
         `${bloc.largeur} px de large pour un écran de ${bloc.ecran}`);
     r.verifie('deux ou trois rangées', bloc.hauteur >= 90 && bloc.hauteur <= 220, `${bloc.hauteur} px de haut`);
+
+    // --- LA BARRE DU BAS : DES ICÔNES, DES PASTILLES, DES TÉMOINS ---
+    const barre = await pageP.evaluate(() => ({
+        zoom: (document.getElementById('zoom-valeur') || {}).innerText,
+        grille: (document.getElementById('grille-valeur') || {}).innerText,
+        zoomDessine: !!document.querySelector('#btn-zoom-toggle svg'),
+        grilleDessine: !!document.querySelector('#btn-grid-toggle svg'),
+        rangerEnIcone: !!document.querySelector('#btn-ranger svg'),
+        tableauxEnIcone: !!document.querySelector('#btn-tableaux svg'),
+        pastillesRestantes: Array.from(document.querySelectorAll('#categories-bottom .category-pill'))
+            .map(b => b.id),
+        temoins: document.querySelectorAll('#categories-bottom .temoin').length
+    }));
+    r.verifie('le zoom garde son dessin et porte sa valeur',
+        barre.zoomDessine && barre.zoom === '100%', JSON.stringify(barre));
+    r.verifie('le quadrillage aussi', barre.grilleDessine && barre.grille === '1,0', JSON.stringify(barre));
+    r.verifie('« Ranger l\'espace » et « Mes tableaux » sont montés en icônes',
+        barre.rangerEnIcone && barre.tableauxEnIcone, JSON.stringify(barre));
+    r.egal('il ne reste en bas que les trois interrupteurs',
+        barre.pastillesRestantes, ['btn-focus', 'btn-libelles', 'btn-nuit']);
+    r.egal('chacun porte son témoin', barre.temoins, 3);
+
+    const vivant = await pageP.evaluate(() => {
+        const curseur = document.getElementById('zoom-slider');
+        curseur.value = '1.4';
+        curseur.dispatchEvent(new Event('input', { bubbles: true }));
+        const g = document.getElementById('grid-weight-slider');
+        g.value = '2.5';
+        g.dispatchEvent(new Event('input', { bubbles: true }));
+        return {
+            zoom: document.getElementById('zoom-valeur').innerText,
+            grille: document.getElementById('grille-valeur').innerText
+        };
+    });
+    r.egal('la pastille du zoom suit le curseur', vivant.zoom, '140%');
+    r.egal('celle du quadrillage aussi, à la française', vivant.grille, '2,5');
+
+    const interrupteurs = await pageP.evaluate(() => {
+        const lu = (id) => document.getElementById(id).classList.contains('allume');
+        const avant = { focus: lu('btn-focus'), nuit: lu('btn-nuit') };
+        document.getElementById('btn-focus').click();
+        document.getElementById('btn-nuit').click();
+        const apres = { focus: lu('btn-focus'), nuit: lu('btn-nuit') };
+        document.getElementById('btn-focus').click();
+        document.getElementById('btn-nuit').click();
+        return { avant, apres, eteints: !lu('btn-focus') && !lu('btn-nuit') };
+    });
+    r.verifie('au départ les témoins sont éteints',
+        !interrupteurs.avant.focus && !interrupteurs.avant.nuit, JSON.stringify(interrupteurs));
+    r.verifie('Focus et Mode Nuit s\'allument quand on les enclenche',
+        interrupteurs.apres.focus && interrupteurs.apres.nuit, JSON.stringify(interrupteurs));
+    r.verifie('et s\'éteignent quand on les relâche', interrupteurs.eteints, JSON.stringify(interrupteurs));
+
     await ctxP.close();
 
     const toutesErreurs = [...parDefaut.errs, ...avecLibelles.errs, ...avecCouleur.errs, ...errsP];

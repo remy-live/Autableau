@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=25">
+    <link rel="stylesheet" href="style.css?v=26">
 </head>
 
 <body>
@@ -160,6 +160,42 @@
 
     <div id="wysiwyg-text" contenteditable="true" spellcheck="false" data-placeholder="Tapez ici..."></div>
 
+    <!-- Barre du document : elle se pose SOUS le cadre du PDF et le suit.
+         Elle sépare les deux gestes qui se marchent dessus : régler le cadre,
+         ou faire coulisser la page à l'intérieur. -->
+    <div id="barre-document">
+        <span id="doc-pages">
+            <button class="doc-btn" id="doc-prec" title="Page précédente">◀</button>
+            <span id="doc-info">1/1</span>
+            <button class="doc-btn" id="doc-suiv" title="Page suivante">▶</button>
+        </span>
+        <i class="doc-sep"></i>
+        <button class="doc-btn doc-mode" id="doc-mode-cadre" title="Régler le cadre : déplacer, redimensionner">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="5" width="16" height="14" rx="2" />
+                <path d="M20 9h2M20 15h2M2 9h2M2 15h2" stroke-linecap="round" />
+            </svg><span>Cadre</span></button>
+        <button class="doc-btn doc-mode" id="doc-mode-page" title="Faire coulisser et zoomer la page dans le cadre">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M12 8.5v7M8.5 12h7" />
+            </svg><span>Page</span></button>
+        <i class="doc-sep"></i>
+        <input type="range" id="doc-opacite" min="0.1" max="1" step="0.05" value="1" title="Opacité du document">
+        <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+            </svg></button>
+        <i class="doc-sep"></i>
+        <button class="doc-btn" id="doc-verrou" title="Verrouiller : le document ne bouge plus, on dessine par-dessus">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="5" y="11" width="14" height="10" rx="2" />
+                <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke-linecap="round" />
+            </svg></button>
+        <button class="doc-btn doc-fermer" id="doc-fermer" title="Retirer le document">✕</button>
+    </div>
+
     <div id="quick-edit-menu">
         <button class="btn-quick" id="btn-quick-lock" title="Verrouiller la position et l'édition">
             <svg xmlns="http://www.w3.org/2000/svg" id="icon-quick-lock" viewBox="0 0 24 24" fill="none"
@@ -195,11 +231,6 @@
 
         <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
 
-        <div id="quick-pdf" style="display:none; align-items:center; gap:2px; padding-right:8px; margin-right:6px; border-right:1px solid #dfe6e9;">
-            <button class="btn-quick" id="btn-pdf-prev" title="Page précédente du document">◀</button>
-            <span id="quick-pdf-info" style="font-size:12px; font-weight:600; min-width:54px; text-align:center; color:#636e72;">1 / 1</span>
-            <button class="btn-quick" id="btn-pdf-next" title="Page suivante du document">▶</button>
-        </div>
         <button class="btn-quick danger" id="btn-quick-delete" title="Supprimer">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -342,7 +373,11 @@
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Deux modes, au choix
                             dans le menu Importer : une page de tableau par page du document, ou le
-                            <b>document feuilletable</b> — posé en un seul objet, avec ◀ ▶ pour tourner ses pages.</li>
+                            <b>document feuilletable</b> — posé en un seul objet.</li>
+                        <li><strong>La barre du document :</strong> elle apparaît sous le PDF sélectionné.
+                            ◀ ▶ tournent les pages ; <b>Cadre</b> déplace et redimensionne la fenêtre,
+                            <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
+                            le passage sous le quadrillage, le verrou (on dessine par-dessus) et ✕ pour le retirer.</li>
                         <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
                             sur place) ou Google Drive quand le tableau est en ligne. Quatre présentations (liste,
@@ -949,7 +984,20 @@
 
             <button class="btn" id="btn-classes-menu" data-tooltip="Mes classes"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
 
-            
+            <!-- Deux gestes de tous les jours : ils méritaient une icône, pas une étiquette -->
+            <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="4" width="14" height="16" rx="2" />
+                    <path d="M7 8h6M7 12h6M7 16h4" stroke-linecap="round" />
+                    <path d="M20 7v13a1 1 0 0 1-1 1h-2" />
+                </svg></button>
+            <button class="btn" id="btn-ranger" data-tooltip="Ranger l'espace" onclick="handleWorkspaceArrange()"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg></button>
 
             <!-- Bouton Global Lock -->
             <button class="btn" id="btn-global-lock" data-tooltip="Verrouiller / Déverrouiller">
@@ -997,7 +1045,13 @@
         <div class="tool-pool bottom-workspace-row">
             <div class="tool-group" data-groupe="voir">
                 <div class="popup-wrapper">
-                <button class="btn text-btn" id="btn-zoom-toggle" data-tooltip="Zoom">100%</button>
+                <button class="btn btn-valeur" id="btn-zoom-toggle" data-tooltip="Zoom">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <line x1="20.5" y1="20.5" x2="16" y2="16"></line>
+                    </svg>
+                    <span class="pastille-valeur" id="zoom-valeur">100%</span>
+                </button>
                 <div class="popup-content popup-slider" id="popup-zoom">
                     <span style="font-size: 12px; margin-right: 5px;">🔍</span>
                     <input type="range" id="zoom-slider" min="0.2" max="10" step="0.1" value="1">
@@ -1031,7 +1085,12 @@
                             d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" />
                     </svg></button>
                 <div class="popup-wrapper">
-                <button class="btn text-btn" id="btn-grid-toggle" data-tooltip="Épaisseur Grille">Grille</button>
+                <button class="btn btn-valeur" id="btn-grid-toggle" data-tooltip="Épaisseur du quadrillage">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <path d="M9 4v16M15 4v16M4 9h16M4 15h16" />
+                    </svg>
+                    <span class="pastille-valeur" id="grille-valeur">1,0</span>
+                </button>
                 <div class="popup-content popup-slider" id="popup-grid">
                     <span style="font-size: 12px; margin-right: 5px;">📏</span>
                     <input type="range" id="grid-weight-slider" min="0.5" max="3" step="0.1" value="1">
@@ -1124,13 +1183,13 @@
         </div>
         <div class="drawer-header" style="justify-content: center; width: 100%;">
             <div class="tool-categories" id="categories-bottom" style="justify-content: center;">
-                <button class="category-pill" onclick="handleWorkspaceArrange()">Ranger l'espace</button>
-                <button class="category-pill" onclick="handleWorkspaceDarkMode()">Mode Nuit</button>
-                <button class="category-pill" onclick="handleWorkspaceFocus()" id="btn-focus">Focus</button>
-                <button class="category-pill" onclick="basculerLibelles()" id="btn-libelles"
-                    title="Afficher le nom des outils sous leur icône">Libellés</button>
-                <button class="category-pill" onclick="toggleRightDrawer()"
-                    style="color: var(--accent); border-color: var(--accent-soft);">Mes tableaux</button>
+                <!-- Ne restent ici que les interrupteurs : leur témoin dit s'ils sont allumés -->
+                <button class="category-pill interrupteur" onclick="handleWorkspaceFocus()" id="btn-focus"
+                    title="Ne garder que le tableau : les barres s'effacent"><i class="temoin"></i>Focus</button>
+                <button class="category-pill interrupteur" onclick="basculerLibelles()" id="btn-libelles"
+                    title="Afficher le nom des outils sous leur icône"><i class="temoin"></i>Libellés</button>
+                <button class="category-pill interrupteur" onclick="handleWorkspaceDarkMode()" id="btn-nuit"
+                    title="Tableau sombre, craie claire"><i class="temoin"></i>Mode Nuit</button>
             </div>
         </div>
     </div>
@@ -1476,7 +1535,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=74"></script>
+    <script src="script.js?v=75"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -374,25 +374,128 @@ module.exports = async function (browser) {
     r.egal('on ne dépasse pas la dernière page', feuillete.fin, 3);
     r.egal('◀ revient en arrière', feuillete.retour, 2);
 
-    const menu = await page.evaluate(() => {
+    // --- LA BARRE DU DOCUMENT ---
+    const barre = await page.evaluate(() => {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateQuickMenu();
-        const cadre = document.getElementById('quick-pdf');
+        const b = document.getElementById('barre-document');
         return {
-            visible: getComputedStyle(cadre).display !== 'none',
-            info: document.getElementById('quick-pdf-info').innerText
+            visible: b.classList.contains('visible'),
+            info: document.getElementById('doc-info').innerText,
+            menuRange: document.getElementById('quick-edit-menu').classList.contains('visible'),
+            sousLeCadre: parseFloat(b.style.top) > panY + images[0].y * zoom
         };
     });
-    r.verifie('le menu rapide affiche les flèches du document', menu.visible, JSON.stringify(menu));
-    r.egal('avec le numéro de page', menu.info, '2 / 3');
+    r.verifie('la barre du document apparaît sous le cadre', barre.visible && barre.sousLeCadre, JSON.stringify(barre));
+    r.egal('elle affiche la page courante sur le total', barre.info, '2/3');
+    r.verifie('et le menu rapide ordinaire s\'efface', !barre.menuRange, JSON.stringify(barre));
+
+    const fleches = await page.evaluate(async () => {
+        document.getElementById('doc-suiv').click();
+        await new Promise(r => setTimeout(r, 500));
+        const apres = document.getElementById('doc-info').innerText;
+        document.getElementById('doc-prec').click();
+        await new Promise(r => setTimeout(r, 500));
+        return { apres, retour: document.getElementById('doc-info').innerText };
+    });
+    r.egal('▶ de la barre tourne la page', fleches.apres, '3/3');
+    r.egal('◀ de la barre revient', fleches.retour, '2/3');
+
+    const modes = await page.evaluate(() => {
+        const cadre = document.getElementById('doc-mode-cadre');
+        const pageB = document.getElementById('doc-mode-page');
+        const depart = cadre.classList.contains('actif') && !pageB.classList.contains('actif');
+        pageB.click();
+        const bascule = pageB.classList.contains('actif') && !cadre.classList.contains('actif') && modeDocument === 'page';
+        return { depart, bascule };
+    });
+    r.verifie('le mode « Cadre » est celui de départ, et il se voit', modes.depart, JSON.stringify(modes));
+    r.verifie('le mode « Page » s\'allume et éteint l\'autre', modes.bascule, JSON.stringify(modes));
+
+    // En mode Page, le glissement déplace la découpe, pas l'objet
+    const coulisse = await page.evaluate(() => {
+        const o = images[0];
+        o.cw = o.cw / 2; o.ch = o.ch / 2;          // page zoomée : il y a de la marge
+        o.cx = 60; o.cy = 60;
+        const x0 = o.x, cx0 = o.cx;
+        demarrerGlissePage(o, { x: 0, y: 0 });
+        poursuivreGlissePage({ x: -30, y: 0 });
+        const r = { objetFixe: o.x === x0, decoupeBouge: o.cx > cx0 };
+        glissePage = null;
+        return r;
+    });
+    r.verifie('faire coulisser la page ne déplace pas le cadre', coulisse.objetFixe, JSON.stringify(coulisse));
+    r.verifie('mais bien la fenêtre de découpe', coulisse.decoupeBouge, JSON.stringify(coulisse));
+
+    const molette = await page.evaluate(() => {
+        const o = images[0];
+        const avant = o.cw;
+        zoomerPage(o, { x: o.x + o.w / 2, y: o.y + o.h / 2 }, 1.5);
+        return { avant, apres: o.cw, dansLimage: o.cx >= 0 && o.cx + o.cw <= imageCache[o.src].naturalWidth + 0.5 };
+    });
+    r.verifie('la molette agrandit la page dans son cadre', molette.apres < molette.avant, JSON.stringify(molette));
+    r.verifie('sans jamais sortir de l\'image', molette.dansLimage, JSON.stringify(molette));
+
+    const reglages = await page.evaluate(() => {
+        const opa = document.getElementById('doc-opacite');
+        opa.value = '0.4';
+        opa.dispatchEvent(new Event('input', { bubbles: true }));
+        const apresOpacite = images[0].opacity;
+
+        document.getElementById('doc-grille').click();
+        const sous = { actif: images[0].sousLaGrille, allume: document.getElementById('doc-grille').classList.contains('actif') };
+        document.getElementById('doc-grille').click();
+
+        document.getElementById('doc-verrou').click();
+        const verrou = { actif: images[0].locked, allume: document.getElementById('doc-verrou').classList.contains('actif') };
+        document.getElementById('doc-verrou').click();
+        return { apresOpacite, sous, verrou, remisAPlat: !images[0].locked };
+    });
+    r.egal('le curseur règle l\'opacité du document', reglages.apresOpacite, 0.4);
+    r.verifie('le passage sous le quadrillage se pose et se voit',
+        reglages.sous.actif === true && reglages.sous.allume, JSON.stringify(reglages.sous));
+    r.verifie('le verrou se pose et se voit',
+        reglages.verrou.actif === true && reglages.verrou.allume, JSON.stringify(reglages.verrou));
+    r.verifie('et chaque bouton se relâche', reglages.remisAPlat);
+
+    // Le document passé sous la grille est dessiné avant le quadrillage
+    const dessous = await page.evaluate(() => {
+        images[0].sousLaGrille = true;
+        const ordre = [];
+        const vraiDessin = ctx.drawImage.bind(ctx);
+        const vraiRemplir = ctx.fillRect.bind(ctx);
+        ctx.drawImage = function (...a) { ordre.push('image'); return vraiDessin(...a); };
+        ctx.fillRect = function (...a) { ordre.push('fond'); return vraiRemplir(...a); };
+        currentPaper = 'carreau';
+        draw();
+        ctx.drawImage = vraiDessin; ctx.fillRect = vraiRemplir;
+        images[0].sousLaGrille = false;
+        currentPaper = 'blanc';
+        return { premier: ordre[0], uneSeuleFois: ordre.filter(o => o === 'image').length };
+    });
+    r.egal('le fond reste peint en premier', dessous.premier, 'fond');
+    r.egal('et le document sous la grille n\'est dessiné qu\'une fois', dessous.uneSeuleFois, 1);
+
+    const ferme = await page.evaluate(() => {
+        const cle = images[0].pluginData.cle;
+        document.getElementById('doc-fermer').click();
+        return {
+            images: images.length,
+            oublie: !documentsPdf.has(cle),
+            barre: document.getElementById('barre-document').classList.contains('visible')
+        };
+    });
+    r.egal('✕ retire le document du tableau', ferme.images, 0);
+    r.verifie('et oublie le PDF gardé en mémoire', ferme.oublie, JSON.stringify(ferme));
+    r.verifie('la barre disparaît avec lui', !ferme.barre, JSON.stringify(ferme));
 
     const surImageOrdinaire = await page.evaluate(() => {
         images.push({ id: nextId++, x: 0, y: 0, w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, src: '', z: globalZ++ });
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
         updateQuickMenu();
-        return getComputedStyle(document.getElementById('quick-pdf')).display;
+        return document.getElementById('barre-document').classList.contains('visible');
     });
-    r.egal('et pas sur une image ordinaire', surImageOrdinaire, 'none');
+    r.verifie('elle ne s\'affiche pas sur une image ordinaire', !surImageOrdinaire);
 
     const reglage = await page.evaluate(() => {
         reglerImportPdf(true);

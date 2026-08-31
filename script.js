@@ -8,6 +8,33 @@ let isExportingTransparent = false;
 let gridWeight = 1;
 let hasShownResizeHelp = false;
 
+// ---------------------------------------------------
+// LES VALEURS DE LA BARRE DU BAS
+// Le zoom et l'épaisseur du quadrillage gardent leur dessin d'outil ; leur
+// valeur du moment se lit dans une petite pastille posée dessous. Les
+// interrupteurs (Focus, Libellés, Mode Nuit), eux, portent un témoin allumé
+// ou éteint : on voit d'un coup d'œil ce qui est en marche.
+// ---------------------------------------------------
+function ecrirePastille(id, valeur) {
+    const el = document.getElementById(id);
+    if (el && el.innerText !== valeur) el.innerText = valeur;
+}
+function majPastilleZoom(valeur) {
+    ecrirePastille('zoom-valeur', Math.round((valeur === undefined ? zoom : valeur) * 100) + '%');
+}
+function majPastilleGrille(valeur) {
+    ecrirePastille('grille-valeur', (valeur === undefined ? gridWeight : valeur).toFixed(1).replace('.', ','));
+}
+function allumerInterrupteur(id, actif) {
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle('allume', !!actif);
+}
+function majInterrupteursBarre() {
+    allumerInterrupteur('btn-focus', document.body.classList.contains('focus-mode'));
+    allumerInterrupteur('btn-nuit', isDarkMode);
+    // « Libellés » a trois états : c'est choisirFormatIcones qui l'allume.
+}
+
 let isLoupeActive = false;
 let isCropMode = false;
 let cropRect = null;
@@ -784,8 +811,7 @@ function loadPage(index) {
     panX = p.panX || window.innerWidth / 2; panY = p.panY || window.innerHeight / 2; zoom = p.zoom || 1;
 
     document.getElementById('zoom-slider').value = zoom;
-    const btnZoomToggle = document.getElementById('btn-zoom-toggle');
-    if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
+    majPastilleZoom();
 
     if (history.length === 0) saveState();
 
@@ -1007,10 +1033,7 @@ function arrangeToolbars() {
 
 function toggleFocusMode() {
     document.body.classList.toggle('focus-mode');
-    const focusBtn = document.getElementById('btn-focus');
-    if (focusBtn) {
-        focusBtn.textContent = document.body.classList.contains('focus-mode') ? 'Quitter Focus' : 'Focus';
-    }
+    majInterrupteursBarre();
 }
 
 document.getElementById('confirm-yes-btn').addEventListener('click', () => {
@@ -5951,6 +5974,14 @@ canvas.addEventListener('pointerdown', (e) => {
         return;
     }
 
+    // En mode « page », glisser DANS le document le fait coulisser dans son
+    // cadre : l'objet, lui, ne bouge pas.
+    const docChoisi = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
+    if (docChoisi && modeDocument === 'page' && !docChoisi.locked
+        && clickedObj && clickedObj.type === 'image' && clickedObj.id === docChoisi.id) {
+        if (demarrerGlissePage(docChoisi, rawPos)) { updateCursor(); return; }
+    }
+
     if (clickedObj && clickedObj.type === 'handle') { draggedHandle = clickedObj.name; isDraggingObjs = true; return; }
 
     if (mode === 'pointer') {
@@ -6123,6 +6154,8 @@ canvas.addEventListener('pointermove', (e) => {
 
     if (isLoupeActive) requestAnimationFrame(draw);
     if (PluginManager.trigger('onPointerMove', rawPos, e)) return;
+
+    if (glissePage) { poursuivreGlissePage(rawPos); return; }
 
     if (draggedWidget) {
         const w = draggedWidget;
@@ -6663,9 +6696,8 @@ function handlePointerUp(e) {
             panX = window.innerWidth / 2 - ((minX + maxX) / 2) * zoom;
             panY = window.innerHeight / 2 - ((minY + maxY) / 2) * zoom;
             const zoomSlider = document.getElementById('zoom-slider');
-            const btnZoomToggle = document.getElementById('btn-zoom-toggle');
             if (zoomSlider) zoomSlider.value = zoom;
-            if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
+            majPastilleZoom();
             if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
         }
         setMode('pointer');
@@ -6704,6 +6736,8 @@ function handlePointerUp(e) {
         draw(); return;
     }
 
+    if (glissePage) { glissePage = null; saveState(); }
+
     if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
     if (isDrawingFreehand) { isDrawingFreehand = false; if (currentFreehand.points.length > 1) { freehands.push(currentFreehand); saveState(); } currentFreehand = null; }
     updateCursor(); draw();
@@ -6711,7 +6745,18 @@ function handlePointerUp(e) {
 
 canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
+
+    // En mode « page », la molette zoome la PAGE dans son cadre, pas le tableau
+    const docPage = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
+    if (docPage && modeDocument === 'page' && !docPage.locked) {
+        const p = getRawLogicalPos(e);
+        if (p.x >= docPage.x && p.x <= docPage.x + docPage.w && p.y >= docPage.y && p.y <= docPage.y + docPage.h) {
+            zoomerPage(docPage, p, Math.exp(-e.deltaY / 450));
+            return;
+        }
+    }
+
+    majPastilleZoom();
     // 1. PINCH-TO-ZOOM (Trackpad Mac) ou Scroll + Ctrl (Souris classique)
     if (e.ctrlKey) {
         const mouseLogX = (e.clientX - panX) / zoom;
@@ -6753,7 +6798,7 @@ document.getElementById('zoom-slider').addEventListener('input', (e) => {
     draw();
 });
 
-document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); draw(); });
+document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); majPastilleGrille(); draw(); });
 // L'aimant dit sur quoi il attire : sans ça, on ne devine ni ce qu'il fait,
 // ni qu'un appui long permet de le régler.
 function resumeAimant() {
@@ -6840,6 +6885,7 @@ function buildRenderQuadtree(minX, maxX, minY, maxY) {
 function draw() {
     // Les points posés sur un croisement suivent leurs objets
     majPointsDependants();
+    if (typeof majBarreDocument === 'function') majBarreDocument();
 
     const bg = backgrounds[currentBgIndex];
     const logicalStep = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
@@ -6859,6 +6905,19 @@ function draw() {
         const lw = 1 / zoom; const minX = -panX / zoom; const maxX = (canvas.width - panX) / zoom; const minY = -panY / zoom; const maxY = (canvas.height - panY) / zoom;
 
         if (!isExportingTransparent) {
+            // Un document « sous le quadrillage » se dessine avant la réglure :
+            // on écrit ensuite dessus comme sur une feuille quadrillée.
+            images.filter(i => i.sousLaGrille).sort((a, b) => (a.z || 0) - (b.z || 0)).forEach(obj => {
+                if (!imageCache[obj.src]) return;
+                ctx.save();
+                ctx.translate(obj.x + obj.w / 2, obj.y + obj.h / 2);
+                if (obj.angle) ctx.rotate(obj.angle);
+                const a = (obj.opacity === undefined) ? 1 : obj.opacity;
+                if (a < 1) ctx.globalAlpha = a;
+                ctx.drawImage(imageCache[obj.src], obj.cx, obj.cy, obj.cw, obj.ch, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                ctx.restore();
+            });
+
             if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes-marge') drawSeyesMarge(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'copie') drawCopie(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
 
             if (showAxes > 0) {
@@ -6920,7 +6979,7 @@ function draw() {
                 if (obj.angle) ctx.rotate(obj.angle);
 
                 // 3. Dessiner l'image (en compensant la translation)
-                if (imageCache[obj.src]) {
+                if (imageCache[obj.src] && !obj.sousLaGrille) {
                     // Opacité propre au tampon (1 = opaque, valeur par défaut)
                     const imgAlpha = (obj.opacity === undefined) ? 1 : obj.opacity;
                     const prevAlpha = ctx.globalAlpha;
@@ -8127,6 +8186,134 @@ async function feuilleterPdf(imgObj, delta) {
     if (typeof updateQuickMenu === 'function') updateQuickMenu();
 }
 
+// ---------------------------------------------------
+// LA BARRE DU DOCUMENT
+// Deux gestes distincts : régler le CADRE (déplacer, redimensionner) ou
+// faire coulisser la PAGE à l'intérieur. Plus l'opacité, le passage sous le
+// quadrillage, le verrou et le retrait.
+// ---------------------------------------------------
+let modeDocument = 'cadre';
+let glissePage = null;
+
+function documentSelectionne() {
+    if (selectedItems.length !== 1 || selectedItems[0].type !== 'image') return null;
+    const obj = getObjectById('image', selectedItems[0].id);
+    if (!obj || !obj.pluginData || obj.pluginData.id !== 'pdfDoc') return null;
+    return obj;
+}
+
+function majBarreDocument() {
+    const barre = document.getElementById('barre-document');
+    if (!barre) return;
+    const obj = documentSelectionne();
+    if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
+        barre.classList.remove('visible');
+        return;
+    }
+    barre.classList.add('visible');
+
+    // Posée sous le cadre, et ramenée dans l'écran si le document en sort
+    const cx = panX + (obj.x + obj.w / 2) * zoom;
+    const bas = panY + (obj.y + obj.h) * zoom + 14;
+    barre.style.left = Math.max(120, Math.min(window.innerWidth - 120, cx)) + 'px';
+    barre.style.top = Math.max(8, Math.min(window.innerHeight - 60, bas)) + 'px';
+
+    const vivant = documentsPdf.has(obj.pluginData.cle);
+    document.getElementById('doc-pages').style.display = vivant ? 'flex' : 'none';
+    if (vivant) {
+        document.getElementById('doc-info').innerText = obj.pluginData.page + '/' + obj.pluginData.pages;
+        document.getElementById('doc-prec').style.opacity = obj.pluginData.page > 1 ? '1' : '0.35';
+        document.getElementById('doc-suiv').style.opacity = obj.pluginData.page < obj.pluginData.pages ? '1' : '0.35';
+    }
+    document.getElementById('doc-mode-cadre').classList.toggle('actif', modeDocument === 'cadre' && !obj.locked);
+    document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
+    document.getElementById('doc-opacite').value = (obj.opacity === undefined ? 1 : obj.opacity);
+    document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
+    document.getElementById('doc-verrou').classList.toggle('actif', !!obj.locked);
+}
+
+function brancherBarreDocument() {
+    const b = (id) => document.getElementById(id);
+    if (!b('barre-document')) return;
+
+    b('doc-prec').addEventListener('click', () => { const o = documentSelectionne(); if (o) feuilleterPdf(o, -1); });
+    b('doc-suiv').addEventListener('click', () => { const o = documentSelectionne(); if (o) feuilleterPdf(o, 1); });
+
+    b('doc-mode-cadre').addEventListener('click', () => { modeDocument = 'cadre'; majBarreDocument(); draw(); });
+    b('doc-mode-page').addEventListener('click', () => {
+        modeDocument = 'page';
+        majBarreDocument(); draw();
+        if (typeof showToast === 'function') showToast('Faites glisser la page dans son cadre ; la molette la zoome');
+    });
+
+    b('doc-opacite').addEventListener('input', (e) => {
+        const o = documentSelectionne(); if (!o) return;
+        o.opacity = parseFloat(e.target.value);
+        draw();
+    });
+    b('doc-opacite').addEventListener('change', () => saveState());
+
+    b('doc-grille').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        o.sousLaGrille = !o.sousLaGrille;
+        majBarreDocument(); draw(); saveState();
+        if (typeof showToast === 'function') {
+            showToast(o.sousLaGrille ? 'Le document passe SOUS le quadrillage' : 'Le document repasse au-dessus');
+        }
+    });
+
+    b('doc-verrou').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        o.locked = !o.locked;
+        majBarreDocument(); draw(); saveState();
+    });
+
+    b('doc-fermer').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        if (o.pluginData) documentsPdf.delete(o.pluginData.cle);
+        deleteObject('image', o.id);
+        selectedItems = [];
+        majBarreDocument(); draw(); saveState();
+    });
+}
+
+// Faire coulisser la page DANS son cadre : on ne bouge pas l'objet, on
+// déplace la fenêtre de découpe (cx, cy) sur l'image d'origine.
+function demarrerGlissePage(obj, pos) {
+    const nat = imageCache[obj.src];
+    if (!nat) return false;
+    glissePage = {
+        obj, x0: pos.x, y0: pos.y, cx0: obj.cx, cy0: obj.cy,
+        natL: nat.naturalWidth, natH: nat.naturalHeight
+    };
+    return true;
+}
+
+function poursuivreGlissePage(pos) {
+    if (!glissePage) return;
+    const g = glissePage, o = g.obj;
+    const kx = o.cw / o.w, ky = o.ch / o.h;          // pixels d'image par pixel d'écran
+    o.cx = Math.max(0, Math.min(g.natL - o.cw, g.cx0 - (pos.x - g.x0) * kx));
+    o.cy = Math.max(0, Math.min(g.natH - o.ch, g.cy0 - (pos.y - g.y0) * ky));
+    requestAnimationFrame(draw);
+}
+
+// La molette zoome la page dans son cadre, autour du curseur.
+function zoomerPage(obj, pos, facteur) {
+    const nat = imageCache[obj.src];
+    if (!nat) return;
+    const ratioX = (pos.x - obj.x) / obj.w, ratioY = (pos.y - obj.y) / obj.h;
+    const viseX = obj.cx + ratioX * obj.cw, viseY = obj.cy + ratioY * obj.ch;
+    const min = 40;
+    let cw = Math.max(min, Math.min(nat.naturalWidth, obj.cw / facteur));
+    let ch = cw * (obj.ch / obj.cw);
+    if (ch > nat.naturalHeight) { ch = nat.naturalHeight; cw = ch * (obj.cw / obj.ch); }
+    obj.cw = cw; obj.ch = ch;
+    obj.cx = Math.max(0, Math.min(nat.naturalWidth - cw, viseX - ratioX * cw));
+    obj.cy = Math.max(0, Math.min(nat.naturalHeight - ch, viseY - ratioY * ch));
+    requestAnimationFrame(draw);
+}
+
 async function loadPdf(file) {
     showToast(`Création des pages (Qualité: ${currentPdfQuality}x)... Veuillez patienter ⏳`);
     const reader = new FileReader();
@@ -9257,14 +9444,10 @@ document.querySelectorAll('.popup-content').forEach(popup => {
 const zoomSlider = document.getElementById('zoom-slider');
 if (zoomSlider && btnZoomToggle) {
     zoomSlider.addEventListener('input', () => {
-        // Met à jour le texte du bouton (ex: "120%")
-        btnZoomToggle.innerText = Math.round(zoomSlider.value * 100) + '%';
+        majPastilleZoom(zoomSlider.value);
     });
 }
 
-// Mettre à jour le bouton zoom aussi quand on pinch-to-zoom sur le trackpad
-// Cherche ton canvas.addEventListener('wheel', ...) existant, et ajoute cette ligne dedans :
-// if (btnZoomToggle) btnZoomToggle.innerText = Math.round(zoom * 100) + '%';
 // ==========================================
 // MODALE FLOTTANTE ET TAMPON (POUR PLUGINS)
 // ==========================================
@@ -9520,6 +9703,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function toggleDarkMode() {
     isDarkMode = !isDarkMode;
     document.body.classList.toggle('dark-mode', isDarkMode);
+    majInterrupteursBarre();
     draw();
 }
 
@@ -9739,6 +9923,13 @@ function unMenuEstOuvert() {
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
+    // Un document PDF a sa propre barre : deux barres autour du même objet
+    // se marcheraient dessus.
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    if (typeof documentSelectionne === 'function' && documentSelectionne()) {
+        quickMenu.classList.remove('visible');
+        return;
+    }
     if (unMenuEstOuvert()) { quickMenu.classList.remove('visible'); return; }
     // En pleine saisie, la barre d'édition suffit : le menu rapide se poserait
     // en travers du texte voisin.
@@ -9841,23 +10032,6 @@ function updateQuickMenu() {
             // 4. GESTION DE LA CHAÎNE ET ROGNAGE (Affichage + Action)
             const btnRatio = document.getElementById('btn-quick-ratio');
             const btnCrop = document.getElementById('btn-quick-crop');
-
-            // --- FEUILLETER UN DOCUMENT PDF POSÉ SUR LE TABLEAU ---
-            const cadrePdf = document.getElementById('quick-pdf');
-            if (cadrePdf) {
-                const pdf = (type === 'image' && obj.pluginData && obj.pluginData.id === 'pdfDoc') ? obj.pluginData : null;
-                const vivant = pdf && documentsPdf.has(pdf.cle);
-                cadrePdf.style.display = vivant ? 'flex' : 'none';
-                if (vivant) {
-                    document.getElementById('quick-pdf-info').innerText = pdf.page + ' / ' + pdf.pages;
-                    const prev = document.getElementById('btn-pdf-prev');
-                    const next = document.getElementById('btn-pdf-next');
-                    prev.style.opacity = pdf.page > 1 ? '1' : '0.35';
-                    next.style.opacity = pdf.page < pdf.pages ? '1' : '0.35';
-                    prev.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); feuilleterPdf(obj, -1); };
-                    next.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); feuilleterPdf(obj, 1); };
-                }
-            }
 
             if (type === 'image') {
                 // --- BOUTON PROPORTIONS (Chaîne) ---
@@ -16607,8 +16781,7 @@ function cadrerSurLaFeuille() {
 
     const curseurZoom = document.getElementById('zoom-slider');
     if (curseurZoom) curseurZoom.value = zoom;
-    const boutonZoom = document.getElementById('btn-zoom-toggle');
-    if (boutonZoom) boutonZoom.innerText = Math.round(zoom * 100) + '%';
+    majPastilleZoom();
 }
 
 // ===================================================
@@ -16730,6 +16903,9 @@ const TEINTES_PAPIER = [
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
+    majPastilleZoom(); majPastilleGrille(); majInterrupteursBarre();
+
     // Fonds : choisir directement, au lieu de faire défiler huit fonds
     poserAppuiLong(document.getElementById('btn-cycle'), (bouton) => {
         const entrees = backgrounds.map((nom, i) => ({
@@ -16941,7 +17117,10 @@ function equilibrerGrillePlugins() {
         document.body.classList.toggle('libelles-outils', valeur !== 'non');
         document.body.classList.toggle('libelles-couleur', valeur === 'couleur');
         const pastille = document.getElementById('btn-libelles');
-        if (pastille) pastille.classList.toggle('active', valeur !== 'non');
+        if (pastille) {
+            pastille.classList.toggle('active', valeur !== 'non');
+            pastille.classList.toggle('allume', valeur !== 'non');
+        }
         if (valeur !== 'non') nommer();
     };
 
