@@ -506,13 +506,15 @@ module.exports = async function (browser) {
         if (!activeWidgets.compass) document.querySelector('.btn[data-widget="compass"]').click();
         const w = widgets.compass;
         w.x = 500; w.y = 450; w.radius = 220; w.angle = 0;
-        // on espionne les textes écrits sur le tableau
+        // on espionne les textes écrits sur le tableau, pendant l'écartement
         const ecrits = [];
         const vrai = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (t, ...r) { ecrits.push(String(t)); return vrai.call(this, t, ...r); };
+        draggedWidgetMode = 'resize';
         draw();
         w.radius = 75;
         draw();
+        draggedWidgetMode = null;
         CanvasRenderingContext2D.prototype.fillText = vrai;
         return ecrits;
     });
@@ -533,25 +535,74 @@ module.exports = async function (browser) {
                 get() { return vraiFill.get.call(this); }
             });
         };
+        const textes = [];
+        const vraiTexte = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (t, ...q) { textes.push(String(t)); return vraiTexte.call(this, t, ...q); };
         espionner();
         draggedWidgetMode = null;
         draw();
-        const auRepos = fonds.slice();
-        fonds.length = 0;
+        const auRepos = textes.slice();
+        fonds.length = 0; textes.length = 0;
         draggedWidgetMode = 'resize';
         draw();
         const enCours = fonds.slice();
         draggedWidgetMode = null;
         Object.defineProperty(CanvasRenderingContext2D.prototype, 'fillStyle', vraiFill);
+        CanvasRenderingContext2D.prototype.fillText = vraiTexte;
         return {
-            reposBlanc: auRepos.some(c => /rgba\(255,255,255,0\.92\)/.test(c)),
-            reposSansAccent: !auRepos.includes('#0984e3'),
+            reposSansValeur: !auRepos.some(t => /\d\scm$/.test(t)),
             enCoursAccent: enCours.includes('#0984e3')
         };
     });
-    r.verifie('au repos, la pastille reste discrète',
-        pastilleVive.reposBlanc && pastilleVive.reposSansAccent, JSON.stringify(pastilleVive));
-    r.verifie('pendant qu\'on écarte, elle s\'allume', pastilleVive.enCoursAccent, JSON.stringify(pastilleVive));
+    r.verifie('au repos, la valeur ne s\'affiche pas : le compas reste net',
+        pastilleVive.reposSansValeur, JSON.stringify(pastilleVive));
+    r.verifie('pendant qu\'on écarte, elle apparaît en bleu', pastilleVive.enCoursAccent, JSON.stringify(pastilleVive));
+
+    // La poignée ↔ : elle se voit, et c'est elle qu'on attrape
+    const poignee = await page.evaluate(() => {
+        const w = widgets.compass;
+        w.x = 500; w.y = 450; w.radius = 200; w.angle = 0;
+        const centre = w.toGlobal(w.radius + POIGNEE_ECART, -35);
+        const dessinee = [];
+        const vrai = CanvasRenderingContext2D.prototype.arc;
+        CanvasRenderingContext2D.prototype.arc = function (x, y, r, ...q) { dessinee.push(Math.round(r)); return vrai.call(this, x, y, r, ...q); };
+        draw();
+        CanvasRenderingContext2D.prototype.arc = vrai;
+        return {
+            zone: w.getHitZone(centre.x, centre.y),
+            aCote: w.getHitZone(centre.x + 40, centre.y),
+            pastilleDessinee: dessinee.includes(11),
+            // la poignée suit l'ouverture
+            centreX: centre.x,
+            apresOuverture: (() => { w.radius = 300; return w.toGlobal(w.radius + POIGNEE_ECART, -35).x; })()
+        };
+    });
+    r.egal('la poignée d\'écartement s\'attrape', poignee.zone, 'resize');
+    r.verifie('elle est bien dessinée à côté de la molette', poignee.pastilleDessinee, JSON.stringify(poignee));
+    r.verifie('et à côté d\'elle, on n\'attrape rien', poignee.aCote === null, String(poignee.aCote));
+    r.verifie('elle suit l\'ouverture du compas', poignee.apresOuverture > poignee.centreX,
+        JSON.stringify(poignee));
+
+    // Prendre la poignée ne doit pas ouvrir le compas d'un coup
+    const priseDouce = await page.evaluate(() => {
+        const w = widgets.compass;
+        w.x = 400; w.y = 400; w.radius = 200; w.angle = 0;
+        aimant.outils = false; aimant.intersections = false;
+        const centre = w.toGlobal(w.radius + POIGNEE_ECART, -35);
+        const ecran = (p) => ({ clientX: panX + p.x * zoom, clientY: panY + p.y * zoom });
+        const depart = ecran(centre);
+        canvas.dispatchEvent(new PointerEvent('pointerdown', Object.assign({ bubbles: true, pointerId: 1, isPrimary: true, button: 0 }, depart)));
+        const justeApres = w.radius;
+        canvas.dispatchEvent(new PointerEvent('pointermove', Object.assign({ bubbles: true, pointerId: 1, isPrimary: true },
+            { clientX: depart.clientX + 50, clientY: depart.clientY })));
+        const apresGlissement = w.radius;
+        canvas.dispatchEvent(new PointerEvent('pointerup', Object.assign({ bubbles: true, pointerId: 1, isPrimary: true }, depart)));
+        return { avant: 200, justeApres: Math.round(justeApres), apresGlissement: Math.round(apresGlissement) };
+    });
+    r.verifie('prendre la poignée n\'ouvre pas le compas d\'un coup',
+        Math.abs(priseDouce.justeApres - 200) < 3, JSON.stringify(priseDouce));
+    r.verifie('mais le glissement l\'ouvre bien',
+        priseDouce.apresGlissement > 240 && priseDouce.apresGlissement < 260, JSON.stringify(priseDouce));
 
     const trace = await page.evaluate(() => {
         arcs.length = 0;

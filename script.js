@@ -374,6 +374,45 @@ const ToolStyleArray = {
 };
 let ToolStyle = ToolStyleArray['default'];
 
+// La poignée d'écartement du compas : une pastille ↔ posée à côté de la
+// molette, comme celle de la rotation au-dessus de la tête. Sans elle, la
+// zone de prise existait mais rien ne disait où saisir pour ouvrir.
+// La pastille est contre-tournée : la flèche reste horizontale quel que soit
+// l'angle du compas, sinon elle ne dit plus « ouvrir ».
+function dessinerPoigneeEcartement(ctx, x, y, angleOutil, active) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-(angleOutil || 0));
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fillStyle = active ? '#0984e3' : '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = active ? '#0b76c9' : '#1e3a5f';
+    ctx.stroke();
+
+    const trait = active ? '#ffffff' : '#1e3a5f';
+    ctx.strokeStyle = trait;
+    ctx.fillStyle = trait;
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-4.5, 0);
+    ctx.lineTo(4.5, 0);
+    ctx.stroke();
+    // Les deux pointes
+    [-1, 1].forEach(sens => {
+        ctx.beginPath();
+        ctx.moveTo(sens * 6.5, 0);
+        ctx.lineTo(sens * 3, -3);
+        ctx.lineTo(sens * 3, 3);
+        ctx.closePath();
+        ctx.fill();
+    });
+    ctx.restore();
+}
+
 function drawRotationHandle(ctx, x, y) {
     ctx.save();
     ctx.translate(x, y);
@@ -410,6 +449,8 @@ function drawRotationHandle(ctx, x, y) {
 // OUTILS DE GÉOMÉTRIE (AVEC EXPORT SVG VECTORIEL)
 // ==========================================
 
+const POIGNEE_ECART = 42;      // distance de la poignée ↔ à la molette
+
 class CompassWidget {
     constructor(x, y) { this.x = x; this.y = y; this.radius = 120; this.angle = 0; this.legLength = 320; this.widgetRotationOffset = 0; }
     toGlobal(lx, ly) { return { x: this.x + lx * Math.cos(this.angle) - ly * Math.sin(this.angle), y: this.y + lx * Math.sin(this.angle) + ly * Math.cos(this.angle) }; }
@@ -424,6 +465,8 @@ class CompassWidget {
         if (MathUtils.dist(local.x, local.y, this.radius, 0) < 20) return 'trace';
         if (MathUtils.distanceToSegment(local.x, local.y, headX, headY - 30, 0, 0) < 15) return 'move';
         const legStartX = this.radius; const legStartY = 0;
+        // La pastille ↔ d'abord : c'est elle qu'on vise à l'œil
+        if (Math.hypot(local.x - (this.radius + POIGNEE_ECART), local.y - (-35)) < 16) return 'resize';
         const resizeEndPos = { x: legStartX + (headX - legStartX) * 0.15, y: legStartY + (headY - legStartY) * 0.15 };
         if (MathUtils.distanceToSegment(local.x, local.y, legStartX, legStartY - 20, resizeEndPos.x, resizeEndPos.y) < 20) return 'resize';
         const elbowX = this.radius; const elbowY = -25;
@@ -455,6 +498,7 @@ class CompassWidget {
         // ensemble, c'est là qu'on la cherche.
         const enTrainDecarter = (typeof draggedWidgetMode !== 'undefined'
             && draggedWidgetMode === 'resize' && widgets && widgets.compass === this);
+        if (enTrainDecarter) {
         ctx.save();
         ctx.translate(this.radius / 2, 26);
         ctx.rotate(-this.angle);
@@ -482,6 +526,7 @@ class CompassWidget {
         ctx.fillText(texte, 0, 1);
         ctx.restore();
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+        }
 
         ctx.save(); ctx.translate(this.radius, 0);
         const activeColor = (typeof activeStyle !== 'undefined') ? activeStyle.strokeColor : style.colors.lead;
@@ -506,6 +551,9 @@ class CompassWidget {
         ctx.beginPath(); ctx.fillStyle = style.colors.joint; ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         
         drawRotationHandle(ctx, headX, headY - 35);
+        dessinerPoigneeEcartement(ctx, this.radius + POIGNEE_ECART, elbowY - 10, this.angle,
+            typeof draggedWidgetMode !== 'undefined' && draggedWidgetMode === 'resize'
+            && typeof widgets !== 'undefined' && widgets && widgets.compass === this);
         ctx.restore();
     }
     toSVG() {
@@ -780,6 +828,7 @@ let widgets = { compass: null, protractor: null, setsquare: null, ruler: null };
 let widgetZOrder = ['ruler', 'setsquare', 'protractor', 'compass'];
 let draggedWidget = null;
 let draggedWidgetMode = null;
+let ecartPriseCompas = 0;      // écart entre le doigt et la mine, à la prise
 let widgetOffset = { x: 0, y: 0 };
 let widgetRotationOffset = 0;
 let dragStartWidget = { x: 0, y: 0 };
@@ -6006,6 +6055,13 @@ canvas.addEventListener('pointerdown', (e) => {
             if (zone === 'rotate') widgetRotationOffset = Math.atan2(rawPos.y - targetWidget.y, rawPos.x - targetWidget.x) - targetWidget.angle;
             if (zone === 'slideX' || zone === 'slideY') { dragStartMouse = { x: rawPos.x, y: rawPos.y }; dragStartWidget = { x: targetWidget.x, y: targetWidget.y }; }
             if (zone === 'move') { widgetOffset.x = rawPos.x - targetWidget.x; widgetOffset.y = rawPos.y - targetWidget.y; }
+            // La poignée ↔ est posée à côté de la mine, pas dessus : sans
+            // mémoriser l'écart au moment de la prise, le compas s'ouvrirait
+            // d'un coup de la largeur de la pastille.
+            if (zone === 'resize' && targetWidget instanceof CompassWidget) {
+                ecartPriseCompas = targetWidget.radius
+                    - Math.hypot(rawPos.x - targetWidget.x, rawPos.y - targetWidget.y);
+            }
 
             // Si on attrape la mine du compas on lance le tracé
             if (targetWidget instanceof CompassWidget && zone === 'trace') {
@@ -6306,8 +6362,14 @@ canvas.addEventListener('pointermove', (e) => {
                 w.angle = Math.atan2(ry - w.y, rx - w.x) - widgetRotationOffset;
             }
         } else if (modeW === 'resize' && w instanceof CompassWidget) {
+            // On vise la mine, pas le doigt : on rend l'écart de la prise
+            const dx = rx - w.x, dy = ry - w.y;
+            const d = Math.hypot(dx, dy);
+            const vise = Math.max(10, d + ecartPriseCompas);
+            const mx = w.x + (d ? dx / d : 1) * vise;
+            const my = w.y + (d ? dy / d : 0) * vise;
             // L'écartement se prend sur un point de la figure quand il y en a un
-            const bout = pointerCompasVers(w, rx, ry);
+            const bout = pointerCompasVers(w, mx, my);
             w.radius = Math.hypot(bout.x - w.x, bout.y - w.y);
             w.angle = Math.atan2(bout.y - w.y, bout.x - w.x);
         } else if (modeW === 'resize' && w instanceof RulerWidget) {
