@@ -4789,6 +4789,187 @@ function snapToGrid(lx, ly) {
     if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes' || bg === 'seyes-marge') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
     return { x: Math.round(lx / snapX) * snapX, y: Math.round(ly / snapY) * snapY };
 }
+
+// ===================================================
+// AIMANTATION : LA GRILLE, LES OUTILS, LES INTERSECTIONS
+// Trois sources indépendantes, réglées par un appui long sur l'aimant.
+// L'ordre compte : une intersection est plus précise qu'un bord d'équerre,
+// lui-même plus précis qu'un carreau.
+// ===================================================
+let aimant = { grille: true, outils: true, intersections: true };
+try {
+    const memoireAimant = JSON.parse(localStorage.getItem('board_aimant') || 'null');
+    if (memoireAimant) Object.assign(aimant, memoireAimant);
+} catch (e) { /* stockage refusé */ }
+
+function enregistrerAimant() {
+    try { localStorage.setItem('board_aimant', JSON.stringify(aimant)); } catch (e) { /* stockage refusé */ }
+}
+
+// Un point est-il sur la partie tracée de la droite ? (t : 0 = première
+// extrémité, 1 = seconde)
+function surLaPortion(t, type) {
+    if (type === 'droite') return true;
+    if (type === 'demi-droite') return t > -1e-9;
+    return t > -1e-9 && t < 1 + 1e-9;
+}
+
+// Tous les traits droits du tableau (segments, droites, côtés de polygones et
+// de rectangles), filtrés sur ce qui passe près du curseur.
+function droitesGeometriques(pos, portee) {
+    const res = [];
+    const ajouter = (a, b, type) => {
+        if (!a || !b || (a.x === b.x && a.y === b.y)) return;
+        if (pos) {
+            const d = type === 'droite' ? distToLine(pos.x, pos.y, a.x, a.y, b.x, b.y)
+                : type === 'demi-droite' ? distToRay(pos.x, pos.y, a.x, a.y, b.x, b.y)
+                    : distToSegment(pos.x, pos.y, a.x, a.y, b.x, b.y);
+            if (d > portee) return;
+        }
+        res.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, type });
+    };
+
+    segments.forEach(s => ajouter(getObjectById('point', s.p1_id), getObjectById('point', s.p2_id), s.lineType || 'segment'));
+    polygons.forEach(p => {
+        const pts = (p.points || []).map(id => getObjectById('point', id)).filter(Boolean);
+        for (let i = 0; i < pts.length - 1; i++) ajouter(pts[i], pts[i + 1], 'segment');
+        if (p.isClosed !== false && pts.length > 2) ajouter(pts[pts.length - 1], pts[0], 'segment');
+    });
+    rectangles.forEach(r => {
+        const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id);
+        if (!p1 || !p2) return;
+        const coins = [{ x: p1.x, y: p1.y }, { x: p2.x, y: p1.y }, { x: p2.x, y: p2.y }, { x: p1.x, y: p2.y }];
+        for (let i = 0; i < 4; i++) ajouter(coins[i], coins[(i + 1) % 4], 'segment');
+    });
+    return res;
+}
+
+function cerclesGeometriques(pos, portee) {
+    const res = [];
+    circles.forEach(c => {
+        const centre = getObjectById('point', c.center_id), bord = getObjectById('point', c.edge_id);
+        if (!centre || !bord) return;
+        const r = Math.hypot(bord.x - centre.x, bord.y - centre.y);
+        if (r < 1) return;
+        if (pos && Math.abs(Math.hypot(pos.x - centre.x, pos.y - centre.y) - r) > portee) return;
+        res.push({ x: centre.x, y: centre.y, r });
+    });
+    return res;
+}
+
+function interDroites(d1, d2) {
+    const { a: A, b: B } = d1, { a: C, b: D } = d2;
+    const den = (A.x - B.x) * (C.y - D.y) - (A.y - B.y) * (C.x - D.x);
+    if (Math.abs(den) < 1e-9) return [];                       // parallèles
+    const t = ((A.x - C.x) * (C.y - D.y) - (A.y - C.y) * (C.x - D.x)) / den;
+    const u = ((A.x - C.x) * (A.y - B.y) - (A.y - C.y) * (A.x - B.x)) / den;
+    if (!surLaPortion(t, d1.type) || !surLaPortion(u, d2.type)) return [];
+    return [{ x: A.x + t * (B.x - A.x), y: A.y + t * (B.y - A.y) }];
+}
+
+function interDroiteCercle(d, c) {
+    const dx = d.b.x - d.a.x, dy = d.b.y - d.a.y;
+    const fx = d.a.x - c.x, fy = d.a.y - c.y;
+    const A = dx * dx + dy * dy;
+    const B = 2 * (fx * dx + fy * dy);
+    const C = fx * fx + fy * fy - c.r * c.r;
+    const delta = B * B - 4 * A * C;
+    if (delta < 0 || A === 0) return [];
+    const rac = Math.sqrt(delta);
+    const ts = delta < 1e-9 ? [-B / (2 * A)] : [(-B - rac) / (2 * A), (-B + rac) / (2 * A)];
+    return ts.filter(t => surLaPortion(t, d.type))
+        .map(t => ({ x: d.a.x + t * dx, y: d.a.y + t * dy }));
+}
+
+function interCercles(c1, c2) {
+    const dx = c2.x - c1.x, dy = c2.y - c1.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9 || d > c1.r + c2.r || d < Math.abs(c1.r - c2.r)) return [];
+    const a = (c1.r * c1.r - c2.r * c2.r + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, c1.r * c1.r - a * a));
+    const mx = c1.x + a * dx / d, my = c1.y + a * dy / d;
+    if (h < 1e-9) return [{ x: mx, y: my }];
+    return [{ x: mx + h * dy / d, y: my - h * dx / d }, { x: mx - h * dy / d, y: my + h * dx / d }];
+}
+
+// L'intersection la plus proche du curseur, s'il y en a une à portée.
+// On ne compare que les objets qui passent eux-mêmes près du curseur : une
+// intersection à 12 px suppose deux traits à moins de 12 px.
+function intersectionProche(pos, tolerance) {
+    const R = tolerance || 12 / zoom;
+    const droites = droitesGeometriques(pos, R);
+    const cercles = cerclesGeometriques(pos, R);
+    if (droites.length + cercles.length < 2) return null;
+
+    let meilleur = null;
+    const garder = (p) => {
+        const d = Math.hypot(p.x - pos.x, p.y - pos.y);
+        if (d <= R && (!meilleur || d < meilleur.d)) meilleur = { x: p.x, y: p.y, d };
+    };
+    for (let i = 0; i < droites.length; i++) {
+        for (let j = i + 1; j < droites.length; j++) interDroites(droites[i], droites[j]).forEach(garder);
+        cercles.forEach(c => interDroiteCercle(droites[i], c).forEach(garder));
+    }
+    for (let i = 0; i < cercles.length; i++) {
+        for (let j = i + 1; j < cercles.length; j++) interCercles(cercles[i], cercles[j]).forEach(garder);
+    }
+    return meilleur ? { x: meilleur.x, y: meilleur.y } : null;
+}
+
+// Le bord d'une règle, d'une équerre ou d'un rapporteur posé sur le tableau.
+// Le trait se pose contre l'outil, décalé d'une demi-épaisseur, comme un
+// crayon qui longe le plastique.
+function accrocheOutils(raw) {
+    const portee = 10 / zoom;
+    const offset = (activeStyle.lineWidth || 2) / 2;
+
+    if (activeWidgets.setsquare && widgets.setsquare) {
+        const w = widgets.setsquare, l = w.toLocal(raw.x, raw.y);
+        if (l.x > 0 && l.x < w.width && Math.abs(l.y) < portee) return w.toGlobal(l.x, -offset);
+        if (l.y > 0 && l.y < w.height && Math.abs(l.x) < portee) return w.toGlobal(-offset, l.y);
+        if (l.x >= 0 && l.y >= 0 && Math.abs(l.y - (-w.height / w.width * l.x + w.height)) < portee) {
+            const len = Math.hypot(w.height, w.width);
+            const proj = MathUtils.getProjectedPoint(l.x, l.y, {
+                constructor: { name: 'Segment' }, p1: { x: 0, y: w.height }, p2: { x: w.width, y: 0 }
+            });
+            return w.toGlobal(proj.x + (w.height / len) * offset, proj.y + (w.width / len) * offset);
+        }
+    }
+    if (activeWidgets.ruler && widgets.ruler) {
+        const w = widgets.ruler, l = w.toLocal(raw.x, raw.y);
+        if (Math.abs(l.y) < portee && l.x > -50 && l.x < w.width + 50) return w.toGlobal(l.x, -offset);
+        if (Math.abs(l.y - w.height) < portee && l.x > -50 && l.x < w.width + 50) return w.toGlobal(l.x, w.height + offset);
+    }
+    if (activeWidgets.protractor && widgets.protractor) {
+        const w = widgets.protractor, l = w.toLocal(raw.x, raw.y);
+        if (Math.abs(l.y) < portee && l.x > -w.radius && l.x < w.radius) return w.toGlobal(l.x, offset);
+        if (Math.abs(Math.hypot(l.x, l.y) - w.radius) < portee && l.y < 0) {
+            const angle = Math.atan2(l.y, l.x);
+            return w.toGlobal((w.radius + offset) * Math.cos(angle), (w.radius + offset) * Math.sin(angle));
+        }
+    }
+    return null;
+}
+
+// La position retenue pour un clic ou un tracé, aimant compris.
+// « source » sert au dessin du point fantôme.
+function positionAimantee(raw, options = {}) {
+    if (!magnetMode) return { x: raw.x, y: raw.y, source: null };
+    if (aimant.intersections && !options.sansIntersection) {
+        const i = intersectionProche(raw);
+        if (i) return { x: i.x, y: i.y, source: 'intersection' };
+    }
+    if (aimant.outils) {
+        const t = accrocheOutils(raw);
+        if (t) return { x: t.x, y: t.y, source: 'outil' };
+    }
+    if (aimant.grille && !options.sansGrille) {
+        const g = snapToGrid(raw.x, raw.y);
+        return { x: g.x, y: g.y, source: 'grille' };
+    }
+    return { x: raw.x, y: raw.y, source: null };
+}
+
 function distToSegment(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
 function distToLine(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
 function distToRay(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
@@ -5332,7 +5513,7 @@ canvas.addEventListener('pointerdown', (e) => {
     if (e.button === 2 || e.button === 1 || isSpacePressed || mode === 'move') { isPanningView = true; updateCursor(); return; }
 
     const clickedObj = findObjectAt(rawPos.x, rawPos.y);
-    let actionPos = magnetMode ? snapToGrid(rawPos.x, rawPos.y) : rawPos;
+    let actionPos = positionAimantee(rawPos);
     if (clickedObj && clickedObj.type === 'point') actionPos = { x: getObjectById('point', clickedObj.id).x, y: getObjectById('point', clickedObj.id).y };
 
     if (isZoomBoxing && zoomBox) {
@@ -5404,7 +5585,10 @@ canvas.addEventListener('pointerdown', (e) => {
     clearSelection();
 
     if (mode === 'point') {
-        if (!clickedObj) { points.push({ id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ }); saveState(); }
+        // Un croisement est forcément « sur » deux tracés : sans cette
+        // exception, on ne pourrait jamais y poser le point d'intersection.
+        const surUnCroisement = actionPos.source === 'intersection' && (!clickedObj || clickedObj.type !== 'point');
+        if (!clickedObj || surUnCroisement) { points.push({ id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ }); saveState(); }
     }
     else if (mode === 'segment' || mode === 'droite' || mode === 'demi-droite' || mode === 'circle' || mode === 'rectangle') {
         let ptId = (clickedObj && clickedObj.type === 'point') ? clickedObj.id : nextId++;
@@ -5677,45 +5861,12 @@ canvas.addEventListener('pointermove', (e) => {
     }
 
     // --- MAGNÉTISME ---
+    // À main levée, seuls les outils de géométrie aimantent : un tracé libre
+    // qui saute de carreau en carreau ne ressemblerait plus à rien.
     let smartPos = { x: rawPos.x, y: rawPos.y };
-    if (magnetMode && !isDraggingObjs && !draggedHandle) {
-        // smartPos = snapToGrid(rawPos.x, rawPos.y);
-    }
-
-    const isDrawingOrHovering = ['freehand', 'highlighter', 'segment', 'circle', 'rectangle', 'polygon', 'curve'].includes(mode);
-    const enableToolMagnetism = false;
-
-    if (enableToolMagnetism && isDrawingOrHovering && !draggedWidget) {
-        let toolSnap = null;
-        const snapDist = 10 / zoom;
-        const offset = activeStyle.lineWidth / 2;
-
-        if (activeWidgets.setsquare && widgets.setsquare) {
-            const w = widgets.setsquare; const l = w.toLocal(rawPos.x, rawPos.y);
-            if (l.x > 0 && l.x < w.width && Math.abs(l.y) < snapDist) toolSnap = w.toGlobal(l.x, -offset);
-            else if (l.y > 0 && l.y < w.height && Math.abs(l.x) < snapDist) toolSnap = w.toGlobal(-offset, l.y);
-            else if (l.x >= 0 && l.y >= 0 && Math.abs(l.y - (-w.height / w.width * l.x + w.height)) < snapDist) {
-                const len = Math.hypot(w.height, w.width);
-                const localProj = MathUtils.getProjectedPoint(l.x, l.y, {
-                    constructor: { name: 'Segment' }, p1: { x: 0, y: w.height }, p2: { x: w.width, y: 0 }
-                });
-                toolSnap = w.toGlobal(localProj.x + (w.height / len) * offset, localProj.y + (w.width / len) * offset);
-            }
-        }
-        if (!toolSnap && activeWidgets.ruler && widgets.ruler) {
-            const w = widgets.ruler; const l = w.toLocal(rawPos.x, rawPos.y);
-            if (Math.abs(l.y) < snapDist && l.x > -50 && l.x < w.width + 50) toolSnap = w.toGlobal(l.x, -offset);
-            else if (Math.abs(l.y - w.height) < snapDist && l.x > -50 && l.x < w.width + 50) toolSnap = w.toGlobal(l.x, w.height + offset);
-        }
-        if (!toolSnap && activeWidgets.protractor && widgets.protractor) {
-            const w = widgets.protractor; const l = w.toLocal(rawPos.x, rawPos.y);
-            if (Math.abs(l.y) < snapDist && l.x > -w.radius && l.x < w.radius) toolSnap = w.toGlobal(l.x, offset);
-            else if (Math.abs(Math.hypot(l.x, l.y) - w.radius) < snapDist && l.y < 0) {
-                const angle = Math.atan2(l.y, l.x);
-                toolSnap = w.toGlobal((w.radius + offset) * Math.cos(angle), (w.radius + offset) * Math.sin(angle));
-            }
-        }
-        if (toolSnap) smartPos = toolSnap;
+    if (magnetMode && !isDraggingObjs && !draggedHandle && !draggedWidget) {
+        const mainLevee = isDrawingFreehand || mode === 'freehand' || mode === 'highlighter';
+        smartPos = positionAimantee(rawPos, mainLevee ? { sansGrille: true, sansIntersection: true } : {});
     }
 
     if (isDrawingFreehand && currentFreehand) {
@@ -6050,7 +6201,7 @@ function handlePointerUp(e) {
     if (creationStartPointId !== null && ['segment', 'droite', 'demi-droite', 'circle', 'rectangle'].includes(mode)) {
         const dist = Math.hypot(e.clientX - lastDownClientX, e.clientY - lastDownClientY);
         if (dist > 5) {
-            let actionPos = magnetMode ? snapToGrid(getRawLogicalPos(e).x, getRawLogicalPos(e).y) : getRawLogicalPos(e);
+            let actionPos = positionAimantee(getRawLogicalPos(e));
             let ptId = nextId++;
             points.push({ id: ptId, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
 
@@ -6881,32 +7032,32 @@ function draw() {
             ctx.shadowBlur = 0;
         });
 
-        // --- POINT FANTÔME DE L'AIMANT (SNAP À LA GRILLE) ---
-        if (magnetMode && mouseLogicalPos && !draggedHandle && ['point', 'segment', 'circle', 'rectangle', 'text', 'curve', 'polygon', 'pointer'].includes(mode)) {
+        // --- POINT FANTÔME DE L'AIMANT ---
+        // Il montre où le clic va tomber : sur un carreau, contre un outil, ou
+        // à l'intersection de deux tracés (le fantôme est alors plus marqué,
+        // parce que c'est le point qui a de la valeur en géométrie).
+        if (magnetMode && mouseLogicalPos && !draggedHandle && ['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'curve', 'polygon', 'pointer'].includes(mode)) {
             if (!hoveredObj || hoveredObj.type !== 'point') {
-
-                // 1. On calcule la position visuelle "aimantée"
-                let ghostX = mouseLogicalPos.x;
-                let ghostY = mouseLogicalPos.y;
-
-                // On récupère le type de fond actuel
-                const bg = backgrounds[currentBgIndex];
-
-                // Si on a une grille (pas de fond uni), on "force" le point sur les intersections
-                if (bg !== 'blanc' && bg !== 'noir') {
-                    const step = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30); // 30 est la valeur par défaut (carreaux)
-                    ghostX = Math.round(mouseLogicalPos.x / step) * step;
-                    ghostY = Math.round(mouseLogicalPos.y / step) * step;
+                const fantome = positionAimantee(mouseLogicalPos);
+                if (fantome.source === 'intersection') {
+                    ctx.beginPath();
+                    ctx.arc(fantome.x, fantome.y, lw * 6, 0, Math.PI * 2);
+                    ctx.strokeStyle = "rgba(0, 184, 148, 0.9)";
+                    ctx.lineWidth = lw * 1.5;
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(fantome.x, fantome.y, lw * 2.5, 0, Math.PI * 2);
+                    ctx.fillStyle = "#00b894";
+                    ctx.fill();
+                } else if (fantome.source) {
+                    ctx.beginPath();
+                    ctx.arc(fantome.x, fantome.y, lw * 2, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(108, 92, 231, 0.6)";
+                    ctx.fill();
+                    ctx.strokeStyle = "#6c5ce7";
+                    ctx.lineWidth = lw * 1.5;
+                    ctx.stroke();
                 }
-
-                // 2. On dessine le point pile sur l'intersection calculée
-                ctx.beginPath();
-                ctx.arc(ghostX, ghostY, lw * 2, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(108, 92, 231, 0.6)";
-                ctx.fill();
-                ctx.strokeStyle = "#6c5ce7";
-                ctx.lineWidth = lw * 1.5;
-                ctx.stroke();
             }
         }
 
@@ -15919,6 +16070,26 @@ document.addEventListener('DOMContentLoaded', () => {
         ouvrirPanneauAppui(bouton, 'Axes', entrees);
     });
 
+    // Aimant : trois sources qu'on allume séparément. Le panneau reste ouvert
+    // le temps de les régler.
+    const ouvrirPanneauAimant = (bouton) => {
+        const bascule = (cle) => {
+            aimant[cle] = !aimant[cle];
+            if (!aimant.grille && !aimant.outils && !aimant.intersections) aimant[cle] = true;  // jamais tout éteint
+            enregistrerAimant();
+            if (!magnetMode) document.getElementById('btn-magnet').click();
+            draw();
+            setTimeout(() => ouvrirPanneauAimant(bouton), 0);
+        };
+        ouvrirPanneauAppui(bouton, 'Aimant', [
+            { separateur: "S'aimanter sur" },
+            { nom: 'Le quadrillage', actif: aimant.grille, action: () => bascule('grille') },
+            { nom: 'Les outils de géométrie', actif: aimant.outils, action: () => bascule('outils') },
+            { nom: 'Les points d\'intersection', actif: aimant.intersections, action: () => bascule('intersections') }
+        ]);
+    };
+    poserAppuiLong(document.getElementById('btn-magnet'), ouvrirPanneauAimant);
+
     // Classes : les outils qui s'appuient sur la liste des élèves
     poserAppuiLong(document.getElementById('btn-classes-menu'), (bouton) => {
         const outils = ['Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
@@ -16232,6 +16403,8 @@ const ASTUCES = [
       texte: "Pendant la saisie, surlignez un mot : la couleur, la taille et la police ne s'appliquent qu'à lui. Sans surlignage, elles agissent sur tout le bloc." },
     { titre: 'Retrouver un outil par son nom',
       texte: "La loupe de la barre des outils cherche parmi les 83 outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
+    { titre: 'Le point d\'intersection',
+      texte: "Avec l'aimant allumé, approchez le curseur du croisement de deux tracés : un point vert apparaît, et le clic tombe pile dessus. Un appui long sur l'aimant permet de choisir ce qui attire : le quadrillage, les bords de la règle et de l'équerre, les intersections." },
     { titre: 'Le tableau se souvient',
       texte: "Votre travail est enregistré tout seul. Au prochain démarrage, le tableau vous propose de reprendre la session — et si vous choisissez « Nouveau tableau », l'ancienne est rangée dans « Mes tableaux »." }
 ];
