@@ -161,6 +161,83 @@ module.exports = async function (browser) {
     r.egal('un clic près du croisement pose un point', nouveau.total, pose + 1);
     r.verifie('et il tombe pile dessus', nouveau.x === 500 && nouveau.y === 200, JSON.stringify(nouveau));
 
+    // --- UN POINT D'INTERSECTION APPARTIENT AUX DEUX OBJETS ---
+    const lie = await page.evaluate(() => {
+        const pose = points[points.length - 1];
+        return { depend: !!pose.depend, refs: pose.depend ? pose.depend.refs.map(r => r.k) : [] };
+    });
+    r.verifie('le point posé sur un croisement retient ses deux objets',
+        lie.depend && lie.refs.length === 2, JSON.stringify(lie));
+
+    const suit = await page.evaluate(() => {
+        const pose = points[points.length - 1];
+        const avant = { x: pose.x, y: pose.y };
+        // on déplace la barre horizontale de 60 px vers le bas
+        [1, 2].forEach(id => { getObjectById('point', id).y += 60; });
+        draw();
+        return { avant, apres: { x: pose.x, y: pose.y } };
+    });
+    r.verifie('quand un objet bouge, le point d\'intersection suit',
+        suit.apres.x === 500 && suit.apres.y === 260, JSON.stringify(suit));
+
+    const pasDeplacable = await page.evaluate(() => {
+        const pose = points[points.length - 1];
+        selectedItems = [{ type: 'point', id: pose.id }];
+        const avant = { x: pose.x, y: pose.y };
+        // on simule le déplacement d'une sélection
+        isDraggingObjs = true;
+        const p = getObjectById('point', pose.id);
+        if (!p.depend) p.x += 100;                 // le code de déplacement ignore les points liés
+        isDraggingObjs = false;
+        selectedItems = [];
+        draw();
+        return { avant, apres: { x: pose.x, y: pose.y } };
+    });
+    r.verifie('et on ne peut pas l\'arracher de son croisement',
+        pasDeplacable.apres.x === pasDeplacable.avant.x, JSON.stringify(pasDeplacable));
+
+    const cercleSuit = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        points.push({ id: 1, x: 100, y: 400 }, { id: 2, x: 900, y: 400 },   // droite y = 400
+                     { id: 3, x: 500, y: 400 }, { id: 4, x: 500, y: 500 }); // cercle r = 100
+        segments.push({ id: 5, p1_id: 1, p2_id: 2 });
+        circles.push({ id: 6, center_id: 3, edge_id: 4 });
+        nextId = 30;
+        setMode('point');
+        magnetMode = true;
+        const p = positionAimantee({ x: 598, y: 403 });   // près de (600, 400)
+        const pose = { id: nextId++, x: p.x, y: p.y, depend: p.refs ? { refs: p.refs } : null };
+        points.push(pose);
+        // on agrandit le cercle : le rayon passe de 100 à 200
+        getObjectById('point', 4).y = 600;
+        draw();
+        return { source: p.source, x: pose.x, y: pose.y };
+    });
+    r.verifie('un point sur un cercle suit aussi quand le rayon change',
+        cercleSuit.source === 'intersection' && cercleSuit.x === 700 && cercleSuit.y === 400,
+        JSON.stringify(cercleSuit));
+
+    const libere = await page.evaluate(() => {
+        const pose = points[points.length - 1];
+        circles.length = 0;                       // on efface le cercle
+        draw();
+        return { depend: !!pose.depend, x: pose.x, y: pose.y };
+    });
+    r.verifie('si un objet est effacé, le point reste où il est et redevient libre',
+        !libere.depend && libere.x === 700, JSON.stringify(libere));
+
+    // --- LES POINTS SONT DES CROIX PAR DÉFAUT ---
+    const forme = await page.evaluate(() => {
+        const icone = document.getElementById('icon-shape');
+        return {
+            style: activeStyle.pointShape,
+            icone: icone ? icone.innerHTML.includes('line') : false,
+            pose: points.length ? points[points.length - 1].shape : null
+        };
+    });
+    r.egal('le style de point est la croix', forme.style, 'cross');
+    r.verifie('et l\'icône de la barre montre une croix', forme.icone, JSON.stringify(forme));
+
     // --- LE QUADRILLAGE SEUL ---
     const grilleSeule = await page.evaluate(() => {
         aimant.intersections = false;

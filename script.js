@@ -37,7 +37,8 @@ let recordedChunks = [];
 let activeStyle = {
     strokeColor: '#e74c3c', strokeOpacity: 1.0,
     isFilled: false, fillColor: '#e74c3c', fillOpacity: 0.2,
-    pointShape: 'circle', lineWidth: 3, lineDash: 'solid', fontSize: 24,
+    // La croix est la convention en géométrie : elle marque l'endroit exact
+    pointShape: 'cross', lineWidth: 3, lineDash: 'solid', fontSize: 24,
     lineHeight: 29, // <--- AJOUTE lineHeight ICI
     arrowStart: 0, arrowEnd: 0
 };
@@ -4824,7 +4825,7 @@ function surLaPortion(t, type) {
 // de rectangles), filtrés sur ce qui passe près du curseur.
 function droitesGeometriques(pos, portee) {
     const res = [];
-    const ajouter = (a, b, type) => {
+    const ajouter = (a, b, type, ref) => {
         if (!a || !b || (a.x === b.x && a.y === b.y)) return;
         if (pos) {
             const d = type === 'droite' ? distToLine(pos.x, pos.y, a.x, a.y, b.x, b.y)
@@ -4832,22 +4833,28 @@ function droitesGeometriques(pos, portee) {
                     : distToSegment(pos.x, pos.y, a.x, a.y, b.x, b.y);
             if (d > portee) return;
         }
-        res.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, type });
+        res.push({ a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, type, ref });
     };
 
-    segments.forEach(s => ajouter(getObjectById('point', s.p1_id), getObjectById('point', s.p2_id), s.lineType || 'segment'));
+    segments.forEach(s => ajouter(getObjectById('point', s.p1_id), getObjectById('point', s.p2_id),
+        s.lineType || 'segment', { k: 'segment', id: s.id }));
     polygons.forEach(p => {
         const pts = (p.points || []).map(id => getObjectById('point', id)).filter(Boolean);
-        for (let i = 0; i < pts.length - 1; i++) ajouter(pts[i], pts[i + 1], 'segment');
-        if (p.isClosed !== false && pts.length > 2) ajouter(pts[pts.length - 1], pts[0], 'segment');
+        for (let i = 0; i < pts.length - 1; i++) ajouter(pts[i], pts[i + 1], 'segment', { k: 'polygone', id: p.id, i });
+        if (p.isClosed !== false && pts.length > 2) ajouter(pts[pts.length - 1], pts[0], 'segment', { k: 'polygone', id: p.id, i: pts.length - 1 });
     });
     rectangles.forEach(r => {
-        const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id);
-        if (!p1 || !p2) return;
-        const coins = [{ x: p1.x, y: p1.y }, { x: p2.x, y: p1.y }, { x: p2.x, y: p2.y }, { x: p1.x, y: p2.y }];
-        for (let i = 0; i < 4; i++) ajouter(coins[i], coins[(i + 1) % 4], 'segment');
+        const coins = coinsDuRectangle(r);
+        if (!coins) return;
+        for (let i = 0; i < 4; i++) ajouter(coins[i], coins[(i + 1) % 4], 'segment', { k: 'rectangle', id: r.id, i });
     });
     return res;
+}
+
+function coinsDuRectangle(r) {
+    const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id);
+    if (!p1 || !p2) return null;
+    return [{ x: p1.x, y: p1.y }, { x: p2.x, y: p1.y }, { x: p2.x, y: p2.y }, { x: p1.x, y: p2.y }];
 }
 
 function cerclesGeometriques(pos, portee) {
@@ -4858,9 +4865,74 @@ function cerclesGeometriques(pos, portee) {
         const r = Math.hypot(bord.x - centre.x, bord.y - centre.y);
         if (r < 1) return;
         if (pos && Math.abs(Math.hypot(pos.x - centre.x, pos.y - centre.y) - r) > portee) return;
-        res.push({ x: centre.x, y: centre.y, r });
+        res.push({ x: centre.x, y: centre.y, r, ref: { k: 'cercle', id: c.id } });
     });
     return res;
+}
+
+// Retrouver la forme géométrique désignée par une référence : c'est ce qui
+// permet à un point d'intersection de suivre les objets qui le portent.
+function resoudreRef(ref) {
+    if (!ref) return null;
+    if (ref.k === 'segment') {
+        const s = getObjectById('segment', ref.id);
+        if (!s) return null;
+        const a = getObjectById('point', s.p1_id), b = getObjectById('point', s.p2_id);
+        if (!a || !b) return null;
+        return { a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, type: s.lineType || 'segment' };
+    }
+    if (ref.k === 'polygone') {
+        const p = getObjectById('polygon', ref.id);
+        if (!p) return null;
+        const pts = (p.points || []).map(id => getObjectById('point', id)).filter(Boolean);
+        const a = pts[ref.i], b = pts[(ref.i + 1) % pts.length];
+        if (!a || !b) return null;
+        return { a: { x: a.x, y: a.y }, b: { x: b.x, y: b.y }, type: 'segment' };
+    }
+    if (ref.k === 'rectangle') {
+        const r = getObjectById('rectangle', ref.id);
+        const coins = r ? coinsDuRectangle(r) : null;
+        if (!coins) return null;
+        return { a: coins[ref.i], b: coins[(ref.i + 1) % 4], type: 'segment' };
+    }
+    if (ref.k === 'cercle') {
+        const c = getObjectById('circle', ref.id);
+        if (!c) return null;
+        const centre = getObjectById('point', c.center_id), bord = getObjectById('point', c.edge_id);
+        if (!centre || !bord) return null;
+        return { x: centre.x, y: centre.y, r: Math.hypot(bord.x - centre.x, bord.y - centre.y) };
+    }
+    return null;
+}
+
+const estUnCercle = (o) => o && typeof o.r === 'number';
+
+function intersectionsEntre(o1, o2) {
+    if (!o1 || !o2) return [];
+    if (estUnCercle(o1) && estUnCercle(o2)) return interCercles(o1, o2);
+    if (estUnCercle(o1)) return interDroiteCercle(o2, o1);
+    if (estUnCercle(o2)) return interDroiteCercle(o1, o2);
+    return interDroites(o1, o2);
+}
+
+// Un point posé sur un croisement APPARTIENT aux deux objets : si l'un bouge,
+// le point le suit. C'est le comportement de GeoMaster, et c'est ce qui rend
+// les constructions vivantes (médiatrice, cercle circonscrit…).
+function majPointsDependants() {
+    for (const p of points) {
+        if (!p.depend) continue;
+        const o1 = resoudreRef(p.depend.refs[0]);
+        const o2 = resoudreRef(p.depend.refs[1]);
+        if (!o1 || !o2) { delete p.depend; continue; }   // l'objet a disparu : le point redevient libre
+        const sols = intersectionsEntre(o1, o2);
+        if (!sols.length) continue;                       // plus de croisement : le point reste où il est
+        let meilleur = sols[0], min = Infinity;
+        sols.forEach(s => {
+            const d = Math.hypot(s.x - p.x, s.y - p.y);
+            if (d < min) { min = d; meilleur = s; }
+        });
+        p.x = meilleur.x; p.y = meilleur.y;
+    }
 }
 
 function interDroites(d1, d2) {
@@ -4908,18 +4980,18 @@ function intersectionProche(pos, tolerance) {
     if (droites.length + cercles.length < 2) return null;
 
     let meilleur = null;
-    const garder = (p) => {
+    const garder = (o1, o2) => (p) => {
         const d = Math.hypot(p.x - pos.x, p.y - pos.y);
-        if (d <= R && (!meilleur || d < meilleur.d)) meilleur = { x: p.x, y: p.y, d };
+        if (d <= R && (!meilleur || d < meilleur.d)) meilleur = { x: p.x, y: p.y, d, refs: [o1.ref, o2.ref] };
     };
     for (let i = 0; i < droites.length; i++) {
-        for (let j = i + 1; j < droites.length; j++) interDroites(droites[i], droites[j]).forEach(garder);
-        cercles.forEach(c => interDroiteCercle(droites[i], c).forEach(garder));
+        for (let j = i + 1; j < droites.length; j++) interDroites(droites[i], droites[j]).forEach(garder(droites[i], droites[j]));
+        cercles.forEach(c => interDroiteCercle(droites[i], c).forEach(garder(droites[i], c)));
     }
     for (let i = 0; i < cercles.length; i++) {
-        for (let j = i + 1; j < cercles.length; j++) interCercles(cercles[i], cercles[j]).forEach(garder);
+        for (let j = i + 1; j < cercles.length; j++) interCercles(cercles[i], cercles[j]).forEach(garder(cercles[i], cercles[j]));
     }
-    return meilleur ? { x: meilleur.x, y: meilleur.y } : null;
+    return meilleur ? { x: meilleur.x, y: meilleur.y, refs: meilleur.refs } : null;
 }
 
 // Le point de la figure le plus proche, s'il est à portée.
@@ -5018,7 +5090,7 @@ function positionAimantee(raw, options = {}) {
         const p = pointProche(raw, 12 / zoom);
         if (p) return { x: p.x, y: p.y, source: 'point' };
         const i = intersectionProche(raw);
-        if (i) return { x: i.x, y: i.y, source: 'intersection' };
+        if (i) return { x: i.x, y: i.y, source: 'intersection', refs: i.refs };
     }
     if (aimant.grille && !options.sansGrille) {
         const g = snapToGrid(raw.x, raw.y);
@@ -5719,7 +5791,14 @@ canvas.addEventListener('pointerdown', (e) => {
         // Un croisement est forcément « sur » deux tracés : sans cette
         // exception, on ne pourrait jamais y poser le point d'intersection.
         const surUnCroisement = actionPos.source === 'intersection' && (!clickedObj || clickedObj.type !== 'point');
-        if (!clickedObj || surUnCroisement) { points.push({ id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ }); saveState(); }
+        if (!clickedObj || surUnCroisement) {
+            const pt = { id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ };
+            // Posé sur un croisement, le point appartient aux deux objets : il
+            // les suivra si on les déplace.
+            if (surUnCroisement && actionPos.refs) pt.depend = { refs: actionPos.refs };
+            points.push(pt);
+            saveState();
+        }
     }
     else if (mode === 'segment' || mode === 'droite' || mode === 'demi-droite' || mode === 'circle' || mode === 'rectangle') {
         let ptId = (clickedObj && clickedObj.type === 'point') ? clickedObj.id : nextId++;
@@ -6248,7 +6327,9 @@ canvas.addEventListener('pointermove', (e) => {
             else if (item.type === 'arc') arcsToMove.add(item.id);
             else if (item.type === 'text') txtsToMove.add(item.id); else if (item.type === 'freehand') freehandsToMove.add(item.id); else if (item.type === 'image') imgsToMove.add(item.id);
         });
-        ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy; } });
+        // Un point d'intersection n'est pas déplaçable : il est là où les deux
+        // objets se croisent, et il y retournerait aussitôt.
+        ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p && !p.depend) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy; } });
         freehandsToMove.forEach(fid => { const f = getObjectById('freehand', fid); if (f) { f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); } }); imgsToMove.forEach(iid => { const i = getObjectById('image', iid); if (i) { i.x += dx; i.y += dy; } });
         arcsToMove.forEach(aid => { const a = getObjectById('arc', aid); if (a) { a.cx += dx; a.cy += dy; } });
 
@@ -6529,6 +6610,9 @@ function buildRenderQuadtree(minX, maxX, minY, maxY) {
 }
 
 function draw() {
+    // Les points posés sur un croisement suivent leurs objets
+    majPointsDependants();
+
     const bg = backgrounds[currentBgIndex];
     const logicalStep = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
 
