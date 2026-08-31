@@ -521,6 +521,38 @@ module.exports = async function (browser) {
     r.verifie('et elle suit l\'écartement', pastille.includes('1,5 cm'),
         pastille.filter(t => /cm/.test(t)).join(' · '));
 
+    // Pendant qu'on écarte, la pastille s'allume : c'est là qu'on la cherche
+    const pastilleVive = await page.evaluate(() => {
+        const w = widgets.compass;
+        const fonds = [];
+        const vraiFill = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'fillStyle');
+        const espionner = () => {
+            Object.defineProperty(CanvasRenderingContext2D.prototype, 'fillStyle', {
+                configurable: true,
+                set(v) { fonds.push(String(v)); vraiFill.set.call(this, v); },
+                get() { return vraiFill.get.call(this); }
+            });
+        };
+        espionner();
+        draggedWidgetMode = null;
+        draw();
+        const auRepos = fonds.slice();
+        fonds.length = 0;
+        draggedWidgetMode = 'resize';
+        draw();
+        const enCours = fonds.slice();
+        draggedWidgetMode = null;
+        Object.defineProperty(CanvasRenderingContext2D.prototype, 'fillStyle', vraiFill);
+        return {
+            reposBlanc: auRepos.some(c => /rgba\(255,255,255,0\.92\)/.test(c)),
+            reposSansAccent: !auRepos.includes('#0984e3'),
+            enCoursAccent: enCours.includes('#0984e3')
+        };
+    });
+    r.verifie('au repos, la pastille reste discrète',
+        pastilleVive.reposBlanc && pastilleVive.reposSansAccent, JSON.stringify(pastilleVive));
+    r.verifie('pendant qu\'on écarte, elle s\'allume', pastilleVive.enCoursAccent, JSON.stringify(pastilleVive));
+
     const trace = await page.evaluate(() => {
         arcs.length = 0;
         const w = widgets.compass;

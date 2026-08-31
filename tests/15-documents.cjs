@@ -568,6 +568,72 @@ module.exports = async function (browser) {
     r.verifie('aucune image du document ne part à la sauvegarde', !sauvegarde.image, JSON.stringify(sauvegarde));
     r.verifie('et l\'enregistrement passe dans IndexedDB', sauvegarde.clonable, JSON.stringify(sauvegarde));
 
+    // --- UN DOCUMENT POSÉ S'AJUSTE D'ABORD EN OUVRANT SES BORDS ---
+    const parDefaut = await page.evaluate(async ({ octets }) => {
+        images.length = 0; selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 900));
+        const pdf = images[0];
+        // Une image ordinaire passe par la même porte
+        const png = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAJUlEQVR42u3NMQEAAAgDoC252R0eDCRQcndVAQCA/QMAAAAAgAcXvQQBtZPGigAAAABJRU5ErkJggg==';
+        const bin = atob(png); const u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        const dt = new DataTransfer(); dt.items.add(new File([u], 'photo.png', { type: 'image/png' }));
+        const entree = document.getElementById('pdf-loader');
+        entree.files = dt.files;
+        entree.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 1200));
+        // Selon la porte d'entrée, le nom du fichier n'est pas toujours noté :
+        // la nouvelle image est simplement celle qui n'est pas le PDF.
+        const image = images.find(i => i !== pdf);
+        return {
+            pdf: pdf ? { rogne: pdf.isCropping === true, ratio: pdf.ratioLocked } : null,
+            image: image ? { rogne: image.isCropping === true, ratio: image.ratioLocked } : null
+        };
+    }, { octets: pdf });
+    r.verifie('un PDF posé s\'ajuste d\'abord en rognant',
+        !!parDefaut.pdf && parDefaut.pdf.rogne, JSON.stringify(parDefaut));
+    r.verifie('une image importée aussi',
+        !!parDefaut.image && parDefaut.image.rogne, JSON.stringify(parDefaut));
+    r.verifie('et les proportions sont libérées, sinon rogner ne servirait à rien',
+        parDefaut.pdf.ratio === false && parDefaut.image.ratio === false, JSON.stringify(parDefaut));
+
+    const tamponDeplugin = await page.evaluate(() => {
+        // Un tampon fabriqué par un plugin, lui, se redimensionne comme avant
+        images.push({ id: nextId++, x: 0, y: 0, w: 100, h: 80, cx: 0, cy: 0, cw: 100, ch: 80,
+                      src: '', z: globalZ++, pluginData: { id: 'monPlugin' } });
+        const o = images[images.length - 1];
+        return { rogne: o.isCropping === true, ratio: o.ratioLocked !== false };
+    });
+    r.verifie('un tampon de plugin garde le redimensionnement',
+        !tamponDeplugin.rogne && tamponDeplugin.ratio, JSON.stringify(tamponDeplugin));
+
+    // Le cadrage posé sur une page vaut pour les suivantes
+    const suitLesPages = await page.evaluate(async ({ octets }) => {
+        images.length = 0; selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 900));
+        const o = images[0];
+        const nat = imageCache[o.src];
+        // on coupe le quart haut de la page
+        o.cy = nat.naturalHeight * 0.25;
+        o.ch = nat.naturalHeight * 0.75;
+        const partAvant = o.ch / nat.naturalHeight;
+        await feuilleterPdf(o, 1);
+        await new Promise(r => setTimeout(r, 600));
+        const nat2 = imageCache[o.src];
+        return {
+            page: o.pluginData.page,
+            partAvant,
+            partApres: o.ch / nat2.naturalHeight,
+            hautApres: o.cy / nat2.naturalHeight
+        };
+    }, { octets: pdf });
+    r.egal('on tourne bien la page', suitLesPages.page, 2);
+    r.verifie('et le cadrage posé la suit, au lieu de repartir de zéro',
+        Math.abs(suitLesPages.partApres - suitLesPages.partAvant) < 0.01
+        && Math.abs(suitLesPages.hautApres - 0.25) < 0.01, JSON.stringify(suitLesPages));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

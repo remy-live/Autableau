@@ -449,22 +449,34 @@ class CompassWidget {
         ctx.beginPath(); ctx.strokeStyle = style.colors.outline; ctx.lineWidth = style.widths.outline; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
         ctx.beginPath(); ctx.strokeStyle = style.colors.metalLight; ctx.lineWidth = style.widths.body; ctx.moveTo(headX, headY); ctx.lineTo(elbowX - 6, elbowY - 10); ctx.stroke();
         // Pastille de l'ouverture : 50 px = 1 cm, comme les graduations de la
-        // règle. On la contre-tourne pour qu'elle reste lisible quel que soit
-        // l'angle du compas.
+        // règle. Posée sous le milieu de l'écartement, contre-tournée pour
+        // rester lisible quel que soit l'angle du compas. Pendant qu'on
+        // écarte, elle s'allume et grossit : le geste et le nombre vont
+        // ensemble, c'est là qu'on la cherche.
+        const enTrainDecarter = (typeof draggedWidgetMode !== 'undefined'
+            && draggedWidgetMode === 'resize' && widgets && widgets.compass === this);
         ctx.save();
-        ctx.translate(this.radius / 2, 30);
+        ctx.translate(this.radius / 2, 26);
         ctx.rotate(-this.angle);
         const texte = (this.radius / 50).toFixed(1).replace('.', ',') + ' cm';
-        ctx.font = '600 13px sans-serif';
-        const larg = ctx.measureText(texte).width + 16;
+        ctx.font = (enTrainDecarter ? '700 16px' : '600 13px') + ' sans-serif';
+        const larg = ctx.measureText(texte).width + (enTrainDecarter ? 22 : 16);
+        const haut = enTrainDecarter ? 28 : 22;
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(-larg / 2, -11, larg, 22, 11); else ctx.rect(-larg / 2, -11, larg, 22);
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        if (ctx.roundRect) ctx.roundRect(-larg / 2, -haut / 2, larg, haut, haut / 2);
+        else ctx.rect(-larg / 2, -haut / 2, larg, haut);
+        ctx.fillStyle = enTrainDecarter ? '#0984e3' : 'rgba(255,255,255,0.92)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(45,52,54,0.25)';
+        if (enTrainDecarter) {
+            ctx.shadowColor = 'rgba(9,132,227,0.45)';
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+        ctx.strokeStyle = enTrainDecarter ? '#0b76c9' : 'rgba(45,52,54,0.25)';
         ctx.lineWidth = 1;
         ctx.stroke();
-        ctx.fillStyle = '#2d3436';
+        ctx.fillStyle = enTrainDecarter ? '#ffffff' : '#2d3436';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(texte, 0, 1);
@@ -3981,7 +3993,7 @@ document.addEventListener('drop', (e) => {
                         const lx = (e.clientX - panX) / zoom + offset;
                         const ly = (e.clientY - panY) / zoom + offset;
 
-                        images.push({
+                        images.push(poserEnRognage({
                             id: nextId++,
                             x: lx - w / 2, y: ly - h / 2,
                             w: w, h: h,
@@ -3989,7 +4001,7 @@ document.addEventListener('drop', (e) => {
                             src: src,
                             fileName: fileName, // ✅ Ajouter le nom du fichier
                             z: globalZ++
-                        });
+                        }));
 
                         imageCache[src] = img;
 
@@ -8271,12 +8283,12 @@ async function poserPdfFeuilletable(file) {
         const cx = (window.innerWidth / 2 - panX) / zoom;
         const cy = (window.innerHeight / 2 - panY) / zoom;
 
-        images.push({
+        images.push(poserEnRognage({
             id: nextId++, x: cx - l / 2, y: cy - h / 2, w: l, h: h,
             cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
             src: rendu.src, fileName: file.name, z: globalZ++,
             pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name }
-        });
+        }));
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
         saveState(); draw();
         if (typeof updateQuickMenu === 'function') updateQuickMenu();
@@ -8294,8 +8306,16 @@ async function feuilleterPdf(imgObj, delta) {
     if (numero === imgObj.pluginData.page) return;
     const rendu = await dessinerPagePdf(d.doc, numero);
     await chargerImage(rendu.src);            // remplit imageCache
+    // Un cadrage posé sur une page vaut pour les suivantes : si on a coupé
+    // l'en-tête du document, tourner la page ne doit pas le faire revenir.
+    const ancien = imageCache[imgObj.src];
+    const part = (ancien && ancien.naturalWidth)
+        ? { x: imgObj.cx / ancien.naturalWidth, y: imgObj.cy / ancien.naturalHeight,
+            l: imgObj.cw / ancien.naturalWidth, h: imgObj.ch / ancien.naturalHeight }
+        : { x: 0, y: 0, l: 1, h: 1 };
     imgObj.src = rendu.src;
-    imgObj.cx = 0; imgObj.cy = 0; imgObj.cw = rendu.l; imgObj.ch = rendu.h;
+    imgObj.cx = part.x * rendu.l; imgObj.cy = part.y * rendu.h;
+    imgObj.cw = part.l * rendu.l; imgObj.ch = part.h * rendu.h;
     imgObj.pluginData.page = numero;
     saveState(); draw();
     if (typeof updateQuickMenu === 'function') updateQuickMenu();
@@ -8313,6 +8333,17 @@ let glissePage = null;
 // Toute image posée sur le tableau — PDF feuilletable, photo, capture — se
 // règle avec la même barre : les gestes sont les mêmes. Un PDF y gagne en
 // plus ses flèches de page.
+// Une image ou un PDF qu'on vient de poser s'ajuste d'abord en OUVRANT ou en
+// FERMANT ses bords : on cadre ce qu'on veut montrer, sans déformer ni
+// changer l'échelle de ce qui est écrit dessus. C'est le geste courant sur un
+// document scanné ou une capture d'écran. Le bouton ✂ de la barre le rend et
+// le reprend ; les tampons des plugins, eux, se redimensionnent comme avant.
+function poserEnRognage(obj) {
+    obj.isCropping = true;
+    obj.ratioLocked = false;
+    return obj;
+}
+
 function documentSelectionne() {
     if (selectedItems.length !== 1 || selectedItems[0].type !== 'image') return null;
     return getObjectById('image', selectedItems[0].id) || null;
@@ -8683,14 +8714,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             const lx = (cx - panX) / zoom + offset;
                             const ly = (cy - panY) / zoom + offset;
 
-                            images.push({
+                            images.push(poserEnRognage({
                                 id: nextId++,
                                 x: lx - w / 2, y: ly - h / 2,
                                 w: w, h: h,
                                 cx: 0, cy: 0, cw: img.width, ch: img.height,
                                 src: src,
                                 z: globalZ++
-                            });
+                            }));
 
                             imageCache[src] = img;
 
@@ -13433,14 +13464,14 @@ window.addEventListener('paste', (e) => {
                     const lx = (window.innerWidth / 2 - panX) / zoom + offset;
                     const ly = (window.innerHeight / 2 - panY) / zoom + offset;
 
-                    images.push({
+                    images.push(poserEnRognage({
                         id: nextId++,
                         x: lx - w / 2, y: ly - h / 2,
                         w: w, h: h,
                         cx: 0, cy: 0, cw: img.width, ch: img.height,
                         src: src,
                         z: globalZ++
-                    });
+                    }));
 
                     imageCache[src] = img;
                     if (typeof saveState === 'function') saveState();
