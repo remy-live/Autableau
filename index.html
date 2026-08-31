@@ -201,6 +201,13 @@
                 <path d="M6 2v14a2 2 0 0 0 2 2h14" />
                 <path d="M2 6h14a2 2 0 0 1 2 2v14" />
             </svg></button>
+        <button class="doc-btn" id="doc-entiere" title="Montrer la page entière dans le cadre" style="display:none;">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <path d="M9 9h6v6H9z" stroke-dasharray="2 2" />
+                <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
+            </svg></button>
         <button class="doc-btn" id="doc-dupliquer" title="Dupliquer (Ctrl+D)">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="9" y="9" width="12" height="12" rx="2" />
@@ -398,8 +405,13 @@
                         <li><strong>Cadrer, plutôt que déformer :</strong> une image ou un PDF qu'on vient de poser
                             s'ajuste d'abord en <b>ouvrant ou fermant ses bords</b> : on montre ce qu'on veut, sans
                             changer la taille de ce qui est écrit dessus. Le bouton ✂ de la barre du document rend
-                            le redimensionnement quand on en a besoin. Sur un PDF, le cadrage posé sur une page vaut
-                            pour les suivantes.</li>
+                            le redimensionnement quand on en a besoin.</li>
+                        <li><strong>Le cadrage d'un PDF, de page en page :</strong> un découpage posé sur une page
+                            vaut pour les suivantes — l'en-tête coupé une fois reste coupé. Il ne suit pas une page
+                            d'un autre format (une planche à l'italienne au milieu d'un document à la française) :
+                            celle-là est montrée en entier. Et dès qu'un document est rogné, la barre propose
+                            <b>⛶ Montrer la page entière</b> : le cadre garde sa place sur le tableau, mais on
+                            revoit tout.</li>
                         <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF sélectionné.
                             ◀ ▶ tournent les pages du PDF ; <b>Cadre</b> déplace et ouvre les bords,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
@@ -1582,7 +1594,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=81"></script>
+    <script src="script.js?v=82"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=58"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

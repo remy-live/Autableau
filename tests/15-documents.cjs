@@ -634,6 +634,51 @@ module.exports = async function (browser) {
         Math.abs(suitLesPages.partApres - suitLesPages.partAvant) < 0.01
         && Math.abs(suitLesPages.hautApres - 0.25) < 0.01, JSON.stringify(suitLesPages));
 
+    // Le retour à la page entière : proposé seulement s'il y a de quoi défaire
+    const retourEntier = await page.evaluate(async () => {
+        const o = images[0];
+        selectedItems = [{ type: 'image', id: o.id }];
+        updateQuickMenu();
+        const bouton = document.getElementById('doc-entiere');
+        const propose = getComputedStyle(bouton).display !== 'none';
+        const largeurAvant = o.w;
+        bouton.click();
+        await new Promise(r => setTimeout(r, 150));
+        const nat = imageCache[o.src];
+        return {
+            propose,
+            entier: o.cx === 0 && o.cy === 0 && o.cw === nat.naturalWidth && o.ch === nat.naturalHeight,
+            cadreGarde: Math.abs(o.w - largeurAvant) < 0.5,
+            proportion: Math.abs(o.w / o.h - nat.naturalWidth / nat.naturalHeight) < 0.02,
+            seRetire: getComputedStyle(document.getElementById('doc-entiere')).display === 'none'
+        };
+    });
+    r.verifie('« page entière » est proposé quand le document est rogné', retourEntier.propose, JSON.stringify(retourEntier));
+    r.verifie('il remet toute la page dans le cadre', retourEntier.entier, JSON.stringify(retourEntier));
+    r.verifie('en gardant la place prise sur le tableau', retourEntier.cadreGarde, JSON.stringify(retourEntier));
+    r.verifie('et sans déformer la page', retourEntier.proportion, JSON.stringify(retourEntier));
+    r.verifie('une fois entière, le bouton s\'efface', retourEntier.seRetire, JSON.stringify(retourEntier));
+
+    // Une page d'un autre format ne reprend pas le découpage de la précédente
+    const autreFormat = await page.evaluate(async () => {
+        const o = images[0];
+        const nat = imageCache[o.src];
+        o.cy = nat.naturalHeight * 0.3; o.ch = nat.naturalHeight * 0.7;
+        o.pluginData.pageRognee = true;
+        // on fait croire à la page suivante qu'elle est à l'italienne
+        const vrai = window.dessinerPagePdf;
+        window.dessinerPagePdf = async (doc, n) => {
+            const r = await vrai(doc, n);
+            return { src: r.src, l: r.h, h: r.l };      // format inversé
+        };
+        await feuilleterPdf(o, 1);
+        await new Promise(r => setTimeout(r, 600));
+        window.dessinerPagePdf = vrai;
+        return { hautCoupe: o.cy, partHaute: o.ch, rognee: o.pluginData.pageRognee };
+    });
+    r.egal('une page d\'un autre format repart du haut', autreFormat.hautCoupe, 0);
+    r.verifie('et elle est montrée en entier', autreFormat.rognee === false, JSON.stringify(autreFormat));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

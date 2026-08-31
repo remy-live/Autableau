@@ -8368,17 +8368,28 @@ async function feuilleterPdf(imgObj, delta) {
     if (numero === imgObj.pluginData.page) return;
     const rendu = await dessinerPagePdf(d.doc, numero);
     await chargerImage(rendu.src);            // remplit imageCache
-    // Un cadrage posé sur une page vaut pour les suivantes : si on a coupé
-    // l'en-tête du document, tourner la page ne doit pas le faire revenir.
+    // Un cadrage posé sur une page vaut pour les suivantes TANT QUE les pages
+    // se ressemblent : dans un cours scanné, couper l'en-tête une fois suffit.
+    // Mais si la page change de format — une planche à l'italienne au milieu
+    // d'un document à la française — le même découpage n'a plus de sens : on
+    // remet la page entière plutôt que d'en montrer un morceau au hasard.
     const ancien = imageCache[imgObj.src];
-    const part = (ancien && ancien.naturalWidth)
+    const memeFormat = ancien && ancien.naturalWidth
+        && Math.abs((ancien.naturalWidth / ancien.naturalHeight) - (rendu.l / rendu.h)) < 0.01;
+    const part = memeFormat
         ? { x: imgObj.cx / ancien.naturalWidth, y: imgObj.cy / ancien.naturalHeight,
             l: imgObj.cw / ancien.naturalWidth, h: imgObj.ch / ancien.naturalHeight }
         : { x: 0, y: 0, l: 1, h: 1 };
+    const etaitRogne = memeFormat && (part.l < 0.999 || part.h < 0.999);
+
     imgObj.src = rendu.src;
     imgObj.cx = part.x * rendu.l; imgObj.cy = part.y * rendu.h;
     imgObj.cw = part.l * rendu.l; imgObj.ch = part.h * rendu.h;
     imgObj.pluginData.page = numero;
+    if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
+        showToast('Cette page a un autre format : elle est montrée en entier');
+    }
+    imgObj.pluginData.pageRognee = etaitRogne;
     saveState(); draw();
     if (typeof updateQuickMenu === 'function') updateQuickMenu();
 }
@@ -8395,6 +8406,25 @@ let glissePage = null;
 // Toute image posée sur le tableau — PDF feuilletable, photo, capture — se
 // règle avec la même barre : les gestes sont les mêmes. Un PDF y gagne en
 // plus ses flèches de page.
+// Le document est-il montré en entier, ou n'en voit-on qu'un morceau ?
+function documentEstRogne(obj) {
+    const nat = obj && imageCache[obj.src];
+    if (!nat || !nat.naturalWidth) return false;
+    return obj.cx > 0.5 || obj.cy > 0.5
+        || obj.cw < nat.naturalWidth - 0.5 || obj.ch < nat.naturalHeight - 0.5;
+}
+
+// Remettre la page entière dans le cadre, sans toucher au cadre lui-même :
+// on garde la place prise sur le tableau, on remet juste tout le contenu.
+function montrerToutLeDocument(obj) {
+    const nat = obj && imageCache[obj.src];
+    if (!nat || !nat.naturalWidth) return;
+    obj.cx = 0; obj.cy = 0;
+    obj.cw = nat.naturalWidth; obj.ch = nat.naturalHeight;
+    obj.h = obj.w * (nat.naturalHeight / nat.naturalWidth);
+    if (obj.pluginData) obj.pluginData.pageRognee = false;
+}
+
 // Une image ou un PDF qu'on vient de poser s'ajuste d'abord en OUVRANT ou en
 // FERMANT ses bords : on cadre ce qu'on veut montrer, sans déformer ni
 // changer l'échelle de ce qui est écrit dessus. C'est le geste courant sur un
@@ -8449,6 +8479,9 @@ function majBarreDocument() {
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
     document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);
     document.getElementById('doc-verrou').classList.toggle('actif', !!obj.locked);
+    // Le retour à la page entière ne se propose que s'il y a un cadrage à défaire
+    const entiere = document.getElementById('doc-entiere');
+    if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
     document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
 }
 
@@ -8496,6 +8529,13 @@ function brancherBarreDocument() {
     });
 
     b('doc-dupliquer').addEventListener('click', () => duplicateSelection());
+
+    b('doc-entiere').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        montrerToutLeDocument(o);
+        majBarreDocument(); draw(); saveState();
+        if (typeof showToast === 'function') showToast('Document montré en entier');
+    });
 
     b('doc-verrou').addEventListener('click', () => {
         const o = documentSelectionne(); if (!o) return;
