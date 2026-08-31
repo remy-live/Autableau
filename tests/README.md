@@ -34,6 +34,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `08-gestes-de-classe.cjs` | dupliquer (sommets recopiés, groupes, verrou, Ctrl+D, annulation), rideau (poignées, Échap, au doigt), projecteur (déplacement, diamètre) |
 | `09-interfaces.cjs` | les huit interfaces fournies (niveaux, minimale, complète, conduite de classe) : outils existants, barres qui ne se recouvrent pas, chargement effectif, suppression puis remise |
 | `10-fonds-et-libelles.cjs` | fonds « cahier » et « copie d'examen » (feuille blanche sur gris clair, marge tracée, en-tête que le cahier n'a pas, aimant identique au Seyès), et les libellés sous les icônes : pastille à trois états, réglage mémorisé, bloc compact, et l'affichage par défaut qui ne bouge pas |
+| `11-reglages.cjs` | astuce du jour (une par jour, désactivable), roue de la date (quatre formats, heure, titre écrit à la main respecté), panneau de la barre des plugins, rangées d'icônes équilibrées, panneau d'une barre flottante au-dessus des voisines |
 
 ## Ajouter un test
 

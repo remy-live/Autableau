@@ -36,6 +36,15 @@ async function ouvrirApp(browser, options = {}) {
         deviceScaleFactor: options.deviceScaleFactor || 1
     });
     const page = await context.newPage();
+    // L'astuce du jour s'ouvre 2,5 s après le chargement et intercepte les
+    // clics : on la désactive partout, sauf pour la suite qui la teste.
+    if (!options.astuces) {
+        await context.addInitScript(() => {
+            try {
+                localStorage.setItem('board_astuces', JSON.stringify({ active: false, jour: '', index: 0 }));
+            } catch (e) { /* stockage refusé */ }
+        });
+    }
     const erreurs = [];
     page.on('pageerror', e => { if (!BRUIT.test(e.message)) erreurs.push(e.message.slice(0, 160)); });
     await page.goto(APP_URL);

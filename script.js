@@ -9806,6 +9806,11 @@ function renderFloatingToolbar(toolbar) {
     settingsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isActive = menu.classList.toggle('active');
+        // Le panneau vit DANS la barre : sans ceci, une barre voisine passait
+        // par-dessus. On fait donc monter la barre entière le temps du réglage.
+        document.querySelectorAll('.custom-toolbar.reglages-ouverts')
+            .forEach(b => { if (b !== bar) b.classList.remove('reglages-ouverts'); });
+        bar.classList.toggle('reglages-ouverts', isActive);
         if (isActive) {
             const barRect = bar.getBoundingClientRect();
             // Check if there is enough space on the left (assume menu is ~280px wide)
@@ -12383,9 +12388,11 @@ function updateUnsavedIndicator() {
 }
 
 function initProjectName() {
-    const now = new Date();
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    const defaultName = now.toLocaleDateString('fr-FR', options);
+    // Le format vient des réglages de la roue, à côté du titre
+    const defaultName = (typeof texteDateDuJour === 'function')
+        ? texteDateDuJour()
+        : new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    if (typeof dernierTitreDate !== 'undefined') dernierTitreDate = defaultName;
     currentBoardName = defaultName.charAt(0).toUpperCase() + defaultName.slice(1);
     const input = document.getElementById('project-name-input');
     if (input) input.value = currentBoardName;
@@ -15671,6 +15678,53 @@ if (document.getElementById('formula-modal')) {
 }
 
 // ===================================================
+// RÉPARTITION DES ICÔNES SUR DEUX RANGÉES
+// Une rubrique de 20 outils s'affichait 12 + 8 : la deuxième rangée avait
+// l'air d'un reste. On calcule la largeur pour que les rangées soient égales
+// (10 + 10), sans changer l'ordre ni la taille des boutons.
+// ===================================================
+function equilibrerGrillePlugins() {
+    const grille = document.getElementById('plugins-grid');
+    if (!grille) return;
+    const visibles = Array.from(grille.querySelectorAll('.btn')).filter(b => b.offsetParent);
+    if (visibles.length < 3) { grille.style.removeProperty('max-width'); return; }
+    // La feuille de style pose un plafond « !important » pour le mode libellés :
+    // notre largeur calculée doit peser au moins aussi lourd.
+
+    const style = getComputedStyle(grille);
+    const ecart = parseFloat(style.columnGap || style.gap || '0') || 0;
+    const large = visibles[0].getBoundingClientRect().width + ecart;
+    if (!large) return;
+
+    // Largeur disponible : celle du parent, jamais celle de l'écran entier
+    const parent = grille.parentElement ? grille.parentElement.getBoundingClientRect().width : 0;
+    // Barre encore repliée ou pas encore mesurée : on ne décide rien
+    const plafond = Math.min(parent > 200 ? parent : window.innerWidth - 40, window.innerWidth - 40);
+    const maxParRangee = Math.max(1, Math.floor(plafond / large));
+    const rangees = Math.max(1, Math.ceil(visibles.length / maxParRangee));
+    const parRangee = Math.ceil(visibles.length / rangees);
+
+    grille.style.setProperty('max-width', Math.ceil(parRangee * large) + 'px', 'important');
+}
+
+// À l'ouverture d'une rubrique, au changement de taille de fenêtre, et quand
+// la grille change de contenu.
+(function () {
+    const relancer = () => requestAnimationFrame(equilibrerGrillePlugins);
+    window.addEventListener('resize', relancer);
+    document.addEventListener('DOMContentLoaded', () => {
+        const grille = document.getElementById('plugins-grid');
+        if (!grille) return;
+        grille.addEventListener('click', relancer, true);
+        document.querySelectorAll('#plugin-tabs .btn, .category-tab').forEach(b => b.addEventListener('click', relancer));
+        if (window.MutationObserver) {
+            new MutationObserver(relancer).observe(grille, { childList: true, attributes: true, subtree: true, attributeFilter: ['style'] });
+        }
+        window.addEventListener('load', () => setTimeout(relancer, 400));
+    });
+})();
+
+// ===================================================
 // ESSAI : LIBELLÉS SOUS LES ICÔNES
 // Deux enseignants ont dit la même chose : on ne reconnaît pas les icônes
 // sans les survoler. Le nom de chaque outil est déjà dans son attribut
@@ -15768,16 +15822,291 @@ if (document.getElementById('formula-modal')) {
 
     // La pastille « Libellés » de la barre du bas fait le tour des trois états
     window.basculerLibelles = function () {
-        valeur = ETATS[(ETATS.indexOf(valeur) + 1) % ETATS.length];
+        window.choisirFormatIcones(ETATS[(ETATS.indexOf(valeur) + 1) % ETATS.length], true);
+    };
+
+    // Le panneau de réglages de la barre choisit directement un format
+    window.choisirFormatIcones = function (nouveau, avecMessage) {
+        if (!ETATS.includes(nouveau)) return;
+        valeur = nouveau;
         try { localStorage.setItem(CLE, valeur); } catch (e) { /* stockage refusé */ }
         appliquer();
-        if (typeof showToast === 'function') {
-            showToast(valeur === 'non' ? 'Libellés masqués'
+        if (typeof equilibrerGrillePlugins === 'function') requestAnimationFrame(equilibrerGrillePlugins);
+        if (typeof majReglagesBarre === 'function') majReglagesBarre();
+        if (avecMessage && typeof showToast === 'function') {
+            showToast(valeur === 'non' ? 'Icônes seules'
                 : valeur === 'oui' ? 'Nom des outils affiché'
                 : 'Nom des outils, avec une couleur par rubrique');
         }
     };
+    window.formatIcones = () => valeur;
 })();
+
+// ===================================================
+// TITRE DU TABLEAU : LA DATE, SON FORMAT, L'HEURE
+// Le titre porte la date du jour. Une roue à côté permet d'en changer le
+// format et d'y ajouter l'heure — le tout se retient d'une fois sur l'autre.
+// Un titre écrit à la main n'est JAMAIS remplacé.
+// ===================================================
+const CLE_DATE = 'board_reglages_date';
+let reglagesDate = { format: 'long', heure: false, affichee: true };
+let dernierTitreDate = '';
+
+try {
+    const brut = localStorage.getItem(CLE_DATE);
+    if (brut) reglagesDate = { ...reglagesDate, ...JSON.parse(brut) };
+} catch (e) { /* réglages illisibles : on garde les valeurs par défaut */ }
+
+const FORMATS_DATE = {
+    long: (d) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    moyen: (d) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+    court: (d) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }),
+    chiffres: (d) => d.toLocaleDateString('fr-FR')
+};
+
+function texteDateDuJour() {
+    const d = new Date();
+    const f = FORMATS_DATE[reglagesDate.format] || FORMATS_DATE.long;
+    let t = f(d);
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    if (reglagesDate.heure) t += ' — ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return t;
+}
+
+function enregistrerReglagesDate() {
+    try { localStorage.setItem(CLE_DATE, JSON.stringify(reglagesDate)); } catch (e) { /* stockage refusé */ }
+}
+
+// Écrit la date dans le titre. « force » sert quand l'enseignant choisit
+// lui-même un format ; sinon on ne touche qu'à un titre encore automatique.
+function poserDateDansTitre(force) {
+    const champ = document.getElementById('project-name-input');
+    if (!champ) return;
+    const ancien = champ.value.trim();
+    const automatique = !ancien || ancien === dernierTitreDate;
+    if (!force && !automatique) return;
+    const texte = texteDateDuJour();
+    dernierTitreDate = texte;
+    champ.value = texte;
+    if (typeof currentBoardName !== 'undefined') currentBoardName = texte;
+}
+
+// L'heure suit, mais seulement tant que le titre reste celui qu'on a écrit
+setInterval(() => {
+    if (reglagesDate.heure) poserDateDansTitre(false);
+}, 30000);
+
+function majAffichageDate() {
+    const cadre = document.getElementById('project-name-wrapper');
+    if (cadre) cadre.style.display = reglagesDate.affichee ? '' : 'none';
+}
+
+function majReglagesDate() {
+    const popup = document.getElementById('reglages-date');
+    if (!popup) return;
+    popup.querySelectorAll('[data-format]').forEach(b => {
+        b.classList.toggle('actif', b.dataset.format === reglagesDate.format);
+    });
+    const h = document.getElementById('rd-heure');
+    if (h) h.classList.toggle('actif', !!reglagesDate.heure);
+}
+
+function basculerReglagesDate(e) {
+    if (e) e.stopPropagation();
+    const popup = document.getElementById('reglages-date');
+    if (!popup) return;
+    if (popup.classList.toggle('visible')) majReglagesDate();
+}
+
+document.addEventListener('click', (e) => {
+    const popup = document.getElementById('reglages-date');
+    const bouton = document.getElementById('btn-reglages-date');
+    if (!popup || !popup.classList.contains('visible')) return;
+    if (popup.contains(e.target) || (bouton && bouton.contains(e.target))) return;
+    popup.classList.remove('visible');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const popup = document.getElementById('reglages-date');
+    if (!popup) return;
+    popup.querySelectorAll('[data-format]').forEach(b => {
+        b.addEventListener('click', () => {
+            reglagesDate.format = b.dataset.format;
+            enregistrerReglagesDate();
+            poserDateDansTitre(true);
+            majReglagesDate();
+        });
+    });
+    const h = document.getElementById('rd-heure');
+    if (h) h.addEventListener('click', () => {
+        reglagesDate.heure = !reglagesDate.heure;
+        enregistrerReglagesDate();
+        poserDateDansTitre(true);
+        majReglagesDate();
+    });
+    const remettre = document.getElementById('rd-remettre');
+    if (remettre) remettre.addEventListener('click', () => {
+        poserDateDansTitre(true);
+        if (typeof showToast === 'function') showToast('Date du jour remise dans le titre');
+    });
+});
+
+// ===================================================
+// ASTUCE DU JOUR
+// Une astuce au démarrage, une par jour au maximum. Beaucoup de ces outils
+// ne se devinent pas : autant les faire connaître un par un.
+// ===================================================
+const ASTUCES = [
+    { titre: 'Le stylo qui redresse les formes',
+      texte: "Dessinez un cercle, un triangle ou un rectangle à main levée, puis GARDEZ le doigt ou la souris appuyé une seconde à la fin du tracé : la forme se redresse toute seule. Les losanges et les parallélogrammes sont reconnus aussi." },
+    { titre: 'Vos propres barres d\'outils',
+      texte: "Faites glisser un outil du tiroir vers le tableau : il crée une petite barre flottante. Ajoutez-en d'autres dedans, déplacez-la, changez sa couleur avec la roue. Vous pouvez ensuite enregistrer toute votre disposition dans l'onglet « Interfaces »." },
+    { titre: 'Le rideau et le projecteur',
+      texte: "Le bouton « rideau » masque le tableau : tirez une poignée pour dévoiler la correction ligne par ligne. Le « projecteur » n'éclaire qu'une zone, et suit votre doigt." },
+    { titre: 'Dupliquer d\'un geste',
+      texte: "Sélectionnez une figure et faites Ctrl+D, ou touchez le bouton copie du petit menu : la copie arrive à côté, prête à être déplacée. Pratique pour la même figure à annoter quatre fois." },
+    { titre: 'Des interfaces toutes prêtes',
+      texte: "Dans le tiroir de droite, onglet « Interfaces », huit configurations vous attendent : par niveau (maternelle à lycée), minimale, conduite de classe, complète. Elles ne suppriment rien, elles rangent." },
+    { titre: 'Écrire comme sur une copie',
+      texte: "Le bouton « Fonds » propose un cahier Seyès avec marge et une copie d'examen avec en-tête. Le texte s'aligne tout seul sur les lignes." },
+    { titre: 'Deux doigts pour se déplacer',
+      texte: "Sur tablette, deux doigts qui glissent déplacent le tableau, et deux doigts qui s'écartent zooment. Un seul doigt continue d'écrire." },
+    { titre: 'Mettre un mot en couleur',
+      texte: "Pendant la saisie, surlignez un mot : la couleur, la taille et la police ne s'appliquent qu'à lui. Sans surlignage, elles agissent sur tout le bloc." },
+    { titre: 'Retrouver un outil par son nom',
+      texte: "La loupe de la barre des outils cherche parmi les 83 outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
+    { titre: 'Le tableau se souvient',
+      texte: "Votre travail est enregistré tout seul. Au prochain démarrage, le tableau vous propose de reprendre la session — et si vous choisissez « Nouveau tableau », l'ancienne est rangée dans « Mes tableaux »." }
+];
+
+const CLE_ASTUCES = 'board_astuces';
+let etatAstuces = { active: true, jour: '', index: 0 };
+try {
+    const brut = localStorage.getItem(CLE_ASTUCES);
+    if (brut) etatAstuces = { ...etatAstuces, ...JSON.parse(brut) };
+} catch (e) { /* illisible : valeurs par défaut */ }
+
+function enregistrerAstuces() {
+    try { localStorage.setItem(CLE_ASTUCES, JSON.stringify(etatAstuces)); } catch (e) { /* stockage refusé */ }
+}
+
+function astucesActivees() { return !!etatAstuces.active; }
+
+function basculerAstuces() {
+    etatAstuces.active = !etatAstuces.active;
+    enregistrerAstuces();
+    if (typeof showToast === 'function') {
+        showToast(etatAstuces.active ? 'Une astuce par jour au démarrage' : 'Astuces désactivées');
+    }
+}
+
+function montrerAstuce(manuelle, decalage) {
+    const boite = document.getElementById('astuce-modal');
+    if (!boite) return;
+    if (decalage) etatAstuces.index = (etatAstuces.index + decalage + ASTUCES.length) % ASTUCES.length;
+    const a = ASTUCES[etatAstuces.index % ASTUCES.length];
+    document.getElementById('astuce-titre').innerText = a.titre;
+    document.getElementById('astuce-texte').innerText = a.texte;
+    document.getElementById('astuce-compte').innerText = `${(etatAstuces.index % ASTUCES.length) + 1} / ${ASTUCES.length}`;
+    boite.style.display = 'flex';
+    if (manuelle) {
+        const popup = document.getElementById('reglages-barre');
+        if (popup) popup.classList.remove('visible');
+    }
+}
+
+function fermerAstuce() {
+    const boite = document.getElementById('astuce-modal');
+    if (boite) boite.style.display = 'none';
+    // L'astuce suivante sera proposée demain, pas dans cinq minutes
+    etatAstuces.index = (etatAstuces.index + 1) % ASTUCES.length;
+    etatAstuces.jour = new Date().toDateString();
+    enregistrerAstuces();
+}
+
+// Au démarrage : une seule fois par jour, et jamais par-dessus quelqu'un qui
+// a déjà commencé à travailler — une astuce ne doit pas couper un geste.
+let aDejaAgi = false;
+['pointerdown', 'keydown', 'wheel'].forEach(ev =>
+    window.addEventListener(ev, () => { aDejaAgi = true; }, { once: true, capture: true }));
+
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        if (!astucesActivees() || aDejaAgi) return;
+        if (etatAstuces.jour === new Date().toDateString()) return;
+        const modaleReprise = document.getElementById('restore-modal');
+        if (modaleReprise && getComputedStyle(modaleReprise).display !== 'none') return; // on ne s'empile pas
+        montrerAstuce(false);
+    }, 2500);
+});
+
+// Échap referme l'astuce, comme tout le reste
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const boite = document.getElementById('astuce-modal');
+    if (boite && getComputedStyle(boite).display !== 'none') { fermerAstuce(); e.stopImmediatePropagation(); }
+}, true);
+
+// ===================================================
+// RÉGLAGES DE LA BARRE DES PLUGINS
+// ===================================================
+function majReglagesBarre() {
+    const popup = document.getElementById('reglages-barre');
+    if (!popup) return;
+    const format = (typeof formatIcones === 'function') ? formatIcones() : 'non';
+    popup.querySelectorAll('[data-libelles]').forEach(b => {
+        b.classList.toggle('actif', b.dataset.libelles === format);
+    });
+    const bDate = document.getElementById('rp-date');
+    if (bDate) bDate.classList.toggle('actif', reglagesDate.affichee);
+    const bAstuces = document.getElementById('rp-astuces');
+    if (bAstuces) bAstuces.classList.toggle('actif', astucesActivees());
+}
+
+function basculerReglagesBarre(e) {
+    if (e) e.stopPropagation();
+    const popup = document.getElementById('reglages-barre');
+    if (!popup) return;
+    const ouvert = popup.classList.toggle('visible');
+    if (ouvert) majReglagesBarre();
+}
+
+document.addEventListener('click', (e) => {
+    const popup = document.getElementById('reglages-barre');
+    const bouton = document.getElementById('btn-reglages-barre');
+    if (!popup || !popup.classList.contains('visible')) return;
+    if (popup.contains(e.target) || (bouton && bouton.contains(e.target))) return;
+    popup.classList.remove('visible');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const popup = document.getElementById('reglages-barre');
+    if (!popup) return;
+
+    popup.querySelectorAll('[data-libelles]').forEach(b => {
+        b.addEventListener('click', () => {
+            if (typeof choisirFormatIcones === 'function') choisirFormatIcones(b.dataset.libelles, true);
+        });
+    });
+
+    const bDate = document.getElementById('rp-date');
+    if (bDate) bDate.addEventListener('click', () => {
+        reglagesDate.affichee = !reglagesDate.affichee;
+        enregistrerReglagesDate();
+        majAffichageDate();
+        majReglagesBarre();
+    });
+
+    const bAstuces = document.getElementById('rp-astuces');
+    if (bAstuces) bAstuces.addEventListener('click', () => {
+        basculerAstuces();
+        majReglagesBarre();
+    });
+
+    majAffichageDate();
+});
+
+
 
 // ===================================================
 // RIDEAU ET PROJECTEUR

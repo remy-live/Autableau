@@ -5156,3 +5156,72 @@ body.libelles-couleur #plugins-grid .btn[data-category="Histoire-Géographie"] {
 body.libelles-couleur #plugins-grid .btn[data-category="Français"] { background: rgba(214, 48, 49, 0.10); }
 body.libelles-couleur #plugins-grid .btn[data-category="Informatique"] { background: rgba(45, 52, 54, 0.08); }
 body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background: rgba(0, 206, 201, 0.12); }
+
+/* La barre dont on règle les couleurs passe devant les autres, le temps du
+   réglage : son panneau vit à l'intérieur d'elle et se faisait recouvrir. */
+.custom-toolbar.reglages-ouverts {
+    z-index: 12000 !important;
+}
+
+/* ===========================================================
+   RÉGLAGES D'AFFICHAGE DE LA BARRE DES PLUGINS
+   Un petit panneau à côté de la roue : format des icônes, date,
+   astuces. Rien qui ouvre une grande fenêtre pour trois cases.
+   =========================================================== */
+#reglages-barre-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.reglages-popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 200px;
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(45, 52, 54, 0.18);
+    padding: 8px;
+    display: none;
+    z-index: 16500;
+}
+
+.reglages-popup.visible { display: block; }
+
+.reglages-popup .rp-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #b2bec3;
+    padding: 8px 8px 4px;
+}
+
+.reglages-popup .rp-choix {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.reglages-popup .rp-choix:hover { background: rgba(108, 92, 231, 0.10); }
+
+.reglages-popup .rp-choix.actif {
+    background: rgba(108, 92, 231, 0.14);
+    color: #6c5ce7;
+}
+
+.reglages-popup .rp-choix.actif::after { content: ' ✓'; }
+
+/* Le panneau de la date s'ouvre sous la roue du titre */
+#project-title-controls-right { position: relative; }
+#reglages-date { top: calc(100% + 10px); right: 0; }

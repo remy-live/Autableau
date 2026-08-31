@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=19">
+    <link rel="stylesheet" href="style.css?v=20">
 </head>
 
 <body>
@@ -220,6 +220,25 @@
         </svg>
     </button>
 
+    <!-- Astuce du jour : une par jour au démarrage, retrouvable dans l'aide -->
+    <div id="astuce-modal" class="modal-backdrop" style="display:none;">
+        <div class="modal-box" style="max-width: 460px;">
+            <h3 class="modal-title" style="color:#6c5ce7;">💡 <span id="astuce-titre"></span></h3>
+            <div class="modal-text" id="astuce-texte" style="line-height:1.6;"></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:18px;">
+                <span id="astuce-compte" style="font-size:12px; color:#b2bec3;"></span>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-action secondary" onclick="montrerAstuce(false, 1)">Astuce suivante</button>
+                    <button class="btn-action primary" style="background:#6c5ce7;" onclick="fermerAstuce()">J'ai compris</button>
+                </div>
+            </div>
+            <div style="margin-top:12px; text-align:center;">
+                <button class="rp-choix" style="display:inline-block; width:auto; font-size:12px; color:#b2bec3;"
+                    onclick="basculerAstuces(); fermerAstuce();">Ne plus afficher au démarrage</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container"></div>
     <div class="project-name-wrapper" id="project-name-wrapper">
         <div id="project-title-controls-left" class="title-controls title-controls-left">
@@ -231,6 +250,25 @@
         <span id="unsaved-indicator" class="unsaved-indicator" title="Modifications non sauvegardées"></span>
         <div id="project-title-controls-right" class="title-controls title-controls-right">
             <button id="project-title-plus" class="title-btn" title="Agrandir la taille">+</button>
+            <button id="btn-reglages-date" class="title-btn" title="Format de la date"
+                onclick="basculerReglagesDate(event)">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="none"
+                    stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3.2"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+            <div id="reglages-date" class="reglages-popup">
+                <div class="rp-titre">Format de la date</div>
+                <button class="rp-choix" data-format="long">Mardi 26 août 2026</button>
+                <button class="rp-choix" data-format="moyen">26 août 2026</button>
+                <button class="rp-choix" data-format="court">Mardi 26 août</button>
+                <button class="rp-choix" data-format="chiffres">26/08/2026</button>
+                <div class="rp-titre">Heure</div>
+                <button class="rp-choix" id="rd-heure">Afficher l'heure</button>
+                <div class="rp-titre">&nbsp;</div>
+                <button class="rp-choix" id="rd-remettre">Remettre la date du jour</button>
+            </div>
         </div>
     </div>
 
@@ -316,6 +354,8 @@
                     <div><code>Échap</code> Quitter mode spécial</div>
                     <div><code>Suppr</code> Effacer sélection</div>
                     <div><code>Ctrl+D</code> Dupliquer la sélection</div>
+                    <div style="margin-top:10px;"><button class="btn-action secondary" style="font-size:12px; padding:6px 12px;"
+                            onclick="document.getElementById('help-modal').style.display='none'; montrerAstuce(true);">💡 Voir les astuces</button></div>
                 </div>
             </div>
 
@@ -787,6 +827,31 @@
                     placeholder="Rechercher un outil..." oninput="filterPluginSearch(this.value)"
                     onkeydown="handlePluginSearchKeydown(event)">
                 <div id="plugin-search-results" class="plugin-search-results"></div>
+            </div>
+
+            <!-- Réglages d'affichage de la barre : format des icônes, date -->
+            <div id="reglages-barre-wrap">
+                <button class="btn" id="btn-reglages-barre" type="button" data-tooltip="Réglages d'affichage"
+                    onclick="basculerReglagesBarre(event)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+                <div id="reglages-barre" class="reglages-popup">
+                    <div class="rp-titre">Affichage des outils</div>
+                    <button class="rp-choix" data-libelles="non">Icônes seules</button>
+                    <button class="rp-choix" data-libelles="oui">Icônes et noms</button>
+                    <button class="rp-choix" data-libelles="couleur">Noms et couleurs</button>
+
+                    <div class="rp-titre">Titre du tableau</div>
+                    <button class="rp-choix" id="rp-date">Afficher la date</button>
+
+                    <div class="rp-titre">Astuces</div>
+                    <button class="rp-choix" id="rp-astuces">Astuce au démarrage</button>
+                    <button class="rp-choix" onclick="montrerAstuce(true)">Voir une astuce</button>
+                </div>
             </div>
             <div class="drawer-header-main">
                 <div style="display: none;">
@@ -1354,7 +1419,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=60"></script>
+    <script src="script.js?v=61"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=52"></script>
     <script>

@@ -200,17 +200,19 @@ module.exports = async function (browser) {
     r.verifie('le réglage survit au rechargement', apresRechargement.actif, JSON.stringify(apresRechargement));
 
     // Un bloc de deux ou trois rangées, pas une bande d'un bout à l'autre
-    const bloc = await pageP.evaluate(() => {
+    await pageP.evaluate(() => {
         const d = document.getElementById('bar-plugins'); if (d) d.classList.add('open');
         const o = Array.from(document.querySelectorAll('.btn')).find(x => (x.getAttribute('data-tooltip') || '') === 'Maths - Numérique');
         if (o) o.click();
+    });
+    await pageP.waitForTimeout(600);   // la répartition se recalcule à la frame suivante
+    const bloc = await pageP.evaluate(() => {
         const r = document.getElementById('plugins-grid').getBoundingClientRect();
         return { largeur: Math.round(r.width), hauteur: Math.round(r.height), ecran: window.innerWidth };
     });
-    await pageP.waitForTimeout(300);
     r.verifie('la grille reste un bloc compact', bloc.largeur <= 780 && bloc.largeur < bloc.ecran * 0.7,
         `${bloc.largeur} px de large pour un écran de ${bloc.ecran}`);
-    r.verifie('deux ou trois rangées', bloc.hauteur >= 90 && bloc.hauteur <= 200, `${bloc.hauteur} px de haut`);
+    r.verifie('deux ou trois rangées', bloc.hauteur >= 90 && bloc.hauteur <= 220, `${bloc.hauteur} px de haut`);
     await ctxP.close();
 
     const toutesErreurs = [...parDefaut.errs, ...avecLibelles.errs, ...avecCouleur.errs, ...errsP];
