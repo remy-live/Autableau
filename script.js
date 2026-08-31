@@ -852,7 +852,7 @@ function createNewPage() {
 
 function syncPage() {
     if (currentPageIndex === -1 || !pages[currentPageIndex]) return;
-    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom };
+    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom, origineFeuille };
 }
 
 function initPages() {
@@ -870,6 +870,8 @@ function loadPage(index) {
     freehands = p.freehands || []; curves = p.curves || []; polygons = p.polygons || []; images = p.images || []; arcs = p.arcs || []; htmlPostits = p.htmlPostits || [];
     history = p.history || []; historyIndex = p.historyIndex !== undefined ? p.historyIndex : -1;
     panX = p.panX || window.innerWidth / 2; panY = p.panY || window.innerHeight / 2; zoom = p.zoom || 1;
+    // Chaque page pose sa feuille où elle veut : elle la retrouve en revenant.
+    origineFeuille = p.origineFeuille || { x: 0, y: 0 };
 
     document.getElementById('zoom-slider').value = zoom;
     majPastilleZoom();
@@ -2615,11 +2617,12 @@ function generateSVGString(rect, keepBg) {
             }
         } else if (item.type === 'point') {
             if (hiddenPoints.has(obj.id)) return;
+            const forme = formeDuPoint(obj);
             const s = 4;
-            if (obj.shape === 'circle') svg += `<circle cx="${obj.x}" cy="${obj.y}" r="${s}" fill="${color}" />`;
-            else if (obj.shape === 'square') svg += `<rect x="${obj.x - s}" y="${obj.y - s}" width="${s * 2}" height="${s * 2}" fill="${color}" />`;
-            else if (obj.shape === 'pixel') svg += `<rect x="${obj.x - 1.5}" y="${obj.y - 1.5}" width="3" height="3" fill="${color}" />`;
-            else if (obj.shape === 'cross') {
+            if (forme === 'circle') svg += `<circle cx="${obj.x}" cy="${obj.y}" r="${s}" fill="${color}" />`;
+            else if (forme === 'square') svg += `<rect x="${obj.x - s}" y="${obj.y - s}" width="${s * 2}" height="${s * 2}" fill="${color}" />`;
+            else if (forme === 'pixel') svg += `<rect x="${obj.x - 1.5}" y="${obj.y - 1.5}" width="3" height="3" fill="${color}" />`;
+            else {
                 svg += `<line x1="${obj.x - s}" y1="${obj.y - s}" x2="${obj.x + s}" y2="${obj.y + s}" stroke="${color}" stroke-width="2.5" />`;
                 svg += `<line x1="${obj.x + s}" y1="${obj.y - s}" x2="${obj.x - s}" y2="${obj.y + s}" stroke="${color}" stroke-width="2.5" />`;
             }
@@ -5651,7 +5654,50 @@ function findObjectAt(lx, ly) {
 }
 
 function clearSelection() { selectedItems = []; if (!['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode) && !(typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
+// La forme d'un point, avec un repli sûr : un point existe, donc il se voit.
+const FORMES_DE_POINT = ['circle', 'cross', 'square', 'pixel'];
+function formeDuPoint(obj) {
+    const f = obj && obj.shape;
+    return FORMES_DE_POINT.includes(f) ? f : 'cross';
+}
+
 function isSelected(type, id) { return selectedItems.some(item => item.type === type && item.id === id); }
+
+// L'objet cliqué fait-il DÉJÀ partie de ce qui est sélectionné, autrement que
+// par lui-même ? Un point posé sur un segment sélectionné, ou un membre d'un
+// groupe dont un autre membre est pris : cliquer dessus réduisait la sélection
+// à ce seul objet, et le lot n'était plus déplaçable.
+function appartientALaSelection(objInfo) {
+    if (!objInfo || !selectedItems.length) return false;
+    const obj = getObjectById(objInfo.type, objInfo.id);
+
+    // Même groupe qu'un objet déjà sélectionné
+    if (obj && obj.groupId && selectedItems.some(it => {
+        const o = getObjectById(it.type, it.id);
+        return o && o.groupId === obj.groupId;
+    })) return true;
+
+    // Un point qui porte une forme sélectionnée
+    if (objInfo.type === 'point') {
+        return selectedItems.some(it => {
+            const o = getObjectById(it.type, it.id);
+            if (!o) return false;
+            if (o.p1_id === objInfo.id || o.p2_id === objInfo.id) return true;
+            if (o.center_id === objInfo.id || o.edge_id === objInfo.id) return true;
+            return Array.isArray(o.points) && o.points.includes(objInfo.id);
+        });
+    }
+    return false;
+}
+
+// Ctrl+clic : l'objet entre dans la sélection s'il n'y est pas, en sort sinon.
+function basculerDansLaSelection(objInfo) {
+    const i = selectedItems.findIndex(it => it.type === objInfo.type && it.id === objInfo.id);
+    if (i >= 0) selectedItems.splice(i, 1);
+    else selectedItems.push({ type: objInfo.type, id: objInfo.id });
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+}
 function selectObject(objInfo) {
     selectedItems = [objInfo];
     if (objInfo.type !== 'image') {
@@ -6061,7 +6107,8 @@ canvas.addEventListener('pointerdown', (e) => {
     }
 
     // Si un plugin gère le clic (ex: l'outil fraction est actif), on arrête le code normal
-    if (PluginManager.trigger('onPointerDown', rawPos, e)) return;
+    const avantTampon = nextId;
+    if (PluginManager.trigger('onPointerDown', rawPos, e)) { apresPoseDeTampon(avantTampon); return; }
 
     // --- INTERCEPTION INSTRUMENTS ---
     let targetWidget = null;
@@ -6204,7 +6251,22 @@ canvas.addEventListener('pointerdown', (e) => {
     if (clickedObj && clickedObj.type === 'handle') { draggedHandle = clickedObj.name; isDraggingObjs = true; return; }
 
     if (mode === 'pointer') {
-        if (clickedObj) { if (!isSelected(clickedObj.type, clickedObj.id)) selectObject(clickedObj); isDraggingObjs = true; }
+        // Ctrl (ou Cmd) et Maj ajoutent ou retirent un objet de la sélection,
+        // sans repartir de zéro : c'est le geste attendu partout ailleurs.
+        const enPlus = e && (e.ctrlKey || e.metaKey || e.shiftKey);
+        if (clickedObj) {
+            if (enPlus) {
+                basculerDansLaSelection(clickedObj);
+                updateCursor(); draw(); return;      // on ajuste, on ne déplace pas
+            }
+            // Cliquer la poignée d'un objet déjà pris dans la sélection ne doit
+            // pas la réduire à ce seul point : on garde le lot pour le déplacer.
+            if (!isSelected(clickedObj.type, clickedObj.id) && !appartientALaSelection(clickedObj)) {
+                selectObject(clickedObj);
+            }
+            isDraggingObjs = true;
+        }
+        else if (enPlus) { /* on garde la sélection : Ctrl+clic dans le vide n'efface rien */ }
         else { clearSelection(); isSelectingBox = true; selectionBox = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y }; }
         updateCursor(); draw(); return;
     }
@@ -6809,7 +6871,9 @@ function handlePointerUp(e) {
         if (e.type === 'pointerup') {
             const rawPos = getRawLogicalPos(e);
             mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+            const avantTampon = nextId;
             PluginManager.trigger('onPointerDown', rawPos, e); // les plugins valident la pose ici
+            apresPoseDeTampon(avantTampon);
         }
         draw();
         return;
@@ -7146,7 +7210,17 @@ function draw() {
                 ctx.restore();
             });
 
-            if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes-marge') drawSeyesMarge(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'copie') drawCopie(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
+            if (bg === 'seyes-marge' || bg === 'copie') {
+                // La feuille est posée là où elle a été placée : on décale le
+                // dessin plutôt que de reprendre toutes ses coordonnées.
+                const o = origineFeuille || { x: 0, y: 0 };
+                ctx.save();
+                ctx.translate(o.x, o.y);
+                if (bg === 'seyes-marge') drawSeyesMarge(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gridWeight);
+                else drawCopie(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gridWeight);
+                ctx.restore();
+            }
+            else if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
 
             if (showAxes > 0) {
                 ctx.beginPath(); ctx.moveTo(0, minY); ctx.lineTo(0, maxY); ctx.moveTo(minX, 0); ctx.lineTo(maxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
@@ -7371,11 +7445,15 @@ function draw() {
             else if (item.type === 'point') {
                 if (hiddenPoints.has(obj.id)) return;
 
+                // Un point sans forme ne dessinait RIEN : il restait là,
+                // sélectionnable et invisible, et l'extrémité d'un segment
+                // semblait avoir disparu. Une forme manquante vaut la croix.
+                const forme = formeDuPoint(obj);
                 const s = lw * 4; ctx.beginPath();
-                if (obj.shape === 'circle') { ctx.arc(obj.x, obj.y, s, 0, Math.PI * 2); ctx.fillStyle = renderColor; ctx.fill(); }
-                else if (obj.shape === 'square') { ctx.rect(obj.x - s, obj.y - s, s * 2, s * 2); ctx.fillStyle = renderColor; ctx.fill(); }
-                else if (obj.shape === 'pixel') { ctx.rect(obj.x - 1.5 * lw, obj.y - 1.5 * lw, 3 * lw, 3 * lw); ctx.fillStyle = renderColor; ctx.fill(); }
-                else if (obj.shape === 'cross') { ctx.lineWidth = lw * 2.5; ctx.moveTo(obj.x - s, obj.y - s); ctx.lineTo(obj.x + s, obj.y + s); ctx.moveTo(obj.x + s, obj.y - s); ctx.lineTo(obj.x - s, obj.y + s); ctx.strokeStyle = renderColor; ctx.stroke(); }
+                if (forme === 'circle') { ctx.arc(obj.x, obj.y, s, 0, Math.PI * 2); ctx.fillStyle = renderColor; ctx.fill(); }
+                else if (forme === 'square') { ctx.rect(obj.x - s, obj.y - s, s * 2, s * 2); ctx.fillStyle = renderColor; ctx.fill(); }
+                else if (forme === 'pixel') { ctx.rect(obj.x - 1.5 * lw, obj.y - 1.5 * lw, 3 * lw, 3 * lw); ctx.fillStyle = renderColor; ctx.fill(); }
+                else { ctx.lineWidth = lw * 2.5; ctx.moveTo(obj.x - s, obj.y - s); ctx.lineTo(obj.x + s, obj.y + s); ctx.moveTo(obj.x + s, obj.y - s); ctx.lineTo(obj.x - s, obj.y + s); ctx.strokeStyle = renderColor; ctx.stroke(); }
             }
             else if (item.type === 'text') {
                 let w = 0, h = 0, startX = obj._cachedStartX || obj.x;
@@ -9940,6 +10018,32 @@ function ramenerFenetreDansLecran(el) {
 }
 window.ramenerFenetreDansLecran = ramenerFenetreDansLecran;
 
+// Une fois le tampon posé, on revient à la flèche ET l'objet posé est
+// sélectionné : c'est presque toujours pour le déplacer ou le redimensionner
+// qu'on le regarde ensuite. La moitié des outils repassaient déjà en flèche,
+// l'autre non — et aucun ne sélectionnait ce qu'il venait de poser.
+// Les outils faits pour tamponner en rafale gardent leur tampon armé : on les
+// laisse tranquilles.
+function apresPoseDeTampon(idAvant) {
+    if (typeof hasPendingStamp === 'function' && hasPendingStamp()) return;
+
+    const nouveaux = [];
+    const relever = (liste, type) => (liste || []).forEach(o => {
+        if (o && typeof o.id === 'number' && o.id >= idAvant) nouveaux.push({ type, id: o.id });
+    });
+    relever(images, 'image'); relever(texts, 'text'); relever(htmlPostits, 'htmlPostit');
+    relever(segments, 'segment'); relever(circles, 'circle'); relever(rectangles, 'rectangle');
+    relever(freehands, 'freehand'); relever(curves, 'curve'); relever(polygons, 'polygon');
+    relever(arcs, 'arc');
+    if (!nouveaux.length) return;
+
+    if (typeof setMode === 'function' && mode !== 'pointer') setMode('pointer');
+    selectedItems = nouveaux;
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+    if (typeof draw === 'function') draw();
+}
+
 function annulerModePlugin() {
     if (typeof mode === 'undefined' || MODES_DE_BASE.includes(mode)) return;
     if (typeof setMode === 'function') setMode('pointer');
@@ -11638,7 +11742,11 @@ function renderFloatingToolbars() {
     let toolbars = getStoredFloatingToolbars();
     const hasMain = toolbars.some(t => t.id === 'system-toolbar-main');
 
-    if (!localStorage.getItem('board_toolbars_migrated_v2') || !hasMain) {
+    // On ne reconstruit la barre principale que s'il n'y en a PAS. Le
+    // faisant à chaque premier démarrage, on écrasait la barre d'une interface
+    // qu'on venait de charger : le collègue à qui l'on prépare une panoplie de
+    // cinq outils retrouvait les vingt-deux par défaut.
+    if (!hasMain) {
         toolbars = toolbars.filter(t => t.id !== 'system-toolbar-main');
         const barTools = document.getElementById('bar-tools');
         if (barTools) {
@@ -11668,8 +11776,8 @@ function renderFloatingToolbars() {
                 saveStoredFloatingToolbars(toolbars);
             }
         }
-        localStorage.setItem('board_toolbars_migrated_v2', 'true');
     }
+    localStorage.setItem('board_toolbars_migrated_v2', 'true');
 
     container.innerHTML = '';
     getStoredFloatingToolbars().forEach(toolbar => renderFloatingToolbar(toolbar));
@@ -17485,6 +17593,32 @@ if (document.getElementById('formula-modal')) {
 // proche, entière et centrée.
 const FONDS_FEUILLE = ['seyes-marge', 'copie'];
 
+// Où poser la feuille sur cette page. Elle vivait à l'origine du tableau ;
+// si l'on avait travaillé ailleurs, elle apparaissait à côté du travail, voire
+// hors de l'écran. Elle se pose donc AUTOUR de ce qui est déjà tracé.
+let origineFeuille = { x: 0, y: 0 };
+
+// La boîte qui contient tout ce que porte la page (null si la page est vide)
+function boiteDuTravail() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const prendre = (x, y) => {
+        if (!isFinite(x) || !isFinite(y)) return;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+    const boite = (b) => { if (b) { prendre(b.bx, b.by); prendre(b.bx + b.bw, b.by + b.bh); } };
+
+    (points || []).forEach(p => prendre(p.x, p.y));
+    (freehands || []).concat(curves || []).forEach(f => (f.points || []).forEach(p => prendre(p.x, p.y)));
+    (images || []).forEach(o => { prendre(o.x, o.y); prendre(o.x + o.w, o.y + o.h); });
+    (texts || []).forEach(o => boite(getItemLogicalBounds('text', o)));
+    (htmlPostits || []).forEach(o => { prendre(o.x, o.y); prendre(o.x + (o.w || 200), o.y + (o.h || 150)); });
+    (arcs || []).forEach(a => { prendre(a.cx - a.radius, a.cy - a.radius); prendre(a.cx + a.radius, a.cy + a.radius); });
+
+    if (minX === Infinity) return null;
+    return { x: minX, y: minY, l: maxX - minX, h: maxY - minY };
+}
+
 // Y a-t-il déjà quelque chose sur cette page ?
 function pageEstVide() {
     const listes = [points, segments, circles, rectangles, texts, freehands,
@@ -17497,10 +17631,23 @@ function cadrerSurLaFeuille() {
     if (!FONDS_FEUILLE.includes(bg)) return;
     const canvas = document.getElementById('board');
     if (!canvas) return;
-    // Sur une page où l'on a déjà travaillé, on ne touche pas à la vue :
-    // recadrer déplaçait tout ce qui était tracé sous les yeux du professeur.
-    // Le cadrage n'a de sens qu'au moment où l'on sort une feuille vierge.
-    if (!pageEstVide()) return;
+    // Sur une page où l'on a déjà travaillé, on ne touche pas à la vue —
+    // recadrer déplaçait tout le tracé sous les yeux du professeur — mais on
+    // glisse la feuille SOUS ce travail, pour qu'elle apparaisse autour de lui
+    // et non à l'autre bout du tableau.
+    const travail = boiteDuTravail();
+    if (travail) {
+        // Le tracé est centré en largeur et posé sous l'en-tête ; s'il est
+        // plus grand que la feuille, on le cadre au mieux depuis son coin.
+        const HAUT_UTILE = 300;                       // la place de l'en-tête
+        origineFeuille = {
+            x: travail.x + travail.l / 2 - PAGE_L / 2,   // centré en largeur
+            y: travail.y - HAUT_UTILE                    // le tracé démarre sous l'en-tête
+        };
+        if (typeof draw === 'function') draw();
+        return;
+    }
+    origineFeuille = { x: 0, y: 0 };
 
     const largeurEcran = canvas.clientWidth || window.innerWidth;
     const hauteurEcran = canvas.clientHeight || window.innerHeight;

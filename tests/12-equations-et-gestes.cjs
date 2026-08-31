@@ -204,6 +204,32 @@ module.exports = async function (browser) {
     r.verifie('une page où l\'on a tracé n\'est plus considérée vide', !avecDuTravail.vide);
     r.verifie('et changer de fond n\'y déplace plus le travail', !avecDuTravail.bouge, JSON.stringify(avecDuTravail));
 
+    // …mais la feuille doit apparaître AUTOUR du travail, pas à l'origine du
+    // tableau : sinon elle surgissait à côté, voire hors de l'écran.
+    const feuilleAutour = await page.evaluate(() => {
+        [points, segments, freehands, texts, images].forEach(a => a.length = 0);
+        origineFeuille = { x: 0, y: 0 };
+        const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+        const a = P(2000, 1400), b = P(2600, 1800);
+        segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, z: globalZ++ });
+        currentBgIndex = backgrounds.indexOf('copie');
+        cadrerSurLaFeuille();
+        const t = boiteDuTravail();
+        const dedans = t.x >= origineFeuille.x && t.x + t.l <= origineFeuille.x + PAGE_L
+                    && t.y >= origineFeuille.y && t.y + t.h <= origineFeuille.y + PAGE_H;
+        const centree = Math.abs((origineFeuille.x + PAGE_L / 2) - (t.x + t.l / 2)) < 2;
+        // et elle se retient d'une page à l'autre
+        syncPage();
+        const retenue = !!(pages[currentPageIndex].origineFeuille
+            && pages[currentPageIndex].origineFeuille.x === origineFeuille.x);
+        [points, segments].forEach(arr => arr.length = 0);
+        origineFeuille = { x: 0, y: 0 };
+        return { origine: { x: Math.round(origineFeuille.x), y: Math.round(origineFeuille.y) }, dedans, centree, retenue };
+    });
+    r.verifie('la feuille se pose autour de ce qui est déjà tracé', feuilleAutour.dedans, JSON.stringify(feuilleAutour));
+    r.verifie('le tracé est centré en largeur sur la feuille', feuilleAutour.centree, JSON.stringify(feuilleAutour));
+    r.verifie('et la page retient où sa feuille est posée', feuilleAutour.retenue, JSON.stringify(feuilleAutour));
+
     const surPageVide = await page.evaluate(() => {
         panX = 120; panY = 90; zoom = 1.3;
         currentBgIndex = backgrounds.indexOf('copie');

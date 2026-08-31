@@ -411,6 +411,11 @@ module.exports = async function (browser) {
         fl.renderGrid();
         await new Promise(r => setTimeout(r, 150));
 
+        // On vise un thème qui a de quoi renouveler ses questions : certains
+        // n'en ont qu'une poignée, et l'outil le dit alors au lieu de mentir.
+        fl.state.questions = Array.from({ length: 5 }, () => fl.makeOneQuestion('equations'));
+        fl.renderGrid();
+        await new Promise(r => setTimeout(r, 150));
         const textes = () => fl.state.questions.map(q => q.q);
         const avant = textes();
         el.querySelectorAll('.fl-btn-relancer')[1].click();

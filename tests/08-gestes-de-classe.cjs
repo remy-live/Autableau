@@ -138,6 +138,65 @@ module.exports = async function (browser) {
     });
     r.verifie('rideau et projecteur restent hors de la sauvegarde', propre);
 
+    // --- LA SÉLECTION MULTIPLE ---
+    const selection = await page.evaluate(() => {
+        [points, segments, circles, texts, freehands, images].forEach(a => a.length = 0);
+        selectedItems = [];
+        panX = 400; panY = 300; zoom = 1;
+        setMode('pointer');
+        const P = (x, y) => { const p = { id: nextId++, x, y, shape: 'cross', z: globalZ++ }; points.push(p); return p; };
+        const a = P(-200, -100), b = P(100, 50), c = P(-150, 120), d = P(150, -60);
+        segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, z: globalZ++ });
+        segments.push({ id: nextId++, p1_id: c.id, p2_id: d.id, z: globalZ++ });
+
+        const clic = (x, y, avecCtrl) => {
+            const p = { clientX: panX + x * zoom, clientY: panY + y * zoom };
+            canvas.dispatchEvent(new PointerEvent('pointerdown', Object.assign(
+                { bubbles: true, pointerId: 1, isPrimary: true, button: 0, ctrlKey: !!avecCtrl }, p)));
+            canvas.dispatchEvent(new PointerEvent('pointerup', Object.assign(
+                { bubbles: true, pointerId: 1, isPrimary: true }, p)));
+        };
+
+        clic(-50, -25, false);
+        const seul = selectedItems.length;
+        clic(0, 30, true);
+        const deux = selectedItems.length;
+        clic(0, 30, true);
+        const retire = selectedItems.length;
+
+        // Cliquer l'extrémité d'un segment déjà pris ne doit pas réduire la
+        // sélection à ce seul point : on veut encore pouvoir déplacer le lot.
+        selectedItems = [{ type: 'segment', id: segments[0].id }, { type: 'segment', id: segments[1].id }];
+        clic(-200, -100, false);
+        const surExtremite = selectedItems.length;
+
+        // Ctrl+clic dans le vide ne vide pas la sélection
+        clic(600, 600, true);
+        const dansLeVide = selectedItems.length;
+        return { seul, deux, retire, surExtremite, dansLeVide };
+    });
+    r.egal('un clic sélectionne un objet', selection.seul, 1);
+    r.egal('Ctrl+clic en ajoute un deuxième', selection.deux, 2);
+    r.egal('et Ctrl+clic dessus l\'enlève', selection.retire, 1);
+    r.egal('cliquer une extrémité ne casse plus la sélection', selection.surExtremite, 2);
+    r.egal('Ctrl+clic dans le vide ne vide pas la sélection', selection.dansLeVide, 2);
+
+    // --- UN POINT SANS FORME RESTE VISIBLE ---
+    const pointNu = await page.evaluate(() => {
+        [points, segments].forEach(a => a.length = 0);
+        selectedItems = [];
+        panX = 400; panY = 300; zoom = 1;
+        points.push({ id: nextId++, x: 0, y: 0, color: '#e74c3c', z: globalZ++ });   // aucune forme
+        draw();
+        const d = ctx.getImageData(392, 292, 16, 16).data;
+        let encre = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40) encre++;
+        return { forme: formeDuPoint(points[0]), pixels: encre, inconnue: formeDuPoint({ shape: 'zigzag' }) };
+    });
+    r.egal('une forme absente vaut la croix', pointNu.forme, 'cross');
+    r.egal('une forme inconnue aussi', pointNu.inconnue, 'cross');
+    r.verifie('et le point se dessine vraiment', pointNu.pixels > 20, `${pointNu.pixels} pixels`);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
 

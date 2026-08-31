@@ -17208,12 +17208,21 @@ registerPlugin('flashMathTool', 'Exercices', {
                 if (!theme || !this.generators[theme]) return;
                 // Relancer doit donner AUTRE CHOSE : on refuse la question
                 // qu'on avait déjà, et celles qui sont ailleurs sur la feuille.
-                for (let essai = 0; essai < 20; essai++) {
+                let trouvee = null, repli = null;
+                for (let essai = 0; essai < 40; essai++) {
                     const neuve = this.makeOneQuestion(theme);
-                    const identique = neuve.q === ancienne.q;
-                    const dejaLa = this.state.questions.some((q, j) => j !== i && q.q === neuve.q);
-                    if ((!identique && !dejaLa) || essai === 19) { this.state.questions[i] = neuve; break; }
+                    if (neuve.q === ancienne.q) continue;
+                    repli = repli || neuve;                     // au moins elle change
+                    if (!this.state.questions.some((q, j) => j !== i && q.q === neuve.q)) { trouvee = neuve; break; }
                 }
+                const remplacante = trouvee || repli;
+                if (!remplacante) {
+                    // Certains thèmes n'ont qu'une poignée de questions
+                    // possibles : mieux vaut le dire que de faire semblant.
+                    if (typeof showToast === 'function') showToast('Ce thème n\'a pas d\'autre question à proposer');
+                    return;
+                }
+                this.state.questions[i] = remplacante;
                 this.renderGrid();
             };
         });
