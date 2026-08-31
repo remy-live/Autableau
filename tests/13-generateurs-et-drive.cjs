@@ -262,9 +262,10 @@ module.exports = async function (browser) {
         !!bascule && /A4|juste/i.test(bascule.apres.texte), bascule && bascule.apres.texte);
 
     // --- L'EXPLORATEUR : DEUX SOURCES, UNE FENÊTRE DÉPLAÇABLE ---
-    const enLocal = await page.evaluate(() => {
+    const enLocal = await page.evaluate(async () => {
         const b = document.getElementById('btn-drive');
         b.click();
+        await new Promise(r => setTimeout(r, 250));
         const f = document.getElementById('explorateur');
         const boite = f.getBoundingClientRect();
         return {
@@ -286,8 +287,9 @@ module.exports = async function (browser) {
     r.verifie('en local, il s\'ouvre sur « Mon ordinateur » et sa zone de dépôt', enLocal.depot, JSON.stringify(enLocal));
     r.egal('Drive, lui, s\'annonce indisponible', enLocal.disponible, false);
 
-    const driveEnLocal = await page.evaluate(() => {
+    const driveEnLocal = await page.evaluate(async () => {
         document.querySelector('.exp-source[data-source="drive"]').click();
+        await new Promise(r => setTimeout(r, 250));
         const texte = document.getElementById('exp-corps').innerText;
         document.getElementById('exp-fermer').click();
         return { texte, ferme: getComputedStyle(document.getElementById('explorateur')).display === 'none' };
@@ -295,6 +297,36 @@ module.exports = async function (browser) {
     r.verifie('cliquer sur Drive en local explique pourquoi il ne peut pas marcher',
         /http|configur/i.test(driveEnLocal.texte), driveEnLocal.texte.slice(0, 120));
     r.verifie('et la fenêtre se ferme', driveEnLocal.ferme);
+
+    // Réduire, redimensionner, et retrouver la fenêtre comme on l'a laissée
+    const fenetre = await page.evaluate(async () => {
+        await ouvrirExplorateur('ordi');
+        await new Promise(r => setTimeout(r, 200));
+        const f = document.getElementById('explorateur');
+        const hauteurPleine = f.getBoundingClientRect().height;
+        document.getElementById('exp-reduire').click();
+        const reduite = f.getBoundingClientRect().height;
+        document.getElementById('exp-reduire').click();
+        const rendue = f.getBoundingClientRect().height;
+
+        // on redimensionne comme le ferait la poignée
+        Explorateur.etat.w = 820; Explorateur.etat.h = 560;
+        await ouvrirExplorateur('ordi');
+        await new Promise(r => setTimeout(r, 150));
+        const apresTaille = f.getBoundingClientRect();
+        document.getElementById('exp-fermer').click();      // la fermeture enregistre la géométrie
+        return {
+            hauteurPleine, reduite, rendue,
+            largeur: Math.round(apresTaille.width), hauteur: Math.round(apresTaille.height),
+            memoire: JSON.parse(localStorage.getItem('board_explorateur') || '{}')
+        };
+    });
+    r.verifie('la fenêtre se réduit à son bandeau',
+        fenetre.reduite < 70 && fenetre.reduite < fenetre.hauteurPleine, JSON.stringify(fenetre));
+    r.verifie('et se rouvre à sa taille', fenetre.rendue > 200, JSON.stringify(fenetre));
+    r.verifie('elle est dimensionnable', fenetre.largeur === 820 && fenetre.hauteur === 560, JSON.stringify(fenetre));
+    r.verifie('sa géométrie est retenue d\'une fois sur l\'autre',
+        fenetre.memoire.w === 820 || fenetre.memoire.h === 560, JSON.stringify(fenetre.memoire));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
@@ -329,17 +361,17 @@ module.exports = async function (browser) {
     // certains fichiers (un .docx en « octet-stream »), et ils passaient alors
     // pour « non pris en charge ».
     const types = await pageWeb.evaluate(() => {
-        const ok = (nom, type) => driveImportable({ nom, type, dossier: false });
+        const ok = (nom, type) => Explorateur.importable({ nom, type, dossier: false });
         return {
             image: ok('photo.jpg', 'image/jpeg'),
             pdf: ok('brevet.pdf', 'application/pdf'),
             docxMalType: ok('cours.docx', 'application/octet-stream'),
             sansType: ok('notes.txt', ''),
             csv: ok('classe.csv', 'text/csv'),
-            docGoogle: ok('Mon cours', 'application/vnd.google-apps.document'),
-            diapoGoogle: ok('Ma présentation', 'application/vnd.google-apps.presentation'),
+            docGoogle: Explorateur.importable({ nom: 'Mon cours', type: 'application/vnd.google-apps.document', converti: true }),
+            diapoGoogle: Explorateur.importable({ nom: 'Ma présentation', type: 'application/vnd.google-apps.presentation', converti: true }),
             formulaire: ok('Sondage', 'application/vnd.google-apps.form'),
-            dossier: driveImportable({ nom: 'Maths', dossier: true })
+            dossier: Explorateur.importable({ nom: 'Maths', dossier: true })
         };
     });
     ['image', 'pdf', 'docxMalType', 'sansType', 'csv', 'docGoogle', 'diapoGoogle', 'dossier'].forEach(cas =>
@@ -372,7 +404,7 @@ module.exports = async function (browser) {
             source: f.querySelector('.exp-source[data-source="drive"]').style.background,
             nombre: lignes.length,
             textes: lignes.map(l => l.innerText.replace(/\s+/g, ' ').trim()),
-            grisees: lignes.filter(l => parseFloat(l.style.opacity) < 1).length
+            grisees: lignes.filter(l => l.classList.contains('exp-inactif')).length
         };
     });
     r.verifie('la fenêtre s\'ouvre sur Drive quand on le demande', liste.ouverte, JSON.stringify(liste));
@@ -380,6 +412,38 @@ module.exports = async function (browser) {
     r.verifie('avec leur poids en clair', /47 Ko/.test(liste.textes.join(' | ')), liste.textes.join(' | '));
     r.verifie('les dossiers sont annoncés comme tels', /Cours 5e Dossier/.test(liste.textes.join(' | ')), liste.textes.join(' | '));
     r.egal('et seul le formulaire est grisé', liste.grisees, 1);
+
+    const vues = await pageWeb.evaluate(async () => {
+        document.getElementById('exp-vue').click();
+        await new Promise(r => setTimeout(r, 150));
+        const grille = { classe: document.getElementById('exp-corps').className, cartes: document.querySelectorAll('.exp-carte').length };
+        document.getElementById('exp-vue').click();
+        await new Promise(r => setTimeout(r, 150));
+        const liste = { classe: document.getElementById('exp-corps').className, lignes: document.querySelectorAll('.exp-ligne').length };
+        // la recherche filtre la liste
+        const champ = document.getElementById('exp-recherche');
+        champ.value = 'brevet';
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 100));
+        const filtre = document.querySelectorAll('.exp-ligne').length;
+        champ.value = '';
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 100));
+        // le tri par taille remonte le plus gros fichier
+        const tri = document.getElementById('exp-tri');
+        tri.value = 'taille';
+        tri.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 100));
+        const premier = document.querySelectorAll('.exp-ligne .exp-nom')[1];
+        tri.value = 'nom';
+        tri.dispatchEvent(new Event('change', { bubbles: true }));
+        return { grille, liste, filtre, premierParTaille: premier ? premier.innerText : '' };
+    });
+    r.verifie('on peut passer en aperçus', /exp-grille/.test(vues.grille.classe) && vues.grille.cartes === 4, JSON.stringify(vues.grille));
+    r.verifie('et revenir à la liste', !/exp-grille/.test(vues.liste.classe) && vues.liste.lignes === 4, JSON.stringify(vues.liste));
+    r.egal('la recherche filtre les fichiers', vues.filtre, 1);
+    r.verifie('le tri par taille met le plus gros devant',
+        /Brevet blanc/.test(vues.premierParTaille), vues.premierParTaille);
 
     const navigation = await pageWeb.evaluate(async () => {
         Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
