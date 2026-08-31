@@ -856,12 +856,19 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
 
         document.getElementById('math-btn-valid').onclick = () => {
             const finalLatex = latexInput.value;
-            if (!finalLatex) return;
+            if (!finalLatex.trim()) {
+                if (typeof showToast === 'function') showToast('Écrivez d\'abord une formule');
+                latexInput.focus();
+                return;
+            }
 
             if (window.MathJax && window.MathJax.tex2svgPromise) {
                 MathJax.tex2svgPromise(finalLatex).then(function (node) {
                     const svgEl = node.querySelector('svg');
-                    if (!svgEl) return;
+                    if (!svgEl) {
+                        if (typeof showToast === 'function') showToast('Cette formule n\'a pas pu être lue : vérifiez les accolades');
+                        return;
+                    }
 
                     const wEx = parseFloat(svgEl.getAttribute('width'));
                     const hEx = parseFloat(svgEl.getAttribute('height'));
@@ -881,10 +888,10 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                     img.onload = () => onValidate({ img: img, src: img.src, w: pxW, h: pxH }, finalLatex);
                     img.src = "data:image/svg+xml;base64," + base64;
                 }).catch(function (err) {
-                    alert("Erreur dans la syntaxe de la formule.");
+                    if (typeof showToast === 'function') showToast('Formule mal écrite : vérifiez les accolades et les commandes');
                 });
             } else {
-                alert("Le moteur de rendu est encore en cours de chargement, veuillez patienter.");
+                if (typeof showToast === 'function') showToast('Le moteur mathématique finit de charger, réessayez dans un instant');
             }
         };
 
@@ -2635,15 +2642,21 @@ registerPlugin('statTool', 'Maths - Numérique', {
 
         const modal = document.getElementById('stat-builder-modal'); const handle = document.getElementById('stat-drag-handle');
         let isDrag = false, startX, startY;
-        handle.addEventListener('mousedown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; });
-        window.addEventListener('mousemove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDrag = false);
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } });
+        window.addEventListener('pointermove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => isDrag = false);
+        window.addEventListener('pointercancel', () => isDrag = false);
 
         document.getElementById('stat-type').addEventListener('change', (e) => { this.state.type = e.target.value; this.renderPreview(); });
         document.getElementById('stat-title').addEventListener('input', (e) => { this.state.title = e.target.value; this.renderPreview(); });
         document.getElementById('stat-color').addEventListener('input', (e) => { this.state.color = e.target.value; this.renderPreview(); });
         document.getElementById('stat-btn-add').addEventListener('click', () => { this.state.rows.push({ label: "Nom", val: 10 }); this.renderRowsUI(); });
-        document.getElementById('stat-btn-cancel').addEventListener('click', () => { modal.style.display = 'none'; this.editingImage = null; });
+        document.getElementById('stat-btn-cancel').addEventListener('click', () => {
+            // Renoncer ne doit pas laisser le mode armé : sans cela le
+            // tableau ne réagissait plus à rien.
+            modal.style.display = 'none'; this.editingImage = null; annulerModePlugin();
+        });
         document.getElementById('stat-btn-ok').addEventListener('click', () => {
             modal.style.display = 'none';
             createStampFromSVG(this.generateSVG(true), (stamp) => {
@@ -2761,15 +2774,21 @@ registerPlugin('propTableTool', 'Maths - Numérique', {
 
         const modal = document.getElementById('prop-builder-modal'); const handle = document.getElementById('prop-drag-handle');
         let isDrag = false, startX, startY;
-        handle.addEventListener('mousedown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; });
-        window.addEventListener('mousemove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDrag = false);
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } });
+        window.addEventListener('pointermove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => isDrag = false);
+        window.addEventListener('pointercancel', () => isDrag = false);
 
         document.getElementById('prop-t1').addEventListener('input', (e) => { this.state.t1 = e.target.value; this.renderPreview(); });
         document.getElementById('prop-t2').addEventListener('input', (e) => { this.state.t2 = e.target.value; this.renderPreview(); });
         document.getElementById('prop-coef').addEventListener('input', (e) => { this.state.coef = e.target.value; this.renderPreview(); });
         document.getElementById('prop-btn-add').addEventListener('click', () => { this.state.cols.push({ v1: "", v2: "" }); this.renderColsUI(); });
-        document.getElementById('prop-btn-cancel').addEventListener('click', () => { modal.style.display = 'none'; this.editingImage = null; });
+        document.getElementById('prop-btn-cancel').addEventListener('click', () => {
+            // Renoncer ne doit pas laisser le mode armé : sans cela le
+            // tableau ne réagissait plus à rien.
+            modal.style.display = 'none'; this.editingImage = null; annulerModePlugin();
+        });
         document.getElementById('prop-btn-ok').addEventListener('click', () => {
             modal.style.display = 'none';
             createStampFromSVG(this.generateSVG(true), (stamp) => {
@@ -2988,6 +3007,7 @@ registerPlugin('moneyTool', 'Maths - Numérique', {
             <input type="range" id="money-scale" min="0.2" max="0.8" step="0.1" value="${this.scale}" style="width:100%;">
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
         window.MoneyPlugin = this;
 
         this.widgetEl.querySelector('#money-select').addEventListener('change', () => this.updateStamp());
@@ -3149,7 +3169,7 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
 
     createWidget: function () {
         this.widgetEl = document.createElement('div'); this.widgetEl.id = 'circuit-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:10vw; width:800px; height:550px; background:#fdfdfd; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:999999; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #bdc3c7;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:10vw; width:800px; height:550px; background:#fdfdfd; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:999999; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #bdc3c7;";
 
         const svgStyle = 'pointer-events:none; width:100%; height:100%;';
         const icons = {
@@ -3214,7 +3234,8 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                 </div>
             </div>
         `;
-        document.body.appendChild(this.widgetEl); window.CircuitPlugin = this;
+        document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl); window.CircuitPlugin = this;
 
         let isDraggingWindow = false; let winOffset = { x: 0, y: 0 };
         document.getElementById('circ-header').addEventListener('pointerdown', (e) => {
@@ -3559,7 +3580,10 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
     },
 
     exportToBoard: function () {
-        if (this.state.nodes.length === 0) return;
+        if (this.state.nodes.length === 0) {
+            if (typeof showToast === 'function') showToast('Le circuit est vide : posez d\'abord des composants');
+            return;
+        }
         const oldTool = this.currentTool; this.currentTool = 'select'; this.activeNodeId = null; this.render();
         const pad = 40; let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
@@ -3688,7 +3712,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
     createWidget: function () {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'sound-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:80px; right:40px; width:420px; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:999999; display:none; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9; transition: width 0.3s;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:80px; right:40px; width:420px; background:#ffffff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:999999; display:none; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9; transition: width 0.3s;";
 
         this.widgetEl.innerHTML = `
             <div id="sound-header" style="height:40px; background:#2d3436; color:white; display:flex; justify-content:space-between; align-items:center; padding:0 15px; cursor:grab; user-select:none;">
@@ -3740,6 +3764,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
         window.SoundMeterPlugin = this;
 
         // Déplacement de la fenêtre
@@ -3796,12 +3821,18 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
     },
 
     clearHistory: function () {
-        if (confirm("Effacer le graphique de la journée ?")) {
+        // La modale de l'application plutôt que confirm() : celui-ci fige la
+        // page et jure avec le reste, sur un outil projeté devant la classe.
+        const effacer = () => {
             this.dayHistory = [];
             const today = new Date().toLocaleDateString();
             localStorage.setItem('auTableau_soundData_' + today, JSON.stringify(this.dayHistory));
             this.drawGraph();
-        }
+            if (typeof showToast === 'function') showToast('Graphique du jour effacé');
+        };
+        if (typeof openConfirmModal === 'function') {
+            openConfirmModal('Effacer le graphique', 'Effacer le graphique sonore de la journée ?', true, effacer);
+        } else effacer();
     },
 
     // Extrait la logique d'arrêt du micro pour pouvoir l'appeler facilement
@@ -3856,7 +3887,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
                 if (typeof showToast === 'function') showToast("Sonomètre activé !", "#00b894");
                 this.loop();
             } catch (e) {
-                alert("Impossible d'accéder au microphone.");
+                if (typeof showToast === 'function') showToast('Micro inaccessible : autorisez-le dans la barre d\'adresse du navigateur');
             }
         }
     },
@@ -4291,6 +4322,16 @@ registerPlugin('pianoTool', 'Musique', {
         }
         this.notes.push({ name: 'C6', freq: baseFreqs['C'] * 8, type: 'white', x: curX }); // Dernière touche
 
+        // Ranger la télécommande déverrouille d'abord le piano : autrement, le
+        // clavier restait figé sur le tableau SANS aucun moyen de le libérer,
+        // la seule commande venant d'être supprimée.
+        window.pianoRangerTelecommande = () => {
+            this.isPositionLocked = false;
+            const t = document.getElementById('piano-remote');
+            if (t) t.remove();
+            if (typeof showToast === 'function') showToast('Télécommande rangée — le piano se déplace à nouveau');
+        };
+
         window.pianoToggleLock = () => {
             this.isPositionLocked = !this.isPositionLocked;
             const lockBtn = document.getElementById('btn-piano-lock');
@@ -4346,7 +4387,7 @@ registerPlugin('pianoTool', 'Musique', {
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#1e272e;">🎹 PIANO 3 OCTAVES :</div>
             <button id="btn-piano-lock" onclick="pianoToggleLock()" style="padding:10px 18px; background:#f1f2f6; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px; transition: all 0.2s;">🔓 Déverrouillé</button>
-            <button onclick="document.getElementById('piano-remote').remove()" style="background:transparent; border:none; cursor:pointer; color:#e74c3c; font-weight:bold; font-size:16px; margin-left:10px;">X</button>
+            <button onclick="pianoRangerTelecommande()" title="Ranger la télécommande" style="background:transparent; border:none; cursor:pointer; color:#e74c3c; font-weight:bold; font-size:16px; margin-left:10px;">✕</button>
         `;
         document.body.appendChild(remote);
     },
@@ -5771,16 +5812,22 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
 
         const modal = document.getElementById('frise-builder-modal'); const handle = document.getElementById('frise-drag-handle');
         let isDrag = false, startX, startY;
-        handle.addEventListener('mousedown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; });
-        window.addEventListener('mousemove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDrag = false);
+        handle.style.touchAction = 'none';
+        handle.addEventListener('pointerdown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } });
+        window.addEventListener('pointermove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => isDrag = false);
+        window.addEventListener('pointercancel', () => isDrag = false);
 
         document.getElementById('frise-start').addEventListener('input', (e) => { this.state.start = e.target.value; this.renderPreview(); });
         document.getElementById('frise-btn-add').addEventListener('click', () => {
             this.state.blocks.push({ color: ['#0984e3', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6'][this.state.blocks.length % 5], end: "Date" });
             this.renderBlocksUI();
         });
-        document.getElementById('frise-btn-cancel').addEventListener('click', () => { modal.style.display = 'none'; this.editingImage = null; });
+        document.getElementById('frise-btn-cancel').addEventListener('click', () => {
+            // Renoncer ne doit pas laisser le mode armé : sans cela le
+            // tableau ne réagissait plus à rien.
+            modal.style.display = 'none'; this.editingImage = null; annulerModePlugin();
+        });
         document.getElementById('frise-btn-ok').addEventListener('click', () => {
             modal.style.display = 'none';
             createStampFromSVG(this.generateSVG(true), (stamp) => {
@@ -6601,7 +6648,7 @@ registerPlugin('popcornTool', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 300px); width:600px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; overflow:hidden; font-family: sans-serif; border:2px solid #3c40c6;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:calc(50% - 300px); width:600px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; overflow:hidden; font-family: sans-serif; border:2px solid #3c40c6;";
 
         this.widgetEl.innerHTML = `
             <div id="pop-drag-handle" style="background:#0a0e14; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; cursor:grab; user-select:none; border-bottom:1px solid #3c40c6;">
@@ -6617,6 +6664,7 @@ registerPlugin('popcornTool', 'Jeux', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         this.canvas = this.widgetEl.querySelector('#pop-canvas');
         this.ctx = this.canvas.getContext('2d');
@@ -7208,7 +7256,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'pt-wrap';
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 440px); width:880px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 440px); width:880px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -7296,6 +7344,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
         `;
         this.widgetEl.appendChild(content);
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // --- Déplacement de la fenêtre par le header ---
         const handle = this.widgetEl.querySelector('#pt-drag-handle');
@@ -7771,6 +7820,7 @@ registerPlugin('globalExerciseGenerator', 'Exercices', {
                 </div>
             `;
             document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
             let isDragging = false, startX, startY;
             const header = this.widgetEl.querySelector('.geg-header');
@@ -8899,6 +8949,10 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
         const spacingX = Math.min(380, safeWidth / count);
         const startX = logicalCenterX - ((count - 1) * spacingX / 2);
 
+        // Les angles arrivent par images, donc plus tard : on compte ce qu'on
+        // attend pour n'enregistrer l'historique qu'une fois tout posé.
+        let restants = count;
+
         for (let i = 0; i < count; i++) {
             let angleDeg;
             if (type === 'aigu') angleDeg = Math.floor(Math.random() * 60) + 20;
@@ -8910,6 +8964,7 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
             const cy = logicalCenterY - 120;
 
             const imgAngle = new Image();
+            imgAngle.onerror = () => { if (--restants === 0 && typeof saveState === 'function') saveState(); };
             imgAngle.onload = () => {
                 const grp = 'group-' + Date.now() + '-' + Math.random();
                 if (typeof imageCache !== 'undefined') imageCache[imgAngle.src] = imgAngle;
@@ -8922,18 +8977,22 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
 
                 // 2. L'image du cache (Descendue de 23 pixels pour s'aligner parfaitement sur le texte !)
                 const imgCache = new Image();
+                imgCache.onerror = () => { if (--restants === 0 && typeof saveState === 'function') saveState(); };
                 imgCache.onload = () => {
                     if (typeof imageCache !== 'undefined') imageCache[imgCache.src] = imgCache;
                     // Coordonnée Y modifiée : solY - 5 (au lieu de solY - 28)
                     images.push({ id: nextId++, x: cx - 45, y: solY - 5, w: 90, h: 40, cx: 0, cy: 0, cw: 90, ch: 40, src: imgCache.src, z: globalZ++, groupId: grp });
                     if (typeof draw === 'function') draw();
+                    // L'enregistrement d'historique se faisait AVANT que les
+                    // angles n'arrivent : l'instantané ne les contenait pas, et
+                    // un Ctrl+Z défaisait l'action d'avant en plus des angles.
+                    if (--restants === 0 && typeof saveState === 'function') saveState();
                 };
                 imgCache.src = this.getCacheSVG();
             };
             imgAngle.src = this.getAngleSVG(angleDeg, baseRot);
         }
 
-        if (typeof saveState === 'function') saveState();
         showToast(`📐 Sortez le rapporteur ! Gommez les blocs gris pour voir les valeurs.`);
     }
 });
@@ -9035,7 +9094,7 @@ registerPlugin('hangmanGameTool', 'Jeux', {
         let html = `<div style="background:#1e272e; color:#fff; padding:10px; text-align:center; font-weight:bold;">🎮 Télécommande Pendu (Cachée aux élèves)</div>`;
         html += `<div style="padding:15px;"><div id="hangman-keys" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:15px;">`;
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('').forEach(l => { html += `<button class="hangman-key" data-l="${l}" style="width:40px; height:40px; font-size:16px; font-weight:bold; border:2px solid #dfe6e9; border-radius:6px; background:#f1f2f6; cursor:pointer;">${l}</button>`; });
-        html += `</div><div style="display:flex; gap:10px;"><button id="btn-hm-reveal" style="flex:1; padding:12px; background:#e74c3c; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Révéler la solution</button><button id="btn-hm-close" style="flex:1; padding:12px; background:#636e72; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Fermer et Nettoyer le tableau</button></div></div>`;
+        html += `</div><div style="display:flex; gap:10px;"><button id="btn-hm-reveal" style="flex:1; padding:12px; background:#e74c3c; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Révéler la solution</button><button id="btn-hm-ranger" style="flex:1; padding:12px; background:#b2bec3; color:#2d3436; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Ranger la télécommande</button><button id="btn-hm-close" style="flex:1; padding:12px; background:#636e72; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Fermer et effacer le pendu</button></div></div>`;
         remote.innerHTML = html;
         document.body.appendChild(remote);
 
@@ -9060,6 +9119,12 @@ registerPlugin('hangmanGameTool', 'Jeux', {
             });
         });
         remote.querySelector('#btn-hm-reveal').addEventListener('click', () => { this.displayWord = this.secretWord.split(''); this.updateGameImage(); });
+        // La seule sortie effaçait le pendu du tableau : on ne pouvait pas
+        // simplement ranger la télécommande en gardant la partie affichée.
+        remote.querySelector('#btn-hm-ranger').addEventListener('click', () => {
+            remote.remove();
+            if (typeof showToast === 'function') showToast('Télécommande rangée — le pendu reste au tableau');
+        });
         remote.querySelector('#btn-hm-close').addEventListener('click', () => { images = images.filter(i => i.id !== this.imageId); remote.remove(); draw(); saveState(); showToast("🧹 Tableau nettoyé !"); });
     },
 
@@ -12965,6 +13030,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         this.widgetEl.querySelectorAll('input, textarea').forEach(el => { el.addEventListener('keydown', (e) => e.stopPropagation()); });
 
@@ -13013,9 +13079,18 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         document.getElementById('btn-dw-save-class').onclick = () => {
             const name = document.getElementById('dw-manage-name').value.trim();
             const raw = document.getElementById('dw-manage-list').value;
-            if (!name || !raw) return;
+            // Dire lequel des deux champs manque, plutôt que de ne rien faire
+            if (!name) {
+                if (typeof showToast === 'function') showToast('Donnez un nom à la classe');
+                document.getElementById('dw-manage-name').focus();
+                return;
+            }
             const students = raw.split(/[\n,]+/).map(s => s.trim()).filter(s => s !== "");
-            if (students.length === 0) return;
+            if (students.length === 0) {
+                if (typeof showToast === 'function') showToast('Collez la liste des élèves, un par ligne');
+                document.getElementById('dw-manage-list').focus();
+                return;
+            }
             this.savedClasses[name] = students; this.saveClassesToStorage();
             document.getElementById('dw-manage-name').value = ""; document.getElementById('dw-manage-list').value = "";
             this.updateClassSelect(); this.updateSavedClassesList();
@@ -15433,12 +15508,17 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
             this.renderTable();
             this.updateFormulaBar();
             this.widgetEl.style.display = 'flex';
+            // La fermeture retire l'écoute du clavier ; sans la remettre ici,
+            // taper dans une cellule ne faisait plus rien après une première
+            // fermeture — la saisie directe était morte pour la séance.
+            if (this._keydownListener) window.addEventListener('keydown', this._keydownListener);
+            if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
             return;
         }
 
         this.widgetEl = document.createElement('div');
         // SUPPRESSION DU OVERFLOW:HIDDEN ICI POUR PERMETTRE AU MENU DE DEBORDER
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 280px); width:560px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:calc(50% - 280px); width:560px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -15558,8 +15638,10 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         this._keydownListener = (e) => this.handleKeyboard(e);
+        window.removeEventListener('keydown', this._keydownListener);   // jamais deux fois
         window.addEventListener('keydown', this._keydownListener);
 
         // --- DRAG FENETRE ---
@@ -16646,7 +16728,10 @@ registerPlugin('flashMathTool', 'Exercices', {
     },
 
     generateQuestions: function () {
-        if (this.state.themes.length === 0) return;
+        if (this.state.themes.length === 0) {
+            if (typeof showToast === 'function') showToast('Choisissez au moins un thème dans la colonne de gauche');
+            return;
+        }
         // Ce qu'on a écrit soi-même ou épinglé n'est pas du tirage au sort :
         // relancer la série ne doit pas l'emporter. On le garde dans l'ordre,
         // et on complète autour.
@@ -16954,6 +17039,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // ✅ La feuille est une cible de drop : glisser une chip de thème = ajouter une question
         const sheetEl = this.widgetEl.querySelector('#fl-sheet');
@@ -16979,9 +17065,11 @@ registerPlugin('flashMathTool', 'Exercices', {
 
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#fl-drag-handle');
-        handle.onmousedown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        handle.style.touchAction = 'none';
+        handle.onpointerdown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } };
+        window.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => { isDragging = false; });
+        window.addEventListener('pointercancel', () => { isDragging = false; });
 
         this.widgetEl.querySelector('#fl-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; };
 
@@ -17146,7 +17234,10 @@ registerPlugin('flashMathTool', 'Exercices', {
     // DIAPORAMA PLEIN ÉCRAN
     // ==========================================
     launchFullscreenSlide: function () {
-        if (this.state.questions.length === 0) return;
+        if (this.state.questions.length === 0) {
+            if (typeof showToast === 'function') showToast('La feuille est vide : générez d\'abord une série');
+            return;
+        }
         this.fsIndex = 0;
 
         this.fsElement = document.createElement('div');
@@ -17328,7 +17419,10 @@ registerPlugin('flashMathTool', 'Exercices', {
     // EXPORT AU TABLEAU (mise en page paysage multi-colonnes + cache par question)
     // ==========================================
     exportToBoard: function () {
-        if (this.state.questions.length === 0) return;
+        if (this.state.questions.length === 0) {
+            if (typeof showToast === 'function') showToast('La feuille est vide : rien à tamponner');
+            return;
+        }
 
         // ✅ Format "feuille A4 paysage" (297×210), toujours 2 colonnes — cohérent avec l'aperçu
         const n = this.state.questions.length;
@@ -17532,7 +17626,7 @@ registerPlugin('binaroTool', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:10vh; left:calc(50% - 250px); width:500px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:calc(50% - 250px); width:500px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -17611,13 +17705,16 @@ registerPlugin('binaroTool', 'Jeux', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // Events Drag
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#bin-drag-handle');
-        handle.onmousedown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        handle.style.touchAction = 'none';
+        handle.onpointerdown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } };
+        window.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => { isDragging = false; });
+        window.addEventListener('pointercancel', () => { isDragging = false; });
 
         this.widgetEl.querySelector('#bin-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; };
 
@@ -18048,7 +18145,7 @@ registerPlugin('pythagoreTool', 'Maths - Numérique', {
 
         this.widgetEl = document.createElement('div');
         // Interface plus large pour donner de la place à la preview, et sidebar plus compacte
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 420px); width:840px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 420px); width:840px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.25); z-index:100000; display:flex; flex-direction:column; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -18155,13 +18252,16 @@ registerPlugin('pythagoreTool', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // Drag
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#pyt-drag-handle');
-        handle.onmousedown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        handle.style.touchAction = 'none';
+        handle.onpointerdown = (e) => { if (e.target.closest('button')) return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } };
+        window.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => { isDragging = false; });
+        window.addEventListener('pointercancel', () => { isDragging = false; });
 
         this.widgetEl.querySelector('#pyt-btn-close').onclick = () => { this.widgetEl.style.display = 'none'; };
         this.widgetEl.querySelector('#pyt-btn-export').onclick = () => this.exportToBoard();
@@ -18573,7 +18673,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 450px); width:900px; height:85vh; background:#f8f9fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 450px); width:900px; height:85vh; background:#f8f9fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -18682,6 +18782,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // --- DRAG ---
         let isDragging = false, startX, startY;
@@ -20982,7 +21083,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'scratch-plugin-wrap';
-        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Roboto', sans-serif; border:1px solid #dfe6e9;`;
+        this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Roboto', sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -21184,6 +21285,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // --- DRAG FENÊTRE ---
         let isDraggingWindow = false, startX, startY;
@@ -21954,7 +22056,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             self.previewDocked = false;
             const ws = self.widgetEl.querySelector('.sc-workspace').getBoundingClientRect();
             document.body.appendChild(previewEl);
-            previewEl.style.cssText = "position:fixed; z-index:999999; width:480px; height:360px; background:white; border:2px solid #dfe6e9; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.2); overflow:hidden; display:flex; flex-direction:column; resize:both;";
+            previewEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; z-index:999999; width:480px; height:360px; background:white; border:2px solid #dfe6e9; border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.2); overflow:hidden; display:flex; flex-direction:column; resize:both;";
             previewEl.style.top = Math.max(8, ws.top + 12) + 'px';
             previewEl.style.right = Math.max(8, window.innerWidth - ws.right + 12) + 'px';
             titleEl.textContent = 'Aperçu (déplaçable)';
@@ -22715,13 +22817,24 @@ registerPlugin('extremeStampTool', 'Détente', {
 
         this.widgetEl.innerHTML = html + `</div>`;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDragging = false, startX, startY;
-        this.widgetEl.querySelector('#es-drag').onmousedown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDragging = false);
+        const esPoignee = this.widgetEl.querySelector('#es-drag');
+        esPoignee.style.touchAction = 'none';
+        esPoignee.onpointerdown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; try { esPoignee.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } };
+        window.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => isDragging = false);
+        window.addEventListener('pointercancel', () => isDragging = false);
 
-        this.widgetEl.querySelector('#es-close').onclick = () => { this.widgetEl.style.display = 'none'; this.activeStamp = null; };
+        // Refermer rendait la fenêtre invisible mais laissait le mode armé :
+        // les clics sur le tableau ne posaient plus rien et ne sélectionnaient
+        // plus rien, sans qu'on sache pourquoi.
+        this.widgetEl.querySelector('#es-close').onclick = () => {
+            this.widgetEl.style.display = 'none';
+            this.activeStamp = null;
+            if (typeof annulerModePlugin === 'function') annulerModePlugin();
+        };
         this.widgetEl.querySelectorAll('.es-btn').forEach(btn => {
             btn.onclick = (e) => {
                 this.widgetEl.querySelectorAll('.es-btn').forEach(b => b.style.background = '#fff');
@@ -22966,6 +23079,7 @@ registerPlugin('mathTaupeTool', 'Jeux', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDraggingWindow = false, startX, startY;
         const handle = this.widgetEl.querySelector('#tm-drag-handle');
@@ -23494,7 +23608,7 @@ registerPlugin('fireworksTool', 'Détente', {
         if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = `position:fixed; top:10vh; left:calc(50% - 150px); width:300px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
+        this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:calc(50% - 150px); width:300px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -23522,6 +23636,7 @@ registerPlugin('fireworksTool', 'Détente', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDragging = false, startX, startY;
         const fwHandle = this.widgetEl.querySelector('#fw-drag-handle');
@@ -23648,7 +23763,11 @@ registerPlugin('fireworksTool', 'Détente', {
 
         setTimeout(() => this.canvas.style.opacity = '1', 50);
         this.canvas.addEventListener('pointerdown', () => this.stopShow());
-        window.addEventListener('resize', () => this.resizeCanvas());
+        // Retenu pour être retiré à l'arrêt : sans cela, chaque feu d'artifice
+        // laissait un écouteur de plus derrière lui, sur un canvas disparu.
+        if (this._surRedimension) window.removeEventListener('resize', this._surRedimension);
+        this._surRedimension = () => this.resizeCanvas();
+        window.addEventListener('resize', this._surRedimension);
 
         this.loop();
     },
@@ -23656,6 +23775,10 @@ registerPlugin('fireworksTool', 'Détente', {
     stopShow: function () {
         this.state.isPlaying = false;
         cancelAnimationFrame(this.animFrame);
+        if (this._surRedimension) {
+            window.removeEventListener('resize', this._surRedimension);
+            this._surRedimension = null;
+        }
         if (this.canvas) {
             this.canvas.style.opacity = '0';
             setTimeout(() => {
@@ -23928,7 +24051,7 @@ registerPlugin('tunerTool', 'Musique', {
         if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = `position:fixed; top:15vh; left:calc(50% - 175px); width:350px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
+        this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:15vh; left:calc(50% - 175px); width:350px; background:#1e272e; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -23990,12 +24113,15 @@ registerPlugin('tunerTool', 'Musique', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDragging = false, startX, startY;
         const handle = this.widgetEl.querySelector('#tu-drag-handle');
-        handle.onmousedown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; };
-        window.addEventListener('mousemove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDragging = false);
+        handle.style.touchAction = 'none';
+        handle.onpointerdown = (e) => { if (e.target.tagName === 'BUTTON') return; isDragging = true; startX = e.clientX - this.widgetEl.offsetLeft; startY = e.clientY - this.widgetEl.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } };
+        window.addEventListener('pointermove', (e) => { if (isDragging) { this.widgetEl.style.left = (e.clientX - startX) + 'px'; this.widgetEl.style.top = (e.clientY - startY) + 'px'; } });
+        window.addEventListener('pointerup', () => isDragging = false);
+        window.addEventListener('pointercancel', () => isDragging = false);
 
         this.widgetEl.querySelector('#tu-close').onclick = () => {
             this.stopAudio();
@@ -24112,7 +24238,7 @@ registerPlugin('tunerTool', 'Musique', {
             this.state.isListening = true;
             this.loop();
         } catch (err) {
-            alert("Erreur d'accès au micro : " + err.message);
+            if (typeof showToast === 'function') showToast('Micro inaccessible : autorisez-le dans la barre d\'adresse du navigateur');
         }
     },
 
@@ -24465,7 +24591,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
     openWidget: function (existingState = null) {
         if (!this.widgetEl) {
             this.widgetEl = document.createElement('div');
-            this.widgetEl.style.cssText = `position:fixed; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
+            this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:60px; left:100px; width:900px; height:650px; background:#fff; border-radius:12px; box-shadow:0 15px 40px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:1px solid #dfe6e9;`;
 
 
             const style = document.createElement('style');
@@ -24567,6 +24693,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
             `;
 
             document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
             let isDraggingWindow = false, startX, startY;
             const handle = this.widgetEl.querySelector('#fp-drag-handle');
@@ -24671,7 +24798,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
 
             this.widgetEl.querySelector('#fp-grid-save').onclick = () => {
                 localStorage.setItem('fp-grid-presets', JSON.stringify(this.gridPresets));
-                alert("Modifications enregistrées !");
+                if (typeof showToast === 'function') showToast('Modifications enregistrées');
             };
 
             this.widgetEl.querySelector('#fp-show-roots').onchange = (e) => { this.showRoots = e.target.checked; this.showIntersects = e.target.checked; this.renderCanvas(); };
@@ -25908,7 +26035,10 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                     }
                 });
             }
-        } catch (e) { alert("Erreur Graphe: " + e.message + "\n" + e.stack); }
+        } catch (e) {
+            console.error('Graphe :', e);
+            if (typeof showToast === 'function') showToast('Ce graphe n\'a pas pu être tracé : vérifiez l\'expression');
+        }
     },
 
     exportTableToBoard: function (sortedClicks, cartesianFuncs, paramFuncs) {
@@ -26023,7 +26153,10 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                     }
                 });
             }
-        } catch (e) { alert("Erreur Tableau: " + e.message + "\n" + e.stack); }
+        } catch (e) {
+            console.error('Tableau de valeurs :', e);
+            if (typeof showToast === 'function') showToast('Ce tableau n\'a pas pu être calculé : vérifiez l\'expression');
+        }
     },
 
     onDraw: function (ctx) {
@@ -26147,7 +26280,7 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
         if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = `position:fixed; top:5vh; left:calc(50% - 370px); width:740px; background:#f5f6fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
+        this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 370px); width:740px; background:#f5f6fa; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.5); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:2px solid #0abde3;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -26266,6 +26399,7 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDraggingModal = false;
         let mStartX, mStartY, iMouseX, iMouseY;
@@ -26931,7 +27065,7 @@ registerPlugin('whackAMole', 'Jeux', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = `position:fixed; top:10vh; left:calc(50% - 250px); width:500px; background:#7CB342; border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,0.5), inset 0 10px 0 rgba(255,255,255,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:6px solid #558B2F; user-select:none; cursor: crosshair;`;
+        this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:10vh; left:calc(50% - 250px); width:500px; background:#7CB342; border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,0.5), inset 0 10px 0 rgba(255,255,255,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family: sans-serif; border:6px solid #558B2F; user-select:none; cursor: crosshair;`;
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -27058,6 +27192,7 @@ registerPlugin('whackAMole', 'Jeux', {
             </div>
         `;
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         let isDragging = false;
         let mStartX, mStartY, iMouseX, iMouseY;
@@ -27534,7 +27669,7 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
         }
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'pc-wrap';
-        this.widgetEl.style.cssText = "position:fixed; top:5vh; left:calc(50% - 450px); width:900px; height:86vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
+        this.widgetEl.style.cssText = "position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 450px); width:900px; height:86vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:sans-serif; border:1px solid #dfe6e9;";
 
         const style = document.createElement('style');
         style.innerHTML = `
@@ -27624,6 +27759,7 @@ registerPlugin('playingCardsTool', 'Maths - Numérique', {
             </div>`;
         this.widgetEl.appendChild(content);
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         // Déplacement de la fenêtre (souris et doigt)
         const handle = this.widgetEl.querySelector('#pc-drag');
@@ -28108,6 +28244,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
             </div>`;
         this.widgetEl.appendChild(wrap);
         document.body.appendChild(this.widgetEl);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
         this.bind();
         this.loadClasses();
@@ -28609,16 +28746,18 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
         const entete = el.querySelector('#pts-entete');
         let glisse = false, dx = 0, dy = 0;
-        entete.addEventListener('mousedown', (e) => {
+        entete.style.touchAction = 'none';
+        entete.addEventListener('pointerdown', (e) => {
             if (e.target.tagName === 'BUTTON') return;
             glisse = true; dx = e.clientX - el.offsetLeft; dy = e.clientY - el.offsetTop;
         });
-        window.addEventListener('mousemove', (e) => {
+        window.addEventListener('pointermove', (e) => {
             if (!glisse) return;
             el.style.left = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - dx)) + 'px';
             el.style.top = Math.max(0, Math.min(window.innerHeight - 60, e.clientY - dy)) + 'px';
         });
-        window.addEventListener('mouseup', () => { glisse = false; });
+        window.addEventListener('pointerup', () => { glisse = false; });
+        window.addEventListener('pointercancel', () => { glisse = false; });
 
         el.querySelector('#pts-fermer').addEventListener('click', () => { el.style.display = 'none'; });
         el.querySelector('#pts-reglages').addEventListener('click', () => {
@@ -28818,12 +28957,19 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         el.querySelector('#pts-retour').addEventListener('click', () => { this.panneauReglages = false; this.rendre(); });
         el.querySelector('#pts-raz').addEventListener('click', () => {
             const classe = this.classeCourante(); if (!classe) return;
-            if (!confirm(`Remettre à zéro les points de « ${classe.name} » ? Les étoiles déjà gagnées sont conservées.`)) return;
-            (classe.students || []).forEach(s => { const p = this.pointsDe(s); p.plus = 0; p.moins = 0; });
-            this.historique = [];
-            this.sauver();
-            this.panneauReglages = false;
-            this.rendre();
+            const remettre = () => {
+                (classe.students || []).forEach(s => { const p = this.pointsDe(s); p.plus = 0; p.moins = 0; });
+                this.historique = [];
+                this.sauver();
+                this.panneauReglages = false;
+                this.rendre();
+                if (typeof showToast === 'function') showToast('Points remis à zéro');
+            };
+            if (typeof openConfirmModal === 'function') {
+                openConfirmModal('Remettre les points à zéro',
+                    `Remettre à zéro les points de « ${classe.name} » ? Les étoiles déjà gagnées sont conservées.`,
+                    true, remettre);
+            } else remettre();
         });
     },
 

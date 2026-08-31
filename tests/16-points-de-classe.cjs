@@ -173,15 +173,23 @@ module.exports = async function (browser) {
         !!pose && pose.w > pose.cw * 0.9, JSON.stringify(pose));
 
     // --- REMISE À ZÉRO ---
-    const raz = await page.evaluate(() => {
+    const raz = await page.evaluate(async () => {
         const p = PluginManager.plugins.classPointsTool;
-        window.confirm = () => true;
         p.panneauReglages = true; p.rendre();
         document.getElementById('pts-raz').click();
-        return p.classeCourante().students.map(s => s.pts);
+        // La remise à zéro passe par la modale de l'application, plus par le
+        // confirm() du navigateur : on confirme comme le ferait le professeur.
+        await new Promise(r => setTimeout(r, 200));
+        const oui = document.getElementById('confirm-yes-btn');
+        const modale = !!(oui && oui.getClientRects().length);
+        if (oui) oui.click();
+        await new Promise(r => setTimeout(r, 200));
+        return { modale, pts: p.classeCourante().students.map(s => s.pts) };
     });
-    r.verifie('la remise à zéro efface les points', raz.every(p => p.plus === 0 && p.moins === 0), JSON.stringify(raz));
-    r.verifie('mais garde les étoiles gagnées', raz[0].etoiles === 1, JSON.stringify(raz[0]));
+    r.verifie('la remise à zéro demande confirmation dans l\'application', raz.modale, JSON.stringify(raz));
+    r.verifie('la remise à zéro efface les points',
+        raz.pts.every(p => p.plus === 0 && p.moins === 0), JSON.stringify(raz.pts));
+    r.verifie('mais garde les étoiles gagnées', raz.pts[0].etoiles === 1, JSON.stringify(raz.pts[0]));
 
     // --- L'OPTION « AU PLUS GRAND » ---
     const grand = await page.evaluate(() => {

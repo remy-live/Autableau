@@ -187,6 +187,33 @@ module.exports = async function (browser) {
     r.verifie('son en-tête reste sous la barre du haut, pas dessous', cadrage.hautVisible, JSON.stringify(cadrage));
     r.egal('le fond ne se répète pas : une feuille, une seule', cadrage.uneSeuleFeuille, 1);
 
+    // Sur une page où l'on a déjà travaillé, la vue ne doit PAS bouger :
+    // recadrer déplaçait tout le tracé sous les yeux du professeur.
+    const avecDuTravail = await page.evaluate(() => {
+        points.push({ id: nextId++, x: 100, y: 100, z: globalZ++ });
+        freehands.push({ id: nextId++, points: [{ x: 0, y: 0 }, { x: 50, y: 60 }], color: '#000', width: 3, z: globalZ++ });
+        panX = 120; panY = 90; zoom = 1.3;
+        currentBgIndex = backgrounds.indexOf('seyes-marge');
+        const avant = { panX, panY, zoom };
+        cadrerSurLaFeuille();
+        const bouge = avant.panX !== panX || avant.panY !== panY || avant.zoom !== zoom;
+        const vide = pageEstVide();
+        points.length = 0; freehands.length = 0;
+        return { vide, bouge };
+    });
+    r.verifie('une page où l\'on a tracé n\'est plus considérée vide', !avecDuTravail.vide);
+    r.verifie('et changer de fond n\'y déplace plus le travail', !avecDuTravail.bouge, JSON.stringify(avecDuTravail));
+
+    const surPageVide = await page.evaluate(() => {
+        panX = 120; panY = 90; zoom = 1.3;
+        currentBgIndex = backgrounds.indexOf('copie');
+        const avant = { panX, panY, zoom };
+        cadrerSurLaFeuille();
+        return { vide: pageEstVide(), bouge: avant.panX !== panX || avant.zoom !== zoom };
+    });
+    r.verifie('sur une feuille vierge, le cadrage se fait toujours',
+        surPageVide.vide && surPageVide.bouge, JSON.stringify(surPageVide));
+
     const pasDeCadrage = await page.evaluate(() => {
         currentBgIndex = backgrounds.indexOf('seyes');
         const avant = { panX, panY, zoom };

@@ -9907,6 +9907,49 @@ window.addEventListener('mouseup', () => isDraggingPrompt = false);
 
 // La fonction Universelle
 // La fonction Universelle (avec Palette Rapide)
+// ===================================================
+// RENONCER À UN OUTIL SANS BLOQUER LE TABLEAU
+// Une vingtaine de plugins arment leur mode AVANT d'ouvrir leur boîte de
+// réglages. « Annuler » ne refermait que la boîte : le mode restait armé,
+// aucun tampon ne suivait, et le tableau ne réagissait plus à rien — ni
+// sélection, ni dessin. On croyait l'application plantée. Renoncer remet
+// donc l'outil de sélection, une bonne fois pour toutes les boîtes.
+// ===================================================
+const MODES_DE_BASE = ['pointer', 'move', 'freehand', 'highlighter', 'eraser', 'text',
+    'point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'polygon',
+    'curve', 'postit', 'laser', 'zoom-box'];
+
+// Une fenêtre d'outil posée à des coordonnées et une largeur fixes sort de
+// l'écran dès qu'on travaille sur une tablette : le pied de la fenêtre, avec
+// son bouton « Poser au tableau », devient inatteignable. On la ramène.
+function ramenerFenetreDansLecran(el) {
+    if (!el || !el.getClientRects().length) return;
+    const marge = 8;
+    el.style.maxWidth = 'calc(100vw - 16px)';
+    el.style.maxHeight = 'calc(100vh - 16px)';
+    const b = el.getBoundingClientRect();
+    const gauche = Math.max(marge, Math.min(b.left, window.innerWidth - b.width - marge));
+    const haut = Math.max(marge, Math.min(b.top, window.innerHeight - b.height - marge));
+    if (Math.abs(gauche - b.left) > 0.5 || Math.abs(haut - b.top) > 0.5) {
+        el.style.left = gauche + 'px';
+        el.style.top = haut + 'px';
+        el.style.right = 'auto';
+        el.style.bottom = 'auto';
+        el.style.transform = 'none';
+    }
+}
+window.ramenerFenetreDansLecran = ramenerFenetreDansLecran;
+
+function annulerModePlugin() {
+    if (typeof mode === 'undefined' || MODES_DE_BASE.includes(mode)) return;
+    if (typeof setMode === 'function') setMode('pointer');
+    document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn, #plugins-grid .btn, .custom-toolbar .btn')
+        .forEach(b => b.classList.remove('active'));
+    if (typeof window !== 'undefined') window.postitStamp = null;
+    if (typeof draw === 'function') draw();
+}
+window.annulerModePlugin = annulerModePlugin;
+
 function openCustomPrompt(title, fields, onChange, onValidate) {
     document.getElementById('custom-prompt-title').innerText = title;
     const container = document.getElementById('custom-prompt-inputs');
@@ -10067,8 +10110,20 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
     btnOk.parentNode.replaceChild(newBtnOk, btnOk); btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
     newBtnOk.addEventListener('click', () => { promptModal.style.display = 'none'; if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value)); });
-    newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; });
+    newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; annulerModePlugin(); });
 }
+
+// Échap referme la boîte de réglages comme le bouton « Annuler » : même
+// geste, même conséquence, et surtout pas de tableau laissé inerte.
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const boite = document.getElementById('custom-prompt-modal');
+    if (!boite || !boite.getClientRects().length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    boite.style.display = 'none';
+    annulerModePlugin();
+}, true);
 // =========================================================
 // GESTION DU DOCK (INJECTION DYNAMIQUE 100% SÉCURISÉE)
 // =========================================================
@@ -17430,11 +17485,22 @@ if (document.getElementById('formula-modal')) {
 // proche, entière et centrée.
 const FONDS_FEUILLE = ['seyes-marge', 'copie'];
 
+// Y a-t-il déjà quelque chose sur cette page ?
+function pageEstVide() {
+    const listes = [points, segments, circles, rectangles, texts, freehands,
+                    curves, polygons, images, arcs, htmlPostits];
+    return listes.every(l => !l || l.length === 0);
+}
+
 function cadrerSurLaFeuille() {
     const bg = backgrounds[currentBgIndex];
     if (!FONDS_FEUILLE.includes(bg)) return;
     const canvas = document.getElementById('board');
     if (!canvas) return;
+    // Sur une page où l'on a déjà travaillé, on ne touche pas à la vue :
+    // recadrer déplaçait tout ce qui était tracé sous les yeux du professeur.
+    // Le cadrage n'a de sens qu'au moment où l'on sort une feuille vierge.
+    if (!pageEstVide()) return;
 
     const largeurEcran = canvas.clientWidth || window.innerWidth;
     const hauteurEcran = canvas.clientHeight || window.innerHeight;
