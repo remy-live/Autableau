@@ -3780,6 +3780,12 @@ document.addEventListener('drop', (e) => {
                 continue;
             }
 
+            // Si c'est un document texte (Word, LibreOffice, texte brut)
+            if (window.LecteurDocuments && window.LecteurDocuments.estUnDocument(file)) {
+                importerDocument(file, { x: e.clientX, y: e.clientY });
+                continue;
+            }
+
             // Si c'est un MP3
             if (file.type === 'audio/mpeg' || file.name.toLowerCase().endsWith('.mp3')) {
                 handleMp3Drop(file);
@@ -7878,6 +7884,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const importBtn = document.getElementById('btn-import-pdf');
     const pdfLoader = document.getElementById('pdf-loader');
 
+    // Ouvrir un cours déjà écrit : Word, LibreOffice ou texte brut
+    const btnDoc = document.getElementById('btn-import-doc');
+    const docLoader = document.getElementById('doc-loader');
+    if (btnDoc && docLoader) {
+        btnDoc.addEventListener('click', () => docLoader.click());
+        docLoader.addEventListener('change', (e) => {
+            Array.from(e.target.files || []).forEach(f => importerDocument(f));
+            e.target.value = '';        // pour pouvoir réimporter le même fichier
+        });
+    }
+
     if (importBtn && pdfLoader) {
         importBtn.addEventListener('click', () => pdfLoader.click());
         pdfLoader.addEventListener('change', (e) => {
@@ -7896,6 +7913,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         if (typeof showToast === 'function') showToast("Veuillez importer un seul PDF à la fois.");
                     }
+                    continue;
+                }
+
+                if (window.LecteurDocuments && window.LecteurDocuments.estUnDocument(file)) {
+                    importerDocument(file);
                     continue;
                 }
 
@@ -15712,6 +15734,78 @@ const videoMediaPlayer = createMediaPlayer({ mediaType: 'video', idPrefix: 'vidp
 function handleMp3Drop(file) { audioMediaPlayer.handleDrop(file); }
 function handleVideoDrop(file) { videoMediaPlayer.handleDrop(file); }
 
+// ===================================================
+// IMPORTER UN DOCUMENT (.txt, .md, .docx, .odt)
+// Le cours est déjà écrit dans un traitement de texte : on l'ouvre au lieu
+// de le retaper. Le document devient des blocs de texte ordinaires, qu'on
+// annote, déplace et efface comme le reste.
+// ===================================================
+const LARGEUR_COLONNE_DOC = 900;      // largeur d'un bloc importé
+const ECART_COLONNE_DOC = 140;
+
+// Un cours de six pages en un seul bloc serait ingérable : on coupe aux
+// titres, et de toute façon tous les 30 paragraphes.
+function decouperDocument(blocs) {
+    const groupes = [];
+    let courant = [];
+    blocs.forEach(b => {
+        const coupe = (/^h[12]$/.test(b.type) && courant.length >= 4) || courant.length >= 30;
+        if (coupe) { groupes.push(courant); courant = []; }
+        courant.push(b);
+    });
+    if (courant.length) groupes.push(courant);
+    return groupes;
+}
+
+async function importerDocument(fichier, positionEcran) {
+    if (!window.LecteurDocuments) {
+        showToast("La lecture des documents n'est pas disponible ici");
+        return;
+    }
+    let doc;
+    try {
+        doc = await window.LecteurDocuments.lire(fichier);
+    } catch (e) {
+        showToast('⚠️ ' + (e.message || 'document illisible'));
+        return;
+    }
+    if (!doc.blocs.length) { showToast('Ce document ne contient pas de texte'); return; }
+
+    const groupes = decouperDocument(doc.blocs);
+    // Là où on a lâché le fichier ; sinon en haut à gauche de ce qu'on voit,
+    // à droite de la barre d'outils et sous la barre du haut.
+    const ancre = positionEcran || { x: 240, y: 160 };
+    let x = (ancre.x - panX) / zoom;
+    const y = (ancre.y - panY) / zoom;
+    const poses = [];
+
+    groupes.forEach(groupe => {
+        const bloc = {
+            id: nextId++,
+            x, y,
+            content: window.LecteurDocuments.blocsVersHtml(groupe),
+            color: activeStyle.strokeColor,
+            fontSize: activeStyle.fontSize,
+            fontFamily: activeStyle.fontFamily || 'sans-serif',
+            align: 'left',
+            lineHeight: activeStyle.lineHeight,
+            colWidth: LARGEUR_COLONNE_DOC,
+            z: globalZ++
+        };
+        texts.push(bloc);
+        poses.push(bloc);
+        x += LARGEUR_COLONNE_DOC + ECART_COLONNE_DOC;
+    });
+
+    selectedItems = poses.map(t => ({ type: 'text', id: t.id }));
+    saveState();
+    draw();
+
+    const nom = doc.titre || fichier.name;
+    showToast(`📄 « ${nom} » importé${groupes.length > 1 ? ' en ' + groupes.length + ' blocs' : ''}`
+        + (doc.tronque ? ' (document tronqué, il était très long)' : ''));
+}
+
 // ==========================================
 // GUIDED TOUR SYSTEM
 // ==========================================
@@ -16574,6 +16668,8 @@ const ASTUCES = [
       texte: "Pendant la saisie, surlignez un mot : la couleur, la taille et la police ne s'appliquent qu'à lui. Sans surlignage, elles agissent sur tout le bloc." },
     { titre: 'Retrouver un outil par son nom',
       texte: "La loupe de la barre des outils cherche parmi les 83 outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
+    { titre: 'Votre cours arrive tel quel',
+      texte: "Glissez un fichier Word (.docx), LibreOffice (.odt) ou texte sur le tableau — ou passez par le menu « Importer ». Les titres, le gras, l'italique et les listes sont conservés, et le texte reste modifiable comme si vous l'aviez tapé." },
     { titre: 'Le point d\'intersection',
       texte: "Avec l'aimant allumé, approchez le curseur du croisement de deux tracés : un point vert apparaît, et le clic tombe pile dessus. Un appui long sur l'aimant permet de choisir ce qui attire : le quadrillage, les bords de la règle et de l'équerre, les intersections." },
     { titre: 'Le tableau se souvient',

@@ -38,6 +38,7 @@ dès qu'une seule échoue — utilisable tel quel dans une intégration continue
 | `12-equations-et-gestes.cjs` | équations ax + b = cx + d dans les deux générateurs (chaque réponse est vérifiée en résolvant l'équation), niveaux filtrés par classe, appui long sur Fonds / Axes / Classes, cadrage automatique sur la feuille |
 | `13-generateurs-et-drive.cjs` | molette adoucie et ancrée sous le curseur, copie d'examen quadrillée en petits carreaux, pas des graduations des axes (0,1 à 100, mémorisé), réglages retenus par le générateur d'exercices sans passer en mode « mise à jour », feuille de questions flash à la taille du contenu et colonnes équilibrées en hauteur, bouton Drive caché en `file://` et actif en http |
 | `14-aimantation.cjs` | l'aimant à trois sources : sous-menu par appui long (mémorisé, jamais tout éteint), croisements segment/droite/cercle et cercle/cercle, point posé pile sur l'intersection, aimantation au bord de la règle, tracé à main levée laissé libre ; l'outil déplacé qui se cale (point, trait, cercle), règle et équerre qui s'alignent (parallèles et perpendiculaires), pointe du compas sur le zéro de la règle, écartement pris sur un point |
+| `15-documents.cjs` | ouvrir un cours écrit ailleurs : .docx (compressé) et .odt (stocké) lus sans bibliothèque, titres / gras / italique / listes / tableau à plat, Markdown et texte brut, encodage Windows rattrapé, blocs posés en colonnes et coupés aux titres, fichier illisible sans dégât |
 
 ## Ajouter un test
 

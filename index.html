@@ -332,6 +332,8 @@
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer</li>
+                        <li><strong>Importer un document :</strong> Word (.docx), LibreOffice (.odt) ou texte (.txt) —
+                            titres, gras, italique et listes sont conservés</li>
                         <li><strong>Exporter :</strong> Menu Exporter en PNG/PDF</li>
                         <li><strong>Sauvegarder :</strong> Auto-sauvegarde local</li>
                     </ul>
@@ -896,6 +898,7 @@
                     <div style="padding: 8px 12px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Importer</div>
                     <button class="menu-item" onclick="document.getElementById('workspace-loader-global').click()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Importer tous les tableaux (.autableau)</button>
                     <button class="menu-item" id="btn-import-pdf"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span> Importer Média (PDF, Image, MP3, Vidéo...)</button>
+                    <button class="menu-item" id="btn-import-doc"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg></span> Importer un document (Word, LibreOffice, texte)</button>
                     <button class="menu-item" id="btn-drive"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L2 14l3 5 6-11z"></path><path d="M16 3H8l6 11h8z"></path><path d="M5 19h14l3-5H8z"></path></svg></span> Ouvrir depuis Google Drive</button>
                     <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Ouvrir un tableau (.prof)</button>
                 </div>
@@ -944,7 +947,8 @@
                 onchange="importWorkspace(this.files[0]); this.value='';">
 
             <input type="file" id="file-loader" accept=".prof,.json" style="display:none;">
-            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov" multiple style="display:none;">
+            <input type="file" id="doc-loader" accept=".txt,.md,.docx,.odt" multiple style="display:none;">
+            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.docx,.odt" multiple style="display:none;">
 
             <div class="divider"></div>
 
@@ -1422,11 +1426,12 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=65"></script>
+    <script src="script.js?v=66"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=55"></script>
+    <script src="./lib/documents/documents.js?v=1"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
-    <script src="./lib/cloud/drive.js?v=1"></script>
+    <script src="./lib/cloud/drive.js?v=2"></script>
     <script>
         if (window.location.search.includes('admin=true')) {
             document.getElementById('btn-floating-record').style.display = 'flex';
