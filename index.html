@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=22">
+    <link rel="stylesheet" href="style.css?v=23">
 </head>
 
 <body>
@@ -322,8 +322,11 @@
                         <li><strong>Règle/Équerre :</strong> Glisser pour positionner</li>
                         <li><strong>Rapporteur :</strong> Clic au centre + rotation</li>
                         <li><strong>Compas :</strong> Point fixe + rotation & écart</li>
-                    <li><b>Aimant :</b> appui long pour choisir : quadrillage, outils, points et intersections. La règle
-                        déplacée se pose sur un point ou le long d'un trait, et s'aligne sur l'équerre.</li>
+                    <li><b>Aimant :</b> une fois allumé, ses trois sources s'affichent à côté de lui dans la barre :
+                        quadrillage, outils, points et intersections. L'équerre presque parallèle à une droite s'y colle
+                        et glisse dessus ; la pointe du compas se pose sur le zéro de la règle et son écartement se lit
+                        sur les graduations.</li>
+                    <li><b>Déplacer un instrument :</b> même en plein tracé — l'outil en cours n'est pas perdu.</li>
                     <li><b>Rideau :</b> masquer le tableau, glisser les poignées pour dévoiler</li>
                         <li><b>Projecteur :</b> n'éclairer qu'une zone (molette ou pincement pour la taille)</li>
                         </ul>
@@ -1021,7 +1024,7 @@
                         <line x1="12" y1="18" x2="12" y2="18" />
                         <line x1="16" y1="18" x2="16" y2="18" />
                     </svg></button>
-                <button class="btn" id="btn-magnet" data-tooltip="Aimant (appui long : quadrillage, outils, intersections)"><svg
+                <button class="btn" id="btn-magnet" data-tooltip="Aimant"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <g stroke-opacity="0.3">
@@ -1036,6 +1039,22 @@
                             <line x1="17" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="2" />
                         </g>
                     </svg></button>
+                <span id="aimant-sources" style="display:none; align-items:center; gap:2px; margin-left:2px;">
+                    <button class="btn aimant-source" id="btn-aimant-grille" data-tooltip="S'aimanter sur le quadrillage"><svg
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                            <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
+                        </svg></button>
+                    <button class="btn aimant-source" id="btn-aimant-outils" data-tooltip="S'aimanter sur les outils de géométrie"><svg
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                            <path d="M4 20 L20 4" />
+                            <path d="M4 20 L4 9 L15 20 Z" />
+                        </svg></button>
+                    <button class="btn aimant-source" id="btn-aimant-points" data-tooltip="S'aimanter sur les points et les intersections"><svg
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                            <path d="M4 12h16M12 4v16" />
+                            <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
+                        </svg></button>
+                </span>
                 <button class="btn" id="btn-loupe" data-tooltip="Loupe (L)" onclick="toggleLoupe()"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <circle cx="11" cy="11" r="8"></circle>
@@ -1427,7 +1446,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=68"></script>
+    <script src="script.js?v=69"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
     <script src="./lib/documents/documents.js?v=1"></script>

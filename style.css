@@ -5244,3 +5244,18 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .panneau-appui { max-height: 70vh; overflow-y: auto; z-index: 17000; }
+
+/* Les trois sources de l'aimant, dans la barre du bas : elles n'apparaissent
+   que quand l'aimant est allumé, plus petites que les outils voisins pour
+   qu'on les lise comme un réglage et non comme trois outils de plus. */
+.btn.aimant-source {
+    width: 30px;
+    height: 30px;
+    padding: 5px;
+    border-radius: 8px;
+}
+
+.btn.aimant-source.active {
+    background: var(--accent-soft, #eae6ff);
+    color: var(--accent, #6c5ce7);
+}

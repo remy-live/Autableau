@@ -7,7 +7,52 @@ module.exports = async function (browser) {
     const { context, page, erreurs } = await ouvrirApp(browser);
     await page.waitForFunction(() => typeof positionAimantee === 'function', { timeout: 20000 });
 
-    // --- LE SOUS-MENU DE L'AIMANT ---
+    // --- LES TROIS SOURCES SONT DANS LA BARRE ---
+    const bande = await page.evaluate(() => {
+        const b = document.getElementById('aimant-sources');
+        const cache = b ? getComputedStyle(b).display === 'none' : null;
+        document.getElementById('btn-magnet').click();
+        const visible = getComputedStyle(b).display !== 'none';
+        const actifs = b.querySelectorAll('.aimant-source.active').length;
+        const dansEcran = (() => {
+            const r = b.getBoundingClientRect();
+            return r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1;
+        })();
+        return { cache, visible, actifs, dansEcran, magnet: magnetMode };
+    });
+    r.verifie('aimant éteint : la barre reste simple', bande.cache === true, JSON.stringify(bande));
+    r.verifie('aimant allumé : les trois sources apparaissent dans la barre',
+        bande.visible && bande.actifs === 3, JSON.stringify(bande));
+    r.verifie('et elles tiennent dans l\'écran', bande.dansEcran, JSON.stringify(bande));
+
+    const bascule = await page.evaluate(() => {
+        document.getElementById('btn-aimant-grille').click();
+        const apres = {
+            grille: aimant.grille,
+            marque: document.getElementById('btn-aimant-grille').classList.contains('active'),
+            memoire: localStorage.getItem('board_aimant')
+        };
+        document.getElementById('btn-aimant-grille').click();
+        return apres;
+    });
+    r.egal('un clic éteint le quadrillage', bascule.grille, false);
+    r.verifie('le bouton ne se marque plus', !bascule.marque);
+    r.verifie('et le réglage est mémorisé', /"grille":false/.test(bascule.memoire || ''), bascule.memoire);
+
+    const derniere = await page.evaluate(() => {
+        ['btn-aimant-grille', 'btn-aimant-outils', 'btn-aimant-points'].forEach(id => document.getElementById(id).click());
+        const etat = { magnet: magnetMode, sources: Object.assign({}, aimant) };
+        // on remet tout en route pour la suite
+        aimant.grille = aimant.outils = aimant.intersections = true;
+        magnetMode = false;
+        majBoutonsAimant();
+        return etat;
+    });
+    r.verifie('éteindre la dernière source éteint l\'aimant', derniere.magnet === false, JSON.stringify(derniere));
+    r.verifie('sans laisser un aimant qui n\'attire rien',
+        derniere.sources.grille || derniere.sources.outils || derniere.sources.intersections, JSON.stringify(derniere));
+
+    // --- LE SOUS-MENU DE L'AIMANT (toujours là, pour la tablette) ---
     const boite = await page.evaluate(() => {
         const b = document.getElementById('btn-magnet').getBoundingClientRect();
         return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
@@ -293,14 +338,20 @@ module.exports = async function (browser) {
     r.verifie('elle se pose aussi LE LONG d\'un trait',
         outilSurTrace.x === 500 && outilSurTrace.y === 500, JSON.stringify(outilSurTrace));
 
+    // Le compas, lui, pose sa pointe sur le bord d'un cercle (la règle non :
+    // une règle ne se colle pas à un cercle, et l'aimant serait collant).
     const outilSurCercle = await page.evaluate(() => {
         points.length = 0; segments.length = 0; circles.length = 0;
         points.push({ id: 1, x: 500, y: 500 }, { id: 2, x: 700, y: 500 });
         circles.push({ id: 3, center_id: 1, edge_id: 2 });
-        const p = poserOutil(widgets.ruler, { x: 500, y: 308 });  // rayon 200, donc bord à y = 300
-        return { p, ecart: Math.abs(Math.hypot(p.x - 500, p.y - 500) - 200) };
+        document.querySelector('.btn[data-widget="compass"]').click();
+        const p = poserOutil(widgets.compass, { x: 500, y: 306 });   // rayon 200, donc bord à y = 300
+        const regle = poserOutil(widgets.ruler, { x: 500, y: 306 });
+        document.querySelector('.btn[data-widget="compass"]').click();
+        return { p, ecart: Math.abs(Math.hypot(p.x - 500, p.y - 500) - 200), regleLibre: Math.abs(regle.y - 306) < 0.01 };
     });
-    r.verifie('et sur le bord d\'un cercle', outilSurCercle.ecart < 0.01, JSON.stringify(outilSurCercle));
+    r.verifie('le compas pose sa pointe sur le bord d\'un cercle', outilSurCercle.ecart < 0.01, JSON.stringify(outilSurCercle));
+    r.verifie('la règle, elle, n\'est pas attirée par un cercle', outilSurCercle.regleLibre, JSON.stringify(outilSurCercle));
 
     // Règle et équerre s'alignent : le geste des parallèles
     const alignement = await page.evaluate(() => {
@@ -356,6 +407,97 @@ module.exports = async function (browser) {
         ['setsquare', 'compass'].forEach(n => document.querySelector(`.btn[data-widget="${n}"]`).click());
         points.length = 0;
     });
+
+    // --- LE GESTE DE LA PARALLÈLE : L'ÉQUERRE GLISSE LE LONG D'UNE DROITE ---
+    const glisse = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        points.push({ id: 1, x: 200, y: 400 }, { id: 2, x: 800, y: 460 });   // droite légèrement inclinée
+        segments.push({ id: 3, p1_id: 1, p2_id: 2 });
+        const angleTrait = Math.atan2(60, 600);
+
+        const eq = widgets.setsquare || (document.querySelector('.btn[data-widget="setsquare"]').click(), widgets.setsquare);
+        eq.angle = angleTrait + 0.02;                 // presque parallèle : ~1,1°
+        const pose = poserOutil(eq, { x: 400, y: 424 });   // 4 px au-dessus du trait
+        const surLaDroite = Math.abs((pose.y - 400) - (pose.x - 200) * 60 / 600);
+
+        // on glisse ensuite plus loin : l'équerre doit rester collée
+        const plusLoin = poserOutil(eq, { x: 700, y: 452 });
+        const encoreDessus = Math.abs((plusLoin.y - 400) - (plusLoin.x - 200) * 60 / 600);
+
+        // et si elle n'est pas parallèle du tout, elle ne se colle pas
+        eq.angle = angleTrait + 0.6;
+        const libre = poserOutil(eq, { x: 400, y: 424 });
+
+        return {
+            angle: eq.angle, angleTrait, surLaDroite, encoreDessus,
+            glissee: plusLoin.x > pose.x + 200,
+            libre: Math.abs(libre.x - 400) < 0.01 && Math.abs(libre.y - 424) < 0.01
+        };
+    });
+    r.verifie('presque parallèle, l\'équerre se colle sur la droite', glisse.surLaDroite < 0.01, JSON.stringify(glisse));
+    r.verifie('et elle glisse le long sans la quitter',
+        glisse.glissee && glisse.encoreDessus < 0.01, JSON.stringify(glisse));
+    r.verifie('mal orientée, elle reste libre', glisse.libre, JSON.stringify(glisse));
+
+    // --- LE COMPAS PREND SON ÉCARTEMENT SUR LES GRADUATIONS ---
+    const graduations = await page.evaluate(() => {
+        points.length = 0; segments.length = 0;
+        const regle = widgets.ruler;
+        regle.x = 300; regle.y = 600; regle.angle = 0;
+        const compas = widgets.compass || (document.querySelector('.btn[data-widget="compass"]').click(), widgets.compass);
+        const zero = regle.toGlobal(0, 0);
+        // la pointe se pose sur le zéro de la règle
+        const pointe = poserOutil(compas, { x: zero.x + 5, y: zero.y - 4 });
+        compas.x = pointe.x; compas.y = pointe.y;
+        // on ouvre le compas en visant un peu au-dessus de la règle
+        const bout = pointerCompasVers(compas, compas.x + 187, compas.y - 9);
+        return {
+            surLeZero: Math.abs(pointe.x - zero.x) < 0.01 && Math.abs(pointe.y - zero.y) < 0.01,
+            ecartY: Math.abs(bout.y - compas.y),
+            longueur: Math.round((bout.x - compas.x) * 10) / 10
+        };
+    });
+    r.verifie('la pointe du compas se pose sur le zéro de la règle', graduations.surLeZero, JSON.stringify(graduations));
+    r.verifie('la mine reste sur la graduation, pas au-dessus', graduations.ecartY < 0.01, JSON.stringify(graduations));
+    r.egal('et l\'écartement tombe au millimètre', graduations.longueur, 185);
+
+    // --- ON ATTRAPE UN INSTRUMENT SANS PERDRE SON OUTIL ---
+    const attrape = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; circles.length = 0;
+        panX = 0; panY = 0; zoom = 1;
+        const w = widgets.ruler;
+        w.x = 300; w.y = 500; w.angle = 0;
+        setMode('segment');
+        draw();
+        return { mode: mode, x: w.x, y: w.y, dedans: { x: w.x + 100, y: w.y + 30 } };
+    });
+    await page.mouse.move(attrape.dedans.x, attrape.dedans.y);
+    await page.mouse.down();
+    const pendant = await page.evaluate(() => ({
+        attrape: !!draggedWidget, zone: draggedWidgetMode, mode: mode, points: points.length
+    }));
+    await page.mouse.move(attrape.dedans.x + 90, attrape.dedans.y + 40, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apres = await page.evaluate(() => ({
+        mode: mode, x: Math.round(widgets.ruler.x), points: points.length, segments: segments.length
+    }));
+    r.verifie('en mode segment, on attrape quand même la règle',
+        pendant.attrape && pendant.zone === 'move', JSON.stringify(pendant));
+    r.egal('aucun point n\'est posé au passage', pendant.points, 0);
+    r.verifie('la règle a bien bougé', apres.x > 350, JSON.stringify(apres));
+    r.egal('et on est toujours en mode segment', apres.mode, 'segment');
+    r.egal('sans avoir commencé de tracé', apres.segments, 0);
+
+    const curseur = await page.evaluate(() => {
+        const w = widgets.ruler;
+        lastRawX = w.x + 100; lastRawY = w.y + 30;
+        updateCursor();
+        return document.getElementById('board').style.cursor;
+    });
+    r.verifie('le curseur annonce qu\'on peut la déplacer', /move/.test(curseur), curseur);
+
+    await page.evaluate(() => { setMode('pointer'); draw(); });
 
     // --- LE TRACÉ À MAIN LEVÉE RESTE LIBRE ---
     await page.evaluate(() => {

@@ -4463,18 +4463,16 @@ function updateCursor() {
     canvas.className = '';
     canvas.style.cursor = '';
 
-    // --- Vérification si un outil de dessin est actif ---
-    const isDrawingTool = ['segment', 'circle', 'rectangle', 'freehand', 'highlighter', 'curve', 'polygon', 'point'].includes(mode);
-
+    // Les instruments restent attrapables même en plein tracé : on les
+    // déplace, on les tourne, on les rallonge, et l'outil en cours ne
+    // change pas — comme une règle qu'on repousse du doigt sans lâcher son
+    // crayon. (Avant, tout survol d'instrument était ignoré dès qu'un outil
+    // de dessin était choisi : il fallait repasser par la flèche.)
     let hoveredWidget = null;
-
-    // On ne détecte le survol des instruments QUE si on n'utilise PAS un outil de dessin
-    if (!isDrawingTool) {
-        if (activeWidgets.compass && widgets.compass.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.compass;
-        else if (activeWidgets.ruler && widgets.ruler.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.ruler;
-        else if (activeWidgets.setsquare && widgets.setsquare.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.setsquare;
-        else if (activeWidgets.protractor && widgets.protractor.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.protractor;
-    }
+    if (activeWidgets.compass && widgets.compass.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.compass;
+    else if (activeWidgets.ruler && widgets.ruler.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.ruler;
+    else if (activeWidgets.setsquare && widgets.setsquare.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.setsquare;
+    else if (activeWidgets.protractor && widgets.protractor.getHitZone(lastRawX, lastRawY)) hoveredWidget = widgets.protractor;
 
     if (draggedWidget && draggedWidgetMode) {
         const cursors = {
@@ -5133,19 +5131,70 @@ function alignerOutils(w, cible, portee) {
     return null;
 }
 
+// Le geste de la parallèle : l'équerre (ou la règle) posée le long d'une
+// droite y reste collée et GLISSE dessus. Il faut qu'elle soit déjà presque
+// parallèle — sinon l'instrument sauterait sur le premier trait venu.
+function glisserLeLongDunTrait(w, cible, portee) {
+    if (!(w instanceof RulerWidget) && !(w instanceof SetSquareWidget)) return null;
+    const limite = 3 * Math.PI / 180;
+    const modPi = (a) => { let r = a % Math.PI; if (r < 0) r += Math.PI; return r; };
+    const ecart = (a, b) => { const d = Math.abs(modPi(a) - modPi(b)); return Math.min(d, Math.PI - d); };
+
+    let meilleur = null, min = portee;
+    droitesGeometriques(cible, portee).forEach(d => {
+        const angleTrait = Math.atan2(d.b.y - d.a.y, d.b.x - d.a.x);
+        // l'équerre a deux bords perpendiculaires : les deux peuvent longer
+        const bords = (w instanceof SetSquareWidget) ? [angleTrait, angleTrait - Math.PI / 2] : [angleTrait];
+        bords.forEach(a => {
+            if (ecart(w.angle, a) > limite) return;
+            // projection sur la droite ENTIÈRE : on doit pouvoir glisser
+            // au-delà des extrémités du segment tracé
+            const dx = d.b.x - d.a.x, dy = d.b.y - d.a.y;
+            const l2 = dx * dx + dy * dy;
+            if (!l2) return;
+            const t = ((cible.x - d.a.x) * dx + (cible.y - d.a.y) * dy) / l2;
+            const p = { x: d.a.x + t * dx, y: d.a.y + t * dy };
+            const dist = Math.hypot(p.x - cible.x, p.y - cible.y);
+            if (dist < min) { min = dist; meilleur = { p, angle: a }; }
+        });
+    });
+    if (!meilleur) return null;
+
+    const distAngle = (a) => Math.abs(Math.atan2(Math.sin(w.angle - a), Math.cos(w.angle - a)));
+    w.angle = distAngle(meilleur.angle) < distAngle(meilleur.angle + Math.PI) ? meilleur.angle : meilleur.angle + Math.PI;
+    return meilleur.p;
+}
+
+// Le zéro d'un instrument : le coin de l'équerre, le début de la règle.
+function originesInstruments(sauf) {
+    const res = [];
+    ['ruler', 'setsquare', 'protractor'].forEach(nom => {
+        if (!activeWidgets[nom] || !widgets[nom] || widgets[nom] === sauf) return;
+        const o = widgets[nom].toGlobal(0, 0);
+        res.push({ x: o.x, y: o.y });
+    });
+    return res;
+}
+
 function poserOutil(w, cible) {
     reperOutil = null;
     if (!magnetMode || !aimant.outils) return cible;
-    const portee = 15 / zoom;
+    // Volontairement court : un aimant trop large attrape l'instrument dès
+    // qu'on l'approche et devient pénible.
+    const portee = 10 / zoom;
 
     const aligne = alignerOutils(w, cible, portee);
     if (aligne) return aligne;
 
-    // La pointe du compas sur le zéro de la règle : le geste du report de
+    const long = glisserLeLongDunTrait(w, cible, portee);
+    if (long) return long;
+
+    // La pointe du compas sur le zéro d'un instrument : le geste du report de
     // longueur. Prioritaire, sinon un point voisin la volerait.
-    if (w instanceof CompassWidget && activeWidgets.ruler && widgets.ruler) {
-        const org = widgets.ruler.toGlobal(0, 0);
-        if (Math.hypot(cible.x - org.x, cible.y - org.y) < portee) { reperOutil = org; return org; }
+    if (w instanceof CompassWidget) {
+        for (const org of originesInstruments(w)) {
+            if (Math.hypot(cible.x - org.x, cible.y - org.y) < portee) { reperOutil = org; return org; }
+        }
     }
 
     if (aimant.intersections) {
@@ -5155,21 +5204,53 @@ function poserOutil(w, cible) {
         if (i) { reperOutil = i; return i; }
     }
 
-    const proj = projectionSurTrace(cible, portee);
-    if (proj) { reperOutil = proj; return proj; }
+    // Poser le CENTRE d'un instrument sur un trait n'a de sens que pour le
+    // compas et le rapporteur. La règle et l'équerre, elles, longent un trait
+    // quand elles sont parallèles (au-dessus) : les coller autrement rendait
+    // l'aimant collant pour rien.
+    if (!(w instanceof RulerWidget) && !(w instanceof SetSquareWidget)) {
+        const proj = projectionSurTrace(cible, portee);
+        if (proj) { reperOutil = proj; return proj; }
+    }
 
     return cible;
 }
 
-// L'écartement du compas se prend sur un point : c'est ainsi qu'on reporte
-// exactement une longueur AB.
+// La pointe du compas est-elle posée sur le bord gradué d'un instrument ?
+// On renvoie la direction de ce bord.
+function bordSousLaPointe(w) {
+    const tolerance = 4 / zoom;
+    if (activeWidgets.ruler && widgets.ruler) {
+        const r = widgets.ruler, l = r.toLocal(w.x, w.y);
+        if (l.x > -20 && l.x < r.width + 20 && (Math.abs(l.y) < tolerance || Math.abs(l.y - r.height) < tolerance)) return r.angle;
+    }
+    if (activeWidgets.setsquare && widgets.setsquare) {
+        const c = widgets.setsquare, l = c.toLocal(w.x, w.y);
+        if (l.x > -20 && l.x < c.width + 20 && Math.abs(l.y) < tolerance) return c.angle;
+        if (l.y > -20 && l.y < c.height + 20 && Math.abs(l.x) < tolerance) return c.angle + Math.PI / 2;
+    }
+    return null;
+}
+
+// L'écartement du compas : posé sur le bord d'un instrument, il s'ouvre LE
+// LONG des graduations (et par millimètres) — c'est ainsi qu'on prend 4,5 cm.
+// Sinon, il se prend sur un point de la figure : c'est le report de longueur.
 function pointerCompasVers(w, x, y) {
     reperOutil = null;
-    if (magnetMode && aimant.outils) {
-        const portee = 12 / zoom;
-        const p = pointProche({ x, y }, portee) || (aimant.intersections ? intersectionProche({ x, y }, portee) : null);
-        if (p) { reperOutil = p; return p; }
+    if (!magnetMode || !aimant.outils) return { x, y };
+
+    const bord = bordSousLaPointe(w);
+    if (bord !== null) {
+        const dx = Math.cos(bord), dy = Math.sin(bord);
+        let v = (x - w.x) * dx + (y - w.y) * dy;
+        const mm = 5;                                   // le pas des graduations
+        v = Math.round(v / mm) * mm;
+        return { x: w.x + v * dx, y: w.y + v * dy };
     }
+
+    const portee = 12 / zoom;
+    const p = pointProche({ x, y }, portee) || (aimant.intersections ? intersectionProche({ x, y }, portee) : null);
+    if (p) { reperOutil = p; return p; }
     return { x, y };
 }
 
@@ -5652,21 +5733,20 @@ canvas.addEventListener('pointerdown', (e) => {
     let targetWidget = null;
     let wType = '';
 
-    // NOUVEAU : On gèle l'interception si on utilise un outil de dessin
-    const isDrawingTool = ['segment', 'circle', 'rectangle', 'freehand', 'highlighter', 'curve', 'polygon', 'point', 'postit'].includes(mode);
-
-    if (!isDrawingTool) {
-        for (let i = widgetZOrder.length - 1; i >= 0; i--) {
-            const type = widgetZOrder[i];
-            if (!activeWidgets[type]) continue;
-            const widget = widgets[type];
-            const zone = widget.getHitZone(rawPos.x, rawPos.y);
-            if (zone) {
-                targetWidget = widget; wType = type;
-                // On remonte le widget cliqué
-                widgetZOrder.splice(i, 1); widgetZOrder.push(type);
-                break;
-            }
+    // Un instrument attrapé reste attrapable quel que soit l'outil en cours :
+    // on le pousse, on le tourne, on le rallonge, puis on reprend le tracé là
+    // où on en était. Le trait, lui, se fait le long du bord — donc juste à
+    // côté de l'instrument, pas dessus.
+    for (let i = widgetZOrder.length - 1; i >= 0; i--) {
+        const type = widgetZOrder[i];
+        if (!activeWidgets[type]) continue;
+        const widget = widgets[type];
+        const zone = widget.getHitZone(rawPos.x, rawPos.y);
+        if (zone) {
+            targetWidget = widget; wType = type;
+            // On remonte le widget cliqué
+            widgetZOrder.splice(i, 1); widgetZOrder.push(type);
+            break;
         }
     }
 
@@ -6576,15 +6656,55 @@ function resumeAimant() {
     return sources.join(' + ');
 }
 const btnMagnet = document.getElementById('btn-magnet');
+
+// Les trois sources sont dans la barre, à côté de l'aimant, et n'apparaissent
+// que quand il est allumé : un réglage caché dans un sous-menu ne se trouve
+// pas, et trois boutons de plus en permanence encombreraient la barre.
+const SOURCES_AIMANT = [
+    ['grille', 'btn-aimant-grille'],
+    ['outils', 'btn-aimant-outils'],
+    ['intersections', 'btn-aimant-points']
+];
+
+function majBoutonsAimant() {
+    btnMagnet.classList.toggle('active', magnetMode);
+    const bande = document.getElementById('aimant-sources');
+    if (bande) bande.style.display = magnetMode ? 'inline-flex' : 'none';
+    SOURCES_AIMANT.forEach(([cle, id]) => {
+        const b = document.getElementById(id);
+        if (b) b.classList.toggle('active', !!aimant[cle]);
+    });
+}
+window.majBoutonsAimant = majBoutonsAimant;
+
 btnMagnet.addEventListener('click', () => {
     magnetMode = !magnetMode;
-    btnMagnet.classList.toggle('active', magnetMode);
+    majBoutonsAimant();
     if (typeof showToast === 'function') {
-        showToast(magnetMode
-            ? `🧲 Aimant : ${resumeAimant()} — appui long pour choisir`
-            : 'Aimant désactivé');
+        showToast(magnetMode ? `🧲 Aimant : ${resumeAimant()}` : 'Aimant désactivé');
     }
     draw();
+});
+
+SOURCES_AIMANT.forEach(([cle, id]) => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        aimant[cle] = !aimant[cle];
+        // Éteindre la dernière source revient à éteindre l'aimant : on ne
+        // laisse pas un aimant allumé qui n'attire rien.
+        if (!aimant.grille && !aimant.outils && !aimant.intersections) {
+            aimant[cle] = true;
+            magnetMode = false;
+        }
+        enregistrerAimant();
+        majBoutonsAimant();
+        if (typeof showToast === 'function') {
+            showToast(magnetMode ? `🧲 Aimant : ${resumeAimant()}` : 'Aimant désactivé');
+        }
+        draw();
+    });
 });
 document.getElementById('btn-cycle').onclick = () => {
     currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
@@ -16426,7 +16546,8 @@ document.addEventListener('DOMContentLoaded', () => {
             aimant[cle] = !aimant[cle];
             if (!aimant.grille && !aimant.outils && !aimant.intersections) aimant[cle] = true;  // jamais tout éteint
             enregistrerAimant();
-            if (!magnetMode) document.getElementById('btn-magnet').click();
+            if (!magnetMode) magnetMode = true;
+            if (typeof majBoutonsAimant === 'function') majBoutonsAimant();
             draw();
             setTimeout(() => ouvrirPanneauAimant(bouton), 0);
         };
