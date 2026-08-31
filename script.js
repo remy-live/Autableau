@@ -1294,10 +1294,16 @@ function assetRef(src) {
 
 function packImages(arr) {
     return (arr || []).map(img => {
-        if (!img || img.srcRef) return img;
-        const id = assetRef(img.src);
-        if (!id) return img;
-        const copy = { ...img, srcRef: id };
+        if (!img) return img;
+        const copy = { ...img };
+        // IndexedDB ne sait pas cloner un élément du document : une image
+        // laissée sur l'objet ferait échouer TOUTE la sauvegarde, en silence.
+        // Le dessin vit dans imageCache, il n'a rien à faire ici.
+        delete copy.img;
+        if (copy.srcRef) return copy;
+        const id = assetRef(copy.src);
+        if (!id) return copy;
+        copy.srcRef = id;
         delete copy.src;
         return copy;
     });
@@ -8107,8 +8113,14 @@ function loadPdfAtPageIndex(file, pageIndex, pdfPageNum) {
 // reste, mais il faut le rouvrir pour le feuilleter à nouveau.)
 // ===================================================
 const documentsPdf = new Map();          // clé → { doc, nom }
-let importPdfFeuilletable = false;
-try { importPdfFeuilletable = localStorage.getItem('board_pdf_feuilletable') === '1'; } catch (e) { /* stockage refusé */ }
+// Poser le document sur le tableau et le feuilleter sur place est le geste
+// courant : c'est ce qu'on fait par défaut. Découper le PDF en autant de
+// pages de tableau reste possible, mais c'est le cas particulier.
+let importPdfFeuilletable = true;
+try {
+    const memoire = localStorage.getItem('board_pdf_feuilletable');
+    if (memoire !== null) importPdfFeuilletable = memoire === '1';
+} catch (e) { /* stockage refusé */ }
 
 function reglerImportPdf(feuilletable) {
     importPdfFeuilletable = !!feuilletable;
@@ -8145,7 +8157,7 @@ async function poserPdfFeuilletable(file) {
         documentsPdf.set(cle, { doc, nom: file.name });
 
         const rendu = await dessinerPagePdf(doc, 1);
-        const img = await chargerImage(rendu.src);
+        await chargerImage(rendu.src);        // remplit imageCache
 
         // La page occupe les trois quarts de ce qu'on voit, sans déformation
         const dispoL = (window.innerWidth * 0.75) / zoom;
@@ -8158,7 +8170,7 @@ async function poserPdfFeuilletable(file) {
         images.push({
             id: nextId++, x: cx - l / 2, y: cy - h / 2, w: l, h: h,
             cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
-            src: rendu.src, img: img, fileName: file.name, z: globalZ++,
+            src: rendu.src, fileName: file.name, z: globalZ++,
             pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name }
         });
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
@@ -8177,9 +8189,8 @@ async function feuilleterPdf(imgObj, delta) {
     const numero = Math.min(Math.max(1, imgObj.pluginData.page + delta), imgObj.pluginData.pages);
     if (numero === imgObj.pluginData.page) return;
     const rendu = await dessinerPagePdf(d.doc, numero);
-    const img = await chargerImage(rendu.src);
+    await chargerImage(rendu.src);            // remplit imageCache
     imgObj.src = rendu.src;
-    imgObj.img = img;
     imgObj.cx = 0; imgObj.cy = 0; imgObj.cw = rendu.l; imgObj.ch = rendu.h;
     imgObj.pluginData.page = numero;
     saveState(); draw();
@@ -8195,11 +8206,17 @@ async function feuilleterPdf(imgObj, delta) {
 let modeDocument = 'cadre';
 let glissePage = null;
 
+// Toute image posée sur le tableau — PDF feuilletable, photo, capture — se
+// règle avec la même barre : les gestes sont les mêmes. Un PDF y gagne en
+// plus ses flèches de page.
 function documentSelectionne() {
     if (selectedItems.length !== 1 || selectedItems[0].type !== 'image') return null;
-    const obj = getObjectById('image', selectedItems[0].id);
-    if (!obj || !obj.pluginData || obj.pluginData.id !== 'pdfDoc') return null;
-    return obj;
+    return getObjectById('image', selectedItems[0].id) || null;
+}
+
+function estUnPdfFeuilletable(obj) {
+    return !!(obj && obj.pluginData && obj.pluginData.id === 'pdfDoc'
+        && documentsPdf.has(obj.pluginData.cle));
 }
 
 function majBarreDocument() {
@@ -8215,12 +8232,15 @@ function majBarreDocument() {
     // Posée sous le cadre, et ramenée dans l'écran si le document en sort
     const cx = panX + (obj.x + obj.w / 2) * zoom;
     const bas = panY + (obj.y + obj.h) * zoom + 14;
-    barre.style.left = Math.max(120, Math.min(window.innerWidth - 120, cx)) + 'px';
-    barre.style.top = Math.max(8, Math.min(window.innerHeight - 60, bas)) + 'px';
+    const demi = (barre.offsetWidth || 480) / 2 + 8;
+    barre.style.left = Math.max(demi, Math.min(window.innerWidth - demi, cx)) + 'px';
+    barre.style.top = Math.max(8, Math.min(window.innerHeight - barre.offsetHeight - 8, bas)) + 'px';
 
-    const vivant = documentsPdf.has(obj.pluginData.cle);
-    document.getElementById('doc-pages').style.display = vivant ? 'flex' : 'none';
-    if (vivant) {
+    // Les flèches n'ont de sens que pour un PDF qu'on peut encore feuilleter
+    const feuilletable = estUnPdfFeuilletable(obj);
+    document.getElementById('doc-pages').style.display = feuilletable ? 'flex' : 'none';
+    document.getElementById('doc-pages-sep').style.display = feuilletable ? 'block' : 'none';
+    if (feuilletable) {
         document.getElementById('doc-info').innerText = obj.pluginData.page + '/' + obj.pluginData.pages;
         document.getElementById('doc-prec').style.opacity = obj.pluginData.page > 1 ? '1' : '0.35';
         document.getElementById('doc-suiv').style.opacity = obj.pluginData.page < obj.pluginData.pages ? '1' : '0.35';
@@ -8229,7 +8249,10 @@ function majBarreDocument() {
     document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
     document.getElementById('doc-opacite').value = (obj.opacity === undefined ? 1 : obj.opacity);
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
+    document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
+    document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);
     document.getElementById('doc-verrou').classList.toggle('actif', !!obj.locked);
+    document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
 }
 
 function brancherBarreDocument() {
@@ -8261,6 +8284,21 @@ function brancherBarreDocument() {
             showToast(o.sousLaGrille ? 'Le document passe SOUS le quadrillage' : 'Le document repasse au-dessus');
         }
     });
+
+    b('doc-proportions').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        o.ratioLocked = (o.ratioLocked === false);
+        majBarreDocument(); draw(); saveState();
+    });
+
+    b('doc-rogner').addEventListener('click', () => {
+        const o = documentSelectionne(); if (!o) return;
+        o.isCropping = !o.isCropping;
+        if (o.isCropping) o.ratioLocked = false;   // on rogne librement
+        majBarreDocument(); draw(); saveState();
+    });
+
+    b('doc-dupliquer').addEventListener('click', () => duplicateSelection());
 
     b('doc-verrou').addEventListener('click', () => {
         const o = documentSelectionne(); if (!o) return;
@@ -8584,8 +8622,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div style="display:flex; align-items:center;">
                         <label style="margin-right:5px; font-weight:bold; min-width: 65px;" title="Comment le PDF arrive sur le tableau">PDF :</label>
                         <select id="pdf-mode-select" style="padding:4px; border-radius:4px; border:1px solid #ccc; outline:none; cursor:pointer; background:#f8f9fa;">
+                            <option value="feuillet">Document feuilletable (posé sur le tableau)</option>
                             <option value="pages">Une page de tableau par page</option>
-                            <option value="feuillet">Document feuilletable</option>
                         </select>
                     </div>
                     <div style="display:flex; align-items:center;">

@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=26">
+    <link rel="stylesheet" href="style.css?v=27">
 </head>
 
 <body>
@@ -160,16 +160,17 @@
 
     <div id="wysiwyg-text" contenteditable="true" spellcheck="false" data-placeholder="Tapez ici..."></div>
 
-    <!-- Barre du document : elle se pose SOUS le cadre du PDF et le suit.
-         Elle sépare les deux gestes qui se marchent dessus : régler le cadre,
-         ou faire coulisser la page à l'intérieur. -->
+    <!-- Barre du document : elle se pose SOUS le cadre de l'image ou du PDF
+         sélectionné et le suit. Elle sépare les deux gestes qui se marchent
+         dessus : régler le cadre, ou faire coulisser la page à l'intérieur.
+         Les flèches n'apparaissent que pour un PDF feuilletable. -->
     <div id="barre-document">
         <span id="doc-pages">
             <button class="doc-btn" id="doc-prec" title="Page précédente">◀</button>
             <span id="doc-info">1/1</span>
             <button class="doc-btn" id="doc-suiv" title="Page suivante">▶</button>
         </span>
-        <i class="doc-sep"></i>
+        <i class="doc-sep" id="doc-pages-sep"></i>
         <button class="doc-btn doc-mode" id="doc-mode-cadre" title="Régler le cadre : déplacer, redimensionner">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="4" y="5" width="16" height="14" rx="2" />
@@ -186,6 +187,24 @@
         <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+            </svg></button>
+        <i class="doc-sep"></i>
+        <button class="doc-btn" id="doc-proportions" title="Conserver les proportions">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+                <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+            </svg></button>
+        <button class="doc-btn" id="doc-rogner" title="Rogner : ne garder qu'une partie">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+                <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+            </svg></button>
+        <button class="doc-btn" id="doc-dupliquer" title="Dupliquer (Ctrl+D)">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="12" height="12" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg></button>
         <i class="doc-sep"></i>
         <button class="doc-btn" id="doc-verrou" title="Verrouiller : le document ne bouge plus, on dessine par-dessus">
@@ -371,13 +390,14 @@
                 <div>
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
-                        <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Deux modes, au choix
-                            dans le menu Importer : une page de tableau par page du document, ou le
-                            <b>document feuilletable</b> — posé en un seul objet.</li>
-                        <li><strong>La barre du document :</strong> elle apparaît sous le PDF sélectionné.
-                            ◀ ▶ tournent les pages ; <b>Cadre</b> déplace et redimensionne la fenêtre,
+                        <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Par défaut le
+                            <b>document feuilletable</b> — posé en un seul objet sur le tableau. L'autre mode,
+                            une page de tableau par page du document, se choisit dans le menu Importer.</li>
+                        <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF sélectionné.
+                            ◀ ▶ tournent les pages du PDF ; <b>Cadre</b> déplace et redimensionne la fenêtre,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
-                            le passage sous le quadrillage, le verrou (on dessine par-dessus) et ✕ pour le retirer.</li>
+                            le passage sous le quadrillage, les proportions, le rognage, la duplication, le verrou
+                            (on dessine par-dessus) et ✕ pour le retirer.</li>
                         <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
                             sur place) ou Google Drive quand le tableau est en ligne. Quatre présentations (liste,
@@ -1535,7 +1555,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=75"></script>
+    <script src="script.js?v=76"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

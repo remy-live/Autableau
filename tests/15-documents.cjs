@@ -489,22 +489,84 @@ module.exports = async function (browser) {
     r.verifie('et oublie le PDF gardé en mémoire', ferme.oublie, JSON.stringify(ferme));
     r.verifie('la barre disparaît avec lui', !ferme.barre, JSON.stringify(ferme));
 
+    // Une image ordinaire se règle avec la même barre, sans les flèches
     const surImageOrdinaire = await page.evaluate(() => {
         images.push({ id: nextId++, x: 0, y: 0, w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, src: '', z: globalZ++ });
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
         updateQuickMenu();
-        return document.getElementById('barre-document').classList.contains('visible');
+        return {
+            barre: document.getElementById('barre-document').classList.contains('visible'),
+            fleches: document.getElementById('doc-pages').style.display,
+            proportions: !!document.getElementById('doc-proportions'),
+            rogner: !!document.getElementById('doc-rogner'),
+            dupliquer: !!document.getElementById('doc-dupliquer'),
+            fermer: document.getElementById('doc-fermer').title
+        };
     });
-    r.verifie('elle ne s\'affiche pas sur une image ordinaire', !surImageOrdinaire);
+    r.verifie('une image ordinaire se règle avec la même barre', surImageOrdinaire.barre, JSON.stringify(surImageOrdinaire));
+    r.egal('mais sans les flèches de page', surImageOrdinaire.fleches, 'none');
+    r.verifie('proportions, rognage et duplication y sont repris du menu rapide',
+        surImageOrdinaire.proportions && surImageOrdinaire.rogner && surImageOrdinaire.dupliquer,
+        JSON.stringify(surImageOrdinaire));
+    r.egal('et ✕ dit qu\'il retire l\'image', surImageOrdinaire.fermer, "Retirer l'image");
+
+    const repris = await page.evaluate(() => {
+        const o = images[images.length - 1];
+        document.getElementById('doc-proportions').click();
+        const sansRatio = o.ratioLocked === false && !document.getElementById('doc-proportions').classList.contains('actif');
+        document.getElementById('doc-proportions').click();
+        document.getElementById('doc-rogner').click();
+        const rogne = { actif: !!o.isCropping, libre: o.ratioLocked === false };
+        document.getElementById('doc-rogner').click();
+        const avant = images.length;
+        document.getElementById('doc-dupliquer').click();
+        return { sansRatio, rogne, copie: images.length - avant };
+    });
+    r.verifie('la chaîne des proportions se décroche et se voit', repris.sansRatio, JSON.stringify(repris));
+    r.verifie('le rognage libère les proportions', repris.rogne.actif && repris.rogne.libre, JSON.stringify(repris));
+    r.egal('la duplication pose une copie', repris.copie, 1);
 
     const reglage = await page.evaluate(() => {
-        reglerImportPdf(true);
-        const a = { actif: importPdfFeuilletable, memoire: localStorage.getItem('board_pdf_feuilletable') };
+        const depart = importPdfFeuilletable;
         reglerImportPdf(false);
-        return a;
+        const eteint = { actif: importPdfFeuilletable, memoire: localStorage.getItem('board_pdf_feuilletable') };
+        reglerImportPdf(true);
+        const rallume = { actif: importPdfFeuilletable, memoire: localStorage.getItem('board_pdf_feuilletable') };
+        return { depart, eteint, rallume };
     });
+    r.verifie('le document feuilletable est le mode par défaut', reglage.depart === true, JSON.stringify(reglage));
     r.verifie('le mode d\'import du PDF se règle et se retient',
-        reglage.actif === true && reglage.memoire === '1', JSON.stringify(reglage));
+        reglage.eteint.actif === false && reglage.eteint.memoire === '0'
+        && reglage.rallume.actif === true && reglage.rallume.memoire === '1', JSON.stringify(reglage));
+
+    // Un objet chargé d'un élément du document faisait échouer TOUTE la sauvegarde
+    const sauvegarde = await page.evaluate(async () => {
+        images.length = 0;
+        images.push({
+            id: nextId++, x: 0, y: 0, w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10,
+            src: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', img: new Image(), z: globalZ++
+        });
+        const etat = stateForStorage();
+        const range = etat.pages[currentPageIndex].images[0];
+        try {
+            await new Promise((ok, ko) => {
+                const req = indexedDB.open('essai_clone', 1);
+                req.onupgradeneeded = () => req.result.createObjectStore('t');
+                req.onsuccess = () => {
+                    const tx = req.result.transaction('t', 'readwrite');
+                    tx.objectStore('t').put(etat, 'x');
+                    tx.oncomplete = () => { req.result.close(); ok(); };
+                    tx.onerror = () => ko(tx.error);
+                };
+                req.onerror = () => ko(req.error);
+            });
+            return { image: 'img' in range, clonable: true };
+        } catch (e) {
+            return { image: 'img' in range, clonable: false, erreur: String(e).slice(0, 90) };
+        }
+    });
+    r.verifie('aucune image du document ne part à la sauvegarde', !sauvegarde.image, JSON.stringify(sauvegarde));
+    r.verifie('et l\'enregistrement passe dans IndexedDB', sauvegarde.clonable, JSON.stringify(sauvegarde));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
