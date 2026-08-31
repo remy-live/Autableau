@@ -5606,19 +5606,9 @@ wysiwygText.addEventListener('keydown', (e) => {
 // --- Collage depuis Word / LibreOffice / une page web ---
 // On garde le sens (gras, italique, souligné, titres, listes, retours à la
 // ligne) et on jette tout le reste : styles Word, polices, tableaux, images.
-wysiwygText.addEventListener('paste', (e) => {
-    const dt = e.clipboardData;
-    if (!dt) return;
-    const html = dt.getData('text/html');
-    e.preventDefault();
-
-    if (!html) {
-        const plain = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
-        document.execCommand('insertHTML', false,
-            plain.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>').join('<br>'));
-        return;
-    }
-
+// Le petit HTML que le tableau sait rendre : b, i, u, listes, titres. Tout le
+// reste du collage (styles Word, tableaux, images de puces…) est jeté.
+function nettoyerHtmlColle(html) {
     const KEEP = { B: 'b', STRONG: 'b', I: 'i', EM: 'i', U: 'u', UL: 'ul', OL: 'ol', LI: 'li', BR: 'br', P: 'div', DIV: 'div', H1: 'h1', H2: 'h2', H3: 'h3', H4: 'h3' };
     const src = document.createElement('div');
     src.innerHTML = html;
@@ -5653,10 +5643,59 @@ wysiwygText.addEventListener('paste', (e) => {
 
     const outDiv = document.createElement('div');
     outDiv.appendChild(clean(src));
-    let out = outDiv.innerHTML.replace(/<div>\s*<\/div>/g, '<br>').trim();
-    document.execCommand('insertHTML', false, out || '');
+    return outDiv.innerHTML.replace(/<div>\s*<\/div>/g, '<br>').trim();
+}
+
+function texteBrutEnHtml(brut) {
+    return String(brut || '').replace(/\r\n?/g, '\n').split('\n')
+        .map(l => '<div>' + (l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>') + '</div>')
+        .join('');
+}
+
+wysiwygText.addEventListener('paste', (e) => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const html = dt.getData('text/html');
+    e.preventDefault();
+
+    if (!html) {
+        const plain = (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n');
+        document.execCommand('insertHTML', false,
+            plain.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>').join('<br>'));
+        return;
+    }
+
+    document.execCommand('insertHTML', false, nettoyerHtmlColle(html) || '');
     if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
 });
+
+// Coller du texte SUR LE TABLEAU (hors saisie) : un bloc de texte apparaît,
+// avec ses titres, son gras et ses listes. Avant, un Ctrl+V venu de Word ou
+// de LibreOffice ne faisait rien du tout.
+function collerTexteSurLeTableau(html, brut) {
+    let contenu = html ? nettoyerHtmlColle(html) : '';
+    if (!contenu) contenu = texteBrutEnHtml(brut);
+    if (!contenu.replace(/<[^>]+>|&nbsp;|\s/g, '')) return false;
+
+    const brutLisible = (brut || '').replace(/\s+/g, ' ').trim();
+    const longue = brutLisible.length > 90 || /<(div|br|li|h[1-3])/i.test(contenu);
+    const x = (mouseLogicalPos ? mouseLogicalPos.x : (window.innerWidth / 2 - panX) / zoom);
+    const y = (mouseLogicalPos ? mouseLogicalPos.y : (window.innerHeight / 2 - panY) / zoom);
+
+    const bloc = {
+        id: nextId++, x, y, content: contenu,
+        color: activeStyle.strokeColor, fontSize: activeStyle.fontSize,
+        fontFamily: activeStyle.fontFamily || 'sans-serif', align: 'left',
+        lineHeight: activeStyle.lineHeight, z: globalZ++
+    };
+    if (longue) bloc.colWidth = Math.min(900, Math.max(300, (window.innerWidth * 0.6) / zoom));
+    texts.push(bloc);
+    selectedItems = [{ type: 'text', id: bloc.id }];
+    saveState();
+    draw();
+    if (typeof showToast === 'function') showToast('📋 Texte collé');
+    return true;
+}
 // Repli automatique : dès que la ligne atteint le bord du tableau, le bloc
 // prend une largeur de colonne et le texte revient à la ligne tout seul.
 // (Ajustable ensuite avec les poignées latérales.)
@@ -12594,10 +12633,17 @@ window.addEventListener('paste', (e) => {
         }
     }
 
-    // 4. On affiche la notification une seule fois à la fin
-    if (imagePasted && typeof showToast === 'function') {
-        showToast("🖼️ Image(s) collée(s) !");
+    // 4. Pas d'image ? Alors c'est peut-être du texte : Word, LibreOffice, une
+    // page web… Il devient un bloc de texte posé sur le tableau.
+    if (!imagePasted) {
+        const dt = e.clipboardData || e.originalEvent.clipboardData;
+        const html = dt.getData('text/html');
+        const brut = dt.getData('text/plain');
+        if ((html || brut) && collerTexteSurLeTableau(html, brut)) e.preventDefault();
+        return;
     }
+
+    if (typeof showToast === 'function') showToast("🖼️ Image(s) collée(s) !");
 });
 
 // ===================================================

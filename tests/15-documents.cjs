@@ -201,6 +201,43 @@ module.exports = async function (browser) {
     });
     r.verifie('un cours à quatre parties fait quatre blocs', longDoc === 4, `${longDoc} blocs`);
 
+    // --- COLLER DEPUIS WORD OU LIBREOFFICE, SUR LE TABLEAU ---
+    const colle = await page.evaluate(() => {
+        texts.length = 0;
+        panX = 0; panY = 0; zoom = 1;
+        mouseLogicalPos = { x: 500, y: 300 };
+        const dt = new DataTransfer();
+        dt.setData('text/html', '<p style="font-weight:bold">Le théorème</p><p>Dans un triangle <span style="font-style:italic">rectangle</span>.</p>');
+        dt.setData('text/plain', 'Le théorème\nDans un triangle rectangle.');
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        const t = texts[0];
+        return t ? { contenu: t.content, x: t.x, y: t.y, selection: selectedItems.length } : null;
+    });
+    r.verifie('un Ctrl+V sur le tableau pose un bloc de texte', !!colle, JSON.stringify(colle));
+    r.verifie('le gras de LibreOffice est conservé', !!colle && /<b>Le théorème<\/b>/.test(colle.contenu), colle && colle.contenu);
+    r.verifie('l\'italique aussi', !!colle && /<i>rectangle<\/i>/.test(colle.contenu), colle && colle.contenu);
+    r.verifie('le bloc arrive sous le curseur', !!colle && colle.x === 500 && colle.y === 300, JSON.stringify(colle));
+    r.verifie('et il est sélectionné, prêt à être déplacé', !!colle && colle.selection === 1, JSON.stringify(colle));
+
+    const colleBrut = await page.evaluate(() => {
+        texts.length = 0;
+        const dt = new DataTransfer();
+        dt.setData('text/plain', 'Première ligne\nDeuxième ligne');
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        return texts[0] ? texts[0].content : null;
+    });
+    r.verifie('du texte brut donne aussi un bloc, ligne par ligne',
+        /<div>Première ligne<\/div><div>Deuxième ligne<\/div>/.test(colleBrut || ''), colleBrut);
+
+    const rien = await page.evaluate(() => {
+        texts.length = 0;
+        const dt = new DataTransfer();
+        dt.setData('text/plain', '   ');
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        return texts.length;
+    });
+    r.egal('un presse-papier vide ne pose rien', rien, 0);
+
     // --- LES ENTRÉES DE L'APPLICATION ---
     const entrees = await page.evaluate(() => ({
         bouton: !!document.getElementById('btn-import-doc'),

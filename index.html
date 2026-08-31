@@ -335,8 +335,10 @@
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer</li>
-                        <li><strong>Importer un document :</strong> Word (.docx), LibreOffice (.odt) ou texte (.txt) —
+                        <li><strong>Importer un document :</strong> Word (.docx), LibreOffice (.odt) ou texte (.txt, .csv) —
                             titres, gras, italique et listes sont conservés</li>
+                        <li><strong>Coller (Ctrl+V) :</strong> une image, ou du texte venu de Word / LibreOffice / d'une
+                            page web — il devient un bloc de texte posé sur le tableau</li>
                         <li><strong>Exporter :</strong> Menu Exporter en PNG/PDF</li>
                         <li><strong>Sauvegarder :</strong> Auto-sauvegarde local</li>
                     </ul>
@@ -950,8 +952,8 @@
                 onchange="importWorkspace(this.files[0]); this.value='';">
 
             <input type="file" id="file-loader" accept=".prof,.json" style="display:none;">
-            <input type="file" id="doc-loader" accept=".txt,.md,.docx,.odt" multiple style="display:none;">
-            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.docx,.odt" multiple style="display:none;">
+            <input type="file" id="doc-loader" accept=".txt,.md,.csv,.docx,.odt" multiple style="display:none;">
+            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.csv,.docx,.odt" multiple style="display:none;">
 
             <div class="divider"></div>
 
@@ -1446,12 +1448,12 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=69"></script>
+    <script src="script.js?v=70"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=56"></script>
-    <script src="./lib/documents/documents.js?v=1"></script>
+    <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
-    <script src="./lib/cloud/drive.js?v=2"></script>
+    <script src="./lib/cloud/drive.js?v=3"></script>
     <script>
         if (window.location.search.includes('admin=true')) {
             document.getElementById('btn-floating-record').style.display = 'flex';

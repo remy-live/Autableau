@@ -304,6 +304,27 @@ module.exports = async function (browser) {
     r.verifie('l\'identifiant client est bien fourni par la configuration', enLigne.identifiant);
     r.verifie('l\'import réutilise l\'entrée de fichiers de l\'application', enLigne.entree);
 
+    // Tout ce que le tableau sait ouvrir doit être proposé : Drive type mal
+    // certains fichiers (un .docx en « octet-stream »), et ils passaient alors
+    // pour « non pris en charge ».
+    const types = await pageWeb.evaluate(() => {
+        const ok = (nom, type) => driveImportable({ nom, type, dossier: false });
+        return {
+            image: ok('photo.jpg', 'image/jpeg'),
+            pdf: ok('brevet.pdf', 'application/pdf'),
+            docxMalType: ok('cours.docx', 'application/octet-stream'),
+            sansType: ok('notes.txt', ''),
+            csv: ok('classe.csv', 'text/csv'),
+            docGoogle: ok('Mon cours', 'application/vnd.google-apps.document'),
+            diapoGoogle: ok('Ma présentation', 'application/vnd.google-apps.presentation'),
+            formulaire: ok('Sondage', 'application/vnd.google-apps.form'),
+            dossier: driveImportable({ nom: 'Maths', dossier: true })
+        };
+    });
+    ['image', 'pdf', 'docxMalType', 'sansType', 'csv', 'docGoogle', 'diapoGoogle', 'dossier'].forEach(cas =>
+        r.verifie(`Drive propose « ${cas} »`, types[cas] === true, JSON.stringify(types)));
+    r.verifie('mais pas un formulaire Google, qui ne s\'ouvre pas', types.formulaire === false, JSON.stringify(types));
+
     const fenetre = await pageWeb.evaluate(() => {
         ouvrirDrive();
         const o = document.getElementById('drive-overlay');
