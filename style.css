@@ -4731,9 +4731,124 @@ dark-mode .title-btn:hover {
     white-space: pre-wrap;
     word-wrap: break-word;
 }
-.html-postit.minimized .html-postit-body {
-    display: none;
+.html-postit.minimized .html-postit-body,
+.html-postit.minimized .html-postit-liste {
+    display: none !important;
 }
+
+/* ----- Le post-it en liste à cocher ----------------------------------
+   Le même papier, l'autre usage : la note qu'on écrit d'un trait, et la
+   liste dont on raye les lignes au fur et à mesure de l'heure. */
+.html-postit-liste {
+    flex-grow: 1;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px 22px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    font-family: 'Kalam', 'Caveat', 'Comic Sans MS', cursive, sans-serif;
+    font-size: 20px;
+    color: #2c3e50;
+    min-height: 0;
+}
+
+.html-postit.en-liste .html-postit-liste { display: flex; }
+
+.postit-tache {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 2px 0;
+    border-radius: 5px;
+}
+
+.postit-tache:hover { background: rgba(0, 0, 0, 0.04); }
+
+.postit-case {
+    flex: none;
+    width: 1.05em;
+    height: 1.05em;
+    margin-top: 0.12em;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(0, 0, 0, 0.35);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.55);
+    color: #2c3e50;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.postit-case:hover { border-color: rgba(0, 0, 0, 0.6); background: rgba(255, 255, 255, 0.9); }
+.postit-tache.faite .postit-case { background: rgba(0, 0, 0, 0.12); border-color: rgba(0, 0, 0, 0.35); }
+
+.postit-tache-texte {
+    flex: 1;
+    min-width: 0;
+    outline: none;
+    line-height: 1.35;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    cursor: text;
+}
+
+.postit-tache-texte:empty::before {
+    content: 'À faire…';
+    opacity: 0.35;
+}
+
+/* Rayée mais toujours lisible : on relit ce qu'on a fait */
+.postit-tache.faite .postit-tache-texte {
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    opacity: 0.5;
+}
+
+.postit-tache-oter {
+    flex: none;
+    border: none;
+    background: none;
+    color: rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+    font-size: 0.8em;
+    line-height: 1;
+    padding: 2px 3px;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.postit-tache:hover .postit-tache-oter { opacity: 1; }
+.postit-tache-oter:hover { color: #d63031; }
+
+.postit-ajouter {
+    align-self: flex-start;
+    margin-top: 4px;
+    border: none;
+    background: none;
+    color: rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.75em;
+    padding: 3px 4px;
+    border-radius: 5px;
+}
+
+.postit-ajouter:hover { background: rgba(0, 0, 0, 0.07); color: rgba(0, 0, 0, 0.75); }
+
+/* Le compteur de l'en-tête : où en est-on ? */
+.postit-avancement {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.4);
+    padding: 0 3px;
+    white-space: nowrap;
+}
+
+.postit-avancement.fini { color: #00875a; }
 .html-postit.minimized {
     min-height: 0;
     height: 32px !important; /* height of header (28) + top and bottom borders (4) */

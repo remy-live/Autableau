@@ -193,6 +193,143 @@ module.exports = async function (browser) {
     r.verifie('elle retrouve sa source et redevient dessinable',
         rendu.source.startsWith('data:image') && rendu.dessinable, JSON.stringify(rendu));
 
+    // --- LE POST-IT EN LISTE À COCHER ---
+    // Le même papier, deux usages : la note qu'on écrit d'un trait, et la
+    // liste de l'heure dont on raye les lignes au fur et à mesure.
+    const poserPostit = (contenu) => page.evaluate((c) => {
+        htmlPostits.length = 0;
+        htmlPostits.push({ id: nextId++, x: 420, y: 110, w: 300, h: 260, content: c, bg: '#fdfd96', z: globalZ++ });
+        panX = 0; panY = 0; zoom = 1;
+        renderHtmlPostits();
+    }, contenu);
+
+    await poserPostit('Rendre les copies\nDistribuer le DM\nAppeler les parents');
+    await page.waitForTimeout(200);
+
+    const enListe = await page.evaluate(() => {
+        const bouton = document.querySelector('.btn-liste-postit');
+        if (!bouton) return null;
+        bouton.click();
+        const p = htmlPostits[0];
+        return {
+            mode: p.mode,
+            taches: p.taches.map(t => t.t),
+            aucuneFaite: p.taches.every(t => !t.fait),
+            lignes: document.querySelectorAll('.postit-tache').length,
+            compteur: document.querySelector('.postit-avancement').textContent,
+            noteCachee: getComputedStyle(document.querySelector('.html-postit-body')).display === 'none',
+            ajouter: !!document.querySelector('.postit-ajouter')
+        };
+    });
+    r.verifie('le post-it propose de devenir une liste', !!enListe, 'bouton absent');
+    r.egal('chaque ligne écrite devient une tâche', enListe.taches,
+        ['Rendre les copies', 'Distribuer le DM', 'Appeler les parents']);
+    r.verifie('aucune n\'est faite au départ', enListe.aucuneFaite);
+    r.egal('une ligne par tâche à l\'écran', enListe.lignes, 3);
+    r.egal('l\'en-tête dit où l\'on en est', enListe.compteur, '0/3');
+    r.verifie('la note libre s\'efface au profit de la liste', enListe.noteCachee);
+    r.verifie('et l\'on peut ajouter une tâche', enListe.ajouter);
+
+    const cocher = await page.evaluate(() => {
+        document.querySelectorAll('.postit-case')[0].click();
+        const p = htmlPostits[0];
+        return {
+            fait: p.taches[0].fait,
+            compteur: document.querySelector('.postit-avancement').textContent,
+            rayee: document.querySelectorAll('.postit-tache')[0].classList.contains('faite'),
+            lisible: document.querySelectorAll('.postit-tache-texte')[0].textContent
+        };
+    });
+    r.verifie('cocher une case marque la tâche faite', cocher.fait);
+    r.egal('le compteur suit', cocher.compteur, '1/3');
+    r.verifie('la ligne est rayée', cocher.rayee);
+    r.egal('mais reste lisible', cocher.lisible, 'Rendre les copies');
+
+    const clavier = await page.evaluate(() => {
+        const t = document.querySelectorAll('.postit-tache-texte')[2];
+        t.focus();
+        t.textContent = 'Appeler les parents de Léa';
+        t.dispatchEvent(new Event('input', { bubbles: true }));
+        t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        const apresEntree = htmlPostits[0].taches.length;
+        // une ligne vide effacée avec Retour arrière disparaît
+        const vide = document.querySelectorAll('.postit-tache-texte')[3];
+        vide.focus();
+        vide.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+        return {
+            apresEntree, apresRetour: htmlPostits[0].taches.length,
+            texteGarde: htmlPostits[0].taches[2].t
+        };
+    });
+    r.egal('Entrée ouvre la ligne suivante', clavier.apresEntree, 4);
+    r.egal('Retour arrière sur une ligne vide la referme', clavier.apresRetour, 3);
+    r.egal('sans abîmer la ligne d\'avant', clavier.texteGarde, 'Appeler les parents de Léa');
+
+    const toutFait = await page.evaluate(() => {
+        document.querySelectorAll('.postit-case').forEach(c => {
+            const ligne = c.closest('.postit-tache');
+            if (!ligne.classList.contains('faite')) c.click();
+        });
+        const a = document.querySelector('.postit-avancement');
+        return { texte: a.textContent, fini: a.classList.contains('fini') };
+    });
+    r.egal('tout coché, le compteur est plein', toutFait.texte, '3/3');
+    r.verifie('et il se voit', toutFait.fini);
+
+    const retour = await page.evaluate(() => {
+        document.querySelector('.btn-liste-postit').click();
+        const p = htmlPostits[0];
+        return {
+            mode: p.mode, contenu: p.content,
+            valeur: document.querySelector('.html-postit-body').value,
+            visible: getComputedStyle(document.querySelector('.html-postit-body')).display !== 'none',
+            compteur: document.querySelector('.postit-avancement').textContent
+        };
+    });
+    r.egal('on revient à la note libre', retour.mode, 'texte');
+    r.verifie('sans rien perdre : chaque tâche redevient une ligne',
+        /Rendre les copies/.test(retour.contenu) && /Appeler les parents de Léa/.test(retour.contenu),
+        retour.contenu);
+    r.verifie('celles qui étaient faites gardent leur marque',
+        (retour.contenu.match(/✔/g) || []).length === 3, retour.contenu);
+    r.verifie('le texte est bien celui qu\'on lit dans le post-it', retour.valeur === retour.contenu);
+    r.verifie('la note redevient visible', retour.visible);
+    r.egal('et le compteur s\'efface', retour.compteur, '');
+
+    const relecture = await page.evaluate(async () => {
+        // On repasse en liste, on enregistre, et on refait le tableau à neuf :
+        // un post-it rouvert doit retrouver ses cases.
+        document.querySelector('.btn-liste-postit').click();
+        saveState();
+        const copie = JSON.parse(JSON.stringify(htmlPostits));
+        htmlPostits.length = 0;
+        renderHtmlPostits();
+        copie.forEach(c => htmlPostits.push(c));
+        renderHtmlPostits();
+        await new Promise(r => setTimeout(r, 250));
+        return {
+            mode: htmlPostits[0].mode,
+            lignes: document.querySelectorAll('.postit-tache').length,
+            compteur: document.querySelector('.postit-avancement').textContent
+        };
+    });
+    r.egal('rouvert, le post-it est toujours une liste', relecture.mode, 'liste');
+    r.egal('avec ses tâches', relecture.lignes, 3);
+    r.egal('et son avancement', relecture.compteur, '3/3');
+
+    // La taille de police choisie était écrasée au premier redessin.
+    const police = await page.evaluate(() => {
+        document.querySelector('.btn-font-plus').click();
+        document.querySelector('.btn-font-plus').click();
+        const voulue = htmlPostits[0].fontSize;
+        renderHtmlPostits();
+        return { voulue, affichee: document.querySelector('.html-postit-body').style.fontSize };
+    });
+    r.egal('la taille de police choisie survit au redessin',
+        police.affichee, police.voulue + 'px');
+
+    await page.evaluate(() => { htmlPostits.length = 0; renderHtmlPostits(); });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -16595,11 +16595,14 @@ function renderHtmlPostits() {
                         <button class="btn-font-plus" title="Agrandir la police">+</button>
                     </div>
                     <div class="html-postit-actions">
+                        <span class="postit-avancement" title="Tâches faites"></span>
+                        <button class="btn-liste-postit" title="Transformer en liste à cocher"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 7 5 9 9 5"></polyline><polyline points="3 16 5 18 9 14"></polyline><line x1="12" y1="7" x2="21" y2="7"></line><line x1="12" y1="17" x2="21" y2="17"></line></svg></button>
                         <button class="btn-min-postit" title="Minimiser"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
                         <button class="btn-close-postit" title="Fermer"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
                     </div>
                 </div>
                 <textarea class="html-postit-body"></textarea>
+                <div class="html-postit-liste"></div>
             `;
             el.style.backgroundColor = p.bg;
             container.appendChild(el);
@@ -16656,6 +16659,121 @@ function renderHtmlPostits() {
                 }
             });
             
+            // ---- La liste à cocher ----------------------------------------
+            // Le même post-it, dans un autre mode : on bascule sans rien
+            // perdre, chaque ligne du texte devient une tâche, et l'inverse.
+            const liste = el.querySelector('.html-postit-liste');
+            const avancement = el.querySelector('.postit-avancement');
+
+            const tachesDe = (o) => (o.taches || (o.taches = []));
+
+            const majAvancement = (o) => {
+                if (o.mode !== 'liste') { avancement.textContent = ''; return; }
+                const t = tachesDe(o);
+                const faites = t.filter(x => x.fait).length;
+                avancement.textContent = t.length ? `${faites}/${t.length}` : '';
+                avancement.classList.toggle('fini', !!t.length && faites === t.length);
+            };
+
+            // Une ligne de la liste. On la redessine entièrement à chaque
+            // changement de structure : c'est court, et cela évite les
+            // désynchronisations entre l'écran et les données.
+            const peindreListe = (focusIdx) => {
+                const o = htmlPostits.find(hp => hp.id === p.id) || p;
+                liste.innerHTML = '';
+                tachesDe(o).forEach((tache, i) => {
+                    const ligne = document.createElement('div');
+                    ligne.className = 'postit-tache' + (tache.fait ? ' faite' : '');
+                    ligne.innerHTML = `<button class="postit-case" role="checkbox"
+                            aria-checked="${tache.fait}" title="${tache.fait ? 'Pas encore fait' : 'C\'est fait'}">
+                            ${tache.fait ? '<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12 10 18 20 6"></polyline></svg>' : ''}
+                        </button>
+                        <div class="postit-tache-texte" contenteditable="true" spellcheck="false"></div>
+                        <button class="postit-tache-oter" title="Retirer cette ligne">×</button>`;
+                    const texte = ligne.querySelector('.postit-tache-texte');
+                    texte.textContent = tache.t || '';
+                    liste.appendChild(ligne);
+
+                    ligne.querySelector('.postit-case').addEventListener('click', () => {
+                        tache.fait = !tache.fait;
+                        majAvancement(o); peindreListe(); saveState();
+                    });
+                    ligne.querySelector('.postit-tache-oter').addEventListener('click', () => {
+                        tachesDe(o).splice(i, 1);
+                        majAvancement(o); peindreListe(Math.max(0, i - 1)); saveState();
+                    });
+                    texte.addEventListener('input', () => { tache.t = texte.textContent; });
+                    texte.addEventListener('blur', () => { tache.t = texte.textContent; saveState(); });
+                    texte.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            tache.t = texte.textContent;
+                            tachesDe(o).splice(i + 1, 0, { t: '', fait: false });
+                            majAvancement(o); peindreListe(i + 1); saveState();
+                        } else if (e.key === 'Backspace' && !texte.textContent && tachesDe(o).length > 1) {
+                            e.preventDefault();
+                            tachesDe(o).splice(i, 1);
+                            majAvancement(o); peindreListe(Math.max(0, i - 1)); saveState();
+                        }
+                    });
+                });
+
+                const ajouter = document.createElement('button');
+                ajouter.className = 'postit-ajouter';
+                ajouter.textContent = '＋ une tâche';
+                ajouter.addEventListener('click', () => {
+                    tachesDe(o).push({ t: '', fait: false });
+                    majAvancement(o); peindreListe(tachesDe(o).length - 1); saveState();
+                });
+                liste.appendChild(ajouter);
+
+                if (typeof focusIdx === 'number') {
+                    const cible = liste.querySelectorAll('.postit-tache-texte')[focusIdx];
+                    if (cible) {
+                        cible.focus();
+                        const s = getSelection(), r = document.createRange();
+                        r.selectNodeContents(cible); r.collapse(false);
+                        s.removeAllRanges(); s.addRange(r);
+                    }
+                }
+            };
+
+            const appliquerMode = (o, focusIdx) => {
+                const enListe = o.mode === 'liste';
+                el.classList.toggle('en-liste', enListe);
+                body.style.display = enListe ? 'none' : '';
+                liste.style.display = enListe ? '' : 'none';
+                el.querySelector('.btn-liste-postit').title = enListe
+                    ? 'Revenir à la note libre' : 'Transformer en liste à cocher';
+                if (enListe) peindreListe(focusIdx);
+                majAvancement(o);
+            };
+
+            el.querySelector('.btn-liste-postit').addEventListener('click', () => {
+                const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
+                if (o.mode === 'liste') {
+                    // On repart en note libre : les tâches redeviennent des
+                    // lignes, cochées ou non, rien ne se perd.
+                    o.content = tachesDe(o).map(t => (t.fait ? '✔ ' : '') + (t.t || '')).join('\n');
+                    body.value = o.content;
+                    o.mode = 'texte';
+                } else {
+                    o.content = body.value;
+                    const lignes = String(o.content || '').split('\n')
+                        .map(l => l.replace(/^\s*[-*•]\s*/, '').trim());
+                    const dejaFaites = tachesDe(o);
+                    o.taches = lignes.filter(l => l.length).map(l => ({
+                        t: l.replace(/^✔\s*/, ''), fait: /^✔/.test(l)
+                    }));
+                    if (!o.taches.length) o.taches = dejaFaites.length ? dejaFaites : [{ t: '', fait: false }];
+                    o.mode = 'liste';
+                }
+                appliquerMode(o, o.mode === 'liste' ? 0 : undefined);
+                saveState();
+            });
+
+            el._postitAppliquerMode = appliquerMode;      // relu à chaque rendu
+
             // Interaction: Minimize
             el.querySelector('.btn-min-postit').addEventListener('click', () => {
                 const currentP = htmlPostits.find(hp => hp.id === p.id);
@@ -16761,10 +16879,24 @@ function renderHtmlPostits() {
             el.style.height = (p.h * zoom) + 'px';
         }
         
-        // Mise à l'échelle du texte si on zoome (approximation CSS scale ou font-size)
+        // Mise à l'échelle du texte si on zoome. On part de la taille choisie
+        // pour ce post-it : elle était perdue au premier redessin.
         const body = el.querySelector('.html-postit-body');
-        body.style.fontSize = (20 * zoom) + 'px';
-        
+        body.style.fontSize = ((p.fontSize || 20) * zoom) + 'px';
+        const liste = el.querySelector('.html-postit-liste');
+        if (liste) {
+            liste.style.fontSize = ((p.fontSize || 20) * zoom) + 'px';
+            liste.style.fontFamily = p.fontFamily || 'Kalam';
+        }
+
+        // Note libre ou liste à cocher : on ne repeint que si le mode change,
+        // sinon on effacerait ce que l'on est en train d'écrire.
+        const modeVoulu = p.mode === 'liste' ? 'liste' : 'texte';
+        if (el.dataset.modeAffiche !== modeVoulu && el._postitAppliquerMode) {
+            el.dataset.modeAffiche = modeVoulu;
+            el._postitAppliquerMode(p);
+        }
+
         el.style.zIndex = p.z || 10;
     });
 }
