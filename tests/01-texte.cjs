@@ -457,6 +457,65 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     });
     r.egal('un presse-papiers vide ne pose rien', rienDeColable, 0);
 
+    // --- Le cadre d'export doit contenir le texte en entier ---
+    // Il supposait 300 × 100 pour n'importe quel bloc : un long texte sortait
+    // du cadre et le PDF le tranchait en plein mot.
+    const cadre = await page.evaluate(() => {
+        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
+         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        const lignes = [
+            'Les courbes de ta peau se dessinent sous mes doigts',
+            'comme une carte que je connais par coeur,',
+            'et chaque grain est une ville ou je me perds',
+            'sans jamais vouloir retrouver mon chemin.',
+            'Le temps s\'arrete a la lisiere de ton epaule,',
+            'la ou le jour hesite encore a se lever.',
+            'Je compte les silences entre deux respirations',
+            'et j\'y trouve la mesure exacte du bonheur.'
+        ];
+        texts.push({
+            id: nextId++, x: 100, y: 100,
+            content: lignes.map(l => '<div>' + l + '</div>').join(''),
+            fontSize: 34, lineHeight: 44, color: '#2d3436',
+            fontFamily: 'sans-serif', align: 'left', z: globalZ++
+        });
+        draw();
+        const b = boiteDuTexte(texts[0]);
+        const box = getAutoBoundingBox(40);
+        // Le cadre revient en pixels écran : on le repasse en coordonnées du tableau
+        const c = {
+            x1: (box.startX - panX) / zoom, y1: (box.startY - panY) / zoom,
+            x2: (box.endX - panX) / zoom, y2: (box.endY - panY) / zoom
+        };
+        return {
+            large: b.w > 600, haut: b.h > 300,
+            couvre: c.x1 <= b.x && c.y1 <= b.y && c.x2 >= b.x + b.w && c.y2 >= b.y + b.h,
+            detail: JSON.stringify({ texte: b, cadre: c })
+        };
+    });
+    r.verifie('un poème de huit lignes est mesuré à sa vraie taille',
+        cadre.large && cadre.haut, cadre.detail);
+    r.verifie('et le cadre d\'export le contient en entier', cadre.couvre, cadre.detail);
+
+    // Une bulle, une image penchée et un arc comptent aussi dans le cadre
+    const autres = await page.evaluate(() => {
+        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
+         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        arcs.push({ id: nextId++, cx: 900, cy: 900, radius: 120, startAngle: 0, endAngle: 3, z: globalZ++ });
+        const box = getAutoBoundingBox(0);
+        const arc = { x2: (box.endX - panX) / zoom, y2: (box.endY - panY) / zoom };
+        arcs.length = 0;
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 40, angle: Math.PI / 2,
+                      cx: 0, cy: 0, cw: 400, ch: 40, src: '', z: globalZ++ });
+        const box2 = getAutoBoundingBox(0);
+        const img = { y1: (box2.startY - panY) / zoom, y2: (box2.endY - panY) / zoom };
+        return { arc, img };
+    });
+    r.verifie('un arc n\'est plus oublié par le recadrage',
+        autres.arc.x2 >= 1020 && autres.arc.y2 >= 1020, JSON.stringify(autres.arc));
+    r.verifie('une image pivotée est mesurée dans sa position réelle',
+        autres.img.y2 - autres.img.y1 > 390, JSON.stringify(autres.img));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

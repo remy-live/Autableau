@@ -2796,6 +2796,40 @@ function generateSVGString(rect, keepBg) {
 const exportPopover = document.getElementById('export-popover');
 const btnCapture = document.getElementById('btn-capture');
 
+// Place qu'occupe VRAIMENT un bloc de texte, mise en page comprise.
+// L'export supposait autrefois 300 × 100 pour tout le monde : un poème de dix
+// lignes sortait du cadre et le PDF le tranchait en plein mot.
+function boiteDuTexte(t) {
+    if (t.mathImg) return { x: t.x, y: t.y, w: t.mathW || 0, h: t.mathH || 0 };
+    if (t.isMinimized && t.bubbleShape === 'postit') return { x: t.x, y: t.y, w: 40, h: 40 };
+
+    // On remesure au lieu de lire les métriques du dernier rendu : l'export
+    // multi-pages calcule le cadre avant de redessiner, et les caches d'une
+    // page qu'on vient de quitter n'ont rien à voir avec celle-ci.
+    const layout = layoutTextObject(t, (typeof ctx !== 'undefined') ? ctx : null);
+    let w, h;
+    if (t.fixedWidth && t.fixedHeight) {
+        w = Math.max(layout.width, t.fixedWidth);
+        h = Math.max(layout.height, t.fixedHeight);
+    } else {
+        w = layout.width;
+        h = Math.max(layout.height, t.minHeight || 0);
+    }
+    if (t.isBubble && w < 20) { w = 150; h = Math.max(h, 30); }
+    // Même convention qu'à l'écran : sans colonne, un bloc centré est ancré
+    // par son MILIEU.
+    const x = (t.align === 'center' && !t.colWidth)
+        ? t.x + (t.fixedWidth ? t.fixedWidth / 2 : 0) - w / 2
+        : t.x;
+
+    // La bulle est plus grande que son texte : elle l'entoure d'une marge.
+    if (t.isBubble) {
+        const p = t.bubblePad || 20;
+        return { x: x - p, y: t.y - p, w: w + 2 * p, h: h + 2 * p };
+    }
+    return { x, y: t.y, w, h };
+}
+
 // --- 1. L'Algorithme Magique de Recadrage ---
 function getAutoBoundingBox(padding = 40) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2807,18 +2841,39 @@ function getAutoBoundingBox(padding = 40) {
         hasContent = true;
     }
 
+    // Une boîte penchée déborde de ses propres côtés : on prend ses quatre coins
+    // là où la rotation les a réellement mis.
+    function addBox(x, y, w, h, angle) {
+        if (!angle) { addPt(x, y); addPt(x + w, y + h); return; }
+        const cx = x + w / 2, cy = y + h / 2;
+        const co = Math.cos(angle), si = Math.sin(angle);
+        [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].forEach(([px, py]) => {
+            const dx = px - cx, dy = py - cy;
+            addPt(cx + dx * co - dy * si, cy + dx * si + dy * co);
+        });
+    }
+
     // Fonction pour récupérer un point par son ID en toute sécurité
     const checkPointId = (id) => { const p = getObjectById('point', id); if (p) addPt(p.x, p.y); };
 
     // On scanne tous les tableaux d'objets existants
     if (typeof points !== 'undefined') points.forEach(p => addPt(p.x, p.y));
     if (typeof freehands !== 'undefined') freehands.forEach(f => f.points.forEach(p => addPt(p.x, p.y)));
-    if (typeof images !== 'undefined') images.forEach(img => { addPt(img.x, img.y); addPt(img.x + img.w, img.y + img.h); });
-    if (typeof texts !== 'undefined') texts.forEach(t => { addPt(t.x, t.y); addPt(t.x + 300, t.y + 100); });
+    if (typeof images !== 'undefined') images.forEach(img => addBox(img.x, img.y, img.w, img.h, img.angle || 0));
+    if (typeof texts !== 'undefined') texts.forEach(t => {
+        const b = boiteDuTexte(t);
+        addBox(b.x, b.y, b.w, b.h, t.angle || 0);
+        // La queue de la bulle part souvent bien au-delà du cadre
+        if (t.isBubble && t.tailX !== undefined && t.tailY !== undefined) addPt(t.tailX, t.tailY);
+    });
     if (typeof segments !== 'undefined') segments.forEach(s => { checkPointId(s.p1_id); checkPointId(s.p2_id); });
     if (typeof polygons !== 'undefined') polygons.forEach(poly => poly.points.forEach(checkPointId));
     if (typeof curves !== 'undefined') curves.forEach(c => c.points.forEach(checkPointId));
     if (typeof rectangles !== 'undefined') rectangles.forEach(r => { checkPointId(r.p1_id); checkPointId(r.p2_id); });
+    if (typeof arcs !== 'undefined') arcs.forEach(a => {
+        if (!a || !(a.radius >= 0)) return;
+        addPt(a.cx - a.radius, a.cy - a.radius); addPt(a.cx + a.radius, a.cy + a.radius);
+    });
     if (typeof circles !== 'undefined') circles.forEach(c => {
         const center = getObjectById('point', c.center_id), edge = getObjectById('point', c.edge_id);
         if (center && edge) {
