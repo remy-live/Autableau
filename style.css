@@ -1712,6 +1712,10 @@ body.focus-mode #exit-focus-cross {
     gap: 8px;
 }
 
+/* Copier, couper, dupliquer, coller n'ont pas de contexte : dès que la barre
+   est là, ils sont là. Sans cette règle, le groupe restait invisible — les
+   boutons existaient mais personne ne pouvait les voir. */
+#bar-style .group-edition,
 #bar-style.ctx-point .group-point,
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-text .group-text,
@@ -4788,11 +4792,14 @@ dark-mode .title-btn:hover {
        était donc trop petite ET trop haute de 4,5 px. */
     font: inherit;
     flex: none;
-    width: 1.05em;
-    height: 1.05em;
+    width: 0.92em;
+    height: 0.92em;
     /* La case se pose au milieu de la première ligne : (interligne - hauteur)/2.
-       Alignée sur tout le bloc, elle descendrait au milieu d'une tâche longue. */
-    margin-top: calc((1.35em - 1.05em) / 2);
+       Alignée sur tout le bloc, elle descendrait au milieu d'une tâche longue.
+       Les 0,05em de plus la posent sur le milieu des LETTRES et non de la
+       boîte de ligne : c'est ce que l'œil compare, et le compte exact
+       paraissait toujours trop haut. */
+    margin-top: calc((1.35em - 0.92em) / 2 + 0.05em);
     padding: 0;
     display: flex;
     align-items: center;

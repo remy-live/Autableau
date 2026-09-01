@@ -12508,7 +12508,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof duplicateSelection === 'function') duplicateSelection();
         else dupliquerSelection();
     });
-    brancher('btn-coller', () => {
+    // Le même geste, aux deux endroits : dans la barre de sélection, et dans
+    // la barre du bas où il reste atteignable sans rien avoir sélectionné.
+    const coller = () => {
         // Le presse-papier du tableau d'abord ; sinon celui du système.
         if (collerDuTableau()) return;
         if (navigator.clipboard && navigator.clipboard.readText) {
@@ -12519,7 +12521,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (typeof showToast === 'function') showToast('Collage refusé par le navigateur — faites Ctrl+V');
             });
         } else if (typeof showToast === 'function') showToast('Rien à coller');
-    });
+    };
+    brancher('btn-coller', coller);
+    brancher('btn-coller-tableau', coller);
 });
 
 // 🚀 Lancement blindé (Essaie au chargement, et force après 1.5s au cas où)

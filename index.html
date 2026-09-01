@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=42">
+    <link rel="stylesheet" href="style.css?v=43">
 </head>
 
 <body>
@@ -378,10 +378,13 @@
                         <li><strong>Reconnaissance :</strong> Dessinez + maintenez 1s à la fin</li>
                         <li><strong>Post-it (N) :</strong> glissez un cadre, il devient un papier où l'on écrit.
                             Son en-tête règle la couleur, la police et la taille.</li>
-                        <li><strong>Copier, couper, dupliquer, coller :</strong> quatre boutons dans la barre qui
-                            apparaît quand un objet est sélectionné — les raccourcis <b>Ctrl+C / X / D / V</b>
-                            existaient déjà, mais rien ne les montrait, et sur tablette il n'y a pas de clavier.
-                            La copie garde sa géométrie : un segment collé s'appuie sur ses propres points.</li>
+                        <li><strong>Copier, couper, dupliquer :</strong> trois boutons dans la barre qui apparaît
+                            quand un objet est sélectionné — c'est le seul moment où ces gestes ont un sens.
+                            Raccourcis <b>Ctrl+C / Ctrl+X / Ctrl+D</b>. La copie garde sa géométrie : un segment
+                            collé s'appuie sur ses propres points.</li>
+                        <li><strong>Coller :</strong> son bouton est dans la <b>barre du bas</b>, à côté de « Mes
+                            classes » — on colle justement quand rien n'est sélectionné, et la barre de sélection
+                            n'est pas là à ce moment. Raccourci <b>Ctrl+V</b>.</li>
                         <li><strong>Réordonner les pages :</strong> cliquez sur « 1/3 » en bas pour ouvrir le trieur
                             de diapositives, puis <b>tirez une vignette</b> pour la déplacer — au doigt comme à la
                             souris. Un repère bleu montre où la page atterrira ; relâcher loin du trieur annule.</li>
@@ -1120,6 +1123,15 @@
 
             <button class="btn" id="btn-classes-menu" data-tooltip="Mes classes"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
 
+            <!-- Coller vit ici, et non dans la barre de sélection : on colle
+                 justement quand rien n'est sélectionné, et cette barre-là ne
+                 s'affiche que lorsqu'un objet l'est. -->
+            <button class="btn" id="btn-coller-tableau" data-tooltip="Coller (Ctrl+V)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                </svg></button>
+
             <!-- Deux gestes de tous les jours : ils méritaient une icône, pas une étiquette -->
             <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
@@ -1702,7 +1714,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=100"></script>
+    <script src="script.js?v=101"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=64"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

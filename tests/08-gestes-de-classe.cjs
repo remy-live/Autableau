@@ -222,10 +222,42 @@ module.exports = async function (browser) {
     // --- COPIER, COUPER, DUPLIQUER, COLLER ---
     // Les raccourcis existaient depuis toujours ; rien ne les montrait, et sur
     // tablette il n'y a pas de clavier pour les faire.
-    const boutons = await page.evaluate(() =>
-        ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
-            .filter(i => document.getElementById(i)));
-    r.egal('les quatre boutons sont dans la barre contextuelle', boutons.length, 4);
+    const boutons = await page.evaluate(() => {
+        [points, segments].forEach(a => a.length = 0);
+        const a = { id: nextId++, x: 100, y: 100, z: globalZ++ };
+        const c = { id: nextId++, x: 300, y: 200, z: globalZ++ };
+        points.push(a, c);
+        const seg = { id: nextId++, p1_id: a.id, p2_id: c.id, z: globalZ++ };
+        segments.push(seg);
+        selectedItems = [{ type: 'segment', id: seg.id }];
+        updateStyleBarContext();
+        const grp = document.querySelector('#bar-style .group-edition');
+        return {
+            presents: ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
+                .filter(i => document.getElementById(i)).length,
+            // le groupe était dans le HTML mais aucune règle ne l'affichait :
+            // les boutons existaient sans que personne puisse les voir
+            groupeAffiche: grp && getComputedStyle(grp).display,
+            vus: ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
+                .filter(i => document.getElementById(i).getClientRects().length).length
+        };
+    });
+    r.egal('les quatre boutons sont dans la barre contextuelle', boutons.presents, 4);
+    r.egal('et le groupe est bien affiché quand la barre l\'est', boutons.groupeAffiche, 'flex');
+    r.egal('les quatre se voient vraiment à l\'écran', boutons.vus, 4);
+
+    // Coller doit rester atteignable sans rien de sélectionné : la barre de
+    // sélection, elle, disparaît dès qu'on désélectionne.
+    const collerSansSelection = await page.evaluate(() => {
+        selectedItems = [];
+        updateStyleBarContext();
+        const bas = document.getElementById('btn-coller-tableau');
+        return { enBas: !!bas, visible: !!(bas && bas.getClientRects().length),
+                 barreCachee: !document.getElementById('bar-style').classList.contains('visible') };
+    });
+    r.verifie('un bouton « coller » vit dans la barre du bas', collerSansSelection.enBas);
+    r.verifie('il reste visible sans sélection', collerSansSelection.visible,
+        JSON.stringify(collerSansSelection));
 
     const gestes = await page.evaluate(() => {
         [points, segments, texts, images, freehands].forEach(a => a.length = 0);
