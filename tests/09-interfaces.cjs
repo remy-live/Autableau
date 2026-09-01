@@ -89,11 +89,18 @@ module.exports = async function (browser) {
             outils: barres[0] ? barres[0].items.length : 0,
             idPrincipale: barres[0] ? barres[0].id : null,
             rendues: rendues.length,
-            favoris: JSON.parse(localStorage.getItem('board_favorites') || '[]').length
+            favoris: JSON.parse(localStorage.getItem('board_favorites') || '[]').length,
+            // Si le compte est faux, il faut savoir tout de suite si c'est
+            // l'interface qui est mauvaise ou son chargement qui a été écrasé.
+            modele: (() => {
+                const i = savedInterfaces.find(x => x.id === 'iface_fournie_minimale');
+                const b = i && i.data.toolbars && i.data.toolbars[0];
+                return b ? b.id + ':' + b.items.length : 'introuvable';
+            })()
         };
     });
     r.egal('« Minimale » ne pose qu\'une barre', minimale.nbBarres, 1);
-    r.egal('« Minimale » : cinq outils seulement', minimale.outils, 5);
+    r.verifie('« Minimale » : cinq outils seulement', minimale.outils === 5, JSON.stringify(minimale));
     r.egal('la barre principale n\'est pas reconstruite', minimale.idPrincipale, 'system-toolbar-main');
     r.egal('« Minimale » : aucun favori imposé', minimale.favoris, 0);
     r.verifie('la barre est bien affichée', minimale.rendues >= 1, `${minimale.rendues} barre(s) rendue(s)`);

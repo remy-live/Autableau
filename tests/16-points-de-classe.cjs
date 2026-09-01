@@ -680,6 +680,107 @@ module.exports = async function (browser) {
     r.verifie('les points sont écrits sur l\'élève, dans sa classe', pointsDonnes.surLeleve, JSON.stringify(pointsDonnes));
     r.egal('↶ annule le dernier point donné', pointsDonnes.apresAnnulation, 0);
 
+    // --- LES CLASSES DANS UN FICHIER ---
+    // Tout ce qui fait la classe vit dans le navigateur : un profil effacé et
+    // c'est une année d'avatars, de points et de badges qui disparaît.
+    const dansLaSauvegarde = await page.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'cs', name: '6e B', students: [
+            { id: 'a', name: 'Alice', pts: { plus: 4, moins: 1, etoiles: 1 }, badges: ['b-entraide'] },
+            { id: 'b', name: 'Bilal', frontRow: true, avatar: { teinte: '#0984e3' } }] }]);
+        localStorage.setItem('board_badges', JSON.stringify({
+            perso: [{ id: 'bx', icone: '🎯', nom: 'Table de 7', couleur: '#0984e3' }], masques: ['b-calme'] }));
+        localStorage.setItem('board_points_reglages', JSON.stringify({ seuilNote: 15, seuilRetenue: 4, affichage: 'solde' }));
+        const d = await getWorkspaceData();
+        return {
+            classes: (d.classes || []).length,
+            points: d.classes && d.classes[0].students[0].pts,
+            badgesEleve: d.classes && d.classes[0].students[0].badges,
+            avatar: !!(d.classes && d.classes[0].students[1].avatar),
+            premierRang: d.classes && d.classes[0].students[1].frontRow,
+            catalogue: d.badges && d.badges.perso.length,
+            ecartes: d.badges && d.badges.masques,
+            seuil: d.reglagesPoints && d.reglagesPoints.seuilNote
+        };
+    });
+    r.egal('la sauvegarde complète emporte les classes', dansLaSauvegarde.classes, 1);
+    r.egal('avec les points de chacun', dansLaSauvegarde.points, { plus: 4, moins: 1, etoiles: 1 });
+    r.egal('les badges portés', dansLaSauvegarde.badgesEleve, ['b-entraide']);
+    r.verifie('les avatars personnalisés', dansLaSauvegarde.avatar);
+    r.verifie('et les places du premier rang', dansLaSauvegarde.premierRang);
+    r.egal('le catalogue des badges créés suit', dansLaSauvegarde.catalogue, 1);
+    r.egal('ceux qu\'on avait écartés aussi', dansLaSauvegarde.ecartes, ['b-calme']);
+    r.egal('et les seuils de la classe', dansLaSauvegarde.seuil, 15);
+
+    const fichier = await page.evaluate(async () => {
+        const bilan = await sauverLesClasses();
+        return bilan;
+    });
+    r.verifie('« Sauvegarder » écrit un fichier et dit ce qu\'il contient',
+        !!fichier && fichier.classes === 1 && fichier.eleves === 2, JSON.stringify(fichier));
+
+    const relu = await page.evaluate(async () => {
+        const contenu = JSON.stringify({ format: 'autableau-classes', version: 1, classes: [] });
+        const bon = await lireFichierDeClasses(new File([contenu], 'c.json'));
+        let refus = null;
+        try { await lireFichierDeClasses(new File(['pas du json'], 'x.json')); }
+        catch (e) { refus = e.message; }
+        let sansClasses = null;
+        try { await lireFichierDeClasses(new File([JSON.stringify({ a: 1 })], 'y.json')); }
+        catch (e) { sansClasses = e.message; }
+        return { bon: Array.isArray(bon.classes), refus, sansClasses };
+    });
+    r.verifie('un vrai fichier de classes est relu', relu.bon);
+    r.verifie('un fichier illisible est refusé en clair',
+        /sauvegarde de classes/.test(relu.refus || ''), relu.refus);
+    r.verifie('un JSON sans classes aussi',
+        /ne contient pas de classes/.test(relu.sansClasses || ''), relu.sansClasses);
+
+    // « Compléter » : on récupère ce qui manque, sans rien abîmer de ce qu'on a
+    const completer = await page.evaluate(async () => {
+        const venu = { format: 'autableau-classes', version: 1, classes: [
+            { id: 'cs', name: '6e B', students: [
+                { id: 'a', name: 'Alice', pts: { plus: 99, moins: 99, etoiles: 9 } },
+                { id: 'c', name: 'Chloé' }] },
+            { id: 'autre', name: '5e A', students: [{ id: 'd', name: 'Diego' }] }] };
+        const bilan = await poserLesClasses(venu, 'fusionner');
+        const apres = await ClassesStore.loadAll();
+        const sixieme = apres.find(c => c.name === '6e B');
+        return {
+            bilan, classes: apres.length,
+            eleves: sixieme.students.map(s => s.name),
+            alice: sixieme.students.find(s => s.name === 'Alice').pts,
+            aliceBadges: sixieme.students.find(s => s.name === 'Alice').badges
+        };
+    });
+    r.egal('« Compléter » ajoute la classe qui manque', completer.classes, 2);
+    r.egal('et l\'élève qui manque', completer.eleves, ['Alice', 'Bilal', 'Chloé']);
+    r.egal('sans écraser les points de ceux qui étaient là', completer.alice, { plus: 4, moins: 1, etoiles: 1 });
+    r.egal('ni leurs badges', completer.aliceBadges, ['b-entraide']);
+    r.egal('le bilan dit ce qui a été ajouté', completer.bilan.ajoutees, 1);
+    r.egal('et combien d\'élèves', completer.bilan.elevesAjoutes, 1);
+
+    const deuxFois = await page.evaluate(async () => {
+        const venu = { format: 'autableau-classes', version: 1, classes: [
+            { id: 'cs', name: '6e B', students: [{ id: 'c', name: 'Chloé' }] }] };
+        await poserLesClasses(venu, 'fusionner');
+        const apres = await ClassesStore.loadAll();
+        return apres.find(c => c.name === '6e B').students.map(s => s.name);
+    });
+    r.egal('compléter deux fois ne fait pas de doublon', deuxFois, ['Alice', 'Bilal', 'Chloé']);
+
+    const remplacer = await page.evaluate(async () => {
+        const venu = { format: 'autableau-classes', version: 1,
+            classes: [{ id: 'z', name: 'Terminale S', students: [{ id: 'z0', name: 'Zoé' }] }],
+            badges: { perso: [], masques: [] } };
+        await poserLesClasses(venu, 'remplacer');
+        const apres = await ClassesStore.loadAll();
+        return { n: apres.length, nom: apres[0].name,
+                 badges: JSON.parse(localStorage.getItem('board_badges')) };
+    });
+    r.egal('« Tout remplacer » ne laisse que le fichier', remplacer.n, 1);
+    r.egal('avec ses classes', remplacer.nom, 'Terminale S');
+    r.egal('et son catalogue de badges', remplacer.badges, { perso: [], masques: [] });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

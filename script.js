@@ -874,6 +874,16 @@ function loadPage(index) {
     origineFeuille = p.origineFeuille || { x: 0, y: 0 };
     origineAxes = p.origineAxes || { x: 0, y: 0 };
 
+    // Un tableau enregistré avant que la feuille sache où elle est posée ne
+    // porte pas cette position. Sa feuille se dessinait alors à l'origine du
+    // tableau, souvent à mille pixels du travail : on rouvrait son cours et
+    // l'écran paraissait vide, comme si le fond avait été perdu. On la
+    // replace autour de ce qui est écrit, sans bouger la vue.
+    if (!p.origineFeuille && typeof replacerLaFeuilleSiBesoin === 'function') {
+        replacerLaFeuilleSiBesoin();
+        p.origineFeuille = { ...origineFeuille };
+    }
+
     document.getElementById('zoom-slider').value = zoom;
     majPastilleZoom();
 
@@ -1572,6 +1582,7 @@ document.getElementById('file-loader').addEventListener('change', (e) => {
 
                 // ✅ Réconcilier les classes (élèves) éventuellement incluses dans l'export
                 if (data.classes && typeof ClassesStore !== 'undefined') {
+                    poserLesBadges(data);
                     await ClassesStore.reconcileImport(data.classes);
                 }
             } else if (data.pages) {
@@ -11417,7 +11428,15 @@ function getStoredFloatingToolbars() {
     return JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]');
 }
 
+// Charger une interface écrit les barres puis laisse le temps de lire le
+// message avant de redémarrer. Pendant cette seconde et demie, la session en
+// cours continuait de vivre : le moindre rangement de barres réécrivait
+// par-dessus, et l'on redémarrait avec l'ancienne panoplie — celle qu'on
+// venait justement de remplacer. On ferme donc le robinet.
+let interfaceEnChargement = false;
+
 function saveStoredFloatingToolbars(toolbars) {
+    if (interfaceEnChargement) return;
     localStorage.setItem('board_floating_toolbars', JSON.stringify(toolbars));
 }
 
@@ -12983,10 +13002,17 @@ async function openClassManagerModal() {
         }
 
         box.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; gap:10px;">
                 <h3 style="margin:0; color:var(--accent);">👥 Mes classes</h3>
+                <div style="flex:1;"></div>
+                <button id="cm-sauver" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                        title="Enregistrer un fichier contenant toutes vos classes">💾 Sauvegarder</button>
+                <button id="cm-restaurer" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                        title="Relire un fichier de classes">📂 Restaurer</button>
+                <input type="file" id="cm-fichier-classes" accept=".json,application/json" style="display:none;">
                 <button id="cm-close" style="border:none; background:none; font-size:20px; cursor:pointer; color:var(--muted);">&times;</button>
             </div>
+            <div id="cm-restauration" style="display:none; margin-bottom:12px;"></div>
             <div style="display:flex; gap:15px; flex:1; min-height:0;">
                 <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column;">
                     <button id="cm-new-class" class="btn-action primary" style="margin-bottom:10px; padding:8px;">+ Nouvelle classe</button>
@@ -13006,6 +13032,66 @@ async function openClassManagerModal() {
 
     function attachEvents() {
         box.querySelector('#cm-close').onclick = () => document.body.removeChild(modal);
+
+        // --- Sauvegarder / restaurer ---
+        const zone = box.querySelector('#cm-restauration');
+        const fichier = box.querySelector('#cm-fichier-classes');
+
+        box.querySelector('#cm-sauver').onclick = () => sauverLesClasses();
+        box.querySelector('#cm-restaurer').onclick = () => { fichier.value = ''; fichier.click(); };
+
+        const dire = (html, erreur) => {
+            zone.style.display = 'block';
+            zone.innerHTML = `<div style="border:1px solid ${erreur ? '#d63031' : 'var(--border)'};
+                background:${erreur ? 'rgba(214,48,49,0.08)' : 'var(--bg)'}; border-radius:8px;
+                padding:10px 12px; font-size:12px; line-height:1.5;">${html}</div>`;
+        };
+
+        fichier.onchange = async () => {
+            const f = fichier.files && fichier.files[0];
+            if (!f) return;
+            let data;
+            try { data = await lireFichierDeClasses(f); }
+            catch (e) { return dire(e.message, true); }
+
+            const eleves = data.classes.reduce((n, c) => n + (c.students || []).length, 0);
+            const noms = data.classes.map(c => c.name || '(sans nom)').join(', ');
+            dire(`<b>${data.classes.length} classe(s), ${eleves} élève(s)</b> dans ce fichier :
+                  ${noms.slice(0, 160)}${noms.length > 160 ? '…' : ''}
+                  <div style="display:flex; gap:8px; margin-top:9px; flex-wrap:wrap;">
+                    <button id="cm-fusionner" class="btn-action primary" style="padding:6px 12px; font-size:12px;">Compléter mes classes</button>
+                    <button id="cm-remplacer" class="btn-action secondary" style="padding:6px 12px; font-size:12px; color:#d63031;">Tout remplacer</button>
+                    <button id="cm-annuler-import" class="btn-action secondary" style="padding:6px 12px; font-size:12px;">Annuler</button>
+                  </div>
+                  <div style="color:var(--muted); margin-top:7px;">« Compléter » n'ajoute que les classes et les
+                  élèves qui manquent : rien de ce que vous avez ici n'est modifié, ni les points, ni les badges.
+                  « Tout remplacer » écrase vos classes actuelles par celles du fichier.</div>`);
+
+            const poser = async (maniere) => {
+                try {
+                    const bilan = await poserLesClasses(data, maniere);
+                    state.classes = await ClassesStore.loadAll();
+                    state.selectedId = state.classes[0] ? state.classes[0].id : null;
+                    zone.style.display = 'none';
+                    render();
+                    if (typeof showToast === 'function') {
+                        showToast(maniere === 'remplacer'
+                            ? `📂 ${bilan.classes} classe(s) restaurée(s)`
+                            : `📂 ${bilan.ajoutees} classe(s) et ${bilan.elevesAjoutes} élève(s) ajoutés`);
+                    }
+                } catch (e) { dire('Restauration impossible : ' + (e.message || e), true); }
+            };
+            zone.querySelector('#cm-fusionner').onclick = () => poser('fusionner');
+            zone.querySelector('#cm-annuler-import').onclick = () => { zone.style.display = 'none'; };
+            zone.querySelector('#cm-remplacer').onclick = () => {
+                const faire = () => poser('remplacer');
+                if (typeof openConfirmModal === 'function') {
+                    openConfirmModal('Tout remplacer',
+                        `Vos ${state.classes.length} classe(s) actuelles seront effacées et remplacées par les `
+                        + `${data.classes.length} du fichier — points et badges compris. Continuer ?`, true, faire);
+                } else faire();
+            };
+        };
 
         box.querySelector('#cm-new-class').onclick = () => {
             const newClass = { id: ClassesStore.newId('class'), name: 'Nouvelle classe', students: [], createdAt: Date.now(), updatedAt: Date.now() };
@@ -15454,12 +15540,16 @@ function loadInterface(id) {
     hideTooltip();
     const intf = savedInterfaces.find(i => i.id === id);
     if (intf && intf.data) {
+        interfaceEnChargement = true;      // plus rien n'écrit les barres d'ici au redémarrage
         if (intf.data.favorites) localStorage.setItem('board_favorites', JSON.stringify(intf.data.favorites));
         if (intf.data.toolbars) localStorage.setItem('board_floating_toolbars', JSON.stringify(intf.data.toolbars));
         if (intf.data.barStyleX) localStorage.setItem('bar_style_x', intf.data.barStyleX);
         if (intf.data.barStyleY) localStorage.setItem('bar_style_y', intf.data.barStyleY);
-        showToast("Interface chargée ! L'application va redémarrer.");
-        setTimeout(() => window.location.reload(), 1500);
+        // On redémarre tout de suite. L'attente d'une seconde et demie ne
+        // servait à rien — le message ne survit pas au rechargement — et
+        // laissait à la session le temps de réécrire les barres par-dessus.
+        showToast("Interface chargée ! L'application redémarre.");
+        requestAnimationFrame(() => window.location.reload());
     }
 }
 
@@ -15674,9 +15764,141 @@ async function getWorkspaceData() {
         autoSave: autoSave,
         interfaces: interfaces,
         toolbars: toolbars,
-        favorites: favorites
+        favorites: favorites,
+        // La sauvegarde complète oubliait les classes : la restauration savait
+        // pourtant les relire. Un enseignant sauvegardait « tout » et perdait
+        // quand même ses élèves, leurs avatars, leurs points et leurs badges.
+        ...(await chargeDesClasses())
     };
 }
+
+// ===================================================
+// LES CLASSES DANS UN FICHIER
+// Tout ce qui fait la classe vit dans le navigateur : un profil effacé, un
+// changement d'ordinateur, et une année d'avatars, de points et de badges
+// disparaît. Cette charge utile est la même pour la sauvegarde complète de
+// l'application et pour le fichier de classes seul.
+// ===================================================
+const CLE_BADGES_CLASSE = 'board_badges';
+const CLE_REGLAGES_POINTS = 'board_points_reglages';
+
+async function chargeDesClasses() {
+    const lire = (cle) => {
+        try { return JSON.parse(localStorage.getItem(cle) || 'null'); } catch (e) { return null; }
+    };
+    const classes = (typeof ClassesStore !== 'undefined') ? await ClassesStore.loadAll() : [];
+    return {
+        classes: classes || [],
+        // Les badges créés par l'enseignant vivent hors des élèves : sans eux,
+        // les pastilles restaurées ne renverraient à rien.
+        badges: lire(CLE_BADGES_CLASSE) || undefined,
+        reglagesPoints: lire(CLE_REGLAGES_POINTS) || undefined
+    };
+}
+
+function poserLesBadges(data) {
+    try {
+        if (data.badges) localStorage.setItem(CLE_BADGES_CLASSE, JSON.stringify(data.badges));
+        if (data.reglagesPoints) localStorage.setItem(CLE_REGLAGES_POINTS, JSON.stringify(data.reglagesPoints));
+    } catch (e) { /* stockage refusé */ }
+}
+
+// Le fichier de classes seul : ce que l'on emporte sur une clé, ce que l'on
+// dépose sur son nuage, ce que l'on rouvre sur l'ordinateur de la maison.
+const FORMAT_CLASSES = 'autableau-classes';
+
+async function sauverLesClasses() {
+    const charge = await chargeDesClasses();
+    if (!charge.classes.length) {
+        if (typeof showToast === 'function') showToast('Aucune classe à sauvegarder');
+        return null;
+    }
+    const contenu = JSON.stringify({
+        format: FORMAT_CLASSES, version: 1,
+        date: new Date().toISOString(),
+        ...charge
+    });
+    const jour = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(new Blob([contenu], { type: 'application/json' }));
+    a.href = url;
+    a.download = `mes-classes-${jour}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+
+    const eleves = charge.classes.reduce((n, c) => n + (c.students || []).length, 0);
+    if (typeof showToast === 'function') {
+        showToast(`💾 ${charge.classes.length} classe(s), ${eleves} élève(s) sauvegardés`);
+    }
+    return { classes: charge.classes.length, eleves, octets: contenu.length };
+}
+
+// Lire un fichier de classes sans rien écrire : on montre d'abord ce qu'il
+// contient, l'enseignant choisit ensuite ce qu'on en fait.
+function lireFichierDeClasses(fichier) {
+    return new Promise((resolve, reject) => {
+        const lecteur = new FileReader();
+        lecteur.onerror = () => reject(new Error('Fichier illisible'));
+        lecteur.onload = () => {
+            let data;
+            try { data = JSON.parse(lecteur.result); }
+            catch (e) { return reject(new Error("Ce fichier n'est pas une sauvegarde de classes.")); }
+            if (!data || !Array.isArray(data.classes)) {
+                return reject(new Error("Ce fichier ne contient pas de classes."));
+            }
+            resolve(data);
+        };
+        lecteur.readAsText(fichier);
+    });
+}
+
+// Deux gestes clairement séparés, plutôt qu'un arbitrage silencieux :
+//   « compléter » n'ajoute que ce qui manque et ne touche à rien d'existant ;
+//   « remplacer » écrase tout par le fichier.
+// Les points d'un même élève des deux côtés ne se fusionnent pas : personne
+// ne saurait dire lequel garder.
+async function poserLesClasses(data, maniere) {
+    const locales = await ClassesStore.loadAll();
+    poserLesBadges(data);
+
+    if (maniere === 'remplacer') {
+        await ClassesStore.saveAll(data.classes.map(c => ({ ...c, updatedAt: Date.now() })));
+        return { classes: data.classes.length, ajoutees: data.classes.length, elevesAjoutes: 0 };
+    }
+
+    const clef = (t) => String(t || '').trim().toLowerCase();
+    const fusion = locales.map(c => ({ ...c }));
+    let ajoutees = 0, elevesAjoutes = 0;
+
+    data.classes.forEach(venue => {
+        const place = fusion.find(c => c.id === venue.id)
+            || fusion.find(c => clef(c.name) === clef(venue.name));
+        if (!place) {
+            fusion.push({ ...venue, id: venue.id || ClassesStore.newId('class'), updatedAt: Date.now() });
+            ajoutees++;
+            return;
+        }
+        const connus = new Set((place.students || []).map(s => clef(s.name)));
+        const ids = new Set((place.students || []).map(s => s.id));
+        (venue.students || []).forEach(e => {
+            if (connus.has(clef(e.name)) || ids.has(e.id)) return;
+            place.students = (place.students || []).concat([
+                { ...e, id: ids.has(e.id) ? ClassesStore.newId('stu') : (e.id || ClassesStore.newId('stu')) }
+            ]);
+            connus.add(clef(e.name));
+            elevesAjoutes++;
+        });
+        place.updatedAt = Date.now();
+    });
+
+    await ClassesStore.saveAll(fusion);
+    return { classes: fusion.length, ajoutees, elevesAjoutes };
+}
+window.sauverLesClasses = sauverLesClasses;
+window.lireFichierDeClasses = lireFichierDeClasses;
+window.poserLesClasses = poserLesClasses;
 
 // === EXPORT CE TABLEAU ===
 const btnExportCurrentBoard = document.getElementById('btn-export-current-board');
@@ -16381,32 +16603,39 @@ function promptExportWorkspace() {
     titleEl.innerText = "Exporter tous les tableaus";
     titleEl.style.color = "#0984e3";
 
-    // Estimer les tailles
+    // Estimer les tailles. « savedTableaux » n'est que la liste : le contenu
+    // de chaque tableau vit à part, sous « data_<id> ». On lisait donc t.data,
+    // qui n'existe pas, et l'on annonçait 0 octets quel que soit le travail
+    // enregistré. La lecture est asynchrone : on affiche d'abord, on chiffre
+    // ensuite, et les boutons se mettent à jour quand le compte est fait.
     let totalSizeWithImages = 0;
     let totalSizeWithoutImages = 0;
+    let btnLightweight = null, btnComplete = null;
 
-    if (savedTableaux && savedTableaux.length > 0) {
-        savedTableaux.forEach(t => {
-            if (t.data) {
-                const dataWithImages = calculateObjectSize(t.data);
-                totalSizeWithImages += dataWithImages;
+    textEl.innerHTML = `📊 Taille estimée : calcul en cours…`;
 
-                // Estimer sans images et PDFs
-                const dataCopy = JSON.parse(JSON.stringify(t.data));
-                if (dataCopy.pages) {
-                    dataCopy.pages.forEach(p => {
-                        if (p.images) p.images = [];
-                    });
-                }
-                // Vider les images sans vider la table où vivent leurs sources
-                // laissait tout le poids dans la version « légère ».
-                delete dataCopy.assets;
-                totalSizeWithoutImages += calculateObjectSize(dataCopy);
+    const chiffrer = async () => {
+        const liste = savedTableaux || [];
+        for (const t of liste) {
+            let contenu = t.data;
+            if (!contenu) {
+                try { contenu = await localforage.getItem('data_' + t.id); }
+                catch (e) { contenu = null; }
             }
-        });
-    }
+            if (!contenu) continue;
+            totalSizeWithImages += calculateObjectSize(contenu);
 
-    textEl.innerHTML = `${showMediasWarning(totalSizeWithImages, totalSizeWithoutImages)}`;
+            const copie = JSON.parse(JSON.stringify(contenu));
+            if (copie.pages) copie.pages.forEach(p => { if (p.images) p.images = []; });
+            // Vider les images sans vider la table où vivent leurs sources
+            // laissait tout le poids dans la version « légère ».
+            delete copie.assets;
+            totalSizeWithoutImages += calculateObjectSize(copie);
+        }
+        textEl.innerHTML = showMediasWarning(totalSizeWithImages, totalSizeWithoutImages);
+        if (btnLightweight) btnLightweight.textContent = `Léger (${formatSize(totalSizeWithoutImages)})`;
+        if (btnComplete) btnComplete.textContent = `Complet (${formatSize(totalSizeWithImages)})`;
+    };
 
     // Recréer les boutons (effacer tous les anciens)
     const modalBox = modal.querySelector('.modal-box');
@@ -16427,22 +16656,23 @@ function promptExportWorkspace() {
     btnCancel.onclick = () => { modal.style.display = 'none'; };
     newBtnDiv.appendChild(btnCancel);
 
-    const btnLightweight = document.createElement('button');
+    btnLightweight = document.createElement('button');
     btnLightweight.className = 'btn-action secondary';
-    btnLightweight.textContent = `Léger (${formatSize(totalSizeWithoutImages)})`;
+    btnLightweight.textContent = 'Léger…';
     btnLightweight.style.flex = '1';
     btnLightweight.onclick = () => { modal.style.display = 'none'; exportWorkspace(true, false); };
     newBtnDiv.appendChild(btnLightweight);
 
-    const btnComplete = document.createElement('button');
+    btnComplete = document.createElement('button');
     btnComplete.className = 'btn-action primary';
-    btnComplete.textContent = `Complet (${formatSize(totalSizeWithImages)})`;
+    btnComplete.textContent = 'Complet…';
     btnComplete.style.flex = '1';
     btnComplete.onclick = () => { modal.style.display = 'none'; exportWorkspace(true, true); };
     newBtnDiv.appendChild(btnComplete);
 
     modalBox.appendChild(newBtnDiv);
     modal.style.display = 'flex';
+    return chiffrer();
 }
 
 async function exportWorkspace(includeInterface, includeMedias = true) {
@@ -16532,6 +16762,7 @@ function processWorkspaceData(data) {
         // (avant le reload, pour laisser le temps à l'utilisateur de résoudre les conflits éventuels)
         if (data.classes && typeof ClassesStore !== 'undefined') {
             if (typeof showToast === 'function') showToast("✅ Restauration réussie !");
+            poserLesBadges(data);
             await ClassesStore.reconcileImport(data.classes);
             showToast("🔄 Rechargement...");
             setTimeout(() => window.location.reload(), 800);
@@ -18123,6 +18354,22 @@ function pageEstVide() {
     return listes.every(l => !l || l.length === 0);
 }
 
+// Glisser la feuille SOUS le travail existant, sans toucher à la vue.
+// Rend « true » quand elle a été déplacée.
+function replacerLaFeuilleSiBesoin() {
+    if (!FONDS_FEUILLE.includes(backgrounds[currentBgIndex])) return false;
+    const travail = boiteDuTravail();
+    if (!travail) return false;
+    // Le tracé est centré en largeur et posé sous l'en-tête ; s'il est
+    // plus grand que la feuille, on le cadre au mieux depuis son coin.
+    const HAUT_UTILE = 300;                       // la place de l'en-tête
+    origineFeuille = {
+        x: travail.x + travail.l / 2 - PAGE_L / 2,   // centré en largeur
+        y: travail.y - HAUT_UTILE                    // le tracé démarre sous l'en-tête
+    };
+    return true;
+}
+
 function cadrerSurLaFeuille() {
     const bg = backgrounds[currentBgIndex];
     if (!FONDS_FEUILLE.includes(bg)) return;
@@ -18132,15 +18379,7 @@ function cadrerSurLaFeuille() {
     // recadrer déplaçait tout le tracé sous les yeux du professeur — mais on
     // glisse la feuille SOUS ce travail, pour qu'elle apparaisse autour de lui
     // et non à l'autre bout du tableau.
-    const travail = boiteDuTravail();
-    if (travail) {
-        // Le tracé est centré en largeur et posé sous l'en-tête ; s'il est
-        // plus grand que la feuille, on le cadre au mieux depuis son coin.
-        const HAUT_UTILE = 300;                       // la place de l'en-tête
-        origineFeuille = {
-            x: travail.x + travail.l / 2 - PAGE_L / 2,   // centré en largeur
-            y: travail.y - HAUT_UTILE                    // le tracé démarre sous l'en-tête
-        };
+    if (replacerLaFeuilleSiBesoin()) {
         if (typeof draw === 'function') draw();
         return;
     }

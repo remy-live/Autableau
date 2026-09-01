@@ -199,10 +199,12 @@ module.exports = async function (browser) {
     // Les essais précédents laissent une modale ouverte : elle couvrirait
     // le post-it et avalerait les clics de souris de ce qui suit.
     await page.evaluate(() => {
-        document.querySelectorAll('.modal-backdrop').forEach(m => {
-            if (m.id === 'help-modal' || m.id === 'confirm-modal') m.style.display = 'none';
-            else m.remove();
-        });
+        // On masque, on ne supprime pas : les modales de la page (export,
+        // confirmation…) servent aux essais suivants. Seules celles que le
+        // code fabrique à la volée s'enlèvent.
+        document.querySelectorAll('.modal-backdrop').forEach(m => { m.style.display = 'none'; });
+        const cm = document.getElementById('class-manager-modal');
+        if (cm) cm.remove();
     });
 
     const poserPostit = (contenu) => page.evaluate((c) => {
@@ -389,6 +391,63 @@ module.exports = async function (browser) {
         police.affichee, police.voulue + 'px');
 
     await page.evaluate(() => { htmlPostits.length = 0; renderHtmlPostits(); });
+
+    // --- LA TAILLE ANNONCÉE À L'EXPORT ---
+    // « savedTableaux » n'est que la liste des tableaux : leur contenu vit à
+    // part, sous « data_<id> ». On lisait t.data, qui n'existe pas, et l'on
+    // annonçait « 0 octets » quel que soit le travail enregistré.
+    const tailleExport = await page.evaluate(async () => {
+        const gros = { pages: [{ points: [], segments: [], circles: [], rectangles: [], texts: [],
+            freehands: [{ id: 1, points: Array.from({ length: 400 }, (_, i) => ({ x: i, y: i })), z: 1 }],
+            curves: [], polygons: [], arcs: [], htmlPostits: [],
+            images: [{ id: 2, x: 0, y: 0, w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, srcRef: 'a', z: 2 }] }],
+            assets: { a: 'data:image/png;base64,' + 'B'.repeat(4000) }, nextId: 3, globalZ: 3, currentBgIndex: 0 };
+        await localforage.setItem('data_gros', gros);
+        savedTableaux = [{ id: 'gros', name: 'Un vrai cours', timestamp: Date.now() }];
+
+        await promptExportWorkspace();
+        const texte = document.getElementById('ws-options-text').innerText;
+        const boutons = Array.from(document.querySelectorAll('#workspace-options-modal button'))
+            .map(b => b.textContent.trim());
+        document.getElementById('workspace-options-modal').style.display = 'none';
+        return { texte, boutons };
+    });
+    r.verifie('la taille annoncée n\'est plus nulle',
+        !/0 octets/.test(tailleExport.texte), tailleExport.texte.replace(/\s+/g, ' ').slice(0, 120));
+    r.verifie('elle compte les images dans la version complète',
+        /Avec images\/PDFs *: *[0-9]/.test(tailleExport.texte.replace(/\s+/g, ' ')),
+        tailleExport.texte.replace(/\s+/g, ' ').slice(0, 120));
+    r.verifie('les boutons portent eux aussi un poids réel',
+        tailleExport.boutons.some(b => /Complet \([0-9]/.test(b))
+        && !tailleExport.boutons.some(b => /\(0 octets\)/.test(b)),
+        tailleExport.boutons.join(' | '));
+
+    // --- UN TABLEAU ENREGISTRÉ AVANT QUE LA FEUILLE SACHE OÙ ELLE EST ---
+    // Sa feuille se dessinait à l'origine du tableau, à mille pixels du
+    // travail : on rouvrait son cours et l'écran paraissait vide.
+    const vieuxFichier = await page.evaluate(async () => {
+        const vieux = { nextId: 50, globalZ: 50, currentBgIndex: backgrounds.indexOf('seyes-marge'),
+            pages: [{ points: [{ id: 1, x: 1700, y: 1200, z: 1 }, { id: 2, x: 2100, y: 1500, z: 2 }],
+                segments: [{ id: 3, p1_id: 1, p2_id: 2, z: 3 }],
+                circles: [], rectangles: [], texts: [], freehands: [], curves: [], polygons: [],
+                images: [], arcs: [], htmlPostits: [], panX: -1500, panY: -1000, zoom: 1 }] };
+        await localforage.setItem('data_vieux', vieux);
+        savedTableaux = [{ id: 'vieux', name: 'Cours de l\'an dernier', timestamp: Date.now() }];
+        loadBoard('vieux');
+        await new Promise(r => setTimeout(r, 500));
+        const t = boiteDuTravail();
+        return {
+            fond: backgrounds[currentBgIndex],
+            feuille: { x: Math.round(origineFeuille.x), y: Math.round(origineFeuille.y) },
+            surLaFeuille: !!(t && t.x >= origineFeuille.x && t.x + t.l <= origineFeuille.x + PAGE_L
+                          && t.y >= origineFeuille.y && t.y + t.h <= origineFeuille.y + PAGE_H),
+            retenue: pages[0].origineFeuille && Math.round(pages[0].origineFeuille.x)
+        };
+    });
+    r.egal('le fond enregistré revient bien', vieuxFichier.fond, 'seyes-marge');
+    r.verifie('sa feuille se replace autour du travail plutôt qu\'à l\'origine',
+        vieuxFichier.feuille.x !== 0 && vieuxFichier.surLaFeuille, JSON.stringify(vieuxFichier));
+    r.egal('et la position réparée est retenue', vieuxFichier.retenue, vieuxFichier.feuille.x);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

@@ -1007,6 +1007,88 @@ module.exports = async function (browser) {
     r.verifie('un bouton « Retour » apparaît alors', navigation.retour);
     r.verifie('et il ramène au dossier parent', navigation.revenu === 'Mon Drive', JSON.stringify(navigation));
 
+    // --- LES RACCOURCIS DE CHEMIN ---
+    // On revient toujours aux mêmes dossiers. Un raccourci retient la source
+    // ET le chemin complet : deux dossiers de même nom restent distincts.
+    const naviguer = async (nom) => {
+        await pageWeb.evaluate((n) => {
+            Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+                .find(l => l.innerText.includes(n)).click();
+        }, nom);
+        await pageWeb.waitForTimeout(350);
+    };
+
+    await pageWeb.evaluate(async () => {
+        const arbre = {
+            '': [{ id: 'cours', nom: 'Cours', dossier: true }, { id: 'im', nom: 'Images', dossier: true }],
+            cours: [{ id: 'c5', nom: '5e', dossier: true }],
+            c5: [{ id: 'f1', nom: 'chapitre1.pdf', dossier: false, type: 'application/pdf', taille: 900 }],
+            im: [{ id: 'f2', nom: 'schema.png', dossier: false, type: 'image/png', taille: 400 }]
+        };
+        Explorateur.enregistrer({
+            cle: 'essai', nom: 'Essai', icone: '🧪', dispo: () => true,
+            racine: () => ({ id: '', nom: 'Essai' }),
+            lister: async (d) => arbre[d] || [], telecharger: async () => new File([''], 'x')
+        });
+        localStorage.removeItem('board_explorateur');
+        await Explorateur.ouvrir('essai');
+        await new Promise(r => setTimeout(r, 400));
+    });
+    await naviguer('Cours');
+    await naviguer('5e');
+
+    const pose = await pageWeb.evaluate(() => {
+        const avant = document.getElementById('exp-raccourci').textContent.trim();
+        document.getElementById('exp-raccourci').click();
+        const memoire = JSON.parse(localStorage.getItem('board_explorateur') || '{}').raccourcis || [];
+        return {
+            avant, apres: document.getElementById('exp-raccourci').textContent.trim(),
+            allumee: document.getElementById('exp-raccourci').classList.contains('actif'),
+            bande: getComputedStyle(document.getElementById('exp-raccourcis')).display,
+            puces: document.querySelectorAll('.exp-raccourci').length,
+            nom: memoire[0] && memoire[0].nom,
+            source: memoire[0] && memoire[0].source,
+            chemin: memoire[0] && memoire[0].chemin.map(c => c.nom)
+        };
+    });
+    r.egal('l\'étoile de la barre est vide au départ', pose.avant, '☆');
+    r.egal('elle s\'allume quand on garde le dossier', pose.apres, '★');
+    r.verifie('et se marque comme active', pose.allumee, JSON.stringify(pose));
+    r.verifie('la bande des raccourcis apparaît', pose.bande !== 'none', pose.bande);
+    r.egal('avec une puce', pose.puces, 1);
+    r.egal('qui porte le nom du dossier', pose.nom, '5e');
+    r.egal('sa source', pose.source, 'essai');
+    r.egal('et le chemin complet pour y revenir', pose.chemin, ['Essai', 'Cours', '5e']);
+
+    await pageWeb.evaluate(async () => { await Explorateur.ouvrir('essai'); });
+    await pageWeb.waitForTimeout(400);
+    await naviguer('Images');
+    const parti = await pageWeb.evaluate(() => document.getElementById('exp-chemin').innerText);
+    r.verifie('on peut repartir ailleurs', /Images/.test(parti), parti);
+
+    await pageWeb.evaluate(() => document.querySelector('.exp-raccourci').click());
+    await pageWeb.waitForTimeout(450);
+    const revenu = await pageWeb.evaluate(() => ({
+        chemin: document.getElementById('exp-chemin').innerText,
+        fichiers: Array.from(document.querySelectorAll('#explorateur .exp-ligne')).map(l => l.innerText.trim())
+    }));
+    r.verifie('un clic sur la puce ramène au bon dossier',
+        /Essai › Cours › 5e/.test(revenu.chemin), revenu.chemin);
+    r.verifie('et son contenu est bien là',
+        revenu.fichiers.some(f => /chapitre1\.pdf/.test(f)), JSON.stringify(revenu.fichiers));
+
+    const oté = await pageWeb.evaluate(() => {
+        document.querySelector('.exp-raccourci-oter').click();
+        return {
+            bande: getComputedStyle(document.getElementById('exp-raccourcis')).display,
+            memoire: (JSON.parse(localStorage.getItem('board_explorateur') || '{}').raccourcis || []).length,
+            etoile: document.getElementById('exp-raccourci').textContent.trim()
+        };
+    });
+    r.egal('la croix retire le raccourci', oté.memoire, 0);
+    r.egal('la bande se referme', oté.bande, 'none');
+    r.egal('et l\'étoile de la barre s\'éteint', oté.etoile, '☆');
+
     r.verifie('aucune erreur JS en ligne', errsWeb.length === 0, errsWeb.join(' | '));
     await ctxWeb.close();
     serveur.close();

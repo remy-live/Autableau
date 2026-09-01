@@ -6335,3 +6335,68 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 /* En plein écran la poignée n'a plus rien à ajuster */
 .fen-pleine .fen-poignee { display: none; }
+
+/* ==========================================================================
+   LES RACCOURCIS DE L'EXPLORATEUR
+   On revient toujours aux mêmes dossiers : les cours de l'année, les
+   évaluations, les images. Une étoile dans la barre les garde sous la main.
+   ========================================================================== */
+#exp-raccourcis {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border, #dfe6e9);
+    background: var(--bg, #f8f9fa);
+}
+
+.exp-raccourcis-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--muted, #636e72);
+    flex-shrink: 0;
+}
+
+.exp-raccourci {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 190px;
+    padding: 3px 6px 3px 9px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 13px;
+    background: var(--surface, #fff);
+    color: var(--ink, #2d3436);
+    font-size: 12px;
+    font-family: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.exp-raccourci:hover {
+    border-color: var(--accent, #0984e3);
+    background: var(--accent-soft, rgba(9, 132, 227, 0.08));
+}
+
+.exp-raccourci-oter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    color: var(--muted, #636e72);
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.exp-raccourci-oter:hover { background: rgba(214, 48, 49, 0.15); color: #d63031; }
+
+/* L'étoile de la barre, allumée quand le dossier est déjà en raccourci */
+#exp-raccourci.actif { color: #f39c12; border-color: #f39c12; }
