@@ -1,9 +1,21 @@
 // Socle commun des tests de non-régression d'Au Tableau.
 // Aucune dépendance à installer hormis Playwright.
 const path = require('path');
+const fs = require('fs');
 
 const APP_URL = 'file://' + path.resolve(__dirname, '..', 'index.html');
-const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+
+// Quel navigateur piloter ? CHROMIUM_PATH s'il est donné ; sinon le Chromium
+// déjà présent sur la machine de développement ; sinon RIEN — et Playwright
+// prend alors celui qu'il a installé lui-même. C'est ce dernier cas qui vaut
+// sur un serveur d'intégration : un chemin en dur ne s'y trouve pas.
+const CHROMIUM = (() => {
+    const choisi = process.env.CHROMIUM_PATH;
+    if (choisi) return choisi;
+    const local = '/opt/pw-browsers/chromium';
+    try { if (fs.existsSync(local)) return local; } catch (e) { /* pas d'accès */ }
+    return undefined;
+})();
 
 // Erreurs de chargement sans rapport avec le code testé
 const BRUIT = /jsPDF|pdfjsLib|localforage is not defined|getUserMedia|mediaDevices|ResizeObserver loop/;

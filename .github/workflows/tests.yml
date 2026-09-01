@@ -1,0 +1,44 @@
+# Lance la suite de non-régression : elle ouvre Au Tableau dans un vrai
+# navigateur, dessine, clique, exporte, et vérifie que ce qui marchait
+# marche encore.
+name: Tests
+
+on:
+  # Seulement « main ». Le même commit poussé aussi sur une branche de
+  # travail déclencherait DEUX exécutions par modification — et donc deux
+  # avis d'échec à chaque fois qu'une chose ne va pas.
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Une poussée qui en suit une autre de près annule la précédente : inutile
+# de tester un état déjà dépassé.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Playwright pilote le navigateur ; c'est la seule dépendance, et elle
+      # ne concerne que les tests — le logiciel, lui, n'en charge aucune.
+      - name: Installer Playwright et Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.49.1
+          npx playwright install --with-deps chromium
+
+      # Sans CHROMIUM_PATH, le socle prend le navigateur que Playwright vient
+      # d'installer : c'est exactement ce qu'on veut ici.
+      - name: Lancer la suite
+        run: node tests/run.cjs

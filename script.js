@@ -5926,6 +5926,11 @@ function selectObject(objInfo) {
 function syncStyleWithSelection() { if (selectedItems.length > 0) { selectObject(selectedItems[0]); } else { clearSelection(); } }
 
 function deleteObject(type, id) {
+    // L'hôte s'en va : son encre reste, mais redevient libre. Effacer en
+    // douce l'annotation de quelqu'un serait pire que de la laisser flotter.
+    if ((type === 'text' || type === 'image') && typeof decrocherLesTraits === 'function') {
+        decrocherLesTraits(type, id);
+    }
     if (type === 'point') { points = points.filter(p => p.id !== id); segments = segments.filter(s => s.p1_id !== id && s.p2_id !== id); circles = circles.filter(c => c.center_id !== id && c.edge_id !== id); rectangles = rectangles.filter(r => r.p1_id !== id && r.p2_id !== id); curves = curves.filter(c => !c.points.includes(id)); polygons = polygons.filter(p => !p.points.includes(id)); }
     else if (type === 'segment') segments = segments.filter(s => s.id !== id);
     else if (type === 'circle') circles = circles.filter(c => c.id !== id);
@@ -6883,6 +6888,10 @@ canvas.addEventListener('pointermove', (e) => {
     if (draggedHandle && selectedItems.length === 1 && (selectedItems[0].type === 'image' || selectedItems[0].type === 'text')) {
         const type = selectedItems[0].type;
         const obj = getObjectById(type, selectedItems[0].id);
+        // On relève la boîte et l'angle AVANT la manœuvre : l'encre accrochée
+        // subira ensuite exactement la même transformation.
+        const encreAvant = traitsAccrochesA(type, obj.id).length
+            ? { boite: boiteDeLHote(type, obj), angle: obj.angle || 0 } : null;
         if (!obj.locked) {
             if (draggedHandle === 'ROT') {
                 let cx, cy;
@@ -7032,6 +7041,14 @@ canvas.addEventListener('pointermove', (e) => {
                 // ========================================================
             }
         }
+        // L'encre suit : la rotation autour du même centre, l'agrandissement
+        // dans le même rapport.
+        if (encreAvant && encreAvant.boite) {
+            const dAngle = (obj.angle || 0) - encreAvant.angle;
+            if (dAngle) tournerLesTraits(type, obj.id, { x: encreAvant.boite.cx, y: encreAvant.boite.cy }, dAngle);
+            const apres = boiteDeLHote(type, obj);
+            if (apres) etirerLesTraits(type, obj.id, encreAvant.boite, apres);
+        }
         lastMouseX = e.clientX; lastMouseY = e.clientY;
     }
     else if (isDraggingObjs && selectedItems.length > 0 && lastMouseX !== undefined) {
@@ -7080,6 +7097,12 @@ canvas.addEventListener('pointermove', (e) => {
         // objets se croisent, et il y retournerait aussitôt.
         ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p && !p.depend) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy; } });
         freehandsToMove.forEach(fid => { const f = getObjectById('freehand', fid); if (f) { f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); } }); imgsToMove.forEach(iid => { const i = getObjectById('image', iid); if (i) { i.x += dx; i.y += dy; } });
+        // L'encre posée sur un texte ou une image part avec lui. On exclut les
+        // traits déjà déplacés pour eux-mêmes, sinon ils avanceraient double.
+        txtsToMove.forEach(tid => traitsAccrochesA('text', tid)
+            .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
+        imgsToMove.forEach(iid => traitsAccrochesA('image', iid)
+            .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
         arcsToMove.forEach(aid => { const a = getObjectById('arc', aid); if (a) { a.cx += dx; a.cy += dy; } });
 
         lastMouseX = panX + currentLog.x * zoom;
@@ -7269,7 +7292,19 @@ function handlePointerUp(e) {
     if (glissePage) { glissePage = null; saveState(); }
 
     if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
-    if (isDrawingFreehand) { isDrawingFreehand = false; if (currentFreehand.points.length > 1) { freehands.push(currentFreehand); saveState(); } currentFreehand = null; }
+    if (isDrawingFreehand) {
+        isDrawingFreehand = false;
+        if (currentFreehand.points.length > 1) {
+            freehands.push(currentFreehand);
+            // Un trait posé franchement sur un texte ou une image lui appartient
+            const hote = accrocherLeTrait(currentFreehand);
+            if (hote && typeof showToast === 'function') {
+                showToast(hote.type === 'text' ? 'Trait accroché au texte' : 'Trait accroché à l\'image');
+            }
+            saveState();
+        }
+        currentFreehand = null;
+    }
     updateCursor(); draw();
 }
 
@@ -12351,6 +12386,359 @@ function togglePluginSearch() {
         closePluginSearchResults();
     }
 }
+
+
+
+// ==============================================================================
+// L'ENCRE QUI S'ACCROCHE
+// On entoure un mot, on déplace le texte : le rond restait sur place. Un trait
+// posé FRANCHEMENT sur un texte ou une image s'accroche désormais à lui et le
+// suit — déplacement, rotation, agrandissement. C'est le geste du tableau :
+// l'annotation appartient à ce qu'elle annote.
+//
+// Le trait garde ses coordonnées absolues (rien ne change au rendu) ; ce qui
+// est nouveau, c'est qu'on lui applique les mêmes transformations qu'à son
+// hôte. Décrocher, c'est effacer une seule propriété.
+// ==============================================================================
+const CLE_ENCRE_ACCROCHEE = 'board_encre_accrochee';
+let encreAccrochee = true;
+try {
+    const v = localStorage.getItem(CLE_ENCRE_ACCROCHEE);
+    if (v !== null) encreAccrochee = (v === '1');
+} catch (e) { /* stockage refusé : on garde le comportement par défaut */ }
+
+function basculerEncreAccrochee() {
+    encreAccrochee = !encreAccrochee;
+    try { localStorage.setItem(CLE_ENCRE_ACCROCHEE, encreAccrochee ? '1' : '0'); } catch (e) { }
+    return encreAccrochee;
+}
+
+// La boîte occupée par un hôte possible. Seuls les textes et les images en
+// sont : ce sont eux qu'on entoure. Un point ou un segment, on ne l'annote
+// pas, on le désigne.
+function boiteDeLHote(type, obj) {
+    if (!obj) return null;
+    if (type === 'image') {
+        return { x: obj.x, y: obj.y, w: obj.w, h: obj.h, cx: obj.x + obj.w / 2, cy: obj.y + obj.h / 2 };
+    }
+    if (type === 'text') {
+        const w = obj._cachedW, h = obj._cachedH;
+        if (!(w > 0) || !(h > 0)) return null;      // jamais dessiné : on ne sait pas
+        const x = (obj._cachedStartX !== undefined) ? obj._cachedStartX : obj.x;
+        return { x, y: obj.y, w, h, cx: x + w / 2, cy: obj.y + h / 2 };
+    }
+    return null;
+}
+
+// À qui ce trait appartient-il ? À l'objet le plus haut sur lequel il est
+// POSÉ : il faut que l'essentiel du tracé tombe dedans, marge comprise —
+// on entoure souvent un mot en débordant un peu.
+function hoteDuTrait(trait) {
+    if (!trait || !trait.points || trait.points.length < 2) return null;
+    const candidats = [];
+    texts.forEach(t => { const b = boiteDeLHote('text', t); if (b) candidats.push({ type: 'text', obj: t, b }); });
+    images.forEach(i => { const b = boiteDeLHote('image', i); if (b) candidats.push({ type: 'image', obj: i, b }); });
+    if (!candidats.length) return null;
+
+    // La marge suit la taille de l'objet, sans jamais devenir dérisoire :
+    // un rond autour d'un mot déborde de quelques pixels.
+    let meilleur = null;
+    candidats.forEach(c => {
+        const m = Math.max(14, Math.min(c.b.w, c.b.h) * 0.35);
+        const dedans = trait.points.filter(p =>
+            p.x >= c.b.x - m && p.x <= c.b.x + c.b.w + m &&
+            p.y >= c.b.y - m && p.y <= c.b.y + c.b.h + m).length;
+        const part = dedans / trait.points.length;
+        if (part < 0.75) return;
+        const z = c.obj.z || 0;
+        if (!meilleur || z > meilleur.z) meilleur = { type: c.type, id: c.obj.id, z, part };
+    });
+    return meilleur;
+}
+
+// Appelée quand un tracé vient d'être posé.
+function accrocherLeTrait(trait) {
+    if (!encreAccrochee || !trait) return null;
+    const h = hoteDuTrait(trait);
+    if (!h) return null;
+    trait.surObjet = { type: h.type, id: h.id };
+    return h;
+}
+
+// Les traits accrochés à un objet donné
+function traitsAccrochesA(type, id) {
+    return freehands.filter(f => f.surObjet && f.surObjet.type === type && f.surObjet.id === id);
+}
+
+// Le même déplacement que l'hôte
+function deplacerLesTraits(type, id, dx, dy) {
+    traitsAccrochesA(type, id).forEach(f => {
+        f.points.forEach(p => { p.x += dx; p.y += dy; });
+    });
+}
+
+// La même rotation, autour du même centre
+function tournerLesTraits(type, id, centre, dAngle) {
+    if (!dAngle) return;
+    const co = Math.cos(dAngle), si = Math.sin(dAngle);
+    traitsAccrochesA(type, id).forEach(f => {
+        f.points.forEach(p => {
+            const x = p.x - centre.x, y = p.y - centre.y;
+            p.x = centre.x + x * co - y * si;
+            p.y = centre.y + x * si + y * co;
+        });
+    });
+}
+
+// Le même agrandissement : le trait garde sa place SUR l'objet, et son
+// épaisseur suit, sinon un cercle entourant un mot deviendrait un pâté en
+// agrandissant l'image.
+function etirerLesTraits(type, id, avant, apres) {
+    if (!avant || !apres || !avant.w || !avant.h) return;
+    const kx = apres.w / avant.w, ky = apres.h / avant.h;
+    if (kx === 1 && ky === 1 && avant.x === apres.x && avant.y === apres.y) return;
+    traitsAccrochesA(type, id).forEach(f => {
+        f.points.forEach(p => {
+            p.x = apres.x + (p.x - avant.x) * kx;
+            p.y = apres.y + (p.y - avant.y) * ky;
+        });
+        const k = Math.sqrt(Math.abs(kx * ky));
+        if (k > 0 && isFinite(k)) f.width = Math.max(0.5, (f.width || 2) * k);
+    });
+}
+
+// L'hôte s'en va : l'encre reste, mais redevient libre. Effacer en douce
+// l'annotation de quelqu'un serait pire que de la laisser flotter.
+function decrocherLesTraits(type, id) {
+    traitsAccrochesA(type, id).forEach(f => { delete f.surObjet; });
+}
+
+window.accrocherLeTrait = accrocherLeTrait;
+window.traitsAccrochesA = traitsAccrochesA;
+window.deplacerLesTraits = deplacerLesTraits;
+window.tournerLesTraits = tournerLesTraits;
+window.etirerLesTraits = etirerLesTraits;
+window.decrocherLesTraits = decrocherLesTraits;
+window.basculerEncreAccrochee = basculerEncreAccrochee;
+
+// ==============================================================================
+// PALETTE DE COMMANDES (Ctrl+K)
+// Cent plugins sur douze catégories, quatre barres, deux tiroirs : retrouver
+// une commande demandait de se souvenir où elle est rangée. On tape ce qu'on
+// veut faire, on choisit, c'est lancé — et le résultat dit OÙ la commande se
+// trouve, pour qu'on finisse par le savoir.
+//
+// L'index n'est écrit nulle part : il est récolté dans la page à chaque
+// ouverture. Une commande ajoutée à l'interface est donc trouvable le jour
+// même, et une commande retirée disparaît d'elle-même.
+// ==============================================================================
+
+// Où chercher, et comment s'appelle l'endroit. L'ordre compte : le premier
+// conteneur qui contient le bouton lui donne son lieu.
+const LIEUX_DE_COMMANDE = [
+    { sel: '#bar-tools',           nom: 'Outils',            boutons: '.btn[data-mode], .btn[data-tooltip], .btn[title]' },
+    { sel: '#plugins-grid',        nom: null,                boutons: '.btn' },   // nom = catégorie du plugin
+    { sel: '#plugin-tabs',         nom: 'Catégories',        boutons: '.btn' },
+    { sel: '#bottom-drawer',       nom: 'Barre du bas',      boutons: '.btn, .menu-item, .category-pill' },
+    { sel: '#bar-style',           nom: 'Styles',            boutons: '.btn' },
+    { sel: '#right-drawer',        nom: 'Explorateur',       boutons: '.rd-btn, .drawer-tab, .trash-btn' }
+];
+
+// Une barre flottante est une COPIE d'une barre existante : ses boutons
+// portent les mêmes noms. On les ignore, sinon chaque commande apparaîtrait
+// deux ou trois fois.
+const COPIES_A_IGNORER = '#dock, .custom-toolbar, #floating-dock';
+
+let commandesTrouvees = [];
+let commandeActive = -1;
+
+function normaliserPourRecherche(s) {
+    return String(s || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+}
+
+// Le nom d'une commande : l'infobulle d'abord (c'est elle qui est écrite pour
+// être lue), puis le titre, puis le texte du bouton.
+function nomDeLaCommande(el) {
+    const brut = el.getAttribute('data-tooltip') || el.getAttribute('title')
+        || el.getAttribute('aria-label') || el.textContent || '';
+    // « Coller (Ctrl+V) » : la touche est un renseignement, pas le nom
+    return brut.replace(/\s+/g, ' ').trim();
+}
+
+// La touche de l'outil, quand il en a une : elle s'affiche à côté du résultat.
+function toucheDeLaCommande(el) {
+    const m = el.dataset && el.dataset.mode;
+    if (!m || typeof RACCOURCIS_OUTILS === 'undefined') return '';
+    const r = RACCOURCIS_OUTILS.find(x => x.mode === m);
+    return r ? r.touche : '';
+}
+
+function recolterLesCommandes() {
+    const vues = new Set();
+    const liste = [];
+
+    LIEUX_DE_COMMANDE.forEach(lieu => {
+        const zone = document.querySelector(lieu.sel);
+        if (!zone) return;
+        zone.querySelectorAll(lieu.boutons).forEach(el => {
+            if (el.closest(COPIES_A_IGNORER)) return;
+            const nom = nomDeLaCommande(el);
+            if (!nom || nom.length > 70) return;
+            const cle = normaliserPourRecherche(nom);
+            if (!cle || vues.has(cle)) return;
+            vues.add(cle);
+            liste.push({
+                el, nom,
+                lieu: lieu.nom || el.dataset.category || 'Plugins',
+                touche: toucheDeLaCommande(el),
+                cle
+            });
+        });
+    });
+    return liste;
+}
+
+// Un mot tapé doit se retrouver dans le nom OU dans le lieu : « pdf export »
+// et « export pdf » trouvent la même chose, et « physique » sort les plugins
+// de la catégorie.
+function filtrerLesCommandes(requete, toutes) {
+    const mots = normaliserPourRecherche(requete).split(' ').filter(Boolean);
+    if (!mots.length) return [];
+    return toutes
+        .map(c => {
+            const foin = c.cle + ' ' + normaliserPourRecherche(c.lieu);
+            if (!mots.every(m => foin.includes(m))) return null;
+            // Ce qui commence par ce qu'on a tapé passe devant : on cherche
+            // « compas », on ne veut pas « rapporteur (compas à côté) » d'abord.
+            const debut = mots.every(m => c.cle.startsWith(m)) ? 0
+                : (c.cle.includes(mots[0]) ? 1 : 2);
+            return { ...c, rang: debut * 1000 + c.nom.length };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.rang - b.rang)
+        .slice(0, 12);
+}
+
+function boitePalette() {
+    let el = document.getElementById('palette-commandes');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'palette-commandes';
+    el.hidden = true;
+    el.innerHTML = `
+        <div class="pal-fond"></div>
+        <div class="pal-boite" role="dialog" aria-label="Rechercher une commande">
+            <input type="text" id="pal-saisie" placeholder="Que voulez-vous faire ?  (compas, exporter pdf, mes classes…)"
+                   autocomplete="off" spellcheck="false">
+            <div id="pal-resultats"></div>
+            <div class="pal-pied">↑ ↓ pour choisir · Entrée pour lancer · Échap pour fermer</div>
+        </div>`;
+    document.body.appendChild(el);
+    el.querySelector('.pal-fond').addEventListener('click', fermerLaPalette);
+    const saisie = el.querySelector('#pal-saisie');
+    saisie.addEventListener('input', () => peindreLaPalette(saisie.value));
+    saisie.addEventListener('keydown', clavierDeLaPalette);
+    return el;
+}
+
+function ouvrirLaPalette() {
+    const el = boitePalette();
+    commandesTrouvees = [];
+    commandeActive = -1;
+    el.hidden = false;
+    const saisie = el.querySelector('#pal-saisie');
+    saisie.value = '';
+    peindreLaPalette('');
+    // Le focus après l'affichage, sinon le navigateur le refuse
+    requestAnimationFrame(() => saisie.focus());
+}
+
+function fermerLaPalette() {
+    const el = document.getElementById('palette-commandes');
+    if (el) el.hidden = true;
+    commandesTrouvees = [];
+    commandeActive = -1;
+}
+
+function laPaletteEstOuverte() {
+    const el = document.getElementById('palette-commandes');
+    return !!el && !el.hidden;
+}
+
+function peindreLaPalette(requete) {
+    const zone = document.getElementById('pal-resultats');
+    if (!zone) return;
+    if (!requete.trim()) {
+        commandesTrouvees = [];
+        commandeActive = -1;
+        zone.innerHTML = `<div class="pal-vide">Tapez un mot : le nom de l'outil, ou ce que vous voulez en faire.</div>`;
+        return;
+    }
+    commandesTrouvees = filtrerLesCommandes(requete, recolterLesCommandes());
+    commandeActive = commandesTrouvees.length ? 0 : -1;
+
+    if (!commandesTrouvees.length) {
+        zone.innerHTML = `<div class="pal-vide">Aucune commande ne correspond.</div>`;
+        return;
+    }
+    zone.innerHTML = commandesTrouvees.map((c, i) => `
+        <button type="button" class="pal-item${i === 0 ? ' actif' : ''}" data-i="${i}">
+            <span class="pal-nom">${c.nom.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>
+            ${c.touche ? `<span class="pal-touche">${c.touche}</span>` : ''}
+            <span class="pal-lieu">${String(c.lieu).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>
+        </button>`).join('');
+    zone.querySelectorAll('.pal-item').forEach(b => {
+        b.addEventListener('click', () => lancerLaCommande(Number(b.dataset.i)));
+    });
+}
+
+function deplacerDansLaPalette(pas) {
+    if (!commandesTrouvees.length) return;
+    commandeActive = (commandeActive + pas + commandesTrouvees.length) % commandesTrouvees.length;
+    const items = document.querySelectorAll('#pal-resultats .pal-item');
+    items.forEach((el, i) => el.classList.toggle('actif', i === commandeActive));
+    if (items[commandeActive]) items[commandeActive].scrollIntoView({ block: 'nearest' });
+}
+
+function clavierDeLaPalette(e) {
+    if (e.key === 'Escape') { e.preventDefault(); fermerLaPalette(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); deplacerDansLaPalette(1); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); deplacerDansLaPalette(-1); return; }
+    if (e.key === 'Enter') { e.preventDefault(); lancerLaCommande(commandeActive); }
+}
+
+// Lancer une commande, c'est cliquer son bouton là où il est. Un plugin vit
+// dans un onglet : on ouvre l'onglet d'abord, sans quoi le clic tombe sur un
+// bouton que rien n'affiche.
+function lancerLaCommande(i) {
+    const c = commandesTrouvees[i];
+    if (!c) return;
+    const categorie = c.el.dataset && c.el.dataset.category;
+    if (categorie) {
+        const onglet = document.querySelector(`#plugin-tabs .btn[data-cat="${CSS.escape(categorie)}"]`);
+        if (onglet) onglet.click();
+    }
+    fermerLaPalette();
+    // Après la fermeture : le bouton peut ouvrir une fenêtre qui veut le focus
+    requestAnimationFrame(() => { try { c.el.click(); } catch (err) { console.warn(err); } });
+}
+
+// Ctrl+K (⌘K sur Mac). En capture, pour passer avant les raccourcis d'outils.
+window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (laPaletteEstOuverte()) fermerLaPalette(); else ouvrirLaPalette();
+    }
+}, true);
+
+window.ouvrirLaPalette = ouvrirLaPalette;
+window.fermerLaPalette = fermerLaPalette;
+window.recolterLesCommandes = recolterLesCommandes;
+window.filtrerLesCommandes = filtrerLesCommandes;
 
 function closePluginSearchResults() {
     const resultsEl = document.getElementById('plugin-search-results');
@@ -20133,6 +20521,8 @@ function majReglagesBarre() {
     if (bDate) bDate.classList.toggle('actif', reglagesDate.affichee);
     const bAstuces = document.getElementById('rp-astuces');
     if (bAstuces) bAstuces.classList.toggle('actif', astucesActivees());
+    const bEncre = document.getElementById('rp-encre-accrochee');
+    if (bEncre) bEncre.classList.toggle('actif', encreAccrochee);
 }
 
 function basculerReglagesBarre(e) {
@@ -20167,6 +20557,16 @@ document.addEventListener('DOMContentLoaded', () => {
         enregistrerReglagesDate();
         majAffichageDate();
         majReglagesBarre();
+    });
+
+    const bEncre = document.getElementById('rp-encre-accrochee');
+    if (bEncre) bEncre.addEventListener('click', () => {
+        const active = basculerEncreAccrochee();
+        majReglagesBarre();
+        if (typeof showToast === 'function') {
+            showToast(active ? 'L\'encre s\'accroche à ce qu\'elle annote'
+                             : 'L\'encre reste indépendante');
+        }
     });
 
     const bAstuces = document.getElementById('rp-astuces');

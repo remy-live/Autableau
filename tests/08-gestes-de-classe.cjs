@@ -348,6 +348,126 @@ module.exports = async function (browser) {
     });
     r.egal('relâcher loin du trieur ne déplace rien', dehors.apres, dehors.avant);
 
+    // ==========================================================
+    // L'ENCRE QUI S'ACCROCHE
+    // On entoure un mot, on déplace le texte : le rond restait sur place.
+    // Ce test dessine et déplace à la vraie souris — c'est le seul moyen
+    // d'éprouver le crochet posé dans la boucle de déplacement.
+    // ==========================================================
+    const cadre = await page.evaluate(() => {
+        texts.length = 0; images.length = 0; freehands.length = 0;
+        selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        texts.push({
+            id: nextId++, x: 260, y: 220, content: 'Le chat dort',
+            fontSize: 34, lineHeight: 44, color: '#2d3436',
+            fontFamily: 'sans-serif', align: 'left', z: globalZ++
+        });
+        draw();
+        const t = texts[0];
+        setMode('freehand');
+        return {
+            x: t._cachedStartX, y: t.y,
+            w: t._cachedW, h: t._cachedH,
+            cx: t._cachedStartX + t._cachedW / 2, cy: t.y + t._cachedH / 2
+        };
+    });
+
+    // Un rond tracé autour du mot, à la souris
+    await page.mouse.move(cadre.cx, cadre.y - 12);
+    await page.mouse.down();
+    for (let a = -Math.PI / 2; a < Math.PI * 1.6; a += 0.3) {
+        await page.mouse.move(cadre.cx + Math.cos(a) * (cadre.w / 2 + 14),
+                              cadre.cy + Math.sin(a) * (cadre.h / 2 + 14));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+
+    const accroche = await page.evaluate(() => ({
+        traits: freehands.length,
+        surObjet: freehands[0] && freehands[0].surObjet,
+        texteId: texts[0].id
+    }));
+    r.egal('le tracé est bien posé', accroche.traits, 1);
+    r.verifie('et il s\'accroche au texte qu\'il entoure',
+        accroche.surObjet && accroche.surObjet.type === 'text'
+        && accroche.surObjet.id === accroche.texteId, JSON.stringify(accroche.surObjet));
+
+    // On déplace le texte à la souris : le rond doit partir avec lui
+    const departDeLEncre = await page.evaluate(() => {
+        setMode('pointer');
+        return { x0: freehands[0].points[0].x, y0: freehands[0].points[0].y };
+    });
+    await page.mouse.move(cadre.cx, cadre.cy);
+    await page.mouse.down();
+    await page.mouse.move(cadre.cx + 150, cadre.cy + 90, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+
+    const apres = await page.evaluate(() => ({
+        texteX: texts[0].x,
+        traitX: freehands[0].points[0].x,
+        traitY: freehands[0].points[0].y
+    }));
+    r.verifie('le texte a bien été déplacé', apres.texteX > 300, 'x = ' + apres.texteX);
+    r.verifie('et l\'encre a suivi du même mouvement',
+        Math.abs((apres.traitX - departDeLEncre.x0) - 150) < 3 && Math.abs((apres.traitY - departDeLEncre.y0) - 90) < 3,
+        JSON.stringify({ dx: apres.traitX - departDeLEncre.x0, dy: apres.traitY - departDeLEncre.y0 }));
+
+    // Un trait tracé LOIN du texte reste indépendant
+    await page.evaluate(() => { setMode('freehand'); });
+    await page.mouse.move(820, 640);
+    await page.mouse.down();
+    await page.mouse.move(890, 690, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const libre = await page.evaluate(() => ({
+        n: freehands.length,
+        dernierAccroche: !!freehands[freehands.length - 1].surObjet
+    }));
+    r.egal('le second tracé est posé', libre.n, 2);
+    r.verifie('un trait tracé à l\'écart ne s\'accroche à rien', !libre.dernierAccroche);
+
+    // Le réglage éteint le comportement, et il tient d'une séance à l'autre
+    const eteint = await page.evaluate(() => {
+        basculerEncreAccrochee();
+        const memoire = localStorage.getItem('board_encre_accrochee');
+        freehands.length = 0;
+        const t = texts[0];
+        const trait = { id: nextId++, color: '#000', width: 3, z: globalZ++, points: [] };
+        for (let a = 0; a < 6; a += 0.5) {
+            trait.points.push({ x: t._cachedStartX + t._cachedW / 2 + Math.cos(a) * 10,
+                                y: t.y + t._cachedH / 2 + Math.sin(a) * 10 });
+        }
+        freehands.push(trait);
+        const h = accrocherLeTrait(trait);
+        basculerEncreAccrochee();       // on rallume pour la suite
+        return { memoire, accroche: h };
+    });
+    r.egal('le réglage est retenu', eteint.memoire, '0');
+    r.egal('éteint, plus rien ne s\'accroche', eteint.accroche, null);
+
+    // L'hôte supprimé : l'encre reste, mais redevient libre
+    const orpheline = await page.evaluate(() => {
+        freehands.length = 0;
+        const t = texts[0];
+        const trait = { id: nextId++, color: '#000', width: 3, z: globalZ++,
+            points: [{ x: t._cachedStartX + 4, y: t.y + 4 },
+                     { x: t._cachedStartX + t._cachedW - 4, y: t.y + t._cachedH - 4 }] };
+        freehands.push(trait);
+        accrocherLeTrait(trait);
+        const avant = !!trait.surObjet;
+        deleteObject('text', t.id);
+        return { avant, survit: freehands.length === 1, encoreAccrochee: !!freehands[0].surObjet };
+    });
+    r.verifie('un trait posé sur le texte s\'y accroche', orpheline.avant);
+    r.verifie('supprimer le texte ne supprime pas l\'annotation', orpheline.survit);
+    r.verifie('elle redevient simplement libre', !orpheline.encoreAccrochee);
+
+    await page.evaluate(() => {
+        texts.length = 0; freehands.length = 0; images.length = 0;
+        selectedItems = []; setMode('pointer'); draw();
+    });
+
     await context.close();
 
     // --- Au doigt, sur tablette ---

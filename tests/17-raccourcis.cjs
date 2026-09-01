@@ -146,6 +146,111 @@ module.exports = async function (browser) {
     r.verifie('avec exactement les touches du clavier', aide.fidele, JSON.stringify(aide));
     r.verifie('et le nom de chacun', aide.nomme);
 
+    // ==========================================================
+    // PALETTE DE COMMANDES (Ctrl+K)
+    // L'index n'est écrit nulle part : il est récolté dans la page. Une
+    // commande ajoutée à l'interface doit donc être trouvable sans que
+    // personne ait pensé à l'inscrire quelque part.
+    // ==========================================================
+    const recolte = await page.evaluate(() => {
+        const c = recolterLesCommandes();
+        const lieux = {};
+        c.forEach(x => { lieux[x.lieu] = (lieux[x.lieu] || 0) + 1; });
+        return {
+            total: c.length,
+            lieux: Object.keys(lieux).sort(),
+            doublons: c.length - new Set(c.map(x => x.cle)).size,
+            sansNom: c.filter(x => !x.nom.trim()).length,
+            avecTouche: c.filter(x => x.touche).length
+        };
+    });
+    r.verifie('la palette récolte largement plus de commandes que les seuls plugins',
+        recolte.total > 150, 'récoltées : ' + recolte.total);
+    r.verifie('elle couvre les outils, les plugins, la barre du bas, les styles et l\'explorateur',
+        ['Outils', 'Barre du bas', 'Styles', 'Explorateur', 'Jeux'].every(l => recolte.lieux.includes(l)),
+        recolte.lieux.join(', '));
+    r.egal('aucune commande n\'apparaît deux fois', recolte.doublons, 0);
+    r.egal('aucune commande sans nom', recolte.sansNom, 0);
+    r.verifie('les outils affichent leur touche de clavier', recolte.avecTouche >= 15,
+        'avec touche : ' + recolte.avecTouche);
+
+    const recherches = await page.evaluate(() => {
+        const trouver = (q) => filtrerLesCommandes(q, recolterLesCommandes());
+        return {
+            compas: trouver('compas').map(x => x.nom),
+            classes: trouver('classes').map(x => x.nom),
+            // Chercher le nom d'une catégorie sort les plugins qu'elle contient
+            parCategorie: trouver('physique').map(x => x.lieu),
+            // Deux mots dans le désordre trouvent la même chose
+            ordre1: trouver('exporter tableau').map(x => x.nom),
+            ordre2: trouver('tableau exporter').map(x => x.nom),
+            rien: trouver('zzzzz').length,
+            vide: trouver('   ').length
+        };
+    });
+    r.verifie('« compas » trouve le compas', recherches.compas.includes('Compas'),
+        JSON.stringify(recherches.compas));
+    r.verifie('« classes » trouve « Mes classes »', recherches.classes.includes('Mes classes'),
+        JSON.stringify(recherches.classes));
+    r.verifie('chercher une catégorie sort ses plugins',
+        recherches.parCategorie.includes('Physique-Chimie'), JSON.stringify(recherches.parCategorie));
+    r.egal('l\'ordre des mots tapés n\'a pas d\'importance', recherches.ordre1, recherches.ordre2);
+    r.egal('un mot introuvable ne rend rien', recherches.rien, 0);
+    r.egal('une recherche vide non plus', recherches.vide, 0);
+
+    // Le geste complet : Ctrl+K, on tape, on choisit, la commande part
+    await page.keyboard.press('Control+k');
+    await page.waitForTimeout(120);
+    let pal = await page.evaluate(() => ({
+        ouverte: !document.getElementById('palette-commandes').hidden,
+        focus: document.activeElement && document.activeElement.id
+    }));
+    r.verifie('Ctrl+K ouvre la palette', pal.ouverte);
+    r.egal('le curseur est déjà dans le champ', pal.focus, 'pal-saisie');
+
+    await page.keyboard.type('compas');
+    await page.waitForTimeout(120);
+    const liste = await page.evaluate(() => ({
+        n: document.querySelectorAll('#pal-resultats .pal-item').length,
+        premierActif: !!document.querySelector('#pal-resultats .pal-item.actif'),
+        lieuAffiche: (document.querySelector('#pal-resultats .pal-lieu') || {}).textContent
+    }));
+    r.verifie('taper filtre la liste', liste.n >= 1 && liste.n <= 12, 'résultats : ' + liste.n);
+    r.verifie('le premier résultat est déjà choisi', liste.premierActif);
+    r.egal('et le résultat dit où la commande se trouve', liste.lieuAffiche, 'Outils');
+
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    pal = await page.evaluate(() => ({
+        fermee: document.getElementById('palette-commandes').hidden,
+        compasArme: typeof activeWidgets !== 'undefined' && !!activeWidgets['compass']
+    }));
+    r.verifie('Entrée referme la palette', pal.fermee);
+    r.verifie('et lance vraiment la commande', pal.compasArme);
+
+    // Échap referme sans rien lancer
+    await page.keyboard.press('Control+k');
+    await page.waitForTimeout(120);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(120);
+    const apresEchap = await page.evaluate(() =>
+        document.getElementById('palette-commandes').hidden);
+    r.verifie('Échap la referme', apresEchap);
+
+    // Ctrl+K une seconde fois la referme : c'est une bascule
+    await page.keyboard.press('Control+k');
+    await page.waitForTimeout(100);
+    await page.keyboard.press('Control+k');
+    await page.waitForTimeout(100);
+    const bascule = await page.evaluate(() =>
+        document.getElementById('palette-commandes').hidden);
+    r.verifie('et Ctrl+K la referme aussi', bascule);
+
+    // Ctrl+K ne doit pas se faire voler la touche par le raccourci d'outil
+    const pasDeVol = await page.evaluate(() => mode);
+    r.verifie('la touche K n\'a pas changé d\'outil au passage',
+        pasDeVol !== 'freehand', 'mode : ' + pasDeVol);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
