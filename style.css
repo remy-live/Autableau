@@ -4329,6 +4329,61 @@ body.dark-mode {
     font-weight: 600;
 }
 
+/* Un des élus du lot : une pastille sur le bord gauche, qui se lit même
+   quand la ligne est aussi celle du tableau ouvert. */
+.tree-item.du-lot {
+    background: rgba(108, 92, 231, 0.14);
+    box-shadow: inset 3px 0 0 var(--accent, #6c5ce7);
+}
+
+.tree-item.du-lot:hover {
+    background: rgba(108, 92, 231, 0.22);
+}
+
+.exp-lot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 6px 10px 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(108, 92, 231, 0.12);
+    border: 1px solid rgba(108, 92, 231, 0.3);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent, #6c5ce7);
+}
+
+.exp-lot-boutons {
+    display: flex;
+    gap: 6px;
+}
+
+.exp-lot-btn {
+    border: 1px solid rgba(108, 92, 231, 0.35);
+    background: var(--bg, #fff);
+    color: var(--accent, #6c5ce7);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.exp-lot-btn:hover {
+    background: rgba(108, 92, 231, 0.15);
+}
+
+.exp-lot-btn.danger {
+    color: #d63031;
+    border-color: rgba(214, 48, 49, 0.35);
+}
+
+.exp-lot-btn.danger:hover {
+    background: rgba(214, 48, 49, 0.12);
+}
+
 .tree-item .icon {
     margin-right: 8px;
     font-size: 14px;

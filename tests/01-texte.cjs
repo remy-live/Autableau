@@ -516,6 +516,47 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     r.verifie('une image pivotée est mesurée dans sa position réelle',
         autres.img.y2 - autres.img.y1 > 390, JSON.stringify(autres.img));
 
+    // --- Survol et sélection : plus de halo bavant autour des lettres ---
+    const halo = await page.evaluate(() => {
+        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
+         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        selectedItems = []; hoveredObj = null;
+        panX = 200; panY = 200; zoom = 1;
+        texts.push({
+            id: nextId++, x: 60, y: 60, content: 'Et quand on evoque',
+            fontSize: 26, lineHeight: 34, color: '#e74c3c',
+            fontFamily: 'sans-serif', align: 'left', z: globalZ++
+        });
+        const t = texts[0];
+        const board = document.getElementById('board');
+        const g = board.getContext('2d');
+        // Combien de pixels ne sont ni le fond ni l'encre pleine ? Un halo en
+        // sème des centaines tout autour des lettres.
+        const flous = () => {
+            const d = g.getImageData(t.x + panX - 12, t.y + panY - 12, 340, 60).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const [rr, gg, bb] = [d[i], d[i + 1], d[i + 2]];
+                const fond = rr > 245 && gg > 245 && bb > 245;
+                const encre = rr > 180 && gg < 130 && bb < 130;
+                if (!fond && !encre) n++;
+            }
+            return n;
+        };
+        draw(); const repos = flous();
+        hoveredObj = { type: 'text', id: t.id }; draw(); const survol = flous();
+        hoveredObj = null; selectedItems = [{ type: 'text', id: t.id }]; draw();
+        const choisi = flous();
+        selectedItems = [];
+        return { repos, survol, choisi };
+    });
+    // Les lettres restent aussi nettes qu'au repos ; le cadre de survol, lui,
+    // n'ajoute qu'un fin pointillé sur le pourtour de la zone mesurée.
+    r.verifie('survolé, le texte ne prend pas de halo autour des lettres',
+        halo.survol < halo.repos + 1500, JSON.stringify(halo));
+    r.verifie('sélectionné non plus',
+        halo.choisi < halo.repos + 2000, JSON.stringify(halo));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

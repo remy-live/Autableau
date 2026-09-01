@@ -726,6 +726,138 @@ module.exports = async function (browser) {
         vieuxFichier.feuille.x !== 0 && vieuxFichier.surLaFeuille, JSON.stringify(vieuxFichier));
     r.egal('et la position réparée est retenue', vieuxFichier.retenue, vieuxFichier.feuille.x);
 
+    // --- Sélection par lot dans l'explorateur ---
+    const poserDesTableaux = () => page.evaluate(() => {
+        savedTableaux = [
+            { id: 'dossier_a', type: 'folder', name: 'Sixièmes', timestamp: 9 },
+            { id: 's1', name: 'Séance 1', timestamp: 8 },
+            { id: 's2', name: 'Séance 2', timestamp: 7 },
+            { id: 's3', name: 'Séance 3', timestamp: 6 },
+            { id: 's4', name: 'Séance 4', timestamp: 5 }
+        ];
+        currentExplorerTab = 'tableaux';
+        lotExplorateur.clear(); dernierClique = null;
+        document.getElementById('explorer-search-bar').value = '';
+        renderExplorerLists();
+    });
+    const clic = (id, mods = {}) => page.evaluate(([i, m]) => {
+        const lignes = Array.from(document.querySelectorAll('#file-tree-container .tree-item'));
+        const cible = lignes.find(l => (l.querySelector('.label') || {}).textContent === i);
+        if (!cible) return false;
+        cible.dispatchEvent(new MouseEvent('click', Object.assign({ bubbles: true }, m)));
+        return true;
+    }, [id, mods]);
+    const etatDuLot = () => page.evaluate(() => ({
+        lot: [...lotExplorateur].sort(),
+        peints: document.querySelectorAll('#file-tree-container .tree-item.du-lot').length,
+        barre: !document.getElementById('exp-lot').hidden,
+        compte: document.getElementById('exp-lot-compte').textContent
+    }));
+
+    await poserDesTableaux();
+    await clic('Séance 1');
+    await clic('Séance 3', { ctrlKey: true });
+    let lot = await etatDuLot();
+    r.egal('Ctrl+clic ajoute un second tableau au lot', lot.lot, ['s1', 's3']);
+    r.egal('les deux lignes sont marquées', lot.peints, 2);
+    r.verifie('et la barre du lot apparaît', lot.barre && /2 tableaux/.test(lot.compte), lot.compte);
+
+    await clic('Séance 3', { ctrlKey: true });
+    lot = await etatDuLot();
+    r.egal('un second Ctrl+clic le retire', lot.lot, ['s1']);
+    r.egal('un lot réduit à un seul fichier ne se peint plus en lot', lot.peints, 0);
+    r.verifie('et la barre se referme sous deux éléments', !lot.barre);
+
+    await poserDesTableaux();
+    await clic('Séance 1');
+    await clic('Séance 4', { shiftKey: true });
+    lot = await etatDuLot();
+    r.egal('Maj+clic prend toute la tranche', lot.lot, ['s1', 's2', 's3', 's4']);
+
+    // Ranger le lot : la destination vient de la boîte de réglages maison
+    const range = await page.evaluate(() => {
+        rangerLeLot();
+        const titre = document.getElementById('custom-prompt-title').innerText;
+        const select = document.querySelector('#custom-prompt-inputs select');
+        const choix = Array.from(select.options).map(o => o.textContent);
+        select.value = 'dossier_a';
+        document.getElementById('custom-prompt-ok').click();
+        return {
+            titre, choix,
+            ranges: savedTableaux.filter(t => t.parentId === 'dossier_a').map(t => t.id).sort(),
+            lot: lotExplorateur.size
+        };
+    });
+    r.verifie('« Ranger » propose la racine et les dossiers',
+        range.choix.length === 2 && /Sixi/.test(range.choix[1]), JSON.stringify(range.choix));
+    r.egal('les quatre séances atterrissent dans le dossier', range.ranges, ['s1', 's2', 's3', 's4']);
+    r.egal('et le lot est relâché après le rangement', range.lot, 0);
+
+    // Supprimer le lot : une seule question, dans la modale du logiciel
+    await poserDesTableaux();
+    await clic('Séance 2');
+    await clic('Séance 4', { shiftKey: true });
+    const jete = await page.evaluate(async () => {
+        const p = jeterLeLot();
+        await new Promise(r => setTimeout(r, 50));
+        const boite = document.getElementById('confirm-modal');
+        const visible = getComputedStyle(boite).display === 'flex';
+        const texte = document.getElementById('confirm-text').innerText;
+        document.getElementById('confirm-yes-btn').click();
+        await p;
+        return {
+            visible, texte,
+            corbeille: savedTableaux.filter(t => t.deleted).map(t => t.id).sort(),
+            restants: savedTableaux.filter(t => !t.deleted && t.type !== 'folder').map(t => t.id)
+        };
+    });
+    r.verifie('la suppression passe par la modale, pas par confirm()',
+        jete.visible && /3 éléments/.test(jete.texte), JSON.stringify(jete));
+    r.egal('les trois séances partent à la corbeille', jete.corbeille, ['s2', 's3', 's4']);
+    r.egal('la première est intacte', jete.restants, ['s1']);
+
+    // Renoncer laisse tout en place
+    await poserDesTableaux();
+    await clic('Séance 1');
+    await clic('Séance 2', { ctrlKey: true });
+    const renonce = await page.evaluate(async () => {
+        const p = jeterLeLot();
+        await new Promise(r => setTimeout(r, 50));
+        document.getElementById('confirm-cancel-btn').click();
+        await p;
+        return savedTableaux.filter(t => t.deleted).length;
+    });
+    r.egal('« Annuler » ne jette rien', renonce, 0);
+
+    // Plus aucune boîte du navigateur : elles figent la page au vidéoprojecteur
+    const natives = await page.evaluate(() => ({
+        alerte: typeof window.__natifAppele, // jamais défini : garde-fou du test
+        aide: typeof demanderConfirmation === 'function'
+            && typeof demanderUneLigne === 'function'
+            && typeof prevenir === 'function'
+    }));
+    r.verifie('les trois modales maison sont disponibles', natives.aide);
+
+    // La boîte de confirmation retrouve ses deux boutons après un détournement
+    const reparee = await page.evaluate(async () => {
+        promptDeleteItem('s1', 'tableaux');   // remplace les boutons par les siens
+        document.getElementById('confirm-modal').style.display = 'none';
+        let ouverte = false;
+        const p = demanderConfirmation('Question', 'Une question ordinaire')
+            .then(v => { ouverte = v; });
+        await new Promise(r => setTimeout(r, 30));
+        const boutons = {
+            oui: !!document.getElementById('confirm-yes-btn'),
+            non: !!document.getElementById('confirm-cancel-btn')
+        };
+        document.getElementById('confirm-yes-btn').click();
+        await p;
+        return { boutons, ouverte };
+    });
+    r.verifie('après une modale sur mesure, la question ordinaire retrouve ses boutons',
+        reparee.boutons.oui && reparee.boutons.non, JSON.stringify(reparee));
+    r.verifie('et le « Confirmer » répond bien oui', reparee.ouverte === true);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

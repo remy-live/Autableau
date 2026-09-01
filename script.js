@@ -911,7 +911,33 @@ function closeDonationModal() { document.getElementById('donationModal').style.d
 
 let confirmCallback = null;
 let cancelCallback = null;
+// Plusieurs endroits remplacent les boutons de la boîte par les leurs (« Tout
+// effacer », la suppression dans l'explorateur). La boîte servait ensuite avec
+// ces boutons-là : on lui rend sa paire avant chaque question.
+function retablirLesBoutonsDuConfirm() {
+    const zone = document.querySelector('#confirm-modal .modal-box > div:last-child');
+    if (!zone) return;
+    const oui = document.getElementById('confirm-yes-btn');
+    const non = document.getElementById('confirm-cancel-btn');
+    if (oui && non && zone.contains(oui) && zone.contains(non)) {
+        non.style.display = '';
+        oui.textContent = 'Confirmer';
+        return;
+    }
+    zone.innerHTML = '';
+    const annuler = document.createElement('button');
+    annuler.className = 'btn-action secondary'; annuler.id = 'confirm-cancel-btn';
+    annuler.style.flex = '1'; annuler.textContent = 'Annuler';
+    annuler.onclick = triggerConfirmCancel;
+    const valider = document.createElement('button');
+    valider.className = 'btn-action primary'; valider.id = 'confirm-yes-btn';
+    valider.style.flex = '1'; valider.textContent = 'Confirmer';
+    valider.onclick = () => { if (confirmCallback) confirmCallback(); closeConfirmModal(); };
+    zone.appendChild(annuler); zone.appendChild(valider);
+}
+
 function openConfirmModal(title, text, isDanger, callback, onCancel = null) {
+    retablirLesBoutonsDuConfirm();
     document.getElementById('confirm-title').innerText = title;
     document.getElementById('confirm-text').innerText = text;
     const yesBtn = document.getElementById('confirm-yes-btn');
@@ -930,6 +956,43 @@ function triggerConfirmCancel() {
     if (cancelCallback) cancelCallback();
     closeConfirmModal();
 }
+
+// Les boîtes du navigateur (alert, confirm, prompt) n'ont ni notre habillage,
+// ni le mode nuit, et sur vidéoprojecteur elles s'affichent avec l'adresse du
+// site en gros. Voici les trois équivalents maison, à attendre avec « await ».
+function demanderConfirmation(titre, texte, danger = true) {
+    return new Promise(resolve => {
+        openConfirmModal(titre, texte, danger, () => resolve(true), () => resolve(false));
+    });
+}
+
+// Un mot à dire à l'utilisateur, sans question : un seul bouton.
+function prevenir(titre, texte) {
+    return new Promise(resolve => {
+        openConfirmModal(titre, texte, false, () => resolve(), () => resolve());
+        // La paire de boutons est remise en place à chaque ouverture : on peut
+        // masquer « Annuler » ici sans laisser la boîte amputée pour la suite.
+        const annuler = document.getElementById('confirm-cancel-btn');
+        const ok = document.getElementById('confirm-yes-btn');
+        if (annuler) annuler.style.display = 'none';
+        if (ok) ok.textContent = "J'ai compris";
+    });
+}
+
+// Une saisie d'une ligne. Rend le texte tapé, ou null si l'on renonce.
+function demanderUneLigne(titre, label, valeur = '', placeholder = '') {
+    return new Promise(resolve => {
+        openCustomPrompt(titre,
+            [{ label, type: 'text', value: valeur, placeholder }],
+            null,
+            (vals) => resolve((vals[0] || '').trim() || null),
+            () => resolve(null));
+    });
+}
+
+window.demanderConfirmation = demanderConfirmation;
+window.prevenir = prevenir;
+window.demanderUneLigne = demanderUneLigne;
 function clearBoardAndPages() {
     images = []; polygons = []; curves = []; circles = []; arcs = [];
     rectangles = []; segments = []; freehands = []; points = []; texts = [];
@@ -1120,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.addEventListener('mousedown', function (e) {
             if (e.target === this) {
                 if (this.id === 'donationModal') closeDonationModal();
-                else if (this.id === 'confirm-modal') closeConfirmModal();
+                else if (this.id === 'confirm-modal') triggerConfirmCancel();
                 else if (this.id === 'help-modal') this.style.display = 'none';
             }
         });
@@ -1976,7 +2039,10 @@ document.getElementById('btn-tw-mic').addEventListener('click', async () => {
         document.getElementById('btn-tw-mic').style.background = "#00b894";
         document.getElementById('btn-tw-mic').style.color = "white";
         if (!twInterval) startTwLoop();
-    } catch (e) { alert("Erreur micro."); }
+    } catch (e) {
+        prevenir("Micro indisponible",
+            "Le navigateur n'a pas donné accès au micro. Vérifiez l'autorisation du site, puis réessayez.");
+    }
 });
 
 // Drag
@@ -7418,7 +7484,12 @@ function draw() {
             const isSel = isSelected(item.type, obj.id);
             const isHov = hoveredObj && hoveredObj.type === item.type && hoveredObj.id === obj.id;
             const sc = isSel ? "#6c5ce7" : (isHov ? (mode === 'eraser' ? "#d63031" : (isDarkMode ? "#dfe6e9" : "#b2bec3")) : null);
-            if (sc && !isExportingTransparent) { ctx.shadowBlur = 10 * lw; ctx.shadowColor = sc; }
+            // Le halo signale bien un trait ou un point qu'on survole. Sur un
+            // bloc de texte, il bave autour de chaque lettre et rend le
+            // paragraphe entier flou : ce bloc-là se signale par un cadre.
+            const halo = sc && !isExportingTransparent && item.type !== 'text';
+            ctx.shadowBlur = halo ? 10 * lw : 0;
+            ctx.shadowColor = halo ? sc : "transparent";
 
             const renderColor = (!isExportingTransparent && sc === "#d63031") ? sc : (obj.strokeColor || obj.color || (isDarkMode ? '#fff' : '#000'));
 
@@ -7918,6 +7989,10 @@ function draw() {
                         ctx.drawImage(obj.mathImg, startX, obj.y, w, h);
                     } else {
                         const align = obj.align || 'left';
+                        // Les lettres se dessinent toujours nettes : l'ombre que
+                        // la bulle vient de poser autour de sa forme ne doit pas
+                        // déborder sur elles.
+                        ctx.shadowBlur = 0; ctx.shadowColor = "transparent";
                         ctx.textBaseline = 'top';
                         ctx.textAlign = 'left'; // 🌟 C'EST CECI QUI RÉPARE LE DÉCALAGE !
 
@@ -7970,6 +8045,16 @@ function draw() {
                 // 3. SÉLECTION GLOBALE
                 // ==========================================
                 ctx.shadowBlur = 0;
+                // Survol d'un bloc pas encore sélectionné : un cadre léger, là
+                // où les autres objets prennent un halo.
+                if (isHov && !isSel && !isExportingTransparent && !obj.isBubble
+                    && obj.id !== editingTextId && !obj.isMinimized) {
+                    ctx.save();
+                    ctx.strokeStyle = sc; ctx.lineWidth = lw * 1.5;
+                    ctx.setLineDash([6 * lw, 4 * lw]);
+                    ctx.strokeRect(startX - 3 * lw, obj.y - 3 * lw, w + 6 * lw, h + 6 * lw);
+                    ctx.restore();
+                }
                 // Pendant la saisie, le texte vit dans la zone HTML : le cadre
                 // resterait figé sur les dimensions d'avant, à côté du texte
                 // qu'on est en train de taper. On ne le dessine donc pas.
@@ -10434,7 +10519,12 @@ function annulerModePlugin() {
 }
 window.annulerModePlugin = annulerModePlugin;
 
-function openCustomPrompt(title, fields, onChange, onValidate) {
+// Ce que doit faire « Annuler » (bouton ou touche Échap) sur la boîte de
+// réglages ouverte. Sans appelant particulier, on repose l'outil du plugin.
+let annulerLaBoite = null;
+
+function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
+    annulerLaBoite = onCancel || annulerModePlugin;
     document.getElementById('custom-prompt-title').innerText = title;
     const container = document.getElementById('custom-prompt-inputs');
     const previewBox = document.getElementById('custom-prompt-preview');
@@ -10593,8 +10683,20 @@ function openCustomPrompt(title, fields, onChange, onValidate) {
     const newBtnOk = btnOk.cloneNode(true); const newBtnCancel = btnCancel.cloneNode(true);
     btnOk.parentNode.replaceChild(newBtnOk, btnOk); btnCancel.parentNode.replaceChild(newBtnCancel, btnCancel);
 
-    newBtnOk.addEventListener('click', () => { promptModal.style.display = 'none'; if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value)); });
-    newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; annulerModePlugin(); });
+    newBtnOk.addEventListener('click', () => {
+        promptModal.style.display = 'none';
+        annulerLaBoite = null;
+        if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value));
+    });
+    newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; refermerLaBoite(); });
+}
+
+// Referme la boîte de réglages en prévenant celui qui l'a ouverte : sans cela,
+// un « await demanderUneLigne(...) » resterait suspendu pour toujours.
+function refermerLaBoite() {
+    const faire = annulerLaBoite;
+    annulerLaBoite = null;
+    if (faire) faire();
 }
 
 // Échap referme la boîte de réglages comme le bouton « Annuler » : même
@@ -10606,7 +10708,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     e.stopPropagation();
     boite.style.display = 'none';
-    annulerModePlugin();
+    refermerLaBoite();
 }, true);
 // =========================================================
 // GESTION DU DOCK (INJECTION DYNAMIQUE 100% SÉCURISÉE)
@@ -15045,6 +15147,8 @@ function switchDrawerTab(tab) {
     currentExplorerTab = tab;
     selectedFolderId = null;
     inlineCreationState = null;
+    // Le lot appartient à l'onglet où on l'a composé
+    if (typeof lotExplorateur !== 'undefined') { lotExplorateur.clear(); dernierClique = null; }
     document.getElementById('tab-tableaux').classList.toggle('active', tab === 'tableaux');
     document.getElementById('tab-interfaces').classList.toggle('active', tab === 'interfaces');
 
@@ -15396,7 +15500,12 @@ function renderExplorerLists() {
 
     const filteredList = query ? list.filter(t => !t.deleted && ((t.name || '').toLowerCase().includes(query) || t.type === 'folder')) : list.filter(t => !t.deleted);
 
+    // L'ordre où les fichiers apparaissent : c'est lui que suit la sélection
+    // au Maj, pas l'ordre de stockage.
+    ordreAffiche = [];
+
     const treeHtml = buildTree(filteredList, null);
+    majBarreDuLot();
     if (treeHtml) {
         container.appendChild(treeHtml);
     } else if (currentExplorerTab === 'interfaces' && !query) {
@@ -15412,6 +15521,115 @@ function renderExplorerLists() {
 
 let isCompletingInline = false;
 let draggedItemId = null;
+
+// ============================================================
+// SÉLECTION PAR LOT DANS L'EXPLORATEUR
+// Ctrl (ou ⌘) pour piocher un à un, Maj pour prendre une tranche entière.
+// De quoi ranger vingt séances d'un coup, ou les jeter.
+// ============================================================
+let lotExplorateur = new Set();
+let dernierClique = null;          // point d'appui des sélections au Maj
+let ordreAffiche = [];             // les fichiers dans l'ordre où on les voit
+
+function viderLeLot(redessiner = true) {
+    if (!lotExplorateur.size) { majBarreDuLot(); return; }
+    lotExplorateur.clear();
+    dernierClique = null;
+    if (redessiner) renderExplorerLists(); else majBarreDuLot();
+}
+
+function listeCourante() {
+    return currentExplorerTab === 'tableaux' ? savedTableaux : savedInterfaces;
+}
+
+// Un clic sur un fichier : seul, en plus (Ctrl/⌘), ou jusqu'ici (Maj).
+function cliquerDansLeLot(id, e) {
+    const enPlus = e.ctrlKey || e.metaKey;
+    const jusquIci = e.shiftKey;
+
+    if (jusquIci && dernierClique && ordreAffiche.length) {
+        const a = ordreAffiche.indexOf(dernierClique);
+        const b = ordreAffiche.indexOf(id);
+        if (a !== -1 && b !== -1) {
+            const [d, f] = a < b ? [a, b] : [b, a];
+            if (!enPlus) lotExplorateur.clear();
+            for (let i = d; i <= f; i++) lotExplorateur.add(ordreAffiche[i]);
+            renderExplorerLists();
+            return true;
+        }
+    }
+    if (enPlus) {
+        if (lotExplorateur.has(id)) lotExplorateur.delete(id);
+        else lotExplorateur.add(id);
+        dernierClique = id;
+        renderExplorerLists();
+        return true;
+    }
+    // Clic ordinaire : le lot se réduit à ce seul fichier, qui sert de point
+    // d'appui au Ctrl et au Maj suivants.
+    dernierClique = id;
+    lotExplorateur.clear();
+    lotExplorateur.add(id);
+    return false;
+}
+
+function majBarreDuLot() {
+    const barre = document.getElementById('exp-lot');
+    if (!barre) return;
+    const n = lotExplorateur.size;
+    barre.hidden = n < 2;
+    if (n >= 2) {
+        document.getElementById('exp-lot-compte').textContent =
+            n + (currentExplorerTab === 'tableaux' ? ' tableaux sélectionnés' : ' interfaces sélectionnées');
+    }
+}
+
+// Ce qui part réellement : les identifiants encore présents dans l'onglet.
+function elementsDuLot() {
+    const list = listeCourante();
+    return [...lotExplorateur].filter(id => list.some(i => i.id === id && !i.deleted));
+}
+
+async function jeterLeLot() {
+    const ids = elementsDuLot();
+    if (!ids.length) return;
+    const ok = await demanderConfirmation("Mettre à la corbeille",
+        `${ids.length} éléments seront déplacés à la corbeille. Vous pourrez les récupérer ensuite.`);
+    if (!ok) return;
+    ids.forEach(id => moveToTrash(id));
+    viderLeLot(false);
+    renderExplorerLists();
+    renderTrashList();
+    if (typeof showToast === 'function') showToast(`${ids.length} éléments à la corbeille`);
+}
+
+// « Ranger… » : la liste des dossiers de l'onglet, plus la racine.
+function rangerLeLot() {
+    const ids = elementsDuLot();
+    if (!ids.length) return;
+    const dossiers = listeCourante().filter(i => i.type === 'folder' && !i.deleted && !ids.includes(i.id));
+    const options = [{ value: '', label: '— Racine —' }]
+        .concat(dossiers.map(d => ({ value: d.id, label: d.name })));
+
+    openCustomPrompt(`Ranger ${ids.length} éléments`,
+        [{ label: 'Dossier de destination', type: 'select', value: '', options }],
+        null,
+        (vals) => {
+            const cible = vals[0] || null;
+            ids.forEach(id => moveItemToFolder(id, cible));
+            viderLeLot(false);
+            renderExplorerLists();
+            const nom = cible ? (dossiers.find(d => d.id === cible) || {}).name : 'la racine';
+            if (typeof showToast === 'function') showToast(`${ids.length} éléments rangés dans ${nom}`);
+        },
+        () => { /* on renonce : la sélection reste en place */ });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('exp-lot-jeter')?.addEventListener('click', jeterLeLot);
+    document.getElementById('exp-lot-ranger')?.addEventListener('click', rangerLeLot);
+    document.getElementById('exp-lot-rien')?.addEventListener('click', () => viderLeLot());
+});
 
 const TREE_ICON_FOLDER = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
 const TREE_ICON_TABLEAU = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
@@ -15470,6 +15688,11 @@ function buildTree(items, parentId) {
         if (item.type !== 'folder' && ((currentExplorerTab === 'tableaux' && selectedBoardId === item.id) || (currentExplorerTab === 'interfaces' && selectedInterfaceId === item.id))) {
             treeItem.classList.add('selected');
         }
+        if (item.type !== 'folder') {
+            ordreAffiche.push(item.id);
+            // Un seul élu, c'est la sélection ordinaire : elle a déjà son style.
+            if (lotExplorateur.size > 1 && lotExplorateur.has(item.id)) treeItem.classList.add('du-lot');
+        }
 
         treeItem.draggable = true;
         treeItem.ondragstart = (e) => {
@@ -15489,7 +15712,16 @@ function buildTree(items, parentId) {
             e.stopPropagation();
             treeItem.classList.remove('drag-over');
             if (draggedItemId && draggedItemId !== item.id && item.type === 'folder') {
-                moveItemToFolder(draggedItemId, item.id);
+                // Glisser l'un des élus emmène tout le lot avec lui
+                if (lotExplorateur.has(draggedItemId) && lotExplorateur.size > 1) {
+                    const ids = elementsDuLot().filter(id => id !== item.id);
+                    ids.forEach(id => moveItemToFolder(id, item.id));
+                    viderLeLot(false);
+                    renderExplorerLists();
+                    if (typeof showToast === 'function') showToast(`${ids.length} éléments rangés dans ${item.name}`);
+                } else {
+                    moveItemToFolder(draggedItemId, item.id);
+                }
             }
             draggedItemId = null;
         };
@@ -15542,6 +15774,9 @@ function buildTree(items, parentId) {
 
             treeItem.onclick = (e) => {
                 if (e.target.closest('.tree-action-btn')) return;
+
+                // Ctrl/⌘ ou Maj : on compose un lot, sans ouvrir ni renommer
+                if (cliquerDansLeLot(item.id, e)) { clickCount = 0; clearTimeout(clickTimer); return; }
 
                 clickCount++;
                 if (clickCount === 1) {
@@ -15670,8 +15905,10 @@ function restoreFromTrash(itemId) {
     renderTrashList();
 }
 
-function emptyTrash() {
-    if (!confirm("Vider définitivement la corbeille ? Cette action est irréversible.")) return;
+async function emptyTrash() {
+    const feuVert = await demanderConfirmation("Vider la corbeille",
+        "Vider définitivement la corbeille ? Cette action est irréversible.");
+    if (!feuVert) return;
     const list = currentExplorerTab === 'tableaux' ? savedTableaux : savedInterfaces;
     const deletedIds = list.filter(t => t.deleted).map(t => t.id);
     const newList = list.filter(t => !t.deleted);
@@ -15718,14 +15955,15 @@ function renderTrashList() {
         restoreResetBtn.innerText = 'Réinit.';
         restoreResetBtn.style.cssText = btnStyle + ' background: rgba(231, 76, 60, 0.1); color: #e74c3c; border-color: #e74c3c;';
         restoreResetBtn.title = 'Restaurer et réinitialiser l\'interface';
-        restoreResetBtn.onclick = () => {
-            if (confirm('Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?')) {
-                restoreFromTrash(item.id);
-                setTimeout(() => {
-                    localStorage.clear();
-                    location.reload();
-                }, 500);
-            }
+        restoreResetBtn.onclick = async () => {
+            const sur = await demanderConfirmation("Restaurer et réinitialiser",
+                "Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?");
+            if (!sur) return;
+            restoreFromTrash(item.id);
+            setTimeout(() => {
+                localStorage.clear();
+                location.reload();
+            }, 500);
         };
 
         div.appendChild(nameSpan);
@@ -15832,11 +16070,15 @@ function promptDeleteItem(itemId, tab) {
     btnRestore.style.flex = '1';
     btnRestore.onclick = () => {
         moveToTrash(itemId);
-        if (confirm('Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?')) {
-            localStorage.clear();
-            location.reload();
-        }
+        // On referme d'abord : la question suivante se pose dans la même boîte,
+        // qui reprend alors ses deux boutons.
         modal.style.display = 'none';
+        demanderConfirmation("Restaurer l'interface d'origine",
+            "Cela réinitialisera le logiciel à son état initial. Êtes-vous sûr ?").then(sur => {
+                if (!sur) return;
+                localStorage.clear();
+                location.reload();
+            });
     };
     btnContainer.appendChild(btnRestore);
 

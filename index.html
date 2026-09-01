@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=44">
+    <link rel="stylesheet" href="style.css?v=45">
 </head>
 
 <body>
@@ -1454,6 +1454,14 @@
                 style="display:none; width:100%; margin-top:8px; padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--ink); font-size:12px;"
                 oninput="filterExplorerTree()">
         </div>
+        <div id="exp-lot" class="exp-lot" hidden>
+            <span id="exp-lot-compte">0 sélectionnés</span>
+            <div class="exp-lot-boutons">
+                <button class="exp-lot-btn" id="exp-lot-ranger" title="Ranger dans un dossier">Ranger…</button>
+                <button class="exp-lot-btn danger" id="exp-lot-jeter" title="Mettre à la corbeille">Supprimer</button>
+                <button class="exp-lot-btn" id="exp-lot-rien" title="Tout désélectionner">✕</button>
+            </div>
+        </div>
         <div class="file-tree" id="file-tree-container" ondragover="handleTreeDragOver(event)"
             ondrop="handleTreeDrop(event, 'root')"></div>
         <div id="interfaces-container"></div>
@@ -1732,9 +1740,9 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=105"></script>
+    <script src="script.js?v=106"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=65"></script>
+    <script src="plugin.js?v=66"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

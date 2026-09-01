@@ -10999,8 +10999,8 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
             });
         });
 
-        document.getElementById('mol-add-custom-atom').onclick = () => {
-            let sym = prompt("Entrez le symbole du nouvel élément (ex: Ca, K, He) :");
+        document.getElementById('mol-add-custom-atom').onclick = async () => {
+            let sym = await demanderUneLigne("Nouvel élément", "Symbole", '', 'ex : Ca, K, He');
             if (sym && sym.trim() !== '') {
                 sym = sym.trim().substring(0, 3);
                 const colors = ['#8e44ad', '#16a085', '#d35400', '#c0392b', '#2980b9', '#f39c12'];
@@ -20895,7 +20895,7 @@ class ScratchInterpreter {
             await this.sleep(1000);
         }
         else if (text === 'demander') {
-            let res = prompt(String(args[0]));
+            const res = await demanderUneLigne(String(args[0]), 'Réponse');
             this.vars['réponse'] = res || "";
         }
 
@@ -24896,8 +24896,8 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                 this.renderCanvas();
             };
 
-            this.widgetEl.querySelector('#fp-grid-save-new').onclick = () => {
-                let name = prompt("Nom du nouveau template :");
+            this.widgetEl.querySelector('#fp-grid-save-new').onclick = async () => {
+                const name = await demanderUneLigne("Nouveau modèle de grille", "Nom");
                 if (name && name.trim() !== '') {
                     this.gridPresets[name] = JSON.parse(JSON.stringify(this.gridPresets[this.gridType] || []));
                     this.gridType = name;
