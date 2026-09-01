@@ -679,6 +679,34 @@ module.exports = async function (browser) {
     r.egal('une page d\'un autre format repart du haut', autreFormat.hautCoupe, 0);
     r.verifie('et elle est montrée en entier', autreFormat.rognee === false, JSON.stringify(autreFormat));
 
+    // --- CADRE / PAGE : SEULEMENT POUR CE QUI EST UN DOCUMENT ---
+    const modesDoc = await page.evaluate(() => {
+        panX = 400; panY = 300; zoom = 1;
+        const poser = (extra) => {
+            images.length = 0; selectedItems = [];
+            images.push(Object.assign({ id: nextId++, x: -150, y: -100, w: 300, h: 200,
+                cx: 0, cy: 0, cw: 300, ch: 200, src: '', z: globalZ++ }, extra));
+            selectedItems = [{ type: 'image', id: images[0].id }];
+            updateQuickMenu();
+            return getComputedStyle(document.getElementById('doc-modes')).display;
+        };
+        const tampon = poser({ pluginData: { id: 'pyramidGeneratorTool' } });
+        // un mode « page » resté d'un document précédent ne doit pas coller au tampon
+        modeDocument = 'page';
+        poser({ pluginData: { id: 'pyramidGeneratorTool' } });
+        const modeRamene = modeDocument;
+        return {
+            tampon,
+            modeRamene,
+            image: poser({ fileName: 'photo.png' }),
+            pdf: poser({ pluginData: { id: 'pdfDoc', cle: 'x', page: 1, pages: 3 } })
+        };
+    });
+    r.egal('un tampon de plugin n\'a pas les modes Cadre / Page', modesDoc.tampon, 'none');
+    r.egal('et un mode « Page » resté d\'avant est ramené au cadre', modesDoc.modeRamene, 'cadre');
+    r.verifie('une image importée les garde', modesDoc.image !== 'none', modesDoc.image);
+    r.verifie('un PDF aussi', modesDoc.pdf !== 'none', modesDoc.pdf);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

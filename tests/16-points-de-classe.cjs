@@ -319,6 +319,62 @@ module.exports = async function (browser) {
     r.egal('le plan de classe montre l\'avatar des élèves non placés', plan.chips, 3);
     r.egal('et celui des élèves assis', plan.places, 3);
 
+    // --- LES NOMS TIENNENT DANS LEUR PLACE ---
+    const longsNoms = await page.evaluate(async () => {
+        const noms = ['Marie-Charlotte Delaunay', 'Jean-Baptiste Rousseau', 'Anne-Sophie Vandenberghe',
+                      'Youssef El Amrani', 'Abdoulaye Diallo', 'Zoé', 'Tom', 'Inès'];
+        await ClassesStore.saveAll([{ id: 'clong', name: 'Noms longs',
+            students: noms.map((n, i) => ({ id: 'ln' + i, name: n })) }]);
+        document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+        await openSeatingPlanEditor('clong');
+        await new Promise(r => setTimeout(r, 400));
+        const choisir = async (v) => {
+            const t = document.getElementById('sp-template');
+            t.value = String(v); t.dispatchEvent(new Event('change', { bubbles: true }));
+            document.getElementById('sp-apply-template').click();
+            await new Promise(r => setTimeout(r, 250));
+            document.getElementById('sp-autofill').click();
+            await new Promise(r => setTimeout(r, 350));
+        };
+
+        await choisir(0);                               // 4×4 tables doubles
+        const coupes = () => Array.from(document.querySelectorAll('.sp-seat.filled .sp-seat-name'))
+            .filter(n => n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1).length;
+        const large = () => Math.round(document.querySelector('.sp-seat.filled').getBoundingClientRect().width);
+        const serre = { coupes: coupes(), place: large() };
+
+        await choisir(1);                               // 3×3 : moins de tables, plus de place
+        const aere = { coupes: coupes(), place: large() };
+
+        // La place ne descend jamais sous le minimum, quel que soit le modèle
+        await choisir(3);                               // 6×5 tables simples
+        const dense = { place: large() };
+
+        const zone = document.querySelector('.sp-canvas-wrap').getBoundingClientRect();
+        const tables = Array.from(document.querySelectorAll('.sp-table')).map(e => e.getBoundingClientRect());
+        const largeurTotale = Math.max(...tables.map(b => b.right)) - Math.min(...tables.map(b => b.left));
+
+        return { serre, aere, dense, occupation: Math.round(largeurTotale / zone.width * 100) };
+    });
+    r.egal('un nom composé n\'est plus coupé dans sa place', longsNoms.serre.coupes, 0);
+    r.verifie('moins de tables : les places s\'élargissent',
+        longsNoms.aere.place > longsNoms.serre.place, JSON.stringify(longsNoms));
+    r.egal('et rien n\'est coupé non plus', longsNoms.aere.coupes, 0);
+    r.verifie('une disposition dense garde une place lisible',
+        longsNoms.dense.place >= 66, JSON.stringify(longsNoms.dense));
+    r.verifie('les tables occupent la largeur du plan',
+        longsNoms.occupation > 85, `${longsNoms.occupation} %`);
+
+    const surLeTampon = await page.evaluate(() => {
+        // Le tampon écrit les noms au pinceau : trois lignes, comme à l'écran
+        const lignes = [];
+        const faux = { measureText: (t) => ({ width: t.length * 9 }), fillText: (t) => lignes.push(t) };
+        spWrapText(faux, 'Anne-Sophie Vandenberghe', 40, 20, 66, 11);
+        return lignes;
+    });
+    r.verifie('le tampon écrit le nom sur plusieurs lignes', surLeTampon.length >= 2, JSON.stringify(surLeTampon));
+    r.verifie('sans le tronquer', !surLeTampon.join(' ').includes('…'), JSON.stringify(surLeTampon));
+
     // --- L'AVATAR EST OPTIONNEL ---
     const sansMonstre = await page.evaluate(() => {
         const e = { id: 'stu_3', name: 'Ana Belle' };

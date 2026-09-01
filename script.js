@@ -6243,7 +6243,7 @@ canvas.addEventListener('pointerdown', (e) => {
     // En mode « page », glisser DANS le document le fait coulisser dans son
     // cadre : l'objet, lui, ne bouge pas.
     const docChoisi = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
-    if (docChoisi && modeDocument === 'page' && !docChoisi.locked
+    if (docChoisi && estUnDocumentPose(docChoisi) && modeDocument === 'page' && !docChoisi.locked
         && clickedObj && clickedObj.type === 'image' && clickedObj.id === docChoisi.id) {
         if (demarrerGlissePage(docChoisi, rawPos)) { updateCursor(); return; }
     }
@@ -7040,7 +7040,7 @@ canvas.addEventListener('wheel', (e) => {
 
     // En mode « page », la molette zoome la PAGE dans son cadre, pas le tableau
     const docPage = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
-    if (docPage && modeDocument === 'page' && !docPage.locked) {
+    if (docPage && estUnDocumentPose(docPage) && modeDocument === 'page' && !docPage.locked) {
         const p = getRawLogicalPos(e);
         if (p.x >= docPage.x && p.x <= docPage.x + docPage.w && p.y >= docPage.y && p.y <= docPage.y + docPage.h) {
             zoomerPage(docPage, p, Math.exp(-e.deltaY / 450));
@@ -8680,6 +8680,17 @@ function documentSelectionne() {
     return getObjectById('image', selectedItems[0].id) || null;
 }
 
+// Un tampon fabriqué par un plugin (une pyramide, une fraction, une figure)
+// n'est pas un document : il n'y a rien à faire coulisser dans son cadre, tout
+// ce qu'il contient est déjà visible. Les deux modes n'ont de sens que pour un
+// PDF ou un fichier venu du disque.
+function estUnDocumentPose(obj) {
+    if (!obj) return false;
+    if (obj.pluginData && obj.pluginData.id === 'pdfDoc') return true;
+    if (obj.pluginData) return false;          // un tampon de plugin
+    return true;                               // une image importée ou collée
+}
+
 function estUnPdfFeuilletable(obj) {
     return !!(obj && obj.pluginData && obj.pluginData.id === 'pdfDoc'
         && documentsPdf.has(obj.pluginData.cle));
@@ -8711,6 +8722,11 @@ function majBarreDocument() {
         document.getElementById('doc-prec').style.opacity = obj.pluginData.page > 1 ? '1' : '0.35';
         document.getElementById('doc-suiv').style.opacity = obj.pluginData.page < obj.pluginData.pages ? '1' : '0.35';
     }
+    // Cadre / Page : réservés aux documents et aux images importées
+    const unDocument = estUnDocumentPose(obj);
+    if (!unDocument && modeDocument === 'page') modeDocument = 'cadre';
+    document.getElementById('doc-modes').style.display = unDocument ? 'contents' : 'none';
+    document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
     document.getElementById('doc-mode-cadre').classList.toggle('actif', modeDocument === 'cadre' && !obj.locked);
     document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
     document.getElementById('doc-opacite').value = (obj.opacity === undefined ? 1 : obj.opacity);
@@ -12918,10 +12934,34 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==============================================================================
 // MODULE : PLAN DE CLASSE (placement des élèves sur des tables/îlots)
 // ==============================================================================
+// Largeur d'une place. Elle était figée à 70 px : les tables restaient
+// étroites au milieu d'un canevas presque vide, et les noms composés
+// (« Marie-Charlotte », « Jean-Baptiste ») étaient coupés. Chaque plan retient
+// désormais la largeur qui convient à sa disposition.
 const SP_SEAT_W = 70;
+const SP_SEAT_MIN = 70, SP_SEAT_MAX = 190;
+const SP_SEAT_H = 56;
 const SP_GRID_STEP = 20;
 function spSnap(v) { return Math.round(v / SP_GRID_STEP) * SP_GRID_STEP; }
 function spCols(capacity) { return Math.max(1, Math.ceil(Math.sqrt(capacity))); }
+
+// Découpe un nom en lignes qui tiennent dans la largeur d'une place.
+function spWrapText(ctx, text, cx, cy, maxWidth, lineHeight) {
+    const words = text.split(' ');
+    let lines = [], line = '';
+    words.forEach(word => {
+        const test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+        else line = test;
+    });
+    if (line) lines.push(line);
+    // Trois lignes plutôt que deux : un prénom composé suivi d'un nom de
+    // famille tenait rarement en deux, et se retrouvait coupé sur le tampon
+    // alors qu'il s'affichait entier dans l'éditeur.
+    if (lines.length > 3) lines = [lines[0], lines[1], lines[2].slice(0, Math.max(0, lines[2].length - 1)) + '…'];
+    const startY = cy - ((lines.length - 1) * lineHeight) / 2 + 4;
+    lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
+}
 
 const SEATING_TEMPLATES = [
     { label: '4×4 tables doubles (32)', rows: 4, cols: 4, capacity: 2 },
@@ -12959,12 +12999,17 @@ async function openSeatingPlanEditor(classId) {
             .sp-table:hover .sp-table-del { opacity:1; }
             .sp-teacher-desk { border-color:#6c5ce7; background:rgba(108,92,231,0.08); }
             .sp-seats-grid { display:grid; gap:4px; padding:6px; }
-            .sp-seat { background:var(--bg); border:1px dashed var(--border); border-radius:6px; font-size:11px; display:flex; align-items:center; justify-content:center; text-align:center; padding:3px; overflow:hidden; min-width:64px; min-height:40px; color:var(--muted); }
+            .sp-seat { background:var(--bg); border:1px dashed var(--border); border-radius:6px; font-size:12px; display:flex; align-items:center; justify-content:center; text-align:center; padding:4px 5px; overflow:hidden; min-width:64px; min-height:${SP_SEAT_H}px; color:var(--muted); }
             .sp-seat.filled { background:var(--accent-soft); border:1px solid var(--accent); font-weight:600; color:var(--ink); cursor:grab; }
             .sp-seat.dragover { border-color:#00b894 !important; background:rgba(0,184,148,0.15) !important; }
-            .sp-seat { gap:4px; }
-            .sp-seat-avatar, .sp-chip-avatar { flex:none; line-height:0; display:inline-block; vertical-align:middle; margin-right:4px; }
-            .sp-seat-name { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; line-height:1.15; }
+            .sp-seat { gap:2px; flex-direction:column; }
+            /* L'avatar était POSÉ À CÔTÉ du nom et lui prenait un tiers de la
+               largeur : c'est ce qui coupait « Marie-Charlotte ». Il passe
+               au-dessus, le nom garde toute la place. */
+            .sp-seat-avatar { flex:none; line-height:0; }
+            .sp-chip-avatar { flex:none; line-height:0; display:inline-block; vertical-align:middle; margin-right:4px; }
+            .sp-seat-name { width:100%; }
+            .sp-seat-name { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; overflow-wrap:anywhere; line-height:1.2; min-width:0; }
             .sp-sidebar { width:220px; flex-shrink:0; border-left:1px solid var(--border); padding:12px; overflow-y:auto; }
             .sp-chip { background:var(--bg); border:1px solid var(--border); padding:8px 10px; border-radius:6px; font-size:12px; margin-bottom:6px; cursor:grab; box-shadow:0 2px 4px rgba(0,0,0,0.06); word-break:break-word; }
             .sp-chip.frontrow { border-left:3px solid #fdcb6e; }
@@ -13037,6 +13082,22 @@ async function openSeatingPlanEditor(classId) {
         render();
     }
 
+    // La largeur des places de CE plan : celle qui a été calculée pour lui,
+    // sinon la valeur d'origine (les plans déjà enregistrés ne bougent pas).
+    function largeurPlace() {
+        return plan.seatW || SP_SEAT_W;
+    }
+
+    // Répartir la place disponible : on fixe un écart raisonnable entre les
+    // tables, et tout le reste va DANS les tables. Un nom entier vaut mieux
+    // qu'un grand vide entre deux tables.
+    function calculerLargeurPlace(tmplCols, colsParTable, largeurDispo) {
+        const ECART = 26;
+        const partTable = (largeurDispo - (tmplCols - 1) * ECART) / tmplCols;
+        const parPlace = (partTable - 12) / colsParTable;
+        return Math.round(Math.max(SP_SEAT_MIN, Math.min(SP_SEAT_MAX, parPlace)));
+    }
+
     function applyTemplate(idx) {
         const tmpl = SEATING_TEMPLATES[idx];
         if (!tmpl) return;
@@ -13045,18 +13106,21 @@ async function openSeatingPlanEditor(classId) {
         plan.tables = desk ? [desk] : [];
 
         const cols = spCols(tmpl.capacity);
-        const tableW = cols * SP_SEAT_W + 12;
         const rowsInTable = Math.ceil(tmpl.capacity / cols);
-        const tableH = rowsInTable * 44 + 24;
 
         // ✅ Étale la grille sur tout l'espace visible du canevas, pas juste un coin
         const wrapEl = box.querySelector('.sp-canvas-wrap');
         const startX = 30, startY = 60;
-        const availW = Math.max(wrapEl.clientWidth - startX * 2, tableW);
+        const largeurVue = Math.max(320, wrapEl.clientWidth - startX * 2);
+        plan.seatW = calculerLargeurPlace(tmpl.cols, cols, largeurVue);
+
+        const tableW = cols * plan.seatW + 12;
+        const tableH = rowsInTable * (SP_SEAT_H + 4) + 24;
+        const availW = Math.max(largeurVue, tableW);
         const availH = Math.max(wrapEl.clientHeight - startY - 30, tableH);
 
-        const stepX = tmpl.cols > 1 ? Math.max(tableW + 25, (availW - tableW) / (tmpl.cols - 1)) : 0;
-        const stepY = tmpl.rows > 1 ? Math.max(tableH + 35, (availH - tableH) / (tmpl.rows - 1)) : 0;
+        const stepX = tmpl.cols > 1 ? Math.max(tableW + 20, (availW - tableW) / (tmpl.cols - 1)) : 0;
+        const stepY = tmpl.rows > 1 ? Math.max(tableH + 30, (availH - tableH) / (tmpl.rows - 1)) : 0;
 
         for (let r = 0; r < tmpl.rows; r++) {
             for (let c = 0; c < tmpl.cols; c++) {
@@ -13099,19 +13163,6 @@ async function openSeatingPlanEditor(classId) {
         ctx.closePath();
     }
 
-    function spWrapText(ctx, text, cx, cy, maxWidth, lineHeight) {
-        const words = text.split(' ');
-        let lines = [], line = '';
-        words.forEach(word => {
-            const test = line ? line + ' ' + word : word;
-            if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
-            else line = test;
-        });
-        if (line) lines.push(line);
-        if (lines.length > 2) lines = [lines[0], lines[1].slice(0, Math.max(0, lines[1].length - 1)) + '…'];
-        const startY = cy - ((lines.length - 1) * lineHeight) / 2 + 4;
-        lines.forEach((l, i) => ctx.fillText(l, cx, startY + i * lineHeight));
-    }
 
     // Dessine le plan (indépendamment du zoom/scroll du modal) sur un <canvas> offscreen,
     // utilisé à la fois pour l'export PDF et pour le tampon sur le tableau.
@@ -13121,7 +13172,7 @@ async function openSeatingPlanEditor(classId) {
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         tables.forEach(t => {
-            const w = t.isTeacherDesk ? 150 : (t.cols * SP_SEAT_W + 12);
+            const w = t.isTeacherDesk ? 150 : (t.cols * largeurPlace() + 12);
             const rows = t.isTeacherDesk ? 1 : Math.ceil(t.capacity / t.cols);
             const h = t.isTeacherDesk ? 50 : (rows * 46 + 26);
             minX = Math.min(minX, t.x); minY = Math.min(minY, t.y);
@@ -13162,8 +13213,8 @@ async function openSeatingPlanEditor(classId) {
             }
 
             const rows = Math.ceil(t.capacity / t.cols);
-            const w = t.cols * SP_SEAT_W + 12;
-            const h = rows * 46 + 26;
+            const w = t.cols * largeurPlace() + 12;
+            const h = rows * (SP_SEAT_H + 6) + 26;
 
             ctx.fillStyle = '#ffffff';
             ctx.strokeStyle = '#636e72';
@@ -13172,9 +13223,9 @@ async function openSeatingPlanEditor(classId) {
 
             t.seats.forEach((sid, idx) => {
                 const col = idx % t.cols, row = Math.floor(idx / t.cols);
-                const sx = tx + 6 + col * SP_SEAT_W;
+                const sx = tx + 6 + col * largeurPlace();
                 const sy = ty + 20 + row * 46;
-                const sw = SP_SEAT_W - 6, sh = 40;
+                const sw = largeurPlace() - 6, sh = SP_SEAT_H;
 
                 ctx.fillStyle = sid ? '#e8e4fd' : '#f1f2f6';
                 ctx.strokeStyle = sid ? '#6c5ce7' : '#b2bec3';
@@ -13265,7 +13316,7 @@ async function openSeatingPlanEditor(classId) {
             t.seats.forEach((_, idx) => {
                 const col = idx % t.cols;
                 const row = Math.floor(idx / t.cols);
-                list.push({ tableId: t.id, seatIdx: idx, x: t.x + col * SP_SEAT_W, y: t.y + row * 46 });
+                list.push({ tableId: t.id, seatIdx: idx, x: t.x + col * largeurPlace(), y: t.y + row * (SP_SEAT_H + 6) });
             });
         });
         return list;
@@ -13364,11 +13415,11 @@ async function openSeatingPlanEditor(classId) {
                 `;
             }
             const seatsHtml = t.seats.map((sid, idx) => sid
-                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-avatar">${studentAvatar(sid, 20)}</span><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
+                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-avatar">${studentAvatar(sid, 18)}</span><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
                 : `<div class="sp-seat" data-table="${t.id}" data-seat="${idx}">+</div>`
             ).join('');
             return `
-                <div class="sp-table" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:${t.cols * SP_SEAT_W + 12}px;">
+                <div class="sp-table" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:${t.cols * largeurPlace() + 12}px;">
                     <div class="sp-table-handle" data-table="${t.id}">
                         <span class="sp-table-resize-group">
                             <span class="sp-table-resize" data-table="${t.id}" data-delta="-1" title="Retirer une place">−</span>
