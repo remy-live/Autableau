@@ -4755,6 +4755,8 @@ dark-mode .title-btn:hover {
    Le même papier, l'autre usage : la note qu'on écrit d'un trait, et la
    liste dont on raye les lignes au fur et à mesure de l'heure. */
 .html-postit-liste {
+    user-select: text;
+    -webkit-user-select: text;
     flex-grow: 1;
     display: none;
     flex-direction: column;
@@ -4781,6 +4783,10 @@ dark-mode .title-btn:hover {
 .postit-tache:hover { background: rgba(0, 0, 0, 0.04); }
 
 .postit-case {
+    /* Un <button> n'hérite pas de la police : la case se calculait sur les
+       13,3 px par défaut du navigateur au lieu des 20 px de la tâche. Elle
+       était donc trop petite ET trop haute de 4,5 px. */
+    font: inherit;
     flex: none;
     width: 1.05em;
     height: 1.05em;
@@ -4803,6 +4809,11 @@ dark-mode .title-btn:hover {
 .postit-tache.faite .postit-case { background: rgba(0, 0, 0, 0.12); border-color: rgba(0, 0, 0, 0.35); }
 
 .postit-tache-texte {
+    /* Le tableau interdit la sélection partout (user-select: none) pour qu'un
+       glissement ne surligne pas la page. Dans la liste, on la rend : c'est
+       ce qui permet de tout prendre à la souris et de le coller ailleurs. */
+    user-select: text;
+    -webkit-user-select: text;
     flex: 1;
     min-width: 0;
     outline: none;
@@ -4825,6 +4836,10 @@ dark-mode .title-btn:hover {
 }
 
 .postit-tache-oter {
+    /* La croix et le bouton d'ajout ne sont pas du contenu : sélectionner la
+       liste pour la coller ailleurs ne doit pas les emporter. */
+    user-select: none;
+    -webkit-user-select: none;
     flex: none;
     border: none;
     background: none;
@@ -4841,6 +4856,9 @@ dark-mode .title-btn:hover {
 .postit-tache-oter:hover { color: #d63031; }
 
 .postit-ajouter {
+    user-select: none;
+    -webkit-user-select: none;
+    font: inherit;
     align-self: flex-start;
     margin-top: 4px;
     border: none;

@@ -16110,6 +16110,37 @@ function poserLesBadges(data) {
     } catch (e) { /* stockage refusé */ }
 }
 
+// ===================================================
+// ÉCRIRE DANS LE PRESSE-PAPIERS
+// navigator.clipboard n'existe QUE dans un contexte sécurisé. Ouverte depuis
+// un dossier — file://, c'est-à-dire la façon la plus courante d'utiliser
+// l'application — la promesse échoue et le bouton « copier » semblait cassé.
+// On retombe alors sur la vieille méthode, qui marche partout : un champ
+// invisible, une sélection, execCommand.
+// ===================================================
+async function mettreDansLePressePapiers(texte) {
+    if (!texte) return false;
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+        try { await navigator.clipboard.writeText(texte); return true; }
+        catch (e) { /* on tente l'autre voie */ }
+    }
+    try {
+        const champ = document.createElement('textarea');
+        champ.value = texte;
+        champ.setAttribute('readonly', '');
+        champ.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none;';
+        document.body.appendChild(champ);
+        const avant = document.activeElement;
+        champ.select();
+        champ.setSelectionRange(0, texte.length);
+        const ok = document.execCommand('copy');
+        champ.remove();
+        if (avant && avant.focus) avant.focus();
+        return ok;
+    } catch (e) { return false; }
+}
+window.mettreDansLePressePapiers = mettreDansLePressePapiers;
+
 // Le fichier de classes seul : ce que l'on emporte sur une clé, ce que l'on
 // dépose sur son nuage, ce que l'on rouvre sur l'ordinateur de la maison.
 const FORMAT_CLASSES = 'autableau-classes';
@@ -17227,10 +17258,23 @@ function renderHtmlPostits() {
                             aria-checked="${tache.fait}" title="${tache.fait ? 'Pas encore fait' : 'C\'est fait'}">
                             ${tache.fait ? '<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12 10 18 20 6"></polyline></svg>' : ''}
                         </button>
-                        <div class="postit-tache-texte" contenteditable="true" spellcheck="false"></div>
+                        <div class="postit-tache-texte" spellcheck="false"></div>
                         <button class="postit-tache-oter" title="Retirer cette ligne">×</button>`;
                     const texte = ligne.querySelector('.postit-tache-texte');
                     texte.textContent = tache.t || '';
+                    // Chaque ligne était une zone d'édition à part : le
+                    // navigateur refuse alors toute sélection qui les traverse,
+                    // même faite au programme — impossible de tout prendre pour
+                    // le coller ailleurs. La ligne ne devient donc éditable
+                    // qu'au moment où l'on clique dedans ; le reste du temps,
+                    // la liste est du texte ordinaire, que l'on sélectionne
+                    // d'un bout à l'autre comme partout ailleurs.
+                    const ouvrirLaSaisie = () => {
+                        if (texte.getAttribute('contenteditable') === 'true') return;
+                        texte.setAttribute('contenteditable', 'true');
+                    };
+                    texte.addEventListener('pointerdown', ouvrirLaSaisie);
+                    texte.addEventListener('focus', ouvrirLaSaisie);
                     liste.appendChild(ligne);
 
                     ligne.querySelector('.postit-case').addEventListener('click', () => {
@@ -17242,7 +17286,11 @@ function renderHtmlPostits() {
                         majAvancement(o); peindreListe(Math.max(0, i - 1)); saveState();
                     });
                     texte.addEventListener('input', () => { tache.t = texte.textContent; });
-                    texte.addEventListener('blur', () => { tache.t = texte.textContent; saveState(); });
+                    texte.addEventListener('blur', () => {
+                        tache.t = texte.textContent;
+                        texte.removeAttribute('contenteditable');
+                        saveState();
+                    });
                     texte.addEventListener('paste', (e) => {
                         const brut = (e.clipboardData || window.clipboardData);
                         if (!brut) return;
@@ -17387,14 +17435,12 @@ function renderHtmlPostits() {
                     if (typeof showToast === 'function') showToast('Ce post-it est vide');
                     return;
                 }
-                try {
-                    await navigator.clipboard.writeText(texte);
-                    if (typeof showToast === 'function') showToast('📋 Contenu copié');
-                } catch (e) {
-                    // Presse-papiers refusé (page non sécurisée, permission) :
-                    // on sélectionne le texte, l'enseignant fait Ctrl+C.
-                    if (o_mode() !== 'liste') { body.focus(); body.select(); }
-                    if (typeof showToast === 'function') showToast('Copie refusée par le navigateur — faites Ctrl+C');
+                if (await mettreDansLePressePapiers(texte)) {
+                    if (typeof showToast === 'function') {
+                        showToast('📋 Contenu copié — collez-le où vous voulez');
+                    }
+                } else if (typeof showToast === 'function') {
+                    showToast('Copie impossible : le navigateur refuse le presse-papiers');
                 }
             });
 

@@ -436,9 +436,71 @@ module.exports = async function (browser) {
         colle.valeur, 'DépartUn\nDeux\nTrois');
     r.egal('et la note retient ce qu\'elle affiche', colle.enMemoire, colle.valeur);
 
+    // La liste n'est repeinte que lorsque le mode change — c'est voulu, sinon
+    // on effacerait ce que l'enseignant est en train d'écrire. Dans les essais,
+    // on modifie les tâches par la bande : il faut donc forcer le repeint.
+    // Les cases se calculaient sur la police par défaut des boutons (13,3 px)
+    // et non sur celle de la tâche : trop petites, et 4,5 px trop haut.
+    const alignement = await page.evaluate(() => {
+        const o = htmlPostits[0];
+        o.mode = 'liste'; o.taches = [{ t: 'Rendre les copies', fait: false }];
+        const el = document.querySelector('.html-postit'); if (el) el.dataset.modeAffiche = '';
+        renderHtmlPostits();
+        const c = document.querySelector('.postit-case');
+        const t = document.querySelector('.postit-tache-texte');
+        const rc = c.getBoundingClientRect(), rt = t.getBoundingClientRect();
+        return {
+            memePolice: getComputedStyle(c).fontSize === getComputedStyle(t).fontSize,
+            ecart: Math.abs((rc.top + rc.height / 2) - (rt.top + rt.height / 2))
+        };
+    });
+    r.verifie('la case reprend la police de la tâche', alignement.memePolice, JSON.stringify(alignement));
+    r.verifie('elle est centrée sur la ligne', alignement.ecart < 1.5, String(alignement.ecart));
+
+    // Le tableau interdit la sélection partout ; dans la liste on la rend,
+    // sinon on ne peut rien prendre pour le coller dans un autre logiciel.
+    const selection = await page.evaluate(() => {
+        const o = htmlPostits[0];
+        o.mode = 'liste';
+        o.taches = [{ t: 'Un', fait: false }, { t: 'Deux', fait: false }];
+        const el = document.querySelector('.html-postit'); if (el) el.dataset.modeAffiche = '';
+        renderHtmlPostits();
+        const liste = document.querySelector('.html-postit-liste');
+        const t = document.querySelector('.postit-tache-texte');
+        const r2 = document.createRange();
+        r2.selectNodeContents(liste);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r2);
+        return {
+            selectionnable: getComputedStyle(liste).userSelect === 'text'
+                         && getComputedStyle(t).userSelect === 'text',
+            traverse: /Un[\s\S]*Deux/.test(sel.toString()),
+            // une ligne n'est éditable qu'au clic : c'est ce qui rend la
+            // sélection possible d'une ligne à l'autre
+            editableAuRepos: t.getAttribute('contenteditable'),
+            croixHorsSelection: getComputedStyle(document.querySelector('.postit-tache-oter')).userSelect === 'none'
+        };
+    });
+    r.verifie('la liste est sélectionnable', selection.selectionnable, JSON.stringify(selection));
+    r.verifie('et la sélection traverse les lignes', selection.traverse, JSON.stringify(selection));
+    r.egal('une ligne au repos n\'est pas une zone d\'édition', selection.editableAuRepos, null);
+    r.verifie('les croix de suppression ne partent pas dans la copie', selection.croixHorsSelection);
+
+    const saisie = await page.evaluate(() => {
+        const t = document.querySelector('.postit-tache-texte');
+        t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+        const pendant = t.getAttribute('contenteditable');
+        t.textContent = 'Un modifié';
+        t.dispatchEvent(new Event('blur'));
+        return { pendant, apres: t.getAttribute('contenteditable'), retenu: htmlPostits[0].taches[0].t };
+    });
+    r.egal('cliquer dedans ouvre la saisie', saisie.pendant, 'true');
+    r.egal('quitter la referme', saisie.apres, null);
+    r.egal('et ce qu\'on a écrit est retenu', saisie.retenu, 'Un modifié');
+
     const colleListe = await page.evaluate(() => {
         const o = htmlPostits[0];
         o.mode = 'liste'; o.taches = [{ t: 'Déjà là', fait: false }];
+        const el = document.querySelector('.html-postit'); if (el) el.dataset.modeAffiche = '';
         renderHtmlPostits();
         const ligne = document.querySelector('.postit-tache-texte');
         const presse = new DataTransfer();
