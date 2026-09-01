@@ -6158,6 +6158,418 @@ registerPlugin('writingLinesTool', 'Français', {
     onPointerDown: function (rawPos) { if (mode === 'writingLines' && this.currentStamp) { images.push({ id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2, w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++, pluginData: { id: 'writingLinesTool', args: this.currentArgs } }); saveState(); setMode('pointer'); this.currentStamp = null; return true; } return false; }
 });
 
+// ==========================================
+// ANALYSE GRAMMATICALE
+// On tape une phrase, on désigne un groupe de mots, on lui donne sa
+// fonction : le crochet et l'étiquette se posent dessous, comme au tableau
+// noir. Les groupes s'emboîtent — le complément du nom vit à l'intérieur du
+// sujet — et chacun descend d'un cran plutôt que de se marcher dessus.
+// ==========================================
+registerPlugin('analyseGrammaticaleTool', 'Français', {
+    widgetEl: null,
+    phrase: '',
+    mots: [],            // [{texte, x, l}] mesurés dans la zone d'aperçu
+    analyses: [],        // [{de, a, libelle, couleur}] bornes en indices de mots
+    debutChoisi: null,   // premier mot cliqué d'une sélection en cours
+    finChoisie: null,
+    editingImage: null,
+
+    // Les fonctions du collège, dans l'ordre où on les enseigne. La couleur
+    // n'est pas décorative : c'est elle qui relie l'étiquette à son crochet
+    // quand trois groupes se superposent.
+    ETIQUETTES: [
+        { nom: 'Sujet', couleur: '#0984e3' },
+        { nom: 'Verbe', couleur: '#d63031' },
+        { nom: 'COD', couleur: '#00b894' },
+        { nom: 'COI', couleur: '#00997a' },
+        { nom: 'Attribut du sujet', couleur: '#6c5ce7' },
+        { nom: 'CC de temps', couleur: '#e17055' },
+        { nom: 'CC de lieu', couleur: '#e84393' },
+        { nom: 'CC de manière', couleur: '#b8860b' },
+        { nom: 'Complément du nom', couleur: '#0a3d62' },
+        { nom: 'Épithète', couleur: '#8e44ad' },
+        { nom: 'Apposition', couleur: '#16a085' },
+        { nom: 'Déterminant', couleur: '#636e72' }
+    ],
+
+    PHRASE_EXEMPLE: 'Le petit chat de la voisine dort sur le canapé.',
+
+    TAILLE: 30,          // corps de la phrase, en pixels
+    INTERLIGNE: 46,      // hauteur d'un étage de crochets
+
+    init: function () {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.dataset.mode = 'analyseGram';
+        btn.title = 'Analyse grammaticale';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h9"/><path d="M6 16v3h7v-3"/><circle cx="18" cy="17" r="3"/></svg>`;
+        document.getElementById('plugins-grid').appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (!this.widgetEl) {
+                this.editingImage = null;
+                this.poserPhrase(this.PHRASE_EXEMPLE);
+                this.creerFenetre();
+            } else {
+                this.widgetEl.style.display = 'flex';
+            }
+            e.stopPropagation();
+        });
+    },
+
+    // Réouvrir un tampon déjà posé pour le corriger
+    edit: function (imageObj) {
+        if (!imageObj || !imageObj.pluginData || !imageObj.pluginData.etat) return;
+        const etat = imageObj.pluginData.etat;
+        this.editingImage = imageObj;
+        this.phrase = etat.phrase || '';
+        this.analyses = JSON.parse(JSON.stringify(etat.analyses || []));
+        this.decouperEnMots();
+        this.debutChoisi = this.finChoisie = null;
+        if (!this.widgetEl) this.creerFenetre();
+        else { this.widgetEl.style.display = 'flex'; this.peindre(); }
+        this.majBoutonPoser();
+    },
+
+    // Une phrase se découpe en mots ; la ponctuation reste collée au mot
+    // qu'elle suit, sinon on se retrouve à devoir étiqueter un point.
+    decouperEnMots: function () {
+        this.mots = (this.phrase.trim().match(/[^\s]+/g) || []).map(t => ({ texte: t }));
+    },
+
+    poserPhrase: function (texte) {
+        this.phrase = texte;
+        this.decouperEnMots();
+        this.analyses = [];
+        this.debutChoisi = this.finChoisie = null;
+    },
+
+    // Chaque analyse descend au premier étage libre sous la phrase : deux
+    // groupes qui se chevauchent ne peuvent pas partager une ligne.
+    etager: function () {
+        const rangs = [];
+        const triees = this.analyses
+            .map((a, i) => ({ ...a, i }))
+            .sort((x, y) => (y.a - y.de) - (x.a - x.de) || x.de - y.de);
+        triees.forEach(a => {
+            let r = 0;
+            while (rangs[r] && rangs[r].some(b => !(a.a < b.de || a.de > b.a))) r++;
+            if (!rangs[r]) rangs[r] = [];
+            rangs[r].push(a);
+            a.rang = r;
+        });
+        return triees;
+    },
+
+    creerFenetre: function () {
+        this.widgetEl = document.createElement('div');
+        this.widgetEl.id = 'analyse-gram-modal';
+        // Pas de « transform: translateX(-50%) » pour centrer : les commandes de
+        // fenêtre (déplacer, agrandir, plein écran) raisonnent en left/top, et
+        // le décalage du transform les faisait sortir de l'écran.
+        this.widgetEl.style.cssText = "position:fixed; top:9vh; left:5vw; width:900px; max-width:90vw; max-height:86vh; background:var(--surface,#fdfdfd); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--border,#bdc3c7);";
+
+        this.widgetEl.innerHTML = `
+            <div id="ag-entete">
+                <div class="ag-titre">📝 Analyse grammaticale</div>
+                <div class="ag-cmd">
+                    <button id="ag-vider" class="btn-action secondary" title="Retirer toutes les étiquettes">↩ Tout retirer</button>
+                    <button id="ag-poser" class="btn-action primary">✅ Poser au tableau</button>
+                    <button id="ag-fermer" class="btn-action secondary ag-fermer" title="Fermer">✕</button>
+                </div>
+            </div>
+            <div id="ag-corps">
+                <div class="ag-ligne-saisie">
+                    <input type="text" id="ag-phrase" placeholder="Tapez une phrase à analyser…">
+                    <button id="ag-analyser" class="btn-action primary">Découper</button>
+                </div>
+                <div id="ag-scene"></div>
+                <div id="ag-consigne"></div>
+                <div id="ag-etiquettes"></div>
+            </div>
+        `;
+        document.body.appendChild(this.widgetEl);
+        // Une phrase longue demande de la largeur : la fenêtre s'agrandit,
+        // passe en plein écran, et retient la taille choisie.
+        if (typeof equiperFenetre === 'function') equiperFenetre(this.widgetEl, 'analyse-gram');
+        else if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
+        window.AnalyseGram = this;
+
+        const q = (s) => this.widgetEl.querySelector(s);
+        q('#ag-phrase').value = this.phrase;
+        q('#ag-analyser').onclick = () => {
+            this.poserPhrase(q('#ag-phrase').value);
+            this.peindre();
+        };
+        q('#ag-phrase').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { this.poserPhrase(q('#ag-phrase').value); this.peindre(); }
+        });
+        q('#ag-vider').onclick = () => {
+            this.analyses = [];
+            this.debutChoisi = this.finChoisie = null;
+            this.peindre();
+        };
+        q('#ag-poser').onclick = () => this.poserAuTableau();
+        q('#ag-fermer').onclick = () => this.fermer();
+
+        // Les étiquettes, une fois pour toutes
+        const zone = q('#ag-etiquettes');
+        this.ETIQUETTES.forEach(et => {
+            const b = document.createElement('button');
+            b.className = 'ag-etiquette';
+            b.textContent = et.nom;
+            b.style.borderColor = et.couleur;
+            b.style.color = et.couleur;
+            b.onclick = () => this.etiqueter(et.nom, et.couleur);
+            zone.appendChild(b);
+        });
+        const autre = document.createElement('button');
+        autre.className = 'ag-etiquette ag-autre';
+        autre.textContent = 'Autre…';
+        autre.onclick = async () => {
+            if (!this.selectionValide()) return this.rappelDeLaConsigne();
+            const nom = (typeof demanderUneLigne === 'function')
+                ? await demanderUneLigne('Étiquette', 'Nom de la fonction')
+                : null;
+            if (nom) this.etiqueter(nom, '#2d3436');
+        };
+        zone.appendChild(autre);
+
+        this.peindre();
+        this.majBoutonPoser();
+    },
+
+    majBoutonPoser: function () {
+        const b = this.widgetEl && this.widgetEl.querySelector('#ag-poser');
+        if (b) b.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser au tableau';
+    },
+
+    selectionValide: function () {
+        return this.debutChoisi !== null && this.finChoisie !== null;
+    },
+
+    rappelDeLaConsigne: function () {
+        if (typeof showToast === 'function') {
+            showToast('Cliquez d\'abord le premier puis le dernier mot du groupe');
+        }
+    },
+
+    // Un clic pose le début du groupe, le suivant sa fin. Recliquer le même
+    // mot annule : on se ravise souvent devant la classe.
+    cliquerMot: function (i) {
+        if (this.debutChoisi === null) { this.debutChoisi = i; this.finChoisie = i; }
+        else if (this.finChoisie !== null && this.debutChoisi === i && this.finChoisie === i) {
+            this.debutChoisi = this.finChoisie = null;
+        }
+        else { this.finChoisie = i; }
+        this.peindre();
+    },
+
+    etiqueter: function (libelle, couleur) {
+        if (!this.selectionValide()) return this.rappelDeLaConsigne();
+        const de = Math.min(this.debutChoisi, this.finChoisie);
+        const a = Math.max(this.debutChoisi, this.finChoisie);
+        // Deux fois la même fonction sur les mêmes mots : c'est un changement
+        // d'avis, pas un doublon.
+        this.analyses = this.analyses.filter(x => !(x.de === de && x.a === a));
+        this.analyses.push({ de, a, libelle, couleur });
+        this.debutChoisi = this.finChoisie = null;
+        this.peindre();
+    },
+
+    retirer: function (index) {
+        this.analyses.splice(index, 1);
+        this.peindre();
+    },
+
+    // Dessine la phrase en HTML (pour cliquer dessus) et les crochets en SVG
+    // par-dessus, aux abscisses réellement occupées par les mots.
+    peindre: function () {
+        if (!this.widgetEl) return;
+        const scene = this.widgetEl.querySelector('#ag-scene');
+        const de = this.debutChoisi === null ? null : Math.min(this.debutChoisi, this.finChoisie);
+        const a = this.finChoisie === null ? null : Math.max(this.debutChoisi, this.finChoisie);
+
+        if (!this.mots.length) {
+            scene.innerHTML = `<div class="ag-vide">Tapez une phrase, puis « Découper ».</div>`;
+            this.majConsigne();
+            return;
+        }
+
+        scene.innerHTML = `<div id="ag-phrase-rendue">${this.mots.map((m, i) =>
+            `<span class="ag-mot${de !== null && i >= de && i <= a ? ' choisi' : ''}" data-i="${i}">${
+                m.texte.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('')}</div>
+            <svg id="ag-crochets" xmlns="http://www.w3.org/2000/svg"></svg>`;
+
+        scene.querySelectorAll('.ag-mot').forEach(el => {
+            el.onclick = () => this.cliquerMot(Number(el.dataset.i));
+        });
+
+        this.mesurerLesMots();
+        this.dessinerLesCrochets();
+        this.majConsigne();
+    },
+
+    mesurerLesMots: function () {
+        const rendue = this.widgetEl.querySelector('#ag-phrase-rendue');
+        if (!rendue) return;
+        const base = rendue.getBoundingClientRect();
+        rendue.querySelectorAll('.ag-mot').forEach((el, i) => {
+            const r = el.getBoundingClientRect();
+            if (this.mots[i]) { this.mots[i].x = r.left - base.left; this.mots[i].l = r.width; }
+        });
+    },
+
+    // Le même tracé sert à l'écran et au tampon : une seule géométrie, donc
+    // ce que le professeur voit est exactement ce qui se pose.
+    tracerSVG: function (opts) {
+        const o = Object.assign({ pourExport: false, marge: 16 }, opts || {});
+        const etagees = this.etager();
+        const rangs = etagees.length ? Math.max(...etagees.map(a => a.rang)) + 1 : 0;
+        const largeur = this.mots.length
+            ? Math.max(...this.mots.map(m => (m.x || 0) + (m.l || 0)))
+            : 10;
+        const hautPhrase = this.TAILLE * 1.35;
+        const hauteur = hautPhrase + rangs * this.INTERLIGNE + (rangs ? 10 : 0);
+
+        let corps = '';
+        if (o.pourExport) {
+            corps += `<text x="0" y="${this.TAILLE}" font-family="sans-serif" font-size="${this.TAILLE}" fill="#2d3436">`;
+            corps += this.mots.map(m =>
+                `<tspan x="${m.x}">${m.texte.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</tspan>`).join('');
+            corps += `</text>`;
+        }
+
+        etagees.forEach(an => {
+            const g1 = this.mots[an.de], g2 = this.mots[an.a];
+            if (!g1 || !g2) return;
+            const x1 = g1.x, x2 = g2.x + g2.l;
+            const y = hautPhrase + an.rang * this.INTERLIGNE + 8;
+            const cx = (x1 + x2) / 2;
+            corps += `<g class="ag-trait" data-i="${an.i}" style="cursor:pointer;">`;
+            // Un rectangle transparent donne de la prise au clic : une ligne
+            // de 2 px ne s'attrape pas au doigt.
+            corps += `<rect x="${x1}" y="${y - 8}" width="${Math.max(x2 - x1, 4)}" height="${this.INTERLIGNE - 4}" fill="transparent"/>`;
+            corps += `<path d="M ${x1} ${y - 7} L ${x1} ${y} L ${x2} ${y} L ${x2} ${y - 7}" fill="none" stroke="${an.couleur}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+            corps += `<text x="${cx}" y="${y + 22}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="600" fill="${an.couleur}">${
+                String(an.libelle).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</text>`;
+            corps += `</g>`;
+        });
+
+        if (o.pourExport) {
+            const L = largeur + o.marge * 2, H = hauteur + o.marge * 2;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L} ${H}" width="${L}" height="${H}">`
+                + `<g transform="translate(${o.marge}, ${o.marge})">${corps}</g></svg>`;
+        }
+        return { corps, largeur, hauteur };
+    },
+
+    dessinerLesCrochets: function () {
+        const svg = this.widgetEl.querySelector('#ag-crochets');
+        if (!svg) return;
+        const t = this.tracerSVG({ pourExport: false });
+        const hautPhrase = this.TAILLE * 1.35;
+        // À l'écran, la phrase est du vrai HTML : le SVG ne porte que les
+        // crochets, calé juste sous elle.
+        svg.setAttribute('width', Math.max(t.largeur, 10));
+        svg.setAttribute('height', Math.max(t.hauteur - hautPhrase, 4));
+        svg.setAttribute('viewBox', `0 ${hautPhrase} ${Math.max(t.largeur, 10)} ${Math.max(t.hauteur - hautPhrase, 4)}`);
+        svg.innerHTML = t.corps;
+        svg.querySelectorAll('.ag-trait').forEach(g => {
+            g.onclick = () => this.retirer(Number(g.dataset.i));
+        });
+    },
+
+    majConsigne: function () {
+        const z = this.widgetEl && this.widgetEl.querySelector('#ag-consigne');
+        if (!z) return;
+        if (!this.mots.length) { z.textContent = ''; return; }
+        if (!this.selectionValide()) {
+            z.textContent = 'Cliquez le premier mot du groupe, puis le dernier — ensuite, choisissez sa fonction.';
+        } else {
+            const de = Math.min(this.debutChoisi, this.finChoisie);
+            const a = Math.max(this.debutChoisi, this.finChoisie);
+            const groupe = this.mots.slice(de, a + 1).map(m => m.texte).join(' ');
+            z.textContent = `« ${groupe} » — choisissez sa fonction ci-dessous.`;
+        }
+        if (this.analyses.length) {
+            z.textContent += ' Cliquez un crochet pour le retirer.';
+        }
+    },
+
+    // Corriger un tampon existant le met à jour sur place ; sinon on arme le
+    // tampon et on le pose d'un clic, comme les autres outils du logiciel.
+    poserAuTableau: function () {
+        if (!this.mots.length) {
+            if (typeof showToast === 'function') showToast('Tapez d\'abord une phrase');
+            return;
+        }
+        this.mesurerLesMots();
+        const svg = this.tracerSVG({ pourExport: true });
+        const etat = { phrase: this.phrase, analyses: JSON.parse(JSON.stringify(this.analyses)) };
+        const cible = this.editingImage;
+        createStampFromSVG(svg, (stamp) => {
+            if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
+            if (cible) {
+                cible.src = stamp.src; cible.w = stamp.w; cible.h = stamp.h;
+                cible.cw = stamp.w; cible.ch = stamp.h;
+                cible.pluginData = { id: 'analyseGrammaticaleTool', etat };
+                saveState(); draw();
+                if (typeof showToast === 'function') showToast('Analyse mise à jour');
+                this.fermer();
+                return;
+            }
+            this.currentStamp = stamp;
+            this.currentEtat = etat;
+            this.masquer();
+            if (typeof setMode === 'function') setMode('analyseGram');
+            if (typeof showToast === 'function') showToast('📌 Cliquez sur le tableau pour poser l\'analyse');
+        });
+    },
+
+    onDraw: function (ctx) {
+        if (typeof mode !== 'undefined' && mode === 'analyseGram' && this.currentStamp && mouseLogicalPos) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(this.currentStamp.img,
+                mouseLogicalPos.x - this.currentStamp.w / 2,
+                mouseLogicalPos.y - this.currentStamp.h / 2);
+            ctx.globalAlpha = 1.0;
+        }
+    },
+
+    onPointerDown: function (pos) {
+        if (typeof mode === 'undefined' || mode !== 'analyseGram' || !this.currentStamp) return false;
+        const s = this.currentStamp;
+        images.push({
+            id: nextId++, x: pos.x - s.w / 2, y: pos.y - s.h / 2,
+            w: s.w, h: s.h, cx: 0, cy: 0, cw: s.w, ch: s.h,
+            src: s.src, z: globalZ++,
+            pluginData: { id: 'analyseGrammaticaleTool', etat: this.currentEtat }
+        });
+        saveState();
+        this.currentStamp = null;
+        this.fermer();
+        return true;
+    },
+
+    // Pendant qu'on pose le tampon, la fenêtre s'écarte sans rien perdre :
+    // si l'on change d'outil, elle revient telle qu'on l'a laissée.
+    masquer: function () {
+        if (this.widgetEl) this.widgetEl.style.display = 'none';
+    },
+
+    fermer: function () {
+        if (this.widgetEl) { this.widgetEl.remove(); this.widgetEl = null; }
+        this.editingImage = null;
+        this.currentStamp = null;
+        if (typeof setMode === 'function' && typeof mode !== 'undefined' && mode === 'analyseGram') setMode('pointer');
+        document.querySelectorAll('#plugins-grid .btn[data-mode="analyseGram"]').forEach(b => b.classList.remove('active'));
+    }
+});
+
+
 
 // ==========================================
 // CATÉGORIE : PHYSIQUE-CHIMIE

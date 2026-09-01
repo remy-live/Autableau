@@ -6719,3 +6719,128 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .html-postit.postit-fixe {
     box-shadow: 0 0 0 2px rgba(9, 132, 227, 0.45), 0 4px 12px rgba(0, 0, 0, 0.18);
 }
+
+/* ------------------------------------------------------------------
+   ANALYSE GRAMMATICALE
+   La phrase est du vrai texte HTML — on clique dessus mot par mot — et
+   les crochets sont un SVG calé dessous, aux abscisses réellement
+   occupées. Le tampon posé au tableau reprend la même géométrie : ce
+   que le professeur voit est exactement ce qui se pose.
+   ------------------------------------------------------------------ */
+#analyse-gram-modal #ag-entete {
+    height: 50px;
+    background: #2c3e50;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 16px;
+    gap: 10px;
+    flex: none;
+    user-select: none;
+}
+
+#analyse-gram-modal .ag-titre { font-weight: bold; font-size: 16px; }
+#analyse-gram-modal .ag-cmd { display: flex; gap: 8px; flex-wrap: wrap; }
+#analyse-gram-modal .ag-cmd .btn-action { padding: 6px 12px; font-size: 13px; }
+#analyse-gram-modal .ag-cmd .btn-action.secondary {
+    background: #34495e;
+    color: #fff;
+    border-color: #46637f;
+}
+#analyse-gram-modal .ag-cmd .ag-fermer { background: #e74c3c; border-color: #e74c3c; }
+
+#analyse-gram-modal #ag-corps {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: auto;
+    min-height: 0;
+}
+
+#analyse-gram-modal .ag-ligne-saisie { display: flex; gap: 8px; }
+
+#analyse-gram-modal #ag-phrase {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--border, #bdc3c7);
+    border-radius: 8px;
+    background: var(--bg, #fff);
+    color: var(--ink, #2d3436);
+    font-size: 15px;
+}
+
+/* La scène : la phrase, puis les crochets. Elle défile horizontalement
+   plutôt que de replier la phrase — une analyse coupée en deux lignes
+   ne se lit plus. */
+#analyse-gram-modal #ag-scene {
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 8px;
+    background: var(--bg, #fff);
+    padding: 14px 16px;
+    overflow-x: auto;
+    min-height: 120px;
+}
+
+#analyse-gram-modal #ag-phrase-rendue {
+    font-size: 30px;
+    line-height: 1.35;
+    white-space: nowrap;
+    color: var(--ink, #2d3436);
+}
+
+#analyse-gram-modal #ag-crochets { display: block; overflow: visible; }
+
+#analyse-gram-modal .ag-mot {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0 1px;
+    transition: background 0.12s;
+}
+
+#analyse-gram-modal .ag-mot:hover { background: rgba(108, 92, 231, 0.14); }
+#analyse-gram-modal .ag-mot.choisi { background: rgba(108, 92, 231, 0.3); }
+
+/* L'espace entre deux mots est une MARGE, pas un caractère à l'intérieur
+   du mot : les marges sont hors de la boîte mesurée, si bien que
+   l'abscisse relevée est celle de la lettre, et le tampon exporté
+   retombe pile sur le mot. Avec un espace à l'intérieur, « Le » et
+   « petit » se collaient dans le SVG. */
+#analyse-gram-modal .ag-mot { margin-right: 0.28em; }
+#analyse-gram-modal .ag-mot:last-child { margin-right: 0; }
+
+#analyse-gram-modal .ag-vide {
+    color: var(--muted, #636e72);
+    font-size: 14px;
+    padding: 24px 0;
+    text-align: center;
+}
+
+#analyse-gram-modal #ag-consigne {
+    font-size: 12px;
+    color: var(--muted, #636e72);
+    min-height: 16px;
+}
+
+#analyse-gram-modal #ag-etiquettes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-top: 1px solid var(--border, #dfe6e9);
+    padding-top: 12px;
+}
+
+#analyse-gram-modal .ag-etiquette {
+    border: 2px solid currentColor;
+    background: var(--bg, #fff);
+    border-radius: 16px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#analyse-gram-modal .ag-etiquette:hover { filter: brightness(0.92); }
+#analyse-gram-modal .ag-autre { color: #636e72; border-style: dashed; }
