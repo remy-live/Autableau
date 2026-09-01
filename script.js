@@ -1180,17 +1180,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 
+// Tout ce qui peut se trouver sur une page. La liste servait à décider si une
+// sauvegarde valait la peine d'être proposée au redémarrage — mais elle n'en
+// citait que trois : les points, les images et les tracés à main levée. Une
+// séance faite uniquement de post-its, de blocs de texte ou de figures
+// géométriques était donc jugée VIDE, et jetée sans un mot au démarrage
+// suivant. Elle était pourtant bien enregistrée.
+const COLLECTIONS_DE_PAGE = ['points', 'segments', 'circles', 'rectangles', 'texts',
+    'freehands', 'curves', 'polygons', 'images', 'arcs', 'htmlPostits'];
+
+function pagePorteQuelqueChose(p) {
+    return !!p && COLLECTIONS_DE_PAGE.some(c => Array.isArray(p[c]) && p[c].length > 0);
+}
+
+function sauvegardeAvecDuContenu(saved) {
+    if (!saved) return false;
+    if (Array.isArray(saved.pages)) return saved.pages.some(pagePorteQuelqueChose);
+    return pagePorteQuelqueChose(saved);
+}
+window.sauvegardeAvecDuContenu = sauvegardeAvecDuContenu;
+
 window.addEventListener('load', () => {
     // On essaie de charger la sauvegarde locale de manière asynchrone
     localforage.getItem(AUTO_SAVE_KEY).then((saved) => {
         if (saved) {
             try {
-                let hasContent = false;
-                if (saved.pages) {
-                    hasContent = saved.pages.some(p => (p.points && p.points.length > 0) || (p.images && p.images.length > 0) || (p.freehands && p.freehands.length > 0));
-                } else {
-                    hasContent = (saved.points && saved.points.length > 0) || (saved.images && saved.images.length > 0) || (saved.freehands && saved.freehands.length > 0);
-                }
+                const hasContent = sauvegardeAvecDuContenu(saved);
                 if (hasContent) {
                     document.getElementById('restore-modal').style.display = 'flex';
                 } else { initPages(); }

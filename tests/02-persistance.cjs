@@ -93,6 +93,59 @@ module.exports = async function (browser) {
     r.egal('ancien format : image chargée', ancien.images, 1);
     r.verifie('ancien format : source intacte', ancien.source);
 
+    // --- UNE SAUVEGARDE EST-ELLE JUGÉE VIDE ? ---
+    // Au démarrage, l'application décide si la sauvegarde vaut la peine d'être
+    // proposée. Elle ne regardait que trois listes : points, images et tracés
+    // à main levée. Une séance faite uniquement de post-its, de blocs de texte
+    // ou de figures géométriques était donc jugée vide et jetée sans un mot —
+    // alors qu'elle était bien enregistrée.
+    const vide = { points: [], segments: [], circles: [], rectangles: [], texts: [],
+                   freehands: [], curves: [], polygons: [], images: [], arcs: [], htmlPostits: [] };
+    const jugement = await page.evaluate((modele) => {
+        const avec = (quoi) => ({ pages: [Object.assign({}, modele, quoi)] });
+        return {
+            rienDuTout: sauvegardeAvecDuContenu(avec({})),
+            postits: sauvegardeAvecDuContenu(avec({ htmlPostits: [{ id: 1, content: 'Devoirs' }] })),
+            textes: sauvegardeAvecDuContenu(avec({ texts: [{ id: 1, content: 'Leçon' }] })),
+            geometrie: sauvegardeAvecDuContenu(avec({ segments: [{ id: 1 }] })),
+            cercles: sauvegardeAvecDuContenu(avec({ circles: [{ id: 1 }] })),
+            polygones: sauvegardeAvecDuContenu(avec({ polygons: [{ id: 1 }] })),
+            arcs: sauvegardeAvecDuContenu(avec({ arcs: [{ id: 1 }] })),
+            points: sauvegardeAvecDuContenu(avec({ points: [{ id: 1 }] })),
+            // le vieux format sans « pages » se juge aussi
+            ancienFormat: sauvegardeAvecDuContenu(Object.assign({}, modele, { texts: [{ id: 1 }] })),
+            rien: sauvegardeAvecDuContenu(null)
+        };
+    }, vide);
+    r.verifie('une sauvegarde sans rien est bien vide', !jugement.rienDuTout);
+    r.verifie('un post-it suffit à la rendre précieuse', jugement.postits);
+    r.verifie('un bloc de texte aussi', jugement.textes);
+    r.verifie('un segment aussi', jugement.geometrie);
+    r.verifie('un cercle aussi', jugement.cercles);
+    r.verifie('un polygone aussi', jugement.polygones);
+    r.verifie('un arc aussi', jugement.arcs);
+    r.verifie('un point, évidemment', jugement.points);
+    r.verifie('le vieux format sans « pages » est jugé pareil', jugement.ancienFormat);
+    r.verifie('et rien du tout ne casse rien', !jugement.rien);
+
+    // Le vrai parcours : on écrit, on recharge la page, on doit retrouver.
+    const allerRetour = await page.evaluate(async () => {
+        htmlPostits.length = 0;
+        [points, segments, texts, images, freehands].forEach(a => a.length = 0);
+        htmlPostits.push({ id: nextId++, x: 200, y: 200, w: 300, h: 220,
+                           content: 'Devoirs pour lundi', bg: '#fdfd96', z: globalZ++ });
+        syncPage();
+        await writeAppLocal();
+        const s = await localforage.getItem('AuTableau_AutoSave');
+        return {
+            surLeDisque: s && s.pages && (s.pages[currentPageIndex].htmlPostits || []).length,
+            juge: sauvegardeAvecDuContenu(s)
+        };
+    });
+    r.egal('un tableau qui ne porte qu\'un post-it s\'enregistre', allerRetour.surLeDisque, 1);
+    r.verifie('et le démarrage le reconnaîtra comme du travail à restaurer', allerRetour.juge,
+        JSON.stringify(allerRetour));
+
     // --- LE POIDS ANNONCÉ, ET LES FICHIERS QUI MANQUENT ---
     const poids = await page.evaluate(() => ({
         octets: formatSize(300),
