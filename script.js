@@ -16954,12 +16954,12 @@ function renderHtmlPostits() {
                 <div class="html-postit-header">
                     <div class="html-postit-colors">
                         <span class="postit-dot cycle-color"></span>
-                        <button class="btn-font-minus" style="margin-left: 6px;" title="Réduire la police">-</button>
-                        <button class="btn-font-cycle" title="Changer la police">A</button>
-                        <button class="btn-font-plus" title="Agrandir la police">+</button>
+                        <span class="postit-titre" title="Double-cliquer sur la barre pour donner un titre"></span>
                     </div>
                     <div class="html-postit-actions">
                         <span class="postit-avancement" title="Tâches faites"></span>
+                        <button class="btn-copier-postit" title="Copier le contenu"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path></svg></button>
+                        <button class="btn-coller-postit" title="Coller à la fin"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg></button>
                         <button class="btn-liste-postit" title="Transformer en liste à cocher"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 7 5 9 9 5"></polyline><polyline points="3 16 5 18 9 14"></polyline><line x1="12" y1="7" x2="21" y2="7"></line><line x1="12" y1="17" x2="21" y2="17"></line></svg></button>
                         <button class="btn-min-postit" title="Minimiser"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
                         <button class="btn-close-postit" title="Fermer"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
@@ -16977,7 +16977,7 @@ function renderHtmlPostits() {
             el.querySelector('.cycle-color').style.backgroundColor = p.bg;
             body.style.backgroundColor = p.bg; // Force body color explicitly
             body.style.fontSize = (p.fontSize || 20) + 'px';
-            body.style.fontFamily = p.fontFamily || 'Kalam';
+
             
             // Interaction: Colors
             const retroColors = ['#fdfd96', '#ffb7b2', '#b5ead7', '#c7ceea', '#e2f0cb', '#e0c3fc', '#ffdac1', '#f0e6ef', '#a0e8af', '#ffffff'];
@@ -16994,35 +16994,11 @@ function renderHtmlPostits() {
                 }
             });
             
-            // Interaction: Fonts
-            const retroFonts = ['Kalam', 'Caveat', 'Comic Sans MS', 'Arial', 'Courier New'];
-            el.querySelector('.btn-font-minus').addEventListener('click', () => {
-                const currentP = htmlPostits.find(hp => hp.id === p.id);
-                if (currentP) {
-                    currentP.fontSize = Math.max(10, (currentP.fontSize || 20) - 2);
-                    body.style.fontSize = currentP.fontSize + 'px';
-                    saveState();
-                }
-            });
-            el.querySelector('.btn-font-plus').addEventListener('click', () => {
-                const currentP = htmlPostits.find(hp => hp.id === p.id);
-                if (currentP) {
-                    currentP.fontSize = Math.min(72, (currentP.fontSize || 20) + 2);
-                    body.style.fontSize = currentP.fontSize + 'px';
-                    saveState();
-                }
-            });
-            el.querySelector('.btn-font-cycle').addEventListener('click', () => {
-                const currentP = htmlPostits.find(hp => hp.id === p.id);
-                if (currentP) {
-                    let idx = retroFonts.indexOf(currentP.fontFamily || 'Kalam');
-                    idx = (idx + 1) % retroFonts.length;
-                    currentP.fontFamily = retroFonts[idx];
-                    body.style.fontFamily = currentP.fontFamily;
-                    saveState();
-                }
-            });
-            
+            // La taille et la police se réglaient par trois boutons dans l'en-tête.
+            // Ils encombraient une barre de 28 px pour un réglage qu'on touche
+            // une fois par an : le post-it prend maintenant la police de
+            // l'application. Les valeurs déjà choisies restent respectées.
+
             // ---- La liste à cocher ----------------------------------------
             // Le même post-it, dans un autre mode : on bascule sans rien
             // perdre, chaque ligne du texte devient une tâche, et l'inverse.
@@ -17068,6 +17044,22 @@ function renderHtmlPostits() {
                     });
                     texte.addEventListener('input', () => { tache.t = texte.textContent; });
                     texte.addEventListener('blur', () => { tache.t = texte.textContent; saveState(); });
+                    texte.addEventListener('paste', (e) => {
+                        const brut = (e.clipboardData || window.clipboardData);
+                        if (!brut) return;
+                        const colle = brut.getData('text/plain') || '';
+                        if (!/\r|\n/.test(colle)) return;      // une ligne : collage normal
+                        e.preventDefault();
+                        const lignes = String(colle).replace(/\r\n?/g, '\n').split('\n')
+                            .map(l => l.replace(/\u00a0/g, ' ').replace(/^\s*[-*•]\s*/, '').trim())
+                            .filter(l => l.length);
+                        if (!lignes.length) return;
+                        tache.t = ((texte.textContent || '') + lignes[0]).trim();
+                        lignes.slice(1).forEach((l, k) => {
+                            tachesDe(o).splice(i + 1 + k, 0, { t: l.replace(/^✔\s*/, ''), fait: /^✔/.test(l) });
+                        });
+                        majAvancement(o); peindreListe(i + lignes.length - 1); saveState();
+                    });
                     texte.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') {
                             e.preventDefault();
@@ -17137,6 +17129,134 @@ function renderHtmlPostits() {
             });
 
             el._postitAppliquerMode = appliquerMode;      // relu à chaque rendu
+
+            // ---- Le titre --------------------------------------------------
+            // Trois post-its jaunes se ressemblent tous. Un double-clic sur la
+            // barre donne un nom à celui-ci ; vide, il redevient anonyme.
+            const titreEl = el.querySelector('.postit-titre');
+            const majTitre = (o) => {
+                titreEl.textContent = o.titre || '';
+                titreEl.classList.toggle('vide', !o.titre);
+            };
+            const renommer = () => {
+                const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
+                const champ = document.createElement('input');
+                champ.className = 'postit-titre-champ';
+                champ.value = o.titre || '';
+                champ.placeholder = 'Titre du post-it';
+                champ.maxLength = 40;
+                titreEl.replaceWith(champ);
+                champ.focus();
+                champ.select();
+                // Entrée valide, puis le champ perd le focus et « blur » se
+                // déclenche sur un champ déjà retiré : on ne finit qu'une fois.
+                let fini = false;
+                const finir = (garder) => {
+                    if (fini) return;
+                    fini = true;
+                    if (garder) { o.titre = champ.value.trim(); saveState(); }
+                    champ.replaceWith(titreEl);
+                    majTitre(o);
+                };
+                champ.addEventListener('blur', () => finir(true));
+                champ.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); finir(true); }
+                    if (e.key === 'Escape') { e.preventDefault(); finir(false); }
+                });
+                champ.addEventListener('pointerdown', (e) => e.stopPropagation());
+            };
+            header.addEventListener('dblclick', (e) => {
+                if (e.target.closest('button, .postit-dot')) return;
+                renommer();
+            });
+            el._postitMajTitre = majTitre;
+
+            // ---- Copier, coller ---------------------------------------------
+            // Le contenu se lit et s'écrit dans les deux modes : une note libre
+            // donne son texte, une liste donne ses lignes (les faites marquées).
+            const litLeContenu = () => {
+                const o = htmlPostits.find(hp => hp.id === p.id) || p;
+                if (o.mode === 'liste') {
+                    return (o.taches || []).map(t => (t.fait ? '✔ ' : '') + (t.t || '')).join('\n');
+                }
+                return body.value || '';
+            };
+
+            el.querySelector('.btn-copier-postit').addEventListener('click', async () => {
+                const texte = litLeContenu();
+                if (!texte.trim()) {
+                    if (typeof showToast === 'function') showToast('Ce post-it est vide');
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(texte);
+                    if (typeof showToast === 'function') showToast('📋 Contenu copié');
+                } catch (e) {
+                    // Presse-papiers refusé (page non sécurisée, permission) :
+                    // on sélectionne le texte, l'enseignant fait Ctrl+C.
+                    if (o_mode() !== 'liste') { body.focus(); body.select(); }
+                    if (typeof showToast === 'function') showToast('Copie refusée par le navigateur — faites Ctrl+C');
+                }
+            });
+
+            const o_mode = () => (htmlPostits.find(hp => hp.id === p.id) || p).mode;
+
+            el.querySelector('.btn-coller-postit').addEventListener('click', async () => {
+                let texte = '';
+                try { texte = await navigator.clipboard.readText(); }
+                catch (e) {
+                    if (typeof showToast === 'function') {
+                        showToast('Collage refusé par le navigateur — cliquez dans le post-it et faites Ctrl+V');
+                    }
+                    return;
+                }
+                if (!texte) { if (typeof showToast === 'function') showToast('Presse-papiers vide'); return; }
+                ajouterDuTexte(texte);
+            });
+
+            // Le texte venu d'ailleurs arrive avec les fins de ligne de son
+            // système et, souvent, une ligne vide entre chaque ligne : on
+            // normalise avant d'écrire, sinon la liste double de longueur.
+            const lignesPropres = (texte) => String(texte)
+                .replace(/\r\n?/g, '\n')
+                .split('\n')
+                .map(l => l.replace(/\u00a0/g, ' ').replace(/^\s*[-*•]\s*/, '').trim())
+                .filter(l => l.length);
+
+            const ajouterDuTexte = (texte) => {
+                const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
+                const lignes = lignesPropres(texte);
+                if (!lignes.length) return;
+                if (o.mode === 'liste') {
+                    lignes.forEach(l => tachesDe(o).push({ t: l.replace(/^✔\s*/, ''), fait: /^✔/.test(l) }));
+                    majAvancement(o); peindreListe(); saveState();
+                } else {
+                    o.content = (body.value ? body.value.replace(/\s*$/, '') + '\n' : '') + lignes.join('\n');
+                    body.value = o.content;
+                    saveState();
+                }
+                if (typeof showToast === 'function') {
+                    showToast('📋 ' + lignes.length + ' ligne' + (lignes.length > 1 ? 's' : '') + ' collée' + (lignes.length > 1 ? 's' : ''));
+                }
+            };
+
+            // Un collage direct dans la note passe par le même nettoyage :
+            // c'est là que se gagnait la ligne vide sur deux.
+            body.addEventListener('paste', (e) => {
+                const brut = (e.clipboardData || window.clipboardData);
+                if (!brut) return;
+                const texte = brut.getData('text/plain');
+                if (!texte || !/\r|\n/.test(texte)) return;      // une seule ligne : rien à corriger
+                e.preventDefault();
+                const lignes = lignesPropres(texte);
+                const d = body.selectionStart, f = body.selectionEnd;
+                body.value = body.value.slice(0, d) + lignes.join('\n') + body.value.slice(f);
+                body.selectionStart = body.selectionEnd = d + lignes.join('\n').length;
+                const o = htmlPostits.find(hp => hp.id === p.id);
+                if (o) { o.content = body.value; saveState(); }
+            });
+
+            el._postitColler = ajouterDuTexte;
 
             // Interaction: Minimize
             el.querySelector('.btn-min-postit').addEventListener('click', () => {
@@ -17254,11 +17374,13 @@ function renderHtmlPostits() {
         const liste = el.querySelector('.html-postit-liste');
         if (liste) {
             liste.style.fontSize = ((p.fontSize || 20) * zoom) + 'px';
-            liste.style.fontFamily = p.fontFamily || 'Kalam';
+
         }
 
         // Note libre ou liste à cocher : on ne repeint que si le mode change,
         // sinon on effacerait ce que l'on est en train d'écrire.
+        if (el._postitMajTitre) el._postitMajTitre(p);
+
         const modeVoulu = p.mode === 'liste' ? 'liste' : 'texte';
         if (el.dataset.modeAffiche !== modeVoulu && el._postitAppliquerMode) {
             el.dataset.modeAffiche = modeVoulu;

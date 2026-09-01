@@ -379,16 +379,76 @@ module.exports = async function (browser) {
     r.egal('avec ses tâches', relecture.lignes, 3);
     r.egal('et son avancement', relecture.compteur, '3/3');
 
-    // La taille de police choisie était écrasée au premier redessin.
-    const police = await page.evaluate(() => {
-        document.querySelector('.btn-font-plus').click();
-        document.querySelector('.btn-font-plus').click();
-        const voulue = htmlPostits[0].fontSize;
-        renderHtmlPostits();
-        return { voulue, affichee: document.querySelector('.html-postit-body').style.fontSize };
+    // --- LA BARRE DU POST-IT ---
+    // Les trois boutons de police encombraient une barre de 28 px pour un
+    // réglage qu'on touche une fois par an. Le titre les remplace.
+    const barre = await page.evaluate(() => ({
+        boutonsPolice: document.querySelectorAll('.btn-font-plus, .btn-font-minus, .btn-font-cycle').length,
+        copier: !!document.querySelector('.btn-copier-postit'),
+        coller: !!document.querySelector('.btn-coller-postit'),
+        // « cursive » retombait sur une serif d'imprimerie sur la plupart des
+        // machines : le post-it avait l'air d'un vieux livre.
+        police: getComputedStyle(document.querySelector('.html-postit-body')).fontFamily
+    }));
+    r.egal('les boutons de police ont disparu de la barre', barre.boutonsPolice, 0);
+    r.verifie('un bouton copier les remplace', barre.copier);
+    r.verifie('et un bouton coller', barre.coller);
+    r.verifie('la note s\'écrit dans la police de l\'application, pas en serif',
+        // « sans-serif » en dernier recours est très bien ; c'est « serif »
+        // tout court, et « cursive », qui donnaient l'air vieillot.
+        /Nunito/.test(barre.police) && !/cursive/.test(barre.police)
+        && !/(^|,\s*)serif\s*$/.test(barre.police.trim()), barre.police);
+
+    const titre = await page.evaluate(() => {
+        const entete = document.querySelector('.html-postit-header');
+        entete.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        const champ = document.querySelector('.postit-titre-champ');
+        if (!champ) return { champ: false };
+        champ.value = 'Séance de lundi';
+        champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        return {
+            champ: true,
+            enMemoire: htmlPostits[0].titre,
+            affiche: (document.querySelector('.postit-titre') || {}).textContent,
+            refermé: !document.querySelector('.postit-titre-champ')
+        };
     });
-    r.egal('la taille de police choisie survit au redessin',
-        police.affichee, police.voulue + 'px');
+    r.verifie('un double-clic sur la barre ouvre le titre', titre.champ, JSON.stringify(titre));
+    r.egal('le titre saisi est retenu', titre.enMemoire, 'Séance de lundi');
+    r.egal('et affiché dans la barre', titre.affiche, 'Séance de lundi');
+    r.verifie('le champ se referme après Entrée', titre.refermé);
+
+    // Un texte venu d'un traitement de texte arrive en CRLF, souvent avec une
+    // ligne vide entre chaque ligne : la note doublait de longueur.
+    const colle = await page.evaluate(() => {
+        const o = htmlPostits[0];
+        o.mode = 'texte'; o.content = 'Départ'; o.taches = [];
+        renderHtmlPostits();
+        const zone = document.querySelector('.html-postit-body');
+        zone.value = 'Départ';
+        const presse = new DataTransfer();
+        presse.setData('text/plain', 'Un\r\n\r\nDeux\r\n\r\nTrois\r\n');
+        zone.selectionStart = zone.selectionEnd = zone.value.length;
+        zone.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: presse }));
+        return { valeur: zone.value, enMemoire: htmlPostits[0].content };
+    });
+    r.egal('le collage ne laisse pas une ligne vide sur deux',
+        colle.valeur, 'DépartUn\nDeux\nTrois');
+    r.egal('et la note retient ce qu\'elle affiche', colle.enMemoire, colle.valeur);
+
+    const colleListe = await page.evaluate(() => {
+        const o = htmlPostits[0];
+        o.mode = 'liste'; o.taches = [{ t: 'Déjà là', fait: false }];
+        renderHtmlPostits();
+        const ligne = document.querySelector('.postit-tache-texte');
+        const presse = new DataTransfer();
+        presse.setData('text/plain', 'Quatre\r\n\r\nCinq\r\nSix');
+        ligne.textContent = '';
+        ligne.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: presse }));
+        return htmlPostits[0].taches.map(t => t.t);
+    });
+    r.egal('collé dans une liste, chaque ligne devient une tâche',
+        colleListe, ['Quatre', 'Cinq', 'Six']);
 
     await page.evaluate(() => { htmlPostits.length = 0; renderHtmlPostits(); });
 

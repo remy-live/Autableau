@@ -1,3 +1,18 @@
+/* ==========================================================================
+   NUNITO
+   Elle est dans le dépôt depuis le début, mais n'avait jamais été déclarée :
+   les post-its demandaient « Kalam, Caveat, Comic Sans » puis « cursive », et
+   comme aucune n'existe sur la plupart des machines, le navigateur retombait
+   sur une serif d'imprimerie — d'où l'air vieillot. Nunito est ronde, lisible
+   de loin, et voyage avec l'application : elle marche hors ligne.
+   ========================================================================== */
+@font-face {
+    font-family: 'Nunito';
+    src: url('lib/fonts/Nunito-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-display: swap;
+}
+
 :root {
     --bg: #f5f6fa;
     --surface: rgba(255, 255, 255, 0.92);
@@ -4719,7 +4734,7 @@ dark-mode .title-btn:hover {
     background: transparent;
     border: none;
     padding: 12px 16px 24px 12px;
-    font-family: 'Kalam', 'Caveat', 'Comic Sans MS', cursive, sans-serif;
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 20px;
     color: #2c3e50;
     resize: none;
@@ -4747,7 +4762,7 @@ dark-mode .title-btn:hover {
     padding: 8px 10px 22px;
     overflow-y: auto;
     overflow-x: hidden;
-    font-family: 'Kalam', 'Caveat', 'Comic Sans MS', cursive, sans-serif;
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 20px;
     color: #2c3e50;
     min-height: 0;
@@ -4769,7 +4784,9 @@ dark-mode .title-btn:hover {
     flex: none;
     width: 1.05em;
     height: 1.05em;
-    margin-top: 0.12em;
+    /* La case se pose au milieu de la première ligne : (interligne - hauteur)/2.
+       Alignée sur tout le bloc, elle descendrait au milieu d'une tâche longue. */
+    margin-top: calc((1.35em - 1.05em) / 2);
     padding: 0;
     display: flex;
     align-items: center;
@@ -6409,3 +6426,34 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     opacity: 0.55;
 }
 .cm-student-row.absent .cm-avatar { opacity: 0.45; }
+
+/* Le titre du post-it : posé par un double-clic sur la barre. Trois papiers
+   jaunes se ressemblent tous ; celui-ci porte son nom. */
+.postit-titre {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(0, 0, 0, 0.62);
+    margin-left: 8px;
+    max-width: 190px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: text;
+}
+
+.postit-titre.vide { display: none; }
+
+.postit-titre-champ {
+    margin-left: 8px;
+    width: 170px;
+    border: none;
+    border-bottom: 1.5px solid rgba(0, 0, 0, 0.35);
+    background: rgba(255, 255, 255, 0.5);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2c3e50;
+    outline: none;
+    padding: 1px 3px;
+}
