@@ -140,33 +140,95 @@ module.exports = async function (browser) {
         circuits.every(c => c.surLaGrille));
     r.verifie('le schéma est bien dessiné', circuits.every(c => c.svg > 200));
 
-    // Poser un modèle sur un circuit commencé demande d'abord confirmation
-    const remplace = await page.evaluate(async () => {
+    // Le menu déroulant : changer de montage, et refuser sans rien casser
+    const menu = await page.evaluate(async () => {
         const P = PluginManager.plugins['circuitTool'];
         P.state = { nodes: [], wires: [] };
         P.editingImage = null; P.saveHistory(true); P.createWidget();
-        await P.poserModele('serie');
-        const avant = P.state.nodes.length;
+        const liste = P.widgetEl.querySelector('#circ-modele-select');
+        const choisir = async (cle, reponse) => {
+            liste.value = cle;
+            liste.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(r => setTimeout(r, 40));
+            const boite = document.getElementById('confirm-modal');
+            const questionne = getComputedStyle(boite).display === 'flex';
+            if (questionne) document.getElementById(reponse ? 'confirm-yes-btn' : 'confirm-cancel-btn').click();
+            await new Promise(r => setTimeout(r, 60));
+            return questionne;
+        };
 
-        const p = P.poserModele('derivation');
-        await new Promise(r => setTimeout(r, 40));
-        const questionne = getComputedStyle(document.getElementById('confirm-modal')).display === 'flex';
-        document.getElementById('confirm-cancel-btn').click();
-        await p;
-        const apresRefus = P.state.nodes.length;
+        const optionsEnTrop = liste.options.length - 1 - P.MODELES.length;
+        const premier = await choisir('serie', true);           // circuit vide : pas de question
+        const apresPremier = P.state.nodes.length;
+        const resume = P.widgetEl.querySelector('#circ-modele-resume').textContent;
 
-        const p2 = P.poserModele('derivation');
-        await new Promise(r => setTimeout(r, 40));
-        document.getElementById('confirm-yes-btn').click();
-        await p2;
-        const apresAccord = P.state.nodes.map(n => n.type).sort().join(',');
+        const refus = await choisir('derivation', false);
+        const apresRefus = { n: P.state.nodes.length, liste: liste.value };
+
+        const accord = await choisir('derivation', true);
+        const apresAccord = { types: P.state.nodes.map(n => n.type).sort().join(','), liste: liste.value };
+
+        // On ajoute un composant : ce n'est plus le modèle, la liste le dit
+        P.currentTool = 'add'; P.currentComponentType = 'resistor';
+        P.onInputDown({ x: 700, y: 700 });
+        const apresRetouche = { liste: liste.value, modele: P.modeleCourant };
+
         P.closeWidget();
-        return { avant, questionne, apresRefus, apresAccord };
+        return { optionsEnTrop, premier, apresPremier, resume, refus, apresRefus, accord, apresAccord, apresRetouche };
     });
-    r.egal('le modèle « Série » pose ses quatre composants', remplace.avant, 4);
-    r.verifie('remplacer un circuit commencé demande confirmation', remplace.questionne);
-    r.egal('refuser laisse le circuit intact', remplace.apresRefus, 4);
-    r.egal('accepter pose le nouveau montage', remplace.apresAccord, 'battery,bulb,bulb,switch');
+    r.egal('la liste ne propose que les modèles, plus « Circuit libre »', menu.optionsEnTrop, 0);
+    r.verifie('sur un plan de travail vide, aucune question n\'est posée', menu.premier === false);
+    r.egal('le premier choix pose ses quatre composants', menu.apresPremier, 4);
+    r.verifie('la liste explique le montage choisi', /ampèremètre/.test(menu.resume), menu.resume);
+    r.verifie('changer de montage demande confirmation', menu.refus === true);
+    r.egal('refuser laisse le circuit intact', menu.apresRefus.n, 4);
+    r.egal('et la liste revient sur le montage affiché', menu.apresRefus.liste, 'serie');
+    r.egal('accepter pose le nouveau montage', menu.apresAccord.types, 'battery,bulb,bulb,switch');
+    r.egal('la liste suit', menu.apresAccord.liste, 'derivation');
+    r.egal('retoucher le circuit le fait repasser en « Circuit libre »', menu.apresRetouche.liste, '');
+    r.egal('et le modèle courant est oublié', menu.apresRetouche.modele, null);
+
+    // Mode « Actionner » : un clic sur l'interrupteur éteint tout le circuit
+    const actionner = await page.evaluate(async () => {
+        const P = PluginManager.plugins['circuitTool'];
+        P.state = { nodes: [], wires: [] };
+        P.editingImage = null; P.saveHistory(true); P.createWidget();
+        await P.poserModele('del');
+        const outilApresPose = P.currentTool;
+        const aide = getComputedStyle(P.widgetEl.querySelector('#circ-aide-actionner')).display;
+
+        const inter = P.state.nodes.find(n => n.type === 'switch');
+        const del = P.state.nodes.find(n => n.type === 'led');
+        const delAvant = del.powered;
+
+        P.onInputDown({ x: inter.x, y: inter.y });          // on ouvre
+        const ouvert = { inter: inter.closed, del: del.powered };
+        const dessin = document.getElementById('circ-svg-layer').innerHTML;
+
+        P.onInputDown({ x: inter.x, y: inter.y });          // on referme
+        const referme = { inter: inter.closed, del: del.powered };
+
+        // Un clic à côté ne bascule rien
+        P.onInputDown({ x: inter.x + 200, y: inter.y + 200 });
+        const aCote = inter.closed;
+
+        // Le double-clic ne doit pas défaire le clic simple dans ce mode
+        P.onInputDblClick({ x: inter.x, y: inter.y });
+        const apresDouble = inter.closed;
+
+        P.closeWidget();
+        return { outilApresPose, aide, delAvant, ouvert, referme, aCote, apresDouble,
+                 rougeQuandEteint: /#e74c3c/.test(dessin) };
+    });
+    r.egal('un modèle posé rend la main sur « Actionner »', actionner.outilApresPose, 'toggle');
+    r.egal('avec sa consigne affichée', actionner.aide, 'block');
+    r.verifie('la DEL est allumée au départ', actionner.delAvant === true);
+    r.verifie('un clic ouvre l\'interrupteur et éteint la DEL',
+        actionner.ouvert.inter === false && actionner.ouvert.del === false, JSON.stringify(actionner.ouvert));
+    r.verifie('un second clic referme et rallume',
+        actionner.referme.inter === true && actionner.referme.del === true, JSON.stringify(actionner.referme));
+    r.verifie('cliquer à côté ne bascule rien', actionner.aCote === true);
+    r.verifie('le double-clic ne défait pas le clic simple', actionner.apresDouble === true);
 
     // Le tableau répond toujours après ce tour de piste
     const vivant = await page.evaluate(() => { try { draw(); return true; } catch (e) { return e.message; } });

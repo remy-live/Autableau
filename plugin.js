@@ -3163,6 +3163,7 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
     edit: function (imageObj) {
         if (!imageObj || !imageObj.pluginData || !imageObj.pluginData.state) return;
         this.editingImage = imageObj;
+        this.modeleCourant = null;
         this.state = JSON.parse(JSON.stringify(imageObj.pluginData.state));
         this.saveHistory(true); this.simulateCircuit();
         if (!this.widgetEl) this.createWidget();
@@ -3209,12 +3210,17 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                         <button class="circ-tool-btn active" data-tool="select" style="flex:1; height:40px; border-radius:6px; border:none; background:#0984e3; color:white; font-weight:bold; cursor:pointer;">👆 Manipuler</button>
                         <button class="circ-tool-btn" data-tool="wire" style="flex:1; height:40px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-weight:bold; cursor:pointer;">🔌 Relier</button>
                     </div>
-
-                    <div style="font-weight:bold; font-size:12px; color:#7f8c8d; text-transform:uppercase; margin-top:10px;">Modèles</div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;" id="circ-modeles">
-                        ${this.MODELES.map(m => `<button class="circ-modele-btn" data-modele="${m.cle}" title="${m.resume}"
-                            style="padding:8px 6px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-size:12px; font-weight:600; cursor:pointer; text-align:center;">${m.nom}</button>`).join('')}
+                    <button class="circ-tool-btn" data-tool="toggle" style="width:100%; height:40px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-weight:bold; cursor:pointer;">⚡ Actionner</button>
+                    <div id="circ-aide-actionner" style="display:none; font-size:11px; color:#7f8c8d; line-height:1.4;">
+                        Touchez un interrupteur pour l'ouvrir ou le fermer : les lampes, la DEL et le moteur suivent.
                     </div>
+
+                    <div style="font-weight:bold; font-size:12px; color:#7f8c8d; text-transform:uppercase; margin-top:10px;">Modèle</div>
+                    <select id="circ-modele-select" style="width:100%; padding:8px 6px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-size:13px; font-weight:600; cursor:pointer;">
+                        <option value="">Circuit libre…</option>
+                        ${this.MODELES.map(m => `<option value="${m.cle}" title="${m.resume}">${m.nom}</option>`).join('')}
+                    </select>
+                    <div id="circ-modele-resume" style="font-size:11px; color:#7f8c8d; line-height:1.4; min-height:28px;"></div>
 
                     <div style="font-weight:bold; font-size:12px; color:#7f8c8d; text-transform:uppercase; margin-top:10px;">Composants</div>
                     <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="circ-palette">
@@ -3261,30 +3267,32 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
 
         this.widgetEl.querySelectorAll('.circ-tool-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                this.resetToolsUI();
-                e.currentTarget.style.background = '#0984e3'; e.currentTarget.style.color = 'white'; e.currentTarget.style.border = 'none'; e.currentTarget.classList.add('active');
-                this.currentTool = e.currentTarget.dataset.tool;
-                this.widgetEl.querySelectorAll('.circ-comp-btn').forEach(b => b.style.border = '1px solid #bdc3c7');
+                this.activeNodeId = null;
+                this.choisirOutil(e.currentTarget.dataset.tool);
                 this.render();
             });
         });
 
         this.widgetEl.querySelectorAll('.circ-comp-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                this.resetToolsUI();
-                this.widgetEl.querySelectorAll('.circ-comp-btn').forEach(b => b.style.border = '1px solid #bdc3c7');
+                this.choisirOutil('add');   // remet aussi les bordures à plat
                 e.currentTarget.style.border = '2px solid #0984e3';
                 this.currentComponentType = e.currentTarget.dataset.comp;
-                this.currentTool = 'add';
                 this.render();
             });
         });
 
-        this.widgetEl.querySelectorAll('.circ-modele-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => this.poserModele(e.currentTarget.dataset.modele));
-            btn.addEventListener('mouseenter', (e) => { e.currentTarget.style.background = '#eaf4fd'; e.currentTarget.style.borderColor = '#0984e3'; });
-            btn.addEventListener('mouseleave', (e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#bdc3c7'; });
-        });
+        const choixModele = this.widgetEl.querySelector('#circ-modele-select');
+        if (choixModele) {
+            choixModele.addEventListener('change', async (e) => {
+                const cle = e.target.value;
+                if (!cle) { this.majResumeModele(); return; }
+                const pose = await this.poserModele(cle);
+                // Refusé : la liste revient sur le montage réellement affiché
+                if (!pose) choixModele.value = this.modeleCourant || '';
+                this.majResumeModele();
+            });
+        }
 
         const ws = document.getElementById('circ-workspace');
 
@@ -3351,21 +3359,24 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
     },
 
     onInputDown: function (pos) {
+        if (this.currentTool === 'toggle') {
+            if (!this.basculerInterrupteur(pos) && typeof showToast === 'function') {
+                showToast("Touchez un interrupteur pour l'ouvrir ou le fermer");
+            }
+            return;
+        }
+
         if (this.currentTool === 'add') {
             let snapX = Math.round(pos.x / 20) * 20; let snapY = Math.round(pos.y / 20) * 20;
             let newNode = { id: 'n_' + Date.now(), type: this.currentComponentType, x: snapX, y: snapY, rot: 0, closed: false, powered: false };
             this.state.nodes.push(newNode);
+            this.modeleTouche();
             this.simulateCircuit(); this.saveHistory();
 
-            this.currentTool = 'select';
+            this.choisirOutil('select');
             this.activeNodeId = newNode.id;
             this.dragMode = 'node';
             this.dragOffset = { x: pos.x - snapX, y: pos.y - snapY };
-
-            this.resetToolsUI();
-            let selectBtn = this.widgetEl.querySelector('.circ-tool-btn[data-tool="select"]');
-            if (selectBtn) { selectBtn.style.background = '#0984e3'; selectBtn.style.color = 'white'; selectBtn.style.border = 'none'; selectBtn.classList.add('active'); }
-            this.widgetEl.querySelectorAll('.circ-comp-btn').forEach(b => b.style.border = '1px solid #bdc3c7');
             this.render(); return;
         }
 
@@ -3385,6 +3396,7 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                     this.state.nodes = this.state.nodes.filter(n => n.id !== activeNode.id);
                     this.state.wires = this.state.wires.filter(w => w.from !== activeNode.id && w.to !== activeNode.id);
                     this.activeNodeId = null;
+                    this.modeleTouche();
                     this.simulateCircuit(); this.saveHistory(); this.render();
                     return;
                 }
@@ -3430,6 +3442,16 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
 
         let hoveredNode = this.state.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
 
+        if (this.currentTool === 'toggle') {
+            // Seuls les interrupteurs répondent : on ne le fait sentir que sur eux
+            const dessus = hoveredNode && hoveredNode.type === 'switch';
+            this.hoveredNodeId = dessus ? hoveredNode.id : null;
+            const ws = document.getElementById('circ-workspace');
+            if (ws) ws.style.cursor = dessus ? 'pointer' : 'default';
+            this.render();
+            return;
+        }
+
         if (this.currentTool === 'select' && this.dragMode === 'node' && this.activeNodeId) {
             let node = this.state.nodes.find(n => n.id === this.activeNodeId);
             if (node) {
@@ -3459,6 +3481,7 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                 let exists = this.state.wires.find(w => (w.from === this.activeNodeId && w.to === this.linkTargetNodeId) || (w.to === this.activeNodeId && w.from === this.linkTargetNodeId));
                 if (!exists) {
                     this.state.wires.push({ id: 'w_' + Date.now(), from: this.activeNodeId, to: this.linkTargetNodeId });
+                    this.modeleTouche();
                     this.simulateCircuit(); this.saveHistory();
                 }
             }
@@ -3472,11 +3495,10 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
     },
 
     onInputDblClick: function (pos) {
-        let clickedNode = this.state.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
-        if (clickedNode && clickedNode.type === 'switch') {
-            clickedNode.closed = !clickedNode.closed;
-            this.simulateCircuit(); this.saveHistory(); this.render();
-        }
+        // En mode « Actionner », le clic simple a déjà basculé : un double-clic
+        // reviendrait à l'état de départ.
+        if (this.currentTool === 'toggle') return;
+        this.basculerInterrupteur(pos);
     },
 
     saveHistory: function (reset = false) {
@@ -3582,15 +3604,24 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
 
     // Pose un modèle à la place du circuit courant. Le travail déjà commencé
     // ne part jamais sans qu'on ait dit oui.
+    // La phrase sous la liste : ce que montre le montage choisi.
+    majResumeModele: function () {
+        const zone = this.widgetEl && this.widgetEl.querySelector('#circ-modele-resume');
+        if (!zone) return;
+        const liste = this.widgetEl.querySelector('#circ-modele-select');
+        const m = this.MODELES.find(x => x.cle === (liste ? liste.value : ''));
+        zone.textContent = m ? m.resume : '';
+    },
+
     poserModele: async function (cle) {
         const m = this.MODELES.find(x => x.cle === cle);
-        if (!m) return;
+        if (!m) return false;
         if (this.state.nodes.length > 0) {
             const remplacer = (typeof demanderConfirmation === 'function')
                 ? await demanderConfirmation('Remplacer le circuit',
                     `« ${m.nom} » va remplacer le circuit en cours. On continue ?`)
                 : true;
-            if (!remplacer) return;
+            if (!remplacer) return false;
         }
 
         const base = Date.now();
@@ -3603,17 +3634,60 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
             wires: m.fils.map(([a, b], i) => ({ id: 'w_' + base + '_' + i, from: ids[a], to: ids[b] }))
         };
         this.activeNodeId = null;
-        this.currentTool = 'select';
-        this.resetToolsUI();
-        const btnMain = this.widgetEl && this.widgetEl.querySelector('.circ-tool-btn[data-tool="select"]');
-        if (btnMain) {
-            btnMain.style.background = '#0984e3'; btnMain.style.color = 'white';
-            btnMain.style.border = 'none'; btnMain.classList.add('active');
-        }
+        this.modeleCourant = m.cle;
+        // On rend la main sur « Actionner » : un modèle se pose pour être
+        // manœuvré devant la classe, pas pour être redessiné.
+        this.choisirOutil('toggle');
+        const liste = this.widgetEl && this.widgetEl.querySelector('#circ-modele-select');
+        if (liste && liste.value !== m.cle) liste.value = m.cle;
+        this.majResumeModele();
         this.saveHistory();
         this.simulateCircuit();
         this.render();
         if (typeof showToast === 'function') showToast('Modèle posé : ' + m.nom);
+        return true;
+    },
+
+    // Bascule d'outil, boutons compris : appelée par les boutons comme par le
+    // code (pose d'un composant, pose d'un modèle).
+    choisirOutil: function (outil) {
+        this.currentTool = outil;
+        if (!this.widgetEl) return;
+        this.resetToolsUI();
+        const btn = this.widgetEl.querySelector(`.circ-tool-btn[data-tool="${outil}"]`);
+        if (btn) {
+            btn.style.background = '#0984e3'; btn.style.color = 'white';
+            btn.style.border = 'none'; btn.classList.add('active');
+        }
+        this.widgetEl.querySelectorAll('.circ-comp-btn').forEach(b => b.style.border = '1px solid #bdc3c7');
+        const aide = this.widgetEl.querySelector('#circ-aide-actionner');
+        if (aide) aide.style.display = (outil === 'toggle') ? 'block' : 'none';
+        const ws = document.getElementById('circ-workspace');
+        if (ws) ws.style.cursor = (outil === 'toggle') ? 'pointer' : 'crosshair';
+    },
+
+    // Dès qu'on ajoute ou retire quelque chose, ce n'est plus le modèle : la
+    // liste repasse sur « Circuit libre », et rechoisir le même modèle le
+    // repose vraiment (sinon le menu ne changerait pas de valeur, donc rien
+    // ne se passerait).
+    modeleTouche: function () {
+        if (!this.modeleCourant) return;
+        this.modeleCourant = null;
+        const liste = this.widgetEl && this.widgetEl.querySelector('#circ-modele-select');
+        if (liste) liste.value = '';
+        this.majResumeModele();
+    },
+
+    // Ouvrir ou fermer un interrupteur : le geste de base devant la classe.
+    // On le fait au clic simple en mode « Actionner », et au double-clic
+    // partout ailleurs.
+    basculerInterrupteur: function (pos) {
+        const cible = this.state.nodes.find(n => n.type === 'switch'
+            && Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
+        if (!cible) return false;
+        cible.closed = !cible.closed;
+        this.simulateCircuit(); this.saveHistory(); this.render();
+        return true;
     },
 
     alignNodes: function () {
@@ -3634,6 +3708,10 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
             if (this.dragMode !== 'link' && this.hoveredNodeId === n.id) {
                 svg += `<circle cx="0" cy="0" r="26" fill="none" stroke="#00b894" stroke-width="3"/>`;
             }
+        }
+        // En mode « Actionner », l'anneau désigne l'interrupteur qui répondra
+        if (this.currentTool === 'toggle' && this.hoveredNodeId === n.id) {
+            svg += `<circle cx="0" cy="0" r="26" fill="none" stroke="#f39c12" stroke-width="3"/>`;
         }
 
         svg += `<circle cx="0" cy="0" r="18" fill="white" stroke="none"/>`;
