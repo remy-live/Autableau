@@ -746,7 +746,8 @@ module.exports = async function (browser) {
     const pleinEcran = await page.evaluate(async () => {
         const box = document.querySelector('#class-manager-modal .modal-box');
         const liste = () => document.getElementById('cm-students-list').getBoundingClientRect().height;
-        const avant = { l: box.getBoundingClientRect().width, liste: liste() };
+        const rAvant = box.getBoundingClientRect();
+        const avant = { l: rAvant.width, h: rAvant.height, liste: liste() };
         box.querySelector('.fen-plein').click();
         await new Promise(r => setTimeout(r, 200));
         const b = box.getBoundingClientRect();
@@ -766,13 +767,20 @@ module.exports = async function (browser) {
         box.querySelector('.fen-plein').click();
         await new Promise(r => setTimeout(r, 150));
         plein.revenu = Math.abs(box.getBoundingClientRect().width - avant.l) < 2;
-        plein.listeAvant = avant.liste;
+        plein.listeAvant = Math.round(avant.liste);
+        plein.hauteurGagnee = Math.round(plein.h - avant.h);
+        plein.listeGagnee = Math.round(plein.liste - avant.liste);
         return plein;
     });
     r.egal('le plein écran occupe l\'écran, aux marges près',
         [pleinEcran.l, pleinEcran.h], pleinEcran.attendu);
-    r.verifie('la liste d\'élèves profite vraiment de la hauteur gagnée',
-        pleinEcran.liste > pleinEcran.listeAvant + 100, JSON.stringify(pleinEcran));
+    // Toute la hauteur gagnée par la fenêtre va à la liste, et rien qu'à elle :
+    // c'est la seule chose qui mérite de s'étirer. (Le seuil était naguère
+    // « +100 px » ; depuis que la liste est correctement dimensionnée au repos,
+    // le plein écran n'ajoute plus que la différence — d'où cette mesure-ci,
+    // qui dit la vraie propriété.)
+    r.verifie('toute la hauteur gagnée revient à la liste d\'élèves',
+        pleinEcran.listeGagnee >= pleinEcran.hauteurGagnee - 8, JSON.stringify(pleinEcran));
     r.verifie('la fenêtre se sait en plein écran', pleinEcran.marque);
     r.verifie('la poignée s\'efface, elle n\'a plus rien à ajuster', pleinEcran.poigneeCachee);
     r.verifie('les commandes survivent au redessin du contenu', pleinEcran.survitAuRerendu);

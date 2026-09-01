@@ -13410,55 +13410,60 @@ async function openClassManagerModal() {
                 </div>
             `).join('') || `<div style="font-size:12px; color:var(--muted); padding:8px;">Aucun élève. Ajoutez-en ou importez une liste.</div>`;
 
+            const nbPaires = (selected.aSeparer || []).length;
+
             detailHtml = `
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                    <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe"
-                           style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:14px; font-weight:600;">
-                    <button id="cm-points" class="btn-action primary" style="padding:8px 12px;">🏅 Points</button>
-                    <button id="cm-seating-plan" class="btn-action secondary" style="padding:8px 12px;">🪑 Plan de classe</button>
-                    <button id="cm-dupliquer" class="btn-action secondary" style="padding:8px 12px;" title="Copier cette classe et ses élèves, sans les points ni les badges">⧉</button>
-                    <button id="cm-archiver" class="btn-action secondary" style="padding:8px 12px;" title="${selected.archivee ? 'Sortir des archives' : 'Archiver : la classe reste, mais quitte les listes'}">${selected.archivee ? '📤' : '📦'}</button>
-                    <button id="cm-delete-class" class="btn-action secondary" style="padding:8px 12px; color:#d63031;">🗑️ Supprimer</button>
+                <div class="cm-entete">
+                    <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe">
+                    <div class="cm-actions">
+                        <button id="cm-points" class="btn-action primary" title="Les points et les badges de la classe">🏅 Points</button>
+                        <button id="cm-seating-plan" class="btn-action secondary" title="Ouvrir le plan de classe">🪑 Plan</button>
+                        <button id="cm-dupliquer" class="btn-action secondary cm-ico" title="Copier cette classe et ses élèves, sans les points ni les badges">⧉</button>
+                        <button id="cm-archiver" class="btn-action secondary cm-ico" title="${selected.archivee ? 'Sortir des archives' : 'Archiver : la classe reste, mais quitte les listes'}">${selected.archivee ? '📤' : '📦'}</button>
+                        <button id="cm-delete-class" class="btn-action secondary cm-ico cm-danger" title="Supprimer la classe « ${(selected.name || '').replace(/"/g, '&quot;')} » et ses élèves">🗑️</button>
+                    </div>
                 </div>
 
-                <div style="display:flex; gap:6px; margin-bottom:10px;">
-                    <input type="text" id="cm-add-student-input" placeholder="Nom de l'élève..." style="flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
-                    <button id="cm-add-student-btn" class="btn-action primary" style="padding:6px 12px; font-size:12px;">+ Ajouter</button>
-                    <button id="cm-trier" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                <div class="cm-ajout">
+                    <input type="text" id="cm-add-student-input" placeholder="Nom de l'élève...">
+                    <button id="cm-add-student-btn" class="btn-action primary">+ Ajouter</button>
+                    <button id="cm-trier" class="btn-action secondary cm-ico"
                             title="Ranger les élèves par ordre alphabétique">A→Z</button>
                 </div>
 
-                <div id="cm-students-list" style="flex:1 1 220px; min-height:140px; overflow-y:auto; margin-bottom:12px;">
+                <!-- Le seul bloc qui défile : la liste garde toute la hauteur
+                     disponible, quitte à ce que les réglages plus bas se
+                     replient. Trente élèves, c'est ce qu'on vient voir. -->
+                <div id="cm-students-list">
                     ${studentsHtml}
                 </div>
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-6px 0 10px 2px;">
-                    <div style="font-size:11px; color:var(--muted);">
+
+                <div class="cm-appel">
+                    <span>
                         <b id="cm-appel-resume">${Appel.resume(selected)}</b>
                         ${Appel.absents(selected).length
-                            ? ` — ils sont mis de côté pour aujourd'hui : ni tirage au sort, ni groupes.
-                                <button id="cm-tous-presents" style="border:none; background:none; color:var(--accent);
-                                    cursor:pointer; font-size:11px; text-decoration:underline; padding:0;">Tous présents</button>`
-                            : ' · ✓ pour noter une absence'}
-                    </div>
-                </div>
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-4px 0 12px 2px;">
-                    <div style="font-size:11px; color:var(--muted);">⭐ = clique pour marquer un élève prioritaire au 1er rang (utilisé par le plan de classe)</div>
-                    <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; cursor:pointer;">
-                        <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars dessinés
+                            ? ` — mis de côté aujourd'hui : ni tirage, ni groupes.
+                                <button id="cm-tous-presents">Tous présents</button>`
+                            : ' · ✓ pour noter une absence · ⭐ pour le 1er rang'}
+                    </span>
+                    <label title="Remplacer les initiales par des visages dessinés">
+                        <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars
                     </label>
                 </div>
 
-                <div style="border-top:1px solid var(--border); padding-top:10px; margin-bottom:10px;">
-                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase;">À ne pas mettre ensemble</label>
+                <!-- Réglages occasionnels : repliés, ils rendent leur hauteur
+                     à la liste d'élèves. -->
+                <details class="cm-repli">
+                    <summary>À ne pas mettre ensemble${nbPaires ? ` <b>(${nbPaires})</b>` : ''}</summary>
                     <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
-                        <select id="cm-sep-a" style="flex:1; min-width:0; padding:6px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
+                        <select id="cm-sep-a" style="flex:1; min-width:0;">
                             ${(selected.students || []).map((e, i) => `<option value="${e.id}">${e.name}</option>`).join('')}
                         </select>
                         <span style="font-size:12px; color:var(--muted);">et</span>
-                        <select id="cm-sep-b" style="flex:1; min-width:0; padding:6px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
+                        <select id="cm-sep-b" style="flex:1; min-width:0;">
                             ${(selected.students || []).map((e, i) => `<option value="${e.id}" ${i === 1 ? 'selected' : ''}>${e.name}</option>`).join('')}
                         </select>
-                        <button id="cm-sep-ajouter" class="btn-action secondary" style="padding:6px 10px; font-size:12px;">Séparer</button>
+                        <button id="cm-sep-ajouter" class="btn-action secondary">Séparer</button>
                     </div>
                     <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;">
                         ${(selected.aSeparer || []).map((paire, i) => {
@@ -13469,30 +13474,30 @@ async function openClassManagerModal() {
                                 ${nom(paire[0])} ✕ ${nom(paire[1])} <span style="opacity:0.4;">×</span></span>`;
                         }).join('') || '<span style="font-size:11px; color:var(--muted);">Aucune paire. L\'atelier groupes les tiendra à l\'écart.</span>'}
                     </div>
-                </div>
+                </details>
 
-                <div style="border-top:1px solid var(--border); padding-top:10px;">
-                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase;">Importer une liste (copier-coller depuis un tableur, ou fichier .csv)</label>
-                    <textarea id="cm-paste-area" placeholder="Collez ici une liste d'élèves (un par ligne, ou copié depuis Excel/Sheets)" style="width:100%; height:60px; margin-top:6px; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px; box-sizing:border-box; resize:vertical;"></textarea>
+                <details class="cm-repli">
+                    <summary>Importer une liste</summary>
+                    <textarea id="cm-paste-area" placeholder="Collez ici une liste d'élèves (un par ligne, ou copié depuis Excel/Sheets)"></textarea>
                     <div style="display:flex; gap:8px; margin-top:6px;">
-                        <button id="cm-import-paste-btn" class="btn-action secondary" style="flex:1; padding:6px; font-size:12px;">📋 Importer le texte collé</button>
-                        <button id="cm-import-file-btn" class="btn-action secondary" style="flex:1; padding:6px; font-size:12px;">📄 Importer un fichier .csv</button>
+                        <button id="cm-import-paste-btn" class="btn-action secondary" style="flex:1;">📋 Texte collé</button>
+                        <button id="cm-import-file-btn" class="btn-action secondary" style="flex:1;">📄 Fichier .csv</button>
                         <input type="file" id="cm-import-file-input" accept=".csv,.txt" style="display:none;">
                     </div>
-                </div>
+                </details>
             `;
         }
 
         box.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; gap:10px;">
+            <div class="cm-titre">
                 <h3 style="margin:0; color:var(--accent);">👥 Mes classes</h3>
                 <div style="flex:1;"></div>
-                <button id="cm-sauver" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                <button id="cm-sauver" class="btn-action secondary"
                         title="Enregistrer un fichier contenant toutes vos classes">💾 Sauvegarder</button>
-                <button id="cm-restaurer" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                <button id="cm-restaurer" class="btn-action secondary"
                         title="Relire un fichier de classes">📂 Restaurer</button>
                 <input type="file" id="cm-fichier-classes" accept=".json,application/json" style="display:none;">
-                <button id="cm-close" style="border:none; background:none; font-size:20px; cursor:pointer; color:var(--muted);">&times;</button>
+                <button id="cm-close" title="Fermer">&times;</button>
             </div>
             <div id="cm-restauration" style="display:none; margin-bottom:12px;"></div>
             <div style="display:flex; gap:15px; flex:1; min-height:0;">
@@ -13501,9 +13506,11 @@ async function openClassManagerModal() {
                     <div style="overflow-y:auto; flex:1;">${listHtml}</div>
                 </div>
                 <!-- Colonne souple : la liste d'élèves prend toute la hauteur
-                     gagnée quand on agrandit la fenêtre, le reste suit. -->
-                <div style="flex:1; min-width:0; border-left:1px solid var(--border); padding-left:15px;
-                            display:flex; flex-direction:column; overflow-y:auto;">
+                     gagnée quand on agrandit la fenêtre, le reste suit.
+                     Pas de défilement ici : sinon deux ascenseurs imbriqués,
+                     et la liste se retrouve écrasée sur trois lignes. -->
+                <div id="cm-detail" style="flex:1; min-width:0; min-height:0; border-left:1px solid var(--border);
+                            padding-left:15px; display:flex; flex-direction:column;">
                     ${detailHtml}
                 </div>
             </div>

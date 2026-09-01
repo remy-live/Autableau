@@ -6507,6 +6507,167 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 .cm-student-row.absent .cm-avatar { opacity: 0.45; }
 
+/* ------------------------------------------------------------------
+   Gestionnaire de classes : la liste d'élèves d'abord.
+   Les boutons étaient à la taille des grands boutons d'action, tous sur
+   une ligne qui débordait de la fenêtre ; et la colonne de droite
+   défilait EN PLUS de la liste, si bien que trente élèves tenaient sur
+   trois lignes. Ici : boutons compacts, rangée qui se replie plutôt que
+   de se couper, et un seul ascenseur — celui de la liste.
+   ------------------------------------------------------------------ */
+#class-manager-modal .cm-titre {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+#class-manager-modal #cm-close {
+    border: none;
+    background: none;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 2px 6px;
+}
+
+#class-manager-modal .btn-action {
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* Boutons réduits à leur icône : carrés, pour ne pas paraître tronqués */
+#class-manager-modal .cm-ico {
+    padding: 6px 9px;
+    min-width: 34px;
+}
+
+/* La corbeille de la classe voisine celle de chaque élève : l'emoji ne prend
+   pas la couleur, c'est donc le cadre qui dit que celle-ci est dangereuse. */
+#class-manager-modal .cm-danger {
+    color: #d63031;
+    border-color: rgba(214, 48, 49, 0.45);
+    background: rgba(214, 48, 49, 0.07);
+}
+
+#class-manager-modal .cm-danger:hover { background: rgba(214, 48, 49, 0.16); }
+
+#class-manager-modal .cm-entete,
+#class-manager-modal .cm-ajout {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+#class-manager-modal .cm-entete > input,
+#class-manager-modal .cm-ajout > input {
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 13px;
+}
+
+#class-manager-modal .cm-entete > input { font-weight: 600; }
+
+/* La rangée d'actions se replie d'un bloc sous le nom quand la fenêtre
+   est étroite, au lieu de laisser « Supprimer » dépasser du cadre. */
+#class-manager-modal .cm-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Le seul ascenseur de la colonne. min-height:0 est indispensable :
+   sans lui, un enfant flex refuse de descendre sous sa hauteur de
+   contenu et la liste repousse tout le reste hors de la fenêtre. */
+#class-manager-modal #cm-students-list {
+    flex: 1 1 auto;
+    min-height: 120px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+#class-manager-modal .cm-appel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+#class-manager-modal .cm-appel label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+#class-manager-modal .cm-appel #cm-tous-presents {
+    border: none;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 11px;
+    text-decoration: underline;
+    padding: 0;
+}
+
+/* Réglages qu'on ouvre une fois par trimestre : repliés par défaut. */
+/* La modale centre son texte : ces blocs-là se lisent alignés à gauche. */
+#class-manager-modal .cm-repli,
+#class-manager-modal .cm-appel {
+    text-align: left;
+}
+
+#class-manager-modal .cm-repli {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-bottom: 6px;
+    flex: none;
+}
+
+#class-manager-modal .cm-repli > summary {
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--muted);
+    text-transform: uppercase;
+    cursor: pointer;
+    list-style: revert;
+    padding: 2px 0;
+}
+
+#class-manager-modal .cm-repli > summary:hover { color: var(--accent); }
+
+#class-manager-modal .cm-repli select,
+#class-manager-modal .cm-repli textarea {
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 12px;
+}
+
+#class-manager-modal .cm-repli textarea {
+    width: 100%;
+    height: 56px;
+    margin-top: 6px;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
 /* Le titre du post-it : posé par un double-clic sur la barre. Trois papiers
    jaunes se ressemblent tous ; celui-ci porte son nom. */
 .postit-titre {

@@ -1043,6 +1043,82 @@ module.exports = async function (browser) {
         tousLesPoints.apres.every(v => v === 0), JSON.stringify(tousLesPoints.apres));
     r.egal('en mode « Retirer », le bouton ne fait rien', tousLesPoints.refus, 0);
 
+    // --- La fenêtre « Mes classes » : la liste d'élèves d'abord ---
+    // Elle était coupée à droite (la rangée d'actions débordait du cadre) et
+    // la colonne de droite défilait EN PLUS de la liste, si bien que trente
+    // élèves tenaient sur trois lignes.
+    const miseEnPage = await page.evaluate(async () => {
+        document.querySelectorAll('#class-manager-modal').forEach(m => m.remove());
+        localStorage.removeItem('board_fenetres');
+        await ClassesStore.saveAll([{
+            id: 'cmep', name: '4A',
+            students: Array.from({ length: 30 }, (_, i) => ({ id: 'p' + i, name: 'Élève numéro ' + i }))
+        }]);
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 400));
+
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        const detail = document.getElementById('cm-detail');
+        const liste = document.getElementById('cm-students-list');
+
+        // Rien ne dépasse du cadre, ni à droite ni à gauche. On mesure aussi
+        // fenêtre rétrécie : c'est là que la rangée d'actions sortait du
+        // cadre, « Supprimer » coupé en deux.
+        const cequiDeborde = () => {
+            const cadre = box.getBoundingClientRect();
+            return [...box.querySelectorAll('button, input, select')]
+                .filter(el => el.offsetParent !== null)
+                .filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.right > cadre.right + 1 || r.left < cadre.left - 1;
+                }).map(el => el.id || el.textContent.trim().slice(0, 20));
+        };
+        const debord = cequiDeborde();
+        const largeurDorigine = box.style.width;
+        box.style.width = '600px';
+        const debordEtroit = cequiDeborde();
+        box.style.width = largeurDorigine;
+
+        const zone = liste.getBoundingClientRect();
+        const visibles = [...liste.querySelectorAll('.cm-student-row')].filter(x => {
+            const r = x.getBoundingClientRect();
+            return r.top >= zone.top - 1 && r.bottom <= zone.bottom + 1;
+        }).length;
+
+        const replis = [...box.querySelectorAll('.cm-repli')];
+        return {
+            debord, debordEtroit,
+            visibles,
+            listeDefile: liste.scrollHeight > liste.clientHeight + 1,
+            detailDefile: detail.scrollHeight > detail.clientHeight + 1,
+            replies: replis.length,
+            toutesRepliees: replis.every(d => !d.open),
+            // Les réglages restent atteignables une fois dépliés
+            separationDispo: (() => {
+                replis.forEach(d => { d.open = true; });
+                return !!document.getElementById('cm-sep-ajouter')
+                    && !!document.getElementById('cm-import-paste-btn');
+            })(),
+            // Les actions de la classe sont toutes là, en version compacte
+            actions: [...box.querySelectorAll('.cm-actions .btn-action')].map(b => b.id),
+            supprimeAvecTitre: (document.getElementById('cm-delete-class').title || '').includes('Supprimer')
+        };
+    });
+    r.egal('rien ne dépasse du cadre de la fenêtre', miseEnPage.debord, []);
+    r.egal('ni une fois la fenêtre rétrécie : la rangée se replie',
+        miseEnPage.debordEtroit, []);
+    r.verifie('au moins huit élèves sont visibles d\'un coup',
+        miseEnPage.visibles >= 8, 'visibles : ' + miseEnPage.visibles);
+    r.verifie('la liste est bien ce qui défile', miseEnPage.listeDefile);
+    r.verifie('et elle est le seul ascenseur de la colonne', !miseEnPage.detailDefile);
+    r.egal('deux réglages sont repliés par défaut', miseEnPage.replies, 2);
+    r.verifie('et ils le sont vraiment', miseEnPage.toutesRepliees);
+    r.verifie('dépliés, ils rendent leurs commandes', miseEnPage.separationDispo);
+    r.egal('les cinq actions de la classe sont conservées', miseEnPage.actions,
+        ['cm-points', 'cm-seating-plan', 'cm-dupliquer', 'cm-archiver', 'cm-delete-class']);
+    r.verifie('la corbeille réduite à son icône garde son infobulle',
+        miseEnPage.supprimeAvecTitre);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
