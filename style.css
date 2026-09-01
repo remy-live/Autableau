@@ -6144,3 +6144,17 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 @keyframes pw-manque { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 .geg-manque { animation: pw-manque 0.25s 2; }
 .geg-manque .pw-pastille { border-color: #e17055; }
+
+/* Ce que le navigateur refuse, expliqué sans accuser l'enseignant */
+.exp-depot-remarque {
+    max-width: 460px;
+    margin: 14px auto 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(253, 203, 110, 0.18);
+    border: 1px solid rgba(225, 112, 85, 0.35);
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.55;
+    text-align: left;
+}

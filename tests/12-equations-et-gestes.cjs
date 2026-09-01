@@ -230,6 +230,46 @@ module.exports = async function (browser) {
     r.verifie('le tracé est centré en largeur sur la feuille', feuilleAutour.centree, JSON.stringify(feuilleAutour));
     r.verifie('et la page retient où sa feuille est posée', feuilleAutour.retenue, JSON.stringify(feuilleAutour));
 
+    // Les axes vivaient à l'origine du tableau : allumés après avoir travaillé
+    // ailleurs, ils naissaient de travers. Ils se posent au milieu de la vue,
+    // sur un croisement du quadrillage pour que les graduations tombent juste.
+    const axesCentres = await page.evaluate(async () => {
+        currentBgIndex = backgrounds.indexOf('carreau');
+        panX = -1400; panY = -900; zoom = 1;
+        showAxes = 0;
+        origineAxes = { x: 0, y: 0 };
+        document.getElementById('btn-axes').click();          // 0 → 1
+        await new Promise(r => setTimeout(r, 150));
+        const cv = document.getElementById('board');
+        const vise = { x: (cv.clientWidth / 2 - panX) / zoom, y: (cv.clientHeight / 2 - panY) / zoom };
+        const pas = pasDesGraduations();
+        const pose = { x: origineAxes.x, y: origineAxes.y };
+
+        // un second clic (graduations) ne doit pas les redéplacer
+        document.getElementById('btn-axes').click();          // 1 → 2
+        await new Promise(r => setTimeout(r, 150));
+        const stable = origineAxes.x === pose.x && origineAxes.y === pose.y;
+        syncPage();
+        const retenue = !!(pages[currentPageIndex].origineAxes
+            && pages[currentPageIndex].origineAxes.x === pose.x);
+
+        showAxes = 0;
+        origineAxes = { x: 0, y: 0 };
+        panX = 0; panY = 0; zoom = 1;
+        return {
+            pose, pas, stable, retenue,
+            ecart: { x: Math.abs(pose.x - vise.x), y: Math.abs(pose.y - vise.y) },
+            surLeQuadrillage: pose.x % pas === 0 && pose.y % pas === 0
+        };
+    });
+    r.verifie('les axes naissent au milieu de ce que l\'on regarde',
+        axesCentres.ecart.x <= axesCentres.pas / 2 && axesCentres.ecart.y <= axesCentres.pas / 2,
+        JSON.stringify(axesCentres));
+    r.verifie('leur origine tombe sur un croisement du quadrillage',
+        axesCentres.surLeQuadrillage, JSON.stringify(axesCentres));
+    r.verifie('afficher les graduations ne les redéplace pas', axesCentres.stable);
+    r.verifie('et la page retient où ses axes sont posés', axesCentres.retenue);
+
     const surPageVide = await page.evaluate(() => {
         panX = 120; panY = 90; zoom = 1.3;
         currentBgIndex = backgrounds.indexOf('copie');

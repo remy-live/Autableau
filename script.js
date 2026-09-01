@@ -852,7 +852,7 @@ function createNewPage() {
 
 function syncPage() {
     if (currentPageIndex === -1 || !pages[currentPageIndex]) return;
-    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom, origineFeuille };
+    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom, origineFeuille, origineAxes };
 }
 
 function initPages() {
@@ -872,6 +872,7 @@ function loadPage(index) {
     panX = p.panX || window.innerWidth / 2; panY = p.panY || window.innerHeight / 2; zoom = p.zoom || 1;
     // Chaque page pose sa feuille où elle veut : elle la retrouve en revenant.
     origineFeuille = p.origineFeuille || { x: 0, y: 0 };
+    origineAxes = p.origineAxes || { x: 0, y: 0 };
 
     document.getElementById('zoom-slider').value = zoom;
     majPastilleZoom();
@@ -7156,7 +7157,14 @@ document.getElementById('btn-cycle').onclick = () => {
     if (typeof cadrerSurLaFeuille === 'function') cadrerSurLaFeuille();
     draw();
 };
-const btnAxes = document.getElementById('btn-axes'); btnAxes.onclick = () => { showAxes = (showAxes + 1) % 3; btnAxes.classList.remove('active', 'active-1', 'active-2'); if (showAxes > 0) btnAxes.classList.add('active', `active-${showAxes}`); draw(); };
+const btnAxes = document.getElementById('btn-axes'); btnAxes.onclick = () => {
+    const avant = showAxes;
+    showAxes = (showAxes + 1) % 3;
+    if (avant === 0 && showAxes > 0) centrerLesAxes();   // on les pose là où l'on regarde
+    btnAxes.classList.remove('active', 'active-1', 'active-2');
+    if (showAxes > 0) btnAxes.classList.add('active', `active-${showAxes}`);
+    draw();
+};
 
 function buildRenderQuadtree(minX, maxX, minY, maxY) {
     const padding = 100;
@@ -7223,7 +7231,13 @@ function draw() {
             else if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
 
             if (showAxes > 0) {
-                ctx.beginPath(); ctx.moveTo(0, minY); ctx.lineTo(0, maxY); ctx.moveTo(minX, 0); ctx.lineTo(maxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
+                const oa = origineAxes || { x: 0, y: 0 };
+                ctx.save();
+                ctx.translate(oa.x, oa.y);
+                // Le repère est translaté : ce que l'on voit, exprimé depuis son origine
+                const axMinX = minX - oa.x, axMaxX = maxX - oa.x;
+                const axMinY = minY - oa.y, axMaxY = maxY - oa.y;
+                ctx.beginPath(); ctx.moveTo(0, axMinY); ctx.lineTo(0, axMaxY); ctx.moveTo(axMinX, 0); ctx.lineTo(axMaxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
                 if (showAxes === 2) {
                     ctx.fillStyle = isDarkMode ? "#b2bec3" : "#2d3436"; ctx.font = `${12 * lw}px sans-serif`; ctx.beginPath(); ctx.textAlign = "center"; ctx.textBaseline = "top";
                     // Une case vaut « pasAxes » : on affiche autant de décimales
@@ -7233,11 +7247,12 @@ function draw() {
                         const v = n * pasAxes;
                         return decimales ? v.toFixed(decimales).replace('.', ',') : String(Math.round(v));
                     };
-                    for (let x = Math.floor(minX / logicalStep) * logicalStep; x <= maxX; x += logicalStep) if (x !== 0) { ctx.moveTo(x, -4 * lw); ctx.lineTo(x, 4 * lw); ctx.fillText(etiquette(Math.round(x / logicalStep)), x, 8 * lw); }
+                    for (let x = Math.floor(axMinX / logicalStep) * logicalStep; x <= axMaxX; x += logicalStep) if (x !== 0) { ctx.moveTo(x, -4 * lw); ctx.lineTo(x, 4 * lw); ctx.fillText(etiquette(Math.round(x / logicalStep)), x, 8 * lw); }
                     ctx.textAlign = "right"; ctx.textBaseline = "middle";
-                    for (let y = Math.floor(minY / logicalStep) * logicalStep; y <= maxY; y += logicalStep) if (y !== 0) { ctx.moveTo(-4 * lw, y); ctx.lineTo(4 * lw, y); ctx.fillText(etiquette(Math.round(-y / logicalStep)), -8 * lw, y); }
+                    for (let y = Math.floor(axMinY / logicalStep) * logicalStep; y <= axMaxY; y += logicalStep) if (y !== 0) { ctx.moveTo(-4 * lw, y); ctx.lineTo(4 * lw, y); ctx.fillText(etiquette(Math.round(-y / logicalStep)), -8 * lw, y); }
                     ctx.stroke();
                 }
+                ctx.restore();
             }
         }
 
@@ -11264,7 +11279,7 @@ function renderFloatingToolbar(toolbar) {
     settingsBtn.type = 'button';
     settingsBtn.className = 'c-action settings';
     settingsBtn.title = 'Paramètres';
-    settingsBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
+    settingsBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M9.64 6.16L9.77 2.35L14.23 2.35L14.36 6.16A6.3 6.3 0 0 1 15.88 7.04L19.24 5.25L21.47 9.11L18.24 11.12A6.3 6.3 0 0 1 18.24 12.88L21.47 14.89L19.24 18.75L15.88 16.96A6.3 6.3 0 0 1 14.36 17.84L14.23 21.65L9.77 21.65L9.64 17.84A6.3 6.3 0 0 1 8.12 16.96L4.76 18.75L2.53 14.89L5.76 12.88A6.3 6.3 0 0 1 5.76 11.12L2.53 9.11L4.76 5.25L8.12 7.04A6.3 6.3 0 0 1 9.64 6.16Z"></path></svg>';
 
     const minBtn = document.createElement('button');
     minBtn.type = 'button';
@@ -17674,6 +17689,28 @@ const FONDS_FEUILLE = ['seyes-marge', 'copie'];
 // si l'on avait travaillé ailleurs, elle apparaissait à côté du travail, voire
 // hors de l'écran. Elle se pose donc AUTOUR de ce qui est déjà tracé.
 let origineFeuille = { x: 0, y: 0 };
+
+// Les axes vivaient à l'origine du tableau : allumés après avoir travaillé
+// ailleurs, ils apparaissaient de travers, voire hors de l'écran. Ils se
+// posent maintenant au milieu de ce qu'on regarde, sur un croisement du
+// quadrillage pour que les graduations tombent juste.
+let origineAxes = { x: 0, y: 0 };
+
+function pasDesGraduations() {
+    const bg = backgrounds[currentBgIndex];
+    return (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
+}
+
+function centrerLesAxes() {
+    const cv = document.getElementById('board');
+    const l = (cv && cv.clientWidth) || window.innerWidth;
+    const h = (cv && cv.clientHeight) || window.innerHeight;
+    const pas = pasDesGraduations();
+    origineAxes = {
+        x: Math.round(((l / 2 - panX) / zoom) / pas) * pas,
+        y: Math.round(((h / 2 - panY) / zoom) / pas) * pas
+    };
+}
 
 // La boîte qui contient tout ce que porte la page (null si la page est vide)
 function boiteDuTravail() {

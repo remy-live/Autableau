@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=34">
+    <link rel="stylesheet" href="style.css?v=35">
 </head>
 
 <body>
@@ -317,9 +317,9 @@
             <button id="btn-reglages-date" class="title-btn" title="Format de la date"
                 onclick="basculerReglagesDate(event)">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="none"
-                    stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3.2"></circle>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="2.9"></circle>
+                    <path d="M9.64 6.16L9.77 2.35L14.23 2.35L14.36 6.16A6.3 6.3 0 0 1 15.88 7.04L19.24 5.25L21.47 9.11L18.24 11.12A6.3 6.3 0 0 1 18.24 12.88L21.47 14.89L19.24 18.75L15.88 16.96A6.3 6.3 0 0 1 14.36 17.84L14.23 21.65L9.77 21.65L9.64 17.84A6.3 6.3 0 0 1 8.12 16.96L4.76 18.75L2.53 14.89L5.76 12.88A6.3 6.3 0 0 1 5.76 11.12L2.53 9.11L4.76 5.25L8.12 7.04A6.3 6.3 0 0 1 9.64 6.16Z"></path>
                 </svg>
             </button>
             <div id="reglages-date" class="reglages-popup">
@@ -429,7 +429,11 @@
                             fichier », le bouton <b>« Parcourir un dossier ici »</b>. Le navigateur demande une fois
                             l'autorisation d'ouvrir le dossier — c'est sa fenêtre à lui, aucun site ne peut l'éviter.
                             Ensuite tout se passe dans la fenêtre d'Au Tableau : dossiers, aperçus, recherche, tri.
-                            (Chrome et Edge le savent faire ; Firefox et Safari, non.)</li>
+                            (Chrome et Edge le savent faire ; Firefox et Safari, non.)<br>
+                            Le navigateur <b>refuse</b> certains dossiers, quel que soit le site : la racine d'un
+                            disque, votre dossier personnel, les dossiers du système. Son message parle de
+                            « fichiers système », mais c'est l'emplacement qui le gêne, pas le contenu : choisissez
+                            un dossier plus bas, <b>Documents ▸ Cours</b> par exemple.</li>
                         <li><strong>Relier Dropbox :</strong> cliquez « Dropbox » dans la fenêtre d'ouverture. Il
                             demande une <b>clé d'application</b> — sur dropbox.com/developers/apps, créez une app
                             « Scoped access » et relevez l'<b>App key</b>. Elle identifie l'application, pas votre
@@ -801,7 +805,7 @@
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path
-                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    d="M9.64 6.16L9.77 2.35L14.23 2.35L14.36 6.16A6.3 6.3 0 0 1 15.88 7.04L19.24 5.25L21.47 9.11L18.24 11.12A6.3 6.3 0 0 1 18.24 12.88L21.47 14.89L19.24 18.75L15.88 16.96A6.3 6.3 0 0 1 14.36 17.84L14.23 21.65L9.77 21.65L9.64 17.84A6.3 6.3 0 0 1 8.12 16.96L4.76 18.75L2.53 14.89L5.76 12.88A6.3 6.3 0 0 1 5.76 11.12L2.53 9.11L4.76 5.25L8.12 7.04A6.3 6.3 0 0 1 9.64 6.16Z">
                 </path>
             </svg>
         </div>
@@ -974,7 +978,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"></circle>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        <path d="M9.64 6.16L9.77 2.35L14.23 2.35L14.36 6.16A6.3 6.3 0 0 1 15.88 7.04L19.24 5.25L21.47 9.11L18.24 11.12A6.3 6.3 0 0 1 18.24 12.88L21.47 14.89L19.24 18.75L15.88 16.96A6.3 6.3 0 0 1 14.36 17.84L14.23 21.65L9.77 21.65L9.64 17.84A6.3 6.3 0 0 1 8.12 16.96L4.76 18.75L2.53 14.89L5.76 12.88A6.3 6.3 0 0 1 5.76 11.12L2.53 9.11L4.76 5.25L8.12 7.04A6.3 6.3 0 0 1 9.64 6.16Z"></path>
                     </svg>
                 </button>
                 <div id="reglages-barre" class="reglages-popup">
@@ -1617,11 +1621,11 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=88"></script>
+    <script src="script.js?v=89"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=61"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
-    <script src="./lib/cloud/explorateur.js?v=4"></script>
+    <script src="./lib/cloud/explorateur.js?v=5"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
     <script src="./lib/cloud/drive.js?v=5"></script>
     <script src="./lib/cloud/nextcloud.js?v=1"></script>

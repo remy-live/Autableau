@@ -377,6 +377,43 @@ module.exports = async function (browser) {
     r.verifie('on annonce l\'autorisation unique du navigateur',
         /autorisation|une fois/i.test(ordi.note), ordi.note.slice(0, 100));
 
+    // Le navigateur refuse certains dossiers (racine du disque, dossier
+    // personnel) avec un message trompeur sur des « fichiers système ».
+    // On ne peut pas l'empêcher : on peut expliquer, et repartir proprement.
+    const dossierRefuse = await page.evaluate(async () => {
+        await ouvrirExplorateur('ordi');
+        await new Promise(r => setTimeout(r, 250));
+        const vrai = window.showDirectoryPicker;
+        window.showDirectoryPicker = () => Promise.reject(new DOMException('abandon', 'AbortError'));
+        document.getElementById('exp-dossier').click();
+        await new Promise(r => setTimeout(r, 250));
+        window.showDirectoryPicker = vrai;
+        const remarque = document.querySelector('.exp-depot-remarque');
+        return {
+          remarque: remarque ? remarque.innerText : '',
+          onPeutReessayer: !!document.getElementById('exp-dossier'),
+          depart: !!document.getElementById('exp-depot')
+        };
+    });
+    r.verifie('un dossier refusé ramène à l\'accueil, sans page blanche',
+        dossierRefuse.depart && dossierRefuse.onPeutReessayer, JSON.stringify(dossierRefuse));
+    r.verifie('et on explique quels dossiers le navigateur refuse',
+        /racine|personnel/i.test(dossierRefuse.remarque), dossierRefuse.remarque.slice(0, 90));
+    r.verifie('en corrigeant son message trompeur',
+        /emplacement|pas le contenu/i.test(dossierRefuse.remarque), dossierRefuse.remarque.slice(0, 160));
+
+    const demarrage = await page.evaluate(() => {
+        let recu = null;
+        const vrai = window.showDirectoryPicker;
+        window.showDirectoryPicker = (o) => { recu = o; return Promise.reject(new DOMException('x', 'AbortError')); };
+        document.getElementById('exp-dossier').click();
+        window.showDirectoryPicker = vrai;
+        return recu;
+    });
+    r.egal('le sélecteur s\'ouvre dans les Documents, pas à la racine',
+        demarrage && demarrage.startIn, 'documents');
+    r.verifie('et retient le dernier dossier choisi', !!(demarrage && demarrage.id), JSON.stringify(demarrage));
+
     // --- LES DEUX FENÊTRES SUIVENT LA MÊME CHARTE ---
     const charte = await page.evaluate(async () => {
         PluginManager.plugins.globalExerciseGenerator.openWidget();
