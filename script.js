@@ -5996,11 +5996,43 @@ function nettoyerHtmlColle(html) {
 
     const outDiv = document.createElement('div');
     outDiv.appendChild(clean(src));
-    return outDiv.innerHTML.replace(/<div>\s*<\/div>/g, '<br>').trim();
+
+    // Entre deux paragraphes, le document d'origine laisse un saut de ligne.
+    // Réduit à une espace par le nettoyage, il devenait une LIGNE VIDE entre
+    // chaque ligne collée : le texte arrivait sur le tableau à double
+    // interligne. Ces espaces entre blocs ne portent rien, on les retire.
+    const BLOCS = new Set(['DIV', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3']);
+    const estBloc = (n) => n && n.nodeType === Node.ELEMENT_NODE && BLOCS.has(n.nodeName);
+    Array.from(outDiv.childNodes).forEach(n => {
+        if (n.nodeType !== Node.TEXT_NODE || n.textContent.trim()) return;
+        if (estBloc(n.previousSibling) || estBloc(n.nextSibling)) n.remove();
+    });
+    outDiv.querySelectorAll('div, li, h1, h2, h3').forEach(bloc => {
+        Array.from(bloc.childNodes).forEach(n => {
+            if (n.nodeType !== Node.TEXT_NODE || n.textContent.trim()) return;
+            if (estBloc(n.previousSibling) || estBloc(n.nextSibling)) n.remove();
+        });
+    });
+
+    // Un paragraphe vraiment vide reste un saut de ligne voulu, pas deux.
+    return outDiv.innerHTML.replace(/<div>\s*<\/div>/g, '<br>')
+        .replace(/(<br>\s*){3,}/g, '<br><br>')
+        .trim();
 }
 
+// Un texte sans mise en forme : une ligne du presse-papiers = une ligne sur
+// le tableau. Les lignes vides en série sont ramenées à une seule — les
+// traitements de texte en sèment beaucoup.
 function texteBrutEnHtml(brut) {
-    return String(brut || '').replace(/\r\n?/g, '\n').split('\n')
+    const lignes = String(brut || '').replace(/\r\n?/g, '\n').split('\n')
+        .map(l => l.replace(/ /g, ' ').replace(/\s+$/, ''));
+    const gardees = [];
+    lignes.forEach(l => {
+        if (l.trim() === '' && gardees.length && gardees[gardees.length - 1].trim() === '') return;
+        gardees.push(l);
+    });
+    while (gardees.length && gardees[gardees.length - 1].trim() === '') gardees.pop();
+    return gardees
         .map(l => '<div>' + (l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) || '<br>') + '</div>')
         .join('');
 }
@@ -12297,7 +12329,20 @@ window.addEventListener('keydown', (e) => {
     }
 
     // 📋 CTRL + C : Copier
-    if (isCtrl && e.key.toLowerCase() === 'c') {
+    if (isCtrl && e.key.toLowerCase() === 'c') { copierSelection(); }
+
+    // ✂️ CTRL + X : Couper
+    if (isCtrl && e.key.toLowerCase() === 'x') { couperSelection(); }
+
+    // 📥 CTRL + V : Coller
+    if (isCtrl && e.key.toLowerCase() === 'v') { collerDuTableau(); }
+});
+
+// Les quatre gestes, écrits une fois : les raccourcis les appellent, les
+// boutons de la barre contextuelle aussi. Sur tablette il n'y a pas de
+// clavier — les raccourcis seuls ne suffisaient pas.
+function copierSelection() {
+    {
         if (selectedItems.length > 0) {
             boardClipboard.items = [];
             boardClipboard.points = [];
@@ -12333,14 +12378,17 @@ window.addEventListener('keydown', (e) => {
             });
 
             if (typeof showToast === 'function') showToast("📋 Éléments copiés");
+            return true;
         }
+        if (typeof showToast === 'function') showToast('Rien à copier : sélectionnez d\'abord');
+        return false;
     }
+}
 
-    // ✂️ CTRL + X : Couper
-    if (isCtrl && e.key.toLowerCase() === 'x') {
+function couperSelection() {
+    {
         if (selectedItems.length > 0) {
-            // On fait exactement comme Copier...
-            window.dispatchEvent(new KeyboardEvent('keydown', { 'key': 'c', 'ctrlKey': true }));
+            copierSelection();
 
             // ... Puis on supprime !
             selectedItems.forEach(item => deleteObject(item.type, item.id));
@@ -12348,11 +12396,15 @@ window.addEventListener('keydown', (e) => {
             if (typeof saveState === 'function') saveState();
             if (typeof draw === 'function') draw();
             if (typeof showToast === 'function') showToast("✂️ Éléments coupés");
+            return true;
         }
+        if (typeof showToast === 'function') showToast('Rien à couper : sélectionnez d\'abord');
+        return false;
     }
+}
 
-    // 📥 CTRL + V : Coller
-    if (isCtrl && e.key.toLowerCase() === 'v') {
+function collerDuTableau() {
+    {
         if (boardClipboard.items.length > 0 || boardClipboard.points.length > 0) {
             clearSelection();
             const offset = 30 / zoom; // Décalage visuel pour voir qu'on a collé
@@ -12412,8 +12464,62 @@ window.addEventListener('keydown', (e) => {
             if (typeof saveState === 'function') saveState();
             if (typeof draw === 'function') draw();
             if (typeof showToast === 'function') showToast("📥 Éléments collés");
+            return true;
         }
+        return false;
     }
+}
+
+// Dupliquer, c'est copier puis coller — mais sans écraser ce que l'on avait
+// mis de côté : on prête le presse-papier et on le rend.
+function dupliquerSelection() {
+    if (!selectedItems.length) {
+        if (typeof showToast === 'function') showToast('Rien à dupliquer : sélectionnez d\'abord');
+        return false;
+    }
+    const garde = boardClipboard;
+    boardClipboard = { items: [], points: [] };
+    copierSelection();
+    const fait = collerDuTableau();
+    boardClipboard = garde;
+    if (fait && typeof showToast === 'function') showToast('🧬 Copie posée à côté');
+    return fait;
+}
+
+window.copierSelection = copierSelection;
+window.couperSelection = couperSelection;
+window.collerDuTableau = collerDuTableau;
+window.dupliquerSelection = dupliquerSelection;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const brancher = (id, action) => {
+        const b = document.getElementById(id);
+        if (b) b.addEventListener('click', action);
+    };
+    brancher('btn-copier', () => copierSelection());
+    brancher('btn-couper', () => couperSelection());
+    // Ctrl+D existe depuis longtemps et passe par duplicateSelection() :
+    // le bouton fait exactement le même geste, pas un second.
+    brancher('btn-dupliquer', () => {
+        if (!selectedItems.length) {
+            if (typeof showToast === 'function') showToast("Rien à dupliquer : sélectionnez d'abord");
+            return;
+        }
+        if (typeof duplicateSelection === 'function') duplicateSelection();
+        else dupliquerSelection();
+    });
+    brancher('btn-coller', () => {
+        // Le presse-papier du tableau d'abord ; sinon celui du système.
+        if (collerDuTableau()) return;
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            navigator.clipboard.readText().then(t => {
+                if (t && collerTexteSurLeTableau('', t)) return;
+                if (typeof showToast === 'function') showToast('Rien à coller');
+            }).catch(() => {
+                if (typeof showToast === 'function') showToast('Collage refusé par le navigateur — faites Ctrl+V');
+            });
+        } else if (typeof showToast === 'function') showToast('Rien à coller');
+    });
 });
 
 // 🚀 Lancement blindé (Essaie au chargement, et force après 1.5s au cas où)
@@ -14239,6 +14345,74 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Tirer une vignette pour changer l'ordre des pages. Le repère bleu montre
+    // où la page atterrira ; relâcher hors du tiroir annule.
+    function demarrerGlissementVignette(e, box, depuis) {
+        const depart = { x: e.clientX, y: e.clientY };
+        let repere = null, versIndex = null;
+
+        const vignettes = () => Array.from(drawer.children)
+            .filter(el => el.dataset && el.dataset.index !== undefined);
+
+        const placerRepere = (y) => {
+            const boites = vignettes();
+            versIndex = boites.length;
+            for (let i = 0; i < boites.length; i++) {
+                const r = boites[i].getBoundingClientRect();
+                if (y < r.top + r.height / 2) { versIndex = i; break; }
+            }
+            const cible = boites[versIndex];
+            if (cible) drawer.insertBefore(repere, cible);
+            else drawer.insertBefore(repere, box.nextSibling);
+        };
+
+        const bouger = (ev) => {
+            if (!repere) {
+                if (Math.abs(ev.clientY - depart.y) < 6 && Math.abs(ev.clientX - depart.x) < 6) return;
+                repere = document.createElement('div');
+                repere.className = 'vignette-repere';
+                box.style.opacity = '0.35';
+                box.dataset.aGlisse = '1';
+            }
+            placerRepere(ev.clientY);
+        };
+
+        const finir = (ev) => {
+            window.removeEventListener('pointermove', bouger);
+            window.removeEventListener('pointerup', finir);
+            window.removeEventListener('pointercancel', finir);
+            if (!repere) return;                       // simple clic
+            repere.remove();
+            box.style.opacity = '';
+
+            const dansLeTiroir = drawer.getBoundingClientRect();
+            const dehors = ev.clientX < dansLeTiroir.left - 40 || ev.clientX > dansLeTiroir.right + 40;
+            let vers = versIndex;
+            if (dehors || vers === null) { renderThumbnails(); return; }
+            if (vers > depuis) vers -= 1;              // la page part de sa place avant d'arriver
+            if (vers === depuis) { renderThumbnails(); return; }
+
+            // La page courante doit rester la page courante, où qu'elle aille.
+            const courante = pages[currentPageIndex];
+            pages[currentPageIndex].thumbnail = capturePageThumb();
+            const [deplacee] = pages.splice(depuis, 1);
+            pages.splice(vers, 0, deplacee);
+            currentPageIndex = pages.indexOf(courante);
+
+            renderThumbnails();
+            setTimeout(window.syncActiveThumbnail, 100);
+            if (typeof saveAppLocal === 'function') saveAppLocal();
+            if (typeof majCompteurPages === 'function') majCompteurPages();
+            if (typeof showToast === 'function') {
+                showToast('Page ' + (depuis + 1) + ' déplacée en ' + (vers + 1));
+            }
+        };
+
+        window.addEventListener('pointermove', bouger);
+        window.addEventListener('pointerup', finir);
+        window.addEventListener('pointercancel', finir);
+    }
+
     // 5. Rendu des miniatures
     function renderThumbnails() {
         drawer.innerHTML = '';
@@ -14311,6 +14485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             box.appendChild(delBtn);
 
             box.onclick = () => {
+                if (box.dataset.aGlisse === '1') { delete box.dataset.aGlisse; return; }
                 if (!isActive) {
                     pages[currentPageIndex].thumbnail = capturePageThumb();
                     loadPage(index);
@@ -14318,6 +14493,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(window.syncActiveThumbnail, 100);
                 }
             };
+
+            // On réordonne les pages en tirant leur vignette. Au pointeur, donc
+            // au doigt comme à la souris : le glisser-déposer natif ne marche
+            // pas sur une tablette.
+            box.dataset.index = index;
+            box.style.touchAction = 'none';
+            box.addEventListener('pointerdown', (e) => {
+                if (e.target === delBtn || (e.button !== undefined && e.button !== 0)) return;
+                demarrerGlissementVignette(e, box, index);
+            });
 
             drawer.appendChild(box);
         });
@@ -14388,7 +14573,14 @@ window.addEventListener('paste', (e) => {
     // 1. Sécurité : on ignore si on est en train de taper du texte
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
-    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    // « e.originalEvent » vient de jQuery : sans presse-papiers, cette ligne
+    // levait une exception et le collage échouait sans un mot.
+    const dtSource = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData) || null;
+    if (!dtSource) {
+        if (typeof showToast === 'function') showToast("Le navigateur n'a pas transmis le presse-papiers");
+        return;
+    }
+    const items = dtSource.items || [];
     let imagePasted = false;
     let pasteCount = 0; // Compteur pour décaler les images multiples
 
@@ -14442,11 +14634,18 @@ window.addEventListener('paste', (e) => {
     // 4. Pas d'image ? Alors c'est peut-être du texte : Word, LibreOffice, une
     // page web… Il devient un bloc de texte posé sur le tableau.
     if (!imagePasted) {
-        const dt = e.clipboardData || e.originalEvent.clipboardData;
-        const html = collageSansMiseEnForme ? '' : dt.getData('text/html');
-        const brut = dt.getData('text/plain');
+        const html = collageSansMiseEnForme ? '' : (dtSource.getData('text/html') || '');
+        const brut = dtSource.getData('text/plain') || '';
         collageSansMiseEnForme = false;
-        if ((html || brut) && collerTexteSurLeTableau(html, brut)) e.preventDefault();
+        if ((html || brut) && collerTexteSurLeTableau(html, brut)) { e.preventDefault(); return; }
+        // Ne rien faire du tout laissait croire à une panne. On dit ce qui
+        // s'est passé, avec ce que le presse-papiers contenait vraiment.
+        if (typeof showToast === 'function') {
+            const formats = Array.from(dtSource.types || []).join(', ');
+            showToast(formats
+                ? "Rien à coller ici — le presse-papiers ne contient ni texte ni image (" + formats + ')'
+                : 'Le presse-papiers est vide');
+        }
         return;
     }
 

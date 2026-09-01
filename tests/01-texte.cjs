@@ -409,6 +409,54 @@ module.exports = async function (browser) {
     const finSaisie = await page.evaluate(() => ({ edite: !!editingTextId }));
     r.verifie('après la saisie : édition close', !finSaisie.edite);
 
+    // --- COLLER DEPUIS UN TRAITEMENT DE TEXTE ---
+    // LibreOffice et Word envoient leur feuille de style avec le texte, et
+    // séparent leurs paragraphes par un saut de ligne. Réduit à une espace,
+    // ce saut devenait une LIGNE VIDE entre chaque ligne : le texte arrivait
+    // sur le tableau à double interligne.
+    const LIBRE_OFFICE = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8"/><title></title>
+<meta name="generator" content="LibreOffice 7.4 (Linux)"/>
+<style type="text/css">@page { size: 21cm 29.7cm; margin: 2cm }
+p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
+<body lang="fr-FR" dir="ltr"><p style="line-height: 100%"><font face="Liberation Serif, serif">Le th&eacute;or&egrave;me de Pythagore</font></p>
+<p style="line-height: 100%"><font face="Liberation Serif, serif"><b>Rappel</b> : le carr&eacute; de l'hypot&eacute;nuse&hellip;</font></p></body></html>`;
+
+    const nettoye = await page.evaluate((h) => nettoyerHtmlColle(h), LIBRE_OFFICE);
+    r.verifie('la feuille de style du document ne se colle pas sur le tableau',
+        !/@page|line-height|margin-bottom/.test(nettoye), nettoye.slice(0, 140));
+    r.egal('les deux paragraphes se suivent, sans ligne vide entre eux',
+        nettoye, '<div>Le théorème de Pythagore</div><div><b>Rappel</b> : le carré de l\'hypoténuse…</div>');
+    r.verifie('le gras du document est conservé', /<b>Rappel<\/b>/.test(nettoye), nettoye);
+
+    const surLeTableau = await page.evaluate((h) => {
+        texts.length = 0;
+        const ok = collerTexteSurLeTableau(h, 'Le théorème de Pythagore\nRappel : le carré de l\'hypoténuse…');
+        return { ok, blocs: texts.length, contenu: (texts[0] || {}).content,
+                 selectionne: selectedItems.length === 1 && selectedItems[0].type === 'text' };
+    }, LIBRE_OFFICE);
+    r.verifie('un collage venu de LibreOffice pose bien un bloc', surLeTableau.ok && surLeTableau.blocs === 1,
+        JSON.stringify(surLeTableau));
+    r.verifie('et le bloc posé est sélectionné', surLeTableau.selectionne);
+    r.verifie('sans ligne vide en trop', !/<div><br><\/div>/.test(surLeTableau.contenu), surLeTableau.contenu);
+
+    // Sans mise en forme : une ligne du presse-papiers = une ligne du tableau.
+    const brut = await page.evaluate(() =>
+        texteBrutEnHtml('Un\r\n\r\nDeux\r\n\r\n\r\nTrois\r\n\r\n'));
+    r.egal('les lignes vides en série sont ramenées à une seule',
+        brut, '<div>Un</div><div><br></div><div>Deux</div><div><br></div><div>Trois</div>');
+
+    const rienDeColable = await page.evaluate(() => {
+        texts.length = 0;
+        const dt = new DataTransfer();
+        dt.setData('text/plain', '');
+        const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+        Object.defineProperty(ev, 'target', { value: document.getElementById('board') });
+        window.dispatchEvent(ev);
+        return texts.length;
+    });
+    r.egal('un presse-papiers vide ne pose rien', rienDeColable, 0);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

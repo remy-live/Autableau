@@ -6457,3 +6457,13 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     outline: none;
     padding: 1px 3px;
 }
+
+/* Le repère bleu qui montre où la page va atterrir quand on tire sa vignette */
+.vignette-repere {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: #0984e3;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px rgba(9, 132, 227, 0.25);
+}

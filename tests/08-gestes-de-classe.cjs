@@ -219,6 +219,103 @@ module.exports = async function (browser) {
     r.egal('et tout revient en place', focus.revenu, focus.avant.bas);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
+    // --- COPIER, COUPER, DUPLIQUER, COLLER ---
+    // Les raccourcis existaient depuis toujours ; rien ne les montrait, et sur
+    // tablette il n'y a pas de clavier pour les faire.
+    const boutons = await page.evaluate(() =>
+        ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
+            .filter(i => document.getElementById(i)));
+    r.egal('les quatre boutons sont dans la barre contextuelle', boutons.length, 4);
+
+    const gestes = await page.evaluate(() => {
+        [points, segments, texts, images, freehands].forEach(a => a.length = 0);
+        const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+        const a = P(100, 100), c = P(300, 200);
+        const seg = { id: nextId++, p1_id: a.id, p2_id: c.id, z: globalZ++ };
+        segments.push(seg);
+        selectedItems = [{ type: 'segment', id: seg.id }, { type: 'point', id: a.id }, { type: 'point', id: c.id }];
+
+        document.getElementById('btn-copier').click();
+        document.getElementById('btn-coller').click();
+        const colle = {
+            points: points.length, segments: segments.length,
+            // la copie doit s'appuyer sur SES points, pas sur ceux de l'original
+            relie: !!(segments[1] && segments[1].p1_id !== seg.p1_id && getObjectById('point', segments[1].p1_id)),
+            decale: !!(segments[1] && getObjectById('point', segments[1].p1_id).x !== a.x)
+        };
+
+        const memoire = boardClipboard.items.map(i => i.type).join(',');
+        selectedItems = [{ type: 'segment', id: seg.id }];
+        document.getElementById('btn-dupliquer').click();
+        const duplique = { segments: segments.length,
+                           pressePapierIntact: boardClipboard.items.map(i => i.type).join(',') === memoire };
+
+        selectedItems = [{ type: 'segment', id: segments[segments.length - 1].id }];
+        document.getElementById('btn-couper').click();
+        const coupe = segments.length;
+
+        selectedItems = [];
+        const sansRien = copierSelection();
+        return { colle, duplique, coupe, sansRien };
+    });
+    r.egal('copier puis coller ajoute une copie', gestes.colle.segments, 2);
+    r.egal('avec ses propres points', gestes.colle.points, 4);
+    r.verifie('la copie est reliée à ses points, pas à ceux de l\'original', gestes.colle.relie,
+        JSON.stringify(gestes.colle));
+    r.verifie('et posée à côté, pas par-dessus', gestes.colle.decale);
+    r.egal('dupliquer pose une copie de plus', gestes.duplique.segments, 3);
+    r.verifie('sans écraser ce qu\'on avait copié avant', gestes.duplique.pressePapierIntact);
+    r.egal('couper retire l\'objet', gestes.coupe, 2);
+    r.verifie('sans sélection, copier ne fait rien et le dit', gestes.sansRien === false);
+
+    // --- RÉORDONNER LES PAGES EN TIRANT LEUR VIGNETTE ---
+    const vignettes = await page.evaluate(async () => {
+        while (pages.length > 1) pages.pop();
+        const vide = () => ({ points: [], segments: [], circles: [], rectangles: [], texts: [], freehands: [],
+            curves: [], polygons: [], images: [], arcs: [], htmlPostits: [], history: [], historyIndex: -1,
+            panX: 0, panY: 0, zoom: 1 });
+        pages.push(vide()); pages.push(vide());
+        pages.forEach((p, i) => { p.repere = 'page' + (i + 1); });
+        currentPageIndex = 0;
+        document.getElementById('page-indicator').click();      // ouvre le trieur
+        await new Promise(r => setTimeout(r, 500));
+        const d = document.getElementById('thumbnail-drawer');
+        return { ouvert: !!d, boites: d ? d.querySelectorAll('[data-index]').length : 0 };
+    });
+    r.verifie('le trieur de diapositives s\'ouvre', vignettes.ouvert);
+    r.egal('une vignette par page', vignettes.boites, 3);
+
+    const glisse = await page.evaluate(() => {
+        const d = document.getElementById('thumbnail-drawer');
+        const boites = Array.from(d.querySelectorAll('[data-index]'));
+        const src = boites[0].getBoundingClientRect();
+        const dst = boites[2].getBoundingClientRect();
+        const ev = (t, x, y, cible) => (cible || window).dispatchEvent(
+            new PointerEvent(t, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1 }));
+        ev('pointerdown', src.x + 20, src.y + 20, boites[0]);
+        ev('pointermove', src.x + 20, dst.bottom - 4);
+        const repere = !!d.querySelector('.vignette-repere');
+        ev('pointerup', src.x + 20, dst.bottom - 4);
+        return { repere, ordre: pages.map(p => p.repere), courante: currentPageIndex };
+    });
+    r.verifie('un repère montre où la page va atterrir', glisse.repere, JSON.stringify(glisse));
+    r.egal('la page tirée change bien de rang', glisse.ordre, ['page2', 'page3', 'page1']);
+    r.egal('et la page ouverte reste la page ouverte', glisse.courante, 2);
+
+    const dehors = await page.evaluate(() => {
+        const d = document.getElementById('thumbnail-drawer');
+        const boites = Array.from(d.querySelectorAll('[data-index]'));
+        const src = boites[0].getBoundingClientRect();
+        const ev = (t, x, y, cible) => (cible || window).dispatchEvent(
+            new PointerEvent(t, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1 }));
+        const avant = pages.map(p => p.repere).join(',');
+        ev('pointerdown', src.x + 20, src.y + 20, boites[0]);
+        ev('pointermove', src.x + 600, src.y + 200);
+        ev('pointerup', src.x + 600, src.y + 200);
+        return { avant, apres: pages.map(p => p.repere).join(',') };
+    });
+    r.egal('relâcher loin du trieur ne déplace rien', dehors.apres, dehors.avant);
+
     await context.close();
 
     // --- Au doigt, sur tablette ---
