@@ -720,6 +720,141 @@ module.exports = async function (browser) {
         branche.fichier.nom === 'le cours.pdf' && branche.fichier.type === 'application/pdf',
         JSON.stringify(branche.fichier));
 
+    // --- LES FENÊTRES S'AGRANDISSENT ---
+    // Chaque outil ouvrait sa fenêtre à la taille prévue par son auteur : une
+    // liste de trente élèves tenait dans un hublot. Toutes reçoivent les mêmes
+    // commandes, et la taille choisie est retenue.
+    const equipement = await page.evaluate(async () => {
+        localStorage.removeItem('board_fenetres');
+        await ClassesStore.saveAll([{ id: 'cf', name: 'Test', students:
+            Array.from({ length: 20 }, (_, i) => ({ id: 'x' + i, name: 'Élève ' + i })) }]);
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 700));
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        return {
+            outils: !!box.querySelector(':scope > .fen-outils'),
+            plein: !!box.querySelector('.fen-plein'),
+            poignee: !!box.querySelector('.fen-poignee'),
+            place: getComputedStyle(box).position !== 'static'
+        };
+    });
+    r.verifie('« Mes classes » reçoit les commandes de fenêtre', equipement.outils, JSON.stringify(equipement));
+    r.verifie('le plein écran', equipement.plein);
+    r.verifie('et la poignée pour ajuster', equipement.poignee);
+    r.verifie('posées dans un repère qui les tient au coin', equipement.place);
+
+    const pleinEcran = await page.evaluate(async () => {
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        const liste = () => document.getElementById('cm-students-list').getBoundingClientRect().height;
+        const avant = { l: box.getBoundingClientRect().width, liste: liste() };
+        box.querySelector('.fen-plein').click();
+        await new Promise(r => setTimeout(r, 200));
+        const b = box.getBoundingClientRect();
+        const plein = {
+            l: Math.round(b.width), h: Math.round(b.height),
+            attendu: [window.innerWidth - 16, window.innerHeight - 16],
+            liste: liste(),
+            marque: box.classList.contains('fen-pleine'),
+            poigneeCachee: getComputedStyle(box.querySelector('.fen-poignee')).display === 'none'
+        };
+        // un re-rendu complet du contenu ne doit pas emporter les commandes
+        const item = document.querySelector('.cm-class-item');
+        if (item) item.click();
+        await new Promise(r => setTimeout(r, 150));
+        plein.survitAuRerendu = !!box.querySelector('.fen-plein');
+
+        box.querySelector('.fen-plein').click();
+        await new Promise(r => setTimeout(r, 150));
+        plein.revenu = Math.abs(box.getBoundingClientRect().width - avant.l) < 2;
+        plein.listeAvant = avant.liste;
+        return plein;
+    });
+    r.egal('le plein écran occupe l\'écran, aux marges près',
+        [pleinEcran.l, pleinEcran.h], pleinEcran.attendu);
+    r.verifie('la liste d\'élèves profite vraiment de la hauteur gagnée',
+        pleinEcran.liste > pleinEcran.listeAvant + 100, JSON.stringify(pleinEcran));
+    r.verifie('la fenêtre se sait en plein écran', pleinEcran.marque);
+    r.verifie('la poignée s\'efface, elle n\'a plus rien à ajuster', pleinEcran.poigneeCachee);
+    r.verifie('les commandes survivent au redessin du contenu', pleinEcran.survitAuRerendu);
+    r.verifie('et un second clic rend la taille d\'avant', pleinEcran.revenu, JSON.stringify(pleinEcran));
+
+    const echap = await page.evaluate(async () => {
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        const avant = box.getBoundingClientRect().width;
+        box.querySelector('.fen-plein').click();
+        await new Promise(r => setTimeout(r, 150));
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 150));
+        return Math.abs(box.getBoundingClientRect().width - avant) < 2;
+    });
+    r.verifie('Échap rend l\'écran, on n\'y reste pas prisonnier', echap);
+
+    const poignee = await page.evaluate(async () => {
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        const p = box.querySelector('.fen-poignee');
+        const b = box.getBoundingClientRect();
+        const g = p.getBoundingClientRect();
+        const ev = (t, x, y) => p.dispatchEvent(new PointerEvent(t, {
+            bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1
+        }));
+        p.setPointerCapture = () => { };
+        ev('pointerdown', g.left + 8, g.top + 8);
+        ev('pointermove', g.left + 158, g.top + 118);
+        ev('pointerup', g.left + 158, g.top + 118);
+        await new Promise(r => setTimeout(r, 150));
+        const a = box.getBoundingClientRect();
+        return {
+            grandi: Math.round(a.width - b.width), plusHaut: Math.round(a.height - b.height),
+            // la hauteur ne dépasse pas l'écran, marges comprises
+            tientDansLEcran: a.height <= window.innerHeight - 15,
+            memoire: JSON.parse(localStorage.getItem('board_fenetres') || '{}')['class-manager'],
+            // ce que l'on tire est ce que l'on obtient : les marges intérieures
+            // ne doivent pas s'ajouter par-dessus
+            exact: Math.abs(a.width - Math.round(b.width + 150)) < 2
+        };
+    });
+    r.verifie('tirer la poignée agrandit la fenêtre',
+        poignee.grandi > 130 && poignee.plusHaut > 105, JSON.stringify(poignee));
+    r.verifie('exactement de ce que l\'on a tiré', poignee.exact, JSON.stringify(poignee));
+    r.verifie('sans jamais déborder de l\'écran', poignee.tientDansLEcran, JSON.stringify(poignee));
+    r.verifie('et la taille est retenue', !!poignee.memoire && poignee.memoire.w > 800, JSON.stringify(poignee));
+
+    const reouverture = await page.evaluate(async () => {
+        const vise = JSON.parse(localStorage.getItem('board_fenetres'))['class-manager'];
+        document.getElementById('class-manager-modal').remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 700));
+        const r2 = document.querySelector('#class-manager-modal .modal-box').getBoundingClientRect();
+        document.getElementById('class-manager-modal').remove();
+        return { vise, obtenu: { w: Math.round(r2.width), h: Math.round(r2.height) } };
+    });
+    r.verifie('la fenêtre rouvre à la taille de la dernière fois',
+        Math.abs(reouverture.obtenu.w - reouverture.vise.w) < 2
+        && Math.abs(reouverture.obtenu.h - reouverture.vise.h) < 2, JSON.stringify(reouverture));
+
+    // Un bandeau de télécommande n'est pas une fenêtre : on ne l'encombre pas.
+    const tri = await page.evaluate(async () => {
+        const faire = (l, h) => {
+            const d = document.createElement('div');
+            d.style.cssText = `position:fixed; left:20px; top:20px; width:${l}px; height:${h}px; background:#fff;`;
+            document.body.appendChild(d);
+            return d;
+        };
+        const bandeau = faire(400, 60);
+        const fenetre = faire(400, 300);
+        const tout = faire(window.innerWidth, window.innerHeight);
+        equiperFenetre(bandeau); equiperFenetre(fenetre); equiperFenetre(tout);
+        await new Promise(r => setTimeout(r, 250));
+        const lu = { bandeau: !!bandeau.querySelector('.fen-outils'),
+                     fenetre: !!fenetre.querySelector('.fen-outils'),
+                     tout: !!tout.querySelector('.fen-outils') };
+        [bandeau, fenetre, tout].forEach(d => d.remove());
+        return lu;
+    });
+    r.verifie('une vraie fenêtre reçoit les commandes', tri.fenetre, JSON.stringify(tri));
+    r.verifie('un bandeau de télécommande, non', !tri.bandeau, JSON.stringify(tri));
+    r.verifie('un jeu déjà plein écran non plus', !tri.tout, JSON.stringify(tri));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
 

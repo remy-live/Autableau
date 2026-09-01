@@ -10031,11 +10031,222 @@ const MODES_DE_BASE = ['pointer', 'move', 'freehand', 'highlighter', 'eraser', '
 // Une fenêtre d'outil posée à des coordonnées et une largeur fixes sort de
 // l'écran dès qu'on travaille sur une tablette : le pied de la fenêtre, avec
 // son bouton « Poser au tableau », devient inatteignable. On la ramène.
+// ==============================================================================
+// LES FENÊTRES S'AGRANDISSENT
+// ==============================================================================
+// Chaque outil ouvrait une fenêtre à la taille que son auteur avait prévue.
+// Une liste de trente élèves, un tableur, un texte long : on défilait dans un
+// hublot. Toutes les fenêtres reçoivent donc la même paire de commandes, dans
+// le coin bas-droit : le plein écran, et une poignée pour ajuster. La taille
+// choisie est retenue d'une ouverture à l'autre.
+const CLE_FENETRES = 'board_fenetres';
+const FEN_MIN_L = 260, FEN_MIN_H = 170;
+
+function taillesRetenues() {
+    try { return JSON.parse(localStorage.getItem(CLE_FENETRES) || '{}') || {}; }
+    catch (e) { return {}; }
+}
+function retenirTaille(cle, w, h) {
+    if (!cle) return;
+    try {
+        const t = taillesRetenues();
+        t[cle] = { w: Math.round(w), h: Math.round(h) };
+        localStorage.setItem(CLE_FENETRES, JSON.stringify(t));
+    } catch (e) { /* stockage refusé */ }
+}
+
+// Poser une hauteur sur une fenêtre qui ne sait pas répartir ses enfants la
+// ferait déborder sans barre de défilement : on lui en donne une.
+function accepteUneHauteur(el) {
+    const d = getComputedStyle(el).display;
+    return d === 'flex' || d === 'grid';
+}
+
+const ICONE_PLEIN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+const ICONE_REDUIT = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
+// Tout ce qui flotte n'est pas une fenêtre. Une télécommande est un bandeau
+// de boutons : rien à y agrandir. Un jeu qui occupe déjà tout l'écran non
+// plus. On ne les encombre pas de commandes inutiles.
+function meriteDesCommandes(el) {
+    const b = el.getBoundingClientRect();
+    if (!b.width || !b.height) return true;             // pas encore posée : on équipe
+    if (b.height < 110) return false;                   // un bandeau, pas une fenêtre
+    if (b.width >= window.innerWidth - 20 && b.height >= window.innerHeight - 20) return false;
+    return true;
+}
+
+// Beaucoup d'outils posent leur fenêtre vide puis la remplissent : mesurée
+// tout de suite, elle passerait pour un bandeau. On laisse donc deux images
+// à l'affichage avant de juger — et si l'on a décliné, un prochain appel
+// pourra reconsidérer, car une fenêtre grandit parfois avec son contenu.
+function equiperFenetre(el, cle, options) {
+    if (!el || el.dataset.equipee || el.dataset.fenAttente) return;
+    el.dataset.fenAttente = '1';
+
+    const juger = () => {
+        delete el.dataset.fenAttente;
+        if (el.dataset.equipee) return true;
+        if (!(options && options.toujours) && !meriteDesCommandes(el)) return true;
+        equiperVraiment(el, cle, options);
+        return true;
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        // Certaines fenêtres sont bâties repliées et ne s'ouvrent que plus
+        // tard : on attend qu'elles occupent enfin une place pour juger.
+        if (!el.getBoundingClientRect().width && typeof ResizeObserver === 'function') {
+            const veille = new ResizeObserver(() => {
+                if (!el.getBoundingClientRect().width) return;
+                veille.disconnect();
+                juger();
+            });
+            veille.observe(el);
+            return;
+        }
+        juger();
+    }));
+}
+
+function equiperVraiment(el, cle, options) {
+    el.dataset.equipee = '1';
+    cle = cle || el.id || el.dataset.fenetreCle || '';
+    // L'explorateur de fichiers a déjà sa poignée : il ne prend que le plein écran.
+    const saPoignee = !!(options && options.saPropreP) || el.dataset.fenetrePoignee === 'propre';
+
+    if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+
+    const outils = document.createElement('div');
+    outils.className = 'fen-outils';
+    outils.innerHTML = `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
+        + (saPoignee ? '' : `<div class="fen-poignee" title="Ajuster la taille"></div>`);
+    el.appendChild(outils);
+
+    // Beaucoup d'outils réécrivent tout leur contenu à chaque rafraîchissement :
+    // les commandes disparaîtraient avec. On les remet dès qu'elles manquent.
+    if (typeof MutationObserver === 'function') {
+        new MutationObserver(() => {
+            if (!el.contains(outils)) el.appendChild(outils);
+        }).observe(el, { childList: true });
+    }
+
+    const bouton = outils.querySelector('.fen-plein');
+    const poignee = outils.querySelector('.fen-poignee');
+
+    // --- Plein écran ---
+    let avantPlein = null;
+    const basculerPlein = () => {
+        if (avantPlein) {
+            Object.assign(el.style, avantPlein);
+            avantPlein = null;
+            bouton.innerHTML = ICONE_PLEIN;
+            bouton.title = 'Plein écran';
+            el.classList.remove('fen-pleine');
+        } else {
+            const s = el.style;
+            avantPlein = {
+                left: s.left, top: s.top, width: s.width, height: s.height,
+                maxWidth: s.maxWidth, maxHeight: s.maxHeight, transform: s.transform,
+                boxSizing: s.boxSizing
+            };
+            const fixe = getComputedStyle(el).position === 'fixed';
+            if (fixe) { el.style.left = '8px'; el.style.top = '8px'; el.style.transform = 'none'; }
+            // Sans cela, les marges intérieures s'ajoutent à la taille demandée
+            // et la fenêtre dépasse de l'écran de la valeur de son padding.
+            el.style.boxSizing = 'border-box';
+            el.style.maxWidth = 'none';
+            el.style.maxHeight = 'none';
+            el.style.width = (window.innerWidth - 16) + 'px';
+            el.style.height = (window.innerHeight - 16) + 'px';
+            bouton.innerHTML = ICONE_REDUIT;
+            bouton.title = 'Quitter le plein écran';
+            el.classList.add('fen-pleine');
+        }
+        if (typeof draw === 'function' && el.querySelector('canvas')) {
+            window.dispatchEvent(new Event('resize'));   // les outils qui dessinent se remettent d'aplomb
+        }
+    };
+    bouton.addEventListener('click', (e) => { e.stopPropagation(); basculerPlein(); });
+
+    // Le double-clic sur la barre de titre : le geste que tout le monde essaie.
+    // Il est délégué, car cette barre est souvent redessinée.
+    el.addEventListener('dblclick', (e) => {
+        const tete = el.firstElementChild;
+        if (!tete || tete === outils) return;
+        if (e.target.closest('button, input, select, textarea, a')) return;
+        if (tete.contains(e.target)) basculerPlein();
+    });
+
+    // Échap rend l'écran : on ne reste pas prisonnier d'une fenêtre géante.
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && avantPlein && el.getClientRects().length) basculerPlein();
+    });
+
+    // --- La poignée ---
+    if (poignee) poignee.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        if (avantPlein) basculerPlein();                 // on sort du plein écran pour ajuster
+        const b = el.getBoundingClientRect();
+        const depart = { x: e.clientX, y: e.clientY, w: b.width, h: b.height };
+        el.style.boxSizing = 'border-box';       // ce que l'on tire est ce que l'on obtient
+        el.style.maxWidth = 'none';
+        el.style.maxHeight = 'none';
+        const hauteurOk = accepteUneHauteur(el);
+        if (!hauteurOk) el.style.overflowY = 'auto';
+        poignee.setPointerCapture(e.pointerId);
+
+        // Une fenêtre posée à un endroit ne peut grandir que jusqu'au bord ;
+        // une modale, elle, se recentre en grandissant : elle a tout l'écran.
+        const ancree = getComputedStyle(el).position === 'fixed';
+        const maxL = ancree ? window.innerWidth - b.left - 8 : window.innerWidth - 16;
+        const maxH = ancree ? window.innerHeight - b.top - 8 : window.innerHeight - 16;
+
+        const bouger = (ev) => {
+            const l = Math.max(FEN_MIN_L, Math.min(depart.w + ev.clientX - depart.x, maxL));
+            const h = Math.max(FEN_MIN_H, Math.min(depart.h + ev.clientY - depart.y, maxH));
+            el.style.width = l + 'px';
+            el.style.height = h + 'px';
+        };
+        const finir = () => {
+            poignee.removeEventListener('pointermove', bouger);
+            poignee.removeEventListener('pointerup', finir);
+            poignee.removeEventListener('pointercancel', finir);
+            const f = el.getBoundingClientRect();
+            retenirTaille(cle, f.width, f.height);
+            if (typeof draw === 'function' && el.querySelector('canvas')) {
+                window.dispatchEvent(new Event('resize'));
+            }
+        };
+        poignee.addEventListener('pointermove', bouger);
+        poignee.addEventListener('pointerup', finir);
+        poignee.addEventListener('pointercancel', finir);
+    });
+
+    // --- La taille de la dernière fois ---
+    const memoire = cle ? taillesRetenues()[cle] : null;
+    if (memoire && memoire.w > FEN_MIN_L) {
+        el.style.boxSizing = 'border-box';
+        el.style.maxWidth = 'none';
+        el.style.width = Math.min(memoire.w, window.innerWidth - 16) + 'px';
+        if (memoire.h > FEN_MIN_H) {
+            el.style.maxHeight = 'none';
+            el.style.height = Math.min(memoire.h, window.innerHeight - 16) + 'px';
+            if (!accepteUneHauteur(el)) el.style.overflowY = 'auto';
+        }
+    }
+}
+window.equiperFenetre = equiperFenetre;
+
 function ramenerFenetreDansLecran(el) {
-    if (!el || !el.getClientRects().length) return;
+    if (!el) return;
+    equiperFenetre(el);                 // même repliée : elle s'équipera en s'ouvrant
+    if (!el.getClientRects().length) return;
     const marge = 8;
-    el.style.maxWidth = 'calc(100vw - 16px)';
-    el.style.maxHeight = 'calc(100vh - 16px)';
+    // Une fenêtre agrandie à la main garde sa taille : la borne ne s'applique
+    // qu'à celles qui n'ont pas été touchées.
+    if (!el.style.width) el.style.maxWidth = 'calc(100vw - 16px)';
+    if (!el.style.height) el.style.maxHeight = 'calc(100vh - 16px)';
     const b = el.getBoundingClientRect();
     const gauche = Math.max(marge, Math.min(b.left, window.innerWidth - b.width - marge));
     const haut = Math.max(marge, Math.min(b.top, window.innerHeight - b.height - marge));
@@ -12656,6 +12867,9 @@ async function openClassManagerModal() {
 
     modal.appendChild(box);
     document.body.appendChild(modal);
+    // Trente élèves dans une fenêtre de 720 px, cela défile beaucoup : elle
+    // s'agrandit comme les autres, et retient la taille choisie.
+    equiperFenetre(box, 'class-manager');
 
     const state = {
         classes: await ClassesStore.loadAll(),
@@ -12721,7 +12935,7 @@ async function openClassManagerModal() {
                     <button id="cm-add-student-btn" class="btn-action primary" style="padding:6px 12px; font-size:12px;">+ Ajouter</button>
                 </div>
 
-                <div id="cm-students-list" style="max-height:220px; overflow-y:auto; margin-bottom:12px;">
+                <div id="cm-students-list" style="flex:1 1 220px; min-height:140px; overflow-y:auto; margin-bottom:12px;">
                     ${studentsHtml}
                 </div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-6px 0 12px 2px;">
@@ -12753,7 +12967,10 @@ async function openClassManagerModal() {
                     <button id="cm-new-class" class="btn-action primary" style="margin-bottom:10px; padding:8px;">+ Nouvelle classe</button>
                     <div style="overflow-y:auto; flex:1;">${listHtml}</div>
                 </div>
-                <div style="flex:1; min-width:0; border-left:1px solid var(--border); padding-left:15px; overflow-y:auto;">
+                <!-- Colonne souple : la liste d'élèves prend toute la hauteur
+                     gagnée quand on agrandit la fenêtre, le reste suit. -->
+                <div style="flex:1; min-width:0; border-left:1px solid var(--border); padding-left:15px;
+                            display:flex; flex-direction:column; overflow-y:auto;">
                     ${detailHtml}
                 </div>
             </div>

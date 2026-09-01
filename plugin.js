@@ -2024,6 +2024,7 @@ registerPlugin('fingerCountingTool', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.paletteEl);
+        if (typeof ramenerFenetreDansLecran === "function") ramenerFenetreDansLecran(this.paletteEl);
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.f-header');
@@ -2320,6 +2321,7 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.paletteEl);
+        if (typeof ramenerFenetreDansLecran === "function") ramenerFenetreDansLecran(this.paletteEl);
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.a-header');
@@ -4494,6 +4496,7 @@ registerPlugin('metronomeTool', 'Musique', {
         const widget = document.createElement('div');
         widget.id = 'metro-widget';
         document.body.appendChild(widget);
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(widget);
 
         this.render();
     },
@@ -15278,6 +15281,7 @@ registerPlugin('cuisenaireTool', 'Maths - Numérique', {
             </div>
         `;
         document.body.appendChild(this.paletteEl);
+        if (typeof ramenerFenetreDansLecran === "function") ramenerFenetreDansLecran(this.paletteEl);
 
         let isDragging = false, offsetX, offsetY;
         const header = this.paletteEl.querySelector('.c-header');
@@ -28870,6 +28874,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const boite = el.getBoundingClientRect();
         el.style.left = Math.max(8, Math.min(120, window.innerWidth - boite.width - 8)) + 'px';
         el.style.top = Math.max(8, Math.min(70, window.innerHeight - boite.height - 8)) + 'px';
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(el);
 
         const entete = el.querySelector('#pts-entete');
         let glisse = false, dx = 0, dy = 0;
