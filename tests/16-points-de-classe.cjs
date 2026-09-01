@@ -156,6 +156,189 @@ module.exports = async function (browser) {
         p.editionAvatar = null; p.rendre();
     });
 
+    // --- RETIRER UN POINT À LA MAIN ---
+    // L'annulation ne défait que le dernier geste : pour corriger une erreur
+    // repérée plus tard, il faut pouvoir désigner le compteur fautif.
+    const correction = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        const eleve = p.classeCourante().students[2];
+        eleve.pts = { plus: 3, moins: 2, etoiles: 1 };
+        p.mode = 'plus'; p.rendre();
+        const enModeNormal = w.querySelectorAll('.pts-compteur').length;
+
+        w.querySelector('#pts-mode-retirer').click();
+        const carte = () => w.querySelector('.pts-carte[data-id="' + eleve.id + '"]');
+        const cibles = carte().querySelectorAll('.pts-compteur').length;
+        const consigne = !!w.querySelector('#pts-consigne');
+
+        carte().querySelector('.pts-compteur[data-champ="plus"]').click();
+        const apresPlus = Object.assign({}, eleve.pts);
+        carte().querySelector('.pts-compteur[data-champ="moins"]').click();
+        const apresMoins = Object.assign({}, eleve.pts);
+        carte().querySelector('.pts-compteur[data-champ="etoiles"]').click();
+        const apresEtoile = Object.assign({}, eleve.pts);
+
+        // le plancher : on ne descend pas sous zéro
+        eleve.pts = { plus: 0, moins: 0, etoiles: 0 }; p.rendre();
+        carte().querySelector('.pts-compteur[data-champ="plus"]').click();
+        const plancher = Object.assign({}, eleve.pts);
+
+        // et l'annulation rend ce qui vient d'être retiré
+        eleve.pts = { plus: 4, moins: 0, etoiles: 0 }; p.rendre();
+        carte().querySelector('.pts-compteur[data-champ="plus"]').click();
+        w.querySelector('#pts-annuler').click();
+        const rendu = Object.assign({}, eleve.pts);
+
+        p.mode = 'plus'; p.rendre();
+        return { enModeNormal, cibles, consigne, apresPlus, apresMoins, apresEtoile, plancher, rendu };
+    });
+    r.egal('hors du mode « Retirer », aucun compteur n\'est cliquable', correction.enModeNormal, 0);
+    r.egal('en mode « Retirer », les trois compteurs le deviennent', correction.cibles, 3);
+    r.verifie('et la marche à suivre est écrite', correction.consigne);
+    r.egal('cliquer le compteur vert retire un bonus', correction.apresPlus, { plus: 2, moins: 2, etoiles: 1 });
+    r.egal('le rouge retire un malus', correction.apresMoins, { plus: 2, moins: 1, etoiles: 1 });
+    r.egal('et l\'étoile se retire aussi', correction.apresEtoile, { plus: 2, moins: 1, etoiles: 0 });
+    r.egal('on ne descend jamais sous zéro', correction.plancher, { plus: 0, moins: 0, etoiles: 0 });
+    r.egal('un retrait s\'annule comme un point', correction.rendu, { plus: 4, moins: 0, etoiles: 0 });
+
+    // --- BADGES ---
+    const bande = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        return {
+            livres: p.BADGES_LIVRES.length,
+            affiches: w.querySelectorAll('.pts-badge').length,
+            nommes: p.BADGES_LIVRES.every(b => b.nom && b.icone && /^#[0-9a-f]{6}$/i.test(b.couleur)),
+            uniques: new Set(p.BADGES_LIVRES.map(b => b.id)).size === p.BADGES_LIVRES.length,
+            creer: !!w.querySelector('#pts-badge-neuf'),
+            // le bouton « créer » ne doit pas défiler hors de portée
+            horsDuRail: !w.querySelector('#pts-rail #pts-badge-neuf')
+        };
+    });
+    r.verifie('des badges sont fournis d\'avance', bande.livres >= 8, JSON.stringify(bande));
+    r.egal('ils sont tous dans la bande', bande.affiches, bande.livres);
+    r.verifie('chacun a un nom, un symbole et une couleur', bande.nommes);
+    r.verifie('aucun identifiant en double', bande.uniques);
+    r.verifie('« ＋ Nouveau » est là', bande.creer);
+    r.verifie('et reste hors du défilement, toujours atteignable', bande.horsDuRail);
+
+    const prendre = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        p.classeCourante().students.forEach(s => { s.badges = []; });
+        p.badgeArme = null; p.mode = 'plus'; p.rendre();
+
+        const clic = (el) => {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5, button: 0 }));
+            window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 5, clientY: 5 }));
+        };
+        clic(w.querySelector('.pts-badge[data-id="b-entraide"]'));
+        const arme = p.badgeArme;
+        const reposer = !!w.querySelector('#pts-badge-poser');
+
+        const cartes = w.querySelectorAll('.pts-carte');
+        cartes[0].click(); cartes[1].click();
+        const deux = [p.classeCourante().students[0].badges, p.classeCourante().students[1].badges];
+        const pointsIntacts = p.classeCourante().students[0].pts.plus;
+
+        // deux fois le même badge : c'est une distinction, pas un compteur
+        w.querySelector('.pts-carte[data-id="' + p.classeCourante().students[0].id + '"]').click();
+        const sansDoublon = p.classeCourante().students[0].badges.length;
+
+        w.querySelector('#pts-badge-poser').click();
+        return { arme, reposer, deux, pointsIntacts, sansDoublon, repose: p.badgeArme,
+                 chips: w.querySelectorAll('.pts-chip').length };
+    });
+    r.egal('un clic met le badge en main', prendre.arme, 'b-entraide');
+    r.verifie('et propose de le reposer', prendre.reposer);
+    r.egal('badge en main, le clic sur un élève le lui donne', prendre.deux, [['b-entraide'], ['b-entraide']]);
+    r.egal('sans lui compter de point au passage', prendre.pointsIntacts, 0);
+    r.egal('un même badge ne se donne pas deux fois', prendre.sansDoublon, 1);
+    r.egal('« Reposer » rend la main', prendre.repose, null);
+    r.egal('chaque élève décoré porte sa pastille', prendre.chips, 2);
+
+    const oter = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        const id = p.classeCourante().students[0].id;
+        w.querySelector('.pts-carte[data-id="' + id + '"] .pts-chip').click();
+        const apres = p.classeCourante().students[0].badges.slice();
+        const points = p.classeCourante().students[0].pts.plus;
+        w.querySelector('#pts-annuler').click();
+        return { apres, points, revenu: p.classeCourante().students[0].badges.slice() };
+    });
+    r.egal('cliquer la pastille retire le badge', oter.apres, []);
+    r.egal('sans donner de point non plus', oter.points, 0);
+    r.egal('et l\'annulation le remet', oter.revenu, ['b-entraide']);
+
+    const memoireBadges = await page.evaluate(async () => {
+        ClassesStore._cache = null;
+        const relu = await ClassesStore.loadAll();
+        return relu[0].students[1].badges;
+    });
+    r.egal('les badges sont enregistrés avec la classe', memoireBadges, ['b-entraide']);
+
+    const creation = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        const avant = p.badgesVisibles().length;
+        w.querySelector('#pts-badge-neuf').click();
+
+        // sans nom, on ne crée rien
+        w.querySelector('#pts-badge-ok').click();
+        const refuse = p.badgesVisibles().length === avant && !!w.querySelector('#pts-badge-nom');
+
+        const nom = w.querySelector('#pts-badge-nom');
+        nom.value = 'Table de 7'; nom.dispatchEvent(new Event('input'));
+        w.querySelectorAll('.pts-emoji')[3].click();
+        w.querySelectorAll('.pts-couleur')[4].click();
+        const apercu = w.querySelector('#pts-badge-apercu').textContent.trim();
+        w.querySelector('#pts-badge-ok').click();
+
+        const neuf = p.badgesPerso[p.badgesPerso.length - 1];
+        return {
+            refuse, apercu, neuf,
+            visibles: p.badgesVisibles().length,
+            dansLaBande: !!w.querySelector('.pts-badge[data-id="' + (neuf || {}).id + '"]'),
+            memoire: JSON.parse(localStorage.getItem('board_badges') || '{}')
+        };
+    });
+    r.verifie('un badge sans nom n\'est pas créé', creation.refuse, JSON.stringify(creation));
+    r.verifie('l\'aperçu suit ce que l\'on tape', /Table de 7/.test(creation.apercu), creation.apercu);
+    r.verifie('le badge créé porte son nom, son symbole et sa couleur',
+        creation.neuf && creation.neuf.nom === 'Table de 7' && !!creation.neuf.icone
+        && /^#[0-9a-f]{6}$/i.test(creation.neuf.couleur), JSON.stringify(creation.neuf));
+    r.verifie('il rejoint la bande', creation.dansLaBande, JSON.stringify(creation));
+    r.verifie('et il est retenu d\'une séance à l\'autre',
+        (creation.memoire.perso || []).some(b => b.nom === 'Table de 7'), JSON.stringify(creation.memoire));
+
+    const ecarter = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        p.panneauReglages = true; p.rendre();
+        const modifiables = w.querySelectorAll('.pts-badge-mod').length;
+        w.querySelector('.pts-badge-mod[data-id="b-calme"]').click();
+        const enEdition = !!w.querySelector('#pts-badge-suppr');
+        w.querySelector('#pts-badge-suppr').click();
+        const ecarte = !p.badgesVisibles().some(b => b.id === 'b-calme');
+        // l'élève qui le portait le garde : on n'efface pas son passé
+        p.classeCourante().students[2].badges = ['b-calme'];
+        p.rendre();
+        const garde = p.badgesDe(p.classeCourante().students[2]).length;
+
+        p.panneauReglages = true; p.rendre();
+        w.querySelector('#pts-badges-rendre').click();
+        const revenu = p.badgesVisibles().some(b => b.id === 'b-calme');
+        p.panneauReglages = false; p.rendre();
+        return { modifiables, enEdition, ecarte, garde, revenu };
+    });
+    r.verifie('les réglages listent les badges à modifier', ecarter.modifiables >= 8, JSON.stringify(ecarter));
+    r.verifie('on ouvre un badge fourni pour le retoucher', ecarter.enEdition);
+    r.verifie('on peut l\'écarter de la bande', ecarter.ecarte);
+    r.egal('mais l\'élève qui le portait le garde', ecarter.garde, 1);
+    r.verifie('et les badges fournis se remettent tous d\'un coup', ecarter.revenu);
+
     // --- POSER AU TABLEAU ---
     const pose = await page.evaluate(async () => {
         const p = PluginManager.plugins.classPointsTool;

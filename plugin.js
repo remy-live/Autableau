@@ -28651,9 +28651,35 @@ registerPlugin('quizBattleTool', 'Jeux', {
 // ==========================================
 registerPlugin('classPointsTool', 'Outils Profs', {
     CLE_REGLAGES: 'board_points_reglages',
+    CLE_BADGES: 'board_badges',
     reglages: { seuilNote: 20, seuilRetenue: 5, affichage: 'deux' },   // 'deux' totaux ou 'solde'
     classes: [], classeId: null, mode: 'plus', historique: [],
     widgetEl: null, editionAvatar: null, panneauReglages: false, currentStamp: null,
+    // Badges : ceux qui sont fournis, ceux que l'enseignant a créés, ceux qu'il
+    // a écartés, et celui qu'il tient en main pour l'apposer d'un clic.
+    badgesPerso: [], badgesMasques: [], badgeArme: null, editionBadge: null,
+
+    // Une petite collection prête à l'emploi : de quoi commencer sans rien
+    // inventer, et qui donne le modèle de ce qu'on peut créer soi-même.
+    BADGES_LIVRES: [
+        { id: 'b-entraide', icone: '🤝', nom: 'Entraide', couleur: '#00b894' },
+        { id: 'b-effort', icone: '💪', nom: 'Bel effort', couleur: '#e17055' },
+        { id: 'b-participe', icone: '🙋', nom: 'Participation', couleur: '#0984e3' },
+        { id: 'b-soigne', icone: '✍️', nom: 'Travail soigné', couleur: '#6c5ce7' },
+        { id: 'b-devoirs', icone: '📚', nom: 'Devoirs faits', couleur: '#00cec9' },
+        { id: 'b-calme', icone: '🤫', nom: 'Calme', couleur: '#636e72' },
+        { id: 'b-idee', icone: '💡', nom: 'Bonne idée', couleur: '#fdcb6e' },
+        { id: 'b-progres', icone: '📈', nom: 'Beaux progrès', couleur: '#55efc4' },
+        { id: 'b-service', icone: '🧹', nom: 'Service rendu', couleur: '#a29bfe' },
+        { id: 'b-champion', icone: '🏆', nom: 'Champion du jour', couleur: '#f39c12' }
+    ],
+
+    EMOJIS_BADGE: ['⭐', '🏅', '🥇', '🎖️', '🏆', '💎', '🔥', '⚡', '🌟', '✨',
+        '🤝', '💪', '🙋', '✍️', '📚', '🤫', '💡', '📈', '🧹', '🎯',
+        '🎨', '🎵', '🔬', '🧮', '🗺️', '🌱', '🐝', '🦉', '🚀', '❤️'],
+
+    PALETTE_BADGE: ['#0984e3', '#00b894', '#6c5ce7', '#e17055', '#d63031',
+        '#f39c12', '#00cec9', '#a29bfe', '#636e72', '#e84393'],
 
     // ---------- Réglages ----------
     lireReglages: function () {
@@ -28664,6 +28690,93 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     },
     ecrireReglages: function () {
         try { localStorage.setItem(this.CLE_REGLAGES, JSON.stringify(this.reglages)); } catch (e) { /* stockage refusé */ }
+    },
+
+    // ---------- Badges ----------
+    // Les badges fournis restent dans le code : ils profitent ainsi des
+    // corrections. On ne mémorise que ceux que l'enseignant a créés et ceux
+    // qu'il a écartés de la bande.
+    lireBadges: function () {
+        try {
+            const m = JSON.parse(localStorage.getItem(this.CLE_BADGES) || 'null');
+            if (m) {
+                this.badgesPerso = Array.isArray(m.perso) ? m.perso : [];
+                this.badgesMasques = Array.isArray(m.masques) ? m.masques : [];
+            }
+        } catch (e) { /* stockage refusé */ }
+    },
+    ecrireBadges: function () {
+        try {
+            localStorage.setItem(this.CLE_BADGES,
+                JSON.stringify({ perso: this.badgesPerso, masques: this.badgesMasques }));
+        } catch (e) { /* stockage refusé */ }
+    },
+
+    // La bande : les badges fournis encore visibles, puis ceux de la maison
+    badgesVisibles: function () {
+        return this.BADGES_LIVRES.filter(b => this.badgesMasques.indexOf(b.id) === -1)
+            .concat(this.badgesPerso);
+    },
+    // Tous, y compris les écartés : un élève qui porte un badge écarté doit
+    // continuer à le montrer plutôt que de se retrouver avec un trou.
+    tousLesBadges: function () {
+        return this.BADGES_LIVRES.concat(this.badgesPerso);
+    },
+    badgeParId: function (id) {
+        return this.tousLesBadges().find(b => b.id === id) || null;
+    },
+    badgesDe: function (eleve) {
+        return (eleve.badges || []).map(id => this.badgeParId(id)).filter(Boolean);
+    },
+
+    // Blanc ou noir sur la pastille, selon que la couleur est sombre ou claire
+    texteSur: function (couleur) {
+        const m = /^#([0-9a-f]{6})$/i.exec(String(couleur || ''));
+        if (!m) return '#fff';
+        const n = parseInt(m[1], 16);
+        const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+        return lum > 165 ? '#2d3436' : '#fff';
+    },
+
+    // Poser ou retirer : un badge ne se porte qu'une fois, c'est une
+    // distinction, pas un compteur.
+    porteLeBadge: function (eleve, badgeId) {
+        return (eleve.badges || []).indexOf(badgeId) !== -1;
+    },
+
+    poserBadge: function (eleveId, badgeId, silencieux) {
+        const classe = this.classeCourante(); if (!classe) return false;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return false;
+        const badge = this.badgeParId(badgeId); if (!badge) return false;
+        if (!eleve.badges) eleve.badges = [];
+        if (this.porteLeBadge(eleve, badgeId)) {
+            if (!silencieux && typeof showToast === 'function') {
+                showToast(`${badge.icone} ${eleve.name} a déjà « ${badge.nom} »`);
+            }
+            return false;
+        }
+        eleve.badges.push(badgeId);
+        this.retenir({ t: 'badge', classeId: classe.id, eleveId, badgeId, pose: true });
+        this.sauver(); this.rendre();
+        if (!silencieux && typeof showToast === 'function') {
+            showToast(`${badge.icone} « ${badge.nom} » pour ${eleve.name}`);
+        }
+        return true;
+    },
+
+    retirerBadge: function (eleveId, badgeId, silencieux) {
+        const classe = this.classeCourante(); if (!classe) return false;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return false;
+        const i = (eleve.badges || []).indexOf(badgeId);
+        if (i === -1) return false;
+        eleve.badges.splice(i, 1);
+        this.retenir({ t: 'badge', classeId: classe.id, eleveId, badgeId, pose: false });
+        this.sauver(); this.rendre();
+        const badge = this.badgeParId(badgeId);
+        if (!silencieux && badge && typeof showToast === 'function') {
+            showToast(`${badge.icone} « ${badge.nom} » retiré à ${eleve.name}`);
+        }
+        return true;
     },
 
     // ---------- Avatars ----------
@@ -28694,6 +28807,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
     init: function () {
         this.lireReglages();
+        this.lireBadges();
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
         const btn = document.createElement('button');
         btn.className = 'btn';
@@ -28718,6 +28832,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         }
         this.panneauReglages = false;
         this.editionAvatar = null;
+        this.editionBadge = null;
+        this.badgeArme = null;
+        this.lireBadges();
         const suite = () => { this.construire(); this.rendre(); };
         if (typeof ClassesStore !== 'undefined') {
             ClassesStore.loadAll().then(cls => {
@@ -28743,6 +28860,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 <button id="pts-fermer" title="Fermer" style="background:none; border:none; color:#ff7675; font-size:16px; cursor:pointer;">✕</button>
             </div>
             <div id="pts-barre" style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #dfe6e9; flex-wrap:wrap;"></div>
+            <div id="pts-bande" style="display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid #dfe6e9; background:#fdfdfd;"></div>
             <div id="pts-corps" style="padding:12px 14px; overflow-y:auto; flex:1; background:#f8f9fa;"></div>`;
         document.body.appendChild(el);
         this.widgetEl = el;
@@ -28772,6 +28890,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         el.querySelector('#pts-reglages').addEventListener('click', () => {
             this.panneauReglages = !this.panneauReglages;
             this.editionAvatar = null;
+            this.editionBadge = null;
             this.rendre();
         });
     },
@@ -28780,34 +28899,43 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     rendre: function () {
         if (!this.widgetEl) return;
         const barre = this.widgetEl.querySelector('#pts-barre');
+        const bande = this.widgetEl.querySelector('#pts-bande');
         const corps = this.widgetEl.querySelector('#pts-corps');
         const classe = this.classeCourante();
 
         const options = this.classes.map(c =>
-            `<option value="${c.id}" ${c.id === (classe && classe.id) ? 'selected' : ''}>${c.name || 'Classe'}</option>`).join('');
+            `<option value="${c.id}" ${c.id === (classe && classe.id) ? 'selected' : ''}>${this.echapper(c.name || 'Classe')}</option>`).join('');
+
+        const segment = (id, texte, actif, fond) => `<button id="${id}" style="border:none; padding:7px 13px; font-size:14px;
+                cursor:pointer; font-weight:bold; background:${actif ? fond : '#fff'}; color:${actif ? '#fff' : '#636e72'};">${texte}</button>`;
 
         barre.innerHTML = `
             <select id="pts-classe" style="padding:6px 8px; border:1px solid #dfe6e9; border-radius:6px; font-size:13px;">
                 ${options || '<option>Aucune classe</option>'}
             </select>
             <div style="display:flex; border:1px solid #dfe6e9; border-radius:8px; overflow:hidden;">
-                <button id="pts-mode-plus" style="border:none; padding:7px 14px; font-size:14px; cursor:pointer; font-weight:bold;
-                        background:${this.mode === 'plus' ? '#00b894' : '#fff'}; color:${this.mode === 'plus' ? '#fff' : '#636e72'};">👍 Bonus</button>
-                <button id="pts-mode-moins" style="border:none; padding:7px 14px; font-size:14px; cursor:pointer; font-weight:bold;
-                        background:${this.mode === 'moins' ? '#d63031' : '#fff'}; color:${this.mode === 'moins' ? '#fff' : '#636e72'};">👎 Malus</button>
+                ${segment('pts-mode-plus', '👍 Bonus', this.mode === 'plus', '#00b894')}
+                ${segment('pts-mode-moins', '👎 Malus', this.mode === 'moins', '#d63031')}
+                ${segment('pts-mode-retirer', '➖ Retirer', this.mode === 'retirer', '#636e72')}
             </div>
-            <button id="pts-annuler" title="Annuler le dernier point" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">↶</button>
+            <button id="pts-annuler" title="Annuler le dernier geste" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">↶</button>
             <div style="flex:1;"></div>
             <button id="pts-poser" style="border:none; background:#0984e3; color:#fff; border-radius:8px; padding:7px 12px; font-weight:bold; cursor:pointer;">📌 Poser au tableau</button>`;
 
         barre.querySelector('#pts-classe').addEventListener('change', (e) => {
             this.classeId = e.target.value; this.editionAvatar = null; this.rendre();
         });
-        barre.querySelector('#pts-mode-plus').addEventListener('click', () => { this.mode = 'plus'; this.rendre(); });
-        barre.querySelector('#pts-mode-moins').addEventListener('click', () => { this.mode = 'moins'; this.rendre(); });
+        ['plus', 'moins', 'retirer'].forEach(m => {
+            barre.querySelector('#pts-mode-' + m).addEventListener('click', () => {
+                this.mode = m; this.badgeArme = null; this.rendre();
+            });
+        });
         barre.querySelector('#pts-annuler').addEventListener('click', () => this.annuler());
         barre.querySelector('#pts-poser').addEventListener('click', () => this.poserAuTableau());
 
+        this.rendreBande(bande);
+
+        if (this.editionBadge) { corps.innerHTML = this.htmlBadge(); this.brancherBadge(); return; }
         if (this.panneauReglages) { corps.innerHTML = this.htmlReglages(); this.brancherReglages(); return; }
         if (this.editionAvatar) { corps.innerHTML = this.htmlAvatar(); this.brancherAvatar(); return; }
 
@@ -28817,16 +28945,36 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return;
         }
 
-        corps.innerHTML = `<div id="pts-grille" style="display:flex; flex-wrap:wrap; gap:10px;">`
+        const consigne = this.badgeArme
+            ? `Cliquez sur les élèves qui reçoivent ce badge — ou faites-le glisser sur un avatar.`
+            : (this.mode === 'retirer'
+                ? `Cliquez sur le compteur à corriger : le vert, le rouge, ou une étoile.`
+                : '');
+
+        corps.innerHTML = (consigne
+            ? `<div id="pts-consigne" style="font-size:12px; color:#636e72; background:#fff; border:1px dashed #b2bec3;
+                    border-radius:8px; padding:7px 10px; margin-bottom:10px;">${consigne}</div>` : '')
+            + `<div id="pts-grille" style="display:flex; flex-wrap:wrap; gap:10px;">`
             + classe.students.map((s, i) => this.carte(s, i)).join('') + `</div>`;
 
         corps.querySelectorAll('.pts-carte').forEach(carte => {
             carte.addEventListener('click', (e) => {
                 if (e.target.closest('.pts-crayon')) { this.editionAvatar = carte.dataset.id; this.rendre(); return; }
                 if (e.target.closest('.pts-note')) { this.convertirEnNote(carte.dataset.id); return; }
+                const chip = e.target.closest('.pts-chip');
+                if (chip) { this.retirerBadge(carte.dataset.id, chip.dataset.badge); return; }
+                if (this.badgeArme) { this.poserBadge(carte.dataset.id, this.badgeArme); return; }
+                if (this.mode === 'retirer') {
+                    const cible = e.target.closest('.pts-compteur');
+                    if (cible) this.retirerUn(carte.dataset.id, cible.dataset.champ);
+                    else if (typeof showToast === 'function') showToast('Cliquez sur le compteur à corriger');
+                    return;
+                }
                 this.compter(carte.dataset.id, this.mode === 'plus' ? 1 : -1);
             });
         });
+
+        this.brancherGlisserDepot(corps);
     },
 
     carte: function (eleve, index) {
@@ -28834,16 +28982,43 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const solde = p.plus - p.moins;
         const pretNote = p.plus >= this.reglages.seuilNote;
         const retenue = p.moins >= this.reglages.seuilRetenue;
+        const corrige = this.mode === 'retirer';
         const cadre = pretNote ? '#00b894' : (retenue ? '#d63031' : '#dfe6e9');
 
-        const compteur = this.reglages.affichage === 'solde'
-            ? `<span style="background:${solde < 0 ? '#d63031' : '#00b894'}; color:#fff; border-radius:10px; padding:1px 8px; font-weight:bold; font-size:12px;">${solde > 0 ? '+' : ''}${solde}</span>`
-            : `<span style="background:#00b894; color:#fff; border-radius:10px; padding:1px 7px; font-weight:bold; font-size:12px;">${p.plus}</span>
-               <span style="background:#d63031; color:#fff; border-radius:10px; padding:1px 7px; font-weight:bold; font-size:12px;">${p.moins}</span>`;
+        // En mode « Retirer », chaque compteur devient un bouton : on désigne
+        // celui qui se trompe, on ne devine pas à la place de l'enseignant.
+        // Le « − » est une pastille à part, après le nombre : « 7 ⊖ » se lit
+        // « sept, et voilà de quoi en enlever un », jamais « moins sept ».
+        const oter = `<span style="display:inline-block; width:13px; height:13px; line-height:12px; margin-left:4px;
+                border-radius:50%; background:rgba(255,255,255,0.85); color:#2d3436; font-size:11px; vertical-align:1px;">−</span>`;
+        const pastille = (champ, fond, texte, actif) => `<span class="${corrige ? 'pts-compteur' : ''}" data-champ="${champ}"
+                title="${corrige ? (actif ? 'Retirer un point' : 'Rien à retirer') : ''}"
+                style="background:${fond}; color:#fff; border-radius:10px; padding:1px 7px; font-weight:bold; font-size:12px;
+                       ${corrige ? `cursor:${actif ? 'pointer' : 'not-allowed'}; opacity:${actif ? 1 : 0.35};` : ''}">${texte}${corrige && actif ? oter : ''}</span>`;
 
-        const etoiles = p.etoiles ? `<div style="font-size:11px; line-height:1;">${'⭐'.repeat(Math.min(5, p.etoiles))}${p.etoiles > 5 ? ' ×' + p.etoiles : ''}</div>` : '';
+        const compteur = this.reglages.affichage === 'solde' && !corrige
+            ? pastille('plus', solde < 0 ? '#d63031' : '#00b894', (solde > 0 ? '+' : '') + solde, false)
+            : pastille('plus', '#00b894', p.plus, p.plus > 0) + pastille('moins', '#d63031', p.moins, p.moins > 0);
 
-        return `<div class="pts-carte" data-id="${eleve.id}" title="${eleve.name}"
+        const etoiles = p.etoiles
+            ? `<div class="${corrige ? 'pts-compteur' : ''}" data-champ="etoiles"
+                    style="font-size:11px; line-height:1.4; ${corrige ? 'cursor:pointer;' : ''}"
+                    title="${corrige ? 'Retirer une étoile' : ''}">${'⭐'.repeat(Math.min(5, p.etoiles))}${p.etoiles > 5 ? ' ×' + p.etoiles : ''}${corrige
+                        ? `<span style="display:inline-block; width:13px; height:13px; line-height:12px; margin-left:4px; border-radius:50%;
+                                 background:#dfe6e9; color:#2d3436; font-size:11px; vertical-align:1px;">−</span>` : ''}</div>`
+            : '';
+
+        const portes = this.badgesDe(eleve);
+        const montres = portes.slice(0, 4);
+        const chips = portes.length ? `<div class="pts-chips" style="display:flex; gap:2px; justify-content:center; flex-wrap:wrap; margin-top:4px;">`
+            + montres.map(b => `<span class="pts-chip" data-badge="${b.id}" title="${this.echapper(b.nom)} — cliquer pour retirer"
+                    style="background:${b.couleur}; color:${this.texteSur(b.couleur)}; border-radius:7px; padding:0 4px;
+                           font-size:11px; line-height:16px; cursor:pointer;">${b.icone}</span>`).join('')
+            + (portes.length > 4 ? `<span title="${this.echapper(portes.slice(4).map(b => b.nom).join(', '))}"
+                    style="font-size:10px; color:#636e72; line-height:16px;">+${portes.length - 4}</span>` : '')
+            + `</div>` : '';
+
+        return `<div class="pts-carte" data-id="${eleve.id}" title="${this.echapper(eleve.name)}"
                      style="position:relative; width:104px; padding:8px 6px 6px; background:#fff; border:2px solid ${cadre};
                             border-radius:12px; text-align:center; cursor:pointer; user-select:none;">
             <button class="pts-crayon" title="Personnaliser l'avatar"
@@ -28851,20 +29026,256 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             ${pretNote ? `<button class="pts-note" title="Convertir en note et remettre à zéro" style="position:absolute; top:2px; left:2px; border:none; background:none; cursor:pointer; font-size:13px;">🎓</button>` : ''}
             <div style="display:flex; justify-content:center;">${this.avatarSVG(eleve, 56)}</div>
             <div style="font-size:11px; font-weight:600; color:#2d3436; margin:4px 0 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${index + 1}. ${eleve.name}</div>
+                ${index + 1}. ${this.echapper(eleve.name)}</div>
             <div style="display:flex; gap:3px; justify-content:center; align-items:center;">${compteur}</div>
             ${etoiles}
+            ${chips}
         </div>`;
     },
 
+    // ---------- La bande de badges ----------
+    rendreBande: function (bande) {
+        const liste = this.badgesVisibles();
+        // La bande défile, mais « ＋ Nouveau » reste sous la main : sinon il
+        // part hors de l'écran dès qu'il y a une dizaine de badges.
+        bande.innerHTML = `<span style="font-size:11px; font-weight:bold; color:#636e72; flex-shrink:0;">BADGES</span>
+            <div id="pts-rail" style="flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow-x:auto; padding:2px 0;">`
+            + (liste.length ? liste.map(b => {
+                const arme = this.badgeArme === b.id;
+                return `<button class="pts-badge" data-id="${b.id}" title="${this.echapper(b.nom)} — cliquer pour le prendre, ou le glisser sur un élève"
+                    style="flex-shrink:0; display:flex; align-items:center; gap:5px; border:2px solid ${arme ? '#2d3436' : b.couleur};
+                           background:${arme ? b.couleur : '#fff'}; color:${arme ? this.texteSur(b.couleur) : '#2d3436'};
+                           border-radius:14px; padding:4px 10px; font-size:12px; cursor:grab; touch-action:none; white-space:nowrap;
+                           ${arme ? 'box-shadow:0 0 0 2px rgba(45,52,54,0.15);' : ''}">
+                    <span style="font-size:14px;">${b.icone}</span>${this.echapper(b.nom)}</button>`;
+            }).join('')
+                : `<span style="font-size:12px; color:#b2bec3;">Aucun badge dans la bande.</span>`)
+            + `</div>
+            ${this.badgeArme ? `<button id="pts-badge-poser" title="Reposer le badge"
+                    style="flex-shrink:0; border:none; background:#2d3436; color:#fff; border-radius:14px;
+                           padding:5px 11px; font-size:12px; cursor:pointer;">✕ Reposer</button>` : ''}
+            <button id="pts-badge-neuf" title="Créer un badge"
+                    style="flex-shrink:0; border:1px dashed #b2bec3; background:#fff; color:#636e72; border-radius:14px;
+                           padding:4px 11px; font-size:12px; cursor:pointer;">＋ Nouveau</button>`;
+
+        const reposer = bande.querySelector('#pts-badge-poser');
+        if (reposer) reposer.addEventListener('click', () => { this.badgeArme = null; this.rendre(); });
+
+        bande.querySelector('#pts-badge-neuf').addEventListener('click', () => {
+            this.editionBadge = { id: null, icone: '⭐', nom: '', couleur: this.PALETTE_BADGE[0] };
+            this.badgeArme = null;
+            this.panneauReglages = false; this.editionAvatar = null;
+            this.rendre();
+        });
+        this.brancherBande(bande);
+    },
+
+    // Prendre un badge : un simple clic le met en main, un glissement le
+    // dépose directement sur un élève. Les deux marchent au doigt.
+    brancherBande: function (bande) {
+        bande.querySelectorAll('.pts-badge').forEach(b => {
+            b.addEventListener('pointerdown', (e) => this.commencerGlisse(e, b.dataset.id, () => {
+                this.badgeArme = this.badgeArme === b.dataset.id ? null : b.dataset.id;
+                if (this.badgeArme) this.mode = 'plus';
+                this.rendre();
+            }));
+        });
+    },
+
+    // Le badge posé sur une carte se reprend aussi à la souris : on le fait
+    // glisser sur un autre élève, ou hors des cartes pour l'ôter.
+    brancherGlisserDepot: function (corps) {
+        corps.querySelectorAll('.pts-chip').forEach(chip => {
+            chip.style.touchAction = 'none';
+            chip.addEventListener('pointerdown', (e) => {
+                const carte = chip.closest('.pts-carte'); if (!carte) return;
+                e.stopPropagation();
+                this.commencerGlisse(e, chip.dataset.badge, null, carte.dataset.id);
+            });
+        });
+    },
+
+    // Un seul glissement pour les deux cas : depuis la bande (origine nulle)
+    // ou depuis une carte (origine = l'élève qui le portait).
+    commencerGlisse: function (e, badgeId, auClic, origineEleveId) {
+        const badge = this.badgeParId(badgeId); if (!badge) return;
+        if (e.button !== undefined && e.button !== 0) return;
+        const depart = { x: e.clientX, y: e.clientY };
+        let fantome = null;
+
+        const bouger = (ev) => {
+            if (!fantome) {
+                if (Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < 7) return;
+                fantome = document.createElement('div');
+                fantome.className = 'pts-fantome';
+                fantome.textContent = badge.icone + ' ' + badge.nom;
+                fantome.style.cssText = 'position:fixed; z-index:100010; pointer-events:none; border-radius:14px;'
+                    + `padding:4px 10px; font-size:12px; font-family:sans-serif; background:${badge.couleur};`
+                    + `color:${this.texteSur(badge.couleur)}; box-shadow:0 6px 16px rgba(0,0,0,0.3);`;
+                document.body.appendChild(fantome);
+            }
+            fantome.style.left = (ev.clientX + 12) + 'px';
+            fantome.style.top = (ev.clientY + 12) + 'px';
+            const sous = document.elementFromPoint(ev.clientX, ev.clientY);
+            const carte = sous && sous.closest ? sous.closest('.pts-carte') : null;
+            this.widgetEl.querySelectorAll('.pts-carte').forEach(c => {
+                c.style.boxShadow = (c === carte) ? `0 0 0 3px ${badge.couleur}` : '';
+            });
+        };
+
+        const finir = (ev) => {
+            window.removeEventListener('pointermove', bouger);
+            window.removeEventListener('pointerup', finir);
+            window.removeEventListener('pointercancel', finir);
+            this.widgetEl.querySelectorAll('.pts-carte').forEach(c => { c.style.boxShadow = ''; });
+            if (!fantome) { if (auClic) auClic(); return; }      // simple clic
+            fantome.remove();
+            const sous = document.elementFromPoint(ev.clientX, ev.clientY);
+            const carte = sous && sous.closest ? sous.closest('.pts-carte') : null;
+            if (carte && carte.dataset.id !== origineEleveId) {
+                if (origineEleveId) this.retirerBadge(origineEleveId, badgeId, true);
+                this.poserBadge(carte.dataset.id, badgeId);
+            } else if (!carte && origineEleveId) {
+                this.retirerBadge(origineEleveId, badgeId);      // sorti des cartes : ôté
+            }
+        };
+
+        window.addEventListener('pointermove', bouger);
+        window.addEventListener('pointerup', finir);
+        window.addEventListener('pointercancel', finir);
+    },
+
+    // ---------- Créer ou modifier un badge ----------
+    htmlBadge: function () {
+        const b = this.editionBadge;
+        const livre = this.BADGES_LIVRES.some(x => x.id === b.id);
+        return `<div style="max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:14px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span id="pts-badge-apercu" style="background:${b.couleur}; color:${this.texteSur(b.couleur)};
+                        border-radius:16px; padding:6px 14px; font-size:14px; white-space:nowrap;">${b.icone} ${this.echapper(b.nom) || 'Sans nom'}</span>
+                <div style="font-size:12px; color:#636e72;">${b.id ? 'Modifier ce badge' : 'Un nouveau badge pour la bande'}</div>
+            </div>
+            <div>
+                <label style="font-size:11px; font-weight:bold; color:#636e72;">NOM</label>
+                <input type="text" id="pts-badge-nom" maxlength="24" value="${this.echapper(b.nom).replace(/"/g, '&quot;')}"
+                       placeholder="Entraide, Bel effort…"
+                       style="width:100%; padding:8px; border:1px solid #dfe6e9; border-radius:6px; margin-top:5px; font-size:14px;">
+            </div>
+            <div>
+                <label style="font-size:11px; font-weight:bold; color:#636e72;">SYMBOLE</label>
+                <div style="display:flex; align-items:flex-start; gap:8px; margin-top:5px;">
+                    <input type="text" id="pts-badge-icone" maxlength="4" value="${b.icone}"
+                           style="width:56px; text-align:center; padding:6px; border:1px solid #dfe6e9; border-radius:6px; font-size:18px;">
+                    <div style="flex:1; display:flex; flex-wrap:wrap; gap:3px;">
+                        ${this.EMOJIS_BADGE.map(e => `<button class="pts-emoji" data-v="${e}"
+                            style="border:1px solid ${e === b.icone ? '#0984e3' : '#dfe6e9'}; background:#fff; border-radius:6px;
+                                   width:28px; height:28px; font-size:15px; cursor:pointer; padding:0;">${e}</button>`).join('')}
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label style="font-size:11px; font-weight:bold; color:#636e72;">COULEUR</label>
+                <div style="display:flex; gap:6px; margin-top:5px; flex-wrap:wrap;">
+                    ${this.PALETTE_BADGE.map(c => `<button class="pts-couleur" data-v="${c}"
+                        style="width:30px; height:30px; border-radius:8px; background:${c}; cursor:pointer;
+                               border:3px solid ${c === b.couleur ? '#2d3436' : 'transparent'};"></button>`).join('')}
+                </div>
+            </div>
+            <div style="border-top:1px solid #dfe6e9; padding-top:12px; display:flex; gap:8px; align-items:center;">
+                <button id="pts-badge-ok" style="padding:9px 18px; border:none; background:#00b894; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Enregistrer</button>
+                <button id="pts-badge-retour" style="padding:9px 16px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Annuler</button>
+                <div style="flex:1;"></div>
+                ${b.id ? `<button id="pts-badge-suppr" style="padding:9px 14px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">
+                    ${livre ? 'Écarter de la bande' : 'Supprimer'}</button>` : ''}
+            </div>
+            ${livre ? `<div style="font-size:11px; color:#636e72;">Ce badge est fourni avec l'application : il quitte la bande,
+                mais les élèves qui l'ont déjà le gardent, et il revient depuis les réglages.</div>` : ''}
+        </div>`;
+    },
+
+    brancherBadge: function () {
+        const el = this.widgetEl;
+        const b = this.editionBadge;
+        const nom = el.querySelector('#pts-badge-nom');
+        const icone = el.querySelector('#pts-badge-icone');
+        const apercu = el.querySelector('#pts-badge-apercu');
+
+        const rafraichir = () => {
+            apercu.textContent = b.icone + ' ' + (b.nom || 'Sans nom');
+            apercu.style.background = b.couleur;
+            apercu.style.color = this.texteSur(b.couleur);
+        };
+        nom.addEventListener('input', () => { b.nom = nom.value; rafraichir(); });
+        icone.addEventListener('input', () => { b.icone = icone.value || '⭐'; rafraichir(); });
+        el.querySelectorAll('.pts-emoji').forEach(x => x.addEventListener('click', () => {
+            b.icone = x.dataset.v; icone.value = b.icone;
+            el.querySelectorAll('.pts-emoji').forEach(y => { y.style.borderColor = y === x ? '#0984e3' : '#dfe6e9'; });
+            rafraichir();
+        }));
+        el.querySelectorAll('.pts-couleur').forEach(x => x.addEventListener('click', () => {
+            b.couleur = x.dataset.v;
+            el.querySelectorAll('.pts-couleur').forEach(y => { y.style.borderColor = y === x ? '#2d3436' : 'transparent'; });
+            rafraichir();
+        }));
+
+        el.querySelector('#pts-badge-retour').addEventListener('click', () => { this.editionBadge = null; this.rendre(); });
+
+        el.querySelector('#pts-badge-ok').addEventListener('click', () => {
+            const propre = (b.nom || '').trim();
+            if (!propre) {
+                if (typeof showToast === 'function') showToast('Donnez un nom à ce badge');
+                nom.focus();
+                return;
+            }
+            if (b.id) {
+                const perso = this.badgesPerso.find(x => x.id === b.id);
+                if (perso) Object.assign(perso, { icone: b.icone, nom: propre, couleur: b.couleur });
+                else {
+                    // Un badge fourni que l'on retouche devient un badge à soi :
+                    // celui d'origine est écarté, le nouveau prend sa place.
+                    if (this.badgesMasques.indexOf(b.id) === -1) this.badgesMasques.push(b.id);
+                    this.badgesPerso.push({ id: 'b' + Date.now().toString(36), icone: b.icone, nom: propre, couleur: b.couleur });
+                }
+            } else {
+                this.badgesPerso.push({ id: 'b' + Date.now().toString(36), icone: b.icone, nom: propre, couleur: b.couleur });
+            }
+            this.ecrireBadges();
+            this.editionBadge = null;
+            this.rendre();
+            if (typeof showToast === 'function') showToast(`${b.icone} Badge « ${propre} » enregistré`);
+        });
+
+        const suppr = el.querySelector('#pts-badge-suppr');
+        if (suppr) suppr.addEventListener('click', () => {
+            const livre = this.BADGES_LIVRES.some(x => x.id === b.id);
+            if (livre) {
+                if (this.badgesMasques.indexOf(b.id) === -1) this.badgesMasques.push(b.id);
+            } else {
+                this.badgesPerso = this.badgesPerso.filter(x => x.id !== b.id);
+            }
+            if (this.badgeArme === b.id) this.badgeArme = null;
+            this.ecrireBadges();
+            this.editionBadge = null;
+            this.rendre();
+            if (typeof showToast === 'function') {
+                showToast(livre ? 'Badge écarté de la bande' : 'Badge supprimé');
+            }
+        });
+    },
+
     // ---------- Compter ----------
+    // Une seule mémoire pour tout ce qui s'annule : les points comme les badges.
+    retenir: function (geste) {
+        this.historique.push(geste);
+        if (this.historique.length > 200) this.historique.shift();
+    },
+
     compter: function (eleveId, delta) {
         const classe = this.classeCourante(); if (!classe) return;
         const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
         const p = this.pointsDe(eleve);
         if (delta > 0) p.plus += delta; else p.moins += -delta;
-        this.historique.push({ classeId: classe.id, eleveId, delta });
-        if (this.historique.length > 200) this.historique.shift();
+        this.retenir({ t: 'pt', classeId: classe.id, eleveId, delta });
         this.sauver();
         this.rendre();
 
@@ -28876,15 +29287,45 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         }
     },
 
+    // Retirer à la main : on ne peut pas descendre sous zéro, et l'on dit
+    // toujours quel compteur a bougé — c'est une correction, pas une sanction.
+    retirerUn: function (eleveId, champ) {
+        const classe = this.classeCourante(); if (!classe) return;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
+        const p = this.pointsDe(eleve);
+        if (!p[champ]) {
+            if (typeof showToast === 'function') showToast(`${eleve.name} n'a rien à retirer ici`);
+            return;
+        }
+        p[champ] -= 1;
+        this.retenir({ t: 'corr', classeId: classe.id, eleveId, champ });
+        this.sauver();
+        this.rendre();
+        const dit = { plus: 'point bonus', moins: 'point malus', etoiles: 'étoile' }[champ];
+        if (typeof showToast === 'function') showToast(`↩️ ${eleve.name} : un ${dit} retiré`);
+    },
+
     annuler: function () {
         const dernier = this.historique.pop();
         if (!dernier) { if (typeof showToast === 'function') showToast('Rien à annuler'); return; }
         const classe = this.classes.find(c => c.id === dernier.classeId);
         const eleve = classe && (classe.students || []).find(s => s.id === dernier.eleveId);
         if (!eleve) return;
-        const p = this.pointsDe(eleve);
-        if (dernier.delta > 0) p.plus = Math.max(0, p.plus - dernier.delta);
-        else p.moins = Math.max(0, p.moins + dernier.delta);
+
+        if (dernier.t === 'badge') {
+            const liste = eleve.badges || (eleve.badges = []);
+            if (dernier.pose) {
+                const i = liste.indexOf(dernier.badgeId);
+                if (i !== -1) liste.splice(i, 1);
+            } else if (liste.indexOf(dernier.badgeId) === -1) liste.push(dernier.badgeId);
+        } else if (dernier.t === 'corr') {
+            const p = this.pointsDe(eleve);
+            p[dernier.champ] = (p[dernier.champ] || 0) + 1;      // on rend ce qu'on avait retiré
+        } else {
+            const p = this.pointsDe(eleve);
+            if (dernier.delta > 0) p.plus = Math.max(0, p.plus - dernier.delta);
+            else p.moins = Math.max(0, p.moins + dernier.delta);
+        }
         this.sauver();
         this.rendre();
     },
@@ -28940,8 +29381,27 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                            style="width:100%; padding:8px; border:1px solid #dfe6e9; border-radius:6px; margin-top:6px; font-size:14px;">
                 </div>
             </div>
-            <div style="border-top:1px solid #dfe6e9; padding-top:12px; display:flex; gap:8px;">
-                <button id="pts-raz" style="flex:1; padding:9px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Remettre les points de la classe à zéro</button>
+            <div>
+                <label style="font-size:12px; font-weight:bold; color:#636e72;">BADGES DE LA BANDE</label>
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
+                    ${this.badgesVisibles().map(b => `<button class="pts-badge-mod" data-id="${b.id}"
+                        title="Modifier ce badge"
+                        style="display:flex; align-items:center; gap:5px; border:2px solid ${b.couleur}; background:#fff;
+                               border-radius:14px; padding:4px 10px; font-size:12px; cursor:pointer;">
+                        <span style="font-size:14px;">${b.icone}</span>${this.echapper(b.nom)} <span style="opacity:0.4;">✏️</span></button>`).join('')
+            || '<span style="font-size:12px; color:#b2bec3;">La bande est vide.</span>'}
+                </div>
+                ${this.badgesMasques.length ? `<div style="margin-top:8px;">
+                    <div style="font-size:11px; color:#636e72;">Écartés : ${this.badgesMasques.length}</div>
+                    <button id="pts-badges-rendre" style="margin-top:5px; padding:6px 12px; border:1px solid #dfe6e9; background:#fff;
+                            border-radius:8px; cursor:pointer; font-size:12px;">Remettre les badges fournis</button>
+                </div>` : ''}
+                <div style="font-size:11px; color:#636e72; margin-top:6px;">Un badge se prend d'un clic dans la bande, puis
+                    s'apporte aux élèves ; on peut aussi le faire glisser directement sur un avatar.</div>
+            </div>
+            <div style="border-top:1px solid #dfe6e9; padding-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button id="pts-raz" style="flex:1; min-width:200px; padding:9px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Remettre les points de la classe à zéro</button>
+                <button id="pts-raz-badges" style="flex:1; min-width:200px; padding:9px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Retirer tous les badges de la classe</button>
                 <button id="pts-retour" style="padding:9px 16px; border:none; background:#2d3436; color:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Retour</button>
             </div>
         </div>`;
@@ -28964,6 +29424,38 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.reglages.seuilRetenue = Math.max(1, parseInt(retenue.value) || 5); this.ecrireReglages();
         });
         el.querySelector('#pts-retour').addEventListener('click', () => { this.panneauReglages = false; this.rendre(); });
+
+        el.querySelectorAll('.pts-badge-mod').forEach(b => b.addEventListener('click', () => {
+            const badge = this.badgeParId(b.dataset.id); if (!badge) return;
+            this.editionBadge = { id: badge.id, icone: badge.icone, nom: badge.nom, couleur: badge.couleur };
+            this.panneauReglages = false;
+            this.rendre();
+        }));
+        const rendreBadges = el.querySelector('#pts-badges-rendre');
+        if (rendreBadges) rendreBadges.addEventListener('click', () => {
+            this.badgesMasques = [];
+            this.ecrireBadges();
+            this.rendre();
+            if (typeof showToast === 'function') showToast('Badges fournis remis dans la bande');
+        });
+
+        el.querySelector('#pts-raz-badges').addEventListener('click', () => {
+            const classe = this.classeCourante(); if (!classe) return;
+            const oter = () => {
+                (classe.students || []).forEach(s => { s.badges = []; });
+                this.historique = this.historique.filter(h => h.t !== 'badge');
+                this.sauver();
+                this.panneauReglages = false;
+                this.rendre();
+                if (typeof showToast === 'function') showToast('Badges retirés');
+            };
+            if (typeof openConfirmModal === 'function') {
+                openConfirmModal('Retirer tous les badges',
+                    `Retirer les badges de tous les élèves de « ${classe.name} » ? Les badges eux-mêmes restent dans la bande.`,
+                    true, oter);
+            } else oter();
+        });
+
         el.querySelector('#pts-raz').addEventListener('click', () => {
             const classe = this.classeCourante(); if (!classe) return;
             const remettre = () => {
@@ -29077,6 +29569,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             const x = marge + c * cellW, y = enTete + r * cellH + 20;
             const p = this.pointsDe(e);
             svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="16" fill="#2d3436">${i + 1}. ${this.echapper(e.name)}</text>`;
+            const portes = this.badgesDe(e).slice(0, 5);
+            if (portes.length) {
+                svg += `<text x="${x + cellW - 104}" y="${y}" text-anchor="end" font-family="sans-serif" font-size="14">`
+                    + portes.map(b => b.icone).join('') + `</text>`;
+            }
             if (this.reglages.affichage === 'solde') {
                 const solde = p.plus - p.moins;
                 svg += `<text x="${x + cellW - 60}" y="${y}" font-family="sans-serif" font-size="16" font-weight="bold" fill="${solde < 0 ? '#d63031' : '#00b894'}">${solde > 0 ? '+' : ''}${solde}</text>`;
