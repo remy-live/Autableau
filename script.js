@@ -12520,11 +12520,21 @@ const ClassesStore = {
     },
 
     async loadAll() {
-        if (this._cache) return this._cache;
+        if (this._cache) { this._purgerLAppel(this._cache); return this._cache; }
         let classes = await localforage.getItem(CLASSES_STORAGE_KEY);
         if (!classes) classes = await this._migrateLegacy();
         this._cache = classes || [];
+        this._purgerLAppel(this._cache);
         return this._cache;
+    },
+
+    // L'appel d'hier n'est plus l'appel d'aujourd'hui : les absences tombent
+    // d'elles-mêmes au changement de date, sans que personne ait à y penser.
+    _purgerLAppel(classes) {
+        if (typeof Appel === 'undefined') return;
+        if (Appel.oublierLaVeille(classes)) {
+            localforage.setItem(CLASSES_STORAGE_KEY, classes).catch(() => { /* écriture refusée */ });
+        }
     },
 
     // Migration ponctuelle depuis l'ancien format de randomDrawTool
@@ -12601,6 +12611,65 @@ const ClassesStore = {
     }
 };
 window.ClassesStore = ClassesStore;
+
+// ===================================================
+// L'APPEL
+// Un élève absent n'est pas un élève supprimé : il garde ses points, ses
+// badges et sa place. Il est simplement mis de côté pour la séance — le
+// tirage au sort ne le désigne pas, les groupes ne comptent pas sur lui.
+// L'absence ne vaut QUE pour la journée : elle s'efface d'elle-même au
+// changement de date, sinon on traînerait les absents de la semaine dernière.
+// ===================================================
+const Appel = {
+    aujourdHui() {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+            + '-' + String(d.getDate()).padStart(2, '0');
+    },
+
+    // Rend true si quelque chose a été effacé : l'appelant enregistre alors.
+    oublierLaVeille(classes) {
+        const jour = this.aujourdHui();
+        let change = false;
+        (classes || []).forEach(c => {
+            if (c.appelDu === jour) return;
+            if ((c.students || []).some(s => s.absent)) {
+                c.students.forEach(s => { delete s.absent; });
+                change = true;
+            }
+            if (c.appelDu) { delete c.appelDu; change = true; }
+        });
+        return change;
+    },
+
+    estAbsent(eleve) { return !!(eleve && eleve.absent); },
+    presents(classe) { return (classe && classe.students || []).filter(s => !s.absent); },
+    absents(classe) { return (classe && classe.students || []).filter(s => s.absent); },
+
+    basculer(classe, eleveId) {
+        const e = (classe && classe.students || []).find(s => s.id === eleveId);
+        if (!e) return null;
+        if (e.absent) delete e.absent; else e.absent = true;
+        classe.appelDu = this.aujourdHui();
+        classe.updatedAt = Date.now();
+        return !e.absent;
+    },
+
+    tousPresents(classe) {
+        (classe && classe.students || []).forEach(s => { delete s.absent; });
+        if (classe) { classe.appelDu = this.aujourdHui(); classe.updatedAt = Date.now(); }
+    },
+
+    // « 24 présents, 2 absents » — ou rien du tout si l'appel n'est pas fait
+    resume(classe) {
+        const tous = (classe && classe.students) || [];
+        const abs = tous.filter(s => s.absent).length;
+        if (!tous.length) return '';
+        if (!abs) return `${tous.length} présents`;
+        return `${tous.length - abs} présents, ${abs} absent${abs > 1 ? 's' : ''}`;
+    }
+};
+window.Appel = Appel;
 
 // ===================================================
 // LES AVATARS DES ÉLÈVES
@@ -12953,12 +13022,15 @@ async function openClassManagerModal() {
 
         if (selected) {
             const studentsHtml = (selected.students || []).map((s, idx) => `
-                <div class="cm-student-row" draggable="true" data-idx="${idx}"
+                <div class="cm-student-row${s.absent ? ' absent' : ''}" draggable="true" data-idx="${idx}"
                      style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--bg); margin-bottom:4px; cursor:grab;">
                     <span style="color:var(--muted); font-size:12px;">⠿</span>
                     <button class="cm-avatar" data-idx="${idx}" title="Changer l'avatar de ${s.name}"
                             style="border:1px solid var(--border); background:#fff; border-radius:8px; padding:2px; cursor:pointer; line-height:0; flex:none;">${AvatarsEleves.svg(s, 30)}</button>
-                    <span style="flex:1; font-size:13px; text-align:left;">${s.name}</span>
+                    <span class="cm-nom" style="flex:1; font-size:13px; text-align:left;">${s.name}</span>
+                    <button class="cm-presence" data-idx="${idx}"
+                            title="${s.absent ? s.name + ' est noté absent — cliquer pour le remettre présent' : "Noter " + s.name + " absent aujourd'hui"}"
+                            style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.absent ? '1' : '0.28'};">${s.absent ? '🚫' : '✓'}</button>
                     <button class="cm-toggle-front" data-idx="${idx}" title="Prioritaire 1er rang"
                             style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.frontRow ? '1' : '0.25'};">⭐</button>
                     <button class="cm-del-student" data-idx="${idx}" style="border:none; background:none; cursor:pointer; color:var(--muted); font-size:14px;">🗑️</button>
@@ -12982,7 +13054,17 @@ async function openClassManagerModal() {
                 <div id="cm-students-list" style="flex:1 1 220px; min-height:140px; overflow-y:auto; margin-bottom:12px;">
                     ${studentsHtml}
                 </div>
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-6px 0 12px 2px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-6px 0 10px 2px;">
+                    <div style="font-size:11px; color:var(--muted);">
+                        <b id="cm-appel-resume">${Appel.resume(selected)}</b>
+                        ${Appel.absents(selected).length
+                            ? ` — ils sont mis de côté pour aujourd'hui : ni tirage au sort, ni groupes.
+                                <button id="cm-tous-presents" style="border:none; background:none; color:var(--accent);
+                                    cursor:pointer; font-size:11px; text-decoration:underline; padding:0;">Tous présents</button>`
+                            : ' · ✓ pour noter une absence'}
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-4px 0 12px 2px;">
                     <div style="font-size:11px; color:var(--muted);">⭐ = clique pour marquer un élève prioritaire au 1er rang (utilisé par le plan de classe)</div>
                     <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; cursor:pointer;">
                         <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars dessinés
@@ -13175,6 +13257,32 @@ async function openClassManagerModal() {
                 if (eleve) ouvrirReglageAvatar(eleve, () => { c.updatedAt = Date.now(); persist(); render(); });
             };
         });
+
+        box.querySelectorAll('.cm-presence').forEach(btn => {
+            btn.onclick = () => {
+                const c = getSelected();
+                if (!c) return;
+                const eleve = c.students[parseInt(btn.dataset.idx)];
+                if (!eleve) return;
+                Appel.basculer(c, eleve.id);
+                persist();
+                render();
+                if (typeof showToast === 'function') {
+                    showToast(eleve.absent ? `🚫 ${eleve.name} : absent aujourd'hui`
+                                           : `✓ ${eleve.name} : de retour`);
+                }
+            };
+        });
+
+        const tousPresents = box.querySelector('#cm-tous-presents');
+        if (tousPresents) tousPresents.onclick = () => {
+            const c = getSelected();
+            if (!c) return;
+            Appel.tousPresents(c);
+            persist();
+            render();
+            if (typeof showToast === 'function') showToast('Toute la classe est présente');
+        };
 
         box.querySelectorAll('.cm-toggle-front').forEach(btn => {
             btn.onclick = () => {

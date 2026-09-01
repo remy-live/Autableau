@@ -6400,3 +6400,12 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 /* L'étoile de la barre, allumée quand le dossier est déjà en raccourci */
 #exp-raccourci.actif { color: #f39c12; border-color: #f39c12; }
+
+/* Un élève absent reste dans la liste, pâli : il garde ses points, ses
+   badges et sa place — il est seulement mis de côté pour la séance. */
+.cm-student-row.absent .cm-nom {
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    opacity: 0.55;
+}
+.cm-student-row.absent .cm-avatar { opacity: 0.45; }

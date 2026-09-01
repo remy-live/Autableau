@@ -781,6 +781,114 @@ module.exports = async function (browser) {
     r.egal('avec ses classes', remplacer.nom, 'Terminale S');
     r.egal('et son catalogue de badges', remplacer.badges, { perso: [], masques: [] });
 
+    // --- L'APPEL, PARTAGÉ PAR TOUS LES OUTILS ---
+    // Un absent n'est pas un élève supprimé : il garde ses points, ses badges
+    // et sa place, il est seulement mis de côté pour la séance.
+    const modele = await page.evaluate(() => {
+        const c = { id: 'ca', name: 'Essai', students:
+            ['Alice', 'Bilal', 'Chloé', 'Diego'].map((n, i) => ({ id: 'e' + i, name: n })) };
+        Appel.basculer(c, 'e1');
+        Appel.basculer(c, 'e3');
+        const pose = { absents: Appel.absents(c).map(s => s.name), presents: Appel.presents(c).length,
+                       resume: Appel.resume(c), jour: c.appelDu === Appel.aujourdHui() };
+        Appel.basculer(c, 'e1');                     // Bilal revient
+        const retour = Appel.absents(c).map(s => s.name);
+        Appel.tousPresents(c);
+        const vides = Appel.absents(c).length;
+
+        // le lendemain : l'appel d'hier ne vaut plus
+        Appel.basculer(c, 'e0');
+        c.appelDu = '2020-01-01';
+        const change = Appel.oublierLaVeille([c]);
+        return { pose, retour, vides, change, restants: Appel.absents(c).length,
+                 rienAJeter: Appel.oublierLaVeille([c]) };
+    });
+    r.egal('noter deux absents les met de côté', modele.pose.absents, ['Bilal', 'Diego']);
+    r.egal('les présents sont comptés à part', modele.pose.presents, 2);
+    r.egal('et le résumé se lit en clair', modele.pose.resume, '2 présents, 2 absents');
+    r.verifie('l\'appel est daté du jour', modele.pose.jour);
+    r.egal('un élève de retour redevient présent', modele.retour, ['Diego']);
+    r.egal('« tous présents » efface l\'appel', modele.vides, 0);
+    r.verifie('le lendemain, les absences d\'hier tombent d\'elles-mêmes', modele.change);
+    r.egal('et il ne reste personne d\'absent', modele.restants, 0);
+    r.verifie('sans rien réécrire s\'il n\'y a rien à effacer', !modele.rienAJeter);
+
+    const appelUI = await page.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'cap', name: '6e Appel', students:
+            ['Alice', 'Bilal', 'Chloé', 'Diego'].map((n, i) => ({ id: 'a' + i, name: n,
+                pts: { plus: i, moins: 0, etoiles: 0 }, badges: i === 1 ? ['b-entraide'] : [] })) }]);
+        const w = document.getElementById('points-widget');
+        if (w) w.style.display = 'none';
+        const ancienne = document.getElementById('class-manager-modal');
+        if (ancienne) ancienne.remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 500));
+        document.querySelectorAll('.cm-presence')[1].click();
+        await new Promise(r => setTimeout(r, 250));
+        const cl = await ClassesStore.loadAll();
+        const res = {
+            enBase: cl[0].students[1].absent === true,
+            barree: !!document.querySelector('.cm-student-row.absent'),
+            resume: document.getElementById('cm-appel-resume').textContent,
+            bouton: !!document.getElementById('cm-tous-presents'),
+            pointsIntacts: cl[0].students[1].pts.plus,
+            badgesIntacts: cl[0].students[1].badges
+        };
+        return res;
+    });
+    r.verifie('un clic sur ✓ note l\'élève absent', appelUI.enBase, JSON.stringify(appelUI));
+    r.verifie('sa ligne se barre', appelUI.barree);
+    r.egal('l\'en-tête compte les présents', appelUI.resume, '3 présents, 1 absent');
+    r.verifie('et propose de tout remettre présent', appelUI.bouton);
+    r.egal('l\'absent garde ses points', appelUI.pointsIntacts, 1);
+    r.egal('et ses badges', appelUI.badgesIntacts, ['b-entraide']);
+
+    const surLesPoints = await page.evaluate(async () => {
+        const m = document.getElementById('class-manager-modal');
+        if (m) m.remove();
+        await PluginManager.plugins.classPointsTool.ouvrir('cap');
+        await new Promise(r => setTimeout(r, 500));
+        return { cartes: document.querySelectorAll('.pts-carte').length,
+                 palies: document.querySelectorAll('.pts-carte.pts-absent').length };
+    });
+    r.egal('la grille des points montre toute la classe', surLesPoints.cartes, 4);
+    r.egal('avec l\'absent pâli, pas retiré', surLesPoints.palies, 1);
+
+    const surLeTirage = await page.evaluate(async () => {
+        const p = PluginManager.plugins.randomDrawTool;
+        p.loadClasses();
+        await new Promise(r => setTimeout(r, 400));
+        return { liste: p.savedClasses['6e Appel'], absents: (p.absentsDuJour || {})['6e Appel'] };
+    });
+    r.egal('le tirage au sort ne propose que les présents', surLeTirage.liste, ['Alice', 'Chloé', 'Diego']);
+    r.egal('et sait dire qui manque', surLeTirage.absents, ['Bilal']);
+
+    // Le tirage réécrit les classes : il ne doit rien perdre au passage.
+    const apresEcriture = await page.evaluate(async () => {
+        const p = PluginManager.plugins.randomDrawTool;
+        const avant = await ClassesStore.loadAll();
+        const autres = avant.length;
+        p.saveClassesToStorage();
+        await new Promise(r => setTimeout(r, 450));
+        ClassesStore._cache = null;
+        const cl = await ClassesStore.loadAll();
+        const classe = cl.find(c => c.name === '6e Appel');
+        return {
+            classesAvant: autres, classesApres: cl.length,
+            eleves: classe.students.map(s => s.name),
+            toujoursAbsent: !!classe.students.find(s => s.name === 'Bilal' && s.absent),
+            badges: (classe.students.find(s => s.name === 'Bilal') || {}).badges,
+            points: (classe.students.find(s => s.name === 'Diego') || {}).pts
+        };
+    });
+    r.egal('l\'absent n\'est pas supprimé quand le tirage enregistre', apresEcriture.eleves,
+        ['Alice', 'Bilal', 'Chloé', 'Diego']);
+    r.verifie('il reste noté absent', apresEcriture.toujoursAbsent, JSON.stringify(apresEcriture));
+    r.egal('avec ses badges', apresEcriture.badges, ['b-entraide']);
+    r.egal('et les points des autres sont intacts', apresEcriture.points, { plus: 3, moins: 0, etoiles: 0 });
+    r.egal('les classes que cette fenêtre ne montre pas ne sont pas effacées',
+        apresEcriture.classesApres, apresEcriture.classesAvant);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

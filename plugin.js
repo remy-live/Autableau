@@ -12916,7 +12916,18 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             ClassesStore.loadAll().then(classes => {
                 if (classes && classes.length > 0) {
                     this.savedClasses = {};
-                    classes.forEach(c => { this.savedClasses[c.name] = (c.students || []).map(s => s.name); });
+                    // L'appel du jour est respecté : un élève noté absent dans
+                    // « Mes classes » n'entre ni dans le tirage, ni dans les
+                    // groupes. Il n'est pas supprimé pour autant — il revient
+                    // de lui-même dès qu'il est remis présent, ou demain.
+                    this.absentsDuJour = {};
+                    classes.forEach(c => {
+                        const presents = (typeof Appel !== 'undefined')
+                            ? Appel.presents(c) : (c.students || []);
+                        this.savedClasses[c.name] = presents.map(s => s.name);
+                        const abs = (typeof Appel !== 'undefined') ? Appel.absents(c) : [];
+                        if (abs.length) this.absentsDuJour[c.name] = abs.map(s => s.name);
+                    });
                     this.updateClassSelect();
                     this.updateSavedClassesList();
                 }
@@ -12931,21 +12942,40 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             ClassesStore.loadAll().then(existingClasses => {
                 const byName = {};
                 existingClasses.forEach(c => { byName[c.name] = c; });
-                const updated = Object.keys(this.savedClasses).map(name => {
+
+                const refaites = Object.keys(this.savedClasses).map(name => {
                     const existing = byName[name];
-                    const students = this.savedClasses[name].map(sName => {
-                        const existingStudent = existing && (existing.students || []).find(s => s.name === sName);
-                        return existingStudent || { id: ClassesStore.newId('stu'), name: sName };
+                    const anciens = (existing && existing.students) || [];
+                    const voulus = this.savedClasses[name] || [];
+                    const dansLaListe = new Set(voulus);
+
+                    // Cette fenêtre ne connaît que des NOMS d'élèves présents.
+                    // Deux précautions avant d'écrire : on garde l'ordre et les
+                    // données de ceux qui existent déjà (avatar, points, badges,
+                    // premier rang), et surtout on ne supprime pas les absents
+                    // du jour — ils ne figurent pas dans la liste par exception,
+                    // pas parce qu'on a voulu les retirer de la classe.
+                    const students = anciens.filter(s => dansLaListe.has(s.name) || s.absent);
+                    const connus = new Set(students.map(s => s.name));
+                    voulus.forEach(sNom => {
+                        if (connus.has(sNom)) return;
+                        students.push({ id: ClassesStore.newId('stu'), name: sNom });
+                        connus.add(sNom);
                     });
-                    return {
+
+                    return Object.assign({}, existing, {
                         id: existing ? existing.id : ClassesStore.newId('class'),
-                        name,
-                        students,
+                        name, students,
                         createdAt: existing ? existing.createdAt : Date.now(),
                         updatedAt: Date.now()
-                    };
+                    });
                 });
-                ClassesStore.saveAll(updated);
+
+                // Les classes que cette fenêtre ne montre pas étaient effacées
+                // au passage : on ne réécrit que celles qu'elle connaît.
+                const touchees = new Set(refaites.map(c => c.name));
+                const intactes = existingClasses.filter(c => !touchees.has(c.name));
+                ClassesStore.saveAll(intactes.concat(refaites));
             });
         }
     },
@@ -13528,6 +13558,19 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
 
     renderSessionPills: function () {
         const container = document.getElementById('dw-session-list'); if (!container) return; container.innerHTML = "";
+
+        // Si des élèves manquent, on dit pourquoi : sans cela, on croirait la
+        // classe mal saisie alors que l'appel a simplement été fait.
+        const absents = (this.absentsDuJour || {})[this.currentClassName] || [];
+        if (absents.length) {
+            const note = document.createElement('div');
+            note.className = 'dw-absents';
+            note.style.cssText = 'width:100%; font-size:11px; color:#636e72; margin-bottom:6px;';
+            note.textContent = '🚫 Absent' + (absents.length > 1 ? 's' : '') + " aujourd'hui, mis de côté : "
+                + absents.join(', ');
+            container.appendChild(note);
+        }
+
         const isQuiz = this.isQuizMode();
         this.sessionList.forEach((s, index) => {
             const pill = document.createElement('div'); pill.className = `dw-pill ${!s.active ? 'eliminated' : ''}`;
@@ -29023,9 +29066,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     style="font-size:10px; color:#636e72; line-height:16px;">+${portes.length - 4}</span>` : '')
             + `</div>` : '';
 
-        return `<div class="pts-carte" data-id="${eleve.id}" title="${this.echapper(eleve.name)}"
+        // L'absent du jour reste sur la grille, pâli : il garde ses points et
+        // ses badges, et l'on peut encore le corriger si l'appel s'est trompé.
+        const absent = typeof Appel !== 'undefined' && Appel.estAbsent(eleve);
+
+        return `<div class="pts-carte${absent ? ' pts-absent' : ''}" data-id="${eleve.id}"
+                     title="${this.echapper(eleve.name)}${absent ? " — absent aujourd'hui" : ''}"
                      style="position:relative; width:104px; padding:8px 6px 6px; background:#fff; border:2px solid ${cadre};
-                            border-radius:12px; text-align:center; cursor:pointer; user-select:none;">
+                            border-radius:12px; text-align:center; cursor:pointer; user-select:none;
+                            ${absent ? 'opacity:0.42;' : ''}">
+            ${absent ? `<span title="Absent aujourd'hui" style="position:absolute; bottom:2px; left:4px; font-size:11px;">🚫</span>` : ''}
             <button class="pts-crayon" title="Personnaliser l'avatar"
                     style="position:absolute; top:2px; right:2px; border:none; background:none; cursor:pointer; font-size:11px; opacity:0.45;">✏️</button>
             ${pretNote ? `<button class="pts-note" title="Convertir en note et remettre à zéro" style="position:absolute; top:2px; left:2px; border:none; background:none; cursor:pointer; font-size:13px;">🎓</button>` : ''}
