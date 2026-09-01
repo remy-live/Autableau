@@ -6569,6 +6569,621 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
     }
 });
 
+// ==========================================
+// CONJUGUEUR
+// Un verbe, un temps : la table se pose au tableau. Le moteur applique
+// les règles des 1er et 2e groupes (y compris les accidents d'orthographe
+// — mangeons, commençons, appelle, achète, nettoie) et lit une table pour
+// les irréguliers usuels. Un verbe qu'il ne sait pas conjuguer, il le
+// DIT : une table fausse au tableau vaut moins que pas de table.
+// ==========================================
+const Conjugaison = (function () {
+    const PRONOMS = ['je', 'tu', 'il', 'nous', 'vous', 'ils'];
+
+    // Terminaisons régulières, par temps
+    const T = {
+        present1: ['e', 'es', 'e', 'ons', 'ez', 'ent'],
+        present2: ['is', 'is', 'it', 'issons', 'issez', 'issent'],
+        present3re: ['s', 's', '', 'ons', 'ez', 'ent'],
+        imparfait: ['ais', 'ais', 'ait', 'ions', 'iez', 'aient'],
+        futur: ['ai', 'as', 'a', 'ons', 'ez', 'ont'],
+        conditionnel: ['ais', 'ais', 'ait', 'ions', 'iez', 'aient'],
+        passeSimple1: ['ai', 'as', 'a', 'âmes', 'âtes', 'èrent'],
+        passeSimple2: ['is', 'is', 'it', 'îmes', 'îtes', 'irent'],
+        subjonctif: ['e', 'es', 'e', 'ions', 'iez', 'ent']
+    };
+
+    // Verbes en -eler / -eter qui DOUBLENT la consonne. Les autres
+    // (acheter, geler, peler…) prennent un accent grave : c'est la règle
+    // qui a des exceptions, pas l'inverse.
+    const DOUBLENT = ['appeler', 'rappeler', 'épeler', 'renouveler', 'jeter',
+        'rejeter', 'projeter', 'feuilleter', 'étiqueter', 'atteler'];
+
+    // Auxiliaire être : le participe s'accorde, on l'écrit (e)(s).
+    const AVEC_ETRE = ['aller', 'venir', 'revenir', 'devenir', 'parvenir', 'partir',
+        'repartir', 'sortir', 'entrer', 'rentrer', 'arriver', 'rester', 'tomber',
+        'retomber', 'naître', 'mourir', 'retourner', 'décéder'];
+
+    // Les irréguliers usuels. present/imparfait/futur/passeSimple/subjonctif
+    // sont donnés en entier ; le conditionnel se déduit du radical du futur
+    // (c'est toujours vrai en français), l'impératif du présent sauf mention.
+    const IRR = {
+        'être': { pp: 'été',
+            present: ['suis', 'es', 'est', 'sommes', 'êtes', 'sont'],
+            imparfait: ['étais', 'étais', 'était', 'étions', 'étiez', 'étaient'],
+            futur: ['serai', 'seras', 'sera', 'serons', 'serez', 'seront'],
+            passeSimple: ['fus', 'fus', 'fut', 'fûmes', 'fûtes', 'furent'],
+            subjonctif: ['sois', 'sois', 'soit', 'soyons', 'soyez', 'soient'],
+            imperatif: ['sois', 'soyons', 'soyez'] },
+        'avoir': { pp: 'eu',
+            present: ['ai', 'as', 'a', 'avons', 'avez', 'ont'],
+            imparfait: ['avais', 'avais', 'avait', 'avions', 'aviez', 'avaient'],
+            futur: ['aurai', 'auras', 'aura', 'aurons', 'aurez', 'auront'],
+            passeSimple: ['eus', 'eus', 'eut', 'eûmes', 'eûtes', 'eurent'],
+            subjonctif: ['aie', 'aies', 'ait', 'ayons', 'ayez', 'aient'],
+            imperatif: ['aie', 'ayons', 'ayez'] },
+        'aller': { pp: 'allé', aux: 'être',
+            present: ['vais', 'vas', 'va', 'allons', 'allez', 'vont'],
+            imparfait: ['allais', 'allais', 'allait', 'allions', 'alliez', 'allaient'],
+            futur: ['irai', 'iras', 'ira', 'irons', 'irez', 'iront'],
+            passeSimple: ['allai', 'allas', 'alla', 'allâmes', 'allâtes', 'allèrent'],
+            subjonctif: ['aille', 'ailles', 'aille', 'allions', 'alliez', 'aillent'],
+            imperatif: ['va', 'allons', 'allez'] },
+        'faire': { pp: 'fait',
+            present: ['fais', 'fais', 'fait', 'faisons', 'faites', 'font'],
+            imparfait: ['faisais', 'faisais', 'faisait', 'faisions', 'faisiez', 'faisaient'],
+            futur: ['ferai', 'feras', 'fera', 'ferons', 'ferez', 'feront'],
+            passeSimple: ['fis', 'fis', 'fit', 'fîmes', 'fîtes', 'firent'],
+            subjonctif: ['fasse', 'fasses', 'fasse', 'fassions', 'fassiez', 'fassent'] },
+        'dire': { pp: 'dit',
+            present: ['dis', 'dis', 'dit', 'disons', 'dites', 'disent'],
+            imparfait: ['disais', 'disais', 'disait', 'disions', 'disiez', 'disaient'],
+            futur: ['dirai', 'diras', 'dira', 'dirons', 'direz', 'diront'],
+            passeSimple: ['dis', 'dis', 'dit', 'dîmes', 'dîtes', 'dirent'],
+            subjonctif: ['dise', 'dises', 'dise', 'disions', 'disiez', 'disent'] },
+        'pouvoir': { pp: 'pu',
+            present: ['peux', 'peux', 'peut', 'pouvons', 'pouvez', 'peuvent'],
+            imparfait: ['pouvais', 'pouvais', 'pouvait', 'pouvions', 'pouviez', 'pouvaient'],
+            futur: ['pourrai', 'pourras', 'pourra', 'pourrons', 'pourrez', 'pourront'],
+            passeSimple: ['pus', 'pus', 'put', 'pûmes', 'pûtes', 'purent'],
+            subjonctif: ['puisse', 'puisses', 'puisse', 'puissions', 'puissiez', 'puissent'],
+            imperatif: null },
+        'vouloir': { pp: 'voulu',
+            present: ['veux', 'veux', 'veut', 'voulons', 'voulez', 'veulent'],
+            imparfait: ['voulais', 'voulais', 'voulait', 'voulions', 'vouliez', 'voulaient'],
+            futur: ['voudrai', 'voudras', 'voudra', 'voudrons', 'voudrez', 'voudront'],
+            passeSimple: ['voulus', 'voulus', 'voulut', 'voulûmes', 'voulûtes', 'voulurent'],
+            subjonctif: ['veuille', 'veuilles', 'veuille', 'voulions', 'vouliez', 'veuillent'],
+            imperatif: ['veuille', 'veuillons', 'veuillez'] },
+        'savoir': { pp: 'su',
+            present: ['sais', 'sais', 'sait', 'savons', 'savez', 'savent'],
+            imparfait: ['savais', 'savais', 'savait', 'savions', 'saviez', 'savaient'],
+            futur: ['saurai', 'sauras', 'saura', 'saurons', 'saurez', 'sauront'],
+            passeSimple: ['sus', 'sus', 'sut', 'sûmes', 'sûtes', 'surent'],
+            subjonctif: ['sache', 'saches', 'sache', 'sachions', 'sachiez', 'sachent'],
+            imperatif: ['sache', 'sachons', 'sachez'] },
+        'voir': { pp: 'vu',
+            present: ['vois', 'vois', 'voit', 'voyons', 'voyez', 'voient'],
+            imparfait: ['voyais', 'voyais', 'voyait', 'voyions', 'voyiez', 'voyaient'],
+            futur: ['verrai', 'verras', 'verra', 'verrons', 'verrez', 'verront'],
+            passeSimple: ['vis', 'vis', 'vit', 'vîmes', 'vîtes', 'virent'],
+            subjonctif: ['voie', 'voies', 'voie', 'voyions', 'voyiez', 'voient'] },
+        'venir': { pp: 'venu', aux: 'être',
+            present: ['viens', 'viens', 'vient', 'venons', 'venez', 'viennent'],
+            imparfait: ['venais', 'venais', 'venait', 'venions', 'veniez', 'venaient'],
+            futur: ['viendrai', 'viendras', 'viendra', 'viendrons', 'viendrez', 'viendront'],
+            passeSimple: ['vins', 'vins', 'vint', 'vînmes', 'vîntes', 'vinrent'],
+            subjonctif: ['vienne', 'viennes', 'vienne', 'venions', 'veniez', 'viennent'] },
+        'tenir': { pp: 'tenu',
+            present: ['tiens', 'tiens', 'tient', 'tenons', 'tenez', 'tiennent'],
+            imparfait: ['tenais', 'tenais', 'tenait', 'tenions', 'teniez', 'tenaient'],
+            futur: ['tiendrai', 'tiendras', 'tiendra', 'tiendrons', 'tiendrez', 'tiendront'],
+            passeSimple: ['tins', 'tins', 'tint', 'tînmes', 'tîntes', 'tinrent'],
+            subjonctif: ['tienne', 'tiennes', 'tienne', 'tenions', 'teniez', 'tiennent'] },
+        'prendre': { pp: 'pris',
+            present: ['prends', 'prends', 'prend', 'prenons', 'prenez', 'prennent'],
+            imparfait: ['prenais', 'prenais', 'prenait', 'prenions', 'preniez', 'prenaient'],
+            futur: ['prendrai', 'prendras', 'prendra', 'prendrons', 'prendrez', 'prendront'],
+            passeSimple: ['pris', 'pris', 'prit', 'prîmes', 'prîtes', 'prirent'],
+            subjonctif: ['prenne', 'prennes', 'prenne', 'prenions', 'preniez', 'prennent'] },
+        'mettre': { pp: 'mis',
+            present: ['mets', 'mets', 'met', 'mettons', 'mettez', 'mettent'],
+            imparfait: ['mettais', 'mettais', 'mettait', 'mettions', 'mettiez', 'mettaient'],
+            futur: ['mettrai', 'mettras', 'mettra', 'mettrons', 'mettrez', 'mettront'],
+            passeSimple: ['mis', 'mis', 'mit', 'mîmes', 'mîtes', 'mirent'],
+            subjonctif: ['mette', 'mettes', 'mette', 'mettions', 'mettiez', 'mettent'] },
+        'partir': { pp: 'parti', aux: 'être',
+            present: ['pars', 'pars', 'part', 'partons', 'partez', 'partent'],
+            imparfait: ['partais', 'partais', 'partait', 'partions', 'partiez', 'partaient'],
+            futur: ['partirai', 'partiras', 'partira', 'partirons', 'partirez', 'partiront'],
+            passeSimple: ['partis', 'partis', 'partit', 'partîmes', 'partîtes', 'partirent'],
+            subjonctif: ['parte', 'partes', 'parte', 'partions', 'partiez', 'partent'] },
+        'sortir': { pp: 'sorti', aux: 'être',
+            present: ['sors', 'sors', 'sort', 'sortons', 'sortez', 'sortent'],
+            imparfait: ['sortais', 'sortais', 'sortait', 'sortions', 'sortiez', 'sortaient'],
+            futur: ['sortirai', 'sortiras', 'sortira', 'sortirons', 'sortirez', 'sortiront'],
+            passeSimple: ['sortis', 'sortis', 'sortit', 'sortîmes', 'sortîtes', 'sortirent'],
+            subjonctif: ['sorte', 'sortes', 'sorte', 'sortions', 'sortiez', 'sortent'] },
+        'dormir': { pp: 'dormi',
+            present: ['dors', 'dors', 'dort', 'dormons', 'dormez', 'dorment'],
+            imparfait: ['dormais', 'dormais', 'dormait', 'dormions', 'dormiez', 'dormaient'],
+            futur: ['dormirai', 'dormiras', 'dormira', 'dormirons', 'dormirez', 'dormiront'],
+            passeSimple: ['dormis', 'dormis', 'dormit', 'dormîmes', 'dormîtes', 'dormirent'],
+            subjonctif: ['dorme', 'dormes', 'dorme', 'dormions', 'dormiez', 'dorment'] },
+        'servir': { pp: 'servi',
+            present: ['sers', 'sers', 'sert', 'servons', 'servez', 'servent'],
+            imparfait: ['servais', 'servais', 'servait', 'servions', 'serviez', 'servaient'],
+            futur: ['servirai', 'serviras', 'servira', 'servirons', 'servirez', 'serviront'],
+            passeSimple: ['servis', 'servis', 'servit', 'servîmes', 'servîtes', 'servirent'],
+            subjonctif: ['serve', 'serves', 'serve', 'servions', 'serviez', 'servent'] },
+        'sentir': { pp: 'senti',
+            present: ['sens', 'sens', 'sent', 'sentons', 'sentez', 'sentent'],
+            imparfait: ['sentais', 'sentais', 'sentait', 'sentions', 'sentiez', 'sentaient'],
+            futur: ['sentirai', 'sentiras', 'sentira', 'sentirons', 'sentirez', 'sentiront'],
+            passeSimple: ['sentis', 'sentis', 'sentit', 'sentîmes', 'sentîtes', 'sentirent'],
+            subjonctif: ['sente', 'sentes', 'sente', 'sentions', 'sentiez', 'sentent'] },
+        'devoir': { pp: 'dû',
+            present: ['dois', 'dois', 'doit', 'devons', 'devez', 'doivent'],
+            imparfait: ['devais', 'devais', 'devait', 'devions', 'deviez', 'devaient'],
+            futur: ['devrai', 'devras', 'devra', 'devrons', 'devrez', 'devront'],
+            passeSimple: ['dus', 'dus', 'dut', 'dûmes', 'dûtes', 'durent'],
+            subjonctif: ['doive', 'doives', 'doive', 'devions', 'deviez', 'doivent'] },
+        'recevoir': { pp: 'reçu',
+            present: ['reçois', 'reçois', 'reçoit', 'recevons', 'recevez', 'reçoivent'],
+            imparfait: ['recevais', 'recevais', 'recevait', 'recevions', 'receviez', 'recevaient'],
+            futur: ['recevrai', 'recevras', 'recevra', 'recevrons', 'recevrez', 'recevront'],
+            passeSimple: ['reçus', 'reçus', 'reçut', 'reçûmes', 'reçûtes', 'reçurent'],
+            subjonctif: ['reçoive', 'reçoives', 'reçoive', 'recevions', 'receviez', 'reçoivent'] },
+        'lire': { pp: 'lu',
+            present: ['lis', 'lis', 'lit', 'lisons', 'lisez', 'lisent'],
+            imparfait: ['lisais', 'lisais', 'lisait', 'lisions', 'lisiez', 'lisaient'],
+            futur: ['lirai', 'liras', 'lira', 'lirons', 'lirez', 'liront'],
+            passeSimple: ['lus', 'lus', 'lut', 'lûmes', 'lûtes', 'lurent'],
+            subjonctif: ['lise', 'lises', 'lise', 'lisions', 'lisiez', 'lisent'] },
+        'écrire': { pp: 'écrit',
+            present: ['écris', 'écris', 'écrit', 'écrivons', 'écrivez', 'écrivent'],
+            imparfait: ['écrivais', 'écrivais', 'écrivait', 'écrivions', 'écriviez', 'écrivaient'],
+            futur: ['écrirai', 'écriras', 'écrira', 'écrirons', 'écrirez', 'écriront'],
+            passeSimple: ['écrivis', 'écrivis', 'écrivit', 'écrivîmes', 'écrivîtes', 'écrivirent'],
+            subjonctif: ['écrive', 'écrives', 'écrive', 'écrivions', 'écriviez', 'écrivent'] },
+        'boire': { pp: 'bu',
+            present: ['bois', 'bois', 'boit', 'buvons', 'buvez', 'boivent'],
+            imparfait: ['buvais', 'buvais', 'buvait', 'buvions', 'buviez', 'buvaient'],
+            futur: ['boirai', 'boiras', 'boira', 'boirons', 'boirez', 'boiront'],
+            passeSimple: ['bus', 'bus', 'but', 'bûmes', 'bûtes', 'burent'],
+            subjonctif: ['boive', 'boives', 'boive', 'buvions', 'buviez', 'boivent'] },
+        'croire': { pp: 'cru',
+            present: ['crois', 'crois', 'croit', 'croyons', 'croyez', 'croient'],
+            imparfait: ['croyais', 'croyais', 'croyait', 'croyions', 'croyiez', 'croyaient'],
+            futur: ['croirai', 'croiras', 'croira', 'croirons', 'croirez', 'croiront'],
+            passeSimple: ['crus', 'crus', 'crut', 'crûmes', 'crûtes', 'crurent'],
+            subjonctif: ['croie', 'croies', 'croie', 'croyions', 'croyiez', 'croient'] },
+        'connaître': { pp: 'connu',
+            present: ['connais', 'connais', 'connaît', 'connaissons', 'connaissez', 'connaissent'],
+            imparfait: ['connaissais', 'connaissais', 'connaissait', 'connaissions', 'connaissiez', 'connaissaient'],
+            futur: ['connaîtrai', 'connaîtras', 'connaîtra', 'connaîtrons', 'connaîtrez', 'connaîtront'],
+            passeSimple: ['connus', 'connus', 'connut', 'connûmes', 'connûtes', 'connurent'],
+            subjonctif: ['connaisse', 'connaisses', 'connaisse', 'connaissions', 'connaissiez', 'connaissent'] },
+        'courir': { pp: 'couru',
+            present: ['cours', 'cours', 'court', 'courons', 'courez', 'courent'],
+            imparfait: ['courais', 'courais', 'courait', 'courions', 'couriez', 'couraient'],
+            futur: ['courrai', 'courras', 'courra', 'courrons', 'courrez', 'courront'],
+            passeSimple: ['courus', 'courus', 'courut', 'courûmes', 'courûtes', 'coururent'],
+            subjonctif: ['coure', 'coures', 'coure', 'courions', 'couriez', 'courent'] },
+        'ouvrir': { pp: 'ouvert',
+            present: ['ouvre', 'ouvres', 'ouvre', 'ouvrons', 'ouvrez', 'ouvrent'],
+            imparfait: ['ouvrais', 'ouvrais', 'ouvrait', 'ouvrions', 'ouvriez', 'ouvraient'],
+            futur: ['ouvrirai', 'ouvriras', 'ouvrira', 'ouvrirons', 'ouvrirez', 'ouvriront'],
+            passeSimple: ['ouvris', 'ouvris', 'ouvrit', 'ouvrîmes', 'ouvrîtes', 'ouvrirent'],
+            subjonctif: ['ouvre', 'ouvres', 'ouvre', 'ouvrions', 'ouvriez', 'ouvrent'],
+            imperatif: ['ouvre', 'ouvrons', 'ouvrez'] },
+        'offrir': { pp: 'offert',
+            present: ['offre', 'offres', 'offre', 'offrons', 'offrez', 'offrent'],
+            imparfait: ['offrais', 'offrais', 'offrait', 'offrions', 'offriez', 'offraient'],
+            futur: ['offrirai', 'offriras', 'offrira', 'offrirons', 'offrirez', 'offriront'],
+            passeSimple: ['offris', 'offris', 'offrit', 'offrîmes', 'offrîtes', 'offrirent'],
+            subjonctif: ['offre', 'offres', 'offre', 'offrions', 'offriez', 'offrent'],
+            imperatif: ['offre', 'offrons', 'offrez'] },
+        'vivre': { pp: 'vécu',
+            present: ['vis', 'vis', 'vit', 'vivons', 'vivez', 'vivent'],
+            imparfait: ['vivais', 'vivais', 'vivait', 'vivions', 'viviez', 'vivaient'],
+            futur: ['vivrai', 'vivras', 'vivra', 'vivrons', 'vivrez', 'vivront'],
+            passeSimple: ['vécus', 'vécus', 'vécut', 'vécûmes', 'vécûtes', 'vécurent'],
+            subjonctif: ['vive', 'vives', 'vive', 'vivions', 'viviez', 'vivent'] },
+        'suivre': { pp: 'suivi',
+            present: ['suis', 'suis', 'suit', 'suivons', 'suivez', 'suivent'],
+            imparfait: ['suivais', 'suivais', 'suivait', 'suivions', 'suiviez', 'suivaient'],
+            futur: ['suivrai', 'suivras', 'suivra', 'suivrons', 'suivrez', 'suivront'],
+            passeSimple: ['suivis', 'suivis', 'suivit', 'suivîmes', 'suivîtes', 'suivirent'],
+            subjonctif: ['suive', 'suives', 'suive', 'suivions', 'suiviez', 'suivent'] },
+        'naître': { pp: 'né', aux: 'être',
+            present: ['nais', 'nais', 'naît', 'naissons', 'naissez', 'naissent'],
+            imparfait: ['naissais', 'naissais', 'naissait', 'naissions', 'naissiez', 'naissaient'],
+            futur: ['naîtrai', 'naîtras', 'naîtra', 'naîtrons', 'naîtrez', 'naîtront'],
+            passeSimple: ['naquis', 'naquis', 'naquit', 'naquîmes', 'naquîtes', 'naquirent'],
+            subjonctif: ['naisse', 'naisses', 'naisse', 'naissions', 'naissiez', 'naissent'] },
+        'mourir': { pp: 'mort', aux: 'être',
+            present: ['meurs', 'meurs', 'meurt', 'mourons', 'mourez', 'meurent'],
+            imparfait: ['mourais', 'mourais', 'mourait', 'mourions', 'mouriez', 'mouraient'],
+            futur: ['mourrai', 'mourras', 'mourra', 'mourrons', 'mourrez', 'mourront'],
+            passeSimple: ['mourus', 'mourus', 'mourut', 'mourûmes', 'mourûtes', 'moururent'],
+            subjonctif: ['meure', 'meures', 'meure', 'mourions', 'mouriez', 'meurent'] }
+    };
+
+    const TEMPS = [
+        { cle: 'present', nom: 'Présent' },
+        { cle: 'imparfait', nom: 'Imparfait' },
+        { cle: 'futur', nom: 'Futur simple' },
+        { cle: 'passeSimple', nom: 'Passé simple' },
+        { cle: 'conditionnel', nom: 'Conditionnel présent' },
+        { cle: 'subjonctif', nom: 'Subjonctif présent' },
+        { cle: 'imperatif', nom: 'Impératif présent' },
+        { cle: 'passeCompose', nom: 'Passé composé' },
+        { cle: 'plusQueParfait', nom: 'Plus-que-parfait' }
+    ];
+
+    const voyelle = (s) => /^[aeiouyâàéèêëîïôöûùüh]/i.test(s);
+    const ajouter = (radical, terminaisons) => terminaisons.map(t => radical + t);
+
+    // Accidents d'orthographe des verbes en -er. Ce sont des règles, pas des
+    // exceptions : le g de manger et le c de commencer doivent rester doux
+    // devant a et o, et un e muet en fin de radical prend un accent.
+    function radicalER(radical, infinitif, terminaison) {
+        const muette = /^(e|es|ent)$/.test(terminaison);
+        // « â » compte : c'est nous mangeâmes, nous commençâmes.
+        const devantAO = /^[aoâ]/.test(terminaison);
+        let r = radical;
+
+        if (/ger$/.test(infinitif) && devantAO) r = r + 'e';
+        else if (/cer$/.test(infinitif) && devantAO) r = r.slice(0, -1) + 'ç';
+
+        if (/[éiu]?yer$/.test(infinitif) && muette) r = r.replace(/y$/, 'i');
+
+        if (muette) {
+            if (DOUBLENT.includes(infinitif)) {
+                r = r.replace(/([lt])$/, '$1$1');
+            } else if (/e[lt]$/.test(r)) {
+                r = r.replace(/e([lt])$/, 'è$1');
+            } else if (/e[^aeiouéèy]$/.test(r)) {
+                r = r.replace(/e([^aeiouéèy])$/, 'è$1');
+            } else if (/é[^aeiouy]$/.test(r)) {
+                r = r.replace(/é([^aeiouy])$/, 'è$1');
+            }
+        }
+        return r;
+    }
+
+    // Un verbe préfixé se conjugue comme sa base : comprendre suit prendre,
+    // revenir suit venir. On ne l'autorise que là où c'est SÛR — contredire
+    // fait « vous contredisez » quand dire fait « vous dites », et prévoir
+    // fait « je prévoirai » quand voir fait « je verrai ».
+    const PREFIXABLES = ['venir', 'tenir', 'prendre', 'mettre', 'écrire', 'lire',
+        'connaître', 'courir', 'ouvrir', 'offrir', 'partir', 'sortir', 'dormir',
+        'servir', 'sentir', 'recevoir', 'croire', 'boire', 'suivre', 'vivre',
+        'naître', 'mourir', 'voir'];
+    const PIEGES = ['prévoir', 'pourvoir', 'contredire', 'prédire', 'interdire',
+        'médire', 'maudire', 'asseoir', 'surseoir'];
+
+    // Verbes en -ir qui ne sont PAS du 2e groupe : les conjuguer comme finir
+    // donnerait « je cueillis » au lieu de « je cueille ».
+    const IR_TROISIEME = ['cueillir', 'accueillir', 'recueillir', 'assaillir',
+        'tressaillir', 'défaillir', 'fuir', 'enfuir', 'acquérir', 'conquérir',
+        'requérir', 'bouillir', 'faillir', 'vêtir', 'revêtir', 'mentir',
+        'démentir', 'repentir', 'haïr', 'gésir', 'ouïr', 'quérir', 'saillir'];
+
+    const HORS_TABLE = 'Ce verbe n\'est pas dans la table. Le conjugueur traite les verbes en -er, en -ir du 2e groupe, en -dre, et une trentaine d\'irréguliers usuels (et leurs composés).';
+
+    // Quel est le groupe du verbe ? On ne devine jamais un 3e groupe
+    // inconnu : on préfère l'avouer.
+    function analyser(verbe) {
+        const v = (verbe || '').trim().toLowerCase();
+        if (!v) return { erreur: 'Tapez un verbe à l\'infinitif.' };
+        if (IRR[v]) return { infinitif: v, type: 'irregulier', data: IRR[v] };
+        if (PIEGES.includes(v)) return { infinitif: v, erreur: HORS_TABLE };
+
+        // Composé d'un irrégulier connu : on conjugue la base et on remet le
+        // préfixe devant chaque forme.
+        const base = PREFIXABLES
+            .filter(b => v.length > b.length && v.endsWith(b))
+            .sort((x, y) => y.length - x.length)[0];
+        if (base) {
+            const prefixe = v.slice(0, v.length - base.length);
+            const d = IRR[base];
+            const prefixer = (t) => t ? t.map(f => prefixe + f) : t;
+            return {
+                infinitif: v, type: 'irregulier',
+                data: {
+                    pp: prefixe + d.pp,
+                    aux: AVEC_ETRE.includes(v) ? 'être' : (d.aux && AVEC_ETRE.includes(v) ? d.aux : 'avoir'),
+                    present: prefixer(d.present), imparfait: prefixer(d.imparfait),
+                    futur: prefixer(d.futur), passeSimple: prefixer(d.passeSimple),
+                    subjonctif: prefixer(d.subjonctif),
+                    imperatif: d.imperatif === null ? null : prefixer(d.imperatif)
+                }
+            };
+        }
+
+        if (/er$/.test(v) && v !== 'aller') return { infinitif: v, type: 'er', radical: v.slice(0, -2) };
+        if (/ir$/.test(v)) {
+            if (IR_TROISIEME.some(x => v === x || v.endsWith(x))) return { infinitif: v, erreur: HORS_TABLE };
+            return { infinitif: v, type: 'ir', radical: v.slice(0, -2) };
+        }
+        if (/dre$/.test(v)) {
+            // -indre (peindre), -soudre (résoudre) et -oudre (coudre) ne
+            // suivent pas vendre : mieux vaut se taire.
+            if (/(indre|soudre|oudre)$/.test(v)) return { infinitif: v, erreur: HORS_TABLE };
+            return { infinitif: v, type: 're', radical: v.slice(0, -2) };
+        }
+        return { infinitif: v, erreur: HORS_TABLE };
+    }
+
+    function participePasse(a) {
+        if (a.type === 'irregulier') return a.data.pp;
+        if (a.type === 'er') return a.radical + 'é';
+        if (a.type === 'ir') return a.radical + 'i';
+        return a.radical + 'u';
+    }
+
+    function auxiliaire(a) {
+        if (a.type === 'irregulier' && a.data.aux) return a.data.aux;
+        return AVEC_ETRE.includes(a.infinitif) ? 'être' : 'avoir';
+    }
+
+    // Les six formes d'un temps simple
+    function formesSimples(a, temps) {
+        if (a.type === 'irregulier') {
+            if (temps === 'conditionnel') {
+                // Le radical du conditionnel est toujours celui du futur
+                const radical = a.data.futur[0].replace(/ai$/, '');
+                return ajouter(radical, T.conditionnel);
+            }
+            return a.data[temps] ? a.data[temps].slice() : null;
+        }
+
+        const r = a.radical;
+        if (a.type === 'er') {
+            const t = {
+                present: T.present1, imparfait: T.imparfait, subjonctif: T.subjonctif,
+                passeSimple: T.passeSimple1
+            }[temps];
+            if (t) return t.map(term => radicalER(r, a.infinitif, term) + term);
+            if (temps === 'futur' || temps === 'conditionnel') {
+                // Le radical du futur, c'est l'infinitif entier — l'accident
+                // d'orthographe s'y applique aussi (j'appellerai, j'achèterai).
+                const base = radicalER(r, a.infinitif, 'e') + 'er';
+                const term = temps === 'futur' ? T.futur : T.conditionnel;
+                return ajouter(base, term);
+            }
+        }
+        if (a.type === 'ir') {
+            if (temps === 'present') return ajouter(r, T.present2);
+            if (temps === 'imparfait') return ajouter(r + 'iss', T.imparfait);
+            if (temps === 'subjonctif') return ajouter(r + 'iss', T.subjonctif);
+            if (temps === 'passeSimple') return ajouter(r, T.passeSimple2);
+            if (temps === 'futur') return ajouter(r + 'ir', T.futur);
+            if (temps === 'conditionnel') return ajouter(r + 'ir', T.conditionnel);
+        }
+        if (a.type === 're') {
+            if (temps === 'present') return T.present3re.map((t, i) => r + t);
+            if (temps === 'imparfait') return ajouter(r, T.imparfait);
+            if (temps === 'subjonctif') return ajouter(r, T.subjonctif);
+            if (temps === 'passeSimple') return ajouter(r, T.passeSimple2);
+            if (temps === 'futur') return ajouter(r + 'r', T.futur);
+            if (temps === 'conditionnel') return ajouter(r + 'r', T.conditionnel);
+        }
+        return null;
+    }
+
+    // Rend [{pronom, forme}] ou {erreur}
+    function conjuguer(verbe, temps) {
+        const a = analyser(verbe);
+        if (a.erreur) return { erreur: a.erreur };
+
+        if (temps === 'imperatif') {
+            let f;
+            if (a.type === 'irregulier') {
+                if (a.data.imperatif === null) return { erreur: 'Ce verbe n\'a pas d\'impératif.' };
+                f = a.data.imperatif ? a.data.imperatif.slice()
+                    : [a.data.present[1], a.data.present[3], a.data.present[4]];
+            } else {
+                const p = formesSimples(a, 'present');
+                // À l'impératif, un verbe en -er perd son s à la 2e personne
+                f = [a.type === 'er' ? p[1].replace(/s$/, '') : p[1], p[3], p[4]];
+            }
+            return { lignes: f.map(x => ({ pronom: '', forme: x })), temps, infinitif: a.infinitif };
+        }
+
+        if (temps === 'passeCompose' || temps === 'plusQueParfait') {
+            const aux = auxiliaire(a);
+            const tempsAux = temps === 'passeCompose' ? 'present' : 'imparfait';
+            const formesAux = formesSimples(analyser(aux), tempsAux);
+            let pp = participePasse(a);
+            // Avec être, le participe s'accorde : on l'écrit comme au cahier.
+            const accord = (i) => aux === 'être'
+                ? pp + (i >= 3 ? '(e)s' : '(e)') : pp;
+            return {
+                lignes: PRONOMS.map((p, i) => ({
+                    pronom: (i === 0 && voyelle(formesAux[0])) ? 'j\'' : p,
+                    forme: formesAux[i] + ' ' + accord(i)
+                })),
+                temps, infinitif: a.infinitif, compose: true
+            };
+        }
+
+        const f = formesSimples(a, temps);
+        if (!f) return { erreur: 'Ce temps n\'est pas disponible pour ce verbe.' };
+        return {
+            lignes: PRONOMS.map((p, i) => ({
+                pronom: (i === 0 && voyelle(f[0])) ? 'j\'' : p,
+                forme: f[i]
+            })),
+            temps, infinitif: a.infinitif
+        };
+    }
+
+    // Le radical commun aux six formes : c'est lui qui ne change pas, donc
+    // ce qui reste est la terminaison. Sur « être », rien n'est commun — et
+    // c'est justement ce que la couleur doit montrer.
+    function couperTerminaisons(formes) {
+        let n = 0;
+        const min = Math.min(...formes.map(f => f.length));
+        while (n < min && formes.every(f => f[n] === formes[0][n])) n++;
+        return formes.map(f => ({ radical: f.slice(0, n), terminaison: f.slice(n) }));
+    }
+
+    return { conjuguer, TEMPS, PRONOMS, couperTerminaisons, analyser, IRR };
+})();
+if (typeof window !== 'undefined') window.Conjugaison = Conjugaison;
+
+registerPlugin('conjugueurTool', 'Français', {
+    currentStamp: null, currentArgs: null,
+
+    init: function () {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.dataset.mode = 'conjugueur';
+        btn.title = 'Conjugueur';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 9v12"/></svg>`;
+        document.getElementById('plugins-grid').appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            setMode('conjugueur');
+            this.ouvrir(['chanter', 'present', 'couleur', '#2d3436']);
+            e.stopPropagation();
+        });
+    },
+
+    ouvrir: function (args, imgObj) {
+        const champs = [
+            { type: 'text', label: 'Verbe à l\'infinitif', value: args[0], placeholder: 'chanter, finir, prendre…' },
+            { type: 'select', label: 'Temps', value: args[1],
+              options: Conjugaison.TEMPS.map(t => ({ value: t.cle, label: t.nom })) },
+            { type: 'select', label: 'Terminaisons', value: args[2], options: [
+                { value: 'couleur', label: 'En couleur' },
+                { value: 'simple', label: 'Sans distinction' },
+                { value: 'masquees', label: 'Masquées (à compléter)' }
+            ] },
+            { type: 'color', label: 'Couleur', value: args[3] }
+        ];
+        openCustomPrompt(imgObj ? 'Modifier la conjugaison' : 'Conjugueur', champs,
+            (res) => this.genererSVG(res),
+            (res) => {
+                createStampFromSVG(this.genererSVG(res, true), (stamp) => {
+                    if (imgObj) {
+                        imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h;
+                        imgObj.cw = stamp.w; imgObj.ch = stamp.h;
+                        imgObj.pluginData.args = res;
+                        draw(); saveState();
+                        return;
+                    }
+                    this.currentStamp = stamp; this.currentArgs = res;
+                    showToast('📌 Posez la conjugaison au tableau !');
+                });
+            });
+    },
+
+    edit: function (imgObj) { this.ouvrir(imgObj.pluginData.args, imgObj); },
+
+    genererSVG: function (res, pourExport = false) {
+        const verbe = (res[0] || '').trim();
+        const temps = res[1] || 'present';
+        const affichage = res[2] || 'couleur';
+        const couleur = res[3] || '#2d3436';
+        const nomTemps = (Conjugaison.TEMPS.find(t => t.cle === temps) || {}).nom || '';
+
+        const r = Conjugaison.conjuguer(verbe, temps);
+        const echapper = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+        if (r.erreur) {
+            const L = 520, H = 130;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L} ${H}" width="${pourExport ? L : '100%'}" height="${pourExport ? H : '100%'}">`
+                + `<rect x="1" y="1" width="${L - 2}" height="${H - 2}" rx="10" fill="#fff5f5" stroke="#d63031" stroke-width="2"/>`
+                + `<text x="${L / 2}" y="42" text-anchor="middle" font-family="sans-serif" font-size="17" font-weight="bold" fill="#d63031">Verbe non conjugué</text>`
+                + this.enveloppe(r.erreur, 58).map((l, i) =>
+                    `<text x="${L / 2}" y="${72 + i * 20}" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#636e72">${echapper(l)}</text>`).join('')
+                + `</svg>`;
+        }
+
+        // Terminaisons : on ne les découpe que sur les temps simples, un temps
+        // composé n'a pas de radical commun qui veuille dire quelque chose.
+        const coupes = (!r.compose && affichage !== 'simple')
+            ? Conjugaison.couperTerminaisons(r.lignes.map(l => l.forme))
+            : null;
+
+        const TAILLE = 22, LIGNE = 34, PAD = 18;
+        const colPronom = 62;
+        const largeurTexte = Math.max(
+            (verbe.length + nomTemps.length) * 11 + 40,
+            ...r.lignes.map(l => colPronom + l.forme.length * 12 + 40)
+        );
+        const L = Math.max(320, Math.round(largeurTexte));
+        const H = PAD * 2 + 42 + r.lignes.length * LIGNE;
+
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L} ${H}" width="${pourExport ? L : '100%'}" height="${pourExport ? H : '100%'}">`;
+        svg += `<rect x="1" y="1" width="${L - 2}" height="${H - 2}" rx="10" fill="#ffffff" stroke="${couleur}" stroke-width="2"/>`;
+        svg += `<text x="${PAD}" y="${PAD + 20}" font-family="sans-serif" font-size="18" font-weight="bold" fill="${couleur}">${echapper(r.infinitif)} — ${echapper(nomTemps)}</text>`;
+        svg += `<line x1="${PAD}" y1="${PAD + 32}" x2="${L - PAD}" y2="${PAD + 32}" stroke="${couleur}" stroke-width="1" stroke-opacity="0.35"/>`;
+
+        r.lignes.forEach((ligne, i) => {
+            const y = PAD + 42 + i * LIGNE + TAILLE * 0.75;
+            if (ligne.pronom) {
+                svg += `<text x="${PAD}" y="${y}" font-family="sans-serif" font-size="${TAILLE}" fill="#636e72">${echapper(ligne.pronom)}</text>`;
+            }
+            const x = PAD + (ligne.pronom ? colPronom : 0);
+            if (coupes && affichage === 'masquees') {
+                svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="${TAILLE}" fill="#2d3436">${echapper(coupes[i].radical)}`;
+                svg += `<tspan fill="#b2bec3">${'.'.repeat(Math.max(coupes[i].terminaison.length, 1))}</tspan></text>`;
+            } else if (coupes) {
+                svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="${TAILLE}" fill="#2d3436">${echapper(coupes[i].radical)}`;
+                svg += `<tspan fill="${couleur}" font-weight="bold">${echapper(coupes[i].terminaison)}</tspan></text>`;
+            } else {
+                svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="${TAILLE}" fill="#2d3436">${echapper(ligne.forme)}</text>`;
+            }
+        });
+
+        return svg + '</svg>';
+    },
+
+    // Coupe un message d'erreur en lignes de n caractères, sans casser de mot
+    enveloppe: function (texte, n) {
+        const mots = String(texte).split(' ');
+        const lignes = [];
+        let courante = '';
+        mots.forEach(m => {
+            if ((courante + ' ' + m).trim().length > n) { lignes.push(courante.trim()); courante = m; }
+            else courante += ' ' + m;
+        });
+        if (courante.trim()) lignes.push(courante.trim());
+        return lignes;
+    },
+
+    onDraw: function (ctx) {
+        if (mode === 'conjugueur' && this.currentStamp && mouseLogicalPos) {
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(this.currentStamp.img,
+                mouseLogicalPos.x - this.currentStamp.w / 2,
+                mouseLogicalPos.y - this.currentStamp.h / 2);
+            ctx.globalAlpha = 1.0;
+        }
+    },
+
+    onPointerDown: function (pos) {
+        if (mode !== 'conjugueur' || !this.currentStamp) return false;
+        const s = this.currentStamp;
+        images.push({
+            id: nextId++, x: pos.x - s.w / 2, y: pos.y - s.h / 2,
+            w: s.w, h: s.h, cx: 0, cy: 0, cw: s.w, ch: s.h,
+            src: s.src, z: globalZ++,
+            pluginData: { id: 'conjugueurTool', args: this.currentArgs }
+        });
+        saveState(); setMode('pointer'); this.currentStamp = null;
+        return true;
+    }
+});
+
+
 
 
 // ==========================================
