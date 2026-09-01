@@ -13028,6 +13028,61 @@ function ouvrirReglageAvatar(eleve, enregistrer) {
 }
 window.ouvrirReglageAvatar = ouvrirReglageAvatar;
 
+// ===================================================
+// LE MÉMO D'UN ÉLÈVE
+// « Tiers-temps », « devant, myope », « ne pas mettre avec Léo ». Rien ne
+// permettait de le noter : ces choses-là finissaient sur un papier à part,
+// et se perdaient. Le mémo vit sur l'élève et suit la classe partout.
+// ===================================================
+function ouvrirMemoEleve(eleve, enregistrer) {
+    const fond = document.createElement('div');
+    fond.className = 'modal-backdrop';
+    fond.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:100001;'
+        + 'display:flex; align-items:center; justify-content:center;';
+
+    const boite = document.createElement('div');
+    boite.className = 'modal-box';
+    boite.style.cssText = 'background:var(--panel, #fff); color:var(--ink); border-radius:14px; padding:18px;'
+        + 'width:440px; max-width:94vw; box-shadow:0 20px 50px rgba(0,0,0,0.3); text-align:left;';
+    boite.innerHTML = `
+        <h3 style="margin:0 0 4px; color:var(--accent);">📝 ${(eleve.name || '').replace(/[&<>]/g, '')}</h3>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+            Ce que vous devez avoir en tête pour cet élève. Visible seulement ici.</div>
+        <textarea id="memo-texte" rows="5" maxlength="400"
+            placeholder="Tiers-temps · devant, myope · PAP · à ne pas placer près de la fenêtre…"
+            style="width:100%; padding:9px; border:1px solid var(--border); border-radius:8px;
+                   background:var(--bg); color:var(--ink); font-size:13px; box-sizing:border-box;
+                   resize:vertical; font-family:inherit;"></textarea>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button id="memo-ok" class="btn-action primary" style="flex:1; padding:9px;">Enregistrer</button>
+            ${eleve.memo ? '<button id="memo-vider" class="btn-action secondary" style="padding:9px 14px; color:#d63031;">Effacer</button>' : ''}
+            <button id="memo-annuler" class="btn-action secondary" style="padding:9px 14px;">Annuler</button>
+        </div>`;
+
+    fond.appendChild(boite);
+    document.body.appendChild(fond);
+    const champ = boite.querySelector('#memo-texte');
+    champ.value = eleve.memo || '';
+    champ.focus();
+
+    const fermer = () => fond.remove();
+    boite.querySelector('#memo-annuler').onclick = fermer;
+    boite.querySelector('#memo-ok').onclick = () => {
+        const t = champ.value.trim();
+        if (t) eleve.memo = t; else delete eleve.memo;
+        if (typeof enregistrer === 'function') enregistrer();
+        fermer();
+    };
+    const vider = boite.querySelector('#memo-vider');
+    if (vider) vider.onclick = () => {
+        delete eleve.memo;
+        if (typeof enregistrer === 'function') enregistrer();
+        fermer();
+    };
+    fond.addEventListener('click', (e) => { if (e.target === fond) fermer(); });
+}
+window.ouvrirMemoEleve = ouvrirMemoEleve;
+
 function showClassConflictModal(conflict, callback) {
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
@@ -13138,6 +13193,9 @@ async function openClassManagerModal() {
                     <button class="cm-avatar" data-idx="${idx}" title="Changer l'avatar de ${s.name}"
                             style="border:1px solid var(--border); background:#fff; border-radius:8px; padding:2px; cursor:pointer; line-height:0; flex:none;">${AvatarsEleves.svg(s, 30)}</button>
                     <span class="cm-nom" style="flex:1; font-size:13px; text-align:left;">${s.name}</span>
+                    <button class="cm-memo" data-idx="${idx}"
+                            title="${s.memo ? s.memo.replace(/"/g, '&quot;') : 'Noter quelque chose sur ' + s.name}"
+                            style="border:none; background:none; cursor:pointer; font-size:13px; opacity:${s.memo ? '1' : '0.22'};">📝</button>
                     <button class="cm-presence" data-idx="${idx}"
                             title="${s.absent ? s.name + ' est noté absent — cliquer pour le remettre présent' : "Noter " + s.name + " absent aujourd'hui"}"
                             style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.absent ? '1' : '0.28'};">${s.absent ? '🚫' : '✓'}</button>
@@ -13153,12 +13211,16 @@ async function openClassManagerModal() {
                            style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:14px; font-weight:600;">
                     <button id="cm-points" class="btn-action primary" style="padding:8px 12px;">🏅 Points</button>
                     <button id="cm-seating-plan" class="btn-action secondary" style="padding:8px 12px;">🪑 Plan de classe</button>
+                    <button id="cm-dupliquer" class="btn-action secondary" style="padding:8px 12px;" title="Copier cette classe et ses élèves, sans les points ni les badges">⧉</button>
+                    <button id="cm-archiver" class="btn-action secondary" style="padding:8px 12px;" title="${selected.archivee ? 'Sortir des archives' : 'Archiver : la classe reste, mais quitte les listes'}">${selected.archivee ? '📤' : '📦'}</button>
                     <button id="cm-delete-class" class="btn-action secondary" style="padding:8px 12px; color:#d63031;">🗑️ Supprimer</button>
                 </div>
 
                 <div style="display:flex; gap:6px; margin-bottom:10px;">
                     <input type="text" id="cm-add-student-input" placeholder="Nom de l'élève..." style="flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
                     <button id="cm-add-student-btn" class="btn-action primary" style="padding:6px 12px; font-size:12px;">+ Ajouter</button>
+                    <button id="cm-trier" class="btn-action secondary" style="padding:6px 10px; font-size:12px;"
+                            title="Ranger les élèves par ordre alphabétique">A→Z</button>
                 </div>
 
                 <div id="cm-students-list" style="flex:1 1 220px; min-height:140px; overflow-y:auto; margin-bottom:12px;">
@@ -13179,6 +13241,29 @@ async function openClassManagerModal() {
                     <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; cursor:pointer;">
                         <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars dessinés
                     </label>
+                </div>
+
+                <div style="border-top:1px solid var(--border); padding-top:10px; margin-bottom:10px;">
+                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase;">À ne pas mettre ensemble</label>
+                    <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                        <select id="cm-sep-a" style="flex:1; min-width:0; padding:6px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
+                            ${(selected.students || []).map((e, i) => `<option value="${e.id}">${e.name}</option>`).join('')}
+                        </select>
+                        <span style="font-size:12px; color:var(--muted);">et</span>
+                        <select id="cm-sep-b" style="flex:1; min-width:0; padding:6px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font-size:12px;">
+                            ${(selected.students || []).map((e, i) => `<option value="${e.id}" ${i === 1 ? 'selected' : ''}>${e.name}</option>`).join('')}
+                        </select>
+                        <button id="cm-sep-ajouter" class="btn-action secondary" style="padding:6px 10px; font-size:12px;">Séparer</button>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;">
+                        ${(selected.aSeparer || []).map((paire, i) => {
+                            const nom = (id) => ((selected.students || []).find(e => e.id === id) || {}).name || '?';
+                            return `<span class="cm-paire" data-i="${i}" title="Cliquer pour retirer"
+                                style="display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:3px 8px;
+                                       border:1px solid var(--border); border-radius:12px; background:var(--bg); cursor:pointer;">
+                                ${nom(paire[0])} ✕ ${nom(paire[1])} <span style="opacity:0.4;">×</span></span>`;
+                        }).join('') || '<span style="font-size:11px; color:var(--muted);">Aucune paire. L\'atelier groupes les tiendra à l\'écart.</span>'}
+                    </div>
                 </div>
 
                 <div style="border-top:1px solid var(--border); padding-top:10px;">
@@ -13365,6 +13450,97 @@ async function openClassManagerModal() {
                 if (!c) return;
                 const eleve = c.students[parseInt(btn.dataset.idx)];
                 if (eleve) ouvrirReglageAvatar(eleve, () => { c.updatedAt = Date.now(); persist(); render(); });
+            };
+        });
+
+        // --- Les élèves à ne pas mettre ensemble ---
+        // Deux élèves qui ne peuvent pas travailler côte à côte, cela se sait
+        // dès la deuxième semaine — et cela se réapprenait à chaque tirage.
+        const ajouterPaire = box.querySelector('#cm-sep-ajouter');
+        if (ajouterPaire) ajouterPaire.onclick = () => {
+            const c = getSelected(); if (!c) return;
+            const a = box.querySelector('#cm-sep-a').value;
+            const b2 = box.querySelector('#cm-sep-b').value;
+            if (!a || !b2 || a === b2) {
+                if (typeof showToast === 'function') showToast('Choisissez deux élèves différents');
+                return;
+            }
+            c.aSeparer = c.aSeparer || [];
+            const memePaire = (p1, p2) => (p1[0] === p2[0] && p1[1] === p2[1]) || (p1[0] === p2[1] && p1[1] === p2[0]);
+            if (c.aSeparer.some(p => memePaire(p, [a, b2]))) {
+                if (typeof showToast === 'function') showToast('Cette paire est déjà séparée');
+                return;
+            }
+            c.aSeparer.push([a, b2]);
+            c.updatedAt = Date.now();
+            persist(); render();
+        };
+        box.querySelectorAll('.cm-paire').forEach(el => {
+            el.onclick = () => {
+                const c = getSelected(); if (!c || !c.aSeparer) return;
+                c.aSeparer.splice(parseInt(el.dataset.i), 1);
+                c.updatedAt = Date.now();
+                persist(); render();
+            };
+        });
+
+        // --- Ranger les élèves par ordre alphabétique ---
+        // Une liste collée depuis un logiciel de vie scolaire arrive dans un
+        // ordre quelconque ; jusqu'ici il fallait tout glisser à la main.
+        const trier = box.querySelector('#cm-trier');
+        if (trier) trier.onclick = () => {
+            const c = getSelected(); if (!c || !(c.students || []).length) return;
+            const cle = (n) => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            c.students.sort((a, b) => cle(a.name).localeCompare(cle(b.name), 'fr'));
+            c.updatedAt = Date.now();
+            persist(); render();
+            if (typeof showToast === 'function') showToast('Élèves rangés de A à Z');
+        };
+
+        // --- Dupliquer une classe ---
+        // En fin d'année on repart de la même liste ; les points et les badges
+        // de l'an dernier, eux, n'ont rien à y faire.
+        const dupl = box.querySelector('#cm-dupliquer');
+        if (dupl) dupl.onclick = () => {
+            const c = getSelected(); if (!c) return;
+            const copie = {
+                id: ClassesStore.newId('class'),
+                name: (c.name || 'Classe') + ' (copie)',
+                students: (c.students || []).map(e => ({
+                    id: ClassesStore.newId('stu'), name: e.name,
+                    avatar: e.avatar, photo: e.photo, frontRow: e.frontRow, memo: e.memo
+                })),
+                aSeparer: [],
+                createdAt: Date.now(), updatedAt: Date.now()
+            };
+            state.classes.push(copie);
+            state.selectedId = copie.id;
+            persist(); render();
+            if (typeof showToast === 'function') {
+                showToast('⧉ Classe copiée — sans les points ni les badges');
+            }
+        };
+
+        // --- Archiver ---
+        // Supprimer une classe de l'an dernier, c'est perdre son histoire.
+        // L'archiver la range sans rien jeter.
+        const arch = box.querySelector('#cm-archiver');
+        if (arch) arch.onclick = () => {
+            const c = getSelected(); if (!c) return;
+            c.archivee = !c.archivee;
+            c.updatedAt = Date.now();
+            persist(); render();
+            if (typeof showToast === 'function') {
+                showToast(c.archivee ? '📦 Classe archivée' : '📤 Classe sortie des archives');
+            }
+        };
+
+        // --- Le mémo d'un élève ---
+        box.querySelectorAll('.cm-memo').forEach(btn => {
+            btn.onclick = () => {
+                const c = getSelected(); if (!c) return;
+                const eleve = c.students[parseInt(btn.dataset.idx)]; if (!eleve) return;
+                ouvrirMemoEleve(eleve, () => { c.updatedAt = Date.now(); persist(); render(); });
             };
         });
 
@@ -17192,6 +17368,7 @@ function renderHtmlPostits() {
                     </div>
                     <div class="html-postit-actions">
                         <span class="postit-avancement" title="Tâches faites"></span>
+                        <button class="btn-ancre-postit" title="Attaché au tableau : il suit le tableau quand on se déplace"></button>
                         <button class="btn-copier-postit" title="Copier le contenu"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"></path></svg></button>
                         <button class="btn-coller-postit" title="Coller à la fin"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg></button>
                         <button class="btn-liste-postit" title="Transformer en liste à cocher"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 7 5 9 9 5"></polyline><polyline points="3 16 5 18 9 14"></polyline><line x1="12" y1="7" x2="21" y2="7"></line><line x1="12" y1="17" x2="21" y2="17"></line></svg></button>
@@ -17427,6 +17604,46 @@ function renderHtmlPostits() {
             });
             el._postitMajTitre = majTitre;
 
+            // ---- L'ancre ----------------------------------------------------
+            // Deux usages opposés du même papier. Une consigne écrite pour un
+            // exercice appartient à l'endroit du tableau où l'exercice est
+            // posé : elle doit suivre quand on se déplace. Le plan de l'heure,
+            // lui, doit rester sous les yeux quoi qu'on regarde.
+            const ancreEl = el.querySelector('.btn-ancre-postit');
+            const ANCRES = {
+                tableau: { icone: '📌', titre: 'Attaché au tableau : il suit quand on se déplace' },
+                ecran: { icone: '📍', titre: "Fixé à l'écran : il reste sous les yeux" }
+            };
+            const majAncre = (o) => {
+                const a = ANCRES[o.ancre === 'ecran' ? 'ecran' : 'tableau'];
+                ancreEl.textContent = a.icone;
+                ancreEl.title = a.titre + ' — cliquer pour changer';
+                el.classList.toggle('postit-fixe', o.ancre === 'ecran');
+            };
+            ancreEl.addEventListener('click', () => {
+                const o = htmlPostits.find(hp => hp.id === p.id); if (!o) return;
+                if (o.ancre === 'ecran') {
+                    // On revient au tableau : la position à l'écran redevient
+                    // une position sur le tableau, là où le papier se trouve.
+                    o.x = (o.x - panX) / zoom;
+                    o.y = (o.y - panY) / zoom;
+                    o.w = o.w / zoom; o.h = o.h / zoom;
+                    o.ancre = 'tableau';
+                } else {
+                    o.x = o.x * zoom + panX;
+                    o.y = o.y * zoom + panY;
+                    o.w = o.w * zoom; o.h = o.h * zoom;
+                    o.ancre = 'ecran';
+                }
+                majAncre(o);
+                renderHtmlPostits();
+                saveState();
+                if (typeof showToast === 'function') {
+                    showToast(o.ancre === 'ecran' ? '📍 Fixé à l\'écran' : '📌 Attaché au tableau');
+                }
+            });
+            el._postitMajAncre = majAncre;
+
             // ---- Copier, coller ---------------------------------------------
             // Le contenu se lit et s'écrit dans les deux modes : une note libre
             // donne son texte, une liste donne ses lignes (les faites marquées).
@@ -17558,8 +17775,9 @@ function renderHtmlPostits() {
             new ResizeObserver(() => {
                 if (!p.minimized && el.offsetWidth > 0) {
                     // Convert back to logical coords
-                    p.w = el.offsetWidth / zoom;
-                    p.h = el.offsetHeight / zoom;
+                    const ech = (p.ancre === 'ecran') ? 1 : zoom;
+                    p.w = el.offsetWidth / ech;
+                    p.h = el.offsetHeight / ech;
                     clearTimeout(resizeTimeout);
                     resizeTimeout = setTimeout(() => saveState(), 300);
                 }
@@ -17582,8 +17800,11 @@ function renderHtmlPostits() {
             });
             header.addEventListener('pointermove', (e) => {
                 if (isDragging) {
-                    const dx = (e.clientX - startX) / zoom;
-                    const dy = (e.clientY - startY) / zoom;
+                    // Fixé à l'écran, le post-it se déplace en pixels d'écran :
+                    // le zoom du tableau ne le concerne plus.
+                    const ech = (p.ancre === 'ecran') ? 1 : zoom;
+                    const dx = (e.clientX - startX) / ech;
+                    const dy = (e.clientY - startY) / ech;
                     p.x += dx;
                     p.y += dy;
                     startX = e.clientX;
@@ -17612,33 +17833,40 @@ function renderHtmlPostits() {
             document.head.appendChild(afterStyle);
         }
 
+        // Un post-it fixé à l'écran garde ses coordonnées telles quelles :
+        // ni le déplacement du tableau ni son zoom ne le concernent.
+        const fixe = p.ancre === 'ecran';
+        const ech = fixe ? 1 : zoom;
+        const decX = fixe ? 0 : panX;
+        const decY = fixe ? 0 : panY;
+
         if (p.minimized) {
             el.classList.add('minimized');
-            el.style.left = (p.x * zoom + panX) + 'px';
-            el.style.top = (p.y * zoom + panY) + 'px';
-            el.style.width = (p.w * zoom) + 'px';
+            el.style.left = (p.x * ech + decX) + 'px';
+            el.style.top = (p.y * ech + decY) + 'px';
+            el.style.width = (p.w * ech) + 'px';
             // height est forcé par CSS
         } else {
             el.classList.remove('minimized');
-            el.style.left = (p.x * zoom + panX) + 'px';
-            el.style.top = (p.y * zoom + panY) + 'px';
-            el.style.width = (p.w * zoom) + 'px';
-            el.style.height = (p.h * zoom) + 'px';
+            el.style.left = (p.x * ech + decX) + 'px';
+            el.style.top = (p.y * ech + decY) + 'px';
+            el.style.width = (p.w * ech) + 'px';
+            el.style.height = (p.h * ech) + 'px';
         }
         
         // Mise à l'échelle du texte si on zoome. On part de la taille choisie
         // pour ce post-it : elle était perdue au premier redessin.
         const body = el.querySelector('.html-postit-body');
-        body.style.fontSize = ((p.fontSize || 20) * zoom) + 'px';
+        body.style.fontSize = ((p.fontSize || 20) * ech) + 'px';
         const liste = el.querySelector('.html-postit-liste');
         if (liste) {
-            liste.style.fontSize = ((p.fontSize || 20) * zoom) + 'px';
-
+            liste.style.fontSize = ((p.fontSize || 20) * ech) + 'px';
         }
 
         // Note libre ou liste à cocher : on ne repeint que si le mode change,
         // sinon on effacerait ce que l'on est en train d'écrire.
         if (el._postitMajTitre) el._postitMajTitre(p);
+        if (el._postitMajAncre) el._postitMajAncre(p);
 
         const modeVoulu = p.mode === 'liste' ? 'liste' : 'texte';
         if (el.dataset.modeAffiche !== modeVoulu && el._postitAppliquerMode) {

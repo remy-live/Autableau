@@ -889,6 +889,160 @@ module.exports = async function (browser) {
     r.egal('les classes que cette fenêtre ne montre pas ne sont pas effacées',
         apresEcriture.classesApres, apresEcriture.classesAvant);
 
+    // --- LE LOT D'ERGONOMIE ---
+    const ergo = await page.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'ce', name: '6e E', students:
+            ['Zoé', 'Alice', 'Manon', 'Bilal'].map((n, i) => ({ id: 'x' + i, name: n })) }]);
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        const w = document.getElementById('points-widget'); if (w) w.style.display = 'none';
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 500));
+
+        const avant = (await ClassesStore.loadAll())[0].students.map(s => s.name);
+        document.getElementById('cm-trier').click();
+        await new Promise(r => setTimeout(r, 200));
+        const trie = (await ClassesStore.loadAll())[0].students.map(s => s.name);
+
+        // le mémo
+        document.querySelectorAll('.cm-memo')[0].click();
+        await new Promise(r => setTimeout(r, 250));
+        const champ = document.getElementById('memo-texte');
+        champ.value = 'Tiers-temps';
+        document.getElementById('memo-ok').click();
+        await new Promise(r => setTimeout(r, 250));
+        const memo = (await ClassesStore.loadAll())[0].students[0].memo;
+
+        // dupliquer
+        const cl0 = await ClassesStore.loadAll();
+        cl0[0].students[0].pts = { plus: 7, moins: 0, etoiles: 1 };
+        cl0[0].students[0].badges = ['b-entraide'];
+        document.getElementById('cm-dupliquer').click();
+        await new Promise(r => setTimeout(r, 300));
+        const cl = await ClassesStore.loadAll();
+        const copie = cl[cl.length - 1];
+
+        // archiver
+        document.getElementById('cm-archiver').click();
+        await new Promise(r => setTimeout(r, 250));
+        const archivee = !!(await ClassesStore.loadAll()).find(c => c.archivee);
+
+        return {
+            avant, trie, memo,
+            copie: {
+                nom: copie.name, eleves: copie.students.length,
+                sansPoints: copie.students.every(s => !s.pts),
+                sansBadges: copie.students.every(s => !s.badges || !s.badges.length),
+                memoGarde: !!copie.students.find(s => s.memo === 'Tiers-temps'),
+                idsNeufs: copie.students[0].id !== cl[0].students[0].id
+            },
+            archivee
+        };
+    });
+    r.egal('une liste collée arrive dans le désordre', ergo.avant, ['Zoé', 'Alice', 'Manon', 'Bilal']);
+    r.egal('« A→Z » la range, accents compris', ergo.trie, ['Alice', 'Bilal', 'Manon', 'Zoé']);
+    r.egal('un mémo se note sur un élève', ergo.memo, 'Tiers-temps');
+    r.egal('dupliquer garde le nom, avec « (copie) »', ergo.copie.nom, '6e E (copie)');
+    r.egal('et tous les élèves', ergo.copie.eleves, 4);
+    r.verifie('sans les points de l\'an dernier', ergo.copie.sansPoints);
+    r.verifie('ni ses badges', ergo.copie.sansBadges);
+    r.verifie('mais en gardant les mémos', ergo.copie.memoGarde);
+    r.verifie('avec de nouveaux identifiants, pour ne rien mélanger', ergo.copie.idsNeufs);
+    r.verifie('une classe peut être archivée plutôt que supprimée', ergo.archivee);
+
+    // --- LES PAIRES À SÉPARER ---
+    const paires = await page.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'cp', name: '5e P', students:
+            ['Alice', 'Bilal', 'Chloé', 'Diego', 'Éva', 'Farid', 'Gaïa', 'Hugo']
+                .map((n, i) => ({ id: 'p' + i, name: n })) }]);
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 500));
+
+        document.getElementById('cm-sep-a').value = 'p0';
+        document.getElementById('cm-sep-b').value = 'p1';
+        document.getElementById('cm-sep-ajouter').click();
+        await new Promise(r => setTimeout(r, 200));
+        document.getElementById('cm-sep-a').value = 'p2';
+        document.getElementById('cm-sep-b').value = 'p3';
+        document.getElementById('cm-sep-ajouter').click();
+        await new Promise(r => setTimeout(r, 200));
+
+        // une paire déjà notée ne se note pas deux fois
+        document.getElementById('cm-sep-a').value = 'p1';
+        document.getElementById('cm-sep-b').value = 'p0';
+        document.getElementById('cm-sep-ajouter').click();
+        await new Promise(r => setTimeout(r, 200));
+
+        const enregistrees = (await ClassesStore.loadAll())[0].aSeparer;
+        const puces = document.querySelectorAll('.cm-paire').length;
+        document.getElementById('class-manager-modal').remove();
+
+        const p = PluginManager.plugins.randomDrawTool;
+        p.loadClasses();
+        await new Promise(r => setTimeout(r, 400));
+        p.currentClassName = '5e P';
+        p.sessionList = p.savedClasses['5e P'].map(n => ({ name: n, score: 0, active: true }));
+
+        let echecs = 0, tailles = null;
+        for (let essai = 0; essai < 30; essai++) {
+            p.groupState = { groups: Array.from({ length: 3 }, (_, i) =>
+                ({ id: 'g' + i, name: 'Îlot ' + (i + 1), students: [] })), unassigned: [], counter: 4 };
+            const l = p.sessionList.map(s => s.name);
+            for (let i = l.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [l[i], l[j]] = [l[j], l[i]]; }
+            l.forEach((s, i) => p.groupState.groups[i % 3].students.push(s));
+            p.separerLesPaires();
+            const ensemble = (a, b) => p.groupState.groups.some(g => g.students.includes(a) && g.students.includes(b));
+            if (ensemble('Alice', 'Bilal') || ensemble('Chloé', 'Diego')) echecs++;
+            tailles = p.groupState.groups.map(g => g.students.length);
+        }
+        return { enregistrees, puces, luesParLAtelier: p.paires['5e P'], echecs,
+                 total: tailles.reduce((a, b) => a + b, 0), tailles };
+    });
+    r.egal('deux paires sont notées sur la classe', paires.enregistrees, [['p0', 'p1'], ['p2', 'p3']]);
+    r.egal('la même paire ne se note pas deux fois, même à l\'envers', paires.enregistrees.length, 2);
+    r.egal('elles s\'affichent en pastilles', paires.puces, 2);
+    r.egal('l\'atelier les lit par leurs noms', paires.luesParLAtelier,
+        [['Alice', 'Bilal'], ['Chloé', 'Diego']]);
+    r.egal('et sur trente tirages, aucun ne les remet ensemble', paires.echecs, 0);
+    r.egal('sans perdre personne', paires.total, 8);
+    r.verifie('ni déséquilibrer les îlots',
+        Math.max(...paires.tailles) - Math.min(...paires.tailles) <= 1, JSON.stringify(paires.tailles));
+
+    // --- LE POINT À TOUTE LA CLASSE ---
+    const tousLesPoints = await page.evaluate(async () => {
+        const cl = await ClassesStore.loadAll();
+        const c = cl.find(x => x.name === '5e P');
+        c.students.forEach(s => { s.pts = { plus: 0, moins: 0, etoiles: 0 }; delete s.absent; });
+        Appel.basculer(c, 'p1');                       // Bilal absent
+        await ClassesStore.saveAll(cl);
+
+        const p = PluginManager.plugins.classPointsTool;
+        await p.ouvrir(c.id);
+        await new Promise(r => setTimeout(r, 400));
+        // les essais précédents ont pu laisser le mode sur Malus : le point
+        // partirait alors dans l'autre compteur
+        p.mode = 'plus'; p.rendre();
+        const touches = p.pointATousLesPresents();
+        const etat = p.classeCourante().students.map(s => ({ nom: s.name, plus: s.pts.plus }));
+        document.getElementById('pts-annuler').click();
+        const apres = p.classeCourante().students.map(s => s.pts.plus);
+
+        p.mode = 'retirer';
+        const refus = p.pointATousLesPresents();
+        p.mode = 'plus';
+        return { touches, etat, apres, refus, bouton: !!document.getElementById('pts-toute-classe') };
+    });
+    r.verifie('la barre porte le bouton « +1 à tous »', tousLesPoints.bouton);
+    r.egal('il ne sert qu\'aux présents', tousLesPoints.touches, 7);
+    r.egal('l\'absent ne reçoit rien',
+        tousLesPoints.etat.find(e => e.nom === 'Bilal').plus, 0);
+    r.verifie('les autres reçoivent leur point',
+        tousLesPoints.etat.filter(e => e.nom !== 'Bilal').every(e => e.plus === 1),
+        JSON.stringify(tousLesPoints.etat));
+    r.verifie('et un seul ↶ défait toute la fournée',
+        tousLesPoints.apres.every(v => v === 0), JSON.stringify(tousLesPoints.apres));
+    r.egal('en mode « Retirer », le bouton ne fait rien', tousLesPoints.refus, 0);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

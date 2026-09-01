@@ -6492,3 +6492,14 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     flex-shrink: 0;
     box-shadow: 0 0 0 2px rgba(9, 132, 227, 0.25);
 }
+
+/* Le bouton d'ancre du post-it : une épingle, comme sur un tableau de liège */
+.btn-ancre-postit {
+    font-size: 12px !important;
+    line-height: 1;
+}
+
+/* Fixé à l'écran : un liséré discret le dit, sinon rien ne distingue les deux */
+.html-postit.postit-fixe {
+    box-shadow: 0 0 0 2px rgba(9, 132, 227, 0.45), 0 4px 12px rgba(0, 0, 0, 0.18);
+}

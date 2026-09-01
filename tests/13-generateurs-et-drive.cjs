@@ -807,6 +807,9 @@ module.exports = async function (browser) {
             grandi: Math.round(a.width - b.width), plusHaut: Math.round(a.height - b.height),
             // la hauteur ne dépasse pas l'écran, marges comprises
             tientDansLEcran: a.height <= window.innerHeight - 15,
+            // et si elle touche déjà le plafond, elle ne peut plus grandir :
+            // ce n'est pas un défaut, c'est la limite de l'écran
+            auPlafond: a.height >= window.innerHeight - 17,
             memoire: JSON.parse(localStorage.getItem('board_fenetres') || '{}')['class-manager'],
             // ce que l'on tire est ce que l'on obtient : les marges intérieures
             // ne doivent pas s'ajouter par-dessus
@@ -814,7 +817,7 @@ module.exports = async function (browser) {
         };
     });
     r.verifie('tirer la poignée agrandit la fenêtre',
-        poignee.grandi > 130 && poignee.plusHaut > 105, JSON.stringify(poignee));
+        poignee.grandi > 130 && (poignee.plusHaut > 105 || poignee.auPlafond), JSON.stringify(poignee));
     r.verifie('exactement de ce que l\'on a tiré', poignee.exact, JSON.stringify(poignee));
     r.verifie('sans jamais déborder de l\'écran', poignee.tientDansLEcran, JSON.stringify(poignee));
     r.verifie('et la taille est retenue', !!poignee.memoire && poignee.memoire.w > 800, JSON.stringify(poignee));

@@ -568,6 +568,54 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => { htmlPostits.length = 0; renderHtmlPostits(); });
 
+    // --- L'ANCRE : AU TABLEAU OU À L'ÉCRAN ---
+    // Deux usages opposés du même papier. Une consigne d'exercice appartient à
+    // l'endroit du tableau où l'exercice est posé ; le plan de l'heure, lui,
+    // doit rester sous les yeux quoi qu'on regarde.
+    const ancre = await page.evaluate(async () => {
+        htmlPostits.length = 0;
+        htmlPostits.push({ id: nextId++, x: 300, y: 250, w: 300, h: 220, bg: '#fdfd96',
+                           z: globalZ++, content: 'Consigne' });
+        panX = 0; panY = 0; zoom = 1;
+        renderHtmlPostits();
+        await new Promise(r => setTimeout(r, 150));
+        const el = () => document.querySelector('.html-postit');
+        const ou = () => { const r = el().getBoundingClientRect();
+                           return { x: Math.round(r.left), y: Math.round(r.top), l: Math.round(r.width) }; };
+
+        const depart = ou();
+        panX = -150; panY = -80; renderHtmlPostits();
+        const apresDeplacement = ou();
+        zoom = 1.5; renderHtmlPostits();
+        const apresZoom = ou();
+
+        panX = 0; panY = 0; zoom = 1; renderHtmlPostits();
+        document.querySelector('.btn-ancre-postit').click();
+        await new Promise(r => setTimeout(r, 150));
+        const fixe = { ou: ou(), ancre: htmlPostits[0].ancre,
+                       icone: document.querySelector('.btn-ancre-postit').textContent,
+                       lisere: el().classList.contains('postit-fixe') };
+
+        panX = -400; panY = -300; zoom = 2; renderHtmlPostits();
+        const fixeApres = ou();
+
+        document.querySelector('.btn-ancre-postit').click();
+        await new Promise(r => setTimeout(r, 150));
+        const revenu = htmlPostits[0].ancre;
+
+        panX = 0; panY = 0; zoom = 1; htmlPostits.length = 0; renderHtmlPostits();
+        return { depart, apresDeplacement, apresZoom, fixe, fixeApres, revenu };
+    });
+    r.egal('attaché au tableau, il suit le déplacement',
+        ancre.apresDeplacement, { x: 150, y: 170, l: 300 });
+    r.egal('et grandit avec le zoom', ancre.apresZoom.l, 450);
+    r.egal('un clic sur l\'épingle le fixe à l\'écran', ancre.fixe.ancre, 'ecran');
+    r.egal('l\'épingle change', ancre.fixe.icone, '📍');
+    r.verifie('un liséré le distingue', ancre.fixe.lisere);
+    r.egal('fixé, il ne bouge pas d\'un pixel quand le tableau se déplace et zoome',
+        ancre.fixeApres, ancre.fixe.ou);
+    r.egal('et l\'épingle le rend au tableau', ancre.revenu, 'tableau');
+
     // --- LA TAILLE ANNONCÉE À L'EXPORT ---
     // « savedTableaux » n'est que la liste des tableaux : leur contenu vit à
     // part, sous « data_<id> ». On lisait t.data, qui n'existe pas, et l'on

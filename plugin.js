@@ -12921,7 +12921,13 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                     // groupes. Il n'est pas supprimé pour autant — il revient
                     // de lui-même dès qu'il est remis présent, ou demain.
                     this.absentsDuJour = {};
+                    this.paires = {};
                     classes.forEach(c => {
+                        // Les paires sont notées par identifiant dans « Mes
+                        // classes » ; ici on ne manipule que des noms.
+                        const nom = (id) => ((c.students || []).find(s => s.id === id) || {}).name;
+                        const p = (c.aSeparer || []).map(x => [nom(x[0]), nom(x[1])]).filter(x => x[0] && x[1]);
+                        if (p.length) this.paires[c.name] = p;
                         const presents = (typeof Appel !== 'undefined')
                             ? Appel.presents(c) : (c.students || []);
                         this.savedClasses[c.name] = presents.map(s => s.name);
@@ -13369,6 +13375,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         if (isRandom) {
             for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[list[i], list[j]] = [list[j], list[i]]; }
             list.forEach((student, i) => this.groupState.groups[i % numGroups].students.push(student));
+            this.separerLesPaires();
         } else { this.groupState.unassigned = list; }
 
         this.overlayEl.style.display = 'flex';
@@ -13474,11 +13481,59 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         this.renderAtelierUI();
     },
 
+    // Deux élèves qu'on ne peut pas mettre côte à côte : on échange l'un
+    // d'eux avec quelqu'un d'un autre îlot, jusqu'à ce que plus aucune paire
+    // ne se retrouve ensemble. Quelques passes suffisent ; si la classe est
+    // trop contrainte pour y arriver, on le dit plutôt que de tourner en rond.
+    separerLesPaires: function () {
+        const paires = (this.paires || {})[this.currentClassName] || [];
+        if (!paires.length || this.groupState.groups.length < 2) return 0;
+
+        const ensemble = () => {
+            for (const [a, b] of paires) {
+                const ga = this.groupState.groups.findIndex(g => g.students.includes(a));
+                const gb = this.groupState.groups.findIndex(g => g.students.includes(b));
+                if (ga !== -1 && ga === gb) return { a, b, g: ga };
+            }
+            return null;
+        };
+
+        let restant = null;
+        for (let essai = 0; essai < 60; essai++) {
+            const ennui = ensemble();
+            if (!ennui) { restant = null; break; }
+            restant = ennui;
+            // on cherche où déplacer « b » sans créer un nouvel ennui
+            const interdits = new Set(paires.filter(p => p.includes(ennui.b)).map(p => p[0] === ennui.b ? p[1] : p[0]));
+            const ailleurs = this.groupState.groups
+                .map((g, i) => ({ g, i }))
+                .filter(x => x.i !== ennui.g && !x.g.students.some(s => interdits.has(s)));
+            if (!ailleurs.length) break;
+            const cible = ailleurs.sort((x, y) => x.g.students.length - y.g.students.length)[0];
+            const source = this.groupState.groups[ennui.g];
+            source.students.splice(source.students.indexOf(ennui.b), 1);
+            // on échange pour ne pas déséquilibrer les îlots
+            const echange = cible.g.students.find(s => !paires.some(p =>
+                (p.includes(s) && p.includes(ennui.a)) || (p.includes(s) && p.includes(ennui.b))));
+            if (echange && cible.g.students.length >= source.students.length + 1) {
+                cible.g.students.splice(cible.g.students.indexOf(echange), 1);
+                source.students.push(echange);
+            }
+            cible.g.students.push(ennui.b);
+        }
+
+        if (restant && ensemble() && typeof showToast === 'function') {
+            showToast('⚠️ Impossible de séparer tout le monde : trop peu d\'îlots');
+        }
+        return paires.length;
+    },
+
     shuffleGroups: function () {
         let all = [...this.groupState.unassigned, ...this.groupState.groups.flatMap(g => g.students)];
         for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[all[i], all[j]] = [all[j], all[i]]; }
         this.groupState.unassigned = []; this.groupState.groups.forEach(g => g.students = []);
         all.forEach((student, i) => this.groupState.groups[i % this.groupState.groups.length].students.push(student));
+        this.separerLesPaires();          // la relance respecte les mêmes règles
         this.renderAtelierUI();
     },
 
@@ -28966,6 +29021,8 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 ${segment('pts-mode-moins', '👎 Malus', this.mode === 'moins', '#d63031')}
                 ${segment('pts-mode-retirer', '➖ Retirer', this.mode === 'retirer', '#636e72')}
             </div>
+            <button id="pts-toute-classe" title="Donner ce point à toute la classe présente"
+                    style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">👥 +1 à tous</button>
             <button id="pts-annuler" title="Annuler le dernier geste" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">↶</button>
             <div style="flex:1;"></div>
             <button id="pts-poser" style="border:none; background:#0984e3; color:#fff; border-radius:8px; padding:7px 12px; font-weight:bold; cursor:pointer;">📌 Poser au tableau</button>`;
@@ -28978,6 +29035,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 this.mode = m; this.badgeArme = null; this.rendre();
             });
         });
+        // Toute la classe a bien travaillé : trente clics devenaient un.
+        // Les absents ne reçoivent rien — ils n'étaient pas là.
+        barre.querySelector('#pts-toute-classe').addEventListener('click', () => this.pointATousLesPresents());
         barre.querySelector('#pts-annuler').addEventListener('click', () => this.annuler());
         barre.querySelector('#pts-poser').addEventListener('click', () => this.poserAuTableau());
 
@@ -29360,10 +29420,46 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (typeof showToast === 'function') showToast(`↩️ ${eleve.name} : un ${dit} retiré`);
     },
 
+    // Un seul geste pour toute la classe, annulable d'un seul ↶ : on retient
+    // la fournée, pas trente gestes séparés qu'il faudrait défaire un par un.
+    pointATousLesPresents: function () {
+        if (this.mode === 'retirer') {
+            if (typeof showToast === 'function') showToast('Choisissez Bonus ou Malus avant');
+            return 0;
+        }
+        const classe = this.classeCourante(); if (!classe) return 0;
+        const presents = (typeof Appel !== 'undefined')
+            ? Appel.presents(classe) : (classe.students || []);
+        if (!presents.length) {
+            if (typeof showToast === 'function') showToast('Personne à qui donner ce point');
+            return 0;
+        }
+        const champ = this.mode === 'plus' ? 'plus' : 'moins';
+        presents.forEach(e => { this.pointsDe(e)[champ] += 1; });
+        this.retenir({ t: 'fournee', classeId: classe.id, champ, eleves: presents.map(e => e.id) });
+        this.sauver();
+        this.rendre();
+        if (typeof showToast === 'function') {
+            showToast(`${champ === 'plus' ? '👍' : '👎'} ${presents.length} élève(s) présents : un point`);
+        }
+        return presents.length;
+    },
+
     annuler: function () {
         const dernier = this.historique.pop();
         if (!dernier) { if (typeof showToast === 'function') showToast('Rien à annuler'); return; }
         const classe = this.classes.find(c => c.id === dernier.classeId);
+
+        if (dernier.t === 'fournee') {
+            (dernier.eleves || []).forEach(id => {
+                const e = classe && (classe.students || []).find(s => s.id === id);
+                if (e) { const p = this.pointsDe(e); p[dernier.champ] = Math.max(0, p[dernier.champ] - 1); }
+            });
+            this.sauver();
+            this.rendre();
+            return;
+        }
+
         const eleve = classe && (classe.students || []).find(s => s.id === dernier.eleveId);
         if (!eleve) return;
 
