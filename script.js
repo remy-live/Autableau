@@ -5022,12 +5022,37 @@ function layoutTextObject(obj, measureCtx) {
     return { lines, maxW, width: col > 0 ? col : maxW, height: y };
 }
 
+// ===================================================
+// LE RÉSEAU DU FOND
+// Le quadrillage plein écran est posé à l'origine du tableau ; une feuille,
+// elle, porte sa réglure avec elle et se pose où il y a de la place. Tout ce
+// qui doit tomber juste — l'aimant, les axes, leurs graduations — se règle
+// donc ici, sur ces deux valeurs : d'où part le réseau, et de combien il
+// avance. Les axes et l'aimant lisaient chacun les leurs, et se décalaient
+// dès que la feuille n'était pas à l'origine.
+// ===================================================
+function origineDuReseau() {
+    const bg = backgrounds[currentBgIndex];
+    if (bg === 'seyes-marge' || bg === 'copie') return origineFeuille || { x: 0, y: 0 };
+    return { x: 0, y: 0 };
+}
+
+function pasDuReseau() {
+    const bg = backgrounds[currentBgIndex];
+    if (bg === 'millimetre') return { x: 10, y: 10 };
+    // Le Seyès n'a pas de verticales : son pas horizontal vaut l'interligne.
+    if (bg === 'seyes' || bg === 'seyes-marge') return { x: 40, y: 10 };
+    if (bg === 'copie') return { x: 30, y: 30 };          // ses petits carreaux
+    if (bg === 'isometrique') return { x: 30 * Math.sqrt(3) / 2, y: 15 };
+    return { x: 30, y: 30 };
+}
+
 function snapToGrid(lx, ly) {
-    const bg = backgrounds[currentBgIndex]; let snapX = 30, snapY = 30;
-    // La copie d'examen est quadrillée en 30×30 : elle s'aimante sur ses
-    // carreaux, pas sur l'interligne du Seyès.
-    if (bg === 'millimetre') { snapX = 10; snapY = 10; } else if (bg === 'seyes' || bg === 'seyes-marge') { snapX = 40; snapY = 10; } else if (bg === 'isometrique') { snapX = 30 * Math.sqrt(3) / 2; snapY = 15; }
-    return { x: Math.round(lx / snapX) * snapX, y: Math.round(ly / snapY) * snapY };
+    const o = origineDuReseau(), p = pasDuReseau();
+    return {
+        x: o.x + Math.round((lx - o.x) / p.x) * p.x,
+        y: o.y + Math.round((ly - o.y) / p.y) * p.y
+    };
 }
 
 // ===================================================
@@ -7188,7 +7213,7 @@ function draw() {
     if (typeof majBarreDocument === 'function') majBarreDocument();
 
     const bg = backgrounds[currentBgIndex];
-    const logicalStep = (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
+    const logicalStep = pasDesGraduations();     // une graduation = une case du fond
 
     if (isExportingTransparent) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -16826,7 +16851,11 @@ function renderHtmlPostits() {
             let isDragging = false;
             let startX, startY;
             header.addEventListener('pointerdown', (e) => {
-                if (e.target.closest('.postit-dot, .btn-min-postit, .btn-close-postit, .btn-font-minus, .btn-font-cycle, .btn-font-plus')) return;
+                // Tout ce qui se clique dans l'en-tête n'est pas une prise pour
+                // déplacer le post-it. La liste des boutons était nominative :
+                // le premier bouton ajouté ensuite déclenchait un glissement,
+                // et son clic n'arrivait jamais (l'en-tête captait le pointeur).
+                if (e.target.closest('button, .postit-dot, .postit-avancement')) return;
                 isDragging = true;
                 startX = e.clientX;
                 startY = e.clientY;
@@ -18045,9 +18074,13 @@ let origineFeuille = { x: 0, y: 0 };
 // quadrillage pour que les graduations tombent juste.
 let origineAxes = { x: 0, y: 0 };
 
+// Une graduation vaut une case du fond : l'interligne du Seyès, le carreau
+// de la copie d'examen, le centimètre du millimétré.
 function pasDesGraduations() {
     const bg = backgrounds[currentBgIndex];
-    return (bg === 'seyes' || bg === 'seyes-marge' || bg === 'copie') ? 40 : (bg === 'millimetre' ? 100 : 30);
+    if (bg === 'seyes' || bg === 'seyes-marge') return 40;
+    if (bg === 'millimetre') return 100;
+    return 30;                       // carreaux, copie d'examen, fond uni
 }
 
 function centrerLesAxes() {
@@ -18055,9 +18088,10 @@ function centrerLesAxes() {
     const l = (cv && cv.clientWidth) || window.innerWidth;
     const h = (cv && cv.clientHeight) || window.innerHeight;
     const pas = pasDesGraduations();
+    const o = origineDuReseau();     // sur une feuille, le réseau la suit
     origineAxes = {
-        x: Math.round(((l / 2 - panX) / zoom) / pas) * pas,
-        y: Math.round(((h / 2 - panY) / zoom) / pas) * pas
+        x: o.x + Math.round(((l / 2 - panX) / zoom - o.x) / pas) * pas,
+        y: o.y + Math.round(((h / 2 - panY) / zoom - o.y) / pas) * pas
     };
 }
 

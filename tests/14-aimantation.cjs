@@ -748,6 +748,76 @@ module.exports = async function (browser) {
         !!libre && libre.total > 4 && libre.surGrille < libre.total / 2,
         JSON.stringify(libre));
 
+    // --- LE RÉSEAU SUIT LA FEUILLE ---
+    // Le cahier et la copie d'examen portent leur réglure avec eux et se
+    // posent où il y a de la place. L'aimant et les axes lisaient chacun
+    // leur pas depuis l'origine du tableau : dès que la feuille n'était pas
+    // à l'origine, rien ne tombait plus sur les lignes.
+    const reste = (v, m) => { const x = ((v % m) + m) % m; return Math.min(x, m - x); };
+
+    const pasAttendu = { copie: { x: 30, y: 30 }, 'seyes-marge': { x: 40, y: 10 },
+                         carreau: { x: 30, y: 30 }, millimetre: { x: 10, y: 10 } };
+    const reseau = await page.evaluate((fonds) => {
+        const lu = {};
+        fonds.forEach(f => {
+            currentBgIndex = backgrounds.indexOf(f);
+            lu[f] = { pas: pasDuReseau(), gradu: pasDesGraduations() };
+        });
+        return lu;
+    }, Object.keys(pasAttendu));
+    Object.entries(pasAttendu).forEach(([fond, pas]) => {
+        r.egal(`« ${fond} » : le pas du réseau est celui de sa réglure`, reseau[fond].pas, pas);
+    });
+    r.egal('une graduation vaut un carreau sur la copie d\'examen', reseau.copie.gradu, 30);
+    r.egal('et un interligne sur le cahier', reseau['seyes-marge'].gradu, 40);
+
+    for (const fond of ['copie', 'seyes-marge']) {
+        const cale = await page.evaluate(async (f) => {
+            [points, segments, freehands, texts, images].forEach(a => a.length = 0);
+            // on a travaillé loin de l'origine : la feuille se pose autour
+            const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+            const a = P(1717, 1233), b = P(2111, 1547);
+            segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, z: globalZ++ });
+            currentBgIndex = backgrounds.indexOf(f);
+            origineFeuille = { x: 0, y: 0 };
+            cadrerSurLaFeuille();
+            showAxes = 0; origineAxes = { x: 0, y: 0 };
+            document.getElementById('btn-axes').click();
+            await new Promise(r => setTimeout(r, 120));
+
+            const o = origineDuReseau(), p = pasDuReseau(), pas = pasDesGraduations();
+            const vise = snapToGrid(o.x + 3 * p.x + 7, o.y + 5 * p.y + 4);
+            const res = {
+                decalee: Math.round(origineFeuille.x) !== 0 || Math.round(origineFeuille.y) !== 0,
+                surLaFeuille: Math.round(o.x) === Math.round(origineFeuille.x)
+                           && Math.round(o.y) === Math.round(origineFeuille.y),
+                axes: [origineAxes.x - o.x, origineAxes.y - o.y],
+                aimant: [vise.x - o.x, vise.y - o.y],
+                pas, p,
+                // l'origine du tableau, elle, ne tombe justement pas dessus
+                horsFeuille: [origineAxes.x, origineAxes.y]
+            };
+            [points, segments].forEach(arr => arr.length = 0);
+            origineFeuille = { x: 0, y: 0 }; origineAxes = { x: 0, y: 0 }; showAxes = 0;
+            currentBgIndex = backgrounds.indexOf('carreau');
+            return res;
+        }, fond);
+
+        r.verifie(`« ${fond} » : la feuille se pose bien ailleurs qu'à l'origine`, cale.decalee, JSON.stringify(cale));
+        r.verifie(`« ${fond} » : le réseau part de la feuille`, cale.surLaFeuille, JSON.stringify(cale));
+        r.verifie(`« ${fond} » : les axes naissent sur une ligne de la réglure`,
+            reste(cale.axes[0], cale.pas) < 0.001 && reste(cale.axes[1], cale.pas) < 0.001,
+            JSON.stringify(cale));
+        r.verifie(`« ${fond} » : et l'aimant colle sur la même réglure`,
+            reste(cale.aimant[0], cale.p.x) < 0.001 && reste(cale.aimant[1], cale.p.y) < 0.001,
+            JSON.stringify(cale));
+        // Le témoin du défaut corrigé : caler sur l'origine du tableau, comme
+        // avant, tomberait à côté des lignes de cette feuille.
+        r.verifie(`« ${fond} » : caler sur l'origine du tableau serait faux`,
+            reste(cale.horsFeuille[0], cale.pas) > 0.001 || reste(cale.horsFeuille[1], cale.pas) > 0.001,
+            JSON.stringify(cale));
+    }
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

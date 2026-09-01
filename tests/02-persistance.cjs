@@ -196,9 +196,18 @@ module.exports = async function (browser) {
     // --- LE POST-IT EN LISTE À COCHER ---
     // Le même papier, deux usages : la note qu'on écrit d'un trait, et la
     // liste de l'heure dont on raye les lignes au fur et à mesure.
+    // Les essais précédents laissent une modale ouverte : elle couvrirait
+    // le post-it et avalerait les clics de souris de ce qui suit.
+    await page.evaluate(() => {
+        document.querySelectorAll('.modal-backdrop').forEach(m => {
+            if (m.id === 'help-modal' || m.id === 'confirm-modal') m.style.display = 'none';
+            else m.remove();
+        });
+    });
+
     const poserPostit = (contenu) => page.evaluate((c) => {
         htmlPostits.length = 0;
-        htmlPostits.push({ id: nextId++, x: 420, y: 110, w: 300, h: 260, content: c, bg: '#fdfd96', z: globalZ++ });
+        htmlPostits.push({ id: nextId++, x: 200, y: 300, w: 320, h: 280, content: c, bg: '#fdfd96', z: globalZ++ });
         panX = 0; panY = 0; zoom = 1;
         renderHtmlPostits();
     }, contenu);
@@ -229,6 +238,57 @@ module.exports = async function (browser) {
     r.egal('l\'en-tête dit où l\'on en est', enListe.compteur, '0/3');
     r.verifie('la note libre s\'efface au profit de la liste', enListe.noteCachee);
     r.verifie('et l\'on peut ajouter une tâche', enListe.ajouter);
+
+    // À LA VRAIE SOURIS. Les événements fabriqués ne déclenchent pas la
+    // capture de pointeur : c'est justement elle qui cassait tout, l'en-tête
+    // du post-it happait le clic de tout bouton qu'il ne connaissait pas
+    // nommément. Ce passage doit donc rester en vraies entrées.
+    const auMilieu = (sel, i) => page.evaluate(([s, n]) => {
+        const el = document.querySelectorAll(s)[n];
+        if (!el) throw new Error('absent : ' + s + ' #' + n);
+        const b = el.getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2, l: b.width, h: b.height };
+    }, [sel, i || 0]);
+
+    await page.evaluate(() => {                 // on repart d'une note libre
+        document.querySelector('.btn-liste-postit').click();
+        htmlPostits[0].content = 'Rendre les copies\nDistribuer le DM\nAppeler les parents';
+        document.querySelector('.html-postit-body').value = htmlPostits[0].content;
+    });
+    await page.waitForTimeout(120);
+    const posAvant = await page.evaluate(() => ({ x: htmlPostits[0].x, y: htmlPostits[0].y }));
+
+    const surBouton = await auMilieu('.btn-liste-postit');
+    await page.mouse.click(surBouton.x, surBouton.y);
+    await page.waitForTimeout(250);
+    const parLaSouris = await page.evaluate(() => ({
+        mode: htmlPostits[0].mode,
+        cases: document.querySelectorAll('.postit-case').length,
+        x: htmlPostits[0].x, y: htmlPostits[0].y
+    }));
+    r.egal('un vrai clic sur ☑ passe la note en liste', parLaSouris.mode, 'liste');
+    r.egal('avec une case par ligne', parLaSouris.cases, 3);
+    r.verifie('et sans déplacer le post-it au passage',
+        parLaSouris.x === posAvant.x && parLaSouris.y === posAvant.y,
+        JSON.stringify({ posAvant, parLaSouris }));
+
+    const surCase = await auMilieu('.postit-case', 1);
+    await page.mouse.click(surCase.x, surCase.y);
+    await page.waitForTimeout(250);
+    const caseCochee = await page.evaluate(() => ({
+        etats: htmlPostits[0].taches.map(t => t.fait),
+        compteur: document.querySelector('.postit-avancement').textContent
+    }));
+    r.egal('un vrai clic sur une case la coche', caseCochee.etats, [false, true, false]);
+    r.egal('et le compteur suit', caseCochee.compteur, '1/3');
+
+    await page.evaluate(() => {                 // on rend la liste à ce qui suit
+        htmlPostits[0].taches.forEach(t => { t.fait = false; });
+        renderHtmlPostits();
+        document.querySelector('.btn-liste-postit').click();
+        document.querySelector('.btn-liste-postit').click();
+    });
+    await page.waitForTimeout(150);
 
     const cocher = await page.evaluate(() => {
         document.querySelectorAll('.postit-case')[0].click();
