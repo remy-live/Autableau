@@ -4107,26 +4107,59 @@ window.addEventListener('pointerup', (e) => {
     setFloatingGhostState(false);
 });
 
+// Le voile « Relâchez l'image ou le PDF ici » couvre tout l'écran : tant qu'il
+// est là, plus rien n'est cliquable. On le retire donc à la moindre fin de
+// glissement, quelle qu'elle soit.
+function masquerLeVoileDeDepot() {
+    if (dropOverlay) dropOverlay.style.display = 'none';
+}
+window.masquerLeVoileDeDepot = masquerLeVoileDeDepot;
+
+// Un glissement qui nous concerne : un fichier venu du bureau, ou un tableau
+// tiré de l'explorateur jusque sur la feuille. Ranger une séance dans un
+// dossier ne quitte jamais le tiroir : le voile n'a rien à y faire.
+function depotQuiNousRegarde(e) {
+    const t = e.dataTransfer && e.dataTransfer.types;
+    if (!t || (!t.includes('Files') && !t.includes('application/json'))) return false;
+    const cible = e.target;
+    if (cible && cible.closest && cible.closest('#right-drawer')) return false;
+    return true;
+}
+
 document.addEventListener('dragenter', (e) => {
-    if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
+    if (depotQuiNousRegarde(e)) {
         e.preventDefault();
         if (dropOverlay) dropOverlay.style.display = 'flex';
     }
 });
 document.addEventListener('dragover', (e) => {
-    if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
+    if (depotQuiNousRegarde(e)) {
         e.preventDefault();
         if (dropOverlay) dropOverlay.style.display = 'flex';
+    } else if (e.dataTransfer && e.dataTransfer.types
+               && e.dataTransfer.types.includes('application/json')) {
+        // Glissement interne au tiroir : le voile se retire s'il traînait
+        masquerLeVoileDeDepot();
     }
 });
 document.addEventListener('dragleave', (e) => {
     if (e.dataTransfer && e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/json'))) {
         e.preventDefault();
         if (e.relatedTarget === null || e.relatedTarget.nodeName === "HTML") {
-            if (dropOverlay) dropOverlay.style.display = 'none';
+            masquerLeVoileDeDepot();
         }
     }
 });
+
+// Trois filets, parce qu'un glissement se termine de trois façons :
+//  - « dragend » : le geste est fini, abouti ou abandonné (Échap, hors fenêtre) ;
+//  - « drop » en capture : un gestionnaire d'enfant peut arrêter la propagation
+//    (c'est le cas du dépôt sur un dossier), le document ne le verrait jamais ;
+//  - Échap, dernier recours si le navigateur n'a rien émis du tout.
+document.addEventListener('dragend', masquerLeVoileDeDepot, true);
+document.addEventListener('drop', masquerLeVoileDeDepot, true);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') masquerLeVoileDeDepot(); }, true);
+window.addEventListener('blur', masquerLeVoileDeDepot);
 
 document.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -15487,6 +15520,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 function renderExplorerLists() {
+    // Pendant un glissement, on note qu'il faudra repeindre — et on attend.
+    if (glissementDansLArbre) { repeintureEnAttente = true; return; }
+
     const query = document.getElementById('explorer-search-bar').value.toLowerCase();
 
     const ftc = document.getElementById('file-tree-container');
@@ -15521,6 +15557,25 @@ function renderExplorerLists() {
 
 let isCompletingInline = false;
 let draggedItemId = null;
+
+// Redessiner l'arborescence pendant un glissement arrache du DOM la ligne que
+// la souris tient : le navigateur reste alors coincé en glissement, et plus
+// aucun clic n'aboutit dans le tiroir. On diffère donc le rafraîchissement.
+let glissementDansLArbre = false;
+let repeintureEnAttente = false;
+
+function finDeGlissementDansLArbre() {
+    if (!glissementDansLArbre) return;
+    glissementDansLArbre = false;
+    draggedItemId = null;
+    if (repeintureEnAttente) { repeintureEnAttente = false; renderExplorerLists(); }
+}
+// On attend « dragend » : il arrive APRÈS le dépôt, donc la ligne glissée
+// reste en place tant que le navigateur en a besoin. Le clic et la sortie de
+// fenêtre servent de filets si le navigateur n'émet rien du tout.
+document.addEventListener('dragend', finDeGlissementDansLArbre, true);
+window.addEventListener('blur', finDeGlissementDansLArbre);
+document.addEventListener('pointerdown', finDeGlissementDansLArbre, true);
 
 // ============================================================
 // SÉLECTION PAR LOT DANS L'EXPLORATEUR
@@ -15696,6 +15751,7 @@ function buildTree(items, parentId) {
 
         treeItem.draggable = true;
         treeItem.ondragstart = (e) => {
+            glissementDansLArbre = true;
             draggedItemId = item.id;
             e.dataTransfer.setData('text/plain', item.id);
             e.stopPropagation();
@@ -15759,18 +15815,23 @@ function buildTree(items, parentId) {
             `;
 
             // Drag and drop sur le canvas
+            let clickCount = 0;
+            let clickTimer = null;
+
             if (currentExplorerTab === 'tableaux') {
                 treeItem.draggable = true;
                 treeItem.ondragstart = (e) => {
+                    // Le clic simple attend 300 ms avant de repeindre l'arbre :
+                    // s'il aboutissait maintenant, il arracherait la ligne que
+                    // l'on est en train de glisser.
+                    clearTimeout(clickTimer); clickCount = 0;
+                    glissementDansLArbre = true;
                     e.dataTransfer.effectAllowed = 'copy';
                     e.dataTransfer.setData('application/json', JSON.stringify({ type: 'board', id: item.id }));
                     draggedItemId = item.id;
                 };
             }
 
-
-            let clickCount = 0;
-            let clickTimer = null;
 
             treeItem.onclick = (e) => {
                 if (e.target.closest('.tree-action-btn')) return;

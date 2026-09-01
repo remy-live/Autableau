@@ -858,6 +858,63 @@ module.exports = async function (browser) {
         reparee.boutons.oui && reparee.boutons.non, JSON.stringify(reparee));
     r.verifie('et le « Confirmer » répond bien oui', reparee.ouverte === true);
 
+    // --- Un glissement dans l'arborescence ne doit rien figer ---
+    // Le clic simple repeint l'arbre 300 ms plus tard : s'il aboutissait
+    // pendant le glissement, il arrachait du DOM la ligne tenue par la souris,
+    // le navigateur restait coincé en glissement et plus rien ne répondait.
+    await poserDesTableaux();
+    const glisse = await page.evaluate(async () => {
+        const ligne = (nom) => Array.from(document.querySelectorAll('#file-tree-container .tree-item'))
+            .find(l => (l.querySelector('.label') || {}).textContent === nom);
+        const source = ligne('Séance 1');
+        source.dispatchEvent(new MouseEvent('click', { bubbles: true }));   // arme le minuteur
+        const dt = new DataTransfer();
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+        await new Promise(r => setTimeout(r, 400));                          // le minuteur tombe
+        const survitAuMinuteur = document.contains(source);
+
+        const dossier = ligne('Sixièmes');
+        dossier.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt }));
+        const survitAuDepot = document.contains(source);
+        source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+        await new Promise(r => setTimeout(r, 20));
+
+        return {
+            survitAuMinuteur, survitAuDepot,
+            range: (savedTableaux.find(t => t.id === 's1') || {}).parentId,
+            repeint: !document.contains(source),
+            voile: getComputedStyle(document.getElementById('drop-overlay')).display,
+            enCours: glissementDansLArbre
+        };
+    });
+    r.verifie('la ligne glissée survit au minuteur du clic simple', glisse.survitAuMinuteur);
+    r.verifie('et au dépôt lui-même', glisse.survitAuDepot);
+    r.egal('le tableau est bien rangé dans le dossier', glisse.range, 'dossier_a');
+    r.verifie('l\'arbre se repeint une fois le glissement fini', glisse.repeint);
+    r.verifie('le glissement est refermé', glisse.enCours === false);
+
+    // Le voile « Relâchez l'image ou le PDF ici » ne s'invite pas dans le
+    // tiroir, et il disparaît quoi qu'il arrive au glissement.
+    const voile = await page.evaluate(async () => {
+        const voileEl = document.getElementById('drop-overlay');
+        const dt = new DataTransfer();
+        dt.setData('application/json', JSON.stringify({ type: 'board', id: 's2' }));
+        const dansLeTiroir = document.querySelector('#file-tree-container .tree-item');
+        dansLeTiroir.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt }));
+        const surLeTiroir = getComputedStyle(voileEl).display;
+
+        document.getElementById('board').dispatchEvent(
+            new DragEvent('dragover', { bubbles: true, dataTransfer: dt }));
+        const surLaFeuille = getComputedStyle(voileEl).display;
+
+        // Glissement abandonné : ni dépôt, ni sortie de fenêtre, juste Échap
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return { surLeTiroir, surLaFeuille, apresEchap: getComputedStyle(voileEl).display };
+    });
+    r.egal('le voile de dépôt reste absent au-dessus du tiroir', voile.surLeTiroir, 'none');
+    r.egal('mais s\'affiche bien au-dessus de la feuille', voile.surLaFeuille, 'flex');
+    r.egal('et Échap le fait disparaître', voile.apresEchap, 'none');
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

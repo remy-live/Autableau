@@ -74,6 +74,100 @@ module.exports = async function (browser) {
     }));
     r.verifie('carte de France disponible hors connexion', !!carte && carte.trace, JSON.stringify(carte));
 
+    // --- Laboratoire Électrique : les modèles de circuits ---
+    // Chaque montage doit être fermé (tout composant alimenté), tenir dans la
+    // fenêtre par défaut, et surtout : aucun fil ne doit traverser un
+    // composant. Le tracé est en L, par le milieu ; mal placé, il coupe le
+    // schéma en deux et le montage devient illisible.
+    const circuits = await page.evaluate(async () => {
+        const P = PluginManager.plugins['circuitTool'];
+        P.state = { nodes: [], wires: [] };
+        P.editingImage = null;
+        P.saveHistory(true);
+        P.createWidget();
+
+        // Distance d'un point à un segment
+        const dist = (px, py, x1, y1, x2, y2) => {
+            const dx = x2 - x1, dy = y2 - y1;
+            const l2 = dx * dx + dy * dy;
+            let t = l2 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+        };
+
+        const bilans = [];
+        for (const m of P.MODELES) {
+            P.state = { nodes: [], wires: [] };     // pas de question posée si vide
+            await P.poserModele(m.cle);
+            const n = P.state.nodes;
+
+            let traversees = 0;
+            P.state.wires.forEach(w => {
+                const a = n.find(x => x.id === w.from), b = n.find(x => x.id === w.to);
+                if (!a || !b) return;
+                const mx = (a.x + b.x) / 2;
+                const segments = [[a.x, a.y, mx, a.y], [mx, a.y, mx, b.y], [mx, b.y, b.x, b.y]];
+                n.forEach(c => {
+                    if (c.id === a.id || c.id === b.id) return;
+                    if (segments.some(s => dist(c.x, c.y, s[0], s[1], s[2], s[3]) < 25)) traversees++;
+                });
+            });
+
+            bilans.push({
+                cle: m.cle,
+                composants: n.length,
+                eteints: n.filter(c => !c.powered).length,
+                traversees,
+                largeur: Math.max(...n.map(c => c.x)) + 40,
+                hauteur: Math.max(...n.map(c => c.y)) + 40,
+                surLaGrille: n.every(c => c.x % 20 === 0 && c.y % 20 === 0),
+                svg: document.getElementById('circ-svg-layer').innerHTML.length
+            });
+        }
+        P.closeWidget();
+        return bilans;
+    });
+    r.egal('six modèles de circuits sont proposés', circuits.length, 6);
+    r.verifie('chaque modèle forme un circuit fermé, tout est alimenté',
+        circuits.every(c => c.eteints === 0), JSON.stringify(circuits.filter(c => c.eteints)));
+    r.verifie('aucun fil ne traverse un composant',
+        circuits.every(c => c.traversees === 0),
+        JSON.stringify(circuits.filter(c => c.traversees).map(c => [c.cle, c.traversees])));
+    r.verifie('chaque montage tient dans la fenêtre par défaut',
+        circuits.every(c => c.largeur <= 520 && c.hauteur <= 460),
+        JSON.stringify(circuits.map(c => [c.cle, c.largeur, c.hauteur])));
+    r.verifie('et se pose sur la grille de 20 px',
+        circuits.every(c => c.surLaGrille));
+    r.verifie('le schéma est bien dessiné', circuits.every(c => c.svg > 200));
+
+    // Poser un modèle sur un circuit commencé demande d'abord confirmation
+    const remplace = await page.evaluate(async () => {
+        const P = PluginManager.plugins['circuitTool'];
+        P.state = { nodes: [], wires: [] };
+        P.editingImage = null; P.saveHistory(true); P.createWidget();
+        await P.poserModele('serie');
+        const avant = P.state.nodes.length;
+
+        const p = P.poserModele('derivation');
+        await new Promise(r => setTimeout(r, 40));
+        const questionne = getComputedStyle(document.getElementById('confirm-modal')).display === 'flex';
+        document.getElementById('confirm-cancel-btn').click();
+        await p;
+        const apresRefus = P.state.nodes.length;
+
+        const p2 = P.poserModele('derivation');
+        await new Promise(r => setTimeout(r, 40));
+        document.getElementById('confirm-yes-btn').click();
+        await p2;
+        const apresAccord = P.state.nodes.map(n => n.type).sort().join(',');
+        P.closeWidget();
+        return { avant, questionne, apresRefus, apresAccord };
+    });
+    r.egal('le modèle « Série » pose ses quatre composants', remplace.avant, 4);
+    r.verifie('remplacer un circuit commencé demande confirmation', remplace.questionne);
+    r.egal('refuser laisse le circuit intact', remplace.apresRefus, 4);
+    r.egal('accepter pose le nouveau montage', remplace.apresAccord, 'battery,bulb,bulb,switch');
+
     // Le tableau répond toujours après ce tour de piste
     const vivant = await page.evaluate(() => { try { draw(); return true; } catch (e) { return e.message; } });
     r.verifie('le tableau répond encore après tous les plugins', vivant === true, String(vivant));

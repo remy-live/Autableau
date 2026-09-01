@@ -3210,6 +3210,12 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                         <button class="circ-tool-btn" data-tool="wire" style="flex:1; height:40px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-weight:bold; cursor:pointer;">🔌 Relier</button>
                     </div>
 
+                    <div style="font-weight:bold; font-size:12px; color:#7f8c8d; text-transform:uppercase; margin-top:10px;">Modèles</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;" id="circ-modeles">
+                        ${this.MODELES.map(m => `<button class="circ-modele-btn" data-modele="${m.cle}" title="${m.resume}"
+                            style="padding:8px 6px; border-radius:6px; border:1px solid #bdc3c7; background:white; color:#2c3e50; font-size:12px; font-weight:600; cursor:pointer; text-align:center;">${m.nom}</button>`).join('')}
+                    </div>
+
                     <div style="font-weight:bold; font-size:12px; color:#7f8c8d; text-transform:uppercase; margin-top:10px;">Composants</div>
                     <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;" id="circ-palette">
                         <button class="circ-comp-btn active" data-comp="battery" title="Pile DC" style="padding:4px; border-radius:6px; border:2px solid #0984e3; background:white; cursor:pointer;">${icons.battery}</button>
@@ -3272,6 +3278,12 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
                 this.currentTool = 'add';
                 this.render();
             });
+        });
+
+        this.widgetEl.querySelectorAll('.circ-modele-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.poserModele(e.currentTarget.dataset.modele));
+            btn.addEventListener('mouseenter', (e) => { e.currentTarget.style.background = '#eaf4fd'; e.currentTarget.style.borderColor = '#0984e3'; });
+            btn.addEventListener('mouseleave', (e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.borderColor = '#bdc3c7'; });
         });
 
         const ws = document.getElementById('circ-workspace');
@@ -3477,6 +3489,131 @@ registerPlugin('circuitTool', 'Physique-Chimie', {
             this.historyIndex--; this.state = JSON.parse(JSON.stringify(this.history[this.historyIndex]));
             this.simulateCircuit(); this.render();
         }
+    },
+
+    // ============================================================
+    // MODÈLES DE CIRCUITS
+    // Les montages du programme, prêts à poser : on part de la figure
+    // juste, on l'annote ou on la modifie, plutôt que de la redessiner
+    // à chaque cours. Les coordonnées suivent la grille de 20 px, et les
+    // paires de bornes reliées partagent une abscisse ou une ordonnée
+    // pour que les fils sortent droits.
+    // ============================================================
+    MODELES: [
+        {
+            cle: 'serie',
+            nom: 'Série',
+            resume: 'Pile, interrupteur, lampe et ampèremètre sur une seule boucle',
+            noeuds: [
+                { t: 'battery', x: 80, y: 80, rot: 0 },
+                { t: 'switch', x: 320, y: 80, rot: 0, closed: true },
+                { t: 'bulb', x: 320, y: 260, rot: 0 },
+                { t: 'ammeter', x: 80, y: 260, rot: 0 }
+            ],
+            fils: [[0, 1], [1, 2], [2, 3], [3, 0]]
+        },
+        {
+            cle: 'deux-serie',
+            nom: 'Deux en série',
+            resume: 'Deux lampes sur la même boucle : dévisser l\'une éteint l\'autre',
+            noeuds: [
+                { t: 'battery', x: 80, y: 80, rot: 0 },
+                { t: 'bulb', x: 240, y: 80, rot: 0 },
+                { t: 'bulb', x: 400, y: 80, rot: 0 },
+                { t: 'switch', x: 400, y: 260, rot: 0, closed: true },
+                { t: 'ammeter', x: 80, y: 260, rot: 0 }
+            ],
+            fils: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0]]
+        },
+        {
+            cle: 'derivation',
+            nom: 'Dérivation',
+            resume: 'Deux lampes en parallèle : chacune garde sa propre branche',
+            noeuds: [
+                { t: 'battery', x: 80, y: 180, rot: 0 },
+                { t: 'bulb', x: 240, y: 80, rot: 0 },
+                { t: 'bulb', x: 240, y: 280, rot: 0 },
+                { t: 'switch', x: 400, y: 180, rot: 0, closed: true }
+            ],
+            fils: [[0, 1], [1, 3], [0, 2], [2, 3]]
+        },
+        {
+            cle: 'ohm',
+            nom: 'Loi d\'Ohm',
+            resume: 'Ampèremètre en série, voltmètre aux bornes de la résistance',
+            noeuds: [
+                { t: 'battery', x: 80, y: 80, rot: 0 },
+                { t: 'ammeter', x: 320, y: 80, rot: 0 },
+                { t: 'resistor', x: 320, y: 220, rot: 90 },
+                { t: 'switch', x: 320, y: 360, rot: 0, closed: true },
+                { t: 'fuse', x: 80, y: 360, rot: 0 },
+                { t: 'voltmeter', x: 460, y: 220, rot: 0 }
+            ],
+            // La boucle, puis le voltmètre branché en dérivation sur la résistance
+            fils: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0], [1, 5], [5, 3]]
+        },
+        {
+            cle: 'moteur',
+            nom: 'Moteur',
+            resume: 'Moteur commandé par un interrupteur, protégé par un fusible',
+            noeuds: [
+                { t: 'battery', x: 80, y: 80, rot: 0 },
+                { t: 'fuse', x: 240, y: 80, rot: 0 },
+                { t: 'switch', x: 400, y: 80, rot: 0, closed: true },
+                { t: 'motor', x: 400, y: 260, rot: 0 },
+                { t: 'ammeter', x: 80, y: 260, rot: 0 }
+            ],
+            fils: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0]]
+        },
+        {
+            cle: 'del',
+            nom: 'DEL et diode',
+            resume: 'Générateur alternatif, diode de redressement et DEL avec sa résistance',
+            noeuds: [
+                { t: 'ac_source', x: 80, y: 80, rot: 0 },
+                { t: 'diode', x: 240, y: 80, rot: 0 },
+                { t: 'resistor', x: 400, y: 80, rot: 0 },
+                { t: 'led', x: 400, y: 260, rot: 0 },
+                { t: 'switch', x: 80, y: 260, rot: 0, closed: true }
+            ],
+            fils: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 0]]
+        }
+    ],
+
+    // Pose un modèle à la place du circuit courant. Le travail déjà commencé
+    // ne part jamais sans qu'on ait dit oui.
+    poserModele: async function (cle) {
+        const m = this.MODELES.find(x => x.cle === cle);
+        if (!m) return;
+        if (this.state.nodes.length > 0) {
+            const remplacer = (typeof demanderConfirmation === 'function')
+                ? await demanderConfirmation('Remplacer le circuit',
+                    `« ${m.nom} » va remplacer le circuit en cours. On continue ?`)
+                : true;
+            if (!remplacer) return;
+        }
+
+        const base = Date.now();
+        const ids = m.noeuds.map((n, i) => 'n_' + base + '_' + i);
+        this.state = {
+            nodes: m.noeuds.map((n, i) => ({
+                id: ids[i], type: n.t, x: n.x, y: n.y, rot: n.rot || 0,
+                closed: !!n.closed, powered: false
+            })),
+            wires: m.fils.map(([a, b], i) => ({ id: 'w_' + base + '_' + i, from: ids[a], to: ids[b] }))
+        };
+        this.activeNodeId = null;
+        this.currentTool = 'select';
+        this.resetToolsUI();
+        const btnMain = this.widgetEl && this.widgetEl.querySelector('.circ-tool-btn[data-tool="select"]');
+        if (btnMain) {
+            btnMain.style.background = '#0984e3'; btnMain.style.color = 'white';
+            btnMain.style.border = 'none'; btnMain.classList.add('active');
+        }
+        this.saveHistory();
+        this.simulateCircuit();
+        this.render();
+        if (typeof showToast === 'function') showToast('Modèle posé : ' + m.nom);
     },
 
     alignNodes: function () {
