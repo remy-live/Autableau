@@ -286,7 +286,7 @@ module.exports = async function (browser) {
     r.verifie('l\'explorateur s\'ouvre dans une fenêtre déplaçable',
         enLocal.fenetre && enLocal.deplacable, JSON.stringify(enLocal));
     r.verifie('et tient dans l\'écran', enLocal.dansEcran, JSON.stringify(enLocal));
-    r.egal('il propose l\'ordinateur et les nuages', enLocal.sources, ['ordi', 'drive', 'nextcloud']);
+    r.egal('il propose l\'ordinateur et les nuages', enLocal.sources, ['ordi', 'drive', 'nextcloud', 'dropbox']);
     r.verifie('en local, il s\'ouvre sur « Mon ordinateur » et sa zone de dépôt', enLocal.depot, JSON.stringify(enLocal));
     r.egal('Drive, lui, s\'annonce indisponible', enLocal.disponible, false);
 
@@ -307,10 +307,6 @@ module.exports = async function (browser) {
         await new Promise(r => setTimeout(r, 200));
         const f = document.getElementById('explorateur');
         const hauteurPleine = f.getBoundingClientRect().height;
-        document.getElementById('exp-reduire').click();
-        const reduite = f.getBoundingClientRect().height;
-        document.getElementById('exp-reduire').click();
-        const rendue = f.getBoundingClientRect().height;
 
         // on redimensionne comme le ferait la poignée
         Explorateur.etat.w = 820; Explorateur.etat.h = 560;
@@ -319,17 +315,67 @@ module.exports = async function (browser) {
         const apresTaille = f.getBoundingClientRect();
         document.getElementById('exp-fermer').click();      // la fermeture enregistre la géométrie
         return {
-            hauteurPleine, reduite, rendue,
+            hauteurPleine,
             largeur: Math.round(apresTaille.width), hauteur: Math.round(apresTaille.height),
             memoire: JSON.parse(localStorage.getItem('board_explorateur') || '{}')
         };
     });
-    r.verifie('la fenêtre se réduit à son bandeau',
-        fenetre.reduite < 70 && fenetre.reduite < fenetre.hauteurPleine, JSON.stringify(fenetre));
-    r.verifie('et se rouvre à sa taille', fenetre.rendue > 200, JSON.stringify(fenetre));
+    r.verifie('la fenêtre s\'ouvre à une taille utile', fenetre.hauteurPleine > 200, JSON.stringify(fenetre));
     r.verifie('elle est dimensionnable', fenetre.largeur === 820 && fenetre.hauteur === 560, JSON.stringify(fenetre));
     r.verifie('sa géométrie est retenue d\'une fois sur l\'autre',
         fenetre.memoire.w === 820 || fenetre.memoire.h === 560, JSON.stringify(fenetre.memoire));
+
+    // --- RÉDUIRE L'EXPLORATEUR : IL VA DANS LE DOCK ---
+    const reduction = await page.evaluate(async () => {
+        await ouvrirExplorateur();
+        await new Promise(r => setTimeout(r, 300));
+        const f = () => document.getElementById('explorateur');
+        const ouvert = getComputedStyle(f()).display;
+        document.getElementById('exp-reduire').click();
+        await new Promise(r => setTimeout(r, 200));
+        const icone = document.querySelector('#dock .dock-item[data-fenetre="explorateur"]');
+        const reduit = { fenetre: getComputedStyle(f()).display, icone: !!icone };
+        if (icone) icone.click();
+        await new Promise(r => setTimeout(r, 350));
+        const rouvert = {
+            fenetre: getComputedStyle(f()).display,
+            icone: !!document.querySelector('#dock .dock-item[data-fenetre="explorateur"]')
+        };
+        // Fermer ne doit pas laisser d'icône derrière soi
+        document.getElementById('exp-reduire').click();
+        await new Promise(r => setTimeout(r, 150));
+        await ouvrirExplorateur();
+        await new Promise(r => setTimeout(r, 250));
+        document.getElementById('exp-fermer').click();
+        await new Promise(r => setTimeout(r, 150));
+        const apresFermeture = !!document.querySelector('#dock .dock-item[data-fenetre="explorateur"]');
+        return { ouvert, reduit, rouvert, apresFermeture };
+    });
+    r.egal('la fenêtre s\'ouvre', reduction.ouvert, 'flex');
+    r.egal('réduire la range : la fenêtre disparaît', reduction.reduit.fenetre, 'none');
+    r.verifie('et une icône apparaît dans le dock du bas', reduction.reduit.icone, JSON.stringify(reduction));
+    r.egal('cliquer l\'icône la rouvre', reduction.rouvert.fenetre, 'flex');
+    r.verifie('et l\'icône disparaît du dock', !reduction.rouvert.icone, JSON.stringify(reduction));
+    r.verifie('fermer ne laisse pas d\'icône derrière soi', !reduction.apresFermeture, JSON.stringify(reduction));
+
+    // --- PARCOURIR SON ORDINATEUR DANS LA FENÊTRE ---
+    const ordi = await page.evaluate(async () => {
+        await ouvrirExplorateur('ordi');
+        await new Promise(r => setTimeout(r, 300));
+        const principal = document.querySelector('#exp-depot .exp-primaire');
+        return {
+            possible: typeof window.showDirectoryPicker === 'function',
+            boutonDossier: !!document.getElementById('exp-dossier'),
+            principalEstLeDossier: !!(principal && principal.id === 'exp-dossier'),
+            note: (document.querySelector('.exp-depot-note') || {}).innerText || ''
+        };
+    });
+    r.verifie('ce navigateur sait parcourir un dossier', ordi.possible);
+    r.verifie('le bouton « parcourir ici » est proposé', ordi.boutonDossier);
+    r.verifie('et c\'est lui l\'action principale, pas la fenêtre du système',
+        ordi.principalEstLeDossier, JSON.stringify(ordi));
+    r.verifie('on annonce l\'autorisation unique du navigateur',
+        /autorisation|une fois/i.test(ordi.note), ordi.note.slice(0, 100));
 
     // --- LES DEUX FENÊTRES SUIVENT LA MÊME CHARTE ---
     const charte = await page.evaluate(async () => {
@@ -493,6 +539,29 @@ module.exports = async function (browser) {
     });
     r.verifie('en mode nuit, la fenêtre s\'assombrit', nuit.sombre, nuit.fond);
     r.verifie('mais la feuille reste du papier blanc', nuit.blanche, JSON.stringify(nuit));
+
+    // --- DROPBOX ---
+    const dbx = await page.evaluate(async () => {
+        await ouvrirExplorateur('dropbox');
+        await new Promise(r => setTimeout(r, 300));
+        return {
+            source: !!document.querySelector('.exp-source[data-source="dropbox"]'),
+            // Sous file://, Dropbox ne peut pas fonctionner et le dit
+            message: (document.getElementById('exp-corps').innerText || ''),
+            aucunSecret: !JSON.stringify(window.NuageDropbox).includes('secret')
+        };
+    });
+    r.verifie('Dropbox figure parmi les sources', dbx.source, JSON.stringify(dbx));
+    r.verifie('et explique pourquoi il ne marche pas depuis un dossier',
+        /http\(s\)/.test(dbx.message), dbx.message.slice(0, 90));
+
+    // Le fichier de configuration ne doit contenir aucun secret d'application
+    const config = await page.evaluate(() => ({
+        cleParDefaut: window.AUTABLEAU_DROPBOX_APP_KEY,
+        typeCle: typeof window.AUTABLEAU_DROPBOX_APP_KEY
+    }));
+    r.egal('aucune clé Dropbox n\'est livrée avec le dépôt', config.cleParDefaut, '');
+    r.egal('mais la place existe pour en mettre une', config.typeCle, 'string');
 
     // --- LE NUAGE : CHACUN RELIE LE SIEN ---
     const nuage = await page.evaluate(async () => {

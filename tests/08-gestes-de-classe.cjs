@@ -197,6 +197,27 @@ module.exports = async function (browser) {
     r.egal('une forme inconnue aussi', pointNu.inconnue, 'cross');
     r.verifie('et le point se dessine vraiment', pointNu.pixels > 20, `${pointNu.pixels} pixels`);
 
+    // --- LE MODE FOCUS : CHAQUE TIROIR SORT PAR SON BORD ---
+    const focus = await page.evaluate(async () => {
+        const bas = document.getElementById('bottom-drawer');
+        const haut = document.getElementById('bar-plugins');
+        const centre = (el) => { const b = el.getBoundingClientRect(); return Math.round(b.left + b.width / 2); };
+        const avant = { bas: centre(bas), hautY: haut.getBoundingClientRect().top, basY: bas.getBoundingClientRect().top };
+        toggleFocusMode();
+        await new Promise(r => setTimeout(r, 600));
+        const apres = { bas: centre(bas), hautY: haut.getBoundingClientRect().top, basY: bas.getBoundingClientRect().top };
+        const croix = document.getElementById('exit-focus-cross');
+        const sortie = !!(croix && getComputedStyle(croix).opacity === '1');
+        toggleFocusMode();
+        await new Promise(r => setTimeout(r, 600));
+        return { avant, apres, sortie, revenu: centre(bas) };
+    });
+    r.egal('le tiroir du bas reste centré en s\'effaçant', focus.apres.bas, focus.avant.bas);
+    r.verifie('il sort par le bas', focus.apres.basY > focus.avant.basY + 40, JSON.stringify(focus));
+    r.verifie('et celui du haut par le haut', focus.apres.hautY < focus.avant.hautY - 40, JSON.stringify(focus));
+    r.verifie('une croix permet de quitter le mode Focus', focus.sortie);
+    r.egal('et tout revient en place', focus.revenu, focus.avant.bas);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
 

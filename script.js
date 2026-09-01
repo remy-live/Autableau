@@ -11072,6 +11072,32 @@ function updateFloatingDockPositions() {
     // mais on la vide des forçages css 'left' et 'top'.
 }
 
+// Le dock d'en bas à gauche accueille tout ce qui est réduit. Il ne servait
+// qu'aux palettes ; une fenêtre quelconque (l'explorateur de fichiers) peut
+// désormais s'y ranger aussi, plutôt que de rester en bandeau sur le tableau.
+function rangerDansLeDock(cle, titre, icone, auClic) {
+    const dock = ensureFloatingDock();
+    let item = dock.querySelector('.dock-item[data-fenetre="' + cle + '"]');
+    if (!item) {
+        item = document.createElement('div');
+        item.className = 'dock-item';
+        item.dataset.fenetre = cle;
+        item.addEventListener('click', () => { retirerDuDock(cle); if (auClic) auClic(); });
+        dock.appendChild(item);
+    }
+    item.title = titre || 'Rouvrir';
+    item.innerHTML = '<span style="font-size:22px; line-height:1;">' + (icone || '🗂️') + '</span>';
+    dock.style.display = 'flex';
+    return item;
+}
+
+function retirerDuDock(cle) {
+    const item = document.querySelector('#dock .dock-item[data-fenetre="' + cle + '"]');
+    if (item) item.remove();
+}
+window.rangerDansLeDock = rangerDansLeDock;
+window.retirerDuDock = retirerDuDock;
+
 function dockFloatingToolbar(bar) {
     const dock = ensureFloatingDock();
     let item = dock.querySelector(`.dock-item[data-target-id='${bar.id}']`);

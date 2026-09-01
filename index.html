@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=33">
+    <link rel="stylesheet" href="style.css?v=34">
 </head>
 
 <body>
@@ -423,7 +423,19 @@
                         <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
                             sur place), Google Drive, ou votre nuage Nextcloud. Quatre présentations (liste,
-                            détails, aperçus, mosaïque), recherche et tri.</li>
+                            détails, aperçus, mosaïque), recherche et tri. Le bouton <b>—</b> la range en icône dans
+                            la barre des réductions, en bas à gauche.</li>
+                        <li><strong>Parcourir votre ordinateur sans quitter la fenêtre :</strong> dans « Ouvrir un
+                            fichier », le bouton <b>« Parcourir un dossier ici »</b>. Le navigateur demande une fois
+                            l'autorisation d'ouvrir le dossier — c'est sa fenêtre à lui, aucun site ne peut l'éviter.
+                            Ensuite tout se passe dans la fenêtre d'Au Tableau : dossiers, aperçus, recherche, tri.
+                            (Chrome et Edge le savent faire ; Firefox et Safari, non.)</li>
+                        <li><strong>Relier Dropbox :</strong> cliquez « Dropbox » dans la fenêtre d'ouverture. Il
+                            demande une <b>clé d'application</b> — sur dropbox.com/developers/apps, créez une app
+                            « Scoped access » et relevez l'<b>App key</b>. Elle identifie l'application, pas votre
+                            compte : chacun se connecte ensuite à son propre Dropbox. Ne recopiez <b>jamais</b>
+                            l'App secret, il n'a pas sa place dans une page web et n'est pas nécessaire ici.
+                            La fenêtre vous donne l'adresse exacte à déclarer dans « Redirect URIs ».</li>
                         <li><strong>Relier votre nuage (Nextcloud) :</strong> cliquez « Le nuage » dans la fenêtre
                             d'ouverture. Il demande deux choses, <b>les vôtres</b> : l'adresse WebDAV affichée en bas
                             de votre page « Fichiers », et un <b>mot de passe d'application</b>
@@ -1605,14 +1617,15 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=87"></script>
+    <script src="script.js?v=88"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=61"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
-    <script src="./lib/cloud/explorateur.js?v=3"></script>
+    <script src="./lib/cloud/explorateur.js?v=4"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
     <script src="./lib/cloud/drive.js?v=5"></script>
     <script src="./lib/cloud/nextcloud.js?v=1"></script>
+    <script src="./lib/cloud/dropbox.js?v=1"></script>
     <script>
         if (window.location.search.includes('admin=true')) {
             document.getElementById('btn-floating-record').style.display = 'flex';

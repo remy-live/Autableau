@@ -1595,8 +1595,12 @@ html {
     background: rgba(255, 255, 255, 1);
 }
 
-/* Focus mode */
-body.focus-mode .drawer,
+/* Focus mode
+   Les tiroirs sont centrés par « transform: translateX(-50%) ». Poser un
+   « transform: scale() » dessus REMPLAÇAIT ce centrage : le tiroir partait de
+   travers en s'effaçant. Chacun sort maintenant par son propre bord — celui
+   du bas vers le bas, celui du haut vers le haut, celui de droite à droite —
+   ce qui est à la fois juste et lisible. */
 body.focus-mode #dock,
 body.focus-mode .custom-toolbar,
 body.focus-mode .toolbar,
@@ -1605,6 +1609,15 @@ body.focus-mode .drawer-toggle-v {
     pointer-events: none !important;
     transform: scale(0.95);
 }
+
+body.focus-mode .drawer {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+body.focus-mode #bottom-drawer { transform: translate(-50%, 100%) !important; }
+body.focus-mode #bar-plugins.drawer-top { transform: translate(-50%, -100%) !important; }
+body.focus-mode #right-drawer { transform: translateX(100%) !important; }
 
 #exit-focus-cross {
     position: fixed;
