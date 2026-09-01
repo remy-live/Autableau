@@ -17289,7 +17289,12 @@ function renderHtmlPostits() {
                         tachesDe(o).splice(i, 1);
                         majAvancement(o); peindreListe(Math.max(0, i - 1)); saveState();
                     });
-                    texte.addEventListener('input', () => { tache.t = texte.textContent; });
+                    texte.addEventListener('input', () => {
+                        tache.t = texte.textContent;
+                        // Comme la note libre : pas d'entrée d'annulation par
+                        // frappe, mais un enregistrement temporisé.
+                        if (typeof saveAppLocal === 'function') saveAppLocal();
+                    });
                     texte.addEventListener('blur', () => {
                         tache.t = texte.textContent;
                         texte.removeAttribute('contenteditable');
@@ -17533,7 +17538,12 @@ function renderHtmlPostits() {
             body.addEventListener('input', () => {
                 const currentP = htmlPostits.find(hp => hp.id === p.id);
                 if (currentP) currentP.content = body.value;
-                // on ne saveState pas à chaque frappe sinon ça lag
+                // On n'ajoute pas une entrée d'annulation par frappe — ce
+                // serait illisible et lent. Mais il faut ENREGISTRER : sans
+                // cela, le texte ne partait sur le disque qu'au moment où l'on
+                // cliquait ailleurs, et un rechargement le perdait. Cette
+                // sauvegarde-là se temporise toute seule.
+                if (typeof saveAppLocal === 'function') saveAppLocal();
             });
             body.addEventListener('change', () => {
                 const currentP = htmlPostits.find(hp => hp.id === p.id);

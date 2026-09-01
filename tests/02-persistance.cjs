@@ -379,6 +379,60 @@ module.exports = async function (browser) {
     r.egal('avec ses tâches', relecture.lignes, 3);
     r.egal('et son avancement', relecture.compteur, '3/3');
 
+    // --- CE QU'ON TAPE DANS UN POST-IT ARRIVE-T-IL SUR LE DISQUE ? ---
+    // La saisie n'ajoutait volontairement pas d'entrée d'annulation (ce serait
+    // illisible), mais elle ne déclenchait aucun enregistrement non plus : le
+    // texte ne partait sur le disque qu'au moment où l'on cliquait ailleurs.
+    // Taper puis recharger le perdait.
+    const frappe = await page.evaluate(async () => {
+        const o = htmlPostits[0];
+        o.mode = 'texte'; o.content = '';
+        const el = document.querySelector('.html-postit');
+        if (el) el.dataset.modeAffiche = '';
+        renderHtmlPostits();
+        await new Promise(r => setTimeout(r, 100));
+
+        // On vide la file d'attente : sans cela, une sauvegarde déjà
+        // programmée par un essai précédent écrirait le texte toute seule et
+        // l'essai passerait même si la saisie n'enregistre rien.
+        await saveAppLocal(true);
+
+        const zone = document.querySelector('.html-postit-body');
+        zone.value = 'Tapé sans quitter le post-it';
+        zone.dispatchEvent(new Event('input', { bubbles: true }));   // aucun blur, aucun change
+        await new Promise(r => setTimeout(r, 2200));                  // la temporisation fait son travail
+
+        const s = await localforage.getItem('AuTableau_AutoSave');
+        const pst = s && s.pages && s.pages[currentPageIndex] && s.pages[currentPageIndex].htmlPostits;
+        const memePostit = (pst || []).find(x => x.id === o.id);
+        return { enMemoire: o.content, surLeDisque: memePostit && memePostit.content };
+    });
+    r.egal('le texte tapé est bien en mémoire', frappe.enMemoire, 'Tapé sans quitter le post-it');
+    r.egal('et il arrive sur le disque sans qu\'on ait cliqué ailleurs',
+        frappe.surLeDisque, 'Tapé sans quitter le post-it');
+
+    const frappeListe = await page.evaluate(async () => {
+        const o = htmlPostits[0];
+        o.mode = 'liste'; o.taches = [{ t: 'Avant', fait: false }];
+        const el = document.querySelector('.html-postit');
+        if (el) el.dataset.modeAffiche = '';
+        renderHtmlPostits();
+        await new Promise(r => setTimeout(r, 100));
+
+        await saveAppLocal(true);
+
+        const ligne = document.querySelector('.postit-tache-texte');
+        ligne.textContent = 'Tâche écrite';
+        ligne.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 2200));
+
+        const s = await localforage.getItem('AuTableau_AutoSave');
+        const pst = s && s.pages && s.pages[currentPageIndex] && s.pages[currentPageIndex].htmlPostits;
+        const memePostit = (pst || []).find(x => x.id === o.id);
+        return memePostit && memePostit.taches && memePostit.taches[0] && memePostit.taches[0].t;
+    });
+    r.egal('une tâche écrite arrive aussi sur le disque', frappeListe, 'Tâche écrite');
+
     // --- LA BARRE DU POST-IT ---
     // Les trois boutons de police encombraient une barre de 28 px pour un
     // réglage qu'on touche une fois par an. Le titre les remplace.
