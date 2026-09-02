@@ -289,17 +289,67 @@ module.exports = async function (browser) {
     await page.keyboard.type('Bonjour');
     await page.keyboard.press('Control+Shift+Digit4');
     await page.waitForTimeout(120);
-    const couleurEnSaisie = await page.evaluate(() => ({
-        bloc: (typeof couleurBlocSaisie !== 'undefined') ? couleurBlocSaisie : null,
-        zone: document.getElementById('wysiwyg-text').style.color,
-        actif: activeStyle.strokeColor,
-        ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
-        texte: document.getElementById('wysiwyg-text').textContent
-    }));
-    r.egal('Ctrl+Maj+4 donne la quatrième couleur au texte en cours', couleurEnSaisie.bloc, palette[3]);
-    r.egal('la zone de saisie la prend aussitôt', couleurEnSaisie.zone, 'rgb(46, 204, 113)');
+    const couleurEnSaisie = await page.evaluate(() => {
+        const z = document.getElementById('wysiwyg-text');
+        // La couleur RÉELLEMENT affichée pour « Bonjour » : c'est elle qui
+        // compte, et non le balisage — repeindre le bloc entier se faisait par
+        // le style du conteneur, invisible dans innerHTML.
+        const porteur = z.firstChild && (z.firstChild.nodeType === 3 ? z.parentElement && z.firstChild.parentElement : z.firstChild);
+        return {
+            actif: activeStyle.strokeColor,
+            pastille: getComputedStyle(document.getElementById('tt-color-dot')).backgroundColor,
+            ouverte: z.style.display === 'block',
+            texte: z.textContent,
+            rendueBonjour: getComputedStyle(porteur || z).color
+        };
+    });
+    r.egal('Ctrl+Maj+4 arme la quatrième couleur', couleurEnSaisie.actif, palette[3]);
+    r.egal('et la pastille de la barre la montre', couleurEnSaisie.pastille, 'rgb(46, 204, 113)');
     r.verifie('la saisie n\'est pas interrompue', couleurEnSaisie.ouverte);
-    r.egal('et rien n\'est tapé dans le texte', couleurEnSaisie.texte, 'Bonjour');
+    r.egal('rien n\'est tapé dans le texte', couleurEnSaisie.texte, 'Bonjour');
+    r.verifie('ce qui est déjà écrit n\'est pas repeint',
+        couleurEnSaisie.rendueBonjour !== 'rgb(46, 204, 113)', couleurEnSaisie.rendueBonjour);
+
+    // ... mais la suite de la frappe, elle, prend la couleur
+    await page.keyboard.type(' suite');
+    await page.waitForTimeout(120);
+    const apresFrappe = await page.evaluate(() => document.getElementById('wysiwyg-text').innerHTML);
+    r.verifie('la suite de la frappe prend la nouvelle couleur',
+        /2ecc71|46,\s*204,\s*113/.test(apresFrappe), apresFrappe);
+    r.verifie('et « Bonjour » reste dans la couleur d\'origine',
+        /^Bonjour/.test(apresFrappe.replace(/<[^>]*>/g, '')) && apresFrappe.indexOf('Bonjour') <
+            (apresFrappe.search(/2ecc71|46,\s*204,\s*113/) + 1 || Infinity), apresFrappe);
+
+    // La pastille suit le curseur : replacé dans « Bonjour », qui n'a pas
+    // changé de couleur, elle redevient celle-là.
+    const pastilleAuCurseur = await page.evaluate(() => {
+        const z = document.getElementById('wysiwyg-text');
+        const n = z.firstChild;
+        const r2 = document.createRange();
+        r2.setStart(n, 3); r2.collapse(true);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r2);
+        syncBadgesTexte();
+        return getComputedStyle(document.getElementById('tt-color-dot')).backgroundColor;
+    });
+    r.verifie('la pastille suit le curseur : de retour dans « Bonjour », elle quitte le vert',
+        pastilleAuCurseur !== 'rgb(46, 204, 113)', pastilleAuCurseur);
+
+    // Avec un mot surligné, elle ne va qu'à lui
+    const surligne = await page.evaluate((c) => {
+        const z = document.getElementById('wysiwyg-text');
+        const n = z.firstChild;               // le nœud « Bonjour »
+        const r2 = document.createRange();
+        r2.setStart(n, 0); r2.setEnd(n, 7);   // « Bonjour »
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r2);
+        couleurParRaccourci(3);
+        return { html: z.innerHTML,
+                 pastille: getComputedStyle(document.getElementById('tt-color-dot')).backgroundColor,
+                 attendu: c };
+    }, palette[2]);
+    r.verifie('surligné, seul le mot choisi change de couleur',
+        /f1c40f|241,\s*196,\s*15/.test(surligne.html) && /2ecc71|46,\s*204,\s*113/.test(surligne.html),
+        surligne.html);
+    r.egal('et la pastille suit le mot surligné', surligne.pastille, 'rgb(241, 196, 15)');
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
@@ -422,6 +472,39 @@ module.exports = async function (browser) {
         const t = (document.getElementById('aide-raccourcis-combines') || {}).textContent || '';
         return { t, n: RACCOURCIS_COMBINES.length };
     });
+    // L'aide se lit par onglets, sur une seule colonne
+    const onglets = await page.evaluate(() => {
+        document.getElementById('btn-help').click();
+        const barre = document.getElementById('aide-onglets');
+        const pages = Array.from(document.querySelectorAll('#aide-pages .aide-page'));
+        const visibles = () => pages.filter(p => getComputedStyle(p).display !== 'none').length;
+        const auDebut = { onglets: barre.children.length, pages: pages.length, visibles: visibles(),
+                          premierActif: barre.children[0].classList.contains('actif'),
+                          titre: barre.children[0].textContent.trim() };
+        // On change d'onglet
+        barre.children[3].click();
+        const apres = { visibles: visibles(),
+                        page4: pages[3].classList.contains('actif'),
+                        page1: pages[0].classList.contains('actif'),
+                        onglet4: barre.children[3].classList.contains('actif') };
+        // Une seule colonne : plus de grille à deux colonnes
+        const colonnes = getComputedStyle(document.getElementById('aide-pages')).gridTemplateColumns;
+        document.getElementById('help-modal').style.display = 'none';
+        return { auDebut, apres, colonnes,
+                 noms: Array.from(barre.children).map(b => b.textContent.trim()) };
+    });
+    r.egal('un onglet par rubrique de l\'aide', onglets.auDebut.onglets, onglets.auDebut.pages);
+    r.verifie('sept rubriques', onglets.auDebut.pages === 7, JSON.stringify(onglets.noms));
+    r.egal('une seule rubrique affichée à la fois', onglets.auDebut.visibles, 1);
+    r.verifie('la première est ouverte', onglets.auDebut.premierActif);
+    r.verifie('l\'onglet porte le titre de sa rubrique',
+        /Navigation/.test(onglets.auDebut.titre), onglets.auDebut.titre);
+    r.egal('changer d\'onglet garde une seule rubrique visible', onglets.apres.visibles, 1);
+    r.verifie('et c\'est la bonne',
+        onglets.apres.page4 && !onglets.apres.page1 && onglets.apres.onglet4, JSON.stringify(onglets.apres));
+    r.verifie('l\'aide n\'est plus en deux colonnes',
+        !/\d+px\s+\d+px/.test(onglets.colonnes), onglets.colonnes);
+
     r.egal('quatre combinaisons documentées', aideCombines.n, 4);
     r.verifie('et l\'aide les affiche toutes',
         /Ctrl\+Maj\+1/.test(aideCombines.t) && /Ctrl\+Maj\+F/.test(aideCombines.t)

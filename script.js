@@ -3578,7 +3578,7 @@ const RACCOURCIS_GESTES = [
 // c'est même là que la couleur sert le plus. Elles ne sont donc pas dans la
 // table des touches simples, qui elle s'efface devant la saisie.
 const RACCOURCIS_COMBINES = [
-    { touche: 'Ctrl+Maj+1 … 7', nom: 'Couleur de la palette (au texte en cours d\'écriture, sinon à l\'outil)' },
+    { touche: 'Ctrl+Maj+1 … 7', nom: 'Couleur de la palette' },
     { touche: 'Ctrl+Maj+F', nom: 'Plein écran' },
     { touche: 'Ctrl+K', nom: 'Chercher une commande' },
     { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)' }
@@ -3603,7 +3603,13 @@ const REMPLACEMENTS_TEXTE = [
     { tape: '...', donne: '…', nom: 'Points de suspension' },
     { tape: '^2', donne: '²', nom: 'Au carré' },
     { tape: '^3', donne: '³', nom: 'Au cube' }
-].sort((a, b) => b.tape.length - a.tape.length);
+];
+
+// L'ordre de la table est celui de LECTURE : le « fois » d'abord, c'est celui
+// qu'on cherche. Pour RECONNAÎTRE la frappe, il faut au contraire essayer les
+// déclencheurs les plus longs en premier, sans quoi « ^2 » ne serait jamais vu.
+const REMPLACEMENTS_PAR_LONGUEUR = REMPLACEMENTS_TEXTE
+    .slice().sort((a, b) => b.tape.length - a.tape.length);
 
 // On ne détourne pas une frappe quand l'utilisateur écrit, ni quand une
 // fenêtre est ouverte par-dessus le tableau.
@@ -3663,6 +3669,38 @@ function remplirAideRaccourcis() {
     peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES);
     peindre('aide-remplacements-texte',
         REMPLACEMENTS_TEXTE.map(r => ({ touche: r.tape, nom: `${r.donne} &nbsp;(${r.nom})` })));
+    monterLesOngletsDeLAide();
+}
+
+// Les onglets de l'aide se fabriquent depuis le titre de chaque page :
+// ajouter une rubrique, c'est ajouter une page, rien d'autre à tenir à jour.
+// Une seule est visible à la fois, et l'aide se lit sur une seule colonne.
+function monterLesOngletsDeLAide() {
+    const barre = document.getElementById('aide-onglets');
+    const pages = Array.from(document.querySelectorAll('#aide-pages .aide-page'));
+    if (!barre || !pages.length) return;
+
+    const montrer = (i) => {
+        pages.forEach((p, k) => p.classList.toggle('actif', k === i));
+        Array.from(barre.children).forEach((b, k) => b.classList.toggle('actif', k === i));
+        const boite = barre.closest('.modal-box');
+        if (boite) boite.scrollTop = 0;
+    };
+
+    // Déjà monté : on se contente de revenir au premier onglet
+    if (barre.children.length === pages.length) { montrer(0); return; }
+
+    barre.innerHTML = '';
+    pages.forEach((page, i) => {
+        const titre = page.querySelector('h3');
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'aide-onglet';
+        b.textContent = titre ? titre.textContent.trim() : `Page ${i + 1}`;
+        b.addEventListener('click', () => montrer(i));
+        barre.appendChild(b);
+    });
+    montrer(0);
 }
 
 // La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :
@@ -9796,7 +9834,7 @@ let derniereTransformation = null;
 // On passe par execCommand : la transformation entre alors dans la pile
 // d'annulation du navigateur, et Ctrl+Z la défait comme une frappe ordinaire.
 function transformerAlaFrappe(caractere) {
-    for (const r of REMPLACEMENTS_TEXTE) {
+    for (const r of REMPLACEMENTS_PAR_LONGUEUR) {
         if (r.tape[r.tape.length - 1] !== caractere) continue;
         const debut = r.tape.slice(0, -1);
         if (debut && texteAvantLeCurseur(debut.length) !== debut) continue;
@@ -9963,8 +10001,29 @@ function appliquerCouleurTexte(c) {
             if (d.removeAttribute) d.removeAttribute('color');
         });
     })) return;
+    // Curseur seul : execCommand pose la couleur SUR LA FRAPPE À VENIR, sans
+    // toucher à ce qui est déjà écrit.
     document.execCommand('foreColor', false, c);
+    if (typeof syncBadgesTexte === 'function') syncBadgesTexte();
 }
+
+// La couleur que prendra le prochain caractère tapé. Le navigateur la tient
+// à jour tout seul : after un foreColor sur un curseur seul, après un clic
+// dans un mot déjà coloré, après une flèche du clavier.
+function couleurDeSaisieCourante() {
+    if (!wysiwygText || wysiwygText.style.display !== 'block') return null;
+    let v = null;
+    try { v = document.queryCommandValue('foreColor'); } catch (e) { return null; }
+    if (!v) return null;
+    // Chrome répond en rgb(), Firefox parfois en #rrggbb : les deux vont.
+    if (/^rgba?\(/.test(v) || /^#[0-9a-f]{3,8}$/i.test(v)) return v;
+    // Certains navigateurs répondent un entier BGR
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+    const r = n & 255, g = (n >> 8) & 255, b = (n >> 16) & 255;
+    return `rgb(${r}, ${g}, ${b})`;
+}
+window.couleurDeSaisieCourante = couleurDeSaisieCourante;
 
 function appliquerPoliceSelection(font) {
     return habillerSelection(span => {
@@ -10123,6 +10182,13 @@ function syncBadgesTexte() {
         if (portion.taille) currentSize = Math.round(portion.taille);
         if (portion.police) currentFont = portion.police;
         if (portion.couleur) couleur = portion.couleur;
+    } else {
+        // Rien de surligné : la pastille montre la couleur DE CE QU'ON VA
+        // TAPER. On la demande au navigateur, qui est seul à savoir ce que le
+        // curseur porte — après un raccourci, après un clic dans un mot d'une
+        // autre couleur, ou après un simple déplacement du curseur.
+        const auCurseur = couleurDeSaisieCourante();
+        if (auCurseur) couleur = auCurseur;
     }
 
     const sizeDisplay = document.getElementById('text-size-display');
@@ -12706,10 +12772,13 @@ function couleurParRaccourci(n) {
         && wysiwygText.style.display === 'block';
     if (enSaisie) {
         if (typeof appliquerCouleurTexte === 'function') appliquerCouleurTexte(c);
-        // Sans portion surlignée, la couleur devient celle du bloc : ce qu'on
-        // tapera ensuite la reprend, sans avoir à recliquer.
+        // La couleur ne va QU'À la portion surlignée, ou à ce qui reste à
+        // taper — jamais à ce qui est déjà écrit. Repeindre le bloc entier
+        // (wysiwygText.style.color) changeait toute la phrase alors qu'on ne
+        // voulait colorer que le mot suivant. Le bloc ne prend la couleur que
+        // s'il est encore vide : il n'y a alors rien à repeindre.
         const portion = (typeof selectionDansSaisie === 'function') ? selectionDansSaisie() : null;
-        if (!portion && typeof couleurBlocSaisie !== 'undefined') {
+        if (!portion && !wysiwygText.textContent.trim() && typeof couleurBlocSaisie !== 'undefined') {
             couleurBlocSaisie = c;
             wysiwygText.style.color = c;
         }
@@ -12717,6 +12786,7 @@ function couleurParRaccourci(n) {
         pastille.classList.add('active');
         activeStyle.strokeColor = c;
         if (typeof updateColorIndicator === 'function') updateColorIndicator();
+        if (typeof syncBadgesTexte === 'function') syncBadgesTexte();
         return true;
     }
 
@@ -12832,14 +12902,15 @@ function chiffreDeLaTouche(e) {
 // Les trois raccourcis. En capture, avant les touches d'outils : sans quoi la
 // saisie de texte les avalerait.
 window.addEventListener('keydown', (e) => {
-    // Ctrl+Maj+1 à Ctrl+Maj+7 : la couleur de la palette.
+    // Ctrl+Maj+1 à Ctrl+Maj+7 : la couleur de la palette. La touche Contrôle,
+    // y compris sur Mac — et surtout pas Cmd, que macOS garde pour ses copies
+    // d'écran (Cmd+Maj+3, 4, 5). Ctrl+Maj+chiffre, lui, est libre partout.
     // Pourquoi pas Alt+chiffre, qui serait plus court ? Parce qu'Alt compose :
     // sur un clavier Mac, Alt+1 tape « „ », et sur un AZERTY de Windows la
     // touche Alt Gr (= Ctrl+Alt) tape « ~ # { [ | ». Le raccourci écrivait
-    // alors un caractère au lieu de changer la couleur. Ctrl+Maj+chiffre, lui,
-    // ne compose rien nulle part. Ctrl+chiffre est exclu : le navigateur le
-    // garde pour changer d'onglet.
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+    // alors un caractère au lieu de changer la couleur. Ctrl+chiffre est exclu
+    // aussi : le navigateur le garde pour changer d'onglet.
+    if (e.ctrlKey && !e.metaKey && e.shiftKey && !e.altKey) {
         const n = chiffreDeLaTouche(e);
         if (n) {
             if (couleurParRaccourci(n)) { e.preventDefault(); e.stopPropagation(); }

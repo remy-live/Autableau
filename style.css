@@ -5981,6 +5981,60 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 /* L'aide : les raccourcis, en trois familles */
+/* L'aide se lit par onglets, sur une seule colonne. Deux colonnes de listes
+   serrées obligeaient à balayer la page en zigzag pour trouver une rubrique,
+   et coupaient les phrases longues en accordéon. */
+.aide-onglets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.aide-onglet {
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s, color .15s, border-color .15s;
+}
+
+.aide-onglet:hover {
+    background: rgba(128, 128, 128, 0.12);
+}
+
+.aide-onglet.actif {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.aide-page {
+    display: none;
+}
+
+.aide-page.actif {
+    display: block;
+}
+
+/* Une seule colonne : les phrases vont au bout de la ligne */
+.aide-page ul {
+    padding-left: 20px;
+    margin: 0;
+}
+
+.aide-page > h3 {
+    display: none;
+    /* le titre est déjà sur l'onglet */
+}
+
 .aide-sous-titre {
     font-size: 11px;
     font-weight: 700;
