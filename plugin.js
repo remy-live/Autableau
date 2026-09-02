@@ -30606,6 +30606,20 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             { nom: '3e trimestre', debut: (an + 1) + '-03-16', fin: (an + 1) + '-07-06' }
         ];
     },
+    // Les périodes offertes, dans l'ordre : le bilan de la classe et la fiche
+    // d'un élève proposent exactement les mêmes.
+    periodesOffertes: function () {
+        return ['tri0', 'tri1', 'tri2', 'semaine', 'mois', 'annee', 'tout'];
+    },
+    nomCourtDePeriode: function (v) {
+        if (v === 'semaine') return 'Cette semaine';
+        if (v === 'mois') return 'Ce mois-ci';
+        if (v === 'annee') return 'Cette année';
+        if (v === 'tout') return 'Depuis le début';
+        if (v === 'perso') return 'Deux dates…';
+        const t = /^tri([0-2])$/.exec(v);
+        return t ? (this.trimestres()[Number(t[1])] || {}).nom : v;
+    },
     trimestres: function () {
         const t = this.reglages.trimestres;
         if (!Array.isArray(t) || t.length !== 3) {
@@ -30621,8 +30635,15 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return i === -1 ? null : i;
     },
 
-    // Les bornes de la période choisie, au format « AAAA-MM-JJ ».
-    bornesDuBilan: function () {
+    // Les bornes d'une période, au format « AAAA-MM-JJ ». Paramétrée : la
+    // fiche d'un élève, dans « Mes classes », s'en sert aussi.
+    bornesDe: function (periode) {
+        const memoire = this.bilanPeriode;
+        if (periode !== undefined) this.bilanPeriode = periode;
+        try { return this._bornes(); } finally { this.bilanPeriode = memoire; }
+    },
+    bornesDuBilan: function () { return this._bornes(); },
+    _bornes: function () {
         const d = new Date();
         const iso = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')
             + '-' + String(x.getDate()).padStart(2, '0');
@@ -30649,7 +30670,12 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return { debut: '', fin: '' };            // depuis le début
     },
 
-    nomDeLaPeriode: function () {
+    nomDeLaPeriode: function (periode) {
+        const memoire = this.bilanPeriode;
+        if (periode !== undefined) this.bilanPeriode = periode;
+        try { return this._nomPeriode(); } finally { this.bilanPeriode = memoire; }
+    },
+    _nomPeriode: function () {
         const b = this.bornesDuBilan();
         const jj = (s) => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
         if (this.bilanPeriode === 'tout') return 'depuis le début';
@@ -30697,15 +30723,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     htmlBilan: function () {
         const classe = this.classeCourante();
         const lignes = this.lignesDuBilan();
-        const nomPeriode = (v) => {
-            if (v === 'semaine') return 'Cette semaine';
-            if (v === 'mois') return 'Ce mois-ci';
-            if (v === 'annee') return "Cette année";
-            if (v === 'tout') return 'Depuis le début';
-            if (v === 'perso') return 'Deux dates…';
-            const t = /^tri([0-2])$/.exec(v);
-            return t ? (this.trimestres()[Number(t[1])] || {}).nom : v;
-        };
+        const nomPeriode = (v) => this.nomCourtDePeriode(v);
         const p = (v) => `<button class="pts-bilan-periode" data-v="${v}"
                 style="border:1px solid ${this.bilanPeriode === v ? '#0984e3' : '#dfe6e9'};
                        background:${this.bilanPeriode === v ? '#0984e3' : '#fff'};

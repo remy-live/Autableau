@@ -4574,7 +4574,9 @@ body.dark-mode {
        pas tout seul, et la date longue avec l'heure était tronquée. */
     width: auto;
     min-width: 150px;
-    max-width: min(560px, calc(100vw - 360px));
+    /* Simple garde-fou : c'est le JS qui calcule la place réellement libre,
+       et elle dépend du mode Focus, où les barres s'effacent. */
+    max-width: calc(100vw - 24px);
     transition: all 0.2s;
     cursor: pointer;
     text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
@@ -6839,12 +6841,127 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 /* Le seul ascenseur de la colonne. min-height:0 est indispensable :
    sans lui, un enfant flex refuse de descendre sous sa hauteur de
    contenu et la liste repousse tout le reste hors de la fenêtre. */
+/* La liste d'élèves se range en COLONNES. En une seule, onze élèves sur
+   vingt-cinq tenaient à l'écran : on cherchait un nom au lieu de le
+   désigner. Les colonnes se font et se défont avec la largeur. */
 #class-manager-modal #cm-students-list {
     flex: 1 1 auto;
     min-height: 120px;
     overflow-y: auto;
     margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+    gap: 3px 8px;
+    align-content: start;
 }
+
+#class-manager-modal .cm-student-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 5px;
+    border-radius: 7px;
+    background: var(--bg);
+    cursor: pointer;
+    min-width: 0;
+}
+
+#class-manager-modal .cm-student-row:hover {
+    background: var(--accent-soft, rgba(108, 92, 231, 0.1));
+}
+
+#class-manager-modal .cm-poignee {
+    color: var(--muted);
+    font-size: 11px;
+    cursor: grab;
+    flex: none;
+}
+
+#class-manager-modal .cm-student-row .cm-avatar {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 7px;
+    padding: 1px;
+    cursor: pointer;
+    line-height: 0;
+    flex: none;
+}
+
+#class-manager-modal .cm-student-row .cm-nom {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Une icône ne reste affichée que si elle porte un ÉTAT ; les autres
+   attendent le survol. Cent icônes pâles ne disaient plus rien. */
+#class-manager-modal .cm-outil {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 1px 2px;
+    line-height: 1;
+    flex: none;
+    opacity: 0;
+    transition: opacity .12s;
+}
+
+#class-manager-modal .cm-outil.porte-un-etat {
+    opacity: 1;
+}
+
+#class-manager-modal .cm-student-row:hover .cm-outil,
+#class-manager-modal .cm-student-row:focus-within .cm-outil {
+    opacity: 0.55;
+}
+
+#class-manager-modal .cm-student-row .cm-outil:hover {
+    opacity: 1;
+}
+
+/* Au doigt, il n'y a pas de survol : les outils restent visibles. */
+@media (hover: none) {
+    #class-manager-modal .cm-outil {
+        opacity: 0.45;
+    }
+}
+
+/* ---- La fiche d'un élève ---- */
+#class-manager-modal .cm-fiche { display:flex; flex-direction:column; gap:12px; overflow-y:auto; min-height:0; padding-right:4px; text-align:left; }
+#class-manager-modal .cm-fiche-bloc { text-align:left; }
+#class-manager-modal .cm-fiche-tete { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+#class-manager-modal .cm-fiche-qui { display:flex; align-items:center; gap:9px; font-size:16px; }
+#class-manager-modal .cm-fiche-absent { font-size:11px; font-weight:700; color:#e17055;
+    background:rgba(225,112,85,0.14); border-radius:999px; padding:2px 8px; }
+#class-manager-modal .cm-fiche-periodes { display:flex; flex-wrap:wrap; gap:5px; }
+#class-manager-modal .cm-fiche-periode { border:1px solid var(--border); background:transparent; color:var(--ink);
+    border-radius:999px; padding:4px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
+#class-manager-modal .cm-fiche-periode.actif { background:var(--accent); border-color:var(--accent); color:#fff; }
+#class-manager-modal .cm-fiche-quand { font-size:11.5px; color:var(--muted); margin-top:-6px; }
+#class-manager-modal .cm-tuiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(88px, 1fr)); gap:7px; }
+#class-manager-modal .cm-tuile { display:flex; flex-direction:column; align-items:center; gap:1px;
+    padding:9px 6px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+#class-manager-modal .cm-tuile b { font-size:20px; line-height:1.1; }
+#class-manager-modal .cm-tuile span { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+#class-manager-modal .cm-fiche-titre { font-size:10.5px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--muted); margin-bottom:5px; }
+#class-manager-modal .cm-fiche-badges { display:flex; flex-wrap:wrap; gap:6px; }
+#class-manager-modal .cm-fiche-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+    border-radius:999px; padding:3px 11px 3px 4px; font-size:12px; background:var(--bg); }
+#class-manager-modal .cm-fiche-ligne { display:flex; align-items:center; gap:8px; padding:4px 0;
+    font-size:12.5px; border-top:1px solid var(--border); }
+#class-manager-modal .cm-fiche-ligne:first-of-type { border-top:none; }
+#class-manager-modal .cm-fiche-quoi { min-width:110px; }
+#class-manager-modal .cm-fiche-dates { flex:1; text-align:right; color:var(--muted); font-size:11.5px; }
+#class-manager-modal .cm-fiche-rien { font-size:12px; color:var(--muted); }
+#class-manager-modal .cm-fiche textarea { width:100%; border:1px solid var(--border); border-radius:8px;
+    padding:7px 9px; font:inherit; font-size:12.5px; resize:vertical; background:var(--bg); color:var(--ink); }
+
 
 #class-manager-modal .cm-appel {
     display: flex;

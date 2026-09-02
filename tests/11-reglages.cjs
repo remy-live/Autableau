@@ -110,7 +110,12 @@ module.exports = async function (browser) {
     r.verifie('un titre trop long s\'arrête à la place disponible',
         tresLong.dansEcran && tresLong.large <= 580, JSON.stringify(tresLong));
 
-    // En mode Focus, les barres s'effacent : le titre a plus de place
+    // En mode Focus, les barres s'effacent : le titre a plus de place. Cela
+    // ne se voit que sur un écran étroit — au large, le plafond décide.
+    await page.setViewportSize({ width: 720, height: 800 });
+    await page.evaluate(() => ajusterLargeurDuTitre());
+    await page.waitForTimeout(200);
+    const etroit = await mesurerLeTitre();
     await page.evaluate(() => {
         document.body.classList.add('focus-mode');
         ajusterLargeurDuTitre();
@@ -118,7 +123,10 @@ module.exports = async function (browser) {
     await page.waitForTimeout(200);
     const enFocus = await mesurerLeTitre();
     r.verifie('en mode Focus, le titre respire : les barres sont parties',
-        enFocus.large > tresLong.large, `focus ${enFocus.large} px, normal ${tresLong.large} px`);
+        enFocus.large > etroit.large, `focus ${enFocus.large} px, normal ${etroit.large} px`);
+    r.verifie('et il ne sort pas de l\'écran pour autant', enFocus.dansEcran,
+        JSON.stringify(enFocus));
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     await page.evaluate(() => {
         document.body.classList.remove('focus-mode');

@@ -14180,6 +14180,16 @@ window.ClassesStore = ClassesStore;
 //   p : point bonus   m : point malus   b : badge (v = son identifiant)
 //   o : oubli (v = son motif)           a : absence
 // ===================================================
+// Un nom d'élève part dans des attributs HTML : les guillemets et les
+// chevrons doivent y être neutralisés, sinon un « O'Brien » ou un « <3 »
+// casse l'infobulle — ou pire, la ligne entière.
+function echapperTexte(t) {
+    return String(t === undefined || t === null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+window.echapperTexte = echapperTexte;
+
 const Journal = {
     jour() {
         const d = new Date();
@@ -14825,7 +14835,9 @@ async function openClassManagerModal() {
 
     const box = document.createElement('div');
     box.className = 'modal-box';
-    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 720px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover);';
+    // 720 px donnaient une seule colonne d'élèves et des noms coupés ; à 980,
+    // la classe entière tient en deux ou trois colonnes, noms complets.
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 980px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover);';
 
     modal.appendChild(box);
     document.body.appendChild(modal);
@@ -14836,7 +14848,10 @@ async function openClassManagerModal() {
     const state = {
         classes: await ClassesStore.loadAll(),
         selectedId: null,
-        dragIndex: null
+        dragIndex: null,
+        // La fiche ouverte, et la période qu'on y regarde
+        ficheEleve: null,
+        fichePeriode: null
     };
     // Ce qu'on est en train de lire : le texte, et les choix faits dessus
     const etatImport = { texte: '', separateur: null, colonnes: null,
@@ -14867,23 +14882,43 @@ async function openClassManagerModal() {
 
         let detailHtml = `<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--muted); font-size:13px;">Sélectionnez ou créez une classe</div>`;
 
+        // La fiche d'un élève prend la place du détail de la classe : le
+        // tableau du bilan dit la classe, la fiche dit l'élève — et c'est
+        // elle qu'on ouvre devant des parents.
+        if (selected && state.ficheEleve) {
+            const e = (selected.students || []).find(x => x.id === state.ficheEleve);
+            if (e) {
+                box.querySelector('#cm-detail').innerHTML = ficheDeLEleve(selected, e, state.fichePeriode);
+                attachEvents();
+                return;
+            }
+            state.ficheEleve = null;
+        }
+
         if (selected) {
+            // Les lignes se rangent en colonnes (voir la grille dans style.css) :
+            // en une seule, onze élèves tenaient à l'écran sur vingt-cinq, et
+            // l'on cherchait un nom au lieu de le désigner.
+            //
+            // Une icône ne s'affiche en permanence que si elle porte un ÉTAT
+            // (absent, mémo écrit, premier rang). Les autres attendent le
+            // survol — et restent visibles au doigt, où il n'y a pas de survol.
+            const outil = (etat) => 'cm-outil' + (etat ? ' porte-un-etat' : '');
             const studentsHtml = (selected.students || []).map((s, idx) => `
                 <div class="cm-student-row${s.absent ? ' absent' : ''}" draggable="true" data-idx="${idx}"
-                     style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; background:var(--bg); margin-bottom:4px; cursor:grab;">
-                    <span style="color:var(--muted); font-size:12px;">⠿</span>
-                    <button class="cm-avatar" data-idx="${idx}" title="Changer l'avatar de ${s.name}"
-                            style="border:1px solid var(--border); background:#fff; border-radius:8px; padding:2px; cursor:pointer; line-height:0; flex:none;">${AvatarsEleves.svg(s, 30)}</button>
-                    <span class="cm-nom" style="flex:1; font-size:13px; text-align:left;">${s.name}</span>
-                    <button class="cm-memo" data-idx="${idx}"
-                            title="${s.memo ? s.memo.replace(/"/g, '&quot;') : 'Noter quelque chose sur ' + s.name}"
-                            style="border:none; background:none; cursor:pointer; font-size:13px; opacity:${s.memo ? '1' : '0.22'};">📝</button>
-                    <button class="cm-presence" data-idx="${idx}"
-                            title="${s.absent ? s.name + ' est noté absent — cliquer pour le remettre présent' : "Noter " + s.name + " absent aujourd'hui"}"
-                            style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.absent ? '1' : '0.28'};">${s.absent ? '🚫' : '✓'}</button>
-                    <button class="cm-toggle-front" data-idx="${idx}" title="Prioritaire 1er rang"
-                            style="border:none; background:none; cursor:pointer; font-size:14px; opacity:${s.frontRow ? '1' : '0.25'};">⭐</button>
-                    <button class="cm-del-student" data-idx="${idx}" style="border:none; background:none; cursor:pointer; color:var(--muted); font-size:14px;">🗑️</button>
+                     data-tooltip="Voir la fiche de ${echapperTexte(s.name)}">
+                    <span class="cm-poignee">⠿</span>
+                    <button class="cm-avatar" data-idx="${idx}" data-tooltip="Changer l'avatar de ${echapperTexte(s.name)}"
+                            >${AvatarsEleves.svg(s, 26)}</button>
+                    <span class="cm-nom">${s.name}</span>
+                    <button class="${outil(s.memo)} cm-memo" data-idx="${idx}"
+                            data-tooltip="${s.memo ? echapperTexte(s.memo) : 'Noter quelque chose sur ' + echapperTexte(s.name)}">📝</button>
+                    <button class="${outil(s.absent)} cm-presence" data-idx="${idx}"
+                            data-tooltip="${s.absent ? echapperTexte(s.name) + ' est noté absent — toucher pour le remettre présent' : "Noter " + echapperTexte(s.name) + " absent aujourd'hui"}">${s.absent ? '🚫' : '✓'}</button>
+                    <button class="${outil(s.frontRow)} cm-toggle-front" data-idx="${idx}"
+                            data-tooltip="Prioritaire au premier rang">⭐</button>
+                    <button class="cm-outil cm-del-student" data-idx="${idx}"
+                            data-tooltip="Retirer ${echapperTexte(s.name)} de la classe">🗑️</button>
                 </div>
             `).join('') || `<div style="font-size:12px; color:var(--muted); padding:8px;">Aucun élève. Ajoutez-en ou importez une liste.</div>`;
 
@@ -14921,7 +14956,7 @@ async function openClassManagerModal() {
                         ${Appel.absents(selected).length
                             ? ` — mis de côté aujourd'hui : ni tirage, ni groupes.
                                 <button id="cm-tous-presents">Tous présents</button>`
-                            : ' · ✓ pour noter une absence · ⭐ pour le 1er rang'}
+                            : ' · touchez un élève pour sa fiche'}
                     </span>
                     <label title="Remplacer les initiales par des visages dessinés">
                         <input type="checkbox" id="cm-avatars" ${AvatarsEleves.actifs ? 'checked' : ''}> Avatars
@@ -14992,7 +15027,7 @@ async function openClassManagerModal() {
             </div>` : ''}
             <div id="cm-restauration" style="display:none; margin-bottom:12px;"></div>
             <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column;">
+                <div style="width:172px; flex-shrink:0; display:flex; flex-direction:column;">
                     <button id="cm-new-class" class="btn-action primary" style="margin-bottom:10px; padding:8px;">+ Nouvelle classe</button>
                     <div style="overflow-y:auto; flex:1;">${listHtml}</div>
                 </div>
@@ -15314,6 +15349,43 @@ async function openClassManagerModal() {
                 render();
             };
         });
+
+        // --- La fiche d'un élève ---
+        // Un clic sur la LIGNE l'ouvre ; un clic sur l'un de ses boutons fait
+        // ce que dit le bouton, et rien d'autre.
+        box.querySelectorAll('.cm-student-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('button')) return;
+                const c = getSelected(); if (!c) return;
+                const el = (c.students || [])[parseInt(row.dataset.idx)];
+                if (!el) return;
+                state.ficheEleve = el.id;
+                if (!state.fichePeriode) {
+                    // On ouvre sur le trimestre où l'on est : c'est celui dont
+                    // on parle, pas « ce mois-ci » ni le premier de la liste.
+                    const outils = outilsDesPoints();
+                    const tri = (outils && outils.trimestreCourant) ? outils.trimestreCourant() : null;
+                    state.fichePeriode = (tri === null || tri === undefined) ? 'annee' : ('tri' + tri);
+                }
+                render();
+            });
+        });
+        const retour = box.querySelector('#cm-fiche-retour');
+        if (retour) retour.onclick = () => { state.ficheEleve = null; render(); };
+        box.querySelectorAll('.cm-fiche-periode').forEach(b => {
+            b.onclick = () => { state.fichePeriode = b.dataset.p; render(); };
+        });
+        const memoFiche = box.querySelector('#cm-fiche-memo');
+        if (memoFiche) {
+            memoFiche.addEventListener('change', () => {
+                const c = getSelected(); if (!c) return;
+                const el = (c.students || []).find(x => x.id === state.ficheEleve); if (!el) return;
+                const t = memoFiche.value.trim();
+                if (t) el.memo = t; else delete el.memo;
+                c.updatedAt = Date.now();
+                persist();
+            });
+        }
 
         // Réordonner par glisser-déposer
         box.querySelectorAll('.cm-student-row').forEach(row => {
@@ -18338,6 +18410,131 @@ async function mettreDansLePressePapiers(texte) {
     } catch (e) { return false; }
 }
 window.mettreDansLePressePapiers = mettreDansLePressePapiers;
+
+// ===================================================
+// LA FICHE D'UN ÉLÈVE
+// Le bilan de la classe donne un tableau ; devant des parents, ou pour
+// préparer un conseil, c'est UN élève qu'on regarde. La fiche relit le même
+// journal daté : points, badges, oublis, absences — avec leurs dates, qui
+// sont ce qui rend la chose discutable plutôt qu'assénée.
+// ===================================================
+function outilsDesPoints() {
+    try { return (window.PluginManager && PluginManager.plugins
+        && PluginManager.plugins.classPointsTool) || null; } catch (e) { return null; }
+}
+
+function jjmm(d) {
+    return d ? d.slice(8, 10) + '/' + d.slice(5, 7) : '';
+}
+
+// Ce qui s'est passé pour cet élève sur la période demandée.
+function releveDeLEleve(eleve, periode) {
+    const outils = outilsDesPoints();
+    const bornes = (outils && outils.bornesDe) ? outils.bornesDe(periode) : { debut: '', fin: '' };
+    const traces = Journal.entre(eleve, bornes.debut, bornes.fin);
+    const compte = (t, v) => traces.filter(x => x.t === t && (v === undefined || x.v === v)).length;
+    const dates = (t, v) => traces.filter(x => x.t === t && (v === undefined || x.v === v)).map(x => x.d);
+
+    const motifs = (outils && outils.TYPES_OUBLI) ? outils.TYPES_OUBLI : [];
+    const oublis = motifs.map(m => ({ type: m, n: compte('o', m.id), dates: dates('o', m.id) }))
+        .filter(x => x.n > 0);
+
+    // Les badges : ceux qu'il porte, et le nombre de fois reçus sur la période
+    const portes = (eleve.badges || []).map(id => (outils && outils.badgeParId) ? outils.badgeParId(id) : null)
+        .filter(Boolean);
+    const badges = portes.map(b => ({ badge: b, dates: dates('b', b.id) }));
+
+    return {
+        bornes,
+        plus: compte('p'), moins: compte('m'),
+        solde: compte('p') - compte('m'),
+        etoiles: (eleve.pts && eleve.pts.etoiles) || 0,
+        badges, oublis,
+        totalOublis: compte('o'),
+        absences: compte('a'), datesAbsences: dates('a'),
+        vide: !traces.length
+    };
+}
+
+function ficheDeLEleve(classe, eleve, periode) {
+    const outils = outilsDesPoints();
+    const p = periode || (outils && outils.bilanPeriode) || 'annee';
+    const r = releveDeLEleve(eleve, p);
+    const nom = echapperTexte(eleve.name || '');
+    const periodes = (outils && outils.periodesOffertes) ? outils.periodesOffertes() : ['annee', 'tout'];
+    const nomPeriode = (v) => (outils && outils.nomCourtDePeriode) ? outils.nomCourtDePeriode(v) : v;
+    const enToutesLettres = (outils && outils.nomDeLaPeriode) ? outils.nomDeLaPeriode(p) : '';
+
+    const tuile = (valeur, libelle, couleur) => `<div class="cm-tuile">
+        <b style="color:${couleur};">${valeur}</b><span>${libelle}</span></div>`;
+
+    const listeDates = (ds) => ds.length > 6
+        ? ds.slice(0, 6).map(jjmm).join(', ') + ' … (+' + (ds.length - 6) + ')'
+        : ds.map(jjmm).join(', ');
+
+    return `<div class="cm-fiche">
+        <div class="cm-fiche-tete">
+            <button id="cm-fiche-retour" class="btn-action secondary">← ${echapperTexte(classe.name || 'la classe')}</button>
+            <div class="cm-fiche-qui">
+                ${AvatarsEleves.svg(eleve, 34)}
+                <b>${nom}</b>
+                ${eleve.absent ? '<span class="cm-fiche-absent">absent aujourd\'hui</span>' : ''}
+            </div>
+        </div>
+
+        <div class="cm-fiche-periodes">
+            ${periodes.map(v => `<button class="cm-fiche-periode${v === p ? ' actif' : ''}" data-p="${v}">${echapperTexte(nomPeriode(v))}</button>`).join('')}
+        </div>
+        <div class="cm-fiche-quand">${echapperTexte(enToutesLettres)}</div>
+
+        <div class="cm-tuiles">
+            ${tuile(r.plus || '—', 'bonus', '#00b894')}
+            ${tuile(r.moins || '—', 'malus', '#d63031')}
+            ${tuile((r.solde > 0 ? '+' : '') + (r.solde || '—'), 'solde', r.solde < 0 ? '#d63031' : '#2d3436')}
+            ${tuile(r.etoiles || '—', 'étoiles', '#f39c12')}
+            ${tuile(r.totalOublis || '—', 'oublis', r.totalOublis ? '#e17055' : '#b2bec3')}
+            ${tuile(r.absences || '—', 'absences', r.absences ? '#e17055' : '#b2bec3')}
+        </div>
+
+        <div class="cm-fiche-bloc">
+            <div class="cm-fiche-titre">Récompenses</div>
+            ${r.badges.length ? `<div class="cm-fiche-badges">${r.badges.map(x => `
+                <span class="cm-fiche-badge" data-tooltip="${echapperTexte(x.badge.nom)}${x.dates.length ? ' — ' + listeDates(x.dates) : ''}">
+                    ${outils && outils.iconeBadge ? outils.iconeBadge(x.badge, 20) : ''}
+                    ${echapperTexte(x.badge.nom)}${x.dates.length > 1 ? ` <b>×${x.dates.length}</b>` : ''}
+                </span>`).join('')}</div>`
+            : `<div class="cm-fiche-rien">Aucun badge pour l'instant.</div>`}
+        </div>
+
+        <div class="cm-fiche-bloc">
+            <div class="cm-fiche-titre">Oublis</div>
+            ${r.oublis.length ? r.oublis.map(x => `<div class="cm-fiche-ligne">
+                    ${outils && outils.iconeBadge ? outils.iconeBadge(x.type, 18) : ''}
+                    <span class="cm-fiche-quoi">${echapperTexte(x.type.nom)}</span>
+                    <b style="color:${x.type.couleur};">${x.n}</b>
+                    <span class="cm-fiche-dates">${listeDates(x.dates)}</span>
+                </div>`).join('')
+            : `<div class="cm-fiche-rien">Aucun oubli sur cette période.</div>`}
+        </div>
+
+        <div class="cm-fiche-bloc">
+            <div class="cm-fiche-titre">Absences</div>
+            ${r.absences ? `<div class="cm-fiche-ligne">
+                    <span class="cm-fiche-quoi">Jours manqués</span>
+                    <b style="color:#e17055;">${r.absences}</b>
+                    <span class="cm-fiche-dates">${listeDates(r.datesAbsences)}</span>
+                </div>`
+            : `<div class="cm-fiche-rien">Aucune absence relevée à l'appel.</div>`}
+        </div>
+
+        <div class="cm-fiche-bloc">
+            <div class="cm-fiche-titre">Ce que vous avez noté</div>
+            <textarea id="cm-fiche-memo" rows="3" placeholder="Un mot sur ${nom}, pour s'en souvenir…">${echapperTexte(eleve.memo || '')}</textarea>
+        </div>
+    </div>`;
+}
+window.ficheDeLEleve = ficheDeLEleve;
+window.releveDeLEleve = releveDeLEleve;
 
 // Le fichier de classes seul : ce que l'on emporte sur une clé, ce que l'on
 // dépose sur son nuage, ce que l'on rouvre sur l'ordinateur de la maison.

@@ -1133,8 +1133,17 @@ module.exports = async function (browser) {
         return {
             debord, debordEtroit,
             visibles,
-            listeDefile: liste.scrollHeight > liste.clientHeight + 1,
-            detailDefile: detail.scrollHeight > detail.clientHeight + 1,
+            // La liste défile-t-elle QUAND il le faut ? On la rétrécit pour
+            // forcer le débordement : c'est elle qui doit défiler, pas le
+            // panneau entier — sinon les réglages du bas partent avec.
+            defilement: (() => {
+                const avant = liste.style.maxHeight;
+                liste.style.maxHeight = '60px';
+                const r = { liste: liste.scrollHeight > liste.clientHeight + 1,
+                            detail: detail.scrollHeight > detail.clientHeight + 1 };
+                liste.style.maxHeight = avant;
+                return r;
+            })(),
             replies: replis.length,
             toutesRepliees: replis.every(d => !d.open),
             // Les réglages restent atteignables une fois dépliés
@@ -1153,8 +1162,10 @@ module.exports = async function (browser) {
         miseEnPage.debordEtroit, []);
     r.verifie('au moins huit élèves sont visibles d\'un coup',
         miseEnPage.visibles >= 8, 'visibles : ' + miseEnPage.visibles);
-    r.verifie('la liste est bien ce qui défile', miseEnPage.listeDefile);
-    r.verifie('et elle est le seul ascenseur de la colonne', !miseEnPage.detailDefile);
+    r.verifie('c\'est la liste qui défile quand elle déborde, pas le panneau',
+        miseEnPage.defilement.liste && !miseEnPage.defilement.detail,
+        JSON.stringify(miseEnPage.defilement));
+    r.verifie('et elle est le seul ascenseur de la colonne', !miseEnPage.defilement.detail);
     r.egal('deux réglages sont repliés par défaut', miseEnPage.replies, 2);
     r.verifie('et ils le sont vraiment', miseEnPage.toutesRepliees);
     r.verifie('dépliés, ils rendent leurs commandes', miseEnPage.separationDispo);
@@ -1696,6 +1707,135 @@ module.exports = async function (browser) {
     r.verifie('qui dit le risque et la date', /ce navigateur/.test(bandeau.texte)
         && /jamais/.test(bandeau.texte), bandeau.texte.slice(0, 140));
     r.verifie('et « Plus tard » le referme', !bandeau.apres);
+
+    // --- « MES CLASSES » : LA CLASSE ENTIÈRE, ET LA FICHE D'UN ÉLÈVE ---
+    // En une seule colonne, onze élèves sur vingt-cinq tenaient à l'écran :
+    // on cherchait un nom au lieu de le désigner.
+    const NOMS = ['ALMEIDA Alicia', 'ANGARD Lily', 'BENALI Yanis', 'BERTRAND Maël', 'CHEN Mei-Lin',
+        'DA SILVA Enzo', 'DUBOIS Camille', 'DUPONT Léa', 'FAURE Noah', 'GARCIA Inès', 'GIRARD Tom',
+        'HAMDI Sofiane', 'JACQUET Manon', 'KOWALSKI Adam', 'LAMBERT Jules', 'LEROY Chloé',
+        'MARTIN Hugo', 'MOREAU Éva', 'NGUYEN Kim', 'PETIT Louise', 'RENAUD Théo', 'ROUX Sarah',
+        'SIMON Lucas', 'TRAORÉ Awa', 'VINCENT Alice'];
+    await page.evaluate(async (noms) => {
+        await ClassesStore.saveAll([{ id: 'cgrande', name: '4e A', updatedAt: Date.now(),
+            students: noms.map((n, i) => ({ id: 'g' + i, name: n })) }]);
+        await ClassesStore.ecrireMaintenant();
+        ClassesStore._cache = null;
+        const p = PluginManager.plugins.classPointsTool;
+        p.classes = await ClassesStore.loadAll(); p.classeId = 'cgrande'; p.lireBadges();
+        const e = p.classeCourante().students[3];
+        for (let i = 0; i < 7; i++) p.compter(e.id, 1);
+        p.compter(e.id, -1); p.compter(e.id, -1);
+        e.pts.etoiles = 2;
+        p.poserBadge(e.id, 'b-entraide', true);
+        p.poserBadge(e.id, 'b-idee', true);
+        p.noterOubli(e.id, 'materiel'); p.noterOubli(e.id, 'materiel'); p.noterOubli(e.id, 'carnet');
+        e.journal.push({ d: '2001-05-05', t: 'p' });      // une trace très ancienne
+        Journal.noterUneFoisParJour(e, 'a');
+        await p.sauverMaintenant();
+        const ancienne = document.getElementById('class-manager-modal');
+        if (ancienne) ancienne.remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 500));
+        document.querySelectorAll('.cm-class-item')[0].click();
+        await new Promise(r => setTimeout(r, 300));
+    }, NOMS);
+    await page.waitForTimeout(400);
+
+    const grille = await page.evaluate(() => {
+        const lignes = Array.from(document.querySelectorAll('.cm-student-row'));
+        const zone = document.getElementById('cm-students-list');
+        const zr = zone.getBoundingClientRect();
+        const dansLEcran = lignes.filter(l => {
+            const b = l.getBoundingClientRect();
+            return b.top >= zr.top - 1 && b.bottom <= zr.bottom + 1;
+        });
+        return {
+            eleves: lignes.length,
+            visibles: dansLEcran.length,
+            colonnes: new Set(lignes.map(l => Math.round(l.getBoundingClientRect().left))).size,
+            // Les noms ne doivent pas être rognés par leur propre boîte
+            rognes: lignes.filter(l => {
+                const n = l.querySelector('.cm-nom');
+                return n && n.scrollWidth > n.clientWidth + 1;
+            }).length,
+            // La légende du bas a laissé la place : l'infobulle dit tout
+            legende: (document.querySelector('.cm-appel') || {}).textContent || '',
+            infobulles: lignes[0].querySelectorAll('[data-tooltip]').length
+        };
+    });
+    r.egal('vingt-cinq élèves dans la liste', grille.eleves, 25);
+    r.egal('et toute la classe tient à l\'écran, sans défiler', grille.visibles, 25);
+    r.verifie('la liste se range en colonnes', grille.colonnes >= 2, String(grille.colonnes));
+    r.egal('aucun nom n\'est coupé', grille.rognes, 0);
+    r.verifie('la légende des icônes a cédé la place aux infobulles',
+        !/pour noter une absence/.test(grille.legende) && grille.infobulles >= 4,
+        JSON.stringify({ legende: grille.legende.slice(0, 60), infobulles: grille.infobulles }));
+
+    // Cliquer un élève ouvre sa fiche
+    const fiche = await page.evaluate(async () => {
+        const lignes = document.querySelectorAll('.cm-student-row');
+        lignes[3].click();
+        await new Promise(r => setTimeout(r, 250));
+        const f = document.querySelector('.cm-fiche');
+        const tuiles = Array.from(document.querySelectorAll('.cm-tuile'))
+            .map(t => t.querySelector('b').textContent.trim() + ' ' + t.querySelector('span').textContent.trim());
+        return {
+            ouverte: !!f,
+            nom: (document.querySelector('.cm-fiche-qui b') || {}).textContent,
+            tuiles,
+            badges: Array.from(document.querySelectorAll('.cm-fiche-badge')).map(b => b.textContent.trim()),
+            oublis: Array.from(document.querySelectorAll('.cm-fiche-bloc')).map(b => b.textContent.replace(/\s+/g, ' ').trim()),
+            periodes: document.querySelectorAll('.cm-fiche-periode').length,
+            active: (document.querySelector('.cm-fiche-periode.actif') || {}).textContent,
+            memo: !!document.getElementById('cm-fiche-memo')
+        };
+    });
+    r.verifie('cliquer un élève ouvre sa fiche', fiche.ouverte);
+    r.egal('et c\'est bien la sienne', fiche.nom, 'BERTRAND Maël');
+    r.verifie('la fiche compte ses points, ses étoiles, ses oublis et ses absences',
+        fiche.tuiles.join(' | ').includes('7 bonus') && fiche.tuiles.join(' | ').includes('2 malus')
+        && fiche.tuiles.join(' | ').includes('+5 solde') && fiche.tuiles.join(' | ').includes('2 étoiles')
+        && fiche.tuiles.join(' | ').includes('3 oublis') && fiche.tuiles.join(' | ').includes('1 absences'),
+        JSON.stringify(fiche.tuiles));
+    r.egal('ses récompenses sont nommées', fiche.badges.length, 2);
+    r.verifie('les oublis sont détaillés par motif, avec leurs dates',
+        /Matériel 2/.test(fiche.oublis.join(' ')) && /Carnet 1/.test(fiche.oublis.join(' '))
+        && /\d{2}\/\d{2}/.test(fiche.oublis.join(' ')), fiche.oublis.join(' ').slice(0, 200));
+    r.verifie('elle propose les mêmes périodes que le bilan', fiche.periodes >= 7, String(fiche.periodes));
+    r.verifie('et s\'ouvre sur le trimestre en cours',
+        /trimestre|année/i.test(fiche.active || ''), String(fiche.active));
+    r.verifie('le mot noté sur l\'élève y est modifiable', fiche.memo);
+
+    // La période filtre bien : « depuis le début » rattrape la trace de 2001
+    const parPeriode = await page.evaluate(async () => {
+        const lire = async (nom) => {
+            const b = Array.from(document.querySelectorAll('.cm-fiche-periode'))
+                .find(x => x.textContent.trim() === nom);
+            b.click();
+            await new Promise(r => setTimeout(r, 200));
+            return document.querySelector('.cm-tuile b').textContent.trim();
+        };
+        const tout = await lire('Depuis le début');
+        const semaine = await lire('Cette semaine');
+        return { tout, semaine };
+    });
+    r.egal('depuis le début, la trace de 2001 est comptée', parPeriode.tout, '8');
+    r.egal('cette semaine, non', parPeriode.semaine, '7');
+
+    // On revient à la classe
+    const retour = await page.evaluate(async () => {
+        document.getElementById('cm-fiche-retour').click();
+        await new Promise(r => setTimeout(r, 250));
+        return { fiche: !!document.querySelector('.cm-fiche'),
+                 lignes: document.querySelectorAll('.cm-student-row').length };
+    });
+    r.verifie('le retour ramène la classe', !retour.fiche && retour.lignes === 25, JSON.stringify(retour));
+
+    await page.evaluate(() => {
+        const m = document.getElementById('class-manager-modal');
+        if (m) m.remove();
+    });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
