@@ -6860,6 +6860,11 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     align-items: flex-start;
 }
 
+/* « display: flex » l'emporte sur l'attribut « hidden » : sans cette règle,
+   le voile de la palette restait en travers de la page après sa fermeture
+   et avalait tous les clics. */
+#palette-commandes[hidden] { display: none; }
+
 #palette-commandes .pal-fond {
     position: absolute;
     inset: 0;

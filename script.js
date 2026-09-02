@@ -3572,6 +3572,16 @@ const RACCOURCIS_GESTES = [
     { touche: 'E', bouton: 'btn-spot', nom: 'Projecteur (éclairer une zone)' }
 ];
 
+// Les combinaisons : elles passent PARTOUT, y compris pendant qu'on écrit —
+// c'est même là que la couleur sert le plus. Elles ne sont donc pas dans la
+// table des touches simples, qui elle s'efface devant la saisie.
+const RACCOURCIS_COMBINES = [
+    { touche: 'Alt+1 … Alt+7', nom: 'Couleur de la palette (au texte en cours d\'écriture, sinon à l\'outil)' },
+    { touche: 'Ctrl+Maj+F', nom: 'Plein écran' },
+    { touche: 'Ctrl+K', nom: 'Chercher une commande' },
+    { touche: 'Ctrl+L', nom: 'Document en pleine page (plein écran, interface effacée, mode page)' }
+];
+
 // On ne détourne pas une frappe quand l'utilisateur écrit, ni quand une
 // fenêtre est ouverte par-dessus le tableau.
 function onEcritAilleurs(e) {
@@ -3622,6 +3632,7 @@ function remplirAideRaccourcis() {
     };
     peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS);
     peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES);
+    peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES);
 }
 
 // La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :
@@ -12520,6 +12531,164 @@ window.tournerLesTraits = tournerLesTraits;
 window.etirerLesTraits = etirerLesTraits;
 window.decrocherLesTraits = decrocherLesTraits;
 window.basculerEncreAccrochee = basculerEncreAccrochee;
+
+
+// ==============================================================================
+// TROIS RACCOURCIS DE CLASSE
+// Ce qu'on fait vingt fois par heure devant les élèves doit tenir dans une
+// combinaison de touches : changer la couleur du texte qu'on écrit, passer au
+// plein écran, et mettre un document en pleine page pour le commenter.
+// ==============================================================================
+
+// Les sept pastilles du sélecteur de couleur, dans leur ordre d'affichage :
+// Alt+1 est la première, Alt+7 la dernière. On les relit dans la page plutôt
+// que de les recopier — une pastille ajoutée est utilisable le jour même.
+function pastillesDeLaPalette() {
+    return Array.from(document.querySelectorAll('#color-popover .color-grid .color-dot'));
+}
+
+function couleursDeLaPalette() {
+    return pastillesDeLaPalette().map(d => d.dataset.color).filter(Boolean);
+}
+
+// Alt+chiffre : la couleur passe au texte qu'on est en train d'écrire (à la
+// portion surlignée s'il y en a une), sinon à l'outil et aux objets choisis.
+function couleurParRaccourci(n) {
+    const pastilles = pastillesDeLaPalette();
+    const pastille = pastilles[n - 1];
+    if (!pastille) return false;
+    const c = pastille.dataset.color;
+
+    const enSaisie = typeof wysiwygText !== 'undefined' && wysiwygText
+        && wysiwygText.style.display === 'block';
+    if (enSaisie) {
+        if (typeof appliquerCouleurTexte === 'function') appliquerCouleurTexte(c);
+        // Sans portion surlignée, la couleur devient celle du bloc : ce qu'on
+        // tapera ensuite la reprend, sans avoir à recliquer.
+        const portion = (typeof selectionDansSaisie === 'function') ? selectionDansSaisie() : null;
+        if (!portion && typeof couleurBlocSaisie !== 'undefined') {
+            couleurBlocSaisie = c;
+            wysiwygText.style.color = c;
+        }
+        pastilles.forEach(d => d.classList.remove('active'));
+        pastille.classList.add('active');
+        activeStyle.strokeColor = c;
+        if (typeof updateColorIndicator === 'function') updateColorIndicator();
+        return true;
+    }
+
+    // Hors saisie, on emprunte le chemin de la pastille elle-même : elle sait
+    // déjà pousser la couleur sur les objets choisis et sur les tampons.
+    pastille.click();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+
+function basculerPleinEcran() {
+    if (!document.fullscreenElement) {
+        const p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(() => showToast('Plein écran refusé par le navigateur'));
+    } else if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => { });
+    }
+}
+
+// Le document à présenter : celui qui est sélectionné, sinon le seul document
+// posé sur la page — on ne demande pas de le désigner quand il n'y a pas
+// d'ambiguïté.
+function documentAPresenter() {
+    if (typeof documentSelectionne === 'function') {
+        const choisi = documentSelectionne();
+        if (choisi) return choisi;
+    }
+    if (typeof images === 'undefined' || typeof estUnDocumentPose !== 'function') return null;
+    const docs = images.filter(estUnDocumentPose);
+    if (docs.length === 1) return docs[0];
+    // Plusieurs : le plus grand, c'est celui qu'on regarde
+    return docs.sort((a, b) => (b.w * b.h) - (a.w * a.h))[0] || null;
+}
+
+// Cadre la vue sur un objet, avec une marge, sans toucher à l'objet lui-même.
+function cadrerSurLObjet(obj, marge) {
+    const canvas = document.getElementById('board');
+    if (!canvas || !obj) return;
+    const L = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    const m = (marge === undefined) ? 0.96 : marge;
+    zoom = Math.min(L / obj.w, H / obj.h) * m;
+    panX = L / 2 - (obj.x + obj.w / 2) * zoom;
+    panY = H / 2 - (obj.y + obj.h / 2) * zoom;
+    if (typeof syncPage === 'function') syncPage();
+}
+
+// Le geste demandé : plein écran, interface effacée, le document occupe tout
+// l'espace, et l'on est en mode page — on fait glisser la page dans son cadre
+// et la molette la zoome.
+function presenterLeDocument() {
+    const doc = documentAPresenter();
+    if (!doc) {
+        showToast("Aucun document à présenter : importez d'abord un PDF ou une image");
+        return false;
+    }
+
+    if (!document.fullscreenElement) basculerPleinEcran();
+    // Le mode Focus efface les barres ; on ne l'allume que s'il ne l'est pas
+    // déjà, pour que le raccourci ne le coupe pas en croyant l'allumer.
+    if (!document.body.classList.contains('focus-mode')
+        && typeof toggleFocusMode === 'function') toggleFocusMode();
+
+    if (typeof setMode === 'function') setMode('pointer');
+    selectedItems = [{ type: 'image', id: doc.id }];
+    modeDocument = 'page';
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+
+    // Le plein écran redimensionne la fenêtre : on cadre APRÈS, sinon on
+    // cadre sur les dimensions d'avant et le document déborde.
+    const cadrer = () => { cadrerSurLObjet(doc); if (typeof draw === 'function') draw(); };
+    cadrer();
+    setTimeout(cadrer, 250);
+
+    showToast('Document en pleine page — glissez la page, la molette la zoome');
+    return true;
+}
+
+window.basculerPleinEcran = basculerPleinEcran;
+window.presenterLeDocument = presenterLeDocument;
+window.couleurParRaccourci = couleurParRaccourci;
+window.couleursDeLaPalette = couleursDeLaPalette;
+window.pastillesDeLaPalette = pastillesDeLaPalette;
+window.cadrerSurLObjet = cadrerSurLObjet;
+window.documentAPresenter = documentAPresenter;
+
+// Les trois raccourcis. En capture, avant les touches d'outils : sans quoi la
+// saisie de texte les avalerait.
+window.addEventListener('keydown', (e) => {
+    // Alt+1 à Alt+9 : la couleur de la palette. On évite Ctrl+chiffre, que
+    // le navigateur garde pour changer d'onglet. On lit « code » et non
+    // « key » : sur un clavier Mac, Alt+1 tape « „ », pas « 1 ».
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        const m = /^Digit([1-9])$/.exec(e.code || '') || (/^[1-9]$/.test(e.key) ? [null, e.key] : null);
+        if (m) {
+            if (couleurParRaccourci(Number(m[1]))) { e.preventDefault(); e.stopPropagation(); }
+            return;
+        }
+    }
+
+    // Ctrl+Maj+F : plein écran
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault(); e.stopPropagation();
+        basculerPleinEcran();
+        return;
+    }
+
+    // Ctrl+L : le document en pleine page. Sous Windows et Linux, Chrome
+    // garde Ctrl+L pour sa barre d'adresse et ne nous le laisse pas : on
+    // écoute donc aussi Ctrl+Maj+L, qui marche partout.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'L' || e.key === 'l')) {
+        e.preventDefault(); e.stopPropagation();
+        presenterLeDocument();
+    }
+}, true);
 
 // ==============================================================================
 // PALETTE DE COMMANDES (Ctrl+K)

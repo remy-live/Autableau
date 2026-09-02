@@ -246,10 +246,125 @@ module.exports = async function (browser) {
         document.getElementById('palette-commandes').hidden);
     r.verifie('et Ctrl+K la referme aussi', bascule);
 
+    // Refermée, elle ne doit plus rien intercepter : « display: flex »
+    // l'emporte sur l'attribut « hidden », et le voile restait en travers
+    // de la page à avaler les clics.
+    const voile = await page.evaluate(() => {
+        const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        return { id: (el && el.id) || '', dansLaPalette: !!(el && el.closest('#palette-commandes')) };
+    });
+    r.verifie('et refermée, elle ne reste pas en travers de la page',
+        !voile.dansLaPalette, 'sous le curseur : ' + voile.id);
+
     // Ctrl+K ne doit pas se faire voler la touche par le raccourci d'outil
     const pasDeVol = await page.evaluate(() => mode);
     r.verifie('la touche K n\'a pas changé d\'outil au passage',
         pasDeVol !== 'freehand', 'mode : ' + pasDeVol);
+
+
+    // ==========================================================
+    // LES COMBINAISONS : couleur, plein écran, document en pleine page
+    // Elles passent PARTOUT, y compris pendant qu'on écrit — c'est même
+    // là que la couleur sert le plus.
+    // ==========================================================
+    const palette = await page.evaluate(() => couleursDeLaPalette());
+    r.verifie('la palette est relevée dans la page, pas recopiée',
+        palette.length >= 7, palette.join(' '));
+
+    // Alt+chiffre pendant la saisie d'un texte. On range d'abord le compas
+    // qu'un test précédent a posé sur le tableau : il attraperait le clic.
+    await page.evaluate(() => {
+        if (typeof activeWidgets !== 'undefined') {
+            Object.keys(activeWidgets).forEach(k => { delete activeWidgets[k]; });
+        }
+        texts.length = 0; images.length = 0; selectedItems = [];
+        setMode('text'); draw();
+    });
+    await page.mouse.click(500, 400);
+    await page.waitForTimeout(250);
+    await page.keyboard.type('Bonjour');
+    await page.keyboard.press('Alt+Digit4');
+    await page.waitForTimeout(120);
+    const couleurEnSaisie = await page.evaluate(() => ({
+        bloc: (typeof couleurBlocSaisie !== 'undefined') ? couleurBlocSaisie : null,
+        zone: document.getElementById('wysiwyg-text').style.color,
+        actif: activeStyle.strokeColor,
+        ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
+        texte: document.getElementById('wysiwyg-text').textContent
+    }));
+    r.egal('Alt+4 donne la quatrième couleur au texte en cours', couleurEnSaisie.bloc, palette[3]);
+    r.egal('la zone de saisie la prend aussitôt', couleurEnSaisie.zone, 'rgb(46, 204, 113)');
+    r.verifie('la saisie n\'est pas interrompue', couleurEnSaisie.ouverte);
+    r.egal('et rien n\'est tapé dans le texte', couleurEnSaisie.texte, 'Bonjour');
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+
+    // Hors saisie, la même touche agit sur l'outil
+    await page.keyboard.press('Alt+Digit2');
+    await page.waitForTimeout(120);
+    r.egal('hors saisie, Alt+2 change la couleur de l\'outil',
+        await page.evaluate(() => activeStyle.strokeColor), palette[1]);
+
+    // Un chiffre seul reste le raccourci d'un outil géométrique
+    await page.keyboard.press('Digit2');
+    await page.waitForTimeout(150);
+    r.egal('un chiffre SANS Alt choisit toujours son outil',
+        await page.evaluate(() => mode), 'segment');
+
+    // Le document en pleine page
+    const presentation = await page.evaluate(() => {
+        setMode('pointer');
+        images.length = 0;
+        images.push({ id: nextId++, x: 0, y: 0, w: 800, h: 1100, cx: 0, cy: 0,
+            cw: 800, ch: 1100, src: '', z: globalZ++,
+            pluginData: { id: 'pdfDoc', cle: 'x', page: 1, pages: 3 } });
+        panX = 0; panY = 0; zoom = 1;
+        document.body.classList.remove('focus-mode');
+        const ok = presenterLeDocument();
+        const c = document.getElementById('board');
+        const doc = images[0];
+        return {
+            ok, mode: modeDocument,
+            focus: document.body.classList.contains('focus-mode'),
+            choisi: selectedItems.length === 1 && selectedItems[0].id === doc.id,
+            // Le document doit tenir dans l'écran, et le remplir
+            tientDedans: doc.w * zoom <= c.clientWidth + 1 && doc.h * zoom <= c.clientHeight + 1,
+            remplit: Math.max(doc.w * zoom / c.clientWidth, doc.h * zoom / c.clientHeight) > 0.9,
+            centre: Math.abs((doc.x + doc.w / 2) * zoom + panX - c.clientWidth / 2) < 2
+        };
+    });
+    r.verifie('Ctrl+L présente le document', presentation.ok);
+    r.egal('en mode page, pour pouvoir naviguer dedans', presentation.mode, 'page');
+    r.verifie('avec l\'interface effacée', presentation.focus);
+    r.verifie('le document est choisi', presentation.choisi);
+    r.verifie('il tient dans l\'écran', presentation.tientDedans);
+    r.verifie('et le remplit', presentation.remplit);
+    r.verifie('centré', presentation.centre);
+
+    // Sans document, on le dit plutôt que de ne rien faire
+    const sansDoc = await page.evaluate(() => {
+        images.length = 0; selectedItems = [];
+        return presenterLeDocument();
+    });
+    r.verifie('sans document, la présentation ne fait rien', sansDoc === false);
+
+    // Les combinaisons sont écrites dans l'aide
+    const aideCombines = await page.evaluate(() => {
+        remplirAideRaccourcis();
+        const t = (document.getElementById('aide-raccourcis-combines') || {}).textContent || '';
+        return { t, n: RACCOURCIS_COMBINES.length };
+    });
+    r.egal('quatre combinaisons documentées', aideCombines.n, 4);
+    r.verifie('et l\'aide les affiche toutes',
+        /Alt\+1/.test(aideCombines.t) && /Ctrl\+Maj\+F/.test(aideCombines.t)
+        && /Ctrl\+K/.test(aideCombines.t) && /Ctrl\+L/.test(aideCombines.t), aideCombines.t);
+
+    await page.evaluate(() => {
+        document.body.classList.remove('focus-mode');
+        images.length = 0; texts.length = 0; selectedItems = [];
+        modeDocument = 'cadre'; setMode('pointer'); draw();
+    });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
