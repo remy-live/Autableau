@@ -335,25 +335,37 @@ module.exports = async function (browser) {
     r.egal('un chiffre SANS modificateur choisit toujours son outil',
         await page.evaluate(() => mode), 'segment');
 
-    // Le document en pleine page
+    // Le document en pleine page. On part d'un document ROGNÉ, comme il l'est
+    // dès qu'on a réglé son cadre ou zoomé la page dedans : c'est là que la
+    // présentation coupait les bords en plein milieu d'un mot.
     const presentation = await page.evaluate(() => {
         setMode('pointer');
         images.length = 0;
-        images.push({ id: nextId++, x: 0, y: 0, w: 800, h: 1100, cx: 0, cy: 0,
-            cw: 800, ch: 1100, src: '', z: globalZ++,
+        // Un canevas fait un document d'essai que le tableau sait dessiner ;
+        // on lui pose les mesures naturelles que le code va relire.
+        const feuille = document.createElement('canvas');
+        feuille.width = 1600; feuille.height = 1131;
+        feuille.naturalWidth = 1600; feuille.naturalHeight = 1131;
+        imageCache['doc-essai'] = feuille;
+        images.push({ id: nextId++, x: 0, y: 0, w: 800, h: 700,
+            cx: 300, cy: 200, cw: 1000, ch: 875, src: 'doc-essai', z: globalZ++,
             pluginData: { id: 'pdfDoc', cle: 'x', page: 1, pages: 3 } });
         panX = 0; panY = 0; zoom = 1;
         document.body.classList.remove('focus-mode');
+        const rogneAvant = documentEstRogne(images[0]);
         const ok = presenterLeDocument();
         const c = document.getElementById('board');
         const doc = images[0];
         return {
-            ok, mode: modeDocument,
+            ok, mode: modeDocument, rogneAvant,
             focus: document.body.classList.contains('focus-mode'),
             choisi: selectedItems.length === 1 && selectedItems[0].id === doc.id,
-            // Le document doit tenir dans l'écran, et le remplir
+            rogneApres: documentEstRogne(doc),
+            // Le cadre a repris les proportions de la page
+            proportions: Math.abs(doc.h / doc.w - 1131 / 1600) < 0.001,
+            // Le document doit tenir dans l'écran, et le remplir vraiment
             tientDedans: doc.w * zoom <= c.clientWidth + 1 && doc.h * zoom <= c.clientHeight + 1,
-            remplit: Math.max(doc.w * zoom / c.clientWidth, doc.h * zoom / c.clientHeight) > 0.9,
+            remplit: Math.max(doc.w * zoom / c.clientWidth, doc.h * zoom / c.clientHeight) > 0.999,
             centre: Math.abs((doc.x + doc.w / 2) * zoom + panX - c.clientWidth / 2) < 2
         };
     });
@@ -361,9 +373,28 @@ module.exports = async function (browser) {
     r.egal('en mode page, pour pouvoir naviguer dedans', presentation.mode, 'page');
     r.verifie('avec l\'interface effacée', presentation.focus);
     r.verifie('le document est choisi', presentation.choisi);
+    r.verifie('le document était bien rogné au départ', presentation.rogneAvant);
+    r.verifie('la présentation montre la page ENTIÈRE, bords compris',
+        !presentation.rogneApres, JSON.stringify(presentation));
+    r.verifie('et le cadre reprend les proportions de la page', presentation.proportions);
     r.verifie('il tient dans l\'écran', presentation.tientDedans);
-    r.verifie('et le remplit', presentation.remplit);
+    r.verifie('et le remplit jusqu\'aux bords', presentation.remplit, JSON.stringify(presentation));
     r.verifie('centré', presentation.centre);
+
+    // Le cœur « Soutenir le projet » ne reste pas devant la classe.
+    // Il s'efface en fondu : on laisse la transition se terminer.
+    await page.waitForTimeout(400);
+    const cacheEnFocus = await page.evaluate(() =>
+        getComputedStyle(document.getElementById('donate-float-btn')).opacity === '0');
+    await page.evaluate(() => document.body.classList.remove('focus-mode'));
+    await page.waitForTimeout(400);
+    const coeur = {
+        cache: cacheEnFocus,
+        visibleHorsFocus: await page.evaluate(() =>
+            getComputedStyle(document.getElementById('donate-float-btn')).opacity !== '0')
+    };
+    r.verifie('le bouton « Soutenir » s\'efface en mode Focus', coeur.cache);
+    r.verifie('et revient quand on en sort', coeur.visibleHorsFocus);
 
     // La touche « D » au clavier : c'est elle le vrai raccourci, Ctrl+L
     // n'étant pas récupérable au navigateur.

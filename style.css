@@ -1656,6 +1656,13 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
     transition: all 0.3s;
 }
 
+/* Le cœur « Soutenir le projet » n'a rien à faire devant une classe : le mode
+   Focus efface tout le reste, il partait seul avec sa pastille rouge. */
+body.focus-mode #donate-float-btn {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 body.focus-mode #exit-focus-cross {
     opacity: 1;
     pointer-events: auto;

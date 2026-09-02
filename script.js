@@ -12783,15 +12783,32 @@ function presenterLeDocument() {
     if (typeof setMode === 'function') setMode('pointer');
     selectedItems = [{ type: 'image', id: doc.id }];
     modeDocument = 'page';
+
+    // On part toujours de la page ENTIÈRE. Sans cela, on présentait le
+    // document tel qu'il était cadré : bords rognés, page zoomée dans son
+    // cadre — les colonnes de gauche et de droite coupées en plein milieu
+    // d'un mot. Le cadre reprend au passage les proportions de la page, et
+    // « occuper tout l'espace » veut alors bien dire ce qu'il dit.
+    // Le geste est annulable (Ctrl+Z) et le bouton « page entière » de la
+    // barre du document mène au même état : rien n'est perdu.
+    const rogne = typeof documentEstRogne === 'function' && documentEstRogne(doc);
+    if (rogne && typeof montrerToutLeDocument === 'function') {
+        montrerToutLeDocument(doc);
+        if (typeof saveState === 'function') saveState();
+    }
     if (typeof majBarreDocument === 'function') majBarreDocument();
 
     // Le plein écran redimensionne la fenêtre : on cadre APRÈS, sinon on
     // cadre sur les dimensions d'avant et le document déborde.
-    const cadrer = () => { cadrerSurLObjet(doc); if (typeof draw === 'function') draw(); };
+    // Marge 1 : la page touche les bords. Les 4 % qu'on laisse ailleurs se
+    // voyaient comme deux bandes blanches — « pas tout à fait plein écran ».
+    const cadrer = () => { cadrerSurLObjet(doc, 1); if (typeof draw === 'function') draw(); };
     cadrer();
     setTimeout(cadrer, 250);
 
-    showToast('Document en pleine page — glissez la page, la molette la zoome');
+    showToast(rogne
+        ? 'Page entière en plein écran — glissez la page, la molette la zoome'
+        : 'Document en pleine page — glissez la page, la molette la zoome');
     return true;
 }
 
