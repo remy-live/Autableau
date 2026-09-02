@@ -20,15 +20,23 @@ async function chargerInterface(page, id) {
     await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
     await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 20000 });
     await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
-    // Le démarrage réécrit les barres (migration, remise en place) : sous
-    // charge, un délai fixe lisait parfois l'état d'avant. On attend que les
-    // barres ne bougent plus, ce qui est le vrai signal.
-    await page.waitForFunction(() => {
-        const vu = JSON.stringify(getStoredFloatingToolbars());
-        const stable = window.__barresVues === vu;
-        window.__barresVues = vu;
-        return stable && document.querySelectorAll('#custom-bars-container > *').length > 0;
-    }, { timeout: 20000, polling: 400 });
+    // Le démarrage réécrit les barres (migration, remise en place). Attendre
+    // qu'elles « ne bougent plus » ne suffit pas : sur une machine lente, les
+    // barres de l'interface PRÉCÉDENTE tiennent en place assez longtemps pour
+    // paraître stables, et l'on mesurait alors l'état d'avant — 22 outils là
+    // où l'interface demandée en a 5. On attend donc l'état ATTENDU, c'est-à-
+    // dire les barres du modèle que l'on vient de charger.
+    await page.waitForFunction((x) => {
+        const modele = savedInterfaces.find(i => i.id === x);
+        const voulues = (modele && modele.data && modele.data.toolbars) || [];
+        const barres = getStoredFloatingToolbars();
+        if (barres.length !== voulues.length) return false;
+        const memes = voulues.every((b, k) => barres[k] && barres[k].id === b.id
+            && (barres[k].items || []).length === (b.items || []).length);
+        if (!memes) return false;
+        // ... et qu'elles soient vraiment dessinées, s'il y en a
+        return !voulues.length || document.querySelectorAll('#custom-bars-container > *').length > 0;
+    }, id, { timeout: 20000, polling: 200 });
 }
 
 module.exports = async function (browser) {
