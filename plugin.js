@@ -30006,21 +30006,50 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // Une petite collection prête à l'emploi : de quoi commencer sans rien
     // inventer, et qui donne le modèle de ce qu'on peut créer soi-même.
     BADGES_LIVRES: [
-        { id: 'b-entraide', icone: '🤝', nom: 'Entraide', couleur: '#00b894' },
-        { id: 'b-effort', icone: '💪', nom: 'Bel effort', couleur: '#e17055' },
-        { id: 'b-participe', icone: '🙋', nom: 'Participation', couleur: '#0984e3' },
-        { id: 'b-soigne', icone: '✍️', nom: 'Travail soigné', couleur: '#6c5ce7' },
-        { id: 'b-devoirs', icone: '📚', nom: 'Devoirs faits', couleur: '#00cec9' },
-        { id: 'b-calme', icone: '🤫', nom: 'Calme', couleur: '#636e72' },
-        { id: 'b-idee', icone: '💡', nom: 'Bonne idée', couleur: '#fdcb6e' },
-        { id: 'b-progres', icone: '📈', nom: 'Beaux progrès', couleur: '#55efc4' },
-        { id: 'b-service', icone: '🧹', nom: 'Service rendu', couleur: '#a29bfe' },
-        { id: 'b-champion', icone: '🏆', nom: 'Champion du jour', couleur: '#f39c12' }
+        { id: 'b-entraide', icone: 'entraide', nom: 'Entraide', couleur: '#00b894' },
+        { id: 'b-effort', icone: 'flamme', nom: 'Bel effort', couleur: '#e17055' },
+        { id: 'b-participe', icone: 'parole', nom: 'Participation', couleur: '#0984e3' },
+        { id: 'b-soigne', icone: 'crayon', nom: 'Travail soigné', couleur: '#6c5ce7' },
+        { id: 'b-devoirs', icone: 'livre', nom: 'Devoirs faits', couleur: '#00cec9' },
+        { id: 'b-calme', icone: 'lune', nom: 'Calme', couleur: '#636e72' },
+        { id: 'b-idee', icone: 'ampoule', nom: 'Bonne idée', couleur: '#fdcb6e' },
+        { id: 'b-progres', icone: 'progres', nom: 'Beaux progrès', couleur: '#00b894' },
+        { id: 'b-service', icone: 'main-coeur', nom: 'Service rendu', couleur: '#a29bfe' },
+        { id: 'b-champion', icone: 'coupe', nom: 'Champion du jour', couleur: '#f39c12' }
     ],
 
-    EMOJIS_BADGE: ['⭐', '🏅', '🥇', '🎖️', '🏆', '💎', '🔥', '⚡', '🌟', '✨',
-        '🤝', '💪', '🙋', '✍️', '📚', '🤫', '💡', '📈', '🧹', '🎯',
-        '🎨', '🎵', '🔬', '🧮', '🗺️', '🌱', '🐝', '🦉', '🚀', '❤️'],
+    // Des icônes dessinées plutôt que des émojis : elles sont nettes à toutes
+    // les tailles, elles se teignent de la couleur du badge, et elles se
+    // ressemblent entre elles — un émoji est dessiné par le système et change
+    // d'un appareil à l'autre. Chacune garde un émoji jumeau : les messages
+    // et le tampon posé sur le tableau sont du texte, pas du dessin.
+    // Le trait est blanc sur une pastille de couleur, en 24 × 24.
+    GLYPHES_BADGE: {
+        'entraide': { emoji: '🤝', d: '<path d="M10 14.2a4 4 0 0 1 0-5.6l1.4-1.4a4 4 0 1 1 5.6 5.6l-1 1"/><path d="M14 9.8a4 4 0 0 1 0 5.6l-1.4 1.4a4 4 0 1 1-5.6-5.6l1-1"/>' },
+        'flamme': { emoji: '🔥', d: '<path d="M12 3c3 3 4.6 5.6 4.6 8.6a4.6 4.6 0 0 1-9.2 0C7.4 9 9 6.6 12 3z"/><path d="M12 20a2.4 2.4 0 0 0 2.4-2.4c0-1.5-2.4-3.4-2.4-3.4s-2.4 1.9-2.4 3.4A2.4 2.4 0 0 0 12 20z"/>' },
+        'parole': { emoji: '💬', d: '<rect x="4" y="5" width="16" height="11" rx="3"/><path d="M9.5 16L7 20.5 12.5 16"/>' },
+        'crayon': { emoji: '✍️', d: '<path d="M4.5 19.5l1-4L16 5a2.1 2.1 0 0 1 3 3L8.5 18.5z"/><path d="M14 7l3 3"/>' },
+        'livre': { emoji: '📚', d: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v14H6.5A2.5 2.5 0 0 0 4 19.5z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H19v4H6.5A2.5 2.5 0 0 1 4 19.5z"/>' },
+        'lune': { emoji: '🌙', d: '<path d="M20 14.6A8.2 8.2 0 0 1 9.4 4 8 8 0 1 0 20 14.6z"/>' },
+        'ampoule': { emoji: '💡', d: '<path d="M8.8 14.8a6 6 0 1 1 6.4 0V17H8.8z"/><path d="M9.6 20.2h4.8"/>' },
+        'progres': { emoji: '📈', d: '<path d="M3.5 17l5-5 4 4 8-8"/><path d="M15.5 8h5v5"/>' },
+        'main-coeur': { emoji: '🤲', d: '<path d="M12 11.6s-3.2-2.1-3.2-4.2A1.9 1.9 0 0 1 12 6a1.9 1.9 0 0 1 3.2 1.4c0 2.1-3.2 4.2-3.2 4.2z"/><path d="M4 14.5c3 4.4 13 4.4 16 0"/>' },
+        'coupe': { emoji: '🏆', d: '<path d="M8 3.5h8V9a4 4 0 0 1-8 0z"/><path d="M8 5.5H5v1.2a3 3 0 0 0 3 3"/><path d="M16 5.5h3v1.2a3 3 0 0 1-3 3"/><path d="M12 13v4"/><path d="M8.5 20.5h7"/>' },
+        'etoile': { emoji: '⭐', d: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>' },
+        'eclair': { emoji: '⚡', d: '<path d="M13.2 3L5.5 14h5.6l-1 7 7.7-11h-5.6z"/>' },
+        'cible': { emoji: '🎯', d: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>' },
+        'fusee': { emoji: '🚀', d: '<path d="M12 3c3 2.6 4.5 6 4.5 9L12 17l-4.5-5c0-3 1.5-6.4 4.5-9z"/><path d="M9.2 17l-2.2 4 3.2-1.6M14.8 17l2.2 4-3.2-1.6"/><circle cx="12" cy="10" r="1.6"/>' },
+        'musique': { emoji: '🎵', d: '<path d="M9 18V6.2L19 4v11.5"/><circle cx="6.8" cy="18" r="2.2"/><circle cx="16.8" cy="15.5" r="2.2"/>' },
+        'palette': { emoji: '🎨', d: '<path d="M12 4a8 8 0 0 0 0 16c1.6 0 1.4-2 2.6-2H17a3 3 0 0 0 3-3c0-6-3.6-11-8-11z"/><circle cx="9" cy="9.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="14" cy="8.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="14.5" r="1.1" fill="currentColor" stroke="none"/>' },
+        'loupe': { emoji: '🔎', d: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.6-4.6"/>' },
+        'feuille': { emoji: '🌱', d: '<path d="M20 4C10 4 4 9 4 16c0 2 1 3.8 1 3.8S11 19 14 16s6-8 6-12z"/><path d="M6 19.5c3-5.5 7-8.5 11-9.5"/>' },
+        'horloge': { emoji: '⏰', d: '<circle cx="12" cy="12" r="8"/><path d="M12 7.2V12l3.4 2"/>' },
+        'pouce': { emoji: '👍', d: '<path d="M4 11h3v9H4z"/><path d="M7 11l4-7a2 2 0 0 1 3 2.2L13 11h5.2a2 2 0 0 1 2 2.5l-1.3 5A2 2 0 0 1 17 20H7z"/>' },
+        'coeur': { emoji: '❤️', d: '<path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 4.6-7 9-7 9z"/>' },
+        'medaille': { emoji: '🏅', d: '<circle cx="12" cy="15" r="5"/><path d="M9 10.4L6.5 3h11L15 10.4"/>' },
+        'drapeau': { emoji: '🚩', d: '<path d="M6 21V3.5"/><path d="M6 5h11l-2 3.6L17 12.2H6z"/>' },
+        'equipe': { emoji: '👥', d: '<circle cx="9" cy="9" r="3"/><path d="M3.6 19a5.4 5.4 0 0 1 10.8 0"/><circle cx="17.2" cy="10" r="2.3"/><path d="M15.8 15.4A4.4 4.4 0 0 1 21 19"/>' }
+    },
 
     PALETTE_BADGE: ['#0984e3', '#00b894', '#6c5ce7', '#e17055', '#d63031',
         '#f39c12', '#00cec9', '#a29bfe', '#636e72', '#e84393'],
@@ -30073,6 +30102,55 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return (eleve.badges || []).map(id => this.badgeParId(id)).filter(Boolean);
     },
 
+    // ---------- Les icônes ----------
+    // Un badge enregistré avant les icônes dessinées porte un émoji dans son
+    // champ « icone » : on le rend tel quel plutôt que de le perdre.
+    glypheDe: function (icone) {
+        return this.GLYPHES_BADGE[icone] || null;
+    },
+    // La version texte, pour les messages et le tampon posé sur le tableau,
+    // qui sont du texte et non du dessin.
+    emojiDe: function (icone) {
+        const g = this.glypheDe(icone);
+        return g ? g.emoji : (icone || '⭐');
+    },
+    // L'icône dessinée. « pleine » : le trait en couleur sur fond transparent
+    // (pour une pastille déjà colorée) ; sinon la pastille de couleur avec le
+    // trait en blanc.
+    iconeBadge: function (badge, taille, options) {
+        const o = options || {};
+        const g = this.glypheDe(badge.icone);
+        const t = taille || 20;
+        if (!g) {
+            return `<span style="font-size:${Math.round(t * 0.72)}px; line-height:${t}px;">${badge.icone || '⭐'}</span>`;
+        }
+        const trait = o.couleurDuTrait || (o.pleine ? (badge.couleur || '#2d3436') : '#fff');
+        const fond = o.pleine ? 'none' : (badge.couleur || '#2d3436');
+        return `<svg viewBox="0 0 24 24" width="${t}" height="${t}" style="display:block; flex-shrink:0;"
+                     aria-hidden="true" focusable="false">
+            ${fond === 'none' ? '' : `<circle cx="12" cy="12" r="12" fill="${fond}"/>`}
+            <g transform="translate(12 12) scale(${o.pleine ? 1 : 0.78}) translate(-12 -12)"
+               fill="none" stroke="${trait}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               color="${trait}">${g.d}</g>
+        </svg>`;
+    },
+
+    // La même icône, mais posée dans un SVG déjà ouvert : c'est ce qu'il faut
+    // au tampon du tableau des points, qui est un SVG d'un seul tenant.
+    glypheSVGBrut: function (badge, x, y, taille) {
+        const g = this.glypheDe(badge.icone);
+        const t = taille || 16;
+        if (!g) {
+            return `<text x="${x}" y="${y + t * 0.8}" font-size="${t}">${badge.icone || '⭐'}</text>`;
+        }
+        const k = t / 24;
+        return `<g transform="translate(${x} ${y})">
+            <circle cx="${t / 2}" cy="${t / 2}" r="${t / 2}" fill="${badge.couleur || '#2d3436'}"/>
+            <g transform="scale(${k}) translate(12 12) scale(0.78) translate(-12 -12)"
+               fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               color="#ffffff">${g.d}</g></g>`;
+    },
+
     // Blanc ou noir sur la pastille, selon que la couleur est sombre ou claire
     texteSur: function (couleur) {
         const m = /^#([0-9a-f]{6})$/i.exec(String(couleur || ''));
@@ -30095,7 +30173,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (!eleve.badges) eleve.badges = [];
         if (this.porteLeBadge(eleve, badgeId)) {
             if (!silencieux && typeof showToast === 'function') {
-                showToast(`${badge.icone} ${eleve.name} a déjà « ${badge.nom} »`);
+                showToast(`${this.emojiDe(badge.icone)} ${eleve.name} a déjà « ${badge.nom} »`);
             }
             return false;
         }
@@ -30103,7 +30181,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         this.retenir({ t: 'badge', classeId: classe.id, eleveId, badgeId, pose: true });
         this.sauver(); this.rendre();
         if (!silencieux && typeof showToast === 'function') {
-            showToast(`${badge.icone} « ${badge.nom} » pour ${eleve.name}`);
+            showToast(`${this.emojiDe(badge.icone)} « ${badge.nom} » pour ${eleve.name}`);
         }
         return true;
     },
@@ -30118,7 +30196,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         this.sauver(); this.rendre();
         const badge = this.badgeParId(badgeId);
         if (!silencieux && badge && typeof showToast === 'function') {
-            showToast(`${badge.icone} « ${badge.nom} » retiré à ${eleve.name}`);
+            showToast(`${this.emojiDe(badge.icone)} « ${badge.nom} » retiré à ${eleve.name}`);
         }
         return true;
     },
@@ -30361,11 +30439,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const portes = this.badgesDe(eleve);
         const montres = portes.slice(0, 4);
         const chips = portes.length ? `<div class="pts-chips" style="display:flex; gap:2px; justify-content:center; flex-wrap:wrap; margin-top:4px;">`
-            + montres.map(b => `<span class="pts-chip" data-badge="${b.id}" title="${this.echapper(b.nom)} — cliquer pour retirer"
-                    style="background:${b.couleur}; color:${this.texteSur(b.couleur)}; border-radius:7px; padding:0 4px;
-                           font-size:11px; line-height:16px; cursor:pointer;">${b.icone}</span>`).join('')
-            + (portes.length > 4 ? `<span title="${this.echapper(portes.slice(4).map(b => b.nom).join(', '))}"
-                    style="font-size:10px; color:#636e72; line-height:16px;">+${portes.length - 4}</span>` : '')
+            // « data-tooltip » et non « title » : l'infobulle maison s'ouvre au
+            // survol ET au doigt (une tape suffit sur tablette, où il n'y a
+            // pas de survol), et elle est lisible de loin.
+            + montres.map(b => `<span class="pts-chip" data-badge="${b.id}"
+                    data-tooltip="${this.echapper(b.nom)} — toucher pour retirer"
+                    style="display:inline-flex; align-items:center; cursor:pointer;">${this.iconeBadge(b, 18)}</span>`).join('')
+            + (portes.length > 4 ? `<span data-tooltip="${this.echapper(portes.slice(4).map(b => b.nom).join(', '))}"
+                    style="font-size:10px; color:#636e72; line-height:18px;">+${portes.length - 4}</span>` : '')
             + `</div>` : '';
 
         // L'absent du jour reste sur la grille, pâli : il garde ses points et
@@ -30399,12 +30480,13 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <div id="pts-rail" style="flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow-x:auto; padding:2px 0;">`
             + (liste.length ? liste.map(b => {
                 const arme = this.badgeArme === b.id;
-                return `<button class="pts-badge" data-id="${b.id}" title="${this.echapper(b.nom)} — cliquer pour le prendre, ou le glisser sur un élève"
-                    style="flex-shrink:0; display:flex; align-items:center; gap:5px; border:2px solid ${arme ? '#2d3436' : b.couleur};
+                return `<button class="pts-badge" data-id="${b.id}"
+                    data-tooltip="${this.echapper(b.nom)} — toucher pour le prendre, ou le glisser sur un élève"
+                    style="flex-shrink:0; display:flex; align-items:center; gap:6px; border:2px solid ${arme ? '#2d3436' : b.couleur};
                            background:${arme ? b.couleur : '#fff'}; color:${arme ? this.texteSur(b.couleur) : '#2d3436'};
-                           border-radius:14px; padding:4px 10px; font-size:12px; cursor:grab; touch-action:none; white-space:nowrap;
+                           border-radius:14px; padding:3px 11px 3px 4px; font-size:12px; cursor:grab; touch-action:none; white-space:nowrap;
                            ${arme ? 'box-shadow:0 0 0 2px rgba(45,52,54,0.15);' : ''}">
-                    <span style="font-size:14px;">${b.icone}</span>${this.echapper(b.nom)}</button>`;
+                    ${this.iconeBadge(b, 22, arme ? { couleurDuTrait: this.texteSur(b.couleur), pleine: true } : {})}${this.echapper(b.nom)}</button>`;
             }).join('')
                 : `<span style="font-size:12px; color:#b2bec3;">Aucun badge dans la bande.</span>`)
             + `</div>
@@ -30465,7 +30547,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 if (Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < 7) return;
                 fantome = document.createElement('div');
                 fantome.className = 'pts-fantome';
-                fantome.textContent = badge.icone + ' ' + badge.nom;
+                fantome.textContent = this.emojiDe(badge.icone) + ' ' + badge.nom;
                 fantome.style.cssText = 'position:fixed; z-index:100010; pointer-events:none; border-radius:14px;'
                     + `padding:4px 10px; font-size:12px; font-family:sans-serif; background:${badge.couleur};`
                     + `color:${this.texteSur(badge.couleur)}; box-shadow:0 6px 16px rgba(0,0,0,0.3);`;
@@ -30508,8 +30590,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const livre = this.BADGES_LIVRES.some(x => x.id === b.id);
         return `<div style="max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:14px;">
             <div style="display:flex; align-items:center; gap:12px;">
-                <span id="pts-badge-apercu" style="background:${b.couleur}; color:${this.texteSur(b.couleur)};
-                        border-radius:16px; padding:6px 14px; font-size:14px; white-space:nowrap;">${b.icone} ${this.echapper(b.nom) || 'Sans nom'}</span>
+                <span id="pts-badge-apercu" style="display:inline-flex; align-items:center; gap:7px;
+                        background:${b.couleur}; color:${this.texteSur(b.couleur)};
+                        border-radius:16px; padding:5px 14px 5px 6px; font-size:14px; white-space:nowrap;">
+                    <span id="pts-badge-apercu-icone" style="display:flex;">${this.iconeBadge(b, 24, { pleine: true, couleurDuTrait: this.texteSur(b.couleur) })}</span>
+                    <span id="pts-badge-apercu-nom">${this.echapper(b.nom) || 'Sans nom'}</span></span>
                 <div style="font-size:12px; color:#636e72;">${b.id ? 'Modifier ce badge' : 'Un nouveau badge pour la bande'}</div>
             </div>
             <div>
@@ -30520,14 +30605,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             </div>
             <div>
                 <label style="font-size:11px; font-weight:bold; color:#636e72;">SYMBOLE</label>
-                <div style="display:flex; align-items:flex-start; gap:8px; margin-top:5px;">
-                    <input type="text" id="pts-badge-icone" maxlength="4" value="${b.icone}"
-                           style="width:56px; text-align:center; padding:6px; border:1px solid #dfe6e9; border-radius:6px; font-size:18px;">
-                    <div style="flex:1; display:flex; flex-wrap:wrap; gap:3px;">
-                        ${this.EMOJIS_BADGE.map(e => `<button class="pts-emoji" data-v="${e}"
-                            style="border:1px solid ${e === b.icone ? '#0984e3' : '#dfe6e9'}; background:#fff; border-radius:6px;
-                                   width:28px; height:28px; font-size:15px; cursor:pointer; padding:0;">${e}</button>`).join('')}
-                    </div>
+                <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:5px;">
+                    ${Object.keys(this.GLYPHES_BADGE).map(nom => `<button class="pts-glyphe" data-v="${nom}"
+                        data-tooltip="${nom.replace(/-/g, ' ')}"
+                        style="display:flex; align-items:center; justify-content:center; padding:3px;
+                               border:2px solid ${nom === b.icone ? '#2d3436' : '#dfe6e9'}; background:#fff;
+                               border-radius:9px; cursor:pointer;">${this.iconeBadge({ icone: nom, couleur: b.couleur }, 26)}</button>`).join('')}
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                    <span style="font-size:11px; color:#636e72;">ou un émoji :</span>
+                    <input type="text" id="pts-badge-icone" maxlength="4" value="${this.glypheDe(b.icone) ? '' : this.echapper(b.icone)}"
+                           placeholder="🐝" style="width:56px; text-align:center; padding:6px; border:1px solid #dfe6e9; border-radius:6px; font-size:18px;">
                 </div>
             </div>
             <div>
@@ -30558,15 +30646,27 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const apercu = el.querySelector('#pts-badge-apercu');
 
         const rafraichir = () => {
-            apercu.textContent = b.icone + ' ' + (b.nom || 'Sans nom');
+            const cible = el.querySelector('#pts-badge-apercu-icone');
+            const titre = el.querySelector('#pts-badge-apercu-nom');
+            if (titre) titre.textContent = b.nom || 'Sans nom';
+            if (cible) cible.innerHTML = this.iconeBadge(b, 24, { pleine: true, couleurDuTrait: this.texteSur(b.couleur) });
             apercu.style.background = b.couleur;
             apercu.style.color = this.texteSur(b.couleur);
+            // Les vignettes du choix reprennent la couleur choisie
+            el.querySelectorAll('.pts-glyphe').forEach(g => {
+                g.style.borderColor = g.dataset.v === b.icone ? '#2d3436' : '#dfe6e9';
+                g.innerHTML = this.iconeBadge({ icone: g.dataset.v, couleur: b.couleur }, 26);
+            });
         };
         nom.addEventListener('input', () => { b.nom = nom.value; rafraichir(); });
-        icone.addEventListener('input', () => { b.icone = icone.value || '⭐'; rafraichir(); });
-        el.querySelectorAll('.pts-emoji').forEach(x => x.addEventListener('click', () => {
-            b.icone = x.dataset.v; icone.value = b.icone;
-            el.querySelectorAll('.pts-emoji').forEach(y => { y.style.borderColor = y === x ? '#0984e3' : '#dfe6e9'; });
+        // L'émoji tapé à la main l'emporte : c'est le geste le plus explicite.
+        icone.addEventListener('input', () => {
+            if (icone.value.trim()) b.icone = icone.value.trim();
+            rafraichir();
+        });
+        el.querySelectorAll('.pts-glyphe').forEach(x => x.addEventListener('click', () => {
+            b.icone = x.dataset.v;
+            icone.value = '';
             rafraichir();
         }));
         el.querySelectorAll('.pts-couleur').forEach(x => x.addEventListener('click', () => {
@@ -30599,7 +30699,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.ecrireBadges();
             this.editionBadge = null;
             this.rendre();
-            if (typeof showToast === 'function') showToast(`${b.icone} Badge « ${propre} » enregistré`);
+            if (typeof showToast === 'function') showToast(`${this.emojiDe(b.icone)} Badge « ${propre} » enregistré`);
         });
 
         const suppr = el.querySelector('#pts-badge-suppr');
@@ -30781,7 +30881,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                         title="Modifier ce badge"
                         style="display:flex; align-items:center; gap:5px; border:2px solid ${b.couleur}; background:#fff;
                                border-radius:14px; padding:4px 10px; font-size:12px; cursor:pointer;">
-                        <span style="font-size:14px;">${b.icone}</span>${this.echapper(b.nom)} <span style="opacity:0.4;">✏️</span></button>`).join('')
+                        ${this.iconeBadge(b, 22)}${this.echapper(b.nom)} <span style="opacity:0.4;">✏️</span></button>`).join('')
             || '<span style="font-size:12px; color:#b2bec3;">La bande est vide.</span>'}
                 </div>
                 ${this.badgesMasques.length ? `<div style="margin-top:8px;">
@@ -30964,8 +31064,13 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             svg += `<text x="${x}" y="${y}" font-family="sans-serif" font-size="16" fill="#2d3436">${i + 1}. ${this.echapper(e.name)}</text>`;
             const portes = this.badgesDe(e).slice(0, 5);
             if (portes.length) {
-                svg += `<text x="${x + cellW - 104}" y="${y}" text-anchor="end" font-family="sans-serif" font-size="14">`
-                    + portes.map(b => b.icone).join('') + `</text>`;
+                // Les icônes dessinées passent telles quelles dans le tampon :
+                // l'émoji, lui, dépendait de la police de l'appareil.
+                const t = 16, pas = t + 2;
+                const droite = x + cellW - 104;
+                portes.forEach((b, k) => {
+                    svg += this.glypheSVGBrut(b, droite - portes.length * pas + k * pas, y - t + 3, t);
+                });
             }
             if (this.reglages.affichage === 'solde') {
                 const solde = p.plus - p.moins;

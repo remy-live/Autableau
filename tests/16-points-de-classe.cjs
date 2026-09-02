@@ -291,14 +291,18 @@ module.exports = async function (browser) {
 
         const nom = w.querySelector('#pts-badge-nom');
         nom.value = 'Table de 7'; nom.dispatchEvent(new Event('input'));
-        w.querySelectorAll('.pts-emoji')[3].click();
+        // Les symboles sont maintenant des icônes dessinées, pas des émojis
+        const glyphes = w.querySelectorAll('.pts-glyphe');
+        glyphes[3].click();
         w.querySelectorAll('.pts-couleur')[4].click();
         const apercu = w.querySelector('#pts-badge-apercu').textContent.trim();
+        const apercuDessine = !!w.querySelector('#pts-badge-apercu-icone svg');
+        const choisiMarque = glyphes[3].style.borderColor === 'rgb(45, 52, 54)';
         w.querySelector('#pts-badge-ok').click();
 
         const neuf = p.badgesPerso[p.badgesPerso.length - 1];
         return {
-            refuse, apercu, neuf,
+            refuse, apercu, neuf, apercuDessine, choisiMarque, nbGlyphes: glyphes.length,
             visibles: p.badgesVisibles().length,
             dansLaBande: !!w.querySelector('.pts-badge[data-id="' + (neuf || {}).id + '"]'),
             memoire: JSON.parse(localStorage.getItem('board_badges') || '{}')
@@ -310,6 +314,10 @@ module.exports = async function (browser) {
         creation.neuf && creation.neuf.nom === 'Table de 7' && !!creation.neuf.icone
         && /^#[0-9a-f]{6}$/i.test(creation.neuf.couleur), JSON.stringify(creation.neuf));
     r.verifie('il rejoint la bande', creation.dansLaBande, JSON.stringify(creation));
+    r.verifie('le choix du symbole propose des icônes dessinées',
+        creation.nbGlyphes >= 20, String(creation.nbGlyphes));
+    r.verifie('l\'aperçu montre l\'icône dessinée', creation.apercuDessine);
+    r.verifie('et l\'icône choisie est marquée', creation.choisiMarque);
     r.verifie('et il est retenu d\'une séance à l\'autre',
         (creation.memoire.perso || []).some(b => b.nom === 'Table de 7'), JSON.stringify(creation.memoire));
 
@@ -1224,6 +1232,71 @@ module.exports = async function (browser) {
     r.egal('un séparateur entre guillemets ne coupe pas le champ',
         champs.sepEntreGuillemets, ['Bernard; Emma', '4A']);
     r.egal('un texte vide ne rend aucun enregistrement', champs.vide, []);
+
+    // --- LES ICÔNES DESSINÉES ---
+    // Un émoji est dessiné par le système et change d'un appareil à l'autre ;
+    // ces icônes-là sont les mêmes partout et prennent la couleur du badge.
+    const icones = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const glyphes = Object.keys(p.GLYPHES_BADGE);
+        return {
+            combien: glyphes.length,
+            tousDessines: p.BADGES_LIVRES.every(b => !!p.GLYPHES_BADGE[b.icone]),
+            tousAvecEmoji: glyphes.every(g => !!p.GLYPHES_BADGE[g].emoji),
+            // Le trait est bien du SVG, et il prend la couleur du badge
+            svg: p.iconeBadge({ icone: 'coupe', couleur: '#f39c12' }, 24),
+            // Un ancien badge à émoji continue de s'afficher
+            ancien: p.iconeBadge({ icone: '🐝', couleur: '#f39c12' }, 24),
+            emojiJumeau: p.emojiDe('coupe'),
+            emojiInconnu: p.emojiDe('🐝'),
+            // Le tampon du tableau des points sait les poser aussi
+            brut: p.glypheSVGBrut({ icone: 'coupe', couleur: '#f39c12' }, 10, 20, 16)
+        };
+    });
+    r.verifie('une vingtaine d\'icônes au choix', icones.combien >= 20, String(icones.combien));
+    r.verifie('les badges fournis en ont tous une', icones.tousDessines);
+    r.verifie('chacune garde un émoji jumeau pour les messages', icones.tousAvecEmoji);
+    r.verifie('l\'icône est un vrai dessin', /^<svg/.test(icones.svg.trim()), icones.svg.slice(0, 60));
+    r.verifie('posée sur une pastille de la couleur du badge',
+        /f39c12/.test(icones.svg), icones.svg.slice(0, 120));
+    r.verifie('un badge fait avec un émoji continue de s\'afficher',
+        /🐝/.test(icones.ancien), icones.ancien);
+    r.egal('l\'émoji jumeau sert aux messages', icones.emojiJumeau, '🏆');
+    r.egal('et un émoji reste lui-même', icones.emojiInconnu, '🐝');
+    r.verifie('le tampon du tableau les dessine aussi',
+        /^<g transform/.test(icones.brut.trim()) && /f39c12/.test(icones.brut), icones.brut.slice(0, 80));
+
+    // Infobulle : au survol à la souris, et à la tape sur tablette — c'est
+    // « data-tooltip » qui sait faire les deux, « title » ne fait que le survol.
+    const bulles = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        p.panneauReglages = false; p.editionBadge = null; p.rendre();
+        const w = document.getElementById('points-widget');
+        const badge = w.querySelector('.pts-badge');
+        return {
+            surLaBande: !!(badge && badge.getAttribute('data-tooltip')),
+            sansTitle: !!(badge && !badge.getAttribute('title')),
+            texte: badge ? badge.getAttribute('data-tooltip') : '',
+            iconeDansLaBande: !!(badge && badge.querySelector('svg'))
+        };
+    });
+    r.verifie('les badges de la bande portent une infobulle maison', bulles.surLaBande, bulles.texte);
+    r.verifie('et plus l\'infobulle du navigateur, qui ne marche pas au doigt', bulles.sansTitle);
+    r.verifie('elle dit quoi faire, au doigt comme à la souris',
+        /toucher/i.test(bulles.texte), bulles.texte);
+    r.verifie('la bande montre les icônes dessinées', bulles.iconeDansLaBande);
+
+    await page.evaluate(() => {
+        const b = document.querySelector('#points-widget .pts-badge');
+        b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    await page.waitForTimeout(700);
+    const ouverte = await page.evaluate(() => {
+        const t = document.getElementById('dt-tooltip');
+        return { visible: t.classList.contains('visible'), texte: t.textContent };
+    });
+    r.verifie('elle s\'ouvre vraiment au survol', ouverte.visible, JSON.stringify(ouverte));
+    r.verifie('et nomme le badge', /Entraide/.test(ouverte.texte), ouverte.texte);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
