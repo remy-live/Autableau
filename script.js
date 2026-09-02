@@ -3584,6 +3584,27 @@ const RACCOURCIS_COMBINES = [
     { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)' }
 ];
 
+// Ce qui se transforme tout seul pendant qu'on écrit dans un texte. Passer par
+// le tiroir des symboles pour un « fois » est une corvée quand on en pose dix
+// dans une table de multiplication : on tape l'astérisque, le × arrive.
+// Les déclencheurs sont choisis pour ne jamais tomber par accident — « // »
+// et non « / », qui sert aux dates ; « ... » et non « .. ».
+// Une frappe de Retour arrière juste après rend la forme tapée : rien n'est
+// donc imposé, et l'on peut toujours écrire une astérisque.
+const REMPLACEMENTS_TEXTE = [
+    { tape: '*', donne: '×', nom: 'Multiplié' },
+    { tape: '//', donne: '÷', nom: 'Divisé' },
+    { tape: '<=', donne: '≤', nom: 'Inférieur ou égal' },
+    { tape: '>=', donne: '≥', nom: 'Supérieur ou égal' },
+    { tape: '!=', donne: '≠', nom: 'Différent de' },
+    { tape: '+-', donne: '±', nom: 'Plus ou moins' },
+    { tape: '->', donne: '→', nom: 'Flèche' },
+    { tape: '=>', donne: '⇒', nom: 'Implique' },
+    { tape: '...', donne: '…', nom: 'Points de suspension' },
+    { tape: '^2', donne: '²', nom: 'Au carré' },
+    { tape: '^3', donne: '³', nom: 'Au cube' }
+].sort((a, b) => b.tape.length - a.tape.length);
+
 // On ne détourne pas une frappe quand l'utilisateur écrit, ni quand une
 // fenêtre est ouverte par-dessus le tableau.
 function onEcritAilleurs(e) {
@@ -3640,6 +3661,8 @@ function remplirAideRaccourcis() {
     peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS);
     peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES);
     peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES);
+    peindre('aide-remplacements-texte',
+        REMPLACEMENTS_TEXTE.map(r => ({ touche: r.tape, nom: `${r.donne} &nbsp;(${r.nom})` })));
 }
 
 // La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :
@@ -9755,6 +9778,58 @@ function insererSymbole(car) {
     return true;
 }
 window.insererSymbole = insererSymbole;
+
+// --- Les symboles qui arrivent à la frappe ---------------------------------
+// Ce qui précède le curseur, sur n caractères. Vide si l'on est ailleurs que
+// dans du texte, ou si une portion est surlignée : on ne transforme alors rien.
+function texteAvantLeCurseur(n) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return '';
+    const r = sel.getRangeAt(0);
+    if (!r.collapsed || r.startContainer.nodeType !== 3) return '';
+    return (r.startContainer.nodeValue || '').slice(Math.max(0, r.startOffset - n), r.startOffset);
+}
+
+// La dernière transformation faite, pour que le Retour arrière la rende.
+let derniereTransformation = null;
+
+// On passe par execCommand : la transformation entre alors dans la pile
+// d'annulation du navigateur, et Ctrl+Z la défait comme une frappe ordinaire.
+function transformerAlaFrappe(caractere) {
+    for (const r of REMPLACEMENTS_TEXTE) {
+        if (r.tape[r.tape.length - 1] !== caractere) continue;
+        const debut = r.tape.slice(0, -1);
+        if (debut && texteAvantLeCurseur(debut.length) !== debut) continue;
+        for (let i = 0; i < debut.length; i++) document.execCommand('delete');
+        document.execCommand('insertText', false, r.donne);
+        derniereTransformation = r;
+        return true;
+    }
+    return false;
+}
+
+if (typeof wysiwygText !== 'undefined' && wysiwygText) {
+    wysiwygText.addEventListener('beforeinput', (e) => {
+        if (e.inputType !== 'insertText' || !e.data || e.data.length !== 1) {
+            derniereTransformation = null;
+            return;
+        }
+        if (transformerAlaFrappe(e.data)) e.preventDefault();
+        else derniereTransformation = null;
+    });
+
+    // Retour arrière juste après : on rend ce qui a été tapé. C'est ce qui
+    // permet d'écrire une vraie astérisque quand on en veut une.
+    wysiwygText.addEventListener('keydown', (e) => {
+        if (e.key !== 'Backspace' || !derniereTransformation) return;
+        const r = derniereTransformation;
+        if (texteAvantLeCurseur(1) !== r.donne) { derniereTransformation = null; return; }
+        e.preventDefault(); e.stopPropagation();
+        document.execCommand('delete');
+        document.execCommand('insertText', false, r.tape);
+        derniereTransformation = null;
+    }, true);
+}
 
 document.addEventListener('selectionchange', () => {
     if (!wysiwygText || wysiwygText.style.display !== 'block') return;
@@ -20975,6 +21050,10 @@ const ASTUCES = [
       texte: "Glissez un fichier Word (.docx), LibreOffice (.odt) ou texte sur le tableau — ou passez par le menu « Importer ». Les titres, le gras, l'italique et les listes sont conservés, et le texte reste modifiable comme si vous l'aviez tapé." },
     { titre: 'Le point d\'intersection',
       texte: "Avec l'aimant allumé, approchez le curseur du croisement de deux tracés : un point vert apparaît, et le clic tombe pile dessus. Un appui long sur l'aimant permet de choisir ce qui attire : le quadrillage, les bords de la règle et de l'équerre, les intersections." },
+    { titre: 'Le vrai signe « fois »',
+      texte: "Pendant que vous écrivez, tapez * : le × des mathématiques arrive à sa place (ni la lettre x, ni l'astérisque). De même // donne ÷, <= donne ≤, ... donne …, ^2 donne ². Un Retour arrière juste après rend ce que vous aviez tapé. Le tiroir Ω de la barre d'édition contient tous les autres : ≠ π √ « » œ É Ç." },
+    { titre: 'La couleur sans quitter le clavier',
+      texte: "Ctrl+Maj+1 à Ctrl+Maj+7 posent les couleurs de la palette. Pendant une saisie, la couleur va au mot surligné, ou à la suite de ce que vous tapez ; hors saisie, elle va à l'outil et à ce qui est sélectionné. Ctrl+K cherche n'importe quelle commande par son nom." },
     { titre: 'Le tableau se souvient',
       texte: "Votre travail est enregistré tout seul. Au prochain démarrage, le tableau vous propose de reprendre la session — et si vous choisissez « Nouveau tableau », l'ancienne est rangée dans « Mes tableaux »." }
 ];

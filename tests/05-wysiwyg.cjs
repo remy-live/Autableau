@@ -392,6 +392,58 @@ module.exports = async function (browser) {
     r.egal('les symboles arrivent intacts sur le tableau',
         await page.evaluate(() => (texts[0] || {}).content.replace(/<[^>]*>/g, '')), '12 × 4 ÷');
 
+    // Passer par le tiroir pour chaque « fois » d'une table de multiplication
+    // serait une corvée : le symbole arrive à la frappe.
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(400, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('7 * 8 // 2 <= 9 != 3 -> 4 ... ^2');
+    await page.waitForTimeout(150);
+    r.egal('le * devient ×, le // devient ÷, et le reste suit',
+        await page.evaluate(() => document.getElementById('wysiwyg-text').textContent),
+        '7 × 8 ÷ 2 ≤ 9 ≠ 3 → 4 … ²');
+
+    // Une date garde ses barres obliques : c'est « // » qui déclenche, pas « / »
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(400, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('Né le 19/06/2013, 3.5 et a..b');
+    await page.waitForTimeout(150);
+    r.egal('une date, un nombre décimal et deux points ne sont pas touchés',
+        await page.evaluate(() => document.getElementById('wysiwyg-text').textContent),
+        'Né le 19/06/2013, 3.5 et a..b');
+
+    // Et l'on peut toujours écrire une vraie astérisque
+    await page.keyboard.type(' *');
+    await page.waitForTimeout(100);
+    const avantRetour = await page.evaluate(() => document.getElementById('wysiwyg-text').textContent);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(100);
+    const apresRetour = await page.evaluate(() => document.getElementById('wysiwyg-text').textContent);
+    r.verifie('le * s\'est bien transformé', /×$/.test(avantRetour), avantRetour.slice(-6));
+    r.verifie('un Retour arrière juste après rend l\'astérisque',
+        /\*$/.test(apresRetour), apresRetour.slice(-6));
+    // Un second Retour arrière efface pour de bon : on n'est pas piégé
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(100);
+    r.verifie('et le suivant l\'efface',
+        await page.evaluate(() => /\s$/.test(document.getElementById('wysiwyg-text').textContent)));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
+    // L'aide est écrite depuis la même table que le clavier
+    const aide = await page.evaluate(() => {
+        remplirAideRaccourcis();
+        const el = document.getElementById('aide-remplacements-texte');
+        return { t: el ? el.textContent : '', n: REMPLACEMENTS_TEXTE.length };
+    });
+    r.verifie('l\'aide liste les transformations à la frappe',
+        aide.n === 11 && /\*/.test(aide.t) && /×/.test(aide.t) && /÷/.test(aide.t), aide.t);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
