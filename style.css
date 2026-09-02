@@ -5205,6 +5205,43 @@ dark-mode .title-btn:hover {
     text-align: center;
 }
 
+/* Tiroir des symboles : deux grilles serrées, assez larges pour le doigt */
+#text-toolbar .tt-panel.tt-symboles {
+    max-width: min(420px, calc(100vw - 24px));
+    gap: 2px;
+}
+
+#text-toolbar .tt-symb-titre {
+    font-size: 11px;
+    font-weight: bold;
+    color: #636e72;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin: 4px 2px 2px;
+}
+
+#text-toolbar .tt-symb-grille {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+}
+
+#text-toolbar .tt-panel .btn.tt-symb {
+    min-width: 0;
+    width: 100%;
+    height: 34px;
+    padding: 0;
+    font-size: 17px;
+    line-height: 1;
+    border-radius: 8px;
+}
+
+@media (max-width: 560px) {
+    #text-toolbar .tt-symb-grille {
+        grid-template-columns: repeat(7, 1fr);
+    }
+}
+
 #text-toolbar .tt-panel #text-quick-colors {
     display: grid !important;
     grid-template-columns: repeat(4, 1fr);

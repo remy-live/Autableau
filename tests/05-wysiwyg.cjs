@@ -280,6 +280,118 @@ module.exports = async function (browser) {
     r.egal('bloc centré avec colonne : x reste le bord gauche', centreEnColonne.gauche, centreEnColonne.x);
     r.egal('bloc centré avec colonne : la largeur est la colonne', centreEnColonne.largeur, 600);
 
+    // Double-clic pour éditer : le bloc quitte le tableau et passe dans la zone
+    // de saisie. Si l'on ne repeint pas tout de suite, les lettres du canevas
+    // restent sous celles de la saisie — le fameux doublon en léger décalage,
+    // qui s'effaçait tout seul au premier mouvement de souris. On mesure donc
+    // l'encre APRÈS le double-clic et SANS bouger la souris ensuite.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    await tableauVierge(page);
+    const cible = await page.evaluate(() => {
+        setMode('pointer');
+        texts.length = 0;
+        panX = 0; panY = 0; zoom = 1;
+        const t = { id: nextId++, x: 200, y: 200, content: 'Doublon au double-clic',
+                    fontSize: 34, lineHeight: 42, color: '#e74c3c',
+                    fontFamily: 'sans-serif', align: 'left', z: globalZ++ };
+        texts.push(t); draw();
+        // On compte deux choses dans la zone du bloc, largement débordée pour
+        // attraper les poignées : l'encre rouge du texte, et le violet du
+        // cadre de sélection et de ses poignées.
+        const compter = () => {
+            const g = document.getElementById('board').getContext('2d');
+            const d = g.getImageData(t.x + panX - 40, t.y + panY - 45,
+                                     Math.round(t._cachedW * zoom) + 80,
+                                     Math.round(t._cachedH * zoom) + 90).data;
+            let encre = 0, cadre = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                const [rr, gg, bb] = [d[i], d[i + 1], d[i + 2]];
+                if (rr > 150 && gg < 140 && bb < 140) encre++;
+                else if (bb > 150 && bb - rr > 25 && bb - gg > 40) cadre++;
+            }
+            return { encre, cadre };
+        };
+        window.__etatDuBloc = compter;
+        // Le bloc est choisi : c'est l'état d'où part un double-clic pour
+        // éditer, cadre et poignées compris.
+        selectedItems = [{ type: 'text', id: t.id }];
+        if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        draw();
+        return { x: t._cachedStartX + t._cachedW / 2, y: t.y + t._cachedH / 2,
+                 avant: compter(),
+                 menu: !!document.querySelector('#quick-edit-menu.visible') };
+    });
+    r.verifie('le bloc est bien peint avant le double-clic', cible.avant.encre > 200, JSON.stringify(cible.avant));
+    r.verifie('avec son cadre de sélection et ses poignées', cible.avant.cadre > 200, JSON.stringify(cible.avant));
+    r.verifie('et son menu rapide', cible.menu);
+    // On lit l'encre dans la même tâche que le double-clic : aucune image
+    // suivante ne peut passer entre les deux. C'est bien ce que voit l'œil
+    // tant que rien d'autre ne provoque de repeinture.
+    const apres = await page.evaluate(({ x, y }) => {
+        const board = document.getElementById('board');
+        const r = board.getBoundingClientRect();
+        const ev = (nom) => board.dispatchEvent(new MouseEvent(nom, {
+            bubbles: true, cancelable: true, clientX: r.left + x, clientY: r.top + y, detail: 2
+        }));
+        ev('dblclick');
+        return { enSaisie: !!editingTextId, ...window.__etatDuBloc(),
+                 menu: !!document.querySelector('#quick-edit-menu.visible') };
+    }, { x: cible.x, y: cible.y });
+    r.verifie('le double-clic ouvre bien la saisie', apres.enSaisie, JSON.stringify(apres));
+    r.verifie('plus de doublon : le tableau est repeint sans attendre l\'image suivante',
+        apres.encre === 0, `${apres.encre} pixels d'encre restés sous la zone de saisie`);
+    r.verifie('ni cadre de sélection ni poignées pendant qu\'on écrit',
+        apres.cadre === 0, `${apres.cadre} pixels de cadre restés`);
+    r.verifie('et le menu rapide s\'efface', !apres.menu, JSON.stringify(apres));
+    // La saisie prend le focus 10 ms après le double-clic : on la laisse
+    // s'installer avant de la refermer, sinon l'Échap part dans le vide.
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
+    // Le tiroir des symboles : le « fois » des mathématiques (×) n'est ni la
+    // lettre x ni l'astérisque, et le « divisé » (÷) n'est pas la barre
+    // oblique — le clavier ne les donne pas.
+    await tableauVierge(page);
+    await page.evaluate(() => setMode('text'));
+    await page.mouse.click(400, 300);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('12 ');
+    const symboles = await page.evaluate(() => {
+        const clic = (sel) => {
+            const el = document.querySelector(sel);
+            if (!el) return false;
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            el.click();
+            return true;
+        };
+        const onglet = clic('#text-toolbar .tt-tab[data-panel="symb"]');
+        const ouvert = !!document.querySelector('#text-toolbar .tt-panel[data-panel="symb"].tt-open');
+        clic('#text-toolbar .tt-symb[data-symbole="×"]');
+        // Le tiroir reste ouvert : on en pose souvent plusieurs de suite
+        const resteOuvert = !!document.querySelector('#text-toolbar .tt-panel[data-panel="symb"].tt-open');
+        return { onglet, ouvert, resteOuvert,
+                 texte: document.getElementById('wysiwyg-text').textContent };
+    });
+    r.verifie('la barre de texte a un onglet Symboles', symboles.onglet);
+    r.verifie('qui ouvre son tiroir', symboles.ouvert);
+    r.egal('le × s\'écrit à la suite du texte', symboles.texte, '12 ×');
+    r.verifie('et le tiroir reste ouvert pour le suivant', symboles.resteOuvert);
+
+    await page.keyboard.type(' 4 ');
+    const suite = await page.evaluate(() => {
+        insererSymbole('÷');
+        return document.getElementById('wysiwyg-text').textContent;
+    });
+    r.egal('puis le ÷ au bon endroit', suite, '12 × 4 ÷');
+
+    // Ce qu'on a posé se retrouve tel quel sur le tableau
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    r.egal('les symboles arrivent intacts sur le tableau',
+        await page.evaluate(() => (texts[0] || {}).content.replace(/<[^>]*>/g, '')), '12 × 4 ÷');
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

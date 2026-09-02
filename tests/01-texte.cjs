@@ -132,7 +132,7 @@ module.exports = async function (browser) {
     });
     r.verifie('barre d\'édition compacte', barre.largeur < 420, `${barre.largeur} px`);
     r.verifie('barre d\'édition : contrôles regroupés', barre.boutons <= 9, `${barre.boutons} boutons`);
-    r.verifie('barre d\'édition : tiroirs présents', barre.tiroirs === 5, `${barre.tiroirs} tiroirs`);
+    r.verifie('barre d\'édition : tiroirs présents', barre.tiroirs === 6, `${barre.tiroirs} tiroirs`);
 
     // Le style de paragraphe s'applique (l'ancienne liste déroulante ne s'ouvrait pas)
     await page.keyboard.type('Ma leçon');

@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=50">
+    <link rel="stylesheet" href="style.css?v=51">
 </head>
 
 <body>
@@ -91,6 +91,8 @@
                 <line x1="17" y1="18" x2="3" y2="18"></line>
             </svg></button>
 
+        <button class="btn tt-tab" data-panel="symb" title="Symboles : × ÷ ≠ ≤ « » …">Ω</button>
+
         <button class="btn tt-tab" data-panel="size" title="Taille, police, interligne">A<span
                 class="tt-size-badge" id="text-size-display">24</span></button>
 
@@ -134,6 +136,58 @@
                     <line x1="21" y1="18" x2="7" y2="18"></line>
                 </svg></button>
             <button class="btn" id="btn-text-snap" title="Aimant : aligner sur la grille">🧲</button>
+        </div>
+
+        <!-- Les caractères que le clavier ne donne pas : le vrai signe « fois »
+             (×, et non la lettre x ni l'astérisque) et le vrai « divisé » (÷),
+             puis ce qui revient tous les jours en français et en maths. -->
+        <div class="tt-panel tt-symboles" data-panel="symb">
+            <div class="tt-symb-titre">Calcul</div>
+            <div class="tt-symb-grille">
+                <button class="btn tt-symb" data-symbole="×" title="Multiplié">×</button>
+                <button class="btn tt-symb" data-symbole="÷" title="Divisé">÷</button>
+                <button class="btn tt-symb" data-symbole="±" title="Plus ou moins">±</button>
+                <button class="btn tt-symb" data-symbole="≠" title="Différent de">≠</button>
+                <button class="btn tt-symb" data-symbole="≈" title="Environ égal">≈</button>
+                <button class="btn tt-symb" data-symbole="≤" title="Inférieur ou égal">≤</button>
+                <button class="btn tt-symb" data-symbole="≥" title="Supérieur ou égal">≥</button>
+                <button class="btn tt-symb" data-symbole="°" title="Degré">°</button>
+                <button class="btn tt-symb" data-symbole="²" title="Au carré">²</button>
+                <button class="btn tt-symb" data-symbole="³" title="Au cube">³</button>
+                <button class="btn tt-symb" data-symbole="½" title="Un demi">½</button>
+                <button class="btn tt-symb" data-symbole="¼" title="Un quart">¼</button>
+                <button class="btn tt-symb" data-symbole="¾" title="Trois quarts">¾</button>
+                <button class="btn tt-symb" data-symbole="√" title="Racine carrée">√</button>
+                <button class="btn tt-symb" data-symbole="π" title="Pi">π</button>
+                <button class="btn tt-symb" data-symbole="∞" title="Infini">∞</button>
+                <button class="btn tt-symb" data-symbole="∈" title="Appartient à">∈</button>
+                <button class="btn tt-symb" data-symbole="∅" title="Ensemble vide">∅</button>
+                <button class="btn tt-symb" data-symbole="→" title="Flèche">→</button>
+                <button class="btn tt-symb" data-symbole="⇒" title="Implique">⇒</button>
+            </div>
+            <div class="tt-symb-titre">Français</div>
+            <div class="tt-symb-grille">
+                <button class="btn tt-symb" data-symbole="«&nbsp;" title="Guillemet ouvrant">«</button>
+                <button class="btn tt-symb" data-symbole="&nbsp;»" title="Guillemet fermant">»</button>
+                <button class="btn tt-symb" data-symbole="…" title="Points de suspension">…</button>
+                <button class="btn tt-symb" data-symbole="—" title="Tiret cadratin">—</button>
+                <button class="btn tt-symb" data-symbole="’" title="Apostrophe courbe">’</button>
+                <button class="btn tt-symb" data-symbole="œ" title="e dans l'o">œ</button>
+                <button class="btn tt-symb" data-symbole="Œ" title="E dans l'O">Œ</button>
+                <button class="btn tt-symb" data-symbole="æ" title="e dans l'a">æ</button>
+                <button class="btn tt-symb" data-symbole="É" title="E accent aigu">É</button>
+                <button class="btn tt-symb" data-symbole="È" title="E accent grave">È</button>
+                <button class="btn tt-symb" data-symbole="Ê" title="E accent circonflexe">Ê</button>
+                <button class="btn tt-symb" data-symbole="À" title="A accent grave">À</button>
+                <button class="btn tt-symb" data-symbole="Ù" title="U accent grave">Ù</button>
+                <button class="btn tt-symb" data-symbole="Ç" title="C cédille">Ç</button>
+                <button class="btn tt-symb" data-symbole="€" title="Euro">€</button>
+                <button class="btn tt-symb" data-symbole="✓" title="Juste">✓</button>
+                <button class="btn tt-symb" data-symbole="✗" title="Faux">✗</button>
+                <button class="btn tt-symb" data-symbole="•" title="Puce">•</button>
+                <button class="btn tt-symb" data-symbole="★" title="Étoile">★</button>
+                <button class="btn tt-symb" data-symbole="☞" title="Attention">☞</button>
+            </div>
         </div>
 
         <div class="tt-panel" data-panel="size">
@@ -1747,7 +1801,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=113"></script>
+    <script src="script.js?v=114"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=70"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

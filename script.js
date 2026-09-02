@@ -3578,7 +3578,7 @@ const RACCOURCIS_GESTES = [
 // c'est même là que la couleur sert le plus. Elles ne sont donc pas dans la
 // table des touches simples, qui elle s'efface devant la saisie.
 const RACCOURCIS_COMBINES = [
-    { touche: 'Alt+1 … Alt+7', nom: 'Couleur de la palette (au texte en cours d\'écriture, sinon à l\'outil)' },
+    { touche: 'Ctrl+Maj+1 … 7', nom: 'Couleur de la palette (au texte en cours d\'écriture, sinon à l\'outil)' },
     { touche: 'Ctrl+Maj+F', nom: 'Plein écran' },
     { touche: 'Ctrl+K', nom: 'Chercher une commande' },
     { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)' }
@@ -6661,6 +6661,16 @@ canvas.addEventListener('dblclick', (e) => {
         // Position, police, taille, interligne, couleur et alignement : tout est
         // dérivé de l'objet édité, avec la même convention que le rendu canvas.
         updateWysiwygPosition();
+        // Le texte édité ne se dessine plus sur le tableau (c'est la zone de
+        // saisie qui l'affiche), pas plus que son cadre de sélection ni ses
+        // poignées : encore faut-il repeindre pour les effacer. Sans ce
+        // draw(), tout cela restait affiché sous la zone de saisie — un
+        // doublon en léger décalage dans un cadre figé, qui ne s'effaçait
+        // qu'au premier mouvement de souris repeignant la scène.
+        // Le menu rapide (cadenas, copie, corbeille) part avec eux : la barre
+        // d'édition du texte le remplace le temps de la saisie.
+        if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        draw();
         setTimeout(() => {
             wysiwygText.focus();
             const range = document.createRange(); range.selectNodeContents(wysiwygText); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
@@ -9553,6 +9563,16 @@ if (textToolbar) {
         });
     });
 
+    // --- Symboles : × ÷ ≠ « » … que le clavier ne donne pas ---
+    // Le tiroir reste ouvert : on en pose souvent deux ou trois de suite
+    // (« 12 × 4 ÷ 3 »). Le caret ne bouge pas : la barre a déjà annulé le
+    // mousedown, la saisie garde donc le focus.
+    document.querySelectorAll('#text-toolbar .tt-symb').forEach(btn => {
+        if (btn.dataset.bound) return;
+        btn.dataset.bound = 'true';
+        btn.addEventListener('click', () => insererSymbole(btn.getAttribute('data-symbole')));
+    });
+
     // --- Tiroirs de la barre de texte ---
     document.querySelectorAll('#text-toolbar .tt-tab').forEach(tab => {
         if (tab.dataset.bound) return;
@@ -9695,6 +9715,46 @@ function selectionDansSaisie() {
 }
 
 function oublierSelectionSaisie() { dernierePlageSaisie = null; }
+
+// Pose un caractère à l'endroit du curseur dans la zone de saisie. Sert au
+// tiroir des symboles : le « fois » des mathématiques (×) n'est ni la lettre
+// x ni l'astérisque, et le « divisé » (÷) n'est pas la barre oblique.
+function insererSymbole(car) {
+    if (!car || !wysiwygText || wysiwygText.style.display !== 'block') return false;
+    wysiwygText.focus();
+
+    // Le curseur a pu partir ailleurs (un clic dans un tiroir, par exemple) :
+    // on le remet dans la saisie plutôt que d'écrire hors du bloc.
+    const sel = window.getSelection();
+    let dedans = false;
+    if (sel && sel.rangeCount) {
+        let n = sel.getRangeAt(0).commonAncestorContainer;
+        if (n && n.nodeType === 3) n = n.parentNode;
+        dedans = !!(n && wysiwygText.contains(n));
+    }
+    if (!dedans) {
+        const r = document.createRange();
+        r.selectNodeContents(wysiwygText); r.collapse(false);
+        sel.removeAllRanges(); sel.addRange(r);
+    }
+
+    // execCommand garde l'habillage en cours (gras, couleur, taille) ; s'il
+    // n'est pas là, on pose le texte à la main.
+    let pose = false;
+    try { pose = document.execCommand('insertText', false, car); } catch (e) { pose = false; }
+    if (!pose) {
+        const s = window.getSelection();
+        const r = s.getRangeAt(0);
+        r.deleteContents();
+        const noeud = document.createTextNode(car);
+        r.insertNode(noeud);
+        r.setStartAfter(noeud); r.collapse(true);
+        s.removeAllRanges(); s.addRange(r);
+    }
+    if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+    return true;
+}
+window.insererSymbole = insererSymbole;
 
 document.addEventListener('selectionchange', () => {
     if (!wysiwygText || wysiwygText.style.display !== 'block') return;
@@ -12668,16 +12728,38 @@ window.pastillesDeLaPalette = pastillesDeLaPalette;
 window.cadrerSurLObjet = cadrerSurLObjet;
 window.documentAPresenter = documentAPresenter;
 
+// Quel chiffre a-t-on frappé ? On lit « code » et non « key » : avec un
+// modificateur, « key » vaut le caractère composé (« „ » sur Mac, « ! » sur un
+// clavier américain) et non le chiffre. Le pavé numérique compte aussi.
+function chiffreDeLaTouche(e) {
+    const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '');
+    if (m) return Number(m[1]);
+    return /^[1-9]$/.test(e.key) ? Number(e.key) : 0;
+}
+
 // Les trois raccourcis. En capture, avant les touches d'outils : sans quoi la
 // saisie de texte les avalerait.
 window.addEventListener('keydown', (e) => {
-    // Alt+1 à Alt+9 : la couleur de la palette. On évite Ctrl+chiffre, que
-    // le navigateur garde pour changer d'onglet. On lit « code » et non
-    // « key » : sur un clavier Mac, Alt+1 tape « „ », pas « 1 ».
+    // Ctrl+Maj+1 à Ctrl+Maj+7 : la couleur de la palette.
+    // Pourquoi pas Alt+chiffre, qui serait plus court ? Parce qu'Alt compose :
+    // sur un clavier Mac, Alt+1 tape « „ », et sur un AZERTY de Windows la
+    // touche Alt Gr (= Ctrl+Alt) tape « ~ # { [ | ». Le raccourci écrivait
+    // alors un caractère au lieu de changer la couleur. Ctrl+Maj+chiffre, lui,
+    // ne compose rien nulle part. Ctrl+chiffre est exclu : le navigateur le
+    // garde pour changer d'onglet.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+        const n = chiffreDeLaTouche(e);
+        if (n) {
+            if (couleurParRaccourci(n)) { e.preventDefault(); e.stopPropagation(); }
+            return;
+        }
+    }
+    // Alt+chiffre reste accepté là où il ne compose rien — on le prend au vol
+    // avant que le caractère ne parte, mais on ne le documente plus.
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        const m = /^Digit([1-9])$/.exec(e.code || '') || (/^[1-9]$/.test(e.key) ? [null, e.key] : null);
-        if (m) {
-            if (couleurParRaccourci(Number(m[1]))) { e.preventDefault(); e.stopPropagation(); }
+        const n = chiffreDeLaTouche(e);
+        if (n) {
+            if (couleurParRaccourci(n)) { e.preventDefault(); e.stopPropagation(); }
             return;
         }
     }

@@ -275,7 +275,7 @@ module.exports = async function (browser) {
     r.verifie('la palette est relevée dans la page, pas recopiée',
         palette.length >= 7, palette.join(' '));
 
-    // Alt+chiffre pendant la saisie d'un texte. On range d'abord le compas
+    // Ctrl+Maj+chiffre pendant la saisie d'un texte. On range d'abord le compas
     // qu'un test précédent a posé sur le tableau : il attraperait le clic.
     await page.evaluate(() => {
         if (typeof activeWidgets !== 'undefined') {
@@ -287,7 +287,7 @@ module.exports = async function (browser) {
     await page.mouse.click(500, 400);
     await page.waitForTimeout(250);
     await page.keyboard.type('Bonjour');
-    await page.keyboard.press('Alt+Digit4');
+    await page.keyboard.press('Control+Shift+Digit4');
     await page.waitForTimeout(120);
     const couleurEnSaisie = await page.evaluate(() => ({
         bloc: (typeof couleurBlocSaisie !== 'undefined') ? couleurBlocSaisie : null,
@@ -296,7 +296,7 @@ module.exports = async function (browser) {
         ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
         texte: document.getElementById('wysiwyg-text').textContent
     }));
-    r.egal('Alt+4 donne la quatrième couleur au texte en cours', couleurEnSaisie.bloc, palette[3]);
+    r.egal('Ctrl+Maj+4 donne la quatrième couleur au texte en cours', couleurEnSaisie.bloc, palette[3]);
     r.egal('la zone de saisie la prend aussitôt', couleurEnSaisie.zone, 'rgb(46, 204, 113)');
     r.verifie('la saisie n\'est pas interrompue', couleurEnSaisie.ouverte);
     r.egal('et rien n\'est tapé dans le texte', couleurEnSaisie.texte, 'Bonjour');
@@ -305,15 +305,34 @@ module.exports = async function (browser) {
     await page.waitForTimeout(200);
 
     // Hors saisie, la même touche agit sur l'outil
-    await page.keyboard.press('Alt+Digit2');
+    await page.keyboard.press('Control+Shift+Digit2');
     await page.waitForTimeout(120);
-    r.egal('hors saisie, Alt+2 change la couleur de l\'outil',
+    r.egal('hors saisie, Ctrl+Maj+2 change la couleur de l\'outil',
         await page.evaluate(() => activeStyle.strokeColor), palette[1]);
+
+    // Le chiffre se lit sur la TOUCHE, pas sur le caractère produit : avec un
+    // modificateur, un clavier Mac renvoie « „ » et un clavier américain « ! ».
+    // C'est ce qui faisait écrire un caractère spécial au lieu de changer la
+    // couleur. On rejoue les deux cas tels que le navigateur les envoie.
+    const parLeCode = await page.evaluate((attendu) => {
+        const essai = (key, code) => {
+            activeStyle.strokeColor = '#000000';
+            const ev = new KeyboardEvent('keydown', { key, code, ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+            window.dispatchEvent(ev);
+            return { couleur: activeStyle.strokeColor, bloque: ev.defaultPrevented };
+        };
+        return { mac: essai('„', 'Digit3'), us: essai('#', 'Digit3'), attendu };
+    }, palette[2]);
+    r.egal('clavier Mac : Ctrl+Maj+3 lit la touche 3, pas le « „ » qu\'elle compose',
+        parLeCode.mac.couleur, palette[2]);
+    r.egal('clavier américain : idem pour le « # »', parLeCode.us.couleur, palette[2]);
+    r.verifie('et la frappe est bloquée, donc aucun caractère n\'est écrit',
+        parLeCode.mac.bloque && parLeCode.us.bloque, JSON.stringify(parLeCode));
 
     // Un chiffre seul reste le raccourci d'un outil géométrique
     await page.keyboard.press('Digit2');
     await page.waitForTimeout(150);
-    r.egal('un chiffre SANS Alt choisit toujours son outil',
+    r.egal('un chiffre SANS modificateur choisit toujours son outil',
         await page.evaluate(() => mode), 'segment');
 
     // Le document en pleine page
@@ -374,7 +393,7 @@ module.exports = async function (browser) {
     });
     r.egal('quatre combinaisons documentées', aideCombines.n, 4);
     r.verifie('et l\'aide les affiche toutes',
-        /Alt\+1/.test(aideCombines.t) && /Ctrl\+Maj\+F/.test(aideCombines.t)
+        /Ctrl\+Maj\+1/.test(aideCombines.t) && /Ctrl\+Maj\+F/.test(aideCombines.t)
         && /Ctrl\+K/.test(aideCombines.t) && /Ctrl\+Maj\+L/.test(aideCombines.t), aideCombines.t);
 
     await page.evaluate(() => {
