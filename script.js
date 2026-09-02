@@ -1170,6 +1170,7 @@ function arrangeToolbars() {
 
 function toggleFocusMode() {
     const enFocus = document.body.classList.toggle('focus-mode');
+    if (typeof ajusterLargeurDuTitre === 'function') ajusterLargeurDuTitre();
     // On quitte le mode Focus : la présentation se termine avec lui, et le
     // fond sombre du pourtour de la page s'en va.
     if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
@@ -1663,6 +1664,7 @@ document.getElementById('file-loader').addEventListener('change', (e) => {
                 currentBoardName = boardName;
                 const input = document.getElementById('project-name-input');
                 if (input) input.value = boardName;
+                if (typeof ajusterLargeurDuTitre === 'function') ajusterLargeurDuTitre();
 
                 // Charger les données
                 restoreState(data.data);
@@ -17052,6 +17054,7 @@ function initProjectName() {
     currentBoardName = defaultName.charAt(0).toUpperCase() + defaultName.slice(1);
     const input = document.getElementById('project-name-input');
     if (input) input.value = currentBoardName;
+    if (typeof ajusterLargeurDuTitre === 'function') ajusterLargeurDuTitre();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17075,9 +17078,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const projInput = document.getElementById('project-name-input');
     if (projInput) {
+        // Un titre écrit à la main s'élargit à mesure qu'on le tape
+        projInput.addEventListener('input', () => ajusterLargeurDuTitre());
         projInput.addEventListener('change', (e) => {
             currentBoardName = e.target.value.trim() || "Sans titre";
             e.target.value = currentBoardName;
+            ajusterLargeurDuTitre();
             hasUnsavedChanges = true;
             updateUnsavedIndicator();
         });
@@ -17963,6 +17969,7 @@ function loadBoard(id) {
                 currentBoardName = t.name;
                 const input = document.getElementById('project-name-input');
                 if (input) input.value = currentBoardName;
+                if (typeof ajusterLargeurDuTitre === 'function') ajusterLargeurDuTitre();
             }
             hasUnsavedChanges = false;
             updateUnsavedIndicator();
@@ -21609,6 +21616,34 @@ const FORMATS_DATE = {
     chiffres: (d) => d.toLocaleDateString('fr-FR')
 };
 
+// Un <input> ne s'élargit pas avec son contenu : « width: auto » lui donne
+// la largeur de son attribut « size », soit une vingtaine de caractères. La
+// date longue tenait de justesse, l'heure la faisait déborder — on lisait
+// « Mercredi 2 septembre 20 ». On mesure donc le texte et l'on pose la
+// largeur, sans dépasser ce que l'écran peut donner.
+function ajusterLargeurDuTitre() {
+    const champ = document.getElementById('project-name-input');
+    if (!champ) return 0;
+    const cs = getComputedStyle(champ);
+    const regle = document.createElement('span');
+    regle.style.cssText = 'position:absolute; visibility:hidden; white-space:pre; top:-9999px; left:-9999px;';
+    regle.style.font = cs.font;
+    regle.style.letterSpacing = cs.letterSpacing;
+    regle.textContent = champ.value || champ.placeholder || '';
+    document.body.appendChild(regle);
+    const besoin = regle.offsetWidth;
+    regle.remove();
+    // Le titre est centré en haut : de part et d'autre, les barres flottantes.
+    // On lui laisse la place disponible, jamais plus. En mode Focus les barres
+    // s'effacent — il ne reste que la croix, et le titre respire d'autant.
+    const barres = document.body.classList.contains('focus-mode') ? 160 : 360;
+    const place = Math.max(160, Math.min(560, window.innerWidth - barres));
+    const large = Math.min(place, besoin + 26);
+    champ.style.width = large + 'px';
+    return large;
+}
+window.ajusterLargeurDuTitre = ajusterLargeurDuTitre;
+
 function texteDateDuJour() {
     const d = new Date();
     const f = FORMATS_DATE[reglagesDate.format] || FORMATS_DATE.long;
@@ -21633,6 +21668,7 @@ function poserDateDansTitre(force) {
     const texte = texteDateDuJour();
     dernierTitreDate = texte;
     champ.value = texte;
+    ajusterLargeurDuTitre();
     if (typeof currentBoardName !== 'undefined') currentBoardName = texte;
 }
 
@@ -21644,7 +21680,10 @@ setInterval(() => {
 function majAffichageDate() {
     const cadre = document.getElementById('project-name-wrapper');
     if (cadre) cadre.style.display = reglagesDate.affichee ? '' : 'none';
+    ajusterLargeurDuTitre();
 }
+// La place disponible change avec la fenêtre — et avec le plein écran.
+window.addEventListener('resize', () => ajusterLargeurDuTitre());
 
 function majReglagesDate() {
     const popup = document.getElementById('reglages-date');

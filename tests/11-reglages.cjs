@@ -69,6 +69,64 @@ module.exports = async function (browser) {
     });
     r.verifie('l\'heure s\'ajoute', /\d{2}:\d{2}/.test(avecHeure), avecHeure);
 
+    // Le titre est un <input> : « width: auto » lui donne la largeur de son
+    // attribut « size », pas celle de son contenu. La date longue avec
+    // l'heure débordait — on lisait « Mercredi 2 septembre 20 ».
+    // La largeur posée ne prend effet qu'à la mise en page suivante : on
+    // mesure donc après, jamais dans la même tâche que l'écriture.
+    const mesurerLeTitre = async () => page.evaluate(() => {
+        const champ = document.getElementById('project-name-input');
+        const cs = getComputedStyle(champ);
+        const regle = document.createElement('span');
+        regle.style.cssText = 'position:absolute; visibility:hidden; white-space:pre; top:-9999px;';
+        regle.style.font = cs.font; regle.style.letterSpacing = cs.letterSpacing;
+        regle.textContent = champ.value;
+        document.body.appendChild(regle);
+        const besoin = regle.offsetWidth; regle.remove();
+        return { valeur: champ.value, besoin: Math.round(besoin),
+                 dispo: Math.round(champ.clientWidth),
+                 large: Math.round(champ.getBoundingClientRect().width),
+                 entier: besoin <= champ.clientWidth,
+                 dansEcran: champ.getBoundingClientRect().right <= window.innerWidth };
+    });
+
+    await page.evaluate(() => {
+        document.querySelector('#reglages-date [data-format="long"]').click();
+    });
+    await page.waitForTimeout(200);
+    const dateEtHeure = await mesurerLeTitre();
+    r.verifie('la date longue ET l\'heure tiennent dans le titre, sans troncature',
+        dateEtHeure.entier && /\d{2}:\d{2}/.test(dateEtHeure.valeur), JSON.stringify(dateEtHeure));
+
+    // Un titre très long ne peut pas tout prendre : il s'arrête à la place que
+    // laissent les barres flottantes, sans jamais sortir de l'écran.
+    const TRES_LONG = 'Un titre vraiment très long écrit à la main par un enseignant bavard';
+    await page.evaluate((t) => {
+        const champ = document.getElementById('project-name-input');
+        champ.value = t; ajusterLargeurDuTitre();
+    }, TRES_LONG);
+    await page.waitForTimeout(200);
+    const tresLong = await mesurerLeTitre();
+    r.verifie('un titre trop long s\'arrête à la place disponible',
+        tresLong.dansEcran && tresLong.large <= 580, JSON.stringify(tresLong));
+
+    // En mode Focus, les barres s'effacent : le titre a plus de place
+    await page.evaluate(() => {
+        document.body.classList.add('focus-mode');
+        ajusterLargeurDuTitre();
+    });
+    await page.waitForTimeout(200);
+    const enFocus = await mesurerLeTitre();
+    r.verifie('en mode Focus, le titre respire : les barres sont parties',
+        enFocus.large > tresLong.large, `focus ${enFocus.large} px, normal ${tresLong.large} px`);
+
+    await page.evaluate(() => {
+        document.body.classList.remove('focus-mode');
+        // On rend au titre la date du jour, et le format que la suite attend
+        document.querySelector('#reglages-date [data-format="chiffres"]').click();
+    });
+    await page.waitForTimeout(150);
+
     const respecte = await page.evaluate(() => {
         const champ = document.getElementById('project-name-input');
         champ.value = 'Ma leçon de géométrie';
