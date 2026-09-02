@@ -557,6 +557,65 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     r.verifie('sélectionné non plus',
         halo.choisi < halo.repos + 2000, JSON.stringify(halo));
 
+    // Le clic est un curseur de texte : la première ligne l'enfourche. Elle
+    // pendait dessous, et le cadre s'ouvrait plus bas que l'endroit désigné.
+    await tableauVierge(page);
+    const viseur = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        activeStyle.fontSize = 40; activeStyle.lineHeight = 48;
+        setMode('text');
+        const board = document.getElementById('board');
+        const r = board.getBoundingClientRect();
+        board.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+            button: 0, buttons: 1, clientX: r.left + 500, clientY: r.top + 400
+        }));
+        const zone = document.getElementById('wysiwyg-text');
+        const rz = zone.getBoundingClientRect();
+        return {
+            ouverte: zone.style.display === 'block',
+            clic: 400,
+            haut: Math.round(rz.top - r.top),
+            milieu: Math.round(rz.top - r.top + 48 / 2),
+            ancre: tempTextLogicalPos ? Math.round(tempTextLogicalPos.y) : null
+        };
+    });
+    r.verifie('cliquer avec l\'outil Texte ouvre la saisie', viseur.ouverte);
+    r.verifie('la première ligne enfourche le clic, elle ne pend pas dessous',
+        Math.abs(viseur.milieu - viseur.clic) <= 2, JSON.stringify(viseur));
+    r.verifie('le cadre s\'ouvre donc au-dessus du point désigné',
+        viseur.haut < viseur.clic, JSON.stringify(viseur));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
+
+    // La taille du texte se lit et se tape : le curseur seul ne la disait pas,
+    // et s'arrêtait à 12 — impossible de descendre plus bas.
+    const taille = await page.evaluate(() => {
+        const curseur = document.getElementById('font-size');
+        const nombre = document.getElementById('font-size-num');
+        const poser = (v) => {
+            nombre.value = String(v);
+            nombre.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        poser(8);
+        const petit = { style: activeStyle.fontSize, curseur: curseur.value };
+        poser(160);   // au-delà de la course du curseur
+        const grand = { style: activeStyle.fontSize, curseur: curseur.value, nombre: nombre.value };
+        curseur.value = '30';
+        curseur.dispatchEvent(new Event('input', { bubbles: true }));
+        const parLeCurseur = { style: activeStyle.fontSize, nombre: nombre.value };
+        activeStyle.fontSize = 24;
+        return { min: Number(curseur.min), petit, grand, parLeCurseur };
+    });
+    r.verifie('le curseur descend sous 12', taille.min <= 8, String(taille.min));
+    r.egal('taper 8 donne une police de 8', taille.petit.style, 8);
+    r.egal('le curseur suit', taille.petit.curseur, '8');
+    r.egal('taper 160 passe outre la course du curseur', taille.grand.style, 160);
+    r.egal('le curseur se range alors à son maximum', taille.grand.curseur, '120');
+    r.egal('et le nombre garde la vraie valeur', taille.grand.nombre, '160');
+    r.egal('bouger le curseur écrit le nombre', taille.parLeCurseur.nombre, '30');
+    r.egal('et règle la police', taille.parLeCurseur.style, 30);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

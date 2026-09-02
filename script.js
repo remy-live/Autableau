@@ -5029,7 +5029,34 @@ document.getElementById('line-width').addEventListener('change', (e) => {
     // Relâchement du curseur : on fige la valeur dans l'historique
     if (selectionIsOnlyImages()) commitPluginStampWidth(parseInt(e.target.value) / 3);
 });
-document.getElementById('font-size').addEventListener('input', (e) => { activeStyle.fontSize = parseInt(e.target.value); pushStyleToObject(); });
+// Le curseur et le nombre disent la même chose : on lit la taille, et on la
+// tape quand on la connaît — y compris hors de la course du curseur.
+function reglerTailleTexte(px, source) {
+    const t = Math.max(4, Math.min(400, Math.round(px)));
+    if (!isFinite(t)) return;
+    activeStyle.fontSize = t;
+    const curseur = document.getElementById('font-size');
+    const nombre = document.getElementById('font-size-num');
+    if (curseur && source !== 'curseur') curseur.value = Math.max(6, Math.min(120, t));
+    if (nombre && source !== 'nombre') nombre.value = t;
+    pushStyleToObject();
+}
+window.reglerTailleTexte = reglerTailleTexte;
+document.getElementById('font-size').addEventListener('input', (e) => reglerTailleTexte(parseInt(e.target.value, 10), 'curseur'));
+(function () {
+    const nombre = document.getElementById('font-size-num');
+    if (!nombre) return;
+    // On ne recadre pas pendant la frappe : « 4 » en route vers « 42 » serait
+    // remonté à 4 avant qu'on ait fini de taper.
+    nombre.addEventListener('input', () => {
+        const v = parseInt(nombre.value, 10);
+        if (isFinite(v) && v >= 4 && v <= 400) reglerTailleTexte(v, 'nombre');
+    });
+    nombre.addEventListener('change', () => {
+        const v = parseInt(nombre.value, 10);
+        reglerTailleTexte(isFinite(v) ? v : activeStyle.fontSize, 'curseur');
+    });
+})();
 
 // --- CHANGEMENT DE MODE ET GESTION UI ---
 function syncToolbarActiveStates() {
@@ -6205,7 +6232,10 @@ function selectObject(objInfo) {
             if (obj.arrowStart !== undefined) activeStyle.arrowStart = obj.arrowStart; else activeStyle.arrowStart = 0;
             if (obj.arrowEnd !== undefined) activeStyle.arrowEnd = obj.arrowEnd; else activeStyle.arrowEnd = 0;
 
-            updateColorIndicator(); document.getElementById('line-width').value = activeStyle.lineWidth; document.getElementById('font-size').value = activeStyle.fontSize;
+            updateColorIndicator(); document.getElementById('line-width').value = activeStyle.lineWidth;
+            document.getElementById('font-size').value = Math.max(6, Math.min(120, activeStyle.fontSize));
+            const chiffreTaille = document.getElementById('font-size-num');
+            if (chiffreTaille) chiffreTaille.value = activeStyle.fontSize;
         }
     } updateStyleBarContext();
 }
@@ -6860,10 +6890,14 @@ canvas.addEventListener('pointerdown', (e) => {
 
     else if (mode === 'text') {
         if (!clickedObj || clickedObj.type !== 'text') {
-            const offsetY = activeStyle.fontSize * 0.12;
+            // Le clic est un curseur de texte : la première ligne l'enfourche,
+            // elle ne pend pas dessous. On vise donc le MILIEU de la ligne, et
+            // non son sommet — sinon le cadre s'ouvre nettement plus bas que
+            // l'endroit qu'on a désigné.
+            const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
             tempTextLogicalPos = {
                 x: actionPos.x,
-                y: actionPos.y - offsetY
+                y: actionPos.y - interligne / 2
             };
             // Couleur du bloc = celle en vigueur À L'OUVERTURE. Choisir une
             // autre couleur ensuite ne doit repeindre que ce qui suit, pas ce

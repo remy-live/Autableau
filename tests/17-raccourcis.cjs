@@ -390,7 +390,9 @@ module.exports = async function (browser) {
     // présentation coupait les bords en plein milieu d'un mot.
     const presentation = await page.evaluate(() => {
         setMode('pointer');
-        images.length = 0;
+        // Table rase : le fond sombre se mesure au pixel, un texte oublié par
+        // un test précédent viendrait s'asseoir dessus.
+        images.length = 0; texts.length = 0; freehands.length = 0; selectedItems = [];
         // Un canevas fait un document d'essai que le tableau sait dessiner ;
         // on lui pose les mesures naturelles que le code va relire.
         const feuille = document.createElement('canvas');
@@ -476,10 +478,10 @@ module.exports = async function (browser) {
         draw();
         const g = document.getElementById('board').getContext('2d');
         const bord = g.getImageData(4, 4, 1, 1).data;
-        return { enCours: presentationEnCours, clair: bord[0] > 150 };
+        return { enCours: presentationEnCours, clair: bord[0] > 150, px: [bord[0],bord[1],bord[2]], focus: document.body.classList.contains('focus-mode') };
     });
     r.verifie('quitter le mode Focus met fin à la présentation', !sortie.enCours);
-    r.verifie('et le fond sombre s\'en va avec elle', sortie.clair);
+    r.verifie('et le fond sombre s\'en va avec elle', sortie.clair, JSON.stringify(sortie));
 
     await page.evaluate(() => { if (!document.body.classList.contains('focus-mode')) toggleFocusMode(); });
 

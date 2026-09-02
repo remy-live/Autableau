@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=54">
+    <link rel="stylesheet" href="style.css?v=55">
 </head>
 
 <body>
@@ -1687,9 +1687,13 @@
 
         <div class="style-group group-text">
             <div class="divider"></div>
+            <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
+                 on ne pouvait ni la lire ni descendre plus bas. Le nombre
+                 l'affiche et se tape directement, au-delà du curseur si besoin. -->
             <div class="slider-container" title="Taille du texte">
-                <div class="slider-icon">A</div><input type="range" id="font-size" min="12" max="64" step="2"
-                    value="24">
+                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
+                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
+                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
             </div>
         </div>
     </div>
@@ -1830,7 +1834,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=119"></script>
+    <script src="script.js?v=120"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=70"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
