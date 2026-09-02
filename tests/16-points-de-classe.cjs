@@ -1298,6 +1298,193 @@ module.exports = async function (browser) {
     r.verifie('elle s\'ouvre vraiment au survol', ouverte.visible, JSON.stringify(ouverte));
     r.verifie('et nomme le badge', /Entraide/.test(ouverte.texte), ouverte.texte);
 
+    // --- LES OUBLIS ---
+    // Un badge se donne, un oubli se constate : deux catégories distinctes,
+    // et chaque oubli est daté — c'est ce qui rend le suivi possible.
+    const oublis = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const classe = p.classeCourante();
+        // On repart d'une classe propre, et de la grille : un test précédent
+        // a pu laisser un panneau ouvert à la place des cartes.
+        (classe.students || []).forEach(e => { e.journal = []; e.badges = []; e.pts = { plus: 0, moins: 0, etoiles: 0 }; });
+        p.historique = [];
+        p.panneauReglages = false; p.panneauBilan = false;
+        p.editionBadge = null; p.editionAvatar = null; p.badgeArme = null; p.oubliArme = null;
+        p.mode = 'plus';
+        p.rendre();
+        // Les identifiants dépendent de la classe en place : on les relit.
+        const A = classe.students[0].id, C = classe.students[2].id;
+        p.noterOubli(A, 'materiel');
+        p.noterOubli(A, 'materiel');
+        p.noterOubli(A, 'carnet');
+        p.noterOubli(C, 'devoirs');
+        const eleve = classe.students[0];
+        return {
+            types: p.TYPES_OUBLI.length,
+            materiel: p.compterOublis(eleve, 'materiel'),
+            carnet: p.compterOublis(eleve, 'carnet'),
+            tous: p.compterOublis(eleve),
+            // Chaque trace porte sa date
+            datees: p.journalDe(eleve).every(x => /^\d{4}-\d{2}-\d{2}$/.test(x.d)),
+            dates: p.datesDesOublis(eleve, 'materiel'),
+            // Un oubli n'est pas un badge
+            pasUnBadge: (eleve.badges || []).length === 0,
+            // Il apparaît sur la carte, avec son compte
+            surLaCarte: document.querySelectorAll('.pts-carte[data-id="' + A + '"] .pts-oubli-chip').length,
+            infobulle: (document.querySelector('.pts-carte[data-id="' + A + '"] .pts-oubli-chip') || {})
+                .getAttribute ? document.querySelector('.pts-carte[data-id="' + A + '"] .pts-oubli-chip').getAttribute('data-tooltip') : ''
+        };
+    });
+    r.egal('quatre motifs d\'oubli, pas davantage', oublis.types, 4);
+    r.egal('deux oublis de matériel comptés', oublis.materiel, 2);
+    r.egal('et un de carnet', oublis.carnet, 1);
+    r.egal('trois oublis en tout', oublis.tous, 3);
+    r.verifie('chaque oubli porte sa date', oublis.datees);
+    r.egal('les dates sont lisibles pour le suivi', oublis.dates.length, 2);
+    r.verifie('un oubli n\'est pas un badge', oublis.pasUnBadge);
+    r.egal('la carte montre une pastille par motif', oublis.surLaCarte, 2);
+    r.verifie('et l\'infobulle donne le compte et les dates',
+        /2 oublis de matériel/.test(oublis.infobulle) && /\d{2}\/\d{2}/.test(oublis.infobulle), oublis.infobulle);
+
+    const retraits = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const eleve = p.classeCourante().students[0];
+        p.retirerOubli(eleve.id, 'materiel');
+        const apresRetrait = p.compterOublis(eleve, 'materiel');
+        p.noterOubli(eleve.id, 'carnet');
+        p.annuler();                       // le ↶ défait le dernier oubli
+        return { apresRetrait, apresAnnulation: p.compterOublis(eleve, 'carnet') };
+    });
+    r.egal('la pastille en retire un', retraits.apresRetrait, 1);
+    r.egal('et le ↶ défait le dernier oubli posé', retraits.apresAnnulation, 1);
+
+    // Poser un oubli passe par la bande, comme un badge, mais les deux ne se
+    // tiennent pas en même temps.
+    const bandeOublis = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        p.panneauReglages = false; p.panneauBilan = false; p.editionBadge = null; p.editionAvatar = null;
+        p.badgeArme = 'b-entraide'; p.rendre();
+        w.querySelector('.pts-oubli[data-id="carnet"]').click();
+        const armé = { oubli: p.oubliArme, badge: p.badgeArme };
+        // Le quatrième élève de la classe, quel que soit son identifiant :
+        // les tests précédents ont pu en ajouter ou en retirer.
+        const cible = p.classeCourante().students[3];
+        const avant = p.compterOublis(cible, 'carnet');
+        w.querySelector('.pts-carte[data-id="' + cible.id + '"]').click();
+        const apres = p.compterOublis(cible, 'carnet');
+        w.querySelector('.pts-oubli[data-id="carnet"]').click();
+        return { armé, avant, apres, desarme: p.oubliArme,
+                 boutons: w.querySelectorAll('.pts-oubli').length,
+                 badgesTouj: w.querySelectorAll('.pts-badge').length };
+    });
+    r.egal('la bande porte les quatre motifs', bandeOublis.boutons, 4);
+    r.verifie('les badges restent dans leur propre rangée', bandeOublis.badgesTouj >= 9,
+        String(bandeOublis.badgesTouj));
+    r.egal('prendre un oubli repose le badge qu\'on tenait', bandeOublis.armé.badge, null);
+    r.egal('désigner un élève lui pose l\'oubli', [bandeOublis.avant, bandeOublis.apres], [0, 1]);
+    r.egal('recliquer le motif le repose', bandeOublis.desarme, null);
+
+    // --- LE BILAN ---
+    const bilan = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const classe = p.classeCourante();
+        (classe.students || []).forEach(e => { e.journal = []; e.badges = []; });
+        const eleve = classe.students[0];
+        // Des traces d'aujourd'hui, plus deux très anciennes
+        p.compter(eleve.id, 1); p.compter(eleve.id, 1); p.compter(eleve.id, -1);
+        p.noterOubli(eleve.id, 'materiel');
+        p.poserBadge(eleve.id, 'b-entraide', true);
+        eleve.journal.push({ d: '2001-01-15', t: 'p' });
+        eleve.journal.push({ d: '2001-01-15', t: 'o', v: 'carnet' });
+
+        p.bilanPeriode = 'tout';
+        const tout = p.lignesDuBilan().find(l => l.id === eleve.id);
+        p.bilanPeriode = 'mois';
+        const mois = p.lignesDuBilan().find(l => l.id === eleve.id);
+        p.bilanPeriode = 'perso';
+        p.bilanDebut = '2001-01-01'; p.bilanFin = '2001-12-31';
+        const ancien = p.lignesDuBilan().find(l => l.id === eleve.id);
+        p.bilanPeriode = 'mois';
+
+        p.panneauBilan = true; p.rendre();
+        const w = document.getElementById('points-widget');
+        return {
+            tout, mois, ancien,
+            colonnes: w.querySelectorAll('#pts-bilan-table thead th').length,
+            lignes: w.querySelectorAll('#pts-bilan-table tbody tr').length,
+            eleves: (classe.students || []).length,
+            premier: eleve.name,
+            periodes: w.querySelectorAll('.pts-bilan-periode').length,
+            boutonPdf: !!w.querySelector('#pts-bilan-pdf')
+        };
+    });
+    r.egal('depuis le début : tout est compté',
+        [bilan.tout.plus, bilan.tout.moins, bilan.tout.badges, bilan.tout.totalOublis], [3, 1, 1, 2]);
+    r.egal('ce mois-ci : les traces anciennes sortent du compte',
+        [bilan.mois.plus, bilan.mois.moins, bilan.mois.badges, bilan.mois.totalOublis], [2, 1, 1, 1]);
+    r.egal('deux dates : on ne garde que la période demandée',
+        [bilan.ancien.plus, bilan.ancien.totalOublis], [1, 1]);
+    r.egal('le solde est la différence', bilan.mois.solde, 1);
+    r.egal('le tableau a une colonne par motif, plus les points',
+        bilan.colonnes, 5 + 4 + 1);
+    r.egal('une ligne par élève', bilan.lignes, bilan.eleves);
+    r.egal('quatre périodes au choix', bilan.periodes, 4);
+    r.verifie('et un bouton d\'export PDF', bilan.boutonPdf);
+
+    const tri = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const w = document.getElementById('points-widget');
+        const noms = () => Array.from(w.querySelectorAll('#pts-bilan-table tbody tr td:first-child'))
+            .map(td => td.textContent.trim());
+        const alpha = noms();
+        w.querySelector('.pts-bilan-col[data-col="totalOublis"]').click();
+        const parOublis = noms();
+        w.querySelector('.pts-bilan-col[data-col="totalOublis"]').click();
+        const inverse = noms();
+        return { alpha, parOublis, inverse };
+    });
+    r.egal('le tableau part par ordre alphabétique', tri.alpha[0], bilan.premier);
+    r.verifie('un clic sur une colonne trie dessus : le plus étourdi passe en bas',
+        tri.parOublis[tri.parOublis.length - 1] === bilan.premier, JSON.stringify(tri.parOublis));
+    r.verifie('un second clic inverse le tri, il repasse en haut',
+        tri.inverse[0] === bilan.premier, JSON.stringify(tri.inverse));
+
+    const pdf = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        // On intercepte l'enregistrement : le test ne veut pas d'un fichier,
+        // il veut savoir que le document est bien fabriqué.
+        const ctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+        if (!ctor) return { absent: true };
+        // On intercepte la CONSTRUCTION : « save » écrirait vraiment un
+        // fichier, et le test n'en veut pas — il veut le document.
+        let recu = null, pages = 0;
+        const faux = function (...args) {
+            const doc = new ctor(...args);
+            doc.save = (nom) => { recu = nom; pages = doc.internal.getNumberOfPages(); };
+            return doc;
+        };
+        if (window.jspdf && window.jspdf.jsPDF) window.jspdf.jsPDF = faux; else window.jsPDF = faux;
+        const rendu = p.exporterLeBilan();
+        if (window.jspdf && window.jspdf.jsPDF === faux) window.jspdf.jsPDF = ctor; else window.jsPDF = ctor;
+        return { rendu, recu, pages, periode: p.nomDeLaPeriode() };
+    });
+    if (pdf.absent) {
+        r.verifie('jsPDF n\'est pas chargé dans ce contexte : export non testé', true);
+    } else {
+        r.verifie('le bilan s\'exporte en PDF', !!pdf.rendu && pdf.rendu === pdf.recu, JSON.stringify(pdf));
+        r.verifie('le fichier porte le nom de la classe et la date',
+            /^bilan-.+-\d{4}-\d{2}-\d{2}\.pdf$/.test(pdf.recu || ''), String(pdf.recu));
+        r.verifie('et tient au moins sur une page', pdf.pages >= 1, String(pdf.pages));
+    }
+    r.verifie('la période est dite en toutes lettres',
+        /ce mois-ci/.test(pdf.periode || ''), String(pdf.periode));
+
+    await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        p.panneauBilan = false; p.oubliArme = null; p.rendre();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

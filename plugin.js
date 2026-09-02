@@ -30048,7 +30048,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         'coeur': { emoji: '❤️', d: '<path d="M12 20s-7-4.4-7-9a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 4.6-7 9-7 9z"/>' },
         'medaille': { emoji: '🏅', d: '<circle cx="12" cy="15" r="5"/><path d="M9 10.4L6.5 3h11L15 10.4"/>' },
         'drapeau': { emoji: '🚩', d: '<path d="M6 21V3.5"/><path d="M6 5h11l-2 3.6L17 12.2H6z"/>' },
-        'equipe': { emoji: '👥', d: '<circle cx="9" cy="9" r="3"/><path d="M3.6 19a5.4 5.4 0 0 1 10.8 0"/><circle cx="17.2" cy="10" r="2.3"/><path d="M15.8 15.4A4.4 4.4 0 0 1 21 19"/>' }
+        'equipe': { emoji: '👥', d: '<circle cx="9" cy="9" r="3"/><path d="M3.6 19a5.4 5.4 0 0 1 10.8 0"/><circle cx="17.2" cy="10" r="2.3"/><path d="M15.8 15.4A4.4 4.4 0 0 1 21 19"/>' },
+        'sac': { emoji: '🎒', d: '<path d="M5 9.5h14V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8.5 9.5V7a3.5 3.5 0 0 1 7 0v2.5"/><path d="M9.5 14h5"/>' },
+        'carnet': { emoji: '📓', d: '<rect x="6" y="3.5" width="13" height="17" rx="2"/><path d="M6 8H3.5M6 12H3.5M6 16H3.5"/><path d="M10 8h5M10 12h5"/>' }
     },
 
     PALETTE_BADGE: ['#0984e3', '#00b894', '#6c5ce7', '#e17055', '#d63031',
@@ -30178,6 +30180,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return false;
         }
         eleve.badges.push(badgeId);
+        this.noterAuJournal(eleve, 'b', badgeId);
         this.retenir({ t: 'badge', classeId: classe.id, eleveId, badgeId, pose: true });
         this.sauver(); this.rendre();
         if (!silencieux && typeof showToast === 'function') {
@@ -30192,6 +30195,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const i = (eleve.badges || []).indexOf(badgeId);
         if (i === -1) return false;
         eleve.badges.splice(i, 1);
+        this.retirerDuJournal(eleve, 'b', badgeId);
         this.retenir({ t: 'badge', classeId: classe.id, eleveId, badgeId, pose: false });
         this.sauver(); this.rendre();
         const badge = this.badgeParId(badgeId);
@@ -30217,6 +30221,95 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     pointsDe: function (eleve) {
         if (!eleve.pts) eleve.pts = { plus: 0, moins: 0, etoiles: 0 };
         return eleve.pts;
+    },
+
+    // ---------- Les oublis ----------
+    // Ce n'est pas un badge : un badge se donne, un oubli se constate, et l'on
+    // n'en a pas la même lecture. Une catégorie à part, donc, avec ses quatre
+    // motifs — pas davantage, sous peine d'alourdir un geste qu'on fait en
+    // début d'heure, debout, devant vingt-cinq élèves.
+    TYPES_OUBLI: [
+        { id: 'materiel', nom: 'Matériel', icone: 'sac', couleur: '#e17055' },
+        { id: 'carnet', nom: 'Carnet', icone: 'carnet', couleur: '#0984e3' },
+        { id: 'devoirs', nom: 'Devoirs', icone: 'livre', couleur: '#d63031' },
+        { id: 'signature', nom: 'Signature', icone: 'crayon', couleur: '#6c5ce7' }
+    ],
+    oubliArme: null,
+
+    typeOubli: function (id) { return this.TYPES_OUBLI.find(t => t.id === id) || null; },
+
+    // ---------- Le journal : ce qui s'est passé, et QUAND ----------
+    // Les compteurs de la carte disent l'état ; ils ne disent pas l'histoire.
+    // Sans date, un bilan « depuis la rentrée » et un bilan « cette semaine »
+    // donneraient le même chiffre. Chaque geste laisse donc une trace datée,
+    // minuscule : le jour, la nature, et ce sur quoi il portait.
+    jourCourant: function () {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+            + '-' + String(d.getDate()).padStart(2, '0');
+    },
+    journalDe: function (eleve) {
+        if (!Array.isArray(eleve.journal)) eleve.journal = [];
+        return eleve.journal;
+    },
+    noterAuJournal: function (eleve, t, v) {
+        const j = this.journalDe(eleve);
+        const trace = { d: this.jourCourant(), t: t };
+        if (v !== undefined) trace.v = v;
+        j.push(trace);
+        // Une année de classe tient largement là-dedans ; au-delà, on oublie
+        // le plus ancien plutôt que de laisser enfler la sauvegarde.
+        if (j.length > 4000) j.splice(0, j.length - 4000);
+        return trace;
+    },
+    // Défaire un geste, c'est aussi défaire sa trace : sinon le bilan
+    // continuerait de compter ce qu'on vient d'annuler.
+    retirerDuJournal: function (eleve, t, v) {
+        const j = this.journalDe(eleve);
+        for (let i = j.length - 1; i >= 0; i--) {
+            if (j[i].t === t && (v === undefined || j[i].v === v)) { j.splice(i, 1); return true; }
+        }
+        return false;
+    },
+    // Les traces d'un élève entre deux dates (bornes comprises, au format
+    // « AAAA-MM-JJ » qui se compare comme du texte).
+    tracesEntre: function (eleve, debut, fin) {
+        return this.journalDe(eleve).filter(x =>
+            (!debut || x.d >= debut) && (!fin || x.d <= fin));
+    },
+
+    // Poser un oubli : daté, comptabilisé, annulable.
+    noterOubli: function (eleveId, typeId) {
+        const classe = this.classeCourante(); if (!classe) return null;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return null;
+        const type = this.typeOubli(typeId); if (!type) return null;
+        const trace = this.noterAuJournal(eleve, 'o', typeId);
+        this.retenir({ t: 'oubli', classeId: classe.id, eleveId, typeId });
+        this.sauver();
+        this.rendre();
+        if (typeof showToast === 'function') {
+            const n = this.compterOublis(eleve, typeId);
+            showToast(`📝 ${eleve.name} — oubli de ${type.nom.toLowerCase()} (${n}${n > 1 ? 'e' : 're'} fois)`);
+        }
+        return trace;
+    },
+    retirerOubli: function (eleveId, typeId) {
+        const classe = this.classeCourante(); if (!classe) return false;
+        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return false;
+        if (!this.retirerDuJournal(eleve, 'o', typeId)) return false;
+        this.sauver();
+        this.rendre();
+        if (typeof showToast === 'function') showToast(`↩️ Oubli retiré à ${eleve.name}`);
+        return true;
+    },
+    compterOublis: function (eleve, typeId, debut, fin) {
+        return this.tracesEntre(eleve, debut, fin)
+            .filter(x => x.t === 'o' && (!typeId || x.v === typeId)).length;
+    },
+    // Les dates, pour l'infobulle : « 12/09, 03/10, 14/11 »
+    datesDesOublis: function (eleve, typeId) {
+        return this.journalDe(eleve).filter(x => x.t === 'o' && x.v === typeId)
+            .map(x => x.d.slice(8, 10) + '/' + x.d.slice(5, 7));
     },
 
     classeCourante: function () {
@@ -30253,9 +30346,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return;
         }
         this.panneauReglages = false;
+        this.panneauBilan = false;
         this.editionAvatar = null;
         this.editionBadge = null;
         this.badgeArme = null;
+        this.oubliArme = null;
         this.lireBadges();
         const suite = () => { this.construire(); this.rendre(); };
         if (typeof ClassesStore !== 'undefined') {
@@ -30282,7 +30377,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 <button id="pts-fermer" title="Fermer" style="background:none; border:none; color:#ff7675; font-size:16px; cursor:pointer;">✕</button>
             </div>
             <div id="pts-barre" style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #dfe6e9; flex-wrap:wrap;"></div>
-            <div id="pts-bande" style="display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid #dfe6e9; background:#fdfdfd;"></div>
+            <div id="pts-bande" style="display:flex; flex-direction:column; gap:6px; padding:8px 14px; border-bottom:1px solid #dfe6e9; background:#fdfdfd;"></div>
             <div id="pts-corps" style="padding:12px 14px; overflow-y:auto; flex:1; background:#f8f9fa;"></div>`;
         document.body.appendChild(el);
         this.widgetEl = el;
@@ -30364,6 +30459,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         this.rendreBande(bande);
 
         if (this.editionBadge) { corps.innerHTML = this.htmlBadge(); this.brancherBadge(); return; }
+        if (this.panneauBilan) { corps.innerHTML = this.htmlBilan(); this.brancherBilan(); return; }
         if (this.panneauReglages) { corps.innerHTML = this.htmlReglages(); this.brancherReglages(); return; }
         if (this.editionAvatar) { corps.innerHTML = this.htmlAvatar(); this.brancherAvatar(); return; }
 
@@ -30373,11 +30469,13 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return;
         }
 
-        const consigne = this.badgeArme
-            ? `Cliquez sur les élèves qui reçoivent ce badge — ou faites-le glisser sur un avatar.`
-            : (this.mode === 'retirer'
-                ? `Cliquez sur le compteur à corriger : le vert, le rouge, ou une étoile.`
-                : '');
+        const consigne = this.oubliArme
+            ? `Désignez les élèves qui ont oublié : chaque oubli est daté du jour.`
+            : (this.badgeArme
+                ? `Cliquez sur les élèves qui reçoivent ce badge — ou faites-le glisser sur un avatar.`
+                : (this.mode === 'retirer'
+                    ? `Cliquez sur le compteur à corriger : le vert, le rouge, ou une étoile.`
+                    : ''));
 
         corps.innerHTML = (consigne
             ? `<div id="pts-consigne" style="font-size:12px; color:#636e72; background:#fff; border:1px dashed #b2bec3;
@@ -30391,6 +30489,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 if (e.target.closest('.pts-note')) { this.convertirEnNote(carte.dataset.id); return; }
                 const chip = e.target.closest('.pts-chip');
                 if (chip) { this.retirerBadge(carte.dataset.id, chip.dataset.badge); return; }
+                // La pastille d'oubli en retire un : c'est là qu'on corrige
+                // une erreur d'appel, sans avoir à chercher ailleurs.
+                const trace = e.target.closest('.pts-oubli-chip');
+                if (trace) { this.retirerOubli(carte.dataset.id, trace.dataset.oubli); return; }
+                if (this.oubliArme) { this.noterOubli(carte.dataset.id, this.oubliArme); return; }
                 if (this.badgeArme) { this.poserBadge(carte.dataset.id, this.badgeArme); return; }
                 if (this.mode === 'retirer') {
                     const cible = e.target.closest('.pts-compteur');
@@ -30449,6 +30552,20 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     style="font-size:10px; color:#636e72; line-height:18px;">+${portes.length - 4}</span>` : '')
             + `</div>` : '';
 
+        // Les oublis : une ligne à part, avec le compte. Chacun porte ses
+        // dates dans son infobulle — c'est ce qui rend le suivi possible
+        // quand on doit en parler aux parents deux mois plus tard.
+        const oublis = this.TYPES_OUBLI
+            .map(t => ({ t, n: this.compterOublis(eleve, t.id) }))
+            .filter(x => x.n > 0);
+        const traces = oublis.length ? `<div class="pts-oublis" style="display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:3px;">`
+            + oublis.map(({ t, n }) => `<span class="pts-oubli-chip" data-oubli="${t.id}"
+                    data-tooltip="${n} oubli${n > 1 ? 's' : ''} de ${this.echapper(t.nom.toLowerCase())} : ${this.datesDesOublis(eleve, t.id).join(', ')} — toucher pour en retirer un"
+                    style="display:inline-flex; align-items:center; gap:2px; cursor:pointer;
+                           background:${t.couleur}22; border-radius:8px; padding:0 4px 0 1px;">
+                    ${this.iconeBadge(t, 15)}<b style="font-size:10px; color:${t.couleur};">${n}</b></span>`).join('')
+            + `</div>` : '';
+
         // L'absent du jour reste sur la grille, pâli : il garde ses points et
         // ses badges, et l'on peut encore le corriger si l'appel s'est trompé.
         const absent = typeof Appel !== 'undefined' && Appel.estAbsent(eleve);
@@ -30468,7 +30585,236 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <div style="display:flex; gap:3px; justify-content:center; align-items:center;">${compteur}</div>
             ${etoiles}
             ${chips}
+            ${traces}
         </div>`;
+    },
+
+    // ==========================================
+    // LE BILAN
+    // Ce que les compteurs ne disent pas : sur quelle période. Un chiffre
+    // « depuis la rentrée » ne se discute pas comme un chiffre « cette
+    // semaine ». Le tableau se lit à l'écran, se trie d'un clic sur une
+    // colonne, et s'emporte en PDF pour le conseil de classe ou l'entretien.
+    // ==========================================
+    panneauBilan: false,
+    bilanPeriode: 'mois',
+    bilanDebut: '', bilanFin: '',
+    bilanTri: { col: 'nom', sens: 1 },
+
+    // Les bornes de la période choisie, au format « AAAA-MM-JJ ».
+    bornesDuBilan: function () {
+        const d = new Date();
+        const iso = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0')
+            + '-' + String(x.getDate()).padStart(2, '0');
+        if (this.bilanPeriode === 'semaine') {
+            const lundi = new Date(d);
+            // Lundi de la semaine en cours : dimanche compte pour la semaine écoulée
+            lundi.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+            return { debut: iso(lundi), fin: iso(d) };
+        }
+        if (this.bilanPeriode === 'mois') {
+            return { debut: iso(new Date(d.getFullYear(), d.getMonth(), 1)), fin: iso(d) };
+        }
+        if (this.bilanPeriode === 'perso') {
+            return { debut: this.bilanDebut || '', fin: this.bilanFin || '' };
+        }
+        return { debut: '', fin: '' };            // depuis le début
+    },
+
+    nomDeLaPeriode: function () {
+        const b = this.bornesDuBilan();
+        const jj = (s) => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
+        if (this.bilanPeriode === 'tout') return 'depuis le début';
+        if (this.bilanPeriode === 'semaine') return 'cette semaine (depuis le ' + jj(b.debut) + ')';
+        if (this.bilanPeriode === 'mois') return 'ce mois-ci (depuis le ' + jj(b.debut) + ')';
+        if (!b.debut && !b.fin) return 'depuis le début';
+        if (b.debut && b.fin) return 'du ' + jj(b.debut) + ' au ' + jj(b.fin);
+        return b.debut ? 'depuis le ' + jj(b.debut) : "jusqu'au " + jj(b.fin);
+    },
+
+    // Une ligne par élève : ce qui s'est passé sur la période.
+    lignesDuBilan: function () {
+        const classe = this.classeCourante();
+        if (!classe) return [];
+        const { debut, fin } = this.bornesDuBilan();
+        const lignes = (classe.students || []).map(e => {
+            const traces = this.tracesEntre(e, debut, fin);
+            const compte = (t, v) => traces.filter(x => x.t === t && (v === undefined || x.v === v)).length;
+            const oublis = {};
+            let totalOublis = 0;
+            this.TYPES_OUBLI.forEach(t => { oublis[t.id] = compte('o', t.id); totalOublis += oublis[t.id]; });
+            return {
+                id: e.id, nom: e.name || '',
+                plus: compte('p'), moins: compte('m'), badges: compte('b'),
+                oublis, totalOublis,
+                solde: compte('p') - compte('m'),
+                etoiles: this.pointsDe(e).etoiles || 0
+            };
+        });
+        const { col, sens } = this.bilanTri;
+        lignes.sort((a, b) => {
+            if (col === 'nom') return sens * String(a.nom).localeCompare(String(b.nom), 'fr');
+            return sens * ((b[col] || 0) - (a[col] || 0)) * -1;
+        });
+        return lignes;
+    },
+
+    htmlBilan: function () {
+        const classe = this.classeCourante();
+        const lignes = this.lignesDuBilan();
+        const p = (v, actif) => `<button class="pts-bilan-periode" data-v="${v}"
+                style="border:1px solid ${actif ? '#0984e3' : '#dfe6e9'}; background:${actif ? '#0984e3' : '#fff'};
+                       color:${actif ? '#fff' : '#2d3436'}; border-radius:999px; padding:5px 13px; font-size:12px;
+                       cursor:pointer; font-weight:600;">${v === 'semaine' ? 'Cette semaine'
+                : v === 'mois' ? 'Ce mois-ci' : v === 'tout' ? 'Depuis le début' : 'Deux dates…'}</button>`;
+
+        const entete = (col, texte, infobulle) => `<th class="pts-bilan-col" data-col="${col}"
+                data-tooltip="${infobulle || ('Trier par ' + texte.toLowerCase())}"
+                style="text-align:${col === 'nom' ? 'left' : 'center'}; padding:6px 8px; font-size:11px;
+                       color:#636e72; border-bottom:2px solid #dfe6e9; cursor:pointer; white-space:nowrap;
+                       ${this.bilanTri.col === col ? 'color:#0984e3;' : ''}">${texte}${this.bilanTri.col === col ? (this.bilanTri.sens > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+
+        const totaux = lignes.reduce((t, l) => {
+            t.plus += l.plus; t.moins += l.moins; t.badges += l.badges; t.oublis += l.totalOublis;
+            return t;
+        }, { plus: 0, moins: 0, badges: 0, oublis: 0 });
+
+        return `<div style="display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <b style="font-size:14px;">Bilan — ${this.echapper((classe && classe.name) || 'Classe')}</b>
+                <span style="font-size:12px; color:#636e72;">${this.nomDeLaPeriode()}</span>
+                <div style="flex:1;"></div>
+                <button id="pts-bilan-pdf" style="border:none; background:#00b894; color:#fff; border-radius:8px;
+                        padding:7px 13px; font-size:12px; font-weight:bold; cursor:pointer;">⬇ Exporter en PDF</button>
+                <button id="pts-bilan-fermer" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
+                        padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                ${p('semaine', this.bilanPeriode === 'semaine')}${p('mois', this.bilanPeriode === 'mois')}
+                ${p('tout', this.bilanPeriode === 'tout')}${p('perso', this.bilanPeriode === 'perso')}
+                ${this.bilanPeriode === 'perso' ? `<span style="display:flex; gap:5px; align-items:center; font-size:12px;">
+                    <input type="date" id="pts-bilan-debut" value="${this.bilanDebut}"
+                           style="border:1px solid #dfe6e9; border-radius:6px; padding:4px 6px; font-size:12px;">
+                    <span style="color:#636e72;">au</span>
+                    <input type="date" id="pts-bilan-fin" value="${this.bilanFin}"
+                           style="border:1px solid #dfe6e9; border-radius:6px; padding:4px 6px; font-size:12px;">
+                </span>` : ''}
+            </div>
+            <div style="overflow:auto; max-height:52vh; border:1px solid #dfe6e9; border-radius:10px;">
+                <table id="pts-bilan-table" style="width:100%; border-collapse:collapse; background:#fff; font-size:13px;">
+                    <thead style="position:sticky; top:0; background:#f7f9fa;"><tr>
+                        ${entete('nom', 'Élève')}
+                        ${entete('plus', '👍', 'Points bonus sur la période')}
+                        ${entete('moins', '👎', 'Points malus sur la période')}
+                        ${entete('solde', 'Solde', 'Bonus moins malus')}
+                        ${entete('badges', 'Badges', 'Badges reçus sur la période')}
+                        ${this.TYPES_OUBLI.map(t => entete(t.id, this.echapper(t.nom), 'Oublis de ' + t.nom.toLowerCase())).join('')}
+                        ${entete('totalOublis', 'Total', 'Tous les oublis de la période')}
+                    </tr></thead>
+                    <tbody>
+                        ${lignes.length ? lignes.map(l => `<tr style="border-top:1px solid #f1f3f4;">
+                            <td style="padding:6px 8px; white-space:nowrap;">${this.echapper(l.nom)}</td>
+                            <td style="text-align:center; color:#00b894; font-weight:bold;">${l.plus || ''}</td>
+                            <td style="text-align:center; color:#d63031; font-weight:bold;">${l.moins || ''}</td>
+                            <td style="text-align:center; font-weight:bold; color:${l.solde < 0 ? '#d63031' : '#2d3436'};">${l.solde > 0 ? '+' : ''}${l.solde || ''}</td>
+                            <td style="text-align:center;">${l.badges || ''}</td>
+                            ${this.TYPES_OUBLI.map(t => `<td style="text-align:center; color:${l.oublis[t.id] ? t.couleur : '#b2bec3'};">${l.oublis[t.id] || ''}</td>`).join('')}
+                            <td style="text-align:center; font-weight:bold; color:${l.totalOublis ? '#d63031' : '#b2bec3'};">${l.totalOublis || ''}</td>
+                        </tr>`).join('')
+                : `<tr><td colspan="10" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+            <div style="font-size:12px; color:#636e72;">
+                Sur la période : ${totaux.plus} bonus, ${totaux.moins} malus, ${totaux.badges} badge(s),
+                ${totaux.oublis} oubli(s). Les étoiles, elles, comptent depuis toujours.
+            </div>
+        </div>`;
+    },
+
+    brancherBilan: function () {
+        const el = this.widgetEl;
+        el.querySelectorAll('.pts-bilan-periode').forEach(b => b.addEventListener('click', () => {
+            this.bilanPeriode = b.dataset.v;
+            this.rendre();
+        }));
+        const d = el.querySelector('#pts-bilan-debut');
+        const f = el.querySelector('#pts-bilan-fin');
+        if (d) d.addEventListener('change', () => { this.bilanDebut = d.value; this.rendre(); });
+        if (f) f.addEventListener('change', () => { this.bilanFin = f.value; this.rendre(); });
+        el.querySelectorAll('.pts-bilan-col').forEach(th => th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            this.bilanTri = { col, sens: this.bilanTri.col === col ? -this.bilanTri.sens : 1 };
+            this.rendre();
+        }));
+        const fermer = el.querySelector('#pts-bilan-fermer');
+        if (fermer) fermer.addEventListener('click', () => { this.panneauBilan = false; this.rendre(); });
+        const pdf = el.querySelector('#pts-bilan-pdf');
+        if (pdf) pdf.addEventListener('click', () => this.exporterLeBilan());
+    },
+
+    // Le PDF : le même tableau, en paysage, avec la classe et la période en
+    // en-tête — c'est ce qu'on pose sur la table d'un entretien.
+    exporterLeBilan: function () {
+        const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+        if (!jsPDFctor) {
+            if (typeof showToast === 'function') showToast("L'export PDF n'est pas disponible ici");
+            return false;
+        }
+        const classe = this.classeCourante();
+        const lignes = this.lignesDuBilan();
+        const doc = new jsPDFctor({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        const L = doc.internal.pageSize.getWidth();
+        const H = doc.internal.pageSize.getHeight();
+        const marge = 36;
+
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+        doc.text(`Bilan — ${(classe && classe.name) || 'Classe'}`, marge, 46);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
+        doc.text(this.nomDeLaPeriode(), marge, 62);
+        doc.setTextColor(0);
+
+        const colonnes = [{ t: 'Élève', l: 170, a: 'left' }, { t: 'Bonus', l: 52 }, { t: 'Malus', l: 52 },
+            { t: 'Solde', l: 52 }, { t: 'Badges', l: 56 }]
+            .concat(this.TYPES_OUBLI.map(t => ({ t: t.nom, l: 62 })))
+            .concat([{ t: 'Oublis', l: 56 }]);
+
+        let y = 86;
+        const enTete = () => {
+            let x = marge;
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+            colonnes.forEach(c => {
+                doc.text(c.t, c.a === 'left' ? x : x + c.l / 2, y, { align: c.a === 'left' ? 'left' : 'center' });
+                x += c.l;
+            });
+            doc.setDrawColor(200); doc.line(marge, y + 4, marge + colonnes.reduce((s, c) => s + c.l, 0), y + 4);
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+            y += 18;
+        };
+        enTete();
+
+        lignes.forEach(li => {
+            if (y > H - marge) { doc.addPage(); y = 56; enTete(); }
+            const cases = [li.nom, li.plus || '', li.moins || '',
+                (li.solde > 0 ? '+' : '') + (li.solde || ''), li.badges || '']
+                .concat(this.TYPES_OUBLI.map(t => li.oublis[t.id] || ''))
+                .concat([li.totalOublis || '']);
+            let x = marge;
+            cases.forEach((v, i) => {
+                const c = colonnes[i];
+                doc.text(String(v), c.a === 'left' ? x : x + c.l / 2, y, { align: c.a === 'left' ? 'left' : 'center' });
+                x += c.l;
+            });
+            y += 16;
+        });
+
+        doc.setFontSize(8); doc.setTextColor(140);
+        doc.text('Au Tableau ! — ' + new Date().toLocaleDateString('fr-FR'), marge, H - 20);
+
+        const nom = `bilan-${((classe && classe.name) || 'classe').replace(/[^\w-]+/g, '-')}-${this.jourCourant()}.pdf`;
+        doc.save(nom);
+        if (typeof showToast === 'function') showToast('Bilan exporté : ' + nom);
+        return nom;
     },
 
     // ---------- La bande de badges ----------
@@ -30476,7 +30822,10 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const liste = this.badgesVisibles();
         // La bande défile, mais « ＋ Nouveau » reste sous la main : sinon il
         // part hors de l'écran dès qu'il y a une dizaine de badges.
-        bande.innerHTML = `<span style="font-size:11px; font-weight:bold; color:#636e72; flex-shrink:0;">BADGES</span>
+        // Deux rangées, chacune dans son conteneur : sur une seule ligne, le
+        // rail des badges se laissait écraser à zéro par les oublis.
+        bande.innerHTML = `<div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:11px; font-weight:bold; color:#636e72; flex-shrink:0; width:46px;">BADGES</span>
             <div id="pts-rail" style="flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow-x:auto; padding:2px 0;">`
             + (liste.length ? liste.map(b => {
                 const arme = this.badgeArme === b.id;
@@ -30495,10 +30844,49 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                            padding:5px 11px; font-size:12px; cursor:pointer;">✕ Reposer</button>` : ''}
             <button id="pts-badge-neuf" title="Créer un badge"
                     style="flex-shrink:0; border:1px dashed #b2bec3; background:#fff; color:#636e72; border-radius:14px;
-                           padding:4px 11px; font-size:12px; cursor:pointer;">＋ Nouveau</button>`;
+                           padding:4px 11px; font-size:12px; cursor:pointer;">＋ Nouveau</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span style="font-size:11px; font-weight:bold; color:#636e72; flex-shrink:0; width:46px;">OUBLIS</span>`
+            + this.TYPES_OUBLI.map(t => {
+                const arme = this.oubliArme === t.id;
+                return `<button class="pts-oubli" data-id="${t.id}"
+                    data-tooltip="Oubli de ${this.echapper(t.nom.toLowerCase())} — toucher, puis désigner les élèves"
+                    style="flex-shrink:0; display:flex; align-items:center; gap:5px; border:2px solid ${arme ? '#2d3436' : t.couleur};
+                           background:${arme ? t.couleur : '#fff'}; color:${arme ? this.texteSur(t.couleur) : '#2d3436'};
+                           border-radius:14px; padding:3px 11px 3px 4px; font-size:12px; cursor:pointer; white-space:nowrap;
+                           ${arme ? 'box-shadow:0 0 0 2px rgba(45,52,54,0.15);' : ''}">
+                    ${this.iconeBadge(t, 20, arme ? { couleurDuTrait: this.texteSur(t.couleur), pleine: true } : {})}${this.echapper(t.nom)}</button>`;
+            }).join('')
+            + `${this.oubliArme ? `<button id="pts-oubli-poser" title="Reposer"
+                    style="flex-shrink:0; border:none; background:#2d3436; color:#fff; border-radius:14px;
+                           padding:5px 11px; font-size:12px; cursor:pointer;">✕ Reposer</button>` : ''}
+            <div style="flex:1;"></div>
+            <button id="pts-bilan" data-tooltip="Le bilan de la classe, sur la période de votre choix"
+                    style="flex-shrink:0; border:1px solid #dfe6e9; background:#fff; color:#2d3436; border-radius:14px;
+                           padding:4px 12px; font-size:12px; cursor:pointer; font-weight:600;">📊 Bilan</button>
+            </div>`;
 
         const reposer = bande.querySelector('#pts-badge-poser');
         if (reposer) reposer.addEventListener('click', () => { this.badgeArme = null; this.rendre(); });
+
+        // Un oubli s'arme comme un badge, mais les deux ne se tiennent pas en
+        // même temps : on ne félicite pas et on ne constate pas d'un même clic.
+        bande.querySelectorAll('.pts-oubli').forEach(b => {
+            b.addEventListener('click', () => {
+                this.oubliArme = this.oubliArme === b.dataset.id ? null : b.dataset.id;
+                if (this.oubliArme) this.badgeArme = null;
+                this.rendre();
+            });
+        });
+        const reposerOubli = bande.querySelector('#pts-oubli-poser');
+        if (reposerOubli) reposerOubli.addEventListener('click', () => { this.oubliArme = null; this.rendre(); });
+        const bilan = bande.querySelector('#pts-bilan');
+        if (bilan) bilan.addEventListener('click', () => {
+            this.panneauBilan = !this.panneauBilan;
+            this.panneauReglages = false; this.editionAvatar = null; this.editionBadge = null;
+            this.rendre();
+        });
 
         bande.querySelector('#pts-badge-neuf').addEventListener('click', () => {
             this.editionBadge = { id: null, icone: '⭐', nom: '', couleur: this.PALETTE_BADGE[0] };
@@ -30732,6 +31120,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
         const p = this.pointsDe(eleve);
         if (delta > 0) p.plus += delta; else p.moins += -delta;
+        this.noterAuJournal(eleve, delta > 0 ? 'p' : 'm');
         this.retenir({ t: 'pt', classeId: classe.id, eleveId, delta });
         this.sauver();
         this.rendre();
@@ -30755,6 +31144,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return;
         }
         p[champ] -= 1;
+        if (champ === 'plus' || champ === 'moins') this.retirerDuJournal(eleve, champ === 'plus' ? 'p' : 'm');
         this.retenir({ t: 'corr', classeId: classe.id, eleveId, champ });
         this.sauver();
         this.rendre();
@@ -30777,7 +31167,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return 0;
         }
         const champ = this.mode === 'plus' ? 'plus' : 'moins';
-        presents.forEach(e => { this.pointsDe(e)[champ] += 1; });
+        presents.forEach(e => { this.pointsDe(e)[champ] += 1; this.noterAuJournal(e, champ === 'plus' ? 'p' : 'm'); });
         this.retenir({ t: 'fournee', classeId: classe.id, champ, eleves: presents.map(e => e.id) });
         this.sauver();
         this.rendre();
@@ -30795,7 +31185,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (dernier.t === 'fournee') {
             (dernier.eleves || []).forEach(id => {
                 const e = classe && (classe.students || []).find(s => s.id === id);
-                if (e) { const p = this.pointsDe(e); p[dernier.champ] = Math.max(0, p[dernier.champ] - 1); }
+                if (e) {
+                    const p = this.pointsDe(e);
+                    p[dernier.champ] = Math.max(0, p[dernier.champ] - 1);
+                    this.retirerDuJournal(e, dernier.champ === 'plus' ? 'p' : 'm');
+                }
             });
             this.sauver();
             this.rendre();
@@ -30810,14 +31204,24 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             if (dernier.pose) {
                 const i = liste.indexOf(dernier.badgeId);
                 if (i !== -1) liste.splice(i, 1);
-            } else if (liste.indexOf(dernier.badgeId) === -1) liste.push(dernier.badgeId);
+                this.retirerDuJournal(eleve, 'b', dernier.badgeId);
+            } else if (liste.indexOf(dernier.badgeId) === -1) {
+                liste.push(dernier.badgeId);
+                this.noterAuJournal(eleve, 'b', dernier.badgeId);
+            }
+        } else if (dernier.t === 'oubli') {
+            this.retirerDuJournal(eleve, 'o', dernier.typeId);
         } else if (dernier.t === 'corr') {
             const p = this.pointsDe(eleve);
             p[dernier.champ] = (p[dernier.champ] || 0) + 1;      // on rend ce qu'on avait retiré
+            if (dernier.champ === 'plus' || dernier.champ === 'moins') {
+                this.noterAuJournal(eleve, dernier.champ === 'plus' ? 'p' : 'm');
+            }
         } else {
             const p = this.pointsDe(eleve);
             if (dernier.delta > 0) p.plus = Math.max(0, p.plus - dernier.delta);
             else p.moins = Math.max(0, p.moins + dernier.delta);
+            this.retirerDuJournal(eleve, dernier.delta > 0 ? 'p' : 'm');
         }
         this.sauver();
         this.rendre();
