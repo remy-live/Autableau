@@ -1169,7 +1169,14 @@ function arrangeToolbars() {
 }
 
 function toggleFocusMode() {
-    document.body.classList.toggle('focus-mode');
+    const enFocus = document.body.classList.toggle('focus-mode');
+    // On quitte le mode Focus : la présentation se termine avec lui, et le
+    // fond sombre du pourtour de la page s'en va.
+    if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
+        presentationEnCours = null;
+        cadrageDePresentation = 'page';
+        if (typeof draw === 'function') draw();
+    }
     majInterrupteursBarre();
 }
 
@@ -8784,8 +8791,32 @@ function draw() {
         PluginManager.trigger('onDraw', ctx, panX, panY, zoom);
         ctx.restore();
 
+        peindreLeFondDePresentation();
+
     } // Fin du bloc finally
 } // Fin de la fonction draw()
+
+// Le pourtour de la page, pendant une présentation : sombre, comme la salle
+// autour de l'écran. Une page A4 sur un écran 16/9 laisse forcément du vide
+// sur les côtés — c'est de la géométrie, pas un réglage. Ce qui change, c'est
+// qu'on le voit comme un fond et non comme deux bandes blanches restées là.
+function peindreLeFondDePresentation() {
+    if (!presentationEnCours || isExportingTransparent) return;
+    const doc = getObjectById('image', presentationEnCours);
+    if (!doc) { presentationEnCours = null; return; }
+    const L = canvas.clientWidth, H = canvas.clientHeight;
+    const x = doc.x * zoom + panX, y = doc.y * zoom + panY;
+    const w = doc.w * zoom, h = doc.h * zoom;
+    ctx.save();
+    ctx.fillStyle = 'rgba(20, 22, 24, 0.94)';
+    // Les quatre bandes autour de la page, jamais par-dessus
+    if (y > 0) ctx.fillRect(0, 0, L, Math.min(y, H));
+    if (y + h < H) ctx.fillRect(0, Math.max(0, y + h), L, H - Math.max(0, y + h));
+    const hb = Math.max(0, Math.min(y, H)), bb = Math.max(0, Math.min(y + h, H));
+    if (x > 0) ctx.fillRect(0, hb, Math.min(x, L), bb - hb);
+    if (x + w < L) ctx.fillRect(Math.max(0, x + w), hb, L - Math.max(0, x + w), bb - hb);
+    ctx.restore();
+}
 
 
 // --- FONCTION NOTIFICATIONS ---
@@ -13020,6 +13051,13 @@ function documentAPresenter() {
     return docs.sort((a, b) => (b.w * b.h) - (a.w * a.h))[0] || null;
 }
 
+// La page présentée, s'il y en a une : son identifiant sert au fond sombre.
+let presentationEnCours = null;
+// Deux cadrages, comme dans un lecteur de PDF : la page entière, ou toute la
+// largeur (on défile alors verticalement). Un nouvel appui sur « D » passe de
+// l'un à l'autre.
+let cadrageDePresentation = 'page';
+
 // Cadre la vue sur un objet, avec une marge, sans toucher à l'objet lui-même.
 function cadrerSurLObjet(obj, marge) {
     const canvas = document.getElementById('board');
@@ -13033,6 +13071,23 @@ function cadrerSurLObjet(obj, marge) {
     if (typeof syncPage === 'function') syncPage();
 }
 
+// Toute la largeur : la page remplit l'écran d'un bord à l'autre et l'on
+// défile verticalement, comme dans un lecteur de PDF. Plus rien ne reste vide
+// sur les côtés — au prix du bas de la page, qu'on va chercher en défilant.
+function cadrerSurLaLargeur(obj) {
+    const canvas = document.getElementById('board');
+    if (!canvas || !obj) return;
+    const L = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    zoom = L / obj.w;
+    panX = -obj.x * zoom;
+    // Le haut de la page en haut de l'écran ; si elle y tient, on la centre.
+    const h = obj.h * zoom;
+    panY = (h <= H) ? (H - h) / 2 - obj.y * zoom : -obj.y * zoom;
+    if (typeof syncPage === 'function') syncPage();
+}
+window.cadrerSurLaLargeur = cadrerSurLaLargeur;
+
 // Le geste demandé : plein écran, interface effacée, le document occupe tout
 // l'espace, et l'on est en mode page — on fait glisser la page dans son cadre
 // et la molette la zoome.
@@ -13042,6 +13097,17 @@ function presenterLeDocument() {
         showToast("Aucun document à présenter : importez d'abord un PDF ou une image");
         return false;
     }
+
+    // Déjà en présentation sur cette page : le second appui change de
+    // cadrage. Page entière ↔ toute la largeur, comme dans un lecteur de PDF.
+    // Une page A4 sur un écran 16/9 laisse forcément du vide sur les côtés —
+    // c'est de la géométrie. Qui veut vraiment tout l'écran prend la largeur
+    // et défile.
+    const dejaLa = presentationEnCours === doc.id;
+    cadrageDePresentation = dejaLa
+        ? (cadrageDePresentation === 'page' ? 'largeur' : 'page')
+        : 'page';
+    presentationEnCours = doc.id;
 
     if (!document.fullscreenElement) basculerPleinEcran();
     // Le mode Focus efface les barres ; on ne l'allume que s'il ne l'est pas
@@ -13071,15 +13137,32 @@ function presenterLeDocument() {
     // cadre sur les dimensions d'avant et le document déborde.
     // Marge 1 : la page touche les bords. Les 4 % qu'on laisse ailleurs se
     // voyaient comme deux bandes blanches — « pas tout à fait plein écran ».
-    const cadrer = () => { cadrerSurLObjet(doc, 1); if (typeof draw === 'function') draw(); };
+    const cadrer = () => {
+        if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
+        else cadrerSurLObjet(doc, 1);
+        if (typeof draw === 'function') draw();
+    };
     cadrer();
     setTimeout(cadrer, 250);
 
-    showToast(rogne
-        ? 'Page entière en plein écran — glissez la page, la molette la zoome'
-        : 'Document en pleine page — glissez la page, la molette la zoome');
+    showToast(cadrageDePresentation === 'largeur'
+        ? 'Toute la largeur — défilez pour parcourir la page ; « D » revient à la page entière'
+        : (rogne ? 'Page entière en plein écran — « D » à nouveau pour toute la largeur'
+                 : 'Document en pleine page — « D » à nouveau pour toute la largeur'));
     return true;
 }
+
+// Sortir de la présentation : le fond sombre s'en va avec elle.
+function quitterLaPresentation() {
+    if (!presentationEnCours) return false;
+    presentationEnCours = null;
+    cadrageDePresentation = 'page';
+    if (document.body.classList.contains('focus-mode')
+        && typeof toggleFocusMode === 'function') toggleFocusMode();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+window.quitterLaPresentation = quitterLaPresentation;
 
 window.basculerPleinEcran = basculerPleinEcran;
 window.presenterLeDocument = presenterLeDocument;

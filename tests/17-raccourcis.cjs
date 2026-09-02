@@ -431,6 +431,58 @@ module.exports = async function (browser) {
     r.verifie('et le remplit jusqu\'aux bords', presentation.remplit, JSON.stringify(presentation));
     r.verifie('centré', presentation.centre);
 
+    // Le pourtour de la page est peint sombre : une page A4 sur un écran 16/9
+    // laisse forcément du vide sur les côtés, autant que ce vide se lise comme
+    // un fond et non comme deux bandes blanches restées là.
+    const fond = await page.evaluate(() => {
+        draw();
+        const g = document.getElementById('board').getContext('2d');
+        const doc = images[0];
+        const bord = g.getImageData(4, Math.round(document.getElementById('board').clientHeight / 2), 1, 1).data;
+        const dedans = g.getImageData(Math.round(doc.x * zoom + panX + doc.w * zoom / 2),
+                                      Math.round(doc.y * zoom + panY + doc.h * zoom / 2), 1, 1).data;
+        return { bord: [bord[0], bord[1], bord[2]], dedans: [dedans[0], dedans[1], dedans[2]],
+                 enCours: presentationEnCours === doc.id };
+    });
+    r.verifie('la présentation est en cours', fond.enCours);
+    r.verifie('le pourtour de la page est sombre',
+        fond.fond !== undefined || fond.bord.every(v => v < 60), JSON.stringify(fond.bord));
+    r.verifie('et la page, elle, n\'est pas assombrie',
+        fond.dedans.some(v => v > 150), JSON.stringify(fond.dedans));
+
+    // Un second « D » prend toute la largeur, un troisième revient à la page
+    const largeur = await page.evaluate(() => {
+        const c = document.getElementById('board');
+        presenterLeDocument();
+        const doc = images[0];
+        const enLargeur = { cadrage: cadrageDePresentation,
+                            remplitLargeur: Math.abs(doc.w * zoom - c.clientWidth) < 1.5,
+                            gauche: Math.round(doc.x * zoom + panX) };
+        presenterLeDocument();
+        const revenu = { cadrage: cadrageDePresentation,
+                         tientEnHauteur: doc.h * zoom <= c.clientHeight + 1 };
+        return { enLargeur, revenu };
+    });
+    r.egal('un second « D » passe en pleine largeur', largeur.enLargeur.cadrage, 'largeur');
+    r.verifie('la page remplit alors l\'écran d\'un bord à l\'autre',
+        largeur.enLargeur.remplitLargeur && Math.abs(largeur.enLargeur.gauche) < 1.5,
+        JSON.stringify(largeur.enLargeur));
+    r.egal('un troisième revient à la page entière', largeur.revenu.cadrage, 'page');
+    r.verifie('qui tient à nouveau en hauteur', largeur.revenu.tientEnHauteur);
+
+    // Quitter le mode Focus met fin à la présentation, fond sombre compris
+    const sortie = await page.evaluate(() => {
+        toggleFocusMode();
+        draw();
+        const g = document.getElementById('board').getContext('2d');
+        const bord = g.getImageData(4, 4, 1, 1).data;
+        return { enCours: presentationEnCours, clair: bord[0] > 150 };
+    });
+    r.verifie('quitter le mode Focus met fin à la présentation', !sortie.enCours);
+    r.verifie('et le fond sombre s\'en va avec elle', sortie.clair);
+
+    await page.evaluate(() => { if (!document.body.classList.contains('focus-mode')) toggleFocusMode(); });
+
     // Le cœur « Soutenir le projet » ne reste pas devant la classe.
     // Il s'efface en fondu : on laisse la transition se terminer.
     await page.waitForTimeout(400);
