@@ -3569,7 +3569,9 @@ const RACCOURCIS_GESTES = [
     { touche: 'X', bouton: 'btn-axes', nom: 'Axes' },
     { touche: 'F', bouton: 'btn-cycle', nom: 'Fond suivant' },
     { touche: 'R', bouton: 'btn-rideau', nom: 'Rideau' },
-    { touche: 'E', bouton: 'btn-spot', nom: 'Projecteur (éclairer une zone)' }
+    { touche: 'E', bouton: 'btn-spot', nom: 'Projecteur (éclairer une zone)' },
+    // Pas de bouton derrière celui-ci : c'est une manœuvre, pas un réglage.
+    { touche: 'D', action: 'presenterLeDocument', nom: 'Document en pleine page' }
 ];
 
 // Les combinaisons : elles passent PARTOUT, y compris pendant qu'on écrit —
@@ -3579,7 +3581,7 @@ const RACCOURCIS_COMBINES = [
     { touche: 'Alt+1 … Alt+7', nom: 'Couleur de la palette (au texte en cours d\'écriture, sinon à l\'outil)' },
     { touche: 'Ctrl+Maj+F', nom: 'Plein écran' },
     { touche: 'Ctrl+K', nom: 'Chercher une commande' },
-    { touche: 'Ctrl+L', nom: 'Document en pleine page (plein écran, interface effacée, mode page)' }
+    { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)' }
 ];
 
 // On ne détourne pas une frappe quand l'utilisateur écrit, ni quand une
@@ -3616,8 +3618,13 @@ function declencherRaccourci(e) {
 
     const geste = RACCOURCIS_GESTES.find(r => r.touche === t);
     if (geste) {
-        const btn = document.getElementById(geste.bouton);
-        if (btn) { btn.click(); return true; }
+        if (geste.bouton) {
+            const btn = document.getElementById(geste.bouton);
+            if (btn) { btn.click(); return true; }
+        } else if (geste.action && typeof window[geste.action] === 'function') {
+            window[geste.action]();
+            return true;
+        }
     }
     return false;
 }
@@ -3643,6 +3650,7 @@ function poserRaccourcisSurLesBoutons() {
             .forEach(b => b.setAttribute('data-raccourci', r.touche));
     });
     RACCOURCIS_GESTES.forEach(r => {
+        if (!r.bouton) return;               // une manœuvre n'a pas de bouton
         const b = document.getElementById(r.bouton);
         if (b) b.setAttribute('data-raccourci', r.touche);
     });
@@ -12681,10 +12689,12 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
-    // Ctrl+L : le document en pleine page. Sous Windows et Linux, Chrome
-    // garde Ctrl+L pour sa barre d'adresse et ne nous le laisse pas : on
-    // écoute donc aussi Ctrl+Maj+L, qui marche partout.
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'L' || e.key === 'l')) {
+    // Le document en pleine page. Ctrl+L serait le plus naturel, mais le
+    // navigateur le garde pour sa barre d'adresse — sur Mac comme ailleurs —
+    // et une page web ne peut pas le lui reprendre. C'est donc « D » tout
+    // court (voir RACCOURCIS_GESTES), doublé de Ctrl+Maj+L pour ceux qui
+    // préfèrent une combinaison.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
         e.preventDefault(); e.stopPropagation();
         presenterLeDocument();
     }

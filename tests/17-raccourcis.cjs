@@ -20,7 +20,10 @@ module.exports = async function (browser) {
             doublons: touches.length - new Set(touches).size,
             majuscules: touches.every(t => t === t.toUpperCase()),
             orphelins: RACCOURCIS_OUTILS.filter(o => !modesConnus.includes(o.mode)).map(o => o.mode),
-            sansBouton: RACCOURCIS_GESTES.filter(g => !document.getElementById(g.bouton)).map(g => g.bouton),
+            sansBouton: RACCOURCIS_GESTES.filter(g => g.bouton && !document.getElementById(g.bouton)).map(g => g.bouton),
+            // Un geste sans bouton doit nommer une manœuvre qui existe
+            actionsMortes: RACCOURCIS_GESTES.filter(g => !g.bouton
+                && typeof window[g.action] !== 'function').map(g => g.touche),
             nommes: RACCOURCIS_OUTILS.concat(RACCOURCIS_GESTES).every(x => !!x.nom)
         };
     });
@@ -29,6 +32,7 @@ module.exports = async function (browser) {
     r.verifie('elles sont toutes écrites en majuscule', table.majuscules);
     r.egal('chaque raccourci vise un outil qui existe', table.orphelins, []);
     r.egal('et chaque geste vise un bouton qui existe', table.sansBouton, []);
+    r.egal('ou une manœuvre qui existe', table.actionsMortes, []);
     r.verifie('chacun porte un nom lisible pour l\'aide', table.nommes);
 
     // --- LES TOUCHES CHANGENT VRAIMENT D'OUTIL ---
@@ -334,13 +338,26 @@ module.exports = async function (browser) {
             centre: Math.abs((doc.x + doc.w / 2) * zoom + panX - c.clientWidth / 2) < 2
         };
     });
-    r.verifie('Ctrl+L présente le document', presentation.ok);
+    r.verifie('la présentation du document part', presentation.ok);
     r.egal('en mode page, pour pouvoir naviguer dedans', presentation.mode, 'page');
     r.verifie('avec l\'interface effacée', presentation.focus);
     r.verifie('le document est choisi', presentation.choisi);
     r.verifie('il tient dans l\'écran', presentation.tientDedans);
     r.verifie('et le remplit', presentation.remplit);
     r.verifie('centré', presentation.centre);
+
+    // La touche « D » au clavier : c'est elle le vrai raccourci, Ctrl+L
+    // n'étant pas récupérable au navigateur.
+    const parLaTouche = await page.evaluate(() => {
+        document.body.classList.remove('focus-mode');
+        modeDocument = 'cadre';
+        panX = 0; panY = 0; zoom = 1;
+        setMode('pointer'); selectedItems = [];
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
+        return { mode: modeDocument, focus: document.body.classList.contains('focus-mode') };
+    });
+    r.egal('« D » met le document en pleine page', parLaTouche.mode, 'page');
+    r.verifie('et efface l\'interface', parLaTouche.focus);
 
     // Sans document, on le dit plutôt que de ne rien faire
     const sansDoc = await page.evaluate(() => {
@@ -358,7 +375,7 @@ module.exports = async function (browser) {
     r.egal('quatre combinaisons documentées', aideCombines.n, 4);
     r.verifie('et l\'aide les affiche toutes',
         /Alt\+1/.test(aideCombines.t) && /Ctrl\+Maj\+F/.test(aideCombines.t)
-        && /Ctrl\+K/.test(aideCombines.t) && /Ctrl\+L/.test(aideCombines.t), aideCombines.t);
+        && /Ctrl\+K/.test(aideCombines.t) && /Ctrl\+Maj\+L/.test(aideCombines.t), aideCombines.t);
 
     await page.evaluate(() => {
         document.body.classList.remove('focus-mode');
