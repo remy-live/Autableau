@@ -472,38 +472,123 @@ module.exports = async function (browser) {
         const t = (document.getElementById('aide-raccourcis-combines') || {}).textContent || '';
         return { t, n: RACCOURCIS_COMBINES.length };
     });
-    // L'aide se lit par onglets, sur une seule colonne
-    const onglets = await page.evaluate(() => {
+    // L'aide se cherche : un champ filtre tout, les rubriques défilent
+    const recherche = await page.evaluate(() => {
         document.getElementById('btn-help').click();
-        const barre = document.getElementById('aide-onglets');
-        const pages = Array.from(document.querySelectorAll('#aide-pages .aide-page'));
-        const visibles = () => pages.filter(p => getComputedStyle(p).display !== 'none').length;
-        const auDebut = { onglets: barre.children.length, pages: pages.length, visibles: visibles(),
-                          premierActif: barre.children[0].classList.contains('actif'),
-                          titre: barre.children[0].textContent.trim() };
-        // On change d'onglet
-        barre.children[3].click();
-        const apres = { visibles: visibles(),
-                        page4: pages[3].classList.contains('actif'),
-                        page1: pages[0].classList.contains('actif'),
-                        onglet4: barre.children[3].classList.contains('actif') };
+        const sections = Array.from(document.querySelectorAll('#aide-pages .aide-section'));
+        const visibles = () => sections.filter(s => !s.hidden).length;
+        const lignesVisibles = () =>
+            Array.from(document.querySelectorAll('#aide-pages li, #aide-pages .aide-rac'))
+                .filter(l => !l.hidden).length;
+        const auDebut = { sections: sections.length, visibles: visibles(), lignes: lignesVisibles() };
+
+        filtrerLAide('post-it');
+        const postit = { visibles: visibles(), lignes: lignesVisibles(),
+                         textes: Array.from(document.querySelectorAll('#aide-pages li:not([hidden]), #aide-pages .aide-rac:not([hidden])'))
+                             .map(l => l.textContent.slice(0, 40)) };
+
+        filtrerLAide('zzzz introuvable');
+        const rien = { visibles: visibles(), message: !document.getElementById('aide-rien').hidden };
+
+        filtrerLAide('');
+        const remis = { visibles: visibles(), lignes: lignesVisibles() };
+
         // Une seule colonne : plus de grille à deux colonnes
         const colonnes = getComputedStyle(document.getElementById('aide-pages')).gridTemplateColumns;
+        // Le titre de rubrique reste collé en haut pendant qu'on défile
+        const collant = getComputedStyle(sections[0].querySelector('h3')).position;
         document.getElementById('help-modal').style.display = 'none';
-        return { auDebut, apres, colonnes,
-                 noms: Array.from(barre.children).map(b => b.textContent.trim()) };
+        return { auDebut, postit, rien, remis, colonnes, collant };
     });
-    r.egal('un onglet par rubrique de l\'aide', onglets.auDebut.onglets, onglets.auDebut.pages);
-    r.verifie('sept rubriques', onglets.auDebut.pages === 7, JSON.stringify(onglets.noms));
-    r.egal('une seule rubrique affichée à la fois', onglets.auDebut.visibles, 1);
-    r.verifie('la première est ouverte', onglets.auDebut.premierActif);
-    r.verifie('l\'onglet porte le titre de sa rubrique',
-        /Navigation/.test(onglets.auDebut.titre), onglets.auDebut.titre);
-    r.egal('changer d\'onglet garde une seule rubrique visible', onglets.apres.visibles, 1);
-    r.verifie('et c\'est la bonne',
-        onglets.apres.page4 && !onglets.apres.page1 && onglets.apres.onglet4, JSON.stringify(onglets.apres));
+    r.egal('sept rubriques, toutes lisibles d\'une traite',
+        [recherche.auDebut.sections, recherche.auDebut.visibles], [7, 7]);
+    r.verifie('l\'aide n\'est plus en onglets : tout défile',
+        recherche.auDebut.lignes > 40, String(recherche.auDebut.lignes));
+    r.verifie('chercher « post-it » ne garde que ce qui en parle',
+        recherche.postit.lignes > 0 && recherche.postit.lignes < recherche.auDebut.lignes
+        && recherche.postit.textes.every(t => /post-it|Note/i.test(t)),
+        JSON.stringify(recherche.postit.textes));
+    r.verifie('et referme les rubriques devenues vides',
+        recherche.postit.visibles < 7, String(recherche.postit.visibles));
+    r.verifie('une recherche sans réponse le dit',
+        recherche.rien.visibles === 0 && recherche.rien.message, JSON.stringify(recherche.rien));
+    r.egal('effacer la recherche rend toute l\'aide',
+        [recherche.remis.visibles, recherche.remis.lignes],
+        [recherche.auDebut.visibles, recherche.auDebut.lignes]);
     r.verifie('l\'aide n\'est plus en deux colonnes',
-        !/\d+px\s+\d+px/.test(onglets.colonnes), onglets.colonnes);
+        !/\d+px\s+\d+px/.test(recherche.colonnes), recherche.colonnes);
+    r.egal('le titre de rubrique reste collé en haut', recherche.collant, 'sticky');
+
+    // Apprendre les raccourcis en travaillant : le logiciel souffle la touche
+    // quand on clique le bouton, et se tait dès qu'elle est acquise.
+    const appris = await page.evaluate(() => {
+        localStorage.removeItem('auTableau_raccourcis_v1');
+        localStorage.removeItem('auTableau_souffler_raccourcis');
+        // On repart d'une mémoire vide
+        Object.keys(window.memoireRaccourcis || {}).forEach(k => delete window.memoireRaccourcis[k]);
+        const bouton = document.querySelector('.btn[data-raccourci="C"]');
+        const bulle = () => document.getElementById('bulle-raccourci');
+        const visible = () => !!(bulle() && bulle().classList.contains('visible'));
+
+        // Un premier clic compte, mais n'a pas encore de raison de souffler :
+        // la bulle attend qu'on ait pris l'habitude du bouton.
+        bouton.click();
+        const apres1 = { etat: etatDuRaccourci('C'), souris: ficheRaccourci('C').souris };
+        // Un second : on clique souvent, jamais au clavier — on souffle
+        const soufflé = soufflerLaTouche(bouton, 'C');
+        const texte = bulle() ? bulle().textContent : '';
+
+        // Trois usages au clavier : acquis, et l'on se tait pour de bon
+        noterUsage('C', 'clavier'); noterUsage('C', 'clavier'); noterUsage('C', 'clavier');
+        const acquis = etatDuRaccourci('C');
+        const encore = soufflerLaTouche(bouton, 'C');
+
+        // L'interrupteur coupe tout
+        Object.keys(window.memoireRaccourcis).forEach(k => delete window.memoireRaccourcis[k]);
+        reglerSouffler(false);
+        const coupe = soufflerLaTouche(bouton, 'C');
+        reglerSouffler(true);
+        return { apres1, soufflé, texte, acquis, encore, coupe, visibleAvant: visible() };
+    });
+    r.egal('cliquer un bouton compte comme un usage à la souris', appris.apres1.souris, 1);
+    r.verifie('la touche est soufflée quand on préfère la souris', appris.soufflé);
+    r.verifie('et la bulle porte la touche', /C/.test(appris.texte) && /même chose/.test(appris.texte), appris.texte);
+    r.egal('deux clics sans clavier : le raccourci passe « à essayer »',
+        await page.evaluate(() => {
+            Object.keys(window.memoireRaccourcis).forEach(k => delete window.memoireRaccourcis[k]);
+            noterUsage('C', 'souris'); noterUsage('C', 'souris');
+            return etatDuRaccourci('C');
+        }), 'a-essayer');
+    r.egal('trois usages au clavier : acquis', appris.acquis, 'acquis');
+    r.verifie('une fois acquis, on ne souffle plus', appris.encore === false);
+    r.verifie('et l\'interrupteur coupe les bulles', appris.coupe === false);
+
+    // Le raccourci clique le bouton lui-même : cela ne doit pas compter
+    // comme un clic de souris, sinon on se soufflerait la touche à soi-même.
+    const auClavier = await page.evaluate(() => {
+        Object.keys(window.memoireRaccourcis).forEach(k => delete window.memoireRaccourcis[k]);
+        setMode('pointer');
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }));
+        return { ...ficheRaccourci('C'), mode };
+    });
+    r.egal('la touche C choisit bien le crayon', auClavier.mode, 'freehand');
+    r.egal('elle est comptée au clavier', auClavier.clavier, 1);
+    r.egal('et pas à la souris, bien qu\'elle clique le bouton', auClavier.souris, 0);
+
+    // La jauge dit où l'on en est
+    const jauge = await page.evaluate(() => {
+        Object.keys(window.memoireRaccourcis).forEach(k => delete window.memoireRaccourcis[k]);
+        ['C', 'T', 'S'].forEach(t => { noterUsage(t, 'clavier'); noterUsage(t, 'clavier'); noterUsage(t, 'clavier'); });
+        remplirAideRaccourcis();
+        return {
+            texte: document.getElementById('aide-progres-texte').textContent,
+            largeur: document.querySelector('#aide-progres .aide-jauge > i').style.width,
+            marques: document.querySelectorAll('#aide-pages .aide-rac.acquis').length
+        };
+    });
+    r.verifie('la jauge annonce les raccourcis acquis', /^3 raccourcis sur \d+/.test(jauge.texte), jauge.texte);
+    r.verifie('et se remplit', parseFloat(jauge.largeur) > 0, jauge.largeur);
+    r.egal('les trois sont marqués « acquis » dans la liste', jauge.marques, 3);
 
     r.egal('quatre combinaisons documentées', aideCombines.n, 4);
     r.verifie('et l\'aide les affiche toutes',

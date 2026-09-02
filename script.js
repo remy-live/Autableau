@@ -3626,19 +3626,146 @@ function onEcritAilleurs(e) {
         .some(m => m.getClientRects().length > 0);
 }
 
+// ==============================================================================
+// APPRENDRE LES RACCOURCIS EN TRAVAILLANT
+// Personne n'apprend un raccourci dans une liste : on l'apprend au moment où
+// l'on vient de faire la chose à la souris. Le logiciel compte donc, pour
+// chaque touche, les fois où elle a servi au clavier et les fois où l'on a
+// cliqué le bouton à la place. Quand le second l'emporte, il souffle la touche
+// — une petite bulle sous le bouton, quelques secondes. Trois usages au
+// clavier et il se tait pour de bon : le raccourci est acquis.
+// ==============================================================================
+const CLE_APPRENTISSAGE = 'auTableau_raccourcis_v1';
+const CLE_SOUFFLER = 'auTableau_souffler_raccourcis';
+const SEUIL_ACQUIS = 3;        // trois fois au clavier, c'est dans les doigts
+const SOUFFLES_MAX = 4;        // au-delà, on n'insiste plus : c'est du harcèlement
+const REPOS_ENTRE_BULLES = 12000;
+
+let memoireRaccourcis = {};
+try { memoireRaccourcis = JSON.parse(localStorage.getItem(CLE_APPRENTISSAGE)) || {}; }
+catch (e) { memoireRaccourcis = {}; }
+let dernierSouffle = 0;
+// Le raccourci clique lui-même le bouton : sans ce drapeau, on compterait
+// chaque frappe comme un clic, et l'on se soufflerait la touche à soi-même.
+let clicVenuDuClavier = false;
+
+function ficheRaccourci(t) {
+    return memoireRaccourcis[t] || { clavier: 0, souris: 0, souffle: 0 };
+}
+function rangerLApprentissage() {
+    try { localStorage.setItem(CLE_APPRENTISSAGE, JSON.stringify(memoireRaccourcis)); }
+    catch (e) { /* stockage refusé */ }
+}
+function noterUsage(t, quoi) {
+    if (!t) return;
+    const f = memoireRaccourcis[t] || (memoireRaccourcis[t] = { clavier: 0, souris: 0, souffle: 0 });
+    f[quoi] = (f[quoi] || 0) + 1;
+    rangerLApprentissage();
+}
+function raccourciAcquis(t) { return ficheRaccourci(t).clavier >= SEUIL_ACQUIS; }
+
+// Trois états, et un seul mérite qu'on insiste : celui qu'on fait tous les
+// jours à la souris sans jamais avoir essayé la touche.
+function etatDuRaccourci(t) {
+    const f = ficheRaccourci(t);
+    if (f.clavier >= SEUIL_ACQUIS) return 'acquis';
+    if (f.souris >= 2 && f.clavier === 0) return 'a-essayer';
+    return 'nouveau';
+}
+
+function soufflerLesRaccourcis() {
+    try { return localStorage.getItem(CLE_SOUFFLER) !== 'non'; } catch (e) { return true; }
+}
+function reglerSouffler(oui) {
+    try { localStorage.setItem(CLE_SOUFFLER, oui ? 'oui' : 'non'); } catch (e) { /* refusé */ }
+}
+
+// La bulle : sous le bouton qu'on vient de cliquer, jamais au milieu de
+// l'écran. Elle ne prend pas les clics et s'efface toute seule.
+function soufflerLaTouche(bouton, touche) {
+    if (!soufflerLesRaccourcis() || !bouton || !touche) return false;
+    if (raccourciAcquis(touche)) return false;
+    if (ficheRaccourci(touche).souffle >= SOUFFLES_MAX) return false;
+    const maintenant = Date.now();
+    if (maintenant - dernierSouffle < REPOS_ENTRE_BULLES) return false;
+    dernierSouffle = maintenant;
+    noterUsage(touche, 'souffle');
+
+    let bulle = document.getElementById('bulle-raccourci');
+    if (!bulle) {
+        bulle = document.createElement('div');
+        bulle.id = 'bulle-raccourci';
+        document.body.appendChild(bulle);
+    }
+    bulle.innerHTML = `<kbd></kbd><span>fait la même chose</span>`;
+    bulle.firstChild.textContent = touche;
+    bulle.classList.remove('visible');
+
+    const r = bouton.getBoundingClientRect();
+    // On mesure après avoir écrit le texte, sinon la largeur est celle d'avant
+    bulle.style.left = '0px'; bulle.style.top = '0px';
+    const l = bulle.offsetWidth, h = bulle.offsetHeight;
+    let x = r.left + r.width / 2 - l / 2;
+    let y = r.bottom + 10;
+    if (y + h > window.innerHeight - 8) y = r.top - h - 10;
+    bulle.style.left = Math.max(8, Math.min(window.innerWidth - l - 8, x)) + 'px';
+    bulle.style.top = Math.max(8, y) + 'px';
+    requestAnimationFrame(() => bulle.classList.add('visible'));
+    clearTimeout(bulle._minuteur);
+    bulle._minuteur = setTimeout(() => bulle.classList.remove('visible'), 2800);
+    return true;
+}
+
+// Un clic sur un bouton qui porte une touche : on le compte, et l'on souffle.
+// Le même outil est présent dans deux barres (celle des outils et celle des
+// plugins) et cliquer l'un clique l'autre : un seul geste comptait double.
+let dernierClicCompte = { touche: null, quand: 0 };
+document.addEventListener('click', (e) => {
+    if (clicVenuDuClavier) return;
+    const bouton = e.target && e.target.closest ? e.target.closest('[data-raccourci]') : null;
+    if (!bouton) return;
+    const t = bouton.getAttribute('data-raccourci');
+    if (!t) return;
+    const maintenant = Date.now();
+    if (dernierClicCompte.touche === t && maintenant - dernierClicCompte.quand < 500) return;
+    dernierClicCompte = { touche: t, quand: maintenant };
+    noterUsage(t, 'souris');
+    // Pas au premier clic : quelqu'un qui découvre l'application essaie les
+    // boutons un à un, ce n'est pas le moment de lui parler. On souffle quand
+    // le geste devient une habitude.
+    if (ficheRaccourci(t).souris >= 2) soufflerLaTouche(bouton, t);
+}, true);
+
+window.memoireRaccourcis = memoireRaccourcis;
+window.etatDuRaccourci = etatDuRaccourci;
+window.raccourciAcquis = raccourciAcquis;
+window.ficheRaccourci = ficheRaccourci;
+window.noterUsage = noterUsage;
+window.soufflerLaTouche = soufflerLaTouche;
+window.reglerSouffler = reglerSouffler;
+window.soufflerLesRaccourcis = soufflerLesRaccourcis;
+
 function declencherRaccourci(e) {
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return false;
     if (onEcritAilleurs(e)) return false;
 
     const t = (e.key || '').toUpperCase();
+    // Le bouton qu'on va cliquer ne doit pas être compté comme un clic
+    const auClavier = (faire) => {
+        clicVenuDuClavier = true;
+        try { faire(); } finally { clicVenuDuClavier = false; }
+        noterUsage(t, 'clavier');
+    };
 
     const outil = RACCOURCIS_OUTILS.find(r => r.touche === t);
     if (outil) {
         // On clique le vrai bouton : le post-it, la gomme et les autres ont
         // chacun leur petite cérémonie, on ne la refait pas ici.
-        const btn = document.querySelector('.btn[data-mode="' + outil.mode + '"]');
-        if (btn) btn.click();
-        else setMode(outil.mode);
+        auClavier(() => {
+            const btn = document.querySelector('.btn[data-mode="' + outil.mode + '"]');
+            if (btn) btn.click();
+            else setMode(outil.mode);
+        });
         if (typeof showToast === 'function') showToast(outil.nom);
         return true;
     }
@@ -3647,9 +3774,9 @@ function declencherRaccourci(e) {
     if (geste) {
         if (geste.bouton) {
             const btn = document.getElementById(geste.bouton);
-            if (btn) { btn.click(); return true; }
+            if (btn) { auClavier(() => btn.click()); return true; }
         } else if (geste.action && typeof window[geste.action] === 'function') {
-            window[geste.action]();
+            auClavier(() => window[geste.action]());
             return true;
         }
     }
@@ -3659,48 +3786,120 @@ function declencherRaccourci(e) {
 // L'aide se remplit depuis la même table : elle ne peut pas raconter
 // autre chose que ce que le clavier fait vraiment.
 function remplirAideRaccourcis() {
-    const peindre = (id, lignes) => {
+    // Les rubriques de raccourcis portent l'état de chacun : acquis, à
+    // essayer, ou pas encore rencontré. C'est la même mémoire que la bulle.
+    const peindre = (id, lignes, suivis) => {
         const cible = document.getElementById(id);
         if (!cible) return;
-        cible.innerHTML = lignes.map(r => `<div><code>${r.touche}</code> ${r.nom}</div>`).join('');
+        cible.innerHTML = lignes.map(r => {
+            if (!suivis) return `<div class="aide-rac"><code>${r.touche}</code> ${r.nom}</div>`;
+            const etat = etatDuRaccourci(r.touche);
+            const badge = etat === 'acquis' ? '<span class="aide-etat">✓ acquis</span>'
+                : etat === 'a-essayer' ? '<span class="aide-etat">à essayer</span>' : '';
+            return `<div class="aide-rac ${etat}"><code>${r.touche}</code> ${r.nom}${badge}</div>`;
+        }).join('');
     };
-    peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS);
-    peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES);
-    peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES);
+    peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS, true);
+    peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES, true);
+    peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES, true);
     peindre('aide-remplacements-texte',
-        REMPLACEMENTS_TEXTE.map(r => ({ touche: r.tape, nom: `${r.donne} &nbsp;(${r.nom})` })));
-    monterLesOngletsDeLAide();
+        REMPLACEMENTS_TEXTE.map(r => ({ touche: r.tape, nom: `${r.donne} &nbsp;(${r.nom})` })), false);
+    peindreLaProgression();
+    brancherLaRechercheDeLAide();
 }
 
-// Les onglets de l'aide se fabriquent depuis le titre de chaque page :
-// ajouter une rubrique, c'est ajouter une page, rien d'autre à tenir à jour.
-// Une seule est visible à la fois, et l'aide se lit sur une seule colonne.
-function monterLesOngletsDeLAide() {
-    const barre = document.getElementById('aide-onglets');
-    const pages = Array.from(document.querySelectorAll('#aide-pages .aide-page'));
-    if (!barre || !pages.length) return;
+// Ce que vous savez déjà : une jauge, un compte, et l'interrupteur qui coupe
+// les bulles pour ceux que cela agace.
+function peindreLaProgression() {
+    const zone = document.getElementById('aide-progres');
+    if (!zone) return;
+    const suivis = [].concat(RACCOURCIS_OUTILS, RACCOURCIS_GESTES, RACCOURCIS_COMBINES);
+    const acquis = suivis.filter(r => raccourciAcquis(r.touche)).length;
+    const part = Math.round((acquis / Math.max(1, suivis.length)) * 100);
+    zone.innerHTML = '';
 
-    const montrer = (i) => {
-        pages.forEach((p, k) => p.classList.toggle('actif', k === i));
-        Array.from(barre.children).forEach((b, k) => b.classList.toggle('actif', k === i));
-        const boite = barre.closest('.modal-box');
-        if (boite) boite.scrollTop = 0;
-    };
+    const texte = document.createElement('span');
+    texte.id = 'aide-progres-texte';
+    texte.textContent = `${acquis} raccourci${acquis > 1 ? 's' : ''} sur ${suivis.length} dans les doigts`;
+    const jauge = document.createElement('div');
+    jauge.className = 'aide-jauge';
+    jauge.innerHTML = '<i></i>';
+    jauge.firstChild.style.width = part + '%';
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;';
+    const boite = document.createElement('input');
+    boite.type = 'checkbox'; boite.id = 'aide-souffler'; boite.checked = soufflerLesRaccourcis();
+    boite.addEventListener('change', () => reglerSouffler(boite.checked));
+    label.appendChild(boite);
+    label.appendChild(document.createTextNode('Me souffler les touches'));
 
-    // Déjà monté : on se contente de revenir au premier onglet
-    if (barre.children.length === pages.length) { montrer(0); return; }
+    zone.appendChild(texte);
+    zone.appendChild(jauge);
+    zone.appendChild(label);
+}
 
-    barre.innerHTML = '';
-    pages.forEach((page, i) => {
-        const titre = page.querySelector('h3');
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'aide-onglet';
-        b.textContent = titre ? titre.textContent.trim() : `Page ${i + 1}`;
-        b.addEventListener('click', () => montrer(i));
-        barre.appendChild(b);
+// On cherche, on ne navigue pas. Le champ filtre les puces et les lignes de
+// raccourcis ; une rubrique dont plus rien ne reste disparaît.
+function filtrerLAide(q) {
+    const mots = (q || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const sections = Array.from(document.querySelectorAll('#aide-pages .aide-section'));
+    let total = 0;
+    sections.forEach(section => {
+        const titre = (section.querySelector('h3') || {}).textContent || '';
+        const lignes = Array.from(section.querySelectorAll('li, .aide-rac'));
+        let restants = 0;
+        lignes.forEach(l => {
+            const texte = (titre + ' ' + l.textContent).toLowerCase();
+            const garde = mots.every(m => texte.includes(m));
+            l.hidden = !garde;
+            if (garde) restants++;
+        });
+        // Une rubrique sans ligne (que du texte libre) suit son titre
+        const vide = lignes.length === 0;
+        const garde = vide ? mots.every(m => (titre + ' ' + section.textContent).toLowerCase().includes(m))
+                           : restants > 0;
+        section.hidden = !garde;
+        // Les sous-titres et les notes d'un bloc entièrement filtré n'ont plus
+        // de raison d'être : une explication sans sa liste ne dit plus rien.
+        const grilleVide = (g) => !!(g && g.classList.contains('aide-raccourcis')
+            && !g.querySelector('.aide-rac:not([hidden])'));
+        section.querySelectorAll('.aide-sous-titre').forEach(st => {
+            st.hidden = grilleVide(st.nextElementSibling);
+        });
+        section.querySelectorAll('.aide-note').forEach(note => {
+            let p = note.previousElementSibling;
+            while (p && !p.classList.contains('aide-raccourcis')) p = p.previousElementSibling;
+            note.hidden = grilleVide(p);
+        });
+        if (garde) total++;
     });
-    montrer(0);
+    const rien = document.getElementById('aide-rien');
+    if (rien) rien.hidden = total > 0;
+    const champ = document.getElementById('aide-recherche');
+    if (champ && champ.parentElement) champ.parentElement.classList.toggle('remplie', !!mots.length);
+    return total;
+}
+window.filtrerLAide = filtrerLAide;
+
+function brancherLaRechercheDeLAide() {
+    const champ = document.getElementById('aide-recherche');
+    if (!champ) return;
+    if (!champ.dataset.bound) {
+        champ.dataset.bound = 'true';
+        champ.addEventListener('input', () => filtrerLAide(champ.value));
+        champ.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && champ.value) {
+                e.stopPropagation();
+                champ.value = ''; filtrerLAide('');
+            }
+        });
+        const vider = document.getElementById('aide-vider');
+        if (vider) vider.addEventListener('click', () => {
+            champ.value = ''; filtrerLAide(''); champ.focus();
+        });
+    }
+    champ.value = '';
+    filtrerLAide('');
 }
 
 // La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :

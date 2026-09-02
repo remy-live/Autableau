@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=53">
+    <link rel="stylesheet" href="style.css?v=54">
 </head>
 
 <body>
@@ -409,12 +409,24 @@
                 <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">🎯 Visite Guidée</button>
             </div>
 
-            <!-- Les onglets sont fabriqués à l'ouverture depuis le titre de
-                 chaque page : ajouter une rubrique, c'est ajouter une page. -->
-            <div class="aide-onglets" id="aide-onglets"></div>
+            <!-- On cherche, on ne navigue pas : un seul champ filtre toute
+                 l'aide à la frappe, et les rubriques défilent d'une traite,
+                 leur titre restant collé en haut tant qu'on les parcourt. -->
+            <div class="aide-chercher">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+                <input type="search" id="aide-recherche" placeholder="Chercher : « post-it », « Ctrl », « PDF »…"
+                       autocomplete="off" spellcheck="false">
+                <button type="button" id="aide-vider" title="Effacer">✕</button>
+            </div>
+            <div id="aide-rien" class="aide-rien" hidden>Rien ne correspond à cette recherche.</div>
+
+            <!-- Ce que vous savez déjà : la barre monte à mesure que les
+                 raccourcis passent dans les doigts. -->
+            <div class="aide-progres" id="aide-progres"></div>
 
             <div class="aide-pages" id="aide-pages">
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📐 Navigation</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Panoramique :</strong> Espace + gliss, ou 2 doigts</li>
@@ -428,7 +440,7 @@
                             la fenêtre rouvrira comme vous l'avez laissée.</li>
                     </ul>
                 </div>
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">✏️ Dessiner</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Tracé Libre :</strong> Cliquer & dessiner</li>
@@ -464,7 +476,7 @@
                             les tâches redeviennent des lignes, celles qui étaient faites gardent un ✔.</li>
                     </ul>
                 </div>
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">🔷 Formes</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Cercle, Rectangle :</strong> Cliquer & glisser</li>
@@ -472,7 +484,7 @@
                         <li><strong>Courbe :</strong> Clic multiple + lisse automatique</li>
                     </ul>
                 </div>
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">🛠️ Outils</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Règle/Équerre :</strong> Glisser pour positionner</li>
@@ -529,7 +541,7 @@
                             permettent de modifier ceux qui existent ou de les écarter de la bande.</li>
                         </ul>
                 </div>
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📄 Fichiers</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Par défaut le
@@ -592,7 +604,7 @@
                         <li><strong>Sauvegarder :</strong> Auto-sauvegarde local</li>
                     </ul>
                 </div>
-                <div class="aide-page">
+                <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📱 Tactile (Tablette)</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Panoramique :</strong> 2 doigts glissés</li>
@@ -601,7 +613,7 @@
                     </ul>
                 </div>
 
-                <div class="aide-page">
+                <div class="aide-section">
                 <h3 style="color: var(--accent); margin-top: 0;">⌨️ Raccourcis</h3>
 
                 <div class="aide-sous-titre">Choisir un outil</div>
@@ -612,7 +624,7 @@
 
                 <div class="aide-sous-titre">Combinaisons</div>
                 <div class="aide-raccourcis" id="aide-raccourcis-combines"></div>
-                <div style="margin-top:6px; font-size:11px; color:var(--muted);">
+                <div class="aide-note" style="margin-top:6px; font-size:11px; color:var(--muted);">
                     Pour la couleur, c'est bien la touche <b>Contrôle</b>, même sur Mac :
                     Cmd+Maj+chiffre y déclenche la copie d'écran. La couleur va au mot surligné,
                     sinon à la suite de ce que vous tapez — jamais à ce qui est déjà écrit.
@@ -620,7 +632,7 @@
 
                 <div class="aide-sous-titre">Pendant qu'on écrit un texte</div>
                 <div class="aide-raccourcis" id="aide-remplacements-texte"></div>
-                <div style="margin-top:6px; font-size:11px; color:var(--muted);">
+                <div class="aide-note" style="margin-top:6px; font-size:11px; color:var(--muted);">
                     Le symbole arrive à la frappe. Un <code>Retour arrière</code> juste après rend
                     ce que vous aviez tapé — c'est ainsi qu'on écrit une vraie astérisque.
                     Le tiroir <code>Ω</code> de la barre d'édition en contient bien d'autres.
@@ -638,7 +650,7 @@
                     <div><code>Suppr</code> Effacer la sélection</div>
                     <div><code>Échap</code> Revenir à la sélection</div>
                 </div>
-                <div style="margin-top:12px; font-size:11px; color:var(--muted);">
+                <div class="aide-note" style="margin-top:12px; font-size:11px; color:var(--muted);">
                     Les touches ne fonctionnent que sur le tableau : pendant que vous écrivez dans
                     un texte ou une fenêtre, elles restent des lettres ordinaires.
                 </div>
@@ -1818,7 +1830,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=117"></script>
+    <script src="script.js?v=118"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=70"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
