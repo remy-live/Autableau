@@ -13721,6 +13721,94 @@ function showClassConflictModal(conflict, callback) {
 // ==============================================================================
 // MODULE : GESTIONNAIRE DE CLASSES (interface — bouton "Mes classes")
 // ==============================================================================
+// ----------------------------------------------------------------
+// LIRE UNE LISTE D'ÉLÈVES
+// Les tableurs n'exportent pas tous pareil : Excel en français sépare
+// au point-virgule, met des guillemets autour des champs, double les
+// guillemets qu'ils contiennent, et pose un caractère invisible en
+// tête de fichier. Sans quoi la classe accueillait un élève nommé
+// « "Bernard";"Emma" ».
+// ----------------------------------------------------------------
+
+// Découpe le texte en enregistrements de champs, en respectant les
+// guillemets — un séparateur entre guillemets fait partie du nom.
+function decouperCSV(texte, separateur) {
+    const lignes = [];
+    let champs = [], champ = '', dansGuillemets = false;
+    const finirChamp = () => { champs.push(champ); champ = ''; };
+    const finirLigne = () => { finirChamp(); lignes.push(champs); champs = []; };
+
+    for (let i = 0; i < texte.length; i++) {
+        const c = texte[i];
+        if (dansGuillemets) {
+            // Deux guillemets de suite, c'est un guillemet dans le texte
+            if (c === '"' && texte[i + 1] === '"') { champ += '"'; i++; }
+            else if (c === '"') dansGuillemets = false;
+            else champ += c;
+            continue;
+        }
+        if (c === '"' && champ.trim() === '') { dansGuillemets = true; champ = ''; }
+        else if (c === separateur) finirChamp();
+        else if (c === '\r') { /* les fins de ligne Windows */ }
+        else if (c === '\n') finirLigne();
+        else champ += c;
+    }
+    if (champ !== '' || champs.length) finirLigne();
+    return lignes;
+}
+
+// Quel séparateur ? Celui qui revient le plus souvent hors guillemets.
+// À égalité — c'est-à-dire aucun — on prend la virgule, sans effet.
+function separateurDe(texte) {
+    const hors = texte.replace(/"[^"]*"/g, '');
+    const compte = (c) => (hors.split(c).length - 1);
+    const candidats = [['\t', compte('\t')], [';', compte(';')], [',', compte(',')]];
+    candidats.sort((a, b) => b[1] - a[1]);
+    return candidats[0][1] > 0 ? candidats[0][0] : ',';
+}
+
+// Un morceau de nom : des lettres, éventuellement un trait d'union, une
+// apostrophe ou une virgule (« Bernard, Emma » tient dans un seul champ
+// entre guillemets). « 4A », « 2011-03-12 » ou une adresse électronique
+// n'en sont pas — c'est là qu'on s'arrête.
+const MORCEAU_DE_NOM = /^[\p{L}][\p{L}\-' .,]*$/u;
+
+// Les en-têtes courants, à ne pas prendre pour un élève
+const ENTETES = /^(nom|prenom|prénom|nom prenom|nom prénom|prenom nom|prénom nom|eleve|élève|eleves|élèves|nom de l'eleve|nom de l'élève|name|student|full name|nom complet)$/i;
+
+function parseNamesFromText(text) {
+    // Le caractère invisible qu'Excel pose en tête de fichier
+    const propre = String(text || '').replace(/^\uFEFF/, '');
+    const sep = separateurDe(propre);
+
+    const noms = decouperCSV(propre, sep).map(champs => {
+        // On assemble les champs tant qu'ils ressemblent à un nom :
+        // « Bernard;Emma;4A;… » donne « Bernard Emma », et une liste
+        // d'une seule colonne reste elle-même.
+        const morceaux = [];
+        for (const brut of champs) {
+            const c = brut.trim();
+            if (!c) { if (morceaux.length) break; else continue; }
+            if (!MORCEAU_DE_NOM.test(c)) break;
+            morceaux.push(c);
+        }
+        const nom = morceaux.join(' ').replace(/\s+/g, ' ').trim();
+        // Rien qui ressemble à un nom ? On garde quand même le premier champ
+        // tel quel. Une liste inattendue (« Groupe 1 », un pseudonyme, un
+        // matricule) doit arriver dans la classe, quitte à être corrigée à la
+        // main — la perdre en silence serait bien pire.
+        if (nom) return nom;
+        return (champs.find(c => c.trim()) || '').trim();
+    }).filter(n => n.length > 0);
+
+    // Une première ligne « Nom;Prénom » est un en-tête, pas un élève
+    if (noms.length > 1 && ENTETES.test(noms[0])) noms.shift();
+    return noms;
+}
+
+window.parseNamesFromText = parseNamesFromText;
+window.decouperCSV = decouperCSV;
+
 async function openClassManagerModal() {
     // Deux appels de suite empilaient deux fenêtres identiques l'une sur
     // l'autre : la seconde cachait la première, qui restait là.
@@ -13757,11 +13845,6 @@ async function openClassManagerModal() {
         ClassesStore.saveAll(state.classes);
     }
 
-    function parseNamesFromText(text) {
-        return text.split(/\r?\n/)
-            .map(line => line.split(/\t|,/)[0].trim())
-            .filter(name => name.length > 0);
-    }
 
     function render() {
         const selected = getSelected();

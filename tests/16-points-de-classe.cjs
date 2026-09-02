@@ -1119,6 +1119,60 @@ module.exports = async function (browser) {
     r.verifie('la corbeille réduite à son icône garde son infobulle',
         miseEnPage.supprimeAvecTitre);
 
+
+    // --- Importer une liste d'élèves ---
+    // Les tableurs n'exportent pas tous pareil. Excel en français sépare au
+    // point-virgule et met des guillemets : la classe accueillait alors un
+    // élève nommé « "Bernard";"Emma" ».
+    const LISTES_DE_CLASSE = [
+        ['un nom par ligne', 'Bernard Emma\nMartin Lucas', ['Bernard Emma', 'Martin Lucas']],
+        ['guillemets simples', '"Bernard Emma"\n"Martin Lucas"', ['Bernard Emma', 'Martin Lucas']],
+        ['Excel français : point-virgule et guillemets',
+            '"Bernard";"Emma"\n"Martin";"Lucas"', ['Bernard Emma', 'Martin Lucas']],
+        ['point-virgule sans guillemets', 'Bernard;Emma\nMartin;Lucas', ['Bernard Emma', 'Martin Lucas']],
+        ['virgules', 'Bernard,Emma\nMartin,Lucas', ['Bernard Emma', 'Martin Lucas']],
+        ['tabulations (copié d\'un tableur)', 'Bernard\tEmma\nMartin\tLucas', ['Bernard Emma', 'Martin Lucas']],
+        ['colonnes en plus : on s\'arrête au premier champ qui n\'est pas un nom',
+            '"Bernard";"Emma";"4A";"2011-03-12"\n"Martin";"Lucas";"4A";"2011-07-02"',
+            ['Bernard Emma', 'Martin Lucas']],
+        ['une virgule DANS un champ entre guillemets',
+            '"Bernard, Emma"\n"Martin, Lucas"', ['Bernard, Emma', 'Martin, Lucas']],
+        ['une liste inattendue n\'est pas perdue', 'Groupe 1\nGroupe 2', ['Groupe 1', 'Groupe 2']],
+        ['caractère invisible en tête de fichier', '﻿"Bernard";"Emma"', ['Bernard Emma']],
+        ['fins de ligne Windows', '"Bernard";"Emma"\r\n"Martin";"Lucas"\r\n', ['Bernard Emma', 'Martin Lucas']],
+        ['ligne d\'en-tête', '"Nom";"Prénom"\n"Bernard";"Emma"', ['Bernard Emma']],
+        ['un élève réellement nommé Nom reste s\'il est seul', 'Nom', ['Nom']],
+        ['lignes vides ignorées', 'Bernard Emma\n\n\nMartin Lucas\n', ['Bernard Emma', 'Martin Lucas']],
+        ['accents, traits d\'union, apostrophes',
+            '"Lefèvre-Dubois";"Anne-Sophie"\n"D\'Artagnan";"Éloïse"',
+            ['Lefèvre-Dubois Anne-Sophie', "D'Artagnan Éloïse"]],
+        ['adresse électronique : ce n\'est pas un morceau de nom',
+            'Bernard;Emma;emma@ecole.fr', ['Bernard Emma']],
+        ['texte vide', '', []]
+    ];
+
+    const listes = await page.evaluate((cas) => cas.map(([nom, entree, attendu]) => {
+        const obtenu = parseNamesFromText(entree);
+        return { nom, attendu, obtenu, ok: JSON.stringify(obtenu) === JSON.stringify(attendu) };
+    }), LISTES_DE_CLASSE);
+    const ratees = listes.filter(x => !x.ok);
+    r.verifie(`les ${listes.length} formes de liste d'élèves sont lues correctement`,
+        ratees.length === 0,
+        ratees.slice(0, 3).map(x => `${x.nom} -> ${JSON.stringify(x.obtenu)}`).join('  ///  '));
+
+    // Le découpage lui-même : un guillemet doublé est un guillemet du texte
+    const champs = await page.evaluate(() => ({
+        double: decouperCSV(String.fromCharCode(34) + 'Dupont ' + String.fromCharCode(34, 34)
+            + 'dit Le Grand' + String.fromCharCode(34, 34, 34), ';')[0],
+        sepEntreGuillemets: decouperCSV('"Bernard; Emma";"4A"', ';')[0],
+        vide: decouperCSV('', ';')
+    }));
+    r.egal('un guillemet doublé devient un guillemet du texte',
+        champs.double, ['Dupont "dit Le Grand"']);
+    r.egal('un séparateur entre guillemets ne coupe pas le champ',
+        champs.sepEntreGuillemets, ['Bernard; Emma', '4A']);
+    r.egal('un texte vide ne rend aucun enregistrement', champs.vide, []);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
