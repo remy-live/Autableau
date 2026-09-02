@@ -30243,40 +30243,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // Sans date, un bilan « depuis la rentrée » et un bilan « cette semaine »
     // donneraient le même chiffre. Chaque geste laisse donc une trace datée,
     // minuscule : le jour, la nature, et ce sur quoi il portait.
-    jourCourant: function () {
-        const d = new Date();
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
-            + '-' + String(d.getDate()).padStart(2, '0');
-    },
-    journalDe: function (eleve) {
-        if (!Array.isArray(eleve.journal)) eleve.journal = [];
-        return eleve.journal;
-    },
-    noterAuJournal: function (eleve, t, v) {
-        const j = this.journalDe(eleve);
-        const trace = { d: this.jourCourant(), t: t };
-        if (v !== undefined) trace.v = v;
-        j.push(trace);
-        // Une année de classe tient largement là-dedans ; au-delà, on oublie
-        // le plus ancien plutôt que de laisser enfler la sauvegarde.
-        if (j.length > 4000) j.splice(0, j.length - 4000);
-        return trace;
-    },
-    // Défaire un geste, c'est aussi défaire sa trace : sinon le bilan
-    // continuerait de compter ce qu'on vient d'annuler.
-    retirerDuJournal: function (eleve, t, v) {
-        const j = this.journalDe(eleve);
-        for (let i = j.length - 1; i >= 0; i--) {
-            if (j[i].t === t && (v === undefined || j[i].v === v)) { j.splice(i, 1); return true; }
-        }
-        return false;
-    },
-    // Les traces d'un élève entre deux dates (bornes comprises, au format
-    // « AAAA-MM-JJ » qui se compare comme du texte).
-    tracesEntre: function (eleve, debut, fin) {
-        return this.journalDe(eleve).filter(x =>
-            (!debut || x.d >= debut) && (!fin || x.d <= fin));
-    },
+    // Une seule écriture du journal pour toute l'application : l'appel (dans
+    // script.js) et les points (ici) ne peuvent pas tenir deux comptes
+    // différents. On garde les noms d'ici, qui servent déjà.
+    jourCourant: function () { return Journal.jour(); },
+    journalDe: function (eleve) { return Journal.de(eleve); },
+    noterAuJournal: function (eleve, t, v) { return Journal.noter(eleve, t, v); },
+    retirerDuJournal: function (eleve, t, v) { return Journal.retirer(eleve, t, v); },
+    tracesEntre: function (eleve, debut, fin) { return Journal.entre(eleve, debut, fin); },
 
     // Poser un oubli : daté, comptabilisé, annulable.
     noterOubli: function (eleveId, typeId) {
@@ -30316,8 +30290,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return this.classes.find(c => c.id === this.classeId) || this.classes[0] || null;
     },
 
+    // Le magasin sait regrouper les écritures : ici, on se contente de dire
+    // que quelque chose a changé.
     sauver: function () {
         if (typeof ClassesStore !== 'undefined') ClassesStore.saveAll(this.classes);
+    },
+    // Avant d'exporter, de fermer, de quitter la page : on n'attend plus.
+    sauverMaintenant: function () {
+        if (typeof ClassesStore === 'undefined') return Promise.resolve();
+        ClassesStore._cache = this.classes;
+        return ClassesStore.ecrireMaintenant
+            ? ClassesStore.ecrireMaintenant() : ClassesStore.saveAll(this.classes);
     },
 
     init: function () {
@@ -30351,11 +30334,18 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         this.editionBadge = null;
         this.badgeArme = null;
         this.oubliArme = null;
+        // Le bilan s'ouvre sur le trimestre où l'on est : c'est celui dont on
+        // parle, et non le premier de la liste ni « ce mois-ci ».
+        const tri = this.trimestreCourant();
+        this.bilanPeriode = (tri === null) ? 'annee' : ('tri' + tri);
         this.lireBadges();
         const suite = () => { this.construire(); this.rendre(); };
         if (typeof ClassesStore !== 'undefined') {
             ClassesStore.loadAll().then(cls => {
                 this.classes = cls || [];
+                // On oublie les traces de l'avant-dernière année : elles ne
+                // servent plus à rien et alourdissent chaque enregistrement.
+                if (typeof Journal !== 'undefined' && Journal.purgerLesClasses(this.classes)) this.sauver();
                 if (classeId && this.classes.some(c => c.id === classeId)) this.classeId = classeId;
                 if (!this.classeId && this.classes[0]) this.classeId = this.classes[0].id;
                 suite();
@@ -30404,7 +30394,10 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         window.addEventListener('pointerup', () => { glisse = false; });
         window.addEventListener('pointercancel', () => { glisse = false; });
 
-        el.querySelector('#pts-fermer').addEventListener('click', () => { el.style.display = 'none'; });
+        el.querySelector('#pts-fermer').addEventListener('click', () => {
+            this.sauverMaintenant();          // on ne part pas avec une écriture en attente
+            el.style.display = 'none';
+        });
         el.querySelector('#pts-reglages').addEventListener('click', () => {
             this.panneauReglages = !this.panneauReglages;
             this.editionAvatar = null;
@@ -30601,6 +30594,33 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     bilanDebut: '', bilanFin: '',
     bilanTri: { col: 'nom', sens: 1 },
 
+    // Les trimestres : un prof ne raisonne pas en mois. Renseignés une fois
+    // dans les réglages, ils deviennent un choix de période dans le bilan.
+    // Les dates par défaut sont celles d'une année ordinaire — elles varient
+    // d'un établissement à l'autre, et l'on ne peut que les proposer.
+    trimestresParDefaut: function () {
+        const an = Number(Journal.debutAnneeScolaire().slice(0, 4));
+        return [
+            { nom: '1er trimestre', debut: an + '-09-01', fin: an + '-11-30' },
+            { nom: '2e trimestre', debut: an + '-12-01', fin: (an + 1) + '-03-15' },
+            { nom: '3e trimestre', debut: (an + 1) + '-03-16', fin: (an + 1) + '-07-06' }
+        ];
+    },
+    trimestres: function () {
+        const t = this.reglages.trimestres;
+        if (!Array.isArray(t) || t.length !== 3) {
+            this.reglages.trimestres = this.trimestresParDefaut();
+        }
+        return this.reglages.trimestres;
+    },
+    // Celui dans lequel on est aujourd'hui : c'est celui qu'on veut voir en
+    // ouvrant le bilan, pas le premier de la liste.
+    trimestreCourant: function () {
+        const j = Journal.jour();
+        const i = this.trimestres().findIndex(t => t.debut <= j && j <= t.fin);
+        return i === -1 ? null : i;
+    },
+
     // Les bornes de la période choisie, au format « AAAA-MM-JJ ».
     bornesDuBilan: function () {
         const d = new Date();
@@ -30618,6 +30638,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (this.bilanPeriode === 'perso') {
             return { debut: this.bilanDebut || '', fin: this.bilanFin || '' };
         }
+        const tri = /^tri([0-2])$/.exec(this.bilanPeriode);
+        if (tri) {
+            const t = this.trimestres()[Number(tri[1])];
+            if (t) return { debut: t.debut, fin: t.fin };
+        }
+        if (this.bilanPeriode === 'annee') {
+            return { debut: Journal.debutAnneeScolaire(), fin: '' };
+        }
         return { debut: '', fin: '' };            // depuis le début
     },
 
@@ -30625,6 +30653,12 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         const b = this.bornesDuBilan();
         const jj = (s) => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
         if (this.bilanPeriode === 'tout') return 'depuis le début';
+        if (this.bilanPeriode === 'annee') return "cette année scolaire (depuis le " + jj(b.debut) + ')';
+        const tri = /^tri([0-2])$/.exec(this.bilanPeriode);
+        if (tri) {
+            const t = this.trimestres()[Number(tri[1])];
+            if (t) return t.nom + ' (du ' + jj(t.debut) + ' au ' + jj(t.fin) + ')';
+        }
         if (this.bilanPeriode === 'semaine') return 'cette semaine (depuis le ' + jj(b.debut) + ')';
         if (this.bilanPeriode === 'mois') return 'ce mois-ci (depuis le ' + jj(b.debut) + ')';
         if (!b.debut && !b.fin) return 'depuis le début';
@@ -30646,6 +30680,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return {
                 id: e.id, nom: e.name || '',
                 plus: compte('p'), moins: compte('m'), badges: compte('b'),
+                absences: compte('a'),
                 oublis, totalOublis,
                 solde: compte('p') - compte('m'),
                 etoiles: this.pointsDe(e).etoiles || 0
@@ -30662,11 +30697,20 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     htmlBilan: function () {
         const classe = this.classeCourante();
         const lignes = this.lignesDuBilan();
-        const p = (v, actif) => `<button class="pts-bilan-periode" data-v="${v}"
-                style="border:1px solid ${actif ? '#0984e3' : '#dfe6e9'}; background:${actif ? '#0984e3' : '#fff'};
-                       color:${actif ? '#fff' : '#2d3436'}; border-radius:999px; padding:5px 13px; font-size:12px;
-                       cursor:pointer; font-weight:600;">${v === 'semaine' ? 'Cette semaine'
-                : v === 'mois' ? 'Ce mois-ci' : v === 'tout' ? 'Depuis le début' : 'Deux dates…'}</button>`;
+        const nomPeriode = (v) => {
+            if (v === 'semaine') return 'Cette semaine';
+            if (v === 'mois') return 'Ce mois-ci';
+            if (v === 'annee') return "Cette année";
+            if (v === 'tout') return 'Depuis le début';
+            if (v === 'perso') return 'Deux dates…';
+            const t = /^tri([0-2])$/.exec(v);
+            return t ? (this.trimestres()[Number(t[1])] || {}).nom : v;
+        };
+        const p = (v) => `<button class="pts-bilan-periode" data-v="${v}"
+                style="border:1px solid ${this.bilanPeriode === v ? '#0984e3' : '#dfe6e9'};
+                       background:${this.bilanPeriode === v ? '#0984e3' : '#fff'};
+                       color:${this.bilanPeriode === v ? '#fff' : '#2d3436'}; border-radius:999px; padding:5px 13px;
+                       font-size:12px; cursor:pointer; font-weight:600;">${this.echapper(nomPeriode(v))}</button>`;
 
         const entete = (col, texte, infobulle) => `<th class="pts-bilan-col" data-col="${col}"
                 data-tooltip="${infobulle || ('Trier par ' + texte.toLowerCase())}"
@@ -30675,9 +30719,10 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                        ${this.bilanTri.col === col ? 'color:#0984e3;' : ''}">${texte}${this.bilanTri.col === col ? (this.bilanTri.sens > 0 ? ' ▲' : ' ▼') : ''}</th>`;
 
         const totaux = lignes.reduce((t, l) => {
-            t.plus += l.plus; t.moins += l.moins; t.badges += l.badges; t.oublis += l.totalOublis;
+            t.plus += l.plus; t.moins += l.moins; t.badges += l.badges;
+            t.oublis += l.totalOublis; t.absences += l.absences;
             return t;
-        }, { plus: 0, moins: 0, badges: 0, oublis: 0 });
+        }, { plus: 0, moins: 0, badges: 0, oublis: 0, absences: 0 });
 
         return `<div style="display:flex; flex-direction:column; gap:12px;">
             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -30690,8 +30735,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                         padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-                ${p('semaine', this.bilanPeriode === 'semaine')}${p('mois', this.bilanPeriode === 'mois')}
-                ${p('tout', this.bilanPeriode === 'tout')}${p('perso', this.bilanPeriode === 'perso')}
+                ${p('tri0')}${p('tri1')}${p('tri2')}
+                <i style="width:1px; height:20px; background:#dfe6e9;"></i>
+                ${p('semaine')}${p('mois')}${p('annee')}${p('tout')}${p('perso')}
                 ${this.bilanPeriode === 'perso' ? `<span style="display:flex; gap:5px; align-items:center; font-size:12px;">
                     <input type="date" id="pts-bilan-debut" value="${this.bilanDebut}"
                            style="border:1px solid #dfe6e9; border-radius:6px; padding:4px 6px; font-size:12px;">
@@ -30708,6 +30754,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                         ${entete('moins', '👎', 'Points malus sur la période')}
                         ${entete('solde', 'Solde', 'Bonus moins malus')}
                         ${entete('badges', 'Badges', 'Badges reçus sur la période')}
+                        ${entete('absences', 'Abs.', "Jours d'absence relevés à l'appel")}
                         ${this.TYPES_OUBLI.map(t => entete(t.id, this.echapper(t.nom), 'Oublis de ' + t.nom.toLowerCase())).join('')}
                         ${entete('totalOublis', 'Total', 'Tous les oublis de la période')}
                     </tr></thead>
@@ -30718,16 +30765,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                             <td style="text-align:center; color:#d63031; font-weight:bold;">${l.moins || ''}</td>
                             <td style="text-align:center; font-weight:bold; color:${l.solde < 0 ? '#d63031' : '#2d3436'};">${l.solde > 0 ? '+' : ''}${l.solde || ''}</td>
                             <td style="text-align:center;">${l.badges || ''}</td>
+                            <td style="text-align:center; font-weight:bold; color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || ''}</td>
                             ${this.TYPES_OUBLI.map(t => `<td style="text-align:center; color:${l.oublis[t.id] ? t.couleur : '#b2bec3'};">${l.oublis[t.id] || ''}</td>`).join('')}
                             <td style="text-align:center; font-weight:bold; color:${l.totalOublis ? '#d63031' : '#b2bec3'};">${l.totalOublis || ''}</td>
                         </tr>`).join('')
-                : `<tr><td colspan="10" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
+                : `<tr><td colspan="11" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
                     </tbody>
                 </table>
             </div>
             <div style="font-size:12px; color:#636e72;">
                 Sur la période : ${totaux.plus} bonus, ${totaux.moins} malus, ${totaux.badges} badge(s),
-                ${totaux.oublis} oubli(s). Les étoiles, elles, comptent depuis toujours.
+                ${totaux.oublis} oubli(s), ${totaux.absences} absence(s). Les étoiles, elles, comptent depuis toujours.
             </div>
         </div>`;
     },
@@ -30756,6 +30804,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // Le PDF : le même tableau, en paysage, avec la classe et la période en
     // en-tête — c'est ce qu'on pose sur la table d'un entretien.
     exporterLeBilan: function () {
+        this.sauverMaintenant();
         const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
         if (!jsPDFctor) {
             if (typeof showToast === 'function') showToast("L'export PDF n'est pas disponible ici");
@@ -30774,10 +30823,10 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         doc.text(this.nomDeLaPeriode(), marge, 62);
         doc.setTextColor(0);
 
-        const colonnes = [{ t: 'Élève', l: 170, a: 'left' }, { t: 'Bonus', l: 52 }, { t: 'Malus', l: 52 },
-            { t: 'Solde', l: 52 }, { t: 'Badges', l: 56 }]
-            .concat(this.TYPES_OUBLI.map(t => ({ t: t.nom, l: 62 })))
-            .concat([{ t: 'Oublis', l: 56 }]);
+        const colonnes = [{ t: 'Élève', l: 160, a: 'left' }, { t: 'Bonus', l: 50 }, { t: 'Malus', l: 50 },
+            { t: 'Solde', l: 50 }, { t: 'Badges', l: 54 }, { t: 'Absences', l: 58 }]
+            .concat(this.TYPES_OUBLI.map(t => ({ t: t.nom, l: 60 })))
+            .concat([{ t: 'Oublis', l: 54 }]);
 
         let y = 86;
         const enTete = () => {
@@ -30796,7 +30845,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         lignes.forEach(li => {
             if (y > H - marge) { doc.addPage(); y = 56; enTete(); }
             const cases = [li.nom, li.plus || '', li.moins || '',
-                (li.solde > 0 ? '+' : '') + (li.solde || ''), li.badges || '']
+                (li.solde > 0 ? '+' : '') + (li.solde || ''), li.badges || '', li.absences || '']
                 .concat(this.TYPES_OUBLI.map(t => li.oublis[t.id] || ''))
                 .concat([li.totalOublis || '']);
             let x = marge;
@@ -31279,6 +31328,22 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 </div>
             </div>
             <div>
+                <label style="font-size:12px; font-weight:bold; color:#636e72;">TRIMESTRES</label>
+                <div style="font-size:11px; color:#636e72; margin:4px 0 6px;">
+                    Renseignés une fois, ils deviennent un choix de période dans le bilan.
+                    Les dates proposées sont celles d'une année ordinaire : corrigez-les selon votre établissement.</div>
+                ${this.trimestres().map((t, i) => `<div style="display:flex; align-items:center; gap:6px; margin-bottom:5px;">
+                    <input type="text" class="pts-tri-nom" data-i="${i}" value="${this.echapper(t.nom)}"
+                           style="width:130px; padding:6px; border:1px solid #dfe6e9; border-radius:6px; font-size:12px;">
+                    <span style="font-size:11px; color:#636e72;">du</span>
+                    <input type="date" class="pts-tri-debut" data-i="${i}" value="${t.debut}"
+                           style="padding:5px; border:1px solid #dfe6e9; border-radius:6px; font-size:12px;">
+                    <span style="font-size:11px; color:#636e72;">au</span>
+                    <input type="date" class="pts-tri-fin" data-i="${i}" value="${t.fin}"
+                           style="padding:5px; border:1px solid #dfe6e9; border-radius:6px; font-size:12px;">
+                </div>`).join('')}
+            </div>
+            <div>
                 <label style="font-size:12px; font-weight:bold; color:#636e72;">BADGES DE LA BANDE</label>
                 <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
                     ${this.badgesVisibles().map(b => `<button class="pts-badge-mod" data-id="${b.id}"
@@ -31320,6 +31385,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         retenue.addEventListener('change', () => {
             this.reglages.seuilRetenue = Math.max(1, parseInt(retenue.value) || 5); this.ecrireReglages();
         });
+        const majTrimestre = (champ) => (e) => {
+            const i = Number(e.target.dataset.i);
+            const t = this.trimestres()[i];
+            if (!t) return;
+            t[champ] = champ === 'nom' ? (e.target.value.trim() || t.nom) : e.target.value;
+            this.ecrireReglages();
+        };
+        el.querySelectorAll('.pts-tri-nom').forEach(x => x.addEventListener('change', majTrimestre('nom')));
+        el.querySelectorAll('.pts-tri-debut').forEach(x => x.addEventListener('change', majTrimestre('debut')));
+        el.querySelectorAll('.pts-tri-fin').forEach(x => x.addEventListener('change', majTrimestre('fin')));
+
         el.querySelector('#pts-retour').addEventListener('click', () => { this.panneauReglages = false; this.rendre(); });
 
         el.querySelectorAll('.pts-badge-mod').forEach(b => b.addEventListener('click', () => {
@@ -31447,6 +31523,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
     // ---------- Poser au tableau ----------
     poserAuTableau: function () {
+        this.sauverMaintenant();
         const classe = this.classeCourante();
         if (!classe || !(classe.students || []).length) return;
         const eleves = classe.students;

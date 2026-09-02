@@ -1394,6 +1394,12 @@ function saveAppLocal(immediate) {
 
 // On n'attend pas la temporisation si l'onglet passe en arrière-plan ou se ferme
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && autoSaveTimer) saveAppLocal(true); });
+// Les classes s'écrivent en différé : on vide la file avant de perdre la
+// page, sinon le dernier point de l'heure serait perdu.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && typeof ClassesStore !== 'undefined'
+        && ClassesStore.ecrireMaintenant) ClassesStore.ecrireMaintenant();
+});
 window.addEventListener('pagehide', () => { if (autoSaveTimer) saveAppLocal(true); });
 
 // === CALCUL DE TAILLE ===
@@ -14002,10 +14008,43 @@ const ClassesStore = {
         }
     },
 
+    // L'écriture sur le disque est TEMPORISÉE, la mémoire ne l'est pas.
+    // Chaque point de classe réécrivait tout le stock dans IndexedDB ; avec le
+    // journal daté, une salve de vingt clics faisait vingt écritures de plus
+    // en plus grosses. On regroupe donc la salve en une seule écriture.
+    //
+    // Le report est ici, dans le magasin, et non chez celui qui appelle : le
+    // cache prend la valeur SUR-LE-CHAMP, si bien que tout lecteur voit la
+    // dernière version, et l'écriture différée écrit toujours ce cache — elle
+    // ne peut donc pas recouvrir ce qu'un autre a enregistré entre-temps.
+    // « saveAll » rend une promesse qui se dénoue quand le disque a vraiment
+    // reçu la donnée : qui l'attend a la garantie d'avant, qui ne l'attend pas
+    // — les points de classe, vingt fois par minute — profite du regroupement.
+    _minuteurEcriture: null,
+    _promesseEcriture: null,
+    _finEcriture: null,
     async saveAll(classes) {
         this._cache = classes;
-        await localforage.setItem(CLASSES_STORAGE_KEY, classes);
+        return this.ecrireBientot();
     },
+    ecrireBientot() {
+        if (this._minuteurEcriture) clearTimeout(this._minuteurEcriture);
+        if (!this._promesseEcriture) {
+            this._promesseEcriture = new Promise(resoudre => { this._finEcriture = resoudre; });
+        }
+        this._minuteurEcriture = setTimeout(() => { this._ecrire(); }, 700);
+        return this._promesseEcriture;
+    },
+    async _ecrire() {
+        if (this._minuteurEcriture) { clearTimeout(this._minuteurEcriture); this._minuteurEcriture = null; }
+        const fini = this._finEcriture;
+        this._promesseEcriture = null; this._finEcriture = null;
+        try { if (this._cache) await localforage.setItem(CLASSES_STORAGE_KEY, this._cache); }
+        catch (e) { /* écriture refusée */ }
+        if (fini) fini();
+    },
+    // Avant d'exporter, de fermer, de quitter la page : on n'attend plus.
+    async ecrireMaintenant() { await this._ecrire(); },
 
     // Fusionne des classes importées avec le stock local. En cas de conflit
     // (même id ou même nom, mais liste d'élèves différente), affiche une popup
@@ -14063,6 +14102,98 @@ window.ClassesStore = ClassesStore;
 // L'absence ne vaut QUE pour la journée : elle s'efface d'elle-même au
 // changement de date, sinon on traînerait les absents de la semaine dernière.
 // ===================================================
+// ===================================================
+// LE JOURNAL DE L'ÉLÈVE
+// Les compteurs disent l'état ; ils ne disent pas l'histoire. Sans date,
+// « depuis la rentrée » et « cette semaine » donnent le même chiffre. Chaque
+// geste — point, badge, oubli, absence — laisse donc ici une trace minuscule :
+// le jour, la nature, et ce sur quoi il portait.
+//
+// Le journal vit sur l'élève, dans « Mes classes » : il suit la classe partout,
+// et il est écrit d'un seul endroit pour que l'appel (ici) et les points (dans
+// le plugin) ne tiennent pas deux comptes différents.
+//   p : point bonus   m : point malus   b : badge (v = son identifiant)
+//   o : oubli (v = son motif)           a : absence
+// ===================================================
+const Journal = {
+    jour() {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+            + '-' + String(d.getDate()).padStart(2, '0');
+    },
+    de(eleve) {
+        if (!eleve) return [];
+        if (!Array.isArray(eleve.journal)) eleve.journal = [];
+        return eleve.journal;
+    },
+    noter(eleve, t, v) {
+        const j = this.de(eleve);
+        const trace = { d: this.jour(), t: t };
+        if (v !== undefined) trace.v = v;
+        j.push(trace);
+        if (j.length > 4000) j.splice(0, j.length - 4000);
+        return trace;
+    },
+    // Une seule trace par jour : un appel refait trois fois ne compte pas
+    // trois absences.
+    noterUneFoisParJour(eleve, t, v) {
+        const jour = this.jour();
+        const dejaLa = this.de(eleve).some(x => x.d === jour && x.t === t
+            && (v === undefined || x.v === v));
+        return dejaLa ? null : this.noter(eleve, t, v);
+    },
+    // Défaire un geste, c'est défaire sa trace : sinon le bilan continuerait
+    // de compter ce qu'on vient d'annuler.
+    retirer(eleve, t, v) {
+        const j = this.de(eleve);
+        for (let i = j.length - 1; i >= 0; i--) {
+            if (j[i].t === t && (v === undefined || j[i].v === v)) { j.splice(i, 1); return true; }
+        }
+        return false;
+    },
+    retirerDuJour(eleve, t, v) {
+        const jour = this.jour();
+        const j = this.de(eleve);
+        for (let i = j.length - 1; i >= 0; i--) {
+            if (j[i].d === jour && j[i].t === t && (v === undefined || j[i].v === v)) {
+                j.splice(i, 1); return true;
+            }
+        }
+        return false;
+    },
+    // Les traces entre deux dates, bornes comprises. Le format « AAAA-MM-JJ »
+    // se compare comme du texte : pas de fuseau horaire à démêler.
+    entre(eleve, debut, fin) {
+        return this.de(eleve).filter(x => (!debut || x.d >= debut) && (!fin || x.d <= fin));
+    },
+
+    // L'année scolaire commence le 1er août : c'est la seule coupure qui ne
+    // tombe jamais au milieu d'un trimestre.
+    debutAnneeScolaire(quand) {
+        const d = quand || new Date();
+        const an = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+        return an + '-08-01';
+    },
+    // On garde l'année en cours et la précédente. Au-delà, la trace ne sert
+    // plus à rien et pèse sur chaque enregistrement — mais on ne jette pas
+    // l'année d'avant : on y revient parfois pour un dossier.
+    purger(eleve, depuis) {
+        const borne = depuis || (Number(this.debutAnneeScolaire().slice(0, 4)) - 1) + '-08-01';
+        const j = this.de(eleve);
+        const avant = j.length;
+        const gardees = j.filter(x => x.d >= borne);
+        if (gardees.length === avant) return 0;
+        eleve.journal = gardees;
+        return avant - gardees.length;
+    },
+    purgerLesClasses(classes) {
+        let n = 0;
+        (classes || []).forEach(c => (c.students || []).forEach(e => { n += this.purger(e); }));
+        return n;
+    }
+};
+window.Journal = Journal;
+
 const Appel = {
     aujourdHui() {
         const d = new Date();
@@ -14093,14 +14224,27 @@ const Appel = {
         const e = (classe && classe.students || []).find(s => s.id === eleveId);
         if (!e) return null;
         if (e.absent) delete e.absent; else e.absent = true;
+        // L'appel ne gardait aucune trace : demain, l'absence d'hier avait
+        // disparu. Elle entre maintenant dans le journal, une fois par jour,
+        // et se retire si l'on corrige l'appel.
+        if (e.absent) Journal.noterUneFoisParJour(e, 'a');
+        else Journal.retirerDuJour(e, 'a');
         classe.appelDu = this.aujourdHui();
         classe.updatedAt = Date.now();
         return !e.absent;
     },
 
     tousPresents(classe) {
-        (classe && classe.students || []).forEach(s => { delete s.absent; });
+        (classe && classe.students || []).forEach(s => {
+            delete s.absent;
+            Journal.retirerDuJour(s, 'a');
+        });
         if (classe) { classe.appelDu = this.aujourdHui(); classe.updatedAt = Date.now(); }
+    },
+
+    // Combien de fois cet élève a-t-il manqué sur la période ?
+    absencesSur(eleve, debut, fin) {
+        return Journal.entre(eleve, debut, fin).filter(x => x.t === 'a').length;
     },
 
     // « 24 présents, 2 absents » — ou rien du tout si l'appel n'est pas fait
@@ -14771,6 +14915,16 @@ async function openClassManagerModal() {
                 <input type="file" id="cm-fichier-classes" accept=".json,application/json" style="display:none;">
                 <button id="cm-close" title="Fermer">&times;</button>
             </div>
+            ${rappelSauvegardeUtile(state.classes) ? `<div id="cm-rappel" style="display:flex; align-items:center; gap:10px;
+                    border:1px solid #fdcb6e; background:rgba(253,203,110,0.16); border-radius:10px;
+                    padding:9px 12px; margin-bottom:12px; font-size:12.5px; line-height:1.45;">
+                <span style="font-size:17px;">🛟</span>
+                <span style="flex:1;">Vos classes ne vivent que dans ce navigateur, sur cet ordinateur.
+                    Dernière sauvegarde : <b>${texteDerniereSauvegarde()}</b>.
+                    Un fichier suffit à tout remettre ailleurs — ou à retrouver l'année si ce poste est réinstallé.</span>
+                <button id="cm-rappel-ok" class="btn-action primary" style="padding:6px 12px; font-size:12px; white-space:nowrap;">💾 Enregistrer</button>
+                <button id="cm-rappel-plus-tard" class="btn-action secondary" style="padding:6px 10px; font-size:12px; white-space:nowrap;">Plus tard</button>
+            </div>` : ''}
             <div id="cm-restauration" style="display:none; margin-bottom:12px;"></div>
             <div style="display:flex; gap:15px; flex:1; min-height:0;">
                 <div style="width:220px; flex-shrink:0; display:flex; flex-direction:column;">
@@ -14798,7 +14952,11 @@ async function openClassManagerModal() {
         const zone = box.querySelector('#cm-restauration');
         const fichier = box.querySelector('#cm-fichier-classes');
 
-        box.querySelector('#cm-sauver').onclick = () => sauverLesClasses();
+        box.querySelector('#cm-sauver').onclick = () => sauverLesClasses().then(() => render());
+        const rappelOk = box.querySelector('#cm-rappel-ok');
+        if (rappelOk) rappelOk.onclick = () => sauverLesClasses().then(() => render());
+        const rappelPlusTard = box.querySelector('#cm-rappel-plus-tard');
+        if (rappelPlusTard) rappelPlusTard.onclick = () => { reporterLeRappelDesClasses(); render(); };
         box.querySelector('#cm-restaurer').onclick = () => { fichier.value = ''; fichier.click(); };
 
         const dire = (html, erreur) => {
@@ -18112,6 +18270,53 @@ window.mettreDansLePressePapiers = mettreDansLePressePapiers;
 // dépose sur son nuage, ce que l'on rouvre sur l'ordinateur de la maison.
 const FORMAT_CLASSES = 'autableau-classes';
 
+// ===================================================
+// LE FILET DE SÉCURITÉ DES CLASSES
+// Tout vit dans le navigateur de CET ordinateur : un profil Chrome remis à
+// zéro, un poste changé, et c'est l'année de suivi qui part. Le fichier de
+// classes existe depuis longtemps — mais personne n'y pense. On tient donc la
+// date de la dernière sauvegarde, et l'on rappelle sa peine, une fois par
+// mois, là où l'on est déjà : dans « Mes classes ».
+// Pas de modale, pas de fenêtre qui coupe le cours : un bandeau qu'on ferme.
+// ===================================================
+const CLE_CLASSES_SAUVEES = 'auTableau_classes_sauvees';
+const CLE_RAPPEL_REPORTE = 'auTableau_rappel_classes_reporte';
+const DELAI_RAPPEL = 30 * 24 * 3600 * 1000;      // un mois
+
+function dateDerniereSauvegardeClasses() {
+    try { return Number(localStorage.getItem(CLE_CLASSES_SAUVEES)) || 0; } catch (e) { return 0; }
+}
+function noterSauvegardeDesClasses() {
+    try { localStorage.setItem(CLE_CLASSES_SAUVEES, String(Date.now())); } catch (e) { /* refusé */ }
+}
+function reporterLeRappelDesClasses() {
+    try { localStorage.setItem(CLE_RAPPEL_REPORTE, String(Date.now())); } catch (e) { /* refusé */ }
+}
+// Faut-il rappeler ? Seulement s'il y a quelque chose à perdre, et si l'on
+// n'a ni sauvegardé ni écarté le rappel depuis un mois.
+function rappelSauvegardeUtile(classes) {
+    const combien = (classes || []).reduce((n, c) => n + ((c.students || []).length), 0);
+    if (!combien) return false;
+    const maintenant = Date.now();
+    let reporte = 0;
+    try { reporte = Number(localStorage.getItem(CLE_RAPPEL_REPORTE)) || 0; } catch (e) { reporte = 0; }
+    if (maintenant - reporte < DELAI_RAPPEL) return false;
+    return maintenant - dateDerniereSauvegardeClasses() > DELAI_RAPPEL;
+}
+function texteDerniereSauvegarde() {
+    const t = dateDerniereSauvegardeClasses();
+    if (!t) return 'jamais';
+    const jours = Math.floor((Date.now() - t) / (24 * 3600 * 1000));
+    if (jours <= 0) return "aujourd'hui";
+    if (jours === 1) return 'hier';
+    return 'il y a ' + jours + ' jours';
+}
+window.rappelSauvegardeUtile = rappelSauvegardeUtile;
+window.texteDerniereSauvegarde = texteDerniereSauvegarde;
+window.noterSauvegardeDesClasses = noterSauvegardeDesClasses;
+window.reporterLeRappelDesClasses = reporterLeRappelDesClasses;
+window.dateDerniereSauvegardeClasses = dateDerniereSauvegardeClasses;
+
 async function sauverLesClasses() {
     const charge = await chargeDesClasses();
     if (!charge.classes.length) {
@@ -18133,6 +18338,7 @@ async function sauverLesClasses() {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 100);
 
+    noterSauvegardeDesClasses();
     const eleves = charge.classes.reduce((n, c) => n + (c.students || []).length, 0);
     if (typeof showToast === 'function') {
         showToast(`💾 ${charge.classes.length} classe(s), ${eleves} élève(s) sauvegardés`);

@@ -62,12 +62,46 @@ module.exports = async function (browser) {
     });
     r.egal('on peut annuler le dernier point', annule, { plus: 0, moins: 0, etoiles: 0 });
 
+    // L'écriture sur le disque est temporisée : on laisse passer le délai
+    // avant de relire le stock.
+    await page.waitForTimeout(1000);
     const memorise = await page.evaluate(async () => {
         ClassesStore._cache = null;
         const relu = await ClassesStore.loadAll();
         return relu[0].students[0].pts;
     });
     r.egal('les points sont enregistrés avec la classe', memorise, { plus: 2, moins: 0, etoiles: 0 });
+
+    // Une salve de clics ne doit plus faire une écriture par clic : chacune
+    // réécrit TOUT le stock, journal compris.
+    const salve = await page.evaluate(async () => {
+        const p = PluginManager.plugins.classPointsTool;
+        const vrai = localforage.setItem;
+        let ecritures = 0;
+        localforage.setItem = function (...a) { ecritures++; return vrai.apply(this, a); };
+        const id = p.classeCourante().students[0].id;
+        for (let i = 0; i < 8; i++) p.compter(id, 1);
+        await new Promise(r => setTimeout(r, 1000));
+        localforage.setItem = vrai;
+        for (let i = 0; i < 8; i++) p.annuler();
+        await p.sauverMaintenant();
+        return ecritures;
+    });
+    r.verifie('huit clics ne font qu\'une écriture, pas huit',
+        salve === 1, salve + ' écriture(s)');
+
+    // Quitter ne doit rien perdre : la file en attente est vidée sur-le-champ
+    const vidage = await page.evaluate(async () => {
+        const p = PluginManager.plugins.classPointsTool;
+        p.compter(p.classeCourante().students[0].id, 1);
+        await p.sauverMaintenant();
+        ClassesStore._cache = null;
+        const relu = await ClassesStore.loadAll();
+        const ok = relu[0].students[0].pts.plus;
+        p.annuler(); await p.sauverMaintenant();
+        return ok;
+    });
+    r.egal('« enregistrer maintenant » écrit sans attendre', vidage, 3);
 
     // --- AFFICHAGE : DEUX TOTAUX OU SOLDE ---
     const affichage = await page.evaluate(() => {
@@ -272,6 +306,8 @@ module.exports = async function (browser) {
     r.egal('sans donner de point non plus', oter.points, 0);
     r.egal('et l\'annulation le remet', oter.revenu, ['b-entraide']);
 
+    // Même remarque que pour les points : le disque reçoit la salve groupée.
+    await page.waitForTimeout(1000);
     const memoireBadges = await page.evaluate(async () => {
         ClassesStore._cache = null;
         const relu = await ClassesStore.loadAll();
@@ -1426,10 +1462,10 @@ module.exports = async function (browser) {
     r.egal('deux dates : on ne garde que la période demandée',
         [bilan.ancien.plus, bilan.ancien.totalOublis], [1, 1]);
     r.egal('le solde est la différence', bilan.mois.solde, 1);
-    r.egal('le tableau a une colonne par motif, plus les points',
-        bilan.colonnes, 5 + 4 + 1);
+    r.egal('le tableau a une colonne par motif, plus les points et les absences',
+        bilan.colonnes, 5 + 1 + 4 + 1);
     r.egal('une ligne par élève', bilan.lignes, bilan.eleves);
-    r.egal('quatre périodes au choix', bilan.periodes, 4);
+    r.egal('trois trimestres et cinq autres périodes', bilan.periodes, 8);
     r.verifie('et un bouton d\'export PDF', bilan.boutonPdf);
 
     const tri = await page.evaluate(() => {
@@ -1484,6 +1520,182 @@ module.exports = async function (browser) {
         const p = PluginManager.plugins.classPointsTool;
         p.panneauBilan = false; p.oubliArme = null; p.rendre();
     });
+
+    // --- L'APPEL LAISSE UNE TRACE ---
+    // L'appel ne gardait rien : demain, l'absence d'hier avait disparu. Le
+    // bilan ne pouvait donc pas la montrer.
+    const absences = await page.evaluate(() => {
+        const c = { id: 'cj', name: 'Journal', students:
+            ['Alice', 'Bilal'].map((n, i) => ({ id: 'j' + i, name: n })) };
+        const alice = c.students[0];
+        Appel.basculer(c, 'j0');
+        const posee = Journal.de(alice).filter(x => x.t === 'a').length;
+        Appel.basculer(c, 'j0');                      // Alice était là, en fait
+        const corrigee = Journal.de(alice).filter(x => x.t === 'a').length;
+        Appel.basculer(c, 'j0');
+        Appel.basculer(c, 'j0');
+        Appel.basculer(c, 'j0');                      // on hésite trois fois
+        const uneSeule = Journal.de(alice).filter(x => x.t === 'a').length;
+        // Une absence d'un autre jour ne se laisse pas effacer par l'appel du jour
+        Journal.de(alice).push({ d: '2001-03-04', t: 'a' });
+        Appel.tousPresents(c);
+        return {
+            posee, corrigee, uneSeule,
+            resteAncienne: Journal.de(alice).filter(x => x.t === 'a').length,
+            surLaPeriode: Appel.absencesSur(alice, '2001-01-01', '2001-12-31'),
+            datee: Journal.de(alice)[0].d
+        };
+    });
+    r.egal('noter un absent laisse une trace', absences.posee, 1);
+    r.egal('corriger l\'appel la retire', absences.corrigee, 0);
+    r.egal('hésiter trois fois n\'en fait pas trois', absences.uneSeule, 1);
+    r.egal('« tous présents » n\'efface que le jour même', absences.resteAncienne, 1);
+    r.egal('et l\'on sait compter les absences d\'une période', absences.surLaPeriode, 1);
+    r.verifie('la trace est datée', /^\d{4}-\d{2}-\d{2}$/.test(absences.datee), absences.datee);
+
+    const colonneAbs = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const classe = p.classeCourante();
+        const eleve = classe.students[0];
+        eleve.journal = [{ d: Journal.jour(), t: 'a' }, { d: '2001-05-05', t: 'a' }];
+        p.bilanPeriode = 'mois';
+        const mois = p.lignesDuBilan().find(l => l.id === eleve.id);
+        p.bilanPeriode = 'tout';
+        const tout = p.lignesDuBilan().find(l => l.id === eleve.id);
+        p.panneauBilan = true; p.bilanPeriode = 'mois'; p.rendre();
+        const w = document.getElementById('points-widget');
+        const entetes = Array.from(w.querySelectorAll('#pts-bilan-table thead th')).map(t => t.textContent.trim());
+        return { mois: mois.absences, tout: tout.absences, entetes };
+    });
+    r.egal('le bilan compte les absences de la période', colonneAbs.mois, 1);
+    r.egal('et toutes, quand on demande tout', colonneAbs.tout, 2);
+    r.verifie('la colonne est dans le tableau',
+        colonneAbs.entetes.some(t => /Abs/.test(t)), JSON.stringify(colonneAbs.entetes));
+
+    // --- LES TRIMESTRES ---
+    const trimestres = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        const t = p.trimestres();
+        // On les fixe pour pouvoir vérifier le découpage
+        t[0] = { nom: '1er trimestre', debut: '2026-09-01', fin: '2026-11-30' };
+        t[1] = { nom: '2e trimestre', debut: '2026-12-01', fin: '2027-03-15' };
+        t[2] = { nom: '3e trimestre', debut: '2027-03-16', fin: '2027-07-06' };
+        const eleve = p.classeCourante().students[0];
+        eleve.journal = [
+            { d: '2026-09-10', t: 'p' }, { d: '2026-10-02', t: 'o', v: 'carnet' },
+            { d: '2027-01-12', t: 'p' }, { d: '2027-05-20', t: 'a' }
+        ];
+        const lire = (periode) => {
+            p.bilanPeriode = periode;
+            const l = p.lignesDuBilan().find(x => x.id === eleve.id);
+            return { plus: l.plus, oublis: l.totalOublis, abs: l.absences, nom: p.nomDeLaPeriode() };
+        };
+        const un = lire('tri0'), deux = lire('tri1'), trois = lire('tri2');
+        p.panneauBilan = true; p.rendre();
+        const w = document.getElementById('points-widget');
+        return { un, deux, trois,
+                 boutons: Array.from(w.querySelectorAll('.pts-bilan-periode')).map(b => b.textContent.trim()),
+                 defaut: p.reglages.trimestres.length };
+    });
+    r.egal('le 1er trimestre ne garde que ce qui s\'y est passé',
+        [trimestres.un.plus, trimestres.un.oublis, trimestres.un.abs], [1, 1, 0]);
+    r.egal('le 2e aussi', [trimestres.deux.plus, trimestres.deux.oublis, trimestres.deux.abs], [1, 0, 0]);
+    r.egal('et le 3e', [trimestres.trois.plus, trimestres.trois.oublis, trimestres.trois.abs], [0, 0, 1]);
+    r.verifie('la période est nommée avec ses dates',
+        /1er trimestre \(du 01\/09\/2026 au 30\/11\/2026\)/.test(trimestres.un.nom), trimestres.un.nom);
+    r.verifie('les trois trimestres sont proposés dans le bilan',
+        trimestres.boutons.slice(0, 3).join('|') === '1er trimestre|2e trimestre|3e trimestre',
+        JSON.stringify(trimestres.boutons));
+    r.egal('trois trimestres sont préremplis', trimestres.defaut, 3);
+
+    const reglagesTri = await page.evaluate(() => {
+        const p = PluginManager.plugins.classPointsTool;
+        p.panneauBilan = false; p.panneauReglages = true; p.rendre();
+        const w = document.getElementById('points-widget');
+        const champs = w.querySelectorAll('.pts-tri-debut').length;
+        const nom = w.querySelector('.pts-tri-nom[data-i="0"]');
+        nom.value = 'Semestre 1';
+        nom.dispatchEvent(new Event('change', { bubbles: true }));
+        const debut = w.querySelector('.pts-tri-debut[data-i="0"]');
+        debut.value = '2026-09-15';
+        debut.dispatchEvent(new Event('change', { bubbles: true }));
+        const relu = JSON.parse(localStorage.getItem('board_points_reglages') || '{}');
+        p.panneauReglages = false; p.rendre();
+        return { champs, nom: p.trimestres()[0].nom, debut: p.trimestres()[0].debut,
+                 enregistre: (relu.trimestres || [])[0] };
+    });
+    r.egal('les réglages proposent les trois trimestres', reglagesTri.champs, 3);
+    r.egal('on peut les renommer', reglagesTri.nom, 'Semestre 1');
+    r.egal('et changer leurs dates', reglagesTri.debut, '2026-09-15');
+    r.verifie('c\'est retenu d\'une séance à l\'autre',
+        reglagesTri.enregistre && reglagesTri.enregistre.nom === 'Semestre 1',
+        JSON.stringify(reglagesTri.enregistre));
+
+    // --- LA PURGE DES VIEILLES TRACES ---
+    const purge = await page.evaluate(() => {
+        const eleve = { id: 'x', name: 'X', journal: [
+            { d: '2001-01-01', t: 'p' },                 // il y a vingt ans
+            { d: Journal.debutAnneeScolaire(), t: 'p' }, // cette année
+            { d: Journal.jour(), t: 'o', v: 'carnet' }
+        ] };
+        const jetees = Journal.purger(eleve);
+        return { jetees, reste: eleve.journal.length,
+                 borne: Journal.debutAnneeScolaire(),
+                 // Le 1er août : la seule coupure qui ne tombe pas dans un trimestre
+                 aout: Journal.debutAnneeScolaire(new Date('2026-09-15')),
+                 juin: Journal.debutAnneeScolaire(new Date('2026-06-15')) };
+    });
+    r.egal('les traces d\'avant-hier scolaire sont oubliées', purge.jetees, 1);
+    r.egal('celles des deux dernières années restent', purge.reste, 2);
+    r.egal('l\'année scolaire commence le 1er août', purge.aout, '2026-08-01');
+    r.egal('et en juin, on est encore dans celle d\'avant', purge.juin, '2025-08-01');
+
+    // --- LE FILET DE SÉCURITÉ ---
+    const filet = await page.evaluate(async () => {
+        localStorage.removeItem('auTableau_classes_sauvees');
+        localStorage.removeItem('auTableau_rappel_classes_reporte');
+        const avecEleves = [{ id: 'c1', name: 'A', students: [{ id: 's1', name: 'Zoé' }] }];
+        const jamais = rappelSauvegardeUtile(avecEleves);
+        const rien = rappelSauvegardeUtile([{ id: 'c2', name: 'Vide', students: [] }]);
+        const texteJamais = texteDerniereSauvegarde();
+        noterSauvegardeDesClasses();
+        const apresSauvegarde = rappelSauvegardeUtile(avecEleves);
+        const texteAujourdHui = texteDerniereSauvegarde();
+        // Un mois plus tard, le rappel revient
+        localStorage.setItem('auTableau_classes_sauvees', String(Date.now() - 40 * 24 * 3600 * 1000));
+        const unMoisApres = rappelSauvegardeUtile(avecEleves);
+        reporterLeRappelDesClasses();
+        const reporte = rappelSauvegardeUtile(avecEleves);
+        return { jamais, rien, texteJamais, apresSauvegarde, texteAujourdHui, unMoisApres, reporte };
+    });
+    r.verifie('jamais sauvegardé : on le rappelle', filet.jamais);
+    r.verifie('mais pas quand il n\'y a rien à perdre', !filet.rien);
+    r.egal('et l\'on dit franchement depuis quand', filet.texteJamais, 'jamais');
+    r.verifie('sauvegardé : on se tait', !filet.apresSauvegarde);
+    r.egal('en le disant', filet.texteAujourdHui, "aujourd'hui");
+    r.verifie('un mois plus tard, le rappel revient', filet.unMoisApres);
+    r.verifie('« plus tard » le repousse d\'un mois', !filet.reporte);
+
+    const bandeau = await page.evaluate(async () => {
+        localStorage.removeItem('auTableau_classes_sauvees');
+        localStorage.removeItem('auTableau_rappel_classes_reporte');
+        const ancienne = document.getElementById('class-manager-modal');
+        if (ancienne) ancienne.remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 400));
+        const visible = !!document.getElementById('cm-rappel');
+        const texte = (document.getElementById('cm-rappel') || {}).textContent || '';
+        document.getElementById('cm-rappel-plus-tard').click();
+        await new Promise(r => setTimeout(r, 300));
+        const apres = !!document.getElementById('cm-rappel');
+        const modal = document.getElementById('class-manager-modal');
+        if (modal) modal.remove();
+        return { visible, texte: texte.replace(/\s+/g, ' ').trim(), apres };
+    });
+    r.verifie('« Mes classes » porte le rappel', bandeau.visible);
+    r.verifie('qui dit le risque et la date', /ce navigateur/.test(bandeau.texte)
+        && /jamais/.test(bandeau.texte), bandeau.texte.slice(0, 140));
+    r.verifie('et « Plus tard » le referme', !bandeau.apres);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
