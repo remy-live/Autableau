@@ -6953,3 +6953,103 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     padding: 8px 18px;
     flex: none;
 }
+
+/* Import d'une liste : le bilan de ce qui a été compris, et le recours
+   si la lecture s'est trompée de colonnes. */
+#class-manager-modal .cm-imp-bilan,
+#class-manager-modal .cm-imp-vide {
+    font-size: 11px;
+    color: var(--muted, #636e72);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#class-manager-modal .cm-imp-lien {
+    border: none;
+    background: none;
+    color: var(--accent, #6c5ce7);
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    white-space: nowrap;
+}
+
+#class-manager-modal .cm-imp {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#class-manager-modal .cm-imp-ligne,
+#class-manager-modal .cm-imp-titre,
+#class-manager-modal .cm-imp-resultat {
+    font-size: 11px;
+    color: var(--muted, #636e72);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+#class-manager-modal .cm-imp-autre {
+    border: 1px solid var(--border, #dfe6e9);
+    background: var(--bg, #fff);
+    color: var(--ink, #2d3436);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+#class-manager-modal .cm-imp-colonnes {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+/* Une colonne : son intitulé, et un exemple pris dans le fichier — c'est
+   l'exemple qui permet de reconnaître la bonne d'un coup d'œil. */
+#class-manager-modal .cm-imp-col {
+    border: 1px solid var(--border, #dfe6e9);
+    background: var(--bg, #fff);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 150px;
+}
+
+#class-manager-modal .cm-imp-col.prise {
+    border-color: var(--accent, #6c5ce7);
+    background: rgba(108, 92, 231, 0.12);
+}
+
+#class-manager-modal .cm-imp-col-titre {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink, #2d3436);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#class-manager-modal .cm-imp-col-ex {
+    font-size: 10px;
+    color: var(--muted, #636e72);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#class-manager-modal .cm-imp-resultat b { color: var(--ink, #2d3436); }

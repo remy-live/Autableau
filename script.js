@@ -13723,11 +13723,15 @@ function showClassConflictModal(conflict, callback) {
 // ==============================================================================
 // ----------------------------------------------------------------
 // LIRE UNE LISTE D'ÉLÈVES
-// Les tableurs n'exportent pas tous pareil : Excel en français sépare
-// au point-virgule, met des guillemets autour des champs, double les
-// guillemets qu'ils contiennent, et pose un caractère invisible en
-// tête de fichier. Sans quoi la classe accueillait un élève nommé
-// « "Bernard";"Emma" ».
+// Les tableurs n'exportent pas tous pareil : Excel en français sépare au
+// point-virgule, met des guillemets autour des champs, double les
+// guillemets qu'ils contiennent, et pose un caractère invisible en tête
+// de fichier.
+//
+// Et surtout : personne ne peut deviner à coup sûr QUELLES colonnes
+// forment le nom. Le lecteur propose, l'aperçu montre, le professeur
+// corrige d'un clic — c'est la seule façon d'être juste sur un fichier
+// qu'on n'a jamais vu.
 // ----------------------------------------------------------------
 
 // Découpe le texte en enregistrements de champs, en respectant les
@@ -13758,7 +13762,7 @@ function decouperCSV(texte, separateur) {
 }
 
 // Quel séparateur ? Celui qui revient le plus souvent hors guillemets.
-// À égalité — c'est-à-dire aucun — on prend la virgule, sans effet.
+// Aucun : la virgule, sans effet.
 function separateurDe(texte) {
     const hors = texte.replace(/"[^"]*"/g, '');
     const compte = (c) => (hors.split(c).length - 1);
@@ -13768,46 +13772,96 @@ function separateurDe(texte) {
 }
 
 // Un morceau de nom : des lettres, éventuellement un trait d'union, une
-// apostrophe ou une virgule (« Bernard, Emma » tient dans un seul champ
-// entre guillemets). « 4A », « 2011-03-12 » ou une adresse électronique
-// n'en sont pas — c'est là qu'on s'arrête.
+// apostrophe ou une virgule. « 4A », une date, une adresse électronique
+// n'en sont pas.
 const MORCEAU_DE_NOM = /^[\p{L}][\p{L}\-' .,]*$/u;
 
-// Les en-têtes courants, à ne pas prendre pour un élève
-const ENTETES = /^(nom|prenom|prénom|nom prenom|nom prénom|prenom nom|prénom nom|eleve|élève|eleves|élèves|nom de l'eleve|nom de l'élève|name|student|full name|nom complet)$/i;
+// Les intitulés de colonne courants : ils trahissent une ligne d'en-tête,
+// et servent ensuite à nommer les colonnes dans l'aperçu.
+const ENTETE_DE_CHAMP = /^(nom|nom de famille|prenom|prénom|prenoms|prénoms|eleve|élève|eleves|élèves|nom complet|classe|division|sexe|civilite|civilité|date de naissance|naissance|ine|identifiant|matricule|courriel|mail|e-mail|email|name|first ?name|last ?name|student|full name)$/i;
 
-function parseNamesFromText(text) {
-    // Le caractère invisible qu'Excel pose en tête de fichier
-    const propre = String(text || '').replace(/^\uFEFF/, '');
-    const sep = separateurDe(propre);
+// Les valeurs qui trahissent une colonne « Civilité », « Sexe » ou un
+// oui/non : ce sont des mots, donc la seule forme ne suffit pas à les
+// écarter — mais personne ne s'appelle « Féminin ».
+const VALEUR_NON_NOM = /^(m|mr|mme|mlle|monsieur|madame|mademoiselle|f|h|g|feminin|féminin|masculin|fille|garcon|garçon|homme|femme|oui|non|externe|interne|demi-pensionnaire|demi pensionnaire|dp|ext|int|neant|néant|sans)$/i;
 
-    const noms = decouperCSV(propre, sep).map(champs => {
-        // On assemble les champs tant qu'ils ressemblent à un nom :
-        // « Bernard;Emma;4A;… » donne « Bernard Emma », et une liste
-        // d'une seule colonne reste elle-même.
-        const morceaux = [];
-        for (const brut of champs) {
-            const c = brut.trim();
-            if (!c) { if (morceaux.length) break; else continue; }
-            if (!MORCEAU_DE_NOM.test(c)) break;
-            morceaux.push(c);
-        }
-        const nom = morceaux.join(' ').replace(/\s+/g, ' ').trim();
-        // Rien qui ressemble à un nom ? On garde quand même le premier champ
-        // tel quel. Une liste inattendue (« Groupe 1 », un pseudonyme, un
-        // matricule) doit arriver dans la classe, quitte à être corrigée à la
-        // main — la perdre en silence serait bien pire.
-        if (nom) return nom;
-        return (champs.find(c => c.trim()) || '').trim();
+// Une colonne fait-elle partie du nom ? On regarde TOUTE la colonne, pas
+// seulement sa première case : une colonne « Classe » pleine de « 4A » se
+// trahit par ses chiffres, une colonne « Sexe » par son vocabulaire, et
+// une colonne « Formation » par le fait que trois valeurs suffisent à la
+// remplir.
+function colonneRessembleAUnNom(donnees, i) {
+    const valeurs = donnees.map(l => (l[i] || '').trim()).filter(Boolean);
+    if (valeurs.length < Math.max(1, donnees.length * 0.6)) return false;
+    if (!valeurs.every(v => MORCEAU_DE_NOM.test(v))) return false;
+    if (valeurs.every(v => VALEUR_NON_NOM.test(v))) return false;
+    if (donnees.length >= 5) {
+        const distinctes = new Set(valeurs.map(v => v.toLowerCase())).size;
+        if (distinctes < valeurs.length * 0.3) return false;
+    }
+    return true;
+}
+
+// La proposition : la première colonne qui ressemble à un nom, puis les
+// suivantes tant qu'elles y ressemblent aussi.
+function colonnesDuNom(donnees, nbColonnes) {
+    const choisies = [];
+    for (let i = 0; i < nbColonnes; i++) {
+        if (colonneRessembleAUnNom(donnees, i)) choisies.push(i);
+        else if (choisies.length) break;
+    }
+    return choisies.length ? choisies : [0];
+}
+
+// Rend de quoi montrer un aperçu ET importer : le séparateur reconnu, les
+// colonnes avec leur intitulé et un exemple, celles qui sont retenues, et
+// les noms qui en découlent. « options » permet de forcer l'un ou l'autre.
+function analyserListe(texte, options) {
+    const o = options || {};
+    const propre = String(texte || '').replace(/^\uFEFF/, '');
+    const separateur = o.separateur || separateurDe(propre);
+    const lignes = decouperCSV(propre, separateur).filter(l => l.some(c => c.trim()));
+    if (!lignes.length) return { separateur, colonnes: [], choisies: [], noms: [], entete: false };
+
+    const premiere = lignes[0].map(c => c.trim());
+    const entete = lignes.length > 1 && premiere.some(c => ENTETE_DE_CHAMP.test(c));
+    const donnees = entete ? lignes.slice(1) : lignes;
+    const nbColonnes = Math.max(...lignes.map(l => l.length));
+
+    const colonnes = [];
+    for (let i = 0; i < nbColonnes; i++) {
+        colonnes.push({
+            i,
+            titre: (entete && premiere[i]) ? premiere[i] : ('Colonne ' + (i + 1)),
+            exemple: ((donnees[0] || [])[i] || '').trim()
+        });
+    }
+
+    const choisies = (o.colonnes && o.colonnes.length)
+        ? o.colonnes.filter(i => i < nbColonnes)
+        : colonnesDuNom(donnees, nbColonnes);
+
+    const noms = donnees.map(champs => {
+        const bouts = choisies.map(i => (champs[i] || '').trim()).filter(Boolean);
+        const nom = bouts.join(' ').replace(/\s+/g, ' ').trim();
+        // Rien de retenu sur cette ligne ? On garde son premier champ tel
+        // quel : la perdre en silence serait bien pire que l'importer à
+        // corriger.
+        return nom || (champs.find(c => c.trim()) || '').trim();
     }).filter(n => n.length > 0);
 
-    // Une première ligne « Nom;Prénom » est un en-tête, pas un élève
-    if (noms.length > 1 && ENTETES.test(noms[0])) noms.shift();
-    return noms;
+    return { separateur, colonnes, choisies, noms, entete };
+}
+
+// La lecture automatique, sans rien demander
+function parseNamesFromText(text) {
+    return analyserListe(text).noms;
 }
 
 window.parseNamesFromText = parseNamesFromText;
+window.analyserListe = analyserListe;
 window.decouperCSV = decouperCSV;
+
 
 async function openClassManagerModal() {
     // Deux appels de suite empilaient deux fenêtres identiques l'une sur
@@ -13835,6 +13889,9 @@ async function openClassManagerModal() {
         selectedId: null,
         dragIndex: null
     };
+    // Ce qu'on est en train de lire : le texte, et les choix faits dessus
+    const etatImport = { texte: '', separateur: null, colonnes: null,
+                         dernier: null, ouvert: false, avantImport: null };
     state.selectedId = state.classes[0] ? state.classes[0].id : null;
 
     function getSelected() {
@@ -13947,14 +14004,18 @@ async function openClassManagerModal() {
                     </div>
                 </details>
 
-                <details class="cm-repli">
+                <details class="cm-repli" id="cm-repli-import">
                     <summary>Importer une liste</summary>
                     <textarea id="cm-paste-area" placeholder="Collez ici une liste d'élèves (un par ligne, ou copié depuis Excel/Sheets)"></textarea>
                     <div style="display:flex; gap:8px; margin-top:6px;">
-                        <button id="cm-import-paste-btn" class="btn-action secondary" style="flex:1;">📋 Texte collé</button>
-                        <button id="cm-import-file-btn" class="btn-action secondary" style="flex:1;">📄 Fichier .csv</button>
+                        <button id="cm-import-paste-btn" class="btn-action secondary" style="flex:1;">📋 Lire le texte collé</button>
+                        <button id="cm-import-file-btn" class="btn-action secondary" style="flex:1;">📄 Lire un fichier .csv</button>
                         <input type="file" id="cm-import-file-input" accept=".csv,.txt" style="display:none;">
                     </div>
+                    <!-- Rien n'est importé avant que le professeur ait vu ce
+                         qui va l'être : c'est là que se corrige le choix des
+                         colonnes, qu'aucune règle ne peut deviner à coup sûr. -->
+                    <div id="cm-apercu-import"></div>
                 </details>
             `;
         }
@@ -14310,22 +14371,163 @@ async function openClassManagerModal() {
             });
         });
 
+        // ------------------------------------------------------------
+        // IMPORT : on montre avant d'ajouter
+        // Aucune règle ne devine à coup sûr quelles colonnes d'un export
+        // forment le nom. Le lecteur propose, l'aperçu montre, et le
+        // professeur corrige d'un clic.
+        // ------------------------------------------------------------
+        const peindreApercu = () => {
+            const zone = box.querySelector('#cm-apercu-import');
+            if (!zone) return;
+            if (!etatImport.texte) { zone.innerHTML = ''; return; }
+
+            const a = analyserListe(etatImport.texte, {
+                separateur: etatImport.separateur,
+                colonnes: etatImport.colonnes
+            });
+            etatImport.dernier = a;
+
+            if (!a.noms.length) {
+                zone.innerHTML = '<div class="cm-imp-vide">Rien à importer dans ce texte.</div>';
+                return;
+            }
+            // Tant que le professeur n'a rien contesté, on ne montre qu'une
+            // ligne : ce qu'on a compris, et de quoi le contester.
+            if (!etatImport.ouvert) {
+                const cols = a.choisies.map(i => (a.colonnes[i] || {}).titre).join(' + ');
+                zone.innerHTML = `
+                    <div class="cm-imp-bilan">
+                        <span>Lu : <b>${cols}</b> — ${a.noms.length} nom${a.noms.length > 1 ? 's' : ''}
+                        (${a.noms.slice(0, 2).map(n => n.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join(', ')}…)</span>
+                        <button id="cm-imp-pasca" class="cm-imp-lien">Ce n'est pas ça</button>
+                    </div>`;
+                const lien = zone.querySelector('#cm-imp-pasca');
+                if (lien) lien.onclick = () => {
+                    defaireLImport();
+                    etatImport.ouvert = true;
+                    render();
+                };
+                return;
+            }
+
+            const nomSep = { '\t': 'tabulation', ';': 'point-virgule', ',': 'virgule' }[a.separateur] || a.separateur;
+            const echapper = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            const exemples = a.noms.slice(0, 4).map(echapper).join(' · ')
+                + (a.noms.length > 4 ? ' …' : '');
+
+            zone.innerHTML = `
+                <div class="cm-imp">
+                    <div class="cm-imp-ligne">
+                        <span>Séparateur : <b>${nomSep}</b></span>
+                        <button class="cm-imp-autre" data-sep="">détecter</button>
+                        <button class="cm-imp-autre" data-sep="&#9;">tab</button>
+                        <button class="cm-imp-autre" data-sep=";">;</button>
+                        <button class="cm-imp-autre" data-sep=",">,</button>
+                    </div>
+                    <div class="cm-imp-titre">Colonnes qui forment le nom — cliquez pour changer</div>
+                    <div class="cm-imp-colonnes">
+                        ${a.colonnes.map(c => `
+                            <button class="cm-imp-col${a.choisies.includes(c.i) ? ' prise' : ''}" data-col="${c.i}">
+                                <span class="cm-imp-col-titre">${echapper(c.titre)}</span>
+                                <span class="cm-imp-col-ex">${echapper(c.exemple) || '—'}</span>
+                            </button>`).join('')}
+                    </div>
+                    <div class="cm-imp-resultat">
+                        <b>${a.noms.length} élève${a.noms.length > 1 ? 's' : ''}</b> : ${exemples}
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button id="cm-imp-valider" class="btn-action primary" style="flex:1;">Ajouter à la classe</button>
+                        <button id="cm-imp-renoncer" class="btn-action secondary">Renoncer</button>
+                    </div>
+                </div>`;
+
+            zone.querySelectorAll('.cm-imp-autre').forEach(b => {
+                b.onclick = () => {
+                    etatImport.separateur = b.dataset.sep || null;
+                    etatImport.colonnes = null;      // les colonnes changent avec le découpage
+                    peindreApercu();
+                };
+            });
+            zone.querySelectorAll('.cm-imp-col').forEach(b => {
+                b.onclick = () => {
+                    const i = Number(b.dataset.col);
+                    const prises = new Set(a.choisies);
+                    if (prises.has(i)) prises.delete(i); else prises.add(i);
+                    // Tout décocher n'aurait pas de sens : on garde la dernière
+                    etatImport.colonnes = prises.size ? [...prises].sort((x, y) => x - y) : a.choisies;
+                    peindreApercu();
+                };
+            });
+            zone.querySelector('#cm-imp-valider').onclick = () => {
+                defaireLImport();
+                etatImport.avantImport = (getSelected().students || []).map(s => s.id);
+                ajouterLesNoms(a.noms, a);
+                etatImport.ouvert = false;
+            };
+            zone.querySelector('#cm-imp-renoncer').onclick = () => {
+                etatImport.texte = ''; etatImport.ouvert = false;
+                render();
+            };
+        };
+
+        // Le chemin normal : on lit, on ajoute, on dit ce qu'on a compris.
+        // Aucune question posée — c'est seulement si la lecture s'est trompée
+        // que le professeur ouvre le recours.
+        const lireEtAjouter = (texte) => {
+            etatImport.texte = texte;
+            etatImport.separateur = null;
+            etatImport.colonnes = null;
+            const a = analyserListe(texte);
+            etatImport.dernier = a;
+            if (!a.noms.length) {
+                if (typeof showToast === 'function') showToast('Rien à importer dans ce texte');
+                return;
+            }
+            etatImport.avantImport = (getSelected().students || []).map(s => s.id);
+            ajouterLesNoms(a.noms, a);
+        };
+
+        const ajouterLesNoms = (noms, analyse) => {
+            const c = getSelected();
+            if (!c || !noms.length) return;
+            const existants = new Set((c.students || []).map(s => s.name));
+            let ajoutes = 0;
+            noms.forEach(name => {
+                if (!existants.has(name)) {
+                    c.students.push({ id: ClassesStore.newId('stu'), name });
+                    existants.add(name); ajoutes++;
+                }
+            });
+            c.updatedAt = Date.now();
+            etatImport.ajoutes = ajoutes;
+            etatImport.corrige = !!analyse && !!etatImport.colonnes;
+            persist();
+            render();
+            if (typeof showToast === 'function') {
+                const ignores = noms.length - ajoutes;
+                showToast(`✅ ${ajoutes} élève${ajoutes > 1 ? 's' : ''} ajouté${ajoutes > 1 ? 's' : ''}`
+                    + (ignores > 0 ? ` (${ignores} déjà présent${ignores > 1 ? 's' : ''})` : ''));
+            }
+        };
+
+        // Retirer ce que le dernier import vient d'ajouter : c'est ce qui
+        // permet de corriger sans avoir à supprimer trente élèves à la main.
+        const defaireLImport = () => {
+            const c = getSelected();
+            if (!c || !etatImport.avantImport) return;
+            const avant = new Set(etatImport.avantImport);
+            c.students = (c.students || []).filter(e => avant.has(e.id));
+            c.updatedAt = Date.now();
+            persist();
+        };
+
         const importPasteBtn = box.querySelector('#cm-import-paste-btn');
         if (importPasteBtn) {
             importPasteBtn.onclick = () => {
-                const c = getSelected();
                 const textarea = box.querySelector('#cm-paste-area');
-                if (!c || !textarea.value.trim()) return;
-                const names = parseNamesFromText(textarea.value);
-                const existing = new Set((c.students || []).map(s => s.name));
-                let added = 0;
-                names.forEach(name => {
-                    if (!existing.has(name)) { c.students.push({ id: ClassesStore.newId('stu'), name }); existing.add(name); added++; }
-                });
-                c.updatedAt = Date.now();
-                persist();
-                render();
-                if (typeof showToast === 'function') showToast(`✅ ${added} élève${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''}`);
+                if (!getSelected() || !textarea.value.trim()) return;
+                lireEtAjouter(textarea.value);
             };
         }
 
@@ -14335,25 +14537,19 @@ async function openClassManagerModal() {
             importFileBtn.onclick = () => importFileInput.click();
             importFileInput.onchange = () => {
                 const file = importFileInput.files[0];
-                if (!file) return;
+                if (!file || !getSelected()) return;
                 const reader = new FileReader();
-                reader.onload = (e) => {
-                    const c = getSelected();
-                    if (!c) return;
-                    const names = parseNamesFromText(e.target.result);
-                    const existing = new Set((c.students || []).map(s => s.name));
-                    let added = 0;
-                    names.forEach(name => {
-                        if (!existing.has(name)) { c.students.push({ id: ClassesStore.newId('stu'), name }); existing.add(name); added++; }
-                    });
-                    c.updatedAt = Date.now();
-                    persist();
-                    render();
-                    if (typeof showToast === 'function') showToast(`✅ ${added} élève${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''}`);
-                };
+                reader.onload = (e) => lireEtAjouter(e.target.result);
                 reader.readAsText(file);
                 importFileInput.value = '';
             };
+        }
+
+        // Un import en cours de correction survit au redessin de la fenêtre
+        if (etatImport.texte) {
+            const repli = box.querySelector('#cm-repli-import');
+            if (repli) repli.open = true;
+            peindreApercu();
         }
     }
 

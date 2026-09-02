@@ -1120,45 +1120,97 @@ module.exports = async function (browser) {
         miseEnPage.supprimeAvecTitre);
 
 
-    // --- Importer une liste d'élèves ---
-    // Les tableurs n'exportent pas tous pareil. Excel en français sépare au
-    // point-virgule et met des guillemets : la classe accueillait alors un
-    // élève nommé « "Bernard";"Emma" ».
-    const LISTES_DE_CLASSE = [
-        ['un nom par ligne', 'Bernard Emma\nMartin Lucas', ['Bernard Emma', 'Martin Lucas']],
-        ['guillemets simples', '"Bernard Emma"\n"Martin Lucas"', ['Bernard Emma', 'Martin Lucas']],
-        ['Excel français : point-virgule et guillemets',
-            '"Bernard";"Emma"\n"Martin";"Lucas"', ['Bernard Emma', 'Martin Lucas']],
-        ['point-virgule sans guillemets', 'Bernard;Emma\nMartin;Lucas', ['Bernard Emma', 'Martin Lucas']],
-        ['virgules', 'Bernard,Emma\nMartin,Lucas', ['Bernard Emma', 'Martin Lucas']],
-        ['tabulations (copié d\'un tableur)', 'Bernard\tEmma\nMartin\tLucas', ['Bernard Emma', 'Martin Lucas']],
-        ['colonnes en plus : on s\'arrête au premier champ qui n\'est pas un nom',
-            '"Bernard";"Emma";"4A";"2011-03-12"\n"Martin";"Lucas";"4A";"2011-07-02"',
-            ['Bernard Emma', 'Martin Lucas']],
-        ['une virgule DANS un champ entre guillemets',
-            '"Bernard, Emma"\n"Martin, Lucas"', ['Bernard, Emma', 'Martin, Lucas']],
-        ['une liste inattendue n\'est pas perdue', 'Groupe 1\nGroupe 2', ['Groupe 1', 'Groupe 2']],
-        ['caractère invisible en tête de fichier', '﻿"Bernard";"Emma"', ['Bernard Emma']],
-        ['fins de ligne Windows', '"Bernard";"Emma"\r\n"Martin";"Lucas"\r\n', ['Bernard Emma', 'Martin Lucas']],
-        ['ligne d\'en-tête', '"Nom";"Prénom"\n"Bernard";"Emma"', ['Bernard Emma']],
-        ['un élève réellement nommé Nom reste s\'il est seul', 'Nom', ['Nom']],
-        ['lignes vides ignorées', 'Bernard Emma\n\n\nMartin Lucas\n', ['Bernard Emma', 'Martin Lucas']],
-        ['accents, traits d\'union, apostrophes',
-            '"Lefèvre-Dubois";"Anne-Sophie"\n"D\'Artagnan";"Éloïse"',
-            ['Lefèvre-Dubois Anne-Sophie', "D'Artagnan Éloïse"]],
-        ['adresse électronique : ce n\'est pas un morceau de nom',
-            'Bernard;Emma;emma@ecole.fr', ['Bernard Emma']],
-        ['texte vide', '', []]
+
+    // --- Importer une liste : la reconnaissance doit être AUTOMATIQUE ---
+    // Un export de vie scolaire porte douze colonnes ; le professeur ne doit
+    // pas avoir à désigner lesquelles forment le nom. Chaque forme ci-dessous
+    // vient d'un cas réel.
+    const T = String.fromCharCode(9);
+    const N4 = ['ALMEIDA Alicia', 'ANGARD Lily', 'BENALI Yanis', 'CHEN Mei-Lin'];
+    const FORMES_DE_LISTE = [
+      ['export tabulé avec en-tête (Pronote)',
+       [['Nom','Prénom','"Né(e) le"','"Prénom d\'usage"','Sexe','Classe','Allergies','Formation','Groupes','"Toutes les options"'].join(T),
+        ['ALMEIDA','Alicia','19/06/2013','','Féminin','"4EME A"','','4EME','"4EME AP1"','"ANGLAIS LV1, ESPAGNOL LV2"'].join(T),
+        ['ANGARD','Lily'].join(T),
+        ['BENALI','Yanis','03/01/2013','','Masculin','"4EME A"','','4EME','"4EME AP2"','"ANGLAIS LV1"'].join(T),
+        ['CHEN','Mei-Lin','22/11/2012','','Féminin','"4EME A"','','4EME','"4EME AP1"','"ANGLAIS LV1"'].join(T)].join('\n'), N4],
+
+      ['point-virgule avec guillemets et en-tête',
+       '"Nom";"Prénom";"Classe"\n"ALMEIDA";"Alicia";"4A"\n"ANGARD";"Lily";"4A"\n"BENALI";"Yanis";"4A"\n"CHEN";"Mei-Lin";"4A"', N4],
+
+      ['point-virgule sans en-tête',
+       'ALMEIDA;Alicia\nANGARD;Lily\nBENALI;Yanis\nCHEN;Mei-Lin', N4],
+
+      ['virgules',
+       'ALMEIDA,Alicia\nANGARD,Lily\nBENALI,Yanis\nCHEN,Mei-Lin', N4],
+
+      ['une seule colonne, nom complet',
+       'ALMEIDA Alicia\nANGARD Lily\nBENALI Yanis\nCHEN Mei-Lin', N4],
+
+      ['prénom puis nom',
+       'Alicia;ALMEIDA\nLily;ANGARD\nYanis;BENALI\nMei-Lin;CHEN',
+       ['Alicia ALMEIDA', 'Lily ANGARD', 'Yanis BENALI', 'Mei-Lin CHEN']],
+
+      ['numérotation en tête de ligne',
+       '1;ALMEIDA;Alicia\n2;ANGARD;Lily\n3;BENALI;Yanis\n4;CHEN;Mei-Lin', N4],
+
+      ['colonne civilité : trois valeurs suffisent à la remplir',
+       'Mme;ALMEIDA;Alicia\nMme;ANGARD;Lily\nM;BENALI;Yanis\nMme;CHEN;Mei-Lin', N4],
+
+      ['colonne sexe après le prénom',
+       'Nom;Prénom;Sexe\nALMEIDA;Alicia;Féminin\nANGARD;Lily;Féminin\nBENALI;Yanis;Masculin\nCHEN;Mei-Lin;Féminin', N4],
+
+      ['classe alphanumérique',
+       'ALMEIDA;Alicia;4EME A\nANGARD;Lily;4EME A\nBENALI;Yanis;4EME A\nCHEN;Mei-Lin;4EME A', N4],
+
+      ['adresse électronique en 3e colonne',
+       'ALMEIDA;Alicia;a.almeida@ecole.fr\nANGARD;Lily;l.angard@ecole.fr\nBENALI;Yanis;y.benali@ecole.fr\nCHEN;Mei-Lin;m.chen@ecole.fr', N4],
+
+      ['copie d\'écran d\'un tableur : tabulations, pas d\'en-tête',
+       'ALMEIDA\tAlicia\nANGARD\tLily\nBENALI\tYanis\nCHEN\tMei-Lin', N4],
+
+      ['caractère invisible en tête et fins de ligne Windows',
+       '﻿"Nom";"Prénom"\r\n"ALMEIDA";"Alicia"\r\n"ANGARD";"Lily"\r\n"BENALI";"Yanis"\r\n"CHEN";"Mei-Lin"\r\n', N4],
+
+      ['nom composé entre guillemets contenant une virgule',
+       '"ALMEIDA, Alicia"\n"ANGARD, Lily"', ['ALMEIDA, Alicia', 'ANGARD, Lily']],
+
+      ['liste qui ne ressemble pas à des noms : rien n\'est perdu',
+       'Groupe 1\nGroupe 2\nGroupe 3', ['Groupe 1', 'Groupe 2', 'Groupe 3']],
+
+      ['une seule ligne', 'ALMEIDA;Alicia', ['ALMEIDA Alicia']],
+      ['texte vide', '', []]
     ];
 
-    const listes = await page.evaluate((cas) => cas.map(([nom, entree, attendu]) => {
+    const formes = await page.evaluate((cas) => cas.map(([nom, entree, attendu]) => {
         const obtenu = parseNamesFromText(entree);
-        return { nom, attendu, obtenu, ok: JSON.stringify(obtenu) === JSON.stringify(attendu) };
-    }), LISTES_DE_CLASSE);
-    const ratees = listes.filter(x => !x.ok);
-    r.verifie(`les ${listes.length} formes de liste d'élèves sont lues correctement`,
-        ratees.length === 0,
-        ratees.slice(0, 3).map(x => `${x.nom} -> ${JSON.stringify(x.obtenu)}`).join('  ///  '));
+        return { nom, obtenu, ok: JSON.stringify(obtenu) === JSON.stringify(attendu) };
+    }), FORMES_DE_LISTE);
+    const perdues = formes.filter(x => !x.ok);
+    r.verifie(`les ${formes.length} formes de liste sont reconnues sans rien demander`,
+        perdues.length === 0,
+        perdues.slice(0, 2).map(x => `${x.nom} -> ${JSON.stringify(x.obtenu)}`).join('  ///  '));
+
+    // Ce que l'aperçu montre : les colonnes retenues, avec leur intitulé
+    const lecture = await page.evaluate((txt) => {
+        const a = analyserListe(txt);
+        return {
+            separateur: a.separateur === String.fromCharCode(9) ? 'TAB' : a.separateur,
+            entete: a.entete,
+            choisies: a.choisies.map(i => a.colonnes[i].titre),
+            colonnes: a.colonnes.length,
+            noms: a.noms.length
+        };
+    }, FORMES_DE_LISTE[0][1]);
+    r.egal('le séparateur tabulé est reconnu', lecture.separateur, 'TAB');
+    r.verifie('la ligne d\'en-tête est reconnue', lecture.entete);
+    r.egal('et ce sont bien Nom et Prénom qui sont retenus', lecture.choisies, ['Nom', 'Prénom']);
+    r.egal('les colonnes sont toutes proposées à la correction', lecture.colonnes, 10);
+
+    // Forcer d'autres colonnes : c'est le recours quand la lecture se trompe
+    const force = await page.evaluate((txt) =>
+        analyserListe(txt, { colonnes: [1] }).noms, FORMES_DE_LISTE[0][1]);
+    r.egal('on peut n\'en retenir qu\'une', force, ['Alicia', 'Lily', 'Yanis', 'Mei-Lin']);
 
     // Le découpage lui-même : un guillemet doublé est un guillemet du texte
     const champs = await page.evaluate(() => ({
