@@ -4976,6 +4976,12 @@ function pushStyleToObject() {
             if (obj.arrowStart !== undefined || activeStyle.arrowStart !== undefined) obj.arrowStart = activeStyle.arrowStart;
             if (obj.arrowEnd !== undefined || activeStyle.arrowEnd !== undefined) obj.arrowEnd = activeStyle.arrowEnd;
             if (obj.fontSize !== undefined) {
+                // L'interligne suit la police, sinon les lignes se
+                // chevauchent en grandissant et s'écartent en rapetissant.
+                if (obj.lineHeight !== undefined) {
+                    obj.lineHeight = interlignePour(activeStyle.fontSize,
+                        rapportInterligne(obj.fontSize, obj.lineHeight));
+                }
                 obj.fontSize = activeStyle.fontSize;
                 if (obj.type === 'text' && obj.content.includes('$')) {
                     createMathImage(obj.content, obj.color || obj.strokeColor, obj.fontSize, (img, w, h) => {
@@ -5035,12 +5041,59 @@ document.getElementById('line-width').addEventListener('change', (e) => {
     // Relâchement du curseur : on fige la valeur dans l'historique
     if (selectionIsOnlyImages()) commitPluginStampWidth(parseInt(e.target.value) / 3);
 });
+// ===================================================
+// L'INTERLIGNE SUIT LA POLICE
+// L'interligne est une valeur en pixels, et il ne bougeait jamais quand la
+// taille du texte changeait. Un bloc écrit en 24 avec un interligne de 29
+// gardait ses 29 px une fois passé en 12 : trois lignes séparées par des
+// gouffres. Dans l'autre sens, les lignes se chevauchaient.
+//
+// On ne mémorise pas de nouveau réglage : le RAPPORT entre les deux est déjà
+// dans les valeurs en place. On le relève avant de changer la taille, et on
+// le rétablit après. Régler l'interligne à la main change ce rapport, et le
+// nouveau rapport est celui qui suivra.
+// ===================================================
+function rapportInterligne(taille, interligne) {
+    const fs = taille || activeStyle.fontSize || 24;
+    const lh = (interligne === undefined) ? activeStyle.lineHeight : interligne;
+    if (!fs || !lh) return 1.2;
+    // Un rapport aberrant (héritage d'un ancien bloc) ne se propage pas
+    const r = lh / fs;
+    return (r < 0.6 || r > 4) ? 1.2 : r;
+}
+// Le rapport voulu, mémorisé. Le redéduire à chaque fois des deux valeurs
+// ARRONDIES le faisait dériver vers le haut : 1,21 puis 1,22 puis 1,25… et
+// au bout de vingt changements de taille, des gouffres entre les lignes.
+function rapportVoulu(taille, interligne) {
+    if (activeStyle.interligneRatio) return activeStyle.interligneRatio;
+    const r = rapportInterligne(taille, interligne);
+    activeStyle.interligneRatio = r;
+    return r;
+}
+function fixerLeRapport(taille, interligne) {
+    const fs = taille || activeStyle.fontSize || 24;
+    if (fs && interligne) activeStyle.interligneRatio = interligne / fs;
+}
+window.rapportVoulu = rapportVoulu;
+window.fixerLeRapport = fixerLeRapport;
+function interlignePour(taille, rapport) {
+    return Math.max(8, Math.round(taille * (rapport || 1.2)));
+}
+window.rapportInterligne = rapportInterligne;
+window.interlignePour = interlignePour;
+
 // Le curseur et le nombre disent la même chose : on lit la taille, et on la
 // tape quand on la connaît — y compris hors de la course du curseur.
 function reglerTailleTexte(px, source) {
     const t = Math.max(4, Math.min(400, Math.round(px)));
     if (!isFinite(t)) return;
+    // Le rapport se relève AVANT de toucher à la taille : après, il serait
+    // calculé sur la nouvelle et l'interligne ne bougerait plus.
+    const rapport = rapportVoulu(activeStyle.fontSize, activeStyle.lineHeight);
     activeStyle.fontSize = t;
+    activeStyle.lineHeight = interlignePour(t, rapport);
+    const jauge = document.getElementById('text-lh-display');
+    if (jauge) jauge.innerText = activeStyle.lineHeight;
     const curseur = document.getElementById('font-size');
     const nombre = document.getElementById('font-size-num');
     if (curseur && source !== 'curseur') curseur.value = Math.max(6, Math.min(120, t));
@@ -6231,7 +6284,12 @@ function selectObject(objInfo) {
             activeStyle.strokeColor = obj.strokeColor || obj.color; activeStyle.strokeOpacity = obj.strokeOpacity !== undefined ? obj.strokeOpacity : 1;
             if (obj.fillColor !== undefined) { activeStyle.fillColor = obj.fillColor; activeStyle.fillOpacity = obj.fillOpacity; activeStyle.isFilled = obj.isFilled; }
             if (obj.shape !== undefined) activeStyle.pointShape = obj.shape; if (obj.width !== undefined) activeStyle.lineWidth = obj.width; if (obj.dash !== undefined) activeStyle.lineDash = obj.dash; if (obj.fontSize !== undefined) activeStyle.fontSize = obj.fontSize;
-            if (obj.lineHeight !== undefined) activeStyle.lineHeight = obj.lineHeight;
+            if (obj.lineHeight !== undefined) {
+                activeStyle.lineHeight = obj.lineHeight;
+                // Le bloc qu'on reprend impose son propre rapport
+                activeStyle.interligneRatio = null;
+                rapportVoulu(obj.fontSize || activeStyle.fontSize, obj.lineHeight);
+            }
             const lhInput = document.getElementById('text-line-height');
             if (lhInput) lhInput.value = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
 
@@ -10348,12 +10406,17 @@ function changeFontSize(delta) {
     if (newSize < 10) newSize = 10;
     if (newSize > 200) newSize = 200;
 
+    // L'interligne garde son rapport à la police : sans cela, agrandir
+    // faisait se chevaucher les lignes, et réduire ouvrait des gouffres.
+    const bloc = editingTextId ? getObjectById('text', editingTextId) : null;
+    const rapport = rapportVoulu(currentSize,
+        (bloc && bloc.lineHeight) || activeStyle.lineHeight);
     activeStyle.fontSize = newSize;
+    activeStyle.lineHeight = interlignePour(newSize, rapport);
 
-    if (editingTextId) {
-        const t = getObjectById('text', editingTextId);
-        if (t) t.fontSize = newSize;
-    }
+    if (bloc) { bloc.fontSize = newSize; bloc.lineHeight = activeStyle.lineHeight; }
+    const jauge = document.getElementById('text-lh-display');
+    if (jauge) jauge.innerText = activeStyle.lineHeight;
     updateWysiwygPosition();
     draw();
 }
@@ -16625,6 +16688,9 @@ function changeLineHeight(delta) {
     if (newLH > 150) newLH = 150;
 
     activeStyle.lineHeight = newLH;
+    // C'est un choix : le rapport qu'il exprime est celui qui suivra la police.
+    fixerLeRapport((editingTextId && getObjectById('text', editingTextId)
+        ? getObjectById('text', editingTextId).fontSize : activeStyle.fontSize), newLH);
     const display = document.getElementById('text-lh-display');
     if (display) display.innerText = newLH;
 

@@ -616,6 +616,64 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     r.egal('bouger le curseur écrit le nombre', taille.parLeCurseur.nombre, '30');
     r.egal('et règle la police', taille.parLeCurseur.style, 30);
 
+    // L'interligne suit la police. Il ne bougeait pas : un bloc écrit en 24
+    // avec 29 px d'interligne gardait ses 29 px une fois passé en 60 (lignes
+    // qui se chevauchent) ou en 12 (gouffres entre les lignes).
+    const interligne = await page.evaluate(() => {
+        const nombre = document.getElementById('font-size-num');
+        const poser = (v) => {
+            nombre.value = String(v);
+            nombre.dispatchEvent(new Event('input', { bubbles: true }));
+            return { fs: activeStyle.fontSize, lh: activeStyle.lineHeight };
+        };
+        activeStyle.fontSize = 24; activeStyle.lineHeight = 29;
+        activeStyle.interligneRatio = null;
+        const grand = poser(60);
+        const petit = poser(12);
+        // Une longue série ne doit pas faire enfler le rapport : le redéduire
+        // à chaque fois des valeurs ARRONDIES le poussait vers le haut.
+        [90, 30, 100, 18, 45, 24, 72, 16, 24].forEach(poser);
+        const apresLaSerie = { fs: activeStyle.fontSize, lh: activeStyle.lineHeight };
+        return { grand, petit, apresLaSerie };
+    });
+    r.verifie('agrandir la police écarte les lignes d\'autant',
+        Math.abs(interligne.grand.lh / 60 - 29 / 24) < 0.03, JSON.stringify(interligne.grand));
+    r.verifie('la réduire les resserre d\'autant',
+        Math.abs(interligne.petit.lh / 12 - 29 / 24) < 0.05, JSON.stringify(interligne.petit));
+    r.verifie('et dix changements de taille ne le font pas dériver',
+        Math.abs(interligne.apresLaSerie.lh - 29) <= 1, JSON.stringify(interligne.apresLaSerie));
+
+    // Un interligne réglé à la main est un choix : c'est SON rapport qui suit
+    const choisi = await page.evaluate(() => {
+        activeStyle.fontSize = 20; activeStyle.lineHeight = 24;
+        activeStyle.interligneRatio = null;
+        editingTextId = null; selectedItems = [];
+        for (let i = 0; i < 8; i++) changeLineHeight(2);      // 24 → 40, soit ×2
+        const large = { fs: activeStyle.fontSize, lh: activeStyle.lineHeight };
+        const nombre = document.getElementById('font-size-num');
+        nombre.value = '40'; nombre.dispatchEvent(new Event('input', { bubbles: true }));
+        return { large, apres: { fs: activeStyle.fontSize, lh: activeStyle.lineHeight } };
+    });
+    r.egal('régler l\'interligne à la main l\'écarte', choisi.large.lh, 40);
+    r.egal('et ce choix survit au changement de police', choisi.apres.lh, 80);
+
+    // Reprendre un bloc existant, c'est reprendre SON interligne
+    const repris = await page.evaluate(() => {
+        texts.length = 0;
+        const t = { id: nextId++, x: 0, y: 0, content: 'a', fontSize: 30, lineHeight: 36,
+                    color: '#000', fontFamily: 'sans-serif', align: 'left', z: globalZ++ };
+        texts.push(t); draw();
+        selectedItems = [{ type: 'text', id: t.id }];
+        if (typeof syncStyleFromSelection === 'function') syncStyleFromSelection();
+        else if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        const nombre = document.getElementById('font-size-num');
+        nombre.value = '60'; nombre.dispatchEvent(new Event('input', { bubbles: true }));
+        selectedItems = [];
+        return { fs: texts[0].fontSize, lh: texts[0].lineHeight };
+    });
+    r.egal('changer la taille d\'un bloc choisi emporte son interligne',
+        [repris.fs, repris.lh], [60, 72]);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
