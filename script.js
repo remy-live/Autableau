@@ -9470,22 +9470,79 @@ function estUnPdfFeuilletable(obj) {
         && documentsPdf.has(obj.pluginData.cle));
 }
 
+// La barre du document se pose sous le cadre — mais un PDF qui remplit
+// l'écran passe dessous, et l'on ne lit plus le bas de la page. Elle se
+// déplace donc, et se replie en une pastille. Les deux se retiennent d'une
+// séance à l'autre : celui qui l'a mise en haut à droite l'y retrouve.
+const CLE_BARRE_DOC = 'auTableau_barre_document';
+let barreDocPosee = null;        // { x, y } quand on l'a déplacée, sinon null
+let barreDocRepliee = false;
+try {
+    const brut = JSON.parse(localStorage.getItem(CLE_BARRE_DOC) || 'null');
+    if (brut) {
+        barreDocRepliee = !!brut.repliee;
+        if (brut.pos && isFinite(brut.pos.x) && isFinite(brut.pos.y)) barreDocPosee = brut.pos;
+    }
+} catch (e) { /* réglages illisibles */ }
+
+function retenirLaBarreDocument() {
+    try {
+        localStorage.setItem(CLE_BARRE_DOC,
+            JSON.stringify({ repliee: barreDocRepliee, pos: barreDocPosee }));
+    } catch (e) { /* stockage refusé */ }
+}
+
+// Elle revient sous le document : c'est le geste qui défait le déplacement.
+function replacerLaBarreDocument() {
+    barreDocPosee = null;
+    retenirLaBarreDocument();
+    majBarreDocument();
+    if (typeof showToast === 'function') showToast('Barre remise sous le document');
+}
+
+function replierLaBarreDocument(replier) {
+    barreDocRepliee = (replier === undefined) ? !barreDocRepliee : !!replier;
+    retenirLaBarreDocument();
+    majBarreDocument();
+}
+window.replierLaBarreDocument = replierLaBarreDocument;
+window.replacerLaBarreDocument = replacerLaBarreDocument;
+
 function majBarreDocument() {
     const barre = document.getElementById('barre-document');
+    const pastille = document.getElementById('doc-pastille');
     if (!barre) return;
     const obj = documentSelectionne();
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('visible');
+        if (pastille) pastille.classList.remove('visible');
         return;
     }
+    // Repliée : il ne reste qu'une pastille, qui la rouvre.
+    if (barreDocRepliee) {
+        barre.classList.remove('visible');
+        if (pastille) pastille.classList.add('visible');
+        return;
+    }
+    if (pastille) pastille.classList.remove('visible');
     barre.classList.add('visible');
 
-    // Posée sous le cadre, et ramenée dans l'écran si le document en sort
-    const cx = panX + (obj.x + obj.w / 2) * zoom;
-    const bas = panY + (obj.y + obj.h) * zoom + 14;
-    const demi = (barre.offsetWidth || 480) / 2 + 8;
-    barre.style.left = Math.max(demi, Math.min(window.innerWidth - demi, cx)) + 'px';
-    barre.style.top = Math.max(8, Math.min(window.innerHeight - barre.offsetHeight - 8, bas)) + 'px';
+    // Déplacée à la main : on respecte la place choisie, en la gardant dans
+    // l'écran — une fenêtre rétrécie ne doit pas l'emporter dehors.
+    if (barreDocPosee) {
+        const demiL = (barre.offsetWidth || 480) / 2;
+        barre.style.left = Math.max(demiL + 4,
+            Math.min(window.innerWidth - demiL - 4, barreDocPosee.x)) + 'px';
+        barre.style.top = Math.max(4,
+            Math.min(window.innerHeight - barre.offsetHeight - 4, barreDocPosee.y)) + 'px';
+    } else {
+        // Posée sous le cadre, et ramenée dans l'écran si le document en sort
+        const cx = panX + (obj.x + obj.w / 2) * zoom;
+        const bas = panY + (obj.y + obj.h) * zoom + 14;
+        const demi = (barre.offsetWidth || 480) / 2 + 8;
+        barre.style.left = Math.max(demi, Math.min(window.innerWidth - demi, cx)) + 'px';
+        barre.style.top = Math.max(8, Math.min(window.innerHeight - barre.offsetHeight - 8, bas)) + 'px';
+    }
 
     // Les flèches n'ont de sens que pour un PDF qu'on peut encore feuilleter
     const feuilletable = estUnPdfFeuilletable(obj);
@@ -9571,6 +9628,55 @@ function brancherBarreDocument() {
         o.locked = !o.locked;
         majBarreDocument(); draw(); saveState();
     });
+
+    // --- Replier, rouvrir, déplacer ---
+    b('doc-replier').addEventListener('click', () => replierLaBarreDocument(true));
+    const pastille = b('doc-pastille');
+    if (pastille) pastille.addEventListener('click', () => replierLaBarreDocument(false));
+
+    // On la prend par sa poignée, au doigt comme à la souris. Un double-clic
+    // dessus la remet sous le document : le déplacement se défait.
+    const prise = b('doc-prise');
+    if (prise) {
+        let glisse = null;
+        prise.addEventListener('pointerdown', (e) => {
+            const barre = b('barre-document');
+            const r = barre.getBoundingClientRect();
+            glisse = { dx: e.clientX - (r.left + r.width / 2), dy: e.clientY - r.top, bouge: false };
+            prise.setPointerCapture(e.pointerId);
+            e.preventDefault(); e.stopPropagation();
+        });
+        prise.addEventListener('pointermove', (e) => {
+            if (!glisse) return;
+            // Un frémissement n'est pas un déplacement : on ne perd pas la
+            // pose automatique parce qu'on a effleuré la poignée.
+            if (!glisse.bouge && Math.abs(e.movementX) + Math.abs(e.movementY) < 2) return;
+            glisse.bouge = true;
+            // On borne À L'ENREGISTREMENT, pas seulement à l'affichage : une
+            // position gardée hors de l'écran reviendrait telle quelle à la
+            // séance suivante, et le double-clic pour la remettre en place
+            // ne trouverait plus la poignée.
+            const barreEnCours = b('barre-document');
+            const demiL = (barreEnCours.offsetWidth || 480) / 2;
+            const h = barreEnCours.offsetHeight || 40;
+            barreDocPosee = {
+                x: Math.max(demiL + 4, Math.min(window.innerWidth - demiL - 4, e.clientX - glisse.dx)),
+                y: Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - glisse.dy))
+            };
+            majBarreDocument();
+        });
+        const finir = (e) => {
+            if (!glisse) return;
+            if (glisse.bouge) retenirLaBarreDocument();
+            glisse = null;
+            try { prise.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+        };
+        prise.addEventListener('pointerup', finir);
+        prise.addEventListener('pointercancel', finir);
+        prise.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLaBarreDocument(); });
+    }
+    // La fenêtre change de taille : la barre déplacée reste dedans
+    window.addEventListener('resize', () => { if (barreDocPosee) majBarreDocument(); });
 
     b('doc-fermer').addEventListener('click', () => {
         const o = documentSelectionne(); if (!o) return;

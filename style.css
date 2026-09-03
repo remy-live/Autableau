@@ -5895,6 +5895,36 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 #barre-document.visible { display: flex; }
+
+/* La poignée : on prend la barre par là, au doigt comme à la souris. */
+#doc-prise {
+    cursor: grab;
+    touch-action: none;
+    color: #94a3b8;
+    padding: 0 3px;
+}
+
+#doc-prise:active { cursor: grabbing; }
+
+/* Repliée, il ne reste que cette pastille — le bas de la page se lit. */
+#doc-pastille {
+    display: none;
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 14001;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#doc-pastille.visible { display: flex; align-items: center; justify-content: center; }
 #doc-pages { display: flex; align-items: center; gap: 2px; }
 #doc-info { min-width: 46px; text-align: center; font-weight: 600; color: #334155; }
 

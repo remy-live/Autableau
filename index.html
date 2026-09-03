@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=58">
+    <link rel="stylesheet" href="style.css?v=59">
 </head>
 
 <body>
@@ -219,6 +219,10 @@
          dessus : régler le cadre, ou faire coulisser la page à l'intérieur.
          Les flèches n'apparaissent que pour un PDF feuilletable. -->
     <div id="barre-document">
+        <!-- La barre se pose sous le document, mais un PDF qui remplit l'écran
+             passe dessous : elle se prend et se déplace, et se replie en une
+             pastille quand on veut lire le bas de la page. -->
+        <button class="doc-btn doc-prise" id="doc-prise" data-tooltip="Déplacer la barre — double-clic pour la remettre sous le document">⠿</button>
         <span id="doc-pages">
             <button class="doc-btn" id="doc-prec" title="Page précédente">◀</button>
             <span id="doc-info">1/1</span>
@@ -275,8 +279,10 @@
                 <rect x="5" y="11" width="14" height="10" rx="2" />
                 <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke-linecap="round" />
             </svg></button>
-        <button class="doc-btn doc-fermer" id="doc-fermer" title="Retirer le document">✕</button>
+        <button class="doc-btn" id="doc-replier" data-tooltip="Replier la barre : elle ne cachera plus le bas de la page">–</button>
+        <button class="doc-btn doc-fermer" id="doc-fermer" data-tooltip="Retirer le document">✕</button>
     </div>
+    <button id="doc-pastille" data-tooltip="Rouvrir la barre du document">📄</button>
 
     <div id="quick-edit-menu">
         <button class="btn-quick" id="btn-quick-lock" title="Verrouiller la position et l'édition">
@@ -1824,7 +1830,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=125"></script>
+    <script src="script.js?v=126"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=74"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

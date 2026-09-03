@@ -707,6 +707,125 @@ module.exports = async function (browser) {
     r.verifie('une image importée les garde', modesDoc.image !== 'none', modesDoc.image);
     r.verifie('un PDF aussi', modesDoc.pdf !== 'none', modesDoc.pdf);
 
+    // --- LA BARRE DU DOCUMENT SE REPLIE ET SE DÉPLACE ---
+    // Un PDF qui remplit l'écran passe SOUS la barre : le bas de la page
+    // devenait illisible. On la range, ou on la met ailleurs.
+    const barreDoc = await page.evaluate(() => {
+        localStorage.removeItem('auTableau_barre_document');
+        barreDocPosee = null; barreDocRepliee = false;
+        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
+         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        panX = 0; panY = 0; zoom = 1;
+        const c = document.getElementById('board');
+        // Un document qui occupe tout l'écran : le cas qui pose problème
+        images.push({ id: nextId++, x: 0, y: 0, w: c.clientWidth, h: c.clientHeight,
+            cx: 0, cy: 0, cw: 800, ch: 1100, src: '', z: globalZ++,
+            pluginData: { id: 'pdfDoc', cle: 'z', page: 1, pages: 3 } });
+        // setMode vide la sélection : on choisit APRÈS, sinon la barre n'a
+        // aucun document à accompagner.
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        const barre = document.getElementById('barre-document');
+        const r = barre.getBoundingClientRect();
+        const doc = images[0];
+        return {
+            visible: barre.classList.contains('visible'),
+            // Elle mord bien sur le bas du document : c'est le problème
+            recouvreLeBas: r.bottom > (doc.y + doc.h) * zoom + panY - 60,
+            aUnePrise: !!document.getElementById('doc-prise'),
+            aUnBoutonReplier: !!document.getElementById('doc-replier')
+        };
+    });
+    r.verifie('la barre s\'affiche sous le document', barreDoc.visible);
+    r.verifie('et elle mord sur le bas de la page quand le document remplit l\'écran',
+        barreDoc.recouvreLeBas, JSON.stringify(barreDoc));
+    r.verifie('elle porte une poignée', barreDoc.aUnePrise);
+    r.verifie('et un bouton pour la replier', barreDoc.aUnBoutonReplier);
+
+    const repli = await page.evaluate(() => {
+        document.getElementById('doc-replier').click();
+        const barre = document.getElementById('barre-document');
+        const pastille = document.getElementById('doc-pastille');
+        const apresRepli = { barre: barre.classList.contains('visible'),
+                             pastille: pastille.classList.contains('visible'),
+                             memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}') };
+        pastille.click();
+        return { apresRepli, rouverte: barre.classList.contains('visible'),
+                 pastilleRangee: !pastille.classList.contains('visible') };
+    });
+    r.verifie('repliée, il ne reste qu\'une pastille',
+        !repli.apresRepli.barre && repli.apresRepli.pastille, JSON.stringify(repli.apresRepli));
+    r.verifie('le repli est retenu d\'une séance à l\'autre', repli.apresRepli.memoire.repliee === true,
+        JSON.stringify(repli.apresRepli.memoire));
+    r.verifie('la pastille la rouvre', repli.rouverte && repli.pastilleRangee, JSON.stringify(repli));
+
+    // On la déplace par sa poignée. On ne présume pas d'où elle part : on
+    // relève sa place, on tire d'une distance connue vers l'espace libre, et
+    // l'on vérifie qu'elle a suivi d'autant.
+    const depart = await page.evaluate(() => {
+        const barre = document.getElementById('barre-document');
+        const b = document.getElementById('doc-prise').getBoundingClientRect();
+        const r = barre.getBoundingClientRect();
+        const place = window.innerHeight - r.bottom;
+        const delta = place > 200 ? 160 : -160;      // vers où il y a de la place
+        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2),
+                 haut: Math.round(r.top), delta };
+    });
+    await page.mouse.move(depart.x, depart.y);
+    await page.mouse.down();
+    await page.mouse.move(depart.x, depart.y + depart.delta, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const deplacee = await page.evaluate(() => {
+        const r = document.getElementById('barre-document').getBoundingClientRect();
+        return { haut: Math.round(r.top), pose: barreDocPosee && Math.round(barreDocPosee.y),
+                 memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}'),
+                 dansEcran: r.top >= 0 && r.bottom <= window.innerHeight + 1
+                     && r.left >= 0 && r.right <= window.innerWidth + 1 };
+    });
+    r.verifie('la poignée la déplace, d\'autant qu\'on a tiré',
+        deplacee.pose !== null && Math.abs(deplacee.haut - (depart.haut + depart.delta)) <= 12,
+        JSON.stringify({ depart, deplacee }));
+    r.verifie('sans jamais la laisser sortir de l\'écran', deplacee.dansEcran, JSON.stringify(deplacee));
+    r.verifie('et la position retenue est elle aussi dans l\'écran',
+        deplacee.memoire.pos && deplacee.memoire.pos.y >= 0
+        && deplacee.memoire.pos.y <= 800, JSON.stringify(deplacee.memoire));
+
+    // Le document bouge : la barre déplacée ne court plus après lui
+    const fidele = await page.evaluate(() => {
+        const avant = document.getElementById('barre-document').getBoundingClientRect().top;
+        panY -= 120; majBarreDocument();
+        const apres = document.getElementById('barre-document').getBoundingClientRect().top;
+        panY += 120; majBarreDocument();
+        return { avant: Math.round(avant), apres: Math.round(apres) };
+    });
+    r.egal('déplacée, elle reste où on l\'a mise', fidele.apres, fidele.avant);
+
+    // Le double-clic sur la poignée la remet sous le document
+    const priseApres = await page.evaluate(() => {
+        const b = document.getElementById('doc-prise').getBoundingClientRect();
+        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+    });
+    await page.mouse.dblclick(priseApres.x, priseApres.y);
+    await page.waitForTimeout(250);
+    const remise = await page.evaluate(() => ({
+        pose: barreDocPosee,
+        haut: Math.round(document.getElementById('barre-document').getBoundingClientRect().top),
+        memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}')
+    }));
+    r.egal('le double-clic sur la poignée défait le déplacement', remise.pose, null);
+    r.egal('elle retrouve la place que le document lui donne', remise.haut, depart.haut);
+    r.verifie('et l\'oubli du déplacement est retenu', remise.memoire.pos === null,
+        JSON.stringify(remise.memoire));
+
+    await page.evaluate(() => {
+        localStorage.removeItem('auTableau_barre_document');
+        barreDocPosee = null; barreDocRepliee = false;
+        images.length = 0; selectedItems = []; panX = 0; panY = 0;
+        majBarreDocument(); draw();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
