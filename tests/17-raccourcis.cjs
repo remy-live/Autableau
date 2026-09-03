@@ -126,6 +126,58 @@ module.exports = async function (browser) {
         };
     });
     r.verifie('l\'infobulle s\'ouvre sur un outil', bulle.visible, JSON.stringify(bulle));
+
+    // Les raccourcis « de partout » viennent d'une table, comme les outils :
+    // ils étaient écrits à la main dans le libellé — « Annuler (Ctrl+Z) » —
+    // et le navigateur n'ouvre pas ce libellé-là au doigt.
+    const partout = await page.evaluate(() => {
+        const lire = (id) => {
+            const b = document.querySelector('[id="' + id + '"]');
+            return b ? { touche: b.getAttribute('data-raccourci'),
+                         nom: b.getAttribute('data-tooltip'),
+                         titreRestant: b.hasAttribute('title') } : null;
+        };
+        return {
+            annuler: lire('btn-undo'), copier: lire('btn-copier'),
+            coller: lire('btn-coller'), collerBis: lire('btn-coller-tableau'),
+            supprimer: lire('btn-quick-delete'), pleinEcran: lire('btn-fullscreen'),
+            chercher: lire('plugin-search-btn'),
+            // Toutes les entrées de la table qui nomment un bouton l'ont trouvé
+            orphelins: [].concat(RACCOURCIS_PARTOUT, RACCOURCIS_COMBINES)
+                .flatMap(r => (r.bouton || []))
+                .filter(id => !document.querySelector('[id="' + id + '"]')),
+            // Aucune touche ne reste écrite à la main dans un libellé
+            libellesSales: Array.from(document.querySelectorAll('[data-tooltip]'))
+                .map(b => b.getAttribute('data-tooltip'))
+                .filter(t => /\((Ctrl|Cmd|Alt|Maj)\+/i.test(t))
+        };
+    });
+    r.egal('« Annuler » porte Ctrl+Z, et son libellé redevient un nom',
+        [partout.annuler.touche, partout.annuler.nom], ['Ctrl+Z', 'Annuler']);
+    r.egal('« Copier » aussi', [partout.copier.touche, partout.copier.nom], ['Ctrl+C', 'Copier']);
+    r.egal('les deux boutons « Coller » annoncent la même touche',
+        [partout.coller.touche, partout.collerBis.touche], ['Ctrl+V', 'Ctrl+V']);
+    r.egal('« Supprimer » porte Suppr', partout.supprimer.touche, 'Suppr');
+    r.egal('le plein écran porte sa combinaison', partout.pleinEcran.touche, 'Ctrl+Maj+F');
+    r.egal('et la recherche porte Ctrl+K', partout.chercher.touche, 'Ctrl+K');
+    r.verifie('plus aucune touche écrite à la main dans un libellé',
+        partout.libellesSales.length === 0, JSON.stringify(partout.libellesSales));
+    r.egal('chaque bouton nommé par la table existe', partout.orphelins, []);
+    r.verifie('et « title » a laissé la place à l\'infobulle qui marche au doigt',
+        !partout.annuler.titreRestant && !partout.copier.titreRestant);
+
+    const bulleCombinee = await page.evaluate(async () => {
+        const b = document.querySelector('[id="btn-undo"]');
+        b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 700));
+        const t = document.getElementById('dt-tooltip');
+        return { visible: t.classList.contains('visible'),
+                 touche: (t.querySelector('.dt-touche') || {}).textContent,
+                 texte: t.textContent };
+    });
+    r.verifie('l\'infobulle d\'« Annuler » s\'ouvre', bulleCombinee.visible, JSON.stringify(bulleCombinee));
+    r.egal('et montre Ctrl+Z comme une touche', bulleCombinee.touche, 'Ctrl+Z');
+    r.verifie('à côté du nom, pas à la place', /Annuler/.test(bulleCombinee.texte), bulleCombinee.texte);
     r.egal('et montre sa touche', bulle.touche, 'C');
     r.verifie('à côté du nom de l\'outil, pas à la place', /Tracé|Libre/i.test(bulle.texte), bulle.texte);
 
@@ -204,7 +256,13 @@ module.exports = async function (browser) {
 
     // Le geste complet : Ctrl+K, on tape, on choisit, la commande part
     await page.keyboard.press('Control+k');
-    await page.waitForTimeout(120);
+    // Le focus part dans l'image suivante (le navigateur le refuse avant
+    // l'affichage) : on attend l'état, pas un délai — sous charge, 120 ms ne
+    // suffisaient pas et le test tombait au hasard.
+    await page.waitForFunction(
+        () => !document.getElementById('palette-commandes').hidden
+            && document.activeElement && document.activeElement.id === 'pal-saisie',
+        { timeout: 5000 }).catch(() => { });
     let pal = await page.evaluate(() => ({
         ouverte: !document.getElementById('palette-commandes').hidden,
         focus: document.activeElement && document.activeElement.id

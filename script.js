@@ -3589,13 +3589,34 @@ const RACCOURCIS_GESTES = [
     { touche: 'D', action: 'presenterLeDocument', nom: 'Document en pleine page' }
 ];
 
+// Les raccourcis « de partout » : ceux qui ne choisissent pas un outil mais
+// agissent sur ce qu'on a sous la main. Beaucoup ont un bouton, et jusqu'ici
+// leur touche était écrite À LA MAIN dans le libellé — « Annuler (Ctrl+Z) » —
+// ou nulle part. Une table, trois consommateurs, comme pour les outils :
+// l'infobulle du bouton, l'aide, et rien à tenir à jour deux fois.
+// « bouton » peut nommer plusieurs boutons : coller est dans deux barres.
+const RACCOURCIS_PARTOUT = [
+    { touche: 'Ctrl+Z', nom: 'Annuler', bouton: ['btn-undo'] },
+    { touche: 'Ctrl+Y', nom: 'Refaire', bouton: ['btn-redo'] },
+    { touche: 'Ctrl+C', nom: 'Copier', bouton: ['btn-copier'] },
+    { touche: 'Ctrl+X', nom: 'Couper', bouton: ['btn-couper'] },
+    { touche: 'Ctrl+V', nom: 'Coller', bouton: ['btn-coller', 'btn-coller-tableau'] },
+    { touche: 'Ctrl+Maj+V', nom: 'Coller sans mise en forme' },
+    { touche: 'Ctrl+D', nom: 'Dupliquer la sélection',
+      bouton: ['btn-dupliquer', 'btn-quick-duplicate', 'doc-dupliquer'] },
+    { touche: 'Ctrl+A', nom: 'Tout sélectionner' },
+    { touche: 'Suppr', nom: 'Effacer la sélection', bouton: ['btn-quick-delete'] },
+    { touche: 'Espace', nom: 'Panoramique (maintenir)' },
+    { touche: 'Échap', nom: 'Revenir à la sélection', bouton: ['exit-focus-cross'] }
+];
+
 // Les combinaisons : elles passent PARTOUT, y compris pendant qu'on écrit —
 // c'est même là que la couleur sert le plus. Elles ne sont donc pas dans la
 // table des touches simples, qui elle s'efface devant la saisie.
 const RACCOURCIS_COMBINES = [
     { touche: 'Ctrl+Maj+1 … 7', nom: 'Couleur de la palette' },
-    { touche: 'Ctrl+Maj+F', nom: 'Plein écran' },
-    { touche: 'Ctrl+K', nom: 'Chercher une commande' },
+    { touche: 'Ctrl+Maj+F', nom: 'Plein écran', bouton: ['btn-fullscreen'] },
+    { touche: 'Ctrl+K', nom: 'Chercher une commande', bouton: ['plugin-search-btn'] },
     { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)' }
 ];
 
@@ -3817,6 +3838,10 @@ function remplirAideRaccourcis() {
     peindre('aide-raccourcis-outils', RACCOURCIS_OUTILS, true);
     peindre('aide-raccourcis-gestes', RACCOURCIS_GESTES, true);
     peindre('aide-raccourcis-combines', RACCOURCIS_COMBINES, true);
+    // La liste « Partout » vient de la même table que les boutons : elle ne
+    // peut pas raconter autre chose qu'eux.
+    peindre('aide-raccourcis-partout', RACCOURCIS_PARTOUT, false);
+    poserRaccourcisSurLesBoutons();
     peindre('aide-remplacements-texte',
         REMPLACEMENTS_TEXTE.map(r => ({ touche: r.tape, nom: `${r.donne} &nbsp;(${r.nom})` })), false);
     peindreLaProgression();
@@ -3928,6 +3953,29 @@ function poserRaccourcisSurLesBoutons() {
         if (!r.bouton) return;               // une manœuvre n'a pas de bouton
         const b = document.getElementById(r.bouton);
         if (b) b.setAttribute('data-raccourci', r.touche);
+    });
+
+    // Les raccourcis de partout et les combinaisons : même traitement, sur
+    // des boutons qui portaient jusqu'ici leur touche écrite à la main dans
+    // le libellé — « Annuler (Ctrl+Z) ». On la retire du texte et on la pose
+    // dans l'attribut : l'infobulle la montre alors comme une vraie touche,
+    // et le libellé redevient un nom.
+    const poserSurUnBouton = (b, touche) => {
+        if (!b) return;
+        b.setAttribute('data-raccourci', touche);
+        // L'infobulle maison ne s'ouvre que sur « data-tooltip » — et elle
+        // marche au doigt, ce que « title » ne fait pas.
+        let texte = b.getAttribute('data-tooltip') || b.getAttribute('title') || '';
+        texte = texte.replace(/\s*[（(]\s*(Ctrl|Cmd|Alt|Maj|Shift|Suppr|Échap|Esc)[^)）]*[)）]\s*$/i, '').trim();
+        if (texte) b.setAttribute('data-tooltip', texte);
+        if (b.hasAttribute('title')) b.removeAttribute('title');
+    };
+    [].concat(RACCOURCIS_PARTOUT, RACCOURCIS_COMBINES).forEach(r => {
+        (r.bouton || []).forEach(id => {
+            // Les barres flottantes recopient les boutons : un sélecteur
+            // d'attribut les attrape tous, là où getElementById n'en rend qu'un.
+            document.querySelectorAll('[id="' + id + '"]').forEach(b => poserSurUnBouton(b, r.touche));
+        });
     });
 }
 
@@ -12082,6 +12130,10 @@ function clonePluginButton(sourceBtn, toolId) {
     clone.style.display = 'flex'; // Fix: Always make the cloned button visible
     clone.querySelectorAll('.fav-star, .fav-star-icon').forEach(star => star.remove());
     clone.setAttribute('data-tooltip', originalTitle);
+    // La copie garde la touche de son original : une même commande ne doit
+    // pas annoncer son raccourci ici et le taire là.
+    const toucheSource = sourceBtn.getAttribute('data-raccourci');
+    if (toucheSource) clone.setAttribute('data-raccourci', toucheSource);
     clone.addEventListener('click', () => sourceBtn.click());
     // Les réglages cachés derrière un appui long suivent la copie
     if (sourceBtn.actionAppuiLong && typeof poserAppuiLong === 'function') {
