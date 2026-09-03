@@ -12859,23 +12859,103 @@ document.addEventListener('dblclick', (e) => {
     };
 })();
 // ==============================================================================
-// PLUGIN : JEU D'ÉCHECS MULTI-INSTANCES & MULTI-DESIGNS
+// PLUGIN : JEU D'ÉCHECS
+// Refait dans le parti pris d'AtoutMath : à plat. Pas de dégradé, pas de relief,
+// pas d'ombre portée sur les pièces ; une silhouette pleine, un filet de contour,
+// des angles arrondis et une palette d'ardoise. Les quatre jeux de couleurs
+// reprennent les thèmes d'AtoutMath (clair, sombre, océan, forêt).
+//
+// Les pièces ne sont plus des caractères Unicode (♞) posés dans un <text> :
+// elles dépendaient de la police du système — noires et informes sur certaines
+// machines — et se voyaient mal au vidéoprojecteur. Ce sont maintenant six
+// dessins vectoriels, nets à tout zoom et identiques partout.
 // ==============================================================================
 
-registerPlugin('chessTool', 'Jeux', {
-    currentDesign: 'premium',
+// Le socle commun : c'est lui qui fait tenir les six pièces sur la même ligne.
+const ECHECS_SOCLE =
+    '<path d="M24 74h52a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3H24a3 3 0 0 1-3-3v-3a3 3 0 0 1 3-3z"/>'
+    + '<path d="M31 64h38l3 10H28z"/>';
 
+// Dessinées sur une grille de 100 × 100, pied posé à 84. « T » sera remplacé
+// par la couleur du trait au moment de la fabrication.
+const ECHECS_PIECES = {
+    pion:
+        '<circle cx="50" cy="27" r="13"/>'
+        + '<path d="M39 39c4 3 18 3 22 0 5 5 8 12 8 18 0 4-2 7-19 7s-19-3-19-7c0-6 3-13 8-18z"/>'
+        + ECHECS_SOCLE,
+
+    tour:
+        '<path d="M25 17h11v8h9v-8h10v8h9v-8h11v20l-7 6h-30l-7-6z"/>'
+        + '<path d="M34 45h32l3 19H31z"/>'
+        + ECHECS_SOCLE,
+
+    cavalier:
+        '<path d="M35 64C35 52 40 44 53 37L44 32.5C40 35.5 34 37 30 35.5C25 33 25 29 29 25L43 13'
+        + 'C47 9 52 7 57 7V4L65 11C78 17 83 28 83 42C83 51 82 58 81 64Z"/>'
+        + '<circle cx="62" cy="22" r="3" fill="T" stroke="none"/>'
+        + '<path d="M41 26l7-5" stroke="T" fill="none" stroke-width="3" stroke-linecap="round"/>'
+        + ECHECS_SOCLE,
+
+    fou:
+        '<circle cx="50" cy="13" r="6"/>'
+        + '<path d="M50 21c13 10 21 23 21 34 0 8-9 13-21 13s-21-5-21-13c0-11 8-24 21-34z"/>'
+        + '<path d="M50 33l10 14" stroke="T" fill="none" stroke-width="3.5" stroke-linecap="round"/>'
+        + ECHECS_SOCLE,
+
+    dame:
+        '<path d="M18 26l9 25 7-23 9 24 7-27 7 27 9-24 7 23 9-25-8 38H26z"/>'
+        + '<circle cx="18" cy="24" r="5"/><circle cx="50" cy="21" r="5"/><circle cx="82" cy="24" r="5"/>'
+        + '<circle cx="34" cy="27" r="4"/><circle cx="66" cy="27" r="4"/>'
+        + ECHECS_SOCLE,
+
+    roi:
+        '<path d="M46 2h8v7h7v8h-7v7h-8v-7h-7v-8h7z"/>'
+        + '<path d="M26 33l10 15 14-20 14 20 10-15-3 21H29z"/>'
+        + '<path d="M31 56h38l3 8H28z"/>'
+        + ECHECS_SOCLE
+};
+
+// La rangée du fond, de la colonne A à la colonne H.
+const ECHECS_RANGEE = ['tour', 'cavalier', 'fou', 'dame', 'roi', 'fou', 'cavalier', 'tour'];
+
+registerPlugin('chessTool', 'Jeux', {
+    currentDesign: 'ardoise',
+
+    // Les quatre thèmes d'AtoutMath, ramenés à ce qu'un échiquier demande :
+    // la case claire, la case sombre, le cadre, son filet, les coordonnées,
+    // et les deux camps avec leur contour.
     designs: {
-        'premium': { name: 'Sauge Premium (3D)', light: '#eeeed2', dark: '#769656', ui: '#2f3640', text: '#ecf0f1', hasShadow: true },
-        'flat': { name: 'Flat Color', light: '#ecf0f1', dark: '#27ae60', ui: '#2c3e50', text: '#ecf0f1', hasShadow: false },
-        'minimalist': { name: 'Minimalist N&B', light: '#ffffff', dark: '#dcdde1', ui: '#2d3436', text: '#dfe6e9', hasShadow: false },
-        'retro': { name: 'Retro Terminal', light: '#1e272e', dark: '#000000', ui: '#0fb9b1', text: '#ffffff', hasShadow: false }
+        // La case CLAIRE n'est jamais blanche et la case SOMBRE jamais noire :
+        // les pièces le sont, elles, et une pièce blanche sur une case blanche
+        // ne se voit plus que par son filet. On garde donc les deux tons du
+        // damier au milieu, et les deux camps aux extrémités.
+        'ardoise': {
+            name: 'Ardoise', claire: '#e6ebf2', sombre: '#94a3b8',
+            cadre: '#f8fafc', filet: '#cbd5e1', texte: '#475569',
+            blanc: '#ffffff', traitBlanc: '#334155', noir: '#334155', traitNoir: '#f8fafc'
+        },
+        'nuit': {
+            name: 'Nuit', claire: '#94a3b8', sombre: '#475569',
+            cadre: '#0f172a', filet: '#334155', texte: '#94a3b8',
+            blanc: '#f8fafc', traitBlanc: '#0f172a', noir: '#0f172a', traitNoir: '#e2e8f0'
+        },
+        'ocean': {
+            name: 'Océan', claire: '#e0f2fe', sombre: '#7dd3fc',
+            cadre: '#f0f9ff', filet: '#38bdf8', texte: '#0369a1',
+            blanc: '#ffffff', traitBlanc: '#0c4a6e', noir: '#0c4a6e', traitNoir: '#e0f2fe'
+        },
+        'foret': {
+            name: 'Forêt', claire: '#dcfce7', sombre: '#86efac',
+            cadre: '#f0fdf4', filet: '#22c55e', texte: '#15803d',
+            blanc: '#ffffff', traitBlanc: '#14532d', noir: '#14532d', traitNoir: '#dcfce7'
+        }
     },
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
 
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.title = 'Jeu d\'Échecs (Clic Droit pour designs)';
+        const btn = document.createElement('button'); btn.className = 'btn';
+        btn.title = 'Jeu d\'Échecs (Clic Droit pour designs)';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 20h16"/>
             <path d="M12 2v6"/>
@@ -12903,19 +12983,24 @@ registerPlugin('chessTool', 'Jeux', {
         if (document.getElementById('chess-design-popover')) return;
         const pop = document.createElement('div');
         pop.id = 'chess-design-popover';
-        pop.style.cssText = 'position:fixed; background:rgba(255,255,255,0.98); border:1px solid #dfe6e9; border-radius:12px; padding:8px; box-shadow:0 6px 20px rgba(0,0,0,0.15); display:none; flex-direction:column; gap:4px; z-index:10000; backdrop-filter:blur(10px);';
+        pop.style.cssText = 'position:fixed; background:rgba(255,255,255,0.98); border:1px solid #e2e8f0; border-radius:12px; padding:8px; box-shadow:0 12px 24px rgba(15,23,42,0.12); display:none; flex-direction:column; gap:4px; z-index:10000; backdrop-filter:blur(10px);';
 
         Object.keys(this.designs).forEach(key => {
             const d = this.designs[key];
             const dBtn = document.createElement('button');
-            dBtn.style.cssText = 'background:none; border:none; padding:8px 12px; text-align:left; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; color:#2d3436; display:flex; align-items:center; gap:8px; transition: 0.1s;';
-            dBtn.innerHTML = `<div style="width:16px; height:16px; border-radius:4px; background:${d.dark}; border:1px solid ${d.light};"></div> ${d.name}`;
+            dBtn.style.cssText = 'background:none; border:none; padding:8px 12px; text-align:left; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; color:#0f172a; display:flex; align-items:center; gap:8px; transition: 0.1s;';
+            // Un damier de quatre cases en guise de pastille : on choisit une
+            // couleur de plateau, autant la montrer telle qu'elle sera.
+            dBtn.innerHTML = `<span style="width:18px; height:18px; border-radius:5px; overflow:hidden; display:grid;
+                grid-template-columns:1fr 1fr; border:1px solid ${d.filet};">
+                <i style="background:${d.claire}"></i><i style="background:${d.sombre}"></i>
+                <i style="background:${d.sombre}"></i><i style="background:${d.claire}"></i></span> ${d.name}`;
 
-            dBtn.addEventListener('mouseover', () => dBtn.style.background = '#f1f2f6');
+            dBtn.addEventListener('mouseover', () => dBtn.style.background = '#f1f5f9');
             dBtn.addEventListener('mouseout', () => dBtn.style.background = 'none');
             dBtn.addEventListener('click', () => {
                 this.currentDesign = key;
-                if (typeof showToast === 'function') showToast(`🎨 Design échecs : ${d.name}`);
+                if (typeof showToast === 'function') showToast(`🎨 Échiquier : ${d.name}`);
                 pop.style.display = 'none';
             });
             pop.appendChild(dBtn);
@@ -12935,8 +13020,21 @@ registerPlugin('chessTool', 'Jeux', {
         pop.style.bottom = `${window.innerHeight - rect.top + 8}px`;
     },
 
+    // Une pièce = une silhouette pleine et son filet. Douze dessins en tout,
+    // fabriqués une fois et posés trente-deux fois : c'est le cache d'images
+    // qui fait le reste.
+    dessinDeLaPiece: function (genre, blanche, d, taille) {
+        const remplissage = blanche ? d.blanc : d.noir;
+        const trait = blanche ? d.traitBlanc : d.traitNoir;
+        const corps = ECHECS_PIECES[genre].split('"T"').join(`"${trait}"`);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${taille}" height="${taille}">`
+            + `<g transform="translate(10 8) scale(0.8)" fill="${remplissage}" stroke="${trait}"`
+            + ` stroke-width="4" stroke-linejoin="round">${corps}</g></svg>`;
+        return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    },
+
     buildGame: async function () {
-        const d = this.designs[this.currentDesign];
+        const d = this.designs[this.currentDesign] || this.designs.ardoise;
         if (typeof showToast === 'function') showToast(`⏳ Installation échiquier (${d.name})...`);
 
         const cellW = 60; const pad = 30;
@@ -12944,50 +13042,57 @@ registerPlugin('chessTool', 'Jeux', {
         const cx = (window.innerWidth / 2 - panX) / zoom - w / 2;
         const cy = (window.innerHeight / 2 - panY) / zoom - h / 2;
 
-        let boardSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
-        boardSvg += `<defs><filter id="b-shadow"><feDropShadow dx="3" dy="8" stdDeviation="6" flood-opacity="0.3"/></filter></defs>`;
-
-        boardSvg += `<rect x="5" y="5" width="${w - 10}" height="${h - 10}" fill="${d.ui}" rx="12" ${d.hasShadow ? 'filter="url(#b-shadow)"' : ''}/>`;
-        boardSvg += `<rect x="20" y="20" width="${w - 40}" height="${h - 40}" fill="${d.text}" rx="4"/>`;
+        // Le plateau : un cadre arrondi, un filet fin, des cases à plat et les
+        // coordonnées en gris discret. Une seule ombre, très douce, sur le
+        // cadre — celle d'AtoutMath, 0 4px 12px à 8 %.
+        let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
+        s += `<defs><filter id="e-ombre" x="-20%" y="-20%" width="140%" height="140%">`
+            + `<feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.10"/>`
+            + `</filter></defs>`;
+        s += `<rect x="4" y="4" width="${w - 8}" height="${h - 8}" rx="16" fill="${d.cadre}"`
+            + ` stroke="${d.filet}" stroke-width="1.5" filter="url(#e-ombre)"/>`;
+        s += `<rect x="${pad - 3}" y="${pad - 3}" width="${cellW * 8 + 6}" height="${cellW * 8 + 6}" rx="4"`
+            + ` fill="${d.claire}" stroke="${d.filet}" stroke-width="1.5"/>`;
 
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
-                let col = (r + c) % 2 === 0 ? d.light : d.dark;
-                boardSvg += `<rect x="${pad + c * cellW}" y="${pad + r * cellW}" width="${cellW}" height="${cellW}" fill="${col}"/>`;
+                if ((r + c) % 2 === 0) continue;              // la case claire est déjà le fond
+                s += `<rect x="${pad + c * cellW}" y="${pad + r * cellW}" width="${cellW}" height="${cellW}" fill="${d.sombre}"/>`;
             }
         }
 
-        const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-        const numbers = ['8', '7', '6', '5', '4', '3', '2', '1'];
-        boardSvg += `<g font-family="sans-serif" font-size="14" font-weight="bold" fill="${d.text}" text-anchor="middle">`;
+        const lettres = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+        s += `<g font-family="Outfit, 'Segoe UI', system-ui, sans-serif" font-size="13" font-weight="700"`
+            + ` fill="${d.texte}" text-anchor="middle">`;
         for (let i = 0; i < 8; i++) {
-            boardSvg += `<text x="${pad + i * cellW + cellW / 2}" y="${h - 8}">${letters[i]}</text>`;
-            boardSvg += `<text x="15" y="${pad + i * cellW + cellW / 2 + 5}">${numbers[i]}</text>`;
+            s += `<text x="${pad + i * cellW + cellW / 2}" y="${h - 11}">${lettres[i]}</text>`;
+            s += `<text x="${pad / 2 + 1}" y="${pad + i * cellW + cellW / 2 + 5}">${8 - i}</text>`;
         }
-        boardSvg += `</g></svg>`;
+        s += `</g></svg>`;
 
-        let boardB64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(boardSvg)));
+        const plateau = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(s)));
 
-        // FALSE : Le plateau n'est pas verrouillé, on peut le sélectionner et le supprimer !
-        await loadBoardGameElement(boardB64, cx, cy, w, h, false);
+        // FALSE : le plateau n'est pas verrouillé, on peut le sélectionner et le supprimer
+        await loadBoardGameElement(plateau, cx, cy, w, h, false);
 
-        const pieceOrder = ['♜', '♞', '♝', '♛', '♚', '♝', '♞', '♜'];
-        const getPieceSVG = (char, isWhite) => {
-            let fill = isWhite ? '#ffffff' : (d.hasShadow ? '#1e272e' : d.text);
-            let stroke = isWhite ? '#2d3436' : (d.hasShadow ? '#ecf0f1' : d.ui);
-
-            let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${cellW} ${cellW}" width="${cellW}" height="${cellW}">`;
-            svg += `<defs><filter id="p-shadow"><feDropShadow dx="2" dy="4" stdDeviation="3" flood-opacity="0.4"/></filter></defs>`;
-            svg += `<text x="50%" y="54%" font-family="sans-serif" font-size="48" fill="${fill}" stroke="${stroke}" stroke-width="1.5" text-anchor="middle" dominant-baseline="central" ${d.hasShadow ? 'filter="url(#p-shadow)"' : ''}>${char}</text>`;
-            svg += `</svg>`;
-            return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
-        };
+        // Les douze dessins d'abord, les trente-deux poses ensuite : deux fois
+        // le même pion noir ne se décode qu'une fois.
+        const dessin = {};
+        ['blanc', 'noir'].forEach(camp => {
+            const blanche = camp === 'blanc';
+            dessin[camp] = {};
+            Object.keys(ECHECS_PIECES).forEach(genre => {
+                dessin[camp][genre] = this.dessinDeLaPiece(genre, blanche, d, cellW);
+            });
+        });
 
         for (let c = 0; c < 8; c++) {
-            loadBoardGameElement(getPieceSVG(pieceOrder[c], false), cx + pad + c * cellW, cy + pad + 0 * cellW, cellW, cellW, false);
-            loadBoardGameElement(getPieceSVG('♟', false), cx + pad + c * cellW, cy + pad + 1 * cellW, cellW, cellW, false);
-            loadBoardGameElement(getPieceSVG('♟', true), cx + pad + c * cellW, cy + pad + 6 * cellW, cellW, cellW, false);
-            loadBoardGameElement(getPieceSVG(pieceOrder[c], true), cx + pad + c * cellW, cy + pad + 7 * cellW, cellW, cellW, false);
+            const x = cx + pad + c * cellW;
+            const genre = ECHECS_RANGEE[c];
+            loadBoardGameElement(dessin.noir[genre], x, cy + pad, cellW, cellW, false);
+            loadBoardGameElement(dessin.noir.pion, x, cy + pad + cellW, cellW, cellW, false);
+            loadBoardGameElement(dessin.blanc.pion, x, cy + pad + 6 * cellW, cellW, cellW, false);
+            loadBoardGameElement(dessin.blanc[genre], x, cy + pad + 7 * cellW, cellW, cellW, false);
         }
 
         if (typeof saveState === 'function') saveState();

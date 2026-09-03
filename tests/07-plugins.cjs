@@ -238,6 +238,122 @@ module.exports = async function (browser) {
     r.verifie('cliquer à côté ne bascule rien', actionner.aCote === true);
     r.verifie('le double-clic ne défait pas le clic simple', actionner.apresDouble === true);
 
+    // --- L'ÉCHIQUIER ---
+    // Les pièces étaient des caractères Unicode (♞) posés dans un <text> :
+    // elles dépendaient de la police du système. Ce sont maintenant six
+    // dessins vectoriels, et le plateau reprend les couleurs d'AtoutMath.
+    const echiquier = await page.evaluate(async () => {
+        images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        const p = PluginManager.plugins.chessTool;
+        p.currentDesign = 'ardoise';
+        let dessins = 0; const vrai = window.draw;
+        window.draw = function () { dessins++; return vrai.apply(this, arguments); };
+        const t0 = performance.now();
+        p.buildGame();
+        await new Promise(r2 => { const a = () => images.length >= 33 ? r2() : setTimeout(a, 4); a(); });
+        await new Promise(r2 => requestAnimationFrame(r2));
+        window.draw = vrai;
+        const sources = new Set(images.map(i => i.src));
+        const texteDesSvg = images.map(i => decodeURIComponent(escape(atob(i.src.split(',')[1])))).join('');
+        return {
+            ms: Math.round(performance.now() - t0), dessins, poses: images.length,
+            distincts: sources.size,
+            glyphes: /[\u2654-\u265F]/.test(texteDesSvg),
+            balisesTexte: (texteDesSvg.match(/<text/g) || []).length
+        };
+    });
+    r.egal('l\'échiquier pose son plateau et ses 32 pièces', echiquier.poses, 33);
+    r.egal('pour treize dessins seulement : un plateau, douze pièces',
+        echiquier.distincts, 13);
+    r.verifie('en deux repeintures, pas trente-trois',
+        echiquier.dessins <= 4, JSON.stringify(echiquier));
+    r.verifie('aucune pièce n\'est un caractère Unicode',
+        !echiquier.glyphes, JSON.stringify(echiquier));
+    r.egal('les seuls <text> restants sont les seize coordonnées',
+        echiquier.balisesTexte, 16);
+
+    // LISIBILITÉ. Une pièce noire sur une case sombre ne doit pas se réduire à
+    // son filet : c'est ce qui arrivait au thème « Nuit », dont le camp noir et
+    // la case sombre étaient deux nuances d'un même bleu-gris. On compte donc,
+    // sur le tableau peint, les pixels d'une case qui diffèrent VRAIMENT de sa
+    // couleur de fond : une pièce en couvre une bonne part, un filet presque rien.
+    const lisibilite = await page.evaluate(async () => {
+        const p = PluginManager.plugins.chessTool;
+        const canvas = document.getElementById('board');
+        const ctx = canvas.getContext('2d');
+        const ech = window.devicePixelRatio || 1;
+        const teinte = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+        const resultats = {};
+        for (const nom of Object.keys(p.designs)) {
+            images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+            p.currentDesign = nom;
+            p.buildGame();
+            await new Promise(r2 => { const a = () => images.length >= 33 ? r2() : setTimeout(a, 4); a(); });
+            await new Promise(r2 => requestAnimationFrame(r2));
+            const plateau = images[0];
+            panX = 20 - plateau.x; panY = 20 - plateau.y;
+            draw();
+            await new Promise(r2 => requestAnimationFrame(r2));
+
+            const d = p.designs[nom];
+            const cellW = 60, pad = 30;
+            // Une case occupée de chaque sorte : rangée 0 = noirs, rangée 7 = blancs ;
+            // colonne 0 et colonne 1 donnent les deux teintes de case.
+            const cases = { noirClair: [0, 0], noirSombre: [1, 0], blancSombre: [0, 7], blancClair: [1, 7] };
+            const part = {};
+            for (const [cle, [c, rg]] of Object.entries(cases)) {
+                const fond = teinte((c + rg) % 2 === 0 ? d.claire : d.sombre);
+                const x = (20 + pad + c * cellW + 8) * ech;
+                const y = (20 + pad + rg * cellW + 8) * ech;
+                const taille = Math.round((cellW - 16) * ech);
+                const px = ctx.getImageData(Math.round(x), Math.round(y), taille, taille).data;
+                let differents = 0, total = 0;
+                for (let i = 0; i < px.length; i += 4) {
+                    total++;
+                    const dist = Math.abs(px[i] - fond[0]) + Math.abs(px[i + 1] - fond[1]) + Math.abs(px[i + 2] - fond[2]);
+                    if (dist > 90) differents++;
+                }
+                part[cle] = Math.round(100 * differents / total);
+            }
+            resultats[nom] = part;
+        }
+        return resultats;
+    });
+    for (const [nom, part] of Object.entries(lisibilite)) {
+        const faible = Object.entries(part).filter(([, v]) => v < 18);
+        r.verifie(`thème « ${nom} » : les quatre cas de figure se voient`,
+            faible.length === 0, JSON.stringify(part));
+    }
+
+    // Et la règle de palette qui va avec, énoncée franchement : la case CLAIRE
+    // n'est jamais blanche, la case SOMBRE jamais de la couleur du camp noir.
+    // C'est ce second écart qui manquait — le camp noir et la case sombre du
+    // thème « Nuit » étaient deux nuances du même bleu-gris, et les pièces
+    // noires s'y fondaient. On mesure les deux, chacun à sa mesure : une pièce
+    // blanche se détache surtout par son filet, une pièce noire par sa masse.
+    const palettes = await page.evaluate(() => {
+        const p = PluginManager.plugins.chessTool;
+        const t = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+        const ecart = (a2, b2) => {
+            const [r1, g1, b1] = t(a2), [r2, g2, b2c] = t(b2);
+            return Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2c);
+        };
+        const res = {};
+        for (const [nom, d] of Object.entries(p.designs)) {
+            res[nom] = { clairVsBlanc: ecart(d.claire, d.blanc), sombreVsNoir: ecart(d.sombre, d.noir) };
+        }
+        return res;
+    });
+    for (const [nom, e] of Object.entries(palettes)) {
+        r.verifie(`thème « ${nom} » : la case claire n'est pas blanche`,
+            e.clairVsBlanc >= 40, JSON.stringify(e));
+        r.verifie(`thème « ${nom} » : la case sombre n'est pas la couleur du camp noir`,
+            e.sombreVsNoir >= 120, JSON.stringify(e));
+    }
+
+    await page.evaluate(() => { images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1; draw(); });
+
     // Le tableau répond toujours après ce tour de piste
     const vivant = await page.evaluate(() => { try { draw(); return true; } catch (e) { return e.message; } });
     r.verifie('le tableau répond encore après tous les plugins', vivant === true, String(vivant));
