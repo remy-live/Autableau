@@ -18417,65 +18417,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 200);
             });
 
-            const btnPlus = document.getElementById('project-title-plus');
-            const btnMinus = document.getElementById('project-title-minus');
-            const colorPicker = document.getElementById('project-title-color');
-
-            const updateTitleStyle = () => {
-                const currentFontSize = parseInt(getComputedStyle(projInput).fontSize) || 24;
-                const newColor = colorPicker.value;
-                projInput.style.color = newColor;
-
-                const tempSpan = document.createElement('span');
-                tempSpan.style.font = getComputedStyle(projInput).font;
-                tempSpan.style.fontSize = currentFontSize + 'px';
-                tempSpan.textContent = projInput.value || projInput.placeholder;
-                document.body.appendChild(tempSpan);
-                projInput.style.width = (tempSpan.offsetWidth + 20) + 'px';
-                document.body.removeChild(tempSpan);
-
-                if (!window.appState) window.appState = {};
-                window.appState.projectTitleStyle = {
-                    fontSize: currentFontSize,
-                    color: newColor,
-                    fontFamily: window.appState.projectTitleStyle?.fontFamily || 'sans-serif'
-                };
-                saveState();
-            };
-
-            if (btnPlus) {
-                btnPlus.addEventListener('mousedown', e => e.preventDefault());
-                btnPlus.addEventListener('click', () => {
-                    let sz = parseInt(getComputedStyle(projInput).fontSize) || 24;
-                    sz = Math.min(100, sz + 2);
-                    projInput.style.fontSize = sz + 'px';
-                    updateTitleStyle();
-                });
-            }
-            if (btnMinus) {
-                btnMinus.addEventListener('mousedown', e => e.preventDefault());
-                btnMinus.addEventListener('click', () => {
-                    let sz = parseInt(getComputedStyle(projInput).fontSize) || 24;
-                    sz = Math.max(12, sz - 2);
-                    projInput.style.fontSize = sz + 'px';
-                    updateTitleStyle();
-                });
-            }
-            if (colorPicker) {
-                // Initialize color picker value from appState if available
-                setTimeout(() => {
-                    if (window.appState && window.appState.projectTitleStyle && window.appState.projectTitleStyle.color) {
-                        const col = window.appState.projectTitleStyle.color;
-                        if (col.startsWith('#') && (col.length === 7 || col.length === 4)) {
-                            colorPicker.value = col;
-                        }
-                    }
-                }, 500);
-
-                colorPicker.addEventListener('input', () => {
-                    updateTitleStyle();
-                });
-            }
+            // La couleur et la taille du titre ne sont plus ici : deux boutons
+            // et une pastille de couleur pour un bandeau de date, c'était
+            // lourd. La barre de style s'en charge déjà dès qu'on clique dans
+            // le titre — rien n'est perdu, tout est au même endroit.
         }
 
 
@@ -23087,13 +23032,21 @@ function ajusterLargeurDuTitre() {
 }
 window.ajusterLargeurDuTitre = ajusterLargeurDuTitre;
 
+// La date et l'horloge sont deux morceaux indépendants : on peut vouloir
+// l'heure SEULE — en fin d'heure, pendant un devoir — sans la date pour
+// autant. Aucune des deux : il n'y a plus rien à écrire, et le cadre s'efface.
 function texteDateDuJour() {
     const d = new Date();
-    const f = FORMATS_DATE[reglagesDate.format] || FORMATS_DATE.long;
-    let t = f(d);
-    t = t.charAt(0).toUpperCase() + t.slice(1);
-    if (reglagesDate.heure) t += ' — ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    return t;
+    const bouts = [];
+    if (reglagesDate.affichee) {
+        const f = FORMATS_DATE[reglagesDate.format] || FORMATS_DATE.long;
+        const t = f(d);
+        bouts.push(t.charAt(0).toUpperCase() + t.slice(1));
+    }
+    if (reglagesDate.heure) {
+        bouts.push(d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+    }
+    return bouts.join(' — ');
 }
 
 function enregistrerReglagesDate() {
@@ -23107,8 +23060,14 @@ function poserDateDansTitre(force) {
     if (!champ) return;
     const ancien = champ.value.trim();
     const automatique = !ancien || ancien === dernierTitreDate;
-    if (!force && !automatique) return;
     const texte = texteDateDuJour();
+    // Date ET horloge éteintes : rien à écrire. On vide le titre automatique,
+    // mais on n'efface JAMAIS un titre écrit à la main pour autant.
+    if (!texte) {
+        if (automatique) { dernierTitreDate = ''; champ.value = ''; ajusterLargeurDuTitre(); }
+        return;
+    }
+    if (!force && !automatique) return;
     dernierTitreDate = texte;
     champ.value = texte;
     ajusterLargeurDuTitre();
@@ -23122,7 +23081,12 @@ setInterval(() => {
 
 function majAffichageDate() {
     const cadre = document.getElementById('project-name-wrapper');
-    if (cadre) cadre.style.display = reglagesDate.affichee ? '' : 'none';
+    const champ = document.getElementById('project-name-input');
+    if (cadre) {
+        const rien = !reglagesDate.affichee && !reglagesDate.heure;
+        const ecritALaMain = !!(champ && champ.value.trim() && champ.value.trim() !== dernierTitreDate);
+        cadre.style.display = (rien && !ecritALaMain) ? 'none' : '';
+    }
     ajusterLargeurDuTitre();
     majPoseDuTitre();
 }
@@ -23176,39 +23140,79 @@ function replacerLeTitre() {
 window.replacerLeTitre = replacerLeTitre;
 
 function brancherLaPriseDuTitre() {
-    const prise = document.getElementById('titre-prise');
+    const champ = document.getElementById('project-name-input');
     const cadre = document.getElementById('project-name-wrapper');
-    if (!prise || !cadre) return;
+    if (!champ || !cadre) return;
     let glisse = null;
-    prise.addEventListener('pointerdown', (e) => {
+    // Le clic qui suit un glissement ne doit pas mettre le curseur dans le
+    // champ : on l'avale.
+    let sortDunGlissement = false;
+
+    champ.addEventListener('pointerdown', (e) => {
+        if (e.button) return;
+        // Un champ où l'on écrit déjà se manipule au curseur, pas au bras.
+        if (document.activeElement === champ) return;
         const r = cadre.getBoundingClientRect();
-        glisse = { dx: e.clientX - r.left, dy: e.clientY - r.top, bouge: false };
-        try { prise.setPointerCapture(e.pointerId); } catch (err) { /* déjà pris */ }
-        e.preventDefault(); e.stopPropagation();
+        glisse = { dx: e.clientX - r.left, dy: e.clientY - r.top,
+                   x0: e.clientX, y0: e.clientY, bouge: false };
+        // On capture DÈS L'APPUI, pas au premier mouvement : sans cela le
+        // pointeur quitte la pastille au bout de quelques pixels et les
+        // « pointermove » suivants partent au tableau, qui n'en fait rien.
+        // Capturer n'empêche ni le clic ni la mise au point du champ.
+        try { champ.setPointerCapture(e.pointerId); } catch (err) { /* refusé */ }
     });
-    prise.addEventListener('pointermove', (e) => {
+
+    champ.addEventListener('pointermove', (e) => {
         if (!glisse) return;
-        // Un frémissement n'est pas un déplacement : on ne perd pas la place
-        // automatique parce qu'on a effleuré la poignée.
-        if (!glisse.bouge && Math.abs(e.movementX) + Math.abs(e.movementY) < 2) return;
-        glisse.bouge = true;
+        if (!glisse.bouge) {
+            // Trois pixels : en dessous, c'est un clic pour écrire dans le
+            // titre, pas un déplacement. Le seuil est ce qui permet aux deux
+            // gestes de vivre sur la même pastille.
+            if (Math.abs(e.clientX - glisse.x0) + Math.abs(e.clientY - glisse.y0) < 3) return;
+            glisse.bouge = true;
+            cadre.classList.add('se-deplace');
+            champ.blur();
+        }
         const l = cadre.offsetWidth || 300, h = cadre.offsetHeight || 32;
         titrePose = {
             x: Math.max(4, Math.min(window.innerWidth - l - 4, e.clientX - glisse.dx)),
             y: Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - glisse.dy))
         };
         majPoseDuTitre();
+        e.preventDefault();
     });
+
     const finir = (e) => {
         if (!glisse) return;
-        if (glisse.bouge) retenirLaPoseDuTitre();
+        if (glisse.bouge) {
+            retenirLaPoseDuTitre();
+            cadre.classList.remove('se-deplace');
+            sortDunGlissement = true;
+            setTimeout(() => { sortDunGlissement = false; }, 0);
+        }
         glisse = null;
-        try { prise.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+        try { champ.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
     };
-    prise.addEventListener('pointerup', finir);
-    prise.addEventListener('pointercancel', finir);
-    prise.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLeTitre(); });
+    champ.addEventListener('pointerup', finir);
+    champ.addEventListener('pointercancel', finir);
+    // Posé sur le CADRE et en capture : il passe ainsi avant les écouteurs du
+    // champ lui-même — dont celui qui sélectionne tout le titre — quel que
+    // soit l'ordre dans lequel ils ont été branchés.
+    cadre.addEventListener('click', (e) => {
+        if (sortDunGlissement) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+
+    // Le double-clic ouvre les réglages : c'est la roue disparue, rendue au
+    // geste. On enlève au passage le curseur que les deux clics ont posé dans
+    // le champ, sinon on tape dans le titre en croyant régler la date.
+    champ.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        champ.blur();
+        window.getSelection && window.getSelection().removeAllRanges();
+        basculerReglagesDate(e);
+    });
 }
+
 // La place disponible change avec la fenêtre — et avec le plein écran.
 window.addEventListener('resize', () => { ajusterLargeurDuTitre(); majPoseDuTitre(); });
 
@@ -23220,7 +23224,7 @@ function majReglagesDate() {
     });
     const h = document.getElementById('rd-heure');
     if (h) h.classList.toggle('actif', !!reglagesDate.heure);
-    // La date et l'heure vont ensemble : leurs deux interrupteurs sont ici.
+    // Deux interrupteurs indépendants : l'horloge tient debout sans la date.
     const d = document.getElementById('rd-date');
     if (d) d.classList.toggle('actif', !!reglagesDate.affichee);
 }
@@ -23229,14 +23233,32 @@ function basculerReglagesDate(e) {
     if (e) e.stopPropagation();
     const popup = document.getElementById('reglages-date');
     if (!popup) return;
-    // Le menu pend SOUS le titre, donc hors de la boîte qui reçoit le survol.
-    // En descendant vers lui on quittait le titre, les commandes s'effaçaient
-    // et le menu partait avec elles : impossible d'y arriver. Tant qu'il est
-    // ouvert, on garde les commandes allumées.
+    // Le menu pend sous la pastille. Elle se déplace : il peut donc s'ouvrir
+    // n'importe où, et il faut le ramener dans l'écran s'il déborde.
     const ouvert = popup.classList.toggle('visible');
     const cadre = document.getElementById('project-name-wrapper');
     if (cadre) cadre.classList.toggle('reglages-ouverts', ouvert);
-    if (ouvert) majReglagesDate();
+    if (ouvert) { majReglagesDate(); tenirLeMenuDansLEcran(popup); }
+}
+
+// Le menu s'aligne sur le bord gauche de la pastille, qui peut être posée
+// tout à droite ou tout en bas : on le ramène alors dans l'écran, quitte à
+// le faire remonter AU-DESSUS de la date.
+function tenirLeMenuDansLEcran(popup) {
+    popup.style.left = ''; popup.style.top = ''; popup.style.bottom = '';
+    const cadre = popup.closest('.project-name-wrapper');
+    if (!cadre) return;
+    const r = popup.getBoundingClientRect();
+    const c = cadre.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) {
+        // « left » se compte depuis le cadre : on vise le bord droit de
+        // l'écran, moins la largeur du menu.
+        popup.style.left = Math.round(window.innerWidth - 8 - r.width - c.left) + 'px';
+    }
+    if (r.bottom > window.innerHeight - 8) {
+        popup.style.top = 'auto';
+        popup.style.bottom = 'calc(100% + 10px)';
+    }
 }
 
 function fermerReglagesDate() {
@@ -23250,7 +23272,10 @@ document.addEventListener('click', (e) => {
     const popup = document.getElementById('reglages-date');
     const bouton = document.getElementById('btn-reglages-date');
     if (!popup || !popup.classList.contains('visible')) return;
-    if (popup.contains(e.target) || (bouton && bouton.contains(e.target))) return;
+    // Le titre lui-même est hors du coup : c'est le double-clic dessus qui
+    // ouvre et ferme le menu, et le premier des deux clics le refermerait.
+    if (popup.contains(e.target) || (bouton && bouton.contains(e.target))
+        || (e.target && e.target.id === 'project-name-input')) return;
     fermerReglagesDate();
 });
 
@@ -23270,12 +23295,16 @@ document.addEventListener('DOMContentLoaded', () => {
         reglagesDate.heure = !reglagesDate.heure;
         enregistrerReglagesDate();
         poserDateDansTitre(true);
+        majAffichageDate();
         majReglagesDate();
     });
     const bDate = document.getElementById('rd-date');
     if (bDate) bDate.addEventListener('click', () => {
         reglagesDate.affichee = !reglagesDate.affichee;
         enregistrerReglagesDate();
+        // Le texte se refait d'abord — c'est lui qui décide s'il reste
+        // quelque chose à montrer — et l'affichage suit.
+        poserDateDansTitre(true);
         majAffichageDate();
         majReglagesDate();
         if (typeof majReglagesBarre === 'function') majReglagesBarre();
@@ -23283,7 +23312,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const remettre = document.getElementById('rd-remettre');
     if (remettre) remettre.addEventListener('click', () => {
         poserDateDansTitre(true);
+        majAffichageDate();
         if (typeof showToast === 'function') showToast('Date du jour remise dans le titre');
+    });
+    // La poignée est partie avec le reste : c'est ici que l'on récupère une
+    // date qu'on a posée trop loin — ou sous le tiroir du haut, qui passe
+    // maintenant devant elle.
+    const replacer = document.getElementById('rd-replacer');
+    if (replacer) replacer.addEventListener('click', () => {
+        replacerLeTitre();
+        fermerReglagesDate();
     });
     brancherLaPriseDuTitre();
     majPoseDuTitre();
@@ -23443,6 +23481,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bDate) bDate.addEventListener('click', () => {
         reglagesDate.affichee = !reglagesDate.affichee;
         enregistrerReglagesDate();
+        poserDateDansTitre(true);
         // Le même réglage est offert dans les deux fenêtres : elles doivent
         // dire la même chose, sinon l'une paraît ne pas avoir compris l'autre.
         if (typeof majReglagesDate === 'function') majReglagesDate();

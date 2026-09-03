@@ -179,14 +179,41 @@ module.exports = async function (browser) {
             JSON.stringify(applique));
     }
 
+    // La date et l'horloge sont deux choses distinctes : le cadre ne disparaît
+    // que lorsqu'il ne reste RIEN à montrer.
     const dateMasquee = await page.evaluate(() => {
-        document.getElementById('rp-date').click();
+        reglagesDate.heure = false; enregistrerReglagesDate();
+        poserDateDansTitre(true); majAffichageDate();
         const cadre = document.getElementById('project-name-wrapper');
+        document.getElementById('rp-date').click();
         const masque = getComputedStyle(cadre).display === 'none';
         document.getElementById('rp-date').click();
         return { masque, revenue: getComputedStyle(cadre).display !== 'none' };
     });
     r.verifie('la date se masque et revient', dateMasquee.masque && dateMasquee.revenue, JSON.stringify(dateMasquee));
+
+    // L'HORLOGE SEULE : sans la date, elle doit rester à l'écran. C'était le
+    // même interrupteur pour les deux — éteindre la date emportait l'heure.
+    const horlogeSeule = await page.evaluate(() => {
+        const champ = document.getElementById('project-name-input');
+        const cadre = document.getElementById('project-name-wrapper');
+        reglagesDate.affichee = false; reglagesDate.heure = true;
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        const seule = { texte: champ.value, visible: getComputedStyle(cadre).display !== 'none' };
+        reglagesDate.heure = false;
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        const rien = { texte: champ.value, visible: getComputedStyle(cadre).display !== 'none' };
+        reglagesDate.affichee = true;
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        return { seule, rien, retour: champ.value };
+    });
+    r.verifie('l\'horloge tient debout sans la date',
+        horlogeSeule.seule.visible && /^\d{1,2}:\d{2}$/.test(horlogeSeule.seule.texte),
+        JSON.stringify(horlogeSeule.seule));
+    r.verifie('ni l\'une ni l\'autre : le cadre s\'efface',
+        !horlogeSeule.rien.visible && !horlogeSeule.rien.texte, JSON.stringify(horlogeSeule.rien));
+    r.verifie('et la date revient quand on la rallume',
+        /\d{4}|\d{2}\/\d{2}/.test(horlogeSeule.retour), horlogeSeule.retour);
 
     // --- LA DATE, L'HEURE, ET SA PLACE ---
     // Les deux interrupteurs sont offerts dans deux fenêtres : ils doivent
@@ -197,6 +224,8 @@ module.exports = async function (browser) {
             dansLaDate: document.getElementById('rd-date').classList.contains('actif'),
             visible: getComputedStyle(document.getElementById('project-name-wrapper')).display !== 'none'
         });
+        reglagesDate.heure = false; enregistrerReglagesDate();
+        poserDateDansTitre(true); majAffichageDate();
         basculerReglagesDate();                     // ouvre la fenêtre de la date
         document.getElementById('rd-date').click(); // on masque depuis celle-ci
         const masquee = etat();
@@ -231,17 +260,28 @@ module.exports = async function (browser) {
         && !/\d{1,2}:\d{2}/.test(heureIci.sansHeure), JSON.stringify(heureIci));
     r.egal('et se retire', heureIci.apres, heureIci.sansHeure);
 
-    // On la prend par sa poignée et on la pose ailleurs. La position est
-    // bornée À L'ENREGISTREMENT : gardée hors de l'écran, elle reviendrait
-    // telle quelle à la séance suivante.
+    // La pastille EST la poignée : plus de petit ⠿ à viser. On la prend
+    // n'importe où et on la pose ailleurs. La position est bornée
+    // À L'ENREGISTREMENT : gardée hors de l'écran, elle reviendrait telle
+    // quelle à la séance suivante.
+    const barreDuHaut = await page.evaluate(() => {
+        const cadre = document.getElementById('project-name-wrapper');
+        const tiroir = document.querySelector('.drawer') || document.getElementById('bar-plugins');
+        return { date: parseInt(getComputedStyle(cadre).zIndex, 10),
+                 tiroir: tiroir ? parseInt(getComputedStyle(tiroir).zIndex, 10) : null };
+    });
+    r.verifie('le tiroir du haut passe devant la date',
+        barreDuHaut.tiroir !== null && barreDuHaut.date < barreDuHaut.tiroir,
+        JSON.stringify(barreDuHaut));
+
     const depart = await page.evaluate(() => {
         localStorage.removeItem('auTableau_titre_pose');
         titrePose = null; majPoseDuTitre();
         const cadre = document.getElementById('project-name-wrapper');
-        const prise = document.getElementById('titre-prise');
-        cadre.classList.add('editing');           // les commandes se montrent au survol
-        const p = prise.getBoundingClientRect();
-        if (!p.width) return { rate: 'poignée sans taille' };
+        const champ = document.getElementById('project-name-input');
+        champ.blur();
+        const p = champ.getBoundingClientRect();
+        if (!p.width) return { rate: 'pastille sans taille' };
         const c = cadre.getBoundingClientRect();
         return { x: Math.round(p.left + p.width / 2), y: Math.round(p.top + p.height / 2),
                  gauche: Math.round(c.left), haut: Math.round(c.top) };
@@ -261,7 +301,7 @@ module.exports = async function (browser) {
                 && c.bottom <= window.innerHeight + 1
         };
     });
-    r.verifie('la poignée déplace la date, d\'autant qu\'on a tiré',
+    r.verifie('on déplace la date en la tirant, d\'autant qu\'on a tiré',
         !!deplacee.pose && Math.abs(deplacee.gauche - (depart.gauche + 120)) <= 14
         && Math.abs(deplacee.haut - (depart.haut + 220)) <= 14,
         JSON.stringify({ depart, deplacee }));
@@ -272,13 +312,14 @@ module.exports = async function (browser) {
     // Un geste vif ne doit pas la mémoriser dehors
     const horsEcran = await page.evaluate(() => {
         const cadre = document.getElementById('project-name-wrapper');
-        const prise = document.getElementById('titre-prise');
-        const p = prise.getBoundingClientRect();
-        prise.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true,
-            pointerId: 7, clientX: p.left + 5, clientY: p.top + 5 }));
-        prise.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true,
-            pointerId: 7, clientX: -4000, clientY: -4000, movementX: -4000, movementY: -4000 }));
-        prise.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7 }));
+        const champ = document.getElementById('project-name-input');
+        champ.blur();
+        const p = champ.getBoundingClientRect();
+        champ.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true,
+            pointerId: 7, button: 0, clientX: p.left + 5, clientY: p.top + 5 }));
+        champ.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true,
+            pointerId: 7, clientX: -4000, clientY: -4000 }));
+        champ.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7 }));
         const c = cadre.getBoundingClientRect();
         return { pose: titrePose, dansEcran: c.left >= 0 && c.top >= 0,
                  memoire: JSON.parse(localStorage.getItem('auTableau_titre_pose') || 'null') };
@@ -287,12 +328,12 @@ module.exports = async function (browser) {
         horsEcran.dansEcran && horsEcran.memoire && horsEcran.memoire.x >= 0 && horsEcran.memoire.y >= 0,
         JSON.stringify(horsEcran));
 
-    // Le double-clic sur la poignée la remet en haut
-    const prisePos = await page.evaluate(() => {
-        const p = document.getElementById('titre-prise').getBoundingClientRect();
-        return { x: Math.round(p.left + p.width / 2), y: Math.round(p.top + p.height / 2) };
+    // « Remettre en haut à gauche », dans les réglages : c'est ce qui remplace
+    // le double-clic sur la poignée disparue.
+    await page.evaluate(() => {
+        basculerReglagesDate();
+        document.getElementById('rd-replacer').click();
     });
-    await page.mouse.dblclick(prisePos.x, prisePos.y);
     await page.waitForTimeout(250);
     const remise = await page.evaluate(() => {
         const cadre = document.getElementById('project-name-wrapper');
@@ -311,7 +352,7 @@ module.exports = async function (browser) {
                  chevauche, onglets: t && { g: Math.round(t.left), d: Math.round(t.right) },
                  memoire: localStorage.getItem('auTableau_titre_pose') };
     });
-    r.egal('le double-clic défait le déplacement', remise.pose, null);
+    r.egal('« remettre en haut à gauche » défait le déplacement', remise.pose, null);
     r.verifie('elle retrouve le haut du tableau, à gauche',
         remise.haut < 40 && remise.gauche < 40, JSON.stringify(remise));
     r.verifie('sans recouvrir les onglets des plugins',
@@ -321,13 +362,25 @@ module.exports = async function (browser) {
     // Le menu des réglages pend sous le titre, hors de la boîte qui reçoit le
     // survol : en descendant vers lui, on quittait le titre et il disparaissait
     // avant qu'on l'atteigne. On refait le trajet à la souris.
-    const roue = await page.evaluate(() => {
-        const b = document.getElementById('btn-reglages-date').getBoundingClientRect();
+    const roueCachee = await page.evaluate(() =>
+        getComputedStyle(document.getElementById('btn-reglages-date')).display);
+    r.egal('à la souris, la roue ne s\'affiche pas', roueCachee, 'none');
+
+    const pastille = await page.evaluate(() => {
+        const b = document.getElementById('project-name-input').getBoundingClientRect();
         return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
     });
-    await page.mouse.move(roue.x, roue.y);
-    await page.mouse.click(roue.x, roue.y);
+    await page.mouse.move(pastille.x, pastille.y);
+    await page.mouse.dblclick(pastille.x, pastille.y);
     await page.waitForTimeout(150);
+    const ouvertAuDouble = await page.evaluate(() => ({
+        visible: document.getElementById('reglages-date').classList.contains('visible'),
+        actif: document.activeElement.id
+    }));
+    r.verifie('le double-clic sur la date ouvre ses réglages',
+        ouvertAuDouble.visible, JSON.stringify(ouvertAuDouble));
+    r.verifie('et ne laisse pas le curseur dans le titre',
+        ouvertAuDouble.actif !== 'project-name-input', JSON.stringify(ouvertAuDouble));
     const cible = await page.evaluate(() => {
         const b = document.getElementById('rd-heure').getBoundingClientRect();
         return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
@@ -349,13 +402,13 @@ module.exports = async function (browser) {
         survol.visible && survol.opacite === '1' && survol.clics !== 'none' && survol.atteint,
         JSON.stringify(survol));
     // Et il se referme d'un clic à côté.
-    await page.mouse.click(roue.x, roue.y);
+    await page.mouse.click(640, 500);
     await page.waitForTimeout(150);
     const referme = await page.evaluate(() => ({
         visible: document.getElementById('reglages-date').classList.contains('visible'),
         classe: document.getElementById('project-name-wrapper').classList.contains('reglages-ouverts')
     }));
-    r.verifie('et se referme quand on rappuie sur la roue',
+    r.verifie('et se referme d\'un clic à côté',
         !referme.visible && !referme.classe, JSON.stringify(referme));
 
     // --- RÉPARTITION DES ICÔNES ---

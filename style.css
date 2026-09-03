@@ -4624,13 +4624,22 @@ body.dark-mode {
        milieu l'y emmène par sa poignée : la place choisie est retenue. */
     left: 14px;
     transform: none;
-    z-index: 45;
+    /* SOUS le tiroir du haut (z-index 40) : c'est lui qu'on vient chercher en
+       cours, pas la date. Elle ne le gêne pas depuis qu'elle est à gauche, et
+       si on la ramène au milieu, c'est le tiroir qui passe devant. */
+    z-index: 30;
     display: flex;
     align-items: center;
     gap: 4px;
     background: transparent;
     transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: auto;
+}
+
+/* Le temps du glissement, elle passe devant tout : on doit voir où on la pose. */
+.project-name-wrapper.se-deplace {
+    z-index: 60;
+    transition: none;
 }
 
 .project-name-input {
@@ -4710,26 +4719,29 @@ body.drawer-open-top .project-name-wrapper {
 }
 
 
+/* Plus rien ne se montre au survol pour se cacher ensuite : il ne reste que
+   la roue, et elle n'apparaît qu'au doigt. Le menu qui s'effaçait dès qu'on
+   allait vers lui n'a donc plus de quoi s'effacer. */
 .title-controls {
     display: flex;
     align-items: center;
     gap: 4px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
 }
 
-.project-name-wrapper.editing .title-controls,
-.project-name-wrapper.reglages-ouverts .title-controls,
-.project-name-wrapper:hover .title-controls {
-    opacity: 1;
-    pointer-events: auto;
+/* La roue n'est là que pour le doigt : à la souris, le double-clic sur la
+   date ouvre les mêmes réglages, et deux tapes rapides au doigt sur une
+   tablette sont un geste incommode. */
+#btn-reglages-date { display: none; }
+
+@media (hover: none) {
+    #btn-reglages-date { display: inline-flex; }
 }
 
-/* Le menu des réglages pend SOUS le titre, donc hors de la boîte qui reçoit
-   le survol : en allant vers lui, on quittait le titre, les commandes
-   s'effaçaient et le menu partait avec elles. Tant qu'il est ouvert, les
-   commandes restent — c'est ce que dit « reglages-ouverts ». */
+/* Quand ses réglages sont ouverts, la pastille se souligne : on voit à quoi
+   le menu appartient. */
+.project-name-wrapper.reglages-ouverts .project-name-input {
+    border-color: var(--accent);
+}
 
 .title-btn {
     width: 24px;
@@ -4756,33 +4768,7 @@ body.drawer-open-top .project-name-wrapper {
     transform: scale(0.95);
 }
 
-.title-color-picker {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    padding: 0;
-    overflow: hidden;
-    box-shadow: 0 0 0 1px #dfe6e9 inset, 0 2px 4px rgba(0, 0, 0, 0.1);
-}
 
-.title-color-picker::-webkit-color-swatch-wrapper {
-    padding: 0;
-}
-
-.title-color-picker::-webkit-color-swatch {
-    border: none;
-    border-radius: 50%;
-}
-
-.title-color-picker::-moz-color-swatch {
-    border: none;
-    border-radius: 50%;
-}
 
 .dark-mode .title-btn {
     background: #2d3436;
@@ -5612,9 +5598,11 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .reglages-popup .rp-choix.actif::after { content: ' ✓'; }
 
-/* Le panneau de la date s'ouvre sous la roue du titre */
-#project-title-controls-right { position: relative; }
-#reglages-date { top: calc(100% + 10px); right: 0; }
+/* Le panneau de la date pend sous la pastille, aligné sur son bord gauche.
+   Il s'accroche au cadre entier et non à la roue : celle-ci est absente à la
+   souris, sa boîte est alors haute de zéro et le menu remontait sur la date.
+   Le JS le décale si le bord droit de l'écran approche. */
+#reglages-date { top: calc(100% + 10px); left: 0; right: auto; }
 
 /* Un bouton qui cache des réglages porte un petit coin : sans repère,
    personne ne devine qu'il faut garder le doigt appuyé. */
@@ -7928,15 +7916,18 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .dark-mode #frise-apercu { background: #232b31; border-color: #3d4852; }
 
 /* La date se prend par sa poignée : on la pose où elle ne gêne pas. */
-#titre-prise {
+/* La pastille EST la poignée : plus de petit ⠿ à viser. On la tire, on la
+   pose. Le curseur le dit, et « touch-action » empêche le doigt de faire
+   défiler la page au lieu de la déplacer. */
+.project-name-input {
     cursor: grab;
     touch-action: none;
-    color: #94a3b8;
-    font-size: 13px;
-    line-height: 1;
 }
 
-#titre-prise:active { cursor: grabbing; }
+.project-name-wrapper.se-deplace .project-name-input { cursor: grabbing; }
+
+/* Une fois qu'on écrit dedans, c'est un champ de texte comme un autre. */
+.project-name-input:focus { cursor: text; }
 
 /* Déplacée, elle ne se recentre plus : c'est le JS qui pose left/top, et la
    transition sur « top » ferait glisser le cadre derrière le doigt. */
