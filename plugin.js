@@ -6005,100 +6005,701 @@ registerPlugin('longestWordTool', 'Jeux', {
 
 
 // 14. FRISE HISTORIQUE
+// ===================================================================
+// ATELIER FRISES — Histoire-Géographie
+//
+// L'ancienne frise donnait à chaque période la même largeur : l'Antiquité,
+// trois mille sept cents ans, occupait autant que le XXe siècle. Une frise
+// dit d'abord une DURÉE ; elle est donc à l'échelle par défaut, et l'on peut
+// demander des cases égales quand les périodes sont trop inégales pour tenir
+// sur une ligne (le Moyen Âge à côté de la Révolution).
+//
+// Des modèles prêts à poser — les grandes périodes, le XXe siècle, la
+// Révolution, l'Antiquité… — parce que personne ne devrait retaper « 476 ».
+// Quatre styles, parce qu'une frise de cycle 3 et une frise de terminale ne
+// se ressemblent pas.
+// ===================================================================
 registerPlugin('friseTool', 'Histoire-Géographie', {
-    currentStamp: null, editingImage: null, state: { start: "1900", blocks: [{ color: "#0984e3", end: "1950" }, { color: "#e74c3c", end: "2000" }] },
-    init: function () {
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'frise'; btn.title = 'Frise Historique';
-        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="3,10 19,10 23,14 19,18 3,18" fill="currentColor" fill-opacity="0.2"/><line x1="8" y1="10" x2="8" y2="18"/><line x1="14" y1="10" x2="14" y2="18"/></svg>`;
-        document.getElementById('plugins-grid').appendChild(btn);
+    currentStamp: null, currentState: null, editingImage: null,
 
-        const builderHTML = `
-        <div id="frise-builder-modal" style="display:none; position:absolute; left:calc(50vw - 210px); top:15vh;border-radius:12px ; width:420px; z-index:10001; background:#ffffff; border-radius:10px; box-shadow:0 15px 40px rgba(0,0,0,0.3); border:1px solid #dfe6e9; flex-direction:column;">
-            <div id="frise-drag-handle" style="background:#1f2937; color:#ffffff; display:flex;border-radius:12px 12px 0px 0px; align-items:center; padding:10px 24px; cursor:grab; font-weight:bold; font-size:13px; letter-spacing:0.3px;">Constructeur de Frise</div>
-            <div style="padding:12px; display:flex; flex-direction:column; gap:8px;">
-                <div id="frise-preview" style="width:100%; height:90px; background:#f1f2f6; border:2px dashed #b2bec3; border-radius:8px; display:flex; align-items:center; justify-content:center; overflow:hidden;"></div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="font-size:12px; font-weight:bold;">Début :</label>
-                    <input type="text" id="frise-start" class="prompt-input" style="width:80px; padding:6px;">
+    // ------------------------------------------------------------------
+    // LES MODÈLES
+    // Dates de l'usage scolaire français. Elles sont conventionnelles — on
+    // les met dans un seul endroit pour qu'un collègue puisse les corriger.
+    // ------------------------------------------------------------------
+    MODELES: [
+        {
+            cle: 'grandes-periodes', nom: 'Les grandes périodes de l\'histoire',
+            titre: 'Les grandes périodes de l\'histoire',
+            echelle: 'egale', style: 'bandeau',
+            periodes: [
+                { nom: 'Préhistoire', debut: -6000, fin: -3300, couleur: '#8d6e63' },
+                { nom: 'Antiquité', debut: -3300, fin: 476, couleur: '#e17055' },
+                { nom: 'Moyen Âge', debut: 476, fin: 1492, couleur: '#0984e3' },
+                { nom: 'Temps modernes', debut: 1492, fin: 1789, couleur: '#00b894' },
+                { nom: 'Époque contemporaine', debut: 1789, fin: 2030, couleur: '#6c5ce7' }
+            ],
+            evenements: [
+                { annee: -3300, libelle: 'Écriture' },
+                { annee: 476, libelle: 'Chute de Rome' },
+                { annee: 1492, libelle: 'Amérique' },
+                { annee: 1789, libelle: 'Révolution' }
+            ]
+        },
+        {
+            cle: 'xxe', nom: 'Le XXe siècle',
+            titre: 'Le XXe siècle', echelle: 'proportionnelle', style: 'fleche',
+            periodes: [
+                { nom: 'Belle Époque', debut: 1900, fin: 1914, couleur: '#fdcb6e' },
+                { nom: 'Première Guerre mondiale', debut: 1914, fin: 1918, couleur: '#d63031' },
+                { nom: 'Entre-deux-guerres', debut: 1918, fin: 1939, couleur: '#0984e3' },
+                { nom: 'Seconde Guerre mondiale', debut: 1939, fin: 1945, couleur: '#2d3436' },
+                { nom: 'Guerre froide', debut: 1945, fin: 1989, couleur: '#636e72' },
+                { nom: 'Après 1989', debut: 1989, fin: 2000, couleur: '#00b894' }
+            ],
+            evenements: [
+                { annee: 1918, libelle: 'Armistice' },
+                { annee: 1945, libelle: 'Libération' },
+                { annee: 1989, libelle: 'Chute du Mur' }
+            ]
+        },
+        {
+            cle: 'revolution', nom: 'La Révolution française',
+            titre: 'La Révolution française', echelle: 'proportionnelle', style: 'jalons',
+            periodes: [
+                { nom: 'Monarchie constitutionnelle', debut: 1789, fin: 1792, couleur: '#0984e3' },
+                { nom: 'Ire République', debut: 1792, fin: 1799, couleur: '#e17055' },
+                { nom: 'Consulat', debut: 1799, fin: 1804, couleur: '#6c5ce7' }
+            ],
+            evenements: [
+                { annee: 1789, libelle: '14 juillet : Bastille' },
+                { annee: 1792, libelle: 'République' },
+                { annee: 1793, libelle: 'La Terreur' },
+                { annee: 1799, libelle: '18 Brumaire' }
+            ]
+        },
+        {
+            cle: 'antiquite', nom: 'L\'Antiquité',
+            titre: 'L\'Antiquité', echelle: 'proportionnelle', style: 'ruban',
+            periodes: [
+                { nom: 'Égypte pharaonique', debut: -3100, fin: -30, couleur: '#fdcb6e' },
+                { nom: 'Grèce antique', debut: -800, fin: -146, couleur: '#0984e3' },
+                { nom: 'Rome', debut: -753, fin: 476, couleur: '#d63031' }
+            ],
+            evenements: [
+                { annee: -776, libelle: 'Premiers Jeux' },
+                { annee: -52, libelle: 'Alésia' },
+                { annee: 476, libelle: 'Chute de Rome' }
+            ]
+        },
+        {
+            cle: 'moyen-age', nom: 'Le Moyen Âge',
+            titre: 'Le Moyen Âge', echelle: 'proportionnelle', style: 'bandeau',
+            periodes: [
+                { nom: 'Haut Moyen Âge', debut: 476, fin: 987, couleur: '#0984e3' },
+                { nom: 'Moyen Âge central', debut: 987, fin: 1328, couleur: '#00b894' },
+                { nom: 'Bas Moyen Âge', debut: 1328, fin: 1492, couleur: '#6c5ce7' }
+            ],
+            evenements: [
+                { annee: 800, libelle: 'Charlemagne empereur' },
+                { annee: 1337, libelle: 'Guerre de Cent Ans' },
+                { annee: 1492, libelle: 'Amérique' }
+            ]
+        },
+        {
+            cle: 'regimes', nom: 'Les régimes politiques français',
+            titre: 'Les régimes politiques français depuis 1789',
+            echelle: 'proportionnelle', style: 'bandeau',
+            periodes: [
+                { nom: 'Révolution', debut: 1789, fin: 1804, couleur: '#e17055' },
+                { nom: 'Empires et monarchies', debut: 1804, fin: 1870, couleur: '#6c5ce7' },
+                { nom: 'IIIe République', debut: 1870, fin: 1940, couleur: '#0984e3' },
+                { nom: 'Vichy', debut: 1940, fin: 1944, couleur: '#2d3436' },
+                { nom: 'IVe République', debut: 1946, fin: 1958, couleur: '#00b894' },
+                { nom: 'Ve République', debut: 1958, fin: 2030, couleur: '#00cec9' }
+            ],
+            evenements: [{ annee: 1870, libelle: 'IIIe République' }, { annee: 1958, libelle: 'Ve République' }]
+        },
+        {
+            cle: 'seconde-guerre', nom: 'La Seconde Guerre mondiale',
+            titre: 'La Seconde Guerre mondiale', echelle: 'proportionnelle', style: 'jalons',
+            periodes: [
+                { nom: 'Victoires de l\'Axe', debut: 1939, fin: 1942, couleur: '#2d3436' },
+                { nom: 'Tournant', debut: 1942, fin: 1943, couleur: '#e17055' },
+                { nom: 'Victoires alliées', debut: 1943, fin: 1945, couleur: '#0984e3' }
+            ],
+            evenements: [
+                { annee: 1939, libelle: 'Invasion de la Pologne' },
+                { annee: 1940, libelle: 'Appel du 18 Juin' },
+                { annee: 1942, libelle: 'Stalingrad' },
+                { annee: 1944, libelle: 'Débarquement' },
+                { annee: 1945, libelle: 'Capitulations' }
+            ]
+        },
+        {
+            cle: 'vide', nom: 'Frise vide (à remplir)',
+            titre: '', echelle: 'proportionnelle', style: 'fleche',
+            periodes: [
+                { nom: 'Période 1', debut: 1900, fin: 1950, couleur: '#0984e3' },
+                { nom: 'Période 2', debut: 1950, fin: 2000, couleur: '#e17055' }
+            ],
+            evenements: []
+        }
+    ],
+
+    STYLES: [
+        { cle: 'fleche', nom: 'Flèche du temps' },
+        { cle: 'bandeau', nom: 'Bandeau' },
+        { cle: 'ruban', nom: 'Ruban arrondi' },
+        { cle: 'jalons', nom: 'Axe et jalons' }
+    ],
+
+    // ------------------------------------------------------------------
+    // L'ÉTAT
+    // ------------------------------------------------------------------
+    etatDuModele: function (cle) {
+        const m = this.MODELES.find(x => x.cle === cle) || this.MODELES[0];
+        return {
+            modele: m.cle, titre: m.titre, style: m.style, echelle: m.echelle,
+            periodes: JSON.parse(JSON.stringify(m.periodes)),
+            evenements: JSON.parse(JSON.stringify(m.evenements)),
+            options: { dates: true, noms: true, graduations: false }
+        };
+    },
+
+    bornes: function (etat) {
+        let debut = Infinity, fin = -Infinity;
+        (etat.periodes || []).forEach(p => { debut = Math.min(debut, p.debut); fin = Math.max(fin, p.fin); });
+        (etat.evenements || []).forEach(e => { debut = Math.min(debut, e.annee); fin = Math.max(fin, e.annee); });
+        if (!isFinite(debut)) return { debut: 0, fin: 100 };
+        if (fin === debut) fin = debut + 1;
+        return { debut, fin };
+    },
+
+    // L'année en clair. « -52 » ne veut rien dire pour un élève de sixième.
+    anneeEnClair: function (a, court) {
+        const n = Math.abs(a);
+        if (a < 0) return court ? n + ' av.' : n + ' av. J.-C.';
+        return String(n);
+    },
+
+    // ------------------------------------------------------------------
+    // LA PLACE DE CHAQUE PÉRIODE
+    // À l'échelle : la largeur dit la durée. En cases égales : chacune la
+    // même part, pour les frises où les durées sont incomparables.
+    // ------------------------------------------------------------------
+    // DES VOIES, PARCE QUE TOUT NE SE SUIT PAS.
+    // L'Égypte pharaonique, la Grèce antique et Rome ne se succèdent pas :
+    // elles coexistent. Sur une seule ligne, elles se recouvrent et l'une
+    // efface l'autre. On les répartit donc sur des voies superposées — la
+    // première libre, comme un planning — ce qui rend la simultanéité
+    // visible, et c'est précisément ce qu'une frise doit montrer.
+    repartirEnVoies: function (cases) {
+        const finDeVoie = [];
+        cases.forEach(c => {
+            let v = 0;
+            while (v < finDeVoie.length && finDeVoie[v] > c.x + 0.5) v++;
+            finDeVoie[v] = c.x + c.l;
+            c.voie = v;
+        });
+        return Math.max(1, finDeVoie.length);
+    },
+
+    placer: function (etat, largeurUtile) {
+        const periodes = (etat.periodes || []).slice().sort((a, b) => a.debut - b.debut);
+        if (!periodes.length) return { cases: [], voies: 1, bornes: this.bornes(etat), position: () => 0 };
+        const b = this.bornes(etat);
+
+        if (etat.echelle === 'egale') {
+            const pas = largeurUtile / periodes.length;
+            const cases = periodes.map((p, i) => ({ p, x: i * pas, l: pas, voie: 0 }));
+            // Un événement se pose dans la période qui le contient, au prorata
+            const position = (annee) => {
+                for (let i = 0; i < periodes.length; i++) {
+                    const p = periodes[i];
+                    if (annee >= p.debut && annee <= p.fin) {
+                        const part = (p.fin === p.debut) ? 0 : (annee - p.debut) / (p.fin - p.debut);
+                        return i * pas + part * pas;
+                    }
+                }
+                return annee <= periodes[0].debut ? 0 : largeurUtile;
+            };
+            // En cases égales, chacune a sa place : une seule voie, toujours.
+            return { cases, voies: 1, bornes: b, position };
+        }
+
+        const duree = b.fin - b.debut;
+        const position = (annee) => ((annee - b.debut) / duree) * largeurUtile;
+        const cases = periodes.map(p => ({ p, x: position(p.debut), l: Math.max(2, position(p.fin) - position(p.debut)) }));
+        const voies = this.repartirEnVoies(cases);
+        return { cases, voies, bornes: b, position };
+    },
+
+    echapper: function (t) {
+        return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+
+    // Un nom trop long dans une case étroite : on le coupe plutôt que de le
+    // laisser déborder sur la période voisine.
+    tenirDans: function (texte, largeur, taille) {
+        const parCaractere = taille * 0.55;
+        const max = Math.max(3, Math.floor(largeur / parCaractere));
+        const t = String(texte || '');
+        return t.length <= max ? t : t.slice(0, Math.max(1, max - 1)) + '…';
+    },
+
+    // ------------------------------------------------------------------
+    // LE DESSIN — quatre styles
+    // ------------------------------------------------------------------
+    // Le premier rang libre pour chaque étiquette. On estime sa largeur au
+    // nombre de caractères : c'est grossier, mais du bon côté — on écarte un
+    // peu trop plutôt que de laisser deux textes se marcher dessus.
+    empilerLesEtiquettes: function (evenements, ou, L) {
+        const finDeRang = [];
+        const rang = [];
+        evenements.forEach((e, i) => {
+            const texte = this.anneeEnClair(e.annee, true) + ' · ' + e.libelle;
+            const large = texte.length * 6.8 + 12;
+            const x = ou(e);
+            const a = this.ancrageDe(x, L);
+            const gauche = a.ancre === 'start' ? a.x : (a.ancre === 'end' ? a.x - large : x - large / 2);
+            let r = 0;
+            while (r < finDeRang.length && finDeRang[r] > gauche) r++;
+            finDeRang[r] = gauche + large;
+            rang[i] = r;
+        });
+        return { rang, rangs: finDeRang.length };
+    },
+
+    // Une étiquette au bord de la carte déborderait : on la cale sur le bord
+    // au lieu de la centrer. Le texte reste dans l'image, toujours.
+    ancrageDe: function (x, L) {
+        if (x < 60) return { ancre: 'start', x: Math.max(4, x - 4) };
+        if (x > L - 60) return { ancre: 'end', x: Math.min(L - 4, x + 4) };
+        return { ancre: 'middle', x };
+    },
+
+    fabriquerSVG: function (etat, largeur) {
+        const L = largeur || 1200;
+        const marge = Math.round(L * 0.035);
+        const pointe = etat.style === 'fleche' ? 46 : (etat.style === 'jalons' ? 24 : 0);
+        const utile = L - marge * 2 - pointe;
+        const plan = this.placer(etat, utile);
+
+        const hautTitre = etat.titre ? 44 : 10;
+        const hauteurVoie = etat.style === 'jalons' ? 14 : 46;
+        const ecart = etat.style === 'jalons' ? 20 : 6;
+        const pile = plan.voies * hauteurVoie + (plan.voies - 1) * ecart;
+        // Le nom d'une période se pose DANS la voie, sauf en « jalons » où la
+        // voie est un simple segment : il se pose alors juste au-dessus.
+        const hautNoms = (etat.style === 'jalons' && etat.options.noms) ? 18 : 0;
+        const yPile = hautTitre + hautNoms + 14;
+        const basPile = yPile + pile;
+
+        // Les étiquettes d'événements s'empilent comme les périodes : chacune
+        // sur le premier rang où elle ne touche personne. Alterner sur deux
+        // rangs suffisait pour deux dates éloignées, pas pour quatre dates
+        // serrées — « 14 juillet : Bastille » recouvrait « 1793 · La Terreur ».
+        const evenements = (etat.evenements || []).slice().sort((a, b) => a.annee - b.annee);
+        const etiquettes = this.empilerLesEtiquettes(evenements, (e) => marge + plan.position(e.annee), L);
+        const yDates = basPile + 20;
+        const yEvenements = basPile + (etat.options.dates ? 40 : 18);
+        const hauteur = Math.round(yEvenements + etiquettes.rangs * 22 + 10);
+
+        let corps = '';
+        if (etat.titre) {
+            corps += `<text x="${L / 2}" y="30" text-anchor="middle" font-family="sans-serif"
+                font-size="26" font-weight="600" fill="#2d3436">${this.echapper(etat.titre)}</text>`;
+        }
+
+        const yDeLaVoie = (v) => yPile + v * (hauteurVoie + ecart);
+
+        // --- L'axe, pour les styles qui en ont un ---
+        if (etat.style === 'fleche') {
+            corps += `<rect x="${marge}" y="${yPile}" width="${utile}" height="${pile}" fill="none"
+                stroke="#2d3436" stroke-width="2"/>`;
+            const yMil = yPile + pile / 2;
+            corps += `<polygon points="${marge + utile},${yPile - 8} ${marge + utile + pointe},${yMil} ${marge + utile},${basPile + 8}"
+                fill="#2d3436"/>`;
+        }
+
+        // --- Les périodes ---
+        plan.cases.forEach(c => {
+            const x = marge + c.x, l = c.l, y = yDeLaVoie(c.voie);
+            if (etat.style === 'jalons') {
+                const yc = y + hauteurVoie / 2;
+                corps += `<rect x="${x.toFixed(1)}" y="${yc - 6}" width="${l.toFixed(1)}" height="12"
+                    rx="6" fill="${c.p.couleur}"/>`;
+                if (etat.options.noms) {
+                    const a = this.ancrageDe(x + l / 2, L);
+                    corps += `<text x="${a.x.toFixed(1)}" y="${yc - 13}" text-anchor="${a.ancre}"
+                        font-family="sans-serif" font-size="13" fill="#2d3436"
+                        >${this.echapper(this.tenirDans(c.p.nom, Math.max(l, 90), 13))}</text>`;
+                }
+                return;
+            }
+            const rayon = etat.style === 'ruban' ? Math.min(22, hauteurVoie / 2) : 0;
+            const opacite = etat.style === 'bandeau' ? 1 : 0.9;
+            corps += `<rect x="${x.toFixed(1)}" y="${y}" width="${l.toFixed(1)}" height="${hauteurVoie}"
+                rx="${rayon}" fill="${c.p.couleur}" fill-opacity="${opacite}"
+                stroke="#2d3436" stroke-width="1.2"/>`;
+            if (etat.options.noms) {
+                const taille = 15;
+                corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + 5}"
+                    text-anchor="middle" font-family="sans-serif" font-size="${taille}" font-weight="600"
+                    fill="#ffffff" stroke="rgba(0,0,0,0.35)" stroke-width="2.5" paint-order="stroke"
+                    >${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
+            }
+        });
+
+        // --- L'axe des jalons, par-dessous les segments ---
+        if (etat.style === 'jalons') {
+            const y = basPile + 2;
+            corps += `<line x1="${marge}" y1="${y}" x2="${marge + utile}" y2="${y}"
+                stroke="#2d3436" stroke-width="2.5"/>`;
+            corps += `<polygon points="${marge + utile},${y - 8} ${marge + utile + pointe},${y} ${marge + utile},${y + 8}"
+                fill="#2d3436"/>`;
+        }
+
+        // --- Les dates : les bornes de chaque période, une fois chacune ---
+        if (etat.options.dates) {
+            const minimum = Math.max(30, L * 0.03);
+            const posees = [];
+            const poser = (annee, x) => {
+                if (posees.some(v => Math.abs(v - x) < minimum)) return;
+                posees.push(x);
+                corps += `<line x1="${x.toFixed(1)}" y1="${basPile}" x2="${x.toFixed(1)}" y2="${basPile + 6}"
+                    stroke="#2d3436" stroke-width="1.5"/>`;
+                const a = this.ancrageDe(x, L);
+                corps += `<text x="${a.x.toFixed(1)}" y="${yDates}" text-anchor="${a.ancre}" font-family="sans-serif"
+                    font-size="14" font-weight="600" fill="#2d3436">${this.echapper(this.anneeEnClair(annee, true))}</text>`;
+            };
+            // De gauche à droite, pour que la date écartée soit la plus à
+            // droite d'un couple trop serré — et non la première venue.
+            const bornes = [];
+            plan.cases.forEach(c => {
+                bornes.push({ annee: c.p.debut, x: marge + c.x });
+                bornes.push({ annee: c.p.fin, x: marge + c.x + c.l });
+            });
+            bornes.sort((u, v) => u.x - v.x).forEach(b => poser(b.annee, b.x));
+        }
+
+        // --- Les événements ---
+        evenements.forEach((e, i) => {
+            const x = marge + plan.position(e.annee);
+            const y = yEvenements + etiquettes.rang[i] * 22;
+            corps += `<line x1="${x.toFixed(1)}" y1="${basPile + 8}" x2="${x.toFixed(1)}" y2="${y - 9}"
+                stroke="#b2bec3" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+            corps += `<circle cx="${x.toFixed(1)}" cy="${basPile}" r="3.5" fill="#2d3436"/>`;
+            const a = this.ancrageDe(x, L);
+            corps += `<text x="${a.x.toFixed(1)}" y="${y}" text-anchor="${a.ancre}" font-family="sans-serif"
+                font-size="13" fill="#2d3436"
+                >${this.echapper(this.anneeEnClair(e.annee, true) + ' · ' + e.libelle)}</text>`;
+        });
+
+        return {
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${hauteur}" viewBox="0 0 ${L} ${hauteur}">
+                <rect width="${L}" height="${hauteur}" fill="#ffffff"/>${corps}</svg>`,
+            largeur: L, hauteur, voies: plan.voies
+        };
+    },
+
+    // ------------------------------------------------------------------
+    // LA FENÊTRE
+    // ------------------------------------------------------------------
+    init: function () {
+        const grid = document.getElementById('plugins-grid');
+        if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn'; btn.dataset.mode = 'frise'; btn.title = 'Frise Historique';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="3,10 19,10 23,14 19,18 3,18" fill="currentColor" fill-opacity="0.2"/><line x1="8" y1="10" x2="8" y2="18"/><line x1="14" y1="10" x2="14" y2="18"/></svg>`;
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => { this.ouvrir(); e.stopPropagation(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && mode === 'frise' && this.currentStamp) {
+                this.currentStamp = null; setMode('pointer');
+                if (typeof showToast === 'function') showToast('Tampon annulé');
+                draw();
+            }
+        });
+    },
+
+    ouvrir: function (etat, imageEnEdition) {
+        this.etat = etat ? JSON.parse(JSON.stringify(etat)) : this.etatDuModele('grandes-periodes');
+        this.editingImage = imageEnEdition || null;
+        this.batirFenetre();
+        this.rendre();
+    },
+
+    batirFenetre: function () {
+        let fond = document.getElementById('frise-fond');
+        if (fond) fond.remove();
+        fond = document.createElement('div');
+        fond.id = 'frise-fond'; fond.className = 'atelier-fond';
+        fond.innerHTML = `
+        <div id="frise-fenetre" class="atelier-fenetre">
+            <div class="atelier-tete">
+                <b>📜 Atelier frises</b>
+                <span style="flex:1"></span>
+                <button class="atelier-btn" id="frise-fermer">✕</button>
+            </div>
+            <div class="atelier-corps">
+                <div class="frise-plan">
+                    <div class="frise-outils">
+                        <select id="frise-modele"></select>
+                        <select id="frise-style"></select>
+                        <select id="frise-echelle">
+                            <option value="proportionnelle">À l'échelle du temps</option>
+                            <option value="egale">Cases de largeur égale</option>
+                        </select>
+                    </div>
+                    <div id="frise-apercu"></div>
+                    <div id="frise-etat"></div>
                 </div>
-                <div id="frise-blocks" style="display:flex; gap:6px; overflow-x:auto; padding-bottom:4px;"></div>
-                <button class="btn-action secondary" id="frise-btn-add" style="border:1px dashed #b2bec3; background:transparent; color:#2d3436; padding:4px; font-size:12px;">+ Ajouter une période</button>
-                <div class="export-actions-grid" style="display:flex; margin-top:2px;"><button class="btn-action secondary" id="frise-btn-cancel" style="flex:1; padding:6px;">Annuler</button><button class="btn-action primary" id="frise-btn-ok" style="flex:1; background:#6c5ce7; padding:6px;">Valider</button></div>
+                <div class="atelier-panneau frise-panneau">
+                    <label class="atelier-label">Titre</label>
+                    <input type="text" id="frise-titre" placeholder="(sans titre)">
+
+                    <label class="atelier-label">Périodes</label>
+                    <div id="frise-periodes"></div>
+                    <button class="atelier-btn atelier-large" id="frise-ajouter-periode">+ Ajouter une période</button>
+
+                    <label class="atelier-label">Événements</label>
+                    <div id="frise-evenements"></div>
+                    <button class="atelier-btn atelier-large" id="frise-ajouter-evenement">+ Ajouter un événement</button>
+
+                    <label class="atelier-label">Affichage</label>
+                    <label class="atelier-case"><input type="checkbox" id="frise-opt-noms"> Écrire le nom des périodes</label>
+                    <label class="atelier-case"><input type="checkbox" id="frise-opt-dates"> Écrire les dates</label>
+                </div>
+            </div>
+            <div class="atelier-pied">
+                <span id="frise-compte"></span>
+                <span style="flex:1"></span>
+                <button class="atelier-btn atelier-vert" id="frise-poser">Poser au tableau</button>
             </div>
         </div>`;
-        document.body.insertAdjacentHTML('beforeend', builderHTML);
+        document.body.appendChild(fond);
 
-        const modal = document.getElementById('frise-builder-modal'); const handle = document.getElementById('frise-drag-handle');
-        let isDrag = false, startX, startY;
-        handle.style.touchAction = 'none';
-        handle.addEventListener('pointerdown', (e) => { isDrag = true; startX = e.clientX - modal.offsetLeft; startY = e.clientY - modal.offsetTop; try { handle.setPointerCapture(e.pointerId); } catch (err) { /* pas de capture */ } });
-        window.addEventListener('pointermove', (e) => { if (isDrag) { modal.style.left = (e.clientX - startX) + 'px'; modal.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('pointerup', () => isDrag = false);
-        window.addEventListener('pointercancel', () => isDrag = false);
+        fond.querySelector('#frise-modele').innerHTML =
+            '<option value="">— Modèles —</option>'
+            + this.MODELES.map(m => `<option value="${m.cle}">${this.echapper(m.nom)}</option>`).join('');
+        fond.querySelector('#frise-style').innerHTML =
+            this.STYLES.map(s => `<option value="${s.cle}">${this.echapper(s.nom)}</option>`).join('');
 
-        document.getElementById('frise-start').addEventListener('input', (e) => { this.state.start = e.target.value; this.renderPreview(); });
-        document.getElementById('frise-btn-add').addEventListener('click', () => {
-            this.state.blocks.push({ color: ['#0984e3', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6'][this.state.blocks.length % 5], end: "Date" });
-            this.renderBlocksUI();
+        fond.querySelector('#frise-fermer').addEventListener('click', () => this.fermer());
+        fond.addEventListener('mousedown', (e) => { if (e.target === fond) this.fermer(); });
+
+        fond.querySelector('#frise-modele').addEventListener('change', (e) => {
+            if (!e.target.value) return;
+            this.etat = this.etatDuModele(e.target.value);
+            this.rendre();
         });
-        document.getElementById('frise-btn-cancel').addEventListener('click', () => {
-            // Renoncer ne doit pas laisser le mode armé : sans cela le
-            // tableau ne réagissait plus à rien.
-            modal.style.display = 'none'; this.editingImage = null; annulerModePlugin();
+        fond.querySelector('#frise-style').addEventListener('change', (e) => {
+            this.etat.style = e.target.value; this.rendre();
         });
-        document.getElementById('frise-btn-ok').addEventListener('click', () => {
-            modal.style.display = 'none';
-            createStampFromSVG(this.generateSVG(true), (stamp) => {
-                if (this.editingImage) {
-                    this.editingImage.src = stamp.src; this.editingImage.w = stamp.w; this.editingImage.h = stamp.h; this.editingImage.cw = stamp.w; this.editingImage.ch = stamp.h;
-                    this.editingImage.pluginData.state = JSON.parse(JSON.stringify(this.state)); this.editingImage = null; draw(); saveState();
-                } else { this.currentStamp = stamp; this.currentState = JSON.parse(JSON.stringify(this.state)); showToast("📌 Tamponnez la frise !"); }
+        fond.querySelector('#frise-echelle').addEventListener('change', (e) => {
+            this.etat.echelle = e.target.value; this.rendre();
+        });
+        fond.querySelector('#frise-titre').addEventListener('input', (e) => {
+            this.etat.titre = e.target.value; this.apercu();
+        });
+        ['noms', 'dates'].forEach(cle => {
+            fond.querySelector('#frise-opt-' + cle).addEventListener('change', (e) => {
+                this.etat.options[cle] = e.target.checked; this.apercu();
             });
         });
-
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('#bar-tools .btn, #bar-plugins .btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); setMode('frise');
-            this.editingImage = null; modal.style.display = 'flex'; this.renderBlocksUI(); e.stopPropagation();
+        fond.querySelector('#frise-ajouter-periode').addEventListener('click', () => {
+            const couleurs = ['#0984e3', '#e17055', '#00b894', '#fdcb6e', '#6c5ce7', '#d63031', '#636e72'];
+            const b = this.bornes(this.etat);
+            const derniere = this.etat.periodes[this.etat.periodes.length - 1];
+            const debut = derniere ? derniere.fin : b.debut;
+            this.etat.periodes.push({
+                nom: 'Nouvelle période', debut, fin: debut + Math.max(1, Math.round((b.fin - b.debut) / 6)),
+                couleur: couleurs[this.etat.periodes.length % couleurs.length]
+            });
+            this.rendre();
         });
+        fond.querySelector('#frise-ajouter-evenement').addEventListener('click', () => {
+            const b = this.bornes(this.etat);
+            this.etat.evenements.push({ annee: Math.round((b.debut + b.fin) / 2), libelle: 'Événement' });
+            this.rendre();
+        });
+        fond.querySelector('#frise-poser').addEventListener('click', () => this.poser());
     },
+
+    fermer: function () {
+        const fond = document.getElementById('frise-fond');
+        if (fond) fond.remove();
+        this.editingImage = null;
+    },
+
+    rendre: function () {
+        const fond = document.getElementById('frise-fond');
+        if (!fond) return;
+        fond.querySelector('#frise-modele').value = this.etat.modele || '';
+        fond.querySelector('#frise-style').value = this.etat.style;
+        fond.querySelector('#frise-echelle').value = this.etat.echelle;
+        fond.querySelector('#frise-titre').value = this.etat.titre || '';
+        fond.querySelector('#frise-opt-noms').checked = !!this.etat.options.noms;
+        fond.querySelector('#frise-opt-dates').checked = !!this.etat.options.dates;
+
+        // --- Les périodes ---
+        const boite = fond.querySelector('#frise-periodes');
+        boite.innerHTML = this.etat.periodes.map((p, i) => `
+            <div class="frise-ligne" data-periode="${i}">
+                <input type="color" value="${p.couleur}" data-champ="couleur" data-i="${i}">
+                <input type="text" value="${this.echapper(p.nom)}" data-champ="nom" data-i="${i}" class="frise-nom">
+                <input type="number" value="${p.debut}" data-champ="debut" data-i="${i}" class="frise-an" title="Début (négatif = av. J.-C.)">
+                <input type="number" value="${p.fin}" data-champ="fin" data-i="${i}" class="frise-an" title="Fin">
+                <button class="frise-x" data-retirer-periode="${i}" title="Retirer">✕</button>
+            </div>`).join('') || '<div class="atelier-vide">Aucune période.</div>';
+
+        // --- Les événements ---
+        const evs = fond.querySelector('#frise-evenements');
+        evs.innerHTML = this.etat.evenements.map((e, i) => `
+            <div class="frise-ligne" data-evenement="${i}">
+                <input type="number" value="${e.annee}" data-champev="annee" data-i="${i}" class="frise-an">
+                <input type="text" value="${this.echapper(e.libelle)}" data-champev="libelle" data-i="${i}" class="frise-nom">
+                <button class="frise-x" data-retirer-evenement="${i}" title="Retirer">✕</button>
+            </div>`).join('') || '<div class="atelier-vide">Aucun événement.</div>';
+
+        // Modifier une ligne ne doit pas reconstruire le panneau sous les
+        // doigts : on ne redessine que l'aperçu, et le champ garde le curseur.
+        fond.querySelectorAll('[data-champ]').forEach(el => {
+            el.addEventListener('keydown', (ev) => ev.stopPropagation());
+            el.addEventListener('input', () => {
+                const p = this.etat.periodes[Number(el.dataset.i)];
+                if (!p) return;
+                const champ = el.dataset.champ;
+                p[champ] = (champ === 'debut' || champ === 'fin') ? Number(el.value) : el.value;
+                this.apercu();
+            });
+        });
+        fond.querySelectorAll('[data-champev]').forEach(el => {
+            el.addEventListener('keydown', (ev) => ev.stopPropagation());
+            el.addEventListener('input', () => {
+                const e = this.etat.evenements[Number(el.dataset.i)];
+                if (!e) return;
+                const champ = el.dataset.champev;
+                e[champ] = (champ === 'annee') ? Number(el.value) : el.value;
+                this.apercu();
+            });
+        });
+        fond.querySelectorAll('[data-retirer-periode]').forEach(el => el.addEventListener('click', () => {
+            this.etat.periodes.splice(Number(el.dataset.retirerPeriode), 1);
+            this.etat.modele = '';                  // ce n'est plus le modèle tel quel
+            this.rendre();
+        }));
+        fond.querySelectorAll('[data-retirer-evenement]').forEach(el => el.addEventListener('click', () => {
+            this.etat.evenements.splice(Number(el.dataset.retirerEvenement), 1);
+            this.rendre();
+        }));
+
+        const b = this.bornes(this.etat);
+        fond.querySelector('#frise-compte').textContent =
+            `${this.etat.periodes.length} période(s), ${this.etat.evenements.length} événement(s) — `
+            + `de ${this.anneeEnClair(b.debut)} à ${this.anneeEnClair(b.fin)}`;
+        fond.querySelector('#frise-etat').textContent = this.etat.echelle === 'proportionnelle'
+            ? 'À l\'échelle : la largeur d\'une période dit sa durée.'
+            : 'Cases égales : chaque période occupe la même place, quelle que soit sa durée.';
+        this.apercu();
+    },
+
+    apercu: function () {
+        const zone = document.getElementById('frise-apercu');
+        if (!zone) return;
+        const fait = this.fabriquerSVG(this.etat, 900);
+        zone.innerHTML = fait.svg.replace(/width="\d+" height="(\d+)"/,
+            'width="100%" height="$1" style="max-width:100%"');
+    },
+
+    // ------------------------------------------------------------------
+    // LA POSE
+    // ------------------------------------------------------------------
+    poser: function () {
+        const fait = this.fabriquerSVG(this.etat, 1200);
+        const etat = JSON.parse(JSON.stringify(this.etat));
+        const enEdition = this.editingImage;
+        createStampFromSVG(fait.svg, (stamp) => {
+            if (enEdition) {
+                enEdition.src = stamp.src;
+                enEdition.cx = 0; enEdition.cy = 0;
+                enEdition.cw = stamp.w; enEdition.ch = stamp.h;
+                enEdition.h = enEdition.w * (stamp.h / stamp.w);
+                enEdition.pluginData = { id: 'friseTool', state: etat };
+                this.editingImage = null;
+                draw(); saveState();
+                if (typeof showToast === 'function') showToast('Frise mise à jour');
+            } else {
+                this.currentStamp = stamp;
+                this.currentState = etat;
+                setMode('frise');
+                if (typeof showToast === 'function') showToast('📌 Cliquez sur le tableau pour poser la frise');
+                draw();
+            }
+        });
+        this.fermer();
+    },
+
     edit: function (imgObj) {
-        this.editingImage = imgObj; this.state = JSON.parse(JSON.stringify(imgObj.pluginData.state));
-        document.getElementById('frise-builder-modal').style.display = 'flex'; this.renderBlocksUI();
-    },
-    renderBlocksUI: function () {
-        document.getElementById('frise-start').value = this.state.start;
-        const container = document.getElementById('frise-blocks'); container.innerHTML = '';
-        this.state.blocks.forEach((b, index) => {
-            container.innerHTML += `<div style="min-width: 100px; border:1px solid #dfe6e9; padding:6px; border-radius:6px; background:#f8f9fa; display:flex; flex-direction:column; gap:4px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-size:10px; font-weight:bold;">Période ${index + 1}</span><button style="border:none; background:transparent; cursor:pointer; color:#d63031; padding:0;" onclick="pluginFriseRemove(${index})">✕</button></div>
-                <div style="display:flex; gap:4px;">
-                    <input type="color" value="${b.color}" onchange="pluginFriseUpdate(${index}, 'color', this.value)" style="width:24px; height:24px; border:none; cursor:pointer; padding:0;">
-                    <input type="text" value="${b.end}" class="prompt-input" oninput="pluginFriseUpdate(${index}, 'end', this.value)" placeholder="Fin" style="padding:4px; font-size:11px; flex:1;">
-                </div>
-            </div>`;
-        });
-        window.pluginFriseRemove = (idx) => { this.state.blocks.splice(idx, 1); this.renderBlocksUI(); };
-        window.pluginFriseUpdate = (idx, key, val) => { this.state.blocks[idx][key] = val; this.renderPreview(); };
-        this.renderPreview();
-    },
-    renderPreview: function () { document.getElementById('frise-preview').innerHTML = this.generateSVG(false); },
-    generateSVG: function (isExport = false) {
-        const w = isExport ? 1000 : 440, h = isExport ? 150 : 100, mX = isExport ? 40 : 15, arrowW = isExport ? 40 : 20, thick = isExport ? 40 : 20, yTop = (h / 2) - (thick / 2), usableW = w - (mX * 2) - arrowW;
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${isExport ? w : '100%'}" height="${isExport ? h : '100%'}">`;
-        svg += `<polygon points="${mX},${yTop} ${mX + usableW},${yTop} ${mX + usableW},${yTop - 10} ${mX + usableW + arrowW},${h / 2} ${mX + usableW},${yTop + thick + 10} ${mX + usableW},${yTop + thick} ${mX},${yTop + thick}" fill="none" stroke="#2d3436" stroke-width="2" stroke-linejoin="round"/>`;
-        if (this.state.blocks.length > 0) {
-            const stepPx = usableW / this.state.blocks.length;
-            this.state.blocks.forEach((b, i) => {
-                const x = mX + (i * stepPx); svg += `<rect x="${x}" y="${yTop}" width="${stepPx}" height="${thick}" fill="${b.color}" fill-opacity="0.4"/>`;
-                svg += `<line x1="${x + stepPx}" y1="${yTop}" x2="${x + stepPx}" y2="${yTop + thick + 10}" stroke="#2d3436" stroke-width="2"/>`;
-                svg += `<text x="${x + stepPx}" y="${yTop + thick + 25}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 16 : 11}" fill="#2d3436" text-anchor="middle">${b.end}</text>`;
-            });
+        const etat = imgObj.pluginData && imgObj.pluginData.state;
+        // Les frises d'avant n'avaient ni style, ni périodes nommées : on
+        // reprend ce qu'on peut plutôt que de repartir de zéro.
+        if (etat && etat.periodes) { this.ouvrir(etat, imgObj); return; }
+        if (etat && etat.blocks) {
+            const couleurs = etat.blocks.map(b => b.couleur || b.color);
+            const dates = [Number(etat.start)].concat(etat.blocks.map(b => Number(b.end)));
+            const repris = this.etatDuModele('vide');
+            repris.modele = '';
+            repris.periodes = etat.blocks.map((b, i) => ({
+                nom: 'Période ' + (i + 1),
+                debut: isFinite(dates[i]) ? dates[i] : i,
+                fin: isFinite(dates[i + 1]) ? dates[i + 1] : i + 1,
+                couleur: couleurs[i] || '#0984e3'
+            }));
+            repris.evenements = [];
+            this.ouvrir(repris, imgObj);
+            if (typeof showToast === 'function') showToast('Frise reprise de la version précédente');
+            return;
         }
-        svg += `<line x1="${mX}" y1="${yTop}" x2="${mX}" y2="${yTop + thick + 10}" stroke="#2d3436" stroke-width="2"/><text x="${mX}" y="${yTop + thick + 25}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 16 : 11}" fill="#2d3436" text-anchor="middle">${this.state.start}</text></svg>`;
-        return svg;
+        this.ouvrir(undefined, imgObj);
     },
-    onDraw: function (ctx) { if (mode === 'frise' && this.currentStamp && mouseLogicalPos) { ctx.globalAlpha = 0.5; ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2); ctx.globalAlpha = 1.0; } },
-    onPointerDown: function (rawPos) { if (mode === 'frise' && this.currentStamp) { images.push({ id: nextId++, x: rawPos.x - this.currentStamp.w / 2, y: rawPos.y - this.currentStamp.h / 2, w: this.currentStamp.w, h: this.currentStamp.h, cx: 0, cy: 0, cw: this.currentStamp.w, ch: this.currentStamp.h, src: this.currentStamp.src, z: globalZ++, pluginData: { id: 'friseTool', state: this.currentState } }); saveState(); setMode('pointer'); this.currentStamp = null; return true; } return false; }
+
+    onDraw: function (ctx) {
+        if (mode === 'frise' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            const t = this.currentStamp;
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(t.img, mouseLogicalPos.x - t.w / 2, mouseLogicalPos.y - t.h / 2, t.w, t.h);
+            ctx.globalAlpha = 1;
+        }
+    },
+
+    onPointerMove: function (rawPos) {
+        if (mode === 'frise' && this.currentStamp) {
+            mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
+            draw();
+        }
+        return false;
+    },
+
+    onPointerDown: function (rawPos) {
+        if (mode === 'frise' && this.currentStamp) {
+            const t = this.currentStamp;
+            images.push({
+                id: nextId++, x: rawPos.x - t.w / 2, y: rawPos.y - t.h / 2,
+                w: t.w, h: t.h, cx: 0, cy: 0, cw: t.w, ch: t.h,
+                src: t.src, z: globalZ++,
+                pluginData: { id: 'friseTool', state: this.currentState }
+            });
+            this.currentStamp = null;
+            saveState(); setMode('pointer'); draw();
+            return true;
+        }
+        return false;
+    }
 });
 
 
@@ -7675,14 +8276,15 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
         if (fond) fond.remove();
         fond = document.createElement('div');
         fond.id = 'carte-fond';
+        fond.className = 'atelier-fond';
         fond.innerHTML = `
-        <div id="carte-fenetre">
-            <div class="carte-tete">
+        <div id="carte-fenetre" class="atelier-fenetre">
+            <div class="atelier-tete">
                 <b>🗺️ Atelier cartes</b>
                 <span style="flex:1"></span>
-                <button class="carte-btn" id="carte-fermer">✕</button>
+                <button class="atelier-btn" id="carte-fermer">✕</button>
             </div>
-            <div class="carte-corps">
+            <div class="atelier-corps">
                 <div class="carte-plan">
                     <div class="carte-outils">
                         <select id="carte-fond-choix"></select>
@@ -7695,30 +8297,30 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
                     <div id="carte-dessin"></div>
                     <div id="carte-etat"></div>
                 </div>
-                <div class="carte-panneau">
-                    <label class="carte-label">Titre de la carte</label>
+                <div class="atelier-panneau">
+                    <label class="atelier-label">Titre de la carte</label>
                     <input type="text" id="carte-titre" placeholder="(sans titre)">
 
-                    <label class="carte-label">Légendes</label>
+                    <label class="atelier-label">Légendes</label>
                     <div id="carte-legendes"></div>
-                    <button class="carte-btn carte-large" id="carte-ajouter-legende">+ Ajouter une légende</button>
+                    <button class="atelier-btn atelier-large" id="carte-ajouter-legende">+ Ajouter une légende</button>
 
-                    <label class="carte-label">Pays sélectionné</label>
+                    <label class="atelier-label">Pays sélectionné</label>
                     <div id="carte-fiche">
-                        <div class="carte-vide">Cliquez un pays sur la carte.</div>
+                        <div class="atelier-vide">Cliquez un pays sur la carte.</div>
                     </div>
 
-                    <label class="carte-label">Affichage</label>
-                    <label class="carte-case"><input type="checkbox" id="carte-opt-noms"> Écrire le nom des pays retenus</label>
-                    <label class="carte-case"><input type="checkbox" id="carte-opt-legende" checked> Montrer la légende</label>
-                    <label class="carte-case"><input type="checkbox" id="carte-opt-contour" checked> Tracer les frontières</label>
+                    <label class="atelier-label">Affichage</label>
+                    <label class="atelier-case"><input type="checkbox" id="carte-opt-noms"> Écrire le nom des pays retenus</label>
+                    <label class="atelier-case"><input type="checkbox" id="carte-opt-legende" checked> Montrer la légende</label>
+                    <label class="atelier-case"><input type="checkbox" id="carte-opt-contour" checked> Tracer les frontières</label>
                 </div>
             </div>
-            <div class="carte-pied">
+            <div class="atelier-pied">
                 <span id="carte-compte"></span>
                 <span style="flex:1"></span>
-                <button class="carte-btn" id="carte-tout-effacer">Tout désélectionner</button>
-                <button class="carte-btn carte-vert" id="carte-poser">Poser au tableau</button>
+                <button class="atelier-btn" id="carte-tout-effacer">Tout désélectionner</button>
+                <button class="atelier-btn atelier-vert" id="carte-poser">Poser au tableau</button>
             </div>
         </div>`;
         document.body.appendChild(fond);
@@ -7867,7 +8469,7 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
         const fiche = fond.querySelector('#carte-fiche');
         const p = this.paysChoisi ? this.monde().find(x => x.i === this.paysChoisi) : null;
         if (!p) {
-            fiche.innerHTML = '<div class="carte-vide">Cliquez un pays sur la carte.</div>';
+            fiche.innerHTML = '<div class="atelier-vide">Cliquez un pays sur la carte.</div>';
         } else {
             const legende = this.legendeDuPays(this.etat, p.i);
             fiche.innerHTML = `

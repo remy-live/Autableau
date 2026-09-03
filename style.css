@@ -7666,7 +7666,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    Une fenêtre en deux volets : la carte qu'on clique à gauche, ce qu'on lui
    dit à droite. Le fond de carte est fourni avec l'application.
    ============================================================ */
-#carte-fond {
+.atelier-fond {
     position: fixed;
     inset: 0;
     z-index: 10000;
@@ -7678,7 +7678,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     font-family: sans-serif;
 }
 
-#carte-fenetre {
+.atelier-fenetre {
     width: min(1080px, 96vw);
     height: min(720px, 94vh);
     background: #fdfdfd;
@@ -7689,7 +7689,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     overflow: hidden;
 }
 
-.carte-tete {
+.atelier-tete {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -7700,7 +7700,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     font-size: 14px;
 }
 
-.carte-corps { flex: 1; display: flex; min-height: 0; }
+.atelier-corps { flex: 1; display: flex; min-height: 0; }
 
 .carte-plan {
     flex: 1;
@@ -7745,7 +7745,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .carte-pays:hover { fill-opacity: 0.72; }
 .carte-pays.choisi { stroke: #6c5ce7; stroke-width: 2; }
 
-.carte-panneau {
+.atelier-panneau {
     width: 320px;
     border-left: 1px solid rgba(0, 0, 0, 0.10);
     padding: 10px 12px;
@@ -7755,7 +7755,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     gap: 6px;
 }
 
-.carte-label {
+.atelier-label {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -7763,8 +7763,9 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     margin-top: 6px;
 }
 
-.carte-panneau input[type="text"],
-.carte-panneau textarea {
+.atelier-panneau input[type="text"],
+.atelier-panneau textarea,
+.atelier-panneau input[type="number"] {
     font: inherit;
     font-size: 13px;
     padding: 7px 9px;
@@ -7793,13 +7794,13 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .carte-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; }
 .carte-x:hover { color: #e11d48; }
 
-.carte-vide { font-size: 12px; color: #94a3b8; padding: 8px 0; }
+.atelier-vide { font-size: 12px; color: #94a3b8; padding: 8px 0; }
 .carte-nom { font-size: 15px; font-weight: 600; color: #2d3436; }
 .carte-continent { font-size: 11px; color: #94a3b8; font-weight: 400; }
 .carte-appartient { font-size: 12px; color: #64748b; margin: 2px 0 6px; }
-.carte-case { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #334155; }
+.atelier-case { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #334155; }
 
-.carte-pied {
+.atelier-pied {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -7809,7 +7810,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     color: #64748b;
 }
 
-.carte-btn {
+.atelier-btn {
     font: inherit;
     font-size: 13px;
     padding: 7px 12px;
@@ -7820,22 +7821,85 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     cursor: pointer;
 }
 
-.carte-btn:hover { background: #eef2ff; }
-.carte-large { width: 100%; }
-.carte-vert { background: #00b894; border-color: #00b894; color: #fff; font-weight: 600; }
-.carte-vert:hover { background: #00a383; }
-.carte-tete .carte-btn { background: transparent; border-color: rgba(255, 255, 255, 0.25); color: #fff; }
-.carte-tete .carte-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.atelier-btn:hover { background: #eef2ff; }
+.atelier-large { width: 100%; }
+.atelier-vert { background: #00b894; border-color: #00b894; color: #fff; font-weight: 600; }
+.atelier-vert:hover { background: #00a383; }
+.atelier-tete .atelier-btn { background: transparent; border-color: rgba(255, 255, 255, 0.25); color: #fff; }
+.atelier-tete .atelier-btn:hover { background: rgba(255, 255, 255, 0.12); }
 
 @media (max-width: 860px) {
-    .carte-corps { flex-direction: column; }
-    .carte-panneau { width: auto; border-left: none; border-top: 1px solid rgba(0, 0, 0, 0.10); }
+    .atelier-corps { flex-direction: column; }
+    .atelier-panneau { width: auto; border-left: none; border-top: 1px solid rgba(0, 0, 0, 0.10); }
 }
 
-.dark-mode #carte-fenetre { background: #1e272e; color: #dfe6e9; }
-.dark-mode .carte-panneau { border-left-color: #3d4852; }
-.dark-mode .carte-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
-.dark-mode .carte-panneau input, .dark-mode .carte-panneau textarea,
+.dark-mode .atelier-fenetre { background: #1e272e; color: #dfe6e9; }
+.dark-mode .atelier-panneau { border-left-color: #3d4852; }
+.dark-mode .atelier-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
+.dark-mode .atelier-panneau input, .dark-mode .atelier-panneau textarea,
 .dark-mode .carte-outils select, .dark-mode .carte-outils input {
     background: #2f3941; color: #dfe6e9; border-color: #3d4852;
 }
+
+/* ============================================================
+   ATELIER FRISES
+   Même coquille que l'atelier cartes : l'aperçu à gauche, ce qu'on lui dit
+   à droite. Une frise dit d'abord une DURÉE — l'aperçu doit donc être large.
+   ============================================================ */
+.frise-plan {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 10px 12px;
+    gap: 8px;
+}
+
+.frise-outils { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.frise-outils select {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 7px;
+    background: #fff;
+}
+
+#frise-apercu {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    border-radius: 10px;
+    padding: 8px;
+    overflow: auto;
+}
+
+#frise-etat { font-size: 11px; color: #64748b; min-height: 14px; }
+.frise-panneau { width: 360px; }
+
+/* Une ligne = une période ou un événement. Les champs d'année restent courts :
+   c'est le nom qui a besoin de place. */
+.frise-ligne {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 2px;
+}
+
+.frise-ligne input[type="color"] { width: 28px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; flex: none; }
+.frise-ligne .frise-nom { flex: 1; min-width: 0; padding: 5px 7px; font-size: 13px; }
+.frise-ligne .frise-an { width: 62px; flex: none; padding: 5px 4px; font-size: 12px; text-align: center; }
+.frise-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; flex: none; }
+.frise-x:hover { color: #e11d48; }
+
+@media (max-width: 860px) {
+    .frise-panneau { width: auto; }
+}
+
+.dark-mode .frise-outils select { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
+.dark-mode #frise-apercu { background: #232b31; border-color: #3d4852; }
