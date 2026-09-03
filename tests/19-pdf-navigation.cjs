@@ -256,6 +256,207 @@ module.exports = async function (browser) {
     r.verifie('il s\'efface quand on tourne la page', bloc.cacheAilleurs, JSON.stringify(bloc));
     r.egal('sans être supprimé', bloc.toujoursLa, 1);
 
+    // --- CE QU'ON ÉCRIT SUR LE DOCUMENT PART AVEC LUI ---
+    // L'encre se collait à ce qu'elle annotait, les blocs de texte non : on
+    // déplaçait le PDF et les corrections écrites restaient en l'air.
+    const colleAuDoc = await page.evaluate(async () => {
+        setMode('pointer');
+        texts.length = 0; freehands.length = 0;
+        const img = images[0];
+        img.x = -300; img.y = -220; img.w = 600; img.h = 440; img.angle = 0;
+        await allerALaPage(img, 1);
+        const t = { id: nextId++, x: img.x + 80, y: img.y + 90, content: 'Correction',
+                    color: '#000', fontSize: 24, lineHeight: 29, fontFamily: 'sans-serif',
+                    align: 'left', z: globalZ++ };
+        accrocherLeTexte(t);
+        texts.push(t);
+        const accroche = t.surObjet && t.surObjet.type === 'image' && t.surObjet.id === img.id;
+
+        // Déplacement : la même distance, exactement
+        const avant = { x: t.x, y: t.y };
+        selectedItems = [{ type: 'image', id: img.id }];
+        deplacerLesTextes('image', img.id, 40, -25);
+        img.x += 40; img.y -= 25;
+        const suivi = { dx: Math.round(t.x - avant.x), dy: Math.round(t.y - avant.y) };
+
+        // Agrandissement : la place SUR le document et la taille de la police
+        const boiteAvant = boiteDeLHote('image', img);
+        const relX = (t.x - img.x) / img.w, relY = (t.y - img.y) / img.h;
+        img.w *= 2; img.h *= 2;
+        etirerLesTextes('image', img.id, boiteAvant, boiteDeLHote('image', img));
+        const apresEtirement = {
+            relX: Math.round(((t.x - img.x) / img.w) * 1000) / 1000,
+            relY: Math.round(((t.y - img.y) / img.h) * 1000) / 1000,
+            attenduX: Math.round(relX * 1000) / 1000, attenduY: Math.round(relY * 1000) / 1000,
+            taille: Math.round(t.fontSize), interligne: Math.round(t.lineHeight)
+        };
+
+        // L'hôte s'en va : le bloc reste, mais redevient libre
+        decrocherLesTraits('image', img.id);
+        return { accroche, suivi, apresEtirement, libre: !t.surObjet };
+    });
+    r.verifie('un bloc écrit sur le document lui appartient', colleAuDoc.accroche,
+        JSON.stringify(colleAuDoc));
+    r.egal('il suit le document quand on le déplace', colleAuDoc.suivi, { dx: 40, dy: -25 });
+    r.egal('il garde sa place sur la page quand on agrandit le document',
+        [colleAuDoc.apresEtirement.relX, colleAuDoc.apresEtirement.relY],
+        [colleAuDoc.apresEtirement.attenduX, colleAuDoc.apresEtirement.attenduY]);
+    r.egal('et sa police suit l\'échelle', colleAuDoc.apresEtirement.taille, 48);
+    r.egal('l\'interligne avec elle', colleAuDoc.apresEtirement.interligne, 58);
+    r.verifie('le document retiré, le bloc reste mais redevient libre', colleAuDoc.libre,
+        JSON.stringify(colleAuDoc));
+
+    // Le vrai chemin, du clic au déplacement à la souris : écrire sur le
+    // document avec l'outil Texte, puis tirer le document et voir le bloc
+    // partir avec lui. (Appeler les fonctions à la main ne prouve pas
+    // qu'elles sont branchées.)
+    const bout = await page.evaluate(async () => {
+        texts.length = 0; freehands.length = 0;
+        const img = images[0];
+        img.x = -300; img.y = -220; img.w = 600; img.h = 440; img.angle = 0;
+        montrerToutLeDocument(img);
+        selectedItems = []; setMode('text');
+        zoom = 1; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
+        return { x: Math.round(panX + (img.x + 120) * zoom), y: Math.round(panY + (img.y + 120) * zoom),
+                 prise: { x: Math.round(panX + (img.x + 480) * zoom), y: Math.round(panY + (img.y + 380) * zoom) } };
+    });
+    await page.mouse.click(bout.x, bout.y);
+    await page.waitForTimeout(150);
+    await page.keyboard.type('Corrigé');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
+    const ecrit = await page.evaluate(() => ({
+        blocs: texts.length,
+        accroche: texts[0] && texts[0].surObjet ? texts[0].surObjet.type + ':' + (texts[0].surObjet.id === images[0].id) : null,
+        x: texts[0] && Math.round(texts[0].x), y: texts[0] && Math.round(texts[0].y)
+    }));
+    r.egal('le bloc écrit à l\'outil Texte est posé', ecrit.blocs, 1);
+    r.egal('et il s\'accroche tout seul au document', ecrit.accroche, 'image:true');
+
+    await page.evaluate(() => {
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        draw();
+    });
+    await page.mouse.move(bout.prise.x, bout.prise.y);
+    await page.mouse.down();
+    await page.mouse.move(bout.prise.x + 70, bout.prise.y + 45, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const traine = await page.evaluate(() => ({
+        image: Math.round(images[0].x), texte: Math.round(texts[0].x),
+        dyTexte: Math.round(texts[0].y)
+    }));
+    r.verifie('tirer le document emmène le bloc avec lui',
+        traine.texte === ecrit.x + 70 && traine.dyTexte === ecrit.y + 45,
+        JSON.stringify({ ecrit, traine }));
+
+    // --- ZOOMER LA PAGE DANS SON CADRE ---
+    // Ce zoom-là n'est pas celui du tableau : le cadre ne bouge pas, c'est
+    // l'image qui défile dessous. L'annotation doit rester sur SON mot.
+    const zoomPage = await page.evaluate(async () => {
+        setMode('pointer');
+        texts.length = 0; freehands.length = 0;
+        const img = images[0];
+        img.x = -300; img.y = -220; img.w = 600; img.h = 440; img.angle = 0;
+        montrerToutLeDocument(img);
+        const t = { id: nextId++, x: img.x + 150, y: img.y + 120, content: 'ici',
+                    color: '#000', fontSize: 24, lineHeight: 29, fontFamily: 'sans-serif',
+                    align: 'left', z: globalZ++ };
+        accrocherLeTexte(t); texts.push(t);
+        const trait = { id: nextId++, points: [{ x: img.x + 200, y: img.y + 200 },
+                                               { x: img.x + 260, y: img.y + 205 }],
+                        color: '#e6194b', width: 6, z: globalZ++ };
+        trait.surObjet = { type: 'image', id: img.id };
+        freehands.push(trait);
+
+        // Le pixel d'image que l'annotation désigne : c'est lui qui ne doit
+        // pas changer, quoi qu'on fasse au cadrage.
+        const pixel = (X, Y) => ({
+            x: Math.round(img.cx + (X - img.x) * (img.cw / img.w)),
+            y: Math.round(img.cy + (Y - img.y) * (img.ch / img.h))
+        });
+        const avantTexte = pixel(t.x, t.y);
+        const avantTrait = pixel(trait.points[0].x, trait.points[0].y);
+
+        zoomerPage(img, { x: img.x + img.w / 2, y: img.y + img.h / 2 }, 1.8);
+        const apresZoom = { texte: pixel(t.x, t.y), trait: pixel(trait.points[0].x, trait.points[0].y),
+                            taille: Math.round(t.fontSize), epaisseur: Math.round(trait.width) };
+
+        // Puis on fait coulisser la page dans son cadre
+        demarrerGlissePage(img, { x: img.x + 100, y: img.y + 100 });
+        poursuivreGlissePage({ x: img.x + 160, y: img.y + 140 });
+        glissePage = null;
+        const apresGlisse = { texte: pixel(t.x, t.y), trait: pixel(trait.points[0].x, trait.points[0].y) };
+
+        // Et « page entière » remet tout d'aplomb
+        montrerToutLeDocument(img);
+        const apresEntiere = { texte: pixel(t.x, t.y) };
+        return { avantTexte, avantTrait, apresZoom, apresGlisse, apresEntiere };
+    });
+    r.egal('en zoomant la page, le texte reste sur son mot',
+        zoomPage.apresZoom.texte, zoomPage.avantTexte);
+    r.egal('et le trait sur le sien', zoomPage.apresZoom.trait, zoomPage.avantTrait);
+    r.verifie('l\'annotation grossit avec la page',
+        zoomPage.apresZoom.taille > 30 && zoomPage.apresZoom.epaisseur > 8, JSON.stringify(zoomPage));
+    r.egal('en faisant coulisser la page, elle reste dessus aussi',
+        zoomPage.apresGlisse.texte, zoomPage.avantTexte);
+    r.egal('« page entière » ne l\'égare pas non plus',
+        zoomPage.apresEntiere.texte, zoomPage.avantTexte);
+
+    // --- ZOOMER FORT NE DOIT PAS PIXELLISER ---
+    const finesse = await page.evaluate(async () => {
+        const img = images[0];
+        montrerToutLeDocument(img);
+        const d = documentsPdf.get(img.pluginData.cle);
+        // On zoome dans la page : un quart de sa largeur remplit le cadre
+        img.w = 600; zoom = 1;
+        img.cw = imageCache[img.src].naturalWidth / 4; img.ch = img.cw * (img.h / img.w);
+        const avant = { l: imageCache[img.src].naturalWidth, cw: img.cw,
+                        echelle: d.rendus.get(img.pluginData.page).echelle };
+        const demande = finesseDemandee(img);
+        const refait = await affinerLaPage(img);
+        const apres = { l: imageCache[img.src].naturalWidth, cw: img.cw,
+                        echelle: d.rendus.get(img.pluginData.page).echelle };
+        // La part de page montrée doit être EXACTEMENT la même
+        return { avant, apres, demande, refait,
+                 partAvant: Math.round((avant.cw / avant.l) * 1000),
+                 partApres: Math.round((apres.cw / apres.l) * 1000) };
+    });
+    r.verifie('zoomer fort demande plus de pixels que la page n\'en a',
+        finesse.demande > 2, JSON.stringify(finesse));
+    r.verifie('la page est alors redessinée plus finement', finesse.refait
+        && finesse.apres.echelle > finesse.avant.echelle
+        && finesse.apres.l > finesse.avant.l, JSON.stringify(finesse));
+    r.egal('et l\'on montre exactement la même part de page', finesse.partApres, finesse.partAvant);
+
+    const inutile = await page.evaluate(async () => {
+        const img = images[0];
+        montrerToutLeDocument(img);
+        img.w = 200; zoom = 1;              // la page est montrée petite
+        return { demande: Math.round(finesseDemandee(img) * 100) / 100, refait: await affinerLaPage(img) };
+    });
+    r.verifie('une page montrée petite n\'est pas redessinée pour rien',
+        inutile.refait === false, JSON.stringify(inutile));
+
+    // La molette : toutes ne parlent pas la même unité, et un cran ne saute pas
+    const molette = await page.evaluate(() => ({
+        pixels: Math.round(facteurDeMolette({ deltaY: -100, deltaMode: 0 }, 900) * 1000) / 1000,
+        lignes: Math.round(facteurDeMolette({ deltaY: -100 / 16, deltaMode: 1 }, 900) * 1000) / 1000,
+        pages: Math.round(facteurDeMolette({ deltaY: -100 / 400, deltaMode: 2 }, 900) * 1000) / 1000,
+        arriere: Math.round(facteurDeMolette({ deltaY: 100, deltaMode: 0 }, 900) * 1000) / 1000,
+        brutal: Math.round(facteurDeMolette({ deltaY: -3000, deltaMode: 0 }, 900) * 1000) / 1000,
+        sansBorne: Math.round(Math.exp(3000 / 900) * 1000) / 1000
+    }));
+    r.egal('la molette en lignes fait le même pas qu\'en pixels', molette.lignes, molette.pixels);
+    r.egal('et la molette en pages aussi', molette.pages, molette.pixels);
+    r.verifie('un pas de molette reste doux', molette.pixels < 1.13 && molette.pixels > 1.05,
+        JSON.stringify(molette));
+    r.verifie('en arrière, le pas est l\'exact inverse',
+        Math.abs(molette.arriere * molette.pixels - 1) < 0.002, JSON.stringify(molette));
+    r.verifie('et même un geste brutal ne fait pas un bond',
+        molette.brutal < 1.2 && molette.sansBorne > 20, JSON.stringify(molette));
+
     // --- LE VOLET : LES VIGNETTES ---
     // Le crayon avait vidé la sélection : on reprend le document en main,
     // sans quoi la barre — et son bouton — ne sont pas là.
@@ -320,6 +521,49 @@ module.exports = async function (browser) {
     r.verifie('et le repère a une taille sensée',
         !!surligne.premier && surligne.premier.l > 1 && surligne.premier.h > 1, JSON.stringify(surligne));
 
+    // Le surlignage doit épouser les LETTRES. Vérité de terrain : l'encre
+    // réellement peinte sur la page rendue. La bande partait du haut de la
+    // police et s'arrêtait à la ligne de base — posée trop haut, elle coupait
+    // le bas des mots : on les croyait biffés plutôt qu'éclairés.
+    const colle = await page.evaluate(async () => {
+        const img = images[0];
+        const d = documentsPdf.get(img.pluginData.cle);
+        const fiche = await texteDeLaPage(d, 2);
+        const ligne = zonesDuMot(fiche, 'Page deux')[0];
+        const debut = zonesDuMot(fiche, 'Page')[0];
+        const fin = zonesDuMot(fiche, 'deux')[0];
+        // La boîte de l'encre de la page rendue
+        const im = imageCache[img.src];
+        const c = document.createElement('canvas');
+        c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0);
+        const px = g.getImageData(0, 0, c.width, c.height).data;
+        let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+            const i = (y * c.width + x) * 4;
+            if ((px[i] + px[i + 1] + px[i + 2]) / 3 < 128) {
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        const r = z => ({ g: Math.round(z.x), d: Math.round(z.x + z.l),
+                          h: Math.round(z.y), b: Math.round(z.y + z.h) });
+        return { encre: { g: x0, d: x1, h: y0, b: y1 }, ligne: r(ligne), debut: r(debut), fin: r(fin) };
+    });
+    r.verifie('la bande commence au haut des lettres, pas au-dessus',
+        Math.abs(colle.ligne.h - colle.encre.h) <= 4, JSON.stringify(colle));
+    r.verifie('et descend jusqu\'au bas des jambages',
+        colle.ligne.b >= colle.encre.b - 1 && colle.ligne.b <= colle.encre.b + 5, JSON.stringify(colle));
+    r.verifie('elle couvre le mot sans le déborder franchement',
+        colle.ligne.g <= colle.encre.g && colle.ligne.g >= colle.encre.g - 14
+        && colle.ligne.d >= colle.encre.d && colle.ligne.d <= colle.encre.d + 14, JSON.stringify(colle));
+    r.verifie('le premier mot est surligné à gauche de la ligne',
+        Math.abs(colle.debut.g - colle.ligne.g) <= 6 && colle.debut.d < colle.ligne.d - 40,
+        JSON.stringify(colle));
+    r.verifie('et le dernier à droite',
+        Math.abs(colle.fin.d - colle.ligne.d) <= 6 && colle.fin.g > colle.ligne.g + 40,
+        JSON.stringify(colle));
+
     const efface = await page.evaluate(async () => {
         await allerALaPage(images[0], 1);
         return (images[0].pluginData.surlignes || []).length;
@@ -350,6 +594,49 @@ module.exports = async function (browser) {
     await page.click('#dv-fermer');
     const ferme = await page.evaluate(() => document.getElementById('doc-volet').classList.contains('visible'));
     r.verifie('le volet se ferme', !ferme);
+
+    // Compter les lettres ne suffit pas : un « M » vaut trois « i ». On pose
+    // une page qui met les deux côte à côte, et l'on prend pour vérité les
+    // deux paquets d'encre que l'espace sépare.
+    const largeurs = await page.evaluate(async ({ octets }) => {
+        images.length = 0; selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'largeurs.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 900));
+        const img = images[0];
+        const d = documentsPdf.get(img.pluginData.cle);
+        const fiche = await texteDeLaPage(d, 1);
+        const zone = zonesDuMot(fiche, 'MMMM')[0];
+        const im = imageCache[img.src];
+        const c = document.createElement('canvas');
+        c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0);
+        const px = g.getImageData(0, 0, c.width, c.height).data;
+        // Colonnes qui portent de l'encre, puis les paquets qu'elles forment
+        const pleines = [];
+        for (let x = 0; x < c.width; x++) {
+            for (let y = 0; y < c.height; y++) {
+                const i = (y * c.width + x) * 4;
+                if ((px[i] + px[i + 1] + px[i + 2]) / 3 < 128) { pleines.push(x); break; }
+            }
+        }
+        const paquets = [];
+        pleines.forEach(x => {
+            const dernier = paquets[paquets.length - 1];
+            if (dernier && x - dernier.d <= 18) dernier.d = x; else paquets.push({ g: x, d: x });
+        });
+        const naif = fiche.morceaux[0]
+            ? Math.round(fiche.morceaux[0].x + (5 / 9) * fiche.morceaux[0].l) : null;
+        return { paquets, zone: zone ? { g: Math.round(zone.x), d: Math.round(zone.x + zone.l) } : null, naif };
+    }, { octets: Array.from(petitPdf(['iiii MMMM'])) });
+    r.egal('la page d\'essai porte bien deux paquets d\'encre', largeurs.paquets.length, 2);
+    r.verifie('le surlignage tombe sur les M, pas au milieu de la ligne',
+        !!largeurs.zone && largeurs.paquets.length === 2
+        && Math.abs(largeurs.zone.g - largeurs.paquets[1].g) <= 12
+        && Math.abs(largeurs.zone.d - largeurs.paquets[1].d) <= 12, JSON.stringify(largeurs));
+    r.verifie('là où compter les lettres se serait trompé de beaucoup',
+        largeurs.paquets.length === 2 && Math.abs(largeurs.naif - largeurs.paquets[1].g) > 60,
+        JSON.stringify(largeurs));
+
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

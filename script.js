@@ -6452,6 +6452,8 @@ function finalizeText() {
                 }
                 // Écrit sur un PDF feuilletable : le bloc est de CETTE page
                 if (typeof noterLaPage === 'function') noterLaPage(newText, newText.x, newText.y);
+                // Et il appartient au document : il partira avec lui
+                if (typeof accrocherLeTexte === 'function') accrocherLeTexte(newText);
                 texts.push(newText); hasChanged = true; processMath(newText);
             }
         } else if (editingTextId) { deleteObject('text', editingTextId); hasChanged = true; }
@@ -7557,9 +7559,10 @@ canvas.addEventListener('pointermove', (e) => {
         // dans le même rapport.
         if (encreAvant && encreAvant.boite) {
             const dAngle = (obj.angle || 0) - encreAvant.angle;
-            if (dAngle) tournerLesTraits(type, obj.id, { x: encreAvant.boite.cx, y: encreAvant.boite.cy }, dAngle);
+            const centre = { x: encreAvant.boite.cx, y: encreAvant.boite.cy };
+            if (dAngle) { tournerLesTraits(type, obj.id, centre, dAngle); tournerLesTextes(type, obj.id, centre, dAngle); }
             const apres = boiteDeLHote(type, obj);
-            if (apres) etirerLesTraits(type, obj.id, encreAvant.boite, apres);
+            if (apres) { etirerLesTraits(type, obj.id, encreAvant.boite, apres); etirerLesTextes(type, obj.id, encreAvant.boite, apres); }
         }
         lastMouseX = e.clientX; lastMouseY = e.clientY;
     }
@@ -7615,6 +7618,9 @@ canvas.addEventListener('pointermove', (e) => {
             .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
         imgsToMove.forEach(iid => traitsAccrochesA('image', iid)
             .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
+        // Les blocs de texte écrits sur une image partent avec elle, de même
+        imgsToMove.forEach(iid => textesAccrochesA('image', iid)
+            .forEach(t => { if (!txtsToMove.has(t.id)) { t.x += dx; t.y += dy; } }));
         arcsToMove.forEach(aid => { const a = getObjectById('arc', aid); if (a) { a.cx += dx; a.cy += dy; } });
 
         lastMouseX = panX + currentLog.x * zoom;
@@ -7832,7 +7838,7 @@ canvas.addEventListener('wheel', (e) => {
     if (docPage && estUnDocumentPose(docPage) && modeDocument === 'page' && !docPage.locked) {
         const p = getRawLogicalPos(e);
         if (p.x >= docPage.x && p.x <= docPage.x + docPage.w && p.y >= docPage.y && p.y <= docPage.y + docPage.h) {
-            zoomerPage(docPage, p, Math.exp(-e.deltaY / 450));
+            zoomerPage(docPage, p, facteurDeMolette(e, 900));
             return;
         }
     }
@@ -7847,7 +7853,7 @@ canvas.addEventListener('wheel', (e) => {
         // multipliait le zoom par 2,7 — beaucoup trop brutal. Le pavé tactile,
         // lui, envoie de petites valeurs en rafale : la formule exponentielle
         // reste, on l'adoucit seulement.
-        let zoomFactor = Math.exp(-e.deltaY / 450);
+        let zoomFactor = facteurDeMolette(e, 450);
         let newZoom = zoom * zoomFactor;
 
         if (newZoom < 0.2) newZoom = 0.2;
@@ -7857,6 +7863,10 @@ canvas.addEventListener('wheel', (e) => {
         panX = e.clientX - mouseLogX * newZoom;
         panY = e.clientY - mouseLogY * newZoom;
         zoom = newZoom;
+        // Zoomer le tableau grossit le document autant que zoomer la page :
+        // il mérite d'être redessiné aussi finement.
+        const docNet = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+        if (docNet && typeof demanderAffinage === 'function') demanderAffinage(docNet);
     }
     // 2. DÉPLACEMENT À DEUX DOIGTS (Trackpad) ou Molette classique
     else {
@@ -9303,7 +9313,7 @@ async function dessinerPagePdf(doc, numero) {
     const g = c.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
     await page.render({ canvasContext: g, viewport }).promise;
-    return { src: c.toDataURL('image/jpeg', currentPdfQuality > 3 ? 0.75 : 0.85), l: c.width, h: c.height };
+    return { src: c.toDataURL('image/jpeg', currentPdfQuality > 3 ? 0.75 : 0.85), l: c.width, h: c.height, echelle: currentPdfQuality };
 }
 
 // Dessiner une page coûte cher — assez pour qu'un temps mort se voie devant
@@ -9335,6 +9345,74 @@ function rendreLaPage(d, numero) {
     d.enCours.set(numero, promesse);
     return promesse;
 }
+
+// ---------------------------------------------------
+// ZOOMER SANS QUE LA PAGE SE PIXELLISE
+// Une page rendue a une résolution. La grossir au-delà, c'est étirer des
+// pixels : on voyait les lettres s'escalier. On la redessine donc PLUS FINE
+// dès qu'on lui en demande davantage — c'est ce que fait tout lecteur de PDF.
+// Le cadrage (cx, cy, cw, ch) est en pixels d'image : il se met à l'échelle
+// en même temps, si bien que rien ne bouge à l'écran, tout devient net.
+// ---------------------------------------------------
+const FINESSE_MAX = 6;              // au plus six fois la taille naturelle
+const PIXELS_MAX = 16e6;            // et jamais une image démesurée
+let affinageDemande = null;
+
+// Combien de pixels d'écran pour un pixel d'image ? Au-delà de 1, on étire.
+function finesseDemandee(obj) {
+    if (!obj || !obj.cw || !obj.w) return 1;
+    return (obj.w * zoom) / obj.cw;
+}
+
+async function affinerLaPage(obj) {
+    const d = obj && obj.pluginData && documentsPdf.get(obj.pluginData.cle);
+    if (!d || !obj.pluginData.page) return false;
+    const besoin = finesseDemandee(obj);
+    if (besoin <= 1.1) return false;                 // la page est déjà assez fine
+
+    const numero = obj.pluginData.page;
+    const actuel = (d.rendus && d.rendus.get(numero)) || null;
+    const echelle = (actuel && actuel.echelle) || currentPdfQuality;
+    const page = await d.doc.getPage(numero);
+    const nature = page.getViewport({ scale: 1 });
+    let voulue = Math.min(FINESSE_MAX, echelle * besoin);
+    const trop = Math.sqrt((nature.width * nature.height * voulue * voulue) / PIXELS_MAX);
+    if (trop > 1) voulue = voulue / trop;
+    if (voulue <= echelle * 1.05) return false;      // le gain ne vaudrait pas le calcul
+
+    const viewport = page.getViewport({ scale: voulue });
+    const c = document.createElement('canvas');
+    c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport }).promise;
+    const rendu = { src: c.toDataURL('image/jpeg', 0.85), l: c.width, h: c.height, echelle: voulue };
+    await chargerImage(rendu.src);
+
+    // La page a pu changer pendant le calcul : on ne repeint pas au hasard.
+    if (obj.pluginData.page !== numero) return false;
+    const k = rendu.l / (actuel ? actuel.l : (imageCache[obj.src] || {}).naturalWidth || rendu.l);
+    obj.src = rendu.src;
+    obj.cx *= k; obj.cy *= k; obj.cw *= k; obj.ch *= k;
+    if (obj.pluginData.surlignes) {
+        obj.pluginData.surlignes = obj.pluginData.surlignes.map(z => ({
+            x: z.x * k, y: z.y * k, l: z.l * k, h: z.h * k
+        }));
+    }
+    if (d.rendus) d.rendus.set(numero, rendu);
+    draw();
+    return true;
+}
+window.affinerLaPage = affinerLaPage;
+
+// On n'affine pas à chaque cran de molette : on attend que le geste se pose.
+function demanderAffinage(obj) {
+    clearTimeout(affinageDemande);
+    affinageDemande = setTimeout(() => {
+        affinerLaPage(obj).catch(() => { /* on gardera la page telle quelle */ });
+    }, 260);
+}
+window.demanderAffinage = demanderAffinage;
 
 // La suivante et la précédente, sans bloquer : on les aura sous la main.
 function preparerLesVoisines(d, numero, total) {
@@ -9492,16 +9570,35 @@ async function texteDeLaPage(d, numero) {
         if (!s) return;
         const m = pdfjsLib.Util.transform(viewport.transform, it.transform);
         const haut = Math.hypot(m[2], m[3]) || (it.height * currentPdfQuality);
+        // pdf.js donne la fonte de chaque morceau, avec sa montée et sa
+        // descente : de quoi savoir jusqu'où vont vraiment les lettres.
+        const fonte = (contenu.styles && contenu.styles[it.fontName]) || {};
         morceaux.push({
             debut: plein.length, texte: s,
-            x: m[4], y: m[5] - haut,
-            l: (it.width || 0) * currentPdfQuality, h: haut
+            // m[5] est la LIGNE DE BASE, pas le haut du texte
+            x: m[4], base: m[5],
+            l: (it.width || 0) * currentPdfQuality, h: haut,
+            monte: (typeof fonte.ascent === 'number' && fonte.ascent > 0) ? fonte.ascent : 0.80,
+            descend: (typeof fonte.descent === 'number' && fonte.descent < 0) ? -fonte.descent : 0.24,
+            police: fonte.fontFamily || 'sans-serif'
         });
         plein += s + ' ';
     });
     const fiche = { plein, sansAccents: sansAccents(plein), morceaux };
     d.textes.set(numero, fiche);
     return fiche;
+}
+
+// Compter les lettres ne dit pas où commence un mot : un « M » vaut trois
+// « i ». On mesure donc les morceaux de texte, et on ramène cette mesure à la
+// largeur que pdf.js annonce pour le morceau entier — la police du navigateur
+// n'est pas celle du PDF, mais leurs proportions se ressemblent assez.
+let mesureurDeMots = null;
+function largeurMesuree(texte, police) {
+    if (!texte) return 0;
+    if (!mesureurDeMots) mesureurDeMots = document.createElement('canvas').getContext('2d');
+    mesureurDeMots.font = '100px ' + (police || 'sans-serif');
+    return mesureurDeMots.measureText(texte).width;
 }
 
 // Les rectangles à surligner sur la page rendue, en pixels de l'image.
@@ -9511,12 +9608,24 @@ function zonesDuMot(fiche, mot) {
     const zones = [];
     fiche.morceaux.forEach(m => {
         const dans = sansAccents(m.texte);
+        // Les indices ne se correspondent que si retirer les accents n'a pas
+        // changé la longueur : sinon on retombe sur le comptage des lettres.
+        const alignes = dans.length === m.texte.length;
+        const total = alignes ? largeurMesuree(m.texte, m.police) : 0;
+        const k = total > 0 ? m.l / total : 0;
         let i = dans.indexOf(cible);
         while (i !== -1) {
             const part = m.texte.length || 1;
+            const avant = k ? largeurMesuree(m.texte.slice(0, i), m.police) * k : (i / part) * m.l;
+            const large = k ? largeurMesuree(m.texte.substr(i, cible.length), m.police) * k
+                            : (cible.length / part) * m.l;
+            // La boîte suit les LETTRES, du haut des hampes au bas des
+            // jambages — et non la hauteur de la police depuis son sommet.
+            // Ainsi posée trop haut, elle coupait le bas des mots : on
+            // croyait les voir biffés plutôt qu'éclairés.
             zones.push({
-                x: m.x + (i / part) * m.l, y: m.y,
-                l: Math.max(3, (cible.length / part) * m.l), h: m.h
+                x: m.x + avant, y: m.base - m.monte * m.h,
+                l: Math.max(3, large), h: (m.monte + m.descend) * m.h
             });
             i = dans.indexOf(cible, i + cible.length);
         }
@@ -9841,9 +9950,11 @@ function documentEstRogne(obj) {
 function montrerToutLeDocument(obj) {
     const nat = obj && imageCache[obj.src];
     if (!nat || !nat.naturalWidth) return;
+    const avant = cadrageDe(obj);
     obj.cx = 0; obj.cy = 0;
     obj.cw = nat.naturalWidth; obj.ch = nat.naturalHeight;
     obj.h = obj.w * (nat.naturalHeight / nat.naturalWidth);
+    if (typeof suivreLeCadrage === 'function') suivreLeCadrage(obj, avant);
     if (obj.pluginData) obj.pluginData.pageRognee = false;
 }
 
@@ -10206,6 +10317,46 @@ function brancherBarreDocument() {
     });
 }
 
+// La page coulisse ou grossit DANS son cadre : le cadre ne bouge pas, c'est
+// l'image qui défile dessous. Ce qu'on a écrit sur la page doit défiler avec
+// elle — sans quoi une correction posée sur un mot se retrouvait trois lignes
+// plus bas dès qu'on zoomait pour montrer un détail. Ce n'est pas le zoom du
+// tableau, qui agrandit tout ensemble et ne pose pas ce problème.
+function cadrageDe(obj) {
+    return obj ? { cx: obj.cx, cy: obj.cy, cw: obj.cw, ch: obj.ch } : null;
+}
+
+function suivreLeCadrage(obj, avant) {
+    if (!obj || !avant || !avant.cw || !avant.ch || !obj.cw || !obj.ch) return;
+    if (avant.cx === obj.cx && avant.cy === obj.cy
+        && avant.cw === obj.cw && avant.ch === obj.ch) return;
+    // Un point du tableau se lit en pixels d'image avec l'ancien cadrage, puis
+    // se relit en coordonnées du tableau avec le nouveau. C'est affine.
+    const kx = avant.cw / obj.cw, ky = avant.ch / obj.ch;
+    const dx = (avant.cx - obj.cx) * (obj.w / obj.cw);
+    const dy = (avant.cy - obj.cy) * (obj.h / obj.ch);
+    const versX = (X) => obj.x + dx + (X - obj.x) * kx;
+    const versY = (Y) => obj.y + dy + (Y - obj.y) * ky;
+    const k = Math.sqrt(Math.abs(kx * ky));
+    const change = isFinite(k) && Math.abs(k - 1) > 0.001;
+
+    traitsAccrochesA('image', obj.id).forEach(f => {
+        f.points.forEach(p => { p.x = versX(p.x); p.y = versY(p.y); });
+        if (change) f.width = Math.max(0.5, (f.width || 2) * k);
+    });
+    textesAccrochesA('image', obj.id).forEach(t => {
+        t.x = versX(t.x); t.y = versY(t.y);
+        if (change) {
+            const avantTaille = t.fontSize || 24;
+            t.fontSize = Math.max(4, avantTaille * k);
+            if (t.lineHeight) t.lineHeight = t.lineHeight * (t.fontSize / avantTaille);
+            if (t.colWidth) t.colWidth = Math.max(20, t.colWidth * kx);
+        }
+    });
+}
+window.suivreLeCadrage = suivreLeCadrage;
+window.cadrageDe = cadrageDe;
+
 // Faire coulisser la page DANS son cadre : on ne bouge pas l'objet, on
 // déplace la fenêtre de découpe (cx, cy) sur l'image d'origine.
 function demarrerGlissePage(obj, pos) {
@@ -10221,16 +10372,32 @@ function demarrerGlissePage(obj, pos) {
 function poursuivreGlissePage(pos) {
     if (!glissePage) return;
     const g = glissePage, o = g.obj;
+    const avant = cadrageDe(o);
     const kx = o.cw / o.w, ky = o.ch / o.h;          // pixels d'image par pixel d'écran
     o.cx = Math.max(0, Math.min(g.natL - o.cw, g.cx0 - (pos.x - g.x0) * kx));
     o.cy = Math.max(0, Math.min(g.natH - o.ch, g.cy0 - (pos.y - g.y0) * ky));
+    suivreLeCadrage(o, avant);                       // l'annotation coulisse avec la page
     requestAnimationFrame(draw);
 }
+
+// Toutes les molettes ne parlent pas la même unité : les unes comptent en
+// pixels, d'autres en lignes, d'autres en pages. Sans les ramener au même
+// compte, le même geste faisait un pas minuscule sur une souris et un bond
+// sur une autre. On borne aussi le pas : un cran ne doit jamais sauter.
+function facteurDeMolette(e, douceur) {
+    const parLigne = 16, parPage = 400;
+    const pas = e.deltaMode === 1 ? e.deltaY * parLigne
+              : e.deltaMode === 2 ? e.deltaY * parPage : e.deltaY;
+    const borne = Math.max(-140, Math.min(140, pas));
+    return Math.exp(-borne / (douceur || 450));
+}
+window.facteurDeMolette = facteurDeMolette;
 
 // La molette zoome la page dans son cadre, autour du curseur.
 function zoomerPage(obj, pos, facteur) {
     const nat = imageCache[obj.src];
     if (!nat) return;
+    const avant = cadrageDe(obj);
     const ratioX = (pos.x - obj.x) / obj.w, ratioY = (pos.y - obj.y) / obj.h;
     const viseX = obj.cx + ratioX * obj.cw, viseY = obj.cy + ratioY * obj.ch;
     const min = 40;
@@ -10240,6 +10407,8 @@ function zoomerPage(obj, pos, facteur) {
     obj.cw = cw; obj.ch = ch;
     obj.cx = Math.max(0, Math.min(nat.naturalWidth - cw, viseX - ratioX * cw));
     obj.cy = Math.max(0, Math.min(nat.naturalHeight - ch, viseY - ratioY * ch));
+    suivreLeCadrage(obj, avant);                     // l'annotation grossit avec la page
+    demanderAffinage(obj);                           // et la page se redessine plus finement
     requestAnimationFrame(draw);
 }
 
@@ -13789,7 +13958,70 @@ function etirerLesTraits(type, id, avant, apres) {
 // l'annotation de quelqu'un serait pire que de la laisser flotter.
 function decrocherLesTraits(type, id) {
     traitsAccrochesA(type, id).forEach(f => { delete f.surObjet; });
+    textesAccrochesA(type, id).forEach(t => { delete t.surObjet; });
 }
+
+// ---------------------------------------------------
+// UN BLOC DE TEXTE ÉCRIT SUR UN DOCUMENT LUI APPARTIENT AUSSI
+// L'encre se collait à ce qu'elle annotait, les blocs de texte non : on
+// déplaçait le PDF et les corrections écrites restaient en l'air. Ils
+// suivent maintenant le même chemin — le déplacement, la rotation et
+// l'agrandissement de leur hôte.
+// ---------------------------------------------------
+function textesAccrochesA(type, id) {
+    return texts.filter(t => t.surObjet && t.surObjet.type === type && t.surObjet.id === id);
+}
+
+// Le bloc qu'on vient d'écrire appartient à l'image qui est dessous.
+function accrocherLeTexte(t) {
+    if (!encreAccrochee || !t) return null;
+    let choisi = null;
+    images.forEach(i => {
+        if (t.x < i.x || t.x > i.x + i.w || t.y < i.y || t.y > i.y + i.h) return;
+        if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
+    });
+    if (!choisi) return null;
+    t.surObjet = { type: 'image', id: choisi.id };
+    return choisi;
+}
+
+function deplacerLesTextes(type, id, dx, dy) {
+    textesAccrochesA(type, id).forEach(t => { t.x += dx; t.y += dy; });
+}
+
+function tournerLesTextes(type, id, centre, dAngle) {
+    if (!dAngle) return;
+    const co = Math.cos(dAngle), si = Math.sin(dAngle);
+    textesAccrochesA(type, id).forEach(t => {
+        const x = t.x - centre.x, y = t.y - centre.y;
+        t.x = centre.x + x * co - y * si;
+        t.y = centre.y + x * si + y * co;
+        t.angle = (t.angle || 0) + dAngle;
+    });
+}
+
+// Le même agrandissement : le bloc garde sa place SUR l'objet, et sa police
+// suit — sinon une correction écrite en 12 resterait en 12 sur un document
+// qu'on double, et ne serait plus à l'échelle de ce qu'elle corrige.
+function etirerLesTextes(type, id, avant, apres) {
+    if (!avant || !apres || !avant.w || !avant.h) return;
+    const kx = apres.w / avant.w, ky = apres.h / avant.h;
+    if (kx === 1 && ky === 1 && avant.x === apres.x && avant.y === apres.y) return;
+    const k = Math.sqrt(Math.abs(kx * ky));
+    textesAccrochesA(type, id).forEach(t => {
+        t.x = apres.x + (t.x - avant.x) * kx;
+        t.y = apres.y + (t.y - avant.y) * ky;
+        if (k > 0 && isFinite(k) && Math.abs(k - 1) > 0.001) {
+            const avantTaille = t.fontSize || 24;
+            t.fontSize = Math.max(4, avantTaille * k);
+            if (t.lineHeight) t.lineHeight = t.lineHeight * (t.fontSize / avantTaille);
+            if (t.colWidth) t.colWidth = Math.max(20, t.colWidth * kx);
+        }
+    });
+}
+
+window.accrocherLeTexte = accrocherLeTexte;
+window.textesAccrochesA = textesAccrochesA;
 
 window.accrocherLeTrait = accrocherLeTrait;
 window.traitsAccrochesA = traitsAccrochesA;
