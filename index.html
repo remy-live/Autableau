@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=59">
+    <link rel="stylesheet" href="style.css?v=60">
 </head>
 
 <body>
@@ -243,6 +243,31 @@
             </svg><span>Page</span></button>
         </span>
         <i class="doc-sep" id="doc-modes-sep"></i>
+        <!-- Sur un document en plein écran, les barres d'outils sont effacées :
+             de quoi écrire et dessiner dessus se trouve donc ici. Ce groupe ne
+             paraît qu'en mode Focus, là où rien d'autre ne l'offre. -->
+        <span id="doc-annoter" style="display:none;">
+            <button class="doc-btn doc-mode" id="doc-outil-main" data-mode="pointer"
+                data-tooltip="Sélection : reprendre le document en main">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 3l6.5 17 2.5-6.5 6.5-2.5z" />
+                </svg><span>Sélection</span></button>
+            <button class="doc-btn doc-mode" id="doc-outil-crayon" data-mode="freehand"
+                data-tooltip="Crayon : écrire à main levée sur le document">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg><span>Crayon</span></button>
+            <button class="doc-btn doc-mode" id="doc-outil-texte" data-mode="text"
+                data-tooltip="Texte : poser un bloc de texte sur le document">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 7V5h14v2M12 5v14M9.5 19h5" />
+                </svg><span>Texte</span></button>
+        </span>
+        <i class="doc-sep" id="doc-annoter-sep" style="display:none;"></i>
         <input type="range" id="doc-opacite" min="0.1" max="1" step="0.05" value="1" title="Opacité du document">
         <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
@@ -567,7 +592,14 @@
                             ◀ ▶ tournent les pages du PDF ; <b>Cadre</b> déplace et ouvre les bords,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
                             le passage sous le quadrillage, les proportions, le rognage, la duplication, le verrou
-                            (on dessine par-dessus) et ✕ pour le retirer.</li>
+                            (on dessine par-dessus) et ✕ pour le retirer. La <b>poignée ⠿</b> la déplace où
+                            l'on veut — double-clic dessus pour la remettre sous le document — et <b>–</b> la
+                            replie en une pastille 📄 quand elle cache le bas de la page.</li>
+                        <li><strong>Écrire sur un document en plein écran :</strong> en mode Focus (l'interrupteur
+                            <b>Focus</b>, ou <b>D</b> sur un document sélectionné) les barres d'outils s'effacent — la barre du
+                            document offre alors <b>Crayon</b>, <b>Texte</b> et <b>Sélection</b> pour annoter la
+                            page sans quitter le plein écran. La barre de style revient avec l'outil, pour
+                            choisir sa couleur et son épaisseur ; <b>Sélection</b> rend le document en main.</li>
                         <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
                             sur place), Google Drive, ou votre nuage Nextcloud. Quatre présentations (liste,
@@ -1830,7 +1862,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=126"></script>
+    <script src="script.js?v=127"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=74"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

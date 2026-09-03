@@ -1171,6 +1171,10 @@ function arrangeToolbars() {
 function toggleFocusMode() {
     const enFocus = document.body.classList.toggle('focus-mode');
     if (typeof ajusterLargeurDuTitre === 'function') ajusterLargeurDuTitre();
+    // Hors du Focus, les vraies barres d'outils sont revenues : la barre du
+    // document n'a plus à retenir la page qu'on annotait.
+    if (!enFocus && typeof docEnAnnotation !== 'undefined') docEnAnnotation = null;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
     // On quitte le mode Focus : la présentation se termine avec lui, et le
     // fond sombre du pourtour de la page s'en va.
     if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
@@ -3946,7 +3950,9 @@ function brancherLaRechercheDeLAide() {
 // « data-tooltip » sert aussi de nom d'outil sous l'icône, il doit rester net.
 function poserRaccourcisSurLesBoutons() {
     RACCOURCIS_OUTILS.forEach(r => {
-        document.querySelectorAll('.btn[data-mode="' + r.mode + '"]')
+        // Les outils de la barre du document portent le même « data-mode » :
+        // ils méritent la même touche dans leur infobulle.
+        document.querySelectorAll('.btn[data-mode="' + r.mode + '"], .doc-btn[data-mode="' + r.mode + '"]')
             .forEach(b => b.setAttribute('data-raccourci', r.touche));
     });
     RACCOURCIS_GESTES.forEach(r => {
@@ -9454,6 +9460,50 @@ function documentSelectionne() {
     return getObjectById('image', selectedItems[0].id) || null;
 }
 
+// Écrire et dessiner SUR le document sans quitter le plein écran. Un obstacle :
+// prendre un outil vide la sélection (setMode le fait, et le crayon la vide
+// encore au premier trait). La barre du document, qui ne parle que de l'objet
+// sélectionné, s'en irait donc juste au moment où l'on en a besoin. Elle retient
+// le document qu'on annote tant qu'on a un outil de tracé en main.
+const OUTILS_ANNOTATION = ['freehand', 'highlighter', 'text'];
+let docEnAnnotation = null;
+
+function enTrainDAnnoter() {
+    return !!docEnAnnotation
+        && document.body.classList.contains('focus-mode')
+        && selectedItems.length === 0
+        && OUTILS_ANNOTATION.includes(mode);
+}
+
+// Le document dont la barre parle : celui qu'on tient, ou celui qu'on annote.
+function documentDeLaBarre() {
+    const choisi = documentSelectionne();
+    if (choisi) return choisi;
+    if (!enTrainDAnnoter()) return null;
+    const obj = getObjectById('image', docEnAnnotation);
+    if (!obj) { docEnAnnotation = null; return null; }
+    return obj;
+}
+
+// Prendre un outil depuis la barre du document. « Sélection » fait le chemin
+// inverse : l'outil est rendu et le document revient en main, avec ses
+// poignées et tous ses réglages.
+function annoterLeDocument(outil) {
+    const obj = documentDeLaBarre();
+    if (!obj) return;
+    setMode(outil);                       // setMode vide la sélection…
+    if (OUTILS_ANNOTATION.includes(outil)) {
+        docEnAnnotation = obj.id;         // …mais la barre garde son document
+    } else {
+        docEnAnnotation = null;
+        selectedItems = [{ type: 'image', id: obj.id }];
+    }
+    majBarreDocument();
+    draw();
+}
+window.annoterLeDocument = annoterLeDocument;
+window.documentDeLaBarre = documentDeLaBarre;
+
 // Un tampon fabriqué par un plugin (une pyramide, une fraction, une figure)
 // n'est pas un document : il n'y a rien à faire coulisser dans son cadre, tout
 // ce qu'il contient est déjà visible. Les deux modes n'ont de sens que pour un
@@ -9512,7 +9562,26 @@ function majBarreDocument() {
     const barre = document.getElementById('barre-document');
     const pastille = document.getElementById('doc-pastille');
     if (!barre) return;
-    const obj = documentSelectionne();
+
+    // En Focus, toutes les barres d'outils sont effacées : c'est ici qu'on
+    // prend de quoi écrire sur la page. Ailleurs elles sont sous la main.
+    // Ce réglage se fait AVANT tout renoncement : un groupe laissé ouvert
+    // dans une barre repliée reparaîtrait tel quel à sa réouverture.
+    const enFocus = document.body.classList.contains('focus-mode');
+    const groupeOutils = document.getElementById('doc-annoter');
+    if (groupeOutils) {
+        groupeOutils.style.display = enFocus ? 'contents' : 'none';
+        document.getElementById('doc-annoter-sep').style.display = enFocus ? 'block' : 'none';
+        document.getElementById('doc-outil-main').classList.toggle('actif', mode === 'pointer');
+        document.getElementById('doc-outil-crayon').classList.toggle('actif', mode === 'freehand');
+        document.getElementById('doc-outil-texte').classList.toggle('actif', mode === 'text');
+    }
+    // Pendant qu'on écrit dessus, le document n'est plus tenu : les réglages
+    // qui demandent de l'avoir en main — cadre, page, rogner, dupliquer — se
+    // retirent plutôt que de rester là sans rien à saisir.
+    barre.classList.toggle('annote', enTrainDAnnoter());
+
+    const obj = documentDeLaBarre();
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('visible');
         if (pastille) pastille.classList.remove('visible');
@@ -9575,8 +9644,8 @@ function brancherBarreDocument() {
     const b = (id) => document.getElementById(id);
     if (!b('barre-document')) return;
 
-    b('doc-prec').addEventListener('click', () => { const o = documentSelectionne(); if (o) feuilleterPdf(o, -1); });
-    b('doc-suiv').addEventListener('click', () => { const o = documentSelectionne(); if (o) feuilleterPdf(o, 1); });
+    b('doc-prec').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, -1); });
+    b('doc-suiv').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, 1); });
 
     b('doc-mode-cadre').addEventListener('click', () => { modeDocument = 'cadre'; majBarreDocument(); draw(); });
     b('doc-mode-page').addEventListener('click', () => {
@@ -9586,14 +9655,14 @@ function brancherBarreDocument() {
     });
 
     b('doc-opacite').addEventListener('input', (e) => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         o.opacity = parseFloat(e.target.value);
         draw();
     });
     b('doc-opacite').addEventListener('change', () => saveState());
 
     b('doc-grille').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         o.sousLaGrille = !o.sousLaGrille;
         majBarreDocument(); draw(); saveState();
         if (typeof showToast === 'function') {
@@ -9602,13 +9671,13 @@ function brancherBarreDocument() {
     });
 
     b('doc-proportions').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         o.ratioLocked = (o.ratioLocked === false);
         majBarreDocument(); draw(); saveState();
     });
 
     b('doc-rogner').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         o.isCropping = !o.isCropping;
         if (o.isCropping) o.ratioLocked = false;   // on rogne librement
         majBarreDocument(); draw(); saveState();
@@ -9617,17 +9686,22 @@ function brancherBarreDocument() {
     b('doc-dupliquer').addEventListener('click', () => duplicateSelection());
 
     b('doc-entiere').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         montrerToutLeDocument(o);
         majBarreDocument(); draw(); saveState();
         if (typeof showToast === 'function') showToast('Document montré en entier');
     });
 
     b('doc-verrou').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         o.locked = !o.locked;
         majBarreDocument(); draw(); saveState();
     });
+
+    // --- Écrire et dessiner sur le document, sans quitter le plein écran ---
+    b('doc-outil-main').addEventListener('click', () => annoterLeDocument('pointer'));
+    b('doc-outil-crayon').addEventListener('click', () => annoterLeDocument('freehand'));
+    b('doc-outil-texte').addEventListener('click', () => annoterLeDocument('text'));
 
     // --- Replier, rouvrir, déplacer ---
     b('doc-replier').addEventListener('click', () => replierLaBarreDocument(true));
@@ -9679,10 +9753,11 @@ function brancherBarreDocument() {
     window.addEventListener('resize', () => { if (barreDocPosee) majBarreDocument(); });
 
     b('doc-fermer').addEventListener('click', () => {
-        const o = documentSelectionne(); if (!o) return;
+        const o = documentDeLaBarre(); if (!o) return;
         if (o.pluginData) documentsPdf.delete(o.pluginData.cle);
         deleteObject('image', o.id);
         selectedItems = [];
+        docEnAnnotation = null;      // il n'y a plus rien à annoter
         majBarreDocument(); draw(); saveState();
     });
 }

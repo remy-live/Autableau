@@ -1630,6 +1630,24 @@ body.focus-mode .drawer {
     pointer-events: none !important;
 }
 
+/* Une exception, et une seule : sur un document en plein écran on écrit et on
+   dessine. La barre de style et celle du texte reparaissent QUAND ELLES
+   SERVENT — sans quoi on choisirait sa couleur et sa taille à l'aveugle. Le
+   reste du temps elles sont masquées (display:none) et le Focus garde son
+   calme. Le « transform » doit être remis : la règle du Focus le remplace par
+   un scale(0.95) qui décentrerait la barre de style. */
+body.focus-mode #bar-style.visible {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translateX(-50%);
+}
+
+body.focus-mode #text-toolbar {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: none;
+}
+
 body.focus-mode #bottom-drawer { transform: translate(-50%, 100%) !important; }
 body.focus-mode #bar-plugins.drawer-top { transform: translate(-50%, -100%) !important; }
 body.focus-mode #right-drawer { transform: translateX(100%) !important; }
@@ -5945,6 +5963,15 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .doc-btn:hover { background: #eef2ff; }
 .doc-btn.actif { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
+
+/* On écrit sur le document : il n'est plus tenu, et les réglages qui demandent
+   de l'avoir en main n'auraient rien à saisir. Le « !important » est
+   indispensable : ces groupes portent un display posé en ligne par le script. */
+#barre-document.annote #doc-modes,
+#barre-document.annote #doc-modes-sep,
+#barre-document.annote #doc-proportions,
+#barre-document.annote #doc-rogner,
+#barre-document.annote #doc-dupliquer { display: none !important; }
 .doc-fermer { color: #e11d48; }
 .doc-fermer:hover { background: #fee2e2; }
 .doc-sep { width: 1px; height: 20px; background: rgba(0, 0, 0, 0.12); display: inline-block; }

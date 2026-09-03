@@ -819,10 +819,153 @@ module.exports = async function (browser) {
     r.verifie('et l\'oubli du déplacement est retenu', remise.memoire.pos === null,
         JSON.stringify(remise.memoire));
 
+    // --- ÉCRIRE ET DESSINER SUR LE DOCUMENT EN PLEIN ÉCRAN ---
+    // En Focus toutes les barres d'outils sont effacées : sans de quoi écrire
+    // dans la barre du document, on ne peut ni annoter un PDF projeté, ni y
+    // poser une étiquette sans quitter le plein écran.
+    const outilsDoc = await page.evaluate(() => {
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        const groupe = document.getElementById('doc-annoter');
+        const horsFocus = getComputedStyle(groupe).display;
+        toggleFocusMode();
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        return {
+            horsFocus,
+            enFocus: getComputedStyle(groupe).display,
+            crayon: !!document.getElementById('doc-outil-crayon'),
+            texte: !!document.getElementById('doc-outil-texte'),
+            main: !!document.getElementById('doc-outil-main'),
+            toucheCrayon: document.getElementById('doc-outil-crayon').getAttribute('data-raccourci'),
+            toucheTexte: document.getElementById('doc-outil-texte').getAttribute('data-raccourci')
+        };
+    });
+    r.egal('hors Focus, la barre du document n\'offre pas d\'outils : les vraies barres sont là',
+        outilsDoc.horsFocus, 'none');
+    r.verifie('en Focus, elle en offre', outilsDoc.enFocus === 'contents', outilsDoc.enFocus);
+    r.verifie('le crayon, le texte et le retour à la sélection',
+        outilsDoc.crayon && outilsDoc.texte && outilsDoc.main, JSON.stringify(outilsDoc));
+    r.egal('et l\'infobulle du crayon porte sa touche', outilsDoc.toucheCrayon, 'C');
+    r.egal('celle du texte aussi', outilsDoc.toucheTexte, 'T');
+
+    // Prendre le crayon vide la sélection : la barre doit malgré tout rester,
+    // et continuer de parler du document qu'on annote.
+    const auCrayon = await page.evaluate(() => {
+        document.getElementById('doc-outil-crayon').click();
+        const barre = document.getElementById('barre-document');
+        return {
+            mode,
+            selection: selectedItems.length,
+            barreVisible: barre.classList.contains('visible'),
+            crayonActif: document.getElementById('doc-outil-crayon').classList.contains('actif'),
+            cadre: getComputedStyle(document.getElementById('doc-modes')).display,
+            dupliquer: getComputedStyle(document.getElementById('doc-dupliquer')).display,
+            rogner: getComputedStyle(document.getElementById('doc-rogner')).display
+        };
+    });
+    r.egal('le bouton Crayon prend le crayon', auCrayon.mode, 'freehand');
+    r.egal('l\'outil vide la sélection', auCrayon.selection, 0);
+    r.verifie('mais la barre du document reste : elle retient la page qu\'on annote',
+        auCrayon.barreVisible, JSON.stringify(auCrayon));
+    r.verifie('le crayon se montre en main', auCrayon.crayonActif);
+    r.verifie('et les réglages qui demandent de tenir le document se retirent',
+        auCrayon.cadre === 'none' && auCrayon.dupliquer === 'none' && auCrayon.rogner === 'none',
+        JSON.stringify(auCrayon));
+
+    // On trace vraiment : le premier trait vide la sélection une seconde fois
+    // (le code du crayon le fait lui-même). La barre ne doit pas s'en aller.
+    const centre = await page.evaluate(() => {
+        const c = document.getElementById('board').getBoundingClientRect();
+        return { x: Math.round(c.left + c.width / 2), y: Math.round(c.top + c.height / 2) };
+    });
+    await page.mouse.move(centre.x - 60, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x + 60, centre.y + 25, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apresTrait = await page.evaluate(() => ({
+        traits: freehands.length,
+        barreVisible: document.getElementById('barre-document').classList.contains('visible'),
+        docRetenu: docEnAnnotation !== null
+    }));
+    r.egal('on écrit bien sur le document', apresTrait.traits, 1);
+    r.verifie('et la barre est toujours là après le trait',
+        apresTrait.barreVisible && apresTrait.docRetenu, JSON.stringify(apresTrait));
+
+    // Ce qui reste dans la barre agit toujours sur la page qu'on annote
+    const agitEncore = await page.evaluate(() => {
+        const o = document.getElementById('doc-opacite');
+        o.value = '0.5';
+        o.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('doc-grille').click();
+        return { opacite: images[0].opacity, sousLaGrille: !!images[0].sousLaGrille };
+    });
+    r.egal('l\'opacité agit encore sur le document annoté', agitEncore.opacite, 0.5);
+    r.verifie('le passage sous le quadrillage aussi', agitEncore.sousLaGrille);
+
+    // La barre de style reparaît en Focus quand elle sert : sans elle, on
+    // choisirait sa couleur et son épaisseur à l'aveugle.
+    await page.waitForTimeout(400);
+    const styleEnFocus = await page.evaluate(() => {
+        const b = document.getElementById('bar-style');
+        const s = getComputedStyle(b);
+        return { visible: b.classList.contains('visible'), opacite: s.opacity, clics: s.pointerEvents };
+    });
+    r.verifie('la barre de style revient avec le crayon, même en Focus',
+        styleEnFocus.visible && styleEnFocus.opacite === '1' && styleEnFocus.clics !== 'none',
+        JSON.stringify(styleEnFocus));
+
+    const auTexte = await page.evaluate(() => {
+        document.getElementById('doc-outil-texte').click();
+        return {
+            mode,
+            barreVisible: document.getElementById('barre-document').classList.contains('visible'),
+            texteActif: document.getElementById('doc-outil-texte').classList.contains('actif')
+        };
+    });
+    r.egal('le bouton Texte prend l\'outil texte', auTexte.mode, 'text');
+    r.verifie('et la barre tient encore', auTexte.barreVisible && auTexte.texteActif,
+        JSON.stringify(auTexte));
+
+    // « Sélection » fait le chemin inverse : le document revient en main
+    const retourMain = await page.evaluate(() => {
+        document.getElementById('doc-outil-main').click();
+        return {
+            mode,
+            memeDoc: selectedItems.length === 1 && selectedItems[0].id === images[0].id,
+            docRetenu: docEnAnnotation,
+            cadre: getComputedStyle(document.getElementById('doc-modes')).display
+        };
+    });
+    r.egal('« Sélection » rend l\'outil', retourMain.mode, 'pointer');
+    r.verifie('et remet le document en main', retourMain.memeDoc, JSON.stringify(retourMain));
+    r.egal('la barre n\'a plus de page à retenir', retourMain.docRetenu, null);
+    r.egal('et ses réglages reviennent', retourMain.cadre, 'contents');
+
+    // Quitter le Focus : les vraies barres reviennent, la mémoire s'efface
+    const sortie = await page.evaluate(() => {
+        document.getElementById('doc-outil-crayon').click();
+        toggleFocusMode();
+        return {
+            docRetenu: docEnAnnotation,
+            groupe: getComputedStyle(document.getElementById('doc-annoter')).display,
+            barreVisible: document.getElementById('barre-document').classList.contains('visible')
+        };
+    });
+    r.egal('en quittant le Focus, la page annotée est oubliée', sortie.docRetenu, null);
+    r.egal('le groupe d\'outils se range', sortie.groupe, 'none');
+    r.verifie('et la barre s\'en va avec, plus rien n\'étant sélectionné', !sortie.barreVisible,
+        JSON.stringify(sortie));
+
     await page.evaluate(() => {
         localStorage.removeItem('auTableau_barre_document');
         barreDocPosee = null; barreDocRepliee = false;
-        images.length = 0; selectedItems = []; panX = 0; panY = 0;
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        setMode('pointer');
+        images.length = 0; freehands.length = 0; selectedItems = []; panX = 0; panY = 0;
         majBarreDocument(); draw();
     });
 
