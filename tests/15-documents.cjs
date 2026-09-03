@@ -2,7 +2,7 @@
 // Les deux derniers sont des archives ZIP de XML : on en fabrique de vraies
 // ici, l'une compressée, l'autre non, pour éprouver les deux chemins.
 const zlib = require('zlib');
-const { creerRapport, ouvrirApp } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf } = require('./harness.cjs');
 
 // --- Un mini-graveur de ZIP, juste pour les besoins du test ---
 const TABLE_CRC = (() => {
@@ -111,29 +111,6 @@ Objectif : comprendre les **fractions**.
 1. simplifier
 2. comparer
 Fin de la séance.`;
-
-// Un PDF de trois pages, écrit à la main : aucune dépendance à installer.
-function petitPdf() {
-    const pages = ['Page une', 'Page deux', 'Page trois'];
-    const objs = [
-        '<< /Type /Catalog /Pages 2 0 R >>',
-        '<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>',
-        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
-    ];
-    pages.forEach((t, i) => {
-        objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + 2 * i} 0 R >>`);
-        const flux = `BT /F1 24 Tf 40 150 Td (${t}) Tj ET`;
-        objs.push(`<< /Length ${flux.length} >>\nstream\n${flux}\nendstream`);
-    });
-    let out = '%PDF-1.4\n';
-    const pos = [];
-    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
-    const xref = out.length;
-    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
-    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
-    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-    return Buffer.from(out, 'latin1');
-}
 
 module.exports = async function (browser) {
     const r = creerRapport('Documents importés');
@@ -381,7 +358,7 @@ module.exports = async function (browser) {
         const b = document.getElementById('barre-document');
         return {
             visible: b.classList.contains('visible'),
-            info: document.getElementById('doc-info').innerText,
+            info: document.getElementById('doc-page-num').value + '/' + images[0].pluginData.pages,
             menuRange: document.getElementById('quick-edit-menu').classList.contains('visible'),
             sousLeCadre: parseFloat(b.style.top) > panY + images[0].y * zoom
         };
@@ -393,13 +370,13 @@ module.exports = async function (browser) {
     const fleches = await page.evaluate(async () => {
         document.getElementById('doc-suiv').click();
         await new Promise(r => setTimeout(r, 500));
-        const apres = document.getElementById('doc-info').innerText;
+        const apres = document.getElementById('doc-page-num').value;
         document.getElementById('doc-prec').click();
         await new Promise(r => setTimeout(r, 500));
-        return { apres, retour: document.getElementById('doc-info').innerText };
+        return { apres, retour: document.getElementById('doc-page-num').value };
     });
-    r.egal('▶ de la barre tourne la page', fleches.apres, '3/3');
-    r.egal('◀ de la barre revient', fleches.retour, '2/3');
+    r.egal('▶ de la barre tourne la page', fleches.apres, '3');
+    r.egal('◀ de la barre revient', fleches.retour, '2');
 
     const modes = await page.evaluate(() => {
         const cadre = document.getElementById('doc-mode-cadre');
@@ -665,6 +642,11 @@ module.exports = async function (browser) {
         const nat = imageCache[o.src];
         o.cy = nat.naturalHeight * 0.3; o.ch = nat.naturalHeight * 0.7;
         o.pluginData.pageRognee = true;
+        // Les pages rendues sont gardées : la suivante est déjà prête, et
+        // notre faux rendu ne serait jamais appelé. On vide le cache pour
+        // que la page à l'italienne soit bien fabriquée ici.
+        const dossier = documentsPdf.get(o.pluginData.cle);
+        if (dossier.rendus) dossier.rendus.clear();
         // on fait croire à la page suivante qu'elle est à l'italienne
         const vrai = window.dessinerPagePdf;
         window.dessinerPagePdf = async (doc, n) => {
@@ -674,6 +656,7 @@ module.exports = async function (browser) {
         await feuilleterPdf(o, 1);
         await new Promise(r => setTimeout(r, 600));
         window.dessinerPagePdf = vrai;
+        if (dossier.rendus) dossier.rendus.clear();   // ne pas garder le faux format
         return { hautCoupe: o.cy, partHaute: o.ch, rognee: o.pluginData.pageRognee };
     });
     r.egal('une page d\'un autre format repart du haut', autreFormat.hautCoupe, 0);

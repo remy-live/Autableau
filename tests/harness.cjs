@@ -80,4 +80,31 @@ async function tableauVierge(page) {
     });
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge };
+
+// Un PDF de trois pages, écrit à la main : aucune dépendance à installer.
+// Chaque page porte un mot qui n'est que sur elle — de quoi éprouver la
+// recherche autant que le feuilletage.
+function petitPdf(pages) {
+    pages = pages || ['Page une', 'Page deux', 'Page trois'];
+    const kids = pages.map((_, i) => `${4 + 2 * i} 0 R`).join(' ');
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+    ];
+    pages.forEach((t, i) => {
+        objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + 2 * i} 0 R >>`);
+        const flux = `BT /F1 24 Tf 40 150 Td (${t}) Tj ET`;
+        objs.push(`<< /Length ${flux.length} >>\nstream\n${flux}\nendstream`);
+    });
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf };

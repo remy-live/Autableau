@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=60">
+    <link rel="stylesheet" href="style.css?v=61">
 </head>
 
 <body>
@@ -224,9 +224,20 @@
              pastille quand on veut lire le bas de la page. -->
         <button class="doc-btn doc-prise" id="doc-prise" data-tooltip="Déplacer la barre — double-clic pour la remettre sous le document">⠿</button>
         <span id="doc-pages">
-            <button class="doc-btn" id="doc-prec" title="Page précédente">◀</button>
-            <span id="doc-info">1/1</span>
-            <button class="doc-btn" id="doc-suiv" title="Page suivante">▶</button>
+            <button class="doc-btn" id="doc-prec" data-tooltip="Page précédente">◀</button>
+            <!-- Le numéro est un champ : sur un document de quarante pages,
+                 atteindre la 37e ne doit pas demander 36 clics. -->
+            <input type="text" inputmode="numeric" id="doc-page-num" value="1"
+                data-tooltip="Numéro de page : tapez-le et Entrée">
+            <span id="doc-total">/1</span>
+            <button class="doc-btn" id="doc-suiv" data-tooltip="Page suivante">▶</button>
+            <button class="doc-btn" id="doc-volet-btn" data-tooltip="Pages et recherche dans le document">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="6" rx="1" />
+                    <path d="M14 6h7M14 10h7M14 16h7M14 20h5" />
+                </svg></button>
         </span>
         <i class="doc-sep" id="doc-pages-sep"></i>
         <span id="doc-modes" style="display:contents;">
@@ -310,6 +321,19 @@
         <button class="doc-btn doc-fermer" id="doc-fermer" data-tooltip="Retirer le document">✕</button>
     </div>
     <button id="doc-pastille" data-tooltip="Rouvrir la barre du document">📄</button>
+
+    <!-- Le volet du document : les pages en vignettes, et la recherche dans
+         leur texte. Les deux répondent à la même question — « où est-ce ? » —
+         alors ils partagent une liste : chercher ne fait que la filtrer. -->
+    <div id="doc-volet">
+        <div class="dv-tete">
+            <strong id="dv-nom">Document</strong>
+            <button id="dv-fermer" data-tooltip="Fermer le volet">✕</button>
+        </div>
+        <input type="search" id="dv-chercher" placeholder="Chercher dans le document…">
+        <div id="dv-etat"></div>
+        <div id="dv-liste"></div>
+    </div>
 
     <div id="quick-edit-menu">
         <button class="btn-quick" id="btn-quick-lock" title="Verrouiller la position et l'édition">
@@ -590,8 +614,19 @@
                             celle-là est montrée en entier. Et dès qu'un document est rogné, la barre propose
                             <b>⛶ Montrer la page entière</b> : le cadre garde sa place sur le tableau, mais on
                             revoit tout.</li>
+                        <li><strong>Feuilleter un PDF :</strong> ◀ ▶, ou <b>←</b> <b>→</b> et <b>Page↑</b> <b>Page↓</b>
+                            au clavier, ou un <b>balayage à deux doigts</b> sur tablette (vers la gauche pour
+                            avancer). Le numéro de page est un champ : tapez-le, Entrée, vous y êtes. Les pages
+                            voisines sont préparées d'avance — tourner une page est instantané.</li>
+                        <li><strong>Les pages et la recherche :</strong> le bouton ▤ ouvre un volet de vignettes ;
+                            un clic sur l'une d'elles y va. Le champ du haut cherche un mot <b>dans le texte du
+                            document</b> — accents et majuscules indifférents : la liste ne garde que les pages où
+                            il figure, avec un extrait, et l'on voit le mot surligné sur la page.</li>
+                        <li><strong>Chaque page garde ce qu'on écrit dessus :</strong> un trait ou un bloc de texte
+                            posé sur la page 3 réapparaît avec la page 3, et ne se voit pas sur la 4. Rien n'est
+                            supprimé — seulement rangé avec sa page.</li>
                         <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF sélectionné.
-                            ◀ ▶ tournent les pages du PDF ; <b>Cadre</b> déplace et ouvre les bords,
+                            <b>Cadre</b> déplace et ouvre les bords,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
                             le passage sous le quadrillage, les proportions, le rognage, la duplication, le verrou
                             (on dessine par-dessus) et ✕ pour le retirer. La <b>poignée ⠿</b> la déplace où
@@ -1864,7 +1899,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=127"></script>
+    <script src="script.js?v=128"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=74"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

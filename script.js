@@ -248,6 +248,8 @@ let activePointers = new Map();
 // la pose n'est validée qu'au relâchement (pointerup).
 let touchStampPointerId = null;
 let initialPinchDist = null; let initialPinchCenter = null;
+// Un balayage à deux doigts ne tourne qu'UNE page : le geste se termine au relâcher
+let balayageFait = false;
 let initialPanX = 0; let initialPanY = 0; let initialZoom = 1;
 
 let shapeRecognitionTimeout = null;
@@ -3989,6 +3991,21 @@ function poserRaccourcisSurLesBoutons() {
 window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if (declencherRaccourci(e)) { e.preventDefault(); return; }
+
+    // Feuilleter un document au clavier. Les flèches ne servent à rien d'autre
+    // sur le tableau, et devant une classe on tourne les pages sans quitter la
+    // page des yeux pour viser un bouton de six millimètres.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey
+        && ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
+        const docAFeuilleter = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+        if (docAFeuilleter && typeof estUnPdfFeuilletable === 'function'
+            && estUnPdfFeuilletable(docAFeuilleter)) {
+            e.preventDefault();
+            feuilleterPdf(docAFeuilleter, (e.key === 'ArrowRight' || e.key === 'PageDown') ? 1 : -1);
+            return;
+        }
+    }
+
     if (mode === 'randomClock') {
         setMode('pointer');
 
@@ -6190,7 +6207,13 @@ function findObjectAt(lx, ly) {
     if (bestPoint) return bestPoint;
 
     let bestHit = null; let maxZ = -Infinity;
-    const updateHit = (hit) => { const obj = getObjectById(hit.type, hit.id); if (obj && (obj.z || 0) > maxZ) { maxZ = obj.z || 0; bestHit = hit; } };
+    // Ce qu'on ne voit pas — l'encre d'une autre page du document — ne se
+    // désigne pas : on l'effacerait ou on la déplacerait à l'aveugle.
+    const updateHit = (hit) => {
+        const obj = getObjectById(hit.type, hit.id);
+        if (typeof surUneAutrePage === 'function' && surUneAutrePage(obj)) return;
+        if (obj && (obj.z || 0) > maxZ) { maxZ = obj.z || 0; bestHit = hit; }
+    };
 
     // --- 3. Vérification des Textes (Avec rotation et boîte pleine) ---
     // --- 3. Vérification des Textes (Avec rotation et boîte pleine) ---
@@ -6420,6 +6443,8 @@ function finalizeText() {
                     newText.fixedHeight = tempTextLogicalPos.fixedHeight;
                     newText.fillColor = tempTextLogicalPos.fillColor;
                 }
+                // Écrit sur un PDF feuilletable : le bloc est de CETTE page
+                if (typeof noterLaPage === 'function') noterLaPage(newText, newText.x, newText.y);
                 texts.push(newText); hasChanged = true; processMath(newText);
             }
         } else if (editingTextId) { deleteObject('text', editingTextId); hasChanged = true; }
@@ -6852,6 +6877,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
     if (activePointers.size === 2) {
         isPanningView = true; const pts = Array.from(activePointers.values());
+        balayageFait = false;
         initialPinchDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
         initialPinchCenter = { x: (pts[0].clientX + pts[1].clientX) / 2, y: (pts[0].clientY + pts[1].clientY) / 2 };
         initialPanX = panX; initialPanY = panY; initialZoom = zoom; updateCursor(); return;
@@ -7235,6 +7261,35 @@ canvas.addEventListener('pointermove', (e) => {
         const pts = Array.from(activePointers.values());
         const currentDist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
         const currentCenter = { x: (pts[0].clientX + pts[1].clientX) / 2, y: (pts[0].clientY + pts[1].clientY) / 2 };
+
+        // Balayage à deux doigts sur un document : on tourne la page. L'écart
+        // entre les doigts doit rester le même — sinon c'est un zoom, et l'on
+        // ne touche à rien. Une fois la page tournée, le geste ne fait plus
+        // rien jusqu'au relâcher : une page tournée qui emporterait la vue
+        // avec elle serait déroutante.
+        if (!balayageFait && initialPinchCenter && initialPinchDist) {
+            const dx = currentCenter.x - initialPinchCenter.x;
+            const dy = currentCenter.y - initialPinchCenter.y;
+            const ecart = currentDist / initialPinchDist;
+            if (Math.abs(dx) > 90 && Math.abs(dy) < 55 && ecart > 0.9 && ecart < 1.1) {
+                const docBalaye = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+                if (docBalaye && typeof estUnPdfFeuilletable === 'function' && estUnPdfFeuilletable(docBalaye)) {
+                    balayageFait = true;
+                    // Les deux doigts n'arrivent jamais ensemble : entre les
+                    // deux événements, l'écart change et la vue a déjà zoomé
+                    // et glissé un peu. On rend ce qui a été pris avant de
+                    // reconnaître le geste — un balayage tourne la page, il
+                    // ne déplace pas le tableau.
+                    zoom = initialZoom; panX = initialPanX; panY = initialPanY;
+                    const curseur = document.getElementById('zoom-slider');
+                    if (curseur) curseur.value = zoom;
+                    feuilleterPdf(docBalaye, dx < 0 ? 1 : -1);   // vers la gauche = page suivante
+                    return;
+                }
+            }
+        }
+        if (balayageFait) return;
+
         const zoomDelta = currentDist / initialPinchDist; let newZoom = initialZoom * zoomDelta;
         if (newZoom < 0.2) newZoom = 0.2; if (newZoom > 10) newZoom = 10;
         // Le point du tableau saisi au départ reste sous le milieu des deux
@@ -7668,13 +7723,15 @@ function handlePointerUp(e) {
         isSelectingBox = false; const minX = Math.min(selectionBox.startX, selectionBox.endX); const maxX = Math.max(selectionBox.startX, selectionBox.endX); const minY = Math.min(selectionBox.startY, selectionBox.endY); const maxY = Math.max(selectionBox.startY, selectionBox.endY);
         selectedItems = [];
         points.forEach(p => { if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'point', id: p.id }); });
-        texts.forEach(t => { if (t.x >= minX && t.x <= maxX && t.y >= minY && t.y <= maxY) selectedItems.push({ type: 'text', id: t.id }); });
+        // On n'attrape pas au lasso ce qu'on ne voit pas : l'encre et les
+        // blocs d'une autre page du document restent hors de portée.
+        texts.forEach(t => { if (surUneAutrePage(t)) return; if (t.x >= minX && t.x <= maxX && t.y >= minY && t.y <= maxY) selectedItems.push({ type: 'text', id: t.id }); });
         segments.forEach(s => { const p1 = getObjectById('point', s.p1_id), p2 = getObjectById('point', s.p2_id); if (p1 && p2 && p1.x >= minX && p1.x <= maxX && p1.y >= minY && p1.y <= maxY && p2.x >= minX && p2.x <= maxX && p2.y >= minY && p2.y <= maxY) selectedItems.push({ type: 'segment', id: s.id }); });
         circles.forEach(c => { const p = getObjectById('point', c.center_id); if (p && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'circle', id: c.id }); });
         rectangles.forEach(r => { const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id); if (p1 && p2) { const rx1 = Math.min(p1.x, p2.x), rx2 = Math.max(p1.x, p2.x), ry1 = Math.min(p1.y, p2.y), ry2 = Math.max(p1.y, p2.y); if (rx1 >= minX && rx2 <= maxX && ry1 >= minY && ry2 <= maxY) selectedItems.push({ type: 'rectangle', id: r.id }); } });
         curves.forEach(c => { let inside = true; c.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'curve', id: c.id }); });
         polygons.forEach(po => { let inside = true; po.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'polygon', id: po.id }); });
-        freehands.forEach(f => { let inside = true; f.points.forEach(p => { if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'freehand', id: f.id }); });
+        freehands.forEach(f => { if (surUneAutrePage(f)) return; let inside = true; f.points.forEach(p => { if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'freehand', id: f.id }); });
         images.forEach(img => { if (img.x >= minX && img.x + img.w <= maxX && img.y >= minY && img.y + img.h <= maxY) selectedItems.push({ type: 'image', id: img.id }); });
         arcs.forEach(a => { if (a.cx >= minX && a.cx <= maxX && a.cy >= minY && a.cy <= maxY) selectedItems.push({ type: 'arc', id: a.id }); });
         if (selectedItems.length > 0) { updateStyleBarContext(); } draw();
@@ -7746,6 +7803,8 @@ function handlePointerUp(e) {
         isDrawingFreehand = false;
         if (currentFreehand.points.length > 1) {
             freehands.push(currentFreehand);
+            // Écrit sur un PDF feuilletable : le trait est de CETTE page
+            noterLaPageDuTrait(currentFreehand);
             // Un trait posé franchement sur un texte ou une image lui appartient
             const hote = accrocherLeTrait(currentFreehand);
             if (hote && typeof showToast === 'function') {
@@ -7984,6 +8043,8 @@ function draw() {
 
         let displayList = [];
         visibleObjects.forEach(o => {
+            // Ce qui a été écrit sur la page 3 ne se montre pas sur la page 4
+            if (typeof surUneAutrePage === 'function' && surUneAutrePage(o)) return;
             displayList.push({ type: o.type, obj: o });
         });
 
@@ -8030,6 +8091,24 @@ function draw() {
                     if (imgAlpha < 1) ctx.globalAlpha = prevAlpha * imgAlpha;
                     ctx.drawImage(imageCache[obj.src], obj.cx, obj.cy, obj.cw, obj.ch, -obj.w / 2, -obj.h / 2, obj.w, obj.h);
                     ctx.globalAlpha = prevAlpha;
+                    // Le mot cherché, montré là où il est. Les repères sont en
+                    // pixels de la page rendue : on les ramène dans le cadre
+                    // par le même découpage que l'image elle-même, sans quoi
+                    // ils se poseraient à côté dès qu'on rogne ou qu'on zoome.
+                    const surl = obj.pluginData && obj.pluginData.surlignes;
+                    if (surl && surl.length && obj.cw && obj.ch) {
+                        const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.rect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                        ctx.clip();
+                        ctx.fillStyle = 'rgba(255, 213, 0, 0.42)';
+                        surl.forEach(z => {
+                            ctx.fillRect(-obj.w / 2 + (z.x - obj.cx) * kx, -obj.h / 2 + (z.y - obj.cy) * ky,
+                                Math.max(2, z.l * kx), Math.max(2, z.h * ky));
+                        });
+                        ctx.restore();
+                    }
                 } else if (imageManquante(obj) && !isExportingTransparent) {
                     dessinerImageManquante(ctx, obj, lw);
                 }
@@ -9220,6 +9299,85 @@ async function dessinerPagePdf(doc, numero) {
     return { src: c.toDataURL('image/jpeg', currentPdfQuality > 3 ? 0.75 : 0.85), l: c.width, h: c.height };
 }
 
+// Dessiner une page coûte cher — assez pour qu'un temps mort se voie devant
+// une classe. On garde donc les dernières rendues, et l'on prépare la suivante
+// pendant qu'on lit celle-ci. Revenir en arrière devient instantané.
+// (On ne vide pas imageCache en écartant une page : l'historique peut encore
+// s'y référer, et une image manquante après un Ctrl+Z serait pire que le peu
+// de mémoire qu'on économiserait.)
+const PAGES_GARDEES = 8;
+
+function rendreLaPage(d, numero) {
+    if (!d.rendus) d.rendus = new Map();
+    if (!d.enCours) d.enCours = new Map();
+    const fait = d.rendus.get(numero);
+    // On la remet en tête : ce qu'on regarde souvent ne s'écarte pas
+    if (fait) { d.rendus.delete(numero); d.rendus.set(numero, fait); return Promise.resolve(fait); }
+    if (d.enCours.has(numero)) return d.enCours.get(numero);
+    const promesse = (async () => {
+        try {
+            const rendu = await dessinerPagePdf(d.doc, numero);
+            await chargerImage(rendu.src);        // remplit imageCache
+            d.rendus.set(numero, rendu);
+            while (d.rendus.size > PAGES_GARDEES) d.rendus.delete(d.rendus.keys().next().value);
+            return rendu;
+        } finally {
+            d.enCours.delete(numero);
+        }
+    })();
+    d.enCours.set(numero, promesse);
+    return promesse;
+}
+
+// La suivante et la précédente, sans bloquer : on les aura sous la main.
+function preparerLesVoisines(d, numero, total) {
+    [numero + 1, numero - 1].forEach(n => {
+        if (n < 1 || n > total) return;
+        if (d.rendus && d.rendus.has(n)) return;
+        setTimeout(() => { rendreLaPage(d, n).catch(() => { /* on s'en passera */ }); }, 150);
+    });
+}
+
+// Aller droit à une page. feuilleterPdf n'en est qu'un cas particulier.
+async function allerALaPage(imgObj, numero) {
+    const d = imgObj && imgObj.pluginData && documentsPdf.get(imgObj.pluginData.cle);
+    if (!d) return false;
+    const voulu = Math.min(Math.max(1, Math.round(numero) || 1), imgObj.pluginData.pages);
+    if (voulu === imgObj.pluginData.page) return false;
+    const rendu = await rendreLaPage(d, voulu);
+
+    // Un cadrage posé sur une page vaut pour les suivantes TANT QUE les pages
+    // se ressemblent : dans un cours scanné, couper l'en-tête une fois suffit.
+    // Mais si la page change de format — une planche à l'italienne au milieu
+    // d'un document à la française — le même découpage n'a plus de sens : on
+    // remet la page entière plutôt que d'en montrer un morceau au hasard.
+    const ancien = imageCache[imgObj.src];
+    const memeFormat = ancien && ancien.naturalWidth
+        && Math.abs((ancien.naturalWidth / ancien.naturalHeight) - (rendu.l / rendu.h)) < 0.01;
+    const part = memeFormat
+        ? { x: imgObj.cx / ancien.naturalWidth, y: imgObj.cy / ancien.naturalHeight,
+            l: imgObj.cw / ancien.naturalWidth, h: imgObj.ch / ancien.naturalHeight }
+        : { x: 0, y: 0, l: 1, h: 1 };
+    const etaitRogne = memeFormat && (part.l < 0.999 || part.h < 0.999);
+
+    imgObj.src = rendu.src;
+    imgObj.cx = part.x * rendu.l; imgObj.cy = part.y * rendu.h;
+    imgObj.cw = part.l * rendu.l; imgObj.ch = part.h * rendu.h;
+    imgObj.pluginData.page = voulu;
+    // Le surlignage d'une recherche appartient à la page qu'on quitte
+    delete imgObj.pluginData.surlignes;
+    if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
+        showToast('Cette page a un autre format : elle est montrée en entier');
+    }
+    imgObj.pluginData.pageRognee = etaitRogne;
+    preparerLesVoisines(d, voulu, imgObj.pluginData.pages);
+    saveState(); draw();
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+    if (typeof majLeVolet === 'function') majLeVolet();
+    return true;
+}
+window.allerALaPage = allerALaPage;
+
 function chargerImage(src) {
     return new Promise((resolve) => {
         const i = new Image();
@@ -9236,10 +9394,11 @@ async function poserPdfFeuilletable(file) {
         const octets = new Uint8Array(await file.arrayBuffer());
         const doc = await pdfjsLib.getDocument(octets.slice(0)).promise;
         const cle = 'pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        documentsPdf.set(cle, { doc, nom: file.name });
+        const dossier = { doc, nom: file.name };
+        documentsPdf.set(cle, dossier);
 
-        const rendu = await dessinerPagePdf(doc, 1);
-        await chargerImage(rendu.src);        // remplit imageCache
+        const rendu = await rendreLaPage(dossier, 1);
+        preparerLesVoisines(dossier, 1, doc.numPages);
 
         // La page occupe les trois quarts de ce qu'on voit, sans déformation
         const dispoL = (window.innerWidth * 0.75) / zoom;
@@ -9265,37 +9424,274 @@ async function poserPdfFeuilletable(file) {
     }
 }
 
-async function feuilleterPdf(imgObj, delta) {
-    const d = imgObj && imgObj.pluginData && documentsPdf.get(imgObj.pluginData.cle);
-    if (!d) return;
-    const numero = Math.min(Math.max(1, imgObj.pluginData.page + delta), imgObj.pluginData.pages);
-    if (numero === imgObj.pluginData.page) return;
-    const rendu = await dessinerPagePdf(d.doc, numero);
-    await chargerImage(rendu.src);            // remplit imageCache
-    // Un cadrage posé sur une page vaut pour les suivantes TANT QUE les pages
-    // se ressemblent : dans un cours scanné, couper l'en-tête une fois suffit.
-    // Mais si la page change de format — une planche à l'italienne au milieu
-    // d'un document à la française — le même découpage n'a plus de sens : on
-    // remet la page entière plutôt que d'en montrer un morceau au hasard.
-    const ancien = imageCache[imgObj.src];
-    const memeFormat = ancien && ancien.naturalWidth
-        && Math.abs((ancien.naturalWidth / ancien.naturalHeight) - (rendu.l / rendu.h)) < 0.01;
-    const part = memeFormat
-        ? { x: imgObj.cx / ancien.naturalWidth, y: imgObj.cy / ancien.naturalHeight,
-            l: imgObj.cw / ancien.naturalWidth, h: imgObj.ch / ancien.naturalHeight }
-        : { x: 0, y: 0, l: 1, h: 1 };
-    const etaitRogne = memeFormat && (part.l < 0.999 || part.h < 0.999);
+function feuilleterPdf(imgObj, delta) {
+    if (!imgObj || !imgObj.pluginData) return Promise.resolve(false);
+    return allerALaPage(imgObj, imgObj.pluginData.page + delta);
+}
 
-    imgObj.src = rendu.src;
-    imgObj.cx = part.x * rendu.l; imgObj.cy = part.y * rendu.h;
-    imgObj.cw = part.l * rendu.l; imgObj.ch = part.h * rendu.h;
-    imgObj.pluginData.page = numero;
-    if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
-        showToast('Cette page a un autre format : elle est montrée en entier');
+// ---------------------------------------------------
+// LE VOLET DU DOCUMENT : LES PAGES, ET CE QU'ELLES DISENT
+// Deux besoins, une seule question — « où est-ce ? ». Les vignettes y
+// répondent à vue, la recherche par le texte : elle ne fait que filtrer la
+// même liste. Tout se fabrique au fur et à mesure et se garde : sur un manuel
+// de trois cents pages, on ne dessine que ce qu'on regarde.
+// ---------------------------------------------------
+let voletOuvert = false;
+let voletCle = null;             // le document dont le volet parle
+let voletRecherche = '';
+let voletTrouvailles = null;     // null = pas de recherche en cours
+let voletFileVignettes = null;   // le rendu progressif en cours
+
+const TAILLE_VIGNETTE = 150;     // largeur en pixels
+
+// « Élève » doit répondre à « eleve » : on compare sans accents ni casse.
+function sansAccents(t) {
+    return (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function dossierDuVolet() {
+    return voletCle ? documentsPdf.get(voletCle) : null;
+}
+
+// La vignette d'une page, dessinée une fois pour toutes.
+async function vignetteDeLaPage(d, numero) {
+    if (!d.vignettes) d.vignettes = new Map();
+    if (d.vignettes.has(numero)) return d.vignettes.get(numero);
+    const page = await d.doc.getPage(numero);
+    const brut = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: TAILLE_VIGNETTE / brut.width });
+    const c = document.createElement('canvas');
+    c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport }).promise;
+    const url = c.toDataURL('image/jpeg', 0.7);
+    d.vignettes.set(numero, url);
+    return url;
+}
+
+// Le texte d'une page, avec la position de chaque morceau : la recherche s'en
+// sert pour dire QUELLE page, et pour montrer OÙ sur la page.
+async function texteDeLaPage(d, numero) {
+    if (!d.textes) d.textes = new Map();
+    if (d.textes.has(numero)) return d.textes.get(numero);
+    const page = await d.doc.getPage(numero);
+    const viewport = page.getViewport({ scale: currentPdfQuality });
+    const contenu = await page.getTextContent();
+    let plein = '';
+    const morceaux = [];
+    contenu.items.forEach(it => {
+        const s = it.str || '';
+        if (!s) return;
+        const m = pdfjsLib.Util.transform(viewport.transform, it.transform);
+        const haut = Math.hypot(m[2], m[3]) || (it.height * currentPdfQuality);
+        morceaux.push({
+            debut: plein.length, texte: s,
+            x: m[4], y: m[5] - haut,
+            l: (it.width || 0) * currentPdfQuality, h: haut
+        });
+        plein += s + ' ';
+    });
+    const fiche = { plein, sansAccents: sansAccents(plein), morceaux };
+    d.textes.set(numero, fiche);
+    return fiche;
+}
+
+// Les rectangles à surligner sur la page rendue, en pixels de l'image.
+function zonesDuMot(fiche, mot) {
+    const cible = sansAccents(mot);
+    if (!cible) return [];
+    const zones = [];
+    fiche.morceaux.forEach(m => {
+        const dans = sansAccents(m.texte);
+        let i = dans.indexOf(cible);
+        while (i !== -1) {
+            const part = m.texte.length || 1;
+            zones.push({
+                x: m.x + (i / part) * m.l, y: m.y,
+                l: Math.max(3, (cible.length / part) * m.l), h: m.h
+            });
+            i = dans.indexOf(cible, i + cible.length);
+        }
+    });
+    return zones;
+}
+
+// Un extrait lisible autour du mot trouvé
+function extraitAutour(plein, sansAcc, cible) {
+    const i = sansAcc.indexOf(cible);
+    if (i === -1) return '';
+    const debut = Math.max(0, i - 32);
+    const fin = Math.min(plein.length, i + cible.length + 40);
+    return (debut > 0 ? '…' : '') + plein.slice(debut, fin).trim() + (fin < plein.length ? '…' : '');
+}
+
+function ouvrirLeVolet(ouvrir) {
+    const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    voletOuvert = (ouvrir === undefined) ? !voletOuvert : !!ouvrir;
+    if (voletOuvert && obj && obj.pluginData) voletCle = obj.pluginData.cle;
+    if (!voletOuvert) { voletFileVignettes = null; }
+    majLeVolet();
+    if (voletOuvert) peuplerLeVolet();
+}
+window.ouvrirLeVolet = ouvrirLeVolet;
+
+// Appelée à chaque image du tableau : elle doit donc rester bon marché. Rien
+// n'est retouché tant que ni la page ni le document n'ont changé.
+let voletPageMontree = null;
+
+function majLeVolet() {
+    const volet = document.getElementById('doc-volet');
+    if (!volet) return;
+    const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    const feuilletable = obj && typeof estUnPdfFeuilletable === 'function' && estUnPdfFeuilletable(obj);
+    volet.classList.toggle('visible', voletOuvert && !!feuilletable);
+    const bouton = document.getElementById('doc-volet-btn');
+    if (bouton) bouton.classList.toggle('actif', voletOuvert);
+    if (!voletOuvert || !feuilletable) return;
+
+    // On a changé de document : le volet suit, et repart de zéro.
+    if (obj.pluginData.cle !== voletCle) {
+        voletCle = obj.pluginData.cle;
+        voletTrouvailles = null; voletRecherche = ''; voletPageMontree = null;
+        const champ = document.getElementById('dv-chercher');
+        if (champ) champ.value = '';
+        const etat = document.getElementById('dv-etat');
+        if (etat) etat.textContent = '';
+        peuplerLeVolet();
+        return;                            // peuplerLeVolet nous rappellera
     }
-    imgObj.pluginData.pageRognee = etaitRogne;
-    saveState(); draw();
-    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+    const d = dossierDuVolet();
+    const nom = document.getElementById('dv-nom');
+    if (nom) nom.textContent = (d && d.nom) || 'Document';
+
+    const courante = obj.pluginData.page;
+    if (voletPageMontree === courante) return;
+    voletPageMontree = courante;
+    volet.querySelectorAll('.dv-page').forEach(el => {
+        el.classList.toggle('courante', Number(el.dataset.page) === courante);
+    });
+    // La page où l'on est doit se voir, même trente vignettes plus bas
+    const ici = volet.querySelector('.dv-page.courante');
+    if (ici && ici.scrollIntoView) ici.scrollIntoView({ block: 'nearest' });
+}
+window.majLeVolet = majLeVolet;
+
+// Construire la liste : toutes les pages, ou seulement celles qu'on cherche.
+function peuplerLeVolet() {
+    const liste = document.getElementById('dv-liste');
+    const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    const d = dossierDuVolet();
+    if (!liste || !d || !obj || !obj.pluginData) return;
+    const total = obj.pluginData.pages;
+    const pages = voletTrouvailles ? voletTrouvailles.map(t => t.page)
+                                   : Array.from({ length: total }, (_, i) => i + 1);
+    const extraits = {};
+    if (voletTrouvailles) voletTrouvailles.forEach(t => { extraits[t.page] = t.extrait; });
+
+    voletPageMontree = null;               // la liste est neuve : tout est à refaire
+    liste.innerHTML = pages.map(n => `
+        <button class="dv-page" data-page="${n}">
+            <span class="dv-cadre"><img alt="" data-vignette="${n}"></span>
+            <span class="dv-num">${n}</span>
+            ${extraits[n] ? `<span class="dv-extrait">${echapperTexte(extraits[n])}</span>` : ''}
+        </button>`).join('');
+    majLeVolet();
+    dessinerLesVignettes(d, pages);
+}
+
+// Rendu progressif : on dessine dans l'ordre, sans bloquer la page.
+function dessinerLesVignettes(d, pages) {
+    const file = pages.slice();
+    voletFileVignettes = file;
+    const suite = async () => {
+        if (voletFileVignettes !== file || !file.length) return;
+        const n = file.shift();
+        try {
+            const url = await vignetteDeLaPage(d, n);
+            if (voletFileVignettes !== file) return;
+            const img = document.querySelector(`#dv-liste img[data-vignette="${n}"]`);
+            if (img) img.src = url;
+        } catch (e) { /* une page illisible n'arrête pas les autres */ }
+        setTimeout(suite, 0);
+    };
+    suite();
+}
+
+// La recherche : on parcourt les pages une à une, en montrant l'avancée.
+async function chercherDansLeDocument(mot) {
+    const etat = document.getElementById('dv-etat');
+    const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    const d = dossierDuVolet();
+    voletRecherche = mot;
+    if (!d || !obj || !obj.pluginData) return;
+    const cible = sansAccents(mot.trim());
+    if (cible.length < 2) {
+        voletTrouvailles = null;
+        if (etat) etat.textContent = '';
+        peuplerLeVolet();
+        return;
+    }
+    const total = obj.pluginData.pages;
+    const trouvees = [];
+    for (let n = 1; n <= total; n++) {
+        if (voletRecherche !== mot) return;          // on tape encore : on abandonne
+        if (etat) etat.textContent = `Recherche… page ${n} sur ${total}`;
+        let fiche;
+        try { fiche = await texteDeLaPage(d, n); } catch (e) { continue; }
+        if (fiche.sansAccents.includes(cible)) {
+            trouvees.push({ page: n, extrait: extraitAutour(fiche.plein, fiche.sansAccents, cible) });
+        }
+    }
+    if (voletRecherche !== mot) return;
+    voletTrouvailles = trouvees;
+    if (etat) {
+        etat.textContent = trouvees.length
+            ? `${trouvees.length} page${trouvees.length > 1 ? 's' : ''} sur ${total}`
+            : `« ${mot} » ne figure pas dans ce document`;
+    }
+    peuplerLeVolet();
+}
+
+// Aller à une page trouvée, et montrer où le mot se trouve dessus.
+async function allerEtSurligner(numero) {
+    const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    if (!obj) return;
+    await allerALaPage(obj, numero);
+    const d = dossierDuVolet();
+    const cible = (voletRecherche || '').trim();
+    if (!d || cible.length < 2) { majLeVolet(); draw(); return; }
+    try {
+        const fiche = await texteDeLaPage(d, numero);
+        const zones = zonesDuMot(fiche, cible);
+        if (zones.length) obj.pluginData.surlignes = zones;
+    } catch (e) { /* pas de texte : on aura au moins tourné la page */ }
+    majLeVolet(); draw();
+}
+
+function brancherLeVolet() {
+    const volet = document.getElementById('doc-volet');
+    if (!volet) return;
+    document.getElementById('dv-fermer').addEventListener('click', () => ouvrirLeVolet(false));
+
+    const champ = document.getElementById('dv-chercher');
+    let minuteur = null;
+    champ.addEventListener('input', () => {
+        clearTimeout(minuteur);
+        const mot = champ.value;
+        // On ne parcourt pas trois cents pages à chaque lettre frappée
+        minuteur = setTimeout(() => chercherDansLeDocument(mot), 300);
+    });
+    champ.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { champ.value = ''; chercherDansLeDocument(''); }
+        e.stopPropagation();
+    });
+
+    document.getElementById('dv-liste').addEventListener('click', (e) => {
+        const bouton = e.target.closest('.dv-page');
+        if (!bouton) return;
+        allerEtSurligner(Number(bouton.dataset.page));
+    });
 }
 
 // ---------------------------------------------------
@@ -9585,6 +9981,7 @@ function majBarreDocument() {
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('visible');
         if (pastille) pastille.classList.remove('visible');
+        if (typeof majLeVolet === 'function') majLeVolet();
         return;
     }
     // Repliée : il ne reste qu'une pastille, qui la rouvre.
@@ -9618,7 +10015,11 @@ function majBarreDocument() {
     document.getElementById('doc-pages').style.display = feuilletable ? 'flex' : 'none';
     document.getElementById('doc-pages-sep').style.display = feuilletable ? 'block' : 'none';
     if (feuilletable) {
-        document.getElementById('doc-info').innerText = obj.pluginData.page + '/' + obj.pluginData.pages;
+        const champPage = document.getElementById('doc-page-num');
+        // On ne réécrit pas sous les doigts de qui est en train de taper
+        if (champPage && document.activeElement !== champPage) champPage.value = obj.pluginData.page;
+        if (champPage) champPage.style.width = (String(obj.pluginData.pages).length + 1) + 'ch';
+        document.getElementById('doc-total').textContent = '/' + obj.pluginData.pages;
         document.getElementById('doc-prec').style.opacity = obj.pluginData.page > 1 ? '1' : '0.35';
         document.getElementById('doc-suiv').style.opacity = obj.pluginData.page < obj.pluginData.pages ? '1' : '0.35';
     }
@@ -9638,6 +10039,7 @@ function majBarreDocument() {
     const entiere = document.getElementById('doc-entiere');
     if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
     document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
+    if (typeof majLeVolet === 'function') majLeVolet();
 }
 
 function brancherBarreDocument() {
@@ -9646,6 +10048,41 @@ function brancherBarreDocument() {
 
     b('doc-prec').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, -1); });
     b('doc-suiv').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, 1); });
+
+    // Le numéro se tape : Entrée y va, Échap renonce, et sortir du champ le
+    // remet à la page réelle plutôt que de laisser un nombre en l'air.
+    const champPage = b('doc-page-num');
+    if (champPage) {
+        const yAller = () => {
+            const o = documentDeLaBarre();
+            if (!o || !o.pluginData) return;
+            const n = parseInt(champPage.value, 10);
+            if (!isFinite(n)) { champPage.value = o.pluginData.page; return; }
+            allerALaPage(o, n).then(() => {
+                champPage.value = o.pluginData.page;
+                if (n < 1 || n > o.pluginData.pages) {
+                    showToast(`Ce document a ${o.pluginData.pages} page${o.pluginData.pages > 1 ? 's' : ''}`);
+                }
+            });
+        };
+        champPage.addEventListener('keydown', (e) => {
+            e.stopPropagation();               // le tableau n'a pas à écouter
+            if (e.key === 'Enter') { e.preventDefault(); yAller(); champPage.blur(); }
+            if (e.key === 'Escape') {
+                const o = documentDeLaBarre();
+                if (o && o.pluginData) champPage.value = o.pluginData.page;
+                champPage.blur();
+            }
+        });
+        champPage.addEventListener('blur', () => {
+            const o = documentDeLaBarre();
+            if (o && o.pluginData) champPage.value = o.pluginData.page;
+        });
+        champPage.addEventListener('focus', () => champPage.select());
+    }
+
+    const boutonVolet = b('doc-volet-btn');
+    if (boutonVolet) boutonVolet.addEventListener('click', () => ouvrirLeVolet());
 
     b('doc-mode-cadre').addEventListener('click', () => { modeDocument = 'cadre'; majBarreDocument(); draw(); });
     b('doc-mode-page').addEventListener('click', () => {
@@ -13243,6 +13680,52 @@ function hoteDuTrait(trait) {
     });
     return meilleur;
 }
+
+// ---------------------------------------------------
+// À QUELLE PAGE APPARTIENT CE QU'ON VIENT D'ÉCRIRE ?
+// Un PDF feuilletable est UN objet qui change d'image. Sans rien de plus, un
+// trait tracé sur la page 3 restait affiché par-dessus la page 4 : on notait
+// une correction, on tournait la page, et la correction suivait. On note donc
+// la page au moment où l'on pose ; tout le reste n'est que de l'affichage, si
+// bien que Ctrl+Z, l'export et l'enregistrement continuent de marcher seuls.
+// ---------------------------------------------------
+function pdfFeuilletableSous(cx, cy) {
+    let choisi = null;
+    images.forEach(i => {
+        if (!i.pluginData || i.pluginData.id !== 'pdfDoc' || !(i.pluginData.pages > 1)) return;
+        if (cx < i.x || cx > i.x + i.w || cy < i.y || cy > i.y + i.h) return;
+        if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
+    });
+    return choisi;
+}
+
+// Le milieu de ce qu'on pose désigne la page. Rendue indépendante du réglage
+// « encre accrochée » : appartenir à une page n'est pas suivre un objet.
+function noterLaPage(objet, cx, cy) {
+    const pdf = pdfFeuilletableSous(cx, cy);
+    if (pdf) objet.surPage = { id: pdf.id, page: pdf.pluginData.page };
+    return pdf;
+}
+
+function noterLaPageDuTrait(trait) {
+    if (!trait || !trait.points || !trait.points.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    trait.points.forEach(p => {
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+    });
+    return noterLaPage(trait, (x0 + x1) / 2, (y0 + y1) / 2);
+}
+
+// Ce trait, ce texte est-il d'une autre page que celle qu'on montre ?
+function surUneAutrePage(o) {
+    if (!o || !o.surPage) return false;
+    const hote = getObjectById('image', o.surPage.id);
+    if (!hote || !hote.pluginData || hote.pluginData.id !== 'pdfDoc') return false;
+    return hote.pluginData.page !== o.surPage.page;
+}
+window.surUneAutrePage = surUneAutrePage;
+window.noterLaPage = noterLaPage;
 
 // Appelée quand un tracé vient d'être posé.
 function accrocherLeTrait(trait) {
@@ -21751,6 +22234,7 @@ const TEINTES_PAPIER = [
 
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
+    if (typeof brancherLeVolet === 'function') brancherLeVolet();
 
     const btnRetrouver = document.getElementById('btn-retrouver-images');
     const entreeRetrouver = document.getElementById('retrouver-loader');
