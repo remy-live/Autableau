@@ -585,6 +585,34 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
         Math.abs(viseur.milieu - viseur.clic) <= 2, JSON.stringify(viseur));
     r.verifie('le cadre s\'ouvre donc au-dessus du point désigné',
         viseur.haut < viseur.clic, JSON.stringify(viseur));
+
+    // Le trait qu'on VOIT doit enfourcher la ligne lui aussi. Son point de
+    // clic était son sommet : on visait le milieu du trait, et le texte
+    // apparaissait une demi-hauteur trop haut — d'autant plus qu'on écrivait
+    // gros. Le dessin disait une chose, le code en faisait une autre.
+    const viseurDessine = await page.evaluate(() => {
+        const lire = (taille, z) => {
+            activeStyle.fontSize = taille; zoom = z;
+            setMode('text');
+            lastRawX = 99999; lastRawY = 99999;      // loin de tout objet
+            updateCursor();
+            const c = document.getElementById('board').style.cursor;
+            const m = c.match(/height%3D%22(\d+(?:\.\d+)?)%22/);
+            const pt = c.match(/\)\s+(\d+)\s+(\d+)\s*,/);
+            return { hauteur: m ? Number(m[1]) : null, x: pt ? Number(pt[1]) : null,
+                     y: pt ? Number(pt[2]) : null, curseur: c.slice(0, 40) };
+        };
+        return { petit: lire(24, 1), grand: lire(90, 1), zoome: lire(40, 2) };
+    });
+    ['petit', 'grand', 'zoome'].forEach(cas => {
+        const v = viseurDessine[cas];
+        r.verifie(`le trait de saisie (${cas}) a bien une hauteur`, v.hauteur > 0, JSON.stringify(v));
+        r.egal(`et l'on clique en son milieu (${cas})`, v.y, Math.round(v.hauteur / 2));
+    });
+    r.verifie('le trait grandit avec la police',
+        viseurDessine.grand.hauteur > viseurDessine.petit.hauteur, JSON.stringify(viseurDessine));
+
+    await page.evaluate(() => { zoom = 1; activeStyle.fontSize = 40; });
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
 

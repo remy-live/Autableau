@@ -5393,7 +5393,8 @@ function updateCursor() {
         if (hoveredObj && hoveredObj.type === 'text') {
             canvas.style.cursor = 'grab';
         } else {
-            // Création d'un curseur I-Beam dynamique (Taille max 128px pour éviter les bugs navigateurs)
+            // Un I-Beam à la taille de la police (128 px au plus : au-delà,
+            // les navigateurs refusent d'afficher le curseur).
             const h = Math.max(12, Math.min(128, activeStyle.fontSize * zoom));
             const color = activeStyle.strokeColor;
 
@@ -5404,9 +5405,15 @@ function updateCursor() {
                 <line x1="2" y1="${h - 1}" x2="10" y2="${h - 1}" stroke="${color}" stroke-width="2"/>
             </svg>`;
 
-            // On définit le "hotspot" (le point de clic exact) à x=6 et y=1 (le centre du trait supérieur)
+            // Le point de clic est le MILIEU du trait, pas son sommet. La ligne
+            // de texte s'ouvre centrée sur le clic — c'est ce que veut dire un
+            // curseur de texte : le trait enfourche la ligne. Avec le point
+            // de clic en haut, on voyait le trait pendre sous lui et l'on
+            // visait naturellement son milieu : le texte apparaissait alors
+            // une demi-hauteur trop haut, et d'autant plus qu'on écrivait
+            // gros — un demi-trait de 128 px pour une grande police.
             const svgUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-            canvas.style.cursor = `url('${svgUrl}') 6 1, text`;
+            canvas.style.cursor = `url('${svgUrl}') 6 ${Math.round(h / 2)}, text`;
         }
     }
     else if (mode === 'freehand' || mode === 'laser' || mode === 'highlighter') canvas.classList.add('cursor-pencil');
