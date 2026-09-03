@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=61">
+    <link rel="stylesheet" href="style.css?v=62">
 </head>
 
 <body>
@@ -502,6 +502,10 @@
                     <ul style="font-size: 13px; line-height: 1.6;">
                         <li><strong>Tracé Libre :</strong> Cliquer & dessiner</li>
                         <li><strong>Surligneur :</strong> Même que tracé, effet transparent</li>
+                        <li><strong>Le zoom va de 20 % à 4000 %,</strong> et il y glisse au lieu d'y sauter : le
+                            point du tableau qui est sous le pointeur y reste pendant tout le mouvement. La course du
+                            curseur est <b>logarithmique</b> — un même déplacement multiplie toujours par le même
+                            facteur, en haut comme en bas de l'échelle.</li>
                         <li><strong>L'épaisseur est celle du tableau :</strong> un trait grossit et maigrit avec le
                             zoom, comme le texte et comme le document — on s'approche, le trait s'épaissit, comme
                             sur du papier. Zoomé, votre crayon écrit donc plus gras qu'à l'échelle 1 : c'est la
@@ -630,12 +634,19 @@
                         <li><strong>Chaque page garde ce qu'on écrit dessus :</strong> un trait ou un bloc de texte
                             posé sur la page 3 réapparaît avec la page 3, et ne se voit pas sur la 4. Rien n'est
                             supprimé — seulement rangé avec sa page.</li>
+                        <li><strong>Ce qu'on pose sur le document lui appartient — la règle :</strong> c'est le
+                            <b>milieu</b> de ce qu'on trace qui décide, avec une petite tolérance (une flèche partie
+                            de la marge appartient encore à la page). Ce qu'on pose <b>à côté</b> reste au tableau :
+                            il ne bouge pas avec le document et se voit quelle que soit la page ouverte.
+                            Tous les outils suivent cette règle : crayon, surligneur, texte, segment, droite,
+                            cercle, rectangle, polygone, courbe et arc.</li>
                         <li><strong>L'annotation colle au document :</strong> traits et blocs de texte écrits dessus
                             partent avec lui quand on le déplace, le tourne ou l'agrandit — et suivent aussi la page
                             quand elle <b>coulisse ou grossit dans son cadre</b> (mode <b>Page</b>), ce qui n'est pas
                             le zoom du tableau. Le document retiré, l'annotation reste mais redevient libre.</li>
-                        <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée plus finement dès qu'on
-                            lui demande plus de détail — jusqu'à six fois sa taille naturelle.</li>
+                        <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
+                            demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
+                            légère en dézoomant, ce qui évite le grain.</li>
                         <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF sélectionné.
                             <b>Cadre</b> déplace et ouvre les bords,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
@@ -1387,7 +1398,9 @@
                 </button>
                 <div class="popup-content popup-slider" id="popup-zoom">
                     <span style="font-size: 12px; margin-right: 5px;">🔍</span>
-                    <input type="range" id="zoom-slider" min="0.2" max="10" step="0.1" value="1">
+                    <!-- La course est LOGARITHMIQUE : le curseur donne un cran sur 1000, que
+                         zoomDuCurseur() traduit en grossissement (de 20 % à 4000 %). -->
+                    <input type="range" id="zoom-slider" min="0" max="1000" step="1" value="304">
                 </div>
             </div>
                 <div class="divider-small"></div>
@@ -1910,7 +1923,7 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
-    <script src="script.js?v=131"></script>
+    <script src="script.js?v=132"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=74"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

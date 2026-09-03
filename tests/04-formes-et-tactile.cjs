@@ -156,8 +156,8 @@ module.exports = async function (browser) {
         });
 
         const poser = (z) => page.evaluate((z) => {
-            ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
-             'curves', 'polygons', 'images', 'arcs'].forEach(t => { if (window[t]) window[t].length = 0; });
+            [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
             zoom = z; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
             selectedItems = [];
             freehands.push({ id: nextId++, points: [
@@ -186,7 +186,8 @@ module.exports = async function (browser) {
         // On mesure le violet peint, comme pour l'encre.
         const cadre = await page.evaluate(() => {
             const mesure = (z) => {
-                ['points', 'segments', 'freehands', 'texts'].forEach(t => { if (window[t]) window[t].length = 0; });
+                [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
                 zoom = z; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
                 const t = { id: nextId++, x: -100, y: -20, content: 'Cadre', fontSize: 30,
                             lineHeight: 36, color: '#000', fontFamily: 'sans-serif',

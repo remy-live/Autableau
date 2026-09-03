@@ -696,8 +696,8 @@ module.exports = async function (browser) {
     const barreDoc = await page.evaluate(() => {
         localStorage.removeItem('auTableau_barre_document');
         barreDocPosee = null; barreDocRepliee = false;
-        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
-         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
         panX = 0; panY = 0; zoom = 1;
         const c = document.getElementById('board');
         // Un document qui occupe tout l'écran : le cas qui pose problème

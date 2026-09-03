@@ -19,6 +19,74 @@ function ecrirePastille(id, valeur) {
     const el = document.getElementById(id);
     if (el && el.innerText !== valeur) el.innerText = valeur;
 }
+// ===================================================
+// LE ZOOM : JUSQU'OÙ, ET COMMENT
+// Quatre mille pour cent : de quoi montrer un détail d'une carte ou d'un
+// manuscrit scanné. Mais un zoom qui va si loin ne peut plus se régler par
+// pas égaux — de 1 à 40 en ligne droite, les trois quarts de la course
+// seraient au-delà de 1000 %. Le curseur est donc LOGARITHMIQUE : un même
+// déplacement multiplie toujours par le même facteur, en haut comme en bas.
+// Et le zoom ne saute plus : il glisse vers la valeur visée, en gardant sous
+// le pointeur le point du tableau qu'on y avait.
+// ===================================================
+const ZOOM_MIN = 0.2, ZOOM_MAX = 40;
+const CRAN_CURSEUR = 1000;      // la course du curseur, en crans
+
+function positionDuCurseur(z) {
+    const borne = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z || 1));
+    return Math.round(CRAN_CURSEUR * Math.log(borne / ZOOM_MIN) / Math.log(ZOOM_MAX / ZOOM_MIN));
+}
+
+function zoomDuCurseur(pos) {
+    const t = Math.max(0, Math.min(CRAN_CURSEUR, Number(pos) || 0)) / CRAN_CURSEUR;
+    return ZOOM_MIN * Math.pow(ZOOM_MAX / ZOOM_MIN, t);
+}
+window.positionDuCurseur = positionDuCurseur;
+window.zoomDuCurseur = zoomDuCurseur;
+
+function majCurseurZoom() {
+    const c = document.getElementById('zoom-slider');
+    if (c) c.value = positionDuCurseur(zoom);
+}
+
+// Le zoom glisse vers sa cible au lieu d'y sauter. Le point du tableau qui
+// était sous le pointeur y reste pendant tout le trajet : on zoome SUR
+// quelque chose, pas vers le milieu de l'écran.
+let zoomVise = null, ancreDuZoom = null, animationDuZoom = null;
+
+function viserLeZoom(cible, ecranX, ecranY) {
+    const voulu = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, cible));
+    const ex = (ecranX === undefined) ? canvas.width / 2 : ecranX;
+    const ey = (ecranY === undefined) ? canvas.height / 2 : ecranY;
+    // On mémorise le point du tableau visé UNE fois : le reprendre à chaque
+    // image le ferait dériver, puisque la vue bouge entre-temps.
+    ancreDuZoom = { ex, ey, lx: (ex - panX) / zoom, ly: (ey - panY) / zoom };
+    zoomVise = voulu;
+    if (!animationDuZoom) animationDuZoom = requestAnimationFrame(glisserLeZoom);
+}
+window.viserLeZoom = viserLeZoom;
+
+function glisserLeZoom() {
+    animationDuZoom = null;
+    if (zoomVise === null || !ancreDuZoom) return;
+    // On avance d'un tiers de ce qui reste : rapide au début, posé à la fin.
+    // En dessous d'un demi pour cent d'écart, on se pose franchement.
+    const reste = zoomVise / zoom;
+    zoom = (Math.abs(reste - 1) < 0.005) ? zoomVise : zoom * Math.pow(reste, 0.34);
+    panX = ancreDuZoom.ex - ancreDuZoom.lx * zoom;
+    panY = ancreDuZoom.ey - ancreDuZoom.ly * zoom;
+    majCurseurZoom(); majPastilleZoom();
+    updateWysiwygPosition();
+    draw();
+    if (zoom !== zoomVise) {
+        animationDuZoom = requestAnimationFrame(glisserLeZoom);
+    } else {
+        zoomVise = null; ancreDuZoom = null;
+        const docNet = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+        if (docNet && typeof demanderAffinage === 'function') demanderAffinage(docNet);
+    }
+}
+
 function majPastilleZoom(valeur) {
     ecrirePastille('zoom-valeur', Math.round((valeur === undefined ? zoom : valeur) * 100) + '%');
 }
@@ -236,6 +304,9 @@ let isDraggingObjs = false; let draggedHandle = null;
 let lastMouseX = 0, lastMouseY = 0; let lastRawX = 0, lastRawY = 0;
 
 let creationStartPointId = null; let mouseLogicalPos = null; let editingTextId = null; let tempTextLogicalPos = null;
+// Ce qui naît pendant un geste passe par la règle d'appartenance au relâcher :
+// un seul endroit pour tous les outils, ceux d'aujourd'hui comme ceux de demain.
+let idAvantLeGeste = null;
 let isDrawingFreehand = false;
 let currentFreehand = null;
 let currentCurvePoints = []; let currentPolygonPoints = [];
@@ -886,7 +957,7 @@ function loadPage(index) {
         p.origineFeuille = { ...origineFeuille };
     }
 
-    document.getElementById('zoom-slider').value = zoom;
+    majCurseurZoom();
     majPastilleZoom();
 
     if (history.length === 0) saveState();
@@ -6217,6 +6288,7 @@ function findObjectAt(lx, ly) {
     // --- 2. Vérification des points (Priorité absolue pour aimantation) ---
     let bestPoint = null; let minDist = Infinity;
     for (let i = points.length - 1; i >= 0; i--) {
+        if (surUneAutrePage(points[i])) continue;      // rangé avec sa page
         const dist = Math.hypot(points[i].x - lx, points[i].y - ly);
         if (dist < hitZonePt && dist < minDist) { minDist = dist; bestPoint = { type: 'point', id: points[i].id }; }
     }
@@ -6817,6 +6889,7 @@ canvas.addEventListener('pointerdown', (e) => {
 
     const rawPos = getRawLogicalPos(e);
     lastRawX = rawPos.x; lastRawY = rawPos.y;
+    if (idAvantLeGeste === null) idAvantLeGeste = nextId;
 
     // --- TAMPON TACTILE : au doigt/stylet, le contact affiche le fantôme, la pose se fait au relâcher ---
     if (touchStampPointerId !== null) return; // une pose de tampon est déjà en cours, on ignore les autres doigts
@@ -7034,6 +7107,7 @@ canvas.addEventListener('pointerdown', (e) => {
     else if (mode === 'curve') {
         if (currentCurvePoints.length > 2 && clickedObj && clickedObj.id === currentCurvePoints[0]) {
             curves.push({ id: nextId++, points: [...currentCurvePoints], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, closed: true, z: globalZ++ });
+            accrocherLesNouvellesFormes(curves[curves.length - 1].id);
             saveState(); showToast("Boucle fermée !"); currentCurvePoints = []; mouseLogicalPos = null;
         } else {
             let ptId = (clickedObj && clickedObj.type === 'point') ? clickedObj.id : nextId++;
@@ -7044,6 +7118,7 @@ canvas.addEventListener('pointerdown', (e) => {
     else if (mode === 'polygon') {
         if (currentPolygonPoints.length >= 3 && clickedObj && clickedObj.id === currentPolygonPoints[0]) {
             polygons.push({ id: nextId++, points: [...currentPolygonPoints], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, isClosed: true, z: globalZ++ });
+            accrocherLesNouvellesFormes(polygons[polygons.length - 1].id);
             saveState(); showToast("Polygone fermé !"); currentPolygonPoints = []; mouseLogicalPos = null;
         } else {
             let ptId = (clickedObj && clickedObj.type === 'point') ? clickedObj.id : nextId++;
@@ -7145,13 +7220,17 @@ canvas.addEventListener('dblclick', (e) => {
         }, 10);
     }
     else if (mode === 'curve' && currentCurvePoints.length > 0) {
+        const avantValidation = nextId;
         if (currentCurvePoints.length > 2) { currentCurvePoints.pop(); curves.push({ id: nextId++, points: [...currentCurvePoints], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, arrowStart: activeStyle.arrowStart, arrowEnd: activeStyle.arrowEnd, closed: false, z: globalZ++ }); saveState(); showToast("Courbe validée !"); }
         else if (currentCurvePoints.length === 2) { segments.push({ id: nextId++, p1_id: currentCurvePoints[0], p2_id: currentCurvePoints[1], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, arrowStart: activeStyle.arrowStart, arrowEnd: activeStyle.arrowEnd, z: globalZ++ }); saveState(); }
+        accrocherLesNouvellesFormes(avantValidation);
         currentCurvePoints = []; mouseLogicalPos = null; draw();
     }
     else if (mode === 'polygon' && currentPolygonPoints.length > 0) {
+        const avantValidation = nextId;
         if (currentPolygonPoints.length >= 3) { currentPolygonPoints.pop(); polygons.push({ id: nextId++, points: [...currentPolygonPoints], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, isFilled: activeStyle.isFilled, fillColor: activeStyle.fillColor, fillOpacity: activeStyle.fillOpacity, isClosed: false, z: globalZ++ }); saveState(); showToast("Ligne brisée validée !"); }
         else if (currentPolygonPoints.length === 2) { segments.push({ id: nextId++, p1_id: currentPolygonPoints[0], p2_id: currentPolygonPoints[1], color: activeStyle.strokeColor, width: activeStyle.lineWidth, dash: activeStyle.lineDash, arrowStart: activeStyle.arrowStart, arrowEnd: activeStyle.arrowEnd, z: globalZ++ }); saveState(); }
+        accrocherLesNouvellesFormes(avantValidation);
         currentPolygonPoints = []; mouseLogicalPos = null; draw();
     }
 });
@@ -7309,13 +7388,13 @@ canvas.addEventListener('pointermove', (e) => {
         if (balayageFait) return;
 
         const zoomDelta = currentDist / initialPinchDist; let newZoom = initialZoom * zoomDelta;
-        if (newZoom < 0.2) newZoom = 0.2; if (newZoom > 10) newZoom = 10;
+        if (newZoom < ZOOM_MIN) newZoom = ZOOM_MIN; if (newZoom > ZOOM_MAX) newZoom = ZOOM_MAX;
         // Le point du tableau saisi au départ reste sous le milieu des deux
         // doigts : le repère est le centre INITIAL, sinon deux doigts qui
         // glissent sans s'écarter ne déplacent pas la vue.
         const depart = initialPinchCenter || currentCenter;
         const mouseLogX = (depart.x - initialPanX) / initialZoom; const mouseLogY = (depart.y - initialPanY) / initialZoom;
-        zoom = newZoom; document.getElementById('zoom-slider').value = zoom;
+        zoom = newZoom; majCurseurZoom();
         panX = currentCenter.x - mouseLogX * zoom; panY = currentCenter.y - mouseLogY * zoom;
         updateWysiwygPosition();
         requestAnimationFrame(draw); return;
@@ -7569,9 +7648,17 @@ canvas.addEventListener('pointermove', (e) => {
         if (encreAvant && encreAvant.boite) {
             const dAngle = (obj.angle || 0) - encreAvant.angle;
             const centre = { x: encreAvant.boite.cx, y: encreAvant.boite.cy };
-            if (dAngle) { tournerLesTraits(type, obj.id, centre, dAngle); tournerLesTextes(type, obj.id, centre, dAngle); }
+            if (dAngle) {
+                tournerLesTraits(type, obj.id, centre, dAngle);
+                tournerLesTextes(type, obj.id, centre, dAngle);
+                tournerLesFormes(type, obj.id, centre, dAngle);
+            }
             const apres = boiteDeLHote(type, obj);
-            if (apres) { etirerLesTraits(type, obj.id, encreAvant.boite, apres); etirerLesTextes(type, obj.id, encreAvant.boite, apres); }
+            if (apres) {
+                etirerLesTraits(type, obj.id, encreAvant.boite, apres);
+                etirerLesTextes(type, obj.id, encreAvant.boite, apres);
+                etirerLesFormes(type, obj.id, encreAvant.boite, apres);
+            }
         }
         lastMouseX = e.clientX; lastMouseY = e.clientY;
     }
@@ -7630,6 +7717,18 @@ canvas.addEventListener('pointermove', (e) => {
         // Les blocs de texte écrits sur une image partent avec elle, de même
         imgsToMove.forEach(iid => textesAccrochesA('image', iid)
             .forEach(t => { if (!txtsToMove.has(t.id)) { t.x += dx; t.y += dy; } }));
+        // Et les figures tracées dessus, avec les points qui les définissent.
+        // On saute les points déjà déplacés pour eux-mêmes : ils avanceraient
+        // deux fois, et la figure se déformerait.
+        imgsToMove.forEach(iid => {
+            const formes = formesAccrochesA('image', iid);
+            pointsDesFormes(formes).forEach(p => {
+                if (!ptsToMove.has(p.id)) { p.x += dx; p.y += dy; }
+            });
+            formes.forEach(({ famille, o }) => {
+                if (famille === 'arc' && !arcsToMove.has(o.id)) { o.cx += dx; o.cy += dy; }
+            });
+        });
         arcsToMove.forEach(aid => { const a = getObjectById('arc', aid); if (a) { a.cx += dx; a.cy += dy; } });
 
         lastMouseX = panX + currentLog.x * zoom;
@@ -7744,18 +7843,18 @@ function handlePointerUp(e) {
     if (isSelectingBox) {
         isSelectingBox = false; const minX = Math.min(selectionBox.startX, selectionBox.endX); const maxX = Math.max(selectionBox.startX, selectionBox.endX); const minY = Math.min(selectionBox.startY, selectionBox.endY); const maxY = Math.max(selectionBox.startY, selectionBox.endY);
         selectedItems = [];
-        points.forEach(p => { if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'point', id: p.id }); });
+        points.forEach(p => { if (surUneAutrePage(p)) return; if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'point', id: p.id }); });
         // On n'attrape pas au lasso ce qu'on ne voit pas : l'encre et les
         // blocs d'une autre page du document restent hors de portée.
         texts.forEach(t => { if (surUneAutrePage(t)) return; if (t.x >= minX && t.x <= maxX && t.y >= minY && t.y <= maxY) selectedItems.push({ type: 'text', id: t.id }); });
-        segments.forEach(s => { const p1 = getObjectById('point', s.p1_id), p2 = getObjectById('point', s.p2_id); if (p1 && p2 && p1.x >= minX && p1.x <= maxX && p1.y >= minY && p1.y <= maxY && p2.x >= minX && p2.x <= maxX && p2.y >= minY && p2.y <= maxY) selectedItems.push({ type: 'segment', id: s.id }); });
-        circles.forEach(c => { const p = getObjectById('point', c.center_id); if (p && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'circle', id: c.id }); });
-        rectangles.forEach(r => { const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id); if (p1 && p2) { const rx1 = Math.min(p1.x, p2.x), rx2 = Math.max(p1.x, p2.x), ry1 = Math.min(p1.y, p2.y), ry2 = Math.max(p1.y, p2.y); if (rx1 >= minX && rx2 <= maxX && ry1 >= minY && ry2 <= maxY) selectedItems.push({ type: 'rectangle', id: r.id }); } });
-        curves.forEach(c => { let inside = true; c.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'curve', id: c.id }); });
-        polygons.forEach(po => { let inside = true; po.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'polygon', id: po.id }); });
+        segments.forEach(s => { if (surUneAutrePage(s)) return; const p1 = getObjectById('point', s.p1_id), p2 = getObjectById('point', s.p2_id); if (p1 && p2 && p1.x >= minX && p1.x <= maxX && p1.y >= minY && p1.y <= maxY && p2.x >= minX && p2.x <= maxX && p2.y >= minY && p2.y <= maxY) selectedItems.push({ type: 'segment', id: s.id }); });
+        circles.forEach(c => { if (surUneAutrePage(c)) return; const p = getObjectById('point', c.center_id); if (p && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) selectedItems.push({ type: 'circle', id: c.id }); });
+        rectangles.forEach(r => { if (surUneAutrePage(r)) return; const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id); if (p1 && p2) { const rx1 = Math.min(p1.x, p2.x), rx2 = Math.max(p1.x, p2.x), ry1 = Math.min(p1.y, p2.y), ry2 = Math.max(p1.y, p2.y); if (rx1 >= minX && rx2 <= maxX && ry1 >= minY && ry2 <= maxY) selectedItems.push({ type: 'rectangle', id: r.id }); } });
+        curves.forEach(c => { if (surUneAutrePage(c)) return; let inside = true; c.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'curve', id: c.id }); });
+        polygons.forEach(po => { if (surUneAutrePage(po)) return; let inside = true; po.points.forEach(pid => { const p = getObjectById('point', pid); if (!p || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'polygon', id: po.id }); });
         freehands.forEach(f => { if (surUneAutrePage(f)) return; let inside = true; f.points.forEach(p => { if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) inside = false; }); if (inside) selectedItems.push({ type: 'freehand', id: f.id }); });
         images.forEach(img => { if (img.x >= minX && img.x + img.w <= maxX && img.y >= minY && img.y + img.h <= maxY) selectedItems.push({ type: 'image', id: img.id }); });
-        arcs.forEach(a => { if (a.cx >= minX && a.cx <= maxX && a.cy >= minY && a.cy <= maxY) selectedItems.push({ type: 'arc', id: a.id }); });
+        arcs.forEach(a => { if (surUneAutrePage(a)) return; if (a.cx >= minX && a.cx <= maxX && a.cy >= minY && a.cy <= maxY) selectedItems.push({ type: 'arc', id: a.id }); });
         if (selectedItems.length > 0) { updateStyleBarContext(); } draw();
     }
 
@@ -7836,6 +7935,10 @@ function handlePointerUp(e) {
         }
         currentFreehand = null;
     }
+    // Le geste est fini : ce qu'on vient de tracer appartient-il au document ?
+    if (typeof accrocherLesNouvellesFormes === 'function') accrocherLesNouvellesFormes(idAvantLeGeste);
+    idAvantLeGeste = null;
+
     updateCursor(); draw();
 }
 
@@ -7862,20 +7965,12 @@ canvas.addEventListener('wheel', (e) => {
         // multipliait le zoom par 2,7 — beaucoup trop brutal. Le pavé tactile,
         // lui, envoie de petites valeurs en rafale : la formule exponentielle
         // reste, on l'adoucit seulement.
-        let zoomFactor = facteurDeMolette(e, 450);
-        let newZoom = zoom * zoomFactor;
-
-        if (newZoom < 0.2) newZoom = 0.2;
-        if (newZoom > 10) newZoom = 10;
-
-        document.getElementById('zoom-slider').value = newZoom;
-        panX = e.clientX - mouseLogX * newZoom;
-        panY = e.clientY - mouseLogY * newZoom;
-        zoom = newZoom;
-        // Zoomer le tableau grossit le document autant que zoomer la page :
-        // il mérite d'être redessiné aussi finement.
-        const docNet = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
-        if (docNet && typeof demanderAffinage === 'function') demanderAffinage(docNet);
+        // On vise, et le zoom glisse : les crans de molette s'enchaînent sans
+        // saccade, et le point sous le pointeur reste sous le pointeur.
+        const depart = (zoomVise === null) ? zoom : zoomVise;
+        viserLeZoom(depart * facteurDeMolette(e, 700), e.clientX, e.clientY);
+        updateWysiwygPosition();
+        return;
     }
     // 2. DÉPLACEMENT À DEUX DOIGTS (Trackpad) ou Molette classique
     else {
@@ -7889,13 +7984,8 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 document.getElementById('zoom-slider').addEventListener('input', (e) => {
-    const newZoom = parseFloat(e.target.value);
-    const cX = canvas.width / 2, cY = canvas.height / 2;
-    panX = cX - (cX - panX) * (newZoom / zoom);
-    panY = cY - (cY - panY) * (newZoom / zoom);
-    zoom = newZoom;
-    updateWysiwygPosition();
-    draw();
+    // Le curseur donne un cran, pas un zoom : la course est logarithmique.
+    viserLeZoom(zoomDuCurseur(e.target.value), canvas.width / 2, canvas.height / 2);
 });
 
 document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); majPastilleGrille(); draw(); });
@@ -9370,7 +9460,7 @@ function rendreLaPage(d, numero) {
 // Le cadrage (cx, cy, cw, ch) est en pixels d'image : il se met à l'échelle
 // en même temps, si bien que rien ne bouge à l'écran, tout devient net.
 // ---------------------------------------------------
-const FINESSE_MAX = 6;              // au plus six fois la taille naturelle
+const FINESSE_MAX = 12;             // au plus douze fois la taille naturelle
 const PIXELS_MAX = 16e6;            // et jamais une image démesurée
 let affinageDemande = null;
 
@@ -10365,6 +10455,15 @@ function suivreLeCadrage(obj, avant) {
     traitsAccrochesA('image', obj.id).forEach(f => {
         f.points.forEach(p => { p.x = versX(p.x); p.y = versY(p.y); });
         if (change) f.width = Math.max(0.5, (f.width || 2) * k);
+    });
+    const formes = formesAccrochesA('image', obj.id);
+    pointsDesFormes(formes).forEach(p => { p.x = versX(p.x); p.y = versY(p.y); });
+    formes.forEach(({ famille, o }) => {
+        if (famille === 'arc') {
+            o.cx = versX(o.cx); o.cy = versY(o.cy);
+            if (change) o.radius = Math.max(1, o.radius * k);
+        }
+        if (change) o.width = Math.max(0.5, (o.width || 2) * k);
     });
     textesAccrochesA('image', obj.id).forEach(t => {
         t.x = versX(t.x); t.y = versY(t.y);
@@ -11699,7 +11798,7 @@ document.querySelectorAll('.popup-content').forEach(popup => {
 const zoomSlider = document.getElementById('zoom-slider');
 if (zoomSlider && btnZoomToggle) {
     zoomSlider.addEventListener('input', () => {
-        majPastilleZoom(zoomSlider.value);
+        majPastilleZoom(zoomDuCurseur(zoomSlider.value));
     });
 }
 
@@ -13887,14 +13986,28 @@ function hoteDuTrait(trait) {
 // la page au moment où l'on pose ; tout le reste n'est que de l'affichage, si
 // bien que Ctrl+Z, l'export et l'enregistrement continuent de marcher seuls.
 // ---------------------------------------------------
-function pdfFeuilletableSous(cx, cy) {
+// LA RÈGLE, UNE SEULE : ce dont le MILIEU tombe sur un document lui
+// appartient. Avec une petite tolérance, parce qu'une flèche partie de la
+// marge ou un mot souligné qui dépasse appartiennent encore à la page. Ce
+// qu'on pose à côté reste libre : c'est du tableau, il ne bouge pas avec le
+// document et se voit quelle que soit la page ouverte.
+function documentPorteur(cx, cy) {
     let choisi = null;
     images.forEach(i => {
-        if (!i.pluginData || i.pluginData.id !== 'pdfDoc' || !(i.pluginData.pages > 1)) return;
-        if (cx < i.x || cx > i.x + i.w || cy < i.y || cy > i.y + i.h) return;
+        const marge = Math.max(12, Math.min(i.w, i.h) * 0.06);
+        if (cx < i.x - marge || cx > i.x + i.w + marge
+            || cy < i.y - marge || cy > i.y + i.h + marge) return;
         if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
     });
     return choisi;
+}
+window.documentPorteur = documentPorteur;
+
+function pdfFeuilletableSous(cx, cy) {
+    const porteur = documentPorteur(cx, cy);
+    if (!porteur || !porteur.pluginData || porteur.pluginData.id !== 'pdfDoc'
+        || !(porteur.pluginData.pages > 1)) return null;
+    return porteur;
 }
 
 // Le milieu de ce qu'on pose désigne la page. Rendue indépendante du réglage
@@ -13981,6 +14094,7 @@ function etirerLesTraits(type, id, avant, apres) {
 function decrocherLesTraits(type, id) {
     traitsAccrochesA(type, id).forEach(f => { delete f.surObjet; });
     textesAccrochesA(type, id).forEach(t => { delete t.surObjet; });
+    formesAccrochesA(type, id).forEach(({ o }) => { delete o.surObjet; });
 }
 
 // ---------------------------------------------------
@@ -14044,6 +14158,141 @@ function etirerLesTextes(type, id, avant, apres) {
 
 window.accrocherLeTexte = accrocherLeTexte;
 window.textesAccrochesA = textesAccrochesA;
+
+// ---------------------------------------------------
+// LES FORMES AUSSI : SEGMENT, CERCLE, RECTANGLE, POLYGONE, COURBE, ARC
+// L'encre et le texte se collaient au document, les figures non : on entourait
+// un mot d'un ovale, on déplaçait le PDF, l'ovale restait. Elles suivent le
+// même chemin, en emportant les points qui les définissent — sans quoi on
+// déplacerait un segment sans ses extrémités.
+// ---------------------------------------------------
+const FAMILLES_DE_FORMES = () => [
+    ['segment', segments], ['circle', circles], ['rectangle', rectangles],
+    ['polygon', polygons], ['curve', curves], ['arc', arcs]
+];
+
+// Les points qui définissent la forme. Un arc n'en a pas : il porte lui-même
+// son centre et son rayon.
+function pointsDeLaForme(type, o) {
+    if (type === 'segment' || type === 'rectangle') return [o.p1_id, o.p2_id];
+    if (type === 'circle') return [o.center_id, o.edge_id];
+    if (type === 'polygon' || type === 'curve') return (o.points || []).slice();
+    return [];
+}
+
+function milieuDeLaForme(type, o) {
+    if (type === 'arc') return { x: o.cx, y: o.cy };
+    const pts = pointsDeLaForme(type, o).map(id => getObjectById('point', id)).filter(Boolean);
+    if (!pts.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    pts.forEach(p => {
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+        y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+    });
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+}
+
+// Une forme posée sur un document lui appartient — et ses points avec elle,
+// sinon la figure s'effacerait en laissant ses extrémités sur la page.
+function accrocherLaForme(type, o) {
+    const milieu = milieuDeLaForme(type, o);
+    if (!milieu) return null;
+    const porteur = documentPorteur(milieu.x, milieu.y);
+    if (!porteur) return null;
+    if (encreAccrochee) o.surObjet = { type: 'image', id: porteur.id };
+    if (porteur.pluginData && porteur.pluginData.id === 'pdfDoc' && porteur.pluginData.pages > 1) {
+        const marque = { id: porteur.id, page: porteur.pluginData.page };
+        o.surPage = marque;
+        pointsDeLaForme(type, o).forEach(id => {
+            const p = getObjectById('point', id);
+            if (p) p.surPage = { id: marque.id, page: marque.page };
+        });
+    }
+    return porteur;
+}
+
+// Tout ce qui vient d'être tracé, quel que soit l'outil : une seule règle,
+// appliquée en un seul endroit. Ajouter un outil demain n'y changera rien.
+function accrocherLesNouvellesFormes(depuis) {
+    if (depuis === null || depuis === undefined) return;
+    FAMILLES_DE_FORMES().forEach(([type, tableau]) => {
+        tableau.forEach(o => { if (o.id >= depuis && !o.surObjet && !o.surPage) accrocherLaForme(type, o); });
+    });
+}
+window.accrocherLaForme = accrocherLaForme;
+window.accrocherLesNouvellesFormes = accrocherLesNouvellesFormes;
+
+function formesAccrochesA(type, id) {
+    const trouvees = [];
+    FAMILLES_DE_FORMES().forEach(([famille, tableau]) => {
+        tableau.forEach(o => {
+            if (o.surObjet && o.surObjet.type === type && o.surObjet.id === id) trouvees.push({ famille, o });
+        });
+    });
+    return trouvees;
+}
+window.formesAccrochesA = formesAccrochesA;
+
+// Les points d'un lot de formes, chacun une seule fois : deux figures peuvent
+// partager un sommet, et il ne doit pas se déplacer deux fois.
+function pointsDesFormes(formes) {
+    const vus = new Set();
+    const pts = [];
+    formes.forEach(({ famille, o }) => {
+        pointsDeLaForme(famille, o).forEach(id => {
+            if (vus.has(id)) return;
+            vus.add(id);
+            const p = getObjectById('point', id);
+            if (p && !p.depend) pts.push(p);      // un point d'intersection se recalcule
+        });
+    });
+    return pts;
+}
+
+function deplacerLesFormes(type, id, dx, dy) {
+    const formes = formesAccrochesA(type, id);
+    pointsDesFormes(formes).forEach(p => { p.x += dx; p.y += dy; });
+    formes.forEach(({ famille, o }) => { if (famille === 'arc') { o.cx += dx; o.cy += dy; } });
+}
+
+function tournerLesFormes(type, id, centre, dAngle) {
+    if (!dAngle) return;
+    const co = Math.cos(dAngle), si = Math.sin(dAngle);
+    const tourne = (px, py) => ({
+        x: centre.x + (px - centre.x) * co - (py - centre.y) * si,
+        y: centre.y + (px - centre.x) * si + (py - centre.y) * co
+    });
+    const formes = formesAccrochesA(type, id);
+    pointsDesFormes(formes).forEach(p => { const n = tourne(p.x, p.y); p.x = n.x; p.y = n.y; });
+    formes.forEach(({ famille, o }) => {
+        if (famille !== 'arc') return;
+        const n = tourne(o.cx, o.cy);
+        o.cx = n.x; o.cy = n.y;
+        o.startAngle += dAngle; o.endAngle += dAngle;
+    });
+}
+
+function etirerLesFormes(type, id, avant, apres) {
+    if (!avant || !apres || !avant.w || !avant.h) return;
+    const kx = apres.w / avant.w, ky = apres.h / avant.h;
+    if (kx === 1 && ky === 1 && avant.x === apres.x && avant.y === apres.y) return;
+    const k = Math.sqrt(Math.abs(kx * ky));
+    const formes = formesAccrochesA(type, id);
+    pointsDesFormes(formes).forEach(p => {
+        p.x = apres.x + (p.x - avant.x) * kx;
+        p.y = apres.y + (p.y - avant.y) * ky;
+    });
+    formes.forEach(({ famille, o }) => {
+        if (famille === 'arc') {
+            o.cx = apres.x + (o.cx - avant.x) * kx;
+            o.cy = apres.y + (o.cy - avant.y) * ky;
+            if (isFinite(k) && k > 0) o.radius = Math.max(1, o.radius * k);
+        }
+        if (isFinite(k) && k > 0 && Math.abs(k - 1) > 0.001) {
+            o.width = Math.max(0.5, (o.width || 2) * k);
+        }
+    });
+}
 
 window.accrocherLeTrait = accrocherLeTrait;
 window.traitsAccrochesA = traitsAccrochesA;
@@ -22370,8 +22619,7 @@ function cadrerSurLaFeuille() {
     const hauteurFeuille = PAGE_H * zoom;
     panY = hauteurFeuille <= libre ? enHaut + (libre - hauteurFeuille) / 2 : enHaut;
 
-    const curseurZoom = document.getElementById('zoom-slider');
-    if (curseurZoom) curseurZoom.value = zoom;
+    majCurseurZoom();
     majPastilleZoom();
 }
 

@@ -351,6 +351,163 @@ module.exports = async function (browser) {
         traine.texte === ecrit.x + 70 && traine.dyTexte === ecrit.y + 45,
         JSON.stringify({ ecrit, traine }));
 
+    // --- TOUS LES OUTILS, ET LA RÈGLE DU « HORS DU DOCUMENT » ---
+    // Une seule règle : ce dont le MILIEU tombe sur le document lui appartient.
+    // Ce qu'on pose à côté reste au tableau — il ne bouge pas avec le document
+    // et se voit quelle que soit la page ouverte.
+    const outils = await page.evaluate(async () => {
+        // (pas « images » : le document doit rester en place)
+        [points, segments, circles, rectangles, texts, freehands, curves,
+         polygons, arcs].forEach(t => { t.length = 0; });
+        const img = images[0];
+        img.x = -300; img.y = -220; img.w = 600; img.h = 440; img.angle = 0;
+        montrerToutLeDocument(img);
+        await allerALaPage(img, 1);
+
+        const pt = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p.id; };
+        // Sur le document
+        const depuis = nextId;
+        segments.push({ id: nextId++, p1_id: pt(img.x + 80, img.y + 60), p2_id: pt(img.x + 260, img.y + 90),
+                        color: '#000', width: 3, z: globalZ++ });
+        circles.push({ id: nextId++, center_id: pt(img.x + 300, img.y + 200), edge_id: pt(img.x + 360, img.y + 200),
+                       color: '#000', width: 3, z: globalZ++ });
+        rectangles.push({ id: nextId++, p1_id: pt(img.x + 60, img.y + 300), p2_id: pt(img.x + 200, img.y + 380),
+                          color: '#000', width: 3, z: globalZ++ });
+        polygons.push({ id: nextId++, points: [pt(img.x + 400, img.y + 60), pt(img.x + 470, img.y + 120),
+                                               pt(img.x + 420, img.y + 180)], color: '#000', width: 3, z: globalZ++ });
+        curves.push({ id: nextId++, points: [pt(img.x + 120, img.y + 200), pt(img.x + 180, img.y + 240),
+                                             pt(img.x + 240, img.y + 200)], color: '#000', width: 3, z: globalZ++ });
+        arcs.push({ id: nextId++, cx: img.x + 480, cy: img.y + 320, radius: 50,
+                    startAngle: 0, endAngle: 2, color: '#000', width: 3, z: globalZ++ });
+        // À côté, franchement dehors
+        const dehors = nextId;
+        segments.push({ id: nextId++, p1_id: pt(img.x + img.w + 120, img.y + 40),
+                        p2_id: pt(img.x + img.w + 260, img.y + 80), color: '#000', width: 3, z: globalZ++ });
+        arcs.push({ id: nextId++, cx: img.x - 220, cy: img.y + 100, radius: 40,
+                    startAngle: 0, endAngle: 2, color: '#000', width: 3, z: globalZ++ });
+        // À cheval, mais dont le milieu est sur la page : elle appartient encore
+        const cheval = nextId;
+        segments.push({ id: nextId++, p1_id: pt(img.x + img.w - 5, img.y + 420),
+                        p2_id: pt(img.x + img.w + 45, img.y + 430), color: '#000', width: 3, z: globalZ++ });
+
+        accrocherLesNouvellesFormes(depuis);
+
+        const etat = (id) => {
+            for (const [famille, tableau] of [['segment', segments], ['circle', circles],
+                    ['rectangle', rectangles], ['polygon', polygons], ['curve', curves], ['arc', arcs]]) {
+                const o = tableau.find(x => x.id === id);
+                if (o) return { famille, accroche: !!(o.surObjet && o.surObjet.id === img.id),
+                                page: o.surPage ? o.surPage.page : null };
+            }
+            return null;
+        };
+        const surLeDoc = [depuis, depuis + 3, depuis + 6, depuis + 9, depuis + 13, depuis + 17].map(etat);
+        return {
+            surLeDoc,
+            dehors: [etat(dehors), etat(dehors + 3)],
+            cheval: etat(cheval),
+            depuis, dehors_: dehors, cheval_: cheval
+        };
+    });
+    r.egal('les six familles de figures s\'accrochent au document',
+        outils.surLeDoc.map(e => e && e.accroche), [true, true, true, true, true, true]);
+    r.egal('et chacune sait de quelle page elle est',
+        outils.surLeDoc.map(e => e && e.page), [1, 1, 1, 1, 1, 1]);
+    r.egal('les familles couvertes sont bien les six',
+        outils.surLeDoc.map(e => e && e.famille),
+        ['segment', 'circle', 'rectangle', 'polygon', 'curve', 'arc']);
+    r.egal('ce qui est tracé à côté reste libre',
+        outils.dehors.map(e => e && (e.accroche || e.page !== null)), [false, false]);
+    r.verifie('et ce qui déborde un peu appartient encore à la page',
+        !!(outils.cheval && outils.cheval.accroche), JSON.stringify(outils));
+
+    // Elles suivent le document, et se rangent avec leur page
+    const suivent = await page.evaluate(async (dehorsId) => {
+        const img = images[0];
+        const seg = segments[0];
+        const p1 = getObjectById('point', seg.p1_id);
+        const avant = { x: p1.x, y: p1.y };
+        const arc = arcs[0];
+        const arcAvant = { x: arc.cx, y: arc.cy };
+
+        selectedItems = [{ type: 'image', id: img.id }];
+        deplacerLesFormes('image', img.id, 55, -30);
+        img.x += 55; img.y -= 30;
+        const bouge = { dx: Math.round(p1.x - avant.x), dy: Math.round(p1.y - avant.y),
+                        arcDx: Math.round(arc.cx - arcAvant.x) };
+
+        await allerALaPage(img, 2);
+        const rangees = {
+            figure: surUneAutrePage(seg),
+            sonPoint: surUneAutrePage(p1),
+            libre: surUneAutrePage(segments.find(x => x.id === dehorsId) || {}),
+            designe: (() => { const t = findObjectAt(p1.x, p1.y); return t && t.type; })()
+        };
+        await allerALaPage(img, 1);
+        return { bouge, rangees, revenue: !surUneAutrePage(seg) };
+    }, outils.dehors_);
+    r.egal('une figure du document suit son déplacement', suivent.bouge, { dx: 55, dy: -30, arcDx: 55 });
+    r.verifie('elle se range quand on tourne la page',
+        suivent.rangees.figure && suivent.rangees.sonPoint, JSON.stringify(suivent));
+    r.verifie('ses points ne se désignent plus, invisibles',
+        suivent.rangees.designe !== 'point', JSON.stringify(suivent));
+    r.verifie('une figure tracée à côté, elle, reste visible',
+        suivent.rangees.libre === false, JSON.stringify(suivent));
+    r.verifie('et la figure revient avec sa page', suivent.revenue, JSON.stringify(suivent));
+
+    // Le vrai chemin pour une figure : deux clics avec l'outil Rectangle sur le
+    // document, puis on tire le document. (Appeler les fonctions à la main ne
+    // prouve pas qu'elles sont branchées.)
+    const bouteEnBout = await page.evaluate(async () => {
+        // (pas « images » : le document doit rester en place)
+        [points, segments, circles, rectangles, texts, freehands, curves,
+         polygons, arcs].forEach(t => { t.length = 0; });
+        const img = images[0];
+        img.x = -300; img.y = -220; img.w = 600; img.h = 440; img.angle = 0;
+        montrerToutLeDocument(img);
+        await allerALaPage(img, 1);
+        zoom = 1; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
+        selectedItems = []; setMode('rectangle');
+        const ecran = (lx, ly) => ({ x: Math.round(panX + lx * zoom), y: Math.round(panY + ly * zoom) });
+        return { a: ecran(img.x + 90, img.y + 90), b: ecran(img.x + 240, img.y + 200),
+                 prise: ecran(img.x + 500, img.y + 400) };
+    });
+    // Un rectangle se trace d'un glissement, comme à la main
+    await page.mouse.move(bouteEnBout.a.x, bouteEnBout.a.y);
+    await page.mouse.down();
+    await page.mouse.move(bouteEnBout.b.x, bouteEnBout.b.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    const tracee = await page.evaluate(() => ({
+        combien: rectangles.length,
+        tous: rectangles.map(r => {
+            const a = getObjectById('point', r.p1_id), b = getObjectById('point', r.p2_id);
+            return a && b ? [Math.round(a.x), Math.round(a.y), Math.round(b.x), Math.round(b.y)] : null;
+        }),
+        accroche: rectangles[0] && rectangles[0].surObjet
+            ? rectangles[0].surObjet.id === images[0].id : false,
+        page: rectangles[0] && rectangles[0].surPage ? rectangles[0].surPage.page : null,
+        x: rectangles[0] ? Math.round(getObjectById('point', rectangles[0].p1_id).x) : null
+    }));
+    r.verifie('le rectangle tracé à la souris est posé', tracee.combien === 1, JSON.stringify(tracee));
+    r.verifie('il s\'accroche tout seul au document', tracee.accroche, JSON.stringify(tracee));
+    r.egal('et il sait de quelle page il est', tracee.page, 1);
+
+    await page.evaluate(() => {
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        draw();
+    });
+    await page.mouse.move(bouteEnBout.prise.x, bouteEnBout.prise.y);
+    await page.mouse.down();
+    await page.mouse.move(bouteEnBout.prise.x + 60, bouteEnBout.prise.y + 35, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const suivi = await page.evaluate(() => ({
+        x: rectangles[0] ? Math.round(getObjectById('point', rectangles[0].p1_id).x) : null
+    }));
+    r.egal('et tirer le document l\'emmène avec lui', suivi.x, tracee.x + 60);
+
     // --- ZOOMER LA PAGE DANS SON CADRE ---
     // Ce zoom-là n'est pas celui du tableau : le cadre ne bouge pas, c'est
     // l'image qui défile dessous. L'annotation doit rester sur SON mot.

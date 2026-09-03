@@ -461,8 +461,8 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     // Il supposait 300 × 100 pour n'importe quel bloc : un long texte sortait
     // du cadre et le PDF le tranchait en plein mot.
     const cadre = await page.evaluate(() => {
-        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
-         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
         const lignes = [
             'Les courbes de ta peau se dessinent sous mes doigts',
             'comme une carte que je connais par coeur,',
@@ -499,8 +499,8 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
 
     // Une bulle, une image penchée et un arc comptent aussi dans le cadre
     const autres = await page.evaluate(() => {
-        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
-         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
         arcs.push({ id: nextId++, cx: 900, cy: 900, radius: 120, startAngle: 0, endAngle: 3, z: globalZ++ });
         const box = getAutoBoundingBox(0);
         const arc = { x2: (box.endX - panX) / zoom, y2: (box.endY - panY) / zoom };
@@ -518,8 +518,8 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
 
     // --- Survol et sélection : plus de halo bavant autour des lettres ---
     const halo = await page.evaluate(() => {
-        ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
-         'curves', 'polygons', 'images', 'arcs'].forEach(c => { if (window[c]) window[c].length = 0; });
+        [points, segments, circles, rectangles, texts, freehands, curves,
+          polygons, images, arcs].forEach(t => { t.length = 0; });
         selectedItems = []; hoveredObj = null;
         panX = 200; panY = 200; zoom = 1;
         texts.push({

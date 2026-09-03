@@ -239,7 +239,9 @@ module.exports = async function (browser) {
 
     const vivant = await pageP.evaluate(() => {
         const curseur = document.getElementById('zoom-slider');
-        curseur.value = '1.4';
+        // La course du curseur est logarithmique : il porte un cran, pas un
+        // grossissement. On demande donc le cran qui vaut 140 %.
+        curseur.value = String(positionDuCurseur(1.4));
         curseur.dispatchEvent(new Event('input', { bubbles: true }));
         const g = document.getElementById('grid-weight-slider');
         g.value = '2.5';
@@ -250,6 +252,75 @@ module.exports = async function (browser) {
         };
     });
     r.egal('la pastille du zoom suit le curseur', vivant.zoom, '140%');
+
+    // --- LE ZOOM VA PLUS LOIN, ET IL Y GLISSE ---
+    // De 1 à 40 en ligne droite, les trois quarts de la course du curseur
+    // seraient au-delà de 1000 % : elle est donc logarithmique, un même
+    // déplacement multipliant toujours par le même facteur.
+    const course = await pageP.evaluate(() => ({
+        min: Math.round(zoomDuCurseur(0) * 100) / 100,
+        max: Math.round(zoomDuCurseur(1000)),
+        milieu: Math.round(zoomDuCurseur(500) * 100) / 100,
+        cranDe1: positionDuCurseur(1),
+        // Deux déplacements égaux doivent multiplier par le même facteur
+        facteurBas: Math.round((zoomDuCurseur(300) / zoomDuCurseur(200)) * 1000) / 1000,
+        facteurHaut: Math.round((zoomDuCurseur(900) / zoomDuCurseur(800)) * 1000) / 1000,
+        allerRetour: Math.round(zoomDuCurseur(positionDuCurseur(3.7)) * 10) / 10
+    }));
+    r.egal('le zoom descend à 20 %', course.min, 0.2);
+    r.egal('et monte à 4000 %', course.max, 40);
+    r.egal('un même déplacement multiplie toujours par le même facteur',
+        course.facteurBas, course.facteurHaut);
+    r.egal('le curseur retrouve le zoom qu\'on lui donne', course.allerRetour, 3.7);
+    r.verifie('l\'échelle 1 tombe dans la première moitié de la course',
+        course.cranDe1 > 200 && course.cranDe1 < 400, String(course.cranDe1));
+
+    // Une course de 20 % à 4000 % sur cent cinquante pixels rendait le réglage
+    // fin impossible : un millimètre de doigt sautait des centaines de pour cent.
+    const largeurCurseur = await pageP.evaluate(() => {
+        const c = document.getElementById('zoom-slider');
+        const popup = document.getElementById('popup-zoom');
+        const avant = popup.style.display;
+        popup.style.display = 'flex';
+        const r = c.getBoundingClientRect();
+        const pouce = getComputedStyle(c).height;
+        popup.style.display = avant;
+        return { largeur: Math.round(r.width), hauteur: pouce,
+                 parCran: Math.round((40 - 0.2) / 1000 * 1000) / 1000 };
+    });
+    r.verifie('le curseur du zoom est assez long pour se régler au doigt',
+        largeurCurseur.largeur >= 240, JSON.stringify(largeurCurseur));
+
+    // Le zoom ne saute plus : il glisse vers la valeur visée, en gardant sous
+    // le pointeur le point du tableau qu'on y avait.
+    const glisse = await pageP.evaluate(async () => {
+        zoom = 1; panX = 400; panY = 300;
+        const ecranX = 700, ecranY = 500;
+        const vise = 4;
+        const logX = (ecranX - panX) / zoom, logY = (ecranY - panY) / zoom;
+        viserLeZoom(vise, ecranX, ecranY);
+        // Quelques images plus tard : le zoom est en chemin, pas arrivé.
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const justeApres = zoom;
+        await new Promise(r => setTimeout(r, 900));    // le temps d'y glisser
+        return {
+            justeApres: Math.round(justeApres * 1000) / 1000,
+            arrive: Math.round(zoom * 1000) / 1000,
+            // le point visé est-il resté sous le pointeur ?
+            ecartX: Math.round(Math.abs(panX + logX * zoom - ecranX)),
+            ecartY: Math.round(Math.abs(panY + logY * zoom - ecranY)),
+            curseur: Number(document.getElementById('zoom-slider').value),
+            attendu: positionDuCurseur(4)
+        };
+    });
+    r.verifie('le zoom ne saute pas d\'un coup à la valeur visée',
+        glisse.justeApres > 1 && glisse.justeApres < 4, JSON.stringify(glisse));
+    r.egal('mais il y arrive', glisse.arrive, 4);
+    r.verifie('et le point visé reste sous le pointeur',
+        glisse.ecartX <= 1 && glisse.ecartY <= 1, JSON.stringify(glisse));
+    r.egal('le curseur suit le mouvement', glisse.curseur, glisse.attendu);
+
+    await pageP.evaluate(() => { zoom = 1; panX = 0; panY = 0; majCurseurZoom(); draw(); });
     r.egal('celle du quadrillage aussi, à la française', vivant.grille, '2,5');
 
     const interrupteurs = await pageP.evaluate(() => {

@@ -35,22 +35,26 @@ module.exports = async function (browser) {
     // --- LA MOLETTE ---
     // Un cran de molette envoie deltaY ≈ 100. À /100 le zoom était multiplié
     // par 2,7 d'un seul cran : on veut un pas confortable.
+    // Le zoom GLISSE maintenant vers sa cible : au moment où l'on rend la
+    // main, il n'a pas encore bougé. C'est la valeur VISÉE qui dit le pas.
     const molette = await page.evaluate(() => {
         const cv = document.getElementById('board');
+        const vise = () => (zoomVise === null ? zoom : zoomVise);
         const cran = (delta) => {
-            const av = zoom;
+            const av = vise();
             cv.dispatchEvent(new WheelEvent('wheel', { deltaY: delta, ctrlKey: true, clientX: 640, clientY: 400, bubbles: true, cancelable: true }));
-            return zoom / av;
+            return vise() / av;
         };
-        zoom = 1; panX = 0; panY = 0;
+        const remettre = () => { zoomVise = null; ancreDuZoom = null; zoom = 1; panX = 0; panY = 0; };
+        remettre();
         const avant = zoom;
         const arriere = cran(100);
         const avantRatio = cran(-100);
         // trois crans d'affilée, pour voir si ça reste maniable
-        zoom = 1;
+        remettre();
         for (let i = 0; i < 3; i++) cran(-100);
-        const troisCrans = zoom;
-        zoom = 1; draw();
+        const troisCrans = vise();
+        remettre(); draw();
         return { arriere, avantRatio, troisCrans, depart: avant };
     });
     r.verifie('un cran de molette zoome par petits pas',
