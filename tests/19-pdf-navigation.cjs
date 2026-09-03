@@ -561,6 +561,54 @@ module.exports = async function (browser) {
     r.egal('« page entière » ne l\'égare pas non plus',
         zoomPage.apresEntiere.texte, zoomPage.avantTexte);
 
+    // --- ZOOMER, DESSINER, DÉZOOMER : ON DOIT RETROUVER SA PAGE ---
+    // En plein écran, la molette zoome la PAGE dans son cadre. Prendre le
+    // crayon vidait la sélection : on zoomait avec un geste et l'on dézoomait
+    // avec un autre, si bien que la page restait rognée sur ce qu'on venait
+    // d'agrandir. On mesure la PART de page montrée, qui ne dépend pas de la
+    // finesse du rendu.
+    const allerRetourZoom = await page.evaluate(async () => {
+        const img = images[0];
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: img.id }];
+        if (!document.body.classList.contains('focus-mode')) toggleFocusMode();
+        modeDocument = 'page';
+        montrerToutLeDocument(img);
+        majBarreDocument();
+        const part = () => Math.round((img.cw / imageCache[img.src].naturalWidth) * 100) / 100;
+
+        const cv = document.getElementById('board');
+        const molette = (d) => cv.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: d, clientX: Math.round(panX + (img.x + img.w / 2) * zoom),
+            clientY: Math.round(panY + (img.y + img.h / 2) * zoom),
+            bubbles: true, cancelable: true }));
+
+        const depart = part();
+        for (let i = 0; i < 6; i++) molette(-100);          // je zoome
+        await new Promise(r => setTimeout(r, 800));
+        const zoome = part();
+
+        setMode('freehand');                                // je dessine
+        const enMain = !!(documentDeLaBarre() && documentDeLaBarre().id === img.id);
+        const choisi = selectedItems.length;
+
+        for (let i = 0; i < 10; i++) molette(100);          // je dézoome
+        await new Promise(r => setTimeout(r, 800));
+        const revenu = part();
+
+        setMode('pointer');
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        modeDocument = 'cadre';
+        return { depart, zoome, enMain, choisi, revenu };
+    });
+    r.egal('au départ, la page entière est montrée', allerRetourZoom.depart, 1);
+    r.verifie('la molette zoome bien dans la page', allerRetourZoom.zoome < 0.7,
+        JSON.stringify(allerRetourZoom));
+    r.egal('prendre le crayon vide la sélection', allerRetourZoom.choisi, 0);
+    r.verifie('mais le document reste celui de la barre', allerRetourZoom.enMain,
+        JSON.stringify(allerRetourZoom));
+    r.egal('et dézoomer rend la page entière, non rognée', allerRetourZoom.revenu, 1);
+
     // --- ZOOMER FORT NE DOIT PAS PIXELLISER ---
     const finesse = await page.evaluate(async () => {
         const img = images[0];

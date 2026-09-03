@@ -5294,6 +5294,13 @@ function syncToolbarActiveStates() {
 }
 
 function setMode(newMode) {
+    // En Focus, prendre un outil de tracé alors qu'un document est en main ne
+    // doit pas faire perdre le document : sa barre, ses pages et le zoom de
+    // la page en dépendent. On le retient AVANT que la sélection soit vidée —
+    // ici plutôt que dans le bouton de la barre, pour que le raccourci « C »
+    // et toute autre façon de prendre l'outil en profitent aussi.
+    if (typeof retenirLeDocumentAnnote === 'function') retenirLeDocumentAnnote(newMode);
+
     mode = newMode;
     window.isEditingProjectTitle = false;
 
@@ -7945,8 +7952,12 @@ function handlePointerUp(e) {
 canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
 
-    // En mode « page », la molette zoome la PAGE dans son cadre, pas le tableau
-    const docPage = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
+    // En mode « page », la molette zoome la PAGE dans son cadre, pas le tableau.
+    // C'est la barre qui dit de quel document il s'agit, PAS la sélection :
+    // prendre le crayon vide la sélection, et l'on se retrouvait à zoomer avec
+    // un geste et à dézoomer avec un autre — la page restait rognée sur ce
+    // qu'on avait agrandi, sans moyen évident de revenir en arrière.
+    const docPage = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
     if (docPage && estUnDocumentPose(docPage) && modeDocument === 'page' && !docPage.locked) {
         const p = getRawLogicalPos(e);
         if (p.x >= docPage.x && p.x <= docPage.x + docPage.w && p.y >= docPage.y && p.y <= docPage.y + docPage.h) {
@@ -10093,6 +10104,15 @@ function documentSelectionne() {
 // le document qu'on annote tant qu'on a un outil de tracé en main.
 const OUTILS_ANNOTATION = ['freehand', 'highlighter', 'text'];
 let docEnAnnotation = null;
+
+// Appelée par setMode, avant qu'il ne vide la sélection.
+function retenirLeDocumentAnnote(nouvelOutil) {
+    if (!OUTILS_ANNOTATION.includes(nouvelOutil)) return;
+    if (!document.body.classList.contains('focus-mode')) return;
+    const doc = documentSelectionne();
+    if (doc) docEnAnnotation = doc.id;
+}
+window.retenirLeDocumentAnnote = retenirLeDocumentAnnote;
 
 function enTrainDAnnoter() {
     return !!docEnAnnotation
