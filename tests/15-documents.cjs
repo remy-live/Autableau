@@ -951,6 +951,93 @@ module.exports = async function (browser) {
     r.verifie('et la barre s\'en va avec, plus rien n\'étant sélectionné', !sortie.barreVisible,
         JSON.stringify(sortie));
 
+    // --- « CADRE / PAGE » N'EST PAS POUR TOUT LE MONDE ---
+    // Faire coulisser une page à l'intérieur d'un pion d'échecs n'a aucun sens.
+    // Ces deux boutons sont réservés aux images importées et aux documents.
+    const modesSelonLObjet = await page.evaluate(async () => {
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        setMode('pointer');
+        images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        const lire = () => getComputedStyle(document.getElementById('doc-modes')).display;
+
+        // Une image importée : elle y a droit.
+        const carre = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60">'
+            + '<rect width="80" height="60" fill="#69c"/></svg>');
+        await new Promise(res => {
+            const i = new Image();
+            i.onload = () => {
+                imageCache[i.src] = i;
+                images.push({ id: nextId++, x: 100, y: 100, w: 80, h: 60,
+                              cx: 0, cy: 0, cw: 80, ch: 60, src: i.src, z: globalZ++ });
+                res();
+            };
+            i.src = carre;
+        });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        const image = lire();
+
+        // Une pièce de jeu : elle n'y a pas droit.
+        await loadBoardGameElement(carre, 300, 100, 60, 60, false);
+        selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
+        majBarreDocument();
+        const piece = lire();
+        return { image, piece, marque: images[images.length - 1].pluginData };
+    });
+    r.egal('une image importée garde « Cadre / Page »', modesSelonLObjet.image, 'contents');
+    r.egal('une pièce de jeu ne les propose pas', modesSelonLObjet.piece, 'none');
+
+    // --- LA BARRE SE POSE SOUS L'OBJET, ET DESSUS S'IL EST TROP BAS ---
+    const place = await page.evaluate(() => {
+        const barre = document.getElementById('barre-document');
+        const mesure = (y) => {
+            images[0].y = y;
+            selectedItems = [{ type: 'image', id: images[0].id }];
+            majBarreDocument();
+            const b = barre.getBoundingClientRect();
+            const o = { haut: panY + images[0].y * zoom,
+                        bas: panY + (images[0].y + images[0].h) * zoom };
+            return { barreHaut: Math.round(b.top), barreBas: Math.round(b.bottom),
+                     objHaut: Math.round(o.haut), objBas: Math.round(o.bas),
+                     dansEcran: b.top >= 0 && b.bottom <= window.innerHeight + 1 };
+        };
+        barreDocPosee = null;
+        // Objet haut placé : la barre doit être SOUS lui.
+        const dessous = mesure(120);
+        // Objet collé au bas de l'écran : elle doit remonter AU-DESSUS.
+        const dessus = mesure((window.innerHeight - panY) / zoom - 70);
+        return { dessous, dessus, ecran: window.innerHeight };
+    });
+    r.verifie('la barre se pose sous l\'objet',
+        place.dessous.barreHaut > place.dessous.objBas
+        && place.dessous.barreHaut - place.dessous.objBas < 40,
+        JSON.stringify(place.dessous));
+    r.verifie('et passe au-dessus quand l\'objet est trop bas',
+        place.dessus.barreBas < place.dessus.objHaut && place.dessus.dansEcran,
+        JSON.stringify(place.dessus));
+
+    // --- UN PLATEAU SE POSE D'UN SEUL COUP DE PINCEAU ---
+    // 41 objets pour trois dessins : on décodait une image par case et l'on
+    // repeignait tout le tableau à chaque fois. Une seconde d'attente, et les
+    // pions tombaient un à un.
+    const damier = await page.evaluate(async () => {
+        images.length = 0; selectedItems = []; majBarreDocument();
+        let dessins = 0; const vrai = window.draw;
+        window.draw = function () { dessins++; return vrai.apply(this, arguments); };
+        const t0 = performance.now();
+        PluginManager.plugins.checkersTool.buildGame();
+        await new Promise(r2 => { const att = () => images.length >= 41 ? r2() : setTimeout(att, 4); att(); });
+        await new Promise(r2 => requestAnimationFrame(r2));
+        const ms = performance.now() - t0;
+        window.draw = vrai;
+        return { ms: Math.round(ms), dessins, pieces: images.length };
+    });
+    r.egal('le damier pose bien ses 41 éléments', damier.pieces, 41);
+    r.verifie('en une poignée de repeintures, pas une par pièce',
+        damier.dessins <= 4, JSON.stringify(damier));
+    r.verifie('et sans faire attendre', damier.ms < 400, JSON.stringify(damier));
+
     await page.evaluate(() => {
         localStorage.removeItem('auTableau_barre_document');
         barreDocPosee = null; barreDocRepliee = false;

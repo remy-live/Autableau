@@ -10252,12 +10252,22 @@ function majBarreDocument() {
         barre.style.top = Math.max(4,
             Math.min(window.innerHeight - barre.offsetHeight - 4, barreDocPosee.y)) + 'px';
     } else {
-        // Posée sous le cadre, et ramenée dans l'écran si le document en sort
+        // Sous l'objet — c'est là qu'on la cherche. Mais un objet posé bas
+        // pousse la barre hors de l'écran : elle glissait alors le long du
+        // bord, loin de ce dont elle parle. Elle passe DESSUS dans ce cas,
+        // et ne se recale contre un bord que si ni l'un ni l'autre ne tient.
         const cx = panX + (obj.x + obj.w / 2) * zoom;
-        const bas = panY + (obj.y + obj.h) * zoom + 14;
+        const hautObj = panY + obj.y * zoom;
+        const basObj = panY + (obj.y + obj.h) * zoom;
+        const hb = barre.offsetHeight || 44;
         const demi = (barre.offsetWidth || 480) / 2 + 8;
+        let haut = basObj + 14;
+        if (haut + hb > window.innerHeight - 8) {
+            const dessus = hautObj - 14 - hb;
+            haut = dessus >= 8 ? dessus : Math.max(8, window.innerHeight - hb - 8);
+        }
         barre.style.left = Math.max(demi, Math.min(window.innerWidth - demi, cx)) + 'px';
-        barre.style.top = Math.max(8, Math.min(window.innerHeight - barre.offsetHeight - 8, bas)) + 'px';
+        barre.style.top = Math.round(haut) + 'px';
     }
 
     // Les flèches n'ont de sens que pour un PDF qu'on peut encore feuilleter

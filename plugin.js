@@ -12793,29 +12793,71 @@ document.addEventListener('dblclick', (e) => {
 // PACK JEUX DE PLATEAU V2 (Correction du bug d'affichage des Échecs)
 // ==============================================================================
 
-// --- FONCTION UTILITAIRE SÉCURISÉE ---
-window.loadBoardGameElement = (b64, x, y, w, h, isLocked = false) => {
-    return new Promise(resolve => {
-        let img = new Image();
-        img.onload = () => {
-            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({
-                id: nextId++, x: x, y: y, w: w, h: h,
-                cx: 0, cy: 0, cw: w, ch: h,
-                src: img.src, z: globalZ++,
-                locked: isLocked
-            });
+// POSER UN PLATEAU ET SES PIÈCES, SANS LES FAIRE TOMBER UNE À UNE.
+// Un damier, ce sont 41 objets qui ne portent que TROIS dessins : le plateau,
+// le pion blanc, le pion rouge. L'ancienne version fabriquait quand même une
+// Image par case, la décodait, puis repeignait tout le tableau — quarante et
+// une fois. Il fallait une seconde pour poser le jeu et l'on voyait les pions
+// arriver l'un après l'autre.
+// On décode donc chaque dessin UNE fois — les suivants se servent dans le
+// cache d'images sans rien attendre — et l'on ne repeint qu'une fois, quand
+// tout le monde est posé.
+(function () {
+    let repeinturePrevue = false;
+    const repeindreUneFois = () => {
+        if (repeinturePrevue) return;
+        repeinturePrevue = true;
+        requestAnimationFrame(() => {
+            repeinturePrevue = false;
             if (typeof draw === 'function') draw();
-            resolve();
-        };
-        // Sécurité : si l'image plante, on débloque la suite quand même
-        img.onerror = () => {
-            console.error("Erreur de chargement d'un élément du jeu.");
-            resolve();
-        };
-        img.src = b64;
-    });
-};
+        });
+    };
+
+    // Les décodages en cours, par source : vingt pions blancs demandés d'un
+    // coup ne lancent qu'un seul décodage, et attendent le même.
+    const enCours = new Map();
+
+    const poser = (src, x, y, w, h, isLocked) => {
+        images.push({
+            id: nextId++, x: x, y: y, w: w, h: h,
+            cx: 0, cy: 0, cw: w, ch: h,
+            src: src, z: globalZ++,
+            locked: isLocked,
+            // Un plateau et ses pièces ne sont pas des images importées : sans
+            // cette marque, la barre leur proposait « Cadre / Page », c'est-à-dire
+            // de faire coulisser une page à l'intérieur d'un pion. Aucun plugin
+            // ne porte ce nom : le double-clic garde son comportement ordinaire.
+            pluginData: { id: 'jeuDePlateau' }
+        });
+        repeindreUneFois();
+    };
+
+    window.loadBoardGameElement = (b64, x, y, w, h, isLocked = false) => {
+        const deja = (typeof imageCache !== 'undefined') ? imageCache[b64] : null;
+        if (deja && deja.complete && deja.naturalWidth) {
+            poser(b64, x, y, w, h, isLocked);
+            return Promise.resolve();
+        }
+        if (!enCours.has(b64)) {
+            const attente = new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
+                    resolve(true);
+                };
+                // Sécurité : si l'image plante, on débloque la suite quand même
+                img.onerror = () => {
+                    console.error("Erreur de chargement d'un élément du jeu.");
+                    resolve(false);
+                };
+                img.src = b64;
+            });
+            enCours.set(b64, attente);
+            attente.then(() => enCours.delete(b64));
+        }
+        return enCours.get(b64).then((ok) => { if (ok) poser(b64, x, y, w, h, isLocked); });
+    };
+})();
 // ==============================================================================
 // PLUGIN : JEU D'ÉCHECS MULTI-INSTANCES & MULTI-DESIGNS
 // ==============================================================================
@@ -12957,26 +12999,8 @@ registerPlugin('chessTool', 'Jeux', {
 // ------------------------------------------------------------------------------
 
 
-if (typeof window.loadBoardGameElement === 'undefined') {
-    window.loadBoardGameElement = (b64, x, y, w, h, isLocked = false) => {
-        return new Promise(resolve => {
-            let img = new Image();
-            img.onload = () => {
-                if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-                images.push({
-                    id: nextId++, x: x, y: y, w: w, h: h,
-                    cx: 0, cy: 0, cw: w, ch: h,
-                    src: img.src, z: globalZ++,
-                    locked: isLocked
-                });
-                if (typeof draw === 'function') draw();
-                resolve();
-            };
-            img.onerror = () => { resolve(); };
-            img.src = b64;
-        });
-    };
-}
+// (Une seconde définition de loadBoardGameElement vivait ici, sous une garde
+// « si elle n'existe pas encore » toujours fausse : du code mort. Retirée.)
 
 // ------------------------------------------------------------------------------
 // JEU DE DAMES (Multi-Designs & Déverrouillé)
