@@ -297,15 +297,66 @@ module.exports = async function (browser) {
     const remise = await page.evaluate(() => {
         const cadre = document.getElementById('project-name-wrapper');
         const c = cadre.getBoundingClientRect();
-        const centre = Math.abs((c.left + c.right) / 2 - window.innerWidth / 2) < 6;
+        // La bande d'onglets des plugins tient le haut au CENTRE. La date y
+        // était dessus : cinq onglets devenaient inatteignables. Sa place par
+        // défaut doit donc être ailleurs — en haut à GAUCHE, et sans mordre
+        // sur la bande, même quand le tiroir est fermé (les onglets gardent
+        // leur place, ils ne font que se replier).
+        const onglets = document.getElementById('plugin-tabs');
+        const t = onglets ? onglets.getBoundingClientRect() : null;
+        const chevauche = !!(t && t.width && c.right > t.left && c.left < t.right
+            && c.bottom > t.top && c.top < t.bottom);
         cadre.classList.remove('editing');
-        return { pose: titrePose, haut: Math.round(c.top), centre,
+        return { pose: titrePose, haut: Math.round(c.top), gauche: Math.round(c.left),
+                 chevauche, onglets: t && { g: Math.round(t.left), d: Math.round(t.right) },
                  memoire: localStorage.getItem('auTableau_titre_pose') };
     });
     r.egal('le double-clic défait le déplacement', remise.pose, null);
-    r.verifie('elle retrouve le haut du tableau, centrée',
-        remise.haut < 40 && remise.centre, JSON.stringify(remise));
+    r.verifie('elle retrouve le haut du tableau, à gauche',
+        remise.haut < 40 && remise.gauche < 40, JSON.stringify(remise));
+    r.verifie('sans recouvrir les onglets des plugins',
+        !remise.chevauche, JSON.stringify(remise));
     r.egal('et l\'oubli est retenu', remise.memoire, null);
+
+    // Le menu des réglages pend sous le titre, hors de la boîte qui reçoit le
+    // survol : en descendant vers lui, on quittait le titre et il disparaissait
+    // avant qu'on l'atteigne. On refait le trajet à la souris.
+    const roue = await page.evaluate(() => {
+        const b = document.getElementById('btn-reglages-date').getBoundingClientRect();
+        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+    });
+    await page.mouse.move(roue.x, roue.y);
+    await page.mouse.click(roue.x, roue.y);
+    await page.waitForTimeout(150);
+    const cible = await page.evaluate(() => {
+        const b = document.getElementById('rd-heure').getBoundingClientRect();
+        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+    });
+    // Le trajet passe par le vide entre la roue et le menu : c'est là que tout
+    // s'effaçait.
+    await page.mouse.move(cible.x, cible.y, { steps: 12 });
+    await page.waitForTimeout(150);
+    const survol = await page.evaluate(() => {
+        const p = document.getElementById('reglages-date');
+        const b = p.getBoundingClientRect();
+        const st = getComputedStyle(p.parentElement);
+        const dessus = document.elementFromPoint(Math.round(b.left + b.width / 2),
+                                                 Math.round(b.top + b.height / 2));
+        return { visible: p.classList.contains('visible'), opacite: st.opacity,
+                 clics: st.pointerEvents, atteint: !!(dessus && p.contains(dessus)) };
+    });
+    r.verifie('le menu des réglages reste là quand on va vers lui',
+        survol.visible && survol.opacite === '1' && survol.clics !== 'none' && survol.atteint,
+        JSON.stringify(survol));
+    // Et il se referme d'un clic à côté.
+    await page.mouse.click(roue.x, roue.y);
+    await page.waitForTimeout(150);
+    const referme = await page.evaluate(() => ({
+        visible: document.getElementById('reglages-date').classList.contains('visible'),
+        classe: document.getElementById('project-name-wrapper').classList.contains('reglages-ouverts')
+    }));
+    r.verifie('et se referme quand on rappuie sur la roue',
+        !referme.visible && !referme.classe, JSON.stringify(referme));
 
     // --- RÉPARTITION DES ICÔNES ---
     await page.evaluate(() => choisirFormatIcones('couleur'));

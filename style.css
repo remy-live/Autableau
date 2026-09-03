@@ -4616,14 +4616,14 @@ body.dark-mode {
 .project-name-wrapper {
     position: absolute;
     top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    /* AU-DESSUS DU TIROIR DES PLUGINS (z-index 40), qui occupe lui aussi le
-       haut au centre : à 30, la date se trouvait derrière sa rangée d'onglets
-       — invisible, et ses commandes injoignables. Le tiroir OUVERT efface le
-       titre (voir « body.drawer-open-top »), il n'y a donc pas de conflit :
-       on ne passe devant que la bande d'onglets. Et comme la date se déplace
-       maintenant, on la pose où elle ne gêne personne. */
+    /* EN HAUT À GAUCHE, ET NON AU MILIEU. Le tiroir des plugins occupe le
+       haut au CENTRE : la date y était soit derrière lui — invisible dans
+       l'interface par défaut, on ne la voyait qu'en mode Focus — soit devant,
+       et elle bouchait alors cinq de ses onglets. À gauche, le haut est libre
+       (vérifié), elle se voit toujours et ne gêne rien. Qui la préfère au
+       milieu l'y emmène par sa poignée : la place choisie est retenue. */
+    left: 14px;
+    transform: none;
     z-index: 45;
     display: flex;
     align-items: center;
@@ -4720,10 +4720,16 @@ body.drawer-open-top .project-name-wrapper {
 }
 
 .project-name-wrapper.editing .title-controls,
+.project-name-wrapper.reglages-ouverts .title-controls,
 .project-name-wrapper:hover .title-controls {
     opacity: 1;
     pointer-events: auto;
 }
+
+/* Le menu des réglages pend SOUS le titre, donc hors de la boîte qui reçoit
+   le survol : en allant vers lui, on quittait le titre, les commandes
+   s'effaçaient et le menu partait avec elles. Tant qu'il est ouvert, les
+   commandes restent — c'est ce que dit « reglages-ouverts ». */
 
 .title-btn {
     width: 24px;

@@ -23152,6 +23152,8 @@ function majPoseDuTitre() {
     const cadre = document.getElementById('project-name-wrapper');
     if (!cadre) return;
     if (!titrePose) {
+        // On rend la main à la feuille de style : la place par défaut est
+        // en haut à gauche, hors de la bande d'onglets des plugins.
         cadre.style.left = ''; cadre.style.top = ''; cadre.style.transform = '';
         return;
     }
@@ -23169,7 +23171,7 @@ function replacerLeTitre() {
     retenirLaPoseDuTitre();
     majPoseDuTitre();
     ajusterLargeurDuTitre();
-    if (typeof showToast === 'function') showToast('Date remise en haut du tableau');
+    if (typeof showToast === 'function') showToast('Date remise en haut à gauche');
 }
 window.replacerLeTitre = replacerLeTitre;
 
@@ -23227,7 +23229,21 @@ function basculerReglagesDate(e) {
     if (e) e.stopPropagation();
     const popup = document.getElementById('reglages-date');
     if (!popup) return;
-    if (popup.classList.toggle('visible')) majReglagesDate();
+    // Le menu pend SOUS le titre, donc hors de la boîte qui reçoit le survol.
+    // En descendant vers lui on quittait le titre, les commandes s'effaçaient
+    // et le menu partait avec elles : impossible d'y arriver. Tant qu'il est
+    // ouvert, on garde les commandes allumées.
+    const ouvert = popup.classList.toggle('visible');
+    const cadre = document.getElementById('project-name-wrapper');
+    if (cadre) cadre.classList.toggle('reglages-ouverts', ouvert);
+    if (ouvert) majReglagesDate();
+}
+
+function fermerReglagesDate() {
+    const popup = document.getElementById('reglages-date');
+    if (popup) popup.classList.remove('visible');
+    const cadre = document.getElementById('project-name-wrapper');
+    if (cadre) cadre.classList.remove('reglages-ouverts');
 }
 
 document.addEventListener('click', (e) => {
@@ -23235,7 +23251,7 @@ document.addEventListener('click', (e) => {
     const bouton = document.getElementById('btn-reglages-date');
     if (!popup || !popup.classList.contains('visible')) return;
     if (popup.contains(e.target) || (bouton && bouton.contains(e.target))) return;
-    popup.classList.remove('visible');
+    fermerReglagesDate();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
