@@ -18229,7 +18229,7 @@ const INTERFACES_FOURNIES = [
                  'ruler', 'setsquare', 'compass'],
         matiere: ['Fraction Visuelle', 'Tableau de Conversion', 'Division Posée',
                   'Tableau de Proportionnalité', 'Symétrie', 'Pyramides Additives',
-                  'Frise Historique', 'Cartes Géographiques'],
+                  'Frise Historique', 'Atelier cartes'],
         titreMatiere: 'Cycle 3'
     },
     {
@@ -22963,7 +22963,7 @@ function equilibrerGrillePlugins() {
         'Circuits Électriques': 'Circuits', 'Composants Électriques': 'Composants',
         'Molécules 2D': 'Molécules', 'Sonomètre de Classe': 'Sonomètre',
         'Piano Virtuel': 'Piano', 'Métronome Pro': 'Métronome', 'Accordeur Pro': 'Accordeur',
-        'Portée Musicale': 'Portée', 'Frise Historique': 'Frise', 'Cartes Géographiques': 'Cartes',
+        'Portée Musicale': 'Portée', 'Frise Historique': 'Frise', 'Atelier cartes': 'Cartes',
         "Lignes d'écriture": 'Lignes', 'Météo du Jour': 'Météo',
         'Calendrier & Affichages': 'Calendrier', 'Tableaux & Logigrammes': 'Logigrammes',
         'Tirage au sort & Groupes': 'Tirage au sort', 'Bulles BD Interactives': 'Bulles BD',

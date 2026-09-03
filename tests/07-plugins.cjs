@@ -65,14 +65,22 @@ module.exports = async function (browser) {
     r.verifie(`les ${nb} plugins s'ouvrent sans erreur`, fautifs.length === 0, fautifs.slice(0, 6).join('  ///  '));
     r.verifie('aucune fenêtre de plugin ne déborde en 768×1024', debordants.length === 0, debordants.slice(0, 6).join('  ///  '));
 
-    // Le tampon « carte » doit sortir sans connexion : les silhouettes sont
-    // fournies avec l'application.
-    const carte = await page.evaluate(() => new Promise(res => {
+    // La carte doit sortir sans connexion : le fond du monde est livré avec
+    // l'application, et rien n'est jamais demandé à un serveur.
+    const carte = await page.evaluate(() => {
         const t = PluginManager.plugins.mapTool;
-        if (!t || !t.fetchMap) return res(null);
-        t.fetchMap('fr', '#0984e3', (svg) => res(svg ? { taille: svg.length, trace: /<path/i.test(svg) } : null));
-    }));
-    r.verifie('carte de France disponible hors connexion', !!carte && carte.trace, JSON.stringify(carte));
+        if (!t) return null;
+        const etat = t.etatNeuf();
+        etat.fond = 'Europe';
+        etat.legendes[0].pays = ['FR'];
+        const fait = t.fabriquerSVG(etat, 600);
+        return { pays: t.monde().length, trace: /<path/i.test(fait.svg),
+                 couleur: fait.svg.includes('#0984e3'), taille: fait.svg.length };
+    });
+    r.verifie('le fond de carte du monde est fourni avec l\'application',
+        !!carte && carte.pays > 180, JSON.stringify(carte));
+    r.verifie('une carte se dessine sans rien demander au réseau',
+        !!carte && carte.trace && carte.couleur, JSON.stringify(carte));
 
     // --- Laboratoire Électrique : les modèles de circuits ---
     // Chaque montage doit être fermé (tout composant alimenté), tenir dans la

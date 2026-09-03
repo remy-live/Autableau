@@ -612,8 +612,12 @@ module.exports = async function (browser) {
         document.getElementById('help-modal').style.display = 'none';
         return { auDebut, postit, rien, remis, colonnes, collant };
     });
-    r.egal('sept rubriques, toutes lisibles d\'une traite',
-        [recherche.auDebut.sections, recherche.auDebut.visibles], [7, 7]);
+    // Le nombre de rubriques bouge quand on ajoute un outil : ce qui compte
+    // est qu'elles soient TOUTES visibles au départ, aucune repliée.
+    r.verifie('les rubriques sont nombreuses', recherche.auDebut.sections >= 7,
+        String(recherche.auDebut.sections));
+    r.egal('et toutes lisibles d\'une traite, aucune repliée',
+        recherche.auDebut.visibles, recherche.auDebut.sections);
     r.verifie('l\'aide n\'est plus en onglets : tout défile',
         recherche.auDebut.lignes > 40, String(recherche.auDebut.lignes));
     r.verifie('chercher « post-it » ne garde que ce qui en parle',

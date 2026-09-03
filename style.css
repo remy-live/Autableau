@@ -7660,3 +7660,182 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 #class-manager-modal .cm-imp-resultat b { color: var(--ink, #2d3436); }
+
+/* ============================================================
+   ATELIER CARTES
+   Une fenêtre en deux volets : la carte qu'on clique à gauche, ce qu'on lui
+   dit à droite. Le fond de carte est fourni avec l'application.
+   ============================================================ */
+#carte-fond {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: sans-serif;
+}
+
+#carte-fenetre {
+    width: min(1080px, 96vw);
+    height: min(720px, 94vh);
+    background: #fdfdfd;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.carte-tete {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 48px;
+    padding: 0 14px;
+    background: #1f2937;
+    color: #fff;
+    font-size: 14px;
+}
+
+.carte-corps { flex: 1; display: flex; min-height: 0; }
+
+.carte-plan {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 10px 12px;
+    gap: 8px;
+}
+
+.carte-outils { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.carte-outils select,
+.carte-outils input {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 7px;
+    background: #fff;
+}
+
+.carte-outils input { flex: 1; min-width: 120px; }
+
+#carte-dessin {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f4f8fb;
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+#carte-dessin svg { max-height: 100%; }
+#carte-etat { font-size: 11px; color: #64748b; min-height: 14px; }
+
+/* Un pays se désigne au survol : on doit voir qu'il est cliquable. */
+.carte-pays { cursor: pointer; }
+.carte-pays:hover { fill-opacity: 0.72; }
+.carte-pays.choisi { stroke: #6c5ce7; stroke-width: 2; }
+
+.carte-panneau {
+    width: 320px;
+    border-left: 1px solid rgba(0, 0, 0, 0.10);
+    padding: 10px 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.carte-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin-top: 6px;
+}
+
+.carte-panneau input[type="text"],
+.carte-panneau textarea {
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 9px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 7px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.carte-legende {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.carte-legende:hover { background: #eef2ff; }
+.carte-legende.active { background: #e0f2fe; border-color: #7dd3fc; }
+.carte-legende input[type="color"] { width: 30px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
+.carte-legende input[type="text"] { flex: 1; min-width: 0; padding: 4px 6px; font-size: 13px; }
+.carte-nb { font-size: 11px; color: #64748b; min-width: 18px; text-align: right; }
+.carte-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; }
+.carte-x:hover { color: #e11d48; }
+
+.carte-vide { font-size: 12px; color: #94a3b8; padding: 8px 0; }
+.carte-nom { font-size: 15px; font-weight: 600; color: #2d3436; }
+.carte-continent { font-size: 11px; color: #94a3b8; font-weight: 400; }
+.carte-appartient { font-size: 12px; color: #64748b; margin: 2px 0 6px; }
+.carte-case { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #334155; }
+
+.carte-pied {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(0, 0, 0, 0.10);
+    font-size: 12px;
+    color: #64748b;
+}
+
+.carte-btn {
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 12px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+
+.carte-btn:hover { background: #eef2ff; }
+.carte-large { width: 100%; }
+.carte-vert { background: #00b894; border-color: #00b894; color: #fff; font-weight: 600; }
+.carte-vert:hover { background: #00a383; }
+.carte-tete .carte-btn { background: transparent; border-color: rgba(255, 255, 255, 0.25); color: #fff; }
+.carte-tete .carte-btn:hover { background: rgba(255, 255, 255, 0.12); }
+
+@media (max-width: 860px) {
+    .carte-corps { flex-direction: column; }
+    .carte-panneau { width: auto; border-left: none; border-top: 1px solid rgba(0, 0, 0, 0.10); }
+}
+
+.dark-mode #carte-fenetre { background: #1e272e; color: #dfe6e9; }
+.dark-mode .carte-panneau { border-left-color: #3d4852; }
+.dark-mode .carte-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
+.dark-mode .carte-panneau input, .dark-mode .carte-panneau textarea,
+.dark-mode .carte-outils select, .dark-mode .carte-outils input {
+    background: #2f3941; color: #dfe6e9; border-color: #3d4852;
+}

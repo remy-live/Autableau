@@ -7375,193 +7375,718 @@ registerPlugin('musicStaffTool', 'Musique', {
 // ==========================================
 // 19. CARTES GÉOGRAPHIQUES (Intégration Native Parfaite)
 // ==========================================
+// ===================================================================
+// ATELIER CARTES — Histoire-Géographie
+//
+// Le fond de carte est FOURNI avec l'application (lib/maps/monde.js,
+// Natural Earth, domaine public) : en classe il n'y a pas toujours de
+// connexion, et une carte qui dépend d'un serveur distant est une carte qui
+// manquera le jour où l'on en a besoin.
+//
+// Ce qu'on prépare ici : on choisit un continent ou le monde, on clique les
+// pays, on leur donne une légende (une couleur et un intitulé), on écrit une
+// note pour chacun. Posée au tableau, la carte reste vivante : passer dessus
+// — ou y poser le doigt — montre le nom du pays et ce que le professeur a
+// écrit. Rien n'est figé : un double-clic rouvre l'atelier.
+//
+// Les contours ne sont PAS recopiés dans le tampon : la carte posée garde
+// seulement ses réglages, et l'on reprojette au moment d'afficher. Un fichier
+// de tableau ne grossit donc pas de cent kilo-octets par carte.
+// ===================================================================
 registerPlugin('mapTool', 'Histoire-Géographie', {
-    currentStamp: null, currentArgs: null,
+    currentStamp: null,
+    imageEnEdition: null,
+    survol: null,              // { objId, code, ecranX, ecranY }
+    _projete: null,            // contours projetés, gardés d'un survol à l'autre
 
-    // Le constructeur parfait de SVG
-    // Assemble le SVG final à partir du tracé brut d'un pays
-    habillerCarte: function (viewBox, inner, color) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="${viewBox}">
-                    <g fill="${color}" stroke="#2d3436" stroke-width="10">
-                        ${inner}
-                    </g>
-                </svg>`;
+    // ------------------------------------------------------------------
+    // LES DONNÉES
+    // ------------------------------------------------------------------
+    monde: function () {
+        return (window.CARTE_MONDE && window.CARTE_MONDE.pays) || [];
     },
 
-    fetchMap: function (code, color, callback) {
-        // Les pays proposés sont fournis avec l'application : en classe, sans
-        // connexion, la carte doit sortir quand même.
-        const local = window.CARTES_LOCALES && window.CARTES_LOCALES[code];
-        if (local) { callback(this.habillerCarte(local.viewBox, local.inner, color)); return; }
+    // Décodage d'un anneau : écarts successifs en centièmes de degré, écrits
+    // dans l'alphabet des polylignes (codes 63 à 126).
+    decoderAnneau: function (chaine) {
+        const points = [];
+        let i = 0, x = 0, y = 0;
+        while (i < chaine.length) {
+            let resultat = 0, decalage = 0, octet;
+            do { octet = chaine.charCodeAt(i++) - 63; resultat |= (octet & 0x1f) << decalage; decalage += 5; } while (octet >= 0x20);
+            x += (resultat & 1) ? ~(resultat >> 1) : (resultat >> 1);
+            resultat = 0; decalage = 0;
+            do { octet = chaine.charCodeAt(i++) - 63; resultat |= (octet & 0x1f) << decalage; decalage += 5; } while (octet >= 0x20);
+            y += (resultat & 1) ? ~(resultat >> 1) : (resultat >> 1);
+            points.push([x / 100, y / 100]);
+        }
+        return points;
+    },
 
-        fetch(`https://raw.githubusercontent.com/djaiss/mapsicon/master/all/${code}/vector.svg`)
-            .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
-            .then(svgText => {
-                let svgMatch = svgText.match(/<svg[^>]*>([\s\S]*?)<\/svg>/i);
-                let innerContent = svgMatch ? svgMatch[1] : "";
-                let viewBoxMatch = svgText.match(/viewBox="([^"]+)"/i);
-                let viewBox = viewBoxMatch ? viewBoxMatch[1] : "0 0 1024 1024";
+    anneauxDe: function (pays) {
+        if (!pays._anneaux) pays._anneaux = pays.p.split(';').map(a => this.decoderAnneau(a));
+        return pays._anneaux;
+    },
 
-                // Nettoyage et coloration
-                innerContent = innerContent.replace(/fill="[^"]*"/ig, "");
-                innerContent = innerContent.replace(/stroke="[^"]*"/ig, "");
+    CONTINENTS: ['Monde', 'Europe', 'Afrique', 'Asie', 'Amérique du Nord',
+        'Amérique du Sud', 'Océanie'],
 
-                callback(this.habillerCarte(viewBox, innerContent, color));
-            }).catch(() => {
-                callback(null);
+    paysDuFond: function (fond) {
+        const tous = this.monde();
+        if (!fond || fond === 'Monde') return tous.filter(p => p.c !== 'Antarctique');
+        return tous.filter(p => p.c === fond);
+    },
+
+    // ------------------------------------------------------------------
+    // LES PROJECTIONS
+    // Robinson est celle des atlas scolaires : elle ne conserve ni les aires
+    // ni les angles, mais elle ne ment gravement sur rien — au contraire de
+    // Mercator, qui fait du Groenland un continent.
+    // ------------------------------------------------------------------
+    ROBINSON: [
+        [1.0000, 0.0000], [0.9986, 0.0620], [0.9954, 0.1240], [0.9900, 0.1860],
+        [0.9822, 0.2480], [0.9730, 0.3100], [0.9600, 0.3720], [0.9427, 0.4340],
+        [0.9216, 0.4958], [0.8962, 0.5571], [0.8679, 0.6176], [0.8350, 0.6769],
+        [0.7986, 0.7346], [0.7597, 0.7903], [0.7186, 0.8435], [0.6732, 0.8936],
+        [0.6213, 0.9394], [0.5722, 0.9761], [0.5322, 1.0000]
+    ],
+
+    projeter: function (lon, lat, projection) {
+        if (projection === 'plate') return [lon, -lat];
+        // Robinson : on interpole la table tous les cinq degrés
+        const t = this.ROBINSON;
+        const a = Math.min(Math.abs(lat), 90) / 5;
+        const i = Math.min(Math.floor(a), t.length - 2);
+        const f = a - i;
+        const largeur = t[i][0] + (t[i + 1][0] - t[i][0]) * f;
+        const hauteur = t[i][1] + (t[i + 1][1] - t[i][1]) * f;
+        return [lon * largeur, -(lat < 0 ? -hauteur : hauteur) * 90];
+    },
+
+    // La fenêtre de projection d'un fond : ses bornes, en unités projetées.
+    cadreProjete: function (pays, projection) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        pays.forEach(p => {
+            this.anneauxDe(p).forEach(anneau => anneau.forEach(pt => {
+                const q = this.projeter(pt[0], pt[1], projection);
+                x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]);
+                y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]);
+            }));
+        });
+        if (!isFinite(x0)) return { x0: -180, y0: -90, x1: 180, y1: 90 };
+        const margeX = (x1 - x0) * 0.02, margeY = (y1 - y0) * 0.02;
+        return { x0: x0 - margeX, y0: y0 - margeY, x1: x1 + margeX, y1: y1 + margeY };
+    },
+
+    // ------------------------------------------------------------------
+    // L'ÉTAT DE L'ATELIER
+    // ------------------------------------------------------------------
+    etatNeuf: function () {
+        return {
+            fond: 'Monde',
+            projection: 'robinson',
+            titre: '',
+            legendes: [{ id: 1, libelle: 'Légende 1', couleur: '#0984e3', pays: [] }],
+            legendeActive: 1,
+            notes: {},
+            options: { noms: false, legende: true, contour: true }
+        };
+    },
+
+    legendeDuPays: function (etat, code) {
+        return (etat.legendes || []).find(l => (l.pays || []).includes(code)) || null;
+    },
+
+    basculerPays: function (etat, code) {
+        const active = (etat.legendes || []).find(l => l.id === etat.legendeActive);
+        if (!active) return;
+        // Un pays n'appartient qu'à une légende : on le retire des autres.
+        const dedans = (active.pays || []).includes(code);
+        etat.legendes.forEach(l => { l.pays = (l.pays || []).filter(c => c !== code); });
+        if (!dedans) active.pays.push(code);
+    },
+
+    // ------------------------------------------------------------------
+    // LE DESSIN
+    // ------------------------------------------------------------------
+    // Chemin SVG d'un pays, dans une boîte de largeur/hauteur données.
+    cheminDuPays: function (pays, projection, cadre, echelle, decalage) {
+        return this.anneauxDe(pays).map(anneau => {
+            let d = '';
+            anneau.forEach((pt, k) => {
+                const q = this.projeter(pt[0], pt[1], projection);
+                const x = (q[0] - cadre.x0) * echelle + decalage.x;
+                const y = (q[1] - cadre.y0) * echelle + decalage.y;
+                d += (k === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
             });
+            return d + 'Z';
+        }).join('');
     },
 
-    init: function () {
-        const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'map'; btn.title = 'Cartes Géographiques';
-        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>`;
-        document.getElementById('plugins-grid').appendChild(btn);
+    // La géométrie d'un rendu : combien de pixels par degré projeté, et où.
+    mesures: function (etat, largeur) {
+        const liste = this.paysDuFond(etat.fond);
+        const cadre = this.cadreProjete(liste, etat.projection);
+        const echelle = largeur / (cadre.x1 - cadre.x0);
+        const hauteur = Math.round((cadre.y1 - cadre.y0) * echelle);
+        return { liste, cadre, echelle, largeur, hauteur };
+    },
 
-        // TOUCHE ECHAP POUR ANNULER
+    // Le SVG complet : la carte, les noms si on les veut, la légende, le titre.
+    fabriquerSVG: function (etat, largeur) {
+        const m = this.mesures(etat, largeur);
+        const surligne = etat.options.contour ? '#2d3436' : 'none';
+        let hautCarte = 0;
+        let hauteurTotale = m.hauteur;
+
+        if (etat.titre) { hautCarte = 46; hauteurTotale += 46; }
+        const entrees = (etat.legendes || []).filter(l => (l.pays || []).length);
+        const hauteurLegende = (etat.options.legende && entrees.length)
+            ? 18 + entrees.length * 24 : 0;
+        hauteurTotale += hauteurLegende;
+
+        let corps = '';
+        m.liste.forEach(p => {
+            const legende = this.legendeDuPays(etat, p.i);
+            const remplissage = legende ? legende.couleur : '#eef2f5';
+            corps += `<path d="${this.cheminDuPays(p, etat.projection, m.cadre, m.echelle, { x: 0, y: hautCarte })}"
+                fill="${remplissage}" stroke="${surligne}" stroke-width="0.7" stroke-linejoin="round"/>`;
+        });
+
+        if (etat.options.noms) {
+            m.liste.forEach(p => {
+                if (!this.legendeDuPays(etat, p.i)) return;
+                const c = this.centreEcran(p, etat.projection, m.cadre, m.echelle, { x: 0, y: hautCarte });
+                const taille = Math.max(9, Math.min(15, m.largeur / 70));
+                corps += `<text x="${c.x.toFixed(1)}" y="${c.y.toFixed(1)}" text-anchor="middle"
+                    font-family="sans-serif" font-size="${taille}" fill="#2d3436"
+                    stroke="#ffffff" stroke-width="2.5" paint-order="stroke"
+                    >${this.echapper(p.n)}</text>`;
+            });
+        }
+
+        let habillage = '';
+        if (etat.titre) {
+            habillage += `<text x="${m.largeur / 2}" y="30" text-anchor="middle" font-family="sans-serif"
+                font-size="24" font-weight="600" fill="#2d3436">${this.echapper(etat.titre)}</text>`;
+        }
+        if (hauteurLegende) {
+            const haut = hautCarte + m.hauteur + 10;
+            entrees.forEach((l, k) => {
+                const y = haut + k * 24;
+                habillage += `<rect x="14" y="${y}" width="20" height="14" rx="3" fill="${l.couleur}"
+                    stroke="#2d3436" stroke-width="0.8"/>
+                    <text x="42" y="${y + 12}" font-family="sans-serif" font-size="14" fill="#2d3436"
+                    >${this.echapper(l.libelle)}</text>`;
+            });
+        }
+
+        return {
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${m.largeur}" height="${hauteurTotale}"
+                viewBox="0 0 ${m.largeur} ${hauteurTotale}">
+                <rect width="${m.largeur}" height="${hauteurTotale}" fill="#ffffff"/>
+                ${corps}${habillage}</svg>`,
+            largeur: m.largeur, hauteur: hauteurTotale, hautCarte, hauteurCarte: m.hauteur
+        };
+    },
+
+    // Le milieu du plus grand morceau : c'est là qu'on écrit le nom.
+    centreEcran: function (pays, projection, cadre, echelle, decalage) {
+        const anneaux = this.anneauxDe(pays);
+        const grand = anneaux.slice().sort((a, b) => b.length - a.length)[0] || [];
+        let sx = 0, sy = 0;
+        grand.forEach(pt => {
+            const q = this.projeter(pt[0], pt[1], projection);
+            sx += q[0]; sy += q[1];
+        });
+        const n = grand.length || 1;
+        return {
+            x: (sx / n - cadre.x0) * echelle + decalage.x,
+            y: (sy / n - cadre.y0) * echelle + decalage.y
+        };
+    },
+
+    echapper: function (t) {
+        return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+
+    // ------------------------------------------------------------------
+    // LA FENÊTRE
+    // ------------------------------------------------------------------
+    init: function () {
+        const grid = document.getElementById('plugins-grid');
+        if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn'; btn.dataset.mode = 'map'; btn.title = 'Atelier cartes';
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>`;
+        grid.appendChild(btn);
+        btn.addEventListener('click', (e) => { this.ouvrir(); e.stopPropagation(); });
+
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && mode === 'map') {
-                this.currentStamp = null;
-                setMode('pointer');
-                showToast("Tampon annulé");
+            if (e.key === 'Escape' && mode === 'map' && this.currentStamp) {
+                this.currentStamp = null; setMode('pointer');
+                if (typeof showToast === 'function') showToast('Tampon annulé');
                 draw();
             }
         });
+    },
 
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active')); btn.classList.add('active');
+    ouvrir: function (etat, imageEnEdition) {
+        if (!this.monde().length) {
+            if (typeof showToast === 'function') showToast('Le fond de carte n\'est pas chargé', '#e17055', '🗺️');
+            return;
+        }
+        this.etat = etat ? JSON.parse(JSON.stringify(etat)) : this.etatNeuf();
+        this.imageEnEdition = imageEnEdition || null;
+        this.paysChoisi = null;
+        this.batirFenetre();
+        this.rendre();
+    },
 
-            openCustomPrompt("Cartes du Monde", [
-                {
-                    type: 'select', label: "Pays", value: "fr", options: [
-                        { value: 'fr', label: 'France' }, { value: 'gb', label: 'Royaume-Uni' }, { value: 'de', label: 'Allemagne' },
-                        { value: 'es', label: 'Espagne' }, { value: 'it', label: 'Italie' }, { value: 'us', label: 'États-Unis' },
-                        { value: 'cn', label: 'Chine' }, { value: 'jp', label: 'Japon' }, { value: 'br', label: 'Brésil' },
-                        { value: 'za', label: 'Afrique du Sud' }, { value: 'au', label: 'Australie' }
-                    ]
-                },
-                { type: 'color', label: "Couleur", value: "#0984e3" }
-            ],
-                (res) => { // Prévisualisation
-                    const previewBox = document.getElementById('custom-prompt-preview');
-                    if (previewBox) previewBox.innerHTML = '<div style="text-align:center; padding:20px;">Chargement...</div>';
-                    this.fetchMap(res[0], res[1], (svg) => {
-                        if (!previewBox) return;
-                        previewBox.innerHTML = svg
-                            ? svg.replace(/width="400" height="400"/, 'width="100%" height="100%"')
-                            : '<div style="text-align:center; padding:20px;">Carte indisponible (pas de connexion)</div>';
-                    });
-                    return "";
-                },
-                (res) => { // Validation
-                    showToast("⏳ Chargement de la carte...");
-                    this.fetchMap(res[0], res[1], (svg) => {
-                        if (svg) {
-                            const img = new Image();
-                            img.onload = () => {
-                                this.currentStamp = { img: img, src: img.src, w: 400, h: 400 };
-                                this.currentArgs = res;
-                                setMode('map');
-                                showToast("📌 Tampon prêt ! (Échap pour annuler)");
-                                draw(); // Force le premier affichage
-                            };
-                            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-                        } else showToast("❌ Erreur de réseau");
-                    });
-                });
+    batirFenetre: function () {
+        let fond = document.getElementById('carte-fond');
+        if (fond) fond.remove();
+        fond = document.createElement('div');
+        fond.id = 'carte-fond';
+        fond.innerHTML = `
+        <div id="carte-fenetre">
+            <div class="carte-tete">
+                <b>🗺️ Atelier cartes</b>
+                <span style="flex:1"></span>
+                <button class="carte-btn" id="carte-fermer">✕</button>
+            </div>
+            <div class="carte-corps">
+                <div class="carte-plan">
+                    <div class="carte-outils">
+                        <select id="carte-fond-choix"></select>
+                        <select id="carte-projection">
+                            <option value="robinson">Projection Robinson</option>
+                            <option value="plate">Projection plate</option>
+                        </select>
+                        <input type="search" id="carte-chercher" placeholder="Chercher un pays…">
+                    </div>
+                    <div id="carte-dessin"></div>
+                    <div id="carte-etat"></div>
+                </div>
+                <div class="carte-panneau">
+                    <label class="carte-label">Titre de la carte</label>
+                    <input type="text" id="carte-titre" placeholder="(sans titre)">
+
+                    <label class="carte-label">Légendes</label>
+                    <div id="carte-legendes"></div>
+                    <button class="carte-btn carte-large" id="carte-ajouter-legende">+ Ajouter une légende</button>
+
+                    <label class="carte-label">Pays sélectionné</label>
+                    <div id="carte-fiche">
+                        <div class="carte-vide">Cliquez un pays sur la carte.</div>
+                    </div>
+
+                    <label class="carte-label">Affichage</label>
+                    <label class="carte-case"><input type="checkbox" id="carte-opt-noms"> Écrire le nom des pays retenus</label>
+                    <label class="carte-case"><input type="checkbox" id="carte-opt-legende" checked> Montrer la légende</label>
+                    <label class="carte-case"><input type="checkbox" id="carte-opt-contour" checked> Tracer les frontières</label>
+                </div>
+            </div>
+            <div class="carte-pied">
+                <span id="carte-compte"></span>
+                <span style="flex:1"></span>
+                <button class="carte-btn" id="carte-tout-effacer">Tout désélectionner</button>
+                <button class="carte-btn carte-vert" id="carte-poser">Poser au tableau</button>
+            </div>
+        </div>`;
+        document.body.appendChild(fond);
+
+        const choix = fond.querySelector('#carte-fond-choix');
+        choix.innerHTML = this.CONTINENTS.map(c =>
+            `<option value="${c}">${c === 'Monde' ? 'Le monde' : c}</option>`).join('');
+
+        fond.querySelector('#carte-fermer').addEventListener('click', () => this.fermer());
+        fond.addEventListener('mousedown', (e) => { if (e.target === fond) this.fermer(); });
+
+        choix.addEventListener('change', () => { this.etat.fond = choix.value; this.rendre(); });
+        fond.querySelector('#carte-projection').addEventListener('change', (e) => {
+            this.etat.projection = e.target.value; this.rendre();
+        });
+        fond.querySelector('#carte-titre').addEventListener('input', (e) => {
+            this.etat.titre = e.target.value;
+        });
+        ['noms', 'legende', 'contour'].forEach(cle => {
+            fond.querySelector('#carte-opt-' + cle).addEventListener('change', (e) => {
+                this.etat.options[cle] = e.target.checked;
+            });
+        });
+        fond.querySelector('#carte-ajouter-legende').addEventListener('click', () => {
+            const couleurs = ['#0984e3', '#e17055', '#00b894', '#fdcb6e', '#6c5ce7', '#d63031', '#636e72'];
+            const id = Math.max(0, ...this.etat.legendes.map(l => l.id)) + 1;
+            this.etat.legendes.push({
+                id, libelle: 'Légende ' + id,
+                couleur: couleurs[(this.etat.legendes.length) % couleurs.length], pays: []
+            });
+            this.etat.legendeActive = id;
+            this.rendre();
+        });
+        fond.querySelector('#carte-tout-effacer').addEventListener('click', () => {
+            this.etat.legendes.forEach(l => { l.pays = []; });
+            this.rendre();
+        });
+        fond.querySelector('#carte-poser').addEventListener('click', () => this.poser());
+
+        const chercher = fond.querySelector('#carte-chercher');
+        chercher.addEventListener('input', () => this.rendre());
+        chercher.addEventListener('keydown', (e) => {
             e.stopPropagation();
+            if (e.key !== 'Enter') return;
+            const trouve = this.paysCherches();
+            if (trouve.length === 1) { this.basculerPays(this.etat, trouve[0].i); chercher.value = ''; this.rendre(); }
         });
     },
 
-    edit: function (imgObj) {
-        const args = imgObj.pluginData.args;
-        openCustomPrompt("Modifier la Carte", [
-            { type: 'select', label: "Pays", value: args[0], options: [{ value: 'fr', label: 'France' }, { value: 'gb', label: 'UK' }, { value: 'de', label: 'Allemagne' }, { value: 'es', label: 'Espagne' }] },
-            { type: 'color', label: "Couleur", value: args[1] }
-        ],
-            (res) => {
-                const previewBox = document.getElementById('custom-prompt-preview');
-                this.fetchMap(res[0], res[1], (svg) => {
-                    if (!previewBox) return;
-                    previewBox.innerHTML = svg
-                        ? svg.replace(/width="400" height="400"/, 'width="100%" height="100%"')
-                        : '<div style="text-align:center; padding:20px;">Carte indisponible (pas de connexion)</div>';
-                });
-                return "Chargement...";
-            },
-            (res) => {
-                this.fetchMap(res[0], res[1], (svg) => {
-                    if (svg) {
-                        const img = new Image();
-                        img.onload = () => {
-                            imgObj.src = img.src; imgObj.w = 400; imgObj.h = 400; imgObj.cw = 400; imgObj.ch = 400; imgObj.pluginData.args = res;
-                            draw(); saveState();
-                        };
-                        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-                    }
-                });
-            });
+    paysCherches: function () {
+        const champ = document.getElementById('carte-chercher');
+        const q = this.sansAccents(champ ? champ.value : '');
+        if (q.length < 2) return [];
+        return this.paysDuFond(this.etat.fond).filter(p => this.sansAccents(p.n).includes(q));
     },
 
-    // LA CLÉ EST LÀ : on force le rafraîchissement au mouvement de la souris
-    onPointerMove: function (rawPos, e) {
+    sansAccents: function (t) {
+        return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    },
+
+    fermer: function () {
+        const fond = document.getElementById('carte-fond');
+        if (fond) fond.remove();
+        this.imageEnEdition = null;
+    },
+
+    rendre: function () {
+        const fond = document.getElementById('carte-fond');
+        if (!fond) return;
+        fond.querySelector('#carte-fond-choix').value = this.etat.fond;
+        fond.querySelector('#carte-projection').value = this.etat.projection;
+        fond.querySelector('#carte-titre').value = this.etat.titre || '';
+        ['noms', 'legende', 'contour'].forEach(cle => {
+            fond.querySelector('#carte-opt-' + cle).checked = !!this.etat.options[cle];
+        });
+
+        // --- La carte cliquable ---
+        const zone = fond.querySelector('#carte-dessin');
+        const largeur = 640;
+        const m = this.mesures(this.etat, largeur);
+        const cherches = this.paysCherches().map(p => p.i);
+        let dessin = '';
+        m.liste.forEach(p => {
+            const legende = this.legendeDuPays(this.etat, p.i);
+            const remplissage = legende ? legende.couleur : '#e9eef2';
+            const vise = cherches.includes(p.i);
+            dessin += `<path data-pays="${p.i}" d="${this.cheminDuPays(p, this.etat.projection, m.cadre, m.echelle, { x: 0, y: 0 })}"
+                fill="${remplissage}" stroke="${vise ? '#d63031' : '#7f8c8d'}"
+                stroke-width="${vise ? 2 : 0.6}" class="carte-pays${this.paysChoisi === p.i ? ' choisi' : ''}"><title>${this.echapper(p.n)}</title></path>`;
+        });
+        zone.innerHTML = `<svg viewBox="0 0 ${largeur} ${m.hauteur}" width="100%" preserveAspectRatio="xMidYMid meet">${dessin}</svg>`;
+        zone.querySelectorAll('path[data-pays]').forEach(el => {
+            el.addEventListener('click', () => {
+                const code = el.dataset.pays;
+                this.paysChoisi = code;
+                this.basculerPays(this.etat, code);
+                this.rendre();
+            });
+        });
+
+        const etatTexte = fond.querySelector('#carte-etat');
+        const q = (document.getElementById('carte-chercher') || {}).value || '';
+        etatTexte.textContent = q.length >= 2
+            ? (cherches.length ? `${cherches.length} pays trouvé${cherches.length > 1 ? 's' : ''} — Entrée pour l'ajouter` : 'Aucun pays de ce nom sur ce fond')
+            : 'Cliquez un pays pour lui donner la légende choisie ; recliquez pour l\'enlever.';
+
+        // --- Les légendes ---
+        const boite = fond.querySelector('#carte-legendes');
+        boite.innerHTML = this.etat.legendes.map(l => `
+            <div class="carte-legende${l.id === this.etat.legendeActive ? ' active' : ''}" data-legende="${l.id}">
+                <input type="color" value="${l.couleur}" data-couleur="${l.id}">
+                <input type="text" value="${this.echapper(l.libelle)}" data-libelle="${l.id}">
+                <span class="carte-nb">${(l.pays || []).length}</span>
+                <button class="carte-x" data-retirer="${l.id}" title="Retirer cette légende">✕</button>
+            </div>`).join('');
+        boite.querySelectorAll('.carte-legende').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target.closest('input, button')) return;
+                this.etat.legendeActive = Number(el.dataset.legende);
+                this.rendre();
+            });
+        });
+        boite.querySelectorAll('[data-couleur]').forEach(el => el.addEventListener('input', () => {
+            const l = this.etat.legendes.find(x => x.id === Number(el.dataset.couleur));
+            if (l) { l.couleur = el.value; this.rendre(); }
+        }));
+        boite.querySelectorAll('[data-libelle]').forEach(el => {
+            el.addEventListener('input', () => {
+                const l = this.etat.legendes.find(x => x.id === Number(el.dataset.libelle));
+                if (l) l.libelle = el.value;
+            });
+            el.addEventListener('keydown', (e) => e.stopPropagation());
+        });
+        boite.querySelectorAll('[data-retirer]').forEach(el => el.addEventListener('click', () => {
+            const id = Number(el.dataset.retirer);
+            if (this.etat.legendes.length <= 1) {
+                if (typeof showToast === 'function') showToast('Il faut au moins une légende');
+                return;
+            }
+            this.etat.legendes = this.etat.legendes.filter(l => l.id !== id);
+            if (this.etat.legendeActive === id) this.etat.legendeActive = this.etat.legendes[0].id;
+            this.rendre();
+        }));
+
+        // --- La fiche du pays choisi ---
+        const fiche = fond.querySelector('#carte-fiche');
+        const p = this.paysChoisi ? this.monde().find(x => x.i === this.paysChoisi) : null;
+        if (!p) {
+            fiche.innerHTML = '<div class="carte-vide">Cliquez un pays sur la carte.</div>';
+        } else {
+            const legende = this.legendeDuPays(this.etat, p.i);
+            fiche.innerHTML = `
+                <div class="carte-nom">${this.echapper(p.n)} <span class="carte-continent">${this.echapper(p.c)}</span></div>
+                <div class="carte-appartient">${legende ? '⬤ ' + this.echapper(legende.libelle) : 'Sans légende'}</div>
+                <textarea id="carte-note" rows="4" placeholder="Ce que la classe verra en passant dessus…">${this.echapper(this.etat.notes[p.i] || '')}</textarea>`;
+            const note = fiche.querySelector('#carte-note');
+            note.style.borderColor = legende ? legende.couleur : '';
+            note.addEventListener('input', () => {
+                if (note.value.trim()) this.etat.notes[p.i] = note.value;
+                else delete this.etat.notes[p.i];
+            });
+            note.addEventListener('keydown', (e) => e.stopPropagation());
+        }
+
+        const retenus = this.etat.legendes.reduce((s, l) => s + (l.pays || []).length, 0);
+        fond.querySelector('#carte-compte').textContent =
+            retenus ? `${retenus} pays retenu${retenus > 1 ? 's' : ''}` : 'Aucun pays retenu';
+    },
+
+    // ------------------------------------------------------------------
+    // LA POSE
+    // ------------------------------------------------------------------
+    poser: function () {
+        const fait = this.fabriquerSVG(this.etat, 1100);
+        const image = new Image();
+        const etat = JSON.parse(JSON.stringify(this.etat));
+        const enEdition = this.imageEnEdition;
+        image.onload = () => {
+            if (typeof imageCache !== 'undefined') imageCache[image.src] = image;
+            if (enEdition) {
+                // Réédition : on garde la place et la largeur, on change le fond
+                enEdition.src = image.src;
+                enEdition.cx = 0; enEdition.cy = 0;
+                enEdition.cw = fait.largeur; enEdition.ch = fait.hauteur;
+                enEdition.h = enEdition.w * (fait.hauteur / fait.largeur);
+                enEdition.pluginData = { id: 'mapTool', args: etat };
+                this.imageEnEdition = null;
+                saveState(); draw();
+                if (typeof showToast === 'function') showToast('Carte mise à jour');
+            } else {
+                this.currentStamp = { img: image, src: image.src, w: fait.largeur, h: fait.hauteur, etat };
+                setMode('map');
+                if (typeof showToast === 'function') showToast('📌 Cliquez sur le tableau pour poser la carte');
+                draw();
+            }
+        };
+        image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fait.svg);
+        this.fermer();
+    },
+
+    onPointerDown: function (rawPos, e) {
         if (mode === 'map' && this.currentStamp) {
-            // Mémorisation de la position pour le fantôme
+            const t = this.currentStamp;
+            const large = Math.min(900, t.w);
+            const haut = large * (t.h / t.w);
+            images.push({
+                id: nextId++, x: rawPos.x - large / 2, y: rawPos.y - haut / 2,
+                w: large, h: haut, cx: 0, cy: 0, cw: t.w, ch: t.h,
+                src: t.src, z: globalZ++,
+                pluginData: { id: 'mapTool', args: t.etat }
+            });
+            this.currentStamp = null;
+            saveState(); setMode('pointer'); draw();
+            return true;
+        }
+        // Au doigt, il n'y a pas de survol : un appui sur la carte montre la
+        // fiche du pays, et la garde un moment.
+        const auDoigt = e && (e.pointerType === 'touch' || e.pointerType === 'pen');
+        const trouve = auDoigt ? this.paysSousLePoint(rawPos) : null;
+        if (trouve) {
+            this.survol = trouve;
+            clearTimeout(this._minuteurSurvol);
+            this._minuteurSurvol = setTimeout(() => { this.survol = null; draw(); }, 4000);
+            draw();
+        }
+        return false;
+    },
+
+    edit: function (imgObj) {
+        const args = imgObj.pluginData && imgObj.pluginData.args;
+        if (!args || !args.legendes) {
+            if (typeof showToast === 'function') showToast('Cette carte vient d\'une version précédente');
+            this.ouvrir();
+            return;
+        }
+        this.ouvrir(args, imgObj);
+    },
+
+    // ------------------------------------------------------------------
+    // LA CARTE POSÉE RESTE VIVANTE
+    // On ne recopie pas les contours dans le tampon : on les reprojette à la
+    // demande, et on garde le résultat tant que la carte ne change pas.
+    // ------------------------------------------------------------------
+    projectionPour: function (obj) {
+        const etat = obj.pluginData.args;
+        const cle = obj.id + '|' + etat.fond + '|' + etat.projection + '|' + (etat.titre ? 1 : 0)
+            + '|' + (etat.options.legende ? 1 : 0)
+            + '|' + this.signatureDesLegendes(etat) + '|' + Math.round(obj.w) + 'x' + Math.round(obj.h);
+        if (this._projete && this._projete.cle === cle) return this._projete;
+
+        const fait = this.fabriquerSVG(etat, 1100);
+        const m = this.mesures(etat, 1100);
+        // Du tampon à l'image d'origine : la carte occupe une bande dans le SVG
+        // Deux facteurs, pas un : une carte qu'on a étirée sans garder ses
+        // proportions ne se lit pas avec le même rapport en largeur qu'en
+        // hauteur, et le pays sous le doigt ne serait plus celui qu'on montre.
+        const kx = obj.w / fait.largeur, ky = obj.h / fait.hauteur;
+        const contours = m.liste.map(p => ({
+            code: p.i, nom: p.n,
+            anneaux: this.anneauxDe(p).map(anneau => anneau.map(pt => {
+                const q = this.projeter(pt[0], pt[1], etat.projection);
+                return [
+                    ((q[0] - m.cadre.x0) * m.echelle) * kx,
+                    ((q[1] - m.cadre.y0) * m.echelle + fait.hautCarte) * ky
+                ];
+            }))
+        }));
+        this._projete = { cle, contours };
+        return this._projete;
+    },
+
+    signatureDesLegendes: function (etat) {
+        return (etat.legendes || []).map(l => l.id + ':' + (l.pays || []).join(',')).join(';');
+    },
+
+    // Le pays sous un point du tableau, s'il y a une carte dessous.
+    paysSousLePoint: function (pos) {
+        const cartes = (typeof images !== 'undefined' ? images : [])
+            .filter(o => o.pluginData && o.pluginData.id === 'mapTool' && o.pluginData.args
+                && o.pluginData.args.legendes)
+            .sort((a, b) => (b.z || 0) - (a.z || 0));
+        for (const obj of cartes) {
+            if (pos.x < obj.x || pos.x > obj.x + obj.w || pos.y < obj.y || pos.y > obj.y + obj.h) continue;
+            const local = { x: pos.x - obj.x, y: pos.y - obj.y };
+            const projete = this.projectionPour(obj);
+            for (const c of projete.contours) {
+                for (const anneau of c.anneaux) {
+                    if (this.dansLAnneau(local, anneau)) {
+                        return { objId: obj.id, code: c.code, nom: c.nom, obj };
+                    }
+                }
+            }
+            return null;      // sur la carte, mais sur la mer
+        }
+        return null;
+    },
+
+    dansLAnneau: function (p, anneau) {
+        let dedans = false;
+        for (let i = 0, j = anneau.length - 1; i < anneau.length; j = i++) {
+            const xi = anneau[i][0], yi = anneau[i][1], xj = anneau[j][0], yj = anneau[j][1];
+            if (((yi > p.y) !== (yj > p.y))
+                && (p.x < (xj - xi) * (p.y - yi) / ((yj - yi) || 1e-9) + xi)) dedans = !dedans;
+        }
+        return dedans;
+    },
+
+    onPointerMove: function (rawPos, e) {
+        // Le fantôme du tampon
+        if (mode === 'map' && this.currentStamp) {
             mouseLogicalPos = { x: rawPos.x, y: rawPos.y };
-            draw(); // Réveille le tableau !
-            return false; // On renvoie false pour ne pas bloquer le reste des écouteurs
+            draw();
+            return false;
+        }
+        if (e && (e.pointerType === 'touch' || e.pointerType === 'pen')) return false;
+        const trouve = this.paysSousLePoint(rawPos);
+        const avant = this.survol && this.survol.code;
+        const apres = trouve && trouve.code;
+        if (avant !== apres) {
+            this.survol = trouve;
+            draw();
         }
         return false;
     },
 
     onDraw: function (ctx) {
+        // Le fantôme, avant la pose
         if (mode === 'map' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
+            const t = this.currentStamp;
+            const large = Math.min(900, t.w), haut = large * (t.h / t.w);
             ctx.globalAlpha = 0.5;
-            ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - 200, mouseLogicalPos.y - 200, 400, 400);
-            ctx.globalAlpha = 1.0;
+            ctx.drawImage(t.img, mouseLogicalPos.x - large / 2, mouseLogicalPos.y - haut / 2, large, haut);
+            ctx.globalAlpha = 1;
         }
+
+        // La fiche du pays survolé
+        if (!this.survol) return;
+        const obj = (typeof images !== 'undefined' ? images : []).find(o => o.id === this.survol.objId);
+        if (!obj) { this.survol = null; return; }
+        const etat = obj.pluginData.args;
+        const note = (etat.notes && etat.notes[this.survol.code]) || '';
+        const legende = this.legendeDuPays(etat, this.survol.code);
+        if (!note && !legende) return;      // rien à dire : on ne dit rien
+
+        const lw = 1 / (typeof zoom !== 'undefined' ? zoom : 1);
+        const largeur = 260 * lw;
+        const lignes = this.decouper(note, 34);
+        const hauteur = (28 + (legende ? 18 : 0) + lignes.length * 17) * lw;
+        let x = this.survol.x !== undefined ? this.survol.x : obj.x;
+        let y = this.survol.y !== undefined ? this.survol.y : obj.y;
+        x = (typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) ? mouseLogicalPos.x + 14 * lw : x;
+        y = (typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) ? mouseLogicalPos.y + 14 * lw : y;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.97)';
+        ctx.strokeStyle = '#b2bec3';
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, largeur, hauteur, 8 * lw);
+        else ctx.rect(x, y, largeur, hauteur);
+        ctx.fill(); ctx.stroke();
+
+        ctx.fillStyle = '#2d3436';
+        ctx.textBaseline = 'top';
+        ctx.font = `600 ${15 * lw}px sans-serif`;
+        ctx.fillText(this.survol.nom, x + 10 * lw, y + 8 * lw);
+        let ligneY = y + 28 * lw;
+        if (legende) {
+            ctx.fillStyle = legende.couleur;
+            ctx.fillRect(x + 10 * lw, ligneY + 2 * lw, 10 * lw, 10 * lw);
+            ctx.fillStyle = '#636e72';
+            ctx.font = `${12 * lw}px sans-serif`;
+            ctx.fillText(legende.libelle, x + 26 * lw, ligneY);
+            ligneY += 18 * lw;
+        }
+        ctx.fillStyle = '#2d3436';
+        ctx.font = `${13 * lw}px sans-serif`;
+        lignes.forEach(l => { ctx.fillText(l, x + 10 * lw, ligneY); ligneY += 17 * lw; });
+        ctx.restore();
     },
 
-    onPointerDown: function (rawPos) {
-        // console.log("[DEBUG] Clic détecté. Mode actuel :", mode);
-
-        // On vérifie si on est bien dans le mode du plugin et qu'on a un tampon
-        if (this.currentStamp) {
-            //   console.log("[DEBUG] Tampon trouvé, tentative de pose...");
-
-            // 1. Mise en cache forcée (La clé du problème)
-            if (typeof imageCache !== 'undefined') {
-                imageCache[this.currentStamp.src] = this.currentStamp.img;
-                //     console.log("[DEBUG] Image injectée dans imageCache");
-            }
-
-            // 2. Enregistrement
-            images.push({
-                id: nextId++,
-                x: rawPos.x - this.currentStamp.w / 2,
-                y: rawPos.y - this.currentStamp.h / 2,
-                w: this.currentStamp.w, h: this.currentStamp.h,
-                cx: 0, cy: 0,
-                cw: this.currentStamp.w, ch: this.currentStamp.h,
-                src: this.currentStamp.src,
-                z: globalZ++,
-                pluginData: { id: 'probatree', args: this.currentTreeData } // ou 'trafficLightTool'
-            });
-
-            // 3. Nettoyage et mise à jour
-            this.currentStamp = null;
-            saveState();
-            setMode('pointer');
-
-            // 4. Force le redessin
-            draw();
-            //    console.log("[DEBUG] Tampon posé avec succès.");
-            return true;
-        }
-        //  console.log("[DEBUG] Aucun tampon actif, clic ignoré par le plugin.");
-        return false;
+    decouper: function (texte, largeur) {
+        if (!texte) return [];
+        const mots = String(texte).split(/\s+/);
+        const lignes = [];
+        let courante = '';
+        mots.forEach(m => {
+            if ((courante + ' ' + m).trim().length > largeur) { lignes.push(courante.trim()); courante = m; }
+            else courante += ' ' + m;
+        });
+        if (courante.trim()) lignes.push(courante.trim());
+        return lignes.slice(0, 6);
     }
 });
-
 registerPlugin('trafficLightTool', 'Outils Profs', {
     currentStamp: null, currentArgs: null,
 

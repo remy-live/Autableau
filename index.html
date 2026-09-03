@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=62">
+    <link rel="stylesheet" href="style.css?v=63">
 </head>
 
 <body>
@@ -548,6 +548,24 @@
                         <li><strong>Cercle, Rectangle :</strong> Cliquer & glisser</li>
                         <li><strong>Polygone :</strong> Clic multiple, double-clic pour finir</li>
                         <li><strong>Courbe :</strong> Clic multiple + lisse automatique</li>
+                    </ul>
+                </div>
+                <div class="aide-section">
+                    <h3 style="color: var(--accent); margin-top: 0;">🗺️ Atelier cartes</h3>
+                    <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><strong>Le fond de carte est fourni avec l'application</strong> — 220 pays, noms
+                            français, six continents. Rien n'est demandé à un serveur : la géographie marche
+                            sans connexion. (Contours : Natural Earth, domaine public.)</li>
+                        <li><strong>Choisir, colorier :</strong> le monde ou un continent, puis on clique les pays.
+                            Chaque <b>légende</b> a sa couleur et son intitulé ; un pays n'appartient qu'à une
+                            légende, et recliquer l'enlève. Le champ de recherche trouve un pays par son nom,
+                            accents ou pas.</li>
+                        <li><strong>Une note par pays :</strong> ce que vous écrivez ne se dessine pas sur la
+                            carte — la classe le voit en <b>passant dessus</b> (ou en y posant le doigt sur
+                            tablette), avec le nom du pays et sa légende.</li>
+                        <li><strong>Deux projections :</strong> Robinson, celle des atlas scolaires, ou la
+                            projection plate. Un <b>double-clic</b> sur la carte posée rouvre l'atelier ;
+                            elle garde sa place et sa taille.</li>
                     </ul>
                 </div>
                 <div class="aide-section">
@@ -1923,9 +1941,12 @@
 
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
+    <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
+         avec l'application : la géographie doit marcher sans connexion. -->
+    <script src="./lib/maps/monde.js?v=1"></script>
     <script src="script.js?v=133"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=74"></script>
+    <script src="plugin.js?v=75"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
