@@ -840,7 +840,12 @@ module.exports = async function (browser) {
             texte: !!document.getElementById('doc-outil-texte'),
             main: !!document.getElementById('doc-outil-main'),
             toucheCrayon: document.getElementById('doc-outil-crayon').getAttribute('data-raccourci'),
-            toucheTexte: document.getElementById('doc-outil-texte').getAttribute('data-raccourci')
+            toucheTexte: document.getElementById('doc-outil-texte').getAttribute('data-raccourci'),
+            // Des icônes seules : le nom vit dans l'infobulle, pas dans le bouton
+            libelles: ['doc-outil-main', 'doc-outil-crayon', 'doc-outil-texte']
+                .map(id => document.getElementById(id).textContent.trim()).join(''),
+            dessins: ['doc-outil-main', 'doc-outil-crayon', 'doc-outil-texte']
+                .filter(id => document.getElementById(id).querySelector('svg')).length
         };
     });
     r.egal('hors Focus, la barre du document n\'offre pas d\'outils : les vraies barres sont là',
@@ -850,6 +855,9 @@ module.exports = async function (browser) {
         outilsDoc.crayon && outilsDoc.texte && outilsDoc.main, JSON.stringify(outilsDoc));
     r.egal('et l\'infobulle du crayon porte sa touche', outilsDoc.toucheCrayon, 'C');
     r.egal('celle du texte aussi', outilsDoc.toucheTexte, 'T');
+    r.egal('les trois portent un dessin', outilsDoc.dessins, 3);
+    r.egal('et rien d\'autre : l\'icône seule, le nom est dans l\'infobulle',
+        outilsDoc.libelles, '');
 
     // Prendre le crayon vide la sélection : la barre doit malgré tout rester,
     // et continuer de parler du document qu'on annote.
