@@ -128,5 +128,95 @@ module.exports = async function (browser) {
         await context.close();
     }
 
+    // --- L'ÉPAISSEUR D'UN TRAIT EST CELLE DU TABLEAU, PAS DE L'ÉCRAN ---
+    // Le texte grandit avec le zoom, le document aussi ; le trait, lui, gardait
+    // une épaisseur constante à l'écran. On zoomait sur une annotation pour la
+    // montrer, et elle maigrissait à vue d'œil.
+    {
+        const { context, page, erreurs } = await ouvrirApp(browser);
+        await page.waitForFunction(() => typeof setMode === 'function');
+
+        // On mesure l'encre vraiment peinte : la hauteur de la traînée noire
+        // au milieu d'un trait horizontal.
+        const mesurer = () => page.evaluate(() => {
+            draw();
+            const c = document.getElementById('board');
+            const g = c.getContext('2d');
+            const k = c.width / c.clientWidth;
+            const x = Math.round((panX + 0 * zoom) * k);
+            const d = g.getImageData(x, 0, 1, c.height).data;
+            let haut = null, bas = null;
+            for (let y = 0; y < c.height; y++) {
+                const i = y * 4;
+                if (d[i + 3] > 100 && (d[i] + d[i + 1] + d[i + 2]) / 3 < 140) {
+                    if (haut === null) haut = y; bas = y;
+                }
+            }
+            return haut === null ? 0 : Math.round((bas - haut + 1) / k);
+        });
+
+        const poser = (z) => page.evaluate((z) => {
+            ['points', 'segments', 'circles', 'rectangles', 'texts', 'freehands',
+             'curves', 'polygons', 'images', 'arcs'].forEach(t => { if (window[t]) window[t].length = 0; });
+            zoom = z; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
+            selectedItems = [];
+            freehands.push({ id: nextId++, points: [
+                { x: -200, y: 0, p: 0.5 }, { x: -100, y: 0, p: 0.5 },
+                { x: 0, y: 0, p: 0.5 }, { x: 100, y: 0, p: 0.5 }, { x: 200, y: 0, p: 0.5 }],
+                color: '#000000', width: 10, z: globalZ++ });
+            draw();
+        }, z);
+
+        await poser(1);
+        const a1 = await mesurer();
+        await poser(2);
+        const a2 = await mesurer();
+        await poser(0.5);
+        const aDemi = await mesurer();
+
+        r.verifie('un trait de 10 fait bien une dizaine de pixels à l\'échelle 1',
+            Math.abs(a1 - 10) <= 3, `${a1} px`);
+        r.verifie('zoomé deux fois, il est deux fois plus épais',
+            Math.abs(a2 - a1 * 2) <= 4, `${a1} px → ${a2} px`);
+        r.verifie('dézoomé de moitié, il est deux fois plus fin',
+            Math.abs(aDemi - a1 / 2) <= 3, `${a1} px → ${aDemi} px`);
+
+        // Les repères de l'interface, eux, ne doivent PAS suivre le zoom : un
+        // cadre de sélection doit rester lisible, pas devenir un bandeau.
+        // On mesure le violet peint, comme pour l'encre.
+        const cadre = await page.evaluate(() => {
+            const mesure = (z) => {
+                ['points', 'segments', 'freehands', 'texts'].forEach(t => { if (window[t]) window[t].length = 0; });
+                zoom = z; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
+                const t = { id: nextId++, x: -100, y: -20, content: 'Cadre', fontSize: 30,
+                            lineHeight: 36, color: '#000', fontFamily: 'sans-serif',
+                            align: 'left', z: globalZ++ };
+                texts.push(t); draw();
+                selectedItems = [{ type: 'text', id: t.id }];
+                draw();
+                const c = document.getElementById('board');
+                const g = c.getContext('2d');
+                // Les poignées et le cadre sont peints en #0984e3. Leur nombre
+                // de pixels ne doit pas changer avec le zoom : ils s'écartent,
+                // mais chacun garde sa taille. S'ils suivaient le zoom, cette
+                // quantité serait multipliée par quatre.
+                const d = g.getImageData(0, 0, c.width, c.height).data;
+                let bleus = 0;
+                for (let i = 0; i < d.length; i += 4) {
+                    if (d[i + 3] > 100 && d[i] < 60 && d[i + 1] > 100 && d[i + 1] < 165 && d[i + 2] > 200) bleus++;
+                }
+                return bleus;
+            };
+            return { un: mesure(1), deux: mesure(2) };
+        });
+        r.verifie('les repères de sélection sont bien peints', cadre.un > 50, JSON.stringify(cadre));
+        r.verifie('et ils gardent leur taille à l\'écran quand on zoome',
+            Math.abs(cadre.deux - cadre.un) < cadre.un * 0.5, JSON.stringify(cadre));
+
+        r.verifie('aucune erreur JS pendant les mesures d\'épaisseur',
+            erreurs.length === 0, erreurs.join(' | '));
+        await context.close();
+    }
+
     return r.bilan();
 };

@@ -430,14 +430,28 @@ module.exports = async function (browser) {
         && finesse.apres.l > finesse.avant.l, JSON.stringify(finesse));
     r.egal('et l\'on montre exactement la même part de page', finesse.partApres, finesse.partAvant);
 
-    const inutile = await page.evaluate(async () => {
+    // Dézoomer : une page rendue six fois trop grande puis montrée petite est
+    // granuleuse — le navigateur jette cinq pixels sur six. Elle redescend.
+    const degrossi = await page.evaluate(async () => {
         const img = images[0];
+        const d = documentsPdf.get(img.pluginData.cle);
         montrerToutLeDocument(img);
         img.w = 200; zoom = 1;              // la page est montrée petite
-        return { demande: Math.round(finesseDemandee(img) * 100) / 100, refait: await affinerLaPage(img) };
+        const avant = d.rendus.get(img.pluginData.page).echelle;
+        const refait = await affinerLaPage(img);
+        const apres = d.rendus.get(img.pluginData.page).echelle;
+        // Une deuxième fois : il n'y a plus rien à faire
+        const encore = await affinerLaPage(img);
+        return { demande: Math.round(finesseDemandee(img) * 100) / 100, avant, apres, refait, encore,
+                 base: currentPdfQuality,
+                 part: Math.round((img.cw / imageCache[img.src].naturalWidth) * 1000) };
     });
-    r.verifie('une page montrée petite n\'est pas redessinée pour rien',
-        inutile.refait === false, JSON.stringify(inutile));
+    r.verifie('montrée petite, la page redescend en finesse',
+        degrossi.refait && degrossi.apres < degrossi.avant, JSON.stringify(degrossi));
+    r.egal('sans jamais descendre sous la qualité de base', degrossi.apres, degrossi.base);
+    r.egal('et l\'on montre toujours la même part de page', degrossi.part, 1000);
+    r.verifie('une fois d\'aplomb, elle n\'est plus redessinée pour rien',
+        degrossi.encore === false, JSON.stringify(degrossi));
 
     // La molette : toutes ne parlent pas la même unité, et un cran ne saute pas
     const molette = await page.evaluate(() => ({

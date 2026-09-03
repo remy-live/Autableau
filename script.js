@@ -2086,6 +2086,15 @@ window.addEventListener('mouseup', () => {
     if (typeof twWidget !== 'undefined' && twWidget) twWidget.style.transition = '';
 });
 
+// L'épaisseur d'un trait DESSINÉ est en unités du tableau : elle grandit avec
+// le zoom, comme le texte et comme le document. On s'approche, le trait
+// s'épaissit — c'est ce que fait un trait sur du papier. « lw » (1/zoom) est
+// l'unité de L'INTERFACE : cadres de sélection, poignées, guides, repères de
+// construction gardent une taille constante à l'écran quel que soit le
+// grossissement. Confondre les deux faisait maigrir les annotations dès qu'on
+// zoomait pour les montrer.
+const EPAISSEUR_AU_TABLEAU = 1;
+
 // --- FONCTIONS DE DESSIN DE BASE & FLECHES ---
 
 function drawArrowHead(ctx, x, y, angle, color, width, lw, type) {
@@ -7985,6 +7994,12 @@ function draw() {
     majPointsDependants();
     if (typeof majBarreDocument === 'function') majBarreDocument();
 
+    // Le lissage des images est en qualité BASSE par défaut : un filtre bon
+    // marché qui granule dès qu'on réduit beaucoup — et une page de PDF
+    // rendue finement puis montrée petite est exactement ce cas-là.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     const bg = backgrounds[currentBgIndex];
     const logicalStep = pasDesGraduations();     // une graduation = une case du fond
 
@@ -8167,10 +8182,10 @@ function draw() {
             else if (item.type === 'freehand') {
                 if (obj.isHighlighter) ctx.globalCompositeOperation = isDarkMode ? 'screen' : 'multiply';
                 ctx.strokeStyle = renderColor;
-                setContextDash(ctx, obj.dash, lw);
+                setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU);
 
                 if (obj.isHighlighter) {
-                    ctx.lineWidth = (obj.width || 3) * lw;
+                    ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU;
                     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
                     if (obj.points.length > 1) {
                         ctx.beginPath();
@@ -8184,18 +8199,18 @@ function draw() {
                         ctx.stroke();
                     }
                 } else {
-                    drawSmoothFreehand(ctx, obj.points, obj.width || 3, lw);
+                    drawSmoothFreehand(ctx, obj.points, obj.width || 3, EPAISSEUR_AU_TABLEAU);
                 }
 
                 if (obj.arrowStart && obj.points.length > 1 && !obj.isHighlighter) {
                     const pA = obj.points[1]; const pB = obj.points[0];
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, lw, obj.arrowStart);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowStart);
                 }
                 if (obj.arrowEnd && obj.points.length > 1 && !obj.isHighlighter) {
                     const pA = obj.points[obj.points.length - 2]; const pB = obj.points[obj.points.length - 1];
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, lw, obj.arrowEnd);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowEnd);
                 }
 
                 ctx.setLineDash([]);
@@ -8210,24 +8225,24 @@ function draw() {
                         if (obj.isClosed !== false) ctx.closePath();
                         if (valid) {
                             if (obj.isFilled && obj.isClosed !== false) { ctx.fillStyle = hexToRgba(obj.fillColor || obj.color, obj.fillOpacity || 0.2); ctx.fill(); }
-                            ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * lw; setContextDash(ctx, obj.dash, lw); ctx.stroke(); ctx.setLineDash([]);
+                            ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
                         }
                     }
                 }
             }
             else if (item.type === 'curve') {
-                ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * lw; setContextDash(ctx, obj.dash, lw); drawSpline(ctx, obj.points, null, obj.closed); ctx.setLineDash([]);
+                ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); drawSpline(ctx, obj.points, null, obj.closed); ctx.setLineDash([]);
                 const pts = obj.points.map(id => getObjectById('point', id)).filter(p => p);
 
                 if (obj.arrowStart && !obj.closed && pts.length > 1) {
                     const pA = pts[1]; const pB = pts[0];
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, lw, obj.arrowStart);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowStart);
                 }
                 if (obj.arrowEnd && !obj.closed && pts.length > 1) {
                     const pA = pts[pts.length - 2]; const pB = pts[pts.length - 1];
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, lw, obj.arrowEnd);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowEnd);
                 }
             }
             else if (item.type === 'circle') {
@@ -8235,14 +8250,14 @@ function draw() {
                 if (center && edge) {
                     ctx.beginPath(); ctx.arc(center.x, center.y, Math.hypot(edge.x - center.x, edge.y - center.y), 0, Math.PI * 2);
                     if (obj.isFilled) { ctx.fillStyle = hexToRgba(obj.fillColor || obj.color, obj.fillOpacity || 0.2); ctx.fill(); }
-                    ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * lw; setContextDash(ctx, obj.dash, lw); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
                 }
             }
             else if (item.type === 'arc') {
                 ctx.beginPath();
                 ctx.strokeStyle = renderColor;
-                ctx.lineWidth = (obj.width || 3) * lw;
-                setContextDash(ctx, obj.dash, lw);
+                ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU;
+                setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU);
                 ctx.arc(obj.cx, obj.cy, obj.radius, obj.startAngle, obj.endAngle, obj.counterClockwise);
                 ctx.stroke();
                 ctx.setLineDash([]);
@@ -8254,7 +8269,7 @@ function draw() {
                     ctx.rect(Math.min(p1.x, p2.x), Math.min(p1.y, p2.y), Math.abs(p2.x - p1.x), Math.abs(p2.y - p1.y));
                     if (obj.isFilled) { ctx.fillStyle = hexToRgba(obj.fillColor || obj.color, obj.fillOpacity || 0.2); ctx.fill(); }
                     ctx.strokeStyle = renderColor;
-                    ctx.lineWidth = (obj.width || 3) * lw; setContextDash(ctx, obj.dash, lw); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
                 }
             }
             else if (item.type === 'segment') {
@@ -8266,16 +8281,16 @@ function draw() {
                     } else {
                         ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
                     }
-                    ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * lw; setContextDash(ctx, obj.dash, lw); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.strokeStyle = renderColor; ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
 
                     if (!obj.lineType || obj.lineType === 'segment') {
                         if (obj.arrowStart) {
                             const angle = Math.atan2(p1.y - p2.y, p1.x - p2.x);
-                            drawArrowHead(ctx, p1.x, p1.y, angle, renderColor, obj.width || 3, lw, obj.arrowStart);
+                            drawArrowHead(ctx, p1.x, p1.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowStart);
                         }
                         if (obj.arrowEnd) {
                             const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-                            drawArrowHead(ctx, p2.x, p2.y, angle, renderColor, obj.width || 3, lw, obj.arrowEnd);
+                            drawArrowHead(ctx, p2.x, p2.y, angle, renderColor, obj.width || 3, EPAISSEUR_AU_TABLEAU, obj.arrowEnd);
                         }
                     }
                 }
@@ -8764,8 +8779,8 @@ function draw() {
         if (currentTracingArc) {
             ctx.beginPath();
             ctx.strokeStyle = currentTracingArc.color || activeStyle.strokeColor;
-            ctx.lineWidth = (currentTracingArc.width || activeStyle.lineWidth) * lw;
-            setContextDash(ctx, currentTracingArc.dash, lw);
+            ctx.lineWidth = (currentTracingArc.width || activeStyle.lineWidth) * EPAISSEUR_AU_TABLEAU;
+            setContextDash(ctx, currentTracingArc.dash, EPAISSEUR_AU_TABLEAU);
             ctx.arc(currentTracingArc.cx, currentTracingArc.cy, currentTracingArc.radius, currentTracingArc.startAngle, currentTracingArc.endAngle, currentTracingArc.counterClockwise);
             ctx.stroke();
             ctx.setLineDash([]);
@@ -8776,11 +8791,11 @@ function draw() {
             for (let i = 1; i < currentPolygonPoints.length; i++) { const p = getObjectById('point', currentPolygonPoints[i]); if (p) ctx.lineTo(p.x, p.y); }
             ctx.lineTo(mouseLogicalPos.x, mouseLogicalPos.y);
             if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
 
         if (mode === 'curve' && currentCurvePoints.length > 0 && mouseLogicalPos) {
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); drawSpline(ctx, currentCurvePoints, mouseLogicalPos, false); ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); drawSpline(ctx, currentCurvePoints, mouseLogicalPos, false); ctx.setLineDash([]);
 
             if (activeStyle.arrowStart && currentCurvePoints.length > 0) {
                 let pA, pB;
@@ -8788,14 +8803,14 @@ function draw() {
                 else { pA = getObjectById('point', currentCurvePoints[1]); pB = getObjectById('point', currentCurvePoints[0]); }
                 if (pB && pA) {
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, lw, activeStyle.arrowStart);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
                 }
             }
             if (activeStyle.arrowEnd) {
                 const startP = getObjectById('point', currentCurvePoints[currentCurvePoints.length - 1]);
                 if (startP) {
                     const angle = Math.atan2(mouseLogicalPos.y - startP.y, mouseLogicalPos.x - startP.x);
-                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, lw, activeStyle.arrowEnd);
+                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
                 }
             }
         }
@@ -8803,14 +8818,14 @@ function draw() {
         if (mode === 'circle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId); ctx.beginPath(); ctx.arc(startP.x, startP.y, Math.hypot(mouseLogicalPos.x - startP.x, mouseLogicalPos.y - startP.y), 0, Math.PI * 2);
             if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
         if (mode === 'rectangle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
             ctx.beginPath();
             ctx.rect(Math.min(startP.x, mouseLogicalPos.x), Math.min(startP.y, mouseLogicalPos.y), Math.abs(mouseLogicalPos.x - startP.x), Math.abs(mouseLogicalPos.y - startP.y));
             if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
         if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite') && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
@@ -8831,16 +8846,16 @@ function draw() {
             } else {
                 ctx.moveTo(startP.x, startP.y); ctx.lineTo(mouseLogicalPos.x, mouseLogicalPos.y);
             }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * lw; setContextDash(ctx, activeStyle.lineDash, lw); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
 
             if (mode === 'segment') {
                 if (activeStyle.arrowStart) {
                     const angle = Math.atan2(startP.y - mouseLogicalPos.y, startP.x - mouseLogicalPos.x);
-                    drawArrowHead(ctx, startP.x, startP.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, lw, activeStyle.arrowStart);
+                    drawArrowHead(ctx, startP.x, startP.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
                 }
                 if (activeStyle.arrowEnd) {
                     const angle = Math.atan2(mouseLogicalPos.y - startP.y, mouseLogicalPos.x - startP.x);
-                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, lw, activeStyle.arrowEnd);
+                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
                 }
             }
         }
@@ -8953,7 +8968,7 @@ function draw() {
             ctx.save();
             ctx.beginPath();
             ctx.strokeStyle = activeStyle.strokeColor;
-            ctx.lineWidth = activeStyle.lineWidth * lw;
+            ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU;
             ctx.setLineDash([5 * lw, 5 * lw]);
             ctx.moveTo(startX, startY);
             ctx.lineTo(startX + Math.cos(rawAngle) * 2000 * lw, startY + Math.sin(rawAngle) * 2000 * lw);
@@ -9347,10 +9362,11 @@ function rendreLaPage(d, numero) {
 }
 
 // ---------------------------------------------------
-// ZOOMER SANS QUE LA PAGE SE PIXELLISE
+// LA PAGE À LA FINESSE QU'ON LUI DEMANDE
 // Une page rendue a une résolution. La grossir au-delà, c'est étirer des
-// pixels : on voyait les lettres s'escalier. On la redessine donc PLUS FINE
-// dès qu'on lui en demande davantage — c'est ce que fait tout lecteur de PDF.
+// pixels : on voyait les lettres s'escalier. Trop la réduire n'est pas mieux —
+// le navigateur jette alors cinq pixels sur six et l'image paraît granuleuse.
+// On la redessine donc à la finesse voulue, dans les deux sens.
 // Le cadrage (cx, cy, cw, ch) est en pixels d'image : il se met à l'échelle
 // en même temps, si bien que rien ne bouge à l'écran, tout devient net.
 // ---------------------------------------------------
@@ -9368,17 +9384,23 @@ async function affinerLaPage(obj) {
     const d = obj && obj.pluginData && documentsPdf.get(obj.pluginData.cle);
     if (!d || !obj.pluginData.page) return false;
     const besoin = finesseDemandee(obj);
-    if (besoin <= 1.1) return false;                 // la page est déjà assez fine
 
     const numero = obj.pluginData.page;
     const actuel = (d.rendus && d.rendus.get(numero)) || null;
     const echelle = (actuel && actuel.echelle) || currentPdfQuality;
     const page = await d.doc.getPage(numero);
     const nature = page.getViewport({ scale: 1 });
-    let voulue = Math.min(FINESSE_MAX, echelle * besoin);
+    // La finesse suit la demande dans LES DEUX SENS. Une page rendue six fois
+    // trop grande puis montrée petite ne fait pas une belle petite image : le
+    // navigateur jette cinq pixels sur six, et cela se voit — c'est le grain
+    // qu'on remarque en dézoomant. On ne descend pas sous la qualité de base :
+    // elle sert de socle si l'on rezoome.
+    let voulue = Math.max(currentPdfQuality, Math.min(FINESSE_MAX, echelle * besoin));
     const trop = Math.sqrt((nature.width * nature.height * voulue * voulue) / PIXELS_MAX);
     if (trop > 1) voulue = voulue / trop;
-    if (voulue <= echelle * 1.05) return false;      // le gain ne vaudrait pas le calcul
+    // Une marge de part et d'autre : sans elle, le moindre frémissement du
+    // zoom relancerait un rendu complet.
+    if (voulue <= echelle * 1.15 && echelle <= voulue * 1.6) return false;
 
     const viewport = page.getViewport({ scale: voulue });
     const c = document.createElement('canvas');
