@@ -7431,10 +7431,36 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
     CONTINENTS: ['Monde', 'Europe', 'Afrique', 'Asie', 'Amérique du Nord',
         'Amérique du Sud', 'Océanie'],
 
+    // LE CADRE D'UN CONTINENT EST CELUI D'UN ATLAS, PAS CELUI DE SES PAYS.
+    // Déduire le cadre des pays du continent donne des cartes absurdes : la
+    // Russie appartient à l'Europe et s'étend jusqu'au Pacifique, si bien que
+    // « l'Europe » reculait jusqu'à tenir Vladivostok — l'Europe des manuels
+    // devenait une tache dans un coin. On fixe donc les bornes, comme le fait
+    // n'importe quel atlas, et l'on montre les voisins qui entrent dans le
+    // cadre : une carte de l'Europe montre la côte d'Afrique du Nord.
+    //             [ouest, sud, est, nord]
+    CADRES: {
+        'Monde': [-180, -58, 180, 84],
+        'Europe': [-25, 33, 45, 72],
+        'Afrique': [-19, -36, 52, 38],
+        'Asie': [26, -12, 147, 56],
+        'Amérique du Nord': [-172, 6, -50, 72],
+        'Amérique du Sud': [-83, -56, -33, 13],
+        'Océanie': [110, -48, 180, 1]
+    },
+
+    bornesDuFond: function (fond) {
+        return this.CADRES[fond] || this.CADRES['Monde'];
+    },
+
+    // Les pays qu'il est utile de dessiner : ceux qui touchent le cadre. Le
+    // reste serait rogné de toute façon, et alourdirait l'image pour rien.
     paysDuFond: function (fond) {
-        const tous = this.monde();
-        if (!fond || fond === 'Monde') return tous.filter(p => p.c !== 'Antarctique');
-        return tous.filter(p => p.c === fond);
+        const [o, s, e, n] = this.bornesDuFond(fond);
+        return this.monde().filter(p => {
+            const b = p.b;
+            return b[0] <= e && b[2] >= o && b[1] <= n && b[3] >= s;
+        });
     },
 
     // ------------------------------------------------------------------
@@ -7463,19 +7489,19 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
         return [lon * largeur, -(lat < 0 ? -hauteur : hauteur) * 90];
     },
 
-    // La fenêtre de projection d'un fond : ses bornes, en unités projetées.
-    cadreProjete: function (pays, projection) {
-        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-        pays.forEach(p => {
-            this.anneauxDe(p).forEach(anneau => anneau.forEach(pt => {
-                const q = this.projeter(pt[0], pt[1], projection);
-                x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]);
-                y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]);
-            }));
-        });
-        if (!isFinite(x0)) return { x0: -180, y0: -90, x1: 180, y1: 90 };
-        const margeX = (x1 - x0) * 0.02, margeY = (y1 - y0) * 0.02;
-        return { x0: x0 - margeX, y0: y0 - margeY, x1: x1 + margeX, y1: y1 + margeY };
+    // La fenêtre de projection d'un fond, en unités projetées.
+    cadreProjete: function (fond, projection) {
+        const [o, s, e, n] = this.bornesDuFond(fond);
+        // Robinson resserre les parallèles vers les pôles : la plus grande
+        // largeur est à la latitude la plus proche de l'équateur dans le
+        // cadre. La prendre ailleurs couperait les bords de la carte.
+        const laPlusLarge = (s <= 0 && n >= 0) ? 0 : (Math.abs(s) < Math.abs(n) ? s : n);
+        return {
+            x0: this.projeter(o, laPlusLarge, projection)[0],
+            x1: this.projeter(e, laPlusLarge, projection)[0],
+            y0: this.projeter(o, n, projection)[1],
+            y1: this.projeter(o, s, projection)[1]
+        };
     },
 
     // ------------------------------------------------------------------
@@ -7526,7 +7552,7 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
     // La géométrie d'un rendu : combien de pixels par degré projeté, et où.
     mesures: function (etat, largeur) {
         const liste = this.paysDuFond(etat.fond);
-        const cadre = this.cadreProjete(liste, etat.projection);
+        const cadre = this.cadreProjete(etat.fond, etat.projection);
         const echelle = largeur / (cadre.x1 - cadre.x0);
         const hauteur = Math.round((cadre.y1 - cadre.y0) * echelle);
         return { liste, cadre, echelle, largeur, hauteur };

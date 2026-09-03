@@ -107,6 +107,28 @@ function encoderAnneau(points) {
     return sortie.join('');
 }
 
+// --- 3 bis. L'ANTIMÉRIDIEN ---
+// Un pays à cheval sur le 180e méridien — la Russie par la Tchoukotka, les
+// Fidji — a des anneaux qui passent de +180° à -180° d'un point au suivant.
+// Tracé tel quel, le trait traverse toute la carte pour recoller ses deux
+// bords : une bande en travers du nord, un trait en travers du Pacifique.
+// On coupe donc l'anneau à l'endroit du saut. Les deux morceaux restent à
+// leur place — l'un au bord droit de la carte, l'autre au bord gauche — ce
+// qui est exactement ce que montre un planisphère.
+function couperALAntimeridien(anneau) {
+    const morceaux = [];
+    let courant = [anneau[0]];
+    for (let i = 1; i < anneau.length; i++) {
+        if (Math.abs(anneau[i][0] - anneau[i - 1][0]) > 180) {
+            morceaux.push(courant);
+            courant = [];
+        }
+        courant.push(anneau[i]);
+    }
+    morceaux.push(courant);
+    return morceaux.filter(m => m.length >= 4);
+}
+
 // --- 4. Conversion ---
 const geo = topojson.feature(topo, topo.objects.countries);
 const TOLERANCE = 0.04;         // en degrés : ~4 km, invisible au tableau
@@ -144,10 +166,15 @@ geo.features.forEach(f => {
             y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
         });
         if ((x1 - x0) * (y1 - y0) < AIRE_MINIMALE) return;
-        const simple = simplifier(anneau, TOLERANCE);
-        if (simple.length < 4) return;
-        pointsApres += simple.length;
-        anneaux.push(simple);
+        // On coupe AVANT de simplifier : un saut de 360° ferait passer
+        // Douglas-Peucker pour un détail à conserver, et l'on garderait le
+        // trait en travers en jetant la côte autour.
+        couperALAntimeridien(anneau).forEach(morceau => {
+            const simple = simplifier(morceau, TOLERANCE);
+            if (simple.length < 4) return;
+            pointsApres += simple.length;
+            anneaux.push(simple);
+        });
     });
     if (!anneaux.length) return;
 

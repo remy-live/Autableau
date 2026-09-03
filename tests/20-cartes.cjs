@@ -28,7 +28,21 @@ module.exports = async function (browser) {
             cadre: fr.f, tout: fr.b,
             aucunPointHorsDuGlobe: tous.every(x => p.anneauxDe(x).every(a =>
                 a.every(q => Math.abs(q[0]) <= 181 && Math.abs(q[1]) <= 91))),
-            aucunAnneauVide: tous.every(x => p.anneauxDe(x).every(a => a.length > 2))
+            aucunAnneauVide: tous.every(x => p.anneauxDe(x).every(a => a.length > 2)),
+            // Un pays à cheval sur le 180e méridien — la Russie par la
+            // Tchoukotka, les Fidji — avait des anneaux passant de +180° à
+            // -180° d'un point au suivant : le trait traversait toute la
+            // carte pour recoller ses deux bords, une bande bleue en travers
+            // du nord et un trait gris en travers du Pacifique.
+            coupables: (() => {
+                const l = [];
+                tous.forEach(x => p.anneauxDe(x).forEach(a => {
+                    for (let i = 1; i < a.length; i++) {
+                        if (Math.abs(a[i][0] - a[i - 1][0]) > 180) { l.push(x.n); return; }
+                    }
+                }));
+                return l;
+            })()
         };
     });
     r.verifie('le fond de carte est livré avec l\'application', fond.pays > 180, String(fond.pays));
@@ -41,6 +55,8 @@ module.exports = async function (browser) {
     r.verifie('aucun contour ne sort du globe', fond.aucunPointHorsDuGlobe);
     r.verifie('aucun anneau vide : le séparateur ne coupe pas les contours',
         fond.aucunAnneauVide);
+    r.verifie('aucun contour ne franchit l\'antiméridien',
+        fond.coupables.length === 0, fond.coupables.join(', '));
     r.verifie('le cadrage de la France s\'arrête à l\'Hexagone',
         fond.cadre[0] > -12 && fond.cadre[2] < 12, JSON.stringify(fond.cadre));
     r.verifie('mais sa boîte complète couvre bien l\'outre-mer',
@@ -271,20 +287,42 @@ module.exports = async function (browser) {
         JSON.stringify(reedition));
 
     // --- CHANGER DE FOND ---
+    // Le cadre d'un continent est celui d'un atlas, pas celui de ses pays :
+    // la Russie appartient à l'Europe et va jusqu'au Pacifique, si bien que
+    // « l'Europe » déduite de ses pays reculait jusqu'à tenir Vladivostok, et
+    // l'Europe des manuels devenait une tache dans un coin. Les voisins qui
+    // entrent dans le cadre sont montrés, comme dans un atlas.
     const continent = await page.evaluate(() => {
         const p = PluginManager.plugins.mapTool;
         p.ouvrir();
-        p.etat.fond = 'Afrique';
-        p.rendre();
-        const chemins = document.querySelectorAll('#carte-dessin path[data-pays]').length;
-        const m = p.mesures(p.etat, 640);
+        const compter = (fond) => {
+            p.etat.fond = fond; p.rendre();
+            const m = p.mesures(p.etat, 640);
+            return {
+                dessines: document.querySelectorAll('#carte-dessin path[data-pays]').length,
+                bornes: p.bornesDuFond(fond),
+                proportion: Math.round((640 / m.hauteur) * 100) / 100
+            };
+        };
+        const monde = compter('Monde');
+        const afrique = compter('Afrique');
+        const europe = compter('Europe');
+        const dansLEurope = ['FR', 'ES', 'MA', 'RU', 'TR']
+            .filter(c => p.paysDuFond('Europe').some(x => x.i === c));
         p.fermer();
-        return { chemins, largeurDuCadre: Math.round(m.cadre.x1 - m.cadre.x0) };
+        return { monde, afrique, europe, dansLEurope };
     });
-    r.verifie('choisir l\'Afrique ne montre que l\'Afrique',
-        continent.chemins > 40 && continent.chemins < 70, String(continent.chemins));
-    r.verifie('et la carte se cadre dessus', continent.largeurDuCadre < 120,
-        String(continent.largeurDuCadre));
+    r.egal('le cadre de l\'Europe est celui d\'un atlas, pas celui de ses pays',
+        continent.europe.bornes, [-25, 33, 45, 72]);
+    r.verifie('un continent dessine bien moins de pays que le monde',
+        continent.afrique.dessines < continent.monde.dessines * 0.7,
+        `Afrique ${continent.afrique.dessines} / Monde ${continent.monde.dessines}`);
+    r.verifie('mais on montre les voisins qui entrent dans le cadre',
+        continent.dansLEurope.includes('MA') && continent.dansLEurope.includes('TR'),
+        JSON.stringify(continent.dansLEurope));
+    r.verifie('la carte du monde est plus large que haute, sans excès',
+        continent.monde.proportion > 1.5 && continent.monde.proportion < 2.6,
+        String(continent.monde.proportion));
 
     await page.evaluate(() => {
         const p = PluginManager.plugins.mapTool;
