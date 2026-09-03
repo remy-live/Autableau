@@ -4618,7 +4618,13 @@ body.dark-mode {
     top: 14px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 30;
+    /* AU-DESSUS DU TIROIR DES PLUGINS (z-index 40), qui occupe lui aussi le
+       haut au centre : à 30, la date se trouvait derrière sa rangée d'onglets
+       — invisible, et ses commandes injoignables. Le tiroir OUVERT efface le
+       titre (voir « body.drawer-open-top »), il n'y a donc pas de conflit :
+       on ne passe devant que la bande d'onglets. Et comme la date se déplace
+       maintenant, on la pose où elle ne gêne personne. */
+    z-index: 45;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -4646,7 +4652,18 @@ body.dark-mode {
     max-width: calc(100vw - 24px);
     transition: all 0.2s;
     cursor: pointer;
-    text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
+    /* La bande d'onglets des plugins occupe le même haut de page : sans un
+       fond à elle, la date se lisait par-dessus des icônes et l'on ne savait
+       plus ce qui était quoi. Une pastille discrète suffit — et la poignée
+       permet de l'emmener ailleurs si elle gêne encore. */
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 999px;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
+}
+
+.dark-mode .project-name-input {
+    background: rgba(30, 39, 46, 0.85);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
 .dark-mode .project-name-input {
@@ -7903,3 +7920,18 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .dark-mode .frise-outils select { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
 .dark-mode #frise-apercu { background: #232b31; border-color: #3d4852; }
+
+/* La date se prend par sa poignée : on la pose où elle ne gêne pas. */
+#titre-prise {
+    cursor: grab;
+    touch-action: none;
+    color: #94a3b8;
+    font-size: 13px;
+    line-height: 1;
+}
+
+#titre-prise:active { cursor: grabbing; }
+
+/* Déplacée, elle ne se recentre plus : c'est le JS qui pose left/top, et la
+   transition sur « top » ferait glisser le cadre derrière le doigt. */
+.project-name-wrapper[style*="transform: none"] { transition: none; }

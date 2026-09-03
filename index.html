@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=64">
+    <link rel="stylesheet" href="style.css?v=65">
 </head>
 
 <body>
@@ -417,6 +417,10 @@
     <div id="toast-container"></div>
     <div class="project-name-wrapper" id="project-name-wrapper">
         <div id="project-title-controls-left" class="title-controls title-controls-left">
+            <!-- La date se prend par sa poignée et se pose où l'on veut :
+                 au-dessus d'un document, elle gênait la lecture. -->
+            <button id="titre-prise" class="title-btn"
+                data-tooltip="Déplacer la date — double-clic pour la remettre en haut">⠿</button>
             <input type="color" id="project-title-color" class="title-color-picker" value="#2d3436"
                 title="Couleur du texte">
             <button id="project-title-minus" class="title-btn" title="Réduire la taille">−</button>
@@ -439,7 +443,8 @@
                 <button class="rp-choix" data-format="moyen">26 août 2026</button>
                 <button class="rp-choix" data-format="court">Mardi 26 août</button>
                 <button class="rp-choix" data-format="chiffres">26/08/2026</button>
-                <div class="rp-titre">Heure</div>
+                <div class="rp-titre">Afficher</div>
+                <button class="rp-choix" id="rd-date">Afficher la date</button>
                 <button class="rp-choix" id="rd-heure">Afficher l'heure</button>
                 <div class="rp-titre">&nbsp;</div>
                 <button class="rp-choix" id="rd-remettre">Remettre la date du jour</button>
@@ -566,6 +571,21 @@
                         <li><strong>Deux projections :</strong> Robinson, celle des atlas scolaires, ou la
                             projection plate. Un <b>double-clic</b> sur la carte posée rouvre l'atelier ;
                             elle garde sa place et sa taille.</li>
+                    </ul>
+                </div>
+                <div class="aide-section">
+                    <h3 style="color: var(--accent); margin-top: 0;">📅 La date du tableau</h3>
+                    <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><strong>Tout est dans la roue ⚙</strong>, à droite du titre : quatre formats de date
+                            (« Mardi 26 août 2026 », « 26 août 2026 », « Mardi 26 août », « 26/08/2026 »),
+                            <b>afficher la date</b>, <b>afficher l'heure</b>, et « remettre la date du jour » si
+                            l'on a écrit un titre à la main. Tout se retient d'une séance à l'autre, et l'heure se
+                            remet à jour toute seule.</li>
+                        <li><strong>La date se déplace :</strong> la <b>poignée ⠿</b> à gauche du titre — elle
+                            apparaît au survol — la prend et la pose où l'on veut. La place choisie est retenue ;
+                            <b>double-clic</b> sur la poignée la remet en haut au centre.</li>
+                        <li><strong>Un titre écrit à la main n'est jamais remplacé</strong> par la date, et il
+                            grandit ou rétrécit avec les boutons − et +.</li>
                     </ul>
                 </div>
                 <div class="aide-section">
@@ -1965,7 +1985,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=133"></script>
+    <script src="script.js?v=134"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=77"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

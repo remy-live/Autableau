@@ -188,6 +188,125 @@ module.exports = async function (browser) {
     });
     r.verifie('la date se masque et revient', dateMasquee.masque && dateMasquee.revenue, JSON.stringify(dateMasquee));
 
+    // --- LA DATE, L'HEURE, ET SA PLACE ---
+    // Les deux interrupteurs sont offerts dans deux fenêtres : ils doivent
+    // dire la même chose, sinon l'une paraît ne pas avoir compris l'autre.
+    const deuxFenetres = await page.evaluate(() => {
+        const etat = () => ({
+            dansLaBarre: document.getElementById('rp-date').classList.contains('actif'),
+            dansLaDate: document.getElementById('rd-date').classList.contains('actif'),
+            visible: getComputedStyle(document.getElementById('project-name-wrapper')).display !== 'none'
+        });
+        basculerReglagesDate();                     // ouvre la fenêtre de la date
+        document.getElementById('rd-date').click(); // on masque depuis celle-ci
+        const masquee = etat();
+        document.getElementById('rp-date').click(); // on rétablit depuis l'autre
+        const revenue = etat();
+        return { masquee, revenue };
+    });
+    r.verifie('masquer la date depuis sa propre fenêtre marche',
+        !deuxFenetres.masquee.visible, JSON.stringify(deuxFenetres.masquee));
+    r.verifie('et les deux fenêtres s\'accordent',
+        deuxFenetres.masquee.dansLaBarre === deuxFenetres.masquee.dansLaDate
+        && deuxFenetres.revenue.dansLaBarre === deuxFenetres.revenue.dansLaDate,
+        JSON.stringify(deuxFenetres));
+    r.verifie('la date est revenue', deuxFenetres.revenue.visible, JSON.stringify(deuxFenetres.revenue));
+
+    const heureIci = await page.evaluate(() => {
+        // On part d'un état connu : la suite a déjà touché à ces réglages, et
+        // le titre porte peut-être un nom écrit à la main.
+        reglagesDate.heure = false;
+        enregistrerReglagesDate();
+        poserDateDansTitre(true);
+        const sansHeure = document.getElementById('project-name-input').value;
+        const b = document.getElementById('rd-heure');
+        b.click();
+        const avecHeure = document.getElementById('project-name-input').value;
+        const allume = b.classList.contains('actif');
+        b.click();
+        return { sansHeure, avecHeure, allume, apres: document.getElementById('project-name-input').value };
+    });
+    r.verifie('l\'heure s\'ajoute à la date, dans la même fenêtre',
+        heureIci.allume && /\d{1,2}:\d{2}/.test(heureIci.avecHeure)
+        && !/\d{1,2}:\d{2}/.test(heureIci.sansHeure), JSON.stringify(heureIci));
+    r.egal('et se retire', heureIci.apres, heureIci.sansHeure);
+
+    // On la prend par sa poignée et on la pose ailleurs. La position est
+    // bornée À L'ENREGISTREMENT : gardée hors de l'écran, elle reviendrait
+    // telle quelle à la séance suivante.
+    const depart = await page.evaluate(() => {
+        localStorage.removeItem('auTableau_titre_pose');
+        titrePose = null; majPoseDuTitre();
+        const cadre = document.getElementById('project-name-wrapper');
+        const prise = document.getElementById('titre-prise');
+        cadre.classList.add('editing');           // les commandes se montrent au survol
+        const p = prise.getBoundingClientRect();
+        if (!p.width) return { rate: 'poignée sans taille' };
+        const c = cadre.getBoundingClientRect();
+        return { x: Math.round(p.left + p.width / 2), y: Math.round(p.top + p.height / 2),
+                 gauche: Math.round(c.left), haut: Math.round(c.top) };
+    });
+    await page.mouse.move(depart.x, depart.y);
+    await page.mouse.down();
+    await page.mouse.move(depart.x + 120, depart.y + 220, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const deplacee = await page.evaluate(() => {
+        const c = document.getElementById('project-name-wrapper').getBoundingClientRect();
+        return {
+            gauche: Math.round(c.left), haut: Math.round(c.top),
+            pose: titrePose && { x: Math.round(titrePose.x), y: Math.round(titrePose.y) },
+            memoire: JSON.parse(localStorage.getItem('auTableau_titre_pose') || 'null'),
+            dansEcran: c.left >= 0 && c.top >= 0 && c.right <= window.innerWidth + 1
+                && c.bottom <= window.innerHeight + 1
+        };
+    });
+    r.verifie('la poignée déplace la date, d\'autant qu\'on a tiré',
+        !!deplacee.pose && Math.abs(deplacee.gauche - (depart.gauche + 120)) <= 14
+        && Math.abs(deplacee.haut - (depart.haut + 220)) <= 14,
+        JSON.stringify({ depart, deplacee }));
+    r.verifie('sans la laisser sortir de l\'écran', deplacee.dansEcran, JSON.stringify(deplacee));
+    r.verifie('et la place choisie est retenue',
+        !!deplacee.memoire && isFinite(deplacee.memoire.x), JSON.stringify(deplacee.memoire));
+
+    // Un geste vif ne doit pas la mémoriser dehors
+    const horsEcran = await page.evaluate(() => {
+        const cadre = document.getElementById('project-name-wrapper');
+        const prise = document.getElementById('titre-prise');
+        const p = prise.getBoundingClientRect();
+        prise.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true,
+            pointerId: 7, clientX: p.left + 5, clientY: p.top + 5 }));
+        prise.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true,
+            pointerId: 7, clientX: -4000, clientY: -4000, movementX: -4000, movementY: -4000 }));
+        prise.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 7 }));
+        const c = cadre.getBoundingClientRect();
+        return { pose: titrePose, dansEcran: c.left >= 0 && c.top >= 0,
+                 memoire: JSON.parse(localStorage.getItem('auTableau_titre_pose') || 'null') };
+    });
+    r.verifie('un geste vif ne la mémorise pas hors de l\'écran',
+        horsEcran.dansEcran && horsEcran.memoire && horsEcran.memoire.x >= 0 && horsEcran.memoire.y >= 0,
+        JSON.stringify(horsEcran));
+
+    // Le double-clic sur la poignée la remet en haut
+    const prisePos = await page.evaluate(() => {
+        const p = document.getElementById('titre-prise').getBoundingClientRect();
+        return { x: Math.round(p.left + p.width / 2), y: Math.round(p.top + p.height / 2) };
+    });
+    await page.mouse.dblclick(prisePos.x, prisePos.y);
+    await page.waitForTimeout(250);
+    const remise = await page.evaluate(() => {
+        const cadre = document.getElementById('project-name-wrapper');
+        const c = cadre.getBoundingClientRect();
+        const centre = Math.abs((c.left + c.right) / 2 - window.innerWidth / 2) < 6;
+        cadre.classList.remove('editing');
+        return { pose: titrePose, haut: Math.round(c.top), centre,
+                 memoire: localStorage.getItem('auTableau_titre_pose') };
+    });
+    r.egal('le double-clic défait le déplacement', remise.pose, null);
+    r.verifie('elle retrouve le haut du tableau, centrée',
+        remise.haut < 40 && remise.centre, JSON.stringify(remise));
+    r.egal('et l\'oubli est retenu', remise.memoire, null);
+
     // --- RÉPARTITION DES ICÔNES ---
     await page.evaluate(() => choisirFormatIcones('couleur'));
     await page.evaluate(() => {

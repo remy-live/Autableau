@@ -23124,9 +23124,91 @@ function majAffichageDate() {
     const cadre = document.getElementById('project-name-wrapper');
     if (cadre) cadre.style.display = reglagesDate.affichee ? '' : 'none';
     ajusterLargeurDuTitre();
+    majPoseDuTitre();
+}
+
+// ---------------------------------------------------
+// LA DATE SE DÉPLACE
+// Elle est en haut au milieu, ce qui est bien la plupart du temps — et gênant
+// dès qu'un document occupe le haut de l'écran. On la prend par sa poignée et
+// on la pose ailleurs ; la place choisie se retient d'une séance à l'autre, et
+// un double-clic sur la poignée la remet d'où elle vient.
+// ---------------------------------------------------
+const CLE_TITRE_POSE = 'auTableau_titre_pose';
+let titrePose = null;
+try {
+    const brut = JSON.parse(localStorage.getItem(CLE_TITRE_POSE) || 'null');
+    if (brut && isFinite(brut.x) && isFinite(brut.y)) titrePose = brut;
+} catch (e) { /* réglages illisibles */ }
+
+function retenirLaPoseDuTitre() {
+    try {
+        if (titrePose) localStorage.setItem(CLE_TITRE_POSE, JSON.stringify(titrePose));
+        else localStorage.removeItem(CLE_TITRE_POSE);
+    } catch (e) { /* stockage refusé */ }
+}
+
+function majPoseDuTitre() {
+    const cadre = document.getElementById('project-name-wrapper');
+    if (!cadre) return;
+    if (!titrePose) {
+        cadre.style.left = ''; cadre.style.top = ''; cadre.style.transform = '';
+        return;
+    }
+    // On borne à l'affichage ET à l'enregistrement (voir plus bas) : une
+    // position gardée hors de l'écran reviendrait telle quelle demain.
+    const l = cadre.offsetWidth || 300, h = cadre.offsetHeight || 32;
+    cadre.style.transform = 'none';
+    cadre.style.left = Math.max(4, Math.min(window.innerWidth - l - 4, titrePose.x)) + 'px';
+    cadre.style.top = Math.max(4, Math.min(window.innerHeight - h - 4, titrePose.y)) + 'px';
+}
+window.majPoseDuTitre = majPoseDuTitre;
+
+function replacerLeTitre() {
+    titrePose = null;
+    retenirLaPoseDuTitre();
+    majPoseDuTitre();
+    ajusterLargeurDuTitre();
+    if (typeof showToast === 'function') showToast('Date remise en haut du tableau');
+}
+window.replacerLeTitre = replacerLeTitre;
+
+function brancherLaPriseDuTitre() {
+    const prise = document.getElementById('titre-prise');
+    const cadre = document.getElementById('project-name-wrapper');
+    if (!prise || !cadre) return;
+    let glisse = null;
+    prise.addEventListener('pointerdown', (e) => {
+        const r = cadre.getBoundingClientRect();
+        glisse = { dx: e.clientX - r.left, dy: e.clientY - r.top, bouge: false };
+        try { prise.setPointerCapture(e.pointerId); } catch (err) { /* déjà pris */ }
+        e.preventDefault(); e.stopPropagation();
+    });
+    prise.addEventListener('pointermove', (e) => {
+        if (!glisse) return;
+        // Un frémissement n'est pas un déplacement : on ne perd pas la place
+        // automatique parce qu'on a effleuré la poignée.
+        if (!glisse.bouge && Math.abs(e.movementX) + Math.abs(e.movementY) < 2) return;
+        glisse.bouge = true;
+        const l = cadre.offsetWidth || 300, h = cadre.offsetHeight || 32;
+        titrePose = {
+            x: Math.max(4, Math.min(window.innerWidth - l - 4, e.clientX - glisse.dx)),
+            y: Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - glisse.dy))
+        };
+        majPoseDuTitre();
+    });
+    const finir = (e) => {
+        if (!glisse) return;
+        if (glisse.bouge) retenirLaPoseDuTitre();
+        glisse = null;
+        try { prise.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+    };
+    prise.addEventListener('pointerup', finir);
+    prise.addEventListener('pointercancel', finir);
+    prise.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLeTitre(); });
 }
 // La place disponible change avec la fenêtre — et avec le plein écran.
-window.addEventListener('resize', () => ajusterLargeurDuTitre());
+window.addEventListener('resize', () => { ajusterLargeurDuTitre(); majPoseDuTitre(); });
 
 function majReglagesDate() {
     const popup = document.getElementById('reglages-date');
@@ -23136,6 +23218,9 @@ function majReglagesDate() {
     });
     const h = document.getElementById('rd-heure');
     if (h) h.classList.toggle('actif', !!reglagesDate.heure);
+    // La date et l'heure vont ensemble : leurs deux interrupteurs sont ici.
+    const d = document.getElementById('rd-date');
+    if (d) d.classList.toggle('actif', !!reglagesDate.affichee);
 }
 
 function basculerReglagesDate(e) {
@@ -23171,11 +23256,21 @@ document.addEventListener('DOMContentLoaded', () => {
         poserDateDansTitre(true);
         majReglagesDate();
     });
+    const bDate = document.getElementById('rd-date');
+    if (bDate) bDate.addEventListener('click', () => {
+        reglagesDate.affichee = !reglagesDate.affichee;
+        enregistrerReglagesDate();
+        majAffichageDate();
+        majReglagesDate();
+        if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    });
     const remettre = document.getElementById('rd-remettre');
     if (remettre) remettre.addEventListener('click', () => {
         poserDateDansTitre(true);
         if (typeof showToast === 'function') showToast('Date du jour remise dans le titre');
     });
+    brancherLaPriseDuTitre();
+    majPoseDuTitre();
 });
 
 // ===================================================
@@ -23332,6 +23427,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bDate) bDate.addEventListener('click', () => {
         reglagesDate.affichee = !reglagesDate.affichee;
         enregistrerReglagesDate();
+        // Le même réglage est offert dans les deux fenêtres : elles doivent
+        // dire la même chose, sinon l'une paraît ne pas avoir compris l'autre.
+        if (typeof majReglagesDate === 'function') majReglagesDate();
         majAffichageDate();
         majReglagesBarre();
     });
