@@ -6150,6 +6150,45 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    comme d'habitude, et rien n'est pire que d'y être sans le savoir. */
 .doc-btn.en-retouche { background: #ffedd5; border-color: #fdba74; color: #ea580c; }
 
+/* ------------------------------------------------------------------
+   PENDANT LA RETOUCHE DES ZONES, LA BARRE NE PARLE QUE DE ÇA.
+   Les trois boutons vivaient au milieu de quinze autres, muets : on ne
+   pouvait ni les trouver ni deviner leur office. Les pages, le cadrage, la
+   couleur et le presse-papiers n'ont rien à faire là pendant qu'on dessine
+   des rectangles — ils s'effacent, et il ne reste que ce qu'on est venu
+   faire, écrit en toutes lettres.
+   Le « !important » est indispensable : ces groupes portent un display posé
+   en ligne par le script.
+   ------------------------------------------------------------------ */
+#bar-style.zones-edition #doc-pages,
+#bar-style.zones-edition #doc-pages-sep,
+#bar-style.zones-edition #doc-modes,
+#bar-style.zones-edition #doc-modes-sep,
+#bar-style.zones-edition #doc-annoter,
+#bar-style.zones-edition #doc-annoter-sep,
+#bar-style.zones-edition #doc-zones,
+#bar-style.zones-edition #doc-grille,
+#bar-style.zones-edition #doc-proportions,
+#bar-style.zones-edition #doc-rogner,
+#bar-style.zones-edition #doc-entiere,
+#bar-style.zones-edition #btn-color-popover,
+#bar-style.zones-edition .style-group:not(.group-document),
+#bar-style.zones-edition .divider { display: none !important; }
+
+/* Le titre du groupe : il dit de quoi la barre parle, une fois pour toutes,
+   au lieu de le laisser deviner bouton par bouton. */
+.doc-titre {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #ea580c;
+    padding: 0 10px 0 2px;
+    white-space: nowrap;
+}
+.doc-fini { color: #16a34a; }
+.doc-fini:hover { background: #dcfce7; }
+.dark-mode .doc-titre { color: #fb923c; }
+
 /* On écrit sur le document : il n'est plus tenu, et les réglages qui demandent
    de l'avoir en main n'auraient rien à saisir. Le « !important » est
    indispensable : ces groupes portent un display posé en ligne par le script. */

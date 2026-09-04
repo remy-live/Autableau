@@ -7047,8 +7047,10 @@ canvas.addEventListener('pointerdown', (e) => {
     if (PluginManager.trigger('onPointerDown', rawPos, e)) { apresPoseDeTampon(avantTampon); return; }
 
     // RETOUCHE DES ZONES : tant qu'on y est, le tableau ne fait rien d'autre.
-    // Le geste appartient tout entier au document qu'on règle.
-    if (zonesEdition && commencerGesteDeZone(rawPos)) return;
+    // Le geste appartient tout entier au document qu'on règle — sauf le bouton
+    // du milieu, qui doit rester libre de faire glisser le tableau : autrement
+    // on ne peut plus atteindre le bas d'une grande page.
+    if (zonesEdition && (!e || !e.button) && commencerGesteDeZone(rawPos)) return;
 
     // --- INTERCEPTION INSTRUMENTS ---
     let targetWidget = null;
@@ -8474,6 +8476,22 @@ function draw() {
                                     ctx.rect(px - 4 * lw, py - 4 * lw, 8 * lw, 8 * lw);
                                     ctx.fill(); ctx.stroke();
                                 });
+                                // LA CROIX POUR L'EFFACER, posée en dehors du coin
+                                // pour ne pas manger la poignée. Une touche du
+                                // clavier ne suffit pas : sur tablette il n'y en a
+                                // pas, et rien ne montrait qu'on pouvait supprimer.
+                                const cx2 = zx + zl + ZONE_CROIX * lw, cy2 = zy - ZONE_CROIX * lw;
+                                ctx.beginPath();
+                                ctx.arc(cx2, cy2, ZONE_CROIX * lw, 0, Math.PI * 2);
+                                ctx.fillStyle = '#dc2626';
+                                ctx.fill();
+                                ctx.strokeStyle = '#fff';
+                                ctx.lineWidth = Math.max(0.6, 1.6 * lw);
+                                const br = ZONE_CROIX * 0.42 * lw;
+                                ctx.beginPath();
+                                ctx.moveTo(cx2 - br, cy2 - br); ctx.lineTo(cx2 + br, cy2 + br);
+                                ctx.moveTo(cx2 + br, cy2 - br); ctx.lineTo(cx2 - br, cy2 + br);
+                                ctx.stroke();
                                 ctx.lineWidth = Math.max(0.5, lw);
                             });
                             if (enCours) {
@@ -10778,6 +10796,7 @@ let zoneGeste = null;          // le geste en cours : tracé, déplacement, poig
 let zoneNumerotation = false;  // on reclasse en cliquant les zones dans l'ordre
 let zoneNumeroSuivant = 0;
 const ZONE_POIGNEE = 7;        // rayon de prise d'une poignée, en pixels d'écran
+const ZONE_CROIX = 9;          // rayon de la croix qui efface, en pixels d'écran
 
 // Le tableau qu'on retouche : une copie propre à la page, tenue par le
 // document. Tant qu'on n'a rien touché, il n'existe pas — on ne veut pas
@@ -10852,10 +10871,16 @@ function commencerGesteDeZone(pos) {
         return true;
     }
 
-    // Une poignée de la zone tenue : on la redimensionne.
+    // LA CROIX D'ABORD : elle est posée en dehors du coin, mais tout près, et
+    // c'est elle qu'on vise quand on veut se débarrasser d'une zone.
     if (zoneChoisie >= 0 && zoneChoisie < zones.length) {
         const b = zoneSurLeTableau(obj, zones[zoneChoisie]);
         if (b) {
+            const cx = b.x + b.l + ZONE_CROIX / zoom, cy = b.y - ZONE_CROIX / zoom;
+            if (Math.hypot(pos.x - cx, pos.y - cy) <= (ZONE_CROIX + 2) / zoom) {
+                supprimerLaZoneChoisie();
+                return true;
+            }
             const p = poigneesDeLaZone(b).find(q => Math.abs(pos.x - q.x) <= r && Math.abs(pos.y - q.y) <= r);
             if (p) { zoneGeste = { genre: 'poignee', coin: p.nom, obj, i: zoneChoisie, depart: { ...b } }; return true; }
         }
@@ -11249,7 +11274,7 @@ function majBarreDocument() {
 
     const obj = documentDeLaBarre();
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
-        barre.classList.remove('ctx-document', 'annote');
+        barre.classList.remove('ctx-document', 'annote', 'zones-edition');
         if (typeof majLeVolet === 'function') majLeVolet();
         return;
     }
@@ -11293,14 +11318,17 @@ function majBarreDocument() {
     if (bZones) {
         bZones.style.display = unPdf ? 'inline-flex' : 'none';
         bZones.classList.toggle('actif', zonesActives);
-        bZones.classList.toggle('en-retouche', zonesEdition);
     }
     const groupeZones = document.getElementById('doc-zones-edition');
+    const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
-        groupeZones.style.display = (unPdf && zonesEdition) ? 'contents' : 'none';
+        groupeZones.style.display = enRetouche ? 'contents' : 'none';
         const bNum = document.getElementById('doc-zones-numeroter');
         if (bNum) bNum.classList.toggle('actif', zoneNumerotation);
     }
+    // La barre entière change de sujet : c'est la feuille de style qui efface
+    // tout le reste, à partir de cette seule classe.
+    barre.classList.toggle('zones-edition', enRetouche);
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
     document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);

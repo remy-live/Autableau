@@ -1177,6 +1177,25 @@ module.exports = async function (browser) {
     await page.waitForTimeout(150);
     const enRetouche = await page.evaluate(() => zonesEdition === true);
     r.verifie('un appui long sur le bouton des zones ouvre la retouche', enRetouche, '');
+    // PENDANT LA RETOUCHE, LA BARRE NE PARLE QUE DE ÇA. Les trois boutons
+    // vivaient au milieu de quinze autres, muets : on ne pouvait ni les
+    // trouver ni deviner leur office.
+    const barreRetouche = await page.evaluate(() => {
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return !!(e && e.offsetParent !== null);
+        };
+        const b = document.getElementById('doc-zones-trier');
+        return { pages: vu('doc-pages'), cadrage: vu('doc-rogner'), couleur: vu('btn-color-popover'),
+                 trier: vu('doc-zones-trier'), fin: vu('doc-zones-fin'),
+                 mot: b ? (b.textContent || '').trim() : '' };
+    });
+    r.egal('les pages, le cadrage et la couleur s\'effacent pendant la retouche',
+        { pages: barreRetouche.pages, cadrage: barreRetouche.cadrage, couleur: barreRetouche.couleur },
+        { pages: false, cadrage: false, couleur: false });
+    r.egal('et les boutons de retouche portent leur nom en toutes lettres',
+        { trier: barreRetouche.trier, fin: barreRetouche.fin, mot: barreRetouche.mot },
+        { trier: true, fin: true, mot: 'Trier' });
     // Tout ce qui suit a besoin du mode. S'il ne s'est pas ouvert, on l'ouvre
     // à la main : les autres vérifications diront alors ce qu'elles ont à dire
     // au lieu d'entraîner la suite dans leur chute.
@@ -1283,6 +1302,29 @@ module.exports = async function (browser) {
         Math.abs(deplacee.dx - 60 / (await page.evaluate(() => zoom))) < 8
         && Math.abs(deplacee.dy + 25 / (await page.evaluate(() => zoom))) < 8,
         JSON.stringify(deplacee));
+
+    // LA CROIX QUI EFFACE. Une touche du clavier ne suffit pas : sur tablette
+    // il n'y en a pas, et rien ne montrait qu'on pouvait supprimer une zone.
+    // Elle se pose EN DEHORS du coin, pour ne pas manger la poignée.
+    const croix = await page.evaluate(() => {
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        zoneChoisie = zs.length - 1; docDesZones = o; draw();
+        const b = zoneSurLeTableau(o, zs[zs.length - 1]);
+        return { n: zs.length,
+                 x: Math.round(panX + (b.x + b.l + 9 / zoom) * zoom),
+                 y: Math.round(panY + (b.y - 9 / zoom) * zoom) };
+    });
+    await page.mouse.click(croix.x, croix.y);
+    await page.waitForTimeout(150);
+    r.egal('la croix posée sur la zone tenue l\'efface, sans clavier',
+        await page.evaluate(() => (images[0].pluginData.zones || []).length), croix.n - 1);
+    // On la remet : la suite éprouve la touche Suppr sur une zone en trop.
+    await page.evaluate(() => {
+        const zs = zonesRetouchables(images[0]);
+        zs.push({ genre: 'ligne', x: 0.05, y: 0.9, l: 0.2, h: 0.04 });
+        zoneChoisie = zs.length - 1; docDesZones = images[0]; draw();
+    });
 
     // EFFACER la zone tenue — et ELLE SEULE. Laissée passer, la touche Suppr
     // s'en prenait au document : on perdait le polycopié pour avoir voulu

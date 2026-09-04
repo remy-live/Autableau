@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=75">
+    <link rel="stylesheet" href="style.css?v=76">
 </head>
 
 <body>
@@ -1765,50 +1765,67 @@
         <!-- Le repérage des zones à remplir se commande ICI, sur le document
              qu'il concerne. Il vivait dans le panneau général, derrière la
              petite roue du tiroir des plugins : personne ne l'y trouvait. -->
+        <!-- Un CHAMP DE SAISIE, avec son curseur : c'est ce que le bouton
+             fabrique, et cela se lit d'un coup d'œil. L'ancienne icône — une
+             page avec des traits — pouvait tout aussi bien dire « texte ». -->
         <button class="doc-btn" id="doc-zones"
             data-tooltip="Repérer les lignes et les cases à remplir — prenez ensuite l'outil Texte. Appui long : les retoucher à la main">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M7 9h10M7 13h6" />
-                <path d="M14.5 16.5h3" stroke-dasharray="1 2" />
-            </svg></button>
-        <!-- Ce que la détection a manqué se répare à la main. Ces trois-là ne
-             paraissent qu'une fois la retouche ouverte : un appui long sur le
-             bouton ci-dessus. -->
+                <rect x="3" y="6.5" width="18" height="11" rx="2.5" />
+                <path d="M8 10v4M6.5 10h3M6.5 14h3" />
+                <path d="M12.5 12H18" stroke-dasharray="2 2.5" />
+            </svg><span>Remplir</span></button>
+        <!-- LA RETOUCHE PREND TOUTE LA BARRE. Ces boutons vivaient au milieu
+             des quinze autres, sans un mot pour dire ce qu'ils font : on ne
+             pouvait ni les trouver ni les comprendre. Pendant la retouche, les
+             pages, le cadrage et le presse-papiers n'ont rien à faire là — ils
+             s'effacent, et il ne reste que ce qu'on est venu faire, écrit. -->
         <span id="doc-zones-edition" style="display:none;">
+            <span class="doc-titre">Zones à remplir</span>
             <button class="doc-btn" id="doc-zones-trier"
-                data-tooltip="Remettre les zones dans l'ordre de lecture (colonnes, puis de haut en bas)">
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                data-tooltip="Remettre les zones dans l'ordre de lecture : colonne par colonne, de haut en bas">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
                     stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 6h9M4 12h6M4 18h3" />
-                    <path d="M18 4v16M15 17l3 3 3-3" />
-                </svg></button>
+                    <path d="M3.5 6.5h10M3.5 12h6.5M3.5 17.5h3.5" />
+                    <path d="M18.5 5.5v12M15.5 14.5l3 3 3-3" />
+                </svg><span>Trier</span></button>
             <button class="doc-btn" id="doc-zones-numeroter"
-                data-tooltip="Numéroter à la main : cliquez les zones dans l'ordre où vous voulez les remplir">
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                data-tooltip="Fixer l'ordre soi-même : cliquez les zones dans l'ordre où vous voulez les remplir">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
                     stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 8V5h1M4 8h2" />
-                    <path d="M9 5h3l-3 4h3" transform="translate(0 8)" />
-                    <path d="M13 6h7M13 12h7M13 18h7" />
-                </svg></button>
-            <button class="doc-btn" id="doc-zones-fin"
+                    <text x="1" y="9" font-size="8.5" font-family="sans-serif" fill="currentColor"
+                        stroke="none">1</text>
+                    <text x="1" y="16" font-size="8.5" font-family="sans-serif" fill="currentColor"
+                        stroke="none">2</text>
+                    <text x="1" y="23" font-size="8.5" font-family="sans-serif" fill="currentColor"
+                        stroke="none">3</text>
+                    <path d="M9.5 6h11.5M9.5 13h11.5M9.5 20h11.5" />
+                </svg><span>Numéroter</span></button>
+            <button class="doc-btn doc-fini" id="doc-zones-fin"
                 data-tooltip="Terminer la retouche des zones (Échap)">
                 <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 12.5l4.5 4.5L19 7" />
-                </svg></button>
+                    <path d="M4.5 12.5l5 5 10-11" />
+                </svg><span>Terminer</span></button>
         </span>
-        <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+        <!-- Un quadrillage ET la feuille posée dessus : le bouton dit lequel
+             des deux passe devant. Un dièse tout seul ne disait rien. -->
+        <button class="doc-btn" id="doc-grille" data-tooltip="Passer sous / au-dessus du quadrillage">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M2 8h20M2 16h20M8 2v20M16 2v20" opacity="0.55" />
+                <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" fill-opacity="0.18"
+                    stroke-width="1.8" />
             </svg></button>
         <i class="doc-sep"></i>
-        <button class="doc-btn" id="doc-proportions" title="Conserver les proportions">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round">
-                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
-                <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+        <!-- Un cadenas SUR un rectangle : « la forme du cadre est bloquée ».
+             La chaîne d'anneaux voulait dire « lié », ce qui n'aide personne. -->
+        <button class="doc-btn" id="doc-proportions" data-tooltip="Garder les proportions du cadre">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="5" width="12" height="14" rx="2" opacity="0.55" />
+                <rect x="12.5" y="13.5" width="9" height="6.5" rx="1.5" />
+                <path d="M14.8 13.5v-2.2a2.2 2.2 0 0 1 4.4 0v2.2" />
             </svg></button>
         <button class="doc-btn" id="doc-rogner" title="Rogner : ne garder qu'une partie">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
@@ -2073,7 +2090,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=148"></script>
+    <script src="script.js?v=149"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
