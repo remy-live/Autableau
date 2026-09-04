@@ -4718,6 +4718,41 @@ body.dark-mode {
 
 #titre-horloge.visible { display: block; }
 
+/* LA BOÎTE DE L'HORLOGE : elle porte la poignée, qu'un <svg> ne peut pas
+   contenir. Elle ne prend de place que si le cadran est montré. */
+#titre-horloge-boite {
+    position: relative;
+    display: none;
+    flex-shrink: 0;
+    line-height: 0;
+}
+#titre-horloge-boite.visible { display: block; }
+
+/* Un clic pose le cadre : c'est le même langage que partout ailleurs sur le
+   tableau — on choisit d'abord, on règle ensuite. */
+#titre-horloge-boite.choisie #titre-horloge {
+    outline: 2px solid #6c5ce7;
+    outline-offset: 3px;
+}
+
+#th-poignee {
+    display: none;
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    background: #6c5ce7;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    cursor: nwse-resize;
+    touch-action: none;
+}
+#titre-horloge-boite.choisie #th-poignee { display: block; }
+.dark-mode #th-poignee { border-color: #1e272e; }
+
 .th-cadran { fill: none; stroke: #cbd5e1; stroke-width: 1.8; }
 .th-reperes { stroke: #94a3b8; stroke-width: 1; stroke-linecap: round; }
 /* Les quatre quarts se voient de loin : ce sont eux qu'on lit d'abord. */

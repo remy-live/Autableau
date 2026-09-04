@@ -347,6 +347,111 @@ module.exports = async function (browser) {
         !cadran.retour.cadran && /\d{1,2}:\d{2}/.test(cadran.retour.texte)
         && cadran.retour.champVisible, JSON.stringify(cadran.retour));
 
+    // --- L'HORLOGE SE VOIT, SE CHOISIT ET S'AGRANDIT ---
+    await page.evaluate(() => {
+        reglagesDate.affichee = true; reglagesDate.heure = true;
+        reglagesDate.horloge = 'aiguilles'; delete reglagesDate.taille;
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+    });
+    await page.waitForTimeout(200);
+
+    // LE CADRAN EST VRAIMENT DESSINÉ. Ce n'est pas une évidence : en emballant
+    // le <svg> dans une boîte, j'ai perdu le chevron qui fermait sa balise, et
+    // tout son contenu est devenu des attributs. L'horloge s'affichait, ronde,
+    // à la bonne taille — et parfaitement vide. Compter les éléments ne
+    // suffirait pas : on regarde l'encre qu'elle pose.
+    const dessin = await page.evaluate(async () => {
+        const svg = document.getElementById('titre-horloge');
+        const r = svg.getBoundingClientRect();
+        const brut = new XMLSerializer().serializeToString(svg);
+        // On repeint le cadran seul, sur du blanc, et l'on compte les pixels
+        // qui ne le sont pas : un cadran vide n'en pose aucun.
+        const style = `<style>
+            .th-cadran{fill:none;stroke:#cbd5e1;stroke-width:1.8}
+            .th-reperes{stroke:#94a3b8;stroke-width:1}
+            .th-reperes .th-quart{stroke:#64748b;stroke-width:1.8}
+            .th-heure{stroke:#334155;stroke-width:2.8}
+            .th-minute{stroke:#334155;stroke-width:1.9}
+            .th-axe{fill:#334155}</style>`;
+        const src = brut.replace(/(<svg[^>]*>)/, '$1' + style);
+        const img = new Image();
+        const pret = new Promise(ok => { img.onload = ok; img.onerror = ok; });
+        img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(src)));
+        await pret;
+        const c = document.createElement('canvas');
+        c.width = 80; c.height = 80;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, 80, 80);
+        try { g.drawImage(img, 0, 0, 80, 80); } catch (e) { /* rendu refusé */ }
+        const px = g.getImageData(0, 0, 80, 80).data;
+        let encre = 0;
+        for (let i = 0; i < px.length; i += 4) {
+            if (px[i] < 235 || px[i + 1] < 235 || px[i + 2] < 235) encre++;
+        }
+        return { taille: Math.round(r.width), carre: Math.abs(r.width - r.height) < 2,
+                 reperes: svg.querySelectorAll('.th-reperes line').length,
+                 aiguilles: svg.querySelectorAll('.th-heure, .th-minute').length,
+                 encre };
+    });
+    // Quarante-six pixels, c'était une vignette : au fond de la classe on n'y
+    // lisait rien.
+    r.verifie('l\'horloge s\'ouvre assez grande pour se lire de loin',
+        dessin.taille >= 64 && dessin.carre, JSON.stringify(dessin));
+    r.egal('elle a ses douze repères et ses deux aiguilles',
+        { reperes: dessin.reperes, aiguilles: dessin.aiguilles }, { reperes: 12, aiguilles: 2 });
+    r.verifie('et le cadran pose vraiment de l\'encre, il n\'est pas vide',
+        dessin.encre > 200, `${dessin.encre} pixels dessinés sur 6400`);
+
+    // UN CLIC pose le cadre et sa poignée. Il faut le prendre au relâcher et
+    // non sur un « click » : le cadre de la date capture le pointeur dès
+    // l'appui, et le navigateur lui porte alors le clic, jamais à l'horloge.
+    const boiteH = await page.locator('#titre-horloge').boundingBox();
+    await page.mouse.click(boiteH.x + boiteH.width / 2, boiteH.y + boiteH.height / 2);
+    await page.waitForTimeout(150);
+    const choisie = await page.evaluate(() => ({
+        cadre: document.getElementById('titre-horloge-boite').classList.contains('choisie'),
+        poignee: getComputedStyle(document.getElementById('th-poignee')).display !== 'none'
+    }));
+    r.egal('un clic sur l\'horloge pose un cadre et sa poignée', choisie, { cadre: true, poignee: true });
+    // Sans le cadre, il n'y a pas de poignée à tirer : on l'ouvre à la main
+    // pour que les vérifications suivantes disent quand même ce qu'elles ont à
+    // dire, au lieu d'entraîner la suite dans leur chute.
+    if (!choisie.poignee) {
+        await page.evaluate(() => document.getElementById('titre-horloge-boite').classList.add('choisie'));
+        await page.waitForTimeout(120);
+    }
+
+    // ON TIRE LA POIGNÉE : l'horloge grandit, et la taille se retient.
+    const pg = await page.locator('#th-poignee').boundingBox();
+    await page.mouse.move(pg.x + pg.width / 2, pg.y + pg.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(pg.x + pg.width / 2 + 55, pg.y + pg.height / 2 + 55, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const agrandie = await page.evaluate(() => ({
+        taille: Math.round(document.getElementById('titre-horloge').getBoundingClientRect().width),
+        gardee: JSON.parse(localStorage.getItem('board_reglages_date') || '{}').taille
+    }));
+    r.verifie('tirer la poignée agrandit l\'horloge',
+        agrandie.taille >= dessin.taille + 40, JSON.stringify({ avant: dessin.taille, apres: agrandie.taille }));
+    r.verifie('et la taille choisie se retient',
+        agrandie.gardee === agrandie.taille, JSON.stringify(agrandie));
+
+    // ON MAINTIENT ET ON BOUGE : c'est le bloc entier qui se déplace, comme
+    // avant — le clic qui choisit ne doit pas avoir mangé ce geste-là.
+    const avantPose = await page.evaluate(() =>
+        Math.round(document.getElementById('project-name-wrapper').getBoundingClientRect().left));
+    const h3 = await page.locator('#titre-horloge').boundingBox();
+    await page.mouse.move(h3.x + h3.width / 2, h3.y + h3.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h3.x + h3.width / 2 + 130, h3.y + h3.height / 2 + 30, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const apresPose = await page.evaluate(() =>
+        Math.round(document.getElementById('project-name-wrapper').getBoundingClientRect().left));
+    r.verifie('maintenir et bouger déplace toujours le bloc de la date',
+        apresPose - avantPose > 90, `${avantPose} -> ${apresPose}`);
+
     // On la déplace encore quand il ne reste que le cadran : la prise est sur
     // le cadre entier, pas sur le champ — qui est alors masqué.
     const priseAuCadran = await page.evaluate(() => {

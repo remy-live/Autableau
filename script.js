@@ -23826,7 +23826,13 @@ function equilibrerGrillePlugins() {
 // À l'ouverture d'une rubrique, au changement de taille de fenêtre, et quand
 // la grille change de contenu.
 (function () {
-    const relancer = () => requestAnimationFrame(equilibrerGrillePlugins);
+    // DEUX IMAGES, ET NON UNE. Au passage des libellés aux icônes seules, la
+    // largeur des boutons change — mais à l'image suivante elle n'est pas
+    // encore recalculée, et la fonction lisait l'ANCIENNE. Elle gardait donc le
+    // plafond de l'autre affichage : dix-huit outils s'y rangeaient 5+5+5+3
+    // au lieu de 9+9. La deuxième image, elle, mesure la mise en page faite.
+    const relancer = () => requestAnimationFrame(() => requestAnimationFrame(equilibrerGrillePlugins));
+    window.equilibrerBientot = relancer;
     window.addEventListener('resize', relancer);
     document.addEventListener('DOMContentLoaded', () => {
         const grille = document.getElementById('plugins-grid');
@@ -23950,7 +23956,7 @@ function equilibrerGrillePlugins() {
         valeur = nouveau;
         try { localStorage.setItem(CLE, valeur); } catch (e) { /* stockage refusé */ }
         appliquer();
-        if (typeof equilibrerGrillePlugins === 'function') requestAnimationFrame(equilibrerGrillePlugins);
+        if (typeof equilibrerBientot === 'function') equilibrerBientot();
         if (typeof majReglagesBarre === 'function') majReglagesBarre();
         if (avecMessage && typeof showToast === 'function') {
             showToast(valeur === 'non' ? 'Icônes seules'
@@ -24035,6 +24041,27 @@ function texteDateDuJour() {
 // des heures avance aussi avec les minutes — sans cela, elle sauterait d'un
 // chiffre à l'autre et montrerait une heure fausse cinquante-neuf minutes sur
 // soixante.
+// LA TAILLE DE L'HORLOGE. Quarante-six pixels, c'était une vignette : au fond
+// de la classe on n'y lisait rien. Elle part maintenant à soixante-douze et se
+// règle à la main — on clique le cadran, on tire la poignée. La taille se
+// retient avec les autres réglages de la date.
+const HORLOGE_MIN = 40, HORLOGE_MAX = 320;
+
+function tailleHorloge() {
+    const t = parseInt(reglagesDate.taille, 10);
+    return Math.max(HORLOGE_MIN, Math.min(HORLOGE_MAX, isFinite(t) ? t : 72));
+}
+
+function poserLaTailleDeLHorloge(taille) {
+    const svg = document.getElementById('titre-horloge');
+    if (!svg) return;
+    const t = Math.max(HORLOGE_MIN, Math.min(HORLOGE_MAX, Math.round(taille)));
+    reglagesDate.taille = t;
+    svg.setAttribute('width', t);
+    svg.setAttribute('height', t);
+}
+window.poserLaTailleDeLHorloge = poserLaTailleDeLHorloge;
+
 function majHorlogeAnalogique() {
     const svg = document.getElementById('titre-horloge');
     if (!svg) return;
@@ -24042,7 +24069,13 @@ function majHorlogeAnalogique() {
     // sont indépendantes, et l'horloge seule est une demande courante.
     const montre = !!reglagesDate.heure && reglagesDate.horloge === 'aiguilles';
     svg.classList.toggle('visible', montre);
+    const boite = document.getElementById('titre-horloge-boite');
+    if (boite) {
+        boite.classList.toggle('visible', montre);
+        if (!montre) boite.classList.remove('choisie');
+    }
     if (!montre) return;
+    poserLaTailleDeLHorloge(tailleHorloge());
     const d = new Date();
     const m = d.getMinutes();
     const hAig = document.getElementById('th-heure');
@@ -24168,7 +24201,10 @@ function brancherLaPriseDuTitre() {
         if (document.activeElement === champ) return;
         const r = cadre.getBoundingClientRect();
         glisse = { dx: e.clientX - r.left, dy: e.clientY - r.top,
-                   x0: e.clientX, y0: e.clientY, bouge: false };
+                   x0: e.clientX, y0: e.clientY, bouge: false,
+                   // Parti du cadran ? On le saura au relâcher, pour distinguer
+                   // le clic qui le choisit du glissement qui déplace le bloc.
+                   surHorloge: !!(e.target.closest && e.target.closest('#titre-horloge-boite')) };
         // On capture DÈS L'APPUI, pas au premier mouvement : sans cela le
         // pointeur quitte la pastille au bout de quelques pixels et les
         // « pointermove » suivants partent au tableau, qui n'en fait rien.
@@ -24203,6 +24239,12 @@ function brancherLaPriseDuTitre() {
             cadre.classList.remove('se-deplace');
             sortDunGlissement = true;
             setTimeout(() => { sortDunGlissement = false; }, 0);
+        } else if (glisse.surHorloge) {
+            // UN CLIC SUR LE CADRAN LE CHOISIT. On le traite ici et non sur un
+            // « click » : le cadre a capturé le pointeur dès l'appui, et le
+            // navigateur porte alors le clic au cadre, jamais à l'horloge.
+            const b = document.getElementById('titre-horloge-boite');
+            if (b) b.classList.toggle('choisie');
         }
         glisse = null;
         try { cadre.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
@@ -24215,6 +24257,51 @@ function brancherLaPriseDuTitre() {
     cadre.addEventListener('click', (e) => {
         if (sortDunGlissement) { e.preventDefault(); e.stopPropagation(); }
     }, true);
+
+    // ---- L'HORLOGE : UN CLIC LA CHOISIT, LA POIGNÉE L'AGRANDIT ----
+    // Le déplacement du bloc entier reste ce qu'il était : on maintient et on
+    // bouge. Un clic SANS mouvement, lui, ne déplaçait rien — il ne servait à
+    // rien. Il pose maintenant un cadre autour du cadran, avec sa poignée.
+    const boite = document.getElementById('titre-horloge-boite');
+    const poignee = document.getElementById('th-poignee');
+    if (boite && poignee) {
+        // Cliquer ailleurs referme le cadre, comme pour tout objet choisi.
+        document.addEventListener('pointerdown', (e) => {
+            if (!boite.classList.contains('choisie')) return;
+            if (e.target.closest && e.target.closest('#titre-horloge-boite')) return;
+            boite.classList.remove('choisie');
+        }, true);
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') boite.classList.remove('choisie');
+        });
+
+        let etire = null;
+        poignee.addEventListener('pointerdown', (e) => {
+            if (e.button) return;
+            // Sans cela, l'appui sur la poignée empoigne aussi le bloc entier
+            // et l'on déplace la date au lieu d'agrandir le cadran.
+            e.stopPropagation();
+            e.preventDefault();
+            etire = { x0: e.clientX, y0: e.clientY, depart: tailleHorloge() };
+            try { poignee.setPointerCapture(e.pointerId); } catch (err) { /* refusé */ }
+        });
+        poignee.addEventListener('pointermove', (e) => {
+            if (!etire) return;
+            // Le plus grand des deux écarts : on tire en diagonale, mais aussi
+            // bien à l'horizontale qu'à la verticale, et le cadran reste rond.
+            const d = Math.max(e.clientX - etire.x0, e.clientY - etire.y0);
+            poserLaTailleDeLHorloge(etire.depart + d);
+            e.preventDefault();
+        });
+        const finirEtirement = (e) => {
+            if (!etire) return;
+            etire = null;
+            enregistrerReglagesDate();
+            try { poignee.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+        };
+        poignee.addEventListener('pointerup', finirEtirement);
+        poignee.addEventListener('pointercancel', finirEtirement);
+    }
 
     // Le double-clic ouvre les réglages : c'est la roue disparue, rendue au
     // geste. On enlève au passage le curseur que les deux clics ont posé dans

@@ -216,6 +216,53 @@ module.exports = async function (browser) {
         `${bloc.largeur} px de large pour un écran de ${bloc.ecran}`);
     r.verifie('deux ou trois rangées', bloc.hauteur >= 90 && bloc.hauteur <= 220, `${bloc.hauteur} px de haut`);
 
+    // LES RANGÉES SE RÉPARTISSENT ÉQUITABLEMENT — DANS LES DEUX AFFICHAGES.
+    // La largeur des boutons change quand on passe des libellés aux icônes
+    // seules, mais pas à l'image suivante : le calcul lisait encore l'ANCIENNE
+    // largeur et gardait le plafond de l'autre mode. Vingt-quatre outils se
+    // rangeaient alors 8+8+8 d'un côté et 5+5+5+3+3+3 de l'autre.
+    const rangees = async () => await pageP.evaluate(() => {
+        const g = document.getElementById('plugins-grid');
+        const vis = Array.from(g.querySelectorAll('.btn')).filter(b => b.offsetParent);
+        const parHaut = new Map();
+        vis.forEach(b => {
+            const t = Math.round(b.getBoundingClientRect().top);
+            parHaut.set(t, (parHaut.get(t) || 0) + 1);
+        });
+        // La place offerte et la largeur d'un bouton disent combien de rangées
+        // sont NÉCESSAIRES : en garder davantage, c'est laisser du vide à
+        // droite et empiler des rangées maigres.
+        const st = getComputedStyle(g);
+        const ecart = parseFloat(st.columnGap || st.gap || '0') || 0;
+        const large = vis[0] ? vis[0].getBoundingClientRect().width : 0;
+        const dispo = g.parentElement.getBoundingClientRect().width;
+        const parRangee = Math.max(1, Math.floor((dispo + ecart) / (large + ecart)));
+        return { lignes: [...parHaut.values()], n: vis.length,
+                 minimum: Math.ceil(vis.length / parRangee) };
+    });
+    // Deux exigences, et il faut les deux : des rangées ÉGALES, et pas une
+    // rangée de plus que nécessaire. Prises séparément, chacune se laisse
+    // satisfaire par hasard — vingt-quatre outils en 5+5+5+5+4 sont bien
+    // « égaux à un près », et pourtant c'est deux rangées de trop.
+    const bienReparti = (m) => m.lignes.length > 1
+        && (Math.max(...m.lignes) - Math.min(...m.lignes)) <= 1
+        && m.lignes.length === m.minimum;
+
+    await pageP.evaluate(() => choisirFormatIcones('non', false));
+    await pageP.waitForTimeout(500);
+    const enIcones = await rangees();
+    await pageP.evaluate(() => choisirFormatIcones('oui', false));
+    await pageP.waitForTimeout(500);
+    const enLibelles = await rangees();
+
+    r.verifie('en icônes seules, les rangées sont égales et en nombre minimal',
+        bienReparti(enIcones), JSON.stringify(enIcones));
+    // C'est CE sens-là qui était le pire : le plafond calculé pour les icônes
+    // restait en place, les boutons plus larges n'y tenaient plus à autant, et
+    // la rubrique s'étalait en cinq rangées maigres au lieu de trois pleines.
+    r.verifie('et après retour aux libellés, elles le restent',
+        bienReparti(enLibelles), JSON.stringify(enLibelles));
+
     // --- LA BARRE DU BAS : DES ICÔNES, DES PASTILLES, DES TÉMOINS ---
     const barre = await pageP.evaluate(() => ({
         zoom: (document.getElementById('zoom-valeur') || {}).innerText,

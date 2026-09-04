@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=76">
+    <link rel="stylesheet" href="style.css?v=77">
 </head>
 
 <body>
@@ -311,13 +311,16 @@
          apparaît. -->
     <div class="project-name-wrapper" id="project-name-wrapper">
         <input type="text" id="project-name-input" class="project-name-input" placeholder="Titre du tableau..."
-            data-tooltip="Glissez pour la déplacer — double-clic pour ses réglages" />
+            data-tooltip="Glissez pour la déplacer — double-clic pour ses réglages ; un clic sur l'horloge permet de l'agrandir" />
         <!-- L'HORLOGE À AIGUILLES, à la place de la pastille rouge qui occupait
              ce coin. Celle-ci s'allumait au premier geste et ne s'éteignait
              qu'en enregistrant un tableau nommé : allumée en permanence, elle
              ne signalait plus rien. Un cadran, lui, se lit de loin — et une
              classe de sixième a encore à apprendre à lire l'heure dessus. -->
-        <svg id="titre-horloge" viewBox="0 0 40 40" width="46" height="46" aria-hidden="true">
+        <!-- La boîte porte la poignée : un <svg> ne peut pas contenir de
+             bouton HTML, et la poignée doit rester cliquable. -->
+        <div id="titre-horloge-boite">
+        <svg id="titre-horloge" viewBox="0 0 40 40" width="72" height="72" aria-hidden="true">
             <circle class="th-cadran" cx="20" cy="20" r="18" />
             <!-- Douze repères, les quatre quarts plus marqués : une horloge de
                  classe sert à APPRENDRE à lire l'heure, il lui faut ses heures. -->
@@ -339,6 +342,13 @@
             <line class="th-minute" id="th-minute" x1="20" y1="20" x2="20" y2="6.5" />
             <circle class="th-axe" cx="20" cy="20" r="1.9" />
         </svg>
+        <!-- UN CLIC pose un cadre autour du cadran et fait paraître cette
+             poignée : on tire, l'horloge grandit. Sans clic, elle reste
+             invisible — une poignée qui traîne en permanence sur une horloge
+             de classe n'aurait rien à faire là. -->
+        <button type="button" id="th-poignee" tabindex="-1"
+            aria-label="Tirez pour agrandir ou réduire l'horloge"></button>
+        </div>
         <div id="project-title-controls-right" class="title-controls title-controls-right">
             <button id="btn-reglages-date" class="title-btn" title="Réglages de la date"
                 onclick="basculerReglagesDate(event)">
@@ -508,6 +518,10 @@
                             <b>l'horloge seule</b> pendant un devoir — « remettre la date du jour » si l'on a
                             écrit un titre à la main, et « remettre en haut à gauche » si on l'a posée trop loin.
                             Tout se retient, et l'heure se met à jour toute seule.</li>
+                        <li><strong>L'horloge à aiguilles s'agrandit.</strong> Elle s'ouvre assez grande pour se
+                            lire du fond de la classe ; <b>un clic dessus</b> pose un cadre et une poignée, qu'on
+                            <b>tire</b> pour la grossir jusqu'à remplir un coin du tableau. La taille est retenue.
+                            <b>Maintenir et bouger</b> déplace toujours le bloc entier, comme avant.</li>
                         <li><strong>Un titre écrit à la main n'est jamais remplacé</strong> par la date. Sa
                             couleur et sa taille se règlent dans la <b>barre de style</b>, qui apparaît dès que
                             l'on clique dans le titre.</li>
@@ -2090,7 +2104,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=149"></script>
+    <script src="script.js?v=151"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
