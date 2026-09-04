@@ -5453,11 +5453,34 @@ document.getElementById('btn-z-down').addEventListener('click', () => { let minZ
 
 document.getElementById('btn-shape').addEventListener('click', () => { const shapes = ['circle', 'cross', 'square', 'pixel']; const icons = { 'circle': '<circle cx="12" cy="12" r="6"/>', 'cross': '<line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3"/>', 'square': '<rect x="6" y="6" width="12" height="12"/>', 'pixel': '<rect x="10" y="10" width="4" height="4" fill="currentColor"/>' }; activeStyle.pointShape = shapes[(shapes.indexOf(activeStyle.pointShape) + 1) % shapes.length]; document.getElementById('icon-shape').innerHTML = icons[activeStyle.pointShape]; pushStyleToObject(); });
 document.getElementById('btn-dash').addEventListener('click', () => { const dashes = ['solid', 'dashed', 'dotted']; const icons = { 'solid': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3"/>', 'dashed': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="6,4"/>', 'dotted': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="2,4"/>' }; activeStyle.lineDash = dashes[(dashes.indexOf(activeStyle.lineDash) + 1) % dashes.length]; document.getElementById('icon-dash').innerHTML = icons[activeStyle.lineDash]; pushStyleToObject(); });
-document.getElementById('line-width').addEventListener('input', (e) => {
-    activeStyle.lineWidth = parseInt(e.target.value);
+// L'EPAISSEUR SE LIT ET SE TAPE, comme la taille du texte. Le curseur seul ne
+// disait pas la valeur, et il s'arrete a dix : on peut aller au-dela en la
+// tapant.
+function reglerEpaisseurTrait(v, source) {
+    const t = Math.max(1, Math.min(60, Math.round(v)));
+    if (!isFinite(t)) return;
+    activeStyle.lineWidth = t;
+    const curseur = document.getElementById('line-width');
+    const nombre = document.getElementById('line-width-num');
+    if (curseur && source !== 'curseur') curseur.value = Math.min(10, t);
+    if (nombre && source !== 'nombre') nombre.value = t;
     pushStyleToObject();
     applyPluginStampWidthLive(activeStyle.lineWidth / 3);
+}
+window.reglerEpaisseurTrait = reglerEpaisseurTrait;
+
+document.getElementById('line-width').addEventListener('input', (e) => {
+    reglerEpaisseurTrait(parseInt(e.target.value, 10), 'curseur');
 });
+(function () {
+    const nombre = document.getElementById('line-width-num');
+    if (!nombre) return;
+    nombre.addEventListener('input', () => {
+        const v = parseInt(nombre.value, 10);
+        if (isFinite(v) && v >= 1 && v <= 60) reglerEpaisseurTrait(v, 'nombre');
+    });
+    nombre.addEventListener('blur', () => { nombre.value = activeStyle.lineWidth; });
+})();
 document.getElementById('line-width').addEventListener('change', (e) => {
     // Relâchement du curseur : on fige la valeur dans l'historique
     if (selectionIsOnlyImages()) commitPluginStampWidth(parseInt(e.target.value) / 3);
@@ -6752,7 +6775,7 @@ function selectObject(objInfo) {
             if (obj.arrowStart !== undefined) activeStyle.arrowStart = obj.arrowStart; else activeStyle.arrowStart = 0;
             if (obj.arrowEnd !== undefined) activeStyle.arrowEnd = obj.arrowEnd; else activeStyle.arrowEnd = 0;
 
-            updateColorIndicator(); document.getElementById('line-width').value = activeStyle.lineWidth;
+            updateColorIndicator(); reglerEpaisseurTrait(activeStyle.lineWidth, 'objet');
             document.getElementById('font-size').value = Math.max(6, Math.min(120, activeStyle.fontSize));
             const chiffreTaille = document.getElementById('font-size-num');
             if (chiffreTaille) chiffreTaille.value = activeStyle.fontSize;
@@ -13912,7 +13935,13 @@ function updateQuickMenu() {
     if (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert()) { quickMenu.classList.remove('visible'); return; }
 
     // 1. Injection des pastilles de couleur
-    if (!document.getElementById('quick-colors-container')) {
+    // LA COULEUR EST UNE PROPRIETE, PAS UNE ACTION — et elle vit donc dans la
+    // barre du haut, comme dans Canva. Ces pastilles la donnaient une seconde
+    // fois sous l'objet : on avait un rond de couleur en haut et six pastilles
+    // en bas, pour le meme reglage. La barre flottante ne garde que ce qu'on
+    // FAIT a l'objet : verrouiller, dupliquer, supprimer.
+    const PASTILLES_SOUS_OBJET = false;
+    if (PASTILLES_SOUS_OBJET && !document.getElementById('quick-colors-container')) {
         const colorContainer = document.createElement('div');
         colorContainer.id = 'quick-colors-container';
         colorContainer.style.display = 'flex';

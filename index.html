@@ -1881,12 +1881,18 @@
         <i class="doc-sep"></i>
         <!-- Un cadenas SUR un rectangle : « la forme du cadre est bloquée ».
              La chaîne d'anneaux voulait dire « lié », ce qui n'aide personne. -->
+        <!-- PAS DE CADENAS ICI. La barre flottante en porte deja un, pour
+             verrouiller l'objet : deux choses differentes ne peuvent pas
+             partager le meme symbole, et c'est exactement ce que j'avais
+             fait. Un cadre avec sa diagonale et ses fleches dit la forme
+             qu'on garde. -->
         <button class="doc-btn" id="doc-proportions" data-tooltip="Garder les proportions du cadre">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="5" width="12" height="14" rx="2" opacity="0.55" />
-                <rect x="12.5" y="13.5" width="9" height="6.5" rx="1.5" />
-                <path d="M14.8 13.5v-2.2a2.2 2.2 0 0 1 4.4 0v2.2" />
+                <rect x="3" y="5.5" width="18" height="13" rx="2" />
+                <path d="M8.5 15.5l7-5" />
+                <path d="M12.6 10.5h2.9v2.9" />
+                <path d="M11.4 15.5H8.5v-2.9" />
             </svg></button>
         <button class="doc-btn" id="doc-rogner" title="Rogner : ne garder qu'une partie">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
@@ -1916,6 +1922,18 @@
 
         <div class="style-group group-line">
             <div class="divider"></div>
+            <!-- L'ÉPAISSEUR EST REVENUE ICI. Je l'avais rangée dans la pastille
+                 de couleur pour raccourcir la barre : on ne la trouvait plus, et
+                 c'est le réglage qu'on touche le plus souvent en écrivant. Le
+                 nombre s'affiche à côté, comme pour la taille du texte. -->
+            <div class="slider-container" title="Épaisseur du trait">
+                <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14"
+                        height="14" fill="currentColor">
+                        <path d="M3 12h18v2H3zM3 6.5h18v1.2H3zM3 18h18v2.6H3z" />
+                    </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3"
+                    aria-label="Épaisseur du trait"><input type="number" id="line-width-num" class="slider-num" min="1"
+                    max="60" step="1" value="3" title="Épaisseur, en points" aria-label="Épaisseur du trait">
+            </div>
             <button class="btn" id="btn-dash" title="Style de trait"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon" id="icon-dash">
                     <line x1="4" y1="12" x2="20" y2="12" stroke-width="3" />
@@ -1961,12 +1979,14 @@
         <div class="style-group group-zindex">
             <div class="divider"></div><button class="btn" id="btn-z-up" title="Mettre au premier plan"><svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="8" y="8" width="12" height="12" rx="2" />
-                    <path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" />
+                    <rect x="3" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
+                    <rect x="8" y="8" width="13" height="9" rx="1.5" />
+                    <path d="M12 6.5V1.5M9.5 4l2.5-2.5L14.5 4" />
                 </svg></button><button class="btn" id="btn-z-down" title="Mettre à l'arrière-plan"><svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="4" y="4" width="12" height="12" rx="2" />
-                    <path d="M8 16v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-4" />
+                    <rect x="11" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
+                    <rect x="3" y="8" width="13" height="9" rx="1.5" />
+                    <path d="M12 1.5v5M9.5 4l2.5 2.5L14.5 4" />
                 </svg></button>
         </div>
         <div class="style-group group-edition">
@@ -2016,12 +2036,6 @@
              réglages qu'on touche une fois par séance. La pastille de couleur
              les portait déjà en partie — l'opacité y était — alors tout ce qui
              touche à l'apparence se règle maintenant au même endroit. -->
-        <div class="slider-container" title="Épaisseur des tracés">
-            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
-                    fill="currentColor">
-                    <path d="M3 12h18v2H3zM3 6h18v2H3zM3 18h18v2H3z" />
-                </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3">
-        </div>
         <div class="slider-container" id="stamp-opacity-box" title="Opacité du tampon" style="display:none;">
             <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
                     fill="none" stroke="currentColor" stroke-width="2">
@@ -2151,7 +2165,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=153"></script>
+    <script src="script.js?v=154"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
