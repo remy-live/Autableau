@@ -702,6 +702,49 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     r.egal('changer la taille d\'un bloc choisi emporte son interligne',
         [repris.fs, repris.lh], [60, 72]);
 
+    // --- UN SIGNE DOLLAR NE DOIT RIEN CASSER ---
+    // Trois endroits appelaient « createMathImage », et cette fonction
+    // n'existait nulle part. Écrire « 12 $ environ » levait donc une erreur AU
+    // MILIEU de la validation : le bloc était déjà posé, la saisie ne se
+    // refermait pas, et le texte se retrouvait EN DOUBLE sur le tableau.
+    await page.evaluate(() => {
+        texts.length = 0; freehands.length = 0; images.length = 0;
+        finalizeText(); setMode('text'); draw();
+    });
+    await page.mouse.click(520, 380);
+    await page.waitForTimeout(250);
+    await page.keyboard.type('Le prix est de 12 $ environ');
+    await page.mouse.click(220, 640);
+    await page.waitForTimeout(450);
+    const dollar = await page.evaluate(() => ({
+        blocs: texts.length,
+        contenu: (texts[0] && texts[0].content || '').replace(/<[^>]*>/g, ''),
+        saisieOuverte: getComputedStyle(document.getElementById('wysiwyg-text')).display !== 'none'
+    }));
+    r.egal('un dollar isolé ne pose qu\'UN bloc de texte', dollar.blocs, 1);
+    r.verifie('et la saisie se referme normalement', !dollar.saisieOuverte, JSON.stringify(dollar));
+    r.verifie('le texte est intact', dollar.contenu.indexOf('12 $ environ') >= 0, dollar.contenu);
+
+    // Et la formule, elle, se compose vraiment : c'est ce que ces appels
+    // attendaient depuis le début.
+    const formule = await page.evaluate(() => new Promise(ok => {
+        let fait = false;
+        createMathImage('Soit $x^2 + 1$ la fonction', '#1b3a6b', 30, (img, l, h) => {
+            if (fait) return; fait = true;
+            ok({ image: !!img, large: l > 40, haute: h > 10 });
+        });
+        setTimeout(() => { if (!fait) { fait = true; ok({ image: false, large: false, haute: false }); } }, 5000);
+    }));
+    r.egal('une vraie formule donne bien une image', formule, { image: true, large: true, haute: true });
+    // Un texte sans formule n'en fabrique pas : sinon toute phrase deviendrait
+    // une image, et l'on perdrait le choix de la police et de l'alignement.
+    const sansFormule = await page.evaluate(() => new Promise(ok => {
+        createMathImage('une phrase ordinaire', '#000', 24, (img) => ok(!!img));
+        setTimeout(() => ok('délai'), 3000);
+    }));
+    r.egal('un texte sans formule reste du texte', sansFormule, false);
+    await page.evaluate(() => { setMode('pointer'); texts.length = 0; draw(); });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

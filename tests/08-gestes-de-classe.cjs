@@ -218,6 +218,102 @@ module.exports = async function (browser) {
     r.verifie('une croix permet de quitter le mode Focus', focus.sortie);
     r.egal('et tout revient en place', focus.revenu, focus.avant.bas);
 
+    // --- LE CALQUE FIGÉ : ÉCRIRE VITE SUR UN TABLEAU CHARGÉ ---
+    // Tout redessiner à chaque image coûte en proportion de ce qu'il y a à
+    // l'écran : mille deux cents traits demandaient 280 ms par image, soit un
+    // tableau qui ne suit plus la main. Pendant qu'on écrit, tout le reste est
+    // pourtant immobile : on garde une copie de l'écran et l'on ne repeint que
+    // le trait en cours. Encore faut-il que l'image soit LA MÊME.
+    const calque = await page.evaluate(() => {
+        points.length = 0; segments.length = 0; texts.length = 0; freehands.length = 0;
+        images.length = 0; circles.length = 0; rectangles.length = 0; polygons.length = 0;
+        // Un tableau vraiment chargé : sept cents traits serrés, tous à
+        // l'écran. C'est cette forme-là — beaucoup de courts segments visibles
+        // en même temps — qui fait s'effondrer le repeint complet.
+        for (let i = 0; i < 700; i++) {
+            freehands.push({ id: nextId++, color: ['#000', '#c0392b', '#2980b9'][i % 3],
+                width: 2 + (i % 3), z: globalZ++,
+                points: Array.from({ length: 40 }, (_, k) => ({
+                    x: 30 + (i % 1200), y: 70 + k * 4 + Math.sin(k) * 3,
+                    p: 0.4 + (i % 3) * 0.1 })) });
+        }
+        texts.push({ id: nextId++, x: 180, y: 560, content: 'Leçon du jour', color: '#000',
+                     fontSize: 30, fontFamily: 'sans-serif', z: globalZ++ });
+        draw();
+
+        const empreinte = () => {
+            const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+            let h = 0;
+            for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) >>> 0;
+            return h;
+        };
+        const chrono = (f, m) => { const t = performance.now(); for (let i = 0; i < m; i++) f(); return (performance.now() - t) / m; };
+
+        const resultats = {};
+        resultats.complet = +chrono(() => draw(), 4).toFixed(1);
+
+        ['freehand', 'highlighter'].forEach(outil => {
+            setMode(outil);
+            figerLeCalque();
+            isDrawingFreehand = true;
+            currentFreehand = { id: nextId++, color: '#e17055', z: globalZ++,
+                width: outil === 'highlighter' ? 16 : 4,
+                isHighlighter: outil === 'highlighter',
+                points: Array.from({ length: 22 }, (_, k) => ({
+                    x: 300 + k * 22, y: 300 + Math.sin(k / 2) * 70, p: 0.3 + (k % 5) * 0.12 })) };
+            draw();
+            resultats[outil + 'Empreinte'] = empreinte();
+            resultats[outil + 'Actif'] = calqueUtilisable();
+            if (outil === 'freehand') resultats.rapide = +chrono(() => draw(), 20).toFixed(1);
+            // le même dessin, mais sans le calque
+            libererLeCalque();
+            draw();
+            resultats[outil + 'Reference'] = empreinte();
+            isDrawingFreehand = false; currentFreehand = null; libererLeCalque();
+        });
+
+        // Le calque doit se refuser dès que quelque chose d'autre peut bouger.
+        setMode('freehand');
+        figerLeCalque();
+        isDrawingFreehand = true;
+        currentFreehand = { id: nextId++, points: [{ x: 10, y: 10, p: .5 }], color: '#000', width: 3, z: globalZ++ };
+        resultats.avantZoom = calqueUtilisable();
+        const z0 = zoom; zoom = z0 * 1.5;
+        resultats.apresZoom = calqueUtilisable();
+        zoom = z0;
+        const p0 = panX; panX = p0 + 40;
+        resultats.apresDeplacement = calqueUtilisable();
+        panX = p0;
+        isDrawingFreehand = false;
+        resultats.horsTrace = calqueUtilisable();
+        currentFreehand = null; libererLeCalque();
+        setMode('pointer'); draw();
+        return resultats;
+    });
+
+    // L'IMAGE D'ABORD. Un calque périmé se verrait à l'écran, et une image
+    // fausse est bien pire qu'une image lente.
+    r.verifie('avec le calque, le crayon donne exactement la même image',
+        calque.freehandEmpreinte === calque.freehandReference,
+        JSON.stringify({ calque: calque.freehandEmpreinte, complet: calque.freehandReference }));
+    r.verifie('et le surligneur aussi',
+        calque.highlighterEmpreinte === calque.highlighterReference,
+        JSON.stringify({ calque: calque.highlighterEmpreinte, complet: calque.highlighterReference }));
+
+    // LE GAIN. Sur ce tableau, le repeint complet demande une centaine de
+    // millisecondes ; avec le calque, l'image ne dépend plus de ce qu'il y a
+    // dessus.
+    r.verifie('écrire ne repeint plus tout le tableau',
+        calque.rapide < calque.complet / 5 && calque.rapide < 12,
+        `${calque.rapide} ms avec le calque contre ${calque.complet} ms sans`);
+
+    // LES GARDE-FOUS. Le calque ne vaut que pour l'instant précis où l'on
+    // écrit et où rien d'autre ne bouge.
+    r.egal('le calque ne sert que pendant un trait, et seulement s\'il est à jour',
+        { pendant: calque.avantZoom, apresZoom: calque.apresZoom,
+          apresDeplacement: calque.apresDeplacement, horsTrace: calque.horsTrace },
+        { pendant: true, apresZoom: false, apresDeplacement: false, horsTrace: false });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     // --- COPIER, COUPER, DUPLIQUER, COLLER ---
     // Les raccourcis existaient depuis toujours ; rien ne les montrait, et sur

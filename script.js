@@ -2777,7 +2777,7 @@ function recognizeShape() {
     }
 
     if (recognized) {
-        isDrawingFreehand = false; currentFreehand = null;
+        isDrawingFreehand = false; currentFreehand = null; libererLeCalque();
         saveState(); showToast("✨ " + shapeName + " magique !"); draw();
     }
 }
@@ -7334,6 +7334,9 @@ canvas.addEventListener('pointerdown', (e) => {
     }
 
     if (mode === 'freehand' || mode === 'highlighter') {
+        // ON PREND LA PHOTO MAINTENANT : le trait n'existe pas encore, l'écran
+        // montre donc exactement ce qui ne bougera plus jusqu'au relâcher.
+        figerLeCalque();
         isDrawingFreehand = true;
         const pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
         const isH = (mode === 'highlighter');
@@ -7769,7 +7772,7 @@ canvas.addEventListener('pointermove', (e) => {
         requestAnimationFrame(draw); return;
     }
 
-    if (e.buttons === 0 && !activePointers.has(e.pointerId)) { isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
+    if (e.buttons === 0 && !activePointers.has(e.pointerId)) { libererLeCalque(); isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
 
     if (mode === 'laser' && currentLaserStroke) {
         // Lissage du tracé : on suit le pointeur avec un filtre passe-bas
@@ -8294,6 +8297,7 @@ function handlePointerUp(e) {
     if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
     if (isDrawingFreehand) {
         isDrawingFreehand = false;
+        libererLeCalque();
         if (currentFreehand.points.length > 1) {
             freehands.push(currentFreehand);
             // Écrit sur un PDF feuilletable : le trait est de CETTE page
@@ -8455,7 +8459,94 @@ function buildRenderQuadtree(minX, maxX, minY, maxY) {
     texts.forEach(o => renderQuadtree.insert({ ...o, type: 'text' }));
 }
 
+// ===================================================
+// LE CALQUE FIGÉ : NE PAS REPEINDRE CE QUI N'A PAS CHANGÉ
+// Tout redessiner à chaque image coûte en proportion de ce qu'il y a à
+// l'écran. Mesuré : mille deux cents traits visibles demandent 372 ms par
+// image — trois images par seconde, c'est-à-dire un tableau qui ne suit plus
+// la main. Le coût est entièrement dans les traits ; le décor, lui, ne pèse
+// rien (0,7 ms). Ni l'ombre portée ni le tri par quadrant n'y sont pour
+// quelque chose : c'est le nombre de points repeints, et rien d'autre.
+//
+// Or PENDANT QU'ON ÉCRIT, tout le reste est immobile. On garde donc une copie
+// de l'écran prise au moment où le trait commence, et chaque image se réduit
+// alors à : recopier cette image, puis dessiner le seul trait en cours.
+//
+// LE CALQUE NE SERT QUE LÀ, et c'est ce qui le rend sûr : le temps d'un trait,
+// le pointeur est capturé par le tableau, rien d'autre ne peut bouger. Dès que
+// quoi que ce soit d'autre est en jeu — un instrument qu'on déplace, un laser
+// qui s'efface, un zoom, un changement de taille de fenêtre — on le jette et
+// l'on repeint comme avant. Un calque périmé se verrait à l'écran, et une
+// image fausse est bien pire qu'une image lente.
+// ===================================================
+let calqueFige = null;        // la copie de l'écran, prise au début du trait
+let calqueFigeEtat = null;    // ce qui la rend valable
+
+function figerLeCalque() {
+    try {
+        if (!calqueFige) calqueFige = document.createElement('canvas');
+        if (calqueFige.width !== canvas.width || calqueFige.height !== canvas.height) {
+            calqueFige.width = canvas.width;
+            calqueFige.height = canvas.height;
+        }
+        const g = calqueFige.getContext('2d');
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, calqueFige.width, calqueFige.height);
+        g.drawImage(canvas, 0, 0);
+        calqueFigeEtat = { panX, panY, zoom, l: canvas.width, h: canvas.height };
+    } catch (e) { calqueFige = null; calqueFigeEtat = null; }
+}
+
+function libererLeCalque() { calqueFigeEtat = null; }
+
+function calqueUtilisable() {
+    if (!calqueFige || !calqueFigeEtat) return false;
+    if (!isDrawingFreehand || !currentFreehand) return false;
+    // Rien d'autre ne doit être en mouvement, ni rien d'animé à l'écran.
+    if (typeof draggedWidget !== 'undefined' && draggedWidget) return false;
+    if (typeof laserStrokes !== 'undefined' && laserStrokes && laserStrokes.length) return false;
+    if (typeof isExportingTransparent !== 'undefined' && isExportingTransparent) return false;
+    const e = calqueFigeEtat;
+    return e.panX === panX && e.panY === panY && e.zoom === zoom
+        && e.l === canvas.width && e.h === canvas.height;
+}
+
 function draw() {
+    // LE CHEMIN COURT : on écrit, et le reste du tableau n'a pas bougé.
+    if (calqueUtilisable()) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(calqueFige, 0, 0);
+        ctx.save();
+        ctx.translate(panX, panY); ctx.scale(zoom, zoom);
+        try {
+            const o = currentFreehand;
+            ctx.strokeStyle = o.color;
+            setContextDash(ctx, o.dash, EPAISSEUR_AU_TABLEAU);
+            if (o.isHighlighter) {
+                ctx.globalCompositeOperation = isDarkMode ? 'screen' : 'multiply';
+                ctx.lineWidth = (o.width || 3) * EPAISSEUR_AU_TABLEAU;
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                if (o.points.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(o.points[0].x, o.points[0].y);
+                    for (let i = 1; i < o.points.length - 1; i++) {
+                        ctx.quadraticCurveTo(o.points[i].x, o.points[i].y,
+                            (o.points[i].x + o.points[i + 1].x) / 2, (o.points[i].y + o.points[i + 1].y) / 2);
+                    }
+                    ctx.lineTo(o.points[o.points.length - 1].x, o.points[o.points.length - 1].y);
+                    ctx.stroke();
+                }
+                ctx.globalCompositeOperation = 'source-over';
+            } else {
+                drawSmoothFreehand(ctx, o.points, o.width || 3, EPAISSEUR_AU_TABLEAU);
+            }
+            ctx.setLineDash([]);
+        } catch (e) { libererLeCalque(); }
+        ctx.restore();
+        return;
+    }
+
     // Les points posés sur un croisement suivent leurs objets
     majPointsDependants();
     if (typeof majBarreDocument === 'function') majBarreDocument();
@@ -12888,6 +12979,12 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
         }
         else if (val === '=') {
             try {
+                // Même garde que pour le traceur : on ne compile que ce qui
+                // ressemble à un calcul.
+                if (typeof formuleAcceptable === 'function' && !formuleAcceptable(expression)) {
+                    calcRes.innerText = 'Erreur';
+                    return;
+                }
                 let evalStr = expression
                     .replace(/×/g, '*')
                     .replace(/÷/g, '/')
@@ -16585,6 +16682,123 @@ function echapperTexte(t) {
 }
 window.echapperTexte = echapperTexte;
 
+// UN NOM POSÉ DANS UN APPEL ÉCRIT DANS L'ATTRIBUT, comme « onclick="f('Léa')" ».
+// Il traverse deux lectures : le navigateur décode d'abord l'attribut HTML,
+// puis lit le résultat comme du JavaScript. Il faut donc échapper pour les
+// deux, dans cet ordre. Ce n'est pas qu'une affaire de sûreté : « D'Amico »
+// refermait la chaîne et cassait le glisser-déposer des groupes.
+function echapperPourAppel(t) {
+    return echapperTexte(String(t === undefined || t === null ? '' : t)
+        .replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+window.echapperPourAppel = echapperPourAppel;
+
+// ===================================================
+// LES FORMULES ÉCRITES DANS UN BLOC DE TEXTE
+// Trois endroits appelaient « createMathImage » — et cette fonction n'existait
+// nulle part. Écrire « 12 $ environ » dans un bloc de texte levait donc une
+// erreur AU MILIEU de la validation : le bloc était déjà posé, mais la saisie
+// ne se refermait pas, et le texte se retrouvait EN DOUBLE sur le tableau. Un
+// signe dollar suffisait, et MathJax était chargé — deux mégaoctets — pour une
+// fonction qui n'a jamais tourné.
+//
+// La voici. Elle rend une image de la formule, qui remplace le bloc entier
+// comme le dessin l'attend. Et elle ne lève jamais : au moindre ennui elle
+// rend « rien », et le texte s'affiche comme du texte.
+// ===================================================
+function texteEnLatex(contenu) {
+    // Le contenu est du HTML : on en retire les balises pour ne garder que ce
+    // qui a été écrit.
+    const boite = document.createElement('div');
+    boite.innerHTML = String(contenu || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(div|p|li)>/gi, '\n');
+    const brut = boite.textContent || '';
+    if (!brut.includes('$')) return null;
+    // Un dollar isolé n'est pas une formule : « 12 $ environ » doit rester du
+    // texte. Il en faut deux, et quelque chose entre les deux.
+    const morceaux = brut.split(/\$([^$]+)\$/);
+    if (morceaux.length < 3) return null;
+    let latex = '', formuleVue = false;
+    morceaux.forEach((m, i) => {
+        if (i % 2 === 1) { latex += '{' + m + '}'; formuleVue = true; }
+        else if (m) latex += '\\text{' + m.replace(/([\\{}])/g, '\\$1') + '}';
+    });
+    return formuleVue ? latex : null;
+}
+
+function createMathImage(contenu, couleur, taille, retour) {
+    const rendre = (img, l, h) => { try { retour(img, l, h); } catch (e) { /* l'appelant s'en charge */ } };
+    try {
+        const latex = texteEnLatex(contenu);
+        if (!latex) { rendre(null); return; }
+        if (!(window.MathJax && MathJax.tex2svgPromise)) { rendre(null); return; }
+        const corps = Math.max(8, parseInt(taille, 10) || 24);
+        MathJax.tex2svgPromise(latex, { display: false }).then((noeud) => {
+            const svg = noeud.querySelector('svg');
+            if (!svg) { rendre(null); return; }
+            // MathJax mesure en « ex » ; un ex vaut à peu près la moitié du corps.
+            const enPx = (v) => {
+                const n = parseFloat(v);
+                if (!isFinite(n)) return 0;
+                return /ex$/.test(v) ? n * corps * 0.5 : /em$/.test(v) ? n * corps : n;
+            };
+            const l = Math.max(1, Math.round(enPx(svg.getAttribute('width'))));
+            const h = Math.max(1, Math.round(enPx(svg.getAttribute('height'))));
+            svg.setAttribute('width', l);
+            svg.setAttribute('height', h);
+            svg.setAttribute('color', couleur || '#000');
+            if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            const source = new XMLSerializer().serializeToString(svg);
+            const img = new Image();
+            img.onload = () => rendre(img, l, h);
+            img.onerror = () => rendre(null);
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+        }).catch(() => rendre(null));
+    } catch (e) { rendre(null); }
+}
+window.createMathImage = createMathImage;
+
+// ===================================================
+// UNE FORMULE EST UNE FORMULE, ET RIEN D'AUTRE
+// Le traceur et la calculatrice compilent ce qu'on leur donne avec
+// « new Function ». C'est commode et c'est juste, tant que ce qu'on leur donne
+// vient du clavier de l'enseignant. Mais le traceur GARDE ses formules dans le
+// tableau enregistré : un fichier reçu d'ailleurs en apporte les siennes, et
+// les rouvrir exécutait alors le code qu'elles contenaient — avec l'accès à
+// tout ce que la page possède, tableaux enregistrés et jetons de connexion
+// compris. Je l'ai vérifié de bout en bout avant d'écrire ces lignes.
+//
+// La parade tient en une phrase : on n'accepte QUE ce qu'une formule contient.
+// On retire d'abord les noms de fonctions connus, puis on regarde ce qui reste
+// — il ne doit plus y avoir que des chiffres, les variables, et des opérateurs.
+// « fetch » y perd son « e » et devient « ftch », qui ne passe pas ; « atob »
+// devient « ab », qui ne passe pas davantage. Aucune suite de caractères
+// autorisés ne permet de nommer quoi que ce soit.
+const FORMULE_FONCTIONS = [
+    'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
+    'sin', 'cos', 'tan', 'sqrt', 'cbrt', 'abs', 'exp',
+    'floor', 'ceil', 'round', 'sign', 'min', 'max', 'pow',
+    'log', 'ln', 'pi', 'ans', 'e'
+];
+const FORMULE_MAX = 400;
+
+function formuleAcceptable(expr) {
+    if (typeof expr !== 'string') return false;
+    if (expr.length > FORMULE_MAX) return false;
+    let reste = expr.toLowerCase();
+    // Les noms les plus longs d'abord : sans quoi « sin » mangerait le cœur de
+    // « arcsin » et laisserait un « arc » qui ferait tout rejeter.
+    FORMULE_FONCTIONS.forEach(f => { reste = reste.split(f).join(' '); });
+    // Ce qui subsiste : chiffres, les deux variables, la virgule décimale, les
+    // séparateurs, et les opérateurs — y compris les signes que la calculatrice
+    // affiche à l'écran (× ÷ π √ x² x³), qu'elle traduit ensuite elle-même.
+    // Aucun d'eux ne permet de nommer une propriété : « π » compile en une
+    // variable inconnue, les autres ne sont même pas des caractères
+    // d'identifiant, et toutes les lettres restent hors du compte.
+    return !/[^0-9xt.,;+\-*/^%()|!<>=\s×÷π√²³⁻]/.test(reste);
+}
+window.formuleAcceptable = formuleAcceptable;
+window.echapperTexte = echapperTexte;
+
 const Journal = {
     jour() {
         const d = new Date();
@@ -20059,7 +20273,7 @@ function renderTrashList() {
         div.style.gap = '4px';
         const nameSpan = document.createElement('span');
         nameSpan.className = 'label';
-        nameSpan.innerHTML = `<span class="icon">${item.type === 'folder' ? TREE_ICON_FOLDER : TREE_ICON_TABLEAU}</span> ${item.name}`;
+        nameSpan.innerHTML = `<span class="icon">${item.type === 'folder' ? TREE_ICON_FOLDER : TREE_ICON_TABLEAU}</span> ${echapperTexte(item.name)}`;
 
         const btnStyle = 'font-size: 10px; padding: 2px 6px; cursor: pointer; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--ink); transition: all 0.2s;';
 

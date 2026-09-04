@@ -15744,7 +15744,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         const animContainer = document.getElementById('dw-anim-container');
 
         if (mode === 'flash') {
-            animContainer.innerHTML = `<div class="dw-anim-flash">${winner}</div>`;
+            animContainer.innerHTML = `<div class="dw-anim-flash">${echapperTexte(winner)}</div>`;
             setTimeout(() => this.showDrawActions(winner), 500);
         }
         else if (mode === 'cards') {
@@ -15762,7 +15762,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             let fakeList = [];
             for (let i = 0; i < 30; i++) fakeList.push(pool[Math.floor(Math.random() * pool.length)].name);
             fakeList.push(winner);
-            animContainer.innerHTML = `<div class="dw-anim-slot-box"><div class="dw-anim-slot-inner" id="slot-inner">${fakeList.map(n => `<div class="dw-slot-name">${n}</div>`).join('')}</div></div>`;
+            animContainer.innerHTML = `<div class="dw-anim-slot-box"><div class="dw-anim-slot-inner" id="slot-inner">${fakeList.map(n => `<div class="dw-slot-name">${echapperTexte(n)}</div>`).join('')}</div></div>`;
             setTimeout(() => { document.getElementById('slot-inner').style.top = `-${30 * 180}px`; }, 100);
             setTimeout(() => this.showDrawActions(winner), 4100);
         }
@@ -15877,7 +15877,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             svg += `<path d="M 0 0 L ${x1} ${y1} A 100 100 0 ${sliceAngle > 180 ? 1 : 0} 1 ${x2} ${y2} Z" fill="${colors[i % colors.length]}" stroke="#ffffff" stroke-width="0.5"/>`;
             const textAngle = (startAngle + endAngle) / 2;
             const tx = Math.cos(textAngle) * 60, ty = Math.sin(textAngle) * 60, rot = (textAngle * 180 / Math.PI);
-            svg += `<text x="${tx}" y="${ty}" transform="rotate(${rot}, ${tx}, ${ty})" font-family="sans-serif" font-size="${n > 15 ? 5 : 10}" font-weight="bold" fill="#fff" text-anchor="middle" dominant-baseline="central">${items[i]}</text>`;
+            svg += `<text x="${tx}" y="${ty}" transform="rotate(${rot}, ${tx}, ${ty})" font-family="sans-serif" font-size="${n > 15 ? 5 : 10}" font-weight="bold" fill="#fff" text-anchor="middle" dominant-baseline="central">${echapperTexte(items[i])}</text>`;
         }
         return svg + `<circle cx="0" cy="0" r="10" fill="#2d3436" stroke="#fff" stroke-width="3"/></svg>`;
     },
@@ -15915,7 +15915,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                 <div class="dw-group-sidebar">
                     <h3 style="margin-top:0; color:#2d3436;">Élèves non assignés</h3>
                     <div class="dw-dropzone" id="dz-unassigned" ondragover="DrawPlugin.onDragOver(event)" ondragleave="DrawPlugin.onDragLeave(event)" ondrop="DrawPlugin.onDrop(event, 'unassigned')">
-                        ${this.groupState.unassigned.map(s => `<div class="dw-student-tag" draggable="true" ondragstart="DrawPlugin.onDragStart(event, '${s}', 'unassigned')">👤 ${s}</div>`).join('')}
+                        ${this.groupState.unassigned.map(s => `<div class="dw-student-tag" draggable="true" ondragstart="DrawPlugin.onDragStart(event, '${echapperPourAppel(s)}', 'unassigned')">👤 ${echapperTexte(s)}</div>`).join('')}
                     </div>
                     <button class="dw-overlay-btn dw-btn-new" style="width:100%; margin-top:15px; font-size:14px; padding:10px;" onclick="DrawPlugin.shuffleGroups()">🔀 Répartir au hasard</button>
                     <button class="dw-overlay-btn dw-btn-close" style="width:100%; margin-top:10px; font-size:14px; padding:10px;" onclick="DrawPlugin.closeOverlay()">Quitter l'atelier</button>
@@ -15924,11 +15924,11 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                     ${this.groupState.groups.map(g => `
                         <div class="dw-group-card">
                             <div class="dw-group-header">
-                                <input type="text" class="dw-group-title" value="${g.name}" onchange="DrawPlugin.updateGroupName('${g.id}', this.value)" style="border:none; background:transparent;">
+                                <input type="text" class="dw-group-title" value="${echapperTexte(g.name)}" onchange="DrawPlugin.updateGroupName('${echapperPourAppel(g.id)}', this.value)" style="border:none; background:transparent;">
                                 <span class="dw-group-del" onclick="DrawPlugin.deleteGroup('${g.id}')">✕</span>
                             </div>
                             <div class="dw-dropzone" id="dz-${g.id}" ondragover="DrawPlugin.onDragOver(event)" ondragleave="DrawPlugin.onDragLeave(event)" ondrop="DrawPlugin.onDrop(event, '${g.id}')">
-                                ${g.students.map(s => `<div class="dw-student-tag" draggable="true" ondragstart="DrawPlugin.onDragStart(event, '${s}', '${g.id}')">👤 ${s}</div>`).join('')}
+                                ${g.students.map(s => `<div class="dw-student-tag" draggable="true" ondragstart="DrawPlugin.onDragStart(event, '${echapperPourAppel(s)}', '${echapperPourAppel(g.id)}')">👤 ${echapperTexte(s)}</div>`).join('')}
                             </div>
                             <div class="dw-stamp-btn" onclick="DrawPlugin.makeStamp('${g.id}')">📌 Transformer en Tampon</div>
                         </div>
@@ -27927,6 +27927,10 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
 
     compileExpr: function (expr) {
         if (!expr || !expr.trim()) return null;
+        // UNE FORMULE EST UNE FORMULE. Ces expressions sont gardées dans le
+        // tableau enregistré : un fichier reçu d'ailleurs en apporte les
+        // siennes, et sans ce filtre les rouvrir exécutait son code.
+        if (typeof formuleAcceptable === 'function' && !formuleAcceptable(expr)) return null;
         let s = expr.toLowerCase();
 
         s = s.replace(/\s+/g, '');
@@ -30697,7 +30701,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
         sel.innerHTML = '<option value="free">🎤 Sans liste — le prof désigne</option>';
         this.classes.forEach((c, i) => {
             const n = (c.students || []).length;
-            sel.innerHTML += `<option value="${i}">${c.name} (${n} élève${n > 1 ? 's' : ''})</option>`;
+            sel.innerHTML += `<option value="${i}">${echapperTexte(c.name)} (${n} élève${n > 1 ? 's' : ''})</option>`;
         });
     },
 

@@ -358,6 +358,69 @@ module.exports = async function (browser) {
     const vivant = await page.evaluate(() => { try { draw(); return true; } catch (e) { return e.message; } });
     r.verifie('le tableau répond encore après tous les plugins', vivant === true, String(vivant));
 
+    // --- UNE FORMULE EST UNE FORMULE, ET RIEN D'AUTRE ---
+    // Le traceur GARDE ses formules dans le tableau enregistré. Un fichier reçu
+    // d'un collègue en apporte donc les siennes, et les rouvrir les compilait
+    // avec « new Function » — sans filtrage. J'ai monté la chaîne entière avant
+    // d'écrire ce test : le code du fichier s'exécutait, avec l'accès à tout ce
+    // que la page possède, tableaux enregistrés et jetons compris.
+    const formules = await page.evaluate(async () => {
+        const tr = PluginManager.plugins.funcPlotter;
+        const calcule = (e, x) => { const f = tr.compileExpr(e); return f ? +f(x, 0).toFixed(4) : null; };
+
+        delete self.__preuve;
+        const vignette = {
+            id: nextId++, x: 100, y: 100, w: 200, h: 150, cx: 0, cy: 0, cw: 200, ch: 150,
+            src: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150"></svg>'),
+            z: 1,
+            pluginData: { id: 'funcPlotter',
+                          funcs: [{ type: 'cart', expr: 'x+(self.__preuve=1)', show: true, color: '#000' }] }
+        };
+        images.push(vignette);
+        try { tr.edit(vignette); } catch (e) { /* peu importe : ce qui compte est l'exécution */ }
+        await new Promise(ok => setTimeout(ok, 350));
+        const chaine = !!self.__preuve;
+        delete self.__preuve;
+
+        return {
+            chaine,
+            bonnes: { carre: calcule('x^2', 3), affine: calcule('2x+1', 4), racine: calcule('sqrt(x)', 9),
+                      trigo: calcule('cos(2x)', 0), compose: calcule('3x^2-2x+1', 2),
+                      arc: calcule('arcsin(x)', 0), expo: calcule('exp(x)', 0) },
+            mauvaises: ['self.__preuve=1', "self[atob('eA==')]", 'fetch("/vol")', 'window.alert(1)',
+                        'document.cookie', 'constructor.constructor("return 1")()', 'this.x']
+                .filter(e => !!tr.compileExpr(e))
+        };
+    });
+    r.verifie('un tableau reçu ne peut plus exécuter de code par ses formules',
+        formules.chaine === false, JSON.stringify({ execute: formules.chaine }));
+    r.egal('les vraies formules calculent toujours juste', formules.bonnes,
+        { carre: 9, affine: 9, racine: 3, trigo: 1, compose: 9, arc: 0, expo: 1 });
+    r.egal('et rien qui nomme autre chose ne se compile', formules.mauvaises, []);
+
+    // --- UN NOM RESTE UN NOM ---
+    // Les noms d'élèves et de tableaux traversaient du HTML sans échappement.
+    // Ce n'est pas qu'une affaire de sûreté : « D'Amico » refermait la chaîne
+    // d'un appel écrit dans un attribut et cassait le glisser-déposer.
+    const noms = await page.evaluate(async () => {
+        delete self.__xss;
+        const piege = '<img src=x onerror="self.__xss=1">';
+        const bac = document.createElement('div');
+        document.body.appendChild(bac);
+        bac.innerHTML = `<span>${echapperTexte(piege)}</span>`;
+        await new Promise(ok => setTimeout(ok, 250));
+        const execute = !!self.__xss;
+        const lu = bac.textContent;
+        bac.remove();
+        delete self.__xss;
+        const appel = echapperPourAppel("D'Amico");
+        return { execute, lu, appel, protege: appel.indexOf('\\') >= 0 };
+    });
+    r.verifie('un nom qui contient du HTML ne s\'exécute pas', !noms.execute, JSON.stringify(noms));
+    r.egal('et il reste lisible tel qu\'il a été écrit', noms.lu, '<img src=x onerror="self.__xss=1">');
+    r.verifie('une apostrophe dans un nom ne casse plus l\'appel qui le porte',
+        noms.protege, noms.appel);
+
     await context.close();
     return r.bilan();
 };
