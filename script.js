@@ -10661,6 +10661,14 @@ function majBarreDocument() {
     document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
     document.getElementById('doc-mode-cadre').classList.toggle('actif', modeDocument === 'cadre' && !obj.locked);
     document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
+    // Les zones à remplir ne se cherchent que dans un PDF : un scan n'est
+    // qu'une image, et une photo collée encore moins.
+    const bZones = document.getElementById('doc-zones');
+    if (bZones) {
+        const unPdf = !!(obj.pluginData && obj.pluginData.id === 'pdfDoc');
+        bZones.style.display = unPdf ? 'inline-flex' : 'none';
+        bZones.classList.toggle('actif', zonesActives);
+    }
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
     document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);
@@ -10721,6 +10729,17 @@ function brancherBarreDocument() {
         if (typeof showToast === 'function') showToast('Faites glisser la page dans son cadre ; la molette la zoome');
     });
 
+
+    b('doc-zones').addEventListener('click', () => {
+        const actif = basculerLesZones();
+        majBarreDocument();
+        if (typeof majReglagesBarre === 'function') majReglagesBarre();
+        if (typeof showToast === 'function') {
+            showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte'
+                            : 'Zones à remplir : repérage éteint');
+        }
+        draw();
+    });
 
     b('doc-grille').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;
@@ -23824,6 +23843,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bZones) bZones.addEventListener('click', () => {
         const actif = basculerLesZones();
         majReglagesBarre();
+        // Le même réglage est offert aux deux endroits : ils doivent
+        // s'accorder, sinon l'un paraît ne pas avoir compris l'autre.
+        if (typeof majBarreDocument === 'function') majBarreDocument();
         if (typeof showToast === 'function') {
             showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte'
                             : 'Zones à remplir : repérage éteint');

@@ -907,6 +907,41 @@ module.exports = async function (browser) {
     r.verifie('le bandeau, la case remplie et la grille sont écartés',
         zones.n === 6, JSON.stringify(zones));
 
+    // LE BOUTON EST DANS LA BARRE DU DOCUMENT, sur le document qu'il
+    // concerne. Rangé dans le panneau général, derrière la petite roue du
+    // tiroir des plugins, personne ne le trouvait.
+    const bouton = await page.evaluate(() => {
+        zonesActives = false;
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const b2 = document.getElementById('doc-zones');
+        const dansLaBarre = !!(b2 && b2.closest('#bar-style'));
+        const visible = !!(b2 && b2.getClientRects().length);
+        b2.click();
+        const apres = { actif: zonesActives, allume: b2.classList.contains('actif'),
+                        accord: document.getElementById('rp-zones').classList.contains('actif') };
+        b2.click();
+        return { dansLaBarre, visible, apres, eteint: !zonesActives };
+    });
+    r.verifie('le bouton des zones vit dans la barre du document, et se voit',
+        bouton.dansLaBarre && bouton.visible, JSON.stringify(bouton));
+    r.verifie('il allume le repérage et s\'allume avec',
+        bouton.apres.actif && bouton.apres.allume, JSON.stringify(bouton.apres));
+    r.verifie('et le panneau général dit la même chose',
+        bouton.apres.accord, JSON.stringify(bouton.apres));
+    r.verifie('un second clic l\'éteint', bouton.eteint, JSON.stringify(bouton));
+
+    // Sur une image ordinaire, il n'a rien à chercher : il ne se propose pas.
+    const surUneImage = await page.evaluate(() => {
+        images.push({ id: nextId++, x: 0, y: 0, w: 40, h: 40, cx: 0, cy: 0, cw: 40, ch: 40, src: '', z: globalZ++ });
+        selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
+        updateStyleBarContext();
+        const v = document.getElementById('doc-zones').getClientRects().length > 0;
+        images.pop();
+        return v;
+    });
+    r.verifie('sur une image ordinaire, le bouton ne se propose pas', !surUneImage);
+
     // Option éteinte : rien ne s'éclaire, rien ne se cherche.
     const eteint = await page.evaluate(() => {
         zonesActives = false;

@@ -634,8 +634,9 @@
                             partent avec lui quand on le déplace, le tourne ou l'agrandit — et suivent aussi la page
                             quand elle <b>coulisse ou grossit dans son cadre</b> (mode <b>Page</b>), ce qui n'est pas
                             le zoom du tableau. Le document retiré, l'annotation reste mais redevient libre.</li>
-                        <li><strong>Repérer les zones à remplir</strong> (à allumer dans les réglages de la
-                            barre, rubrique <b>Documents</b>) : sur un PDF <b>vectoriel</b>, l'application lit les
+                        <li><strong>Repérer les zones à remplir</strong> — le bouton est <b>dans la barre du
+                            document</b>, celui avec les lignes pointillées, et il ne paraît que sur un PDF.
+                            Sur un PDF <b>vectoriel</b>, l'application lit les
                             lignes réglées et les cases dessinées dans le fichier. Prenez l'outil <b>Texte</b> :
                             elles s'éclairent, et le clic dans l'une d'elles ouvre le bloc <b>à son bord gauche,
                             à sa taille</b> — plus besoin de viser au pixel ni de régler la police.
@@ -1748,6 +1749,17 @@
                 </svg></button>
         </span>
         <i class="doc-sep" id="doc-annoter-sep" style="display:none;"></i>
+        <!-- Le repérage des zones à remplir se commande ICI, sur le document
+             qu'il concerne. Il vivait dans le panneau général, derrière la
+             petite roue du tiroir des plugins : personne ne l'y trouvait. -->
+        <button class="doc-btn" id="doc-zones"
+            data-tooltip="Repérer les lignes et les cases à remplir (PDF vectoriel) — prenez ensuite l'outil Texte">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M7 9h10M7 13h6" />
+                <path d="M14.5 16.5h3" stroke-dasharray="1 2" />
+            </svg></button>
         <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
@@ -2022,7 +2034,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=144"></script>
+    <script src="script.js?v=145"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
