@@ -915,6 +915,95 @@ module.exports = async function (browser) {
     r.egal('mais s\'affiche bien au-dessus de la feuille', voile.surLaFeuille, 'flex');
     r.egal('et Échap le fait disparaître', voile.apresEchap, 'none');
 
+    // --- LE LECTEUR : REJOUER LA SÉANCE ---
+    // L'historique garde déjà les états successifs du tableau. Les repasser
+    // dans l'ordre, c'est refaire la construction devant la classe.
+    await page.evaluate(() => {
+        points.length = 0; segments.length = 0; texts.length = 0; freehands.length = 0;
+        images.length = 0; circles.length = 0; rectangles.length = 0; polygons.length = 0;
+        history.length = 0; historyIndex = -1;
+        saveState();
+        for (let i = 0; i < 6; i++) {
+            freehands.push({ id: nextId++, points: [{ x: 100 + i * 60, y: 200, p: .5 }, { x: 140 + i * 60, y: 320, p: .5 }],
+                             color: '#000', width: 4, z: globalZ++ });
+            saveState();
+        }
+        draw();
+    });
+    const etatLecteur = () => page.evaluate(() => ({
+        ouvert: lectureOuverte, index: lectureIndex, etapes: history.length,
+        traits: freehands.length, marche: lectureEnMarche,
+        bande: getComputedStyle(document.getElementById('bande-lecture')).display !== 'none',
+        compte: (document.getElementById('lecture-compte') || {}).textContent
+    }));
+
+    await page.click('#btn-lecture');
+    await page.waitForTimeout(200);
+    const ouvert = await etatLecteur();
+    r.verifie('le bouton lecture ouvre la bande', ouvert.ouvert && ouvert.bande, JSON.stringify(ouvert));
+    r.egal('elle s\'ouvre là où l\'on en est, pas au début', ouvert.compte, '7 / 7');
+
+    // Revenir au début : le tableau se vide, puisque c'est ainsi qu'il a commencé.
+    await page.evaluate(() => poserEtapeDeLecture(0));
+    await page.waitForTimeout(150);
+    const debut = await etatLecteur();
+    r.egal('revenir au début rend le tableau vide', debut.traits, 0);
+
+    // LA BARRE D'ESPACE avance d'une étape : c'est le geste qu'on veut devant
+    // une classe — on commente, on appuie, on commente.
+    await page.evaluate(() => document.getElementById('board').focus());
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(200);
+    const troisPas = await etatLecteur();
+    r.egal('trois appuis sur Espace font paraître trois traits', troisPas.traits, 3);
+    await page.keyboard.press('Shift+Space');
+    await page.waitForTimeout(150);
+    r.egal('Maj+Espace revient d\'une étape', (await etatLecteur()).traits, 2);
+
+    // LA LECTURE AUTOMATIQUE : elle avance seule, et s'arrête au bout.
+    await page.evaluate(() => { lectureCadence = 2; poserEtapeDeLecture(0); lireOuPause(); });
+    await page.waitForTimeout(300);
+    const enMarche = await etatLecteur();
+    r.verifie('la lecture automatique démarre', enMarche.marche, JSON.stringify(enMarche));
+    await page.waitForTimeout(2600);
+    const finie = await etatLecteur();
+    r.verifie('elle va jusqu\'au bout puis s\'arrête toute seule',
+        !finie.marche && finie.index === finie.etapes - 1, JSON.stringify(finie));
+
+    // CE QUI COMPTE LE PLUS : rejouer ne doit RIEN abîmer. Ni le travail en
+    // cours, ni ce qui est enregistré sur le disque. Un enseignant doit pouvoir
+    // rejouer au milieu d'un cours sans rien risquer.
+    const pendant = await page.evaluate(async () => {
+        const vraie = window.saveAppLocal;
+        let ecritures = 0;
+        window.saveAppLocal = function (...a) { ecritures++; return vraie.apply(this, a); };
+        const avantHist = history.length;
+        poserEtapeDeLecture(0);
+        poserEtapeDeLecture(3);
+        lireOuPause(); await new Promise(ok => setTimeout(ok, 800)); arreterLaLecture();
+        window.saveAppLocal = vraie;
+        return { ecritures, histAvant: avantHist, histApres: history.length };
+    });
+    r.egal('rejouer n\'écrit jamais sur le disque', pendant.ecritures, 0);
+    r.egal('et n\'ajoute aucune étape à l\'historique', pendant.histApres, pendant.histAvant);
+
+    await page.click('#lecture-fermer');
+    await page.waitForTimeout(250);
+    const referme = await etatLecteur();
+    r.verifie('fermer le lecteur rend le tableau tel qu\'on l\'avait laissé',
+        !referme.ouvert && !referme.bande && referme.traits === 6, JSON.stringify(referme));
+
+    // Sans rien à rejouer, le lecteur le dit plutôt que d'ouvrir une bande vide.
+    const rienARejouer = await page.evaluate(() => {
+        history.length = 0; historyIndex = -1;
+        const ouvre = ouvrirLeLecteur(true);
+        return { ouvre, ouvert: lectureOuverte };
+    });
+    r.egal('sans rien à rejouer, la bande ne s\'ouvre pas',
+        { ouvre: rienARejouer.ouvre, ouvert: rienARejouer.ouvert }, { ouvre: false, ouvert: false });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

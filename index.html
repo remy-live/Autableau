@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=77">
+    <link rel="stylesheet" href="style.css?v=78">
 </head>
 
 <body>
@@ -309,6 +309,38 @@
          pastille. On la déplace en la tirant, on ouvre ses réglages d'un
          double-clic — et au doigt, où le double-clic est incommode, une roue
          apparaît. -->
+    <!-- LA BANDE DU LECTEUR. Elle ne s'ouvre que sur demande, et elle rend le
+         tableau exactement comme elle l'a trouvé quand on la referme. -->
+    <div id="bande-lecture" role="group" aria-label="Lecteur : rejouer le tableau">
+        <button class="lec-btn" id="lecture-debut" data-tooltip="Revenir au début"><svg viewBox="0 0 24 24"
+                width="18" height="18" fill="currentColor">
+                <path d="M6 5.5h2.2v13H6v-13zm12 0v13l-8.5-6.5L18 5.5z" />
+            </svg></button>
+        <button class="lec-btn" id="lecture-prec" data-tooltip="Étape précédente (Maj + Espace)"><svg
+                viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M15 5.5v13L6.5 12 15 5.5z" />
+            </svg></button>
+        <button class="lec-btn lec-jouer" id="lecture-jouer" data-tooltip="Lire ou mettre en pause"
+            aria-label="Lire"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path class="ico-lire" d="M8 5.5v13l11-6.5-11-6.5z" />
+                <path class="ico-pause" d="M7 5.5h3.4v13H7v-13zm6.6 0H17v13h-3.4v-13z" />
+            </svg></button>
+        <button class="lec-btn" id="lecture-suiv" data-tooltip="Étape suivante (Espace)"><svg viewBox="0 0 24 24"
+                width="18" height="18" fill="currentColor">
+                <path d="M9 5.5L17.5 12 9 18.5v-13z" />
+            </svg></button>
+        <input type="range" id="lecture-curseur" min="0" max="0" value="0" step="1"
+            aria-label="Position dans la séance">
+        <span id="lecture-compte" class="mono-lec">1 / 1</span>
+        <button class="lec-btn lec-vitesse" id="lecture-vitesse" data-tooltip="Vitesse de lecture">×1</button>
+        <span class="lec-note">Espace : une étape à la fois</span>
+        <button class="lec-btn lec-fermer" id="lecture-fermer" data-tooltip="Fermer le lecteur et revenir au tableau"><svg
+                viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+            </svg></button>
+    </div>
+
     <div class="project-name-wrapper" id="project-name-wrapper">
         <input type="text" id="project-name-input" class="project-name-input" placeholder="Titre du tableau..."
             data-tooltip="Glissez pour la déplacer — double-clic pour ses réglages ; un clic sur l'horloge permet de l'agrandir" />
@@ -422,6 +454,13 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📐 Navigation</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><strong>Rejouer la séance :</strong> le bouton <b>▶</b>, à côté du numéro de page en
+                            bas, rouvre ce qui a été fait au tableau depuis l'ouverture. Une bande apparaît :
+                            <b>lecture automatique</b> (trois vitesses), <b>barre d'espace</b> pour avancer d'une
+                            étape à la fois — <b>Maj+Espace</b> pour reculer — et un curseur pour aller droit à un
+                            moment. Rejouer <b>n'abîme rien</b> : rien n'est écrit, et fermer la bande rend le
+                            tableau exactement comme vous l'aviez laissé. Attention : le lecteur ne montre que la
+                            <b>séance en cours</b> — fermer l'application efface ce qu'il rejoue.</li>
                         <li><strong>Panoramique :</strong> Espace + gliss, ou 2 doigts</li>
                         <li><strong>Zoom :</strong> Molette souris, ou pincer 2 doigts</li>
                         <li><strong>Sélection :</strong> Clic, ou glisser une boîte. <b>Ctrl+clic</b> (Cmd sur Mac)
@@ -1411,6 +1450,14 @@
                         <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
                     </svg></button>
                 <div class="divider-small"></div>
+                <!-- REJOUER CE QUI S'EST PASSÉ. L'historique garde déjà les
+                     états successifs du tableau : les repasser dans l'ordre,
+                     c'est refaire la construction devant la classe. -->
+                <button class="btn" id="btn-lecture"
+                    data-tooltip="Rejouer ce qui a été fait au tableau depuis l'ouverture"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M8 5.5v13l11-6.5-11-6.5z" />
+                    </svg></button>
                 <button class="btn" id="btn-add-page" data-tooltip="Nouvelle page"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
@@ -2104,7 +2151,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=151"></script>
+    <script src="script.js?v=152"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

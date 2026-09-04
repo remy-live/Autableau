@@ -1595,6 +1595,162 @@ function adoptAssets(assets) {
 const HISTORY_MAX_ENTRIES = 200;
 const HISTORY_MAX_BYTES = 24 * 1024 * 1024;
 
+// ===================================================
+// LE LECTEUR : REJOUER CE QUI S'EST PASSÉ AU TABLEAU
+// L'historique garde déjà deux cents états complets du tableau — c'est ce qui
+// permet d'annuler. Les rejouer dans l'ordre, c'est refaire la construction
+// sous les yeux de la classe : « regardez comment on est arrivés là ».
+//
+// Deux règles, et tout le reste en découle :
+//
+//   • LE LECTEUR NE TOUCHE À RIEN. Il n'écrit pas sur le disque, il n'ajoute
+//     pas d'étape à l'historique, et il rend le tableau exactement comme il
+//     l'a trouvé quand on le referme. On peut donc rejouer au milieu d'un
+//     cours sans rien perdre.
+//   • IL NE MONTRE QUE CETTE SÉANCE. L'historique vit en mémoire : fermer
+//     l'application le vide. On l'annonce plutôt que de le laisser découvrir.
+// ===================================================
+const LECTURE_CADENCES = [1400, 700, 350];   // lent, normal, rapide
+let lectureOuverte = false;
+let lectureIndex = 0;
+let lectureEnMarche = false;
+let lectureMinuteur = null;
+let lectureCadence = 1;
+let lectureRetour = null;      // l'état à retrouver en refermant
+
+function etapesDeLecture() { return history.length; }
+
+function poserEtapeDeLecture(i) {
+    if (!history.length) return;
+    lectureIndex = Math.max(0, Math.min(history.length - 1, Math.round(i)));
+    appliquerEtatDuTableau(history[lectureIndex], false);
+    majBandeDeLecture();
+}
+
+function ouvrirLeLecteur(ouvrir) {
+    const veut = (ouvrir === undefined) ? !lectureOuverte : !!ouvrir;
+    if (veut === lectureOuverte) return lectureOuverte;
+    if (veut) {
+        if (history.length < 2) {
+            if (typeof showToast === 'function') {
+                showToast('Rien à rejouer pour l\'instant : le lecteur montre ce qui a été fait depuis l\'ouverture');
+            }
+            return false;
+        }
+        // Ce qu'on est en train de faire, mis de côté : c'est là qu'on
+        // reviendra. Sans cela, rejouer effacerait le travail en cours.
+        lectureRetour = history[historyIndex] || history[history.length - 1];
+        lectureIndex = historyIndex;
+    } else {
+        arreterLaLecture();
+        if (lectureRetour) appliquerEtatDuTableau(lectureRetour, false);
+        lectureRetour = null;
+    }
+    lectureOuverte = veut;
+    const bande = document.getElementById('bande-lecture');
+    if (bande) {
+        // La bande se pose AU-DESSUS du tiroir du bas, dont la hauteur change
+        // selon qu'il est ouvert, replié, ou en mode Focus. Une valeur fixe le
+        // faisait tomber en travers des boutons.
+        if (lectureOuverte) {
+            const tiroir = document.getElementById('bottom-drawer');
+            const h = tiroir ? tiroir.getBoundingClientRect().height : 0;
+            const visible = tiroir && getComputedStyle(tiroir).display !== 'none' && h > 0;
+            bande.style.setProperty('--haut-du-tiroir', (visible ? Math.round(h) + 14 : 24) + 'px');
+        }
+        bande.classList.toggle('ouverte', lectureOuverte);
+    }
+    // Le tableau montre un état passé : il faut que cela se voie, sinon on
+    // croit avoir perdu son travail.
+    document.body.classList.toggle('en-lecture', lectureOuverte);
+    const bouton = document.getElementById('btn-lecture');
+    if (bouton) bouton.classList.toggle('actif', lectureOuverte);
+    majBandeDeLecture();
+    return lectureOuverte;
+}
+window.ouvrirLeLecteur = ouvrirLeLecteur;
+
+function arreterLaLecture() {
+    lectureEnMarche = false;
+    clearTimeout(lectureMinuteur);
+    lectureMinuteur = null;
+    majBandeDeLecture();
+}
+
+function avancerLaLecture() {
+    if (!lectureEnMarche) return;
+    if (lectureIndex >= history.length - 1) { arreterLaLecture(); return; }
+    poserEtapeDeLecture(lectureIndex + 1);
+    lectureMinuteur = setTimeout(avancerLaLecture, LECTURE_CADENCES[lectureCadence]);
+}
+
+function lireOuPause() {
+    if (!lectureOuverte) return false;
+    if (lectureEnMarche) { arreterLaLecture(); return false; }
+    // Arrivé au bout, on repart du début : sinon le bouton ne fait rien.
+    if (lectureIndex >= history.length - 1) poserEtapeDeLecture(0);
+    lectureEnMarche = true;
+    majBandeDeLecture();
+    lectureMinuteur = setTimeout(avancerLaLecture, LECTURE_CADENCES[lectureCadence]);
+    return true;
+}
+window.lireOuPause = lireOuPause;
+
+// UN PAS À LA FOIS, à la barre d'espace : c'est ainsi qu'on commente une
+// construction devant une classe, en s'arrêtant à chaque étape.
+function pasDeLecture(sens) {
+    if (!lectureOuverte) return false;
+    arreterLaLecture();
+    poserEtapeDeLecture(lectureIndex + sens);
+    return true;
+}
+window.pasDeLecture = pasDeLecture;
+
+function changerLaCadence() {
+    lectureCadence = (lectureCadence + 1) % LECTURE_CADENCES.length;
+    majBandeDeLecture();
+    return lectureCadence;
+}
+
+function majBandeDeLecture() {
+    const bande = document.getElementById('bande-lecture');
+    if (!bande) return;
+    const n = etapesDeLecture();
+    const curseur = document.getElementById('lecture-curseur');
+    if (curseur) {
+        curseur.max = Math.max(0, n - 1);
+        curseur.value = lectureIndex;
+        curseur.setAttribute('aria-valuetext', `étape ${lectureIndex + 1} sur ${n}`);
+    }
+    const compte = document.getElementById('lecture-compte');
+    if (compte) compte.textContent = `${lectureIndex + 1} / ${n}`;
+    const jouer = document.getElementById('lecture-jouer');
+    if (jouer) {
+        jouer.classList.toggle('en-marche', lectureEnMarche);
+        jouer.setAttribute('aria-label', lectureEnMarche ? 'Pause' : 'Lire');
+    }
+    const vitesse = document.getElementById('lecture-vitesse');
+    if (vitesse) vitesse.textContent = ['×0,5', '×1', '×2'][lectureCadence];
+}
+window.majBandeDeLecture = majBandeDeLecture;
+
+function brancherLeLecteur() {
+    const b = (id) => document.getElementById(id);
+    if (!b('bande-lecture')) return;
+    if (b('btn-lecture')) b('btn-lecture').addEventListener('click', () => ouvrirLeLecteur());
+    if (b('lecture-fermer')) b('lecture-fermer').addEventListener('click', () => ouvrirLeLecteur(false));
+    if (b('lecture-jouer')) b('lecture-jouer').addEventListener('click', () => lireOuPause());
+    if (b('lecture-prec')) b('lecture-prec').addEventListener('click', () => pasDeLecture(-1));
+    if (b('lecture-suiv')) b('lecture-suiv').addEventListener('click', () => pasDeLecture(1));
+    if (b('lecture-debut')) b('lecture-debut').addEventListener('click', () => { arreterLaLecture(); poserEtapeDeLecture(0); });
+    if (b('lecture-vitesse')) b('lecture-vitesse').addEventListener('click', changerLaCadence);
+    const curseur = b('lecture-curseur');
+    if (curseur) {
+        curseur.addEventListener('input', () => { arreterLaLecture(); poserEtapeDeLecture(parseInt(curseur.value, 10) || 0); });
+    }
+    majBandeDeLecture();
+}
+
 function trimHistory() {
     let bytes = 0;
     for (let i = 0; i < history.length; i++) bytes += history[i].length;
@@ -1648,29 +1804,34 @@ function restoreState(stateData) {
     if (typeof signalerImagesManquantes === 'function') setTimeout(signalerImagesManquantes, 400);
 }
 
+// POSER UN ÉTAT DU TABLEAU. Annuler, refaire et le lecteur font tous les trois
+// la même chose : reprendre un état de l'historique et le remettre en place.
+// Le lecteur, lui, ne doit RIEN écrire sur le disque — sinon fermer l'onglet au
+// milieu d'un replay enregistrerait le tableau tel qu'il était il y a dix
+// minutes, et le travail de l'heure serait perdu.
+function appliquerEtatDuTableau(brut, sauver) {
+    const state = (typeof brut === 'string') ? JSON.parse(brut) : brut;
+    points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
+    texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
+    polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
+    creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
+    if (sauver) saveAppLocal();
+    draw();
+    if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+}
+window.appliquerEtatDuTableau = appliquerEtatDuTableau;
+
 function undo() {
     if (historyIndex > 0) {
         historyIndex--;
-        const state = JSON.parse(history[historyIndex]);
-        points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
-        texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
-        creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
-        saveAppLocal(); draw();
-        if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+        appliquerEtatDuTableau(history[historyIndex], true);
     }
 }
 
 function redo() {
     if (historyIndex < history.length - 1) {
         historyIndex++;
-        const state = JSON.parse(history[historyIndex]);
-        points = state.points || []; segments = state.segments || []; circles = state.circles || []; rectangles = state.rectangles || [];
-        texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
-        polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
-        creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
-        saveAppLocal(); draw();
-        if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+        appliquerEtatDuTableau(history[historyIndex], true);
     }
 }
 
@@ -4140,6 +4301,15 @@ window.addEventListener('keydown', (e) => {
         if (e.key === 'z') { e.preventDefault(); undo(); }
         if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); }
         if ((e.key === 'd' || e.key === 'D') && selectedItems.length > 0) { e.preventDefault(); duplicateSelection(); }
+    }
+    // LE LECTEUR OUVERT, LA BARRE D'ESPACE AVANCE D'UNE ÉTAPE. C'est le geste
+    // qu'on veut devant une classe : on commente, on appuie, on commente. Elle
+    // ne reprend son office ordinaire — faire glisser le tableau — qu'une fois
+    // le lecteur refermé.
+    if (e.code === 'Space' && lectureOuverte) {
+        e.preventDefault();
+        pasDeLecture(e.shiftKey ? -1 : 1);
+        return;
     }
     if (e.code === 'Space') { e.preventDefault(); isSpacePressed = true; updateCursor(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItems.length > 0) {
@@ -23687,6 +23857,7 @@ const TEINTES_PAPIER = [
 
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
+    if (typeof brancherLeLecteur === 'function') brancherLeLecteur();
     if (typeof brancherLeVolet === 'function') brancherLeVolet();
 
     const btnRetrouver = document.getElementById('btn-retrouver-images');
