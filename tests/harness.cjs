@@ -241,4 +241,67 @@ function polyEnCases() {
     return Buffer.from(out, 'latin1');
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, fichePdf, polyDense, polyEnCases };
+// UN POLYCOPIÉ EN COULEUR — celui d'un collègue qui soigne ses fiches, et qui
+// a mis en défaut trois règles d'un coup :
+//
+//   • ses lignes à remplir sont tracées EN SAUMON, rgb(243,172,134). Elles sont
+//     claires : luminance 189. Le seuil hérité de PDF-fill ne comptait comme
+//     de l'encre que ce qui est plus sombre que 170, et la moitié des lignes de
+//     la page n'existait tout simplement pas.
+//   • ses cases de tableau ont un fond MAUVE PÂLE, rgb(209,196,233), dont la
+//     luminance est 204 : PLUS SOMBRE que le bord de la ligne saumon. Aucune
+//     coupure de luminance ne sépare les deux ; il faut regarder la saturation.
+//   • il SOULIGNE ses mots de vocabulaire, neuf points sous la ligne de base.
+//     Ces traits-là passaient pour des lignes à remplir.
+//
+// Et une ligne à remplir peut être courte : « un nombre de ___ chiffres ».
+function polyEnCouleur() {
+    const f = [];
+    // — colonne de gauche : les lignes à remplir, en saumon
+    f.push('0.953 0.675 0.525 RG 0.9 w');
+    ['3456 =', '12345 =', '100000 =', '1000 ='].forEach((t, i) => {
+        const y = 520 - i * 40;
+        f.push(`BT 0 0 0 rg /F1 11 Tf 40 ${y} Td (${t}) Tj ET`);
+        f.push(`90 ${y - 3} m 280 ${y - 3} l S`);
+    });
+    // une ligne COURTE : dix-huit points, une fois et demie la hauteur du texte
+    f.push('BT 0 0 0 rg /F1 11 Tf 40 340 Td (un nombre de) Tj ET');
+    f.push('110 337 m 128 337 l S');
+
+    // — colonne du milieu : des cases teintées, et un filet gris décoratif.
+    // Ni les unes ni l'autre ne sont des zones à remplir.
+    ['367,8', '987,123', '5 903'].forEach((t, i) => {
+        const y = 480 - i * 40;
+        f.push(`0.82 0.769 0.914 rg 340 ${y} 240 26 re f`);
+        f.push(`BT 0 0 0 rg /F1 11 Tf 350 ${y + 8} Td (${t}) Tj ET`);
+    });
+    f.push('0.82 0.82 0.82 RG 340 360 m 580 360 l S');
+
+    // — colonne de droite : un paragraphe serré, deux mots soulignés
+    f.push('0 0 0 rg 0 0 0 RG');
+    ['La tour Eiffel est une', 'tour de fer de trois cent', 'vingt-quatre metres de',
+     'hauteur construite pour', 'l Exposition universelle'].forEach((t, i) => {
+        f.push(`BT /F1 11 Tf 620 ${520 - i * 24} Td (${t}) Tj ET`);
+    });
+    f.push('620 487 m 760 487 l S');
+    f.push('620 439 m 780 439 l S');
+
+    const contenu = f.join('\n');
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+        `<< /Length ${contenu.length} >>\nstream\n${contenu}\nendstream`
+    ];
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, fichePdf, polyDense, polyEnCases, polyEnCouleur };

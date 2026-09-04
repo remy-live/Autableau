@@ -1,7 +1,7 @@
 // Naviguer dans un PDF posé sur le tableau : garder les pages rendues,
 // aller droit à un numéro, feuilleter au clavier et au doigt, l'encre qui
 // appartient à sa page, le volet des vignettes et la recherche dans le texte.
-const { creerRapport, ouvrirApp, petitPdf, fichePdf, polyDense, polyEnCases, tableauVierge } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, fichePdf, polyDense, polyEnCases, polyEnCouleur, tableauVierge } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Navigation dans les PDF');
@@ -1018,6 +1018,39 @@ module.exports = async function (browser) {
     // fines : sans la récusation par le texte, trois faux traits paraissaient
     // au-dessus des trois titres de colonne.
     r.egal('et aucun faux trait sur les titres de colonne', dense.haut, 0);
+
+    // UN POLYCOPIÉ EN COULEUR — le vrai, celui d'un collègue qui soigne ses
+    // fiches. Trois pièges d'un coup : des lignes SAUMON trop claires pour le
+    // seuil d'encre, des cases MAUVE PÂLE plus sombres que ces lignes-là, et
+    // des mots SOULIGNÉS qui passaient pour des lignes à remplir.
+    const couleur = await page.evaluate(async (b64) => {
+        const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
+        const z = await zonesDeLaPage({ doc }, 1);
+        return { n: z.length,
+                 // les cinq de la colonne de gauche, en saumon
+                 gauche: z.filter(u => u.x < 0.4).length,
+                 courtes: z.filter(u => u.l < 0.035).length,
+                 // rien au milieu (cases teintées, filet gris) ni à droite (soulignés)
+                 milieu: z.filter(u => u.x >= 0.38 && u.x < 0.7).length,
+                 droite: z.filter(u => u.x >= 0.7).length };
+    }, polyEnCouleur().toString('base64'));
+    // Luminance 189 : au-dessus du seuil d'encre hérité, donc invisibles. La
+    // page entière ne rendait que les zones tracées en noir.
+    r.egal('les lignes tracées en saumon sont trouvées', couleur.gauche, 5);
+    // Dix-huit points : une fois et demie la hauteur du texte. Le minimum en
+    // valait deux fois deux dixièmes et l'écartait.
+    r.egal('y compris la plus courte', couleur.courtes, 1);
+    // Mauve pâle rgb(209,196,233) : luminance 204, donc PLUS SOMBRE que le bord
+    // de la ligne saumon (210). Ce n'est pas la luminance qui les sépare, c'est
+    // la saturation — un trait imprimé est franc, un fond de case est délavé.
+    // Le filet gris décoratif tombe par la même règle.
+    r.egal('les cases teintées et le filet gris ne sont pas des zones', couleur.milieu, 0);
+    // Un souligné n'a que l'interligne au-dessus de lui : on ne peut pas y
+    // écrire, donc ce n'est pas une zone. C'est toute la règle.
+    r.egal('les mots soulignés ne sont pas des lignes à remplir', couleur.droite, 0);
+    r.egal('et rien de plus sur la page', couleur.n, 5);
 
     // Option éteinte : rien ne s'éclaire, rien ne se cherche.
     const eteint = await page.evaluate(() => {

@@ -10100,10 +10100,23 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     let data;
     try { data = g.getImageData(0, 0, w, h).data; } catch (e) { return []; }
 
+    // CE QUI COMPTE COMME DE L'ENCRE. Le seuil de PDF-fill — plus sombre que
+    // 170 — ne voit que le noir et le bleu foncé. Or un polycopié soigné trace
+    // ses lignes à remplir EN COULEUR : celles de mes essais sont saumon,
+    // rgb(243,172,134), donc claires (189), et la moitié des lignes d'une page
+    // passait à travers sans que rien ne le signale.
+    // Monter le seuil ne suffit pas : les cases teintées d'un tableau, un mauve
+    // pâle rgb(209,196,233), sont plus SOMBRES (204) que le bord de la ligne
+    // saumon (210). Aucune coupure de luminance ne les sépare.
+    // Ce qui les sépare, c'est la SATURATION : un trait imprimé en couleur est
+    // franc, un fond de case est délavé. On accepte donc, en plus du sombre,
+    // le clair franchement coloré.
     const encre = new Uint8Array(w * h);
     for (let i = 0, p = 0; p < encre.length; i += 4, p++) {
-        const lum = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
-        encre[p] = (data[i + 3] > 40 && lum < 170) ? 1 : 0;
+        const r = data[i], v = data[i + 1], bl = data[i + 2];
+        const lum = (r * 299 + v * 587 + bl * 114) / 1000;
+        const vif = Math.max(r, v, bl) - Math.min(r, v, bl);
+        encre[p] = (data[i + 3] > 40 && (lum < 170 || (lum < 228 && vif > 55))) ? 1 : 0;
     }
 
     // Cumul vertical par colonne : savoir en temps constant s'il y a de l'encre
@@ -10127,7 +10140,11 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     // courtes lignes à remplir d'un polycopié tombaient. La bonne mesure est
     // le texte lui-même — c'est lui qui dit la densité de la page.
     const TX = hauteurTexte > 2 ? hauteurTexte : Math.max(10, h * 0.014);
-    const LONG_MIN = Math.max(12, Math.round(TX * 2.2));   // longueur d'un vrai trait
+    // Une ligne à remplir peut être COURTE : « 9 607 est un nombre de ___
+    // chiffres » n'en demande pas plus. Deux hauteurs de texte écartaient tous
+    // ces trous-là ; une hauteur et demie suffit à écarter le bruit, d'autant
+    // que c'est la place libre au-dessus, plus bas, qui fait le tri.
+    const LONG_MIN = Math.max(12, Math.round(TX * 1.4));   // longueur d'un vrai trait
     const SUITE_MIN = Math.max(6, Math.round(w * 0.008));  // bord d'une case à cocher
     // Tolérance serrée : au-delà, les sommets des capitales d'un titre finissent
     // par se relier entre eux et passent pour un trait.
@@ -10219,11 +10236,28 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     // des jambages, et non les seuls alentours de la ligne de base : c'est le
     // HAUT des lettres d'un titre qui formait un faux trait, treize pixels
     // au-dessus de sa base.
-    const surDuTexte = (m) => (boitesTexte || []).some(t => {
-        if (m.y > t.base + TX * 0.35 || m.y < t.base - TX * 1.15) return false;
-        const commun = Math.min(t.x + t.l, m.x2) - Math.max(t.x, m.x1);
-        return commun > (m.x2 - m.x1) * 0.5;
-    });
+    // On mesure la RÉUNION des morceaux de texte, et non le meilleur d'entre
+    // eux : pdf.js découpe une ligne justifiée en une dizaine de morceaux, et
+    // sur la première ligne d'une colonne aucun ne couvrait à lui seul la
+    // moitié du trait — la ligne entière passait pour une zone à remplir.
+    const surDuTexte = (m) => {
+        const large = m.x2 - m.x1;
+        if (large <= 0) return false;
+        const bouts = [];
+        (boitesTexte || []).forEach(t => {
+            if (m.y > t.base + TX * 0.35 || m.y < t.base - TX * 1.15) return;
+            const a = Math.max(t.x, m.x1), b = Math.min(t.x + t.l, m.x2);
+            if (b > a) bouts.push([a, b]);
+        });
+        if (!bouts.length) return false;
+        bouts.sort((p, q) => p[0] - q[0]);
+        let couvert = 0, fin = -Infinity;
+        bouts.forEach(([a, b]) => {
+            if (a > fin) { couvert += b - a; fin = b; }
+            else if (b > fin) { couvert += b - fin; fin = b; }
+        });
+        return couvert > large * 0.5;
+    };
 
     const traits = [], cadres = [];
     fondus.slice(0, 400).forEach(m => {
@@ -10245,7 +10279,7 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     cadres.forEach((haut, i) => {
         if (prises.has(i)) return;
         const large = haut.x2 - haut.x1;
-        if (large < 12 || large > CADRE_MAX) return;   // en deçà, c'est le contre-jour d'une lettre
+        if (large < 12 || large > CADRE_MAX) return;
         const j = cadres.findIndex((b, k) => k > i && !prises.has(k)
             && Math.abs(b.x1 - haut.x1) <= 4 && Math.abs(b.x2 - haut.x2) <= 4
             && b.y - haut.y > Math.min(large * 0.4, 10)
@@ -10294,12 +10328,17 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
             monte++;
         }
         const hauteur = Math.max(8, monte);
-        // Une hauteur trop faible ne laisse pas de quoi écrire : c'est le cas
-        // d'un titre souligné, dont le texte occupe la place juste au-dessus.
-        // Les seuils sont en PROPORTIONS DE LA PAGE et non en pixels : ceux de
-        // PDF-fill valent pour la résolution de son canevas à lui, et un simple
-        // report aurait dit n'importe quoi ici.
-        if (hauteur < TX * 0.7 || (m.x2 - m.x1) < LONG_MIN) return;
+        // UNE ZONE OÙ L'ON ÉCRIT EST AU MOINS AUSSI HAUTE QU'UNE LIGNE DE TEXTE.
+        // C'est la règle, et elle se dit sans détour : si la place au-dessus du
+        // trait est plus basse que le texte de la page, on ne peut pas y écrire,
+        // donc ce n'est pas une zone à remplir.
+        // Elle range d'un coup les deux faux traits d'un polycopié : le MOT
+        // SOULIGNÉ, dont le trait n'a que les seize pixels de l'interligne
+        // au-dessus de lui, et la BORDURE DE TABLEAU, qui suit de treize pixels
+        // la ligne à remplir de la case. Les vraies zones de la page mesurée en
+        // avaient vingt-six au moins : entre les deux, un vide franc.
+        // Le seuil valait 0,7 hauteur de texte et tombait dans le mauvais camp.
+        if (hauteur < TX || (m.x2 - m.x1) < LONG_MIN) return;
         zones.push({ genre: 'ligne', x: m.x1, y: m.y - hauteur, l: m.x2 - m.x1, h: hauteur });
     });
 
