@@ -11620,9 +11620,30 @@ function majBarreDocument() {
     const entiere = document.getElementById('doc-entiere');
     if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
     if (typeof majLeVolet === 'function') majLeVolet();
+    majReglagesDuVolet();
     // Surtout PAS d'appel à updateStyleBarContext ici : c'est elle qui nous
     // appelle maintenant, et l'on tournerait en rond sans fin.
 }
+
+// Les reglages du volet disent leur etat comme les boutons de la barre le
+// faisaient : allume quand c'est actif, efface quand cela n'a pas de sens.
+function majReglagesDuVolet() {
+    const o = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    const bloc = document.getElementById('dv-reglages');
+    if (!bloc) return;
+    bloc.style.display = o ? 'flex' : 'none';
+    if (!o) return;
+    const allume = (id, etat) => {
+        const e = document.getElementById(id);
+        if (e) e.classList.toggle('actif', !!etat);
+    };
+    allume('dv-grille', !!o.sousLaGrille);
+    allume('dv-proportions', o.ratioLocked !== false);
+    allume('dv-rogner', !!o.isCropping);
+    const entiere = document.getElementById('dv-entiere');
+    if (entiere) entiere.style.display = (typeof documentEstRogne === 'function' && documentEstRogne(o)) ? 'flex' : 'none';
+}
+window.majReglagesDuVolet = majReglagesDuVolet;
 
 function brancherBarreDocument() {
     const b = (id) => document.getElementById(id);
@@ -11720,6 +11741,15 @@ function brancherBarreDocument() {
         basculerNumerotationDesZones();
     });
     b('doc-zones-fin').addEventListener('click', () => basculerEditionDesZones(false));
+
+    // LES REGLAGES DE PAGE, DANS LE VOLET. Ils commandent exactement les memes
+    // choses que les boutons qui ont quitte la barre : on relaie plutot que de
+    // reecrire, et il n'y a donc qu'un seul comportement a maintenir.
+    [['dv-rogner', 'doc-rogner'], ['dv-entiere', 'doc-entiere'],
+     ['dv-proportions', 'doc-proportions'], ['dv-grille', 'doc-grille']].forEach(([relais, vrai]) => {
+        const r = b(relais), v = b(vrai);
+        if (r && v) r.addEventListener('click', () => { v.click(); majReglagesDuVolet(); });
+    });
 
     b('doc-grille').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;

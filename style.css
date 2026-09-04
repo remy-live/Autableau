@@ -8221,3 +8221,74 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     background: #1e272e;
     border-color: #3d4852;
 }
+
+/* ============================================================
+   LA BARRE DU DOCUMENT, RÉDUITE À CE QU'ON UTILISE
+   Dix-sept commandes s'y trouvaient en même temps, sans un mot pour les
+   nommer, pour un document dont on ne touche que quatre choses en cours : les
+   pages, l'outil, ce qu'un glissement déplace, et les zones à remplir. Le
+   reste — quadrillage, proportions, rognage, presse-papiers, couleur, plans —
+   a rejoint le volet du document, où il porte enfin son nom.
+   Le « !important » est indispensable : ces boutons portent un display posé
+   en ligne par le script.
+   ============================================================ */
+/* Le quadrillage part dans TOUS les cas : c'est un réglage de page, pas un
+   outil d'écriture, et il n'a pas plus sa place ici quand on annote. */
+#bar-style.ctx-document #doc-grille,
+#bar-style.ctx-document #doc-sep,
+#bar-style.ctx-document:not(.annote) #doc-proportions,
+#bar-style.ctx-document:not(.annote) #doc-rogner,
+#bar-style.ctx-document:not(.annote) #doc-entiere,
+#bar-style.ctx-document:not(.annote) #btn-color-popover,
+#bar-style.ctx-document:not(.annote) .group-zindex,
+#bar-style.ctx-document:not(.annote) .group-edition,
+/* Le séparateur qui suivait la pastille de couleur restait seul en bout de
+   barre : les gardes génériques ne l'attrapent pas, puisque les groupes
+   masqués comptent encore comme des frères. */
+#bar-style.ctx-document:not(.annote) #btn-color-popover + .divider { display: none !important; }
+
+/* Cadre et Page deviennent un simple interrupteur à deux icônes : leur nom
+   tenait plus de place que le réglage lui-même, et l'infobulle le dit. */
+#bar-style .doc-mode { padding: 5px 7px; }
+
+/* --- Les réglages de page, dans le volet --- */
+#dv-reglages {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px 10px;
+    border-bottom: 1px solid var(--border, #dfe6e9);
+}
+
+.dv-titre {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #97a3a6;
+    padding: 2px 2px 6px;
+}
+
+.dv-reglage {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #2d3436;
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dv-reglage:hover { background: #eef2ff; }
+.dv-reglage.actif { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
+.dv-reglage svg { flex: 0 0 auto; }
+
+.dark-mode .dv-reglage { color: #dfe6e9; }
+.dark-mode .dv-reglage:hover { background: #2f3941; }
+.dark-mode .dv-titre { color: #7f8c8d; }

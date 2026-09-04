@@ -726,7 +726,11 @@ module.exports = async function (browser) {
         const o = images[0];
         selectedItems = [{ type: 'image', id: o.id }];
         updateQuickMenu();
-        const bouton = document.getElementById('doc-entiere');
+        // Le bouton a rejoint le VOLET du document : la barre ne garde que
+        // les pages, l'outil, ce qu'un glissement déplace et les zones. Il y
+        // porte son nom en toutes lettres, ce que l'icône seule ne faisait pas.
+        if (typeof majReglagesDuVolet === 'function') majReglagesDuVolet();
+        const bouton = document.getElementById('dv-entiere');
         const propose = getComputedStyle(bouton).display !== 'none';
         const largeurAvant = o.w;
         bouton.click();
@@ -737,10 +741,11 @@ module.exports = async function (browser) {
             entier: o.cx === 0 && o.cy === 0 && o.cw === nat.naturalWidth && o.ch === nat.naturalHeight,
             cadreGarde: Math.abs(o.w - largeurAvant) < 0.5,
             proportion: Math.abs(o.w / o.h - nat.naturalWidth / nat.naturalHeight) < 0.02,
-            seRetire: getComputedStyle(document.getElementById('doc-entiere')).display === 'none'
+            seRetire: (majReglagesDuVolet(), getComputedStyle(document.getElementById('dv-entiere')).display === 'none')
         };
     });
-    r.verifie('« page entière » est proposé quand le document est rogné', retourEntier.propose, JSON.stringify(retourEntier));
+    r.verifie('« page entière » est proposé dans le volet quand le document est rogné',
+        retourEntier.propose, JSON.stringify(retourEntier));
     r.verifie('il remet toute la page dans le cadre', retourEntier.entier, JSON.stringify(retourEntier));
     r.verifie('en gardant la place prise sur le tableau', retourEntier.cadreGarde, JSON.stringify(retourEntier));
     r.verifie('et sans déformer la page', retourEntier.proportion, JSON.stringify(retourEntier));
@@ -1072,9 +1077,29 @@ module.exports = async function (browser) {
     r.verifie('un texte : elle montre ceux du texte, et pas ceux du document',
         contextes.surTexte.visible && contextes.surTexte.texte && !contextes.surTexte.document,
         JSON.stringify(contextes.surTexte));
-    r.verifie('le rognage non plus',
-        contextes.surImage.rogner && !contextes.surTexte.rogner,
-        JSON.stringify(contextes));
+    // LE ROGNAGE A QUITTÉ LA BARRE pour le volet du document : dix-sept
+    // commandes s'y trouvaient en même temps, pour un document dont on ne
+    // touche que quatre choses en cours. Il reste atteignable, et il y porte
+    // enfin son nom.
+    r.egal('le rognage n\'encombre plus la barre', contextes.surImage.rogner, false);
+    const rangement = await page.evaluate(() => {
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        majReglagesDuVolet();
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return !!(e && getComputedStyle(e).display !== 'none');
+        };
+        const nomme = (id) => (document.getElementById(id) || {}).textContent || '';
+        return { bloc: vu('dv-reglages'), rogner: vu('dv-rogner'),
+                 proportions: vu('dv-proportions'), grille: vu('dv-grille'),
+                 motRogner: nomme('dv-rogner').trim() };
+    });
+    r.egal('mais il est dans le volet, avec les autres réglages de page',
+        { bloc: rangement.bloc, rogner: rangement.rogner,
+          proportions: rangement.proportions, grille: rangement.grille },
+        { bloc: true, rogner: true, proportions: true, grille: true });
+    r.egal('et il y porte son nom', rangement.motRogner, 'Rogner la page');
 
     // L'ORDRE DE GAUCHE À DROITE, c'est lui qui fait la cohérence : l'objet,
     // son apparence, sa place dans la pile, le presse-papiers, le cadenas, et
@@ -1084,14 +1109,19 @@ module.exports = async function (browser) {
         updateStyleBarContext();
         const x = (id) => {
             const e = document.getElementById(id);
-            return e && e.offsetParent ? e.getBoundingClientRect().left : null;
+            return e && e.getClientRects().length ? e.getBoundingClientRect().left : null;
         };
-        return { rogner: x('doc-rogner'), couleur: x('btn-color-popover'),
-                 plans: x('btn-z-up'), copier: x('btn-copier'),
-                 copier2: x('btn-copier') };
+        // Sur une IMAGE ordinaire, ni pages ni zones : elles n'ont de sens que
+        // sur un PDF. Il reste « Cadre / Page », qui dit ce qu'un glissement
+        // déplace, et c'est tout ce que la barre doit porter ici.
+        return { cadre: x('doc-mode-cadre'), page: x('doc-mode-page'),
+                 // ce qui a quitté la barre pour le volet
+                 partis: ['doc-rogner', 'doc-proportions', 'doc-grille', 'btn-color-popover',
+                          'btn-z-up', 'btn-copier'].filter(id => x(id) !== null) };
     });
-    const suite = ['rogner', 'couleur', 'plans', 'copier'].map(k => ordre[k]);
-    r.verifie('l\'ordre va de l\'objet à son apparence puis à ses plans, sans revenir en arrière',
+    const suite = ['cadre', 'page'].map(k => ordre[k]);
+    r.egal('rien de ce qui a rejoint le volet ne traîne encore dans la barre', ordre.partis, []);
+    r.verifie('sur une image, la barre ne garde que « Cadre / Page », dans cet ordre',
         suite.every((v, i) => v !== null && (i === 0 || v > suite[i - 1])),
         JSON.stringify(ordre));
     r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',

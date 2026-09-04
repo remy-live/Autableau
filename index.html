@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=79">
+    <link rel="stylesheet" href="style.css?v=80">
 </head>
 
 <body>
@@ -232,6 +232,38 @@
             <button id="dv-fermer" data-tooltip="Fermer le volet">✕</button>
         </div>
         <input type="search" id="dv-chercher" placeholder="Chercher dans le document…">
+        <!-- LES REGLAGES DE LA PAGE VIVENT ICI, et non plus dans la barre.
+             Ils s'y trouvaient tous en meme temps, sans un mot pour les
+             nommer : dix-sept commandes pour un document, dont on n'en touche
+             que quatre en cours. Ici ils ont leur nom, et la barre respire. -->
+        <div id="dv-reglages">
+            <div class="dv-titre">Réglages de la page</div>
+            <button class="dv-reglage" id="dv-rogner">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round">
+                    <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+                    <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+                </svg><span>Rogner la page</span></button>
+            <button class="dv-reglage" id="dv-entiere">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
+                </svg><span>Montrer la page entière</span></button>
+            <button class="dv-reglage" id="dv-proportions">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="5.5" width="18" height="13" rx="2" />
+                    <path d="M8.5 15.5l7-5" />
+                    <path d="M12.6 10.5h2.9v2.9" /><path d="M11.4 15.5H8.5v-2.9" />
+                </svg><span>Garder les proportions</span></button>
+            <button class="dv-reglage" id="dv-grille">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M2 8h20M2 16h20M8 2v20M16 2v20" opacity="0.55" />
+                    <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" fill-opacity="0.18"
+                        stroke-width="1.8" />
+                </svg><span>Passer sous le quadrillage</span></button>
+        </div>
         <div id="dv-etat"></div>
         <div id="dv-liste"></div>
     </div>
@@ -1787,13 +1819,13 @@
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="4" y="5" width="16" height="14" rx="2" />
                 <path d="M20 9h2M20 15h2M2 9h2M2 15h2" stroke-linecap="round" />
-            </svg><span>Cadre</span></button>
+            </svg></button>
         <button class="doc-btn doc-mode" id="doc-mode-page" title="Faire coulisser et zoomer la page dans le cadre">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M12 8.5v7M8.5 12h7" />
-            </svg><span>Page</span></button>
+            </svg></button>
         </span>
         <i class="doc-sep" id="doc-modes-sep"></i>
         <!-- Sur un document en plein écran, les barres d'outils sont effacées :
@@ -2165,7 +2197,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=156"></script>
+    <script src="script.js?v=157"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
