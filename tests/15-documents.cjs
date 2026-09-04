@@ -355,15 +355,18 @@ module.exports = async function (browser) {
     const barre = await page.evaluate(() => {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateQuickMenu();
-        const b = document.getElementById('barre-document');
+        const b = document.getElementById('bar-style');
         return {
             visible: b.classList.contains('visible'),
             info: document.getElementById('doc-page-num').value + '/' + images[0].pluginData.pages,
             menuRange: document.getElementById('quick-edit-menu').classList.contains('visible'),
-            sousLeCadre: parseFloat(b.style.top) > panY + images[0].y * zoom
+            // Fixe, en haut : elle ne suit plus l'objet. C'est le parti pris de
+            // Canva — un seul endroit à apprendre, quel que soit l'objet.
+            enHaut: b.getBoundingClientRect().top < window.innerHeight / 3
         };
     });
-    r.verifie('la barre du document apparaît sous le cadre', barre.visible && barre.sousLeCadre, JSON.stringify(barre));
+    r.verifie('la barre montre le document, à sa place fixe en haut',
+        barre.visible && barre.enHaut, JSON.stringify(barre));
     r.egal('elle affiche la page courante sur le total', barre.info, '2/3');
     r.verifie('et le menu rapide ordinaire s\'efface', !barre.menuRange, JSON.stringify(barre));
 
@@ -414,7 +417,7 @@ module.exports = async function (browser) {
     r.verifie('sans jamais sortir de l\'image', molette.dansLimage, JSON.stringify(molette));
 
     const reglages = await page.evaluate(() => {
-        const opa = document.getElementById('doc-opacite');
+        const opa = document.getElementById('stamp-opacity');
         opa.value = '0.4';
         opa.dispatchEvent(new Event('input', { bubbles: true }));
         const apresOpacite = images[0].opacity;
@@ -423,9 +426,9 @@ module.exports = async function (browser) {
         const sous = { actif: images[0].sousLaGrille, allume: document.getElementById('doc-grille').classList.contains('actif') };
         document.getElementById('doc-grille').click();
 
-        document.getElementById('doc-verrou').click();
-        const verrou = { actif: images[0].locked, allume: document.getElementById('doc-verrou').classList.contains('actif') };
-        document.getElementById('doc-verrou').click();
+        document.getElementById('btn-lock').click();
+        const verrou = { actif: images[0].locked, allume: document.getElementById('btn-lock').classList.contains('active') };
+        document.getElementById('btn-lock').click();
         return { apresOpacite, sous, verrou, remisAPlat: !images[0].locked };
     });
     r.egal('le curseur règle l\'opacité du document', reglages.apresOpacite, 0.4);
@@ -459,7 +462,7 @@ module.exports = async function (browser) {
         return {
             images: images.length,
             oublie: !documentsPdf.has(cle),
-            barre: document.getElementById('barre-document').classList.contains('visible')
+            barre: document.getElementById('bar-style').classList.contains('ctx-document')
         };
     });
     r.egal('✕ retire le document du tableau', ferme.images, 0);
@@ -472,11 +475,11 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
         updateQuickMenu();
         return {
-            barre: document.getElementById('barre-document').classList.contains('visible'),
+            barre: document.getElementById('bar-style').classList.contains('ctx-document'),
             fleches: document.getElementById('doc-pages').style.display,
             proportions: !!document.getElementById('doc-proportions'),
             rogner: !!document.getElementById('doc-rogner'),
-            dupliquer: !!document.getElementById('doc-dupliquer'),
+            dupliquer: !!document.getElementById('btn-dupliquer'),
             fermer: document.getElementById('doc-fermer').title
         };
     });
@@ -496,7 +499,7 @@ module.exports = async function (browser) {
         const rogne = { actif: !!o.isCropping, libre: o.ratioLocked === false };
         document.getElementById('doc-rogner').click();
         const avant = images.length;
-        document.getElementById('doc-dupliquer').click();
+        document.getElementById('btn-dupliquer').click();
         return { sansRatio, rogne, copie: images.length - avant };
     });
     r.verifie('la chaîne des proportions se décroche et se voit', repris.sansRatio, JSON.stringify(repris));
@@ -690,117 +693,32 @@ module.exports = async function (browser) {
     r.verifie('une image importée les garde', modesDoc.image !== 'none', modesDoc.image);
     r.verifie('un PDF aussi', modesDoc.pdf !== 'none', modesDoc.pdf);
 
-    // --- LA BARRE DU DOCUMENT SE REPLIE ET SE DÉPLACE ---
-    // Un PDF qui remplit l'écran passe SOUS la barre : le bas de la page
-    // devenait illisible. On la range, ou on la met ailleurs.
-    const barreDoc = await page.evaluate(() => {
-        localStorage.removeItem('auTableau_barre_document');
-        barreDocPosee = null; barreDocRepliee = false;
-        [points, segments, circles, rectangles, texts, freehands, curves,
-          polygons, images, arcs].forEach(t => { t.length = 0; });
-        panX = 0; panY = 0; zoom = 1;
-        const c = document.getElementById('board');
-        // Un document qui occupe tout l'écran : le cas qui pose problème
-        images.push({ id: nextId++, x: 0, y: 0, w: c.clientWidth, h: c.clientHeight,
-            cx: 0, cy: 0, cw: 800, ch: 1100, src: '', z: globalZ++,
-            pluginData: { id: 'pdfDoc', cle: 'z', page: 1, pages: 3 } });
-        // setMode vide la sélection : on choisit APRÈS, sinon la barre n'a
-        // aucun document à accompagner.
-        setMode('pointer');
-        selectedItems = [{ type: 'image', id: images[0].id }];
-        majBarreDocument();
-        const barre = document.getElementById('barre-document');
-        const r = barre.getBoundingClientRect();
-        const doc = images[0];
+    // --- UNE SEULE BARRE, TOUJOURS À LA MÊME PLACE ---
+    // La barre du document a fusionné avec la barre de style : ses commandes
+    // sont devenues un contexte de la barre unique. Le déplacement, le repli en
+    // pastille et le bouton « ⋯ » sont partis avec — une barre qui ne bouge pas
+    // n'a besoin d'aucun des trois.
+    const fusion = await page.evaluate(() => {
         return {
-            visible: barre.classList.contains('visible'),
-            // Elle mord bien sur le bas du document : c'est le problème
-            recouvreLeBas: r.bottom > (doc.y + doc.h) * zoom + panY - 60,
-            aUnePrise: !!document.getElementById('doc-prise'),
-            aUnBoutonReplier: !!document.getElementById('doc-replier')
+            deuxiemeBarre: !!document.getElementById('barre-document'),
+            pastille: !!document.getElementById('doc-pastille'),
+            prise: !!document.getElementById('doc-prise'),
+            plus: !!document.getElementById('doc-plus'),
+            replier: !!document.getElementById('doc-replier'),
+            // Les commandes, elles, sont toutes là — dans la barre de style
+            dansLaBarre: ['doc-mode-cadre', 'doc-mode-page', 'doc-rogner',
+                          'doc-fermer', 'doc-prec', 'doc-suiv']
+                .every(id => {
+                    const e = document.getElementById(id);
+                    return e && e.closest('#bar-style');
+                })
         };
     });
-    r.verifie('la barre s\'affiche sous le document', barreDoc.visible);
-    r.verifie('et elle mord sur le bas de la page quand le document remplit l\'écran',
-        barreDoc.recouvreLeBas, JSON.stringify(barreDoc));
-    r.verifie('elle porte une poignée', barreDoc.aUnePrise);
-    r.verifie('et un bouton pour la replier', barreDoc.aUnBoutonReplier);
-
-    const repli = await page.evaluate(() => {
-        document.getElementById('doc-replier').click();
-        const barre = document.getElementById('barre-document');
-        const pastille = document.getElementById('doc-pastille');
-        const apresRepli = { barre: barre.classList.contains('visible'),
-                             pastille: pastille.classList.contains('visible'),
-                             memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}') };
-        pastille.click();
-        return { apresRepli, rouverte: barre.classList.contains('visible'),
-                 pastilleRangee: !pastille.classList.contains('visible') };
-    });
-    r.verifie('repliée, il ne reste qu\'une pastille',
-        !repli.apresRepli.barre && repli.apresRepli.pastille, JSON.stringify(repli.apresRepli));
-    r.verifie('le repli est retenu d\'une séance à l\'autre', repli.apresRepli.memoire.repliee === true,
-        JSON.stringify(repli.apresRepli.memoire));
-    r.verifie('la pastille la rouvre', repli.rouverte && repli.pastilleRangee, JSON.stringify(repli));
-
-    // On la déplace par sa poignée. On ne présume pas d'où elle part : on
-    // relève sa place, on tire d'une distance connue vers l'espace libre, et
-    // l'on vérifie qu'elle a suivi d'autant.
-    const depart = await page.evaluate(() => {
-        const barre = document.getElementById('barre-document');
-        const b = document.getElementById('doc-prise').getBoundingClientRect();
-        const r = barre.getBoundingClientRect();
-        const place = window.innerHeight - r.bottom;
-        const delta = place > 200 ? 160 : -160;      // vers où il y a de la place
-        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2),
-                 haut: Math.round(r.top), delta };
-    });
-    await page.mouse.move(depart.x, depart.y);
-    await page.mouse.down();
-    await page.mouse.move(depart.x, depart.y + depart.delta, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-    const deplacee = await page.evaluate(() => {
-        const r = document.getElementById('barre-document').getBoundingClientRect();
-        return { haut: Math.round(r.top), pose: barreDocPosee && Math.round(barreDocPosee.y),
-                 memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}'),
-                 dansEcran: r.top >= 0 && r.bottom <= window.innerHeight + 1
-                     && r.left >= 0 && r.right <= window.innerWidth + 1 };
-    });
-    r.verifie('la poignée la déplace, d\'autant qu\'on a tiré',
-        deplacee.pose !== null && Math.abs(deplacee.haut - (depart.haut + depart.delta)) <= 12,
-        JSON.stringify({ depart, deplacee }));
-    r.verifie('sans jamais la laisser sortir de l\'écran', deplacee.dansEcran, JSON.stringify(deplacee));
-    r.verifie('et la position retenue est elle aussi dans l\'écran',
-        deplacee.memoire.pos && deplacee.memoire.pos.y >= 0
-        && deplacee.memoire.pos.y <= 800, JSON.stringify(deplacee.memoire));
-
-    // Le document bouge : la barre déplacée ne court plus après lui
-    const fidele = await page.evaluate(() => {
-        const avant = document.getElementById('barre-document').getBoundingClientRect().top;
-        panY -= 120; majBarreDocument();
-        const apres = document.getElementById('barre-document').getBoundingClientRect().top;
-        panY += 120; majBarreDocument();
-        return { avant: Math.round(avant), apres: Math.round(apres) };
-    });
-    r.egal('déplacée, elle reste où on l\'a mise', fidele.apres, fidele.avant);
-
-    // Le double-clic sur la poignée la remet sous le document
-    const priseApres = await page.evaluate(() => {
-        const b = document.getElementById('doc-prise').getBoundingClientRect();
-        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
-    });
-    await page.mouse.dblclick(priseApres.x, priseApres.y);
-    await page.waitForTimeout(250);
-    const remise = await page.evaluate(() => ({
-        pose: barreDocPosee,
-        haut: Math.round(document.getElementById('barre-document').getBoundingClientRect().top),
-        memoire: JSON.parse(localStorage.getItem('auTableau_barre_document') || '{}')
-    }));
-    r.egal('le double-clic sur la poignée défait le déplacement', remise.pose, null);
-    r.egal('elle retrouve la place que le document lui donne', remise.haut, depart.haut);
-    r.verifie('et l\'oubli du déplacement est retenu', remise.memoire.pos === null,
-        JSON.stringify(remise.memoire));
+    r.verifie('il n\'y a plus de seconde barre',
+        !fusion.deuxiemeBarre && !fusion.pastille && !fusion.prise && !fusion.plus && !fusion.replier,
+        JSON.stringify(fusion));
+    r.verifie('et toutes ses commandes vivent dans la barre de style',
+        fusion.dansLaBarre, JSON.stringify(fusion));
 
     // --- ÉCRIRE ET DESSINER SUR LE DOCUMENT EN PLEIN ÉCRAN ---
     // En Focus toutes les barres d'outils sont effacées : sans de quoi écrire
@@ -846,14 +764,17 @@ module.exports = async function (browser) {
     // et continuer de parler du document qu'on annote.
     const auCrayon = await page.evaluate(() => {
         document.getElementById('doc-outil-crayon').click();
-        const barre = document.getElementById('barre-document');
+        const barre = document.getElementById('bar-style');
         return {
             mode,
             selection: selectedItems.length,
             barreVisible: barre.classList.contains('visible'),
             crayonActif: document.getElementById('doc-outil-crayon').classList.contains('actif'),
             cadre: getComputedStyle(document.getElementById('doc-modes')).display,
-            dupliquer: getComputedStyle(document.getElementById('doc-dupliquer')).display,
+            // On mesure ce qui se VOIT, pas le display du bouton : c'est son
+            // groupe qui se retire, et un enfant de boîte masquée garde son
+            // propre « display: flex ».
+            dupliquer: document.getElementById('btn-dupliquer').offsetParent === null ? 'none' : 'flex',
             rogner: getComputedStyle(document.getElementById('doc-rogner')).display
         };
     });
@@ -879,7 +800,7 @@ module.exports = async function (browser) {
     await page.waitForTimeout(150);
     const apresTrait = await page.evaluate(() => ({
         traits: freehands.length,
-        barreVisible: document.getElementById('barre-document').classList.contains('visible'),
+        barreVisible: document.getElementById('bar-style').classList.contains('ctx-document'),
         docRetenu: docEnAnnotation !== null
     }));
     r.egal('on écrit bien sur le document', apresTrait.traits, 1);
@@ -888,7 +809,7 @@ module.exports = async function (browser) {
 
     // Ce qui reste dans la barre agit toujours sur la page qu'on annote
     const agitEncore = await page.evaluate(() => {
-        const o = document.getElementById('doc-opacite');
+        const o = document.getElementById('stamp-opacity');
         o.value = '0.5';
         o.dispatchEvent(new Event('input', { bubbles: true }));
         document.getElementById('doc-grille').click();
@@ -913,7 +834,7 @@ module.exports = async function (browser) {
         document.getElementById('doc-outil-texte').click();
         return {
             mode,
-            barreVisible: document.getElementById('barre-document').classList.contains('visible'),
+            barreVisible: document.getElementById('bar-style').classList.contains('ctx-document'),
             texteActif: document.getElementById('doc-outil-texte').classList.contains('actif')
         };
     });
@@ -943,7 +864,7 @@ module.exports = async function (browser) {
         return {
             docRetenu: docEnAnnotation,
             groupe: getComputedStyle(document.getElementById('doc-annoter')).display,
-            barreVisible: document.getElementById('barre-document').classList.contains('visible')
+            barreVisible: document.getElementById('bar-style').classList.contains('ctx-document')
         };
     });
     r.egal('en quittant le Focus, la page annotée est oubliée', sortie.docRetenu, null);
@@ -988,130 +909,96 @@ module.exports = async function (browser) {
     r.egal('une image importée garde « Cadre / Page »', modesSelonLObjet.image, 'contents');
     r.egal('une pièce de jeu ne les propose pas', modesSelonLObjet.piece, 'none');
 
-    // --- LA BARRE SE POSE SOUS L'OBJET, ET DESSUS S'IL EST TROP BAS ---
-    const place = await page.evaluate(() => {
-        const barre = document.getElementById('barre-document');
-        const mesure = (y) => {
-            images[0].y = y;
-            selectedItems = [{ type: 'image', id: images[0].id }];
-            majBarreDocument();
-            const b = barre.getBoundingClientRect();
-            const o = { haut: panY + images[0].y * zoom,
-                        bas: panY + (images[0].y + images[0].h) * zoom };
-            return { barreHaut: Math.round(b.top), barreBas: Math.round(b.bottom),
-                     objHaut: Math.round(o.haut), objBas: Math.round(o.bas),
-                     dansEcran: b.top >= 0 && b.bottom <= window.innerHeight + 1 };
-        };
-        barreDocPosee = null;
-        // Objet haut placé : la barre doit être SOUS lui.
-        const dessous = mesure(120);
-        // Objet collé au bas de l'écran : elle doit remonter AU-DESSUS.
-        const dessus = mesure((window.innerHeight - panY) / zoom - 70);
-        return { dessous, dessus, ecran: window.innerHeight };
-    });
-    r.verifie('la barre se pose sous l\'objet',
-        place.dessous.barreHaut > place.dessous.objBas
-        && place.dessous.barreHaut - place.dessous.objBas < 40,
-        JSON.stringify(place.dessous));
-    r.verifie('et passe au-dessus quand l\'objet est trop bas',
-        place.dessus.barreBas < place.dessus.objHaut && place.dessus.dansEcran,
-        JSON.stringify(place.dessus));
+    // La barre ne suit plus l'objet : elle est FIXE, en haut. Un seul endroit
+    // à apprendre — c'est la logique de Canva. Le test qui vérifiait qu'elle se
+    // posait sous l'objet, et remontait au-dessus quand il était trop bas, n'a
+    // plus d'objet : il est remplacé par celui de la place fixe, plus haut.
 
-    // --- UNE SEULE BARRE À LA FOIS ---
-    // La barre de style restait affichée en haut pendant que celle du document
-    // parlait du même objet, avec trois réglages en double : verrou, dupliquer,
-    // opacité. Elle se tait maintenant, et le bouton « ⋯ » la rappelle SOUS
-    // l'autre — la barre du bas ne gagne qu'un bouton, pas six.
-    const uneSeule = await page.evaluate(async () => {
+    // --- UNE SEULE BARRE, UN SEUL ENDROIT, UN CONTENU QUI CHANGE ---
+    // C'est la logique de Canva : l'œil apprend UNE place, et c'est le contenu
+    // qui suit la sélection. La barre ne doit donc pas bouger d'un objet à
+    // l'autre — c'est là-dessus que porte la dernière vérification.
+    const contextes = await page.evaluate(async () => {
         if (document.body.classList.contains('focus-mode')) toggleFocusMode();
         setMode('pointer');
         images.length = 0; texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
         const carre = 'data:image/svg+xml;base64,' + btoa(
             '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90">'
             + '<rect width="120" height="90" fill="#69c"/></svg>');
-        for (const y of [120, 260]) {
-            await new Promise(res => {
-                const i = new Image();
-                i.onload = () => {
-                    imageCache[i.src] = i;
-                    images.push({ id: nextId++, x: 200, y, w: 120, h: 90,
-                                  cx: 0, cy: 0, cw: 120, ch: 90, src: i.src, z: globalZ++ });
-                    res();
-                };
-                i.src = carre;
-            });
-        }
-        const style = document.getElementById('bar-style');
-        const doc = document.getElementById('barre-document');
-        const etat = () => ({
-            style: style.classList.contains('visible'),
-            doc: doc.classList.contains('visible'),
-            actif: document.getElementById('doc-plus').classList.contains('actif')
+        await new Promise(res => {
+            const i2 = new Image();
+            i2.onload = () => {
+                imageCache[i2.src] = i2;
+                images.push({ id: nextId++, x: 200, y: 420, w: 120, h: 90,
+                              cx: 0, cy: 0, cw: 120, ch: 90, src: i2.src, z: globalZ++ });
+                res();
+            };
+            i2.src = carre;
         });
-        const choisir = (n) => {
-            selectedItems = [{ type: 'image', id: images[n].id }];
-            updateStyleBarContext(); majBarreDocument();
+        texts.push({ id: nextId++, x: 400, y: 200, content: 'essai', size: 24, color: '#000', z: globalZ++ });
+
+        const barre = document.getElementById('bar-style');
+        const etat = (n) => {
+            const r = barre.getBoundingClientRect();
+            const vu = (id) => document.getElementById(id).offsetParent !== null;
+            return { nom: n, visible: barre.classList.contains('visible'),
+                     document: barre.classList.contains('ctx-document'),
+                     texte: barre.classList.contains('ctx-text'),
+                     // L'ordre de gauche à droite, et ce qui se voit vraiment
+                     fermer: vu('doc-fermer'), rogner: vu('doc-rogner'),
+                     x: Math.round((r.left + r.right) / 2), y: Math.round(r.top) };
         };
-
-        choisir(0);
-        const seule = etat();
-        document.getElementById('doc-plus').click();
-        const ouvert = etat();
-        const b = style.getBoundingClientRect(), d = doc.getBoundingClientRect();
-        // Un MENU, pas une seconde barre : étroit, accroché au « ⋯ » qui l'a
-        // appelé, et juste au-dessus ou au-dessous de la barre du document.
-        // Affiché sur toute la longueur, il faisait deux barres empilées —
-        // exactement ce qu'on venait de supprimer.
-        const bouton = document.getElementById('doc-plus').getBoundingClientRect();
-        const place = {
-            enMenu: style.classList.contains('en-menu'),
-            large: Math.round(b.width),
-            plusLargeQueLaBarre: b.width > d.width,
-            surLeBouton: Math.round(Math.abs(b.right - bouton.right)),
-            ecart: Math.round(b.top > d.top ? b.top - d.bottom : d.top - b.bottom),
-            dansEcran: b.top >= 0 && b.bottom <= window.innerHeight + 1
-                && b.left >= 0 && b.right <= window.innerWidth + 1
-        };
-        document.getElementById('doc-plus').click();
-        const referme = etat();
-
-        // Rouvert, puis on change d'objet : le panneau parlerait de l'ancien.
-        document.getElementById('doc-plus').click();
-        choisir(1);
-        const autreObjet = etat();
-
-        // Un TEXTE n'a pas de barre de document : la barre de style garde son rôle.
-        texts.push({ id: nextId++, x: 400, y: 400, content: 'essai', size: 24, color: '#000', z: globalZ++ });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const surImage = etat('image');
         selectedItems = [{ type: 'text', id: texts[0].id }];
-        updateStyleBarContext(); majBarreDocument();
-        const surUnTexte = etat();
-
-        // Rien de sélectionné, un crayon en main : elle règle l'outil, comme avant.
-        selectedItems = []; setMode('freehand'); updateStyleBarContext(); majBarreDocument();
-        const outilEnMain = etat();
+        updateStyleBarContext();
+        const surTexte = etat('texte');
+        selectedItems = []; setMode('freehand'); updateStyleBarContext();
+        const outilEnMain = etat('outil');
         setMode('pointer');
-        return { seule, ouvert, place, referme, autreObjet, surUnTexte, outilEnMain };
+        return { surImage, surTexte, outilEnMain };
     });
-    r.verifie('une image sélectionnée : la barre du document, et elle seule',
-        uneSeule.seule.doc && !uneSeule.seule.style, JSON.stringify(uneSeule.seule));
-    r.verifie('« ⋯ » rappelle la barre de style',
-        uneSeule.ouvert.style && uneSeule.ouvert.actif, JSON.stringify(uneSeule.ouvert));
-    r.verifie('en menu accroché au bouton, pas en seconde barre',
-        uneSeule.place.enMenu && !uneSeule.place.plusLargeQueLaBarre
-        && uneSeule.place.surLeBouton <= 2, JSON.stringify(uneSeule.place));
-    r.verifie('contre la barre du document, et dans l\'écran',
-        uneSeule.place.ecart >= 0 && uneSeule.place.ecart < 40
-        && uneSeule.place.dansEcran, JSON.stringify(uneSeule.place));
-    r.verifie('un second clic la renvoie',
-        !uneSeule.referme.style && !uneSeule.referme.actif, JSON.stringify(uneSeule.referme));
-    r.verifie('changer d\'objet referme le panneau',
-        !uneSeule.autreObjet.style && uneSeule.autreObjet.doc, JSON.stringify(uneSeule.autreObjet));
-    r.verifie('sur un texte, la barre de style garde son rôle',
-        uneSeule.surUnTexte.style && !uneSeule.surUnTexte.doc, JSON.stringify(uneSeule.surUnTexte));
-    r.verifie('et elle règle encore l\'outil quand rien n\'est sélectionné',
-        uneSeule.outilEnMain.style && !uneSeule.outilEnMain.doc, JSON.stringify(uneSeule.outilEnMain));
+    r.verifie('une image : la barre montre les réglages du document',
+        contextes.surImage.visible && contextes.surImage.document,
+        JSON.stringify(contextes.surImage));
+    r.verifie('un texte : elle montre ceux du texte, et pas ceux du document',
+        contextes.surTexte.visible && contextes.surTexte.texte && !contextes.surTexte.document,
+        JSON.stringify(contextes.surTexte));
+    // Le ✕ ferme LE DOCUMENT : derrière un texte, il n'aurait rien à fermer.
+    r.verifie('le ✕ ne sort que pour un document',
+        contextes.surImage.fermer && !contextes.surTexte.fermer && !contextes.outilEnMain.fermer,
+        JSON.stringify(contextes));
+    r.verifie('le rognage non plus',
+        contextes.surImage.rogner && !contextes.surTexte.rogner,
+        JSON.stringify(contextes));
 
-    await page.evaluate(() => { texts.length = 0; images.length = 0; selectedItems = []; majBarreDocument(); draw(); });
+    // L'ORDRE DE GAUCHE À DROITE, c'est lui qui fait la cohérence : l'objet,
+    // son apparence, sa place dans la pile, le presse-papiers, le cadenas, et
+    // la suppression tout au bout — la seule action irréversible.
+    const ordre = await page.evaluate(() => {
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const x = (id) => {
+            const e = document.getElementById(id);
+            return e && e.offsetParent ? e.getBoundingClientRect().left : null;
+        };
+        return { rogner: x('doc-rogner'), couleur: x('btn-color-popover'),
+                 plans: x('btn-z-up'), copier: x('btn-copier'),
+                 cadenas: x('btn-lock'), fermer: x('doc-fermer') };
+    });
+    const suite = ['rogner', 'couleur', 'plans', 'copier', 'cadenas', 'fermer'].map(k => ordre[k]);
+    r.verifie('l\'ordre va de l\'objet à sa suppression, sans revenir en arrière',
+        suite.every((v, i) => v !== null && (i === 0 || v > suite[i - 1])),
+        JSON.stringify(ordre));
+    r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',
+        contextes.outilEnMain.visible && !contextes.outilEnMain.document,
+        JSON.stringify(contextes.outilEnMain));
+    // Le cœur du parti pris : elle ne se déplace pas d'un objet à l'autre.
+    const places = [contextes.surImage, contextes.surTexte, contextes.outilEnMain];
+    r.verifie('et elle ne bouge pas d\'un objet à l\'autre : une seule place à apprendre',
+        places.every(p => p.y === places[0].y && Math.abs(p.x - places[0].x) <= 1),
+        JSON.stringify(places));
 
     // --- UN PLATEAU SE POSE D'UN SEUL COUP DE PINCEAU ---
     // 41 objets pour trois dessins : on décodait une image par case et l'on
@@ -1135,8 +1022,6 @@ module.exports = async function (browser) {
     r.verifie('et sans faire attendre', damier.ms < 400, JSON.stringify(damier));
 
     await page.evaluate(() => {
-        localStorage.removeItem('auTableau_barre_document');
-        barreDocPosee = null; barreDocRepliee = false;
         if (document.body.classList.contains('focus-mode')) toggleFocusMode();
         setMode('pointer');
         images.length = 0; freehands.length = 0; selectedItems = []; panX = 0; panY = 0;

@@ -3689,7 +3689,7 @@ const RACCOURCIS_PARTOUT = [
     { touche: 'Ctrl+V', nom: 'Coller', bouton: ['btn-coller', 'btn-coller-tableau'] },
     { touche: 'Ctrl+Maj+V', nom: 'Coller sans mise en forme' },
     { touche: 'Ctrl+D', nom: 'Dupliquer la sélection',
-      bouton: ['btn-dupliquer', 'btn-quick-duplicate', 'doc-dupliquer'] },
+      bouton: ['btn-dupliquer', 'btn-quick-duplicate'] },
     { touche: 'Ctrl+A', nom: 'Tout sélectionner' },
     { touche: 'Suppr', nom: 'Effacer la sélection', bouton: ['btn-quick-delete'] },
     { touche: 'Espace', nom: 'Panoramique (maintenir)' },
@@ -4785,10 +4785,19 @@ function commitPluginStampWidth(scale) {
 //    opaque, quelle que soit la transparence globale de l'image ;
 //  - sinon : simple alpha de l'image, instantané.
 function applyPluginStampOpacity(value, commit) {
-    if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
+    if (typeof selectedItems === 'undefined') return false;
+    // En plein écran, on annote la page SANS l'avoir sélectionnée — prendre un
+    // crayon vide la sélection. Le curseur d'opacité doit tout de même agir sur
+    // elle : c'est du document qu'il parle, sélectionné ou non.
+    let cibles = selectedItems;
+    if (!cibles.length && typeof enTrainDAnnoter === 'function' && enTrainDAnnoter()) {
+        const doc = documentDeLaBarre();
+        if (doc) cibles = [{ type: 'image', id: doc.id }];
+    }
+    if (!cibles.length) return false;
     let touched = false;
     let needsRegen = false;
-    selectedItems.forEach(it => {
+    cibles.forEach(it => {
         if (it.type !== 'image') return;
         const o = getObjectById('image', it.id);
         if (!o || o.locked) return;
@@ -4913,18 +4922,6 @@ function updateStyleBarContext() {
     barStyle.style.bottom = 'auto';
     barStyle.style.transform = 'translateX(-50%)';
 
-    // QUAND LA BARRE DU DOCUMENT TIENT L'OBJET, celle-ci se tait : elles
-    // parlaient toutes deux du même objet, à deux endroits de l'écran, avec
-    // trois réglages en double. Le bouton « ⋯ » la rappelle, et elle vient
-    // alors se poser JUSTE SOUS l'autre — plus un panneau qu'une barre.
-    const sousLaBarreDuDocument = typeof barreDocumentTientLObjet === 'function'
-        && barreDocumentTientLObjet();
-    barStyle.classList.toggle('en-menu', sousLaBarreDuDocument && reglagesEtendus);
-    if (sousLaBarreDuDocument && !reglagesEtendus) {
-        barStyle.classList.remove('visible');   // className vient d'être réécrit : les ctx-* sont déjà partis
-        return;
-    }
-
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
@@ -4933,12 +4930,19 @@ function updateStyleBarContext() {
     else if (['segment', 'droite', 'demi-droite', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
     else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) barStyle.classList.add('ctx-line');
     else if (targetType === 'text') barStyle.classList.add('ctx-text');
-    else if (targetType === 'image') { /* Afficher juste le cadenas et les calques */ }
+    else if (targetType === 'image') { /* le groupe « document » ci-dessous s'en charge */ }
     else {
         barStyle.classList.remove('visible');
         barStyle.removeAttribute('data-dragged');
     }
     // ----------------------------------------------------------------------------------
+
+    // LE DOCUMENT EST UN CONTEXTE COMME UN AUTRE. La barre du document a
+    // fusionné ici : une seule barre contextuelle, toujours à la même place,
+    // dont le contenu change avec ce qui est sélectionné. Elle se règle sur
+    // « documentDeLaBarre » et non sur la seule sélection, car en mode Focus
+    // on annote la page avec un outil en main, sélection vide.
+    if (typeof majBarreDocument === 'function') majBarreDocument();
 
     if (selectedItems.length > 0) {
         barStyle.classList.add('ctx-zindex', 'ctx-lock');
@@ -5012,38 +5016,8 @@ function updateStyleBarContext() {
     syncStampStyleControls();
     syncTextStyleControls();
 
-    // Le placement vient EN DERNIER : la largeur de la barre dépend des groupes
-    // qu'on vient d'allumer. Mesurée plus haut, elle valait celle d'une barre
-    // presque vide, et le panneau débordait de l'écran une fois rempli.
-    if (sousLaBarreDuDocument) poserLaBarreContreLeDocument(barStyle);
 }
 
-// Le panneau se colle à la barre du document : centré sur elle, juste dessous
-// — ou juste dessus quand celle-ci est déjà dans le bas de l'écran, où la
-// barre d'outils est posée à demeure.
-function poserLaBarreContreLeDocument(barStyle) {
-    const barreDoc = document.getElementById('barre-document');
-    const bouton = document.getElementById('doc-plus');
-    if (!barreDoc || !bouton) return;
-    const doc = barreDoc.getBoundingClientRect();
-    const b = bouton.getBoundingClientRect();
-
-    // Aligné sur le bouton qui l'a appelée, comme un menu pend de son bouton.
-    // Le panneau est étroit : on le range à droite du « ⋯ », et l'on ne le
-    // pousse que s'il sort de l'écran.
-    const l = barStyle.offsetWidth || 244;
-    barStyle.style.left = Math.round(Math.max(8,
-        Math.min(window.innerWidth - l - 8, b.right - l))) + 'px';
-
-    // Sous la barre du document — au-dessus quand celle-ci est déjà dans le
-    // bas de l'écran, là où la barre d'outils est posée à demeure.
-    const h = barStyle.offsetHeight || 44;
-    const dessous = doc.bottom + 8;
-    const dessus = doc.top - 8 - h;
-    const tropBas = dessous + h > window.innerHeight - 8
-        || doc.bottom > window.innerHeight * 0.62;
-    barStyle.style.top = Math.round(tropBas && dessus >= 8 ? dessus : dessous) + 'px';
-}
 
 // Un texte n'a ni épaisseur de trait ni opacité de remplissage, et sa couleur
 // se règle dans la barre d'édition. On n'affiche donc pas ces contrôles ici :
@@ -10211,67 +10185,19 @@ function estUnPdfFeuilletable(obj) {
         && documentsPdf.has(obj.pluginData.cle));
 }
 
-// La barre du document se pose sous le cadre — mais un PDF qui remplit
-// l'écran passe dessous, et l'on ne lit plus le bas de la page. Elle se
-// déplace donc, et se replie en une pastille. Les deux se retiennent d'une
-// séance à l'autre : celui qui l'a mise en haut à droite l'y retrouve.
-const CLE_BARRE_DOC = 'auTableau_barre_document';
-let barreDocPosee = null;        // { x, y } quand on l'a déplacée, sinon null
-let barreDocRepliee = false;
-// Les réglages de la barre de style, appelés sous la barre du document par le
-// bouton « ⋯ ». Ils ne se retiennent pas d'un objet à l'autre : c'est un coup
-// d'œil, pas un mode.
-let reglagesEtendus = false;
-let objetDeLaBarre = null;
-
-// La barre de style et celle du document parlaient du même objet en même temps,
-// chacune de son côté de l'écran. Quand celle-ci tient l'objet, l'autre se tait.
-function barreDocumentTientLObjet() {
-    const barre = document.getElementById('barre-document');
-    return !!(barre && barre.classList.contains('visible')
-        && typeof documentSelectionne === 'function' && documentSelectionne());
-}
-window.barreDocumentTientLObjet = barreDocumentTientLObjet;
-try {
-    const brut = JSON.parse(localStorage.getItem(CLE_BARRE_DOC) || 'null');
-    if (brut) {
-        barreDocRepliee = !!brut.repliee;
-        if (brut.pos && isFinite(brut.pos.x) && isFinite(brut.pos.y)) barreDocPosee = brut.pos;
-    }
-} catch (e) { /* réglages illisibles */ }
-
-function retenirLaBarreDocument() {
-    try {
-        localStorage.setItem(CLE_BARRE_DOC,
-            JSON.stringify({ repliee: barreDocRepliee, pos: barreDocPosee }));
-    } catch (e) { /* stockage refusé */ }
-}
-
-// Elle revient sous le document : c'est le geste qui défait le déplacement.
-function replacerLaBarreDocument() {
-    barreDocPosee = null;
-    retenirLaBarreDocument();
-    majBarreDocument();
-    if (typeof showToast === 'function') showToast('Barre remise sous le document');
-}
-
-function replierLaBarreDocument(replier) {
-    barreDocRepliee = (replier === undefined) ? !barreDocRepliee : !!replier;
-    retenirLaBarreDocument();
-    majBarreDocument();
-}
-window.replierLaBarreDocument = replierLaBarreDocument;
-window.replacerLaBarreDocument = replacerLaBarreDocument;
+// LA BARRE DU DOCUMENT A FUSIONNÉ AVEC LA BARRE DE STYLE. Ses commandes sont
+// devenues le groupe « document » de #bar-style : une seule barre contextuelle,
+// toujours à la même place, dont le contenu change avec ce qui est sélectionné.
+// Ce qui n'a plus d'objet est parti avec : la poignée, le repli en pastille, la
+// place retenue d'une séance à l'autre, et le bouton « ⋯ » qui appelait l'autre
+// barre. Une barre qui ne bouge pas n'a besoin d'aucun des cinq.
 
 function majBarreDocument() {
-    const barre = document.getElementById('barre-document');
-    const pastille = document.getElementById('doc-pastille');
+    const barre = document.getElementById('bar-style');
     if (!barre) return;
 
     // En Focus, toutes les barres d'outils sont effacées : c'est ici qu'on
     // prend de quoi écrire sur la page. Ailleurs elles sont sous la main.
-    // Ce réglage se fait AVANT tout renoncement : un groupe laissé ouvert
-    // dans une barre repliée reparaîtrait tel quel à sa réouverture.
     const enFocus = document.body.classList.contains('focus-mode');
     const groupeOutils = document.getElementById('doc-annoter');
     if (groupeOutils) {
@@ -10287,51 +10213,22 @@ function majBarreDocument() {
     barre.classList.toggle('annote', enTrainDAnnoter());
 
     const obj = documentDeLaBarre();
-    // Changer d'objet referme le volet : ses réglages parleraient de l'ancien.
-    if (!obj || !objetDeLaBarre || obj.id !== objetDeLaBarre) {
-        reglagesEtendus = false;
-        objetDeLaBarre = obj ? obj.id : null;
-    }
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
-        barre.classList.remove('visible');
-        if (pastille) pastille.classList.remove('visible');
+        barre.classList.remove('ctx-document', 'annote');
         if (typeof majLeVolet === 'function') majLeVolet();
         return;
     }
-    // Repliée : il ne reste qu'une pastille, qui la rouvre.
-    if (barreDocRepliee) {
-        barre.classList.remove('visible');
-        if (pastille) pastille.classList.add('visible');
-        return;
-    }
-    if (pastille) pastille.classList.remove('visible');
-    barre.classList.add('visible');
+    // C'est ICI que le contexte s'allume, et non chez l'appelante : on entre
+    // aussi par le menu rapide et par les boutons de la barre elle-même.
+    barre.classList.add('visible', 'ctx-document');
 
-    // Déplacée à la main : on respecte la place choisie, en la gardant dans
-    // l'écran — une fenêtre rétrécie ne doit pas l'emporter dehors.
-    if (barreDocPosee) {
-        const demiL = (barre.offsetWidth || 480) / 2;
-        barre.style.left = Math.max(demiL + 4,
-            Math.min(window.innerWidth - demiL - 4, barreDocPosee.x)) + 'px';
-        barre.style.top = Math.max(4,
-            Math.min(window.innerHeight - barre.offsetHeight - 4, barreDocPosee.y)) + 'px';
-    } else {
-        // Sous l'objet — c'est là qu'on la cherche. Mais un objet posé bas
-        // pousse la barre hors de l'écran : elle glissait alors le long du
-        // bord, loin de ce dont elle parle. Elle passe DESSUS dans ce cas,
-        // et ne se recale contre un bord que si ni l'un ni l'autre ne tient.
-        const cx = panX + (obj.x + obj.w / 2) * zoom;
-        const hautObj = panY + obj.y * zoom;
-        const basObj = panY + (obj.y + obj.h) * zoom;
-        const hb = barre.offsetHeight || 44;
-        const demi = (barre.offsetWidth || 480) / 2 + 8;
-        let haut = basObj + 14;
-        if (haut + hb > window.innerHeight - 8) {
-            const dessus = hautObj - 14 - hb;
-            haut = dessus >= 8 ? dessus : Math.max(8, window.innerHeight - hb - 8);
-        }
-        barre.style.left = Math.max(demi, Math.min(window.innerWidth - demi, cx)) + 'px';
-        barre.style.top = Math.round(haut) + 'px';
+    // Le curseur d'opacité se règle d'ordinaire sur la SÉLECTION, vide pendant
+    // qu'on annote : on le montre et on le cale à la main sur la page tenue.
+    const boiteOpacite = document.getElementById('stamp-opacity-box');
+    if (boiteOpacite && enTrainDAnnoter()) {
+        boiteOpacite.style.display = 'flex';
+        const c2 = document.getElementById('stamp-opacity');
+        if (c2 && document.activeElement !== c2) c2.value = (obj.opacity === undefined ? 1 : obj.opacity);
     }
 
     // Les flèches n'ont de sens que pour un PDF qu'on peut encore feuilleter
@@ -10354,26 +10251,21 @@ function majBarreDocument() {
     document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
     document.getElementById('doc-mode-cadre').classList.toggle('actif', modeDocument === 'cadre' && !obj.locked);
     document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
-    document.getElementById('doc-opacite').value = (obj.opacity === undefined ? 1 : obj.opacity);
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
     document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);
-    document.getElementById('doc-verrou').classList.toggle('actif', !!obj.locked);
     // Le retour à la page entière ne se propose que s'il y a un cadrage à défaire
     const entiere = document.getElementById('doc-entiere');
     if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
     document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
-    const plus = document.getElementById('doc-plus');
-    if (plus) plus.classList.toggle('actif', reglagesEtendus);
     if (typeof majLeVolet === 'function') majLeVolet();
-    // La barre de style se place sous celle-ci, ou s'efface : elle a besoin de
-    // savoir où nous en sommes, et c'est ici qu'on le sait.
-    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+    // Surtout PAS d'appel à updateStyleBarContext ici : c'est elle qui nous
+    // appelle maintenant, et l'on tournerait en rond sans fin.
 }
 
 function brancherBarreDocument() {
     const b = (id) => document.getElementById(id);
-    if (!b('barre-document')) return;
+    if (!b('doc-fermer')) return;
 
     b('doc-prec').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, -1); });
     b('doc-suiv').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, 1); });
@@ -10420,12 +10312,6 @@ function brancherBarreDocument() {
         if (typeof showToast === 'function') showToast('Faites glisser la page dans son cadre ; la molette la zoome');
     });
 
-    b('doc-opacite').addEventListener('input', (e) => {
-        const o = documentDeLaBarre(); if (!o) return;
-        o.opacity = parseFloat(e.target.value);
-        draw();
-    });
-    b('doc-opacite').addEventListener('change', () => saveState());
 
     b('doc-grille').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;
@@ -10449,7 +10335,6 @@ function brancherBarreDocument() {
         majBarreDocument(); draw(); saveState();
     });
 
-    b('doc-dupliquer').addEventListener('click', () => duplicateSelection());
 
     b('doc-entiere').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;
@@ -10458,73 +10343,11 @@ function brancherBarreDocument() {
         if (typeof showToast === 'function') showToast('Document montré en entier');
     });
 
-    b('doc-verrou').addEventListener('click', () => {
-        const o = documentDeLaBarre(); if (!o) return;
-        o.locked = !o.locked;
-        majBarreDocument(); draw(); saveState();
-    });
 
     // --- Écrire et dessiner sur le document, sans quitter le plein écran ---
     b('doc-outil-main').addEventListener('click', () => annoterLeDocument('pointer'));
     b('doc-outil-crayon').addEventListener('click', () => annoterLeDocument('freehand'));
     b('doc-outil-texte').addEventListener('click', () => annoterLeDocument('text'));
-
-    // « ⋯ » : appeler la barre de style sous celle-ci, ou la renvoyer.
-    const plus = b('doc-plus');
-    if (plus) plus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        reglagesEtendus = !reglagesEtendus;
-        majBarreDocument();
-    });
-
-    // --- Replier, rouvrir, déplacer ---
-    b('doc-replier').addEventListener('click', () => replierLaBarreDocument(true));
-    const pastille = b('doc-pastille');
-    if (pastille) pastille.addEventListener('click', () => replierLaBarreDocument(false));
-
-    // On la prend par sa poignée, au doigt comme à la souris. Un double-clic
-    // dessus la remet sous le document : le déplacement se défait.
-    const prise = b('doc-prise');
-    if (prise) {
-        let glisse = null;
-        prise.addEventListener('pointerdown', (e) => {
-            const barre = b('barre-document');
-            const r = barre.getBoundingClientRect();
-            glisse = { dx: e.clientX - (r.left + r.width / 2), dy: e.clientY - r.top, bouge: false };
-            prise.setPointerCapture(e.pointerId);
-            e.preventDefault(); e.stopPropagation();
-        });
-        prise.addEventListener('pointermove', (e) => {
-            if (!glisse) return;
-            // Un frémissement n'est pas un déplacement : on ne perd pas la
-            // pose automatique parce qu'on a effleuré la poignée.
-            if (!glisse.bouge && Math.abs(e.movementX) + Math.abs(e.movementY) < 2) return;
-            glisse.bouge = true;
-            // On borne À L'ENREGISTREMENT, pas seulement à l'affichage : une
-            // position gardée hors de l'écran reviendrait telle quelle à la
-            // séance suivante, et le double-clic pour la remettre en place
-            // ne trouverait plus la poignée.
-            const barreEnCours = b('barre-document');
-            const demiL = (barreEnCours.offsetWidth || 480) / 2;
-            const h = barreEnCours.offsetHeight || 40;
-            barreDocPosee = {
-                x: Math.max(demiL + 4, Math.min(window.innerWidth - demiL - 4, e.clientX - glisse.dx)),
-                y: Math.max(4, Math.min(window.innerHeight - h - 4, e.clientY - glisse.dy))
-            };
-            majBarreDocument();
-        });
-        const finir = (e) => {
-            if (!glisse) return;
-            if (glisse.bouge) retenirLaBarreDocument();
-            glisse = null;
-            try { prise.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
-        };
-        prise.addEventListener('pointerup', finir);
-        prise.addEventListener('pointercancel', finir);
-        prise.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLaBarreDocument(); });
-    }
-    // La fenêtre change de taille : la barre déplacée reste dedans
-    window.addEventListener('resize', () => { if (barreDocPosee) majBarreDocument(); });
 
     b('doc-fermer').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;

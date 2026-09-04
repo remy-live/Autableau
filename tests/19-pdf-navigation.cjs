@@ -685,7 +685,7 @@ module.exports = async function (browser) {
         await allerALaPage(images[0], 1);
         majBarreDocument();
     });
-    await page.waitForSelector('#barre-document.visible', { timeout: 5000 });
+    await page.waitForSelector('#bar-style.ctx-document', { timeout: 5000 });
     await page.click('#doc-volet-btn');
     await attendre(() => {
         const im = document.querySelectorAll('#dv-liste img[data-vignette]');

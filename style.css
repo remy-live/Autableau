@@ -297,32 +297,6 @@ html {
     pointer-events: none;
 }
 
-/* EN MENU, PAS EN SECONDE BARRE. Rappelée par le « ⋯ » de la barre du
-   document, elle s'affichait dessous sur toute sa longueur : deux barres
-   empilées, soit exactement ce qu'on venait de supprimer. Elle se replie donc
-   en un petit panneau accroché au bouton, qui se lit comme un menu. */
-#bar-style.en-menu {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    align-content: flex-start;
-    gap: 6px;
-    width: 244px;
-    border-radius: 14px;
-    padding: 10px;
-    transform: none !important;
-}
-
-/* Les séparateurs et la poignée n'ont plus de sens dans un panneau : ils
-   découpaient une ligne, il n'y en a plus. */
-#bar-style.en-menu .divider,
-#bar-style.en-menu .divider-small,
-#bar-style.en-menu .drag-wrapper,
-#bar-style.en-menu .toolbar-badge,
-#bar-style.en-menu .drag-handle { display: none !important; }
-
-#bar-style.en-menu .style-group { gap: 6px; flex-wrap: wrap; }
-#bar-style.en-menu .slider-container { width: 100%; }
-
 #bar-style.visible {
     opacity: 1;
     pointer-events: auto;
@@ -1771,9 +1745,13 @@ body.focus-mode #exit-focus-cross {
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-text .group-text,
 #bar-style.ctx-zindex .group-zindex,
-#bar-style.ctx-lock .group-lock {
+#bar-style.ctx-lock .group-lock,
+#bar-style.ctx-document .group-document {
     display: flex;
 }
+
+/* Le ✕ vit dans un second « group-document », tout au bout de la barre : il
+   ferme LE DOCUMENT, il n'avait rien à faire derrière un texte sélectionné. */
 
 .divider {
     background: #dfe6e9;
@@ -6006,55 +5984,12 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    Elle se pose sous le cadre et le suit : régler le cadre d'un côté,
    faire coulisser la page de l'autre — deux gestes qui se marchaient dessus.
    =================================================== */
-#barre-document {
-    display: none;
-    position: fixed;
-    z-index: 14000;
-    background: rgba(255, 255, 255, 0.97);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    border-radius: 10px;
-    padding: 5px 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
-    gap: 6px;
-    align-items: center;
-    font-family: sans-serif;
-    font-size: 13px;
-    white-space: nowrap;
-    transform: translateX(-50%);
-}
+/* Le groupe « document » de la barre de style : les commandes de la page
+   sélectionnée. Elles vivaient dans une barre à part, posée sous l'objet et
+   déplaçable ; elles sont maintenant un contexte de la barre unique, qui ne
+   bouge pas. Il n'y a donc plus ni poignée, ni repli, ni pastille. */
+#bar-style .group-document { gap: 6px; }
 
-#barre-document.visible { display: flex; }
-
-/* La poignée : on prend la barre par là, au doigt comme à la souris. */
-#doc-prise {
-    cursor: grab;
-    touch-action: none;
-    color: #94a3b8;
-    padding: 0 3px;
-}
-
-#doc-prise:active { cursor: grabbing; }
-
-/* Repliée, il ne reste que cette pastille — le bas de la page se lit. */
-#doc-pastille {
-    display: none;
-    position: fixed;
-    right: 18px;
-    bottom: 18px;
-    z-index: 14001;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    background: rgba(255, 255, 255, 0.97);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-#doc-pastille.visible { display: flex; align-items: center; justify-content: center; }
 #doc-pages { display: flex; align-items: center; gap: 2px; }
 
 /* Le numéro se tape : c'est un champ, pas une étiquette. Sa largeur suit le
@@ -6208,17 +6143,22 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 /* On écrit sur le document : il n'est plus tenu, et les réglages qui demandent
    de l'avoir en main n'auraient rien à saisir. Le « !important » est
    indispensable : ces groupes portent un display posé en ligne par le script. */
-#barre-document.annote #doc-modes,
-#barre-document.annote #doc-modes-sep,
-#barre-document.annote #doc-proportions,
-#barre-document.annote #doc-rogner,
-#barre-document.annote #doc-dupliquer { display: none !important; }
+#bar-style.annote #doc-modes,
+#bar-style.annote #doc-modes-sep,
+#bar-style.annote #doc-proportions,
+#bar-style.annote #doc-rogner,
+/* Copier, couper, coller, dupliquer : la sélection est vide pendant qu'on
+   annote, ils n'auraient rien à prendre. */
+#bar-style.annote .group-edition { display: none !important; }
+/* Le cadenas, la duplication et l'opacité ne sont plus ici : la barre unique
+   les portait DÉJÀ pour tous les objets, et se retrouvait avec deux cadenas
+   côte à côte une fois les deux barres réunies. Ce sont les versions générales
+   qui restent — elles savent aussi traiter un texte ou une forme, et l'opacité
+   d'un tampon à fond translucide. */
 .doc-fermer { color: #e11d48; }
 .doc-fermer:hover { background: #fee2e2; }
 .doc-sep { width: 1px; height: 20px; background: rgba(0, 0, 0, 0.12); display: inline-block; }
-#doc-opacite { width: 74px; accent-color: #0284c7; cursor: pointer; }
 
-.dark-mode #barre-document { background: rgba(30, 39, 46, 0.97); border-color: #3d4852; }
 .dark-mode .doc-btn { color: #dfe6e9; }
 .dark-mode .doc-btn:hover { background: #2f3941; }
 .dark-mode #doc-info { color: #dfe6e9; }

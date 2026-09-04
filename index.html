@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=69">
+    <link rel="stylesheet" href="style.css?v=70">
 </head>
 
 <body>
@@ -218,119 +218,10 @@
          sélectionné et le suit. Elle sépare les deux gestes qui se marchent
          dessus : régler le cadre, ou faire coulisser la page à l'intérieur.
          Les flèches n'apparaissent que pour un PDF feuilletable. -->
-    <div id="barre-document">
-        <!-- La barre se pose sous le document, mais un PDF qui remplit l'écran
-             passe dessous : elle se prend et se déplace, et se replie en une
-             pastille quand on veut lire le bas de la page. -->
-        <button class="doc-btn doc-prise" id="doc-prise" data-tooltip="Déplacer la barre — double-clic pour la remettre sous le document">⠿</button>
-        <span id="doc-pages">
-            <button class="doc-btn" id="doc-prec" data-tooltip="Page précédente">◀</button>
-            <!-- Le numéro est un champ : sur un document de quarante pages,
-                 atteindre la 37e ne doit pas demander 36 clics. -->
-            <input type="text" inputmode="numeric" id="doc-page-num" value="1"
-                data-tooltip="Numéro de page : tapez-le et Entrée">
-            <span id="doc-total">/1</span>
-            <button class="doc-btn" id="doc-suiv" data-tooltip="Page suivante">▶</button>
-            <button class="doc-btn" id="doc-volet-btn" data-tooltip="Pages et recherche dans le document">
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="4" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="6" rx="1" />
-                    <path d="M14 6h7M14 10h7M14 16h7M14 20h5" />
-                </svg></button>
-        </span>
-        <i class="doc-sep" id="doc-pages-sep"></i>
-        <span id="doc-modes" style="display:contents;">
-        <button class="doc-btn doc-mode" id="doc-mode-cadre" title="Régler le cadre : déplacer, ouvrir ou fermer les bords">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="4" y="5" width="16" height="14" rx="2" />
-                <path d="M20 9h2M20 15h2M2 9h2M2 15h2" stroke-linecap="round" />
-            </svg><span>Cadre</span></button>
-        <button class="doc-btn doc-mode" id="doc-mode-page" title="Faire coulisser et zoomer la page dans le cadre">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M12 8.5v7M8.5 12h7" />
-            </svg><span>Page</span></button>
-        </span>
-        <i class="doc-sep" id="doc-modes-sep"></i>
-        <!-- Sur un document en plein écran, les barres d'outils sont effacées :
-             de quoi écrire et dessiner dessus se trouve donc ici. Ce groupe ne
-             paraît qu'en mode Focus, là où rien d'autre ne l'offre.
-             Des icônes seules : le nom et la touche sont dans l'infobulle, et
-             la barre reste courte sur la page qu'elle accompagne. -->
-        <span id="doc-annoter" style="display:none;">
-            <button class="doc-btn doc-outil" id="doc-outil-main" data-mode="pointer"
-                data-tooltip="Sélection : reprendre le document en main">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 3l6.5 17 2.5-6.5 6.5-2.5z" />
-                </svg></button>
-            <button class="doc-btn doc-outil" id="doc-outil-crayon" data-mode="freehand"
-                data-tooltip="Crayon : écrire à main levée sur le document">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
-                </svg></button>
-            <button class="doc-btn doc-outil" id="doc-outil-texte" data-mode="text"
-                data-tooltip="Texte : poser un bloc de texte sur le document">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 7V5h14v2M12 5v14M9.5 19h5" />
-                </svg></button>
-        </span>
-        <i class="doc-sep" id="doc-annoter-sep" style="display:none;"></i>
-        <input type="range" id="doc-opacite" min="0.1" max="1" step="0.05" value="1" title="Opacité du document">
-        <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
-            </svg></button>
-        <i class="doc-sep"></i>
-        <button class="doc-btn" id="doc-proportions" title="Conserver les proportions">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round">
-                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
-                <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
-            </svg></button>
-        <button class="doc-btn" id="doc-rogner" title="Rogner : ne garder qu'une partie">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round">
-                <path d="M6 2v14a2 2 0 0 0 2 2h14" />
-                <path d="M2 6h14a2 2 0 0 1 2 2v14" />
-            </svg></button>
-        <button class="doc-btn" id="doc-entiere" title="Montrer la page entière dans le cadre" style="display:none;">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" />
-                <path d="M9 9h6v6H9z" stroke-dasharray="2 2" />
-                <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
-            </svg></button>
-        <button class="doc-btn" id="doc-dupliquer" title="Dupliquer (Ctrl+D)">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="12" height="12" rx="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg></button>
-        <i class="doc-sep"></i>
-        <button class="doc-btn" id="doc-verrou" title="Verrouiller : le document ne bouge plus, on dessine par-dessus">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="5" y="11" width="14" height="10" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke-linecap="round" />
-            </svg></button>
-        <!-- UN SEUL BOUTON DE PLUS, ET IL NE DOUBLE RIEN. La barre de style
-             restait affichée en haut pendant que celle-ci parlait du même
-             objet : deux barres, deux endroits où regarder, et trois réglages
-             en double (verrou, dupliquer, opacité). La barre de style s'efface
-             maintenant, et ce bouton la fait revenir SOUS celle-ci, à la
-             demande — c'est elle qui porte la couleur, les plans et le
-             copier-coller. Rien n'est recopié ici : la barre du bas ne
-             grossit pas. -->
-        <button class="doc-btn" id="doc-plus"
-            data-tooltip="Plus de réglages : couleur, plans, copier-coller">⋯</button>
-        <button class="doc-btn" id="doc-replier" data-tooltip="Replier la barre : elle ne cachera plus le bas de la page">–</button>
-        <button class="doc-btn doc-fermer" id="doc-fermer" data-tooltip="Retirer le document">✕</button>
-    </div>
-    <button id="doc-pastille" data-tooltip="Rouvrir la barre du document">📄</button>
+    <!-- La barre du document a fusionné avec la barre de style : une seule
+         barre contextuelle, toujours à la même place, dont le contenu change
+         avec ce qui est sélectionné. Ses commandes sont devenues le groupe
+         « group-document » de #bar-style, plus haut. -->
 
     <!-- Le volet du document : les pages en vignettes, et la recherche dans
          leur texte. Les deux répondent à la même question — « où est-ce ? » —
@@ -743,23 +634,21 @@
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
-                        <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF
-                            sélectionné — et au-dessus si l'objet est trop bas dans l'écran.
-                            <b>Cadre</b> déplace et ouvre les bords,
-                            <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
-                            le passage sous le quadrillage, les proportions, le rognage, la duplication, le verrou
-                            (on dessine par-dessus) et ✕ pour le retirer. La <b>poignée ⠿</b> la déplace où
-                            l'on veut — double-clic dessus pour la remettre sous le document — et <b>–</b> la
-                            replie en une pastille 📄 quand elle cache le bas de la page. <b>Cadre</b> et
-                            <b>Page</b> ne se proposent que sur une image importée ou un document : faire coulisser
-                            une page à l'intérieur d'un pion d'échecs n'aurait pas de sens.</li>
-                        <li><strong>Une seule barre à la fois :</strong> tant que la barre du document tient
-                            l'objet, la barre de style du haut se tait — elles parlaient toutes deux du même objet,
-                            à deux endroits de l'écran. Le bouton <b>⋯</b> la rappelle contre la barre du document,
-                            le temps d'y prendre la couleur, les plans (premier / arrière) ou le copier-coller ;
-                            un second clic la renvoie, et changer d'objet la referme. Quand <b>rien</b> n'est
-                            sélectionné, elle garde son autre rôle : régler le crayon, le texte ou la forme
-                            <i>avant</i> de tracer.</li>
+                        <li><strong>Une seule barre, toujours à la même place.</strong> Elle est en haut,
+                            et c'est son CONTENU qui change avec ce qu'on sélectionne : un document donne les
+                            pages, <b>Cadre</b> / <b>Page</b> et le rognage ; un texte donne sa taille ; une
+                            forme donne son trait. Rien de sélectionné, elle règle l'outil qu'on tient
+                            <i>avant</i> de tracer. Elle ne suit plus l'objet : un seul endroit à apprendre.</li>
+                        <li><strong>L'ordre, de gauche à droite :</strong> ce qui ne concerne que cet objet,
+                            puis son apparence (couleur, épaisseur, opacité), puis sa place dans la pile, le
+                            presse-papiers, le cadenas, et la suppression tout au bout — seule action
+                            irréversible, seule et en rouge.</li>
+                        <li><strong>Pour un document :</strong> <b>Cadre</b> déplace et ouvre les bords,
+                            <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis le
+                            passage sous le quadrillage, les proportions, le rognage, et ✕ pour le retirer.
+                            <b>Cadre</b> et <b>Page</b> ne se proposent que sur une image importée ou un
+                            document : faire coulisser une page à l'intérieur d'un pion d'échecs n'aurait pas
+                            de sens.</li>
                         <li><strong>Écrire sur un document en plein écran :</strong> en mode Focus (l'interrupteur
                             <b>Focus</b>, ou <b>D</b> sur un document sélectionné) les barres d'outils s'effacent — la barre du
                             document offre alors <b>Crayon</b>, <b>Texte</b> et <b>Sélection</b> pour annoter la
@@ -1784,6 +1673,162 @@
         <!-- Copier, couper, dupliquer, coller : les raccourcis existaient
              depuis toujours, mais rien ne les montrait — sur tablette, il n'y
              a même pas de clavier pour les faire. -->
+        <div class="style-group group-document">
+        <span id="doc-pages">
+            <button class="doc-btn" id="doc-prec" data-tooltip="Page précédente">◀</button>
+            <!-- Le numéro est un champ : sur un document de quarante pages,
+                 atteindre la 37e ne doit pas demander 36 clics. -->
+            <input type="text" inputmode="numeric" id="doc-page-num" value="1"
+                data-tooltip="Numéro de page : tapez-le et Entrée">
+            <span id="doc-total">/1</span>
+            <button class="doc-btn" id="doc-suiv" data-tooltip="Page suivante">▶</button>
+            <button class="doc-btn" id="doc-volet-btn" data-tooltip="Pages et recherche dans le document">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="6" rx="1" />
+                    <path d="M14 6h7M14 10h7M14 16h7M14 20h5" />
+                </svg></button>
+        </span>
+        <i class="doc-sep" id="doc-pages-sep"></i>
+        <span id="doc-modes" style="display:contents;">
+        <button class="doc-btn doc-mode" id="doc-mode-cadre" title="Régler le cadre : déplacer, ouvrir ou fermer les bords">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="5" width="16" height="14" rx="2" />
+                <path d="M20 9h2M20 15h2M2 9h2M2 15h2" stroke-linecap="round" />
+            </svg><span>Cadre</span></button>
+        <button class="doc-btn doc-mode" id="doc-mode-page" title="Faire coulisser et zoomer la page dans le cadre">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M12 8.5v7M8.5 12h7" />
+            </svg><span>Page</span></button>
+        </span>
+        <i class="doc-sep" id="doc-modes-sep"></i>
+        <!-- Sur un document en plein écran, les barres d'outils sont effacées :
+             de quoi écrire et dessiner dessus se trouve donc ici. Ce groupe ne
+             paraît qu'en mode Focus, là où rien d'autre ne l'offre.
+             Des icônes seules : le nom et la touche sont dans l'infobulle, et
+             la barre reste courte sur la page qu'elle accompagne. -->
+        <span id="doc-annoter" style="display:none;">
+            <button class="doc-btn doc-outil" id="doc-outil-main" data-mode="pointer"
+                data-tooltip="Sélection : reprendre le document en main">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 3l6.5 17 2.5-6.5 6.5-2.5z" />
+                </svg></button>
+            <button class="doc-btn doc-outil" id="doc-outil-crayon" data-mode="freehand"
+                data-tooltip="Crayon : écrire à main levée sur le document">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg></button>
+            <button class="doc-btn doc-outil" id="doc-outil-texte" data-mode="text"
+                data-tooltip="Texte : poser un bloc de texte sur le document">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 7V5h14v2M12 5v14M9.5 19h5" />
+                </svg></button>
+        </span>
+        <i class="doc-sep" id="doc-annoter-sep" style="display:none;"></i>
+        <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+            </svg></button>
+        <i class="doc-sep"></i>
+        <button class="doc-btn" id="doc-proportions" title="Conserver les proportions">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" />
+                <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" />
+            </svg></button>
+        <button class="doc-btn" id="doc-rogner" title="Rogner : ne garder qu'une partie">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+                <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+            </svg></button>
+        <button class="doc-btn" id="doc-entiere" title="Montrer la page entière dans le cadre" style="display:none;">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <path d="M9 9h6v6H9z" stroke-dasharray="2 2" />
+                <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
+            </svg></button>
+        <i class="doc-sep"></i>
+        </div>
+        <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
+            <div id="color-indicator"></div>
+        </button>
+        <div class="divider"></div>
+        <div class="slider-container" title="Épaisseur des tracés">
+            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
+                    fill="currentColor">
+                    <path d="M3 12h18v2H3zM3 6h18v2H3zM3 18h18v2H3z" />
+                </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3">
+        </div>
+        <div class="slider-container" id="stamp-opacity-box" title="Opacité du tampon" style="display:none;">
+            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
+                    fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+                </svg></div><input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1">
+        </div>
+        <div class="style-group group-point">
+            <div class="divider"></div><button class="btn" id="btn-shape" title="Forme de point"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape">
+                    <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" />
+                    <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" />
+                </svg></button>
+        </div>
+
+        <div class="style-group group-line">
+            <div class="divider"></div>
+            <button class="btn" id="btn-dash" title="Style de trait"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon" id="icon-dash">
+                    <line x1="4" y1="12" x2="20" y2="12" stroke-width="3" />
+                </svg></button>
+            <button class="btn" id="btn-arrow-start" title="Flèche au début (Origine)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <line x1="21" y1="12" x2="3" y2="12" />
+                    <polyline points="10 5 3 12 10 19" />
+                </svg></button>
+            <button class="btn" id="btn-arrow-end" title="Flèche à la fin (Destination)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <polyline points="14 5 21 12 14 19" />
+                </svg></button>
+        </div>
+
+        <div class="style-group group-text">
+            <div class="divider"></div>
+            <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
+                 on ne pouvait ni la lire ni descendre plus bas. Le nombre
+                 l'affiche et se tape directement, au-delà du curseur si besoin. -->
+            <div class="slider-container" title="Taille du texte">
+                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
+                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
+                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
+            </div>
+        </div>
+
+        <!-- L'ORDRE, ET C'EST LUI QUI FAIT LA COHÉRENCE. De gauche à droite :
+             ce qui ne concerne QUE cet objet (pages, cadre, rognage), puis son
+             APPARENCE (couleur, épaisseur, opacité, texte), puis son PLACE dans
+             la pile, puis le PRESSE-PAPIERS, le CADENAS, et la suppression tout
+             au bout — la seule action irréversible, seule et en rouge. -->
+        <div class="style-group group-zindex">
+            <div class="divider"></div><button class="btn" id="btn-z-up" title="Mettre au premier plan"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                    <path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" />
+                </svg></button><button class="btn" id="btn-z-down" title="Mettre à l'arrière-plan"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="4" y="4" width="12" height="12" rx="2" />
+                    <path d="M8 16v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-4" />
+                </svg></button>
+        </div>
         <div class="style-group group-edition">
             <button class="btn" id="btn-copier" title="Copier (Ctrl+C)"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
@@ -1826,70 +1871,8 @@
             <div class="divider"></div>
         </div>
 
-        <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
-            <div id="color-indicator"></div>
-        </button>
-        <div class="divider"></div>
-        <div class="slider-container" title="Épaisseur des tracés">
-            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
-                    fill="currentColor">
-                    <path d="M3 12h18v2H3zM3 6h18v2H3zM3 18h18v2H3z" />
-                </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3">
-        </div>
-        <div class="slider-container" id="stamp-opacity-box" title="Opacité du tampon" style="display:none;">
-            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
-                    fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-                </svg></div><input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1">
-        </div>
-        <div class="style-group group-zindex">
-            <div class="divider"></div><button class="btn" id="btn-z-up" title="Mettre au premier plan"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="8" y="8" width="12" height="12" rx="2" />
-                    <path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4" />
-                </svg></button><button class="btn" id="btn-z-down" title="Mettre à l'arrière-plan"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="4" y="4" width="12" height="12" rx="2" />
-                    <path d="M8 16v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-4" />
-                </svg></button>
-        </div>
-        <div class="style-group group-point">
-            <div class="divider"></div><button class="btn" id="btn-shape" title="Forme de point"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape">
-                    <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" />
-                    <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" />
-                </svg></button>
-        </div>
-
-        <div class="style-group group-line">
-            <div class="divider"></div>
-            <button class="btn" id="btn-dash" title="Style de trait"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon" id="icon-dash">
-                    <line x1="4" y1="12" x2="20" y2="12" stroke-width="3" />
-                </svg></button>
-            <button class="btn" id="btn-arrow-start" title="Flèche au début (Origine)"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <line x1="21" y1="12" x2="3" y2="12" />
-                    <polyline points="10 5 3 12 10 19" />
-                </svg></button>
-            <button class="btn" id="btn-arrow-end" title="Flèche à la fin (Destination)"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <line x1="3" y1="12" x2="21" y2="12" />
-                    <polyline points="14 5 21 12 14 19" />
-                </svg></button>
-        </div>
-
-        <div class="style-group group-text">
-            <div class="divider"></div>
-            <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
-                 on ne pouvait ni la lire ni descendre plus bas. Le nombre
-                 l'affiche et se tape directement, au-delà du curseur si besoin. -->
-            <div class="slider-container" title="Taille du texte">
-                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
-                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
-                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
-            </div>
+        <div class="style-group group-document">
+            <button class="doc-btn doc-fermer" id="doc-fermer" data-tooltip="Retirer le document">✕</button>
         </div>
     </div>
 
@@ -2032,7 +2015,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=139"></script>
+    <script src="script.js?v=140"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
