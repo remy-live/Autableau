@@ -267,6 +267,38 @@ module.exports = async function (browser) {
     r.verifie('la pastille « non enregistré » a disparu',
         await page.evaluate(() => !document.getElementById('unsaved-indicator')));
 
+    // Le choix « chiffres / aiguilles » se voit MÊME quand l'heure est éteinte :
+    // caché derrière l'interrupteur, il était introuvable. Et le demander
+    // allume l'heure du même geste.
+    const trouvable = await page.evaluate(() => {
+        reglagesDate.heure = false; reglagesDate.horloge = 'chiffres';
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate(); majReglagesDate();
+        const forme = document.getElementById('rd-forme-heure');
+        const visibleEteint = getComputedStyle(forme).display !== 'none';
+        document.querySelector('[data-horloge="aiguilles"]').click();
+        return { visibleEteint, heure: reglagesDate.heure,
+                 cadran: document.getElementById('titre-horloge').classList.contains('visible') };
+    });
+    r.verifie('le choix du cadran se voit même quand l\'heure est éteinte',
+        trouvable.visibleEteint, JSON.stringify(trouvable));
+    r.verifie('et le demander allume l\'heure',
+        trouvable.heure && trouvable.cadran, JSON.stringify(trouvable));
+
+    // La pastille de la date s'arrête au texte et n'est plus une gélule.
+    const cadreDeLaDate = await page.evaluate(() => {
+        const champ = document.getElementById('project-name-input');
+        reglagesDate.affichee = true; reglagesDate.heure = false; reglagesDate.horloge = 'chiffres';
+        enregistrerReglagesDate();
+        document.querySelector('#reglages-date [data-format="chiffres"]').click();
+        const cs = getComputedStyle(champ);
+        return { arrondi: parseFloat(cs.borderRadius), plancher: parseFloat(cs.minWidth) || 0,
+                 large: Math.round(champ.getBoundingClientRect().width), texte: champ.value };
+    });
+    r.verifie('le cadre de la date n\'est plus une gélule',
+        cadreDeLaDate.arrondi > 0 && cadreDeLaDate.arrondi <= 12, JSON.stringify(cadreDeLaDate));
+    r.verifie('et il s\'arrête au texte, sans largeur plancher',
+        cadreDeLaDate.plancher < 10 && cadreDeLaDate.large < 160, JSON.stringify(cadreDeLaDate));
+
     const cadran = await page.evaluate(() => {
         const champ = document.getElementById('project-name-input');
         const svg = document.getElementById('titre-horloge');

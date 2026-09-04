@@ -4659,7 +4659,7 @@ body.dark-mode {
     /* La largeur est posée en JS d'après le texte : un <input> ne s'élargit
        pas tout seul, et la date longue avec l'heure était tronquée. */
     width: auto;
-    min-width: 150px;
+    min-width: 0;
     /* Simple garde-fou : c'est le JS qui calcule la place réellement libre,
        et elle dépend du mode Focus, où les barres s'effacent. */
     max-width: calc(100vw - 24px);
@@ -4670,7 +4670,10 @@ body.dark-mode {
        plus ce qui était quoi. Une pastille discrète suffit — et la poignée
        permet de l'emmener ailleurs si elle gêne encore. */
     background: rgba(255, 255, 255, 0.82);
-    border-radius: 999px;
+    /* Un cadre franc plutôt qu'une gélule : la date est une étiquette, pas un
+       bouton. Et il s'arrête au texte — « min-width: 150px » lui donnait la
+       largeur d'une date longue même pour « 04/09 » ou pour l'heure seule. */
+    border-radius: 8px;
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
 }
 
@@ -4707,6 +4710,7 @@ body.dark-mode {
 #titre-horloge {
     display: none;
     flex-shrink: 0;
+    /* Le cadran, lui, reste rond : c'est une horloge. */
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.82);
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
@@ -7936,3 +7940,64 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 #color-popover .slider-container input[type="range"] { flex: 1; }
+
+/* ===================================================
+   LE TIROIR DU BAS, RANGÉ
+   Deux rangées mélangeaient trois natures d'action : l'aide voisinait avec la
+   corbeille, le minuteur avec la luminosité, le verrou général avec l'import.
+   Rien ne portait de nom, et trois petits triangles signalaient des menus
+   cachés sans dire lesquels. On nomme donc les groupes — Fichier, Tableau,
+   Vue, Outils — et chaque bouton rejoint le sien.
+   =================================================== */
+/* Le nom se met À CÔTÉ des boutons, pas au-dessus : posé au-dessus, il
+   ajoutait une ligne par rangée, le tiroir montait de vingt pixels et mordait
+   sur la zone où l'on écrit — deux tests l'ont attrapé, un trait tracé en bas
+   de l'écran arrivait sur le tiroir au lieu du tableau. */
+.tiroir-groupe {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border-left: 1px solid var(--border);
+}
+
+/* Pas de filet devant le premier de la rangée : il n'y a rien à séparer. */
+.tiroir-groupe:first-child { border-left: none; padding-left: 2px; }
+
+.tiroir-titre {
+    font-size: 9px;
+    white-space: nowrap;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted, #94a3b8);
+    padding-left: 2px;
+    line-height: 1;
+    user-select: none;
+}
+
+.tiroir-boutons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+/* Les popups des menus (importer, exporter, zoom, aimant…) se placent par
+   rapport à leur bouton : le groupe ne doit pas les rogner. */
+.tiroir-groupe, .tiroir-boutons { overflow: visible; }
+
+/* LES FILETS QUI NE SÉPARENT PLUS RIEN. La barre a beaucoup changé : des
+   groupes sont partis, d'autres ne paraissent que dans un contexte. Un filet
+   resté seul en bout de barre, ou collé à un autre, dessinait un trait
+   vertical au milieu de nulle part — très visible sur un document, où
+   plusieurs groupes sont masqués à la fois. */
+#bar-style .doc-sep:first-child,
+#bar-style .doc-sep:last-child,
+#bar-style .divider:first-child,
+#bar-style .divider:last-child,
+#bar-style .doc-sep + .doc-sep,
+#bar-style .divider + .divider,
+#bar-style .doc-sep + .divider,
+#bar-style .divider + .doc-sep { display: none; }

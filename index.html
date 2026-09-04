@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=71">
+    <link rel="stylesheet" href="style.css?v=72">
 </head>
 
 <body>
@@ -349,8 +349,9 @@
                 <div class="rp-titre">Afficher</div>
                 <button class="rp-choix" id="rd-date">Afficher la date</button>
                 <button class="rp-choix" id="rd-heure">Afficher l'heure</button>
-                <!-- Le cadran ne s'offre que si l'heure est affichée : il la
-                     remplace, il ne s'y ajoute pas. -->
+                <!-- Le cadran REMPLACE les chiffres, il ne s'y ajoute pas. Et le
+                     choix se voit toujours : caché tant que l'heure était
+                     éteinte, personne ne le trouvait. -->
                 <div id="rd-forme-heure">
                     <button class="rp-choix rp-sous" data-horloge="chiffres">En chiffres</button>
                     <button class="rp-choix rp-sous" data-horloge="aiguilles">À aiguilles</button>
@@ -1252,9 +1253,19 @@
             </svg>
         </div>
         <div class="bottom-workspace-rows" id="workspace-tools-row">
+            <!-- Les champs de fichier, invisibles : ce sont eux que les boutons
+                 « Importer » et « Ouvrir » déclenchent. -->
+            <input type="file" id="workspace-loader-global" accept=".autableau,.json" style="display:none;"
+                onchange="importWorkspace(this.files[0]); this.value='';">
+            <input type="file" id="file-loader" accept=".prof,.json" style="display:none;">
+            <input type="file" id="doc-loader" accept=".txt,.md,.csv,.docx,.odt" multiple style="display:none;">
+            <input type="file" id="retrouver-loader" accept="image/*" multiple style="display:none;">
+            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.csv,.docx,.odt" multiple style="display:none;">
         <div class="tool-pool bottom-workspace-row">
-            <!-- Menu Import -->
-            <div class="popup-wrapper">
+                <div class="tiroir-groupe">
+                    <span class="tiroir-titre">Fichier</span>
+                    <div class="tiroir-boutons">
+                    <div class="popup-wrapper">
                 <button class="btn" id="btn-import-menu" data-tooltip="Importer">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -1272,14 +1283,12 @@
                     <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Ouvrir un tableau (.prof)</button>
                 </div>
             </div>
-
-            <!-- Menu Export -->
-            <button class="btn" id="btn-explorateur" data-tooltip="Ouvrir un fichier (ordinateur ou nuage)"><svg
+                    <button class="btn" id="btn-explorateur" data-tooltip="Ouvrir un fichier (ordinateur ou nuage)"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H3Z" />
                         <path d="M3 10h18l-1.6 8.2A2 2 0 0 1 17.4 20H6.6a2 2 0 0 1-2-1.8Z" />
                     </svg></button>
-                <div class="popup-wrapper">
+                    <div class="popup-wrapper">
                 <button class="btn" id="btn-export-menu" data-tooltip="Exporter">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -1296,61 +1305,46 @@
                     <button class="menu-item" id="btn-record-canvas"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span> Filmer l'écran</button>
                 </div>
             </div>
-
-            <button class="btn" id="btn-classes-menu" data-tooltip="Mes classes"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
-
-            <!-- Coller vit ici, et non dans la barre de sélection : on colle
-                 justement quand rien n'est sélectionné, et cette barre-là ne
-                 s'affiche que lorsqu'un objet l'est. -->
-            <button class="btn" id="btn-coller-tableau" data-tooltip="Coller (Ctrl+V)"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-                    <rect x="8" y="2" width="8" height="4" rx="1" />
-                </svg></button>
-
-            <!-- Deux gestes de tous les jours : ils méritaient une icône, pas une étiquette -->
-            <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
+                    <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                     <rect x="3" y="4" width="14" height="16" rx="2" />
                     <path d="M7 8h6M7 12h6M7 16h4" stroke-linecap="round" />
                     <path d="M20 7v13a1 1 0 0 1-1 1h-2" />
                 </svg></button>
-            <button class="btn" id="btn-ranger" data-tooltip="Ranger l'espace" onclick="handleWorkspaceArrange()"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg></button>
-
-            <!-- Bouton Global Lock -->
-            <button class="btn" id="btn-global-lock" data-tooltip="Verrouiller / Déverrouiller">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-            </button>
-            <button class="btn danger" id="btn-trash-now" data-tooltip="Tout effacer"><svg xmlns="http://www.w3.org/2000/svg"
+                    <button class="btn danger" id="btn-trash-now" data-tooltip="Tout effacer"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
                     <path d="M3 6h18" />
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     <path d="M10 11v6" />
                     <path d="M14 11v6" />
                 </svg></button>
-            <button class="btn" id="btn-help" data-tooltip="Raccourcis clavier"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
-
-            <!-- Input caché pour charger le fichier global -->
-            <input type="file" id="workspace-loader-global" accept=".autableau,.json" style="display:none;"
-                onchange="importWorkspace(this.files[0]); this.value='';">
-
-            <input type="file" id="file-loader" accept=".prof,.json" style="display:none;">
-            <input type="file" id="doc-loader" accept=".txt,.md,.csv,.docx,.odt" multiple style="display:none;">
-    <input type="file" id="retrouver-loader" accept="image/*" multiple style="display:none;">
-            <input type="file" id="pdf-loader" accept=".pdf,image/*,audio/mpeg,audio/mp3,.mp3,video/*,.mp4,.webm,.mov,.txt,.md,.csv,.docx,.odt" multiple style="display:none;">
-
-            <div class="divider"></div>
-
-            <div class="page-controls">
+                    </div>
+                </div>
+                <div class="tiroir-groupe">
+                    <span class="tiroir-titre">Tableau</span>
+                    <div class="tiroir-boutons">
+                    <button class="btn" id="btn-coller-tableau" data-tooltip="Coller (Ctrl+V)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                </svg></button>
+                    <button class="btn" id="btn-ranger" data-tooltip="Ranger l'espace" onclick="handleWorkspaceArrange()"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg></button>
+                    <button class="btn" id="btn-global-lock" data-tooltip="Verrouiller / Déverrouiller">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+            </button>
+                    </div>
+                </div>
+                <div style="flex:1"></div>
+                <div class="page-controls">
                 <button class="btn" id="btn-prev-page" data-tooltip="Page précédente"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z" />
@@ -1366,9 +1360,12 @@
                         <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
                     </svg></button>
             </div>
-        </div>
+            </div>
         <div class="tool-pool bottom-workspace-row">
-            <div class="tool-group" data-groupe="voir">
+                <div class="tiroir-groupe">
+                    <span class="tiroir-titre">Vue</span>
+                    <div class="tiroir-boutons">
+                    <div class="tool-group" data-groupe="voir">
                 <div class="popup-wrapper">
                 <button class="btn btn-valeur" id="btn-zoom-toggle" data-tooltip="Zoom">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
@@ -1404,8 +1401,7 @@
                             d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
                     </svg></button>
             </div>
-                <div class="divider"></div>
-                <div class="tool-group" data-groupe="papier">
+                    <div class="tool-group" data-groupe="papier">
                 <button class="btn" id="btn-cycle" data-tooltip="Fonds"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path
@@ -1430,8 +1426,7 @@
                         <path d="M18 9l3 3-3 3M15 6l-3-3-3 3" />
                     </svg></button>
             </div>
-                <div class="divider"></div>
-                <div class="tool-group" data-groupe="aimant">
+                    <div class="tool-group" data-groupe="aimant">
                 <button class="btn" id="btn-magnet" data-tooltip="Aimant"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1464,8 +1459,13 @@
                         </svg></button>
                 </span>
             </div>
-                <div class="divider"></div>
-                <div class="tool-group" data-groupe="classe">
+                    </div>
+                </div>
+                <div class="tiroir-groupe">
+                    <span class="tiroir-titre">Outils</span>
+                    <div class="tiroir-boutons">
+                    <button class="btn" id="btn-classes-menu" data-tooltip="Mes classes"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
+                    <div class="tool-group" data-groupe="classe">
                 <button class="btn" id="btn-rideau" data-tooltip="Rideau (masquer / révéler)"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -1478,8 +1478,7 @@
                         <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
                     </svg></button>
             </div>
-                <div class="divider"></div>
-                <div class="tool-group" data-groupe="mesure">
+                    <div class="tool-group" data-groupe="mesure">
                 <button class="btn" id="btn-toggle-time" data-tooltip="Horloge & Chrono">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1504,9 +1503,10 @@
                         <line x1="16" y1="18" x2="16" y2="18" />
                     </svg></button>
             </div>
-            <div class="tool-group">
+                    <button class="btn" id="btn-help" data-tooltip="Raccourcis clavier"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
+                    </div>
+                </div>
             </div>
-        </div>
         </div>
         <div class="drawer-header" style="justify-content: center; width: 100%;">
             <div class="tool-categories" id="categories-bottom" style="justify-content: center;">
@@ -1645,6 +1645,24 @@
         <!-- Copier, couper, dupliquer, coller : les raccourcis existaient
              depuis toujours, mais rien ne les montrait — sur tablette, il n'y
              a même pas de clavier pour les faire. -->
+        <!-- LA POIGNEE ET LE REPLI SONT DE RETOUR. Je les avais retires en croyant
+             qu'une barre fixe n'en avait plus besoin : c'est faux sur un document
+             en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
+             La place choisie est retenue d'une seance a l'autre. -->
+        <div class="drag-wrapper">
+            <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                </svg></button>
+        </div>
+        <div class="drag-handle cbar-head"
+            style="cursor: move; opacity: 0.5; padding: 4px; margin-right: 8px; display: flex; align-items: center;"
+            title="Déplacer">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
+                <path
+                    d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"
+                    fill="currentColor" />
+            </svg>
+        </div>
         <div class="style-group group-document">
         <span id="doc-pages">
             <button class="doc-btn" id="doc-prec" data-tooltip="Page précédente">◀</button>
@@ -1728,7 +1746,6 @@
                 <path d="M9 9h6v6H9z" stroke-dasharray="2 2" />
                 <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
             </svg></button>
-        <i class="doc-sep"></i>
         </div>
         <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
             <div id="color-indicator"></div>
@@ -1979,7 +1996,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=141"></script>
+    <script src="script.js?v=142"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

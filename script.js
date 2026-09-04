@@ -1088,6 +1088,11 @@ function handleWorkspaceArrange() {
         barStyle.removeAttribute('data-dragged');
         localStorage.removeItem('bar_style_x');
         localStorage.removeItem('bar_style_y');
+        // La remise à plat de l'interface oublie aussi la place choisie à la main
+        if (typeof barreStylePosee !== 'undefined') {
+            barreStylePosee = null;
+            if (typeof retenirLaBarreStyle === 'function') retenirLaBarreStyle();
+        }
         barStyle.style.left = '50%';
         barStyle.style.top = '20px';
         barStyle.style.right = 'auto';
@@ -4902,6 +4907,53 @@ document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
+// LA BARRE DE STYLE SE DÉPLACE, ET S'EN SOUVIENT.
+// Elle a beau être fixe, elle peut tomber en travers de ce qu'on montre — un
+// document en plein écran, par exemple. On la prend par sa poignée ; un
+// double-clic dessus la remet à sa place automatique. La position est bornée à
+// L'ENREGISTREMENT autant qu'à l'affichage : gardée hors de l'écran, elle
+// reviendrait telle quelle demain, hors d'atteinte.
+const CLE_BARRE_STYLE = 'auTableau_barre_style';
+let barreStylePosee = null;
+try {
+    const brut = JSON.parse(localStorage.getItem(CLE_BARRE_STYLE) || 'null');
+    if (brut && isFinite(brut.x) && isFinite(brut.y)) barreStylePosee = brut;
+} catch (e) { /* réglage illisible */ }
+
+function retenirLaBarreStyle() {
+    try {
+        if (barreStylePosee) localStorage.setItem(CLE_BARRE_STYLE, JSON.stringify(barreStylePosee));
+        else localStorage.removeItem(CLE_BARRE_STYLE);
+    } catch (e) { /* stockage refusé */ }
+}
+
+function replacerLaBarreStyle() {
+    barreStylePosee = null;
+    retenirLaBarreStyle();
+    updateStyleBarContext();
+    if (typeof showToast === 'function') showToast('Barre remise à sa place');
+}
+window.replacerLaBarreStyle = replacerLaBarreStyle;
+
+// La poignée générique des barres déplace celle-ci comme les autres ; il ne
+// manquait qu'un endroit où retenir le résultat.
+document.addEventListener('DOMContentLoaded', () => {
+    const barre = document.getElementById('bar-style');
+    const poignee = barre && (barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle'));
+    if (!barre || !poignee) return;
+    window.addEventListener('mouseup', () => {
+        if (barre.dataset.dragged !== 'true') return;
+        const l = barre.offsetWidth || 480, h = barre.offsetHeight || 44;
+        const r = barre.getBoundingClientRect();
+        barreStylePosee = {
+            x: Math.max(4, Math.min(window.innerWidth - l - 4, r.left)),
+            y: Math.max(4, Math.min(window.innerHeight - h - 4, r.top))
+        };
+        retenirLaBarreStyle();
+    });
+    poignee.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLaBarreStyle(); });
+});
+
 // --- GESTION SELECTION ET STYLES ---
 function updateStyleBarContext() {
     const barStyle = document.getElementById('bar-style'); barStyle.className = "toolbar visible";
@@ -4919,18 +4971,33 @@ function updateStyleBarContext() {
     // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
     // les barres du bas se sont effacées — la place est libre.
     const enFocus = document.body.classList.contains('focus-mode');
-    barStyle.removeAttribute('data-dragged');
-    barStyle.style.left = '50%';
-    barStyle.style.transform = 'translateX(-50%)';
-    barStyle.style.right = 'auto';
-    if (enFocus) {
-        barStyle.style.top = 'auto';
-        barStyle.style.bottom = '16px';
-    } else {
-        const tiroirHaut = document.getElementById('bar-plugins');
-        const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
+    // DÉPLACÉE À LA MAIN, elle reste où on l'a mise. Sans cela le prochain
+    // changement de sélection la ramenait à sa place automatique, et le
+    // déplacement ne servait à rien.
+    if (barreStylePosee) {
+        const l = barStyle.offsetWidth || 480, h = barStyle.offsetHeight || 44;
+        barStyle.dataset.dragged = 'true';
+        barStyle.style.transform = 'none';
+        barStyle.style.right = 'auto';
         barStyle.style.bottom = 'auto';
-        barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
+        barStyle.style.left = Math.round(Math.max(4,
+            Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
+        barStyle.style.top = Math.round(Math.max(4,
+            Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
+    } else {
+        barStyle.removeAttribute('data-dragged');
+        barStyle.style.left = '50%';
+        barStyle.style.transform = 'translateX(-50%)';
+        barStyle.style.right = 'auto';
+        if (enFocus) {
+            barStyle.style.top = 'auto';
+            barStyle.style.bottom = '16px';
+        } else {
+            const tiroirHaut = document.getElementById('bar-plugins');
+            const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
+            barStyle.style.bottom = 'auto';
+            barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
+        }
     }
 
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
@@ -22891,8 +22958,10 @@ function ajusterLargeurDuTitre() {
     // On lui laisse la place disponible, jamais plus. En mode Focus les barres
     // s'effacent — il ne reste que la croix, et le titre respire d'autant.
     const barres = document.body.classList.contains('focus-mode') ? 160 : 360;
-    const place = Math.max(160, Math.min(560, window.innerWidth - barres));
-    const large = Math.min(place, besoin + 26);
+    const place = Math.max(60, Math.min(560, window.innerWidth - barres));
+    // Ajustée au texte, sans plancher : « 04/09 » ou l'heure seule ne doivent
+    // pas occuper la largeur d'une date longue.
+    const large = Math.min(place, besoin + 22);
     champ.style.width = large + 'px';
     return large;
 }
@@ -23124,9 +23193,11 @@ function majReglagesDate() {
     });
     const h = document.getElementById('rd-heure');
     if (h) h.classList.toggle('actif', !!reglagesDate.heure);
-    // Chiffres ou aiguilles : le choix ne se pose que si l'heure est affichée.
+    // Le choix se voit TOUJOURS. Caché tant que l'heure était éteinte, il était
+    // introuvable : personne ne devine qu'un réglage en cache un autre. Choisir
+    // « à aiguilles » allume l'heure du même geste.
     const forme = document.getElementById('rd-forme-heure');
-    if (forme) forme.classList.toggle('visible', !!reglagesDate.heure);
+    if (forme) forme.classList.add('visible');
     document.querySelectorAll('[data-horloge]').forEach(b => {
         b.classList.toggle('actif', b.dataset.horloge === (reglagesDate.horloge || 'chiffres'));
     });
@@ -23207,6 +23278,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-horloge]').forEach(b => {
         b.addEventListener('click', () => {
             reglagesDate.horloge = b.dataset.horloge;
+            // Demander un cadran, c'est demander l'heure : on l'allume.
+            reglagesDate.heure = true;
             enregistrerReglagesDate();
             poserDateDansTitre(true);
             majAffichageDate();

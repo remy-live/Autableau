@@ -420,6 +420,48 @@ module.exports = async function (browser) {
         JSON.stringify(enBasEnFocus));
     r.verifie('et en plein écran elle descend au bord : la page occupe tout le haut',
         enBasEnFocus.focus < 30, JSON.stringify(enBasEnFocus));
+
+    // ELLE SE DÉPLACE ET S'EN SOUVIENT. Fixe ne veut pas dire clouée : sur un
+    // document en plein écran elle peut tomber en travers de ce qu'on montre.
+    const deplacee = await page.evaluate(() => {
+        const barre = document.getElementById('bar-style');
+        const poignee = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
+        const aUnePoignee = !!poignee, aUnRepli = !!barre.querySelector('.btn-minimize');
+        // On la remet d'abord à sa place automatique : le test précédent l'a
+        // laissée en bas, et tirer vers le bas depuis là serait borné.
+        barreStylePosee = null;
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const r0 = barre.getBoundingClientRect();
+        poignee.dispatchEvent(new MouseEvent('mousedown', { bubbles: true,
+            clientX: r0.left + 5, clientY: r0.top + 5 }));
+        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true,
+            clientX: r0.left + 5 + 120, clientY: r0.top + 5 + 220 }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        const pose = barreStylePosee && { x: Math.round(barreStylePosee.x), y: Math.round(barreStylePosee.y) };
+        // Un changement de sélection ne doit pas la ramener à sa place auto
+        selectedItems = []; updateStyleBarContext();
+        selectedItems = [{ type: 'image', id: images[0].id }]; updateStyleBarContext();
+        const apres = barre.getBoundingClientRect();
+        const memoire = JSON.parse(localStorage.getItem('auTableau_barre_style') || 'null');
+        // et le double-clic sur la poignée défait tout
+        poignee.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const remise = { pose: barreStylePosee, memoire: localStorage.getItem('auTableau_barre_style') };
+        return { aUnePoignee, aUnRepli, pose, memoire,
+                 bougeX: Math.round(apres.left - r0.left), bougeY: Math.round(apres.top - r0.top),
+                 dansEcran: apres.left >= 0 && apres.top >= 0
+                     && apres.right <= window.innerWidth + 1 && apres.bottom <= window.innerHeight + 1,
+                 remise };
+    });
+    r.verifie('la barre a de nouveau une poignée et un repli',
+        deplacee.aUnePoignee && deplacee.aUnRepli, JSON.stringify(deplacee));
+    r.verifie('on la déplace d\'autant qu\'on a tiré',
+        Math.abs(deplacee.bougeX - 120) <= 6 && Math.abs(deplacee.bougeY - 220) <= 6,
+        JSON.stringify(deplacee));
+    r.verifie('et un changement de sélection ne la ramène pas en place',
+        !!deplacee.memoire && deplacee.dansEcran, JSON.stringify(deplacee));
+    r.egal('le double-clic sur la poignée défait le déplacement', deplacee.remise.pose, null);
+    r.egal('et l\'oubli est retenu', deplacee.remise.memoire, null);
     r.egal('elle affiche la page courante sur le total', barre.info, '2/3');
 
     const fleches = await page.evaluate(async () => {
