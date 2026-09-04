@@ -4919,6 +4919,7 @@ function updateStyleBarContext() {
     // alors se poser JUSTE SOUS l'autre — plus un panneau qu'une barre.
     const sousLaBarreDuDocument = typeof barreDocumentTientLObjet === 'function'
         && barreDocumentTientLObjet();
+    barStyle.classList.toggle('en-menu', sousLaBarreDuDocument && reglagesEtendus);
     if (sousLaBarreDuDocument && !reglagesEtendus) {
         barStyle.classList.remove('visible');   // className vient d'être réécrit : les ctx-* sont déjà partis
         return;
@@ -5022,14 +5023,23 @@ function updateStyleBarContext() {
 // barre d'outils est posée à demeure.
 function poserLaBarreContreLeDocument(barStyle) {
     const barreDoc = document.getElementById('barre-document');
-    if (!barreDoc) return;
+    const bouton = document.getElementById('doc-plus');
+    if (!barreDoc || !bouton) return;
     const doc = barreDoc.getBoundingClientRect();
-    const demi = (barStyle.offsetWidth || 480) / 2 + 8;
-    barStyle.style.left = Math.round(Math.max(demi,
-        Math.min(window.innerWidth - demi, doc.left + doc.width / 2))) + 'px';
+    const b = bouton.getBoundingClientRect();
+
+    // Aligné sur le bouton qui l'a appelée, comme un menu pend de son bouton.
+    // Le panneau est étroit : on le range à droite du « ⋯ », et l'on ne le
+    // pousse que s'il sort de l'écran.
+    const l = barStyle.offsetWidth || 244;
+    barStyle.style.left = Math.round(Math.max(8,
+        Math.min(window.innerWidth - l - 8, b.right - l))) + 'px';
+
+    // Sous la barre du document — au-dessus quand celle-ci est déjà dans le
+    // bas de l'écran, là où la barre d'outils est posée à demeure.
     const h = barStyle.offsetHeight || 44;
-    const dessous = doc.bottom + 10;
-    const dessus = doc.top - 10 - h;
+    const dessous = doc.bottom + 8;
+    const dessus = doc.top - 8 - h;
     const tropBas = dessous + h > window.innerHeight - 8
         || doc.bottom > window.innerHeight * 0.62;
     barStyle.style.top = Math.round(tropBas && dessus >= 8 ? dessus : dessous) + 'px';
@@ -18432,13 +18442,13 @@ function loadExplorerData() {
 }
 let currentBoardName = "";
 
-function updateUnsavedIndicator() {
-    const ind = document.getElementById('unsaved-indicator');
-    if (ind) {
-        if (hasUnsavedChanges) ind.classList.add('visible');
-        else ind.classList.remove('visible');
-    }
-}
+// La pastille rouge du titre est retirée : elle s'allumait au premier geste
+// et ne s'éteignait qu'en enregistrant un tableau nommé — allumée en
+// permanence, elle ne signalait plus rien, et son « Modifications non
+// sauvegardées » inquiétait à tort puisque tout est écrit localement de toute
+// façon. Le drapeau, lui, reste : c'est lui qui fait poser la question avant
+// de charger un autre tableau.
+function updateUnsavedIndicator() { /* plus de pastille à allumer */ }
 
 function initProjectName() {
     // Le format vient des réglages de la roue, à côté du titre
@@ -23066,7 +23076,7 @@ function equilibrerGrillePlugins() {
 // Un titre écrit à la main n'est JAMAIS remplacé.
 // ===================================================
 const CLE_DATE = 'board_reglages_date';
-let reglagesDate = { format: 'long', heure: false, affichee: true };
+let reglagesDate = { format: 'long', heure: false, affichee: true, horloge: 'chiffres' };
 let dernierTitreDate = '';
 
 try {
@@ -23120,11 +23130,33 @@ function texteDateDuJour() {
         const t = f(d);
         bouts.push(t.charAt(0).toUpperCase() + t.slice(1));
     }
-    if (reglagesDate.heure) {
+    // À aiguilles, l'heure n'est plus dans le texte : elle est sur le cadran.
+    if (reglagesDate.heure && reglagesDate.horloge !== 'aiguilles') {
         bouts.push(d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
     }
     return bouts.join(' — ');
 }
+
+// Le cadran : deux aiguilles qu'on fait tourner autour du centre. L'aiguille
+// des heures avance aussi avec les minutes — sans cela, elle sauterait d'un
+// chiffre à l'autre et montrerait une heure fausse cinquante-neuf minutes sur
+// soixante.
+function majHorlogeAnalogique() {
+    const svg = document.getElementById('titre-horloge');
+    if (!svg) return;
+    // Le cadran suit « afficher l'heure », pas « afficher la date » : les deux
+    // sont indépendantes, et l'horloge seule est une demande courante.
+    const montre = !!reglagesDate.heure && reglagesDate.horloge === 'aiguilles';
+    svg.classList.toggle('visible', montre);
+    if (!montre) return;
+    const d = new Date();
+    const m = d.getMinutes();
+    const hAig = document.getElementById('th-heure');
+    const mAig = document.getElementById('th-minute');
+    if (hAig) hAig.style.transform = `rotate(${(d.getHours() % 12) * 30 + m * 0.5}deg)`;
+    if (mAig) mAig.style.transform = `rotate(${m * 6}deg)`;
+}
+window.majHorlogeAnalogique = majHorlogeAnalogique;
 
 function enregistrerReglagesDate() {
     try { localStorage.setItem(CLE_DATE, JSON.stringify(reglagesDate)); } catch (e) { /* stockage refusé */ }
@@ -23153,7 +23185,9 @@ function poserDateDansTitre(force) {
 
 // L'heure suit, mais seulement tant que le titre reste celui qu'on a écrit
 setInterval(() => {
-    if (reglagesDate.heure) poserDateDansTitre(false);
+    if (!reglagesDate.heure) return;
+    poserDateDansTitre(false);
+    majHorlogeAnalogique();
 }, 30000);
 
 function majAffichageDate() {
@@ -23164,6 +23198,10 @@ function majAffichageDate() {
         const ecritALaMain = !!(champ && champ.value.trim() && champ.value.trim() !== dernierTitreDate);
         cadre.style.display = (rien && !ecritALaMain) ? 'none' : '';
     }
+    // Le cadran affiché sans texte à côté : la pastille vide n'aurait rien à
+    // dire, on l'efface et il reste seul.
+    if (champ) champ.style.display = champ.value.trim() ? '' : 'none';
+    majHorlogeAnalogique();
     ajusterLargeurDuTitre();
     majPoseDuTitre();
 }
@@ -23225,8 +23263,13 @@ function brancherLaPriseDuTitre() {
     // champ : on l'avale.
     let sortDunGlissement = false;
 
-    champ.addEventListener('pointerdown', (e) => {
+    // La prise est sur le CADRE, pas sur le seul champ : avec l'horloge à
+    // aiguilles et la date éteinte, le champ est masqué — on n'aurait plus rien
+    // à saisir pour la déplacer. Le groupe de droite (roue et menu) est exclu :
+    // on y clique, on ne l'empoigne pas.
+    cadre.addEventListener('pointerdown', (e) => {
         if (e.button) return;
+        if (e.target.closest && e.target.closest('#project-title-controls-right')) return;
         // Un champ où l'on écrit déjà se manipule au curseur, pas au bras.
         if (document.activeElement === champ) return;
         const r = cadre.getBoundingClientRect();
@@ -23236,10 +23279,10 @@ function brancherLaPriseDuTitre() {
         // pointeur quitte la pastille au bout de quelques pixels et les
         // « pointermove » suivants partent au tableau, qui n'en fait rien.
         // Capturer n'empêche ni le clic ni la mise au point du champ.
-        try { champ.setPointerCapture(e.pointerId); } catch (err) { /* refusé */ }
+        try { cadre.setPointerCapture(e.pointerId); } catch (err) { /* refusé */ }
     });
 
-    champ.addEventListener('pointermove', (e) => {
+    cadre.addEventListener('pointermove', (e) => {
         if (!glisse) return;
         if (!glisse.bouge) {
             // Trois pixels : en dessous, c'est un clic pour écrire dans le
@@ -23268,10 +23311,10 @@ function brancherLaPriseDuTitre() {
             setTimeout(() => { sortDunGlissement = false; }, 0);
         }
         glisse = null;
-        try { champ.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+        try { cadre.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
     };
-    champ.addEventListener('pointerup', finir);
-    champ.addEventListener('pointercancel', finir);
+    cadre.addEventListener('pointerup', finir);
+    cadre.addEventListener('pointercancel', finir);
     // Posé sur le CADRE et en capture : il passe ainsi avant les écouteurs du
     // champ lui-même — dont celui qui sélectionne tout le titre — quel que
     // soit l'ordre dans lequel ils ont été branchés.
@@ -23282,7 +23325,8 @@ function brancherLaPriseDuTitre() {
     // Le double-clic ouvre les réglages : c'est la roue disparue, rendue au
     // geste. On enlève au passage le curseur que les deux clics ont posé dans
     // le champ, sinon on tape dans le titre en croyant régler la date.
-    champ.addEventListener('dblclick', (e) => {
+    cadre.addEventListener('dblclick', (e) => {
+        if (e.target.closest && e.target.closest('#project-title-controls-right')) return;
         e.preventDefault();
         champ.blur();
         window.getSelection && window.getSelection().removeAllRanges();
@@ -23301,6 +23345,12 @@ function majReglagesDate() {
     });
     const h = document.getElementById('rd-heure');
     if (h) h.classList.toggle('actif', !!reglagesDate.heure);
+    // Chiffres ou aiguilles : le choix ne se pose que si l'heure est affichée.
+    const forme = document.getElementById('rd-forme-heure');
+    if (forme) forme.classList.toggle('visible', !!reglagesDate.heure);
+    document.querySelectorAll('[data-horloge]').forEach(b => {
+        b.classList.toggle('actif', b.dataset.horloge === (reglagesDate.horloge || 'chiffres'));
+    });
     // Deux interrupteurs indépendants : l'horloge tient debout sans la date.
     const d = document.getElementById('rd-date');
     if (d) d.classList.toggle('actif', !!reglagesDate.affichee);
@@ -23374,6 +23424,15 @@ document.addEventListener('DOMContentLoaded', () => {
         poserDateDansTitre(true);
         majAffichageDate();
         majReglagesDate();
+    });
+    document.querySelectorAll('[data-horloge]').forEach(b => {
+        b.addEventListener('click', () => {
+            reglagesDate.horloge = b.dataset.horloge;
+            enregistrerReglagesDate();
+            poserDateDansTitre(true);
+            majAffichageDate();
+            majReglagesDate();
+        });
     });
     const bDate = document.getElementById('rd-date');
     if (bDate) bDate.addEventListener('click', () => {

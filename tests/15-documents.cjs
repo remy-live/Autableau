@@ -1058,12 +1058,16 @@ module.exports = async function (browser) {
         document.getElementById('doc-plus').click();
         const ouvert = etat();
         const b = style.getBoundingClientRect(), d = doc.getBoundingClientRect();
-        // On ne demande pas un centrage au pixel : rester dans l'écran passe
-        // avant, et une barre large accolée au bord gauche se décale forcément.
-        // Ce qui compte, c'est qu'elles se recouvrent et qu'on la voie en entier.
-        const recouvre = Math.max(0, Math.min(b.right, d.right) - Math.max(b.left, d.left));
+        // Un MENU, pas une seconde barre : étroit, accroché au « ⋯ » qui l'a
+        // appelé, et juste au-dessus ou au-dessous de la barre du document.
+        // Affiché sur toute la longueur, il faisait deux barres empilées —
+        // exactement ce qu'on venait de supprimer.
+        const bouton = document.getElementById('doc-plus').getBoundingClientRect();
         const place = {
-            recouvrement: Math.round(100 * recouvre / Math.min(b.width, d.width)),
+            enMenu: style.classList.contains('en-menu'),
+            large: Math.round(b.width),
+            plusLargeQueLaBarre: b.width > d.width,
+            surLeBouton: Math.round(Math.abs(b.right - bouton.right)),
             ecart: Math.round(b.top > d.top ? b.top - d.bottom : d.top - b.bottom),
             dansEcran: b.top >= 0 && b.bottom <= window.innerHeight + 1
                 && b.left >= 0 && b.right <= window.innerWidth + 1
@@ -1092,9 +1096,12 @@ module.exports = async function (browser) {
         uneSeule.seule.doc && !uneSeule.seule.style, JSON.stringify(uneSeule.seule));
     r.verifie('« ⋯ » rappelle la barre de style',
         uneSeule.ouvert.style && uneSeule.ouvert.actif, JSON.stringify(uneSeule.ouvert));
-    r.verifie('et la pose contre la barre du document, dans l\'écran',
-        uneSeule.place.recouvrement >= 90 && uneSeule.place.ecart >= 0
-        && uneSeule.place.ecart < 40 && uneSeule.place.dansEcran, JSON.stringify(uneSeule.place));
+    r.verifie('en menu accroché au bouton, pas en seconde barre',
+        uneSeule.place.enMenu && !uneSeule.place.plusLargeQueLaBarre
+        && uneSeule.place.surLeBouton <= 2, JSON.stringify(uneSeule.place));
+    r.verifie('contre la barre du document, et dans l\'écran',
+        uneSeule.place.ecart >= 0 && uneSeule.place.ecart < 40
+        && uneSeule.place.dansEcran, JSON.stringify(uneSeule.place));
     r.verifie('un second clic la renvoie',
         !uneSeule.referme.style && !uneSeule.referme.actif, JSON.stringify(uneSeule.referme));
     r.verifie('changer d\'objet referme le panneau',

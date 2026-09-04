@@ -260,6 +260,89 @@ module.exports = async function (browser) {
         && !/\d{1,2}:\d{2}/.test(heureIci.sansHeure), JSON.stringify(heureIci));
     r.egal('et se retire', heureIci.apres, heureIci.sansHeure);
 
+    // --- L'HEURE : EN CHIFFRES OU À AIGUILLES ---
+    // La pastille rouge qui occupait ce coin est retirée : allumée au premier
+    // geste et éteinte seulement en enregistrant un tableau nommé, elle était
+    // allumée en permanence et ne signalait plus rien. Un cadran la remplace.
+    r.verifie('la pastille « non enregistré » a disparu',
+        await page.evaluate(() => !document.getElementById('unsaved-indicator')));
+
+    const cadran = await page.evaluate(() => {
+        const champ = document.getElementById('project-name-input');
+        const svg = document.getElementById('titre-horloge');
+        const cadre = document.getElementById('project-name-wrapper');
+        const lire = () => ({
+            texte: champ.value,
+            champVisible: getComputedStyle(champ).display !== 'none',
+            cadran: svg.classList.contains('visible'),
+            cadre: getComputedStyle(cadre).display !== 'none',
+            heure: document.getElementById('th-heure').style.transform,
+            minute: document.getElementById('th-minute').style.transform
+        });
+        reglagesDate.affichee = true; reglagesDate.heure = true; reglagesDate.horloge = 'chiffres';
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        const chiffres = lire();
+        document.querySelector('[data-horloge="aiguilles"]').click();
+        const aiguilles = lire();
+        // L'horloge seule : la date éteinte, il ne reste que le cadran.
+        document.getElementById('rd-date').click();
+        const seul = lire();
+        document.getElementById('rd-date').click();
+        document.querySelector('[data-horloge="chiffres"]').click();
+        const retour = lire();
+        const d = new Date();
+        return { chiffres, aiguilles, seul, retour,
+                 attendu: { h: (d.getHours() % 12) * 30 + d.getMinutes() * 0.5, m: d.getMinutes() * 6 } };
+    });
+    r.verifie('en chiffres, l\'heure est dans le texte et le cadran absent',
+        /\d{1,2}:\d{2}/.test(cadran.chiffres.texte) && !cadran.chiffres.cadran,
+        JSON.stringify(cadran.chiffres));
+    r.verifie('à aiguilles, elle quitte le texte pour le cadran',
+        cadran.aiguilles.cadran && !/\d{1,2}:\d{2}/.test(cadran.aiguilles.texte),
+        JSON.stringify(cadran.aiguilles));
+    // Les aiguilles disent VRAIMENT l'heure : celle des heures avance avec les
+    // minutes, sinon elle sauterait d'un chiffre à l'autre et mentirait
+    // cinquante-neuf minutes sur soixante.
+    const angle = (t) => parseFloat(String(t).replace(/[^-\d.]/g, ''));
+    r.verifie('et elles disent l\'heure qu\'il est',
+        Math.abs(angle(cadran.aiguilles.heure) - cadran.attendu.h) < 1
+        && Math.abs(angle(cadran.aiguilles.minute) - cadran.attendu.m) < 1,
+        JSON.stringify({ lu: cadran.aiguilles, attendu: cadran.attendu }));
+    r.verifie('l\'horloge tient seule : le champ vide s\'efface, le cadran reste',
+        cadran.seul.cadran && cadran.seul.cadre && !cadran.seul.champVisible && !cadran.seul.texte,
+        JSON.stringify(cadran.seul));
+    r.verifie('et l\'on revient aux chiffres',
+        !cadran.retour.cadran && /\d{1,2}:\d{2}/.test(cadran.retour.texte)
+        && cadran.retour.champVisible, JSON.stringify(cadran.retour));
+
+    // On la déplace encore quand il ne reste que le cadran : la prise est sur
+    // le cadre entier, pas sur le champ — qui est alors masqué.
+    const priseAuCadran = await page.evaluate(() => {
+        localStorage.removeItem('auTableau_titre_pose'); titrePose = null;
+        reglagesDate.affichee = false; reglagesDate.heure = true; reglagesDate.horloge = 'aiguilles';
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        const cadre = document.getElementById('project-name-wrapper');
+        const c = cadre.getBoundingClientRect();
+        const x = c.left + c.width / 2, y = c.top + c.height / 2;
+        cadre.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true,
+            pointerId: 9, button: 0, clientX: x, clientY: y }));
+        cadre.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true,
+            pointerId: 9, clientX: x + 200, clientY: y + 150 }));
+        cadre.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 9 }));
+        const apres = cadre.getBoundingClientRect();
+        const bouge = Math.round(apres.left - c.left);
+        // On remet tout en ordre pour la suite
+        titrePose = null; retenirLaPoseDuTitre(); majPoseDuTitre();
+        reglagesDate.affichee = true; reglagesDate.horloge = 'chiffres'; reglagesDate.heure = false;
+        enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate();
+        return { bouge, pose: titrePose };
+    });
+    r.verifie('on la déplace encore quand il ne reste que le cadran',
+        Math.abs(priseAuCadran.bouge - 200) <= 14, JSON.stringify(priseAuCadran));
+    // Le cadre revient à sa place par une transition de 300 ms : sans cette
+    // attente, la mesure suivante le saisirait en plein vol.
+    await page.waitForTimeout(400);
+
     // La pastille EST la poignée : plus de petit ⠿ à viser. On la prend
     // n'importe où et on la pose ailleurs. La position est bornée
     // À L'ENREGISTREMENT : gardée hors de l'écran, elle reviendrait telle

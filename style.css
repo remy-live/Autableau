@@ -297,6 +297,32 @@ html {
     pointer-events: none;
 }
 
+/* EN MENU, PAS EN SECONDE BARRE. Rappelée par le « ⋯ » de la barre du
+   document, elle s'affichait dessous sur toute sa longueur : deux barres
+   empilées, soit exactement ce qu'on venait de supprimer. Elle se replie donc
+   en un petit panneau accroché au bouton, qui se lit comme un menu. */
+#bar-style.en-menu {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-content: flex-start;
+    gap: 6px;
+    width: 244px;
+    border-radius: 14px;
+    padding: 10px;
+    transform: none !important;
+}
+
+/* Les séparateurs et la poignée n'ont plus de sens dans un panneau : ils
+   découpaient une ligne, il n'y en a plus. */
+#bar-style.en-menu .divider,
+#bar-style.en-menu .divider-small,
+#bar-style.en-menu .drag-wrapper,
+#bar-style.en-menu .toolbar-badge,
+#bar-style.en-menu .drag-handle { display: none !important; }
+
+#bar-style.en-menu .style-group { gap: 6px; flex-wrap: wrap; }
+#bar-style.en-menu .slider-container { width: 100%; }
+
 #bar-style.visible {
     opacity: 1;
     pointer-events: auto;
@@ -4698,19 +4724,45 @@ body.dark-mode {
     text-shadow: none;
 }
 
-.unsaved-indicator {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #e17055;
-    opacity: 0;
-    transition: opacity 0.2s;
+/* L'HORLOGE À AIGUILLES. Elle reprend la pastille du titre : même fond, même
+   ombre, pour qu'elle se lise sur un document comme sur le tableau nu. */
+#titre-horloge {
+    display: none;
     flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
 }
 
-.unsaved-indicator.visible {
-    opacity: 1;
+#titre-horloge.visible { display: block; }
+
+.th-cadran { fill: none; stroke: #cbd5e1; stroke-width: 2; }
+.th-reperes { stroke: #94a3b8; stroke-width: 1.6; stroke-linecap: round; }
+.th-heure { stroke: #334155; stroke-width: 2.6; stroke-linecap: round; }
+.th-minute { stroke: #334155; stroke-width: 1.8; stroke-linecap: round; }
+.th-axe { fill: #334155; }
+
+/* Les aiguilles tournent autour du centre du cadran. Une seconde de
+   transition suffit à rendre le saut de la minute lisible sans distraire. */
+#titre-horloge line { transform-box: view-box; transform-origin: 20px 20px; }
+#th-heure, #th-minute { transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+
+.dark-mode #titre-horloge {
+    background: rgba(30, 39, 46, 0.85);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
+
+.dark-mode .th-cadran { stroke: #475569; }
+.dark-mode .th-reperes { stroke: #64748b; }
+.dark-mode .th-heure,
+.dark-mode .th-minute { stroke: #e2e8f0; }
+.dark-mode .th-axe { fill: #e2e8f0; }
+
+/* Les deux formes d'heure sont un choix DANS « Afficher l'heure » : on les
+   décale, et elles disparaissent quand l'heure est éteinte. */
+#rd-forme-heure { display: none; }
+#rd-forme-heure.visible { display: block; }
+.reglages-popup .rp-sous { padding-left: 22px; font-size: 12px; }
 
 body.drawer-open-top .project-name-wrapper {
     /* Cache le titre quand le tiroir du haut est ouvert, ou on le décale ? On le cache c'est plus simple */
