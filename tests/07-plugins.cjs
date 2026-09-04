@@ -421,6 +421,81 @@ module.exports = async function (browser) {
     r.verifie('une apostrophe dans un nom ne casse plus l\'appel qui le porte',
         noms.protege, noms.appel);
 
+    // --- LA BARRE, POUR LES QUATRE-VINGT-SIX OUTILS ---
+    // Un test générique plutôt qu'un par plugin : on pose la vignette de
+    // chacun, on la sélectionne, et l'on regarde ce que la barre propose. Une
+    // règle de style trop large avait vidé la barre pour TOUS les tampons —
+    // elle visait « ctx-document », qui vaut aussi pour eux.
+    // On referme d'abord ce que les essais précédents ont ouvert : la barre
+    // flottante se retire tant qu'une fenêtre d'outil est là, et l'on
+    // mesurerait alors son absence au lieu de son contenu.
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+        // Exactement ce que « unMenuEstOuvert » regarde : sans cela, la barre
+        // flottante reste cachée et l'on mesurerait son absence.
+        document.querySelectorAll('.popup-content.show').forEach(e => e.classList.remove('show'));
+        document.querySelectorAll('#export-popover, #color-popover').forEach(e => e.classList.remove('visible'));
+        document.querySelectorAll('#custom-prompt-modal, #confirm-modal, .live-modal-backdrop, [id$="-backdrop"]')
+            .forEach(e => { if (e.style) e.style.display = 'none'; });
+    });
+    await page.waitForTimeout(250);
+    const barres = await page.evaluate(async () => {
+        const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="140"><rect width="180" height="140" fill="none" stroke="#888"/></svg>');
+        const im = new Image(); im.src = src; imageCache[src] = im;
+        await new Promise(ok => { im.onload = ok; im.onerror = ok; });
+        const lire = (racine) => {
+            const e = document.getElementById(racine);
+            if (!e) return [];
+            return [...e.querySelectorAll('button, input[type=range], .color-dot')]
+                .filter(x => { const s = getComputedStyle(x); return s.display !== 'none' && x.getClientRects().length; })
+                .map(x => x.id || x.className.split(' ')[0]);
+        };
+        const vides = [], sansAction = [], doublons = [], modifierManquant = [], modifierEnTrop = [];
+        const ids = Object.keys(PluginManager.plugins);
+        for (const pid of ids) {
+            images.length = 0; texts.length = 0; selectedItems = []; setMode('pointer');
+            images.push({ id: nextId++, x: 400, y: 300, w: 180, h: 140, cx: 0, cy: 0, cw: 180, ch: 140,
+                          src, z: globalZ++, pluginData: { id: pid } });
+            selectedItems = [{ type: 'image', id: images[0].id }];
+            updateStyleBarContext();
+            if (typeof updateQuickMenu === 'function') updateQuickMenu();
+            // La barre flottante se pose sous l'objet : il faut un dessin et
+            // une image pour qu'elle prenne sa place et devienne mesurable.
+            draw();
+            await new Promise(ok => setTimeout(ok, 30));
+            const fixe = lire('bar-style'), flot = lire('quick-edit-menu');
+            if (fixe.filter(x => x !== 'btn-minimize').length === 0) vides.push(pid);
+            if (flot.length === 0) sansAction.push(pid);
+            const f = new Set(fixe.map(x => x.replace(/^btn-/, '')));
+            if (flot.some(x => f.has(x.replace(/^btn-quick-/, '')))) doublons.push(pid);
+            const p = PluginManager.plugins[pid];
+            const rouvrable = !!(p && typeof p.edit === 'function');
+            const propose = fixe.includes('btn-rouvrir-vignette');
+            if (rouvrable && !propose) modifierManquant.push(pid);
+            if (!rouvrable && propose) modifierEnTrop.push(pid);
+        }
+        images.length = 0; selectedItems = []; updateStyleBarContext(); draw();
+        const qm = document.getElementById('quick-edit-menu');
+        return { total: ids.length, vides, sansAction, doublons, modifierManquant, modifierEnTrop,
+                 pourquoi: { existe: !!qm, classes: qm ? qm.className : '-',
+                             affiche: qm ? getComputedStyle(qm).display : '-',
+                             menuOuvert: typeof unMenuEstOuvert === 'function' ? unMenuEstOuvert() : 'inconnu',
+                             enSaisie: typeof editingTextId !== 'undefined' ? editingTextId : 'inconnu',
+                             enfants: qm ? qm.children.length : 0 } };
+    });
+    r.verifie('les quatre-vingt-six outils sont passés en revue', barres.total > 80, String(barres.total));
+    // Une barre réduite à sa poignée, c'est une barre qui ne sert à rien.
+    r.egal('aucune vignette ne laisse la barre vide', barres.vides, []);
+    r.egal('et chacune a ses actions sous l\'objet', barres.sansAction.length ? barres.pourquoi : [], []);
+    // La barre du haut dit ce à quoi l'objet ressemble ; celle du dessous, ce
+    // qu'on lui fait. Rien ne doit figurer dans les deux.
+    r.egal('rien n\'est proposé deux fois, en haut et sous l\'objet', barres.doublons, []);
+    // Soixante-quatre outils sur quatre-vingt-six posent une vignette qu'on
+    // peut rouvrir — et rien ne le disait : il fallait deviner le double-clic.
+    r.egal('« Modifier » paraît sur toutes les vignettes qui se rouvrent', barres.modifierManquant, []);
+    r.egal('et sur aucune de celles qui ne se rouvrent pas', barres.modifierEnTrop, []);
+
     await context.close();
     return r.bilan();
 };

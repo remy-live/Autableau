@@ -7564,6 +7564,30 @@ function allerALaZoneVoisine(sens) {
 }
 window.allerALaZoneVoisine = allerALaZoneVoisine;
 
+// ROUVRIR UNE VIGNETTE DE PLUGIN. Soixante-quatre outils sur quatre-vingt-six
+// posent une vignette qu'on peut rouvrir pour la reprendre — et rien ne le
+// disait : il fallait deviner le double-clic. Le geste reste, mais un bouton
+// le montre desormais dans la barre.
+function pluginRouvrable(obj) {
+    if (!obj || obj.type === 'text' || !obj.pluginData || !obj.pluginData.id) return null;
+    const p = PluginManager.plugins[obj.pluginData.id];
+    return (p && typeof p.edit === 'function') ? p : null;
+}
+window.pluginRouvrable = pluginRouvrable;
+
+function rouvrirLaVignette(imgObj) {
+    const plugin = pluginRouvrable(imgObj);
+    if (!plugin) return false;
+    // On ferme le menu contextuel de l'image avant d'ouvrir la fenetre du
+    // plugin, sinon il flotte par-dessus.
+    const quickMenu = document.getElementById('quick-edit-menu');
+    if (quickMenu) quickMenu.classList.remove('visible');
+    clearSelection();
+    plugin.edit(imgObj);
+    return true;
+}
+window.rouvrirLaVignette = rouvrirLaVignette;
+
 canvas.addEventListener('dblclick', (e) => {
     const rawPos = getRawLogicalPos(e); const clickedObj = findObjectAt(rawPos.x, rawPos.y);
     if (clickedObj && clickedObj.type === 'image') {
@@ -11574,6 +11598,9 @@ function majBarreDocument() {
     const obj = documentDeLaBarre();
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('ctx-document', 'annote', 'zones-edition', 'doc-allege');
+        // UNE VIGNETTE DE PLUGIN N'EST PAS UN DOCUMENT : on sort par ici, et
+        // c'est justement le cas ou « Modifier » doit paraitre.
+        majBoutonRouvrir();
         if (typeof majLeVolet === 'function') majLeVolet();
         return;
     }
@@ -11610,6 +11637,7 @@ function majBarreDocument() {
     // aussi pour un TAMPON DE PLUGIN, qui n'a ni pages ni cadrage — la barre
     // s'y retrouvait entierement vide, reduite a sa poignee.
     barre.classList.toggle('doc-allege', unDocument);
+    majBoutonRouvrir();
     if (!unDocument && modeDocument === 'page') modeDocument = 'cadre';
     document.getElementById('doc-modes').style.display = unDocument ? 'contents' : 'none';
     document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
@@ -11656,6 +11684,21 @@ const ICONES_MODE_DOC = {
         + '<rect x="8" y="8" width="12" height="8.5" rx="1.5"/>'
         + '<path d="M6.6 12H3.4M4.8 10.2L3 12l1.8 1.8"/>'
 };
+
+// Le bouton « Modifier » ne parait que si la vignette tenue sait se rouvrir,
+// et sur une seule a la fois : rouvrir deux outils d'un coup n'a pas de sens.
+function majBoutonRouvrir() {
+    const bouton = document.getElementById('btn-rouvrir-vignette');
+    if (!bouton) return;
+    let cible = null;
+    if (typeof selectedItems !== 'undefined' && selectedItems.length === 1 && selectedItems[0].type === 'image') {
+        cible = getObjectById('image', selectedItems[0].id);
+    }
+    const plugin = (typeof pluginRouvrable === 'function') ? pluginRouvrable(cible) : null;
+    bouton.style.display = plugin ? 'inline-flex' : 'none';
+    bouton.dataset.cible = plugin ? String(cible.id) : '';
+}
+window.majBoutonRouvrir = majBoutonRouvrir;
 
 function majIconeDuMode(obj) {
     const bouton = document.getElementById('doc-mode-bascule');
@@ -11790,6 +11833,14 @@ function brancherBarreDocument() {
         basculerNumerotationDesZones();
     });
     b('doc-zones-fin').addEventListener('click', () => basculerEditionDesZones(false));
+
+    if (b('btn-rouvrir-vignette')) {
+        b('btn-rouvrir-vignette').addEventListener('click', () => {
+            const id = parseInt(b('btn-rouvrir-vignette').dataset.cible, 10);
+            const obj = isFinite(id) ? getObjectById('image', id) : null;
+            if (obj) rouvrirLaVignette(obj);
+        });
+    }
 
     // LES REGLAGES DE PAGE, DANS LE VOLET. Ils commandent exactement les memes
     // choses que les boutons qui ont quitte la barre : on relaie plutot que de

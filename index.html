@@ -1938,6 +1938,17 @@
                 <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
             </svg></button>
         </div>
+        <!-- ROUVRIR LA VIGNETTE. Soixante-quatre outils sur quatre-vingt-six
+             posent une vignette qu'on peut reprendre — et rien ne le disait :
+             il fallait deviner le double-clic. Le bouton porte son nom, parce
+             que c'est l'action principale sur une vignette d'outil. -->
+        <button class="doc-btn" id="btn-rouvrir-vignette" style="display:none;"
+            data-tooltip="Rouvrir cet outil pour le modifier (double-clic sur la vignette)">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 20.5h4.5L20 9a2.5 2.5 0 0 0-3.5-3.5L5 17v3.5z" />
+                <path d="M14.5 7L17 9.5" />
+            </svg><span>Modifier</span></button>
         <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
             <div id="color-indicator"></div>
         </button>
@@ -2195,7 +2206,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=159"></script>
+    <script src="script.js?v=160"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
