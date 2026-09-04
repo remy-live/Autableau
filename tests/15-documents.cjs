@@ -1017,6 +1017,95 @@ module.exports = async function (browser) {
         place.dessus.barreBas < place.dessus.objHaut && place.dessus.dansEcran,
         JSON.stringify(place.dessus));
 
+    // --- UNE SEULE BARRE À LA FOIS ---
+    // La barre de style restait affichée en haut pendant que celle du document
+    // parlait du même objet, avec trois réglages en double : verrou, dupliquer,
+    // opacité. Elle se tait maintenant, et le bouton « ⋯ » la rappelle SOUS
+    // l'autre — la barre du bas ne gagne qu'un bouton, pas six.
+    const uneSeule = await page.evaluate(async () => {
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        setMode('pointer');
+        images.length = 0; texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        const carre = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90">'
+            + '<rect width="120" height="90" fill="#69c"/></svg>');
+        for (const y of [120, 260]) {
+            await new Promise(res => {
+                const i = new Image();
+                i.onload = () => {
+                    imageCache[i.src] = i;
+                    images.push({ id: nextId++, x: 200, y, w: 120, h: 90,
+                                  cx: 0, cy: 0, cw: 120, ch: 90, src: i.src, z: globalZ++ });
+                    res();
+                };
+                i.src = carre;
+            });
+        }
+        const style = document.getElementById('bar-style');
+        const doc = document.getElementById('barre-document');
+        const etat = () => ({
+            style: style.classList.contains('visible'),
+            doc: doc.classList.contains('visible'),
+            actif: document.getElementById('doc-plus').classList.contains('actif')
+        });
+        const choisir = (n) => {
+            selectedItems = [{ type: 'image', id: images[n].id }];
+            updateStyleBarContext(); majBarreDocument();
+        };
+
+        choisir(0);
+        const seule = etat();
+        document.getElementById('doc-plus').click();
+        const ouvert = etat();
+        const b = style.getBoundingClientRect(), d = doc.getBoundingClientRect();
+        // On ne demande pas un centrage au pixel : rester dans l'écran passe
+        // avant, et une barre large accolée au bord gauche se décale forcément.
+        // Ce qui compte, c'est qu'elles se recouvrent et qu'on la voie en entier.
+        const recouvre = Math.max(0, Math.min(b.right, d.right) - Math.max(b.left, d.left));
+        const place = {
+            recouvrement: Math.round(100 * recouvre / Math.min(b.width, d.width)),
+            ecart: Math.round(b.top > d.top ? b.top - d.bottom : d.top - b.bottom),
+            dansEcran: b.top >= 0 && b.bottom <= window.innerHeight + 1
+                && b.left >= 0 && b.right <= window.innerWidth + 1
+        };
+        document.getElementById('doc-plus').click();
+        const referme = etat();
+
+        // Rouvert, puis on change d'objet : le panneau parlerait de l'ancien.
+        document.getElementById('doc-plus').click();
+        choisir(1);
+        const autreObjet = etat();
+
+        // Un TEXTE n'a pas de barre de document : la barre de style garde son rôle.
+        texts.push({ id: nextId++, x: 400, y: 400, content: 'essai', size: 24, color: '#000', z: globalZ++ });
+        selectedItems = [{ type: 'text', id: texts[0].id }];
+        updateStyleBarContext(); majBarreDocument();
+        const surUnTexte = etat();
+
+        // Rien de sélectionné, un crayon en main : elle règle l'outil, comme avant.
+        selectedItems = []; setMode('freehand'); updateStyleBarContext(); majBarreDocument();
+        const outilEnMain = etat();
+        setMode('pointer');
+        return { seule, ouvert, place, referme, autreObjet, surUnTexte, outilEnMain };
+    });
+    r.verifie('une image sélectionnée : la barre du document, et elle seule',
+        uneSeule.seule.doc && !uneSeule.seule.style, JSON.stringify(uneSeule.seule));
+    r.verifie('« ⋯ » rappelle la barre de style',
+        uneSeule.ouvert.style && uneSeule.ouvert.actif, JSON.stringify(uneSeule.ouvert));
+    r.verifie('et la pose contre la barre du document, dans l\'écran',
+        uneSeule.place.recouvrement >= 90 && uneSeule.place.ecart >= 0
+        && uneSeule.place.ecart < 40 && uneSeule.place.dansEcran, JSON.stringify(uneSeule.place));
+    r.verifie('un second clic la renvoie',
+        !uneSeule.referme.style && !uneSeule.referme.actif, JSON.stringify(uneSeule.referme));
+    r.verifie('changer d\'objet referme le panneau',
+        !uneSeule.autreObjet.style && uneSeule.autreObjet.doc, JSON.stringify(uneSeule.autreObjet));
+    r.verifie('sur un texte, la barre de style garde son rôle',
+        uneSeule.surUnTexte.style && !uneSeule.surUnTexte.doc, JSON.stringify(uneSeule.surUnTexte));
+    r.verifie('et elle règle encore l\'outil quand rien n\'est sélectionné',
+        uneSeule.outilEnMain.style && !uneSeule.outilEnMain.doc, JSON.stringify(uneSeule.outilEnMain));
+
+    await page.evaluate(() => { texts.length = 0; images.length = 0; selectedItems = []; majBarreDocument(); draw(); });
+
     // --- UN PLATEAU SE POSE D'UN SEUL COUP DE PINCEAU ---
     // 41 objets pour trois dessins : on décodait une image par case et l'on
     // repeignait tout le tableau à chaque fois. Une seconde d'attente, et les

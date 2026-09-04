@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=67">
+    <link rel="stylesheet" href="style.css?v=68">
 </head>
 
 <body>
@@ -317,6 +317,16 @@
                 <rect x="5" y="11" width="14" height="10" rx="2" />
                 <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke-linecap="round" />
             </svg></button>
+        <!-- UN SEUL BOUTON DE PLUS, ET IL NE DOUBLE RIEN. La barre de style
+             restait affichée en haut pendant que celle-ci parlait du même
+             objet : deux barres, deux endroits où regarder, et trois réglages
+             en double (verrou, dupliquer, opacité). La barre de style s'efface
+             maintenant, et ce bouton la fait revenir SOUS celle-ci, à la
+             demande — c'est elle qui porte la couleur, les plans et le
+             copier-coller. Rien n'est recopié ici : la barre du bas ne
+             grossit pas. -->
+        <button class="doc-btn" id="doc-plus"
+            data-tooltip="Plus de réglages : couleur, plans, copier-coller">⋯</button>
         <button class="doc-btn" id="doc-replier" data-tooltip="Replier la barre : elle ne cachera plus le bas de la page">–</button>
         <button class="doc-btn doc-fermer" id="doc-fermer" data-tooltip="Retirer le document">✕</button>
     </div>
@@ -711,13 +721,23 @@
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
-                        <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF sélectionné.
+                        <li><strong>La barre du document :</strong> elle apparaît sous l'image ou le PDF
+                            sélectionné — et au-dessus si l'objet est trop bas dans l'écran.
                             <b>Cadre</b> déplace et ouvre les bords,
                             <b>Page</b> fait coulisser et zoomer la page à l'intérieur (molette) ; puis l'opacité,
                             le passage sous le quadrillage, les proportions, le rognage, la duplication, le verrou
                             (on dessine par-dessus) et ✕ pour le retirer. La <b>poignée ⠿</b> la déplace où
                             l'on veut — double-clic dessus pour la remettre sous le document — et <b>–</b> la
-                            replie en une pastille 📄 quand elle cache le bas de la page.</li>
+                            replie en une pastille 📄 quand elle cache le bas de la page. <b>Cadre</b> et
+                            <b>Page</b> ne se proposent que sur une image importée ou un document : faire coulisser
+                            une page à l'intérieur d'un pion d'échecs n'aurait pas de sens.</li>
+                        <li><strong>Une seule barre à la fois :</strong> tant que la barre du document tient
+                            l'objet, la barre de style du haut se tait — elles parlaient toutes deux du même objet,
+                            à deux endroits de l'écran. Le bouton <b>⋯</b> la rappelle contre la barre du document,
+                            le temps d'y prendre la couleur, les plans (premier / arrière) ou le copier-coller ;
+                            un second clic la renvoie, et changer d'objet la referme. Quand <b>rien</b> n'est
+                            sélectionné, elle garde son autre rôle : régler le crayon, le texte ou la forme
+                            <i>avant</i> de tracer.</li>
                         <li><strong>Écrire sur un document en plein écran :</strong> en mode Focus (l'interrupteur
                             <b>Focus</b>, ou <b>D</b> sur un document sélectionné) les barres d'outils s'effacent — la barre du
                             document offre alors <b>Crayon</b>, <b>Texte</b> et <b>Sélection</b> pour annoter la
@@ -1990,7 +2010,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=137"></script>
+    <script src="script.js?v=138"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

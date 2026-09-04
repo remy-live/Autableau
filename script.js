@@ -4912,6 +4912,18 @@ function updateStyleBarContext() {
     barStyle.style.right = 'auto';
     barStyle.style.bottom = 'auto';
     barStyle.style.transform = 'translateX(-50%)';
+
+    // QUAND LA BARRE DU DOCUMENT TIENT L'OBJET, celle-ci se tait : elles
+    // parlaient toutes deux du même objet, à deux endroits de l'écran, avec
+    // trois réglages en double. Le bouton « ⋯ » la rappelle, et elle vient
+    // alors se poser JUSTE SOUS l'autre — plus un panneau qu'une barre.
+    const sousLaBarreDuDocument = typeof barreDocumentTientLObjet === 'function'
+        && barreDocumentTientLObjet();
+    if (sousLaBarreDuDocument && !reglagesEtendus) {
+        barStyle.classList.remove('visible');   // className vient d'être réécrit : les ctx-* sont déjà partis
+        return;
+    }
+
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
@@ -4998,6 +5010,29 @@ function updateStyleBarContext() {
 
     syncStampStyleControls();
     syncTextStyleControls();
+
+    // Le placement vient EN DERNIER : la largeur de la barre dépend des groupes
+    // qu'on vient d'allumer. Mesurée plus haut, elle valait celle d'une barre
+    // presque vide, et le panneau débordait de l'écran une fois rempli.
+    if (sousLaBarreDuDocument) poserLaBarreContreLeDocument(barStyle);
+}
+
+// Le panneau se colle à la barre du document : centré sur elle, juste dessous
+// — ou juste dessus quand celle-ci est déjà dans le bas de l'écran, où la
+// barre d'outils est posée à demeure.
+function poserLaBarreContreLeDocument(barStyle) {
+    const barreDoc = document.getElementById('barre-document');
+    if (!barreDoc) return;
+    const doc = barreDoc.getBoundingClientRect();
+    const demi = (barStyle.offsetWidth || 480) / 2 + 8;
+    barStyle.style.left = Math.round(Math.max(demi,
+        Math.min(window.innerWidth - demi, doc.left + doc.width / 2))) + 'px';
+    const h = barStyle.offsetHeight || 44;
+    const dessous = doc.bottom + 10;
+    const dessus = doc.top - 10 - h;
+    const tropBas = dessous + h > window.innerHeight - 8
+        || doc.bottom > window.innerHeight * 0.62;
+    barStyle.style.top = Math.round(tropBas && dessus >= 8 ? dessus : dessous) + 'px';
 }
 
 // Un texte n'a ni épaisseur de trait ni opacité de remplissage, et sa couleur
@@ -10173,6 +10208,20 @@ function estUnPdfFeuilletable(obj) {
 const CLE_BARRE_DOC = 'auTableau_barre_document';
 let barreDocPosee = null;        // { x, y } quand on l'a déplacée, sinon null
 let barreDocRepliee = false;
+// Les réglages de la barre de style, appelés sous la barre du document par le
+// bouton « ⋯ ». Ils ne se retiennent pas d'un objet à l'autre : c'est un coup
+// d'œil, pas un mode.
+let reglagesEtendus = false;
+let objetDeLaBarre = null;
+
+// La barre de style et celle du document parlaient du même objet en même temps,
+// chacune de son côté de l'écran. Quand celle-ci tient l'objet, l'autre se tait.
+function barreDocumentTientLObjet() {
+    const barre = document.getElementById('barre-document');
+    return !!(barre && barre.classList.contains('visible')
+        && typeof documentSelectionne === 'function' && documentSelectionne());
+}
+window.barreDocumentTientLObjet = barreDocumentTientLObjet;
 try {
     const brut = JSON.parse(localStorage.getItem(CLE_BARRE_DOC) || 'null');
     if (brut) {
@@ -10228,6 +10277,11 @@ function majBarreDocument() {
     barre.classList.toggle('annote', enTrainDAnnoter());
 
     const obj = documentDeLaBarre();
+    // Changer d'objet referme le volet : ses réglages parleraient de l'ancien.
+    if (!obj || !objetDeLaBarre || obj.id !== objetDeLaBarre) {
+        reglagesEtendus = false;
+        objetDeLaBarre = obj ? obj.id : null;
+    }
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('visible');
         if (pastille) pastille.classList.remove('visible');
@@ -10299,7 +10353,12 @@ function majBarreDocument() {
     const entiere = document.getElementById('doc-entiere');
     if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
     document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
+    const plus = document.getElementById('doc-plus');
+    if (plus) plus.classList.toggle('actif', reglagesEtendus);
     if (typeof majLeVolet === 'function') majLeVolet();
+    // La barre de style se place sous celle-ci, ou s'efface : elle a besoin de
+    // savoir où nous en sommes, et c'est ici qu'on le sait.
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
 }
 
 function brancherBarreDocument() {
@@ -10399,6 +10458,14 @@ function brancherBarreDocument() {
     b('doc-outil-main').addEventListener('click', () => annoterLeDocument('pointer'));
     b('doc-outil-crayon').addEventListener('click', () => annoterLeDocument('freehand'));
     b('doc-outil-texte').addEventListener('click', () => annoterLeDocument('text'));
+
+    // « ⋯ » : appeler la barre de style sous celle-ci, ou la renvoyer.
+    const plus = b('doc-plus');
+    if (plus) plus.addEventListener('click', (e) => {
+        e.stopPropagation();
+        reglagesEtendus = !reglagesEtendus;
+        majBarreDocument();
+    });
 
     // --- Replier, rouvrir, déplacer ---
     b('doc-replier').addEventListener('click', () => replierLaBarreDocument(true));
