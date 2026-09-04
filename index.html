@@ -636,15 +636,13 @@
                             le zoom du tableau. Le document retiré, l'annotation reste mais redevient libre.</li>
                         <li><strong>Repérer les zones à remplir</strong> — le bouton est <b>dans la barre du
                             document</b>, celui avec les lignes pointillées, et il ne paraît que sur un PDF.
-                            Sur un PDF <b>vectoriel</b>, l'application lit les
-                            lignes réglées et les cases dessinées dans le fichier. Prenez l'outil <b>Texte</b> :
-                            elles s'éclairent, et le clic dans l'une d'elles ouvre le bloc <b>à son bord gauche,
-                            à sa taille</b> — plus besoin de viser au pixel ni de régler la police.
-                            Trois signaux sont lus, du plus sûr au moins sûr : les vrais champs de formulaire s'il
-                            y en a, puis les tracés, puis la page peinte, qui tranche — une zone à remplir est
-                            <b>vide</b>. C'est elle qui écarte les grilles de mots croisés, les bandeaux de titre
-                            et les cases déjà remplies. Un document <b>scanné</b> ne donne rien de tout cela : ce
-                            n'est qu'une image, et la détection ne s'y risque pas.</li>
+                            L'application <b>regarde la page</b> plutôt que de lire le fichier : elle repère les
+                            traits, les <b>pointillés</b> et les <b>cases vides</b>. Prenez l'outil <b>Texte</b> :
+                            les zones s'éclairent, et le clic dans l'une d'elles ouvre le bloc <b>à son bord
+                            gauche, à sa taille</b> — plus besoin de viser au pixel ni de régler la police.
+                            Si le PDF porte de <b>vrais champs de formulaire</b>, ce sont eux qui servent : il n'y
+                            a rien à deviner. Et comme la méthode travaille sur l'image de la page, elle vaut
+                            aussi bien pour un document <b>scanné</b> que pour un PDF vectoriel.</li>
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
@@ -2034,7 +2032,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=145"></script>
+    <script src="script.js?v=146"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

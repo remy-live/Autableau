@@ -892,7 +892,12 @@ module.exports = async function (browser) {
         // donne son intérieur (haut) ; lue seulement comme un trait, elle ne
         // donnerait qu'une bande fine au-dessus de son bord.
         const enSegments = z.filter(u => u.l < 0.25 && u.h > 0.07).length;
-        return { n: z.length, dansLaPage, lignes, cases, enSegments };
+        // La méthode travaille sur la page PEINTE : elle ne lit pas le fichier,
+        // elle regarde. Un scan est donc traité comme le reste — et les
+        // POINTILLÉS, que les tracés ne donnent jamais comme un trait, se
+        // voient aussi. On note le genre de chaque zone.
+        const genres = z.map(u => u.genre).sort().join(',');
+        return { n: z.length, dansLaPage, lignes, cases, enSegments, genres };
     });
     r.egal('la détection trouve les six zones de la fiche', zones.n, 6);
     r.egal('les trois lignes réglées', zones.lignes, 3);
@@ -900,6 +905,8 @@ module.exports = async function (browser) {
     r.egal('dont une tracée en quatre segments, reconnue comme une case entière',
         zones.enSegments, 1);
     r.verifie('les repères sont en proportions de la page', zones.dansLaPage, JSON.stringify(zones));
+    r.verifie('chaque zone dit son genre : ligne à écrire ou case à remplir',
+        zones.genres.split(',').every(g => ['ligne', 'case', 'cadre'].includes(g)), zones.genres);
 
     // Ce qui NE doit PAS être retenu : le bandeau de titre (coloré, avec du
     // texte), la case qui porte déjà un A, la grille de six lettres. Cinq
@@ -941,6 +948,39 @@ module.exports = async function (browser) {
         return v;
     });
     r.verifie('sur une image ordinaire, le bouton ne se propose pas', !surUneImage);
+
+    // UN POINTILLÉ, la vraie raison d'être de cette méthode : dans le fichier,
+    // ce sont des dizaines de segments minuscules, chacun bien trop court pour
+    // ressembler à une ligne à remplir. Sur la page peinte, c'est une suite de
+    // colonnes fines — et cela se voit.
+    const pointilles = await page.evaluate(async () => {
+        // une page avec un seul pointillé, et rien d'autre
+        const flux = 'BT /F1 10 Tf 20 200 Td (Nom :) Tj ET\n'
+            + [...Array(40)].map((_, i) => `${60 + i * 5} 198 m ${62 + i * 5} 198 l S`).join('\n');
+        const objs = [
+            '<< /Type /Catalog /Pages 2 0 R >>',
+            '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+            `<< /Length ${flux.length} >>\nstream\n${flux}\nendstream`
+        ];
+        let out = '%PDF-1.4\n'; const pos = [];
+        objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+        const xref = out.length;
+        out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+        pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+        out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+        const u8 = new Uint8Array(out.length);
+        for (let i = 0; i < out.length; i++) u8[i] = out.charCodeAt(i) & 0xff;
+        const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
+        const z = await zonesDeLaPage({ doc }, 1);
+        return { n: z.length, zones: z.map(u => ({ g: u.genre, x: +u.x.toFixed(3), y: +u.y.toFixed(3),
+                 l: +u.l.toFixed(3), h: +u.h.toFixed(3) })),
+                 large: z.length ? +Math.max(...z.map(u => u.l)).toFixed(2) : 0 };
+    });
+    r.egal('un pointillé est reconnu comme une ligne à remplir', pointilles.n, 1);
+    r.verifie('et sur toute sa longueur, pas segment par segment',
+        pointilles.large > 0.3, JSON.stringify(pointilles));
 
     // Option éteinte : rien ne s'éclaire, rien ne se cherche.
     const eteint = await page.evaluate(() => {

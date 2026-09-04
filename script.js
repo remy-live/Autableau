@@ -10066,189 +10066,242 @@ async function allerEtSurligner(numero) {
 
 // ===================================================
 // LES ZONES À REMPLIR D'UN DOCUMENT
-// Un polycopié propre porte ses zones à remplir DANS son fichier : les lignes
-// à écrire sont de vrais tracés, les cases de vrais rectangles. On les lit
-// donc plutôt que de les deviner — trois signaux, du plus sûr au moins sûr :
+// La méthode vient de PDF-fill, un autre outil de la maison, et elle est
+// meilleure que celle que j'avais écrite d'abord — sur deux points décisifs :
 //
-//   1. les vrais champs de formulaire (getAnnotations) : aucune devinette ;
-//   2. les tracés (getOperatorList) : un trait horizontal isolé, un rectangle
-//      de la taille d'une case ;
-//   3. la page PEINTE, qui tranche : une zone à remplir est VIDE. C'est elle
-//      qui écarte la grille de mots croisés, les bandeaux de titre et les
-//      cases déjà remplies, sans qu'on ait à les reconnaître.
+//   • elle travaille sur la page PEINTE et non sur les tracés du fichier, donc
+//     elle marche aussi sur un SCAN, qui n'est qu'une image ;
+//   • elle voit les POINTILLÉS, que les tracés ne donnent jamais comme un
+//     trait : ce sont des dizaines de segments minuscules, chacun trop court
+//     pour ressembler à une ligne à remplir.
 //
-// Un scan ne donne rien de tout cela — c'est une seule image — et l'on ne
-// prétend pas le traiter : la détection ne s'offre que sur un PDF vectoriel.
+// Le cœur de la méthode tient en une idée : une colonne de pixels est « fine »
+// si elle porte de l'encre ET qu'il n'y en a ni au-dessus ni au-dessous dans la
+// MÊME colonne. Un trait, plein ou pointillé, est fait de colonnes fines ; le
+// fût d'une lettre ne l'est pas. Comme le test est fait colonne par colonne, un
+// pointillé posé au milieu d'une ligne de texte reste visible.
+//
+// Les vrais champs de formulaire restent prioritaires : quand le PDF en a, il
+// n'y a rien à deviner.
 //
 // Les zones sont gardées en PROPORTIONS de la page (0 à 1) : elles survivent
 // ainsi au réaffinage, qui change la taille du rendu sans changer la page.
 // ===================================================
 
-const ZONES_MAX = 240;              // au-delà, ce n'est plus un formulaire
-const ZONE_TRAIT_MIN = 40;          // un trait plus court n'est pas une ligne à écrire
-const ZONE_HAUTEUR_LIGNE = 15;      // la bande à écrire au-dessus d'un trait
+const ZONES_MAX = 140;
+const ZONES_ECHELLE = 2;      // un point de pointillé ne fait qu'un ou deux pixels
 
-// Suivre la matrice courante : les tracés d'un PDF vivent dans l'espace local
-// de leur bloc « q … cm … Q ». Sans elle, les coordonnées tombent n'importe où
-// — c'est la première chose que j'ai eue fausse.
-function _matMul(m, n) {
-    return [
-        m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
-        m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
-        m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]
-    ];
-}
-function _matPt(m, x, y) {
-    return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-}
+// Repère les traits, les pointillés et les cases à cocher d'une page peinte.
+// Rend des rectangles en pixels de ce canevas.
+function repererLesZones(canevas) {
+    const w = canevas.width, h = canevas.height;
+    if (w < 40 || h < 40) return [];
+    const g = canevas.getContext('2d', { willReadFrequently: true });
+    let data;
+    try { data = g.getImageData(0, 0, w, h).data; } catch (e) { return []; }
 
-// Les candidats géométriques : traits horizontaux isolés et rectangles de la
-// taille d'une case, en coordonnées d'écran à l'échelle 1.
-function candidatsDeLaPage(ol, base) {
-    const OPS = pdfjsLib.OPS;
-    const traits = [], boites = [];
-    let ctm = base.slice();
-    const pile = [];
-
-    for (let i = 0; i < ol.fnArray.length; i++) {
-        const fn = ol.fnArray[i], a = ol.argsArray[i];
-        if (fn === OPS.save) { pile.push(ctm.slice()); continue; }
-        if (fn === OPS.restore) { ctm = pile.pop() || base.slice(); continue; }
-        if (fn === OPS.transform) { ctm = _matMul(ctm, a); continue; }
-        if (fn !== OPS.constructPath) continue;
-
-        const ops = a[0], co = a[1];
-        let k = 0, cx = 0, cy = 0;
-        // Une case dessinée en QUATRE SEGMENTS n'est pas un « rectangle » pour
-        // pdf.js : les cases de dominos de mes essais étaient de celles-là, et
-        // passaient au travers. On garde donc le chemin pour le reconnaître.
-        let chemin = [];
-        const finirChemin = () => {
-            if (chemin.length >= 4 && chemin.length <= 5) {
-                const xs = chemin.map(p => p[0]), ys = chemin.map(p => p[1]);
-                const x0 = Math.min(...xs), x1 = Math.max(...xs);
-                const y0 = Math.min(...ys), y1 = Math.max(...ys);
-                // axé sur les axes : chaque sommet est sur un bord
-                const auBord = chemin.every(p =>
-                    (Math.abs(p[0] - x0) < 1 || Math.abs(p[0] - x1) < 1)
-                    && (Math.abs(p[1] - y0) < 1 || Math.abs(p[1] - y1) < 1));
-                if (auBord) boites.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-            }
-            chemin = [];
-        };
-
-        for (const o of ops) {
-            if (o === OPS.moveTo) {
-                finirChemin();
-                cx = co[k++]; cy = co[k++];
-                chemin.push(_matPt(ctm, cx, cy));
-            } else if (o === OPS.lineTo) {
-                const nx = co[k++], ny = co[k++];
-                const A = _matPt(ctm, cx, cy), B = _matPt(ctm, nx, ny);
-                if (Math.abs(B[1] - A[1]) < 1.5 && Math.abs(B[0] - A[0]) >= ZONE_TRAIT_MIN) {
-                    traits.push({ x: Math.min(A[0], B[0]), y: A[1], l: Math.abs(B[0] - A[0]) });
-                }
-                cx = nx; cy = ny;
-                chemin.push(B);
-            } else if (o === OPS.rectangle) {
-                finirChemin();
-                const rx = co[k++], ry = co[k++], rw = co[k++], rh = co[k++];
-                const A = _matPt(ctm, rx, ry), B = _matPt(ctm, rx + rw, ry + rh);
-                boites.push({
-                    x: Math.min(A[0], B[0]), y: Math.min(A[1], B[1]),
-                    w: Math.abs(B[0] - A[0]), h: Math.abs(B[1] - A[1])
-                });
-                cx = rx; cy = ry;
-            } else if (o === OPS.curveTo) { k += 6; chemin = []; }
-            else if (o === OPS.curveTo2 || o === OPS.curveTo3) { k += 4; chemin = []; }
-            else if (o === OPS.closePath) { finirChemin(); }
-        }
-        finirChemin();
+    const encre = new Uint8Array(w * h);
+    for (let i = 0, p = 0; p < encre.length; i += 4, p++) {
+        const lum = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+        encre[p] = (data[i + 3] > 40 && lum < 170) ? 1 : 0;
     }
-    return { traits, boites };
-}
 
-// La page peinte tranche : une zone à remplir est VIDE, et son fond reste
-// clair. Un fond coloré est permis — les cases posées sur une bande pastel en
-// sont — mais un bandeau de titre, lui, porte du texte blanc sur couleur
-// soutenue et ne se remplit pas.
-function sondeurDePage(px, largeur, hauteur, echelle) {
-    return (x, y, w, h) => {
-        const x0 = Math.max(0, Math.round(x * echelle)), y0 = Math.max(0, Math.round(y * echelle));
-        const x1 = Math.min(largeur, Math.round((x + w) * echelle));
-        const y1 = Math.min(hauteur, Math.round((y + h) * echelle));
-        let encre = 0, somme = 0, n = 0;
-        for (let yy = y0; yy < y1; yy += 2) {
-            for (let xx = x0; xx < x1; xx += 2) {
-                const i = (yy * largeur + xx) * 4;
-                const lum = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
-                n++; somme += lum;
-                if (lum < 0.55) encre++;
-            }
-        }
-        return n ? { encre: encre / n, clair: somme / n } : { encre: 1, clair: 0 };
+    // Cumul vertical par colonne : savoir en temps constant s'il y a de l'encre
+    // au-dessus ou au-dessous d'un point, dans sa seule colonne.
+    const cum = new Int32Array(w * (h + 1));
+    for (let y = 0; y < h; y++) {
+        const prec = y * w, cour = (y + 1) * w, ligne = y * w;
+        for (let x = 0; x < w; x++) cum[cour + x] = cum[prec + x] + encre[ligne + x];
+    }
+    const encreColonne = (x, y1, y2) => {
+        if (y2 < y1) return 0;
+        const a = Math.max(0, y1), b = Math.min(h - 1, y2);
+        if (b < a) return 0;
+        return cum[(b + 1) * w + x] - cum[a * w + x];
     };
+
+    const LONG_MIN = Math.max(20, Math.round(w * 0.04));   // longueur d'un vrai trait
+    const SUITE_MIN = Math.max(6, Math.round(w * 0.008));  // bord d'une case à cocher
+    // Tolérance serrée : au-delà, les sommets des capitales d'un titre finissent
+    // par se relier entre eux et passent pour un trait.
+    const TROU_MAX = Math.max(3, Math.round(w * 0.012));
+    const HAUT = Math.max(5, Math.round(h * 0.008));       // vide exigé au-dessus
+    const BAS = Math.max(4, Math.round(h * 0.006));        // vide exigé au-dessous
+    const MONTANT = Math.max(6, Math.round(h * 0.012));    // portée du test de verticale
+    const HAUTEUR_CADRE_MAX = Math.round(h * 0.14);        // une case ne fait pas la page
+
+    const fine = (x, y) => encre[y * w + x]
+        && encreColonne(x, y - HAUT, y - 2) === 0
+        && encreColonne(x, y + 2, y + BAS) === 0;
+
+    const brut = [];
+    for (let y = HAUT + 2; y < h - BAS - 2; y++) {
+        let x = 0;
+        while (x < w) {
+            if (!fine(x, y)) { x++; continue; }
+            let debut = x, fin = x, trou = 0, xx = x;
+            while (xx < w && trou <= TROU_MAX) {
+                if (fine(xx, y)) { fin = xx; trou = 0; } else trou++;
+                xx++;
+            }
+            if (fin - debut >= SUITE_MIN) brut.push({ y, x1: debut, x2: fin });
+            x = Math.max(xx, fin + 1);
+        }
+    }
+
+    // Un trait épais donne plusieurs lignes voisines : on les fusionne.
+    const fondus = [];
+    brut.sort((a, b) => a.y - b.y || a.x1 - b.x1);
+    brut.forEach(s => {
+        const proche = fondus.find(m => Math.abs(m.y - s.y) <= 4
+            && Math.min(m.x2, s.x2) - Math.max(m.x1, s.x1) > (s.x2 - s.x1) * 0.5);
+        if (proche) { proche.x1 = Math.min(proche.x1, s.x1); proche.x2 = Math.max(proche.x2, s.x2); }
+        else fondus.push({ ...s });
+    });
+
+    // Deux segments consistants et proches appartiennent au même emplacement :
+    // c'est le cas d'une date « ...../...../..... », coupée par ses barres.
+    const RECOLLE = Math.round(w * 0.022), SOLIDE = Math.round(w * 0.01);
+    fondus.sort((a, b) => a.y - b.y || a.x1 - b.x1);
+    for (let i = fondus.length - 1; i > 0; i--) {
+        const cour = fondus[i], prec = fondus[i - 1];
+        if (Math.abs(cour.y - prec.y) > 3) continue;
+        if (cour.x1 - prec.x2 > RECOLLE || cour.x1 < prec.x2) continue;
+        if (cour.x2 - cour.x1 < SOLIDE || prec.x2 - prec.x1 < SOLIDE) continue;
+        prec.x2 = Math.max(prec.x2, cour.x2);
+        fondus.splice(i, 1);
+    }
+
+    // Des montants aux deux bouts trahissent un rectangle : cadre de page,
+    // bordure de tableau… ou case à cocher si le rectangle est petit et carré.
+    const encreCote = (x, y, sens) => {
+        let n = 0;
+        for (let dx = -2; dx <= 2; dx++) {
+            const cx = x + dx;
+            if (cx < 0 || cx >= w) continue;
+            n += sens > 0 ? encreColonne(cx, y + 2, y + MONTANT) : encreColonne(cx, y - MONTANT, y - 2);
+        }
+        return n;
+    };
+    const encadre = m => {
+        const seuil = Math.max(2, Math.round(MONTANT * 0.4));
+        const g2 = Math.max(encreCote(m.x1, m.y, 1), encreCote(m.x1, m.y, -1));
+        const d2 = Math.max(encreCote(m.x2, m.y, 1), encreCote(m.x2, m.y, -1));
+        return g2 >= seuil && d2 >= seuil;
+    };
+
+    const traits = [], cadres = [];
+    fondus.slice(0, 400).forEach(m => {
+        if (encadre(m)) cadres.push(m);
+        else if (m.x2 - m.x1 >= LONG_MIN) traits.push(m);
+    });
+
+    const zones = [];
+
+    // Deux bords parallèles, alignés et espacés comme un rectangle : une case.
+    // PDF-fill ne garde que les PETITES — chez lui un rectangle large est une
+    // bordure de tableau. Sur un polycopié, une case large et VIDE est au
+    // contraire une case à remplir : les dominos à ranger, les cadres où
+    // recopier un mot. On les garde donc aussi, à la seule condition qui
+    // compte : que l'intérieur soit vide.
+    const CASE_MAX = Math.round(w * 0.05);      // au-delà, ce n'est plus une case à cocher
+    const CADRE_MAX = Math.round(w * 0.45);     // au-delà, c'est une bordure de page
+    const prises = new Set();
+    cadres.forEach((haut, i) => {
+        if (prises.has(i)) return;
+        const large = haut.x2 - haut.x1;
+        if (large < 12 || large > CADRE_MAX) return;   // en deçà, c'est le contre-jour d'une lettre
+        const j = cadres.findIndex((b, k) => k > i && !prises.has(k)
+            && Math.abs(b.x1 - haut.x1) <= 4 && Math.abs(b.x2 - haut.x2) <= 4
+            && b.y - haut.y > Math.min(large * 0.4, 10)
+            && b.y - haut.y < Math.max(large * 2.2, HAUTEUR_CADRE_MAX));
+        if (j < 0) return;
+        // L'intérieur doit être vide, sinon deux lignes de texte encadrées par
+        // des jambages passeraient pour une case — et une case déjà remplie
+        // n'est plus une case à remplir.
+        // L'INTÉRIEUR DOIT ÊTRE VIDE — et l'on ne mesure pas cela en proportion
+        // d'encre : dans une grande case, une seule lettre ne pèse que deux ou
+        // trois pour cent, et les cases déjà remplies passaient au travers. On
+        // cherche plutôt une COLONNE qui porte un trait haut : c'est ce que
+        // fait une lettre, jamais une case vide.
+        // On compte les COLONNES qui portent de l'encre, et non la quantité
+        // d'encre : dans une grande case une lettre ne pèse que deux ou trois
+        // pour cent, et mesurer la hauteur d'une colonne échoue sur un « A »,
+        // dont chaque colonne n'a que quelques pixels de diagonale. Une case
+        // vide, elle, n'a aucune colonne encrée.
+        const bas = cadres[j];
+        const dedansLarge = haut.x2 - haut.x1 - 6;
+        if (dedansLarge < 4 || bas.y - haut.y < 8) return;
+        let encrees = 0;
+        for (let xx = haut.x1 + 3; xx < haut.x2 - 2; xx++) {
+            if (encreColonne(xx, haut.y + 3, bas.y - 3) > 0) encrees++;
+        }
+        if (encrees >= Math.max(4, dedansLarge * 0.06)) return;
+        prises.add(i); prises.add(j);
+        zones.push({ genre: large <= CASE_MAX ? 'case' : 'cadre',
+                     x: haut.x1, y: haut.y, l: large, h: bas.y - haut.y });
+    });
+
+    // Traits et pointillés : la zone d'écriture est le vide juste AU-DESSUS.
+    const HAUTEUR_MAX = Math.round(h * 0.038);
+    traits.forEach(m => {
+        // On remonte tant que la ligne au-dessus reste globalement vide. Le
+        // seuil est volontairement tolérant : un séparateur qui dépasse (la
+        // barre d'une date) ne doit pas faire croire que la place est prise,
+        // alors qu'une vraie ligne de texte en couvre une bien plus large part.
+        const occupe = (m.x2 - m.x1) * 0.15;
+        let monte = 2;
+        while (monte < HAUTEUR_MAX && m.y - monte > 0) {
+            const r = (m.y - monte) * w;
+            let n = 0;
+            for (let xi = m.x1; xi <= m.x2; xi++) if (encre[r + xi]) n++;
+            if (n > occupe) break;
+            monte++;
+        }
+        const hauteur = Math.max(8, monte);
+        // Une hauteur trop faible ne laisse pas de quoi écrire : c'est le cas
+        // d'un titre souligné, dont le texte occupe la place juste au-dessus.
+        // Les seuils sont en PROPORTIONS DE LA PAGE et non en pixels : ceux de
+        // PDF-fill valent pour la résolution de son canevas à lui, et un simple
+        // report aurait dit n'importe quoi ici.
+        if (hauteur < h * 0.022 || (m.x2 - m.x1) < w * 0.05) return;
+        zones.push({ genre: 'ligne', x: m.x1, y: m.y - hauteur, l: m.x2 - m.x1, h: hauteur });
+    });
+
+    return zones.slice(0, ZONES_MAX);
 }
 
 async function chercherLesZones(d, numero) {
     const page = await d.doc.getPage(numero);
     const vue1 = page.getViewport({ scale: 1 });
     const L = vue1.width, H = vue1.height;
-    const enPart = (z) => ({ x: z.x / L, y: z.y / H, l: z.w / L, h: z.h / H });
 
     // 1. LES VRAIS CHAMPS — s'il y en a, on ne devine rien.
     try {
-        const champs = (await page.getAnnotations())
-            .filter(a => a.subtype === 'Widget' && Array.isArray(a.rect));
+        const champs = (await page.getAnnotations()).filter(a =>
+            a.subtype === 'Widget' && Array.isArray(a.rect)
+            && (a.fieldType === 'Tx' || (a.fieldType === 'Btn' && a.checkBox)));
         if (champs.length) {
             return champs.slice(0, ZONES_MAX).map(a => {
                 const [x0, y0, x1, y1] = pdfjsLib.Util.normalizeRect(a.rect);
-                return enPart({ x: x0, y: H - y1, w: x1 - x0, h: y1 - y0 });
+                return { genre: a.fieldType === 'Btn' ? 'case' : 'ligne',
+                         x: x0 / L, y: (H - y1) / H, l: (x1 - x0) / L, h: (y1 - y0) / H };
             });
         }
-    } catch (e) { /* pas d'annotations : on passe aux tracés */ }
+    } catch (e) { /* pas d'annotations : on regarde la page */ }
 
-    // 2. LES TRACÉS
-    const ol = await page.getOperatorList();
-    const { traits, boites } = candidatsDeLaPage(ol, vue1.transform);
-    if (!traits.length && !boites.length) return [];
-
-    // 3. LA PAGE PEINTE
-    const E = 1.5;                       // assez fin pour voir l'encre, assez léger pour être rapide
+    // 2. LA PAGE PEINTE — la même méthode marche sur un vectoriel et sur un scan.
+    const vue = page.getViewport({ scale: ZONES_ECHELLE });
     const c = document.createElement('canvas');
-    const vueE = page.getViewport({ scale: E });
-    c.width = Math.round(vueE.width); c.height = Math.round(vueE.height);
+    c.width = Math.round(vue.width); c.height = Math.round(vue.height);
     const g = c.getContext('2d', { willReadFrequently: true });
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
-    await page.render({ canvasContext: g, viewport: vueE }).promise;
-    const px = g.getImageData(0, 0, c.width, c.height).data;
-    const sonder = sondeurDePage(px, c.width, c.height, E);
+    await page.render({ canvasContext: g, viewport: vue }).promise;
 
-    const zones = [];
-    traits.forEach(t => {
-        const z = { x: t.x + 2, y: t.y - ZONE_HAUTEUR_LIGNE, w: t.l - 4, h: ZONE_HAUTEUR_LIGNE - 2 };
-        if (z.w < ZONE_TRAIT_MIN || z.y < 0) return;
-        const s = sonder(z.x, z.y, z.w, z.h);
-        if (s.encre < 0.012 && s.clair > 0.80) zones.push(z);
-    });
-    boites.forEach(r => {
-        if (r.h < 9 || r.h > 42 || r.w < 14 || r.w > 340) return;
-        const z = { x: r.x + 2, y: r.y + 2, w: r.w - 4, h: r.h - 4 };
-        const s = sonder(z.x, z.y, z.w, z.h);
-        if (s.encre < 0.02 && s.clair > 0.72) zones.push(z);
-    });
-
-    // Deux tracés superposés — un cadre dessiné deux fois — donnent deux fois
-    // la même zone : on ne garde qu'une.
-    const gardees = [];
-    zones.sort((a, b) => (a.y - b.y) || (a.x - b.x));
-    zones.forEach(z => {
-        const jumelle = gardees.some(g2 =>
-            Math.abs(g2.x - z.x) < 4 && Math.abs(g2.y - z.y) < 4
-            && Math.abs(g2.w - z.w) < 6 && Math.abs(g2.h - z.h) < 6);
-        if (!jumelle) gardees.push(z);
-    });
-    return gardees.slice(0, ZONES_MAX).map(enPart);
+    return repererLesZones(c).map(z => ({
+        genre: z.genre,
+        x: z.x / c.width, y: z.y / c.height, l: z.l / c.width, h: z.h / c.height
+    }));
 }
 
 // Comme le texte et les vignettes : on cherche une fois, on garde.

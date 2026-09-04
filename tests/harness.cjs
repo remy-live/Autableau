@@ -136,7 +136,7 @@ function fichePdf() {
     // Une case vide dessinée en QUATRE SEGMENTS et non par « re » : c'est
     // ainsi qu'étaient les cases de dominos du poly qui a servi d'étalon, et
     // elles passaient au travers.
-    flux.push('30 78 m 90 78 l 90 110 l 30 110 l h S');
+    flux.push('260 55 m 320 55 l 320 88 l 260 88 l h S');
     // une case déjà remplie
     flux.push('190 120 60 20 re S');
     flux.push('BT 0 0 0 rg /F1 12 Tf 205 126 Td (A) Tj ET');
