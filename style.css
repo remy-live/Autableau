@@ -7924,3 +7924,15 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 /* Déplacée, elle ne se recentre plus : c'est le JS qui pose left/top, et la
    transition sur « top » ferait glisser le cadre derrière le doigt. */
 .project-name-wrapper[style*="transform: none"] { transition: none; }
+
+/* Les curseurs vivent maintenant DANS la fenêtre de couleur : ils y prennent
+   toute la largeur, l'un sous l'autre, au lieu de s'aligner dans une barre. */
+#color-popover .slider-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+}
+
+#color-popover .slider-container input[type="range"] { flex: 1; }

@@ -232,19 +232,24 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'segment', id: seg.id }];
         updateStyleBarContext();
         const grp = document.querySelector('#bar-style .group-edition');
+        // La DUPLICATION a quitté ce groupe pour le menu flottant : elle agit
+        // sur l'objet, elle ne le décrit pas. Restent les trois du
+        // presse-papiers, qui n'ont pas d'équivalent ailleurs.
+        const trois = ['btn-copier', 'btn-couper', 'btn-coller'];
         return {
-            presents: ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
-                .filter(i => document.getElementById(i)).length,
+            presents: trois.filter(i => document.getElementById(i)).length,
             // le groupe était dans le HTML mais aucune règle ne l'affichait :
             // les boutons existaient sans que personne puisse les voir
             groupeAffiche: grp && getComputedStyle(grp).display,
-            vus: ['btn-copier', 'btn-couper', 'btn-dupliquer', 'btn-coller']
-                .filter(i => document.getElementById(i).getClientRects().length).length
+            vus: trois.filter(i => document.getElementById(i).getClientRects().length).length,
+            dupliquerAilleurs: !!document.getElementById('btn-quick-duplicate')
         };
     });
-    r.egal('les quatre boutons sont dans la barre contextuelle', boutons.presents, 4);
+    r.egal('les trois du presse-papiers sont dans la barre contextuelle', boutons.presents, 3);
     r.egal('et le groupe est bien affiché quand la barre l\'est', boutons.groupeAffiche, 'flex');
-    r.egal('les quatre se voient vraiment à l\'écran', boutons.vus, 4);
+    r.egal('les trois se voient vraiment à l\'écran', boutons.vus, 3);
+    r.verifie('et la duplication se trouve dans le menu flottant de l\'objet',
+        boutons.dupliquerAilleurs);
 
     // Coller doit rester atteignable sans rien de sélectionné : la barre de
     // sélection, elle, disparaît dès qu'on désélectionne.
@@ -278,7 +283,11 @@ module.exports = async function (browser) {
 
         const memoire = boardClipboard.items.map(i => i.type).join(',');
         selectedItems = [{ type: 'segment', id: seg.id }];
-        document.getElementById('btn-dupliquer').click();
+        // La duplication est passée dans le menu flottant de l'objet, qui
+        // répond au pointeur et non au clic.
+        updateQuickMenu();
+        document.getElementById('btn-quick-duplicate').dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
         const duplique = { segments: segments.length,
                            pressePapierIntact: boardClipboard.items.map(i => i.type).join(',') === memoire };
 

@@ -360,15 +360,67 @@ module.exports = async function (browser) {
             visible: b.classList.contains('visible'),
             info: document.getElementById('doc-page-num').value + '/' + images[0].pluginData.pages,
             menuRange: document.getElementById('quick-edit-menu').classList.contains('visible'),
-            // Fixe, en haut : elle ne suit plus l'objet. C'est le parti pris de
-            // Canva — un seul endroit à apprendre, quel que soit l'objet.
+            // Fixe, EN HAUT : le bas est la zone où l'on écrit, et une barre
+            // posée là recevait les traits à la place du tableau.
             enHaut: b.getBoundingClientRect().top < window.innerHeight / 3
         };
     });
     r.verifie('la barre montre le document, à sa place fixe en haut',
         barre.visible && barre.enHaut, JSON.stringify(barre));
+    // DEUX BARRES, DEUX MÉTIERS : celle-ci porte les propriétés, le menu
+    // flottant porte les actions. Ils paraissent donc ENSEMBLE.
+    r.verifie('et le menu flottant des actions l\'accompagne',
+        barre.menuRange, JSON.stringify(barre));
+
+    // DEUX BARRES, DEUX MÉTIERS, ET AUCUN RÉGLAGE EN DOUBLE. La barre fixe
+    // porte les PROPRIÉTÉS, le menu flottant les ACTIONS ; rien ne doit se
+    // retrouver dans les deux — c'est ce qui rendait la première fusion
+    // illisible, avec deux cadenas côte à côte.
+    const partage = await page.evaluate(() => {
+        const barreFixe = document.getElementById('bar-style');
+        const flottant = document.getElementById('quick-edit-menu');
+        const dedans = (el) => Array.from(el.querySelectorAll('button, input[type=range]'))
+            .map(b2 => b2.id).filter(Boolean);
+        const propriete = (id) => /doc-(prec|suiv|page-num|volet|mode|grille|proportions|rogner|entiere|outil)|line-width|stamp-opacity|font-size|btn-color/.test(id);
+        const action = (id) => /quick-(lock|duplicate|delete)/.test(id);
+        const fixe = dedans(barreFixe), flot = dedans(flottant);
+        return {
+            enDouble: fixe.filter(id => flot.includes(id)),
+            actionsDansLaFixe: fixe.filter(action),
+            proprietesDansLeFlottant: flot.filter(propriete),
+            flottant: flot
+        };
+    });
+    r.verifie('aucun bouton ne vit dans les deux barres',
+        partage.enDouble.length === 0, JSON.stringify(partage.enDouble));
+    r.verifie('la barre fixe ne porte aucune action',
+        partage.actionsDansLaFixe.length === 0, JSON.stringify(partage.actionsDansLaFixe));
+    r.verifie('et le menu flottant aucune propriété',
+        partage.proprietesDansLeFlottant.length === 0, JSON.stringify(partage.proprietesDansLeFlottant));
+    r.verifie('le menu flottant reste court : trois actions',
+        partage.flottant.length <= 4, JSON.stringify(partage.flottant));
+
+    // EN PLEIN ÉCRAN, elle descend jusqu'au bord : le tiroir du bas s'efface
+    // avec les autres, et la page se lit de haut en bas — la barre n'a rien à
+    // faire dans le début.
+    const enBasEnFocus = await page.evaluate(() => {
+        const b2 = document.getElementById('bar-style');
+        const tiroir = document.getElementById('bottom-drawer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const normal = Math.round(b2.getBoundingClientRect().top);
+        toggleFocusMode();
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        const focus = Math.round(window.innerHeight - b2.getBoundingClientRect().bottom);
+        toggleFocusMode();
+        return { normal, focus, tiroirHaut: Math.round(tiroir.offsetHeight) };
+    });
+    r.verifie('hors plein écran, elle est en haut', enBasEnFocus.normal < 200,
+        JSON.stringify(enBasEnFocus));
+    r.verifie('et en plein écran elle descend au bord : la page occupe tout le haut',
+        enBasEnFocus.focus < 30, JSON.stringify(enBasEnFocus));
     r.egal('elle affiche la page courante sur le total', barre.info, '2/3');
-    r.verifie('et le menu rapide ordinaire s\'efface', !barre.menuRange, JSON.stringify(barre));
 
     const fleches = await page.evaluate(async () => {
         document.getElementById('doc-suiv').click();
@@ -417,6 +469,13 @@ module.exports = async function (browser) {
     r.verifie('sans jamais sortir de l\'image', molette.dansLimage, JSON.stringify(molette));
 
     const reglages = await page.evaluate(() => {
+        // Le menu flottant se garnit à la volée : sans cet appel, ses boutons
+        // existent mais n'ont pas encore d'écouteur.
+        updateQuickMenu();
+        // Le menu flottant répond au POINTEUR et non au clic : il doit agir dès
+        // qu'on pose le doigt, sans attendre qu'on le relève.
+        const toucher = (id) => document.getElementById(id).dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
         const opa = document.getElementById('stamp-opacity');
         opa.value = '0.4';
         opa.dispatchEvent(new Event('input', { bubbles: true }));
@@ -426,9 +485,9 @@ module.exports = async function (browser) {
         const sous = { actif: images[0].sousLaGrille, allume: document.getElementById('doc-grille').classList.contains('actif') };
         document.getElementById('doc-grille').click();
 
-        document.getElementById('btn-lock').click();
-        const verrou = { actif: images[0].locked, allume: document.getElementById('btn-lock').classList.contains('active') };
-        document.getElementById('btn-lock').click();
+        toucher('btn-quick-lock');
+        const verrou = { actif: images[0].locked, allume: document.getElementById('btn-quick-lock').classList.contains('active') };
+        toucher('btn-quick-lock');
         return { apresOpacite, sous, verrou, remisAPlat: !images[0].locked };
     });
     r.egal('le curseur règle l\'opacité du document', reglages.apresOpacite, 0.4);
@@ -457,8 +516,11 @@ module.exports = async function (browser) {
     r.egal('et le document sous la grille n\'est dessiné qu\'une fois', dessous.uneSeuleFois, 1);
 
     const ferme = await page.evaluate(() => {
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateQuickMenu();
         const cle = images[0].pluginData.cle;
-        document.getElementById('doc-fermer').click();
+        document.getElementById('btn-quick-delete').dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
         return {
             images: images.length,
             oublie: !documentsPdf.has(cle),
@@ -479,8 +541,8 @@ module.exports = async function (browser) {
             fleches: document.getElementById('doc-pages').style.display,
             proportions: !!document.getElementById('doc-proportions'),
             rogner: !!document.getElementById('doc-rogner'),
-            dupliquer: !!document.getElementById('btn-dupliquer'),
-            fermer: document.getElementById('doc-fermer').title
+            dupliquer: !!document.getElementById('btn-quick-duplicate'),
+            fermer: !!document.getElementById('btn-quick-delete')
         };
     });
     r.verifie('une image ordinaire se règle avec la même barre', surImageOrdinaire.barre, JSON.stringify(surImageOrdinaire));
@@ -488,7 +550,8 @@ module.exports = async function (browser) {
     r.verifie('proportions, rognage et duplication y sont repris du menu rapide',
         surImageOrdinaire.proportions && surImageOrdinaire.rogner && surImageOrdinaire.dupliquer,
         JSON.stringify(surImageOrdinaire));
-    r.egal('et ✕ dit qu\'il retire l\'image', surImageOrdinaire.fermer, "Retirer l'image");
+    r.verifie('et la suppression est offerte par le menu flottant', surImageOrdinaire.fermer,
+        JSON.stringify(surImageOrdinaire));
 
     const repris = await page.evaluate(() => {
         const o = images[images.length - 1];
@@ -499,7 +562,9 @@ module.exports = async function (browser) {
         const rogne = { actif: !!o.isCropping, libre: o.ratioLocked === false };
         document.getElementById('doc-rogner').click();
         const avant = images.length;
-        document.getElementById('btn-dupliquer').click();
+        updateQuickMenu();
+        document.getElementById('btn-quick-duplicate').dispatchEvent(
+            new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
         return { sansRatio, rogne, copie: images.length - avant };
     });
     r.verifie('la chaîne des proportions se décroche et se voit', repris.sansRatio, JSON.stringify(repris));
@@ -707,7 +772,7 @@ module.exports = async function (browser) {
             replier: !!document.getElementById('doc-replier'),
             // Les commandes, elles, sont toutes là — dans la barre de style
             dansLaBarre: ['doc-mode-cadre', 'doc-mode-page', 'doc-rogner',
-                          'doc-fermer', 'doc-prec', 'doc-suiv']
+                          'doc-prec', 'doc-suiv']
                 .every(id => {
                     const e = document.getElementById(id);
                     return e && e.closest('#bar-style');
@@ -774,7 +839,7 @@ module.exports = async function (browser) {
             // On mesure ce qui se VOIT, pas le display du bouton : c'est son
             // groupe qui se retire, et un enfant de boîte masquée garde son
             // propre « display: flex ».
-            dupliquer: document.getElementById('btn-dupliquer').offsetParent === null ? 'none' : 'flex',
+            dupliquer: document.getElementById('btn-quick-duplicate').offsetParent === null ? 'none' : 'flex',
             rogner: getComputedStyle(document.getElementById('doc-rogner')).display
         };
     });
@@ -945,7 +1010,7 @@ module.exports = async function (browser) {
                      document: barre.classList.contains('ctx-document'),
                      texte: barre.classList.contains('ctx-text'),
                      // L'ordre de gauche à droite, et ce qui se voit vraiment
-                     fermer: vu('doc-fermer'), rogner: vu('doc-rogner'),
+                     rogner: vu('doc-rogner'),
                      x: Math.round((r.left + r.right) / 2), y: Math.round(r.top) };
         };
         selectedItems = [{ type: 'image', id: images[0].id }];
@@ -965,10 +1030,6 @@ module.exports = async function (browser) {
     r.verifie('un texte : elle montre ceux du texte, et pas ceux du document',
         contextes.surTexte.visible && contextes.surTexte.texte && !contextes.surTexte.document,
         JSON.stringify(contextes.surTexte));
-    // Le ✕ ferme LE DOCUMENT : derrière un texte, il n'aurait rien à fermer.
-    r.verifie('le ✕ ne sort que pour un document',
-        contextes.surImage.fermer && !contextes.surTexte.fermer && !contextes.outilEnMain.fermer,
-        JSON.stringify(contextes));
     r.verifie('le rognage non plus',
         contextes.surImage.rogner && !contextes.surTexte.rogner,
         JSON.stringify(contextes));
@@ -985,10 +1046,10 @@ module.exports = async function (browser) {
         };
         return { rogner: x('doc-rogner'), couleur: x('btn-color-popover'),
                  plans: x('btn-z-up'), copier: x('btn-copier'),
-                 cadenas: x('btn-lock'), fermer: x('doc-fermer') };
+                 copier2: x('btn-copier') };
     });
-    const suite = ['rogner', 'couleur', 'plans', 'copier', 'cadenas', 'fermer'].map(k => ordre[k]);
-    r.verifie('l\'ordre va de l\'objet à sa suppression, sans revenir en arrière',
+    const suite = ['rogner', 'couleur', 'plans', 'copier'].map(k => ordre[k]);
+    r.verifie('l\'ordre va de l\'objet à son apparence puis à ses plans, sans revenir en arrière',
         suite.every((v, i) => v !== null && (i === 0 || v > suite[i - 1])),
         JSON.stringify(ordre));
     r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',

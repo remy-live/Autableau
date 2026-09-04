@@ -3689,7 +3689,7 @@ const RACCOURCIS_PARTOUT = [
     { touche: 'Ctrl+V', nom: 'Coller', bouton: ['btn-coller', 'btn-coller-tableau'] },
     { touche: 'Ctrl+Maj+V', nom: 'Coller sans mise en forme' },
     { touche: 'Ctrl+D', nom: 'Dupliquer la sélection',
-      bouton: ['btn-dupliquer', 'btn-quick-duplicate'] },
+      bouton: ['btn-quick-duplicate'] },
     { touche: 'Ctrl+A', nom: 'Tout sélectionner' },
     { touche: 'Suppr', nom: 'Effacer la sélection', bouton: ['btn-quick-delete'] },
     { touche: 'Espace', nom: 'Panoramique (maintenir)' },
@@ -4909,18 +4909,29 @@ function updateStyleBarContext() {
         document.body.appendChild(barStyle);
         localStorage.setItem('minimized_bar-style', 'false');
     }
-    const pluginsDrawer = document.getElementById('bar-plugins');
-    const isDrawerOpen = pluginsDrawer && !pluginsDrawer.classList.contains('closed');
-    const drawerHeight = pluginsDrawer ? (pluginsDrawer.offsetHeight || 130) : 0;
-    const minTop = isDrawerOpen ? drawerHeight + 12 : 20;
-    const displayY = minTop;
-
+    // EN BAS, ET TOUJOURS AU MÊME ENDROIT. Le haut appartient au tiroir des
+    // plugins ; et sur un document en plein écran, c'est en bas qu'on veut ses
+    // commandes — la page se lit de haut en bas, la barre ne doit pas manger
+    // le début. Elle se pose donc au-dessus du tiroir du bas, et descend
+    // jusqu'au bord quand celui-ci est replié ou en mode Focus.
+    // EN HAUT d'ordinaire : le bas est la zone où l'on écrit, et une barre
+    // posée là recevait les traits à la place du tableau. EN BAS en plein
+    // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
+    // les barres du bas se sont effacées — la place est libre.
+    const enFocus = document.body.classList.contains('focus-mode');
     barStyle.removeAttribute('data-dragged');
     barStyle.style.left = '50%';
-    barStyle.style.top = displayY + 'px';
-    barStyle.style.right = 'auto';
-    barStyle.style.bottom = 'auto';
     barStyle.style.transform = 'translateX(-50%)';
+    barStyle.style.right = 'auto';
+    if (enFocus) {
+        barStyle.style.top = 'auto';
+        barStyle.style.bottom = '16px';
+    } else {
+        const tiroirHaut = document.getElementById('bar-plugins');
+        const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
+        barStyle.style.bottom = 'auto';
+        barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
+    }
 
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
@@ -4949,14 +4960,6 @@ function updateStyleBarContext() {
 
         // Synchro du bouton Verrouillage
         const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
-        const btnLock = document.getElementById('btn-lock');
-        if (isAllLocked) {
-            btnLock.classList.add('active');
-            document.getElementById('icon-lock').innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`; // Fermé
-        } else {
-            btnLock.classList.remove('active');
-            document.getElementById('icon-lock').innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`; // Ouvert
-        }
 
         // Synchro des boutons Flèche
         const hasAnyArrowStart = selectedItems.some(i => { const o = getObjectById(i.type, i.id); return o && o.arrowStart > 0; });
@@ -5177,13 +5180,8 @@ document.getElementById('btn-global-lock')?.addEventListener('click', () => {
     showToast(newState ? "Sélection verrouillée" : "Sélection déverrouillée");
 });
 
-document.getElementById('btn-lock').addEventListener('click', () => {
-    const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
-    const newState = !isAllLocked;
-    selectedItems.forEach(i => { const o = getObjectById(i.type, i.id); if (o) o.locked = newState; });
-    updateStyleBarContext(); saveState(); draw();
-    showToast(newState ? "Objet(s) verrouillé(s)" : "Objet(s) déverrouillé(s)");
-});
+// Le cadenas a quitté la barre fixe pour le menu flottant, avec les autres
+// actions. Son écouteur est parti avec lui.
 
 document.getElementById('btn-arrow-start').addEventListener('click', () => {
     activeStyle.arrowStart = (activeStyle.arrowStart + 1) % 4;
@@ -6512,7 +6510,21 @@ function deleteObject(type, id) {
     else if (type === 'freehand') freehands = freehands.filter(f => f.id !== id);
     else if (type === 'curve') curves = curves.filter(c => c.id !== id);
     else if (type === 'polygon') polygons = polygons.filter(p => p.id !== id);
-    else if (type === 'image') images = images.filter(i => i.id !== id);
+    else if (type === 'image') {
+        // Le ménage du PDF suit désormais l'OBJET et non plus le bouton ✕ de la
+        // barre : on peut l'effacer par le menu flottant, par Suppr, par le
+        // menu contextuel — la page rendue et la mémoire du document doivent
+        // partir dans tous les cas.
+        const parti = images.find(i => i.id === id);
+        if (parti && parti.pluginData && parti.pluginData.cle
+            && typeof documentsPdf !== 'undefined') {
+            documentsPdf.delete(parti.pluginData.cle);
+        }
+        if (typeof docEnAnnotation !== 'undefined' && parti && docEnAnnotation === parti.id) {
+            docEnAnnotation = null;      // il n'y a plus rien à annoter
+        }
+        images = images.filter(i => i.id !== id);
+    }
     else if (type === 'arc') arcs = arcs.filter(a => a.id !== id);
 }
 
@@ -10257,7 +10269,6 @@ function majBarreDocument() {
     // Le retour à la page entière ne se propose que s'il y a un cadrage à défaire
     const entiere = document.getElementById('doc-entiere');
     if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
-    document.getElementById('doc-fermer').title = feuilletable ? 'Retirer le document' : "Retirer l'image";
     if (typeof majLeVolet === 'function') majLeVolet();
     // Surtout PAS d'appel à updateStyleBarContext ici : c'est elle qui nous
     // appelle maintenant, et l'on tournerait en rond sans fin.
@@ -10265,7 +10276,7 @@ function majBarreDocument() {
 
 function brancherBarreDocument() {
     const b = (id) => document.getElementById(id);
-    if (!b('doc-fermer')) return;
+    if (!b('doc-prec')) return;
 
     b('doc-prec').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, -1); });
     b('doc-suiv').addEventListener('click', () => { const o = documentDeLaBarre(); if (o) feuilleterPdf(o, 1); });
@@ -10349,14 +10360,6 @@ function brancherBarreDocument() {
     b('doc-outil-crayon').addEventListener('click', () => annoterLeDocument('freehand'));
     b('doc-outil-texte').addEventListener('click', () => annoterLeDocument('text'));
 
-    b('doc-fermer').addEventListener('click', () => {
-        const o = documentDeLaBarre(); if (!o) return;
-        if (o.pluginData) documentsPdf.delete(o.pluginData.cle);
-        deleteObject('image', o.id);
-        selectedItems = [];
-        docEnAnnotation = null;      // il n'y a plus rien à annoter
-        majBarreDocument(); draw(); saveState();
-    });
 }
 
 // La page coulisse ou grossit DANS son cadre : le cadre ne bouge pas, c'est
@@ -12516,13 +12519,12 @@ function unMenuEstOuvert() {
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
-    // Un document PDF a sa propre barre : deux barres autour du même objet
-    // se marcheraient dessus.
+    // DEUX BARRES, DEUX MÉTIERS — c'est ainsi que fait Canva, et j'avais eu
+    // tort de tout fondre en une. Celle-ci flotte au-dessus de l'objet et porte
+    // les ACTIONS : verrou, proportions, rognage, duplication, suppression. La
+    // barre fixe, elle, porte les PROPRIÉTÉS : les pages, le cadre, l'apparence.
+    // Un document y a droit comme les autres objets.
     if (typeof majBarreDocument === 'function') majBarreDocument();
-    if (typeof documentSelectionne === 'function' && documentSelectionne()) {
-        quickMenu.classList.remove('visible');
-        return;
-    }
     if (unMenuEstOuvert()) { quickMenu.classList.remove('visible'); return; }
     // En pleine saisie, la barre d'édition suffit : le menu rapide se poserait
     // en travers du texte voisin.
@@ -12622,57 +12624,11 @@ function updateQuickMenu() {
                 };
             }
 
-            // 4. GESTION DE LA CHAÎNE ET ROGNAGE (Affichage + Action)
-            const btnRatio = document.getElementById('btn-quick-ratio');
-            const btnCrop = document.getElementById('btn-quick-crop');
-
-            if (type === 'image') {
-                // --- BOUTON PROPORTIONS (Chaîne) ---
-                if (btnRatio) {
-                    btnRatio.style.display = 'flex';
-                    const isRatioActive = (obj.ratioLocked !== false);
-
-                    if (isRatioActive) {
-                        btnRatio.classList.add('active');
-                        btnRatio.style.color = '#0984e3'; btnRatio.style.background = '#eff7fd';
-                    } else {
-                        btnRatio.classList.remove('active');
-                        btnRatio.style.color = '#636e72'; btnRatio.style.background = 'transparent';
-                    }
-
-                    // ACTION FORCÉE
-                    btnRatio.onpointerdown = (e) => {
-                        e.preventDefault(); e.stopPropagation();
-                        obj.ratioLocked = (obj.ratioLocked === false) ? true : false;
-                        updateQuickMenu(); saveState(); draw();
-                    };
-                }
-
-                // --- BOUTON ROGNAGE (Ciseau/Crop) ---
-                if (btnCrop) {
-                    btnCrop.style.display = 'flex';
-                    const isCropActive = !!obj.isCropping;
-
-                    if (isCropActive) {
-                        btnCrop.classList.add('active');
-                        btnCrop.style.color = '#e17055'; btnCrop.style.background = '#fdf0ef';
-                    } else {
-                        btnCrop.classList.remove('active');
-                        btnCrop.style.color = '#636e72'; btnCrop.style.background = 'transparent';
-                    }
-
-                    // ACTION FORCÉE
-                    btnCrop.onpointerdown = (e) => {
-                        e.preventDefault(); e.stopPropagation();
-                        obj.isCropping = !isCropActive; // Inverse l'état
-                        if (obj.isCropping) obj.ratioLocked = false; // Désactive le ratio si on rogne
-                        updateQuickMenu(); draw(); saveState();
-                    };
-                }
-            } else {
-                if (btnRatio) btnRatio.style.display = 'none';
-                if (btnCrop) btnCrop.style.display = 'none';
-            }
+            // Les proportions et le rognage ont quitté ce menu : ce sont des
+            // PROPRIÉTÉS de l'objet, et la barre fixe les porte déjà (doc-proportions,
+            // doc-rogner). Ici ne restent que les ACTIONS — verrou, duplication,
+            // suppression. C'est la répartition de Canva, et elle supprime le dernier
+            // réglage qui vivait en double.
 
             const btnDup = document.getElementById('btn-quick-duplicate');
             if (btnDup) {
