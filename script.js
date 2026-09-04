@@ -7258,11 +7258,18 @@ canvas.addEventListener('pointerdown', (e) => {
             // elle ne pend pas dessous. On vise donc le MILIEU de la ligne, et
             // non son sommet — sinon le cadre s'ouvre nettement plus bas que
             // l'endroit qu'on a désigné.
+            // UNE ZONE À REMPLIR sous le clic : le bloc s'y pose, à sa taille.
+            // C'est tout l'intérêt — on ne vise plus au pixel, et le texte ne
+            // dépasse pas de la ligne qu'on remplit.
+            const zone = (typeof zoneVisee === 'function') ? zoneVisee(rawPos) : null;
+            if (zone) {
+                activeStyle.fontSize = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
+                activeStyle.lineHeight = Math.round(activeStyle.fontSize * 1.2);
+            }
             const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
-            tempTextLogicalPos = {
-                x: actionPos.x,
-                y: actionPos.y - interligne / 2
-            };
+            tempTextLogicalPos = zone
+                ? { x: zone.x + Math.max(2, zone.h * 0.12), y: zone.y + zone.h / 2 - interligne / 2 }
+                : { x: actionPos.x, y: actionPos.y - interligne / 2 };
             // Couleur du bloc = celle en vigueur À L'OUVERTURE. Choisir une
             // autre couleur ensuite ne doit repeindre que ce qui suit, pas ce
             // qui est déjà écrit.
@@ -8347,6 +8354,33 @@ function draw() {
                     // pixels de la page rendue : on les ramène dans le cadre
                     // par le même découpage que l'image elle-même, sans quoi
                     // ils se poseraient à côté dès qu'on rogne ou qu'on zoome.
+                    // LES ZONES À REMPLIR, quand on tient l'outil Texte. Elles ne
+                    // paraissent qu'à ce moment-là : ailleurs, elles ne feraient
+                    // que salir la page.
+                    if (zonesActives && mode === 'text' && obj.pluginData
+                        && obj.pluginData.id === 'pdfDoc' && obj.cw && obj.ch && !obj.rotation) {
+                        const zs = demanderLesZones(obj) || [];
+                        if (zs.length) {
+                            const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
+                            const im = imageCache[obj.src] || {};
+                            const NW = im.naturalWidth || obj.cw, NH = im.naturalHeight || obj.ch;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                            ctx.clip();
+                            ctx.fillStyle = 'rgba(99, 102, 241, 0.10)';
+                            ctx.strokeStyle = 'rgba(99, 102, 241, 0.55)';
+                            ctx.lineWidth = Math.max(0.5, lw);
+                            zs.forEach(z => {
+                                const zx = -obj.w / 2 + (z.x * NW - obj.cx) * kx;
+                                const zy = -obj.h / 2 + (z.y * NH - obj.cy) * ky;
+                                const zl = Math.max(2, z.l * NW * kx), zh = Math.max(2, z.h * NH * ky);
+                                ctx.fillRect(zx, zy, zl, zh);
+                                ctx.strokeRect(zx, zy, zl, zh);
+                            });
+                            ctx.restore();
+                        }
+                    }
                     const surl = obj.pluginData && obj.pluginData.surlignes;
                     if (surl && surl.length && obj.cw && obj.ch) {
                         const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
@@ -10028,6 +10062,280 @@ async function allerEtSurligner(numero) {
     } catch (e) { /* pas de texte : on aura au moins tourné la page */ }
     majLeVolet(); draw();
 }
+
+
+// ===================================================
+// LES ZONES À REMPLIR D'UN DOCUMENT
+// Un polycopié propre porte ses zones à remplir DANS son fichier : les lignes
+// à écrire sont de vrais tracés, les cases de vrais rectangles. On les lit
+// donc plutôt que de les deviner — trois signaux, du plus sûr au moins sûr :
+//
+//   1. les vrais champs de formulaire (getAnnotations) : aucune devinette ;
+//   2. les tracés (getOperatorList) : un trait horizontal isolé, un rectangle
+//      de la taille d'une case ;
+//   3. la page PEINTE, qui tranche : une zone à remplir est VIDE. C'est elle
+//      qui écarte la grille de mots croisés, les bandeaux de titre et les
+//      cases déjà remplies, sans qu'on ait à les reconnaître.
+//
+// Un scan ne donne rien de tout cela — c'est une seule image — et l'on ne
+// prétend pas le traiter : la détection ne s'offre que sur un PDF vectoriel.
+//
+// Les zones sont gardées en PROPORTIONS de la page (0 à 1) : elles survivent
+// ainsi au réaffinage, qui change la taille du rendu sans changer la page.
+// ===================================================
+
+const ZONES_MAX = 240;              // au-delà, ce n'est plus un formulaire
+const ZONE_TRAIT_MIN = 40;          // un trait plus court n'est pas une ligne à écrire
+const ZONE_HAUTEUR_LIGNE = 15;      // la bande à écrire au-dessus d'un trait
+
+// Suivre la matrice courante : les tracés d'un PDF vivent dans l'espace local
+// de leur bloc « q … cm … Q ». Sans elle, les coordonnées tombent n'importe où
+// — c'est la première chose que j'ai eue fausse.
+function _matMul(m, n) {
+    return [
+        m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+        m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]
+    ];
+}
+function _matPt(m, x, y) {
+    return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+// Les candidats géométriques : traits horizontaux isolés et rectangles de la
+// taille d'une case, en coordonnées d'écran à l'échelle 1.
+function candidatsDeLaPage(ol, base) {
+    const OPS = pdfjsLib.OPS;
+    const traits = [], boites = [];
+    let ctm = base.slice();
+    const pile = [];
+
+    for (let i = 0; i < ol.fnArray.length; i++) {
+        const fn = ol.fnArray[i], a = ol.argsArray[i];
+        if (fn === OPS.save) { pile.push(ctm.slice()); continue; }
+        if (fn === OPS.restore) { ctm = pile.pop() || base.slice(); continue; }
+        if (fn === OPS.transform) { ctm = _matMul(ctm, a); continue; }
+        if (fn !== OPS.constructPath) continue;
+
+        const ops = a[0], co = a[1];
+        let k = 0, cx = 0, cy = 0;
+        // Une case dessinée en QUATRE SEGMENTS n'est pas un « rectangle » pour
+        // pdf.js : les cases de dominos de mes essais étaient de celles-là, et
+        // passaient au travers. On garde donc le chemin pour le reconnaître.
+        let chemin = [];
+        const finirChemin = () => {
+            if (chemin.length >= 4 && chemin.length <= 5) {
+                const xs = chemin.map(p => p[0]), ys = chemin.map(p => p[1]);
+                const x0 = Math.min(...xs), x1 = Math.max(...xs);
+                const y0 = Math.min(...ys), y1 = Math.max(...ys);
+                // axé sur les axes : chaque sommet est sur un bord
+                const auBord = chemin.every(p =>
+                    (Math.abs(p[0] - x0) < 1 || Math.abs(p[0] - x1) < 1)
+                    && (Math.abs(p[1] - y0) < 1 || Math.abs(p[1] - y1) < 1));
+                if (auBord) boites.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+            }
+            chemin = [];
+        };
+
+        for (const o of ops) {
+            if (o === OPS.moveTo) {
+                finirChemin();
+                cx = co[k++]; cy = co[k++];
+                chemin.push(_matPt(ctm, cx, cy));
+            } else if (o === OPS.lineTo) {
+                const nx = co[k++], ny = co[k++];
+                const A = _matPt(ctm, cx, cy), B = _matPt(ctm, nx, ny);
+                if (Math.abs(B[1] - A[1]) < 1.5 && Math.abs(B[0] - A[0]) >= ZONE_TRAIT_MIN) {
+                    traits.push({ x: Math.min(A[0], B[0]), y: A[1], l: Math.abs(B[0] - A[0]) });
+                }
+                cx = nx; cy = ny;
+                chemin.push(B);
+            } else if (o === OPS.rectangle) {
+                finirChemin();
+                const rx = co[k++], ry = co[k++], rw = co[k++], rh = co[k++];
+                const A = _matPt(ctm, rx, ry), B = _matPt(ctm, rx + rw, ry + rh);
+                boites.push({
+                    x: Math.min(A[0], B[0]), y: Math.min(A[1], B[1]),
+                    w: Math.abs(B[0] - A[0]), h: Math.abs(B[1] - A[1])
+                });
+                cx = rx; cy = ry;
+            } else if (o === OPS.curveTo) { k += 6; chemin = []; }
+            else if (o === OPS.curveTo2 || o === OPS.curveTo3) { k += 4; chemin = []; }
+            else if (o === OPS.closePath) { finirChemin(); }
+        }
+        finirChemin();
+    }
+    return { traits, boites };
+}
+
+// La page peinte tranche : une zone à remplir est VIDE, et son fond reste
+// clair. Un fond coloré est permis — les cases posées sur une bande pastel en
+// sont — mais un bandeau de titre, lui, porte du texte blanc sur couleur
+// soutenue et ne se remplit pas.
+function sondeurDePage(px, largeur, hauteur, echelle) {
+    return (x, y, w, h) => {
+        const x0 = Math.max(0, Math.round(x * echelle)), y0 = Math.max(0, Math.round(y * echelle));
+        const x1 = Math.min(largeur, Math.round((x + w) * echelle));
+        const y1 = Math.min(hauteur, Math.round((y + h) * echelle));
+        let encre = 0, somme = 0, n = 0;
+        for (let yy = y0; yy < y1; yy += 2) {
+            for (let xx = x0; xx < x1; xx += 2) {
+                const i = (yy * largeur + xx) * 4;
+                const lum = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
+                n++; somme += lum;
+                if (lum < 0.55) encre++;
+            }
+        }
+        return n ? { encre: encre / n, clair: somme / n } : { encre: 1, clair: 0 };
+    };
+}
+
+async function chercherLesZones(d, numero) {
+    const page = await d.doc.getPage(numero);
+    const vue1 = page.getViewport({ scale: 1 });
+    const L = vue1.width, H = vue1.height;
+    const enPart = (z) => ({ x: z.x / L, y: z.y / H, l: z.w / L, h: z.h / H });
+
+    // 1. LES VRAIS CHAMPS — s'il y en a, on ne devine rien.
+    try {
+        const champs = (await page.getAnnotations())
+            .filter(a => a.subtype === 'Widget' && Array.isArray(a.rect));
+        if (champs.length) {
+            return champs.slice(0, ZONES_MAX).map(a => {
+                const [x0, y0, x1, y1] = pdfjsLib.Util.normalizeRect(a.rect);
+                return enPart({ x: x0, y: H - y1, w: x1 - x0, h: y1 - y0 });
+            });
+        }
+    } catch (e) { /* pas d'annotations : on passe aux tracés */ }
+
+    // 2. LES TRACÉS
+    const ol = await page.getOperatorList();
+    const { traits, boites } = candidatsDeLaPage(ol, vue1.transform);
+    if (!traits.length && !boites.length) return [];
+
+    // 3. LA PAGE PEINTE
+    const E = 1.5;                       // assez fin pour voir l'encre, assez léger pour être rapide
+    const c = document.createElement('canvas');
+    const vueE = page.getViewport({ scale: E });
+    c.width = Math.round(vueE.width); c.height = Math.round(vueE.height);
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport: vueE }).promise;
+    const px = g.getImageData(0, 0, c.width, c.height).data;
+    const sonder = sondeurDePage(px, c.width, c.height, E);
+
+    const zones = [];
+    traits.forEach(t => {
+        const z = { x: t.x + 2, y: t.y - ZONE_HAUTEUR_LIGNE, w: t.l - 4, h: ZONE_HAUTEUR_LIGNE - 2 };
+        if (z.w < ZONE_TRAIT_MIN || z.y < 0) return;
+        const s = sonder(z.x, z.y, z.w, z.h);
+        if (s.encre < 0.012 && s.clair > 0.80) zones.push(z);
+    });
+    boites.forEach(r => {
+        if (r.h < 9 || r.h > 42 || r.w < 14 || r.w > 340) return;
+        const z = { x: r.x + 2, y: r.y + 2, w: r.w - 4, h: r.h - 4 };
+        const s = sonder(z.x, z.y, z.w, z.h);
+        if (s.encre < 0.02 && s.clair > 0.72) zones.push(z);
+    });
+
+    // Deux tracés superposés — un cadre dessiné deux fois — donnent deux fois
+    // la même zone : on ne garde qu'une.
+    const gardees = [];
+    zones.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    zones.forEach(z => {
+        const jumelle = gardees.some(g2 =>
+            Math.abs(g2.x - z.x) < 4 && Math.abs(g2.y - z.y) < 4
+            && Math.abs(g2.w - z.w) < 6 && Math.abs(g2.h - z.h) < 6);
+        if (!jumelle) gardees.push(z);
+    });
+    return gardees.slice(0, ZONES_MAX).map(enPart);
+}
+
+// Comme le texte et les vignettes : on cherche une fois, on garde.
+function zonesDeLaPage(d, numero) {
+    if (!d.zones) d.zones = new Map();
+    if (!d.zonesEnCours) d.zonesEnCours = new Map();
+    if (d.zones.has(numero)) return Promise.resolve(d.zones.get(numero));
+    if (d.zonesEnCours.has(numero)) return d.zonesEnCours.get(numero);
+    const promesse = chercherLesZones(d, numero)
+        .catch(() => [])
+        .then(z => { d.zones.set(numero, z); d.zonesEnCours.delete(numero); return z; });
+    d.zonesEnCours.set(numero, promesse);
+    return promesse;
+}
+window.zonesDeLaPage = zonesDeLaPage;
+
+// L'option : la détection ne s'allume pas d'elle-même. Tout le monde ne pose
+// pas des polycopiés à remplir, et un cadre qui s'éclaire sans qu'on l'ait
+// demandé est une surprise de plus.
+const CLE_ZONES = 'auTableau_zones_pdf';
+let zonesActives = false;
+try { zonesActives = localStorage.getItem(CLE_ZONES) === 'oui'; } catch (e) { /* stockage refusé */ }
+
+function basculerLesZones() {
+    zonesActives = !zonesActives;
+    try { localStorage.setItem(CLE_ZONES, zonesActives ? 'oui' : 'non'); } catch (e) { /* refusé */ }
+    if (!zonesActives) images.forEach(o => { if (o.pluginData) delete o.pluginData.zones; });
+    draw();
+    return zonesActives;
+}
+window.basculerLesZones = basculerLesZones;
+
+// Les zones du document tenu, cherchées une fois puis gardées sur l'objet —
+// comme les surlignages de la recherche, et dans le même repère.
+function demanderLesZones(obj) {
+    if (!zonesActives || !obj || !obj.pluginData || obj.pluginData.id !== 'pdfDoc') return null;
+    const d = documentsPdf.get(obj.pluginData.cle);
+    if (!d) return null;
+    const page = obj.pluginData.page;
+    if (obj.pluginData.zones && obj.pluginData.zonesPage === page) return obj.pluginData.zones;
+    if (obj.pluginData.zonesDemandees === page) return null;   // on attend déjà
+    obj.pluginData.zonesDemandees = page;
+    zonesDeLaPage(d, page).then(z => {
+        obj.pluginData.zones = z;
+        obj.pluginData.zonesPage = page;
+        obj.pluginData.zonesDemandees = null;
+        draw();
+    });
+    return null;
+}
+window.demanderLesZones = demanderLesZones;
+
+// Une zone, ramenée sur le tableau : mêmes proportions que la page, même
+// découpage que l'image. On saute les documents tournés — la conversion y
+// demanderait la matrice complète, et l'on ne tourne pas un poly à remplir.
+function zoneSurLeTableau(obj, z) {
+    const img = imageCache[obj.src];
+    if (!img || !obj.cw || !obj.ch || obj.rotation) return null;
+    const NW = img.naturalWidth || obj.cw, NH = img.naturalHeight || obj.ch;
+    const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
+    return {
+        x: obj.x + (z.x * NW - obj.cx) * kx,
+        y: obj.y + (z.y * NH - obj.cy) * ky,
+        l: z.l * NW * kx,
+        h: z.h * NH * ky
+    };
+}
+
+// La zone sous le curseur, s'il y en a une : c'est elle qui recevra le texte.
+function zoneVisee(pos) {
+    if (!zonesActives) return null;
+    let trouvee = null;
+    images.forEach(obj => {
+        const zones = obj.pluginData && obj.pluginData.zones;
+        if (!zones || !zones.length) return;
+        zones.forEach(z => {
+            const b = zoneSurLeTableau(obj, z);
+            if (!b) return;
+            if (pos.x >= b.x && pos.x <= b.x + b.l && pos.y >= b.y && pos.y <= b.y + b.h) {
+                trouvee = b;
+            }
+        });
+    });
+    return trouvee;
+}
+window.zoneVisee = zoneVisee;
+
 
 function brancherLeVolet() {
     const volet = document.getElementById('doc-volet');
@@ -23460,6 +23768,8 @@ function majReglagesBarre() {
     if (bAstuces) bAstuces.classList.toggle('actif', astucesActivees());
     const bEncre = document.getElementById('rp-encre-accrochee');
     if (bEncre) bEncre.classList.toggle('actif', encreAccrochee);
+    const bZones = document.getElementById('rp-zones');
+    if (bZones) bZones.classList.toggle('actif', zonesActives);
 }
 
 function basculerReglagesBarre(e) {
@@ -23507,6 +23817,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof showToast === 'function') {
             showToast(active ? 'L\'encre s\'accroche à ce qu\'elle annote'
                              : 'L\'encre reste indépendante');
+        }
+    });
+
+    const bZones = document.getElementById('rp-zones');
+    if (bZones) bZones.addEventListener('click', () => {
+        const actif = basculerLesZones();
+        majReglagesBarre();
+        if (typeof showToast === 'function') {
+            showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte'
+                            : 'Zones à remplir : repérage éteint');
         }
     });
 

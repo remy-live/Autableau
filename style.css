@@ -4718,10 +4718,12 @@ body.dark-mode {
 
 #titre-horloge.visible { display: block; }
 
-.th-cadran { fill: none; stroke: #cbd5e1; stroke-width: 2; }
-.th-reperes { stroke: #94a3b8; stroke-width: 1.6; stroke-linecap: round; }
-.th-heure { stroke: #334155; stroke-width: 2.6; stroke-linecap: round; }
-.th-minute { stroke: #334155; stroke-width: 1.8; stroke-linecap: round; }
+.th-cadran { fill: none; stroke: #cbd5e1; stroke-width: 1.8; }
+.th-reperes { stroke: #94a3b8; stroke-width: 1; stroke-linecap: round; }
+/* Les quatre quarts se voient de loin : ce sont eux qu'on lit d'abord. */
+.th-reperes .th-quart { stroke: #64748b; stroke-width: 1.8; }
+.th-heure { stroke: #334155; stroke-width: 2.8; stroke-linecap: round; }
+.th-minute { stroke: #334155; stroke-width: 1.9; stroke-linecap: round; }
 .th-axe { fill: #334155; }
 
 /* Les aiguilles tournent autour du centre du cadran. Une seconde de
@@ -4736,6 +4738,7 @@ body.dark-mode {
 
 .dark-mode .th-cadran { stroke: #475569; }
 .dark-mode .th-reperes { stroke: #64748b; }
+.dark-mode .th-reperes .th-quart { stroke: #cbd5e1; }
 .dark-mode .th-heure,
 .dark-mode .th-minute { stroke: #e2e8f0; }
 .dark-mode .th-axe { fill: #e2e8f0; }

@@ -1,7 +1,7 @@
 // Naviguer dans un PDF posé sur le tableau : garder les pages rendues,
 // aller droit à un numéro, feuilleter au clavier et au doigt, l'encre qui
 // appartient à sa page, le volet des vignettes et la recherche dans le texte.
-const { creerRapport, ouvrirApp, petitPdf } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, fichePdf, tableauVierge } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Navigation dans les PDF');
@@ -856,6 +856,112 @@ module.exports = async function (browser) {
         largeurs.paquets.length === 2 && Math.abs(largeurs.naif - largeurs.paquets[1].g) > 60,
         JSON.stringify(largeurs));
 
+
+    // --- LES ZONES À REMPLIR ---
+    // Un polycopié propre porte ses zones DANS son fichier : les lignes à
+    // écrire sont de vrais tracés, les cases de vrais rectangles. La fiche
+    // d'essai en a trois de chaque sorte, plus ce qu'il faut écarter : un
+    // bandeau de titre coloré, une case déjà remplie, une grille de lettres.
+    const detection = await page.evaluate(async () => {
+        const cle = [...documentsPdf.keys()][0];
+        const d = documentsPdf.get(cle);
+        return d ? (await zonesDeLaPage(d, 1)).length : -1;
+    });
+
+    await tableauVierge(page);
+    const [choixFiche] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.evaluate(() => document.getElementById('btn-import-pdf').click())
+    ]);
+    await choixFiche.setFiles({ name: 'fiche.pdf', mimeType: 'application/pdf', buffer: fichePdf() });
+    await page.waitForFunction(() => images.length === 1 && images[0].pluginData, { timeout: 15000 });
+    await page.waitForTimeout(400);
+
+    const zones = await page.evaluate(async () => {
+        const d = documentsPdf.get(images[0].pluginData.cle);
+        const z = await zonesDeLaPage(d, 1);
+        // Le repère est en PROPORTIONS de la page : il survit au réaffinage,
+        // qui change la taille du rendu sans changer la page.
+        const dansLaPage = z.every(u => u.x >= 0 && u.y >= 0 && u.x + u.l <= 1.001 && u.y + u.h <= 1.001);
+        // trois lignes réglées : larges et plates, dans le haut de la page
+        const lignes = z.filter(u => u.l > 0.4 && u.h < 0.09 && u.y < 0.5).length;
+        // trois cases vides : petites, au milieu — dont une tracée en quatre
+        // segments plutôt qu'avec l'opérateur « rectangle ».
+        const cases = z.filter(u => u.l < 0.25 && u.y > 0.45 && u.y < 0.85).length;
+        // La case tracée en QUATRE SEGMENTS : reconnue comme une case, elle
+        // donne son intérieur (haut) ; lue seulement comme un trait, elle ne
+        // donnerait qu'une bande fine au-dessus de son bord.
+        const enSegments = z.filter(u => u.l < 0.25 && u.h > 0.07).length;
+        return { n: z.length, dansLaPage, lignes, cases, enSegments };
+    });
+    r.egal('la détection trouve les six zones de la fiche', zones.n, 6);
+    r.egal('les trois lignes réglées', zones.lignes, 3);
+    r.egal('et les trois cases vides', zones.cases, 3);
+    r.egal('dont une tracée en quatre segments, reconnue comme une case entière',
+        zones.enSegments, 1);
+    r.verifie('les repères sont en proportions de la page', zones.dansLaPage, JSON.stringify(zones));
+
+    // Ce qui NE doit PAS être retenu : le bandeau de titre (coloré, avec du
+    // texte), la case qui porte déjà un A, la grille de six lettres. Cinq
+    // zones en tout, donc aucune des neuf autres n'est passée.
+    r.verifie('le bandeau, la case remplie et la grille sont écartés',
+        zones.n === 6, JSON.stringify(zones));
+
+    // Option éteinte : rien ne s'éclaire, rien ne se cherche.
+    const eteint = await page.evaluate(() => {
+        zonesActives = false;
+        setMode('text');
+        delete images[0].pluginData.zones;
+        draw();
+        return { zones: images[0].pluginData.zones || null, vise: zoneVisee({ x: 0, y: 0 }) };
+    });
+    r.egal('option éteinte, aucune zone n\'est cherchée', eteint.zones, null);
+    r.egal('et rien n\'est visé', eteint.vise, null);
+
+    // Option allumée, outil Texte, clic dans la première ligne réglée : le
+    // bloc s'ouvre DANS la zone, à sa taille.
+    const rempli = await page.evaluate(async () => {
+        zonesActives = true;
+        const obj = images[0];
+        const d = documentsPdf.get(obj.pluginData.cle);
+        obj.pluginData.zones = await zonesDeLaPage(d, 1);
+        obj.pluginData.zonesPage = 1;
+        setMode('text');
+        // Une taille de départ VOLONTAIREMENT hors sujet : si le clic ne visait
+        // pas la zone, elle resterait telle quelle.
+        activeStyle.fontSize = 64;
+        activeStyle.lineHeight = 77;
+        draw();
+        // la première ligne réglée, ramenée sur le tableau
+        const ligne = obj.pluginData.zones
+            .map(z => zoneSurLeTableau(obj, z))
+            .filter(Boolean)
+            .sort((a, b) => a.y - b.y)[0];
+        return {
+            ligne: { x: Math.round(ligne.x), y: Math.round(ligne.y),
+                     l: Math.round(ligne.l), h: Math.round(ligne.h) },
+            ecran: { x: Math.round(panX + (ligne.x + ligne.l / 2) * zoom),
+                     y: Math.round(panY + (ligne.y + ligne.h / 2) * zoom) }
+        };
+    });
+    await page.mouse.click(rempli.ecran.x, rempli.ecran.y);
+    await page.waitForTimeout(200);
+    const saisie = await page.evaluate(() => ({
+        ouvert: getComputedStyle(document.getElementById('wysiwyg-text')).display !== 'none',
+        pos: tempTextLogicalPos && { x: Math.round(tempTextLogicalPos.x), y: Math.round(tempTextLogicalPos.y) },
+        taille: activeStyle.fontSize
+    }));
+    r.verifie('le clic dans une zone ouvre la saisie', saisie.ouvert, JSON.stringify(pose));
+    // On a cliqué au MILIEU de la ligne : le bloc doit s'ouvrir à son BORD
+    // GAUCHE, sinon il n'a pas visé la zone mais le point du clic.
+    r.verifie('le bloc s\'ouvre au bord gauche de la zone, pas là où l\'on a cliqué',
+        saisie.pos && Math.abs(saisie.pos.x - rempli.ligne.x) < rempli.ligne.l * 0.2,
+        JSON.stringify({ saisie, ligne: rempli.ligne }));
+    r.verifie('et sa taille descend de 64 à la hauteur de la ligne',
+        saisie.taille > 4 && saisie.taille <= rempli.ligne.h && saisie.taille < 64,
+        JSON.stringify({ taille: saisie.taille, hauteur: rempli.ligne.h }));
+
+    await page.evaluate(() => { zonesActives = false; setMode('pointer'); });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=73">
+    <link rel="stylesheet" href="style.css?v=74">
 </head>
 
 <body>
@@ -317,17 +317,27 @@
              qu'en enregistrant un tableau nommé : allumée en permanence, elle
              ne signalait plus rien. Un cadran, lui, se lit de loin — et une
              classe de sixième a encore à apprendre à lire l'heure dessus. -->
-        <svg id="titre-horloge" viewBox="0 0 40 40" width="26" height="26" aria-hidden="true">
-            <circle class="th-cadran" cx="20" cy="20" r="17.5" />
+        <svg id="titre-horloge" viewBox="0 0 40 40" width="46" height="46" aria-hidden="true">
+            <circle class="th-cadran" cx="20" cy="20" r="18" />
+            <!-- Douze repères, les quatre quarts plus marqués : une horloge de
+                 classe sert à APPRENDRE à lire l'heure, il lui faut ses heures. -->
             <g class="th-reperes">
-                <line x1="20" y1="4.5" x2="20" y2="8" />
-                <line x1="35.5" y1="20" x2="32" y2="20" />
-                <line x1="20" y1="35.5" x2="20" y2="32" />
-                <line x1="4.5" y1="20" x2="8" y2="20" />
+                <line class="th-quart" x1="20.0" y1="3.4" x2="20.0" y2="6.8" />
+                <line x1="28.3" y1="5.6" x2="27.3" y2="7.4" />
+                <line x1="34.4" y1="11.7" x2="32.6" y2="12.7" />
+                <line class="th-quart" x1="36.6" y1="20.0" x2="33.2" y2="20.0" />
+                <line x1="34.4" y1="28.3" x2="32.6" y2="27.3" />
+                <line x1="28.3" y1="34.4" x2="27.3" y2="32.6" />
+                <line class="th-quart" x1="20.0" y1="36.6" x2="20.0" y2="33.2" />
+                <line x1="11.7" y1="34.4" x2="12.7" y2="32.6" />
+                <line x1="5.6" y1="28.3" x2="7.4" y2="27.3" />
+                <line class="th-quart" x1="3.4" y1="20.0" x2="6.8" y2="20.0" />
+                <line x1="5.6" y1="11.7" x2="7.4" y2="12.7" />
+                <line x1="11.7" y1="5.6" x2="12.7" y2="7.4" />
             </g>
-            <line class="th-heure" id="th-heure" x1="20" y1="20" x2="20" y2="11.5" />
-            <line class="th-minute" id="th-minute" x1="20" y1="20" x2="20" y2="7.5" />
-            <circle class="th-axe" cx="20" cy="20" r="1.7" />
+            <line class="th-heure" id="th-heure" x1="20" y1="20" x2="20" y2="11" />
+            <line class="th-minute" id="th-minute" x1="20" y1="20" x2="20" y2="6.5" />
+            <circle class="th-axe" cx="20" cy="20" r="1.9" />
         </svg>
         <div id="project-title-controls-right" class="title-controls title-controls-right">
             <button id="btn-reglages-date" class="title-btn" title="Réglages de la date"
@@ -624,6 +634,16 @@
                             partent avec lui quand on le déplace, le tourne ou l'agrandit — et suivent aussi la page
                             quand elle <b>coulisse ou grossit dans son cadre</b> (mode <b>Page</b>), ce qui n'est pas
                             le zoom du tableau. Le document retiré, l'annotation reste mais redevient libre.</li>
+                        <li><strong>Repérer les zones à remplir</strong> (à allumer dans les réglages de la
+                            barre, rubrique <b>Documents</b>) : sur un PDF <b>vectoriel</b>, l'application lit les
+                            lignes réglées et les cases dessinées dans le fichier. Prenez l'outil <b>Texte</b> :
+                            elles s'éclairent, et le clic dans l'une d'elles ouvre le bloc <b>à son bord gauche,
+                            à sa taille</b> — plus besoin de viser au pixel ni de régler la police.
+                            Trois signaux sont lus, du plus sûr au moins sûr : les vrais champs de formulaire s'il
+                            y en a, puis les tracés, puis la page peinte, qui tranche — une zone à remplir est
+                            <b>vide</b>. C'est elle qui écarte les grilles de mots croisés, les bandeaux de titre
+                            et les cases déjà remplies. Un document <b>scanné</b> ne donne rien de tout cela : ce
+                            n'est qu'une image, et la détection ne s'y risque pas.</li>
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
@@ -1226,6 +1246,10 @@
                     <div class="rp-titre">Annotations</div>
                     <button class="rp-choix" id="rp-encre-accrochee"
                         title="Un trait posé sur un texte ou une image le suit quand on le déplace">Encre accrochée à l'objet</button>
+
+                    <div class="rp-titre">Documents</div>
+                    <button class="rp-choix" id="rp-zones"
+                        title="Sur un PDF vectoriel, repérer les lignes et les cases à remplir : l'outil Texte les éclaire, et le clic y pose le bloc à la bonne taille">Repérer les zones à remplir</button>
 
                     <div class="rp-titre">Astuces</div>
                     <button class="rp-choix" id="rp-astuces">Astuce au démarrage</button>
@@ -1998,7 +2022,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=143"></script>
+    <script src="script.js?v=144"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
