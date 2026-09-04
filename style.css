@@ -8184,3 +8184,40 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     .lec-note { display: none; }
     #bande-lecture { gap: 6px; }
 }
+
+/* ============================================================
+   UNE BARRE RÉDUITE RESTE OÙ ELLE ÉTAIT
+   La barre de style partait se ranger dans le quai, en bas à gauche : on la
+   réduisait en haut de l'écran et elle reparaissait à l'autre bout, sous la
+   forme d'un rond gris à côté d'une poignée. On ne la retrouvait pas — et
+   l'état étant retenu d'une séance à l'autre, elle restait perdue.
+   Elle rétrécit maintenant sur place, et sa pastille porte la couleur de
+   l'application : c'est un bouton, pas un ornement.
+   ============================================================ */
+.toolbar.minimized.sur-place {
+    position: fixed !important;
+    left: var(--reduite-x, 50%) !important;
+    top: var(--reduite-y, 20px) !important;
+    bottom: auto !important;
+    right: auto !important;
+    transform: none !important;
+    z-index: 60;
+    background: #fff;
+    border: 1px solid #dfe6e9;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+    cursor: pointer;
+}
+
+.toolbar.minimized.sur-place .toolbar-badge {
+    color: #6c5ce7;
+}
+
+.toolbar.minimized.sur-place:hover {
+    border-color: #6c5ce7;
+    box-shadow: 0 6px 20px rgba(108, 92, 231, 0.28);
+}
+
+.dark-mode .toolbar.minimized.sur-place {
+    background: #1e272e;
+    border-color: #3d4852;
+}

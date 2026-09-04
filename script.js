@@ -13645,6 +13645,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const dock = ensureFloatingDock();
 
         minimizedBars.forEach(bar => {
+            // Celle qui retrecit sur place n'a rien a faire dans le quai.
+            if (bar.classList.contains('sur-place')) return;
             if (bar.parentNode !== dock) {
                 dock.appendChild(bar);
             }
@@ -13669,8 +13671,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 toolbar.dataset.oldRight = toolbar.style.right || '';
                 toolbar.dataset.oldTransform = toolbar.style.transform || '';
 
+                // ELLE RETRECIT SUR PLACE. La barre de style partait se ranger
+                // dans un quai, en bas a gauche : on la reduisait en haut de
+                // l'ecran et elle reapparaissait a l'autre bout, sous la forme
+                // d'un rond gris anonyme, a cote d'une poignee. On ne la
+                // retrouvait pas — et l'etat etant retenu d'une seance a
+                // l'autre, elle restait perdue. Elle reste desormais la ou
+                // elle etait : le rond prend sa place, on le retrouve du regard.
+                const surPlace = (toolbarId === 'bar-style');
+                const r = toolbar.getBoundingClientRect();
+
                 requestAnimationFrame(() => {
                     toolbar.classList.add('minimized');
+                    if (surPlace) {
+                        toolbar.classList.add('sur-place');
+                        toolbar.style.setProperty('--reduite-x', Math.round(Math.max(6, Math.min(window.innerWidth - 54, r.left))) + 'px');
+                        toolbar.style.setProperty('--reduite-y', Math.round(Math.max(6, Math.min(window.innerHeight - 54, r.top))) + 'px');
+                    }
                     localStorage.setItem('minimized_' + toolbarId, 'true');
                     updateDockPositions();
                 });
