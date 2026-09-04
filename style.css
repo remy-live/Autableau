@@ -6146,6 +6146,9 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .doc-btn:hover { background: #eef2ff; }
 .doc-btn.actif { background: #e0f2fe; border-color: #7dd3fc; color: #0284c7; }
+/* La retouche des zones se voit : c'est un mode où le tableau ne répond plus
+   comme d'habitude, et rien n'est pire que d'y être sans le savoir. */
+.doc-btn.en-retouche { background: #ffedd5; border-color: #fdba74; color: #ea580c; }
 
 /* On écrit sur le document : il n'est plus tenu, et les réglages qui demandent
    de l'avoir en main n'auraient rien à saisir. Le « !important » est

@@ -4102,6 +4102,20 @@ window.addEventListener('keydown', (e) => {
 
         return;
     }
+
+    // RETOUCHE DES ZONES : les mêmes touches qu'ailleurs, mais elles portent
+    // sur la zone tenue et non sur les objets du tableau.
+    if (zonesEdition) {
+        if (e.key === 'Escape') { e.preventDefault(); basculerEditionDesZones(false); return; }
+        // Suppr appartient ICI tant qu'on retouche, et sans condition : laissée
+        // passer quand aucune zone n'est tenue, elle effaçait le document
+        // lui-même. On ne perd pas un polycopié pour avoir visé à côté.
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            supprimerLaZoneChoisie();
+            return;
+        }
+    }
     if (e.key === 'Escape' || e.key === 'Backspace') {
         if (isCropMode) { isCropMode = false; cropRect = null; exportPopover.classList.remove('visible'); draw(); return; }
         let canceledSomething = false;
@@ -6745,9 +6759,17 @@ function applyBlockTag(tag) {
 wysiwygText.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); finalizeText(); canvas.focus(); }
 
-    // Tabulation : retrait / retrait négatif dans les listes, sans quitter la saisie
+    // Tabulation : retrait / retrait négatif dans les listes, sans quitter la
+    // saisie. MAIS quand on remplit un polycopié, elle fait ce qu'elle fait
+    // dans tout formulaire — elle passe au trou suivant. On ne fait pas de
+    // listes à puces dans une ligne pointillée.
     if (e.key === 'Tab') {
         e.preventDefault();
+        if (tempTextLogicalPos && tempTextLogicalPos.zoneDoc !== undefined
+            && typeof allerALaZoneVoisine === 'function') {
+            allerALaZoneVoisine(e.shiftKey ? -1 : 1);
+            return;
+        }
         document.execCommand(e.shiftKey ? 'outdent' : 'indent', false, null);
         return;
     }
@@ -7024,6 +7046,10 @@ canvas.addEventListener('pointerdown', (e) => {
     const avantTampon = nextId;
     if (PluginManager.trigger('onPointerDown', rawPos, e)) { apresPoseDeTampon(avantTampon); return; }
 
+    // RETOUCHE DES ZONES : tant qu'on y est, le tableau ne fait rien d'autre.
+    // Le geste appartient tout entier au document qu'on règle.
+    if (zonesEdition && commencerGesteDeZone(rawPos)) return;
+
     // --- INTERCEPTION INSTRUMENTS ---
     let targetWidget = null;
     let wType = '';
@@ -7261,32 +7287,8 @@ canvas.addEventListener('pointerdown', (e) => {
             // UNE ZONE À REMPLIR sous le clic : le bloc s'y pose, à sa taille.
             // C'est tout l'intérêt — on ne vise plus au pixel, et le texte ne
             // dépasse pas de la ligne qu'on remplit.
-            const zone = (typeof zoneVisee === 'function') ? zoneVisee(rawPos) : null;
-            if (zone) {
-                activeStyle.fontSize = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
-                activeStyle.lineHeight = Math.round(activeStyle.fontSize * 1.2);
-            }
-            const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
-            tempTextLogicalPos = zone
-                ? { x: zone.x + Math.max(2, zone.h * 0.12), y: zone.y + zone.h / 2 - interligne / 2 }
-                : { x: actionPos.x, y: actionPos.y - interligne / 2 };
-            // Couleur du bloc = celle en vigueur À L'OUVERTURE. Choisir une
-            // autre couleur ensuite ne doit repeindre que ce qui suit, pas ce
-            // qui est déjà écrit.
-            couleurBlocSaisie = activeStyle.strokeColor;
-
-            wysiwygText.style.display = 'block';
-            wysiwygText.style.fontFamily = 'sans-serif';
-            const lh = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
-            appliquerInterligneSaisie(lh, activeStyle.fontSize);
-            wysiwygText.style.padding = '0';
-
-            updateWysiwygPosition();
-
-            setTimeout(() => {
-                wysiwygText.focus();
-                if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
-            }, 10);
+            const vise = (typeof zoneViseeDetail === 'function') ? zoneViseeDetail(rawPos) : null;
+            ouvrirLaSaisie(vise, actionPos);
         } else {
             // CORRECTION : Si on clique sur un texte existant en mode "T", on l'attrape direct !
             setMode('pointer');
@@ -7297,6 +7299,67 @@ canvas.addEventListener('pointerdown', (e) => {
 
     updateCursor(); draw();
 });
+
+// OUVRIR LE BLOC DE SAISIE, dans une zone à remplir ou à l'endroit désigné.
+// Deux chemins y mènent — le clic, et la tabulation qui va d'un trou au
+// suivant — et ils doivent poser le texte exactement pareil.
+function ouvrirLaSaisie(vise, pos) {
+    const zone = vise ? vise.b : null;
+    if (zone) {
+        activeStyle.fontSize = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
+        activeStyle.lineHeight = Math.round(activeStyle.fontSize * 1.2);
+    }
+    const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
+    tempTextLogicalPos = zone
+        ? { x: zone.x + Math.max(2, zone.h * 0.12), y: zone.y + zone.h / 2 - interligne / 2 }
+        : { x: pos.x, y: pos.y - interligne / 2 };
+    // D'où l'on vient : c'est ce qui permet d'aller au trou suivant sans
+    // relever la main du clavier.
+    if (vise) { tempTextLogicalPos.zoneDoc = vise.obj.id; tempTextLogicalPos.zoneRang = vise.i; }
+    // Couleur du bloc = celle en vigueur À L'OUVERTURE. Choisir une
+    // autre couleur ensuite ne doit repeindre que ce qui suit, pas ce
+    // qui est déjà écrit.
+    couleurBlocSaisie = activeStyle.strokeColor;
+
+    wysiwygText.style.display = 'block';
+    wysiwygText.style.fontFamily = 'sans-serif';
+    const lh = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
+    appliquerInterligneSaisie(lh, activeStyle.fontSize);
+    wysiwygText.style.padding = '0';
+
+    updateWysiwygPosition();
+
+    setTimeout(() => {
+        wysiwygText.focus();
+        if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+    }, 10);
+}
+window.ouvrirLaSaisie = ouvrirLaSaisie;
+
+// D'UN TROU AU SUIVANT. On valide ce qui est écrit, puis on ouvre la zone qui
+// vient dans l'ordre de lecture — c'est tout ce à quoi sert cet ordre-là.
+function allerALaZoneVoisine(sens) {
+    const depart = tempTextLogicalPos;
+    if (!depart || depart.zoneDoc === undefined) return false;
+    const idDoc = depart.zoneDoc, rang = depart.zoneRang;
+    finalizeText();
+    const obj = getObjectById('image', idDoc);
+    const zones = obj && obj.pluginData && obj.pluginData.zones;
+    if (!zones || !zones.length) return false;
+    const suivant = rang + sens;
+    if (suivant < 0 || suivant >= zones.length) {
+        if (typeof showToast === 'function') {
+            showToast(sens > 0 ? 'Dernière zone de la page' : 'Première zone de la page');
+        }
+        return false;
+    }
+    const b = zoneSurLeTableau(obj, zones[suivant]);
+    if (!b) return false;
+    ouvrirLaSaisie({ obj, i: suivant, b }, { x: b.x, y: b.y });
+    draw();
+    return true;
+}
+window.allerALaZoneVoisine = allerALaZoneVoisine;
 
 canvas.addEventListener('dblclick', (e) => {
     const rawPos = getRawLogicalPos(e); const clickedObj = findObjectAt(rawPos.x, rawPos.y);
@@ -7383,6 +7446,8 @@ canvas.addEventListener('pointermove', (e) => {
 
     if (isLoupeActive) requestAnimationFrame(draw);
     if (PluginManager.trigger('onPointerMove', rawPos, e)) return;
+
+    if (zoneGeste) { poursuivreGesteDeZone(rawPos); return; }
 
     if (glissePage) { poursuivreGlissePage(rawPos); return; }
 
@@ -7882,6 +7947,8 @@ function handlePointerUp(e) {
     // segment/cercle/rectangle se posait tout seul à l'endroit du survol.
     if (e.type === 'pointerout' && !e.buttons) return;
 
+    if (zoneGeste) { finirGesteDeZone(); activePointers.delete(e.pointerId); return; }
+
     // Tampon tactile : la pose est validée au relâchement du doigt/stylet
     if (touchStampPointerId !== null && e.pointerId === touchStampPointerId) {
         if (e.type === 'pointerout') return; // capture active, le doigt est toujours posé
@@ -8357,10 +8424,11 @@ function draw() {
                     // LES ZONES À REMPLIR, quand on tient l'outil Texte. Elles ne
                     // paraissent qu'à ce moment-là : ailleurs, elles ne feraient
                     // que salir la page.
-                    if (zonesActives && mode === 'text' && obj.pluginData
+                    if (zonesActives && (mode === 'text' || zonesEdition) && obj.pluginData
                         && obj.pluginData.id === 'pdfDoc' && obj.cw && obj.ch && !obj.rotation) {
                         const zs = demanderLesZones(obj) || [];
-                        if (zs.length) {
+                        const enCours = zoneGeste && zoneGeste.obj === obj && zoneGeste.genre === 'trace' && zoneGeste.rect;
+                        if (zs.length || enCours) {
                             const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
                             const im = imageCache[obj.src] || {};
                             const NW = im.naturalWidth || obj.cw, NH = im.naturalHeight || obj.ch;
@@ -8368,16 +8436,55 @@ function draw() {
                             ctx.beginPath();
                             ctx.rect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
                             ctx.clip();
-                            ctx.fillStyle = 'rgba(99, 102, 241, 0.10)';
-                            ctx.strokeStyle = 'rgba(99, 102, 241, 0.55)';
                             ctx.lineWidth = Math.max(0.5, lw);
-                            zs.forEach(z => {
+                            zs.forEach((z, i) => {
                                 const zx = -obj.w / 2 + (z.x * NW - obj.cx) * kx;
                                 const zy = -obj.h / 2 + (z.y * NH - obj.cy) * ky;
                                 const zl = Math.max(2, z.l * NW * kx), zh = Math.max(2, z.h * NH * ky);
+                                const tenue = zonesEdition && obj === docDesZones && i === zoneChoisie;
+                                ctx.fillStyle = tenue ? 'rgba(249, 115, 22, 0.16)' : 'rgba(99, 102, 241, 0.10)';
+                                ctx.strokeStyle = tenue ? 'rgba(234, 88, 12, 0.95)' : 'rgba(99, 102, 241, 0.55)';
                                 ctx.fillRect(zx, zy, zl, zh);
                                 ctx.strokeRect(zx, zy, zl, zh);
+                                if (!zonesEdition) return;
+                                // LE RANG, en clair : c'est lui qu'on suivra à la
+                                // tabulation, et c'est lui qu'on vient corriger
+                                // quand les colonnes n'ont pas été comprises.
+                                const rayon = 8 * lw;
+                                const fait = zoneNumerotation && i < zoneNumeroSuivant;
+                                ctx.beginPath();
+                                ctx.arc(zx + rayon, zy + rayon, rayon, 0, Math.PI * 2);
+                                ctx.fillStyle = fait ? '#16a34a' : (tenue ? '#ea580c' : '#4f46e5');
+                                ctx.fill();
+                                ctx.fillStyle = '#fff';
+                                ctx.font = `${Math.round(10 * lw)}px sans-serif`;
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(String(i + 1), zx + rayon, zy + rayon);
+                                ctx.textAlign = 'start';
+                                ctx.textBaseline = 'alphabetic';
+                                if (!tenue) return;
+                                // Les poignées : quatre coins, de quoi rattraper
+                                // une zone qui tombe un peu à côté.
+                                ctx.fillStyle = '#fff';
+                                ctx.strokeStyle = '#ea580c';
+                                ctx.lineWidth = Math.max(0.5, 1.5 * lw);
+                                [[zx, zy], [zx + zl, zy], [zx, zy + zh], [zx + zl, zy + zh]].forEach(([px, py]) => {
+                                    ctx.beginPath();
+                                    ctx.rect(px - 4 * lw, py - 4 * lw, 8 * lw, 8 * lw);
+                                    ctx.fill(); ctx.stroke();
+                                });
+                                ctx.lineWidth = Math.max(0.5, lw);
                             });
+                            if (enCours) {
+                                const r = zoneGeste.rect;
+                                ctx.fillStyle = 'rgba(249, 115, 22, 0.16)';
+                                ctx.strokeStyle = 'rgba(234, 88, 12, 0.95)';
+                                ctx.setLineDash([4 * lw, 3 * lw]);
+                                ctx.fillRect(r.x - obj.x - obj.w / 2, r.y - obj.y - obj.h / 2, r.l, r.h);
+                                ctx.strokeRect(r.x - obj.x - obj.w / 2, r.y - obj.y - obj.h / 2, r.l, r.h);
+                                ctx.setLineDash([]);
+                            }
                             ctx.restore();
                         }
                     }
@@ -9729,6 +9836,8 @@ async function allerALaPage(imgObj, numero) {
     imgObj.pluginData.page = voulu;
     // Le surlignage d'une recherche appartient à la page qu'on quitte
     delete imgObj.pluginData.surlignes;
+    // La zone tenue aussi : son rang ne veut plus rien dire sur la page d'après.
+    zoneChoisie = -1; zoneNumerotation = false; zoneNumeroSuivant = 0;
     if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
         showToast('Cette page a un autre format : elle est montrée en entier');
     }
@@ -9749,6 +9858,46 @@ function chargerImage(src) {
         i.src = src;
     });
 }
+
+// ===================================================
+// LA TAILLE D'ÉCRITURE D'UN DOCUMENT
+// On ne remplit pas un polycopié de sixième avec la même écriture qu'on
+// annote un plan : la bonne taille est celle du document lui-même. On prend
+// donc la plus RÉPANDUE de ses polices — pondérée par le nombre de signes,
+// sans quoi un gros titre de six mots l'emporterait sur tout le corps du
+// texte — et on la garde en proportion de la hauteur de page, pour qu'elle
+// survive au zoom comme au recadrage.
+// ===================================================
+async function partTexteDuDocument(d, numero) {
+    const page = await d.doc.getPage(numero);
+    const vue = page.getViewport({ scale: 1 });
+    const contenu = await page.getTextContent();
+    const compte = new Map();
+    contenu.items.forEach(i => {
+        const texte = (i.str || '').trim();
+        if (!texte) return;
+        const h = Math.round(Math.hypot(i.transform[2], i.transform[3]) * 2) / 2;
+        if (h > 1) compte.set(h, (compte.get(h) || 0) + texte.length);
+    });
+    let taille = 0, mieux = 0;
+    compte.forEach((n, h) => { if (n > mieux) { mieux = n; taille = h; } });
+    return (taille && vue.height) ? taille / vue.height : 0;
+}
+
+function appliquerLaTailleDuDocument(obj) {
+    if (!obj || !obj.pluginData) return false;
+    const d = documentsPdf.get(obj.pluginData.cle);
+    if (!d || !d.partTexte || !obj.ch || !obj.h) return false;
+    const img = imageCache[obj.src];
+    const NH = (img && img.naturalHeight) || obj.ch;
+    // De la proportion de page aux unités du tableau : la page entière y
+    // mesure NH × (obj.h / obj.ch).
+    const taille = Math.round(d.partTexte * NH * (obj.h / obj.ch));
+    if (!(taille > 4)) return false;
+    if (typeof reglerTailleTexte === 'function') reglerTailleTexte(Math.min(96, taille), 'document');
+    return true;
+}
+window.appliquerLaTailleDuDocument = appliquerLaTailleDuDocument;
 
 async function poserPdfFeuilletable(file) {
     if (!window.pdfjsLib) { showToast('Le lecteur de PDF n\'est pas disponible'); return; }
@@ -9777,9 +9926,18 @@ async function poserPdfFeuilletable(file) {
             src: rendu.src, fileName: file.name, z: globalZ++,
             pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name }
         }));
-        selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
+        const pose = images[images.length - 1];
+        selectedItems = [{ type: 'image', id: pose.id }];
         saveState(); draw();
         if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        // L'écriture se met d'emblée à la taille du document : c'est presque
+        // toujours celle qu'on veut, et personne ne pense à la régler avant
+        // d'avoir écrit trop gros dans la première ligne.
+        partTexteDuDocument(dossier, 1).then(part => {
+            if (!part) return;
+            dossier.partTexte = part;
+            appliquerLaTailleDuDocument(pose);
+        }).catch(() => { /* pas de texte : on garde la taille en cours */ });
         showToast(`📄 « ${file.name} » posé — ${doc.numPages} page(s), utilisez ◀ ▶ pour feuilleter`);
     } catch (e) {
         console.error(e);
@@ -10411,6 +10569,92 @@ function zonesDeLaPage(d, numero) {
 }
 window.zonesDeLaPage = zonesDeLaPage;
 
+// ===================================================
+// L'ORDRE DE LECTURE DES ZONES
+// Trouver les trous ne suffit pas : il faut savoir lequel vient après lequel,
+// puisque c'est cet ordre-là qui fait passer de l'un à l'autre à la tabulation.
+// De haut en bas et de gauche à droite, oui — mais un polycopié est fait de
+// COLONNES, et lu bêtement ligne par ligne il les entremêle : on écrirait un
+// mot à gauche, le suivant au milieu, le troisième à droite, et l'on
+// reviendrait à gauche.
+//
+// On cherche donc d'abord les colonnes. Deux zones qui se chevauchent en
+// largeur sont de la même colonne, et de proche en proche on obtient des
+// paquets séparés par les gouttières de la page. Encore faut-il que ce soient
+// de vraies colonnes et non deux cases posées côte à côte sur une même ligne :
+// on ne s'y fie que si chaque paquet court sur une bonne part de la hauteur
+// écrite. Sinon, on lit tout à plat.
+// ===================================================
+function colonnesDesZones(zones) {
+    const paquets = [];
+    zones.map((z, i) => ({ i, x1: z.x, x2: z.x + z.l }))
+        .sort((a, b) => a.x1 - b.x1)
+        .forEach(z => {
+            const dernier = paquets[paquets.length - 1];
+            if (dernier && z.x1 < dernier.x2) {
+                dernier.x2 = Math.max(dernier.x2, z.x2);
+                dernier.membres.push(z.i);
+            } else paquets.push({ x1: z.x1, x2: z.x2, membres: [z.i] });
+        });
+    return paquets;
+}
+
+// Deux zones sont à la même hauteur si elles se recouvrent pour plus de la
+// moitié de la plus courte des deux.
+function memeRangee(a, b) {
+    const commun = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+    return commun > Math.min(a.h, b.h) * 0.5;
+}
+
+// TROIS PAQUETS NE FONT PAS TROIS COLONNES DE PAGE : ce peut être un TABLEAU,
+// et un tableau se lit en rangées, pas en colonnes. Ni la largeur des
+// gouttières ni la hauteur des paquets ne les séparent — sur le polycopié qui
+// a servi d'étalon, les gouttières de la page sont même PLUS ÉTROITES que
+// celles du tableau qu'elle contient.
+// Ce qui les sépare, c'est l'alignement : dans un tableau, chaque case a sa
+// jumelle à la même hauteur dans la colonne d'à côté ; dans une page en
+// colonnes, les hauteurs n'ont aucun rapport d'une colonne à l'autre.
+function paquetsAlignes(paquets, zones) {
+    let apparies = 0, total = 0;
+    for (let k = 0; k + 1 < paquets.length; k++) {
+        const gauche = paquets[k].membres.map(i => zones[i]);
+        const droite = paquets[k + 1].membres.map(i => zones[i]);
+        gauche.forEach(a => { total++; if (droite.some(b => memeRangee(a, b))) apparies++; });
+    }
+    return total > 0 && apparies / total > 0.6;
+}
+
+function rangerLesZones(zones) {
+    if (!zones || zones.length < 2) return (zones || []).slice();
+    let paquets = colonnesDesZones(zones);
+    // Des paquets séparés, et qui ne s'alignent pas : ce sont des colonnes.
+    // J'avais d'abord exigé en plus que chacune coure sur une bonne part de la
+    // hauteur — et la colonne du milieu du polycopié d'essai, faite de texte
+    // suivi avec trois lignes à remplir tout en bas, tombait à chaque fois.
+    const enColonnes = paquets.length > 1 && !paquetsAlignes(paquets, zones);
+    if (!enColonnes) paquets = [{ x1: 0, x2: 1, membres: zones.map((z, i) => i) }];
+    else paquets.sort((a, b) => a.x1 - b.x1);
+
+    const ordre = [];
+    paquets.forEach(p => {
+        const zs = p.membres.map(i => zones[i]).sort((a, b) => a.y - b.y || a.x - b.x);
+        // Deux zones sont de la même LIGNE si elles se chevauchent en hauteur.
+        // Comparer les y au pixel près rendrait l'ordre capricieux : sur une
+        // même ligne de tableau, les traits ne sont jamais exactement alignés.
+        const lignes = [];
+        zs.forEach(z => {
+            const l = lignes[lignes.length - 1];
+            if (l && memeRangee(z, { y: l.y, h: l.bas - l.y })) {
+                l.membres.push(z);
+                l.bas = Math.max(l.bas, z.y + z.h);
+            } else lignes.push({ y: z.y, bas: z.y + z.h, membres: [z] });
+        });
+        lignes.forEach(l => l.membres.sort((a, b) => a.x - b.x).forEach(z => ordre.push(z)));
+    });
+    return ordre;
+}
+window.rangerLesZones = rangerLesZones;
+
 // L'option : la détection ne s'allume pas d'elle-même. Tout le monde ne pose
 // pas des polycopiés à remplir, et un cadre qui s'éclaire sans qu'on l'ait
 // demandé est une surprise de plus.
@@ -10434,11 +10678,19 @@ function demanderLesZones(obj) {
     const d = documentsPdf.get(obj.pluginData.cle);
     if (!d) return null;
     const page = obj.pluginData.page;
+    // LES RETOUCHES D'ABORD. Ce qu'on a dessiné, déplacé ou effacé à la main
+    // vaut mieux que ce que la machine croit voir : on ne le recalcule jamais.
+    const retouches = obj.pluginData.zonesEditees && obj.pluginData.zonesEditees[page];
+    if (retouches) {
+        obj.pluginData.zones = retouches;
+        obj.pluginData.zonesPage = page;
+        return retouches;
+    }
     if (obj.pluginData.zones && obj.pluginData.zonesPage === page) return obj.pluginData.zones;
     if (obj.pluginData.zonesDemandees === page) return null;   // on attend déjà
     obj.pluginData.zonesDemandees = page;
     zonesDeLaPage(d, page).then(z => {
-        obj.pluginData.zones = z;
+        obj.pluginData.zones = rangerLesZones(z);
         obj.pluginData.zonesPage = page;
         obj.pluginData.zonesDemandees = null;
         draw();
@@ -10463,24 +10715,251 @@ function zoneSurLeTableau(obj, z) {
     };
 }
 
+// Le chemin inverse : un rectangle tracé sur le tableau, ramené en proportions
+// de la page. C'est ce qui permet de DESSINER une zone que la détection a
+// manquée — elle se gardera comme les autres, et suivra le document.
+function zoneDepuisLeTableau(obj, r) {
+    const img = imageCache[obj.src];
+    if (!img || !obj.cw || !obj.ch || obj.rotation) return null;
+    const NW = img.naturalWidth || obj.cw, NH = img.naturalHeight || obj.ch;
+    const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
+    if (!kx || !ky || !NW || !NH) return null;
+    const borne = (v) => Math.max(0, Math.min(1, v));
+    const x = borne(((r.x - obj.x) / kx + obj.cx) / NW);
+    const y = borne(((r.y - obj.y) / ky + obj.cy) / NH);
+    return { genre: 'ligne', x, y,
+             l: Math.min(1 - x, r.l / kx / NW), h: Math.min(1 - y, r.h / ky / NH) };
+}
+
 // La zone sous le curseur, s'il y en a une : c'est elle qui recevra le texte.
-function zoneVisee(pos) {
+// On rend aussi le document et le RANG, car passer au trou suivant demande de
+// savoir où l'on en est.
+function zoneViseeDetail(pos) {
     if (!zonesActives) return null;
     let trouvee = null;
     images.forEach(obj => {
         const zones = obj.pluginData && obj.pluginData.zones;
         if (!zones || !zones.length) return;
-        zones.forEach(z => {
+        zones.forEach((z, i) => {
             const b = zoneSurLeTableau(obj, z);
             if (!b) return;
             if (pos.x >= b.x && pos.x <= b.x + b.l && pos.y >= b.y && pos.y <= b.y + b.h) {
-                trouvee = b;
+                trouvee = { obj, i, b };
             }
         });
     });
     return trouvee;
 }
+window.zoneViseeDetail = zoneViseeDetail;
+
+function zoneVisee(pos) {
+    const d = zoneViseeDetail(pos);
+    return d ? d.b : null;
+}
 window.zoneVisee = zoneVisee;
+
+
+// ===================================================
+// RETOUCHER LES ZONES À LA MAIN
+// La détection ne sera jamais parfaite : un polycopié un peu particulier lui
+// échappera toujours par un bout. Plutôt que de courir après chaque cas, on
+// donne la main — on dessine la zone qui manque, on rattrape celle qui tombe à
+// côté, on efface celle qui est de trop, on remet l'ordre si les colonnes
+// n'ont pas été comprises. Les retouches se gardent avec le document, page par
+// page, et ne sont plus jamais recalculées.
+//
+// Le mode s'ouvre en APPUYANT LONGUEMENT sur le bouton des zones : le clic
+// bref garde son office, allumer et éteindre le repérage.
+// ===================================================
+let zonesEdition = false;
+let zoneChoisie = -1;          // le rang de la zone tenue, -1 si aucune
+let docDesZones = null;        // le document qu'on retouche
+let zoneGeste = null;          // le geste en cours : tracé, déplacement, poignée
+let zoneNumerotation = false;  // on reclasse en cliquant les zones dans l'ordre
+let zoneNumeroSuivant = 0;
+const ZONE_POIGNEE = 7;        // rayon de prise d'une poignée, en pixels d'écran
+
+// Le tableau qu'on retouche : une copie propre à la page, tenue par le
+// document. Tant qu'on n'a rien touché, il n'existe pas — on ne veut pas
+// alourdir chaque sauvegarde de zones que la détection saura refaire.
+function zonesRetouchables(obj) {
+    if (!obj || !obj.pluginData) return null;
+    const page = obj.pluginData.page || 1;
+    if (!obj.pluginData.zonesEditees) obj.pluginData.zonesEditees = {};
+    if (!obj.pluginData.zonesEditees[page]) {
+        obj.pluginData.zonesEditees[page] = (obj.pluginData.zones || []).map(z => ({ ...z }));
+    }
+    obj.pluginData.zones = obj.pluginData.zonesEditees[page];
+    obj.pluginData.zonesPage = page;
+    return obj.pluginData.zones;
+}
+
+function documentSousLePoint(pos) {
+    let trouve = null;
+    images.forEach(obj => {
+        if (!obj.pluginData || obj.pluginData.id !== 'pdfDoc' || obj.rotation || obj.angle) return;
+        if (pos.x >= obj.x && pos.x <= obj.x + obj.w && pos.y >= obj.y && pos.y <= obj.y + obj.h) trouve = obj;
+    });
+    return trouve;
+}
+
+function poigneesDeLaZone(b) {
+    return [
+        { nom: 'ho', x: b.x, y: b.y }, { nom: 'hd', x: b.x + b.l, y: b.y },
+        { nom: 'bo', x: b.x, y: b.y + b.h }, { nom: 'bd', x: b.x + b.l, y: b.y + b.h }
+    ];
+}
+
+function zoneSousLePoint(obj, zones, pos) {
+    let trouve = -1;
+    zones.forEach((z, i) => {
+        const b = zoneSurLeTableau(obj, z);
+        if (!b) return;
+        if (pos.x >= b.x && pos.x <= b.x + b.l && pos.y >= b.y && pos.y <= b.y + b.h) trouve = i;
+    });
+    return trouve;
+}
+
+function poserLaZone(obj, i, b) {
+    const zones = zonesRetouchables(obj);
+    if (!zones || i < 0 || i >= zones.length) return;
+    const z = zoneDepuisLeTableau(obj, b);
+    if (!z) return;
+    zones[i].x = z.x; zones[i].y = z.y; zones[i].l = z.l; zones[i].h = z.h;
+}
+
+function commencerGesteDeZone(pos) {
+    const obj = documentSousLePoint(pos);
+    if (!obj) { zoneChoisie = -1; docDesZones = null; draw(); return false; }
+    docDesZones = obj;
+    const zones = zonesRetouchables(obj) || [];
+    const r = ZONE_POIGNEE / zoom;
+
+    // RECLASSER : on clique les zones dans l'ordre où on veut les remplir, et
+    // chacune vient prendre le rang suivant.
+    if (zoneNumerotation) {
+        const i = zoneSousLePoint(obj, zones, pos);
+        if (i >= 0 && i >= zoneNumeroSuivant) {
+            const [z] = zones.splice(i, 1);
+            zones.splice(zoneNumeroSuivant, 0, z);
+            zoneNumeroSuivant++;
+            if (zoneNumeroSuivant >= zones.length) {
+                zoneNumerotation = false;
+                if (typeof showToast === 'function') showToast('Ordre des zones enregistré');
+            }
+            saveState(); draw();
+        }
+        return true;
+    }
+
+    // Une poignée de la zone tenue : on la redimensionne.
+    if (zoneChoisie >= 0 && zoneChoisie < zones.length) {
+        const b = zoneSurLeTableau(obj, zones[zoneChoisie]);
+        if (b) {
+            const p = poigneesDeLaZone(b).find(q => Math.abs(pos.x - q.x) <= r && Math.abs(pos.y - q.y) <= r);
+            if (p) { zoneGeste = { genre: 'poignee', coin: p.nom, obj, i: zoneChoisie, depart: { ...b } }; return true; }
+        }
+    }
+
+    const i = zoneSousLePoint(obj, zones, pos);
+    if (i >= 0) {
+        zoneChoisie = i;
+        const b = zoneSurLeTableau(obj, zones[i]);
+        zoneGeste = { genre: 'deplace', obj, i, depart: { ...b }, ecart: { x: pos.x - b.x, y: pos.y - b.y } };
+        draw();
+        return true;
+    }
+
+    // Rien sous le doigt : on trace une zone neuve.
+    zoneChoisie = -1;
+    zoneGeste = { genre: 'trace', obj, debut: { x: pos.x, y: pos.y }, rect: null };
+    draw();
+    return true;
+}
+
+function poursuivreGesteDeZone(pos) {
+    const g = zoneGeste;
+    if (!g) return;
+    if (g.genre === 'trace') {
+        g.rect = { x: Math.min(g.debut.x, pos.x), y: Math.min(g.debut.y, pos.y),
+                   l: Math.abs(pos.x - g.debut.x), h: Math.abs(pos.y - g.debut.y) };
+    } else if (g.genre === 'deplace') {
+        poserLaZone(g.obj, g.i, { x: pos.x - g.ecart.x, y: pos.y - g.ecart.y, l: g.depart.l, h: g.depart.h });
+    } else if (g.genre === 'poignee') {
+        const d = g.depart;
+        let x1 = d.x, y1 = d.y, x2 = d.x + d.l, y2 = d.y + d.h;
+        if (g.coin[0] === 'h') y1 = pos.y; else y2 = pos.y;
+        if (g.coin[1] === 'o') x1 = pos.x; else x2 = pos.x;
+        poserLaZone(g.obj, g.i, { x: Math.min(x1, x2), y: Math.min(y1, y2),
+                                  l: Math.abs(x2 - x1), h: Math.abs(y2 - y1) });
+    }
+    draw();
+}
+
+function finirGesteDeZone() {
+    const g = zoneGeste;
+    zoneGeste = null;
+    if (!g) return;
+    if (g.genre === 'trace') {
+        const r = g.rect;
+        // Un simple clic n'est pas un rectangle : sans ce garde-fou, chaque
+        // clic à côté poserait une zone grande comme rien.
+        if (!r || r.l * zoom < 12 || r.h * zoom < 8) { draw(); return; }
+        const zones = zonesRetouchables(g.obj);
+        const z = zoneDepuisLeTableau(g.obj, r);
+        if (z) { zones.push(z); zoneChoisie = zones.length - 1; }
+    }
+    saveState(); draw();
+}
+
+function supprimerLaZoneChoisie() {
+    if (!zonesEdition || !docDesZones || zoneChoisie < 0) return false;
+    const zones = zonesRetouchables(docDesZones);
+    if (!zones || zoneChoisie >= zones.length) return false;
+    zones.splice(zoneChoisie, 1);
+    zoneChoisie = -1;
+    saveState(); draw();
+    return true;
+}
+
+function trierLesZones() {
+    const obj = docDesZones || (typeof documentDeLaBarre === 'function' ? documentDeLaBarre() : null);
+    if (!obj || !obj.pluginData || obj.pluginData.id !== 'pdfDoc') return 0;
+    const zones = zonesRetouchables(obj);
+    if (!zones) return 0;
+    const range = rangerLesZones(zones);
+    zones.length = 0;
+    range.forEach(z => zones.push(z));
+    zoneChoisie = -1;
+    saveState(); draw();
+    return zones.length;
+}
+window.trierLesZones = trierLesZones;
+
+function basculerEditionDesZones(force) {
+    const veut = (force === undefined) ? !zonesEdition : !!force;
+    // Retoucher des zones qu'on ne voit pas n'aurait pas de sens.
+    if (veut && !zonesActives) basculerLesZones();
+    zonesEdition = veut;
+    zoneChoisie = -1; zoneGeste = null; zoneNumerotation = false; zoneNumeroSuivant = 0;
+    if (!veut) docDesZones = null;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    draw();
+    return zonesEdition;
+}
+window.basculerEditionDesZones = basculerEditionDesZones;
+
+function basculerNumerotationDesZones() {
+    zoneNumerotation = !zoneNumerotation;
+    zoneNumeroSuivant = 0;
+    zoneChoisie = -1;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    if (zoneNumerotation && typeof showToast === 'function') {
+        showToast('Cliquez les zones dans l\'ordre où vous voulez les remplir');
+    }
+    draw();
+    return zoneNumerotation;
+}
 
 
 function brancherLeVolet() {
@@ -10810,10 +11289,17 @@ function majBarreDocument() {
     // Les zones à remplir ne se cherchent que dans un PDF : un scan n'est
     // qu'une image, et une photo collée encore moins.
     const bZones = document.getElementById('doc-zones');
+    const unPdf = !!(obj.pluginData && obj.pluginData.id === 'pdfDoc');
     if (bZones) {
-        const unPdf = !!(obj.pluginData && obj.pluginData.id === 'pdfDoc');
         bZones.style.display = unPdf ? 'inline-flex' : 'none';
         bZones.classList.toggle('actif', zonesActives);
+        bZones.classList.toggle('en-retouche', zonesEdition);
+    }
+    const groupeZones = document.getElementById('doc-zones-edition');
+    if (groupeZones) {
+        groupeZones.style.display = (unPdf && zonesEdition) ? 'contents' : 'none';
+        const bNum = document.getElementById('doc-zones-numeroter');
+        if (bNum) bNum.classList.toggle('actif', zoneNumerotation);
     }
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
@@ -10876,16 +11362,52 @@ function brancherBarreDocument() {
     });
 
 
-    b('doc-zones').addEventListener('click', () => {
-        const actif = basculerLesZones();
-        majBarreDocument();
-        if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    // Clic bref : allumer ou éteindre le repérage. APPUI LONG : ouvrir la
+    // retouche, pour dessiner ce qui manque et effacer ce qui est de trop.
+    // Le même geste au doigt qu'à la souris — et sur tablette, les trois
+    // boutons qui paraissent alors font le reste.
+    (function () {
+        const bouton = b('doc-zones');
+        let minuteur = null, longAppui = false;
+        const annuler = () => { clearTimeout(minuteur); minuteur = null; };
+        bouton.addEventListener('pointerdown', () => {
+            longAppui = false;
+            annuler();
+            minuteur = setTimeout(() => {
+                longAppui = true;
+                const ouvert = basculerEditionDesZones(true);
+                if (ouvert && typeof showToast === 'function') {
+                    showToast('Retouche des zones : tracez pour en ajouter, glissez pour déplacer, Suppr pour effacer');
+                }
+            }, 500);
+        });
+        bouton.addEventListener('pointermove', annuler);
+        bouton.addEventListener('pointercancel', annuler);
+        bouton.addEventListener('pointerup', annuler);
+        bouton.addEventListener('click', () => {
+            if (longAppui) { longAppui = false; return; }   // l'appui long a déjà agi
+            if (zonesEdition) { basculerEditionDesZones(false); return; }
+            const actif = basculerLesZones();
+            majBarreDocument();
+            if (typeof majReglagesBarre === 'function') majReglagesBarre();
+            if (typeof showToast === 'function') {
+                showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte (appui long : les retoucher)'
+                                : 'Zones à remplir : repérage éteint');
+            }
+            draw();
+        });
+    })();
+
+    b('doc-zones-trier').addEventListener('click', () => {
+        const n = trierLesZones();
         if (typeof showToast === 'function') {
-            showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte'
-                            : 'Zones à remplir : repérage éteint');
+            showToast(n ? `${n} zone(s) remises dans l'ordre de lecture` : 'Aucune zone à ranger');
         }
-        draw();
     });
+    b('doc-zones-numeroter').addEventListener('click', () => {
+        basculerNumerotationDesZones();
+    });
+    b('doc-zones-fin').addEventListener('click', () => basculerEditionDesZones(false));
 
     b('doc-grille').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;

@@ -255,17 +255,21 @@ function polyEnCases() {
 //     Ces traits-là passaient pour des lignes à remplir.
 //
 // Et une ligne à remplir peut être courte : « un nombre de ___ chiffres ».
-function polyEnCouleur() {
+function polyEnCouleur(taille) {
+    const T = taille || 11;
     const f = [];
+    // UN TITRE, en gros et en peu de signes : la taille d'écriture doit se
+    // régler sur le CORPS du texte, pas sur ce qui est le plus grand.
+    f.push('BT 0 0 0 rg /F1 26 Tf 40 560 Td (FICHE) Tj ET');
     // — colonne de gauche : les lignes à remplir, en saumon
     f.push('0.953 0.675 0.525 RG 0.9 w');
     ['3456 =', '12345 =', '100000 =', '1000 ='].forEach((t, i) => {
         const y = 520 - i * 40;
-        f.push(`BT 0 0 0 rg /F1 11 Tf 40 ${y} Td (${t}) Tj ET`);
+        f.push(`BT 0 0 0 rg /F1 ${T} Tf 40 ${y} Td (${t}) Tj ET`);
         f.push(`90 ${y - 3} m 280 ${y - 3} l S`);
     });
     // une ligne COURTE : dix-huit points, une fois et demie la hauteur du texte
-    f.push('BT 0 0 0 rg /F1 11 Tf 40 340 Td (un nombre de) Tj ET');
+    f.push(`BT 0 0 0 rg /F1 ${T} Tf 40 340 Td (un nombre de) Tj ET`);
     f.push('110 337 m 128 337 l S');
 
     // — colonne du milieu : des cases teintées, et un filet gris décoratif.
@@ -273,7 +277,7 @@ function polyEnCouleur() {
     ['367,8', '987,123', '5 903'].forEach((t, i) => {
         const y = 480 - i * 40;
         f.push(`0.82 0.769 0.914 rg 340 ${y} 240 26 re f`);
-        f.push(`BT 0 0 0 rg /F1 11 Tf 350 ${y + 8} Td (${t}) Tj ET`);
+        f.push(`BT 0 0 0 rg /F1 ${T} Tf 350 ${y + 8} Td (${t}) Tj ET`);
     });
     f.push('0.82 0.82 0.82 RG 340 360 m 580 360 l S');
 
@@ -281,7 +285,7 @@ function polyEnCouleur() {
     f.push('0 0 0 rg 0 0 0 RG');
     ['La tour Eiffel est une', 'tour de fer de trois cent', 'vingt-quatre metres de',
      'hauteur construite pour', 'l Exposition universelle'].forEach((t, i) => {
-        f.push(`BT /F1 11 Tf 620 ${520 - i * 24} Td (${t}) Tj ET`);
+        f.push(`BT /F1 ${T} Tf 620 ${520 - i * 24} Td (${t}) Tj ET`);
     });
     f.push('620 487 m 760 487 l S');
     f.push('620 439 m 780 439 l S');

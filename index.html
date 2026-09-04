@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=74">
+    <link rel="stylesheet" href="style.css?v=75">
 </head>
 
 <body>
@@ -642,7 +642,22 @@
                             gauche, à sa taille</b> — plus besoin de viser au pixel ni de régler la police.
                             Si le PDF porte de <b>vrais champs de formulaire</b>, ce sont eux qui servent : il n'y
                             a rien à deviner. Et comme la méthode travaille sur l'image de la page, elle vaut
-                            aussi bien pour un document <b>scanné</b> que pour un PDF vectoriel.</li>
+                            aussi bien pour un document <b>scanné</b> que pour un PDF vectoriel.
+                            L'écriture se met d'emblée à la <b>taille du document</b> — celle de sa police la
+                            plus répandue.</li>
+                        <li><strong>D'un trou au suivant :</strong> une fois dans une zone, la touche
+                            <b>Tabulation</b> valide et ouvre la suivante (<b>Maj+Tab</b> revient en arrière).
+                            L'ordre suit la lecture : <b>colonne par colonne</b> sur un poly en trois colonnes,
+                            <b>rangée par rangée</b> dans un tableau — les deux se distinguent à ce que les cases
+                            d'un tableau s'alignent en hauteur, pas les colonnes d'une page.</li>
+                        <li><strong>Retoucher les zones</strong> — aucune détection n'est parfaite. Un
+                            <b>appui long</b> sur le bouton des zones ouvre la retouche : on <b>trace un
+                            rectangle</b> pour ajouter ce qui manque, on <b>glisse</b> une zone pour la replacer,
+                            on tire ses <b>coins</b> pour l'ajuster, <b>Suppr</b> efface celle qu'on tient.
+                            Trois boutons paraissent alors : <b>Trier</b> remet l'ordre de lecture,
+                            <b>Numéroter</b> laisse le fixer soi-même en cliquant les zones dans l'ordre voulu,
+                            et <b>✓</b> referme (comme <b>Échap</b>). Les retouches sont gardées avec le
+                            document, page par page, et la détection ne repasse jamais dessus.</li>
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
@@ -1751,13 +1766,39 @@
              qu'il concerne. Il vivait dans le panneau général, derrière la
              petite roue du tiroir des plugins : personne ne l'y trouvait. -->
         <button class="doc-btn" id="doc-zones"
-            data-tooltip="Repérer les lignes et les cases à remplir (PDF vectoriel) — prenez ensuite l'outil Texte">
+            data-tooltip="Repérer les lignes et les cases à remplir — prenez ensuite l'outil Texte. Appui long : les retoucher à la main">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M7 9h10M7 13h6" />
                 <path d="M14.5 16.5h3" stroke-dasharray="1 2" />
             </svg></button>
+        <!-- Ce que la détection a manqué se répare à la main. Ces trois-là ne
+             paraissent qu'une fois la retouche ouverte : un appui long sur le
+             bouton ci-dessus. -->
+        <span id="doc-zones-edition" style="display:none;">
+            <button class="doc-btn" id="doc-zones-trier"
+                data-tooltip="Remettre les zones dans l'ordre de lecture (colonnes, puis de haut en bas)">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 6h9M4 12h6M4 18h3" />
+                    <path d="M18 4v16M15 17l3 3 3-3" />
+                </svg></button>
+            <button class="doc-btn" id="doc-zones-numeroter"
+                data-tooltip="Numéroter à la main : cliquez les zones dans l'ordre où vous voulez les remplir">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 8V5h1M4 8h2" />
+                    <path d="M9 5h3l-3 4h3" transform="translate(0 8)" />
+                    <path d="M13 6h7M13 12h7M13 18h7" />
+                </svg></button>
+            <button class="doc-btn" id="doc-zones-fin"
+                data-tooltip="Terminer la retouche des zones (Échap)">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12.5l4.5 4.5L19 7" />
+                </svg></button>
+        </span>
         <button class="doc-btn" id="doc-grille" title="Passer sous / au-dessus du quadrillage">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
@@ -2032,7 +2073,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=147"></script>
+    <script src="script.js?v=148"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

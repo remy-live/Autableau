@@ -1106,6 +1106,285 @@ module.exports = async function (browser) {
         saisie.taille > 4 && saisie.taille <= rempli.ligne.h && saisie.taille < 64,
         JSON.stringify({ taille: saisie.taille, hauteur: rempli.ligne.h }));
 
+    // --- L'ORDRE DE LECTURE ---
+    // Trouver les trous ne suffit pas : il faut savoir lequel vient après
+    // lequel, puisque c'est cet ordre-là qui fait passer de l'un à l'autre à la
+    // tabulation. Un polycopié est fait de COLONNES, et lu ligne par ligne il
+    // les entremêle.
+    const ordre = await page.evaluate(() => {
+        const zone = (x, y) => ({ x, y, l: 0.28, h: 0.03 });
+        // Trois colonnes de page : les hauteurs n'ont aucun rapport de l'une à
+        // l'autre — c'est du texte suivi, chacune va son train.
+        const colonnes = rangerLesZones([
+            zone(0.68, 0.20), zone(0.03, 0.10), zone(0.36, 0.80),
+            zone(0.03, 0.55), zone(0.68, 0.62), zone(0.36, 0.88)
+        ]);
+        // Un TABLEAU de trois colonnes : chaque case a sa jumelle à la même
+        // hauteur. Il se lit en RANGÉES, de gauche à droite.
+        const tableau = [];
+        for (let l = 0; l < 3; l++) for (let c = 2; c >= 0; c--) tableau.push(zone(0.03 + c * 0.33, 0.1 + l * 0.3));
+        const range = rangerLesZones(tableau);
+        return {
+            colonnes: colonnes.map(z => `${z.x.toFixed(2)}/${z.y.toFixed(2)}`),
+            tableau: range.map(z => `${z.x.toFixed(2)}/${z.y.toFixed(2)}`)
+        };
+    });
+    r.egal('trois colonnes se lisent colonne par colonne, de haut en bas', ordre.colonnes,
+        ['0.03/0.10', '0.03/0.55', '0.36/0.80', '0.36/0.88', '0.68/0.20', '0.68/0.62']);
+    // Ni la largeur des gouttières ni la hauteur des paquets ne distinguent
+    // une page en colonnes d'un tableau : sur un vrai poly, les gouttières de
+    // la page sont même plus étroites que celles du tableau qu'elle contient.
+    // C'est l'ALIGNEMENT des rangées qui les sépare.
+    r.egal('un tableau se lit en rangées, de gauche à droite', ordre.tableau,
+        ['0.03/0.10', '0.36/0.10', '0.69/0.10',
+         '0.03/0.40', '0.36/0.40', '0.69/0.40',
+         '0.03/0.70', '0.36/0.70', '0.69/0.70']);
+
+    // --- RETOUCHER LES ZONES ---
+    // La détection ne sera jamais parfaite. Un appui long sur le bouton ouvre
+    // la retouche : on dessine ce qui manque, on rattrape ce qui tombe à côté,
+    // on efface ce qui est de trop.
+    await tableauVierge(page);
+    const [choixCouleur] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.evaluate(() => document.getElementById('btn-import-pdf').click())
+    ]);
+    await choixCouleur.setFiles({ name: 'couleur.pdf', mimeType: 'application/pdf', buffer: polyEnCouleur() });
+    await page.waitForFunction(() => images.length === 1 && images[0].pluginData, { timeout: 15000 });
+    await page.waitForTimeout(500);
+
+    // LA TAILLE D'ÉCRITURE se règle sur le document : on ne remplit pas un
+    // polycopié de sixième avec la même écriture qu'on annote un plan.
+    const taille11 = await page.evaluate(() => activeStyle.fontSize);
+
+    await page.evaluate(() => {
+        zonesActives = true;
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        demanderLesZones(images[0]);
+        draw();
+    });
+    await page.waitForFunction(() => (images[0].pluginData.zones || []).length > 0, { timeout: 10000 });
+    const avant = await page.evaluate(() => images[0].pluginData.zones.length);
+
+    // L'APPUI LONG sur le bouton des zones ouvre la retouche ; le clic bref,
+    // lui, garde son office — allumer et éteindre le repérage.
+    const boite = await page.locator('#doc-zones').boundingBox();
+    await page.mouse.move(boite.x + boite.width / 2, boite.y + boite.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(700);
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const enRetouche = await page.evaluate(() => zonesEdition === true);
+    r.verifie('un appui long sur le bouton des zones ouvre la retouche', enRetouche, '');
+    // Tout ce qui suit a besoin du mode. S'il ne s'est pas ouvert, on l'ouvre
+    // à la main : les autres vérifications diront alors ce qu'elles ont à dire
+    // au lieu d'entraîner la suite dans leur chute.
+    if (!enRetouche) await page.evaluate(() => basculerEditionDesZones(true));
+    r.verifie('et les trois boutons de retouche paraissent',
+        await page.evaluate(() => getComputedStyle(document.getElementById('doc-zones-trier')).display !== 'none'), '');
+
+    // TRACER UN RECTANGLE dans un coin vide du document : une zone de plus.
+    const vide = await page.evaluate(() => {
+        const o = images[0];
+        // le bas du document, sous tout ce qui a été trouvé
+        const zs = o.pluginData.zones || [];
+        const bas = zs.length ? Math.max(...zs.map(z => z.y + z.h)) : 0.5;
+        const ecran = (x, y) => ({ x: Math.round(panX + x * zoom), y: Math.round(panY + y * zoom) });
+        const img = imageCache[o.src];
+        const y = o.y + (bas * img.naturalHeight - o.cy) * (o.h / o.ch) + 20;
+        return { a: ecran(o.x + 30, y), b: ecran(o.x + 220, y + 40) };
+    });
+    // UN CLIC N'EST PAS UN RECTANGLE — et au doigt, un clic bouge toujours de
+    // deux ou trois pixels. Sans un seuil de taille, chaque hésitation poserait
+    // une zone grande comme rien, où l'on ne pourrait rien écrire. On l'essaie
+    // AVANT de tracer, sur un fond bien vide : à côté d'une zone déjà tenue, on
+    // attraperait sa poignée et l'on ne mesurerait rien du tout.
+    await page.mouse.move(vide.a.x, vide.a.y);
+    await page.mouse.down();
+    await page.mouse.move(vide.a.x + 4, vide.a.y + 3, { steps: 3 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    r.egal('un clic qui tremble un peu n\'ajoute pas de zone minuscule',
+        await page.evaluate(() => (images[0].pluginData.zones || []).length), avant);
+
+    await page.mouse.move(vide.a.x, vide.a.y);
+    await page.mouse.down();
+    await page.mouse.move(vide.b.x, vide.b.y, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apresTrace = await page.evaluate(() => ({
+        n: (images[0].pluginData.zones || []).length,
+        tenue: zoneChoisie
+    }));
+    r.egal('un rectangle tracé ajoute une zone', apresTrace.n, avant + 1);
+    r.egal('elle est aussitôt tenue, prête à être ajustée', apresTrace.tenue, avant);
+
+    // LES RETOUCHES SONT GARDÉES AVEC LE DOCUMENT, et la détection ne reprend
+    // jamais la main dessus : sans cela, éteindre puis rallumer le repérage —
+    // ou simplement tourner la page et revenir — effacerait tout ce qu'on a
+    // dessiné à la main.
+    const apresBascule = await page.evaluate(() => {
+        basculerLesZones();          // éteint : les zones trouvées sont oubliées
+        basculerLesZones();          // rallumé
+        const z = demanderLesZones(images[0]);
+        return z ? z.length : -1;
+    });
+    r.egal('éteindre et rallumer le repérage ne perd pas la zone dessinée',
+        apresBascule, avant + 1);
+
+    // REDIMENSIONNER : on tire le coin bas-droit de la zone tenue.
+    const poignee = await page.evaluate(() => {
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        if (!zs.length) return { l: 0, h: 0, coin: { x: 0, y: 0 } };
+        const z = zs[zs.length - 1];
+        const b = zoneSurLeTableau(o, z);
+        zoneChoisie = o.pluginData.zones.length - 1;
+        docDesZones = o; draw();
+        return { l: b.l, h: b.h,
+                 coin: { x: Math.round(panX + (b.x + b.l) * zoom), y: Math.round(panY + (b.y + b.h) * zoom) } };
+    });
+    await page.mouse.move(poignee.coin.x, poignee.coin.y);
+    await page.mouse.down();
+    await page.mouse.move(poignee.coin.x + 90, poignee.coin.y + 30, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apresPoignee = await page.evaluate(() => {
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        const b = zs.length ? zoneSurLeTableau(o, zs[zs.length - 1]) : { l: 0, h: 0 };
+        return { l: Math.round(b.l), h: Math.round(b.h) };
+    });
+    r.verifie('tirer une poignée élargit la zone',
+        apresPoignee.l > poignee.l + 40 && apresPoignee.h > poignee.h + 10,
+        JSON.stringify({ avant: { l: Math.round(poignee.l), h: Math.round(poignee.h) }, apres: apresPoignee }));
+
+    // DÉPLACER : on saisit la zone en son milieu.
+    const glisse = await page.evaluate(() => {
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        const b = zs.length ? zoneSurLeTableau(o, zs[zs.length - 1]) : { x: 0, y: 0, l: 0, h: 0 };
+        return { x: b.x, y: b.y,
+                 milieu: { x: Math.round(panX + (b.x + b.l / 2) * zoom), y: Math.round(panY + (b.y + b.h / 2) * zoom) } };
+    });
+    await page.mouse.move(glisse.milieu.x, glisse.milieu.y);
+    await page.mouse.down();
+    await page.mouse.move(glisse.milieu.x + 60, glisse.milieu.y - 25, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const deplacee = await page.evaluate((d) => {
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        const b = zs.length ? zoneSurLeTableau(o, zs[zs.length - 1]) : { x: d.x, y: d.y };
+        return { dx: Math.round(b.x - d.x), dy: Math.round(b.y - d.y) };
+    }, { x: glisse.x, y: glisse.y });
+    r.verifie('glisser une zone la déplace, sans la déformer',
+        Math.abs(deplacee.dx - 60 / (await page.evaluate(() => zoom))) < 8
+        && Math.abs(deplacee.dy + 25 / (await page.evaluate(() => zoom))) < 8,
+        JSON.stringify(deplacee));
+
+    // EFFACER la zone tenue — et ELLE SEULE. Laissée passer, la touche Suppr
+    // s'en prenait au document : on perdait le polycopié pour avoir voulu
+    // retirer un rectangle de trop.
+    await page.evaluate(() => { canvas.focus(); });
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(120);
+    r.egal('Suppr efface la zone tenue, et laisse le document', await page.evaluate(() => ({
+        docs: images.length,
+        n: images[0] && images[0].pluginData.zones ? images[0].pluginData.zones.length : -1
+    })), { docs: 1, n: avant });
+    // Aucune zone tenue : la touche ne doit rien emporter d'autre.
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(120);
+    r.egal('et sans zone tenue, elle n\'emporte rien', await page.evaluate(() => images.length), 1);
+
+    // NUMÉROTER À LA MAIN : on clique les zones dans l'ordre voulu, et chacune
+    // vient prendre le rang suivant.
+    const numerote = await page.evaluate(() => {
+        const o = images[0];
+        // On prend la DERNIÈRE zone dans l'ordre courant, et on ira la cliquer
+        // en premier : elle doit remonter en tête.
+        const zs = o.pluginData.zones || [];
+        const derniere = zs[zs.length - 1] || { x: 0, y: 0, l: 0, h: 0 };
+        const b = zoneSurLeTableau(o, derniere) || { x: 0, y: 0, l: 0, h: 0 };
+        basculerNumerotationDesZones();
+        return { repere: JSON.stringify(derniere),
+                 milieu: { x: Math.round(panX + (b.x + b.l / 2) * zoom), y: Math.round(panY + (b.y + b.h / 2) * zoom) } };
+    });
+    await page.mouse.click(numerote.milieu.x, numerote.milieu.y);
+    await page.waitForTimeout(120);
+    r.egal('cliquer une zone en mode numérotation la met au premier rang',
+        await page.evaluate(() => JSON.stringify(images[0].pluginData.zones[0])), numerote.repere);
+
+    // TRIER remet l'ordre de lecture — et défait donc ce reclassement.
+    const apresTri = await page.evaluate(() => {
+        zoneNumerotation = false;
+        trierLesZones();
+        const zs = images[0].pluginData.zones || [];
+        return { premiere: JSON.stringify(zs[0]),
+                 // Une fois trié, retrier ne change plus rien : c'est ce qui
+                 // dit que le rangement a bien été ÉCRIT dans le document, et
+                 // pas seulement calculé puis jeté.
+                 stable: JSON.stringify(zs) === JSON.stringify(rangerLesZones(zs)) };
+    });
+    r.verifie('« Trier » défait le classement à la main', apresTri.premiere !== numerote.repere, '');
+    r.verifie('et laisse les zones dans l\'ordre de lecture', apresTri.stable, '');
+
+    await page.evaluate(() => basculerEditionDesZones(false));
+    r.verifie('le bouton « Terminer » referme la retouche',
+        await page.evaluate(() => zonesEdition === false), '');
+
+    // --- D'UN TROU AU SUIVANT, À LA TABULATION ---
+    // C'est à cela que sert l'ordre de lecture : remplir une fiche sans lever
+    // la main du clavier pour aller viser la ligne d'après.
+    const premiereZone = await page.evaluate(() => {
+        setMode('text');
+        const o = images[0];
+        const zs = o.pluginData.zones || [];
+        const b = zs.length ? zoneSurLeTableau(o, zs[0]) : { x: 0, y: 0, l: 0, h: 0 };
+        return { x: Math.round(panX + (b.x + b.l / 2) * zoom), y: Math.round(panY + (b.y + b.h / 2) * zoom) };
+    });
+    await page.mouse.click(premiereZone.x, premiereZone.y);
+    await page.waitForTimeout(200);
+    r.egal('le clic ouvre la saisie sur la première zone',
+        await page.evaluate(() => tempTextLogicalPos && tempTextLogicalPos.zoneRang), 0);
+    await page.keyboard.type('12');
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(250);
+    const apresTab = await page.evaluate(() => ({
+        rang: tempTextLogicalPos && tempTextLogicalPos.zoneRang,
+        ouvert: getComputedStyle(document.getElementById('wysiwyg-text')).display !== 'none',
+        ecrit: texts.length
+    }));
+    r.egal('la tabulation passe à la zone suivante', apresTab.rang, 1);
+    r.verifie('la saisie reste ouverte', apresTab.ouvert, JSON.stringify(apresTab));
+    r.egal('et ce qui était écrit est posé sur le tableau', apresTab.ecrit, 1);
+    await page.keyboard.press('Shift+Tab');
+    await page.waitForTimeout(250);
+    r.egal('Maj+Tab revient à la précédente',
+        await page.evaluate(() => tempTextLogicalPos && tempTextLogicalPos.zoneRang), 0);
+    await page.evaluate(() => { finalizeText(); zonesActives = false; setMode('pointer'); });
+
+    // LA TAILLE D'ÉCRITURE suit celle du document : la même fiche composée en
+    // vingt-deux points doit ouvrir une écriture deux fois plus grande.
+    await tableauVierge(page);
+    await page.evaluate(() => { activeStyle.fontSize = 64; });
+    const [choixGrand] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.evaluate(() => document.getElementById('btn-import-pdf').click())
+    ]);
+    await choixGrand.setFiles({ name: 'grand.pdf', mimeType: 'application/pdf', buffer: polyEnCouleur(22) });
+    await page.waitForFunction(() => images.length === 1 && images[0].pluginData, { timeout: 15000 });
+    await page.waitForTimeout(600);
+    const taille22 = await page.evaluate(() => activeStyle.fontSize);
+    r.verifie('la taille d\'écriture descend de 64 à celle du document',
+        taille11 > 4 && taille11 < 40, JSON.stringify({ taille11 }));
+    // Le TITRE de la fiche est en vingt-six points, mais en cinq lettres : si
+    // l'on prenait la plus grande police, ou la moyenne, on écrirait trop gros.
+    r.verifie('c\'est la police la plus RÉPANDUE, pas la plus grande',
+        Math.abs(taille22 / taille11 - 2) < 0.35,
+        JSON.stringify({ taille11, taille22, rapport: +(taille22 / taille11).toFixed(2) }));
     await page.evaluate(() => { zonesActives = false; setMode('pointer'); });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
