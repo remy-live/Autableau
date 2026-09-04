@@ -2211,11 +2211,6 @@ input[type=range]::-moz-range-thumb {
 #wysiwyg-text ol { margin: 0; padding-left: 1.4em; }
 #wysiwyg-text li { margin: 0; }
 
-#wysiwyg-text:empty:before {
-    content: attr(data-placeholder);
-    color: #b2bec3;
-    pointer-events: none;
-}
 
 .text-tool-input {
     border: 1px solid #dfe6e9;
@@ -8234,18 +8229,18 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    ============================================================ */
 /* Le quadrillage part dans TOUS les cas : c'est un réglage de page, pas un
    outil d'écriture, et il n'a pas plus sa place ici quand on annote. */
-#bar-style.ctx-document #doc-grille,
-#bar-style.ctx-document #doc-sep,
-#bar-style.ctx-document:not(.annote) #doc-proportions,
-#bar-style.ctx-document:not(.annote) #doc-rogner,
-#bar-style.ctx-document:not(.annote) #doc-entiere,
-#bar-style.ctx-document:not(.annote) #btn-color-popover,
-#bar-style.ctx-document:not(.annote) .group-zindex,
-#bar-style.ctx-document:not(.annote) .group-edition,
+#bar-style.doc-allege #doc-grille,
+#bar-style.doc-allege #doc-sep,
+#bar-style.doc-allege:not(.annote) #doc-proportions,
+#bar-style.doc-allege:not(.annote) #doc-rogner,
+#bar-style.doc-allege:not(.annote) #doc-entiere,
+#bar-style.doc-allege:not(.annote) #btn-color-popover,
+#bar-style.doc-allege:not(.annote) .group-zindex,
+#bar-style.doc-allege:not(.annote) .group-edition,
 /* Le séparateur qui suivait la pastille de couleur restait seul en bout de
    barre : les gardes génériques ne l'attrapent pas, puisque les groupes
    masqués comptent encore comme des frères. */
-#bar-style.ctx-document:not(.annote) #btn-color-popover + .divider { display: none !important; }
+#bar-style.doc-allege:not(.annote) #btn-color-popover + .divider { display: none !important; }
 
 /* Cadre et Page deviennent un simple interrupteur à deux icônes : leur nom
    tenait plus de place que le réglage lui-même, et l'infobulle le dit. */

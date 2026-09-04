@@ -7504,8 +7504,13 @@ canvas.addEventListener('pointerdown', (e) => {
 function ouvrirLaSaisie(vise, pos) {
     const zone = vise ? vise.b : null;
     if (zone) {
-        activeStyle.fontSize = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
-        activeStyle.lineHeight = Math.round(activeStyle.fontSize * 1.2);
+        // PAR « reglerTailleTexte » ET NON A LA MAIN : poser la taille
+        // directement laissait la barre afficher l'ancienne. On lisait 6 dans
+        // la barre pendant qu'on ecrivait en 21, et le panneau du texte disait
+        // encore autre chose.
+        const t = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
+        if (typeof reglerTailleTexte === 'function') reglerTailleTexte(t, 'zone');
+        else { activeStyle.fontSize = t; activeStyle.lineHeight = Math.round(t * 1.2); }
     }
     const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
     tempTextLogicalPos = zone
@@ -8728,8 +8733,18 @@ function draw() {
                                 const zy = -obj.h / 2 + (z.y * NH - obj.cy) * ky;
                                 const zl = Math.max(2, z.l * NW * kx), zh = Math.max(2, z.h * NH * ky);
                                 const tenue = zonesEdition && obj === docDesZones && i === zoneChoisie;
-                                ctx.fillStyle = tenue ? 'rgba(249, 115, 22, 0.16)' : 'rgba(99, 102, 241, 0.10)';
-                                ctx.strokeStyle = tenue ? 'rgba(234, 88, 12, 0.95)' : 'rgba(99, 102, 241, 0.55)';
+                                // CELLE QU'ON REMPLIT ressort un peu ; les autres
+                                // s'effacent. Elles marquaient la page d'un
+                                // quadrillage indigo qui se lisait avant le
+                                // polycopie lui-meme : ce sont des reperes, pas
+                                // le sujet. Meme geometrie, couleur plus douce.
+                                const active = !zonesEdition && tempTextLogicalPos
+                                    && tempTextLogicalPos.zoneDoc === obj.id
+                                    && tempTextLogicalPos.zoneRang === i;
+                                ctx.fillStyle = tenue ? 'rgba(249, 115, 22, 0.16)'
+                                    : active ? 'rgba(99, 102, 241, 0.13)' : 'rgba(99, 102, 241, 0.045)';
+                                ctx.strokeStyle = tenue ? 'rgba(234, 88, 12, 0.95)'
+                                    : active ? 'rgba(99, 102, 241, 0.55)' : 'rgba(99, 102, 241, 0.22)';
                                 ctx.fillRect(zx, zy, zl, zh);
                                 ctx.strokeRect(zx, zy, zl, zh);
                                 if (!zonesEdition) return;
@@ -11558,7 +11573,7 @@ function majBarreDocument() {
 
     const obj = documentDeLaBarre();
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
-        barre.classList.remove('ctx-document', 'annote', 'zones-edition');
+        barre.classList.remove('ctx-document', 'annote', 'zones-edition', 'doc-allege');
         if (typeof majLeVolet === 'function') majLeVolet();
         return;
     }
@@ -11590,11 +11605,15 @@ function majBarreDocument() {
     }
     // Cadre / Page : réservés aux documents et aux images importées
     const unDocument = estUnDocumentPose(obj);
+    // C'EST ICI, ET SEULEMENT ICI, QUE LA BARRE S'ALLEGE. Je l'avais fait
+    // depuis la feuille de style, sur « ctx-document » : ce contexte vaut
+    // aussi pour un TAMPON DE PLUGIN, qui n'a ni pages ni cadrage — la barre
+    // s'y retrouvait entierement vide, reduite a sa poignee.
+    barre.classList.toggle('doc-allege', unDocument);
     if (!unDocument && modeDocument === 'page') modeDocument = 'cadre';
     document.getElementById('doc-modes').style.display = unDocument ? 'contents' : 'none';
     document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
-    document.getElementById('doc-mode-cadre').classList.toggle('actif', modeDocument === 'cadre' && !obj.locked);
-    document.getElementById('doc-mode-page').classList.toggle('actif', modeDocument === 'page' && !obj.locked);
+    majIconeDuMode(obj);
     // Les zones à remplir ne se cherchent que dans un PDF : un scan n'est
     // qu'une image, et une photo collée encore moins.
     const bZones = document.getElementById('doc-zones');
@@ -11623,6 +11642,31 @@ function majBarreDocument() {
     majReglagesDuVolet();
     // Surtout PAS d'appel à updateStyleBarContext ici : c'est elle qui nous
     // appelle maintenant, et l'on tournerait en rond sans fin.
+}
+
+// L'ICONE DIT CE QU'UN GLISSEMENT VA FAIRE, et non le nom d'un mode : « Cadre »
+// et « Page » ne disaient rien a qui ne connaissait pas deja la difference.
+//   - CADRE : le rectangle entier se deplace, fleches vers l'exterieur.
+//   - PAGE  : la feuille coulisse a l'interieur du rectangle, qui ne bouge pas.
+const ICONES_MODE_DOC = {
+    cadre: '<rect x="4" y="6" width="16" height="12" rx="2"/>'
+         + '<path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2"/>'
+         + '<path d="M10.6 3.6L12 2.2l1.4 1.4M10.6 20.4L12 21.8l1.4-1.4"/>',
+    page: '<rect x="3" y="5" width="18" height="14" rx="2" opacity="0.45"/>'
+        + '<rect x="8" y="8" width="12" height="8.5" rx="1.5"/>'
+        + '<path d="M6.6 12H3.4M4.8 10.2L3 12l1.8 1.8"/>'
+};
+
+function majIconeDuMode(obj) {
+    const bouton = document.getElementById('doc-mode-bascule');
+    const icone = document.getElementById('icone-mode-doc');
+    if (!bouton || !icone) return;
+    const enPage = modeDocument === 'page';
+    icone.innerHTML = ICONES_MODE_DOC[enPage ? 'page' : 'cadre'];
+    bouton.classList.toggle('actif', enPage && !(obj && obj.locked));
+    bouton.setAttribute('data-tooltip', enPage
+        ? 'Glisser fait coulisser la PAGE dans son cadre — cliquez pour deplacer le cadre a la place'
+        : 'Glisser deplace le CADRE — cliquez pour faire coulisser la page a la place');
 }
 
 // Les reglages du volet disent leur etat comme les boutons de la barre le
@@ -11687,11 +11731,16 @@ function brancherBarreDocument() {
     const boutonVolet = b('doc-volet-btn');
     if (boutonVolet) boutonVolet.addEventListener('click', () => ouvrirLeVolet());
 
-    b('doc-mode-cadre').addEventListener('click', () => { modeDocument = 'cadre'; majBarreDocument(); draw(); });
-    b('doc-mode-page').addEventListener('click', () => {
-        modeDocument = 'page';
+    // UN SEUL BOUTON, QUI CYCLE. Ils etaient deux, et ils disparaissaient des
+    // qu'on prenait un crayon : la barre se reorganisait sous les doigts.
+    b('doc-mode-bascule').addEventListener('click', () => {
+        modeDocument = (modeDocument === 'cadre') ? 'page' : 'cadre';
         majBarreDocument(); draw();
-        if (typeof showToast === 'function') showToast('Faites glisser la page dans son cadre ; la molette la zoome');
+        if (typeof showToast === 'function') {
+            showToast(modeDocument === 'page'
+                ? 'Glisser fait coulisser la PAGE dans son cadre ; la molette la zoome'
+                : 'Glisser deplace le CADRE sur le tableau');
+        }
     });
 
 

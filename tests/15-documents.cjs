@@ -475,16 +475,30 @@ module.exports = async function (browser) {
     r.egal('▶ de la barre tourne la page', fleches.apres, '3');
     r.egal('◀ de la barre revient', fleches.retour, '2');
 
+    // UN SEUL BOUTON, QUI CYCLE. Ils étaient deux, et ils disparaissaient dès
+    // qu'on prenait un crayon : la barre se réorganisait sous les doigts.
+    // Celui-ci reste en place, et son icône dit ce qu'un glissement va faire.
     const modes = await page.evaluate(() => {
-        const cadre = document.getElementById('doc-mode-cadre');
-        const pageB = document.getElementById('doc-mode-page');
-        const depart = cadre.classList.contains('actif') && !pageB.classList.contains('actif');
-        pageB.click();
-        const bascule = pageB.classList.contains('actif') && !cadre.classList.contains('actif') && modeDocument === 'page';
-        return { depart, bascule };
+        const bouton = document.getElementById('doc-mode-bascule');
+        const icone = () => document.getElementById('icone-mode-doc').innerHTML;
+        const depart = { mode: modeDocument, allume: bouton.classList.contains('actif'), dessin: icone() };
+        bouton.click();
+        const apres = { mode: modeDocument, allume: bouton.classList.contains('actif'), dessin: icone() };
+        bouton.click();
+        const retour = { mode: modeDocument, dessin: icone() };
+        return { depart, apres, retour,
+                 seul: !document.getElementById('doc-mode-cadre') && !document.getElementById('doc-mode-page') };
     });
-    r.verifie('le mode « Cadre » est celui de départ, et il se voit', modes.depart, JSON.stringify(modes));
-    r.verifie('le mode « Page » s\'allume et éteint l\'autre', modes.bascule, JSON.stringify(modes));
+    r.egal('un seul bouton pour le mode, et « Cadre » au départ',
+        { seul: modes.seul, mode: modes.depart.mode, allume: modes.depart.allume },
+        { seul: true, mode: 'cadre', allume: false });
+    r.egal('un clic passe à « Page », et cela se voit', 
+        { mode: modes.apres.mode, allume: modes.apres.allume }, { mode: 'page', allume: true });
+    r.verifie('l\'icône change avec le mode',
+        modes.depart.dessin !== modes.apres.dessin && modes.depart.dessin.length > 10,
+        JSON.stringify({ cadre: modes.depart.dessin.slice(0, 40), page: modes.apres.dessin.slice(0, 40) }));
+    r.egal('un second clic revient au cadre', modes.retour.mode, 'cadre');
+    r.egal('et l\'icône revient avec lui', modes.retour.dessin, modes.depart.dessin);
 
     // En mode Page, le glissement déplace la découpe, pas l'objet
     const coulisse = await page.evaluate(() => {
@@ -818,8 +832,7 @@ module.exports = async function (browser) {
             plus: !!document.getElementById('doc-plus'),
             replier: !!document.getElementById('doc-replier'),
             // Les commandes, elles, sont toutes là — dans la barre de style
-            dansLaBarre: ['doc-mode-cadre', 'doc-mode-page', 'doc-rogner',
-                          'doc-prec', 'doc-suiv']
+            dansLaBarre: ['doc-mode-bascule', 'doc-prec', 'doc-suiv']
                 .every(id => {
                     const e = document.getElementById(id);
                     return e && e.closest('#bar-style');
@@ -1114,15 +1127,15 @@ module.exports = async function (browser) {
         // Sur une IMAGE ordinaire, ni pages ni zones : elles n'ont de sens que
         // sur un PDF. Il reste « Cadre / Page », qui dit ce qu'un glissement
         // déplace, et c'est tout ce que la barre doit porter ici.
-        return { cadre: x('doc-mode-cadre'), page: x('doc-mode-page'),
+        return { mode: x('doc-mode-bascule'),
                  // ce qui a quitté la barre pour le volet
                  partis: ['doc-rogner', 'doc-proportions', 'doc-grille', 'btn-color-popover',
                           'btn-z-up', 'btn-copier'].filter(id => x(id) !== null) };
     });
-    const suite = ['cadre', 'page'].map(k => ordre[k]);
+    const suite = ['mode'].map(k => ordre[k]);
     r.egal('rien de ce qui a rejoint le volet ne traîne encore dans la barre', ordre.partis, []);
-    r.verifie('sur une image, la barre ne garde que « Cadre / Page », dans cet ordre',
-        suite.every((v, i) => v !== null && (i === 0 || v > suite[i - 1])),
+    r.verifie('sur une image, la barre ne garde que le bouton de mode',
+        suite.every(v => v !== null),
         JSON.stringify(ordre));
     r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',
         contextes.outilEnMain.visible && !contextes.outilEnMain.document,

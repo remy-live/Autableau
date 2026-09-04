@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=80">
+    <link rel="stylesheet" href="style.css?v=82">
 </head>
 
 <body>
@@ -212,7 +212,10 @@
     </div>
     </div>
 
-    <div id="wysiwyg-text" contenteditable="true" spellcheck="false" data-placeholder="Tapez ici..."></div>
+    <!-- PAS DE « Tapez ici ». Le curseur qui clignote suffit a dire ou l'on
+         ecrit, et sur un polycopie ce texte fantome se posait en travers de
+         la page, parfois enorme quand on avait zoome. -->
+    <div id="wysiwyg-text" contenteditable="true" spellcheck="false"></div>
 
     <!-- Barre du document : elle se pose SOUS le cadre de l'image ou du PDF
          sélectionné et le suit. Elle sépare les deux gestes qui se marchent
@@ -1815,24 +1818,19 @@
         </span>
         <i class="doc-sep" id="doc-pages-sep"></i>
         <span id="doc-modes" style="display:contents;">
-        <button class="doc-btn doc-mode" id="doc-mode-cadre" title="Régler le cadre : déplacer, ouvrir ou fermer les bords">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="4" y="5" width="16" height="14" rx="2" />
-                <path d="M20 9h2M20 15h2M2 9h2M2 15h2" stroke-linecap="round" />
-            </svg></button>
-        <button class="doc-btn doc-mode" id="doc-mode-page" title="Faire coulisser et zoomer la page dans le cadre">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M12 8.5v7M8.5 12h7" />
-            </svg></button>
+        <!-- UN SEUL BOUTON, QUI CYCLE. Ils etaient deux, et ils
+             DISPARAISSAIENT des qu'on prenait un crayon : la barre se
+             reorganisait sous les doigts. Celui-ci reste en place et montre
+             ce qu'un glissement va faire — deplacer le cadre, ou faire
+             coulisser la page dedans. -->
+        <button class="doc-btn doc-mode" id="doc-mode-bascule"
+            data-tooltip="Glisser deplace le CADRE — cliquez pour faire coulisser la page a la place">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round" id="icone-mode-doc"></svg></button>
         </span>
         <i class="doc-sep" id="doc-modes-sep"></i>
         <!-- Sur un document en plein écran, les barres d'outils sont effacées :
-             de quoi écrire et dessiner dessus se trouve donc ici. Ce groupe ne
-             paraît qu'en mode Focus, là où rien d'autre ne l'offre.
-             Des icônes seules : le nom et la touche sont dans l'infobulle, et
-             la barre reste courte sur la page qu'elle accompagne. -->
+             de quoi écrire et dessiner dessus se trouve donc ici. -->
         <span id="doc-annoter" style="display:none;">
             <button class="doc-btn doc-outil" id="doc-outil-main" data-mode="pointer"
                 data-tooltip="Sélection : reprendre le document en main">
@@ -2197,7 +2195,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=157"></script>
+    <script src="script.js?v=159"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
