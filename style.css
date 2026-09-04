@@ -7949,10 +7949,9 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    cachés sans dire lesquels. On nomme donc les groupes — Fichier, Tableau,
    Vue, Outils — et chaque bouton rejoint le sien.
    =================================================== */
-/* Le nom se met À CÔTÉ des boutons, pas au-dessus : posé au-dessus, il
-   ajoutait une ligne par rangée, le tiroir montait de vingt pixels et mordait
-   sur la zone où l'on écrit — deux tests l'ont attrapé, un trait tracé en bas
-   de l'écran arrivait sur le tiroir au lieu du tableau. */
+/* SANS LIBELLÉS. Les groupes sont nommés dans le code, pas à l'écran : un
+   filet suffit à les séparer, et quatre mots en petites capitales alourdissaient
+   une barre d'icônes que l'on reconnaît de toute façon à leur dessin. */
 .tiroir-groupe {
     display: flex;
     flex-direction: row;
@@ -7965,17 +7964,6 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 /* Pas de filet devant le premier de la rangée : il n'y a rien à séparer. */
 .tiroir-groupe:first-child { border-left: none; padding-left: 2px; }
 
-.tiroir-titre {
-    font-size: 9px;
-    white-space: nowrap;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-muted, #94a3b8);
-    padding-left: 2px;
-    line-height: 1;
-    user-select: none;
-}
 
 .tiroir-boutons {
     display: flex;
