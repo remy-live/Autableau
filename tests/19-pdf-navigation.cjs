@@ -1,7 +1,7 @@
 // Naviguer dans un PDF posé sur le tableau : garder les pages rendues,
 // aller droit à un numéro, feuilleter au clavier et au doigt, l'encre qui
 // appartient à sa page, le volet des vignettes et la recherche dans le texte.
-const { creerRapport, ouvrirApp, petitPdf, fichePdf, tableauVierge } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, fichePdf, polyDense, polyEnCases, tableauVierge } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Navigation dans les PDF');
@@ -981,6 +981,43 @@ module.exports = async function (browser) {
     r.egal('un pointillé est reconnu comme une ligne à remplir', pointilles.n, 1);
     r.verifie('et sur toute sa longueur, pas segment par segment',
         pointilles.large > 0.3, JSON.stringify(pointilles));
+
+    // UN POLYCOPIÉ FAIT DE TABLEAUX — le cas qui manquait presque tout. Chaque
+    // ligne à remplir est posée DANS une case, huit points au-dessus de la
+    // bordure basse. Cette bordure, horizontale et proche, était comptée comme
+    // un « montant » aux deux bouts du trait : il passait pour le bord d'un
+    // rectangle et disparaissait. Zéro zone trouvée sur dix-huit.
+    const enCases = await page.evaluate(async (b64) => {
+        const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
+        const z = await zonesDeLaPage({ doc }, 1);
+        return { n: z.length, lignes: z.filter(u => u.genre === 'ligne').length };
+    }, polyEnCases().toString('base64'));
+    r.egal('un poly fait de tableaux : les dix-huit lignes sont trouvées', enCases.lignes, 18);
+    r.egal('et rien de plus', enCases.n, 18);
+
+    // UNE PAGE DENSE EN TROIS COLONNES, comme un vrai polycopié : vingt-quatre
+    // courtes lignes après leur libellé. Les seuils se mesurent en hauteurs de
+    // TEXTE — en proportions de la page, « 4 % de la largeur » faisait
+    // quarante-huit points sur un A4 paysage, et tout tombait.
+    const dense = await page.evaluate(async (b64) => {
+        const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
+        const z = await zonesDeLaPage({ doc }, 1);
+        return { n: z.length, haut: z.filter(u => u.y < 0.055).length,
+                 courtes: z.filter(u => u.l < 0.045).length };
+    }, polyDense().toString('base64'));
+    r.egal('une page dense en trois colonnes : les vingt-sept lignes', dense.n, 27);
+    // Les trois plus COURTES — trente-cinq points — ne survivent que parce que
+    // les seuils se mesurent en hauteurs de texte : en proportions de la page,
+    // le minimum valait quarante-huit points sur ce format.
+    r.egal('y compris les trois très courtes', dense.courtes, 3);
+    // Le HAUT des lettres d'un titre forme lui aussi une suite de colonnes
+    // fines : sans la récusation par le texte, trois faux traits paraissaient
+    // au-dessus des trois titres de colonne.
+    r.egal('et aucun faux trait sur les titres de colonne', dense.haut, 0);
 
     // Option éteinte : rien ne s'éclaire, rien ne se cherche.
     const eteint = await page.evaluate(() => {

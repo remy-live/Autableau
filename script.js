@@ -10093,7 +10093,7 @@ const ZONES_ECHELLE = 2;      // un point de pointillé ne fait qu'un ou deux pi
 
 // Repère les traits, les pointillés et les cases à cocher d'une page peinte.
 // Rend des rectangles en pixels de ce canevas.
-function repererLesZones(canevas) {
+function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     const w = canevas.width, h = canevas.height;
     if (w < 40 || h < 40) return [];
     const g = canevas.getContext('2d', { willReadFrequently: true });
@@ -10120,13 +10120,27 @@ function repererLesZones(canevas) {
         return cum[(b + 1) * w + x] - cum[a * w + x];
     };
 
-    const LONG_MIN = Math.max(20, Math.round(w * 0.04));   // longueur d'un vrai trait
+    // LES SEUILS SE MESURENT EN HAUTEURS DE TEXTE, ni en pixels ni en
+    // proportions de la page. PDF-fill les donne en pixels de son canevas ;
+    // je les avais traduits en proportions de la page, ce qui était pire : sur
+    // un A4 paysage dense, « 4 % de la largeur » fait 48 points, et toutes les
+    // courtes lignes à remplir d'un polycopié tombaient. La bonne mesure est
+    // le texte lui-même — c'est lui qui dit la densité de la page.
+    const TX = hauteurTexte > 2 ? hauteurTexte : Math.max(10, h * 0.014);
+    const LONG_MIN = Math.max(12, Math.round(TX * 2.2));   // longueur d'un vrai trait
     const SUITE_MIN = Math.max(6, Math.round(w * 0.008));  // bord d'une case à cocher
     // Tolérance serrée : au-delà, les sommets des capitales d'un titre finissent
     // par se relier entre eux et passent pour un trait.
     const TROU_MAX = Math.max(3, Math.round(w * 0.012));
-    const HAUT = Math.max(5, Math.round(h * 0.008));       // vide exigé au-dessus
-    const BAS = Math.max(4, Math.round(h * 0.006));        // vide exigé au-dessous
+    const HAUT = Math.max(5, Math.round(TX * 0.55));       // vide exigé au-dessus
+    // AU-DESSOUS, une simple MARGE et non un vide franc. Le vide franc servait
+    // à écarter le haut des lettres — deux ou trois pixels y suffisent, la
+    // panse de la lettre commence aussitôt. Exigé large, il tuait en revanche
+    // tout trait ayant une bordure de case sous lui : sur un polycopié fait de
+    // tableaux, c'est-à-dire presque toutes les lignes à remplir. Le vide
+    // AU-DESSUS, lui, reste large : c'est la place où l'on écrit, et c'est lui
+    // qui écarte le bas des lettres.
+    const BAS = Math.max(3, Math.round(TX * 0.14));
     const MONTANT = Math.max(6, Math.round(h * 0.012));    // portée du test de verticale
     const HAUTEUR_CADRE_MAX = Math.round(h * 0.14);        // une case ne fait pas la page
 
@@ -10174,26 +10188,47 @@ function repererLesZones(canevas) {
 
     // Des montants aux deux bouts trahissent un rectangle : cadre de page,
     // bordure de tableau… ou case à cocher si le rectangle est petit et carré.
+    // UN MONTANT EST VERTICAL, et il faut le mesurer comme tel : dans UNE
+    // colonne. En sommant l'encre de cinq colonnes voisines, la bordure basse
+    // d'une case — horizontale, deux pixels d'épaisseur — franchissait le
+    // seuil aux deux bouts, et tout trait à remplir posé dans un tableau était
+    // pris pour le bord d'un rectangle. C'est ce qui faisait manquer presque
+    // toutes les lignes d'un polycopié : elles sont dans des cases.
     const encreCote = (x, y, sens) => {
         let n = 0;
         for (let dx = -2; dx <= 2; dx++) {
             const cx = x + dx;
             if (cx < 0 || cx >= w) continue;
-            n += sens > 0 ? encreColonne(cx, y + 2, y + MONTANT) : encreColonne(cx, y - MONTANT, y - 2);
+            const c2 = sens > 0 ? encreColonne(cx, y + 2, y + MONTANT) : encreColonne(cx, y - MONTANT, y - 2);
+            if (c2 > n) n = c2;
         }
         return n;
     };
     const encadre = m => {
-        const seuil = Math.max(2, Math.round(MONTANT * 0.4));
+        const seuil = Math.max(4, Math.round(MONTANT * 0.6));
         const g2 = Math.max(encreCote(m.x1, m.y, 1), encreCote(m.x1, m.y, -1));
         const d2 = Math.max(encreCote(m.x2, m.y, 1), encreCote(m.x2, m.y, -1));
         return g2 >= seuil && d2 >= seuil;
     };
 
+    // LE BAS DES LETTRES D'UN TITRE forme lui aussi une suite de colonnes fines
+    // — la panse de chaque lettre s'arrête là, et la ligne suivante est loin.
+    // On récuse donc tout trait qui se superpose à un morceau de TEXTE : une
+    // vraie ligne à remplir vient APRÈS son libellé, elle ne le recouvre pas.
+    // La fenêtre couvre TOUTE la hauteur des lettres, du haut des hampes au bas
+    // des jambages, et non les seuls alentours de la ligne de base : c'est le
+    // HAUT des lettres d'un titre qui formait un faux trait, treize pixels
+    // au-dessus de sa base.
+    const surDuTexte = (m) => (boitesTexte || []).some(t => {
+        if (m.y > t.base + TX * 0.35 || m.y < t.base - TX * 1.15) return false;
+        const commun = Math.min(t.x + t.l, m.x2) - Math.max(t.x, m.x1);
+        return commun > (m.x2 - m.x1) * 0.5;
+    });
+
     const traits = [], cadres = [];
     fondus.slice(0, 400).forEach(m => {
         if (encadre(m)) cadres.push(m);
-        else if (m.x2 - m.x1 >= LONG_MIN) traits.push(m);
+        else if (m.x2 - m.x1 >= LONG_MIN && !surDuTexte(m)) traits.push(m);
     });
 
     const zones = [];
@@ -10264,7 +10299,7 @@ function repererLesZones(canevas) {
         // Les seuils sont en PROPORTIONS DE LA PAGE et non en pixels : ceux de
         // PDF-fill valent pour la résolution de son canevas à lui, et un simple
         // report aurait dit n'importe quoi ici.
-        if (hauteur < h * 0.022 || (m.x2 - m.x1) < w * 0.05) return;
+        if (hauteur < TX * 0.7 || (m.x2 - m.x1) < LONG_MIN) return;
         zones.push({ genre: 'ligne', x: m.x1, y: m.y - hauteur, l: m.x2 - m.x1, h: hauteur });
     });
 
@@ -10298,7 +10333,26 @@ async function chercherLesZones(d, numero) {
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
     await page.render({ canvasContext: g, viewport: vue }).promise;
 
-    return repererLesZones(c).map(z => ({
+    // La hauteur du texte de la page, mesurée sur le texte lui-même : c'est
+    // elle qui donne l'échelle de tous les seuils.
+    let hauteurTexte = 0;
+    const boitesTexte = [];
+    try {
+        const contenu = await page.getTextContent();
+        const hauteurs = [];
+        contenu.items.forEach(i => {
+            if (!(i.str || '').trim()) return;
+            const m = pdfjsLib.Util.transform(vue.transform, i.transform);
+            const haut = Math.hypot(m[2], m[3]);
+            if (haut > 1) hauteurs.push(haut);
+            // m[4], m[5] : le début du morceau et sa LIGNE DE BASE, à l'écran
+            boitesTexte.push({ x: m[4], base: m[5], l: (i.width || 0) * ZONES_ECHELLE });
+        });
+        hauteurs.sort((a, b) => a - b);
+        if (hauteurs.length) hauteurTexte = hauteurs[Math.floor(hauteurs.length / 2)];
+    } catch (e) { /* pas de texte : un scan, par exemple */ }
+
+    return repererLesZones(c, hauteurTexte, boitesTexte).map(z => ({
         genre: z.genre,
         x: z.x / c.width, y: z.y / c.height, l: z.l / c.width, h: z.h / c.height
     }));

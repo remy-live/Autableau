@@ -164,4 +164,81 @@ function fichePdf() {
     return Buffer.from(out, 'latin1');
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, fichePdf };
+// UN POLYCOPIÉ DENSE, comme ceux qu'on distribue vraiment : A4 PAYSAGE, trois
+// colonnes, du texte de 11 points, et des lignes à remplir COURTES posées
+// juste après leur libellé — « 3456 = ______ », « 0 : ______ ».
+// C'est le cas qui tombait quand les seuils se mesuraient en proportions de la
+// page : sur 1190 points de large, « 4 % » fait 48 points, et toutes ces
+// courtes lignes passaient à la trappe.
+function polyDense() {
+    const f = ['0.6 w'];
+    const COL = [40, 440, 840];
+    COL.forEach((cx, ci) => {
+        // un titre de colonne
+        f.push(`BT /F1 12 Tf ${cx} 800 Td (Exercice ${ci + 1}) Tj ET`);
+        for (let i = 0; i < 8; i++) {
+            const y = 760 - i * 34;
+            f.push(`BT /F1 11 Tf ${cx} ${y} Td (${1000 + i * 111} = ) Tj ET`);
+            // le trait : court (90 points), juste après le libellé
+            f.push(`${cx + 60} ${y - 3} m ${cx + 150} ${y - 3} l S`);
+        }
+        // ET UN TRAIT TRÈS COURT, comme « 9 607 est un nombre de ___ chiffres » :
+        // trente-cinq points. Avec des seuils en proportions de la page, le
+        // minimum valait quarante-huit points sur ce format et il tombait.
+        f.push(`BT /F1 11 Tf ${cx} 470 Td (un nombre de) Tj ET`);
+        f.push(`${cx + 75} 467 m ${cx + 110} 467 l S`);
+    });
+    const contenu = f.join('\n');
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1190 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+        `<< /Length ${contenu.length} >>\nstream\n${contenu}\nendstream`
+    ];
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
+// LE POLYCOPIÉ EN CASES — le motif qui faisait tout manquer. Chaque ligne à
+// remplir est posée DANS une case, huit points au-dessus de la bordure basse
+// de cette case. La bordure, horizontale et proche, était comptée comme un
+// « montant » aux deux bouts du trait : celui-ci passait pour le bord d'un
+// rectangle et disparaissait. Sur un vrai poly fait de tableaux, c'était
+// presque toutes les lignes.
+function polyEnCases() {
+    const f = ['0.6 w'];
+    for (let r = 0; r < 6; r++) {
+        const y = 700 - r * 40;
+        for (let c = 0; c < 3; c++) {
+            const x = 40 + c * 360;
+            f.push(`${x} ${y} 350 40 re S`);
+            f.push(`BT /F1 11 Tf ${x + 8} ${y + 14} Td (${r * 3 + c} :) Tj ET`);
+            f.push(`${x + 50} ${y + 8} m ${x + 330} ${y + 8} l S`);
+        }
+    }
+    const contenu = f.join('\n');
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1190 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+        `<< /Length ${contenu.length} >>\nstream\n${contenu}\nendstream`
+    ];
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, fichePdf, polyDense, polyEnCases };
