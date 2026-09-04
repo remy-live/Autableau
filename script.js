@@ -6175,8 +6175,15 @@ function accrocheOutils(raw) {
 // avant la figure, la figure avant le quadrillage.
 // « source » sert au dessin du point fantôme.
 function positionAimantee(raw, options = {}) {
-    if (!magnetMode) return { x: raw.x, y: raw.y, source: null };
-    if (aimant.outils) {
+    // LA GÉOMÉTRIE NE DÉPEND PLUS DE L'AIMANT. Poser un point SUR un cercle ou
+    // le long d'une droite, ce n'est pas une commodité de placement : c'est ce
+    // que veut dire le geste, et on ne pouvait tout simplement pas le faire —
+    // il n'y avait aucune accroche aux figures, même aimant allumé. Ce sont
+    // désormais les seules sources qui s'offrent quand l'aimant est éteint ;
+    // le quadrillage et les instruments, eux, restent sous sa commande.
+    // L'instrument qu'on tient passe avant tout : la règle posée en travers
+    // d'un cercle, c'est le long de la règle qu'on veut tracer.
+    if (magnetMode && aimant.outils) {
         const t = accrocheOutils(raw);
         if (t) return { x: t.x, y: t.y, source: 'outil' };
     }
@@ -6185,7 +6192,14 @@ function positionAimantee(raw, options = {}) {
         if (p) return { x: p.x, y: p.y, source: 'point' };
         const i = intersectionProche(raw);
         if (i) return { x: i.x, y: i.y, source: 'intersection', refs: i.refs };
+        // La figure passe AVANT le quadrillage : un trait qu'on a dessiné est
+        // plus précis qu'un carreau du papier, et c'est lui qu'on vise.
+        if (!options.sansFigure) {
+            const f = projectionSurTrace(raw, 10 / zoom);
+            if (f) return { x: f.x, y: f.y, source: 'figure' };
+        }
     }
+    if (!magnetMode) return { x: raw.x, y: raw.y, source: null };
     if (aimant.grille && !options.sansGrille) {
         const g = snapToGrid(raw.x, raw.y);
         return { x: g.x, y: g.y, source: 'grille' };
@@ -7182,10 +7196,16 @@ canvas.addEventListener('pointerdown', (e) => {
     clearSelection();
 
     if (mode === 'point') {
-        // Un croisement est forcément « sur » deux tracés : sans cette
-        // exception, on ne pourrait jamais y poser le point d'intersection.
-        const surUnCroisement = actionPos.source === 'intersection' && (!clickedObj || clickedObj.type !== 'point');
-        if (!clickedObj || surUnCroisement) {
+        // VOILÀ POURQUOI ON NE POUVAIT PAS POSER DE POINT SUR UNE FIGURE :
+        // cliquer sur un cercle ou sur une droite donne un « clickedObj », et
+        // la pose était refusée. L'exception existait pour les croisements —
+        // un croisement est forcément « sur » deux tracés — mais pas pour les
+        // figures elles-mêmes. C'était le geste le plus courant de la
+        // géométrie, et le seul impossible.
+        const surUnTrace = (actionPos.source === 'intersection' || actionPos.source === 'figure')
+            && (!clickedObj || clickedObj.type !== 'point');
+        const surUnCroisement = actionPos.source === 'intersection' && surUnTrace;
+        if (!clickedObj || surUnTrace) {
             const pt = { id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ };
             // Posé sur un croisement, le point appartient aux deux objets : il
             // les suivra si on les déplace.
@@ -7543,7 +7563,8 @@ canvas.addEventListener('pointermove', (e) => {
     let smartPos = { x: rawPos.x, y: rawPos.y };
     if (magnetMode && !isDraggingObjs && !draggedHandle && !draggedWidget) {
         const mainLevee = isDrawingFreehand || mode === 'freehand' || mode === 'highlighter';
-        smartPos = positionAimantee(rawPos, mainLevee ? { sansGrille: true, sansIntersection: true } : {});
+        smartPos = positionAimantee(rawPos, mainLevee
+            ? { sansGrille: true, sansIntersection: true, sansFigure: true } : {});
     }
 
     if (isDrawingFreehand && currentFreehand) {
@@ -8941,7 +8962,9 @@ function draw() {
         // Il montre où le clic va tomber : sur un carreau, contre un outil, ou
         // à l'intersection de deux tracés (le fantôme est alors plus marqué,
         // parce que c'est le point qui a de la valeur en géométrie).
-        if (magnetMode && mouseLogicalPos && !draggedHandle && ['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'curve', 'polygon', 'pointer'].includes(mode)) {
+        // Il paraît maintenant même aimant ÉTEINT : c'est lui qui dit qu'un clic
+        // va tomber SUR le cercle et non à côté. Sans lui, on visait à l'aveugle.
+        if (mouseLogicalPos && !draggedHandle && ['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'curve', 'polygon', 'pointer'].includes(mode)) {
             if (!hoveredObj || hoveredObj.type !== 'point') {
                 const fantome = positionAimantee(mouseLogicalPos);
                 if (fantome.source === 'intersection') {

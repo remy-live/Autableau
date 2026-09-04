@@ -122,9 +122,16 @@ module.exports = async function (browser) {
         nextId = 10;
         zoom = 1;
         const pres = positionAimantee({ x: 305, y: 296 });
-        const loin = positionAimantee({ x: 380, y: 296 });
-        return { pres, loin };
+        // Sur le trait mais loin du croisement : c'est le TRAIT qui accroche.
+        // Un trait qu'on a dessiné est plus précis qu'un carreau du papier.
+        const surLeTrait = positionAimantee({ x: 380, y: 296 });
+        // Vraiment à l'écart de tout tracé : là, le quadrillage reprend.
+        const loin = positionAimantee({ x: 380, y: 340 });
+        return { pres, surLeTrait, loin };
     });
+    r.verifie('sur le trait, c\'est le trait qui accroche, pas le quadrillage',
+        croix.surLeTrait.source === 'figure' && croix.surLeTrait.y === 300,
+        JSON.stringify(croix.surLeTrait));
     r.verifie('le curseur près d\'un croisement s\'y accroche',
         croix.pres.source === 'intersection' && croix.pres.x === 300 && croix.pres.y === 300, JSON.stringify(croix.pres));
     r.verifie('loin du croisement, c\'est le quadrillage qui reprend la main',
@@ -817,6 +824,66 @@ module.exports = async function (browser) {
             reste(cale.horsFeuille[0], cale.pas) > 0.001 || reste(cale.horsFeuille[1], cale.pas) > 0.001,
             JSON.stringify(cale));
     }
+
+    // --- UN POINT SUR UNE FIGURE, AIMANT ÉTEINT ---
+    // On ne pouvait pas poser un point SUR un cercle ni le long d'une droite :
+    // il n'existait aucune accroche aux figures, même aimant allumé. Et les
+    // fantômes ne paraissaient qu'avec l'aimant, si bien qu'on visait à
+    // l'aveugle. Le geste est refait ici à la souris, aimant coupé.
+    await tableauVierge(page);
+    const cercle = await page.evaluate(() => {
+        magnetMode = false;
+        document.getElementById('btn-magnet').classList.remove('active');
+        aimant = { grille: true, outils: true, intersections: true };
+        panX = 0; panY = 0; zoom = 1;
+        // Un cercle de centre (400, 300) et de rayon 120
+        points.push({ id: 1, x: 400, y: 300 }, { id: 2, x: 520, y: 300 });
+        circles.push({ id: 3, center_id: 1, edge_id: 2, color: '#000', width: 2 });
+        nextId = 10;
+        setMode('point');
+        draw();
+        // Le fantôme doit se voir alors que l'aimant est coupé
+        mouseLogicalPos = { x: 400, y: 186 };     // 6 px au-dessus du bord
+        const vise = positionAimantee(mouseLogicalPos);
+        return { vise, aimantCoupe: !magnetMode, avant: points.length };
+    });
+    r.verifie('aimant coupé, le curseur s\'accroche quand même au cercle',
+        cercle.aimantCoupe && cercle.vise.source === 'figure'
+        && Math.abs(Math.hypot(cercle.vise.x - 400, cercle.vise.y - 300) - 120) < 0.01,
+        JSON.stringify(cercle));
+
+    // Et le clic pose vraiment le point SUR le cercle
+    await page.mouse.click(400, 186);
+    await page.waitForTimeout(150);
+    const pointPose = await page.evaluate(() => {
+        const p = points[points.length - 1];
+        return { n: points.length, rayon: +Math.hypot(p.x - 400, p.y - 300).toFixed(2) };
+    });
+    r.egal('le clic pose un point', pointPose.n, 3);
+    r.verifie('et il tombe exactement sur le cercle, pas à côté',
+        Math.abs(pointPose.rayon - 120) < 0.5, JSON.stringify(pointPose));
+
+    // Le fantôme se dessine : sans lui, on ne saurait pas que ça va accrocher.
+    // On compte les arcs peints AVEC et SANS curseur : le cercle lui-même en
+    // est un, donc seul l'écart entre les deux dit qu'un fantôme s'est ajouté.
+    const fantomeVisible = await page.evaluate(() => {
+        setMode('point');
+        const compter = () => {
+            let n = 0;
+            const vrai = ctx.arc.bind(ctx);
+            ctx.arc = function (...a) { n++; return vrai(...a); };
+            draw();
+            ctx.arc = vrai;
+            return n;
+        };
+        mouseLogicalPos = null;
+        const sansCurseur = compter();
+        mouseLogicalPos = { x: 400, y: 186 };   // 6 px au-dessus du bord
+        const avecCurseur = compter();
+        return { sansCurseur, avecCurseur };
+    });
+    r.verifie('et le fantôme s\'ajoute au dessin, aimant coupé',
+        fantomeVisible.avecCurseur > fantomeVisible.sansCurseur, JSON.stringify(fantomeVisible));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
