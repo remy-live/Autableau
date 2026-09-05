@@ -1174,6 +1174,81 @@ module.exports = async function (browser) {
         majBarreDocument(); draw();
     });
 
+    // =========================================================================
+    // LES POIGNÉES D'UN DOCUMENT RÉPONDENT TOUJOURS
+    // Un document posé est en rognage : ses poignées referment le cadrage. Mais
+    // une fois la page montrée en entier, tirer plus loin était REJETÉ EN
+    // SILENCE — la poignée semblait morte, et l'on croyait le redimensionnement
+    // disparu. Vers l'intérieur on rogne, vers l'extérieur on agrandit.
+    // =========================================================================
+    const octetsPdf = Array.from(petitPdf());
+    const poserLeDoc = () => page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
+        await new Promise(res => setTimeout(res, 1200));
+        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); draw();
+        const d = images[0];
+        return { x: d.x, y: d.y, w: d.w, h: d.h, cw: d.cw, ch: d.ch, rognage: d.isCropping === true };
+    }, { octets: octetsPdf });
+    const tailleDoc = () => page.evaluate(() => {
+        const d = images[0];
+        return { w: Math.round(d.w), h: Math.round(d.h), cw: Math.round(d.cw), ch: Math.round(d.ch) };
+    });
+    const tirerLaPoignee = async (hx, hy, ddx, ddy) => {
+        await page.mouse.move(hx, hy); await page.mouse.down();
+        await page.mouse.move(hx + ddx, hy + ddy, { steps: 10 }); await page.mouse.up();
+        await page.waitForTimeout(150);
+    };
+
+    let doc = await poserLeDoc();
+    r.verifie('un document posé arrive en rognage', doc.rognage);
+
+    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, 120, 40);
+    const agrandi = await tailleDoc();
+    r.verifie('tirer un coin vers l\'extérieur agrandit le document',
+        agrandi.w > doc.w + 50 && agrandi.h > doc.h + 20,
+        `${doc.w}x${doc.h} → ${agrandi.w}x${agrandi.h}`);
+
+    doc = await poserLeDoc();
+    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, -150, -100);
+    const rogne = await tailleDoc();
+    r.verifie('tirer le même coin vers l\'intérieur rogne, lui',
+        rogne.cw < doc.cw - 50 && rogne.ch < doc.ch - 50,
+        `cadrage ${doc.cw}x${doc.ch} → ${rogne.cw}x${rogne.ch}`);
+
+    doc = await poserLeDoc();
+    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, -200, -150);
+    await tirerLaPoignee(doc.x + doc.w - 200, doc.y + doc.h - 150, 400, 300);
+    const rouvert = await tailleDoc();
+    r.verifie('rogner puis ressortir rouvre la page entière avant d\'agrandir',
+        rouvert.cw === doc.cw && rouvert.ch === doc.ch && rouvert.w > doc.w,
+        JSON.stringify(rouvert));
+
+    doc = await poserLeDoc();
+    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h / 2, 200, 0);
+    const deforme = await tailleDoc();
+    r.verifie('le côté seul déforme : la largeur change, la hauteur non',
+        deforme.w > doc.w + 100 && deforme.h === doc.h,
+        `${doc.w}x${doc.h} → ${deforme.w}x${deforme.h}`);
+
+    // Une image ordinaire, elle, n'a pas changé de comportement.
+    const ordinaire = await page.evaluate(async () => {
+        images.length = 0;
+        const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#39c"/></svg>');
+        const im = new Image(); im.src = src; imageCache[src] = im;
+        await new Promise(res => { im.onload = res; im.onerror = res; });
+        images.push({ id: nextId++, x: 200, y: 200, w: 200, h: 100, cx: 0, cy: 0, cw: 200, ch: 100, src, z: globalZ++ });
+        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); draw();
+        return { x: 200, y: 200, w: 200, h: 100 };
+    });
+    await tirerLaPoignee(ordinaire.x + ordinaire.w, ordinaire.y + ordinaire.h, 100, 50);
+    const apresOrdinaire = await tailleDoc();
+    r.egal('une image ordinaire garde son redimensionnement proportionnel',
+        { w: apresOrdinaire.w, h: apresOrdinaire.h }, { w: 300, h: 150 });
+
+    await page.evaluate(() => { images.length = 0; selectedItems = []; majBarreDocument(); draw(); });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

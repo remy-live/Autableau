@@ -8322,6 +8322,15 @@ canvas.addEventListener('pointermove', (e) => {
                 const isCorner = ['TL', 'TR', 'BL', 'BR'].includes(draggedHandle);
                 const MIN_SIZE = 10;
 
+                // UNE POIGNÉE DOIT TOUJOURS RÉPONDRE. Un document posé est en
+                // rognage : ses poignées referment le cadrage. Mais une fois la
+                // page montrée en entier, le rognage ne pouvait plus s'ouvrir
+                // et le geste était REJETÉ EN SILENCE — la poignée semblait
+                // morte, et l'on croyait le redimensionnement disparu. Passé
+                // cette limite, le même geste agrandit l'objet : on referme
+                // vers l'intérieur, on agrandit vers l'extérieur.
+                let rognageApplique = false;
+
                 if (isCropping) {
                     // ✂️ MODE 1 : ROGNAGE (CROP)
                     let newX = obj.x, newY = obj.y, newW = obj.w, newH = obj.h;
@@ -8332,13 +8341,19 @@ canvas.addEventListener('pointermove', (e) => {
                     if (draggedHandle.includes('B')) { newH += dy; newCH += dy * scaleY; }
                     if (draggedHandle.includes('T')) { newH -= dy; newY += dy; newCH -= dy * scaleY; newCY += dy * scaleY; }
 
-                    if (newW >= MIN_SIZE && newH >= MIN_SIZE) {
-                        if (newCX >= 0 && newCY >= 0 && newCX + newCW <= natW && newCY + newCH <= natH) {
-                            obj.x = newX; obj.y = newY; obj.w = newW; obj.h = newH;
-                            obj.cx = newCX; obj.cy = newCY; obj.cw = newCW; obj.ch = newCH;
-                        }
+                    // La tolérance d'un demi-pixel évite qu'un arrondi bloque le
+                    // rognage alors qu'il reste de la marge.
+                    const dansLaPage = newCX >= -0.5 && newCY >= -0.5
+                        && newCX + newCW <= natW + 0.5 && newCY + newCH <= natH + 0.5;
+
+                    if (newW >= MIN_SIZE && newH >= MIN_SIZE && dansLaPage) {
+                        obj.x = newX; obj.y = newY; obj.w = newW; obj.h = newH;
+                        obj.cx = newCX; obj.cy = newCY; obj.cw = newCW; obj.ch = newCH;
+                        rognageApplique = true;
                     }
                 }
+
+                if (rognageApplique) { /* le cadrage a absorbé le geste */ }
                 else if (keepRatio && isCorner) {
                     // 🔗 MODE 2 : REDIMENSIONNEMENT PROPORTIONNEL (Coins uniquement)
                     const ratio = obj.w / obj.h;
