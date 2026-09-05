@@ -8375,3 +8375,35 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .dark-mode .dv-reglage { color: #dfe6e9; }
 .dark-mode .dv-reglage:hover { background: #2f3941; }
 .dark-mode .dv-titre { color: #7f8c8d; }
+
+/* ============================================================
+   LE BANDEAU DE SAUVEGARDE
+   Un rappel, pas une modale : on n'arrête pas quelqu'un qui entre en classe.
+   Il se pose en haut, à l'écart des barres, et il part au premier clic.
+   ============================================================ */
+.bandeau-securite {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    max-width: calc(100vw - 32px);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid #dfe6e9;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    color: #2d3436;
+}
+
+.bandeau-securite button { padding: 5px 12px; font-size: 12.5px; flex: 0 0 auto; }
+
+.dark-mode .bandeau-securite {
+    background: rgba(30, 39, 46, 0.98);
+    border-color: #3d4852;
+    color: #dfe6e9;
+}

@@ -57,6 +57,18 @@ async function ouvrirApp(browser, options = {}) {
             } catch (e) { /* stockage refusé */ }
         });
     }
+    // Le rappel de sauvegarde se pose EN HAUT, trois secondes après le
+    // chargement, et intercepte lui aussi les clics : sur un navigateur neuf
+    // aucune copie n'a jamais été faite, il s'affiche donc dans toutes les
+    // suites. On fait comme si une copie venait d'avoir lieu — sauf, bien sûr,
+    // pour la suite qui éprouve le rappel lui-même.
+    if (!options.rappelSauvegarde) {
+        await context.addInitScript(() => {
+            try {
+                localStorage.setItem('AuTableau_derniere_securite', String(Date.now()));
+            } catch (e) { /* stockage refusé */ }
+        });
+    }
     const erreurs = [];
     page.on('pageerror', e => { if (!BRUIT.test(e.message)) erreurs.push(e.message.slice(0, 160)); });
     await page.goto(APP_URL);

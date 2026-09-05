@@ -1557,7 +1557,12 @@ function writeAppLocal() {
             ...p, images: (p.images || []).map(img => img.isBg ? { ...img, src: "" } : img)
         }));
         return localforage.setItem(AUTO_SAVE_KEY, { pages: ultraCleanedPages, assets: appState.assets, nextId, globalZ, currentBgIndex });
-    }).finally(() => { autoSaveWriting = false; });
+    }).finally(() => {
+        autoSaveWriting = false;
+        // Le disque local est écrit ; la copie de sécurité suit, au plus toutes
+        // les deux minutes.
+        if (typeof signalerUnChangementASauver === 'function') signalerUnChangementASauver();
+    });
 }
 
 // Sauvegarde automatique temporisée : une écriture après la salve d'actions,
@@ -1580,6 +1585,13 @@ document.addEventListener('visibilitychange', () => {
         && ClassesStore.ecrireMaintenant) ClassesStore.ecrireMaintenant();
 });
 window.addEventListener('pagehide', () => { if (autoSaveTimer) saveAppLocal(true); });
+// On ferme l'onglet : la copie de sécurité prend ce qu'il y a, sans attendre
+// la temporisation de deux minutes.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && typeof securiteAEcrire !== 'undefined' && securiteAEcrire) {
+        ecrireLaSauvegardeDeSecurite(true);
+    }
+});
 
 // === CALCUL DE TAILLE ===
 // Poids réel d'un objet une fois écrit en JSON, EN OCTETS. Tout ce qui parle
@@ -21982,6 +21994,257 @@ function createNewFolder() {
     renderExplorerLists();
 }
 
+// ==============================================================================
+// LA SAUVEGARDE DE SÉCURITÉ
+//
+// Tout le travail d'une année vit dans le stockage du navigateur. Un « effacer
+// les données de navigation », un profil scolaire réinitialisé, un changement
+// de poste, et il n'en reste rien. Les sources en ligne (Dropbox, Drive,
+// Nextcloud) ne répondent pas à ce besoin : elles demandent une adresse en
+// http(s) et ne fonctionnent donc PAS quand l'application est ouverte depuis un
+// dossier — c'est-à-dire dans le cas le plus courant.
+//
+// On désigne donc un dossier une fois pour toutes — le disque, une clé USB, un
+// dossier synchronisé — et une copie complète de l'espace s'y écrit toute
+// seule. Un fichier par jour, les dix derniers gardés : on peut revenir à
+// avant-hier, pas seulement à la dernière écriture.
+//
+// Le navigateur ne rend pas ce dossier sans y être invité : le droit d'écrire
+// s'obtient sur un geste de l'utilisateur, et il se redemande à la réouverture.
+// On le demande une fois, par un bandeau discret, plutôt que d'échouer en
+// silence.
+// ==============================================================================
+const CLE_DOSSIER_SECURITE = 'AuTableau_dossier_securite';
+const CLE_DERNIERE_SECURITE = 'AuTableau_derniere_securite';
+const SECURITE_PERIODE = 2 * 60 * 1000;   // au plus une écriture toutes les 2 min
+const SECURITE_JOURS = 10;                // ce qu'on garde derrière soi
+
+let dossierSecurite = null;         // FileSystemDirectoryHandle
+let securiteDerniereEcriture = 0;
+let securiteEnCours = false;
+let securiteAEcrire = false;        // quelque chose a changé depuis la dernière copie
+let securiteMinuteur = null;
+
+function sauvegardeDeSecuriteDisponible() {
+    return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+}
+
+function dateDuJourEnClair(d) {
+    const j = d || new Date();
+    const deuxChiffres = n => (n < 10 ? '0' : '') + n;
+    return j.getFullYear() + '-' + deuxChiffres(j.getMonth() + 1) + '-' + deuxChiffres(j.getDate());
+}
+
+function nomDuFichierDeSecurite(d) {
+    return 'Au Tableau — ' + dateDuJourEnClair(d) + '.autableau';
+}
+
+function dateDerniereSecurite() {
+    try { return parseInt(localStorage.getItem(CLE_DERNIERE_SECURITE), 10) || 0; } catch (e) { return 0; }
+}
+
+function joursSansSauvegarde() {
+    const t = dateDerniereSecurite();
+    if (!t) return Infinity;
+    return Math.floor((Date.now() - t) / (24 * 3600 * 1000));
+}
+
+// Le droit d'écrire dans le dossier. `demander` déclenche la question du
+// navigateur, qui exige un geste : on ne l'appelle donc que depuis un clic.
+async function droitSurLeDossier(handle, demander) {
+    if (!handle || !handle.queryPermission) return 'granted';
+    try {
+        const etat = await handle.queryPermission({ mode: 'readwrite' });
+        if (etat === 'granted') return 'granted';
+        if (!demander) return etat;
+        return await handle.requestPermission({ mode: 'readwrite' });
+    } catch (e) { return 'denied'; }
+}
+
+async function choisirLeDossierDeSecurite() {
+    if (!sauvegardeDeSecuriteDisponible()) {
+        if (typeof showToast === 'function') {
+            showToast('Ce navigateur ne sait pas écrire dans un dossier : utilisez « Exporter tous les tableaux »');
+        }
+        return null;
+    }
+    let handle;
+    try {
+        handle = await window.showDirectoryPicker({ id: 'autableau-securite', mode: 'readwrite' });
+    } catch (e) { return null; }   // choix annulé : rien à dire
+    if (await droitSurLeDossier(handle, true) !== 'granted') return null;
+    dossierSecurite = handle;
+    try { await localforage.setItem(CLE_DOSSIER_SECURITE, handle); } catch (e) { /* non clonable */ }
+    majLibelleDeLaSecurite();
+    const fait = await ecrireLaSauvegardeDeSecurite(true);
+    if (typeof showToast === 'function') {
+        showToast(fait
+            ? `Sauvegarde automatique dans « ${handle.name} » — une copie par jour`
+            : `Dossier « ${handle.name} » retenu, la première copie suivra`);
+    }
+    return handle;
+}
+window.choisirLeDossierDeSecurite = choisirLeDossierDeSecurite;
+
+async function oublierLeDossierDeSecurite() {
+    dossierSecurite = null;
+    try { await localforage.removeItem(CLE_DOSSIER_SECURITE); } catch (e) { /* rien à retirer */ }
+    majLibelleDeLaSecurite();
+    if (typeof showToast === 'function') showToast('Sauvegarde automatique arrêtée');
+}
+window.oublierLeDossierDeSecurite = oublierLeDossierDeSecurite;
+
+// Les copies d'il y a plus de dix jours s'en vont : sans cela le dossier
+// enfle indéfiniment, et une clé USB se remplit vite.
+async function rangerLesVieillesCopies() {
+    if (!dossierSecurite || !dossierSecurite.values) return 0;
+    const limite = new Date(Date.now() - SECURITE_JOURS * 24 * 3600 * 1000);
+    const seuil = dateDuJourEnClair(limite);
+    const aJeter = [];
+    try {
+        for await (const entree of dossierSecurite.values()) {
+            if (entree.kind !== 'file') continue;
+            const m = /^Au Tableau — (\d{4}-\d{2}-\d{2})\.autableau$/.exec(entree.name);
+            if (m && m[1] < seuil) aJeter.push(entree.name);
+        }
+    } catch (e) { return 0; }
+    let faits = 0;
+    for (const nom of aJeter) {
+        try { await dossierSecurite.removeEntry(nom); faits++; } catch (e) { /* fichier tenu ailleurs */ }
+    }
+    return faits;
+}
+
+async function ecrireLaSauvegardeDeSecurite(force) {
+    if (!dossierSecurite || securiteEnCours) return false;
+    if (!force && Date.now() - securiteDerniereEcriture < SECURITE_PERIODE) return false;
+    if (await droitSurLeDossier(dossierSecurite, false) !== 'granted') return false;
+    securiteEnCours = true;
+    try {
+        if (typeof syncPage === 'function') syncPage();
+        const espace = await getWorkspaceData();
+        const contenu = JSON.stringify(espace);
+        const fichier = await dossierSecurite.getFileHandle(nomDuFichierDeSecurite(), { create: true });
+        const flux = await fichier.createWritable();
+        await flux.write(contenu);
+        await flux.close();
+        securiteDerniereEcriture = Date.now();
+        securiteAEcrire = false;
+        try { localStorage.setItem(CLE_DERNIERE_SECURITE, String(Date.now())); } catch (e) { /* refusé */ }
+        await rangerLesVieillesCopies();
+        majLibelleDeLaSecurite();
+        return true;
+    } catch (e) {
+        // Dossier débranché, clé retirée, disque plein : on le dit une fois
+        // plutôt que de laisser croire que la copie se fait.
+        console.warn('Sauvegarde de sécurité impossible :', e);
+        if (typeof showToast === 'function') showToast('Sauvegarde automatique impossible : le dossier est-il toujours là ?');
+        return false;
+    } finally { securiteEnCours = false; }
+}
+window.ecrireLaSauvegardeDeSecurite = ecrireLaSauvegardeDeSecurite;
+
+// Chaque écriture locale signale qu'il y a du neuf ; la copie, elle, se fait au
+// plus toutes les deux minutes. On ne veut pas récrire trois mégaoctets à
+// chaque trait, ni perdre plus de deux minutes de cours.
+function signalerUnChangementASauver() {
+    if (!dossierSecurite) return;
+    securiteAEcrire = true;
+    if (securiteMinuteur) return;
+    const attente = Math.max(1000, SECURITE_PERIODE - (Date.now() - securiteDerniereEcriture));
+    securiteMinuteur = setTimeout(() => {
+        securiteMinuteur = null;
+        if (securiteAEcrire) ecrireLaSauvegardeDeSecurite(true);
+    }, attente);
+}
+
+function majLibelleDeLaSecurite() {
+    const lib = document.getElementById('lib-dossier-securite');
+    if (!lib) return;
+    if (!sauvegardeDeSecuriteDisponible()) { lib.textContent = 'Sauvegarde automatique (indisponible ici)'; return; }
+    if (!dossierSecurite) { lib.textContent = 'Sauvegarde automatique…'; return; }
+    lib.textContent = 'Sauvegarde : ' + (dossierSecurite.name || 'dossier choisi');
+}
+
+// Au démarrage : on retrouve le dossier, mais le droit d'y écrire ne se rend
+// pas tout seul. Plutôt qu'échouer en silence, on le demande une fois.
+async function reprendreLaSauvegardeDeSecurite() {
+    if (!sauvegardeDeSecuriteDisponible()) { majLibelleDeLaSecurite(); return false; }
+    let handle = null;
+    try { handle = await localforage.getItem(CLE_DOSSIER_SECURITE); } catch (e) { handle = null; }
+    if (!handle) { majLibelleDeLaSecurite(); return false; }
+    dossierSecurite = handle;
+    majLibelleDeLaSecurite();
+    const droit = await droitSurLeDossier(handle, false);
+    if (droit === 'granted') { ecrireLaSauvegardeDeSecurite(true); return true; }
+    proposerDeReprendreLaSecurite(handle);
+    return false;
+}
+window.reprendreLaSauvegardeDeSecurite = reprendreLaSauvegardeDeSecurite;
+
+// Un bandeau, pas une modale : on ne bloque pas quelqu'un qui entre en classe.
+function proposerDeReprendreLaSecurite(handle) {
+    if (document.getElementById('bandeau-securite')) return;
+    const barre = document.createElement('div');
+    barre.id = 'bandeau-securite';
+    barre.className = 'bandeau-securite';
+    const texte = document.createElement('span');
+    texte.textContent = `Reprendre la sauvegarde automatique dans « ${handle.name || 'votre dossier'} » ?`;
+    const oui = document.createElement('button');
+    oui.className = 'btn-action primary';
+    oui.textContent = 'Reprendre';
+    oui.onclick = async () => {
+        if (await droitSurLeDossier(handle, true) === 'granted') {
+            barre.remove();
+            ecrireLaSauvegardeDeSecurite(true);
+            if (typeof showToast === 'function') showToast('Sauvegarde automatique reprise');
+        }
+    };
+    const non = document.createElement('button');
+    non.className = 'btn-action secondary';
+    non.textContent = 'Plus tard';
+    non.onclick = () => barre.remove();
+    barre.appendChild(texte); barre.appendChild(oui); barre.appendChild(non);
+    document.body.appendChild(barre);
+}
+
+// SANS DOSSIER, ON PRÉVIENT. Une semaine sans copie, c'est une semaine de
+// cours qui ne tient qu'à un navigateur.
+function rappelerLaSauvegarde() {
+    if (dossierSecurite) return false;
+    const jours = joursSansSauvegarde();
+    if (jours < 7) return false;
+    if (document.getElementById('bandeau-securite')) return false;
+    const barre = document.createElement('div');
+    barre.id = 'bandeau-securite';
+    barre.className = 'bandeau-securite';
+    const texte = document.createElement('span');
+    texte.textContent = (jours === Infinity)
+        ? 'Votre travail n\'existe que dans ce navigateur. Une copie de sécurité ?'
+        : `Aucune copie de sécurité depuis ${jours} jours.`;
+    const oui = document.createElement('button');
+    oui.className = 'btn-action primary';
+    oui.textContent = sauvegardeDeSecuriteDisponible() ? 'Choisir un dossier' : 'Exporter maintenant';
+    oui.onclick = () => {
+        barre.remove();
+        if (sauvegardeDeSecuriteDisponible()) choisirLeDossierDeSecurite();
+        else if (typeof promptExportWorkspace === 'function') promptExportWorkspace();
+    };
+    const non = document.createElement('button');
+    non.className = 'btn-action secondary';
+    non.textContent = 'Plus tard';
+    non.onclick = () => {
+        barre.remove();
+        // « Plus tard » vaut une semaine, sinon le rappel revient à chaque
+        // ouverture et l'on apprend à ne plus le lire.
+        try { localStorage.setItem(CLE_DERNIERE_SECURITE, String(Date.now())); } catch (e) { /* refusé */ }
+    };
+    barre.appendChild(texte); barre.appendChild(oui); barre.appendChild(non);
+    document.body.appendChild(barre);
+    return true;
+}
+window.rappelerLaSauvegarde = rappelerLaSauvegarde;
+
 async function getWorkspaceData() {
     const tableaux = await localforage.getItem('auTableau_tableaux_list') || [];
     const autoSave = await localforage.getItem('AuTableau_AutoSave') || null;
@@ -25184,6 +25447,33 @@ const TEINTES_PAPIER = [
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
     if (typeof brancherLeLecteur === 'function') brancherLeLecteur();
+
+    // LA SAUVEGARDE DE SÉCURITÉ. On demande aussi au navigateur de ne pas
+    // effacer notre stockage sous la pression : sans cela, il peut décider
+    // seul de faire de la place, et l'année part avec.
+    const btnSecurite = document.getElementById('btn-dossier-securite');
+    if (btnSecurite) {
+        btnSecurite.addEventListener('click', () => {
+            if (dossierSecurite) {
+                openConfirmModal('Sauvegarde automatique',
+                    `Les copies s'écrivent dans « ${dossierSecurite.name} ». Choisir un autre dossier ?`,
+                    true, choisirLeDossierDeSecurite);
+            } else choisirLeDossierDeSecurite();
+        });
+    }
+    if (typeof majLibelleDeLaSecurite === 'function') majLibelleDeLaSecurite();
+    if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persisted().then(dejaSur => {
+            if (!dejaSur) navigator.storage.persist().catch(() => { /* refusé, on continue */ });
+        }).catch(() => { /* pas de gestionnaire de stockage */ });
+    }
+    if (typeof reprendreLaSauvegardeDeSecurite === 'function') {
+        reprendreLaSauvegardeDeSecurite().then(repris => {
+            // Le rappel ne s'affiche que si rien ne protège le travail, et
+            // seulement après le chargement, pour ne pas retarder la classe.
+            if (!repris) setTimeout(() => { if (typeof rappelerLaSauvegarde === 'function') rappelerLaSauvegarde(); }, 3000);
+        });
+    }
     if (typeof brancherLeVolet === 'function') brancherLeVolet();
 
     const btnRetrouver = document.getElementById('btn-retrouver-images');
