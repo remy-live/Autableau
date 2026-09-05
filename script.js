@@ -18613,6 +18613,98 @@ window.analyserListe = analyserListe;
 window.decouperCSV = decouperCSV;
 
 
+// ==============================================================================
+// UNE CLASSE POUR ESSAYER
+// On ne découvre pas ce que fait le bilan sur une classe vide, et l'on n'a pas
+// envie d'inventer trente élèves à la main pour voir à quoi il ressemble. Cette
+// classe-là est fabriquée avec DES CAS QUI NE SE RESSEMBLENT PAS : celui qui
+// oublie sa signature trois cours de suite, celle qui a oublié deux fois mais
+// jamais d'affilée, celui dont la série est terminée depuis longtemps, ceux qui
+// n'ont rien, les absents, les collectionneurs de badges.
+// Elle porte « (démo) » dans son nom : on la supprime comme les autres.
+// ==============================================================================
+const NOMS_DEMO = [
+    'Léa Martin', 'Malo Bernard', 'Zoé Dubois', 'Théo Thomas', 'Anaïs Robert',
+    'Ilyes Richard', 'Jade Petit', 'Noah Durand', 'Lina Leroy', 'Adam Moreau',
+    'Sarah Simon', 'Rayan Laurent', 'Camille Michel', 'Hugo Garcia', 'Emma David',
+    'Lucas Bertrand', 'Chloé Roux', 'Nina Vincent', 'Gabriel Fournier', 'Inès Morel',
+    'Tom Girard', 'Manon André', 'Louis Lefebvre', 'Alice Mercier'
+];
+
+function classeDeDemonstration() {
+    const dd = (x) => (x < 10 ? '0' : '') + x;
+    const jour = (recul) => {
+        const d = new Date(Date.now() - recul * 86400000);
+        return d.getFullYear() + '-' + dd(d.getMonth() + 1) + '-' + dd(d.getDate());
+    };
+    // Quatorze jours de cours répartis sur un mois — c'est d'eux que se
+    // déduisent les « cours de suite ».
+    const J = [30, 28, 25, 23, 21, 18, 16, 14, 11, 9, 7, 4, 2, 0].map(jour);
+    const dernier = J.length - 1;
+
+    const eleves = NOMS_DEMO.map((nom, i) => ({
+        id: 'demo_' + i, name: nom, journal: [], pts: { plus: 0, moins: 0, etoiles: 0 }
+    }));
+    const noter = (i, quand, t, v) => {
+        const trace = { d: J[quand], t };
+        if (v) trace.v = v;
+        eleves[i].journal.push(trace);
+        if (t === 'p') eleves[i].pts.plus++;
+        if (t === 'm') eleves[i].pts.moins++;
+    };
+
+    // 0 — la signature oubliée aux TROIS derniers cours : la série court encore
+    [dernier - 2, dernier - 1, dernier].forEach(k => noter(0, k, 'o', 'signature'));
+    noter(0, 3, 'p'); noter(0, 6, 'p'); noter(0, dernier - 4, 'b');
+
+    // 1 — deux oublis de matériel, mais jamais deux cours de suite
+    noter(1, 2, 'o', 'materiel'); noter(1, 8, 'o', 'materiel'); noter(1, 5, 'a');
+
+    // 2 — une série de devoirs terminée depuis longtemps : elle se voit, mais
+    //     elle ne « dure » plus
+    noter(2, 1, 'o', 'devoirs'); noter(2, 2, 'o', 'devoirs');
+    noter(2, 9, 'p'); noter(2, 10, 'p'); noter(2, 11, 'p');
+
+    // 3 — l'élève qui n'a rien : le bilan doit rester lisible avec des trous
+    // 4 — beaucoup de bonus, aucun oubli
+    [1, 3, 5, 7, 9, 11, 12].forEach(k => noter(4, k, 'p'));
+    [2, 6, 10].forEach(k => noter(4, k, 'b'));
+    eleves[4].pts.etoiles = 2;
+
+    // 5 — le solde négatif
+    [2, 4, 6, 8].forEach(k => noter(5, k, 'm'));
+    noter(5, 5, 'p');
+
+    // 6 — souvent absent
+    [0, 2, 4, 7, 9, 12].forEach(k => noter(6, k, 'a'));
+    noter(6, 3, 'o', 'carnet');
+
+    // 7 — les quatre natures d'oubli à la fois
+    noter(7, 4, 'o', 'materiel'); noter(7, 6, 'o', 'carnet');
+    noter(7, 8, 'o', 'devoirs'); noter(7, dernier - 1, 'o', 'signature');
+    noter(7, dernier, 'o', 'signature');
+
+    // 8 — le carnet oublié quatre cours d'affilée : la pire série
+    [dernier - 3, dernier - 2, dernier - 1, dernier].forEach(k => noter(8, k, 'o', 'carnet'));
+
+    // Les autres : un peu de vie, sans motif particulier, pour que le tableau
+    // ressemble à une vraie classe plutôt qu'à une liste d'exemples.
+    for (let i = 9; i < eleves.length; i++) {
+        const combien = (i * 7) % 5;
+        for (let k = 0; k < combien; k++) noter(i, (i * 3 + k * 2) % J.length, k % 3 === 0 ? 'm' : 'p');
+        if (i % 3 === 0) noter(i, (i * 2) % J.length, 'b');
+        if (i % 4 === 1) noter(i, (i + 5) % J.length, 'a');
+        if (i % 5 === 2) noter(i, (i + 1) % J.length, 'o', 'materiel');
+    }
+
+    return {
+        id: 'cls_demo_' + Date.now(),
+        name: '4e B (démo)',
+        students: eleves
+    };
+}
+window.classeDeDemonstration = classeDeDemonstration;
+
 async function openClassManagerModal() {
     // Deux appels de suite empilaient deux fenêtres identiques l'une sur
     // l'autre : la seconde cachait la première, qui restait là.
@@ -18840,6 +18932,8 @@ async function openClassManagerModal() {
             <div id="cm-onglets" role="tablist">
                 ${listHtml}
                 <button id="cm-new-class" class="cm-onglet-plus" title="Nouvelle classe">+</button>
+                ${state.classes.length === 0 ? `<button id="cm-demo" class="cm-onglet-demo"
+                    title="Une classe fictive de vingt-quatre élèves, avec des cas variés">Essayer avec une classe de démonstration</button>` : ''}
             </div>
             <!-- LES VUES D'UNE CLASSE SONT DES ONGLETS, PAS DES FENÊTRES.
                  « Points » refermait « Mes classes » pour ouvrir sa propre
@@ -18907,6 +19001,20 @@ async function openClassManagerModal() {
 
     function attachEvents() {
         box.querySelector('#cm-close').onclick = () => { quitterLesVues(); document.body.removeChild(modal); };
+
+        const boutonDemo = box.querySelector('#cm-demo');
+        if (boutonDemo) {
+            boutonDemo.onclick = () => {
+                const c = classeDeDemonstration();
+                state.classes.push(c);
+                state.selectedId = c.id;
+                persist();
+                render();
+                if (typeof showToast === 'function') {
+                    showToast(`« ${c.name} » posée — ${c.students.length} élèves, avec des cas variés à regarder dans le bilan`);
+                }
+            };
+        }
 
         // Les onglets de vue : élèves, points, plan de classe
         box.querySelectorAll('.cm-vue').forEach(b => {
@@ -19239,6 +19347,23 @@ async function openClassManagerModal() {
         box.querySelectorAll('.cm-fiche-periode').forEach(b => {
             b.onclick = () => { state.fichePeriode = b.dataset.p; render(); };
         });
+        // Le même bouton dans « Mes classes » : c'est la même fiche, il doit
+        // faire la même chose des deux côtés.
+        const pdfFiche = box.querySelector('#cm-fiche-pdf');
+        if (pdfFiche) {
+            pdfFiche.addEventListener('click', () => {
+                const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
+                if (!outil || !outil.exporterLaFiche) {
+                    if (typeof showToast === 'function') showToast("L'export n'est pas disponible ici");
+                    return;
+                }
+                // L'outil doit parler DE CETTE classe : on la lui désigne.
+                outil.classes = state.classes;
+                outil.classeId = state.selectedId;
+                outil.exporterLaFiche(pdfFiche.dataset.eleve);
+            });
+        }
+
         const memoFiche = box.querySelector('#cm-fiche-memo');
         if (memoFiche) {
             memoFiche.addEventListener('change', () => {
@@ -22885,6 +23010,12 @@ function ficheDeLEleve(classe, eleve, periode) {
                 <b>${nom}</b>
                 ${eleve.absent ? '<span class="cm-fiche-absent">absent aujourd\'hui</span>' : ''}
             </div>
+            <div style="flex:1;"></div>
+            <!-- LE BILAN DE CET ÉLÈVE SEUL. Le tableau de la classe entière n'a
+                 rien à faire sur la table d'un entretien : on y lit les noms
+                 des vingt-neuf autres. -->
+            <button id="cm-fiche-pdf" class="btn-action secondary" data-eleve="${eleve.id}"
+                    title="Une feuille pour cet élève seul, avec les dates">⬇ Bilan de l'élève</button>
         </div>
 
         <div class="cm-fiche-periodes">

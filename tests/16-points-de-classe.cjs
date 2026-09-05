@@ -1496,7 +1496,9 @@ module.exports = async function (browser) {
     // pastilles dans une seule colonne, qui ne paraissent que si elles ont
     // quelque chose à dire. Restent : l'élève, ses points, ses badges, ses
     // absences, ses oublis.
-    r.egal('le tableau tient en cinq colonnes', bilan.colonnes, 5);
+    // Cinq colonnes de contenu, plus l'étroite qui porte le chevron : toute la
+    // ligne mène à la fiche, et il faut que cela se voie.
+    r.egal('le tableau tient en cinq colonnes, plus le chevron', bilan.colonnes, 6);
     r.egal('une ligne par élève', bilan.lignes, bilan.eleves);
     r.egal('trois trimestres et cinq autres périodes', bilan.periodes, 8);
     r.verifie('et un bouton d\'export PDF', bilan.boutonPdf);
@@ -2166,7 +2168,6 @@ module.exports = async function (browser) {
             theo: { suite: par('Théo').suites.devoirs.suite, enCours: par('Théo').suites.devoirs.enCours },
             zoe: { total: par('Zoé').totalOublis, pire: par('Zoé').pireSuite },
             pastilles: (html.match(/pts-oubli-pastille/g) || []).length,
-            alternance: (html.match(/#fbfcfd/g) || []).length,
             suivi: /À suivre/.test(html),
             texteSuivi: (html.match(/À suivre[\s\S]{0,200}/) || [''])[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
             infobulleDate: /data-tooltip="[^"]*Signature[^"]*\/[^"]*"/.test(html)
@@ -2178,8 +2179,18 @@ module.exports = async function (browser) {
     r.egal('les jours où l\'on a vu la classe se déduisent du journal', releveBilan.jours, 5);
 
     r.verifie('le tableau tient en cinq colonnes, au lieu de onze',
-        releveBilan.colonnes === 5, releveBilan.colonnes + ' colonnes');
-    r.verifie('une ligne sur deux est teintée', releveBilan.alternance >= 2, String(releveBilan.alternance));
+        releveBilan.colonnes === 6, releveBilan.colonnes + ' colonnes (dont le chevron)');
+    // L'alternance est passée du HTML à la feuille de style : on la mesure donc
+    // sur ce qui est RENDU, pas sur la chaîne de caractères.
+    const zebre = await page.evaluate(() => {
+        const P = PluginManager.plugins.classPointsTool;
+        P.panneauBilan = true; P.rendre();
+        const l = [...document.querySelectorAll('#points-widget .pts-bilan-ligne')];
+        if (l.length < 2) return { assez: false };
+        return { assez: true, un: getComputedStyle(l[0]).backgroundColor, deux: getComputedStyle(l[1]).backgroundColor };
+    });
+    r.verifie('une ligne sur deux est teintée',
+        zebre.assez && zebre.un !== zebre.deux, JSON.stringify(zebre));
 
     // LES DATES : elles étaient dans le journal, jamais à l'écran.
     r.egal('les dates de chaque oubli sont là', releveBilan.lea.dates.length, 3);
@@ -2207,6 +2218,166 @@ module.exports = async function (browser) {
         !/Théo/.test(releveBilan.texteSuivi), releveBilan.texteSuivi);
     r.verifie('trois pastilles d\'oubli, une par élève concerné',
         releveBilan.pastilles === 3, String(releveBilan.pastilles));
+
+    // =====================================================================
+    // UNE CLASSE POUR ESSAYER
+    // On ne découvre pas ce que fait le bilan sur une classe vide, et l'on
+    // n'invente pas trente élèves à la main pour voir à quoi il ressemble.
+    // =====================================================================
+    const { context: ctxDemo, page: pageDemo, erreurs: errDemo } = await ouvrirApp(browser);
+    await pageDemo.waitForFunction(() => typeof openClassManagerModal === 'function', { timeout: 20000 });
+    await pageDemo.evaluate(async () => {
+        await ClassesStore.saveAll([]);
+        await openClassManagerModal();
+        await new Promise(res => setTimeout(res, 500));
+    });
+    r.verifie('sans aucune classe, on propose d\'en essayer une',
+        await pageDemo.evaluate(() => !!document.querySelector('#cm-demo')));
+
+    await pageDemo.click('#cm-demo');
+    await pageDemo.waitForTimeout(600);
+    const demo = await pageDemo.evaluate(async () => {
+        const cls = await ClassesStore.loadAll();
+        const c = cls[0];
+        const P = PluginManager.plugins.classPointsTool;
+        P.classes = cls; P.classeId = c.id; P.bilanPeriode = 'tout';
+        const lignes = P.lignesDuBilan();
+        return {
+            nom: c.name, eleves: c.students.length,
+            proposParti: !document.querySelector('#cm-demo'),
+            // Les cas qui doivent s'y trouver, et qui ne se ressemblent pas
+            suitesEnCours: lignes.filter(l => l.suiteEnCours).length,
+            suiteLaPlusLongue: Math.max(...lignes.map(l => l.pireSuite)),
+            suiteFinie: lignes.filter(l => l.pireSuite >= 2 && !l.suiteEnCours).length,
+            sansRien: lignes.filter(l => !l.totalOublis && !l.absences && !l.plus && !l.moins && !l.badges).length,
+            soldesNegatifs: lignes.filter(l => l.solde < 0).length,
+            souventAbsent: lignes.filter(l => l.absences >= 4).length,
+            quatreNatures: lignes.filter(l => Object.values(l.oublis).filter(Boolean).length >= 4).length
+        };
+    });
+
+    r.egal('elle porte vingt-quatre élèves et se dit « démo »',
+        { eleves: demo.eleves, demo: /démo/.test(demo.nom) }, { eleves: 24, demo: true });
+    r.verifie('le bouton disparaît une fois la classe posée', demo.proposParti);
+    r.verifie('elle contient plusieurs séries d\'oublis qui courent encore',
+        demo.suitesEnCours >= 2, String(demo.suitesEnCours));
+    r.verifie('dont une longue — quatre cours de suite',
+        demo.suiteLaPlusLongue >= 4, String(demo.suiteLaPlusLongue));
+    r.verifie('et une série TERMINÉE, qui ne doit pas se confondre avec les autres',
+        demo.suiteFinie >= 1, String(demo.suiteFinie));
+    r.verifie('des élèves sans rien du tout : le tableau doit rester lisible avec des trous',
+        demo.sansRien >= 2, String(demo.sansRien));
+    r.verifie('des soldes négatifs', demo.soldesNegatifs >= 2, String(demo.soldesNegatifs));
+    r.verifie('un élève souvent absent', demo.souventAbsent >= 1, String(demo.souventAbsent));
+    r.verifie('et un qui cumule les quatre natures d\'oubli',
+        demo.quatreNatures >= 1, String(demo.quatreNatures));
+
+    // =====================================================================
+    // LE BILAN LISIBLE : la ligne mène à la fiche, les oublis se lisent
+    // =====================================================================
+    const lisible = await pageDemo.evaluate(async () => {
+        const P = PluginManager.plugins.classPointsTool;
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        if (P.accueillirDans) P.accueillirDans(null);
+        P.ouvrir(P.classeId);
+        await new Promise(res => setTimeout(res, 600));
+        P.bilanPeriode = 'tout'; P.panneauBilan = true; P.rendre();
+        await new Promise(res => setTimeout(res, 400));
+        const w = document.getElementById('points-widget');
+        const past = [...w.querySelectorAll('.pts-oubli-pastille')];
+        return {
+            lignes: w.querySelectorAll('.pts-bilan-ligne').length,
+            fleches: w.querySelectorAll('.pts-bilan-fleche').length,
+            alertes: w.querySelectorAll('.pts-bilan-ligne.pts-bilan-alerte').length,
+            // Les noms EN TOUTES LETTRES : « Sign 3 ↻3 » ne se lisait pas
+            libelles: [...new Set(past.map(p => (p.firstChild ? p.firstChild.textContent : '').trim()))].sort(),
+            cerclees: w.querySelectorAll('.pts-oubli-pastille.dure').length,
+            infobulleAvecDates: past.some(p => /\d{2}\/\d{2}/.test(p.getAttribute('data-tooltip') || ''))
+        };
+    });
+    r.egal('une ligne par élève, chacune menant quelque part',
+        { l: lisible.lignes, f: lisible.fleches }, { l: 24, f: 24 });
+    r.verifie('les natures d\'oubli s\'écrivent en entier',
+        lisible.libelles.every(x => ['Matériel', 'Carnet', 'Devoirs', 'Signature'].includes(x)),
+        lisible.libelles.join(', '));
+    r.verifie('les séries qui durent sont cerclées', lisible.cerclees >= 2, String(lisible.cerclees));
+    r.verifie('et leurs lignes signalées', lisible.alertes >= 2, String(lisible.alertes));
+    r.verifie('les dates restent au survol de la pastille', lisible.infobulleAvecDates);
+
+    // TOUTE LA LIGNE OUVRE LA FICHE : les dates n'étaient qu'au survol d'une
+    // pastille, il fallait le savoir et viser juste.
+    const versLaFiche = await pageDemo.evaluate(async () => {
+        const w = document.getElementById('points-widget');
+        const ligne = w.querySelector('.pts-bilan-ligne');
+        const qui = ligne.dataset.eleve;
+        ligne.click();
+        await new Promise(res => setTimeout(res, 400));
+        const P = PluginManager.plugins.classPointsTool;
+        return {
+            demande: qui, ouverte: P.ficheEleve,
+            bilanReferme: !P.panneauBilan,
+            fiche: !!w.querySelector('.cm-fiche'),
+            boutonPdf: !!w.querySelector('#cm-fiche-pdf')
+        };
+    });
+    r.egal('cliquer une ligne ouvre la fiche de CET élève',
+        { bon: versLaFiche.demande === versLaFiche.ouverte, fiche: versLaFiche.fiche, bilan: versLaFiche.bilanReferme },
+        { bon: true, fiche: true, bilan: true });
+
+    // LA FICHE A ENFIN SES STYLES. Ses règles étaient enclavées dans la fenêtre
+    // « Mes classes » : dans la feuille de points, la même fiche s'affichait
+    // toute nue — du texte brut empilé, sans une bordure.
+    const habillee = await pageDemo.evaluate(() => {
+        const t = document.querySelector('#points-widget .cm-tuile');
+        const f = document.querySelector('#points-widget .cm-fiche');
+        return {
+            tuileEncadree: t ? getComputedStyle(t).borderStyle : 'aucune tuile',
+            tuileEnColonne: t ? getComputedStyle(t).flexDirection : '?',
+            ficheEnColonne: f ? getComputedStyle(f).flexDirection : '?'
+        };
+    });
+    r.egal('la fiche est habillée là aussi, pas seulement dans « Mes classes »',
+        habillee, { tuileEncadree: 'solid', tuileEnColonne: 'column', ficheEnColonne: 'column' });
+
+    // LE BILAN D'UN SEUL ÉLÈVE : le tableau de la classe entière n'a rien à
+    // faire sur la table d'un entretien avec des parents.
+    r.verifie('la fiche propose son propre bilan à exporter', versLaFiche.boutonPdf);
+    const exportFiche = await pageDemo.evaluate(() => {
+        const P = PluginManager.plugins.classPointsTool;
+        // Pas de fiche ouverte : on le dit ici plutôt que de planter et
+        // d'emporter les trois cent soixante-dix autres vérifications.
+        if (!P.ficheEleve) return { ok: false, nom: null, texte: '', eleve: '(aucune fiche ouverte)' };
+        let nom = null, pages = 0, lignes = [];
+        const vrai = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+        // On intercepte le document plutôt que d'écrire un fichier sur le disque
+        const faux = function (o) {
+            const d = new vrai(o);
+            const ecrire = d.text.bind(d);
+            d.text = (t, ...a) => { lignes.push(String(t)); return ecrire(t, ...a); };
+            const ajouter = d.addPage.bind(d);
+            d.addPage = (...a) => { pages++; return ajouter(...a); };
+            d.save = (n) => { nom = n; };
+            return d;
+        };
+        if (window.jspdf) window.jspdf.jsPDF = faux; else window.jsPDF = faux;
+        const ok = P.exporterLaFiche(P.ficheEleve);
+        if (window.jspdf) window.jspdf.jsPDF = vrai; else window.jsPDF = vrai;
+        const eleve = P.classeCourante().students.find(s => s.id === P.ficheEleve);
+        return { ok, nom, texte: lignes.join(' | '), eleve: eleve.name };
+    });
+    r.verifie('l\'export d\'un élève aboutit', exportFiche.ok);
+    r.verifie('le fichier porte son nom',
+        /^bilan-/.test(exportFiche.nom || '') && /\.pdf$/.test(exportFiche.nom || ''), String(exportFiche.nom));
+    r.verifie('la feuille ne parle que de lui', exportFiche.texte.includes(exportFiche.eleve),
+        exportFiche.texte.slice(0, 160));
+    r.verifie('et elle porte les DATES, qui sont la première question posée',
+        /\d{2}\/\d{2}/.test(exportFiche.texte), exportFiche.texte.slice(0, 220));
+    r.verifie('avec les rubriques attendues',
+        /Oublis/.test(exportFiche.texte) && /Absences/.test(exportFiche.texte),
+        exportFiche.texte.slice(0, 220));
+
+    r.verifie('aucune erreur JS sur la classe de démonstration', errDemo.length === 0, errDemo.join(' | '));
+    await ctxDemo.close();
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

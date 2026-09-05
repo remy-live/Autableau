@@ -31865,6 +31865,8 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                         this.sauver();
                     });
                 }
+                const pdfFiche = corps.querySelector('#cm-fiche-pdf');
+                if (pdfFiche) pdfFiche.addEventListener('click', () => this.exporterLaFiche(eleveVu.id));
                 return;
             }
         }
@@ -32205,39 +32207,42 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // dire. Les dates, elles, étaient dans le journal mais nulle part à
     // l'écran : elles arrivent au survol, là où on les cherche.
     ligneDuBilan: function (l, rang) {
-        const fond = (rang % 2) ? '#fbfcfd' : '#fff';
-        const rien = '<span style="color:#dfe6e9;">·</span>';
+        const rien = '<span class="pts-bilan-vide">–</span>';
 
+        // LES OUBLIS EN TOUTES LETTRES. « Sign 3 ↻3 » ne se lisait pas : quatre
+        // lettres tronquées, un compteur et un signe, sans un mot pour dire de
+        // quoi il s'agissait. Le nom entier tient dans la place qu'occupait la
+        // colonne, et la répétition se dit en français.
         const pastilles = this.TYPES_OUBLI.map(t => {
             const n = l.oublis[t.id];
             if (!n) return '';
             const s = l.suites[t.id] || { suite: 0, enCours: false };
             const recidive = s.suite >= 2;
             const dates = (l.datesOublis[t.id] || []).join(', ');
-            const dit = `${t.nom} : ${n} fois${dates ? ' — ' + dates : ''}`
-                + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure' : ''}` : '');
-            return `<span class="pts-oubli-pastille" data-tooltip="${this.echapper(dit)}"
-                style="display:inline-flex; align-items:center; gap:3px; padding:1px 7px; border-radius:999px;
-                       font-size:11.5px; font-weight:700; white-space:nowrap;
-                       color:${t.couleur}; background:${t.couleur}1f;
-                       ${s.enCours ? `box-shadow:0 0 0 1.5px ${t.couleur};` : ''}">
-                ${this.echapper(t.nom.slice(0, 4))}&nbsp;${n}${recidive ? ` <b style="font-weight:900;">↻${s.suite}</b>` : ''}</span>`;
-        }).filter(Boolean).join(' ');
+            const dit = `${t.nom} : ${n} fois${dates ? ' — le ' + dates : ''}`
+                + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure encore' : ''}` : '');
+            return `<span class="pts-oubli-pastille${s.enCours ? ' dure' : ''}" data-tooltip="${this.echapper(dit)}"
+                style="color:${t.couleur}; background:${t.couleur}1a; --teinte:${t.couleur};">
+                ${this.echapper(t.nom)}<b>${n}</b>${recidive ? `<i title="${s.suite} cours de suite">↻${s.suite}</i>` : ''}</span>`;
+        }).filter(Boolean).join('');
 
         const detailPoints = `${l.plus} bonus, ${l.moins} malus`;
         const dit = (texte) => this.echapper(texte);
+        // Celui dont une suite court encore : la ligne le dit, on ne la cherche pas.
+        const alerte = l.suiteEnCours ? ' pts-bilan-alerte' : '';
 
-        return `<tr style="background:${fond}; border-top:1px solid #f1f3f4;">
-            <td style="padding:5px 8px; white-space:nowrap;">${this.echapper(l.nom)}</td>
-            <td data-tooltip="${dit(detailPoints)}"
-                style="text-align:center; padding:5px 6px; font-weight:bold; width:1%;
-                       color:${l.solde < 0 ? '#d63031' : (l.solde > 0 ? '#00b894' : '#b2bec3')};">
+        return `<tr class="pts-bilan-ligne${alerte}" data-eleve="${l.id}"
+                data-tooltip="Voir la fiche de ${dit(l.nom)}">
+            <td class="pts-bilan-nom">${this.echapper(l.nom)}</td>
+            <td class="pts-bilan-nb" data-tooltip="${dit(detailPoints)}"
+                style="color:${l.solde < 0 ? '#d63031' : (l.solde > 0 ? '#00b894' : '#b2bec3')};">
                 ${l.solde ? (l.solde > 0 ? '+' : '') + l.solde : rien}</td>
-            <td style="text-align:center; padding:5px 6px; width:1%;">${l.badges || rien}</td>
-            <td data-tooltip="${dit(l.absences ? 'Absent le ' + l.datesAbsences.join(', ') : 'Aucune absence')}"
-                style="text-align:center; padding:5px 6px; width:1%; font-weight:bold;
-                       color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || rien}</td>
-            <td style="padding:4px 8px; line-height:1.9;">${pastilles || rien}</td>
+            <td class="pts-bilan-nb">${l.badges || rien}</td>
+            <td class="pts-bilan-nb"
+                data-tooltip="${dit(l.absences ? 'Absent le ' + l.datesAbsences.join(', ') : 'Aucune absence')}"
+                style="color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || rien}</td>
+            <td class="pts-bilan-oublis">${pastilles || rien}</td>
+            <td class="pts-bilan-fiche"><span class="pts-bilan-fleche" title="Ouvrir la fiche">›</span></td>
         </tr>`;
     },
 
@@ -32290,13 +32295,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     <thead style="position:sticky; top:0; z-index:1; background:#f7f9fa;"><tr>
                         ${entete('nom', 'Élève')}
                         ${entete('solde', 'Points', 'Bonus moins malus — le détail au survol')}
-                        ${entete('badges', '🏅', 'Badges reçus sur la période')}
+                        ${entete('badges', 'Badges', 'Badges reçus sur la période')}
                         ${entete('absences', 'Abs.', "Jours d'absence — les dates au survol")}
                         ${entete('totalOublis', 'Oublis', 'Le détail par nature, avec les dates au survol')}
+                        <th class="pts-bilan-fiche"></th>
                     </tr></thead>
                     <tbody>
                         ${lignes.length ? lignes.map((l, i) => this.ligneDuBilan(l, i)).join('')
-                : `<tr><td colspan="5" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
+                : `<tr><td colspan="6" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
                     </tbody>
                 </table>
             </div>
@@ -32328,6 +32334,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.bilanTri = { col, sens: this.bilanTri.col === col ? -this.bilanTri.sens : 1 };
             this.rendre();
         }));
+        // TOUTE LA LIGNE OUVRE LA FICHE. Les dates n'étaient qu'au survol d'une
+        // pastille : il fallait le savoir, et viser juste. Un clic sur la ligne
+        // — n'importe où — mène au détail, dates comprises.
+        el.querySelectorAll('.pts-bilan-ligne').forEach(tr => tr.addEventListener('click', () => {
+            this.panneauBilan = false;
+            this.ficheEleve = tr.dataset.eleve;
+            this.rendre();
+        }));
         const fermer = el.querySelector('#pts-bilan-fermer');
         if (fermer) fermer.addEventListener('click', () => { this.panneauBilan = false; this.rendre(); });
         const pdf = el.querySelector('#pts-bilan-pdf');
@@ -32336,6 +32350,108 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
     // Le PDF : le même tableau, en paysage, avec la classe et la période en
     // en-tête — c'est ce qu'on pose sur la table d'un entretien.
+    // ---------------------------------------------------------------------
+    // LE BILAN D'UN SEUL ÉLÈVE
+    // Le tableau de la classe entière n'a rien à faire sur la table d'un
+    // entretien avec des parents : on y lit les noms des vingt-neuf autres.
+    // Cette feuille-là ne parle que de leur enfant, avec les DATES — c'est
+    // toujours la première question posée.
+    // ---------------------------------------------------------------------
+    exporterLaFiche: function (eleveId) {
+        this.sauverMaintenant();
+        const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+        if (!jsPDFctor) {
+            if (typeof showToast === 'function') showToast("L'export PDF n'est pas disponible ici");
+            return false;
+        }
+        const classe = this.classeCourante();
+        const eleve = classe && (classe.students || []).find(s => s.id === (eleveId || this.ficheEleve));
+        if (!eleve) return false;
+        const l = this.lignesDuBilan().find(x => x.id === eleve.id);
+        if (!l) return false;
+
+        const doc = new jsPDFctor({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+        const L = doc.internal.pageSize.getWidth();
+        const H = doc.internal.pageSize.getHeight();
+        const marge = 48;
+        let y = 60;
+
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
+        doc.text(String(eleve.name || 'Élève'), marge, y);
+        y += 20;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
+        doc.text(`${(classe && classe.name) || 'Classe'} — ${this.nomDeLaPeriode()}`, marge, y);
+        doc.setTextColor(0);
+        y += 26;
+
+        // Les chiffres, en bandeau
+        const cases = [['Bonus', l.plus], ['Malus', l.moins], ['Solde', (l.solde > 0 ? '+' : '') + l.solde],
+            ['Badges', l.badges], ['Oublis', l.totalOublis], ['Absences', l.absences]];
+        const largeur = (L - marge * 2) / cases.length;
+        cases.forEach((c, i) => {
+            const x = marge + i * largeur;
+            doc.setDrawColor(215); doc.roundedRect(x, y, largeur - 6, 44, 5, 5);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+            doc.text(String(c[1] || '—'), x + (largeur - 6) / 2, y + 22, { align: 'center' });
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120);
+            doc.text(c[0].toUpperCase(), x + (largeur - 6) / 2, y + 35, { align: 'center' });
+            doc.setTextColor(0);
+        });
+        y += 70;
+
+        const titre = (t) => {
+            if (y > H - marge - 40) { doc.addPage(); y = 60; }
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+            doc.text(t, marge, y); y += 6;
+            doc.setDrawColor(220); doc.line(marge, y, L - marge, y);
+            y += 16;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+        };
+        const ligne = (gauche, droite) => {
+            if (y > H - marge) { doc.addPage(); y = 60; }
+            doc.text(String(gauche), marge, y);
+            if (droite) {
+                doc.setTextColor(110);
+                doc.text(String(droite), L - marge, y, { align: 'right' });
+                doc.setTextColor(0);
+            }
+            y += 15;
+        };
+
+        // LES DATES : c'est pour elles qu'on imprime cette feuille.
+        titre('Oublis');
+        let unOubli = false;
+        this.TYPES_OUBLI.forEach(t => {
+            const n = l.oublis[t.id];
+            if (!n) return;
+            unOubli = true;
+            const s = l.suites[t.id] || { suite: 0, enCours: false };
+            const suite = s.suite >= 2 ? `  (${s.suite} cours de suite${s.enCours ? ', en cours' : ''})` : '';
+            ligne(`${t.nom} : ${n}${suite}`, (l.datesOublis[t.id] || []).join(', '));
+        });
+        if (!unOubli) ligne('Aucun oubli sur la période.');
+        y += 8;
+
+        titre('Absences');
+        if (l.absences) ligne(`${l.absences} jour(s) manqué(s)`, (l.datesAbsences || []).join(', '));
+        else ligne('Aucune absence relevée.');
+        y += 8;
+
+        titre('Récompenses');
+        const badges = this.badgesDe ? this.badgesDe(eleve) : null;
+        if (l.badges) ligne(`${l.badges} badge(s) sur la période`);
+        else ligne('Aucun badge sur la période.');
+        void badges;
+
+        doc.setFontSize(8); doc.setTextColor(140);
+        doc.text('Au Tableau ! — ' + new Date().toLocaleDateString(), marge, H - 24);
+
+        const propre = String(eleve.name || 'eleve').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-');
+        doc.save(`bilan-${propre}.pdf`);
+        if (typeof showToast === 'function') showToast(`Bilan de ${eleve.name} exporté`);
+        return true;
+    },
+
     exporterLeBilan: function () {
         this.sauverMaintenant();
         const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;

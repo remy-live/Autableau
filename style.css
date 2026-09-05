@@ -7256,35 +7256,40 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     }
 }
 
-/* ---- La fiche d'un élève ---- */
-#class-manager-modal .cm-fiche { display:flex; flex-direction:column; gap:12px; overflow-y:auto; min-height:0; padding-right:4px; text-align:left; }
-#class-manager-modal .cm-fiche-bloc { text-align:left; }
-#class-manager-modal .cm-fiche-tete { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-#class-manager-modal .cm-fiche-qui { display:flex; align-items:center; gap:9px; font-size:16px; }
-#class-manager-modal .cm-fiche-absent { font-size:11px; font-weight:700; color:#e17055;
+/* ---- LA FICHE D'UN ÉLÈVE ----
+   Elle se rend à DEUX endroits : la fenêtre « Mes classes » et la feuille de
+   points. Ces règles étaient enclavées dans « #class-manager-modal » : dans la
+   feuille de points, la même fiche s'affichait toute nue — du texte brut
+   empilé, sans une bordure ni un alignement. Elles valent maintenant partout
+   où la fiche paraît. */
+.cm-fiche { display:flex; flex-direction:column; gap:12px; overflow-y:auto; min-height:0; padding-right:4px; text-align:left; }
+.cm-fiche-bloc { text-align:left; }
+.cm-fiche-tete { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.cm-fiche-qui { display:flex; align-items:center; gap:9px; font-size:16px; }
+.cm-fiche-absent { font-size:11px; font-weight:700; color:#e17055;
     background:rgba(225,112,85,0.14); border-radius:999px; padding:2px 8px; }
-#class-manager-modal .cm-fiche-periodes { display:flex; flex-wrap:wrap; gap:5px; }
-#class-manager-modal .cm-fiche-periode { border:1px solid var(--border); background:transparent; color:var(--ink);
+.cm-fiche-periodes { display:flex; flex-wrap:wrap; gap:5px; }
+.cm-fiche-periode { border:1px solid var(--border); background:transparent; color:var(--ink);
     border-radius:999px; padding:4px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
-#class-manager-modal .cm-fiche-periode.actif { background:var(--accent); border-color:var(--accent); color:#fff; }
-#class-manager-modal .cm-fiche-quand { font-size:11.5px; color:var(--muted); margin-top:-6px; }
-#class-manager-modal .cm-tuiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(88px, 1fr)); gap:7px; }
-#class-manager-modal .cm-tuile { display:flex; flex-direction:column; align-items:center; gap:1px;
+.cm-fiche-periode.actif { background:var(--accent); border-color:var(--accent); color:#fff; }
+.cm-fiche-quand { font-size:11.5px; color:var(--muted); margin-top:-6px; }
+.cm-tuiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(88px, 1fr)); gap:7px; }
+.cm-tuile { display:flex; flex-direction:column; align-items:center; gap:1px;
     padding:9px 6px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
-#class-manager-modal .cm-tuile b { font-size:20px; line-height:1.1; }
-#class-manager-modal .cm-tuile span { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
-#class-manager-modal .cm-fiche-titre { font-size:10.5px; font-weight:700; text-transform:uppercase;
+.cm-tuile b { font-size:20px; line-height:1.1; }
+.cm-tuile span { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+.cm-fiche-titre { font-size:10.5px; font-weight:700; text-transform:uppercase;
     letter-spacing:.05em; color:var(--muted); margin-bottom:5px; }
-#class-manager-modal .cm-fiche-badges { display:flex; flex-wrap:wrap; gap:6px; }
-#class-manager-modal .cm-fiche-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+.cm-fiche-badges { display:flex; flex-wrap:wrap; gap:6px; }
+.cm-fiche-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
     border-radius:999px; padding:3px 11px 3px 4px; font-size:12px; background:var(--bg); }
-#class-manager-modal .cm-fiche-ligne { display:flex; align-items:center; gap:8px; padding:4px 0;
+.cm-fiche-ligne { display:flex; align-items:center; gap:8px; padding:4px 0;
     font-size:12.5px; border-top:1px solid var(--border); }
-#class-manager-modal .cm-fiche-ligne:first-of-type { border-top:none; }
-#class-manager-modal .cm-fiche-quoi { min-width:110px; }
-#class-manager-modal .cm-fiche-dates { flex:1; text-align:right; color:var(--muted); font-size:11.5px; }
-#class-manager-modal .cm-fiche-rien { font-size:12px; color:var(--muted); }
-#class-manager-modal .cm-fiche textarea { width:100%; border:1px solid var(--border); border-radius:8px;
+.cm-fiche-ligne:first-of-type { border-top:none; }
+.cm-fiche-quoi { min-width:110px; }
+.cm-fiche-dates { flex:1; text-align:right; color:var(--muted); font-size:11.5px; }
+.cm-fiche-rien { font-size:12px; color:var(--muted); }
+.cm-fiche textarea { width:100%; border:1px solid var(--border); border-radius:8px;
     padding:7px 9px; font:inherit; font-size:12.5px; resize:vertical; background:var(--bg); color:var(--ink); }
 
 
@@ -8538,3 +8543,100 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .cm-fiche-prive > summary::-webkit-details-marker { display: none; }
 .cm-fiche-prive > summary:hover { color: var(--accent, #6c5ce7); border-color: var(--accent, #6c5ce7); }
 .cm-fiche-prive[open] > summary { border-style: solid; margin-bottom: 6px; }
+
+/* ============================================================
+   LE TABLEAU DU BILAN
+   Il n'était pas lisible : la colonne des oublis prenait près de la moitié
+   de la largeur pour des pastilles tronquées à quatre lettres — « Sign 3 ↻3 »
+   — pendant que les nombres se serraient dans des colonnes d'un pour cent.
+   Chaque colonne prend ici la place qu'il lui faut, et pas davantage.
+   ============================================================ */
+.pts-bilan-table th,
+.pts-bilan-table td { vertical-align: middle; }
+
+/* Le nom prend ce qui reste : c'est lui qu'on lit en premier. */
+.pts-bilan-nom {
+    padding: 7px 10px;
+    white-space: nowrap;
+    font-weight: 600;
+    width: 100%;
+}
+
+/* Les nombres : étroits, alignés, en chiffres de même largeur pour qu'une
+   colonne se lise d'un coup d'œil. */
+.pts-bilan-nb {
+    text-align: center;
+    padding: 7px 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    width: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+.pts-bilan-vide { color: #dfe6e9; font-weight: 400; }
+
+.pts-bilan-oublis {
+    padding: 5px 10px;
+    white-space: nowrap;
+    width: 1px;
+    line-height: 1.7;
+}
+
+/* La nature de l'oubli EN TOUTES LETTRES, son compte en gras, et la
+   répétition à part. Une pastille cerclée : la suite court encore. */
+.pts-oubli-pastille {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 2px 9px;
+    margin-right: 4px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pts-oubli-pastille b { font-weight: 800; font-size: 12.5px; }
+.pts-oubli-pastille i {
+    font-style: normal;
+    font-weight: 800;
+    font-size: 11px;
+    padding-left: 4px;
+    border-left: 1px solid currentColor;
+    opacity: 0.85;
+}
+
+.pts-oubli-pastille.dure { box-shadow: 0 0 0 1.5px var(--teinte); }
+
+/* Toute la ligne mène à la fiche : elle doit se comporter comme un lien. */
+.pts-bilan-ligne { border-top: 1px solid #f1f3f4; cursor: pointer; }
+.pts-bilan-ligne:nth-child(even) { background: #fbfcfd; }
+.pts-bilan-ligne:hover { background: #eef2ff; }
+
+/* Celui dont une suite d'oublis court encore : un liseré, pas un cri. */
+.pts-bilan-ligne.pts-bilan-alerte .pts-bilan-nom { box-shadow: inset 3px 0 0 #d63031; }
+
+.pts-bilan-fiche { width: 1px; padding: 0 8px 0 2px; }
+.pts-bilan-fleche { color: #b2bec3; font-size: 17px; font-weight: 700; }
+.pts-bilan-ligne:hover .pts-bilan-fleche { color: #6c5ce7; }
+
+.dark-mode .pts-bilan-ligne:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+.dark-mode .pts-bilan-ligne:hover { background: rgba(108, 92, 231, 0.18); }
+.dark-mode .pts-bilan-vide { color: #4a5560; }
+
+/* Sans aucune classe, on ne peut rien découvrir : une classe fictive permet
+   de voir à quoi ressemble un bilan avant d'avoir saisi trente noms. */
+.cm-onglet-demo {
+    border: 1px dashed var(--accent, #6c5ce7);
+    background: var(--accent-soft, #eef2ff);
+    color: var(--accent, #6c5ce7);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 8px;
+}
+
+.cm-onglet-demo:hover { border-style: solid; }
