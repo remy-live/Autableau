@@ -1882,10 +1882,111 @@ function facteurLisible(v) {
 
 function etapesDeLecture() { return history.length; }
 
+// ---------------------------------------------------------------------------
+// LE PASSAGE D'UNE ÉTAPE À L'AUTRE
+// Sec, le saut se lit mal : quand un seul trait change au milieu d'une figure,
+// on ne voit pas QUE quelque chose s'est passé. On garde donc l'image d'avant
+// sur un calque posé sur le tableau, et on la fait disparaître — en fondu, ou
+// balayée de gauche à droite. Rien de tout cela ne touche au dessin lui-même :
+// c'est une copie de pixels qui s'efface par-dessus.
+// ---------------------------------------------------------------------------
+const CLE_TRANSITION = 'AuTableau_lecture_transition';
+let lectureTransition = 'fondu';
+try {
+    const t = localStorage.getItem(CLE_TRANSITION);
+    if (t === 'aucune' || t === 'fondu' || t === 'balayage') lectureTransition = t;
+} catch (e) { /* refusé */ }
+
+let calqueDuPassage = null;
+let passageEnCours = null;
+
+function reglerLaTransition(nom) {
+    if (nom !== 'aucune' && nom !== 'fondu' && nom !== 'balayage') return lectureTransition;
+    lectureTransition = nom;
+    try { localStorage.setItem(CLE_TRANSITION, nom); } catch (e) { /* refusé */ }
+    const choix = document.getElementById('lecture-transition');
+    if (choix && choix.value !== nom) choix.value = nom;
+    return lectureTransition;
+}
+window.reglerLaTransition = reglerLaTransition;
+
+// Une transition ne doit jamais durer plus que l'étape elle-même, sinon deux
+// images se chevauchent et l'on ne voit plus rien à vive allure.
+function dureeDuPassage() {
+    return Math.max(90, Math.min(340, Math.round(delaiDeLecture() * 0.55)));
+}
+
+function calqueDuPassagePret() {
+    if (!calqueDuPassage) {
+        calqueDuPassage = document.createElement('canvas');
+        calqueDuPassage.id = 'calque-passage';
+        calqueDuPassage.setAttribute('aria-hidden', 'true');
+        Object.assign(calqueDuPassage.style, {
+            position: 'fixed', left: '0', top: '0', width: '100%', height: '100%',
+            pointerEvents: 'none', zIndex: '3', display: 'none'
+        });
+        document.body.appendChild(calqueDuPassage);
+    }
+    return calqueDuPassage;
+}
+
+function finirLePassage() {
+    if (passageEnCours) { cancelAnimationFrame(passageEnCours); passageEnCours = null; }
+    if (calqueDuPassage) calqueDuPassage.style.display = 'none';
+}
+
+// L'image d'AVANT, prise juste avant que l'état change.
+function prendreLImageDAvant() {
+    if (lectureTransition === 'aucune') return false;
+    const source = document.getElementById('board');
+    if (!source || !source.width || !source.height) return false;
+    const calque = calqueDuPassagePret();
+    finirLePassage();
+    if (calque.width !== source.width || calque.height !== source.height) {
+        calque.width = source.width; calque.height = source.height;
+    }
+    const g = calque.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, calque.width, calque.height);
+    try { g.drawImage(source, 0, 0); } catch (e) { return false; }
+    calque.style.display = 'block';
+    calque.style.opacity = '1';
+    return true;
+}
+
+function jouerLePassage() {
+    const calque = calqueDuPassage;
+    if (!calque || calque.style.display === 'none') return;
+    const duree = dureeDuPassage();
+    const depart = performance.now();
+    const largeur = calque.width;
+    const mode = lectureTransition;
+    const g = calque.getContext('2d');
+    const pas = () => {
+        const t = Math.min(1, (performance.now() - depart) / duree);
+        if (mode === 'balayage') {
+            // On efface une bande de plus en plus large, de gauche à droite :
+            // l'image neuve apparaît derrière, comme une page qu'on découvre.
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            g.clearRect(0, 0, largeur * t, calque.height);
+            calque.style.opacity = String(1 - t * 0.25);
+        } else {
+            calque.style.opacity = String(1 - t);
+        }
+        if (t < 1) passageEnCours = requestAnimationFrame(pas);
+        else { passageEnCours = null; calque.style.display = 'none'; }
+    };
+    passageEnCours = requestAnimationFrame(pas);
+}
+
 function poserEtapeDeLecture(i) {
     if (!history.length) return;
-    lectureIndex = Math.max(0, Math.min(history.length - 1, Math.round(i)));
+    const cible = Math.max(0, Math.min(history.length - 1, Math.round(i)));
+    const bouge = cible !== lectureIndex;
+    const avecPassage = bouge && lectureOuverte && prendreLImageDAvant();
+    lectureIndex = cible;
     appliquerEtatDuTableau(history[lectureIndex], false);
+    if (avecPassage) jouerLePassage(); else finirLePassage();
     majBandeDeLecture();
 }
 
@@ -1905,21 +2006,15 @@ function ouvrirLeLecteur(ouvrir) {
         lectureIndex = historyIndex;
     } else {
         arreterLaLecture();
+        // Le calque du passage ne doit pas rester figé sur le tableau rendu.
+        if (typeof finirLePassage === 'function') finirLePassage();
         if (lectureRetour) appliquerEtatDuTableau(lectureRetour, false);
         lectureRetour = null;
     }
     lectureOuverte = veut;
     const bande = document.getElementById('bande-lecture');
     if (bande) {
-        // La bande se pose AU-DESSUS du tiroir du bas, dont la hauteur change
-        // selon qu'il est ouvert, replié, ou en mode Focus. Une valeur fixe le
-        // faisait tomber en travers des boutons.
-        if (lectureOuverte) {
-            const tiroir = document.getElementById('bottom-drawer');
-            const h = tiroir ? tiroir.getBoundingClientRect().height : 0;
-            const visible = tiroir && getComputedStyle(tiroir).display !== 'none' && h > 0;
-            bande.style.setProperty('--haut-du-tiroir', (visible ? Math.round(h) + 14 : 24) + 'px');
-        }
+        if (lectureOuverte) poserLaBandeSurLeTiroir();
         bande.classList.toggle('ouverte', lectureOuverte);
     }
     // Le tableau montre un état passé : il faut que cela se voie, sinon on
@@ -1931,6 +2026,144 @@ function ouvrirLeLecteur(ouvrir) {
     return lectureOuverte;
 }
 window.ouvrirLeLecteur = ouvrirLeLecteur;
+
+// ---------------------------------------------------------------------------
+// LA BANDE SUIT LE TIROIR DU BAS
+// Elle se posait au-dessus de lui, mais la mesure n'était prise qu'à
+// l'ouverture du lecteur : replier le tiroir ensuite laissait la bande flotter
+// à cent pixels du bord, et le rouvrir la faisait chevaucher les boutons.
+// Le tiroir se referme par une TRANSLATION — sa hauteur ne change pas, un
+// observateur de taille n'y verrait rien. On regarde donc où son bord haut
+// tombe réellement dans la fenêtre, ce qui vaut aussi pendant l'animation.
+// ---------------------------------------------------------------------------
+function poserLaBandeSurLeTiroir() {
+    const bande = document.getElementById('bande-lecture');
+    if (!bande || bande.classList.contains('posee')) return;   // déplacée à la main : elle reste où on l'a mise
+    const tiroir = document.getElementById('bottom-drawer');
+    let bas = 24;
+    if (tiroir && getComputedStyle(tiroir).display !== 'none') {
+        const r = tiroir.getBoundingClientRect();
+        const cache = Math.max(0, window.innerHeight - r.top);   // ce que le tiroir occupe en bas
+        if (cache > 4) bas = Math.round(cache) + 14;
+    }
+    bande.style.setProperty('--haut-du-tiroir', bas + 'px');
+}
+window.poserLaBandeSurLeTiroir = poserLaBandeSurLeTiroir;
+
+// Le tiroir bouge par une classe, et son mouvement dure : on suit pendant
+// toute l'animation plutôt que de mesurer une seule fois, trop tôt.
+function suivreLeTiroirDuBas() {
+    const tiroir = document.getElementById('bottom-drawer');
+    if (!tiroir) return;
+    let jusqua = 0;
+    const suivre = () => {
+        poserLaBandeSurLeTiroir();
+        if (performance.now() < jusqua) requestAnimationFrame(suivre);
+    };
+    const relancer = () => { jusqua = performance.now() + 600; requestAnimationFrame(suivre); };
+    new MutationObserver(relancer).observe(tiroir, { attributes: true, attributeFilter: ['class', 'style'] });
+    tiroir.addEventListener('transitionend', poserLaBandeSurLeTiroir);
+    window.addEventListener('resize', poserLaBandeSurLeTiroir);
+}
+
+// ---------------------------------------------------------------------------
+// RÉDUIRE LA BANDE
+// Devant une classe, on ne se sert que de « lire » et « pause » : le reste
+// mange l'écran. Réduite, il ne reste que le rond de lecture — et de quoi la
+// rouvrir. On s'en souvient d'une séance à l'autre.
+// ---------------------------------------------------------------------------
+const CLE_BANDE_REDUITE = 'AuTableau_lecture_reduite';
+let bandeReduite = false;
+try { bandeReduite = localStorage.getItem(CLE_BANDE_REDUITE) === 'oui'; } catch (e) { /* refusé */ }
+
+function reduireLaBande(veut) {
+    const bande = document.getElementById('bande-lecture');
+    bandeReduite = (veut === undefined) ? !bandeReduite : !!veut;
+    try { localStorage.setItem(CLE_BANDE_REDUITE, bandeReduite ? 'oui' : 'non'); } catch (e) { /* refusé */ }
+    if (bande) bande.classList.toggle('reduite', bandeReduite);
+    const bouton = document.getElementById('lecture-reduire');
+    if (bouton) {
+        bouton.setAttribute('aria-pressed', bandeReduite ? 'true' : 'false');
+        bouton.setAttribute('data-tooltip', bandeReduite
+            ? 'Rouvrir la bande de lecture'
+            : 'Réduire la bande : ne garder que la lecture');
+    }
+    return bandeReduite;
+}
+window.reduireLaBande = reduireLaBande;
+
+// ---------------------------------------------------------------------------
+// DÉPLACER LA BANDE
+// Elle tombait au milieu du bas, là où l'on écrit souvent. On la prend par sa
+// poignée et on la pose ailleurs ; un double-clic sur la poignée la remet à sa
+// place, au-dessus du tiroir. La position tient d'une séance à l'autre.
+// ---------------------------------------------------------------------------
+const CLE_BANDE_PLACE = 'AuTableau_lecture_place';
+
+function poserLaBandeA(x, y) {
+    const bande = document.getElementById('bande-lecture');
+    if (!bande) return;
+    const r = bande.getBoundingClientRect();
+    // Toujours attrapable : on ne la laisse pas sortir de l'écran.
+    const px = Math.max(4, Math.min(window.innerWidth - r.width - 4, x));
+    const py = Math.max(4, Math.min(window.innerHeight - r.height - 4, y));
+    bande.classList.add('posee');
+    bande.style.setProperty('--lec-x', Math.round(px) + 'px');
+    bande.style.setProperty('--lec-y', Math.round(py) + 'px');
+    try { localStorage.setItem(CLE_BANDE_PLACE, JSON.stringify({ x: Math.round(px), y: Math.round(py) })); } catch (e) { /* refusé */ }
+}
+
+function replacerLaBande() {
+    const bande = document.getElementById('bande-lecture');
+    if (!bande) return;
+    bande.classList.remove('posee');
+    bande.style.removeProperty('--lec-x');
+    bande.style.removeProperty('--lec-y');
+    try { localStorage.removeItem(CLE_BANDE_PLACE); } catch (e) { /* refusé */ }
+    poserLaBandeSurLeTiroir();
+}
+window.replacerLaBande = replacerLaBande;
+
+function brancherLaPoigneeDeLaBande() {
+    const bande = document.getElementById('bande-lecture');
+    const poignee = document.getElementById('lecture-poignee');
+    if (!bande || !poignee) return;
+
+    let prise = null;
+    poignee.addEventListener('pointerdown', (e) => {
+        const r = bande.getBoundingClientRect();
+        prise = { dx: e.clientX - r.left, dy: e.clientY - r.top, bouge: false };
+        poignee.setPointerCapture(e.pointerId);
+        bande.classList.add('en-deplacement');
+        e.preventDefault();
+    });
+    poignee.addEventListener('pointermove', (e) => {
+        if (!prise) return;
+        // Quelques pixels de jeu : un double-clic ne doit pas déplacer la bande.
+        if (!prise.bouge && Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return;
+        prise.bouge = true;
+        poserLaBandeA(e.clientX - prise.dx, e.clientY - prise.dy);
+    });
+    const lacher = (e) => {
+        if (!prise) return;
+        try { poignee.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+        prise = null;
+        bande.classList.remove('en-deplacement');
+    };
+    poignee.addEventListener('pointerup', lacher);
+    poignee.addEventListener('pointercancel', lacher);
+    poignee.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLaBande(); });
+
+    // La place retenue de la dernière fois
+    try {
+        const garde = JSON.parse(localStorage.getItem(CLE_BANDE_PLACE) || 'null');
+        if (garde && isFinite(garde.x) && isFinite(garde.y)) {
+            bande.classList.add('posee');
+            bande.style.setProperty('--lec-x', garde.x + 'px');
+            bande.style.setProperty('--lec-y', garde.y + 'px');
+        }
+    } catch (e) { /* réglage illisible */ }
+}
 
 function arreterLaLecture() {
     lectureEnMarche = false;
@@ -2074,6 +2307,14 @@ function brancherLeLecteur() {
         b('lecture-vitesse').addEventListener('input', (e) => reglerLaVitesseAuCran(parseInt(e.target.value, 10)));
     }
     if (b('lecture-boucle')) b('lecture-boucle').addEventListener('click', () => basculerLaBoucle());
+    if (b('lecture-reduire')) b('lecture-reduire').addEventListener('click', () => reduireLaBande());
+    if (b('lecture-transition')) {
+        b('lecture-transition').value = lectureTransition;
+        b('lecture-transition').addEventListener('change', (e) => reglerLaTransition(e.target.value));
+    }
+    brancherLaPoigneeDeLaBande();
+    suivreLeTiroirDuBas();
+    reduireLaBande(bandeReduite);
     const curseur = b('lecture-curseur');
     if (curseur) {
         curseur.addEventListener('input', () => {

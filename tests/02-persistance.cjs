@@ -1141,6 +1141,163 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => reglerLaVitesse(1));
 
+    // ===================================================================
+    // LA BANDE : SA TAILLE, SA PLACE, SA RÉDUCTION
+    // ===================================================================
+    const boiteDeLaBande = () => page.evaluate(() => {
+        const b = document.getElementById('bande-lecture').getBoundingClientRect();
+        return { x: Math.round(b.x), y: Math.round(b.y), l: Math.round(b.width),
+                 h: Math.round(b.height), bas: Math.round(window.innerHeight - b.bottom) };
+    });
+
+    const taille = await boiteDeLaBande();
+    r.verifie('la bande tient dans une hauteur de barre d\'outils',
+        taille.h <= 50, `${taille.h} px de haut`);
+    r.verifie('et ne mange pas la moitié de l\'écran',
+        taille.l < 800, `${taille.l} px de large`);
+
+    // ELLE SUIT LE TIROIR DU BAS. La mesure n'était prise qu'à l'ouverture du
+    // lecteur : replier le tiroir ensuite laissait la bande flotter loin du
+    // bord, et le rouvrir la faisait chevaucher les boutons.
+    const tiroirOuvert = await boiteDeLaBande();
+    await page.evaluate(() => toggleBottomDrawer());
+    await page.waitForTimeout(700);
+    const tiroirFerme = await boiteDeLaBande();
+    await page.evaluate(() => toggleBottomDrawer());
+    await page.waitForTimeout(700);
+    const tiroirRouvert = await boiteDeLaBande();
+    r.verifie('le tiroir se ferme, la bande descend',
+        tiroirFerme.bas < tiroirOuvert.bas - 40,
+        `${tiroirOuvert.bas} px du bas → ${tiroirFerme.bas} px`);
+    r.verifie('le tiroir remonte, la bande remonte avec lui',
+        Math.abs(tiroirRouvert.bas - tiroirOuvert.bas) <= 2,
+        `${tiroirFerme.bas} px → ${tiroirRouvert.bas} px, attendu ${tiroirOuvert.bas}`);
+
+    // ON LA DÉPLACE PAR SA POIGNÉE, et elle cesse alors de suivre le tiroir :
+    // une place choisie à la main ne doit pas être reprise.
+    const priseDeLaPoignee = () => page.evaluate(() => {
+        const b = document.getElementById('lecture-poignee').getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    let poignee = await priseDeLaPoignee();
+    await page.mouse.move(poignee.x, poignee.y);
+    await page.mouse.down();
+    await page.mouse.move(320, 210, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    const deplacee = await boiteDeLaBande();
+    r.verifie('la bande se déplace où l\'on veut',
+        Math.abs(deplacee.y - tiroirOuvert.y) > 200 && deplacee.y > 0,
+        JSON.stringify(deplacee));
+
+    await page.evaluate(() => toggleBottomDrawer());
+    await page.waitForTimeout(700);
+    const deplaceeEtTiroir = await boiteDeLaBande();
+    await page.evaluate(() => toggleBottomDrawer());
+    await page.waitForTimeout(700);
+    r.egal('une fois déplacée, le tiroir ne la reprend plus',
+        deplaceeEtTiroir.y, deplacee.y);
+
+    poignee = await priseDeLaPoignee();
+    await page.mouse.dblclick(poignee.x, poignee.y);
+    await page.waitForTimeout(400);
+    const remise = await boiteDeLaBande();
+    r.verifie('un double-clic sur la poignée la remet à sa place',
+        Math.abs(remise.y - tiroirOuvert.y) <= 2 && Math.abs(remise.bas - tiroirOuvert.bas) <= 2,
+        JSON.stringify({ remise, attendu: tiroirOuvert }));
+
+    // RÉDUITE, IL NE RESTE QUE LA LECTURE.
+    await page.click('#lecture-reduire');
+    await page.waitForTimeout(250);
+    const reduite = await page.evaluate(() => {
+        const vis = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        const bande = document.getElementById('bande-lecture');
+        return { l: Math.round(bande.getBoundingClientRect().width),
+                 visibles: Array.from(bande.children).filter(vis).map(e => e.id).filter(Boolean) };
+    });
+    r.verifie('réduite, la bande tient en un coin',
+        reduite.l < taille.l / 3, `${reduite.l} px contre ${taille.l}`);
+    r.egal('et il ne reste que lire, réduire, déplacer et fermer',
+        reduite.visibles.slice().sort(),
+        ['lecture-fermer', 'lecture-jouer', 'lecture-poignee', 'lecture-reduire']);
+
+    await page.click('#lecture-jouer');
+    await page.waitForTimeout(400);
+    r.verifie('et la lecture se commande encore', await page.evaluate(() => lectureEnMarche));
+    await page.evaluate(() => arreterLaLecture());
+    await page.click('#lecture-reduire');
+    await page.waitForTimeout(250);
+    r.verifie('on la rouvre entière', (await boiteDeLaBande()).l === taille.l);
+
+    // ===================================================================
+    // LE PASSAGE D'UNE ÉTAPE À L'AUTRE
+    // Sec, le saut se lit mal quand un seul trait change au milieu d'une
+    // figure : on garde l'image d'avant sur un calque et on l'efface.
+    // ===================================================================
+    const fondu = await page.evaluate(async () => {
+        reglerLaTransition('fondu'); reglerLaVitesse(1);
+        poserEtapeDeLecture(0);
+        poserEtapeDeLecture(5);
+        const c = document.getElementById('calque-passage');
+        const pendant = { affiche: c && c.style.display, opacite: c ? +c.style.opacity : -1 };
+        await new Promise(res => setTimeout(res, 700));
+        return { pendant, apres: c ? c.style.display : 'absent' };
+    });
+    r.egal('en fondu, l\'image d\'avant reste un instant puis s\'efface',
+        { affiche: fondu.pendant.affiche, opaque: fondu.pendant.opacite > 0.9, apres: fondu.apres },
+        { affiche: 'block', opaque: true, apres: 'none' });
+
+    // Le balayage découvre la nouvelle image de la gauche vers la droite :
+    // à mi-course, il doit rester bien plus d'ancienne image à DROITE.
+    const balaye = await page.evaluate(async () => {
+        reglerLaTransition('balayage');
+        poserEtapeDeLecture(0);
+        poserEtapeDeLecture(8);
+        const c = document.getElementById('calque-passage');
+        // Pas de calque du tout : on le dit dans la ligne qui le concerne,
+        // plutôt que de planter et d'emporter les cent autres avec.
+        if (!c) return { gauche: -1, droite: -1, apres: 'absent' };
+        await new Promise(res => setTimeout(res, 170));   // à peu près la mi-course
+        const g = c.getContext('2d');
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let gauche = 0, droite = 0;
+        for (let y = 0; y < c.height; y += 4) {
+            for (let x = 0; x < c.width; x += 4) {
+                const i = (y * c.width + x) * 4;
+                if (d[i + 3] > 10) { if (x < c.width / 2) gauche++; else droite++; }
+            }
+        }
+        await new Promise(res => setTimeout(res, 700));
+        return { gauche, droite, apres: c.style.display };
+    });
+    r.verifie('le balayage découvre la nouvelle image par la gauche',
+        balaye.droite > balaye.gauche * 1.5,
+        `${balaye.gauche} points restants à gauche, ${balaye.droite} à droite`);
+    r.egal('et il ne laisse rien traîner sur le tableau', balaye.apres, 'none');
+
+    const net = await page.evaluate(async () => {
+        reglerLaTransition('aucune');
+        poserEtapeDeLecture(0);
+        poserEtapeDeLecture(4);
+        const c = document.getElementById('calque-passage');
+        return c ? c.style.display : 'absent';
+    });
+    r.verifie('« Net » ne pose aucun calque', net === 'none' || net === 'absent', net);
+
+    // Refermer le lecteur ne doit pas laisser une image figée par-dessus.
+    await page.evaluate(() => {
+        reglerLaTransition('fondu');
+        poserEtapeDeLecture(0); poserEtapeDeLecture(6);
+        ouvrirLeLecteur(false);
+    });
+    await page.waitForTimeout(200);
+    r.egal('refermer le lecteur retire le calque du passage',
+        await page.evaluate(() => {
+            const c = document.getElementById('calque-passage');
+            return c ? c.style.display : 'absent';
+        }), 'none');
+    await page.evaluate(() => { reglerLaTransition('aucune'); ouvrirLeLecteur(true); });
+
     // PENDANT LE FILM, LE TABLEAU EST UN FILM.
     // Dessiner sur un état rembobiné écrivait dans l'historique un état du
     // PASSÉ — et l'envoyait sur le disque. Rembobiné à la deuxième étape, un

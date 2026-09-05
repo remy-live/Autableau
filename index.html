@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=86">
+    <link rel="stylesheet" href="style.css?v=87">
 </head>
 
 <body>
@@ -347,6 +347,15 @@
     <!-- LA BANDE DU LECTEUR. Elle ne s'ouvre que sur demande, et elle rend le
          tableau exactement comme elle l'a trouvé quand on la referme. -->
     <div id="bande-lecture" role="group" aria-label="Lecteur : rejouer le tableau">
+        <!-- LA POIGNÉE. On déplace la bande où l'on veut ; un double-clic la
+             remet à sa place, au-dessus du tiroir du bas. -->
+        <button class="lec-btn lec-poignee" id="lecture-poignee"
+            data-tooltip="Déplacer la bande — double-clic pour la remettre en place"><svg viewBox="0 0 24 24"
+                width="16" height="16" fill="currentColor" aria-hidden="true">
+                <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
+                <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
+                <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
+            </svg></button>
         <button class="lec-btn" id="lecture-debut" data-tooltip="Revenir au début"><svg viewBox="0 0 24 24"
                 width="18" height="18" fill="currentColor">
                 <path d="M6 5.5h2.2v13H6v-13zm12 0v13l-8.5-6.5L18 5.5z" />
@@ -391,7 +400,22 @@
                 aria-label="Vitesse de lecture">
             <span id="lecture-vitesse-lue" class="mono-lec">×1 · 700 ms</span>
         </span>
-        <span class="lec-note">Tableau figé — Espace ou → avance d'une étape</span>
+        <!-- LE PASSAGE D'UNE ÉTAPE À L'AUTRE. Sec, le saut se lit mal quand un
+             seul trait change : un fondu ou un balayage montrent QUE quelque
+             chose vient de se passer. -->
+        <select id="lecture-transition" class="lec-choix" aria-label="Passage d'une étape à l'autre"
+            title="Passage d'une étape à l'autre">
+            <option value="aucune">Net</option>
+            <option value="fondu">Fondu</option>
+            <option value="balayage">Balayage</option>
+        </select>
+        <span class="lec-note">Espace : une étape</span>
+        <button class="lec-btn" id="lecture-reduire" aria-pressed="false"
+            data-tooltip="Réduire la bande : ne garder que la lecture"><svg viewBox="0 0 24 24" width="16"
+                height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path class="ico-reduire" d="M5 12h14" />
+                <path class="ico-etendre" d="M5 12h14M12 5v14" />
+            </svg></button>
         <button class="lec-btn lec-fermer" id="lecture-fermer" data-tooltip="Fermer le lecteur et revenir au tableau"><svg
                 viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round">
@@ -2235,7 +2259,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=167"></script>
+    <script src="script.js?v=168"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
