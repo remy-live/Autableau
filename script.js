@@ -137,6 +137,37 @@ let activeStyle = {
     lineHeight: 29, // <--- AJOUTE lineHeight ICI
     arrowStart: 0, arrowEnd: 0
 };
+
+// Le stylo n'appartient pas au tableau : il appartient à celui qui écrit. On
+// ne le range donc pas dans le fichier — un cours prêté n'a pas à imposer sa
+// couleur — mais dans le navigateur, pour le retrouver en rouvrant.
+// Chaque valeur relue doit être du même type que celle d'origine : un réglage
+// abîmé ne doit pas pouvoir casser la barre de style au démarrage.
+const CLE_STYLO = 'AuTableau_stylo';
+try {
+    const garde = JSON.parse(localStorage.getItem(CLE_STYLO) || 'null');
+    if (garde && typeof garde === 'object') {
+        Object.keys(activeStyle).forEach(cle => {
+            if (typeof garde[cle] === typeof activeStyle[cle]) activeStyle[cle] = garde[cle];
+        });
+    }
+} catch (e) { /* stockage refusé ou réglage illisible : on garde les valeurs d'usine */ }
+
+// Le stylo se règle depuis cent quatre-vingts endroits : la palette, les
+// curseurs, les plugins, les raccourcis. Plutôt que d'ajouter un appel partout
+// — et d'en oublier — on écoute l'objet lui-même. L'écriture est différée :
+// tirer un curseur d'opacité ne doit pas écrire quarante fois dans le disque.
+let stylorAEcrire = null;
+activeStyle = new Proxy(activeStyle, {
+    set(cible, cle, valeur) {
+        cible[cle] = valeur;
+        clearTimeout(stylorAEcrire);
+        stylorAEcrire = setTimeout(() => {
+            try { localStorage.setItem(CLE_STYLO, JSON.stringify(cible)); } catch (e) { /* stockage plein ou refusé */ }
+        }, 400);
+        return true;
+    }
+});
 let nextId = 1; let globalZ = 1;
 let points = []; let segments = []; let circles = []; let rectangles = []; let texts = []; let htmlPostits = [];
 let freehands = []; let curves = []; let polygons = []; let images = []; let arcs = [];
@@ -919,13 +950,13 @@ function createNewPage() {
     return {
         points: [], segments: [], circles: [], rectangles: [], texts: [], freehands: [], curves: [], polygons: [], images: [], arcs: [],
         htmlPostits: [],
-        history: [], historyIndex: -1, panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1
+        history: [], historyIndex: -1, film: [], panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1
     };
 }
 
 function syncPage() {
     if (currentPageIndex === -1 || !pages[currentPageIndex]) return;
-    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, panX, panY, zoom, origineFeuille, origineAxes };
+    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, film: filmPas, panX, panY, zoom, origineFeuille, origineAxes };
 }
 
 function initPages() {
@@ -942,6 +973,22 @@ function loadPage(index) {
     points = p.points || []; segments = p.segments || []; circles = p.circles || []; rectangles = p.rectangles || []; texts = p.texts || [];
     freehands = p.freehands || []; curves = p.curves || []; polygons = p.polygons || []; images = p.images || []; arcs = p.arcs || []; htmlPostits = p.htmlPostits || [];
     history = p.history || []; historyIndex = p.historyIndex !== undefined ? p.historyIndex : -1;
+    filmPas = Array.isArray(p.film) ? p.film : [];
+    filmDernierEtat = null;
+    // Un tableau qui revient du disque n'a que son film : l'historique s'en
+    // redéroule, et l'annulation comme le lecteur retrouvent leurs cent étapes.
+    if (!history.length && filmPas.length) {
+        history = deroulerLeFilm(filmPas);
+        historyIndex = (p.historyIndex !== undefined && p.historyIndex >= 0 && p.historyIndex < history.length)
+            ? p.historyIndex : history.length - 1;
+        p.history = history; p.historyIndex = historyIndex;
+    }
+    if (filmPas.length !== history.length) refaireLeFilm();
+    // Le rang courant vient du disque : il ne doit jamais désigner une étape
+    // qui n'existe pas, sinon la première annulation cherche un état absent et
+    // le tableau s'arrête net.
+    if (historyIndex > history.length - 1) historyIndex = history.length - 1;
+    if (historyIndex < -1) historyIndex = -1;
     panX = p.panX || window.innerWidth / 2; panY = p.panY || window.innerHeight / 2; zoom = p.zoom || 1;
     // Chaque page pose sa feuille où elle veut : elle la retrouve en revenant.
     origineFeuille = p.origineFeuille || { x: 0, y: 0 };
@@ -1425,23 +1472,72 @@ function cancelRestore() {
 }
 
 // --- SAUVEGARDE ET HISTORIQUE ---
-// Pages débarrassées de l'historique d'annulation : celui-ci ne survit pas au
-// rechargement, il n'a donc rien à faire dans la sauvegarde ni dans un fichier.
-// (Il pesait à lui seul 110 Mo réécrits à chaque action sur un tableau chargé.)
+// Pages débarrassées de la pile d'états complets : elle pesait à elle seule
+// 110 Mo réécrits à chaque action sur un tableau chargé. Ce qu'on garde à sa
+// place, c'est le film — les mêmes étapes, mais en différences, et il se
+// redéroule en historique au chargement.
 function pagesForStorage() {
     return pages.map(p => {
         const pCopy = { ...p };
         delete pCopy.history;
-        delete pCopy.historyIndex;
         pCopy.images = packImages(p.images);   // sources mutualisées dans la table d'images
         return pCopy;
     });
 }
 
+// ==============================================================================
+// LES INSTRUMENTS POSÉS SUR LE TABLEAU
+// Règle, équerre, rapporteur et compas ne sont pas des boutons : on les pose à
+// un endroit précis, sous un angle précis, pour une construction précise. Les
+// perdre à la réouverture, c'est refaire le placement à chaque fois.
+// ==============================================================================
+const CLASSES_INSTRUMENTS = {
+    ruler: () => RulerWidget, setsquare: () => SetSquareWidget,
+    protractor: () => ProtractorWidget, compass: () => CompassWidget
+};
+
+function instrumentsPourEnregistrement() {
+    const out = {};
+    Object.keys(CLASSES_INSTRUMENTS).forEach(nom => {
+        if (!activeWidgets[nom] || !widgets[nom]) return;
+        const w = widgets[nom];
+        const fiche = {};
+        // Position, angle, dimensions : que des nombres. On ne recopie rien
+        // d'autre, pour ne pas emporter un état de geste en cours.
+        Object.keys(w).forEach(cle => { if (typeof w[cle] === 'number') fiche[cle] = w[cle]; });
+        out[nom] = fiche;
+    });
+    return out;
+}
+
+function reposerLesInstruments(fiches) {
+    if (!fiches || typeof fiches !== 'object') return;   // fichier d'avant : on n'y touche pas
+    Object.keys(CLASSES_INSTRUMENTS).forEach(nom => {
+        const fiche = fiches[nom];
+        activeWidgets[nom] = !!fiche;
+        if (!fiche) return;
+        const Classe = CLASSES_INSTRUMENTS[nom]();
+        if (!widgets[nom]) widgets[nom] = new Classe(fiche.x || 0, fiche.y || 0);
+        Object.keys(fiche).forEach(cle => { widgets[nom][cle] = fiche[cle]; });
+    });
+    document.querySelectorAll('.btn[data-widget]').forEach(btn => {
+        btn.classList.toggle('widget-active', !!activeWidgets[btn.dataset.widget]);
+    });
+    if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
+}
+
 // Charge utile complète d'un enregistrement : pages allégées + table d'images
 function stateForStorage() {
     const storedPages = pagesForStorage();
-    return { pages: storedPages, assets: collectAssets(storedPages), nextId, globalZ, currentBgIndex };
+    return {
+        pages: storedPages, assets: collectAssets(storedPages), nextId, globalZ, currentBgIndex,
+        // Le fond du tableau ne tient pas qu'à son motif : le repère qu'on y a
+        // posé, son pas et l'épaisseur du quadrillage en font partie. Sans eux,
+        // on rouvrait sa séance de géométrie sans ses axes.
+        showAxes, pasAxes, gridWeight,
+        teintePapier: bgColors.default,
+        instruments: instrumentsPourEnregistrement()
+    };
 }
 
 let autoSaveTimer = null;
@@ -1573,9 +1669,15 @@ function unpackImages(arr) {
 // Table des images à joindre à un enregistrement, pour les seules références utilisées
 function collectAssets(pagesArr) {
     const used = {};
-    (pagesArr || []).forEach(p => (p.images || []).forEach(img => {
+    const noter = img => {
         if (img && img.srcRef && assetSrcById.has(img.srcRef)) used[img.srcRef] = assetSrcById.get(img.srcRef);
-    }));
+    };
+    (pagesArr || []).forEach(p => {
+        (p.images || []).forEach(noter);
+        // Une image posée puis effacée a disparu du tableau final mais reste
+        // dans le film : sans sa source, elle reviendrait vide au replay.
+        if (typeof imagesDuFilm === 'function') imagesDuFilm(p.film).forEach(noter);
+    });
     return used;
 }
 
@@ -1595,6 +1697,106 @@ function adoptAssets(assets) {
 const HISTORY_MAX_ENTRIES = 200;
 const HISTORY_MAX_BYTES = 24 * 1024 * 1024;
 
+// ==============================================================================
+// LE FILM : L'ORDRE DES GESTES, ASSEZ LÉGER POUR ÊTRE ENREGISTRÉ
+//
+// L'historique d'annulation est une pile d'états COMPLETS du tableau. Une heure
+// de cours en pèse 21 Mo : on le laissait donc au bord de la route à chaque
+// enregistrement. Conséquence, on rouvrait son tableau et le lecteur n'avait
+// plus rien à rejouer — la construction refaite devant la classe était perdue
+// dès la fin de la séance.
+//
+// Ces états se ressemblent pourtant énormément : d'une étape à la suivante, on
+// ajoute UN trait à la fin d'UNE famille. On n'enregistre donc que la queue qui
+// s'ajoute, et on retombe sur l'état complet en la recollant. Les mêmes 21 Mo
+// tiennent alors en 292 Ko — le poids du tableau final, à peu de chose près.
+// Encoder une étape coûte 3 ms, tout redérouler au chargement en coûte 70.
+// ==============================================================================
+const FILM_FAMILLES = ['points', 'segments', 'circles', 'rectangles', 'texts',
+    'freehands', 'curves', 'polygons', 'images', 'arcs', 'htmlPostits'];
+
+let filmPas = [];             // parallèle à `history` : chaque case dit ce qui a changé
+let filmDernierEtat = null;   // la dernière case, déjà relue : évite un JSON.parse par geste
+
+// Ce qui sépare deux états. `precedent` à null donne l'étape entière : c'est
+// toujours le cas de la première case, sur laquelle tout le reste s'appuie.
+function etapeDuFilm(precedent, courant) {
+    const pas = {};
+    for (const f of FILM_FAMILLES) {
+        const arr = courant[f] || [];
+        const old = precedent ? (precedent[f] || []) : null;
+        // Le début est-il resté identique ? Alors seule la queue compte.
+        let prolonge = !!old && old.length <= arr.length;
+        if (prolonge) {
+            for (let i = 0; i < old.length; i++) {
+                if (JSON.stringify(old[i]) !== JSON.stringify(arr[i])) { prolonge = false; break; }
+            }
+        }
+        if (prolonge) {
+            if (old.length !== arr.length) pas[f] = { '+': arr.slice(old.length) };
+            // rien à écrire quand la famille n'a pas bougé
+        } else pas[f] = arr;
+    }
+    return pas;
+}
+
+// Le film redevient la pile d'états que connaissent l'annulation et le lecteur.
+function deroulerLeFilm(film) {
+    const etats = [];
+    let cur = null;
+    (film || []).forEach(pas => {
+        if (!pas || typeof pas !== 'object') return;
+        const etat = {};
+        for (const f of FILM_FAMILLES) {
+            const d = pas[f];
+            if (d === undefined) etat[f] = cur ? cur[f] : [];
+            else if (Array.isArray(d)) etat[f] = d;
+            else etat[f] = (cur ? cur[f] : []).concat(d['+'] || []);
+        }
+        etats.push(etat);
+        cur = etat;
+    });
+    // On rend des chaînes : c'est le format que l'historique a toujours eu, et
+    // le stringify coupe au passage le partage de tableaux entre deux étapes.
+    return etats.map(e => JSON.stringify(e));
+}
+
+// L'historique perd ses premières cases quand il déborde. La case qui devient
+// la première ne peut plus être une simple différence : on la redonne entière.
+function recalerLeDebutDuFilm() {
+    if (!filmPas.length || !history.length) return;
+    try { filmPas[0] = etapeDuFilm(null, JSON.parse(history[0])); } catch (e) { filmPas = []; }
+}
+
+// Filet : si le film et l'historique cessent d'avoir la même longueur, c'est
+// l'historique qui fait foi. Refaire tout le film coûte 220 ms sur une heure de
+// cours — assez cher pour ne pas le faire à chaque étape, assez peu pour valoir
+// mieux que de perdre l'ordre des gestes.
+function refaireLeFilm() {
+    filmPas = [];
+    filmDernierEtat = null;
+    let prec = null;
+    for (const e of history) {
+        let etat;
+        try { etat = JSON.parse(e); } catch (err) { filmPas = []; return; }
+        filmPas.push(etapeDuFilm(prec, etat));
+        prec = etat;
+    }
+}
+
+// Une image posée puis effacée ne figure plus dans le tableau final, mais elle
+// traverse le film : sa source doit partir avec, sinon elle revient vide au
+// milieu du replay.
+function imagesDuFilm(film) {
+    const vues = [];
+    (film || []).forEach(pas => {
+        const d = pas && pas.images;
+        if (!d) return;
+        (Array.isArray(d) ? d : (d['+'] || [])).forEach(img => vues.push(img));
+    });
+    return vues;
+}
+
 // ===================================================
 // LE LECTEUR : REJOUER CE QUI S'EST PASSÉ AU TABLEAU
 // L'historique garde déjà deux cents états complets du tableau — c'est ce qui
@@ -1607,8 +1809,9 @@ const HISTORY_MAX_BYTES = 24 * 1024 * 1024;
 //     pas d'étape à l'historique, et il rend le tableau exactement comme il
 //     l'a trouvé quand on le referme. On peut donc rejouer au milieu d'un
 //     cours sans rien perdre.
-//   • IL NE MONTRE QUE CETTE SÉANCE. L'historique vit en mémoire : fermer
-//     l'application le vide. On l'annonce plutôt que de le laisser découvrir.
+//   • IL SURVIT À LA SÉANCE. Les étapes partent sur le disque avec le tableau,
+//     sous forme de film : on rouvre son cours de la semaine dernière et on
+//     rejoue la construction devant la classe.
 // ===================================================
 // La vitesse se regle au curseur : trois crans ne suffisaient pas — on
 // commente lentement une construction, puis on veut revoir la fin d'un trait.
@@ -1641,7 +1844,7 @@ function ouvrirLeLecteur(ouvrir) {
     if (veut) {
         if (history.length < 2) {
             if (typeof showToast === 'function') {
-                showToast('Rien à rejouer pour l\'instant : le lecteur montre ce qui a été fait depuis l\'ouverture');
+                showToast('Rien à rejouer : ce tableau ne compte encore qu\'une étape');
             }
             return false;
         }
@@ -1782,11 +1985,14 @@ function brancherLeLecteur() {
 function trimHistory() {
     let bytes = 0;
     for (let i = 0; i < history.length; i++) bytes += history[i].length;
+    let coupe = 0;
     while (history.length > 5 && (history.length > HISTORY_MAX_ENTRIES || bytes > HISTORY_MAX_BYTES)) {
         bytes -= history[0].length;
         history.shift();
         historyIndex--;
+        coupe++;
     }
+    if (coupe) { filmPas.splice(0, coupe); recalerLeDebutDuFilm(); }
     if (historyIndex < 0) historyIndex = 0;
 }
 
@@ -1796,10 +2002,34 @@ function saveState() {
     // pointeur : on refuse d'ecrire une etape pendant le film, plutot que de
     // corrompre l'historique et la sauvegarde.
     if (typeof lectureOuverte !== 'undefined' && lectureOuverte) return;
-    if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
+    if (historyIndex < history.length - 1) {
+        history = history.slice(0, historyIndex + 1);
+        filmPas = filmPas.slice(0, historyIndex + 1);
+        filmDernierEtat = null;   // la dernière case a changé : on la relira
+    }
     const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits });
     if (historyIndex >= 0 && history[historyIndex] === state) return;
+    // Le film se tient à jour au fil de l'eau : reconstruire les différences de
+    // toute la séance à chaque enregistrement coûterait 220 ms, une par étape
+    // en coûte 3.
+    //
+    // On repart de l'état RELU, pas des tableaux du tableau : ranger `texts`
+    // tel quel dans le film y rangeait le tableau vivant, qui continuait
+    // ensuite de grandir. La première étape du film finissait par contenir
+    // toute la leçon, et le replay démarrait à la fin.
+    let etatDetache = null;
+    try { etatDetache = JSON.parse(state); } catch (e) { etatDetache = null; }
+    if (etatDetache) {
+        let precedent = null;
+        if (filmPas.length) {
+            precedent = filmDernierEtat;
+            if (!precedent && history.length) { try { precedent = JSON.parse(history[history.length - 1]); } catch (e) { precedent = null; } }
+        }
+        filmPas.push(etapeDuFilm(precedent, etatDetache));
+        filmDernierEtat = etatDetache;
+    }
     history.push(state); historyIndex++;
+    if (filmPas.length !== history.length) refaireLeFilm();   // désaccord : on repart du vrai historique
     trimHistory();
 
     if (typeof hasUnsavedChanges !== 'undefined') {
@@ -1822,8 +2052,27 @@ function restoreState(stateData) {
         pages = state.pages; nextId = state.nextId || 1; globalZ = state.globalZ || 1; currentBgIndex = state.currentBgIndex || 0;
     }
     else {
-        pages = [{ points: state.points || [], segments: state.segments || [], circles: state.circles || [], rectangles: state.rectangles || [], texts: state.texts || [], freehands: state.freehands || [], curves: state.curves || [], polygons: state.polygons || [], images: state.images || [], arcs: state.arcs || [], htmlPostits: state.htmlPostits || [], history: state.history || [], historyIndex: state.historyIndex !== undefined ? state.historyIndex : -1, panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1 }]; nextId = state.nextId || 1; globalZ = state.globalZ || 1;
+        pages = [{ points: state.points || [], segments: state.segments || [], circles: state.circles || [], rectangles: state.rectangles || [], texts: state.texts || [], freehands: state.freehands || [], curves: state.curves || [], polygons: state.polygons || [], images: state.images || [], arcs: state.arcs || [], htmlPostits: state.htmlPostits || [], history: state.history || [], historyIndex: state.historyIndex !== undefined ? state.historyIndex : -1, film: state.film || [], panX: window.innerWidth / 2, panY: window.innerHeight / 2, zoom: 1 }]; nextId = state.nextId || 1; globalZ = state.globalZ || 1;
     }
+
+    // Le fond retrouve son repère. Un tableau enregistré avant que ceci soit
+    // gardé n'en porte pas : on lui laisse ce qui est en place plutôt que de
+    // lui effacer ses axes.
+    if (state.showAxes !== undefined) showAxes = state.showAxes;
+    if (state.pasAxes !== undefined) pasAxes = state.pasAxes;
+    if (state.gridWeight !== undefined) gridWeight = state.gridWeight;
+    if (state.teintePapier) bgColors.default = state.teintePapier;
+    if (typeof majPastilleGrille === 'function') majPastilleGrille();
+    const curseurGrille = document.getElementById('grid-weight-slider');
+    if (curseurGrille) curseurGrille.value = gridWeight;
+    // Le bouton des axes porte son état dans sa classe : sans cela, le repère
+    // revenait sur le tableau mais le bouton se disait éteint.
+    const btnAxes = document.getElementById('btn-axes');
+    if (btnAxes) {
+        btnAxes.classList.remove('active', 'active-1', 'active-2');
+        if (showAxes > 0) btnAxes.classList.add('active', `active-${showAxes}`);
+    }
+    reposerLesInstruments(state.instruments);
 
     pages.forEach(p => {
         p.images = unpackImages(p.images);   // les anciens fichiers passent ici sans changement
@@ -6116,11 +6365,17 @@ function snapToGrid(lx, ly) {
 let aimant = { grille: true, outils: true, intersections: true };
 try {
     const memoireAimant = JSON.parse(localStorage.getItem('board_aimant') || 'null');
-    if (memoireAimant) Object.assign(aimant, memoireAimant);
+    if (memoireAimant) {
+        Object.assign(aimant, memoireAimant);
+        // On retenait sur QUOI l'aimant attire, mais pas s'il était allumé :
+        // il fallait le rallumer à chaque ouverture.
+        if (typeof memoireAimant.actif === 'boolean') magnetMode = memoireAimant.actif;
+        delete aimant.actif;
+    }
 } catch (e) { /* stockage refusé */ }
 
 function enregistrerAimant() {
-    try { localStorage.setItem('board_aimant', JSON.stringify(aimant)); } catch (e) { /* stockage refusé */ }
+    try { localStorage.setItem('board_aimant', JSON.stringify({ ...aimant, actif: magnetMode })); } catch (e) { /* stockage refusé */ }
 }
 
 // Un point est-il sur la partie tracée de la droite ? (t : 0 = première
@@ -8506,9 +8761,11 @@ function majBoutonsAimant() {
     });
 }
 window.majBoutonsAimant = majBoutonsAimant;
+majBoutonsAimant();   // l'aimant relu du navigateur doit se voir dès l'ouverture
 
 btnMagnet.addEventListener('click', () => {
     magnetMode = !magnetMode;
+    enregistrerAimant();
     majBoutonsAimant();
     if (typeof showToast === 'function') {
         showToast(magnetMode ? `🧲 Aimant : ${resumeAimant()}` : 'Aimant désactivé');

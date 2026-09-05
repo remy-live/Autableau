@@ -1060,6 +1060,144 @@ module.exports = async function (browser) {
     r.egal('sans rien à rejouer, la bande ne s\'ouvre pas',
         { ouvre: rienARejouer.ouvre, ouvert: rienARejouer.ouvert }, { ouvre: false, ouvert: false });
 
+    // =========================================================================
+    // LE FILM SURVIT À L'ENREGISTREMENT
+    // L'ordre des gestes partait à la poubelle à chaque sauvegarde : on
+    // rouvrait son tableau et le lecteur n'avait plus rien à rejouer.
+    // =========================================================================
+    const IMG = 'data:image/png;base64,' + 'A'.repeat(2000);
+    const enregistre = await page.evaluate((IMG) => {
+        // on repart d'un tableau propre
+        pages = [createNewPage()]; currentPageIndex = -1; loadPage(0);
+        history.length = 0; historyIndex = -1; filmPas.length = 0;
+
+        // une image posée puis effacée : elle ne traverse QUE le film
+        images.push({ id: nextId++, src: IMG, x: 0, y: 0, w: 100, h: 100, z: globalZ++ });
+        saveState();
+        images.length = 0;
+        saveState();
+        for (let n = 0; n < 30; n++) {
+            const pts = [];
+            for (let k = 0; k < 40; k++) pts.push({ x: n * 3 + k, y: 100 + k });
+            freehands.push({ id: nextId++, points: pts, color: '#222222', width: 3, z: globalZ++ });
+            saveState();
+        }
+        showAxes = 2; pasAxes = 5; gridWeight = 2.5;
+        bgColors.default = '#fdf6e3';
+        activeWidgets.ruler = true;
+        widgets.ruler = new RulerWidget(250, 260);
+        widgets.ruler.angle = 0.4;
+        syncPage();
+
+        const paquet = stateForStorage();
+        return {
+            etapes: history.length,
+            pasDuFilm: (paquet.pages[0].film || []).length,
+            aLHistorique: 'history' in paquet.pages[0],
+            octetsHistorique: history.reduce((s, e) => s + e.length, 0),
+            octetsPaquet: new Blob([JSON.stringify(paquet)]).size,
+            images: Object.keys(paquet.assets).length,
+            etats: history.slice(),
+            paquet: JSON.stringify(paquet)
+        };
+    }, IMG);
+
+    r.verifie('le film compte autant de pas que l\'historique a d\'étapes',
+        enregistre.pasDuFilm === enregistre.etapes && enregistre.etapes === 32,
+        `${enregistre.pasDuFilm} pas pour ${enregistre.etapes} étapes`);
+    r.verifie('la pile d\'états complets, elle, ne part pas sur le disque',
+        enregistre.aLHistorique === false);
+    r.verifie('le film pèse une fraction de l\'historique',
+        enregistre.octetsPaquet < enregistre.octetsHistorique / 4,
+        `paquet ${Math.round(enregistre.octetsPaquet / 1024)} Ko contre ${Math.round(enregistre.octetsHistorique / 1024)} Ko d'historique`);
+    r.verifie('une image effacée en cours de route part quand même avec le film',
+        enregistre.images === 1, `${enregistre.images} image(s) en réserve`);
+
+    // On recharge dans un onglet NEUF : c'est la vraie condition du « je
+    // rouvre mon tableau de la semaine dernière ».
+    const { context: ctx2, page: page2, erreurs: err2 } = await ouvrirApp(browser);
+    const rejoue = await page2.evaluate(brut => {
+        restoreState(JSON.parse(brut));
+        let sourceImage = -1;
+        for (const e of history) {
+            const s = JSON.parse(e);
+            if (s.images && s.images.length) { sourceImage = (unpackImages(s.images)[0].src || '').length; break; }
+        }
+        return {
+            etapes: history.length, pasDuFilm: filmPas.length, index: historyIndex,
+            traits: freehands.length,
+            etats: history.slice(),
+            sourceImage,
+            showAxes, pasAxes, gridWeight, teinte: bgColors.default,
+            regle: !!activeWidgets.ruler,
+            reglePos: widgets.ruler ? { x: Math.round(widgets.ruler.x), a: +(widgets.ruler.angle || 0).toFixed(2) } : null,
+            lecteurSOuvre: ouvrirLeLecteur(true)
+        };
+    }, enregistre.paquet);
+
+    r.egal('rechargé, le tableau retrouve toutes ses étapes',
+        { etapes: rejoue.etapes, film: rejoue.pasDuFilm }, { etapes: 32, film: 32 });
+    r.verifie('et chaque étape est identique à l\'originale, au caractère près',
+        JSON.stringify(rejoue.etats) === JSON.stringify(enregistre.etats),
+        'les états rejoués diffèrent de ceux enregistrés');
+    r.verifie('le lecteur s\'ouvre sur un tableau qui vient du disque',
+        rejoue.lecteurSOuvre === true);
+    r.verifie('l\'image effacée en cours de route se rejoue entière',
+        rejoue.sourceImage > 1000, `source de ${rejoue.sourceImage} caractères`);
+
+    // L'audit du fond : ce qui se voyait au tableau doit se revoir.
+    r.egal('le repère, son pas, le quadrillage et la teinte du papier reviennent',
+        { a: rejoue.showAxes, p: rejoue.pasAxes, g: rejoue.gridWeight, t: rejoue.teinte },
+        { a: 2, p: 5, g: 2.5, t: '#fdf6e3' });
+    r.egal('la règle reste posée là où on l\'avait laissée',
+        { regle: rejoue.regle, pos: rejoue.reglePos }, { regle: true, pos: { x: 250, a: 0.4 } });
+
+    // Le film doit résister à ce qui bouscule l'historique : annuler puis
+    // repartir tronque la pile, et le plafond des deux cents étapes la rogne
+    // par le début.
+    const bouscule = await page2.evaluate(() => {
+        ouvrirLeLecteur(false);
+        for (let i = 0; i < 5; i++) undo();
+        segments.push({ id: nextId++, x1: 999, y1: 0, x2: 999, y2: 50, color: '#f00', width: 2, z: globalZ++ });
+        saveState();
+        const apresAnnulation = { etapes: history.length, film: filmPas.length };
+        for (let n = 0; n < 220; n++) {
+            segments.push({ id: nextId++, x1: n, y1: 0, x2: n, y2: 9, color: '#000', width: 2, z: globalZ++ });
+            saveState();
+        }
+        syncPage();
+        const paquet = stateForStorage();
+        return {
+            apresAnnulation,
+            apresPlafond: { etapes: history.length, film: filmPas.length },
+            premierPas: (paquet.pages[0].film || [])[0] || null,
+            etats: history.slice(),
+            paquet: JSON.stringify(paquet)
+        };
+    });
+    r.verifie('annuler puis repartir laisse le film aligné sur l\'historique',
+        bouscule.apresAnnulation.etapes === bouscule.apresAnnulation.film,
+        JSON.stringify(bouscule.apresAnnulation));
+    r.verifie('le plafond des deux cents étapes rogne le film comme l\'historique',
+        bouscule.apresPlafond.etapes === bouscule.apresPlafond.film && bouscule.apresPlafond.etapes <= 200,
+        JSON.stringify(bouscule.apresPlafond));
+    r.verifie('la nouvelle première étape est redonnée entière, pas en différence',
+        bouscule.premierPas && Array.isArray(bouscule.premierPas.segments) && bouscule.premierPas.segments.length > 0,
+        JSON.stringify(bouscule.premierPas && Object.keys(bouscule.premierPas)));
+
+    const { context: ctx3, page: page3 } = await ouvrirApp(browser);
+    const rogne = await page3.evaluate(brut => {
+        restoreState(JSON.parse(brut));
+        return { etats: history.slice(), segments: segments.length };
+    }, bouscule.paquet);
+    r.verifie('un historique rogné se rejoue quand même à l\'identique',
+        JSON.stringify(rogne.etats) === JSON.stringify(bouscule.etats),
+        `${rogne.etats.length} étapes rechargées contre ${bouscule.etats.length}`);
+    await ctx3.close();
+
+    r.verifie('aucune erreur JS au rejouement', err2.length === 0, err2.join(' | '));
+    await ctx2.close();
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
