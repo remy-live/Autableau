@@ -692,12 +692,12 @@ module.exports = async function (browser) {
             image: image ? { rogne: image.isCropping === true, ratio: image.ratioLocked } : null
         };
     }, { octets: pdf });
-    r.verifie('un PDF posé s\'ajuste d\'abord en rognant',
-        !!parDefaut.pdf && parDefaut.pdf.rogne, JSON.stringify(parDefaut));
+    r.verifie('un PDF posé se redimensionne, comme tout le reste',
+        !!parDefaut.pdf && !parDefaut.pdf.rogne, JSON.stringify(parDefaut));
     r.verifie('une image importée aussi',
-        !!parDefaut.image && parDefaut.image.rogne, JSON.stringify(parDefaut));
-    r.verifie('et les proportions sont libérées, sinon rogner ne servirait à rien',
-        parDefaut.pdf.ratio === false && parDefaut.image.ratio === false, JSON.stringify(parDefaut));
+        !!parDefaut.image && !parDefaut.image.rogne, JSON.stringify(parDefaut));
+    r.verifie('et leurs coins gardent les proportions tant qu\'on ne rogne pas',
+        parDefaut.pdf.ratio !== false && parDefaut.image.ratio !== false, JSON.stringify(parDefaut));
 
     const tamponDeplugin = await page.evaluate(() => {
         // Un tampon fabriqué par un plugin, lui, se redimensionne comme avant
@@ -1090,11 +1090,11 @@ module.exports = async function (browser) {
     r.verifie('un texte : elle montre ceux du texte, et pas ceux du document',
         contextes.surTexte.visible && contextes.surTexte.texte && !contextes.surTexte.document,
         JSON.stringify(contextes.surTexte));
-    // LE ROGNAGE A QUITTÉ LA BARRE pour le volet du document : dix-sept
-    // commandes s'y trouvaient en même temps, pour un document dont on ne
-    // touche que quatre choses en cours. Il reste atteignable, et il y porte
-    // enfin son nom.
-    r.egal('le rognage n\'encombre plus la barre', contextes.surImage.rogner, false);
+    // LE ROGNAGE EST REVENU DANS LA BARRE, et lui seul : c'est un MODE qu'on
+    // allume et qu'on éteint, pas un réglage qu'on règle une fois. Les autres
+    // — proportions, quadrillage — sont restés dans le volet, où ils portent
+    // enfin leur nom.
+    r.egal('le rognage, qui est un mode, se commande depuis la barre', contextes.surImage.rogner, true);
     const rangement = await page.evaluate(() => {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateStyleBarContext();
@@ -1129,12 +1129,13 @@ module.exports = async function (browser) {
         // déplace, et c'est tout ce que la barre doit porter ici.
         return { mode: x('doc-mode-bascule'),
                  // ce qui a quitté la barre pour le volet
-                 partis: ['doc-rogner', 'doc-proportions', 'doc-grille', 'btn-color-popover',
+                 rogner: x('doc-rogner'),
+                 partis: ['doc-proportions', 'doc-grille', 'btn-color-popover',
                           'btn-z-up', 'btn-copier'].filter(id => x(id) !== null) };
     });
-    const suite = ['mode'].map(k => ordre[k]);
+    const suite = ['mode', 'rogner'].map(k => ordre[k]);
     r.egal('rien de ce qui a rejoint le volet ne traîne encore dans la barre', ordre.partis, []);
-    r.verifie('sur une image, la barre ne garde que le bouton de mode',
+    r.verifie('sur une image, la barre garde le bouton de mode et le rognage',
         suite.every(v => v !== null),
         JSON.stringify(ordre));
     r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',
@@ -1175,24 +1176,26 @@ module.exports = async function (browser) {
     });
 
     // =========================================================================
-    // LES POIGNÉES D'UN DOCUMENT RÉPONDENT TOUJOURS
-    // Un document posé est en rognage : ses poignées referment le cadrage. Mais
-    // une fois la page montrée en entier, tirer plus loin était REJETÉ EN
-    // SILENCE — la poignée semblait morte, et l'on croyait le redimensionnement
-    // disparu. Vers l'intérieur on rogne, vers l'extérieur on agrandit.
+    // ROGNER EST UN MODE QU'ON ALLUME, PAS UN ÉTAT CACHÉ
+    // Un document arrivait EN ROGNAGE sans que rien ne le dise : ses poignées
+    // ne redimensionnaient donc pas, et rien à l'écran ne l'expliquait. Il se
+    // conduit maintenant comme tout le reste, et le bouton ✂ fait le mode.
     // =========================================================================
     const octetsPdf = Array.from(petitPdf());
     const poserLeDoc = () => page.evaluate(async ({ octets }) => {
         panX = 0; panY = 0; zoom = 1; images.length = 0;
         await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
         await new Promise(res => setTimeout(res, 1200));
-        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); draw();
+        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); majBarreDocument(); draw();
         const d = images[0];
         return { x: d.x, y: d.y, w: d.w, h: d.h, cw: d.cw, ch: d.ch, rognage: d.isCropping === true };
     }, { octets: octetsPdf });
     const tailleDoc = () => page.evaluate(() => {
         const d = images[0];
-        return { w: Math.round(d.w), h: Math.round(d.h), cw: Math.round(d.cw), ch: Math.round(d.ch) };
+        return {
+            x: Math.round(d.x), y: Math.round(d.y), w: Math.round(d.w), h: Math.round(d.h),
+            cx: Math.round(d.cx), cy: Math.round(d.cy), cw: Math.round(d.cw), ch: Math.round(d.ch)
+        };
     });
     const tirerLaPoignee = async (hx, hy, ddx, ddy) => {
         await page.mouse.move(hx, hy); await page.mouse.down();
@@ -1201,28 +1204,15 @@ module.exports = async function (browser) {
     };
 
     let doc = await poserLeDoc();
-    r.verifie('un document posé arrive en rognage', doc.rognage);
+    r.verifie('un document posé se redimensionne, il n\'est pas en rognage', !doc.rognage);
 
     await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, 120, 40);
     const agrandi = await tailleDoc();
-    r.verifie('tirer un coin vers l\'extérieur agrandit le document',
-        agrandi.w > doc.w + 50 && agrandi.h > doc.h + 20,
+    r.verifie('le coin agrandit sans déformer',
+        agrandi.w > doc.w + 50 && Math.abs(agrandi.w / agrandi.h - doc.w / doc.h) < 0.01,
         `${doc.w}x${doc.h} → ${agrandi.w}x${agrandi.h}`);
-
-    doc = await poserLeDoc();
-    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, -150, -100);
-    const rogne = await tailleDoc();
-    r.verifie('tirer le même coin vers l\'intérieur rogne, lui',
-        rogne.cw < doc.cw - 50 && rogne.ch < doc.ch - 50,
-        `cadrage ${doc.cw}x${doc.ch} → ${rogne.cw}x${rogne.ch}`);
-
-    doc = await poserLeDoc();
-    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, -200, -150);
-    await tirerLaPoignee(doc.x + doc.w - 200, doc.y + doc.h - 150, 400, 300);
-    const rouvert = await tailleDoc();
-    r.verifie('rogner puis ressortir rouvre la page entière avant d\'agrandir',
-        rouvert.cw === doc.cw && rouvert.ch === doc.ch && rouvert.w > doc.w,
-        JSON.stringify(rouvert));
+    r.egal('et il ne rogne rien au passage',
+        { cw: agrandi.cw, ch: agrandi.ch }, { cw: doc.cw, ch: doc.ch });
 
     doc = await poserLeDoc();
     await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h / 2, 200, 0);
@@ -1230,6 +1220,81 @@ module.exports = async function (browser) {
     r.verifie('le côté seul déforme : la largeur change, la hauteur non',
         deforme.w > doc.w + 100 && deforme.h === doc.h,
         `${doc.w}x${doc.h} → ${deforme.w}x${deforme.h}`);
+
+    // --- Le bouton ✂, dans la barre, allume le mode ---
+    doc = await poserLeDoc();
+    const boutonRogner = await page.evaluate(() => {
+        const e = document.getElementById('doc-rogner');
+        const b = e.getBoundingClientRect();
+        return { visible: b.width > 0 && b.height > 0, actif: e.classList.contains('actif') };
+    });
+    r.verifie('le ✂ est dans la barre, éteint', boutonRogner.visible && !boutonRogner.actif,
+        JSON.stringify(boutonRogner));
+
+    await page.click('#doc-rogner');
+    await page.waitForTimeout(200);
+    const allume = await page.evaluate(() => ({
+        rognage: images[0].isCropping === true,
+        ratioLocked: images[0].ratioLocked,
+        boutonActif: document.getElementById('doc-rogner').classList.contains('actif')
+    }));
+    r.egal('cliquer le ✂ entre en rognage, et le bouton s\'allume',
+        allume, { rognage: true, ratioLocked: false, boutonActif: true });
+
+    await tirerLaPoignee(doc.x + doc.w, doc.y + doc.h, -150, -100);
+    const rogne = await tailleDoc();
+    r.verifie('en rognage, le coin referme le cadrage',
+        rogne.cw < doc.cw - 50 && rogne.ch < doc.ch - 50,
+        `cadrage ${doc.cw}x${doc.ch} → ${rogne.cw}x${rogne.ch}`);
+
+    // Tiré très au-delà des bords, le cadrage s'arrête à la page entière
+    await tirerLaPoignee(rogne.x + rogne.w, rogne.y + rogne.h, 500, 500);
+    const borne = await tailleDoc();
+    r.egal('tiré bien au-delà, il s\'arrête à la page entière',
+        { cx: borne.cx, cy: borne.cy, cw: borne.cw, ch: borne.ch, w: borne.w, h: borne.h },
+        { cx: 0, cy: 0, cw: doc.cw, ch: doc.ch, w: doc.w, h: doc.h });
+
+    // Le bord gauche aussi : sans bornage côté par côté, il filait vers la gauche
+    await tirerLaPoignee(borne.x, borne.y + borne.h / 2, -400, 0);
+    const borneGauche = await tailleDoc();
+    r.egal('le bord gauche s\'arrête lui aussi, sans déplacer le document',
+        { x: borneGauche.x, w: borneGauche.w, cx: borneGauche.cx, cw: borneGauche.cw },
+        { x: doc.x, w: doc.w, cx: 0, cw: doc.cw });
+
+    // --- On le VOIT : la page entière en fantôme, des équerres orange ---
+    await tirerLaPoignee(borneGauche.x + borneGauche.w, borneGauche.y + borneGauche.h, -200, -150);
+    const vu = await page.evaluate(() => {
+        const compter = () => {
+            const c = document.getElementById('board');
+            const g = c.getContext('2d');
+            const d = g.getImageData(0, 0, c.width, c.height).data;
+            let orange = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                // l'orange du rognage : beaucoup de rouge, du vert moyen, peu de bleu
+                if (d[i + 3] > 40 && d[i] > 200 && d[i + 1] > 80 && d[i + 1] < 190 && d[i + 2] < 90) orange++;
+            }
+            return orange;
+        };
+        draw();
+        const enRognage = compter();
+        basculerLeRognage(images[0], false);
+        draw();
+        const sorti = compter();
+        basculerLeRognage(images[0], true);
+        draw();
+        return { enRognage, sorti };
+    });
+    r.verifie('le rognage se voit à l\'écran, et cesse de se voir quand on en sort',
+        vu.enRognage > 300 && vu.sorti < vu.enRognage / 4,
+        `${vu.enRognage} points orange en rognage, ${vu.sorti} hors rognage`);
+
+    // --- Échap en sort, et rend les proportions ---
+    await page.evaluate(() => document.getElementById('board').focus());
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    r.egal('Échap termine le rognage et rend les proportions',
+        await page.evaluate(() => ({ rognage: images[0].isCropping === true, ratioLocked: images[0].ratioLocked })),
+        { rognage: false, ratioLocked: true });
 
     // Une image ordinaire, elle, n'a pas changé de comportement.
     const ordinaire = await page.evaluate(async () => {

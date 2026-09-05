@@ -4568,6 +4568,21 @@ window.addEventListener('keydown', (e) => {
             return;
         }
     }
+    // ROGNAGE : on en sort comme on sort d'une saisie, par Échap ou Entrée.
+    // Sans cela, il fallait retrouver le bouton ✂ pour rendre aux poignées
+    // leur rôle habituel.
+    if ((e.key === 'Escape' || e.key === 'Enter') && typeof documentEnRognage === 'function') {
+        const enTrain = documentEnRognage();
+        if (enTrain) {
+            e.preventDefault();
+            basculerLeRognage(enTrain, false);
+            if (typeof majBarreDocument === 'function') majBarreDocument();
+            draw(); saveState();
+            if (typeof showToast === 'function') showToast('Rognage terminé');
+            return;
+        }
+    }
+
     if (e.key === 'Escape' || e.key === 'Backspace') {
         if (isCropMode) { isCropMode = false; cropRect = null; exportPopover.classList.remove('visible'); draw(); return; }
         let canceledSomething = false;
@@ -8322,17 +8337,13 @@ canvas.addEventListener('pointermove', (e) => {
                 const isCorner = ['TL', 'TR', 'BL', 'BR'].includes(draggedHandle);
                 const MIN_SIZE = 10;
 
-                // UNE POIGNÉE DOIT TOUJOURS RÉPONDRE. Un document posé est en
-                // rognage : ses poignées referment le cadrage. Mais une fois la
-                // page montrée en entier, le rognage ne pouvait plus s'ouvrir
-                // et le geste était REJETÉ EN SILENCE — la poignée semblait
-                // morte, et l'on croyait le redimensionnement disparu. Passé
-                // cette limite, le même geste agrandit l'objet : on referme
-                // vers l'intérieur, on agrandit vers l'extérieur.
-                let rognageApplique = false;
-
                 if (isCropping) {
                     // ✂️ MODE 1 : ROGNAGE (CROP)
+                    // On referme les bords sur ce qu'on veut garder. Le cadrage
+                    // ne peut pas sortir de la page : arrivé au bord, il s'y
+                    // ARRÊTE — CÔTÉ PAR CÔTÉ. Le rejet en bloc d'autrefois
+                    // figeait les deux axes dès qu'un seul saturait, et un
+                    // glissement en diagonale ne répondait plus du tout.
                     let newX = obj.x, newY = obj.y, newW = obj.w, newH = obj.h;
                     let newCX = obj.cx, newCY = obj.cy, newCW = obj.cw, newCH = obj.ch;
 
@@ -8341,19 +8352,36 @@ canvas.addEventListener('pointermove', (e) => {
                     if (draggedHandle.includes('B')) { newH += dy; newCH += dy * scaleY; }
                     if (draggedHandle.includes('T')) { newH -= dy; newY += dy; newCH -= dy * scaleY; newCY += dy * scaleY; }
 
-                    // La tolérance d'un demi-pixel évite qu'un arrondi bloque le
-                    // rognage alors qu'il reste de la marge.
-                    const dansLaPage = newCX >= -0.5 && newCY >= -0.5
-                        && newCX + newCW <= natW + 0.5 && newCY + newCH <= natH + 0.5;
+                    // Ce qu'on retranche à la source se retranche d'autant au
+                    // tableau : sans cela, borner le cadrage sans borner la
+                    // boîte étirerait l'image au lieu de la rogner.
+                    const borner = (c, taille, max, vientDuDebut) => {
+                        let perdu = 0;
+                        if (c < 0) { perdu = -c; taille -= perdu; c = 0; }
+                        if (c + taille > max) { perdu += (c + taille) - max; taille = max - c; }
+                        return { c, taille, perdu };
+                    };
+                    const bx = borner(newCX, newCW, natW);
+                    const by = borner(newCY, newCH, natH);
+                    if (bx.perdu > 0) {
+                        const rendu = bx.perdu / scaleX;
+                        newW -= rendu;
+                        // Rogné à gauche, le bord gauche revient vers la droite
+                        if (draggedHandle.includes('L')) newX += rendu;
+                        newCX = bx.c; newCW = bx.taille;
+                    }
+                    if (by.perdu > 0) {
+                        const rendu = by.perdu / scaleY;
+                        newH -= rendu;
+                        if (draggedHandle.includes('T')) newY += rendu;
+                        newCY = by.c; newCH = by.taille;
+                    }
 
-                    if (newW >= MIN_SIZE && newH >= MIN_SIZE && dansLaPage) {
+                    if (newW >= MIN_SIZE && newH >= MIN_SIZE && newCW > 1 && newCH > 1) {
                         obj.x = newX; obj.y = newY; obj.w = newW; obj.h = newH;
                         obj.cx = newCX; obj.cy = newCY; obj.cw = newCW; obj.ch = newCH;
-                        rognageApplique = true;
                     }
                 }
-
-                if (rognageApplique) { /* le cadrage a absorbé le geste */ }
                 else if (keepRatio && isCorner) {
                     // 🔗 MODE 2 : REDIMENSIONNEMENT PROPORTIONNEL (Coins uniquement)
                     const ratio = obj.w / obj.h;
@@ -9176,14 +9204,26 @@ function draw() {
 
                 // 4. Dessiner le cadre de sélection et les poignées
                 if (isSel && !isExportingTransparent) {
-                    ctx.strokeStyle = "#6c5ce7";
+                    // ROGNER SE VOIT. Le mode existait sans le moindre signe à
+                    // l'écran : mêmes poignées, même cadre, et des gestes qui
+                    // ne faisaient pas ce qu'on attendait. On montre donc ce
+                    // qu'on retranche — la page entière en fantôme autour — et
+                    // les poignées deviennent des équerres de coin.
+                    const enRognage = obj.isCropping === true && !obj.locked;
+
+                    if (enRognage) dessinerLeRognage(ctx, obj, lw);
+
+                    ctx.strokeStyle = enRognage ? "#f97316" : "#6c5ce7";
                     ctx.lineWidth = lw * 2;
                     const hw = 5 * lw; // Taille des poignées
 
-                    // Le cadre bleu principal
+                    // Le cadre principal
                     ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
 
-                    if (!obj.locked) {
+                    if (!obj.locked && enRognage) {
+                        dessinerLesEquerres(ctx, obj, lw);
+                    }
+                    else if (!obj.locked) {
                         ctx.fillStyle = "#ffffff";
                         // Dessin des 8 poignées de redimensionnement
                         const hx = [-obj.w / 2, 0, obj.w / 2, obj.w / 2, obj.w / 2, 0, -obj.w / 2, -obj.w / 2];
@@ -11831,15 +11871,102 @@ function montrerToutLeDocument(obj) {
     if (obj.pluginData) obj.pluginData.pageRognee = false;
 }
 
-// Une image ou un PDF qu'on vient de poser s'ajuste d'abord en OUVRANT ou en
-// FERMANT ses bords : on cadre ce qu'on veut montrer, sans déformer ni
-// changer l'échelle de ce qui est écrit dessus. C'est le geste courant sur un
-// document scanné ou une capture d'écran. Le bouton ✂ de la barre le rend et
-// le reprend ; les tampons des plugins, eux, se redimensionnent comme avant.
+// ==============================================================================
+// ROGNER EST UN MODE, PAS UN ÉTAT CACHÉ
+// Un document arrivait EN ROGNAGE, sans que rien ne le dise. Ses poignées ne
+// redimensionnaient donc pas, et rien à l'écran n'expliquait pourquoi : on
+// croyait le redimensionnement disparu. Un mode qui ne se voit pas n'est pas
+// un mode, c'est un piège.
+//
+// On fait donc comme partout ailleurs : un document se redimensionne, point.
+// Le bouton ✂ de la barre entre en rognage et en sort, il s'allume tant qu'on
+// y est, le tableau montre ce qu'on retranche, et Échap ou Entrée en sortent.
+// ==============================================================================
 function poserEnRognage(obj) {
-    obj.isCropping = true;
-    obj.ratioLocked = false;
-    return obj;
+    return obj;   // on pose pour redimensionner ; ✂ fait le reste
+}
+
+// Entrer ou sortir du rognage. En y entrant on libère les proportions — on
+// referme les bords un par un — et en sortant on les rend, pour que les coins
+// agrandissent sans déformer.
+function basculerLeRognage(obj, veut) {
+    if (!obj) return false;
+    const vise = (veut === undefined) ? !obj.isCropping : !!veut;
+    if (vise === !!obj.isCropping) return vise;
+    obj.isCropping = vise;
+    if (vise) {
+        obj.ratioAvantRognage = obj.ratioLocked;
+        obj.ratioLocked = false;
+    } else {
+        obj.ratioLocked = (obj.ratioAvantRognage === undefined) ? true : obj.ratioAvantRognage;
+        delete obj.ratioAvantRognage;
+    }
+    return vise;
+}
+
+// Le document en cours de rognage, s'il y en a un : le dessin et les raccourcis
+// s'en servent tous les deux.
+function documentEnRognage() {
+    const o = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+    return (o && o.isCropping) ? o : null;
+}
+
+// CE QU'ON RETRANCHE, EN FANTÔME. La page entière est redessinée en pâle
+// autour du cadrage : on voit d'où l'on part et ce qu'on laisse de côté, au
+// lieu de deviner. Le repère est dessiné dans le repère de l'objet, déjà
+// centré et tourné par l'appelante.
+function dessinerLeRognage(ctx, obj, lw) {
+    const src = imageCache[obj.src];
+    if (!src || !src.naturalWidth || !obj.cw || !obj.ch) return;
+    // Échelle entre la source et le tableau, prise sur le cadrage courant
+    const kx = obj.w / obj.cw, ky = obj.h / obj.ch;
+    const gx = -obj.w / 2 - obj.cx * kx;              // coin haut-gauche de la page entière
+    const gy = -obj.h / 2 - obj.cy * ky;
+    const gl = src.naturalWidth * kx, gh = src.naturalHeight * ky;
+
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    try { ctx.drawImage(src, gx, gy, gl, gh); } catch (e) { /* source pas encore prête */ }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = 'rgba(249, 115, 22, 0.55)';
+    ctx.lineWidth = lw;
+    ctx.setLineDash([5 * lw, 4 * lw]);
+    ctx.strokeRect(gx, gy, gl, gh);
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
+// LES POIGNÉES DU ROGNAGE SONT DES ÉQUERRES, pas des billes : on saisit un
+// coin de cadre, on ne redimensionne pas un objet. La différence se voit d'un
+// coup d'œil, et c'est tout l'intérêt.
+function dessinerLesEquerres(ctx, obj, lw) {
+    const l = Math.min(obj.w, obj.h) * 0.18;
+    const br = Math.max(6 * lw, Math.min(l, 26 * lw));
+    const e = 4 * lw;
+    const x0 = -obj.w / 2, y0 = -obj.h / 2, x1 = obj.w / 2, y1 = obj.h / 2;
+    ctx.save();
+    ctx.strokeStyle = '#f97316';
+    ctx.lineWidth = e;
+    ctx.lineCap = 'butt';
+    const coin = (x, y, sx, sy) => {
+        ctx.beginPath();
+        ctx.moveTo(x + sx * br, y + sy * e / 2);
+        ctx.lineTo(x + sx * e / 2, y + sy * e / 2);
+        ctx.lineTo(x + sx * e / 2, y + sy * br);
+        ctx.stroke();
+    };
+    coin(x0, y0, 1, 1); coin(x1, y0, -1, 1); coin(x1, y1, -1, -1); coin(x0, y1, 1, -1);
+    // Les milieux de côté, plus discrets : ils referment un seul bord
+    ctx.lineWidth = e * 0.8;
+    const cote = (x, y, dx, dy) => {
+        ctx.beginPath();
+        ctx.moveTo(x - dx * br * 0.5, y - dy * br * 0.5);
+        ctx.lineTo(x + dx * br * 0.5, y + dy * br * 0.5);
+        ctx.stroke();
+    };
+    cote(0, y0 + e / 2, 1, 0); cote(0, y1 - e / 2, 1, 0);
+    cote(x0 + e / 2, 0, 0, 1); cote(x1 - e / 2, 0, 0, 1);
+    ctx.restore();
 }
 
 function documentSelectionne() {
@@ -12216,9 +12343,13 @@ function brancherBarreDocument() {
 
     b('doc-rogner').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;
-        o.isCropping = !o.isCropping;
-        if (o.isCropping) o.ratioLocked = false;   // on rogne librement
+        const dedans = basculerLeRognage(o);
         majBarreDocument(); draw(); saveState();
+        if (typeof showToast === 'function') {
+            showToast(dedans
+                ? 'Rognage : tirez les bords pour ne garder qu\'une partie — Échap pour terminer'
+                : 'Rognage terminé : les poignées redimensionnent à nouveau');
+        }
     });
 
 
