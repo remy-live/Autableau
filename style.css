@@ -8407,3 +8407,85 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     border-color: #3d4852;
     color: #dfe6e9;
 }
+
+/* ============================================================
+   MES CLASSES : DES ONGLETS, PAS UNE COLONNE
+   Une colonne de 172 px pour six noms de classe prenait un sixième de la
+   fenêtre à la liste d'élèves, qui en a bien plus besoin. En onglets, on
+   voit toutes les classes d'un coup et la place revient au travail.
+   ============================================================ */
+#cm-onglets {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding-bottom: 2px;
+}
+
+.cm-class-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-bottom-color: transparent;
+    border-radius: 9px 9px 0 0;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-bottom: -1px;   /* l'onglet actif mord sur le trait du dessous */
+}
+
+.cm-class-item:hover { background: var(--accent-soft, #eef2ff); }
+
+/* L'onglet ouvert se rattache à ce qu'il montre : il perd son trait du bas. */
+.cm-class-item.actif {
+    background: var(--surface, #fff);
+    color: var(--accent, #6c5ce7);
+    font-weight: 600;
+    border-color: var(--border, #dfe6e9);
+    border-bottom-color: var(--surface, #fff);
+}
+
+.cm-onglet-compte {
+    font-size: 11px;
+    color: var(--muted, #b2bec3);
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 999px;
+    padding: 1px 6px;
+}
+
+.cm-class-item.actif .cm-onglet-compte { background: var(--accent-soft, #eef2ff); }
+
+.cm-onglet-plus {
+    border: 1px dashed var(--border, #dfe6e9);
+    background: transparent;
+    color: var(--muted, #636e72);
+    border-radius: 9px;
+    width: 30px;
+    height: 30px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.cm-onglet-plus:hover { border-style: solid; color: var(--accent, #6c5ce7); background: var(--accent-soft, #eef2ff); }
+
+.dark-mode .cm-onglet-compte { background: rgba(255, 255, 255, 0.1); }
+
+/* La classe à qui une séance a été faite, dans l'explorateur : quatre lignes
+   du même nom ne se distinguent pas sans elle. */
+.tree-classe {
+    font-size: 10.5px;
+    color: var(--muted, #636e72);
+    background: var(--accent-soft, #eef2ff);
+    border-radius: 999px;
+    padding: 1px 7px;
+    margin-left: 6px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=88">
+    <link rel="stylesheet" href="style.css?v=90">
 </head>
 
 <body>
@@ -1487,6 +1487,18 @@
                          navigateur : un « effacer les données de navigation »
                          suffisait à perdre l'année. On désigne un dossier une
                          fois, et une copie complète s'y écrit toute seule. -->
+                    <!-- LA SÉANCE. On fait le même cours à quatre classes : on
+                         marque ici l'état d'avant le cours, et l'explorateur
+                         permet ensuite de le refaire avec une autre classe
+                         sans toucher à la séance déjà faite. -->
+                    <div style="padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Séance</div>
+                    <button class="menu-item" id="btn-preparation"><span class="icon"><svg
+                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M4 4v16" />
+                                <path d="M4 5h11l-2 3 2 3H4" />
+                            </svg></span> Début du cours (garder la préparation)</button>
                     <div style="padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Sécurité</div>
                     <button class="menu-item" id="btn-dossier-securite"><span class="icon"><svg
                                 xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
@@ -2273,7 +2285,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=171"></script>
+    <script src="script.js?v=173"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=82"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

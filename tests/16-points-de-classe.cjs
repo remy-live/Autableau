@@ -1842,6 +1842,90 @@ module.exports = async function (browser) {
     });
 
     // =====================================================================
+    // « MES CLASSES » : DES ONGLETS, ET PLUS UNE MODALE
+    // Une colonne de 172 px pour six noms de classe prenait un sixième de la
+    // fenêtre à la liste d'élèves. Et le voile noir interdisait de regarder
+    // son cours en pointant un élève : ce n'est pas une question à laquelle
+    // il faut répondre avant de continuer, c'est un endroit où l'on reste.
+    // =====================================================================
+    await page.evaluate(async () => {
+        await ClassesStore.saveAll([
+            { id: 'o1', name: '4e B', students: [{ id: 'a', name: 'Léa' }, { id: 'b', name: 'Malo' }] },
+            { id: 'o2', name: '3e A', students: [{ id: 'c', name: 'Zoé' }] },
+            { id: 'o3', name: '6e C', students: [] }
+        ]);
+        await openClassManagerModal();
+        await new Promise(res => setTimeout(res, 400));
+    });
+
+    const onglets = await page.evaluate(() => {
+        const f = document.getElementById('class-manager-modal');
+        const boite = f.querySelector('.modal-box');
+        const tousLesOnglets = [...f.querySelectorAll('.cm-class-item')];
+        return {
+            voile: getComputedStyle(f).backgroundColor,
+            fondTraversable: getComputedStyle(f).pointerEvents,
+            fenetreCliquable: getComputedStyle(boite).pointerEvents,
+            noms: tousLesOnglets.map(o => (o.querySelector('span') || {}).textContent.trim()),
+            comptes: tousLesOnglets.map(o => o.querySelector('.cm-onglet-compte').textContent.trim()),
+            actifs: tousLesOnglets.filter(o => o.classList.contains('actif')).map(o => o.dataset.id),
+            plus: !!f.querySelector('#cm-new-class'),
+            // CE QU'IL Y A JUSTE À CÔTÉ DE LA FENÊTRE. Un point pris à mi-hauteur,
+            // à vingt pixels de son bord gauche : avec un voile, on y trouvait le
+            // voile ; sans lui, on doit trouver ce qui est dessous.
+            aCote: (() => {
+                const r = boite.getBoundingClientRect();
+                const el = document.elementFromPoint(Math.max(2, r.left - 20), r.top + r.height / 2);
+                if (!el) return 'rien';
+                return el.closest('#class-manager-modal') ? 'la fenêtre elle-même' : (el.id || el.tagName);
+            })(),
+            largeurDetail: Math.round(f.querySelector('#cm-detail').getBoundingClientRect().width)
+        };
+    });
+
+    r.egal('une classe, un onglet', onglets.noms, ['4e B', '3e A', '6e C']);
+    r.egal('et chacun dit son effectif', onglets.comptes, ['2', '1', '0']);
+    r.egal('un seul onglet est ouvert à la fois', onglets.actifs, ['o1']);
+    r.verifie('le « + » crée une classe de plus', onglets.plus);
+
+    // LE VOILE NOIR A DISPARU : on peut regarder son tableau en pointant un élève.
+    r.egal('plus de fond sombre par-dessus le tableau',
+        onglets.voile, 'rgba(0, 0, 0, 0)');
+    r.egal('les clics passent à côté de la fenêtre, mais pas au travers',
+        { fond: onglets.fondTraversable, fenetre: onglets.fenetreCliquable },
+        { fond: 'none', fenetre: 'auto' });
+    r.verifie('et ce qui est à côté reste atteignable, pas masqué par un voile',
+        onglets.aCote !== 'la fenêtre elle-même' && onglets.aCote !== 'rien', onglets.aCote);
+
+    // LA PLACE RENDUE : la liste d'élèves prend toute la largeur.
+    r.verifie('la liste d\'élèves occupe toute la largeur de la fenêtre',
+        onglets.largeurDetail > 900, onglets.largeurDetail + ' px');
+
+    // Un vrai clic, à la souris : si un outil flottant repasse par-dessus les
+    // onglets, il faut que cette ligne-là le dise — pas que la suite entière
+    // s'arrête sur une attente de trente secondes.
+    let onglietCliquable = true;
+    try {
+        await page.click('.cm-class-item[data-id="o2"]', { timeout: 3000 });
+    } catch (e) { onglietCliquable = false; }
+    await page.waitForTimeout(300);
+    r.verifie('l\'onglet est vraiment cliquable, rien ne passe par-dessus', onglietCliquable);
+    const change = await page.evaluate(() => {
+        const f = document.getElementById('class-manager-modal');
+        return {
+            actifs: [...f.querySelectorAll('.cm-class-item.actif')].map(o => o.dataset.id),
+            eleves: f.querySelectorAll('.cm-student-row').length
+        };
+    });
+    r.egal('un clic sur un onglet change de classe',
+        change, { actifs: ['o2'], eleves: 1 });
+
+    await page.evaluate(() => {
+        const m = document.getElementById('class-manager-modal');
+        if (m) m.remove();
+    });
+
+    // =====================================================================
     // LE BILAN : LES DATES, LA PLACE, ET LES RÉCIDIVES
     // Le tableau comptait onze colonnes, dont cinq presque toujours vides, et
     // il ne disait nulle part QUAND un oubli avait eu lieu — la date était

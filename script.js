@@ -18619,16 +18619,28 @@ async function openClassManagerModal() {
     const ancienne = document.getElementById('class-manager-modal');
     if (ancienne) ancienne.remove();
 
+    // PLUS DE VOILE NOIR. « Mes classes » n'est pas une question à laquelle il
+    // faut répondre avant de continuer : c'est un endroit où l'on va, où l'on
+    // reste, et d'où l'on regarde le tableau. Le fond sombre l'interdisait —
+    // impossible de lire son cours en pointant un élève. La fenêtre laisse
+    // maintenant voir et cliquer autour d'elle ; on la ferme quand on a fini.
     const modal = document.createElement('div');
     modal.id = 'class-manager-modal';
-    modal.className = 'modal-backdrop';
-    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; justify-content: center; align-items: center;';
+    modal.className = 'cm-fenetre';
+    // AU-DESSUS DES OUTILS FLOTTANTS. Elle était à 99999, la feuille de points
+    // à 100000 : le voile noir masquait le conflit, mais dès qu'on l'a retiré,
+    // la feuille passait par-dessus les onglets et les rendait inatteignables.
+    // La fenêtre qu'on vient d'ouvrir doit être celle du dessus.
+    modal.style.cssText = 'position: fixed; inset: 0; z-index: 100010; display: flex;'
+        + ' justify-content: center; align-items: center; pointer-events: none;';
 
     const box = document.createElement('div');
     box.className = 'modal-box';
     // 720 px donnaient une seule colonne d'élèves et des noms coupés ; à 980,
     // la classe entière tient en deux ou trois colonnes, noms complets.
-    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 980px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover);';
+    // La fenêtre, elle, reprend les clics : c'est le fond qui les laisse
+    // passer, pas elle.
+    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 980px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover); pointer-events: auto;';
 
     modal.appendChild(box);
     document.body.appendChild(modal);
@@ -18661,14 +18673,20 @@ async function openClassManagerModal() {
     function render() {
         const selected = getSelected();
 
+        // LES CLASSES SONT DES ONGLETS, plus une colonne.
+        // Une colonne de cent soixante-douze pixels pour six noms de classe,
+        // c'est un sixième de la fenêtre pris à la liste d'élèves, qui en a
+        // bien plus besoin. En onglets, on les voit toutes d'un coup, on passe
+        // de l'une à l'autre d'un clic, et la place revient là où l'on
+        // travaille vraiment.
         const listHtml = state.classes.length === 0
-            ? `<div style="padding:12px; font-size:12px; color:var(--muted);">Aucune classe. Créez-en une !</div>`
+            ? `<div style="padding:10px 12px; font-size:12px; color:var(--muted);">Aucune classe — créez-en une avec le +</div>`
             : state.classes.map(c => `
-                <div class="cm-class-item" data-id="${c.id}"
-                     style="padding:10px 12px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px; ${c.id === state.selectedId ? 'background:var(--accent-soft); color:var(--accent); font-weight:600;' : ''}">
+                <button class="cm-class-item${c.id === state.selectedId ? ' actif' : ''}" data-id="${c.id}"
+                        title="${(c.students || []).length} élève(s)">
                     <span>${c.name || '(sans nom)'}</span>
-                    <span style="font-size:11px; color:var(--muted);">${(c.students || []).length}</span>
-                </div>
+                    <span class="cm-onglet-compte">${(c.students || []).length}</span>
+                </button>
             `).join('');
 
         let detailHtml = `<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--muted); font-size:13px;">Sélectionnez ou créez une classe</div>`;
@@ -18817,19 +18835,17 @@ async function openClassManagerModal() {
                 <button id="cm-rappel-plus-tard" class="btn-action secondary" style="padding:6px 10px; font-size:12px; white-space:nowrap;">Plus tard</button>
             </div>` : ''}
             <div id="cm-restauration" style="display:none; margin-bottom:12px;"></div>
-            <div style="display:flex; gap:15px; flex:1; min-height:0;">
-                <div style="width:172px; flex-shrink:0; display:flex; flex-direction:column;">
-                    <button id="cm-new-class" class="btn-action primary" style="margin-bottom:10px; padding:8px;">+ Nouvelle classe</button>
-                    <div style="overflow-y:auto; flex:1;">${listHtml}</div>
-                </div>
-                <!-- Colonne souple : la liste d'élèves prend toute la hauteur
-                     gagnée quand on agrandit la fenêtre, le reste suit.
-                     Pas de défilement ici : sinon deux ascenseurs imbriqués,
-                     et la liste se retrouve écrasée sur trois lignes. -->
-                <div id="cm-detail" style="flex:1; min-width:0; min-height:0; border-left:1px solid var(--border);
-                            padding-left:15px; display:flex; flex-direction:column;">
-                    ${detailHtml}
-                </div>
+            <div id="cm-onglets" role="tablist">
+                ${listHtml}
+                <button id="cm-new-class" class="cm-onglet-plus" title="Nouvelle classe">+</button>
+            </div>
+            <!-- Toute la largeur pour la liste d'élèves : elle prend aussi la
+                 hauteur gagnée quand on agrandit la fenêtre. Pas de défilement
+                 ici, sinon deux ascenseurs imbriqués et la liste se retrouve
+                 écrasée sur trois lignes. -->
+            <div id="cm-detail" style="flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;
+                        border-top:1px solid var(--border); padding-top:14px;">
+                ${detailHtml}
             </div>
         `;
 
@@ -21259,11 +21275,17 @@ function buildTree(items, parentId) {
                 ? `<input type="text" id="rename-input-${item.id}" class="rename-input" value="${item.name}" />`
                 : `<span class="label">${item.name}</span>`;
 
+            // La classe à qui la séance a été faite, quand on le sait : sans
+            // cela, quatre lignes du même nom ne se distinguent pas.
+            const marqueClasse = (currentExplorerTab === 'tableaux' && item.classeNom)
+                ? `<span class="tree-classe" title="Séance faite avec ${item.classeNom}">${item.classeNom}</span>` : '';
+
             treeItem.innerHTML = `
                 <span class="icon" style="margin-left: 20px;">${icon}</span>
-                ${labelHTML}
+                ${labelHTML}${marqueClasse}
                 <div class="tree-item-actions">
                     <button class="tree-action-btn" title="Ouvrir" onclick="${currentExplorerTab === 'tableaux' ? `promptLoadBoard('${item.id}')` : `promptLoadInterface('${item.id}')`}; event.stopPropagation();" style="padding:4px 6px; font-size:12px;">⏎</button>
+                    ${currentExplorerTab === 'tableaux' ? `<button class="tree-action-btn" title="Refaire cette séance avec une autre classe" onclick="promptReinvestir('${item.id}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">👥</button>` : ''}
                     <button class="tree-action-btn" title="Renommer" onclick="renameItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">✎</button>
                     <button class="tree-action-btn danger" title="Supprimer" onclick="promptDeleteItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">🗑</button>
                 </div>
@@ -21745,6 +21767,164 @@ function saveCurrentBoard() {
         _doSaveBoard(name, 'tb_' + Date.now());
     }
 }
+
+// ==============================================================================
+// LA SÉANCE : UNE PRÉPARATION, PLUSIEURS TRACES
+//
+// On fait le même cours à quatre classes. Aujourd'hui chaque tableau est un
+// fichier isolé : pour refaire la séance avec la 4e 2, il fallait rouvrir celle
+// de la 4e 1 et effacer à la main tout ce qui avait été écrit devant les
+// élèves — en espérant ne pas effacer l'énoncé au passage.
+//
+// Un tableau porte en fait DEUX choses, mêlées : la PRÉPARATION — l'énoncé, le
+// document, les figures posées avant le cours — et la TRACE DE CLASSE, ce qui a
+// été écrit devant les élèves. On sépare les deux en marquant, une fois, l'état
+// d'avant le cours. « Réinvestir » repart alors de cette préparation, pour une
+// autre classe, en laissant la première séance intacte.
+//
+// La préparation est gardée telle quelle, page par page, et non comme un rang
+// dans l'historique : celui-ci se rogne à deux cents étapes, et la marque
+// aurait fini par désigner une étape disparue.
+// ==============================================================================
+// Ce qu'on garde d'une page : SON CONTENU, et rien d'autre. Ni l'historique ni
+// le film n'y figurent, et c'est voulu — la séance suivante repart d'une page
+// propre, elle n'a pas à pouvoir rejouer la construction faite devant l'autre
+// classe.
+function etatDUnePagePourPreparation(p) {
+    return {
+        points: p.points || [], segments: p.segments || [], circles: p.circles || [],
+        rectangles: p.rectangles || [], texts: p.texts || [], freehands: p.freehands || [],
+        curves: p.curves || [], polygons: p.polygons || [], arcs: p.arcs || [],
+        htmlPostits: p.htmlPostits || [], images: packImages(p.images || []),
+        panX: p.panX, panY: p.panY, zoom: p.zoom,
+        origineFeuille: p.origineFeuille, origineAxes: p.origineAxes
+    };
+}
+
+// Marquer l'état actuel comme « ce qu'il y avait avant le cours ».
+function marquerLaPreparation() {
+    syncPage();
+    const copie = JSON.parse(JSON.stringify(pages.map(etatDUnePagePourPreparation)));
+    pages.forEach((p, i) => { p.preparation = copie[i]; });
+    preparationPosee = Date.now();
+    saveAppLocal(true);
+    if (typeof showToast === 'function') {
+        showToast(`Préparation retenue (${pages.length} page${pages.length > 1 ? 's' : ''}) — vous pourrez refaire cette séance avec une autre classe`);
+    }
+    return pages.length;
+}
+window.marquerLaPreparation = marquerLaPreparation;
+
+function aUnePreparation(etat) {
+    return !!(etat && Array.isArray(etat.pages) && etat.pages.some(p => p && p.preparation));
+}
+
+// L'état d'un tableau ramené à sa préparation : les pages telles qu'elles
+// étaient avant le cours, sans historique et sans film — une séance qui
+// recommence n'a pas à rejouer celle d'avant.
+function etatRamenéALaPreparation(etat) {
+    const brut = JSON.parse(JSON.stringify(etat));
+    brut.pages = (brut.pages || []).map(p => {
+        const prep = p.preparation;
+        if (!prep) return p;
+        // `prep` ne porte que le contenu de la page : ni historique, ni film —
+        // voir `etatDUnePagePourPreparation`, qui les laisse dehors exprès. Une
+        // séance qui recommence n'a pas à rejouer celle d'avant.
+        const neuve = { ...prep, preparation: p.preparation, historyIndex: -1 };
+        delete neuve.thumbnail;
+        return neuve;
+    });
+    return brut;
+}
+
+// Réinvestir : un NOUVEAU tableau, reparti de la préparation, rattaché à une
+// autre classe. L'original ne bouge pas — c'est tout l'intérêt.
+async function reinvestirLaSeance(idSource, classeId, nomClasse) {
+    const source = savedTableaux.find(t => t.id === idSource);
+    if (!source) return null;
+    const data = await localforage.getItem('data_' + idSource);
+    if (!data) {
+        if (typeof showToast === 'function') showToast('Ce tableau est introuvable');
+        return null;
+    }
+    if (!aUnePreparation(data)) {
+        if (typeof showToast === 'function') {
+            showToast('Cette séance n\'a pas de préparation marquée : ouvrez-la et utilisez « Début du cours »');
+        }
+        return null;
+    }
+    const neuf = etatRamenéALaPreparation(data);
+    const id = 'tb_' + Date.now();
+    const now = new Date();
+    // Le nom garde celui de la séance et ajoute la classe : « Thalès — 4e 2 ».
+    const base = String(source.name || 'Séance').replace(/\s+—\s+.*$/, '');
+    const metadata = {
+        id, name: nomClasse ? `${base} — ${nomClasse}` : base,
+        parentId: source.parentId || null,
+        date: now.toLocaleDateString(), time: now.toLocaleTimeString(),
+        timestamp: Date.now(),
+        preview: source.preview,
+        classeId: classeId || null,
+        classeNom: nomClasse || null,
+        // D'où vient cette séance : c'est ce lien qui permet de les montrer
+        // ensemble, même préparation, traces différentes.
+        seanceOrigine: source.seanceOrigine || idSource
+    };
+    savedTableaux.push(metadata);
+    savedTableaux.sort((a, b) => b.timestamp - a.timestamp);
+    await localforage.setItem('auTableau_tableaux_list', savedTableaux);
+    await localforage.setItem('data_' + id, neuf);
+    if (typeof renderExplorerLists === 'function') renderExplorerLists();
+    if (typeof showToast === 'function') {
+        showToast(`« ${metadata.name} » créée à partir de la préparation — la séance d'origine est intacte`);
+    }
+    return metadata;
+}
+window.reinvestirLaSeance = reinvestirLaSeance;
+
+// Les séances qui partagent une même préparation, l'originale comprise.
+function seancesDeLaMemeFamille(id) {
+    const t = savedTableaux.find(x => x.id === id);
+    if (!t) return [];
+    const racine = t.seanceOrigine || t.id;
+    return savedTableaux.filter(x => !x.deleted && (x.id === racine || x.seanceOrigine === racine));
+}
+window.seancesDeLaMemeFamille = seancesDeLaMemeFamille;
+
+let preparationPosee = 0;
+
+// « Refaire avec une autre classe » : on demande laquelle, et c'est tout.
+async function promptReinvestir(id) {
+    const t = savedTableaux.find(x => x.id === id);
+    if (!t) return;
+    const data = await localforage.getItem('data_' + id);
+    if (!aUnePreparation(data)) {
+        openConfirmModal('Pas de préparation marquée',
+            `« ${t.name} » n'a pas d'état « avant le cours ». Ouvrez-la, remettez-la comme elle était avant les élèves, puis utilisez « Début du cours » dans le menu Exporter.`,
+            false, () => { });
+        return;
+    }
+    let classes = [];
+    try { classes = await ClassesStore.loadAll(); } catch (e) { classes = []; }
+    const famille = seancesDeLaMemeFamille(id);
+    const dejaFaites = new Set(famille.map(s => s.classeId).filter(Boolean));
+    const options = [{ value: '', label: '— Sans classe —' }].concat(
+        classes.map(c => ({
+            value: c.id,
+            label: c.name + (dejaFaites.has(c.id) ? '  (déjà faite)' : '')
+        })));
+
+    openCustomPrompt(`Refaire « ${t.name} » avec une autre classe`,
+        [{ label: 'Classe', type: 'select', value: '', options }],
+        null,
+        async (valeurs) => {
+            const classeId = Array.isArray(valeurs) ? valeurs[0] : valeurs;
+            const c = classes.find(x => x.id === classeId);
+            const fiche = await reinvestirLaSeance(id, classeId || null, c ? c.name : null);
+            if (fiche) { selectedBoardId = fiche.id; renderExplorerLists(); }
+        });
+}
+window.promptReinvestir = promptReinvestir;
 
 function _doSaveBoard(name, id) {
     const now = new Date();
@@ -25527,6 +25707,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // LA SAUVEGARDE DE SÉCURITÉ. On demande aussi au navigateur de ne pas
     // effacer notre stockage sous la pression : sans cela, il peut décider
     // seul de faire de la place, et l'année part avec.
+    const btnPrep = document.getElementById('btn-preparation');
+    if (btnPrep) {
+        btnPrep.addEventListener('click', () => {
+            openConfirmModal('Début du cours',
+                'Le tableau est-il dans l\'état où vous voulez le retrouver pour une autre classe ? Ce que vous écrirez ensuite devant les élèves ne partira pas avec la préparation.',
+                true, marquerLaPreparation);
+        });
+    }
+
     const btnSecurite = document.getElementById('btn-dossier-securite');
     if (btnSecurite) {
         btnSecurite.addEventListener('click', () => {
