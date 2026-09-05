@@ -1819,20 +1819,65 @@ function imagesDuFilm(film) {
 //     sous forme de film : on rouvre son cours de la semaine dernière et on
 //     rejoue la construction devant la classe.
 // ===================================================
-// La vitesse se regle au curseur : trois crans ne suffisaient pas — on
-// commente lentement une construction, puis on veut revoir la fin d'un trait.
-// Un a dix, ou le 2 vaut la vitesse de reference.
-const LECTURE_REFERENCE = 1400;             // millisecondes par etape a la vitesse 1
+// ---------------------------------------------------------------------------
+// LA VITESSE, EN ÉCHELLE LOGARITHMIQUE
+// Le curseur allait de ×0,5 à ×5, par crans réguliers. Deux défauts. Le lent
+// n'était pas lent : ×0,5 fait 1,4 s par étape, alors qu'on commente une
+// construction devant une classe au rythme de plusieurs SECONDES par geste.
+// Et une échelle régulière donne tout son parcours au rapide : de ×4 à ×5 on
+// gagne 35 ms, de ×0,5 à ×0,6 on en perd 230.
+//
+// Le curseur est donc logarithmique : un même déplacement vaut partout le même
+// RAPPORT. De ×0,05 (14 s par étape, on a le temps de tout dire) à ×8 (87 ms,
+// on survole une séance entière), avec autant de place pour le lent que pour
+// le vif. Ce qui s'affiche, c'est le facteur ET la durée d'une étape — c'est
+// la durée qu'on choisit vraiment.
+// ---------------------------------------------------------------------------
+const LECTURE_REFERENCE = 700;              // millisecondes par étape à ×1
+const LECTURE_MIN = 0.05, LECTURE_MAX = 8;  // facteurs extrêmes
+const LECTURE_CRANS = 100;                  // positions du curseur
+
 let lectureOuverte = false;
 let lectureIndex = 0;
 let lectureEnMarche = false;
 let lectureMinuteur = null;
-let lectureVitesse = 2;
+let lectureVitesse = 1;                     // le facteur, pas la position
+let lectureBoucle = false;
 let lectureRetour = null;      // l'état à retrouver en refermant
 
+// La vitesse choisie appartient à celui qui s'en sert, pas au tableau : elle
+// se retient dans le navigateur, comme le stylo.
+const CLE_VITESSE = 'AuTableau_lecture_vitesse';
+try {
+    const gardee = parseFloat(localStorage.getItem(CLE_VITESSE));
+    if (isFinite(gardee) && gardee >= LECTURE_MIN && gardee <= LECTURE_MAX) lectureVitesse = gardee;
+} catch (e) { /* stockage refusé */ }
+
+function facteurDepuisLeCran(p) {
+    const t = Math.max(0, Math.min(LECTURE_CRANS, p)) / LECTURE_CRANS;
+    return LECTURE_MIN * Math.pow(LECTURE_MAX / LECTURE_MIN, t);
+}
+
+function cranDepuisLeFacteur(f) {
+    const v = Math.max(LECTURE_MIN, Math.min(LECTURE_MAX, f || 1));
+    return Math.round(LECTURE_CRANS * Math.log(v / LECTURE_MIN) / Math.log(LECTURE_MAX / LECTURE_MIN));
+}
+
 function delaiDeLecture() {
-    const v = Math.max(1, Math.min(10, lectureVitesse || 2));
+    const v = Math.max(LECTURE_MIN, Math.min(LECTURE_MAX, lectureVitesse || 1));
     return Math.round(LECTURE_REFERENCE / v);
+}
+
+// « ×0,2 » se lit mal quand on cherche un rythme ; « 3,5 s » se lit tout seul.
+function dureeLisible(ms) {
+    if (ms >= 10000) return Math.round(ms / 1000) + ' s';
+    if (ms >= 1000) return (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+    return Math.round(ms) + ' ms';
+}
+
+function facteurLisible(v) {
+    const t = (v < 1) ? v.toFixed(2) : (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+    return '×' + t.replace(/0$/, '').replace(/\.$/, '').replace('.', ',');
 }
 
 function etapesDeLecture() { return history.length; }
@@ -1896,7 +1941,22 @@ function arreterLaLecture() {
 
 function avancerLaLecture() {
     if (!lectureEnMarche) return;
-    if (lectureIndex >= history.length - 1) { arreterLaLecture(); return; }
+    if (lectureIndex >= history.length - 1) {
+        // EN BOUCLE, ON REPART DU DÉBUT. C'est ce qu'on veut quand la classe
+        // recopie une construction : elle repasse tant qu'il le faut, sans
+        // qu'on ait à relancer entre deux explications. On marque une pause
+        // d'une étape avant de reprendre, sinon la fin et le début se
+        // confondent.
+        if (lectureBoucle && history.length > 1) {
+            lectureMinuteur = setTimeout(() => {
+                if (!lectureEnMarche) return;
+                poserEtapeDeLecture(0);
+                lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
+            }, Math.min(2000, delaiDeLecture() * 2));
+            return;
+        }
+        arreterLaLecture(); return;
+    }
     poserEtapeDeLecture(lectureIndex + 1);
     lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
 }
@@ -1923,8 +1983,14 @@ function pasDeLecture(sens) {
 }
 window.pasDeLecture = pasDeLecture;
 
+// On règle par le CRAN du curseur ; le facteur en découle.
+function reglerLaVitesseAuCran(p) {
+    return reglerLaVitesse(facteurDepuisLeCran(p));
+}
+
 function reglerLaVitesse(v) {
-    lectureVitesse = Math.max(1, Math.min(10, Math.round(v) || 2));
+    lectureVitesse = Math.max(LECTURE_MIN, Math.min(LECTURE_MAX, v || 1));
+    try { localStorage.setItem(CLE_VITESSE, String(lectureVitesse)); } catch (e) { /* refusé */ }
     // Une lecture en cours reprend aussitot la nouvelle allure, sans qu'on ait
     // a la relancer.
     if (lectureEnMarche) {
@@ -1934,6 +2000,14 @@ function reglerLaVitesse(v) {
     majBandeDeLecture();
     return lectureVitesse;
 }
+window.reglerLaVitesse = reglerLaVitesse;
+
+function basculerLaBoucle(veut) {
+    lectureBoucle = (veut === undefined) ? !lectureBoucle : !!veut;
+    majBandeDeLecture();
+    return lectureBoucle;
+}
+window.basculerLaBoucle = basculerLaBoucle;
 window.reglerLaVitesse = reglerLaVitesse;
 
 function majBandeDeLecture() {
@@ -1955,9 +2029,35 @@ function majBandeDeLecture() {
         jouer.setAttribute('aria-label', lectureEnMarche ? 'Pause' : 'Lire');
     }
     const vitesse = document.getElementById('lecture-vitesse');
-    if (vitesse && document.activeElement !== vitesse) vitesse.value = lectureVitesse;
+    if (vitesse && document.activeElement !== vitesse) vitesse.value = cranDepuisLeFacteur(lectureVitesse);
     const lue = document.getElementById('lecture-vitesse-lue');
-    if (lue) lue.textContent = '×' + String(lectureVitesse / 2).replace('.', ',');
+    // Le facteur dit le rapport, la durée dit le rythme : c'est la durée qu'on
+    // cherche quand on règle, alors elle est là aussi.
+    if (lue) lue.textContent = facteurLisible(lectureVitesse) + ' · ' + dureeLisible(delaiDeLecture());
+    if (vitesse) {
+        vitesse.setAttribute('aria-valuetext',
+            facteurLisible(lectureVitesse) + ', une étape toutes les ' + dureeLisible(delaiDeLecture()));
+    }
+    const boucle = document.getElementById('lecture-boucle');
+    if (boucle) {
+        boucle.classList.toggle('actif', lectureBoucle);
+        boucle.setAttribute('aria-pressed', lectureBoucle ? 'true' : 'false');
+    }
+    // Ce que dure la séance à l'allure choisie : on le sait AVANT de lancer,
+    // au lieu de le découvrir devant la classe.
+    const total = document.getElementById('lecture-duree');
+    if (total) {
+        const restant = Math.max(0, n - 1 - lectureIndex) * delaiDeLecture();
+        total.textContent = restant > 0 ? 'reste ' + dureeMinutes(restant) : 'fin';
+    }
+}
+
+// « 2 min 20 » plutôt que « 140 s » : c'est ainsi qu'on juge si l'on a le temps.
+function dureeMinutes(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + ' s';
+    const m = Math.floor(s / 60), r = s % 60;
+    return r ? `${m} min ${r < 10 ? '0' : ''}${r}` : `${m} min`;
 }
 window.majBandeDeLecture = majBandeDeLecture;
 
@@ -1971,8 +2071,9 @@ function brancherLeLecteur() {
     if (b('lecture-suiv')) b('lecture-suiv').addEventListener('click', () => pasDeLecture(1));
     if (b('lecture-debut')) b('lecture-debut').addEventListener('click', () => { arreterLaLecture(); poserEtapeDeLecture(0); });
     if (b('lecture-vitesse')) {
-        b('lecture-vitesse').addEventListener('input', (e) => reglerLaVitesse(parseInt(e.target.value, 10)));
+        b('lecture-vitesse').addEventListener('input', (e) => reglerLaVitesseAuCran(parseInt(e.target.value, 10)));
     }
+    if (b('lecture-boucle')) b('lecture-boucle').addEventListener('click', () => basculerLaBoucle());
     const curseur = b('lecture-curseur');
     if (curseur) {
         curseur.addEventListener('input', () => {
@@ -4525,7 +4626,36 @@ function poserRaccourcisSurLesBoutons() {
 }
 
 // --- GESTION CLAVIER ---
+// LE LECTEUR PASSE AVANT LE RESTE, ET SURVIT AUX CURSEURS
+// Toute frappe partant d'un champ était ignorée d'emblée — la règle est bonne,
+// on ne pilote pas le tableau en tapant un titre. Mais les curseurs de la
+// bande SONT des champs : dès qu'on avait touché la vitesse ou la position, le
+// tableau ne reprenait pas le focus (le canevas ne sait pas le prendre), et
+// Espace, les flèches, Début et Fin ne faisaient plus rien. Les touches du
+// lecteur sont donc traitées les premières, et elles acceptent de venir de ses
+// propres curseurs — de là seulement.
+const CHAMPS_DU_LECTEUR = ['lecture-curseur', 'lecture-vitesse'];
+
+function cleDuLecteur(e) {
+    if (!lectureOuverte) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    const ou = e.target;
+    const dansUnChamp = ou && (ou.tagName === 'INPUT' || ou.tagName === 'TEXTAREA' || ou.isContentEditable);
+    if (dansUnChamp && CHAMPS_DU_LECTEUR.indexOf(ou.id) < 0) return false;
+
+    if (e.code === 'Space') { e.preventDefault(); pasDeLecture(e.shiftKey ? -1 : 1); return true; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); pasDeLecture(1); return true; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); pasDeLecture(-1); return true; }
+    if (e.key === 'Home') { e.preventDefault(); arreterLaLecture(); poserEtapeDeLecture(0); return true; }
+    if (e.key === 'End') { e.preventDefault(); arreterLaLecture(); poserEtapeDeLecture(history.length - 1); return true; }
+    // Échap rend la main au tableau : c'est ce qu'on cherche quand la sonnerie
+    // a retenti et qu'on veut reprendre son cours.
+    if (e.key === 'Escape') { e.preventDefault(); ouvrirLeLecteur(false); return true; }
+    return false;
+}
+
 window.addEventListener('keydown', (e) => {
+    if (cleDuLecteur(e)) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if (declencherRaccourci(e)) { e.preventDefault(); return; }
 
@@ -4617,15 +4747,9 @@ window.addEventListener('keydown', (e) => {
         if (e.key === 'y' || (e.shiftKey && e.key === 'Z')) { e.preventDefault(); redo(); }
         if ((e.key === 'd' || e.key === 'D') && selectedItems.length > 0) { e.preventDefault(); duplicateSelection(); }
     }
-    // LE LECTEUR OUVERT, LA BARRE D'ESPACE AVANCE D'UNE ÉTAPE. C'est le geste
-    // qu'on veut devant une classe : on commente, on appuie, on commente. Elle
-    // ne reprend son office ordinaire — faire glisser le tableau — qu'une fois
-    // le lecteur refermé.
-    if (e.code === 'Space' && lectureOuverte) {
-        e.preventDefault();
-        pasDeLecture(e.shiftKey ? -1 : 1);
-        return;
-    }
+    // La barre d'espace fait glisser le tableau — sauf lecteur ouvert, où elle
+    // avance d'une étape : c'est le geste qu'on veut devant une classe, on
+    // commente, on appuie, on commente. (Voir `cleDuLecteur`, tout en haut.)
     if (e.code === 'Space') { e.preventDefault(); isSpacePressed = true; updateCursor(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItems.length > 0) {
         deleteSelection();

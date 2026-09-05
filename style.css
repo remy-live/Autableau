@@ -8171,7 +8171,24 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     cursor: pointer;
 }
 
-#lecture-vitesse-lue { min-width: 34px; text-align: left; }
+/* « ×0,05 · 14 s » est plus large que l'ancien « ×1 » : on réserve la place,
+   sinon la bande sautille à chaque cran du curseur. */
+#lecture-vitesse-lue { min-width: 82px; text-align: left; }
+
+/* Ce qu'il reste à jouer, en clair : discret, mais toujours à la même place. */
+.lec-duree {
+    font-size: 12px;
+    color: #97a3a6;
+    white-space: nowrap;
+    min-width: 58px;
+    text-align: left;
+}
+
+/* La boucle s'allume quand elle est armée : un mode se voit. */
+#lecture-boucle.actif {
+    background: rgba(108, 92, 231, 0.16);
+    color: #6c5ce7;
+}
 
 /* Le tableau est en lecture : le curseur le dit avant qu'on essaie d'écrire. */
 body.en-lecture #board { cursor: default !important; }
@@ -8194,11 +8211,16 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .dark-mode .lec-btn:hover { background: #2f3941; }
 .dark-mode .mono-lec, .dark-mode .lec-vit-boite { color: #b2bec3; }
 .dark-mode .lec-vit-boite { border-left-color: #3d4852; }
-.dark-mode .lec-note { color: #7f8c8d; }
+.dark-mode .lec-note, .dark-mode .lec-duree { color: #7f8c8d; }
+.dark-mode #lecture-boucle.actif { background: rgba(162, 155, 254, 0.2); color: #a29bfe; }
 
 @media (max-width: 700px) {
     .lec-note { display: none; }
     #bande-lecture { gap: 6px; }
+}
+/* Sur un écran étroit, la durée restante cède la place avant les commandes. */
+@media (max-width: 900px) {
+    .lec-duree { display: none; }
 }
 
 /* ============================================================

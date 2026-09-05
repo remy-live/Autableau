@@ -1008,18 +1008,138 @@ module.exports = async function (browser) {
     r.verifie('le curseur d\'image se tire à la main, et le tableau suit',
         tire.index < 2 && tire.traits === tire.index, JSON.stringify(tire));
 
-    // LA VITESSE AU CURSEUR : trois crans ne suffisaient pas.
+    // ===================================================================
+    // LA VITESSE, EN ÉCHELLE LOGARITHMIQUE
+    // Le curseur allait de ×0,5 à ×5 par crans réguliers : le « lent » faisait
+    // 1,4 s par étape, alors qu'on commente une construction au rythme de
+    // plusieurs SECONDES par geste. Et l'échelle régulière donnait tout son
+    // parcours au rapide.
+    // ===================================================================
     const vitesses = await page.evaluate(() => {
         const lu = () => document.getElementById('lecture-vitesse-lue').textContent;
-        reglerLaVitesse(1); const lent = { delai: delaiDeLecture(), lu: lu() };
-        reglerLaVitesse(10); const vif = { delai: delaiDeLecture(), lu: lu() };
-        reglerLaVitesse(2); return { lent, vif, normal: delaiDeLecture() };
+        const auCran = (p) => { reglerLaVitesseAuCran(p); return { cran: p, delai: delaiDeLecture(), facteur: +lectureVitesse.toFixed(3), lu: lu() }; };
+        const releve = [0, 25, 50, 75, 100].map(auCran);
+        reglerLaVitesse(1);
+        return { releve, unDelai: delaiDeLecture(), unCran: cranDepuisLeFacteur(1) };
     });
-    r.verifie('la vitesse va du lent au vif',
-        vitesses.lent.delai > vitesses.normal && vitesses.normal > vitesses.vif.delai && vitesses.vif.delai < 200,
-        JSON.stringify(vitesses));
-    r.egal('et elle se lit en clair', { lent: vitesses.lent.lu, vif: vitesses.vif.lu },
-        { lent: '×0,5', vif: '×5' });
+    const lent = vitesses.releve[0], vif = vitesses.releve[4];
+    r.verifie('le plus lent tient largement plusieurs secondes par étape',
+        lent.delai >= 10000, `${lent.delai} ms par étape au cran le plus lent`);
+    r.verifie('bien plus lent que l\'ancien minimum de 1,4 s',
+        lent.delai > 1400 * 5, `${lent.delai} ms contre 1400 ms autrefois`);
+    r.verifie('et le plus vif survole la séance', vif.delai < 150, `${vif.delai} ms`);
+    r.verifie('les crans se suivent du lent au vif, sans retour en arrière',
+        vitesses.releve.every((v, i) => i === 0 || v.delai < vitesses.releve[i - 1].delai),
+        JSON.stringify(vitesses.releve.map(v => v.delai)));
+
+    // L'échelle est logarithmique : un même déplacement vaut partout le même
+    // RAPPORT. C'est ce qui donne autant de place au lent qu'au vif.
+    const rapports = [1, 2, 3, 4].map(i => vitesses.releve[i - 1].delai / vitesses.releve[i].delai);
+    r.verifie('un même déplacement change la durée dans le même rapport, partout',
+        rapports.every(x => Math.abs(x / rapports[0] - 1) < 0.06),
+        JSON.stringify(rapports.map(x => +x.toFixed(2))));
+
+    r.egal('la référence ×1 tombe bien à 700 ms', vitesses.unDelai, 700);
+    r.verifie('et le curseur sait où la placer',
+        vitesses.unCran > 40 && vitesses.unCran < 80, String(vitesses.unCran));
+    r.verifie('ce qui s\'affiche dit le facteur ET la durée d\'une étape',
+        /^×0,05 · 14 s$/.test(lent.lu) && /·/.test(vif.lu),
+        `lent « ${lent.lu} », vif « ${vif.lu} »`);
+
+    // Mesuré pour de bon : à ×0,1, trois secondes ne suffisent pas à avancer.
+    const vraimentLent = await page.evaluate(async () => {
+        reglerLaVitesse(0.1);
+        poserEtapeDeLecture(0);
+        lireOuPause();
+        await new Promise(res => setTimeout(res, 3000));
+        const ou = lectureIndex;
+        arreterLaLecture();
+        return { ou, delai: delaiDeLecture() };
+    });
+    r.egal('à ×0,1, on a trois secondes pour commenter une seule étape',
+        vraimentLent.ou, 0);
+
+    // LA BOUCLE : la classe recopie, le film repasse.
+    const enBoucle = await page.evaluate(async () => {
+        reglerLaVitesse(8);
+        basculerLaBoucle(true);
+        poserEtapeDeLecture(history.length - 3);
+        lireOuPause();
+        await new Promise(res => setTimeout(res, 2200));
+        const etat = { enMarche: lectureEnMarche, ou: lectureIndex, total: history.length,
+                       bouton: document.getElementById('lecture-boucle').classList.contains('actif') };
+        arreterLaLecture(); basculerLaBoucle(false);
+        return etat;
+    });
+    r.verifie('en boucle, la lecture repart du début au lieu de s\'arrêter',
+        enBoucle.enMarche && enBoucle.ou < enBoucle.total - 1,
+        JSON.stringify(enBoucle));
+    r.verifie('et le bouton de boucle s\'allume', enBoucle.bouton);
+
+    const sansBoucle = await page.evaluate(async () => {
+        reglerLaVitesse(8);
+        poserEtapeDeLecture(history.length - 3);
+        lireOuPause();
+        await new Promise(res => setTimeout(res, 1600));
+        return { enMarche: lectureEnMarche, ou: lectureIndex, total: history.length };
+    });
+    r.verifie('sans boucle, elle s\'arrête à la fin comme avant',
+        !sansBoucle.enMarche && sansBoucle.ou === sansBoucle.total - 1,
+        JSON.stringify(sansBoucle));
+
+    // LES TOUCHES : on ne devrait pas viser un bouton en parlant à une classe.
+    // ET ELLES DOIVENT SURVIVRE AUX CURSEURS. Le canevas ne sait pas prendre le
+    // focus : sitôt qu'on avait touché la vitesse ou la position, la frappe
+    // partait du curseur, le garde-fou « pas de raccourci dans un champ »
+    // l'écartait, et plus une seule touche du lecteur ne répondait.
+    await page.evaluate(() => { reglerLaVitesse(1); poserEtapeDeLecture(6); });
+    await page.focus('#lecture-curseur');
+    const ouEstLeFocus = await page.evaluate(() =>
+        document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : '');
+    r.egal('la mise en situation tient : le focus est bien sur un curseur',
+        ouEstLeFocus, 'lecture-curseur');
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(120);
+    const auDebut = await page.evaluate(() => lectureIndex);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(120);
+    const deuxPas = await page.evaluate(() => lectureIndex);
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(120);
+    const unRetour = await page.evaluate(() => lectureIndex);
+    await page.keyboard.press('End');
+    await page.waitForTimeout(120);
+    const aLaFin = await page.evaluate(() => ({ i: lectureIndex, n: history.length }));
+    r.egal('Début, →, ← et Fin conduisent le film, curseur en main',
+        { auDebut, deuxPas, unRetour, fin: aLaFin.i === aLaFin.n - 1 },
+        { auDebut: 0, deuxPas: 2, unRetour: 1, fin: true });
+
+    // Espace aussi, et Échap referme la bande.
+    await page.focus('#lecture-vitesse');
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(120);
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(150);
+    r.egal('Espace avance encore, la vitesse en main',
+        await page.evaluate(() => lectureIndex), 1);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    r.verifie('Échap referme le lecteur et rend le tableau',
+        await page.evaluate(() => !lectureOuverte));
+    await page.evaluate(() => ouvrirLeLecteur(true));
+
+    // CE QU'IL RESTE À JOUER : on le sait avant de lancer.
+    const reste = await page.evaluate(() => {
+        reglerLaVitesse(0.5); poserEtapeDeLecture(0);
+        const debut = document.getElementById('lecture-duree').textContent;
+        poserEtapeDeLecture(history.length - 1);
+        return { debut, fin: document.getElementById('lecture-duree').textContent };
+    });
+    r.verifie('la bande dit ce qu\'il reste à jouer, et « fin » à la fin',
+        /reste .*s/.test(reste.debut) && reste.fin === 'fin', JSON.stringify(reste));
+
+    await page.evaluate(() => reglerLaVitesse(1));
 
     // PENDANT LE FILM, LE TABLEAU EST UN FILM.
     // Dessiner sur un état rembobiné écrivait dans l'historique un état du
