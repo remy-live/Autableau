@@ -8518,3 +8518,23 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     color: #fff;
     font-weight: 600;
 }
+
+/* CE QUI NE SE PROJETTE PAS. La fiche d'un élève s'ouvre souvent alors que le
+   vidéoprojecteur est allumé : ses absences et la note personnelle qu'on tient
+   sur lui n'ont pas à s'afficher devant la classe parce qu'on a cliqué son nom. */
+.cm-fiche-prive > summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted, #636e72);
+    padding: 8px 12px;
+    border: 1px dashed var(--border, #dfe6e9);
+    border-radius: 9px;
+    margin-top: 4px;
+    user-select: none;
+}
+
+.cm-fiche-prive > summary::-webkit-details-marker { display: none; }
+.cm-fiche-prive > summary:hover { color: var(--accent, #6c5ce7); border-color: var(--accent, #6c5ce7); }
+.cm-fiche-prive[open] > summary { border-style: solid; margin-bottom: 6px; }

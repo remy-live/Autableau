@@ -45,7 +45,13 @@ module.exports = async function (browser) {
     const compte = await page.evaluate(() => {
         const p = PluginManager.plugins.classPointsTool;
         const cartes = () => document.querySelectorAll('#points-widget .pts-carte');
-        cartes()[0].click(); cartes()[0].click(); cartes()[2].click();   // mode bonus par défaut
+        // ON ARME D'ABORD. Rien n'est armé à l'ouverture depuis qu'un clic sur
+        // un élève ouvre sa fiche au lieu de lui donner un point. Et comme les
+        // boutons BASCULENT, on repart d'un état neutre : sinon le clic
+        // éteindrait le bonus au lieu de l'allumer.
+        p.mode = null; p.rendre();
+        document.getElementById('pts-mode-plus').click();
+        cartes()[0].click(); cartes()[0].click(); cartes()[2].click();
         document.getElementById('pts-mode-moins').click();
         cartes()[1].click();
         const cl = p.classeCourante();
@@ -163,6 +169,9 @@ module.exports = async function (browser) {
         // on choisit une couleur, puis un corps
         const bleu = Array.from(document.querySelectorAll('#points-widget .pts-trait'))
             .find(b => b.dataset.cle === 'teinte' && b.dataset.v === '#0984e3');
+        if (!bleu) return { sonde: { mode: p.mode, fiche: p.ficheEleve, bilan: p.panneauBilan,
+            reglages: p.panneauReglages, badge: p.editionBadge, avatar: p.editionAvatar,
+            classe: p.classeId, traits: document.querySelectorAll('#points-widget .pts-trait').length } };
         bleu.click();
         const corps = Array.from(document.querySelectorAll('#points-widget .pts-trait'))
             .find(b => b.dataset.cle === 'corps' && b.dataset.v === 'bloc');
@@ -697,6 +706,10 @@ module.exports = async function (browser) {
         // On vise l'élève par son identifiant : l'ordre des cartes ne doit
         // pas décider de ce que le test vérifie.
         const carte = (id) => w.querySelector('.pts-carte[data-id="' + id + '"]');
+        // Les boutons de mode BASCULENT : cliquer celui qui est déjà armé le
+        // désarme. On repart donc d'un état neutre, sinon le clic suivant
+        // éteindrait le bonus au lieu de l'allumer.
+        outil.mode = null; outil.rendre();
         w.querySelector('#pts-mode-plus').click();
         carte('av_0').click();
         carte('av_0').click();
@@ -1924,6 +1937,94 @@ module.exports = async function (browser) {
     });
     r.egal('un clic sur un onglet change de classe',
         change, { actifs: ['o2'], eleves: 1 });
+
+    // =====================================================================
+    // RIEN N'EST ARMÉ AU DÉPART
+    // « Bonus » était allumé dès l'ouverture : cliquer un élève pour voir où
+    // il en est lui donnait un point. Un geste de curiosité devenait une note,
+    // et l'on ne s'en apercevait pas toujours.
+    // =====================================================================
+    // ONGLET NEUF. Les épreuves précédentes ont armé des modes : pour juger de
+    // ce qui est armé À L'OUVERTURE, il faut une page qui n'a rien vécu — sinon
+    // c'est l'état qu'on vient de poser qu'on mesure, et le test ne dit plus
+    // rien du défaut.
+    const { context: ctxPts, page: pagePts, erreurs: errPts } = await ouvrirApp(browser);
+    await pagePts.waitForFunction(() => window.PluginManager && PluginManager.plugins.classPointsTool, { timeout: 20000 });
+    await pagePts.evaluate(async () => {
+        await ClassesStore.saveAll([{
+            id: 'cp', name: '4A',
+            students: [{ id: 'e1', name: 'Léa' }, { id: 'e2', name: 'Malo' }]
+        }]);
+        PluginManager.plugins.classPointsTool.ouvrir('cp');
+        await new Promise(res => setTimeout(res, 800));
+    });
+
+    const etatPoints = () => pagePts.evaluate(() => {
+        const P = PluginManager.plugins.classPointsTool;
+        const e = P.classes.find(x => x.id === 'cp').students.find(s => s.id === 'e1');
+        const prive = document.querySelector('.cm-fiche-prive');
+        return {
+            mode: P.mode,
+            plus: (e.pts && e.pts.plus) || 0,
+            fiche: !!document.querySelector('.cm-fiche'),
+            prive: !!prive,
+            priveOuvert: !!(prive && prive.open)
+        };
+    });
+
+    r.egal('à l\'ouverture, aucun mode n\'est armé',
+        await etatPoints(), { mode: null, plus: 0, fiche: false, prive: false, priveOuvert: false });
+
+    await pagePts.click('.pts-carte[data-id="e1"]');
+    await pagePts.waitForTimeout(400);
+    const clicSimple = await etatPoints();
+    r.egal('cliquer un élève ouvre sa fiche, et ne lui donne RIEN',
+        { plus: clicSimple.plus, fiche: clicSimple.fiche }, { plus: 0, fiche: true });
+
+    // CE QUI NE SE PROJETTE PAS : la fiche s'ouvre souvent devant la classe.
+    r.verifie('les informations personnelles existent, mais repliées',
+        clicSimple.prive && !clicSimple.priveOuvert, JSON.stringify(clicSimple));
+    const contenuPrive = await pagePts.evaluate(() => {
+        const d = document.querySelector('.cm-fiche-prive');
+        // Bloc absent : on le dit dans les lignes qui le concernent, plutôt
+        // que de planter et d'emporter les trois cents autres.
+        if (!d) return { resume: '(pas de bloc replié)', memoDedans: false,
+                         memoDehors: !!document.querySelector('#cm-fiche-memo') };
+        return {
+            resume: d.querySelector('summary').textContent.trim(),
+            memoDedans: !!d.querySelector('#cm-fiche-memo'),
+            memoDehors: !!document.querySelector('.cm-fiche > #cm-fiche-memo')
+        };
+    });
+    r.verifie('le résumé dit ce qu\'on va ouvrir', /Autres informations/.test(contenuPrive.resume), contenuPrive.resume);
+    r.egal('la note personnelle est bien à l\'intérieur, pas à découvert',
+        { dedans: contenuPrive.memoDedans, dehors: contenuPrive.memoDehors }, { dedans: true, dehors: false });
+
+    try { await pagePts.click('#cm-fiche-retour', { timeout: 3000 }); } catch (e) { /* pas de fiche ouverte */ }
+    await pagePts.waitForTimeout(300);
+    await pagePts.click('#pts-mode-plus');
+    await pagePts.waitForTimeout(300);
+    r.egal('armer « Bonus » referme la fiche',
+        await etatPoints(), { mode: 'plus', plus: 0, fiche: false, prive: false, priveOuvert: false });
+
+    await pagePts.click('.pts-carte[data-id="e1"]');
+    await pagePts.waitForTimeout(400);
+    r.egal('et c\'est ALORS que le clic donne un point',
+        (await etatPoints()).plus, 1);
+
+    await pagePts.click('#pts-mode-plus');
+    await pagePts.waitForTimeout(300);
+    const desarme = await etatPoints();
+    r.egal('recliquer le bouton armé désarme', desarme.mode, null);
+
+    await pagePts.click('.pts-carte[data-id="e1"]');
+    await pagePts.waitForTimeout(400);
+    const apresDesarme = await etatPoints();
+    r.egal('et l\'on revient à la consultation : le point ne bouge plus',
+        { plus: apresDesarme.plus, fiche: apresDesarme.fiche }, { plus: 1, fiche: true });
+
+    r.verifie('aucune erreur JS sur la feuille de points', errPts.length === 0, errPts.join(' | '));
+    await ctxPts.close();
 
     // =====================================================================
     // LES VUES D'UNE CLASSE SONT DES ONGLETS, PAS DES FENÊTRES

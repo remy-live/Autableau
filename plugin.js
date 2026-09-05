@@ -31308,7 +31308,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     CLE_REGLAGES: 'board_points_reglages',
     CLE_BADGES: 'board_badges',
     reglages: { seuilNote: 20, seuilRetenue: 5, affichage: 'deux' },   // 'deux' totaux ou 'solde'
-    classes: [], classeId: null, mode: 'plus', historique: [],
+    // RIEN N'EST ARMÉ AU DÉPART.
+    // « Bonus » était allumé dès l'ouverture : cliquer un élève pour voir où il
+    // en est lui donnait un point. Un geste de curiosité devenait une note, et
+    // l'on ne s'en apercevait pas toujours. Par défaut, cliquer un élève OUVRE
+    // SA FICHE ; pour distribuer, on arme d'abord Bonus, Malus ou Retirer — et
+    // l'on désarme en recliquant le même bouton.
+    classes: [], classeId: null, mode: null, historique: [],
+    ficheEleve: null,
     widgetEl: null, editionAvatar: null, panneauReglages: false, currentStamp: null,
     // Badges : ceux qui sont fournis, ceux que l'enseignant a créés, ceux qu'il
     // a écartés, et celui qu'il tient en main pour l'apposer d'un clic.
@@ -31697,6 +31704,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         }
         this.panneauReglages = false;
         this.panneauBilan = false;
+        this.ficheEleve = null;
         this.editionAvatar = null;
         this.editionBadge = null;
         this.badgeArme = null;
@@ -31818,7 +31826,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         });
         ['plus', 'moins', 'retirer'].forEach(m => {
             barre.querySelector('#pts-mode-' + m).addEventListener('click', () => {
-                this.mode = m; this.badgeArme = null; this.rendre();
+                // Recliquer le bouton armé le désarme : on revient à la
+                // consultation, où un clic n'a plus de conséquence.
+                this.mode = (this.mode === m) ? null : m;
+                this.badgeArme = null; this.oubliArme = null; this.ficheEleve = null;
+                this.rendre();
             });
         });
         // Toute la classe a bien travaillé : trente clics devenaient un.
@@ -31833,6 +31845,29 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         if (this.panneauBilan) { corps.innerHTML = this.htmlBilan(); this.brancherBilan(); return; }
         if (this.panneauReglages) { corps.innerHTML = this.htmlReglages(); this.brancherReglages(); return; }
         if (this.editionAvatar) { corps.innerHTML = this.htmlAvatar(); this.brancherAvatar(); return; }
+        // La fiche d'un élève : c'est ce qu'on obtient en cliquant son nom
+        // quand rien n'est armé. La même que dans « Mes classes » — un seul
+        // dessin à tenir, et les mêmes informations sous les mêmes noms.
+        if (this.ficheEleve) {
+            const eleveVu = classe && (classe.students || []).find(s => s.id === this.ficheEleve);
+            if (!eleveVu) { this.ficheEleve = null; }
+            else if (typeof window.ficheDeLEleve === 'function') {
+                corps.innerHTML = window.ficheDeLEleve(classe, eleveVu, this.bilanPeriode);
+                const retour = corps.querySelector('#cm-fiche-retour');
+                if (retour) retour.addEventListener('click', () => { this.ficheEleve = null; this.rendre(); });
+                corps.querySelectorAll('.cm-fiche-periode').forEach(b => {
+                    b.addEventListener('click', () => { this.bilanPeriode = b.dataset.p; this.rendre(); });
+                });
+                const memo = corps.querySelector('#cm-fiche-memo');
+                if (memo) {
+                    memo.addEventListener('change', () => {
+                        eleveVu.memo = memo.value;
+                        this.sauver();
+                    });
+                }
+                return;
+            }
+        }
 
         if (!classe || !(classe.students || []).length) {
             corps.innerHTML = `<div style="padding:30px; text-align:center; color:#636e72; font-size:13px;">
@@ -31870,6 +31905,12 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     const cible = e.target.closest('.pts-compteur');
                     if (cible) this.retirerUn(carte.dataset.id, cible.dataset.champ);
                     else if (typeof showToast === 'function') showToast('Cliquez sur le compteur à corriger');
+                    return;
+                }
+                // Rien d'armé : on regarde, on ne note pas.
+                if (this.mode !== 'plus' && this.mode !== 'moins') {
+                    this.ficheEleve = carte.dataset.id;
+                    this.rendre();
                     return;
                 }
                 this.compter(carte.dataset.id, this.mode === 'plus' ? 1 : -1);

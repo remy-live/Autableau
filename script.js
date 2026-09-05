@@ -19531,7 +19531,16 @@ async function openSeatingPlanEditor(classId, hote) {
             .sp-canvas-wrap { flex:1; overflow:auto; position:relative;
                 background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
                 background-size: ${SP_GRID_STEP}px ${SP_GRID_STEP}px; }
-            .sp-canvas { position:relative; min-width:100%; min-height:100%; }
+            .sp-canvas { position:relative; min-width:100%; min-height:100%;
+                transform-origin: 0 0; }
+            /* LE ZOOM DU PLAN. Trente élèves sur quinze tables débordent de
+               l'écran : on ne voyait ni le fond de la classe ni la colonne de
+               droite. Le canevas se met à l'échelle, et son cadre garde la
+               taille réelle pour que les ascenseurs restent justes. */
+            .sp-zoom-boite { display:flex; align-items:center; gap:6px; }
+            .sp-zoom-boite input[type=range] { flex:1; min-width:0; accent-color: var(--accent, #6c5ce7); cursor:pointer; }
+            .sp-zoom-lu { font-size:11px; color:var(--muted, #636e72); min-width:34px; text-align:right;
+                font-variant-numeric: tabular-nums; }
             .sp-tool-btn { flex:1; padding:8px 4px; font-size:11px; }
             .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); }
             .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px; }
@@ -19586,6 +19595,82 @@ async function openSeatingPlanEditor(classId, hote) {
 
     let dragStudentId = null, dragFromTableId = null, dragFromSeatIdx = null;
     let currentTool = 'select';
+
+    // ---------------------------------------------------------------------
+    // LE ZOOM DU PLAN
+    // Trente élèves sur quinze tables débordent : on ne voyait ni le fond de
+    // la classe ni la colonne de droite. Le canevas se met à l'échelle par
+    // une transformation — les positions des tables restent en unités de
+    // plan, personne n'a à les recalculer — et son CADRE prend la taille
+    // réelle, sinon les ascenseurs mesureraient l'avant-zoom.
+    // Le facteur suit la classe : on ne rerègle pas à chaque ouverture.
+    // ---------------------------------------------------------------------
+    // Les réglages du remplissage suivent la classe : on ne les repose pas à
+    // chaque fois qu'on redessine le plan.
+    if (!plan.remplissage || typeof plan.remplissage !== 'object') {
+        plan.remplissage = { ordre: 'alpha', sens: 'row', premierRang: true };
+    }
+    const remplissage = plan.remplissage;
+
+    const SP_ZOOM_MIN = 0.3, SP_ZOOM_MAX = 1.4;
+    let spZoom = (typeof plan.zoom === 'number' && isFinite(plan.zoom))
+        ? Math.max(SP_ZOOM_MIN, Math.min(SP_ZOOM_MAX, plan.zoom)) : 1;
+
+    // L'étendue réellement occupée par le plan, en unités de plan.
+    function etendueDuPlan() {
+        let l = 0, h = 0;
+        (plan.tables || []).forEach(t => {
+            const el = box.querySelector(`.sp-table[data-table="${t.id}"]`);
+            const tl = el ? el.offsetWidth : 200, th = el ? el.offsetHeight : 120;
+            l = Math.max(l, (t.x || 0) + tl);
+            h = Math.max(h, (t.y || 0) + th);
+        });
+        return { l: l + 40, h: h + 40 };
+    }
+
+    function appliquerLeZoom(nouveau, ancre) {
+        const canvas = box.querySelector('#sp-canvas');
+        const cadre = box.querySelector('.sp-canvas-wrap');
+        if (!canvas || !cadre) return;
+        const avant = spZoom;
+        spZoom = Math.max(SP_ZOOM_MIN, Math.min(SP_ZOOM_MAX, nouveau));
+        canvas.style.transform = `scale(${spZoom})`;
+        // Le cadre doit connaître la taille APRÈS mise à l'échelle : la
+        // transformation ne change pas la place que l'élément déclare occuper.
+        const e = etendueDuPlan();
+        canvas.style.width = e.l + 'px';
+        canvas.style.height = e.h + 'px';
+        canvas.style.marginRight = (e.l * (spZoom - 1)) + 'px';
+        canvas.style.marginBottom = (e.h * (spZoom - 1)) + 'px';
+
+        // Zoomer sous le pointeur : sans cela, on perd de vue ce qu'on visait.
+        if (ancre && avant) {
+            const r = cadre.getBoundingClientRect();
+            const px = ancre.x - r.left + cadre.scrollLeft;
+            const py = ancre.y - r.top + cadre.scrollTop;
+            const k = spZoom / avant;
+            cadre.scrollLeft += px * (k - 1);
+            cadre.scrollTop += py * (k - 1);
+        }
+
+        const curseur = box.querySelector('#sp-zoom');
+        const lu = box.querySelector('#sp-zoom-lu');
+        if (curseur && document.activeElement !== curseur) curseur.value = Math.round(spZoom * 100);
+        if (lu) lu.textContent = Math.round(spZoom * 100) + ' %';
+        plan.zoom = spZoom;
+    }
+
+    // « Tout voir » : le facteur qui fait entrer le plan entier dans le cadre.
+    function ajusterLeZoom() {
+        const cadre = box.querySelector('.sp-canvas-wrap');
+        if (!cadre) return;
+        const e = etendueDuPlan();
+        if (!e.l || !e.h) return;
+        const k = Math.min((cadre.clientWidth - 8) / e.l, (cadre.clientHeight - 8) / e.h);
+        appliquerLeZoom(Math.min(1, k));
+        cadre.scrollLeft = 0; cadre.scrollTop = 0;
+        persist();
+    }
 
     function persist() { ClassesStore.saveAll(allClasses); }
 
@@ -19874,7 +19959,11 @@ async function openSeatingPlanEditor(classId, hote) {
 
     // Regroupe les sièges par "lignes" selon primaryAxis (avec tolérance), trie les lignes,
     // puis trie les sièges de chaque ligne selon secondaryAxis.
-    function clusterAndOrder(seatPositions, primaryAxis, secondaryAxis) {
+    // `inverserGroupes` / `inverserDedans` : par où l'on commence. C'est ce qui
+    // permet de remplir de la droite vers la gauche — une salle n'a pas
+    // toujours sa porte du même côté, et l'on ne commence pas toujours par le
+    // même bout.
+    function clusterAndOrder(seatPositions, primaryAxis, secondaryAxis, inverserGroupes, inverserDedans) {
         const sorted = [...seatPositions].sort((a, b) => a[primaryAxis] - b[primaryAxis]);
         const groups = [];
         sorted.forEach(s => {
@@ -19883,21 +19972,28 @@ async function openSeatingPlanEditor(classId, hote) {
             g.items.push(s);
         });
         groups.sort((a, b) => a.val - b.val);
+        if (inverserGroupes) groups.reverse();
         const ordered = [];
         groups.forEach(g => {
             g.items.sort((a, b) => a[secondaryAxis] - b[secondaryAxis]);
+            if (inverserDedans) g.items.reverse();
             ordered.push(...g.items);
         });
         return ordered;
     }
 
-    // direction 'row' : rangée par rangée, du plus proche du tableau au plus loin (gauche → droite dans chaque rangée)
-    // direction 'col' : colonne par colonne, de la gauche vers la droite (devant → derrière dans chaque colonne)
+    // 'row'  : rangée par rangée, du plus proche du tableau au plus loin
+    // 'col'  : colonne par colonne, du devant vers le derrière dans chacune
+    // Le suffixe « -rev » renverse le SENS HORIZONTAL : dans une rangée, on
+    // part de la droite ; en colonnes, on commence par celle de droite. C'est
+    // le même choix, il porte simplement sur l'axe des groupes en colonnes et
+    // sur celui du contenu en rangées.
     function computeSeatOrder(direction) {
         const seatPositions = getSeatPositions();
-        return direction === 'col'
-            ? clusterAndOrder(seatPositions, 'x', 'y')
-            : clusterAndOrder(seatPositions, 'y', 'x');
+        const versLaGauche = /-rev$/.test(direction || '');
+        return /^col/.test(direction || '')
+            ? clusterAndOrder(seatPositions, 'x', 'y', versLaGauche, false)
+            : clusterAndOrder(seatPositions, 'y', 'x', false, versLaGauche);
     }
 
     function autoFill(order, respectFrontRow, direction) {
@@ -20019,22 +20115,33 @@ async function openSeatingPlanEditor(classId, hote) {
                     <button id="sp-apply-template" class="btn-action primary sp-left-btn">Appliquer</button>
                     <button id="sp-reset-plan" class="btn-action secondary sp-left-btn" style="color:#d63031;">🔄 Réinitialiser</button>
 
+                    <!-- CES TROIS CHOIX SE RETIENNENT. Le plan est redessiné
+                         après chaque remplissage : sans mémoire, on retombait
+                         sur « alphabétique, par rangée » à chaque fois, et il
+                         fallait re-choisir avant de recommencer. -->
                     <label class="sp-section-label">Remplissage auto</label>
                     <select id="sp-order" class="sp-left-select">
-                        <option value="alpha" selected>Ordre alphabétique</option>
-                        <option value="list">Ordre de la liste</option>
-                        <option value="random">Aléatoire</option>
+                        ${[['alpha', 'Ordre alphabétique'], ['list', 'Ordre de la liste'], ['random', 'Aléatoire']]
+                        .map(([v, n]) => `<option value="${v}" ${remplissage.ordre === v ? 'selected' : ''}>${n}</option>`).join('')}
                     </select>
                     <select id="sp-direction" class="sp-left-select" style="margin-top:6px;">
-                        <option value="row" selected>Par rangée (⟶)</option>
-                        <option value="col">Par colonne (⟱)</option>
+                        ${[['row', 'Par rangée, de gauche à droite'], ['row-rev', 'Par rangée, de droite à gauche'],
+                           ['col', 'Par colonne, de gauche à droite'], ['col-rev', 'Par colonne, de droite à gauche']]
+                        .map(([v, n]) => `<option value="${v}" ${remplissage.sens === v ? 'selected' : ''}>${n}</option>`).join('')}
                     </select>
                     <label class="sp-checkbox-row">
-                        <input type="checkbox" id="sp-respect-front" checked> Priorité 1er rang ⭐
+                        <input type="checkbox" id="sp-respect-front" ${remplissage.premierRang ? 'checked' : ''}> Priorité 1er rang ⭐
                     </label>
                     <button id="sp-autofill" class="btn-action primary sp-left-btn">🔀 Remplir auto</button>
                     <button id="sp-clear-seats" class="btn-action secondary sp-left-btn">Vider les places</button>
 
+                    <label class="sp-section-label">Zoom</label>
+                    <div class="sp-zoom-boite">
+                        <input type="range" id="sp-zoom" min="30" max="140" step="1" value="${Math.round(spZoom * 100)}"
+                               aria-label="Taille du plan" title="Molette sur le plan pour zoomer">
+                        <span class="sp-zoom-lu" id="sp-zoom-lu">${Math.round(spZoom * 100)} %</span>
+                    </div>
+                    <button id="sp-zoom-ajuster" class="btn-action secondary sp-left-btn">⤢ Tout voir</button>
                     <label class="sp-section-label">Export</label>
                     <button id="sp-export-pdf" class="btn-action secondary sp-left-btn">📄 Export PDF</button>
                     <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>
@@ -20122,10 +20229,10 @@ async function openSeatingPlanEditor(classId, hote) {
         });
 
         box.querySelector('#sp-autofill').onclick = () => {
-            const order = box.querySelector('#sp-order').value;
-            const direction = box.querySelector('#sp-direction').value;
-            const respect = box.querySelector('#sp-respect-front').checked;
-            autoFill(order, respect, direction);
+            remplissage.ordre = box.querySelector('#sp-order').value;
+            remplissage.sens = box.querySelector('#sp-direction').value;
+            remplissage.premierRang = box.querySelector('#sp-respect-front').checked;
+            autoFill(remplissage.ordre, remplissage.premierRang, remplissage.sens);
         };
 
         box.querySelector('#sp-clear-seats').onclick = () => {
@@ -20143,6 +20250,33 @@ async function openSeatingPlanEditor(classId, hote) {
             };
         });
 
+        // --- LE ZOOM : au curseur, à la molette, ou d'un bouton ---
+        const curseurZoom = box.querySelector('#sp-zoom');
+        if (curseurZoom) {
+            curseurZoom.addEventListener('input', () => {
+                appliquerLeZoom(parseInt(curseurZoom.value, 10) / 100);
+            });
+            curseurZoom.addEventListener('change', persist);
+        }
+        const btnAjuster = box.querySelector('#sp-zoom-ajuster');
+        if (btnAjuster) btnAjuster.addEventListener('click', ajusterLeZoom);
+
+        const cadreZoom = box.querySelector('.sp-canvas-wrap');
+        if (cadreZoom) {
+            // La molette zoome sous le pointeur. Le plan tient d'ordinaire en
+            // entier une fois ajusté ; pour le parcourir quand il déborde, il
+            // reste l'outil Main et les ascenseurs.
+            cadreZoom.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const pas = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+                appliquerLeZoom(spZoom * pas, { x: e.clientX, y: e.clientY });
+                clearTimeout(cadreZoom._zoomEcrit);
+                cadreZoom._zoomEcrit = setTimeout(persist, 400);
+            }, { passive: false });
+        }
+        // Le plan vient d'être redessiné : on lui remet son échelle.
+        appliquerLeZoom(spZoom);
+
         // Déplacement des tables à la souris, aligné sur la grille
         const canvas = box.querySelector('#sp-canvas');
         box.querySelectorAll('.sp-table-handle').forEach(handle => {
@@ -20151,13 +20285,22 @@ async function openSeatingPlanEditor(classId, hote) {
                 if (e.target.classList.contains('sp-table-del') || e.target.classList.contains('sp-table-resize')) return;
                 const table = plan.tables.find(t => t.id === handle.dataset.table);
                 const canvasRect = canvas.getBoundingClientRect();
-                const startX = e.clientX - canvasRect.left - table.x;
-                const startY = e.clientY - canvasRect.top - table.y;
+                // Le cadre est mesuré à l'écran, les tables vivent en unités de
+                // plan : sans diviser par le zoom, une table dézoomée à 50 %
+                // partait deux fois trop loin sous le doigt.
+                const enPlan = (cx, cy) => ({
+                    x: (cx - canvasRect.left) / spZoom,
+                    y: (cy - canvasRect.top) / spZoom
+                });
+                const depart = enPlan(e.clientX, e.clientY);
+                const startX = depart.x - table.x;
+                const startY = depart.y - table.y;
                 const tableEl = handle.closest('.sp-table');
 
                 function onMove(ev) {
-                    table.x = Math.max(0, spSnap(ev.clientX - canvasRect.left - startX));
-                    table.y = Math.max(0, spSnap(ev.clientY - canvasRect.top - startY));
+                    const p = enPlan(ev.clientX, ev.clientY);
+                    table.x = Math.max(0, spSnap(p.x - startX));
+                    table.y = Math.max(0, spSnap(p.y - startY));
                     tableEl.style.left = table.x + 'px';
                     tableEl.style.top = table.y + 'px';
                 }
@@ -22779,20 +22922,29 @@ function ficheDeLEleve(classe, eleve, periode) {
             : `<div class="cm-fiche-rien">Aucun oubli sur cette période.</div>`}
         </div>
 
-        <div class="cm-fiche-bloc">
-            <div class="cm-fiche-titre">Absences</div>
-            ${r.absences ? `<div class="cm-fiche-ligne">
-                    <span class="cm-fiche-quoi">Jours manqués</span>
-                    <b style="color:#e17055;">${r.absences}</b>
-                    <span class="cm-fiche-dates">${listeDates(r.datesAbsences)}</span>
-                </div>`
-            : `<div class="cm-fiche-rien">Aucune absence relevée à l'appel.</div>`}
-        </div>
+        <!-- CE QUI NE SE PROJETTE PAS.
+             La fiche s'ouvre souvent alors que le vidéoprojecteur est allumé.
+             Les absences et surtout la note personnelle que l'on tient sur un
+             élève n'ont pas à s'afficher devant la classe parce qu'on a cliqué
+             sur son nom. On les ouvre à la demande, et elles se referment
+             chaque fois qu'on rouvre une fiche. -->
+        <details class="cm-fiche-prive">
+            <summary>🔒 Autres informations — absences et notes personnelles</summary>
+            <div class="cm-fiche-bloc">
+                <div class="cm-fiche-titre">Absences</div>
+                ${r.absences ? `<div class="cm-fiche-ligne">
+                        <span class="cm-fiche-quoi">Jours manqués</span>
+                        <b style="color:#e17055;">${r.absences}</b>
+                        <span class="cm-fiche-dates">${listeDates(r.datesAbsences)}</span>
+                    </div>`
+                : `<div class="cm-fiche-rien">Aucune absence relevée à l'appel.</div>`}
+            </div>
 
-        <div class="cm-fiche-bloc">
-            <div class="cm-fiche-titre">Ce que vous avez noté</div>
-            <textarea id="cm-fiche-memo" rows="3" placeholder="Un mot sur ${nom}, pour s'en souvenir…">${echapperTexte(eleve.memo || '')}</textarea>
-        </div>
+            <div class="cm-fiche-bloc">
+                <div class="cm-fiche-titre">Ce que vous avez noté</div>
+                <textarea id="cm-fiche-memo" rows="3" placeholder="Un mot sur ${nom}, pour s'en souvenir…">${echapperTexte(eleve.memo || '')}</textarea>
+            </div>
+        </details>
     </div>`;
 }
 window.ficheDeLEleve = ficheDeLEleve;
