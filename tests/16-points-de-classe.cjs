@@ -1473,8 +1473,12 @@ module.exports = async function (browser) {
     r.egal('deux dates : on ne garde que la période demandée',
         [bilan.ancien.plus, bilan.ancien.totalOublis], [1, 1]);
     r.egal('le solde est la différence', bilan.mois.solde, 1);
-    r.egal('le tableau a une colonne par motif, plus les points et les absences',
-        bilan.colonnes, 5 + 1 + 4 + 1);
+    // LES QUATRE NATURES D'OUBLI ONT QUITTÉ L'EN-TÊTE. Elles y tenaient quatre
+    // colonnes, plus un total, presque toujours vides : elles sont devenues des
+    // pastilles dans une seule colonne, qui ne paraissent que si elles ont
+    // quelque chose à dire. Restent : l'élève, ses points, ses badges, ses
+    // absences, ses oublis.
+    r.egal('le tableau tient en cinq colonnes', bilan.colonnes, 5);
     r.egal('une ligne par élève', bilan.lignes, bilan.eleves);
     r.egal('trois trimestres et cinq autres périodes', bilan.periodes, 8);
     r.verifie('et un bouton d\'export PDF', bilan.boutonPdf);
@@ -1836,6 +1840,97 @@ module.exports = async function (browser) {
         const m = document.getElementById('class-manager-modal');
         if (m) m.remove();
     });
+
+    // =====================================================================
+    // LE BILAN : LES DATES, LA PLACE, ET LES RÉCIDIVES
+    // Le tableau comptait onze colonnes, dont cinq presque toujours vides, et
+    // il ne disait nulle part QUAND un oubli avait eu lieu — la date était
+    // pourtant dans le journal. Et il ne distinguait pas trois oublis
+    // dispersés de trois oublis d'affilée, qui n'ont rien à voir.
+    // =====================================================================
+    const releveBilan = await page.evaluate(() => {
+        const P = PluginManager.plugins.classPointsTool;
+        const dd = x => (x < 10 ? '0' : '') + x;
+        const j = (n) => {
+            const d = new Date(Date.now() - n * 86400000);
+            return d.getFullYear() + '-' + dd(d.getMonth() + 1) + '-' + dd(d.getDate());
+        };
+        // Cinq jours où l'on a vu la classe
+        const J = [j(8), j(6), j(4), j(2), j(0)];
+        const eleve = (nom, journal) => ({ id: 'b_' + nom, name: nom, journal });
+        P.classes = [{
+            id: 'cbilan', name: '4e B', students: [
+                // Léa oublie sa signature aux TROIS derniers cours : cela dure
+                eleve('Léa', [{ d: J[2], t: 'o', v: 'signature' }, { d: J[3], t: 'o', v: 'signature' },
+                              { d: J[4], t: 'o', v: 'signature' }, { d: J[4], t: 'p' }]),
+                // Malo oublie deux fois, mais jamais deux cours de suite
+                eleve('Malo', [{ d: J[0], t: 'o', v: 'materiel' }, { d: J[3], t: 'o', v: 'materiel' },
+                               { d: J[1], t: 'a' }]),
+                // Théo : deux cours de suite, mais c'était il y a longtemps
+                eleve('Théo', [{ d: J[0], t: 'o', v: 'devoirs' }, { d: J[1], t: 'o', v: 'devoirs' },
+                               { d: J[2], t: 'm' }]),
+                eleve('Zoé', [{ d: J[1], t: 'p' }, { d: J[3], t: 'b' }])
+            ]
+        }];
+        P.classeId = 'cbilan';
+        P.bilanPeriode = 'tout';
+        const lignes = P.lignesDuBilan();
+        const par = (n) => lignes.find(l => l.nom === n);
+        const html = P.htmlBilan();
+        return {
+            jours: P.joursDeClasse('', '').length,
+            colonnes: (html.match(/<th /g) || []).length,
+            lea: {
+                dates: par('Léa').datesOublis.signature,
+                suite: par('Léa').suites.signature.suite,
+                enCours: par('Léa').suites.signature.enCours
+            },
+            malo: { total: par('Malo').totalOublis, pire: par('Malo').pireSuite,
+                    absences: par('Malo').datesAbsences },
+            theo: { suite: par('Théo').suites.devoirs.suite, enCours: par('Théo').suites.devoirs.enCours },
+            zoe: { total: par('Zoé').totalOublis, pire: par('Zoé').pireSuite },
+            pastilles: (html.match(/pts-oubli-pastille/g) || []).length,
+            alternance: (html.match(/#fbfcfd/g) || []).length,
+            suivi: /À suivre/.test(html),
+            texteSuivi: (html.match(/À suivre[\s\S]{0,200}/) || [''])[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+            infobulleDate: /data-tooltip="[^"]*Signature[^"]*\/[^"]*"/.test(html)
+        };
+    });
+
+    // LES JOURS DE COURS : on ne tient pas d'emploi du temps, et il n'en faut
+    // pas — un jour où l'on a noté quelque chose est un jour où on les avait.
+    r.egal('les jours où l\'on a vu la classe se déduisent du journal', releveBilan.jours, 5);
+
+    r.verifie('le tableau tient en cinq colonnes, au lieu de onze',
+        releveBilan.colonnes === 5, releveBilan.colonnes + ' colonnes');
+    r.verifie('une ligne sur deux est teintée', releveBilan.alternance >= 2, String(releveBilan.alternance));
+
+    // LES DATES : elles étaient dans le journal, jamais à l'écran.
+    r.egal('les dates de chaque oubli sont là', releveBilan.lea.dates.length, 3);
+    r.verifie('et elles s\'écrivent en clair, jour et mois',
+        /^\d{2}\/\d{2}$/.test(releveBilan.lea.dates[0]), releveBilan.lea.dates.join(', '));
+    r.verifie('on les retrouve au survol de la pastille', releveBilan.infobulleDate);
+    r.egal('les dates d\'absence aussi', releveBilan.malo.absences.length, 1);
+
+    // LA RÉCIDIVE : trois oublis dispersés et trois d'affilée ne se valent pas.
+    r.egal('trois oublis aux trois derniers cours font une suite de trois',
+        { suite: releveBilan.lea.suite, enCours: releveBilan.lea.enCours }, { suite: 3, enCours: true });
+    r.egal('deux oublis espacés ne font pas une suite',
+        { total: releveBilan.malo.total, pire: releveBilan.malo.pire }, { total: 2, pire: 1 });
+    r.egal('une suite ancienne se voit, mais elle ne « dure » plus',
+        { suite: releveBilan.theo.suite, enCours: releveBilan.theo.enCours }, { suite: 2, enCours: false });
+    r.egal('un élève sans oubli n\'a rien à signaler',
+        { total: releveBilan.zoe.total, pire: releveBilan.zoe.pire }, { total: 0, pire: 0 });
+
+    // CE QUI DOIT SAUTER AUX YEUX : celui qui recommence en ce moment.
+    r.verifie('un bandeau nomme ceux dont la suite court encore', releveBilan.suivi);
+    r.verifie('et il dit qui, quoi, et combien de cours de suite',
+        /Léa/.test(releveBilan.texteSuivi) && /signature/.test(releveBilan.texteSuivi) && /3 cours de suite/.test(releveBilan.texteSuivi),
+        releveBilan.texteSuivi);
+    r.verifie('Théo, dont la suite est finie, n\'y figure pas',
+        !/Théo/.test(releveBilan.texteSuivi), releveBilan.texteSuivi);
+    r.verifie('trois pastilles d\'oubli, une par élève concerné',
+        releveBilan.pastilles === 3, String(releveBilan.pastilles));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

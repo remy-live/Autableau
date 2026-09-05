@@ -21009,6 +21009,9 @@ function renderExplorerLists() {
 
 let isCompletingInline = false;
 let draggedItemId = null;
+// Ce qui est réellement tenu pendant un glissement : le lot entier quand on a
+// composé une sélection, la seule ligne sinon.
+let lotGlisse = null;
 
 // Redessiner l'arborescence pendant un glissement arrache du DOM la ligne que
 // la souris tient : le navigateur reste alors coincé en glissement, et plus
@@ -21280,7 +21283,13 @@ function buildTree(items, parentId) {
                     glissementDansLArbre = true;
                     e.dataTransfer.effectAllowed = 'copy';
                     e.dataTransfer.setData('application/json', JSON.stringify({ type: 'board', id: item.id }));
+                    // ON GLISSE LE LOT, PAS LA SEULE LIGNE TENUE. Sélectionner
+                    // douze tableaux puis les tirer vers la corbeille n'en
+                    // jetait qu'un : le reste de la sélection restait en place,
+                    // sans que rien ne le dise.
                     draggedItemId = item.id;
+                    lotGlisse = (typeof lotExplorateur !== 'undefined' && lotExplorateur.has(item.id) && lotExplorateur.size > 1)
+                        ? [...lotExplorateur] : [item.id];
                 };
             }
 
@@ -21369,9 +21378,18 @@ function handleTrashDrop(e) {
     e.preventDefault();
     e.currentTarget.style.backgroundColor = '';
     e.currentTarget.style.border = '';
-    if (draggedItemId) {
-        moveToTrash(draggedItemId);
-        draggedItemId = null;
+    // Tout ce qui était tenu part à la corbeille, pas seulement la ligne sous
+    // le doigt : c'est le lot qu'on a composé qu'on vient d'y jeter.
+    const partants = (Array.isArray(lotGlisse) && lotGlisse.length) ? lotGlisse
+        : (draggedItemId ? [draggedItemId] : []);
+    if (!partants.length) return;
+    partants.forEach(id => moveToTrash(id));
+    draggedItemId = null;
+    lotGlisse = null;
+    if (typeof viderLeLot === 'function') viderLeLot(false);
+    if (typeof renderExplorerLists === 'function') renderExplorerLists();
+    if (partants.length > 1 && typeof showToast === 'function') {
+        showToast(`${partants.length} tableaux à la corbeille`);
     }
 }
 

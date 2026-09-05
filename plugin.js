@@ -32004,21 +32004,79 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     },
 
     // Une ligne par élève : ce qui s'est passé sur la période.
+    // ---------- LES JOURS OÙ L'ON A VU LA CLASSE ----------
+    // On ne tient pas d'emploi du temps, et il n'en faut pas : un jour où l'on
+    // a noté quelque chose pour un élève de la classe — l'appel, un point, un
+    // oubli — est un jour où on l'avait. C'est cette suite de jours qui permet
+    // de dire « il a oublié, et il a ENCORE oublié au cours d'après ».
+    joursDeClasse: function (debut, fin) {
+        const classe = this.classeCourante();
+        if (!classe) return [];
+        const jours = new Set();
+        (classe.students || []).forEach(e => {
+            this.tracesEntre(e, debut, fin).forEach(x => jours.add(x.d));
+        });
+        return [...jours].sort();
+    },
+
+    // Les récidives d'un élève pour un type d'oubli : les suites d'au moins
+    // deux jours de classe CONSÉCUTIFS où l'oubli revient. On rend la plus
+    // longue, et l'on dit si elle court encore — c'est-à-dire si elle touche
+    // le dernier cours qu'on ait eu.
+    suiteDOublis: function (eleve, typeId, jours) {
+        if (!jours || jours.length < 2) return { suite: 0, enCours: false, depuis: '' };
+        const marques = new Set(this.journalDe(eleve)
+            .filter(x => x.t === 'o' && x.v === typeId).map(x => x.d));
+        let meilleure = 0, courante = 0, debutCourante = '', debutMeilleure = '', finMeilleure = '';
+        jours.forEach((j, i) => {
+            if (marques.has(j)) {
+                if (!courante) debutCourante = j;
+                courante++;
+                if (courante > meilleure) { meilleure = courante; debutMeilleure = debutCourante; finMeilleure = j; }
+            } else courante = 0;
+            void i;
+        });
+        const dernier = jours[jours.length - 1];
+        return {
+            suite: meilleure,
+            enCours: meilleure >= 2 && finMeilleure === dernier,
+            depuis: debutMeilleure
+        };
+    },
+
     lignesDuBilan: function () {
         const classe = this.classeCourante();
         if (!classe) return [];
         const { debut, fin } = this.bornesDuBilan();
+        const jours = this.joursDeClasse(debut, fin);
         const lignes = (classe.students || []).map(e => {
             const traces = this.tracesEntre(e, debut, fin);
             const compte = (t, v) => traces.filter(x => x.t === t && (v === undefined || x.v === v)).length;
             const oublis = {};
-            let totalOublis = 0;
-            this.TYPES_OUBLI.forEach(t => { oublis[t.id] = compte('o', t.id); totalOublis += oublis[t.id]; });
+            const datesOublis = {};
+            const suites = {};
+            let totalOublis = 0, pireSuite = 0, suiteEnCours = null;
+            this.TYPES_OUBLI.forEach(t => {
+                oublis[t.id] = compte('o', t.id);
+                totalOublis += oublis[t.id];
+                // Les jours exacts, pour l'infobulle : « 12/09, 03/10 »
+                datesOublis[t.id] = traces.filter(x => x.t === 'o' && x.v === t.id)
+                    .map(x => x.d.slice(8, 10) + '/' + x.d.slice(5, 7));
+                const s = this.suiteDOublis(e, t.id, jours);
+                suites[t.id] = s;
+                if (s.suite > pireSuite) pireSuite = s.suite;
+                if (s.enCours && (!suiteEnCours || s.suite > suiteEnCours.suite)) {
+                    suiteEnCours = { type: t, suite: s.suite };
+                }
+            });
+            const datesAbsences = traces.filter(x => x.t === 'a')
+                .map(x => x.d.slice(8, 10) + '/' + x.d.slice(5, 7));
             return {
                 id: e.id, nom: e.name || '',
                 plus: compte('p'), moins: compte('m'), badges: compte('b'),
-                absences: compte('a'),
-                oublis, totalOublis,
+                absences: compte('a'), datesAbsences,
+                oublis, datesOublis, suites, totalOublis,
+                pireSuite, suiteEnCours,
                 solde: compte('p') - compte('m'),
                 etoiles: this.pointsDe(e).etoiles || 0
             };
@@ -32029,6 +32087,50 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             return sens * ((b[col] || 0) - (a[col] || 0)) * -1;
         });
         return lignes;
+    },
+
+    // UNE LIGNE DU BILAN.
+    // Le tableau comptait onze colonnes, dont cinq presque toujours vides :
+    // quatre natures d'oubli et leur total, chacune avec son en-tête, sa
+    // largeur et son vide. Elles tiennent maintenant dans UNE colonne, sous
+    // forme de pastilles qui ne paraissent que si elles ont quelque chose à
+    // dire. Les dates, elles, étaient dans le journal mais nulle part à
+    // l'écran : elles arrivent au survol, là où on les cherche.
+    ligneDuBilan: function (l, rang) {
+        const fond = (rang % 2) ? '#fbfcfd' : '#fff';
+        const rien = '<span style="color:#dfe6e9;">·</span>';
+
+        const pastilles = this.TYPES_OUBLI.map(t => {
+            const n = l.oublis[t.id];
+            if (!n) return '';
+            const s = l.suites[t.id] || { suite: 0, enCours: false };
+            const recidive = s.suite >= 2;
+            const dates = (l.datesOublis[t.id] || []).join(', ');
+            const dit = `${t.nom} : ${n} fois${dates ? ' — ' + dates : ''}`
+                + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure' : ''}` : '');
+            return `<span class="pts-oubli-pastille" data-tooltip="${this.echapper(dit)}"
+                style="display:inline-flex; align-items:center; gap:3px; padding:1px 7px; border-radius:999px;
+                       font-size:11.5px; font-weight:700; white-space:nowrap;
+                       color:${t.couleur}; background:${t.couleur}1f;
+                       ${s.enCours ? `box-shadow:0 0 0 1.5px ${t.couleur};` : ''}">
+                ${this.echapper(t.nom.slice(0, 4))}&nbsp;${n}${recidive ? ` <b style="font-weight:900;">↻${s.suite}</b>` : ''}</span>`;
+        }).filter(Boolean).join(' ');
+
+        const detailPoints = `${l.plus} bonus, ${l.moins} malus`;
+        const dit = (texte) => this.echapper(texte);
+
+        return `<tr style="background:${fond}; border-top:1px solid #f1f3f4;">
+            <td style="padding:5px 8px; white-space:nowrap;">${this.echapper(l.nom)}</td>
+            <td data-tooltip="${dit(detailPoints)}"
+                style="text-align:center; padding:5px 6px; font-weight:bold; width:1%;
+                       color:${l.solde < 0 ? '#d63031' : (l.solde > 0 ? '#00b894' : '#b2bec3')};">
+                ${l.solde ? (l.solde > 0 ? '+' : '') + l.solde : rien}</td>
+            <td style="text-align:center; padding:5px 6px; width:1%;">${l.badges || rien}</td>
+            <td data-tooltip="${dit(l.absences ? 'Absent le ' + l.datesAbsences.join(', ') : 'Aucune absence')}"
+                style="text-align:center; padding:5px 6px; width:1%; font-weight:bold;
+                       color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || rien}</td>
+            <td style="padding:4px 8px; line-height:1.9;">${pastilles || rien}</td>
+        </tr>`;
     },
 
     htmlBilan: function () {
@@ -32075,33 +32177,27 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                            style="border:1px solid #dfe6e9; border-radius:6px; padding:4px 6px; font-size:12px;">
                 </span>` : ''}
             </div>
-            <div style="overflow:auto; max-height:52vh; border:1px solid #dfe6e9; border-radius:10px;">
-                <table id="pts-bilan-table" style="width:100%; border-collapse:collapse; background:#fff; font-size:13px;">
-                    <thead style="position:sticky; top:0; background:#f7f9fa;"><tr>
+            <div style="overflow:auto; max-height:56vh; border:1px solid #dfe6e9; border-radius:10px;">
+                <table id="pts-bilan-table" class="pts-bilan-table" style="width:100%; border-collapse:collapse; background:#fff; font-size:13px;">
+                    <thead style="position:sticky; top:0; z-index:1; background:#f7f9fa;"><tr>
                         ${entete('nom', 'Élève')}
-                        ${entete('plus', '👍', 'Points bonus sur la période')}
-                        ${entete('moins', '👎', 'Points malus sur la période')}
-                        ${entete('solde', 'Solde', 'Bonus moins malus')}
-                        ${entete('badges', 'Badges', 'Badges reçus sur la période')}
-                        ${entete('absences', 'Abs.', "Jours d'absence relevés à l'appel")}
-                        ${this.TYPES_OUBLI.map(t => entete(t.id, this.echapper(t.nom), 'Oublis de ' + t.nom.toLowerCase())).join('')}
-                        ${entete('totalOublis', 'Total', 'Tous les oublis de la période')}
+                        ${entete('solde', 'Points', 'Bonus moins malus — le détail au survol')}
+                        ${entete('badges', '🏅', 'Badges reçus sur la période')}
+                        ${entete('absences', 'Abs.', "Jours d'absence — les dates au survol")}
+                        ${entete('totalOublis', 'Oublis', 'Le détail par nature, avec les dates au survol')}
                     </tr></thead>
                     <tbody>
-                        ${lignes.length ? lignes.map(l => `<tr style="border-top:1px solid #f1f3f4;">
-                            <td style="padding:6px 8px; white-space:nowrap;">${this.echapper(l.nom)}</td>
-                            <td style="text-align:center; color:#00b894; font-weight:bold;">${l.plus || ''}</td>
-                            <td style="text-align:center; color:#d63031; font-weight:bold;">${l.moins || ''}</td>
-                            <td style="text-align:center; font-weight:bold; color:${l.solde < 0 ? '#d63031' : '#2d3436'};">${l.solde > 0 ? '+' : ''}${l.solde || ''}</td>
-                            <td style="text-align:center;">${l.badges || ''}</td>
-                            <td style="text-align:center; font-weight:bold; color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || ''}</td>
-                            ${this.TYPES_OUBLI.map(t => `<td style="text-align:center; color:${l.oublis[t.id] ? t.couleur : '#b2bec3'};">${l.oublis[t.id] || ''}</td>`).join('')}
-                            <td style="text-align:center; font-weight:bold; color:${l.totalOublis ? '#d63031' : '#b2bec3'};">${l.totalOublis || ''}</td>
-                        </tr>`).join('')
-                : `<tr><td colspan="11" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
+                        ${lignes.length ? lignes.map((l, i) => this.ligneDuBilan(l, i)).join('')
+                : `<tr><td colspan="5" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
                     </tbody>
                 </table>
             </div>
+            ${lignes.some(l => l.suiteEnCours) ? `<div style="font-size:12px; color:#d63031; display:flex; gap:6px; align-items:baseline; flex-wrap:wrap;">
+                <b>À suivre :</b>
+                ${lignes.filter(l => l.suiteEnCours).sort((a, b) => b.suiteEnCours.suite - a.suiteEnCours.suite)
+                    .map(l => `<span style="background:#ffeaea; border-radius:999px; padding:2px 9px;">${this.echapper(l.nom)}
+                        — ${this.echapper(l.suiteEnCours.type.nom.toLowerCase())} ${l.suiteEnCours.suite} cours de suite</span>`).join('')}
+            </div>` : ''}
             <div style="font-size:12px; color:#636e72;">
                 Sur la période : ${totaux.plus} bonus, ${totaux.moins} malus, ${totaux.badges} badge(s),
                 ${totaux.oublis} oubli(s), ${totaux.absences} absence(s). Les étoiles, elles, comptent depuis toujours.

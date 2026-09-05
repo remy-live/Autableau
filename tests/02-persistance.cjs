@@ -816,6 +816,59 @@ module.exports = async function (browser) {
     r.egal('les trois séances partent à la corbeille', jete.corbeille, ['s2', 's3', 's4']);
     r.egal('la première est intacte', jete.restants, ['s1']);
 
+    // GLISSER LE LOT DANS LA CORBEILLE. On pouvait composer une sélection de
+    // douze tableaux, la tirer vers la corbeille, et n'en voir partir qu'UN :
+    // le glissement ne portait que la ligne tenue, le reste restait en place
+    // sans que rien ne le dise.
+    await poserDesTableaux();
+    await clic('Séance 1');
+    await clic('Séance 3', { shiftKey: true });
+    const tireDansLaCorbeille = await page.evaluate(() => {
+        const lot = [...lotExplorateur];
+        // On rejoue ce que fait le navigateur : on prend une ligne du lot,
+        // puis on lâche sur la corbeille.
+        const ligne = [...document.querySelectorAll('#file-tree-container .tree-item')]
+            .find(el => /Séance 2/.test(el.textContent));
+        const paquet = { effectAllowed: '', setData: () => { } };
+        ligne.ondragstart({ dataTransfer: paquet, preventDefault: () => { } });
+        const tenu = Array.isArray(lotGlisse) ? lotGlisse.length : 0;
+        handleTrashDrop({
+            preventDefault: () => { },
+            currentTarget: { style: {} }
+        });
+        return {
+            lot: lot.length, tenu,
+            corbeille: savedTableaux.filter(t => t.deleted).map(t => t.id).sort(),
+            restants: savedTableaux.filter(t => !t.deleted && t.type !== 'folder').map(t => t.id).sort(),
+            lotRelache: lotExplorateur.size
+        };
+    });
+    r.egal('le glissement emporte tout le lot, pas la seule ligne tenue',
+        { lot: tireDansLaCorbeille.lot, tenu: tireDansLaCorbeille.tenu }, { lot: 3, tenu: 3 });
+    r.egal('les trois séances tirées atterrissent à la corbeille',
+        tireDansLaCorbeille.corbeille, ['s1', 's2', 's3']);
+    r.egal('celle qu\'on n\'avait pas prise reste en place', tireDansLaCorbeille.restants, ['s4']);
+    r.egal('et le lot est relâché après le geste', tireDansLaCorbeille.lotRelache, 0);
+
+    // Une ligne HORS du lot ne doit emporter qu'elle-même : sinon glisser un
+    // tableau après en avoir sélectionné d'autres en jetterait douze.
+    await poserDesTableaux();
+    await clic('Séance 1');
+    await clic('Séance 2', { ctrlKey: true });
+    const horsLot = await page.evaluate(() => {
+        const ligne = [...document.querySelectorAll('#file-tree-container .tree-item')]
+            .find(el => /Séance 4/.test(el.textContent));
+        ligne.ondragstart({ dataTransfer: { effectAllowed: '', setData: () => { } }, preventDefault: () => { } });
+        handleTrashDrop({ preventDefault: () => { }, currentTarget: { style: {} } });
+        return {
+            corbeille: savedTableaux.filter(t => t.deleted).map(t => t.id).sort(),
+            restants: savedTableaux.filter(t => !t.deleted && t.type !== 'folder').map(t => t.id).sort()
+        };
+    });
+    r.egal('glisser une ligne hors du lot n\'emporte qu\'elle',
+        { c: horsLot.corbeille, r: horsLot.restants },
+        { c: ['s4'], r: ['s1', 's2', 's3'] });
+
     // Renoncer laisse tout en place
     await poserDesTableaux();
     await clic('Séance 1');
