@@ -1247,7 +1247,84 @@ module.exports = async function (browser) {
     r.egal('une image ordinaire garde son redimensionnement proportionnel',
         { w: apresOrdinaire.w, h: apresOrdinaire.h }, { w: 300, h: 150 });
 
+    // =========================================================================
+    // LES RÉGLAGES DE LA PAGE RESTENT ATTEIGNABLES SANS PAGINATION
+    // Le bouton du volet était rangé DANS le groupe des pages. Un scan, ou un
+    // PDF rouvert d'un tableau enregistré, n'en a pas : le bouton partait avec
+    // elles, et rogner, proportions et quadrillage devenaient introuvables.
+    // =========================================================================
+    const visibles = () => page.evaluate(() => {
+        const visible = el => { if (!el) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        return {
+            voletBtn: visible(document.getElementById('doc-volet-btn')),
+            pagination: visible(document.getElementById('doc-prec'))
+        };
+    });
+    const ouvrirLeVolet = async () => {
+        // Un bouton absent doit se lire dans la ligne qui le concerne, pas
+        // faire attendre trente secondes puis emporter toute la suite.
+        if (!(await visibles()).voletBtn) return { volet: false, reglages: [], recherche: false, liste: false };
+        await page.click('#doc-volet-btn');
+        await page.waitForTimeout(350);
+        return page.evaluate(() => {
+            const visible = el => { if (!el) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+            return {
+                volet: visible(document.getElementById('doc-volet')),
+                reglages: Array.from(document.querySelectorAll('.dv-reglage')).filter(visible).map(b => b.id),
+                recherche: visible(document.getElementById('dv-chercher')),
+                liste: visible(document.getElementById('dv-liste'))
+            };
+        });
+    };
+    const fermerLeVolet = () => page.evaluate(() => { voletOuvert = false; majLeVolet(); });
+
+    await poserLeDoc();
+    let etatBarre = await visibles();
+    let ouvert = await ouvrirLeVolet();
+    r.verifie('un PDF feuilletable montre sa pagination ET le bouton du volet',
+        etatBarre.voletBtn && etatBarre.pagination, JSON.stringify(etatBarre));
+    r.egal('son volet porte les trois réglages, avec la recherche et les vignettes',
+        { r: ouvert.reglages, ch: ouvert.recherche, li: ouvert.liste },
+        { r: ['dv-rogner', 'dv-proportions', 'dv-grille'], ch: true, li: true });
+    await fermerLeVolet();
+
+    // Un PDF rouvert d'un tableau enregistré : la pagination n'existe plus.
+    await page.evaluate(() => { documentsPdf.clear(); majBarreDocument(); });
+    etatBarre = await visibles();
+    ouvert = await ouvrirLeVolet();
+    r.verifie('sans pagination, le bouton du volet reste',
+        etatBarre.voletBtn && !etatBarre.pagination, JSON.stringify(etatBarre));
+    r.egal('et ses réglages sont là, la liste des pages en moins',
+        { r: ouvert.reglages, ch: ouvert.recherche, li: ouvert.liste },
+        { r: ['dv-rogner', 'dv-proportions', 'dv-grille'], ch: false, li: false });
+    await fermerLeVolet();
+
+    // Un scan importé : ni pages ni recherche, mais les mêmes réglages.
+    await page.evaluate(async () => {
+        images.length = 0;
+        const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="#eee"/></svg>');
+        const im = new Image(); im.src = src; imageCache[src] = im;
+        await new Promise(res => { im.onload = res; im.onerror = res; });
+        images.push({ id: nextId++, x: 100, y: 100, w: 300, h: 400, cx: 0, cy: 0, cw: 300, ch: 400, src, z: globalZ++, isCropping: true, ratioLocked: false });
+        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); majBarreDocument(); draw();
+    });
+    etatBarre = await visibles();
+    ouvert = await ouvrirLeVolet();
+    r.verifie('un scan importé donne accès au volet, lui aussi', etatBarre.voletBtn, JSON.stringify(etatBarre));
+    r.egal('avec les mêmes réglages', ouvert.reglages, ['dv-rogner', 'dv-proportions', 'dv-grille']);
+
+    if (ouvert.reglages.includes('dv-proportions')) {
+        await page.click('#dv-proportions');
+        await page.waitForTimeout(150);
+    }
+    r.egal('et le réglage agit vraiment sur le document tenu',
+        await page.evaluate(() => images[0].ratioLocked), true);
+
     await page.evaluate(() => { images.length = 0; selectedItems = []; majBarreDocument(); draw(); });
+    await page.waitForTimeout(200);
+    r.verifie('rien de tenu : le bouton du volet s\'en va',
+        !(await visibles()).voletBtn);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

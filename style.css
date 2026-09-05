@@ -6105,6 +6105,14 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 #dv-etat { padding: 0 10px 6px; color: #64748b; font-size: 11px; min-height: 14px; }
 
+/* Un scan, ou un PDF rouvert d'un tableau enregistré, n'a pas de pages à
+   feuilleter : la recherche et les vignettes n'ont rien à montrer. Les
+   réglages de la page, eux, restent — c'est pour eux qu'on ouvre le volet. */
+#doc-volet.sans-pages #dv-chercher,
+#doc-volet.sans-pages #dv-etat,
+#doc-volet.sans-pages #dv-liste { display: none; }
+#doc-volet.sans-pages #dv-reglages { border-bottom: 0; }
+
 #dv-liste {
     flex: 1;
     overflow-y: auto;

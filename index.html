@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=83">
+    <link rel="stylesheet" href="style.css?v=84">
 </head>
 
 <body>
@@ -1817,14 +1817,20 @@
                 data-tooltip="Numéro de page : tapez-le et Entrée">
             <span id="doc-total">/1</span>
             <button class="doc-btn" id="doc-suiv" data-tooltip="Page suivante">▶</button>
-            <button class="doc-btn" id="doc-volet-btn" data-tooltip="Pages et recherche dans le document">
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="4" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="6" rx="1" />
-                    <path d="M14 6h7M14 10h7M14 16h7M14 20h5" />
-                </svg></button>
         </span>
+        <!-- LE VOLET N'EST PAS QU'UNE LISTE DE PAGES : il tient aussi les
+             réglages — rogner, proportions, quadrillage. Son bouton était
+             rangé DANS la pagination : un scan ou un PDF rouvert d'un tableau
+             enregistré n'en a pas, le bouton disparaissait avec elle, et les
+             trois réglages devenaient introuvables. Il vit désormais à part,
+             et paraît dès qu'un document est tenu. -->
+        <button class="doc-btn" id="doc-volet-btn" data-tooltip="Pages et réglages du document">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="6" rx="1" />
+                <path d="M14 6h7M14 10h7M14 16h7M14 20h5" />
+            </svg></button>
         <i class="doc-sep" id="doc-pages-sep"></i>
         <span id="doc-modes" style="display:contents;">
         <!-- UN SEUL BOUTON, QUI CYCLE. Ils etaient deux, et ils
@@ -2215,7 +2221,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=163"></script>
+    <script src="script.js?v=164"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

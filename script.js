@@ -10774,10 +10774,22 @@ function majLeVolet() {
     if (!volet) return;
     const obj = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
     const feuilletable = obj && typeof estUnPdfFeuilletable === 'function' && estUnPdfFeuilletable(obj);
-    volet.classList.toggle('visible', voletOuvert && !!feuilletable);
+    // Le volet s'ouvre sur TOUT document, pas seulement sur un PDF qu'on peut
+    // feuilleter : il porte les réglages de la page, et un scan en a autant
+    // besoin qu'un PDF. Ce qui n'a pas lieu d'être sans pages — la recherche
+    // et la liste des vignettes — se retire, le reste demeure.
+    const unDocument = obj && typeof estUnDocumentPose === 'function' && estUnDocumentPose(obj);
+    volet.classList.toggle('visible', voletOuvert && !!unDocument);
+    volet.classList.toggle('sans-pages', !feuilletable);
     const bouton = document.getElementById('doc-volet-btn');
     if (bouton) bouton.classList.toggle('actif', voletOuvert);
-    if (!voletOuvert || !feuilletable) return;
+    if (!voletOuvert || !unDocument) return;
+    if (!feuilletable) {
+        const nomSeul = document.getElementById('dv-nom');
+        if (nomSeul) nomSeul.textContent = 'Document';
+        voletCle = null; voletPageMontree = null;
+        return;
+    }
 
     // On a changé de document : le volet suit, et repart de zéro.
     if (obj.pluginData.cle !== voletCle) {
