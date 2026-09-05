@@ -1429,6 +1429,104 @@ module.exports = async function (browser) {
         JSON.stringify({ taille11, taille22, rapport: +(taille22 / taille11).toFixed(2) }));
     await page.evaluate(() => { zonesActives = false; setMode('pointer'); });
 
+    // =========================================================================
+    // LE FICHIER PART AVEC LE TABLEAU, PAS SEULEMENT SON IMAGE
+    // On n'enregistrait du PDF que la page affichée, rendue en image : le
+    // lecteur pdf.js vit en mémoire et ne survit pas au rechargement. On
+    // rouvrait donc son polycopié réduit à une PHOTO — plus de pages, plus de
+    // zones à remplir, plus de recherche.
+    // =========================================================================
+    const enregistre = await page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0; freehands.length = 0;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'poly.pdf', { type: 'application/pdf' }));
+        await new Promise(res => setTimeout(res, 1800));
+        syncPage();
+        const paquet = stateForStorage();
+        const sansFichier = JSON.parse(JSON.stringify(paquet));
+        // Le même tableau, mais privé du fichier : c'est ce qu'on enregistrait
+        // avant, et c'est notre point de comparaison.
+        sansFichier.pages.forEach(p => (p.images || []).forEach(i => {
+            if (i.pluginData) delete i.pluginData.pdfRef;
+        }));
+        delete sansFichier.assets[images[0].pluginData.pdfRef];
+        return {
+            pdfRef: images[0].pluginData.pdfRef || null,
+            pages: images[0].pluginData.pages,
+            octetsAvec: new Blob([JSON.stringify(paquet)]).size,
+            octetsSans: new Blob([JSON.stringify(sansFichier)]).size,
+            paquet: JSON.stringify(paquet),
+            paquetSansFichier: JSON.stringify(sansFichier)
+        };
+    }, { octets: Array.from(petitPdf(['Alpha', 'Beta', 'Gamma'])) });
+
+    r.verifie('le fichier du PDF est rangé avec le tableau', !!enregistre.pdfRef);
+    r.verifie('et il ne coûte qu\'une petite part du poids total',
+        enregistre.octetsAvec - enregistre.octetsSans < enregistre.octetsSans,
+        `${Math.round(enregistre.octetsAvec / 1024)} Ko avec le fichier, ${Math.round(enregistre.octetsSans / 1024)} Ko sans`);
+
+    // On recharge dans un onglet NEUF : la table des documents y est vide.
+    const { context: ctxNeuf, page: pageNeuve, erreurs: errNeuf } = await ouvrirApp(browser);
+    await pageNeuve.waitForFunction(() => typeof restoreState === 'function', { timeout: 20000 });
+
+    const repris = await pageNeuve.evaluate(async brut => {
+        restoreState(JSON.parse(brut));
+        await new Promise(res => setTimeout(res, 2500));
+        const o = images[0];
+        return {
+            feuilletable: estUnPdfFeuilletable(o),
+            dansLaTable: documentsPdf.has(o.pluginData.cle),
+            pages: o.pluginData.pages
+        };
+    }, enregistre.paquet);
+    r.egal('rechargé dans un onglet neuf, il redevient un vrai document',
+        repris, { feuilletable: true, dansLaTable: true, pages: 3 });
+
+    const tourne = await pageNeuve.evaluate(async () => {
+        await allerALaPage(images[0], 2);
+        await new Promise(res => setTimeout(res, 900));
+        return images[0].pluginData.page;
+    });
+    r.egal('et on le feuillette pour de bon', tourne, 2);
+
+    // Le même tableau SANS son fichier : c'est l'ancien comportement, et il
+    // doit rester lisible — une photo, mais une photo qui s'affiche.
+    const sansFichier = await pageNeuve.evaluate(async brut => {
+        documentsPdf.clear();
+        restoreState(JSON.parse(brut));
+        await new Promise(res => setTimeout(res, 1500));
+        const o = images[0];
+        return { feuilletable: estUnPdfFeuilletable(o), image: !!(o.src && o.src.length > 100) };
+    }, enregistre.paquetSansFichier);
+    r.egal('un tableau d\'avant, sans le fichier, reste une image qui s\'affiche',
+        sansFichier, { feuilletable: false, image: true });
+    await ctxNeuf.close();
+
+    // LES ZONES À REMPLIR : c'est elles qu'on perdait vraiment, faute de PDF.
+    const { context: ctxZones, page: pageZones } = await ouvrirApp(browser);
+    await pageZones.waitForFunction(() => typeof restoreState === 'function', { timeout: 20000 });
+    const zonesReprises = await pageZones.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cases.pdf', { type: 'application/pdf' }));
+        await new Promise(res => setTimeout(res, 1800));
+        syncPage();
+        const brut = JSON.stringify(stateForStorage());
+        // On efface tout, comme au démarrage d'une nouvelle séance
+        documentsPdf.clear(); images.length = 0;
+        restoreState(JSON.parse(brut));
+        await new Promise(res => setTimeout(res, 2500));
+        const o = images[0];
+        if (!zonesActives) basculerLesZones();
+        delete o.pluginData.zones;
+        demanderLesZones(o);
+        await new Promise(res => setTimeout(res, 2500));
+        return Array.isArray(o.pluginData.zones) ? o.pluginData.zones.length : -1;
+    }, { octets: Array.from(polyEnCases()) });
+    r.verifie('et les zones à remplir se repèrent encore après rechargement',
+        zonesReprises > 5, `${zonesReprises} zones trouvées`);
+    await ctxZones.close();
+
+    r.verifie('aucune erreur JS au rechargement', errNeuf.length === 0, errNeuf.join(' | '));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -1672,8 +1672,14 @@ function collectAssets(pagesArr) {
     const noter = img => {
         if (img && img.srcRef && assetSrcById.has(img.srcRef)) used[img.srcRef] = assetSrcById.get(img.srcRef);
     };
+    // Le FICHIER d'un PDF vit dans la même réserve que les images : sans lui,
+    // on ne rouvre qu'une photo de la première page.
+    const noterLeFichier = img => {
+        const ref = img && img.pluginData && img.pluginData.pdfRef;
+        if (ref && assetSrcById.has(ref)) used[ref] = assetSrcById.get(ref);
+    };
     (pagesArr || []).forEach(p => {
-        (p.images || []).forEach(noter);
+        (p.images || []).forEach(img => { noter(img); noterLeFichier(img); });
         // Une image posée puis effacée a disparu du tableau final mais reste
         // dans le film : sans sa source, elle reviendrait vide au replay.
         if (typeof imagesDuFilm === 'function') imagesDuFilm(p.film).forEach(noter);
@@ -2081,6 +2087,9 @@ function restoreState(stateData) {
     });
 
     loadPage(0);
+    // Les PDF redeviennent de vrais documents : pages, zones à remplir,
+    // recherche et vignettes reprennent tous à leur source.
+    if (typeof reprendreLesPdfDuTableau === 'function') reprendreLesPdfDuTableau(pages);
     // Un tableau enregistré sans les fichiers arrive avec des trous : on le
     // dit tout de suite plutôt que de laisser croire à un tableau abîmé.
     if (typeof signalerImagesManquantes === 'function') setTimeout(signalerImagesManquantes, 400);
@@ -10616,6 +10625,86 @@ function appliquerLaTailleDuDocument(obj) {
 }
 window.appliquerLaTailleDuDocument = appliquerLaTailleDuDocument;
 
+// ==============================================================================
+// RANGER LE FICHIER, PAS SEULEMENT SON IMAGE
+//
+// On n'enregistrait du PDF que la page affichée, rendue en image. Le lecteur
+// pdf.js, lui, vit en mémoire : refermer l'application le perdait. On rouvrait
+// donc son polycopié et il n'en restait qu'une PHOTO — plus de pages à
+// feuilleter, plus de repérage des zones à remplir, plus de recherche dans le
+// texte, plus de vignettes.
+//
+// Le fichier part maintenant dans la réserve commune, comme les images. Ce
+// n'est pas cher : sur une page dense, le PDF pèse 2,3 Ko quand son rendu en
+// pèse 117. Au-delà d'un certain poids on s'abstient tout de même — un manuel
+// entier n'a pas à être recopié dans chaque enregistrement — et on le dit.
+// ==============================================================================
+const PDF_GARDE_MAX = 40 * 1024 * 1024;   // au-delà, on ne garde que l'image
+
+function rangerLeFichierPdf(octets) {
+    if (!octets || !octets.length) return null;
+    if (octets.length > PDF_GARDE_MAX) {
+        if (typeof showToast === 'function') {
+            showToast(`Document très lourd (${formatSize(octets.length)}) : il sera rouvert en image seule`);
+        }
+        return null;
+    }
+    try {
+        let brut = '';
+        // En morceaux : String.fromCharCode sur plusieurs mégaoctets d'un coup
+        // dépasse la pile d'appels et lève une erreur.
+        for (let i = 0; i < octets.length; i += 8192) {
+            brut += String.fromCharCode.apply(null, octets.subarray(i, i + 8192));
+        }
+        return assetRef('data:application/pdf;base64,' + btoa(brut));
+    } catch (e) {
+        return null;   // pas de place, ou fichier illisible : on garde l'image
+    }
+}
+
+function octetsDuFichierPdf(ref) {
+    const src = ref && assetSrcById.get(ref);
+    if (!src) return null;
+    const virgule = src.indexOf(',');
+    if (virgule < 0) return null;
+    try {
+        const brut = atob(src.slice(virgule + 1));
+        const u = new Uint8Array(brut.length);
+        for (let i = 0; i < brut.length; i++) u[i] = brut.charCodeAt(i);
+        return u;
+    } catch (e) { return null; }
+}
+
+// Au chargement d'un tableau : chaque PDF qui a gardé son fichier redevient un
+// vrai document, sous la MÊME clé — les objets posés la portent déjà.
+async function reprendreLesPdfDuTableau(pagesArr) {
+    if (!window.pdfjsLib) return 0;
+    const aReprendre = [];
+    (pagesArr || []).forEach(p => (p.images || []).forEach(img => {
+        const pd = img && img.pluginData;
+        if (!pd || pd.id !== 'pdfDoc' || !pd.pdfRef) return;
+        if (documentsPdf.has(pd.cle)) return;
+        if (aReprendre.some(x => x.cle === pd.cle)) return;
+        aReprendre.push({ cle: pd.cle, ref: pd.pdfRef, nom: pd.nom || 'Document' });
+    }));
+    let repris = 0;
+    for (const f of aReprendre) {
+        const octets = octetsDuFichierPdf(f.ref);
+        if (!octets) continue;
+        try {
+            const doc = await pdfjsLib.getDocument(octets.slice(0)).promise;
+            documentsPdf.set(f.cle, { doc, nom: f.nom });
+            repris++;
+        } catch (e) { /* fichier abîmé : le tableau garde son image */ }
+    }
+    if (repris) {
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+        draw();
+    }
+    return repris;
+}
+window.reprendreLesPdfDuTableau = reprendreLesPdfDuTableau;
+
 async function poserPdfFeuilletable(file) {
     if (!window.pdfjsLib) { showToast('Le lecteur de PDF n\'est pas disponible'); return; }
     showToast('Ouverture du document…');
@@ -10625,6 +10714,9 @@ async function poserPdfFeuilletable(file) {
         const cle = 'pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
         const dossier = { doc, nom: file.name };
         documentsPdf.set(cle, dossier);
+        // Le fichier lui-même part avec le tableau : sans lui, on ne rouvrait
+        // qu'une IMAGE de la première page. Voir ranger LE FICHIER, plus bas.
+        const pdfRef = rangerLeFichierPdf(octets);
 
         const rendu = await rendreLaPage(dossier, 1);
         preparerLesVoisines(dossier, 1, doc.numPages);
@@ -10641,7 +10733,7 @@ async function poserPdfFeuilletable(file) {
             id: nextId++, x: cx - l / 2, y: cy - h / 2, w: l, h: h,
             cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
             src: rendu.src, fileName: file.name, z: globalZ++,
-            pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name }
+            pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name, pdfRef }
         }));
         const pose = images[images.length - 1];
         selectedItems = [{ type: 'image', id: pose.id }];
