@@ -6,10 +6,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Au Tableau</title>
 
-    <script>
-        window.MathJax = { loader: { paths: { mathjax: './lib/mathjax' } }, tex: { inlineMath: [['$', '$']] }, svg: { fontCache: 'local' }, startup: { typeset: false } };
-    </script>
-    <script id="MathJax-script" async src="./lib/mathjax/tex-svg.js?v=2"></script>
+    <!-- MATHJAX N'EST PLUS CHARGÉ D'EMBLÉE. Il pèse 2,1 Mo à lui seul, sur les
+         8,2 Mo du démarrage, et la plupart des séances ne composent jamais la
+         moindre formule. Il se charge à la première formule rencontrée — voir
+         `chargerMathJax()` dans script.js. Les polices, elles, restent
+         déclarées ici : ouverte depuis un dossier, la page ne saurait pas les
+         retrouver toute seule. -->
     <script src="./lib/jspdf/jspdf.umd.min.js?v=1"></script>
     <script src="./lib/pdf-lib/pdf-lib.min.js?v=1"></script>
     <script>window.jsPDF = window.jspdf.jsPDF;</script>
@@ -2271,9 +2273,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=169"></script>
+    <script src="script.js?v=170"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=79"></script>
+    <script src="plugin.js?v=81"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

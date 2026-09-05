@@ -17849,12 +17849,70 @@ function texteEnLatex(contenu) {
     return formuleVue ? latex : null;
 }
 
+// ===================================================
+// MATHJAX, CHARGÉ SEULEMENT S'IL SERT
+// Il pèse 2,1 Mo — le quart du démarrage — et la plupart des séances ne
+// composent jamais la moindre formule. Sur le réseau d'un établissement, avec
+// trente tablettes, c'est la différence entre « ça marche » et « ça rame ».
+// On l'appelle donc à la première formule rencontrée, et une seule fois.
+//
+// La configuration doit être posée AVANT le script : MathJax la lit à son
+// démarrage. Le cache de polices reste « local » — les formules sont ensuite
+// sérialisées en images autonomes, un cache partagé les rendrait vides.
+// ===================================================
+let mathjaxPromesse = null;
+
+function mathjaxPret() {
+    return !!(window.MathJax && window.MathJax.tex2svgPromise);
+}
+
+function chargerMathJax() {
+    if (mathjaxPret()) return Promise.resolve(true);
+    if (mathjaxPromesse) return mathjaxPromesse;
+    mathjaxPromesse = new Promise((resolve) => {
+        try {
+            window.MathJax = {
+                loader: { paths: { mathjax: './lib/mathjax' } },
+                tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+                svg: { fontCache: 'local' },
+                startup: { typeset: false }
+            };
+            let script = document.getElementById('MathJax-script');
+            if (!script) {
+                script = document.createElement('script');
+                script.id = 'MathJax-script';
+                script.async = true;
+                // Fourni avec l'application : aucune requête vers l'extérieur,
+                // l'outil doit marcher en classe sans connexion.
+                script.src = './lib/mathjax/tex-svg.js?v=2';
+                document.head.appendChild(script);
+            }
+            script.addEventListener('load', () => {
+                const attendre = (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise)
+                    ? window.MathJax.startup.promise : Promise.resolve();
+                attendre.then(() => resolve(mathjaxPret())).catch(() => resolve(false));
+            });
+            script.addEventListener('error', () => resolve(false));
+        } catch (e) { resolve(false); }
+    });
+    return mathjaxPromesse;
+}
+window.chargerMathJax = chargerMathJax;
+
 function createMathImage(contenu, couleur, taille, retour) {
     const rendre = (img, l, h) => { try { retour(img, l, h); } catch (e) { /* l'appelant s'en charge */ } };
     try {
         const latex = texteEnLatex(contenu);
         if (!latex) { rendre(null); return; }
-        if (!(window.MathJax && MathJax.tex2svgPromise)) { rendre(null); return; }
+        // Une formule vient d'apparaître : c'est ici, et pas au démarrage,
+        // qu'on va chercher les deux mégaoctets.
+        if (!mathjaxPret()) {
+            chargerMathJax().then((pret) => {
+                if (pret) createMathImage(contenu, couleur, taille, retour);
+                else rendre(null);
+            });
+            return;
+        }
         const corps = Math.max(8, parseInt(taille, 10) || 24);
         MathJax.tex2svgPromise(latex, { display: false }).then((noeud) => {
             const svg = noeud.querySelector('svg');

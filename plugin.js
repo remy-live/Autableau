@@ -686,23 +686,16 @@ function registerPlugin(name, category, pluginObj) {
 registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
     currentStamp: null, currentLatex: "",
 
-    init: function () {
-        // 1. Chargement de MathJax (Pour la génération du SVG vectoriel final sur le tableau)
-        if (!window.MathJax) {
-            window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }, svg: { fontCache: 'global' } };
-            // MathJax est fourni avec l'application : pas de requête vers
-            // l'extérieur, l'outil doit marcher en classe sans connexion.
-            if (!document.getElementById('MathJax-script')) {
-                let scriptJax = document.createElement('script');
-                scriptJax.id = 'MathJax-script';
-                scriptJax.src = './lib/mathjax/tex-svg.js';
-                scriptJax.async = true;
-                document.head.appendChild(scriptJax);
-            }
-        }
-
-        // 2. Chargement de MathLive (Pour le super éditeur visuel et le clavier virtuel)
-        if (!customElements.get('math-field')) {
+    // LES DEUX MOTEURS NE SE CHARGENT PLUS AU DÉMARRAGE.
+    // `init` est appelé pour TOUS les plugins à l'ouverture de l'application :
+    // ce qu'on y met est chargé par tout le monde, y compris par la séance
+    // d'histoire qui n'écrira pas une formule. MathJax pèse 2,1 Mo et MathLive
+    // 1,3 Mo — 3,4 Mo sur les 8,2 du démarrage, pour un atelier qu'on ouvre
+    // rarement. Ils sont donc allés dans `openStudio`, c'est-à-dire au moment
+    // où l'on ouvre vraiment l'atelier des formules.
+    chargerLEditeur: function () {
+        return new Promise((resolve) => {
+            if (customElements.get('math-field')) { resolve(true); return; }
             // Les polices et les sons sont déclarés à la main (voir polices.css) :
             // ouverte depuis un dossier, la page ne peut pas les charger elle-même
             // et l'éditeur de formules s'affichait alors sans ses symboles.
@@ -713,21 +706,10 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                 lien.href = './lib/mathlive/polices.css';
                 document.head.appendChild(lien);
             }
-            let scriptLive = document.createElement('script');
-            scriptLive.src = './lib/mathlive/mathlive.min.js';
-            scriptLive.onload = () => {
-                try {
-                    if (window.MathfieldElement) {
-                        window.MathfieldElement.fontsDirectory = null;
-                        window.MathfieldElement.soundsDirectory = null;
-                    }
-                } catch (e) { /* version sans ces réglages : on continue */ }
-            };
-            document.head.appendChild(scriptLive);
-
-            // CSS pour le clavier MathLive
-            let kbStyle = document.createElement('style');
-            kbStyle.innerHTML = `
+            if (!document.getElementById('mathlive-clavier-style')) {
+                const kbStyle = document.createElement('style');
+                kbStyle.id = 'mathlive-clavier-style';
+                kbStyle.innerHTML = `
                 .ML__keyboard {
                     z-index: 100005 !important;
                     transform: scale(0.85);
@@ -735,10 +717,30 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                     box-shadow: 0 -10px 40px rgba(0,0,0,0.4) !important;
                 }
             `;
-            document.head.appendChild(kbStyle);
-        }
+                document.head.appendChild(kbStyle);
+            }
+            let scriptLive = document.getElementById('mathlive-script');
+            if (!scriptLive) {
+                scriptLive = document.createElement('script');
+                scriptLive.id = 'mathlive-script';
+                scriptLive.src = './lib/mathlive/mathlive.min.js';
+                document.head.appendChild(scriptLive);
+            }
+            scriptLive.addEventListener('load', () => {
+                try {
+                    if (window.MathfieldElement) {
+                        window.MathfieldElement.fontsDirectory = null;
+                        window.MathfieldElement.soundsDirectory = null;
+                    }
+                } catch (e) { /* version sans ces réglages : on continue */ }
+                resolve(!!customElements.get('math-field'));
+            });
+            scriptLive.addEventListener('error', () => resolve(false));
+        });
+    },
 
-        // 3. Création du bouton dans la barre d'outils
+    init: function () {
+        // Création du bouton dans la barre d'outils
         const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'math'; btn.title = 'Formules Mathématiques';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6H8.5l6 6-6 6H18"/></svg>`;
         document.getElementById('plugins-grid').appendChild(btn);
@@ -762,7 +764,20 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
         });
     },
 
+    // On ouvre l'atelier : c'est ICI qu'on va chercher les 3,4 Mo, et une seule
+    // fois. On attend qu'ils soient là avant de bâtir la fenêtre — le champ de
+    // saisie EST un élément défini par MathLive, il serait inerte sans lui.
     openStudio: function (initialLatex, onValidate) {
+        const dejaLa = customElements.get('math-field')
+            && window.MathJax && window.MathJax.tex2svgPromise;
+        if (!dejaLa && typeof showToast === 'function') showToast('Préparation de l\'atelier de formules…');
+        Promise.all([
+            (typeof window.chargerMathJax === 'function') ? window.chargerMathJax() : Promise.resolve(false),
+            this.chargerLEditeur()
+        ]).then(() => this.ouvrirLAtelier(initialLatex, onValidate));
+    },
+
+    ouvrirLAtelier: function (initialLatex, onValidate) {
         const overlay = document.createElement('div');
         overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;justify-content:center;align-items:center;font-family: sans-serif;";
 
@@ -862,7 +877,10 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                 return;
             }
 
-            if (window.MathJax && window.MathJax.tex2svgPromise) {
+            // MathJax n'est plus là dès le démarrage : on le charge si besoin,
+            // puis on compose. Le bouton fait donc toujours quelque chose, au
+            // lieu de renvoyer « réessayez dans un instant ».
+            const composerLaFormule = function () {
                 MathJax.tex2svgPromise(finalLatex).then(function (node) {
                     const svgEl = node.querySelector('svg');
                     if (!svgEl) {
@@ -890,9 +908,16 @@ registerPlugin('mathFormulaTool', 'Maths - Algèbre', {
                 }).catch(function (err) {
                     if (typeof showToast === 'function') showToast('Formule mal écrite : vérifiez les accolades et les commandes');
                 });
-            } else {
-                if (typeof showToast === 'function') showToast('Le moteur mathématique finit de charger, réessayez dans un instant');
-            }
+            };
+
+            if (window.MathJax && window.MathJax.tex2svgPromise) { composerLaFormule(); return; }
+            if (typeof showToast === 'function') showToast('Préparation du moteur mathématique…');
+            const chargement = (typeof window.chargerMathJax === 'function')
+                ? window.chargerMathJax() : Promise.resolve(false);
+            chargement.then(function (pret) {
+                if (pret) composerLaFormule();
+                else if (typeof showToast === 'function') showToast('Le moteur mathématique n\'a pas pu être chargé');
+            });
         };
 
         setTimeout(() => mf.focus(), 100);
