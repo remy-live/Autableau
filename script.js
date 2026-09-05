@@ -19655,20 +19655,32 @@ async function openSeatingPlanEditor(classId, hote) {
             [class^="sp-"], [class*=" sp-"] { box-sizing: border-box; }
             .sp-canvas-wrap { flex:1; overflow:auto; position:relative;
                 background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
-                background-size: ${SP_GRID_STEP}px ${SP_GRID_STEP}px; }
+                background-size: ${SP_GRID_STEP}px ${SP_GRID_STEP}px;
+                /* Le navigateur ne doit rien faire de nos doigts : c'est le
+                   plan qui gère le pincement et le déplacement à deux doigts,
+                   et un doigt seul doit pouvoir attraper une table. */
+                touch-action: none; }
             .sp-canvas { position:relative; min-width:100%; min-height:100%;
                 transform-origin: 0 0; }
             /* LE ZOOM DU PLAN. Trente élèves sur quinze tables débordent de
                l'écran : on ne voyait ni le fond de la classe ni la colonne de
                droite. Le canevas se met à l'échelle, et son cadre garde la
                taille réelle pour que les ascenseurs restent justes. */
-            .sp-zoom-boite { display:flex; align-items:center; gap:6px; }
-            .sp-zoom-boite input[type=range] { flex:1; min-width:0; accent-color: var(--accent, #6c5ce7); cursor:pointer; }
+            .sp-scene { flex:1; min-width:0; position:relative; display:flex; }
+            .sp-zoom-boite { position:absolute; right:12px; bottom:12px; z-index:5;
+                display:flex; align-items:center; gap:8px;
+                background:var(--surface); border:1px solid var(--border);
+                border-radius:20px; padding:6px 12px; box-shadow:0 3px 12px rgba(0,0,0,0.18); }
+            .sp-zoom-boite input[type=range] { width:120px; min-width:0; accent-color: var(--accent, #6c5ce7); cursor:pointer; }
             .sp-zoom-lu { font-size:11px; color:var(--muted, #636e72); min-width:34px; text-align:right;
                 font-variant-numeric: tabular-nums; }
+            .sp-zoom-btn { border:none; background:transparent; cursor:pointer; font-size:14px;
+                color:var(--muted, #636e72); padding:0 2px; line-height:1; }
+            .sp-zoom-btn:hover { color:var(--accent, #6c5ce7); }
             .sp-tool-btn { flex:1; padding:8px 4px; font-size:11px; }
             .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); }
-            .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px; }
+            .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px;
+                touch-action: none; }
             .sp-table-resize-group { display:flex; align-items:center; gap:2px; }
             .sp-table-resize { cursor:pointer; font-weight:900; color:var(--muted); padding:0 5px; font-size:13px; line-height:18px; border-radius:4px; }
             .sp-table-resize:hover { color:var(--accent); background:var(--accent-soft); }
@@ -19740,6 +19752,23 @@ async function openSeatingPlanEditor(classId, hote) {
     const SP_ZOOM_MIN = 0.3, SP_ZOOM_MAX = 1.4;
     let spZoom = (typeof plan.zoom === 'number' && isFinite(plan.zoom))
         ? Math.max(SP_ZOOM_MIN, Math.min(SP_ZOOM_MAX, plan.zoom)) : 1;
+    // Deux doigts sur le plan : on pince et on se déplace. Tant que le geste
+    // dure, ni la table ni l'outil Main ne doivent suivre le premier doigt.
+    let gesteADeuxDoigts = false;
+
+    // Un cran de molette de souris vaut une centaine de pixels ; un pavé
+    // tactile en envoie des dizaines de tout petits, qui s'additionnaient en
+    // un zoom emballé quand chacun valait un cran entier. Le pas suit donc
+    // l'amplitude réelle. Le pincement d'un pavé arrive en molette + Ctrl,
+    // avec de très petits écarts : il lui faut un facteur plus vif.
+    function pasDeMolette(e) {
+        let d = e.deltaY;
+        if (e.deltaMode === 1) d *= 16;
+        else if (e.deltaMode === 2) d *= 400;
+        d = Math.max(-160, Math.min(160, d));
+        const douceur = (e.ctrlKey || e.metaKey) ? 200 : 1500;
+        return Math.exp(-d / douceur);
+    }
 
     // L'étendue réellement occupée par le plan, en unités de plan.
     function etendueDuPlan() {
@@ -20260,20 +20289,23 @@ async function openSeatingPlanEditor(classId, hote) {
                     <button id="sp-autofill" class="btn-action primary sp-left-btn">🔀 Remplir auto</button>
                     <button id="sp-clear-seats" class="btn-action secondary sp-left-btn">Vider les places</button>
 
-                    <label class="sp-section-label">Zoom</label>
-                    <div class="sp-zoom-boite">
-                        <input type="range" id="sp-zoom" min="30" max="140" step="1" value="${Math.round(spZoom * 100)}"
-                               aria-label="Taille du plan" title="Molette sur le plan pour zoomer">
-                        <span class="sp-zoom-lu" id="sp-zoom-lu">${Math.round(spZoom * 100)} %</span>
-                    </div>
-                    <button id="sp-zoom-ajuster" class="btn-action secondary sp-left-btn">⤢ Tout voir</button>
                     <label class="sp-section-label">Export</label>
                     <button id="sp-export-pdf" class="btn-action secondary sp-left-btn">📄 Export PDF</button>
                     <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>
                 </div>
-                <div class="sp-canvas-wrap">
-                    <div class="sp-front-marker">⬆️ Tableau / avant de la classe</div>
-                    <div class="sp-canvas" id="sp-canvas">${tablesHtml}</div>
+                <div class="sp-scene">
+                    <div class="sp-canvas-wrap">
+                        <div class="sp-front-marker">⬆️ Tableau / avant de la classe</div>
+                        <div class="sp-canvas" id="sp-canvas">${tablesHtml}</div>
+                    </div>
+                    <!-- Le réglage du zoom reste sur le plan, pas au fond de la
+                         colonne de gauche : c'est là qu'on le cherche. -->
+                    <div class="sp-zoom-boite">
+                        <input type="range" id="sp-zoom" min="30" max="140" step="1" value="${Math.round(spZoom * 100)}"
+                               aria-label="Taille du plan" title="Molette, ou deux doigts pour pincer">
+                        <span class="sp-zoom-lu" id="sp-zoom-lu">${Math.round(spZoom * 100)} %</span>
+                        <button id="sp-zoom-ajuster" class="sp-zoom-btn" title="Tout voir">⤢</button>
+                    </div>
                 </div>
                 <div class="sp-sidebar">
                     <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:8px;">Non placés (${unassigned.length})</label>
@@ -20325,25 +20357,31 @@ async function openSeatingPlanEditor(classId, hote) {
         });
         canvasWrapEl.style.cursor = currentTool === 'hand' ? 'grab' : 'default';
 
-        // Outil Main : glisser sur le canevas pour le faire défiler
-        canvasWrapEl.addEventListener('mousedown', (e) => {
+        // Outil Main : glisser sur le canevas pour le faire défiler — à la
+        // souris comme au doigt.
+        canvasWrapEl.addEventListener('pointerdown', (e) => {
             if (currentTool !== 'hand' || e.target.closest('.sp-table')) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.preventDefault();
             const startX = e.clientX, startY = e.clientY;
             const scrollLeft0 = canvasWrapEl.scrollLeft, scrollTop0 = canvasWrapEl.scrollTop;
             canvasWrapEl.style.cursor = 'grabbing';
 
             function onMove(ev) {
+                if (ev.pointerId !== e.pointerId || gesteADeuxDoigts) return;
                 canvasWrapEl.scrollLeft = scrollLeft0 - (ev.clientX - startX);
                 canvasWrapEl.scrollTop = scrollTop0 - (ev.clientY - startY);
             }
-            function onUp() {
-                document.removeEventListener('mousemove', onMove);
-                document.removeEventListener('mouseup', onUp);
+            function onUp(ev) {
+                if (ev.pointerId !== e.pointerId) return;
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onUp);
                 canvasWrapEl.style.cursor = 'grab';
             }
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
         });
 
         box.querySelectorAll('.sp-table-resize').forEach(el => {
@@ -20388,16 +20426,76 @@ async function openSeatingPlanEditor(classId, hote) {
 
         const cadreZoom = box.querySelector('.sp-canvas-wrap');
         if (cadreZoom) {
-            // La molette zoome sous le pointeur. Le plan tient d'ordinaire en
-            // entier une fois ajusté ; pour le parcourir quand il déborde, il
-            // reste l'outil Main et les ascenseurs.
-            cadreZoom.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const pas = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-                appliquerLeZoom(spZoom * pas, { x: e.clientX, y: e.clientY });
+            const ecrireLeZoom = () => {
                 clearTimeout(cadreZoom._zoomEcrit);
                 cadreZoom._zoomEcrit = setTimeout(persist, 400);
+            };
+
+            // La molette zoome sous le pointeur. Le plan tient d'ordinaire en
+            // entier une fois ajusté ; pour le parcourir quand il déborde, il
+            // reste les deux doigts, l'outil Main et les ascenseurs.
+            cadreZoom.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                appliquerLeZoom(spZoom * pasDeMolette(e), { x: e.clientX, y: e.clientY });
+                ecrireLeZoom();
             }, { passive: false });
+
+            // --- LE PINCEMENT. Deux doigts sur le plan : l'écart règle le
+            // facteur, leur milieu entraîne le cadre. Les deux marchent
+            // ensemble, comme sur une carte : on pince et on glisse d'un même
+            // mouvement. On mesure par rapport au relevé précédent, pas au
+            // départ du geste, pour que le zoom au curseur reste juste tout
+            // du long. ---
+            const doigts = new Map();
+            let pince = null;
+            // Le facteur voulu par les doigts, avant bornage. Sans lui, pincer
+            // jusqu'à la butée puis revenir ne ramenait pas au point de départ :
+            // chaque mesure repartait de la valeur bornée, et le geste devenait
+            // asymétrique.
+            let facteurVoulu = spZoom;
+
+            function mesureDesDoigts() {
+                const p = [...doigts.values()];
+                return {
+                    d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1,
+                    cx: (p[0].x + p[1].x) / 2,
+                    cy: (p[0].y + p[1].y) / 2
+                };
+            }
+
+            cadreZoom.addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'mouse') return;
+                doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (doigts.size === 2) {
+                    pince = mesureDesDoigts();
+                    facteurVoulu = spZoom;
+                    gesteADeuxDoigts = true;
+                }
+            });
+
+            cadreZoom.addEventListener('pointermove', (e) => {
+                if (!doigts.has(e.pointerId)) return;
+                doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (doigts.size !== 2 || !pince) return;
+                e.preventDefault();
+                const m = mesureDesDoigts();
+                facteurVoulu = Math.max(SP_ZOOM_MIN / 3, Math.min(SP_ZOOM_MAX * 3,
+                    facteurVoulu * (m.d / pince.d)));
+                appliquerLeZoom(facteurVoulu, { x: m.cx, y: m.cy });
+                cadreZoom.scrollLeft -= (m.cx - pince.cx);
+                cadreZoom.scrollTop -= (m.cy - pince.cy);
+                pince = m;
+            });
+
+            const doigtLeve = (e) => {
+                if (!doigts.delete(e.pointerId)) return;
+                if (doigts.size < 2) {
+                    pince = null;
+                    if (gesteADeuxDoigts) { gesteADeuxDoigts = false; ecrireLeZoom(); }
+                }
+            };
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(
+                ev => cadreZoom.addEventListener(ev, doigtLeve));
         }
         // Le plan vient d'être redessiné : on lui remet son échelle.
         appliquerLeZoom(spZoom);
@@ -20405,8 +20503,12 @@ async function openSeatingPlanEditor(classId, hote) {
         // Déplacement des tables à la souris, aligné sur la grille
         const canvas = box.querySelector('#sp-canvas');
         box.querySelectorAll('.sp-table-handle').forEach(handle => {
-            handle.addEventListener('mousedown', (e) => {
+            // Au pointeur et non à la souris : la même poignée se prend au
+            // doigt sur un écran tactile, où la souris émulée n'envoie aucun
+            // mouvement entre le poser et le lever.
+            handle.addEventListener('pointerdown', (e) => {
                 if (currentTool !== 'select') return;
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
                 if (e.target.classList.contains('sp-table-del') || e.target.classList.contains('sp-table-resize')) return;
                 const table = plan.tables.find(t => t.id === handle.dataset.table);
                 const canvasRect = canvas.getBoundingClientRect();
@@ -20423,19 +20525,26 @@ async function openSeatingPlanEditor(classId, hote) {
                 const tableEl = handle.closest('.sp-table');
 
                 function onMove(ev) {
+                    if (ev.pointerId !== e.pointerId) return;
+                    // Un second doigt s'est posé : le geste appartient au
+                    // pincement, la table doit rester où elle est.
+                    if (gesteADeuxDoigts) return;
                     const p = enPlan(ev.clientX, ev.clientY);
                     table.x = Math.max(0, spSnap(p.x - startX));
                     table.y = Math.max(0, spSnap(p.y - startY));
                     tableEl.style.left = table.x + 'px';
                     tableEl.style.top = table.y + 'px';
                 }
-                function onUp() {
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
+                function onUp(ev) {
+                    if (ev.pointerId !== e.pointerId) return;
+                    document.removeEventListener('pointermove', onMove);
+                    document.removeEventListener('pointerup', onUp);
+                    document.removeEventListener('pointercancel', onUp);
                     persist();
                 }
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp);
+                document.addEventListener('pointermove', onMove);
+                document.addEventListener('pointerup', onUp);
+                document.addEventListener('pointercancel', onUp);
             });
         });
 

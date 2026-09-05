@@ -155,16 +155,167 @@ module.exports = async function (browser) {
         const avant = { x: t.x, y: t.y };
         const b = poignee.getBoundingClientRect();
         const depart = { x: b.x + 10, y: b.y + 5 };
-        poignee.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: depart.x, clientY: depart.y }));
+        const p = (type, x, y) => new PointerEvent(type, {
+            bubbles: true, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+            button: 0, clientX: x, clientY: y
+        });
+        poignee.dispatchEvent(p('pointerdown', depart.x, depart.y));
         // 100 pixels d'écran à 50 % = 200 unités de plan
-        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: depart.x + 100, clientY: depart.y }));
-        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        document.dispatchEvent(p('pointermove', depart.x + 100, depart.y));
+        document.dispatchEvent(p('pointerup', depart.x + 100, depart.y));
         await new Promise(res => setTimeout(res, 150));
         return { avant, apres: { x: t.x, y: t.y }, deplacement: t.x - avant.x, style: table.style.left };
     });
     r.verifie('cent pixels d\'écran à 50 % déplacent la table de deux cents unités',
         Math.abs(glisse.deplacement - 200) <= 20,
         JSON.stringify(glisse));
+
+    // LA MOLETTE NE DOIT PLUS S'EMBALLER. Un cran de souris vaut une centaine
+    // de pixels ; un pavé tactile en envoie des dizaines de tout petits. Quand
+    // chacun valait un cran entier, le moindre effleurement du pavé faisait
+    // bondir le plan.
+    const molette = await page.evaluate(async (c) => {
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        const lire = () => parseFloat((String(document.querySelector('#sp-canvas').style.transform)
+            .match(/scale\(([\d.]+)\)/) || [0, 1])[1]);
+        const poser = (v) => {
+            const s = document.querySelector('#sp-zoom');
+            s.value = String(v); s.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const tourner = (delta, fois) => {
+            for (let i = 0; i < fois; i++) {
+                cadre.dispatchEvent(new WheelEvent('wheel', {
+                    bubbles: true, cancelable: true, deltaY: delta, deltaMode: 0,
+                    clientX: c.x, clientY: c.y
+                }));
+            }
+        };
+        poser(60); await new Promise(res => setTimeout(res, 120));
+        const depart = lire();
+        tourner(-100, 1);
+        const unCran = lire();
+        poser(60); await new Promise(res => setTimeout(res, 120));
+        tourner(-4, 10);          // dix relevés de pavé tactile
+        const unPavé = lire();
+        poser(60); await new Promise(res => setTimeout(res, 120));
+        tourner(-100, 3);
+        const troisCrans = lire();
+        return { depart, unCran, unPavé, troisCrans };
+    }, centre);
+    r.verifie('un cran de molette agrandit doucement, pas de 10 %',
+        molette.unCran > molette.depart && molette.unCran < molette.depart * 1.09,
+        JSON.stringify(molette));
+    r.verifie('dix relevés de pavé tactile ne valent pas dix crans de souris',
+        molette.unPavé < molette.unCran, JSON.stringify(molette));
+    r.verifie('mais la molette continue d\'avancer cran après cran',
+        molette.troisCrans > molette.unCran, JSON.stringify(molette));
+
+    // LE PINCEMENT À DEUX DOIGTS : l'écart règle le facteur, le milieu des
+    // doigts entraîne le cadre.
+    const pince = await page.evaluate(async () => {
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        const lire = () => parseFloat((String(document.querySelector('#sp-canvas').style.transform)
+            .match(/scale\(([\d.]+)\)/) || [0, 1])[1]);
+        const s = document.querySelector('#sp-zoom');
+        s.value = '70'; s.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(res => setTimeout(res, 120));
+        cadre.scrollLeft = 60; cadre.scrollTop = 60;
+        const b = cadre.getBoundingClientRect();
+        const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        const doigt = (type, id, x, y) => cadre.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+            isPrimary: id === 1, clientX: x, clientY: y
+        }));
+        const depart = lire();
+        doigt('pointerdown', 1, cx - 50, cy);
+        doigt('pointerdown', 2, cx + 50, cy);
+        // On écarte jusqu'à taper la butée haute…
+        doigt('pointermove', 1, cx - 150, cy);
+        doigt('pointermove', 2, cx + 150, cy);
+        const ecarte = lire();
+        // … puis on revient exactement à l'écart de départ. Le plan doit
+        // revenir à sa taille de départ : la butée ne doit pas avoir mangé le
+        // chemin parcouru.
+        doigt('pointermove', 1, cx - 50, cy);
+        doigt('pointermove', 2, cx + 50, cy);
+        const revenu = lire();
+        doigt('pointerup', 1, cx - 50, cy);
+        doigt('pointerup', 2, cx + 50, cy);
+        await new Promise(res => setTimeout(res, 500));
+        const cls = await ClassesStore.loadAll();
+        return { depart, ecarte, revenu, retenu: cls.find(c => c.id === 'cz').seatingPlan.zoom };
+    });
+    r.verifie('écarter deux doigts agrandit le plan',
+        pince.ecarte > pince.depart * 1.5, JSON.stringify(pince));
+    r.verifie('les rapprocher d\'autant ramène à la taille de départ',
+        Math.abs(pince.revenu - pince.depart) < 0.03, JSON.stringify(pince));
+    r.verifie('le facteur atteint au doigt est retenu avec le plan',
+        Math.abs(pince.retenu - pince.revenu) < 0.02, JSON.stringify(pince));
+
+    // LES DEUX DOIGTS DÉPLACENT AUSSI : à écart constant, le plan suit.
+    const balade = await page.evaluate(async () => {
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        const s = document.querySelector('#sp-zoom');
+        s.value = '140'; s.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(res => setTimeout(res, 150));
+        cadre.scrollLeft = 100; cadre.scrollTop = 100;
+        const scroll0 = cadre.scrollLeft;
+        const b = cadre.getBoundingClientRect();
+        const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        const doigt = (type, id, x, y) => cadre.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+            isPrimary: id === 1, clientX: x, clientY: y
+        }));
+        doigt('pointerdown', 1, cx - 40, cy);
+        doigt('pointerdown', 2, cx + 40, cy);
+        // Les deux doigts glissent ensemble de 70 px vers la gauche.
+        doigt('pointermove', 1, cx - 110, cy);
+        doigt('pointermove', 2, cx - 30, cy);
+        const apres = cadre.scrollLeft;
+        doigt('pointerup', 1, cx - 110, cy);
+        doigt('pointerup', 2, cx - 30, cy);
+        return { scroll0, apres, marge: cadre.scrollWidth - cadre.clientWidth };
+    });
+    r.verifie('deux doigts qui glissent déplacent le plan',
+        balade.apres > balade.scroll0 + 40, JSON.stringify(balade));
+
+    // UN SECOND DOIGT PENDANT UN GLISSER DE TABLE : c'est un pincement, la
+    // table ne doit pas partir avec le premier doigt.
+    const pendant = await page.evaluate(async () => {
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        const poignee = document.querySelector('.sp-table-handle');
+        const cls = await ClassesStore.loadAll();
+        const plan = cls.find(c => c.id === 'cz').seatingPlan;
+        const t = plan.tables.find(x => x.id === poignee.dataset.table);
+        const avant = t.x;
+        const b = poignee.getBoundingClientRect();
+        const doigt = (cible, type, id, x, y) => cible.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+            isPrimary: id === 1, clientX: x, clientY: y
+        }));
+        doigt(poignee, 'pointerdown', 1, b.x + 10, b.y + 5);
+        doigt(cadre, 'pointerdown', 2, b.x + 200, b.y + 100);
+        doigt(document, 'pointermove', 1, b.x + 210, b.y + 5);
+        doigt(document, 'pointerup', 1, b.x + 210, b.y + 5);
+        doigt(cadre, 'pointerup', 2, b.x + 200, b.y + 100);
+        await new Promise(res => setTimeout(res, 120));
+        return { avant, apres: t.x };
+    });
+    r.egal('un second doigt annule le glisser de la table', pendant.apres, pendant.avant);
+
+    // LE RÉGLAGE DU ZOOM SE TIENT SUR LE PLAN, pas au fond de la colonne.
+    const place = await page.evaluate(() => {
+        const boite = document.querySelector('.sp-zoom-boite');
+        const cadre = document.querySelector('.sp-canvas-wrap').getBoundingClientRect();
+        const b = boite.getBoundingClientRect();
+        return {
+            dansLaScene: !!boite.closest('.sp-scene'),
+            surLePlan: b.x >= cadre.x - 2 && b.right <= cadre.right + 2 && b.bottom <= cadre.bottom + 2,
+            visible: b.width > 0 && b.height > 0
+        };
+    });
+    r.egal('le curseur de zoom flotte au-dessus du plan',
+        place, { dansLaScene: true, surLePlan: true, visible: true });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
