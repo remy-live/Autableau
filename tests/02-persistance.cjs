@@ -963,7 +963,7 @@ module.exports = async function (browser) {
     r.egal('Maj+Espace revient d\'une étape', (await etatLecteur()).traits, 2);
 
     // LA LECTURE AUTOMATIQUE : elle avance seule, et s'arrête au bout.
-    await page.evaluate(() => { lectureCadence = 2; poserEtapeDeLecture(0); lireOuPause(); });
+    await page.evaluate(() => { reglerLaVitesse(10); poserEtapeDeLecture(0); lireOuPause(); });
     await page.waitForTimeout(300);
     const enMarche = await etatLecteur();
     r.verifie('la lecture automatique démarre', enMarche.marche, JSON.stringify(enMarche));
@@ -988,6 +988,62 @@ module.exports = async function (browser) {
     });
     r.egal('rejouer n\'écrit jamais sur le disque', pendant.ecritures, 0);
     r.egal('et n\'ajoute aucune étape à l\'historique', pendant.histApres, pendant.histAvant);
+
+    // LE CURSEUR D'IMAGE SE TIRE À LA MAIN. Il ne bougeait pas : la lecture
+    // était arrêtée AVANT que l'on lise la valeur, or arrêter repeint la bande
+    // et remet le curseur où il était — on relisait donc toujours l'ancienne
+    // position, et il revenait sous le doigt.
+    await page.evaluate(() => {
+        poserEtapeDeLecture(history.length - 1);
+        // Les bulles seulement : leur conteneur, lui, reste en place.
+        document.querySelectorAll('.toast').forEach(t => t.remove());
+    });
+    const rail = await page.locator('#lecture-curseur').boundingBox();
+    await page.mouse.move(rail.x + rail.width * 0.9, rail.y + rail.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rail.x + rail.width * 0.1, rail.y + rail.height / 2, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    const tire = await etatLecteur();
+    r.verifie('le curseur d\'image se tire à la main, et le tableau suit',
+        tire.index < 2 && tire.traits === tire.index, JSON.stringify(tire));
+
+    // LA VITESSE AU CURSEUR : trois crans ne suffisaient pas.
+    const vitesses = await page.evaluate(() => {
+        const lu = () => document.getElementById('lecture-vitesse-lue').textContent;
+        reglerLaVitesse(1); const lent = { delai: delaiDeLecture(), lu: lu() };
+        reglerLaVitesse(10); const vif = { delai: delaiDeLecture(), lu: lu() };
+        reglerLaVitesse(2); return { lent, vif, normal: delaiDeLecture() };
+    });
+    r.verifie('la vitesse va du lent au vif',
+        vitesses.lent.delai > vitesses.normal && vitesses.normal > vitesses.vif.delai && vitesses.vif.delai < 200,
+        JSON.stringify(vitesses));
+    r.egal('et elle se lit en clair', { lent: vitesses.lent.lu, vif: vitesses.vif.lu },
+        { lent: '×0,5', vif: '×5' });
+
+    // PENDANT LE FILM, LE TABLEAU EST UN FILM.
+    // Dessiner sur un état rembobiné écrivait dans l'historique un état du
+    // PASSÉ — et l'envoyait sur le disque. Rembobiné à la deuxième étape, un
+    // trait de plus et l'historique ne contenait plus que trois traits alors
+    // que le tableau en avait six : un seul Ctrl+Z, et la moitié du cours
+    // disparaissait.
+    await page.evaluate(() => { poserEtapeDeLecture(2); setMode('freehand'); });
+    await page.waitForTimeout(150);
+    const avantTentative = await page.evaluate(() => ({
+        traits: freehands.length, etapes: history.length, index: historyIndex }));
+    await page.mouse.move(700, 620);
+    await page.mouse.down();
+    await page.mouse.move(860, 690, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(350);
+    await page.evaluate(() => document.getElementById('board').focus());
+    await page.keyboard.press('Delete');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(250);
+    const apresTentative = await page.evaluate(() => ({
+        traits: freehands.length, etapes: history.length, index: historyIndex }));
+    r.egal('on ne peut rien dessiner ni effacer pendant la lecture', apresTentative, avantTentative);
+    await page.evaluate(() => setMode('pointer'));
 
     await page.click('#lecture-fermer');
     await page.waitForTimeout(250);

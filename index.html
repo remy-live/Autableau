@@ -29,7 +29,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=82">
+    <link rel="stylesheet" href="style.css?v=83">
 </head>
 
 <body>
@@ -367,8 +367,17 @@
         <input type="range" id="lecture-curseur" min="0" max="0" value="0" step="1"
             aria-label="Position dans la séance">
         <span id="lecture-compte" class="mono-lec">1 / 1</span>
-        <button class="lec-btn lec-vitesse" id="lecture-vitesse" data-tooltip="Vitesse de lecture">×1</button>
-        <span class="lec-note">Espace : une étape à la fois</span>
+        <span class="lec-vit-boite" title="Vitesse de lecture">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20a8 8 0 1 1 8-8" />
+                <path d="M12 12l4.5-3" />
+            </svg>
+            <input type="range" id="lecture-vitesse" min="1" max="10" step="1" value="2"
+                aria-label="Vitesse de lecture">
+            <span id="lecture-vitesse-lue" class="mono-lec">×1</span>
+        </span>
+        <span class="lec-note">Tableau figé — Espace avance d'une étape</span>
         <button class="lec-btn lec-fermer" id="lecture-fermer" data-tooltip="Fermer le lecteur et revenir au tableau"><svg
                 viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round">
@@ -2206,7 +2215,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=160"></script>
+    <script src="script.js?v=161"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=79"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

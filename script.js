@@ -1610,13 +1610,21 @@ const HISTORY_MAX_BYTES = 24 * 1024 * 1024;
 //   • IL NE MONTRE QUE CETTE SÉANCE. L'historique vit en mémoire : fermer
 //     l'application le vide. On l'annonce plutôt que de le laisser découvrir.
 // ===================================================
-const LECTURE_CADENCES = [1400, 700, 350];   // lent, normal, rapide
+// La vitesse se regle au curseur : trois crans ne suffisaient pas — on
+// commente lentement une construction, puis on veut revoir la fin d'un trait.
+// Un a dix, ou le 2 vaut la vitesse de reference.
+const LECTURE_REFERENCE = 1400;             // millisecondes par etape a la vitesse 1
 let lectureOuverte = false;
 let lectureIndex = 0;
 let lectureEnMarche = false;
 let lectureMinuteur = null;
-let lectureCadence = 1;
+let lectureVitesse = 2;
 let lectureRetour = null;      // l'état à retrouver en refermant
+
+function delaiDeLecture() {
+    const v = Math.max(1, Math.min(10, lectureVitesse || 2));
+    return Math.round(LECTURE_REFERENCE / v);
+}
 
 function etapesDeLecture() { return history.length; }
 
@@ -1681,7 +1689,7 @@ function avancerLaLecture() {
     if (!lectureEnMarche) return;
     if (lectureIndex >= history.length - 1) { arreterLaLecture(); return; }
     poserEtapeDeLecture(lectureIndex + 1);
-    lectureMinuteur = setTimeout(avancerLaLecture, LECTURE_CADENCES[lectureCadence]);
+    lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
 }
 
 function lireOuPause() {
@@ -1691,7 +1699,7 @@ function lireOuPause() {
     if (lectureIndex >= history.length - 1) poserEtapeDeLecture(0);
     lectureEnMarche = true;
     majBandeDeLecture();
-    lectureMinuteur = setTimeout(avancerLaLecture, LECTURE_CADENCES[lectureCadence]);
+    lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
     return true;
 }
 window.lireOuPause = lireOuPause;
@@ -1706,11 +1714,18 @@ function pasDeLecture(sens) {
 }
 window.pasDeLecture = pasDeLecture;
 
-function changerLaCadence() {
-    lectureCadence = (lectureCadence + 1) % LECTURE_CADENCES.length;
+function reglerLaVitesse(v) {
+    lectureVitesse = Math.max(1, Math.min(10, Math.round(v) || 2));
+    // Une lecture en cours reprend aussitot la nouvelle allure, sans qu'on ait
+    // a la relancer.
+    if (lectureEnMarche) {
+        clearTimeout(lectureMinuteur);
+        lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
+    }
     majBandeDeLecture();
-    return lectureCadence;
+    return lectureVitesse;
 }
+window.reglerLaVitesse = reglerLaVitesse;
 
 function majBandeDeLecture() {
     const bande = document.getElementById('bande-lecture');
@@ -1719,7 +1734,8 @@ function majBandeDeLecture() {
     const curseur = document.getElementById('lecture-curseur');
     if (curseur) {
         curseur.max = Math.max(0, n - 1);
-        curseur.value = lectureIndex;
+        // Pas pendant qu'on le tient : on lui reprendrait la main sous le doigt.
+        if (document.activeElement !== curseur) curseur.value = lectureIndex;
         curseur.setAttribute('aria-valuetext', `étape ${lectureIndex + 1} sur ${n}`);
     }
     const compte = document.getElementById('lecture-compte');
@@ -1730,7 +1746,9 @@ function majBandeDeLecture() {
         jouer.setAttribute('aria-label', lectureEnMarche ? 'Pause' : 'Lire');
     }
     const vitesse = document.getElementById('lecture-vitesse');
-    if (vitesse) vitesse.textContent = ['×0,5', '×1', '×2'][lectureCadence];
+    if (vitesse && document.activeElement !== vitesse) vitesse.value = lectureVitesse;
+    const lue = document.getElementById('lecture-vitesse-lue');
+    if (lue) lue.textContent = '×' + String(lectureVitesse / 2).replace('.', ',');
 }
 window.majBandeDeLecture = majBandeDeLecture;
 
@@ -1743,10 +1761,20 @@ function brancherLeLecteur() {
     if (b('lecture-prec')) b('lecture-prec').addEventListener('click', () => pasDeLecture(-1));
     if (b('lecture-suiv')) b('lecture-suiv').addEventListener('click', () => pasDeLecture(1));
     if (b('lecture-debut')) b('lecture-debut').addEventListener('click', () => { arreterLaLecture(); poserEtapeDeLecture(0); });
-    if (b('lecture-vitesse')) b('lecture-vitesse').addEventListener('click', changerLaCadence);
+    if (b('lecture-vitesse')) {
+        b('lecture-vitesse').addEventListener('input', (e) => reglerLaVitesse(parseInt(e.target.value, 10)));
+    }
     const curseur = b('lecture-curseur');
     if (curseur) {
-        curseur.addEventListener('input', () => { arreterLaLecture(); poserEtapeDeLecture(parseInt(curseur.value, 10) || 0); });
+        curseur.addEventListener('input', () => {
+            // ON LIT D'ABORD, ON ARRETE ENSUITE. Arreter la lecture repeint la
+            // bande, ce qui remet le curseur a la position d'avant : en lisant
+            // apres, on relisait toujours l'ancienne valeur et le curseur
+            // revenait sous le doigt sans que rien ne bouge.
+            const cible = parseInt(curseur.value, 10);
+            arreterLaLecture();
+            poserEtapeDeLecture(isFinite(cible) ? cible : 0);
+        });
     }
     majBandeDeLecture();
 }
@@ -1763,6 +1791,11 @@ function trimHistory() {
 }
 
 function saveState() {
+    // CEINTURE ET BRETELLES. Le tableau est deja fige pendant la lecture, mais
+    // un plugin ou un raccourci pourrait appeler ceci sans passer par le
+    // pointeur : on refuse d'ecrire une etape pendant le film, plutot que de
+    // corrompre l'historique et la sauvegarde.
+    if (typeof lectureOuverte !== 'undefined' && lectureOuverte) return;
     if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
     const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits });
     if (historyIndex >= 0 && history[historyIndex] === state) return;
@@ -4261,6 +4294,15 @@ window.addEventListener('keydown', (e) => {
 
         draw();
 
+        return;
+    }
+
+    // PENDANT LE FILM, les touches qui modifient ne font rien non plus — la
+    // barre d'espace, elle, avance d'une etape (voir plus bas).
+    if (lectureOuverte && ['Delete', 'Backspace'].includes(e.key)) { e.preventDefault(); return; }
+    if (lectureOuverte && (e.ctrlKey || e.metaKey) && ['z', 'y', 'v', 'x', 'd'].includes((e.key || '').toLowerCase())) {
+        e.preventDefault();
+        if (typeof showToast === 'function') showToast('Lecture en cours : fermez la bande pour reprendre la main');
         return;
     }
 
@@ -7239,6 +7281,19 @@ canvas.addEventListener('pointerdown', (e) => {
     const avantTampon = nextId;
     if (PluginManager.trigger('onPointerDown', rawPos, e)) { apresPoseDeTampon(avantTampon); return; }
 
+    // PENDANT LE FILM, LE TABLEAU EST UN FILM. Dessiner sur un etat rembobine
+    // ecrivait dans l'historique un etat du PASSE — et l'envoyait sur le
+    // disque. Rembobine a la deuxieme etape, un trait de plus et l'historique
+    // ne contenait plus que trois traits alors que le tableau en avait six :
+    // un seul Ctrl+Z, et la moitie du cours disparaissait. On ne peut donc
+    // plus modifier tant que la bande est ouverte ; la refermer rend la main.
+    if (lectureOuverte) {
+        if (typeof showToast === 'function' && (!e || !e.button)) {
+            showToast('Lecture en cours : fermez la bande pour reprendre la main');
+        }
+        return;
+    }
+
     // RETOUCHE DES ZONES : tant qu'on y est, le tableau ne fait rien d'autre.
     // Le geste appartient tout entier au document qu'on règle — sauf le bouton
     // du milieu, qui doit rester libre de faire glisser le tableau : autrement
@@ -9790,7 +9845,16 @@ function peindreLeFondDePresentation() {
 
 // --- FONCTION NOTIFICATIONS ---
 function showToast(msg) {
-    const container = document.getElementById('toast-container');
+    // LE CONTENEUR PEUT MANQUER. Il est dans la page depuis le debut, mais rien
+    // ne garantit qu'il y soit encore — un plugin qui nettoie, un export qui
+    // reconstruit le corps de page. Sans ce garde-fou, un simple message
+    // d'information levait une erreur et emportait avec lui l'action en cours.
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        (document.body || document.documentElement).appendChild(container);
+    }
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.innerText = msg;
