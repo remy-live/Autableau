@@ -127,6 +127,49 @@ module.exports = async function (browser) {
         liste.marques, ['4e 1', '4e 2', '4e 3']);
     r.verifie('et chacune propose de la refaire ailleurs', liste.boutons >= 3, String(liste.boutons));
 
+    // --- LA PRÉPARATION SE VOIT DANS LA LISTE ---
+    // Le bouton 👥 s'affichait sur toutes les séances, y compris celles qui
+    // n'ont pas de préparation : on ne savait qu'en cliquant, et la réponse
+    // était un refus. Une séance prête porte maintenant un 📌.
+    const marquage = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(res => setTimeout(res, ms));
+        savedTableaux = [];
+        await localforage.setItem('auTableau_tableaux_list', savedTableaux);
+        selectedBoardId = null;
+        pages.forEach(p => { delete p.preparation; });
+
+        // Une séance enregistrée SANS préparation.
+        document.getElementById('project-name-input').value = 'Pythagore';
+        saveCurrentBoard();
+        await attendre(500);
+        const sans = savedTableaux.find(t => t.name === 'Pythagore');
+        renderExplorerLists();
+        const avantEpingles = document.querySelectorAll('#file-tree-container .tree-prep').length;
+
+        // On garde la préparation : la séance déjà enregistrée doit être
+        // remise à jour toute seule, sinon la marque mentirait.
+        marquerLaPreparation();
+        await attendre(500);
+        const avec = savedTableaux.find(t => t.id === sans.id);
+        const donnees = await localforage.getItem('data_' + sans.id);
+        renderExplorerLists();
+        return {
+            avant: sans.aPreparation,
+            apres: avec.aPreparation,
+            dansLesDonnees: (donnees.pages || []).some(p => p && p.preparation),
+            avantEpingles,
+            epingles: document.querySelectorAll('#file-tree-container .tree-prep').length,
+            pretes: document.querySelectorAll('#file-tree-container .tree-action-btn.prete').length
+        };
+    });
+    r.egal('une séance enregistrée sans préparation n\'est pas marquée',
+        { drapeau: marquage.avant, epingles: marquage.avantEpingles }, { drapeau: false, epingles: 0 });
+    r.egal('garder la préparation réenregistre la séance et la marque',
+        { drapeau: marquage.apres, dansLesDonnees: marquage.dansLesDonnees },
+        { drapeau: true, dansLesDonnees: true });
+    r.egal('et la liste montre le 📌 et son bouton 👥 en évidence',
+        { epingles: marquage.epingles, pretes: marquage.pretes }, { epingles: 1, pretes: 1 });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -21734,12 +21734,19 @@ function buildTree(items, parentId) {
             const marqueClasse = (currentExplorerTab === 'tableaux' && item.classeNom)
                 ? `<span class="tree-classe" title="Séance faite avec ${item.classeNom}">${item.classeNom}</span>` : '';
 
+            // Une séance dont la préparation est gardée se refait avec une
+            // autre classe. Sans marque visible, rien ne distinguait celles
+            // qui le peuvent de celles qui répondront « pas de préparation ».
+            const prete = currentExplorerTab === 'tableaux' && item.aPreparation === true;
+            const marquePrep = prete
+                ? `<span class="tree-prep" title="Préparation gardée : cette séance peut être refaite avec une autre classe">📌</span>` : '';
+
             treeItem.innerHTML = `
                 <span class="icon" style="margin-left: 20px;">${icon}</span>
-                ${labelHTML}${marqueClasse}
+                ${labelHTML}${marqueClasse}${marquePrep}
                 <div class="tree-item-actions">
                     <button class="tree-action-btn" title="Ouvrir" onclick="${currentExplorerTab === 'tableaux' ? `promptLoadBoard('${item.id}')` : `promptLoadInterface('${item.id}')`}; event.stopPropagation();" style="padding:4px 6px; font-size:12px;">⏎</button>
-                    ${currentExplorerTab === 'tableaux' ? `<button class="tree-action-btn" title="Refaire cette séance avec une autre classe" onclick="promptReinvestir('${item.id}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">👥</button>` : ''}
+                    ${currentExplorerTab === 'tableaux' ? `<button class="tree-action-btn${prete ? ' prete' : ''}" title="${prete ? 'Refaire cette séance avec une autre classe, à partir de la préparation gardée' : 'Refaire avec une autre classe — demande une préparation gardée (menu Exporter)'}" onclick="promptReinvestir('${item.id}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">👥</button>` : ''}
                     <button class="tree-action-btn" title="Renommer" onclick="renameItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">✎</button>
                     <button class="tree-action-btn danger" title="Supprimer" onclick="promptDeleteItem('${item.id}', '${currentExplorerTab}'); event.stopPropagation();" style="padding:4px 6px; font-size:12px;">🗑</button>
                 </div>
@@ -22209,16 +22216,18 @@ function getMiniPreview() {
     return tempCanvas.toDataURL('image/jpeg', 0.5);
 }
 
-function saveCurrentBoard() {
+// `discret` : l'enregistrement accompagne une autre action, qui a son propre
+// message — trois pastilles empilées d'un coup ne se lisent plus.
+function saveCurrentBoard(discret) {
     const input = document.getElementById('project-name-input');
     let name = input ? input.value.trim() : "";
     if (!name) name = "Sans titre";
     currentBoardName = name;
 
     if (selectedBoardId) {
-        _doSaveBoard(name, selectedBoardId);
+        _doSaveBoard(name, selectedBoardId, discret);
     } else {
-        _doSaveBoard(name, 'tb_' + Date.now());
+        _doSaveBoard(name, 'tb_' + Date.now(), discret);
     }
 }
 
@@ -22260,10 +22269,18 @@ function marquerLaPreparation() {
     syncPage();
     const copie = JSON.parse(JSON.stringify(pages.map(etatDUnePagePourPreparation)));
     pages.forEach((p, i) => { p.preparation = copie[i]; });
-    preparationPosee = Date.now();
     saveAppLocal(true);
+    // La préparation ne sert à rien tant qu'elle n'est pas dans la séance
+    // enregistrée : c'est de là que part « refaire avec une autre classe ».
+    // Si la séance a déjà un nom, on la réenregistre ; sinon on le dit.
+    const dejaEnregistree = typeof selectedBoardId !== 'undefined' && selectedBoardId
+        && savedTableaux.some(t => t.id === selectedBoardId);
+    if (dejaEnregistree) saveCurrentBoard(true);
     if (typeof showToast === 'function') {
-        showToast(`Préparation retenue (${pages.length} page${pages.length > 1 ? 's' : ''}) — vous pourrez refaire cette séance avec une autre classe`);
+        const combien = `${pages.length} page${pages.length > 1 ? 's' : ''}`;
+        showToast(dejaEnregistree
+            ? `Préparation gardée (${combien}) — la séance porte un 📌 dans la liste, son bouton 👥 la refera avec une autre classe`
+            : `Préparation gardée (${combien}) — enregistrez la séance pour pouvoir la refaire avec une autre classe`);
     }
     return pages.length;
 }
@@ -22303,7 +22320,7 @@ async function reinvestirLaSeance(idSource, classeId, nomClasse) {
     }
     if (!aUnePreparation(data)) {
         if (typeof showToast === 'function') {
-            showToast('Cette séance n\'a pas de préparation marquée : ouvrez-la et utilisez « Début du cours »');
+            showToast('Cette séance n\'a pas de préparation gardée : ouvrez-la et utilisez « Garder ce tableau comme préparation »');
         }
         return null;
     }
@@ -22318,6 +22335,7 @@ async function reinvestirLaSeance(idSource, classeId, nomClasse) {
         date: now.toLocaleDateString(), time: now.toLocaleTimeString(),
         timestamp: Date.now(),
         preview: source.preview,
+        aPreparation: true,
         classeId: classeId || null,
         classeNom: nomClasse || null,
         // D'où vient cette séance : c'est ce lien qui permet de les montrer
@@ -22345,16 +22363,17 @@ function seancesDeLaMemeFamille(id) {
 }
 window.seancesDeLaMemeFamille = seancesDeLaMemeFamille;
 
-let preparationPosee = 0;
-
 // « Refaire avec une autre classe » : on demande laquelle, et c'est tout.
 async function promptReinvestir(id) {
     const t = savedTableaux.find(x => x.id === id);
     if (!t) return;
     const data = await localforage.getItem('data_' + id);
     if (!aUnePreparation(data)) {
-        openConfirmModal('Pas de préparation marquée',
-            `« ${t.name} » n'a pas d'état « avant le cours ». Ouvrez-la, remettez-la comme elle était avant les élèves, puis utilisez « Début du cours » dans le menu Exporter.`,
+        openConfirmModal('Pas de préparation gardée',
+            `« ${t.name} » n'a pas d'état « avant le cours ».\n\n`
+            + 'Ouvrez cette séance, remettez le tableau comme il était avant les élèves, '
+            + 'puis, dans le menu Exporter, « Garder ce tableau comme préparation ».\n\n'
+            + 'Les séances prêtes à être refaites portent un 📌 dans la liste.',
             false, () => { });
         return;
     }
@@ -22380,7 +22399,7 @@ async function promptReinvestir(id) {
 }
 window.promptReinvestir = promptReinvestir;
 
-function _doSaveBoard(name, id) {
+function _doSaveBoard(name, id, discret) {
     const now = new Date();
     syncPage();
     // sans l'historique d'annulation, et images mutualisées
@@ -22397,7 +22416,10 @@ function _doSaveBoard(name, id) {
         date: now.toLocaleDateString(),
         time: now.toLocaleTimeString(),
         timestamp: Date.now(),
-        preview: getMiniPreview()
+        preview: getMiniPreview(),
+        // L'explorateur doit pouvoir dire d'un coup d'œil quelles séances
+        // portent une préparation, sans ouvrir chaque tableau pour le savoir.
+        aPreparation: aUnePreparation(appState)
     };
 
     // Save metadata in list
@@ -22414,7 +22436,7 @@ function _doSaveBoard(name, id) {
         hasUnsavedChanges = false;
         updateUnsavedIndicator();
         renderExplorerLists();
-        showToast("Tableau sauvegardé !");
+        if (!discret) showToast("Tableau sauvegardé !");
     });
 }
 
@@ -26179,9 +26201,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnPrep = document.getElementById('btn-preparation');
     if (btnPrep) {
         btnPrep.addEventListener('click', () => {
-            openConfirmModal('Début du cours',
-                'Le tableau est-il dans l\'état où vous voulez le retrouver pour une autre classe ? Ce que vous écrirez ensuite devant les élèves ne partira pas avec la préparation.',
-                true, marquerLaPreparation);
+            openConfirmModal('Garder ce tableau comme préparation',
+                'Le tableau sera retenu tel qu\'il est en ce moment, avant le cours.\n\n'
+                + 'Faites le cours normalement : ce que vous écrirez devant les élèves ne touchera pas à cette préparation.\n\n'
+                + 'Dans l\'explorateur à droite, la séance portera alors un 📌, et son bouton 👥 la refera avec '
+                + 'une autre classe : un nouveau tableau reparti de la préparation, sans rien effacer de ce que '
+                + 'vous avez fait ici.',
+                false, marquerLaPreparation);
         });
     }
 

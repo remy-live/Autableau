@@ -8495,6 +8495,20 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     white-space: nowrap;
 }
 
+/* LA PRÉPARATION GARDÉE. Une séance ainsi marquée peut être refaite avec une
+   autre classe ; rien ne le disait avant, et le bouton 👥 répondait « pas de
+   préparation » sans qu'on puisse le prévoir. */
+.tree-prep {
+    font-size: 10px;
+    margin-left: 5px;
+    flex: 0 0 auto;
+    opacity: 0.85;
+}
+
+.tree-action-btn.prete {
+    color: var(--accent, #6c5ce7);
+}
+
 /* Les VUES d'une classe : élèves, points, plan. Trois façons de regarder la
    même classe — elles étaient trois fenêtres, elles sont trois onglets. */
 #cm-vues {
