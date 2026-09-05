@@ -19678,6 +19678,28 @@ async function openSeatingPlanEditor(classId, hote) {
                 color:var(--muted, #636e72); padding:0 2px; line-height:1; }
             .sp-zoom-btn:hover { color:var(--accent, #6c5ce7); }
             .sp-tool-btn { flex:1; padding:8px 4px; font-size:11px; }
+
+            /* LES DEUX MÉTIERS DU PLAN : préparer la salle, puis s'en servir. */
+            .sp-modes { display:flex; gap:4px; margin-bottom:4px; }
+            .sp-mode { flex:1; padding:7px 4px; font-size:11px; font-weight:600; cursor:pointer;
+                border:1px solid var(--border); background:var(--bg); color:var(--muted);
+                border-radius:8px; }
+            .sp-mode.actif { background:var(--accent, #6c5ce7); border-color:var(--accent, #6c5ce7); color:#fff; }
+            .sp-aide-mode { font-size:11px; line-height:1.45; color:var(--muted, #636e72); }
+            .sp-appel-resume { font-size:15px; font-weight:700; color:var(--ink); }
+            .sp-tirage-nom { font-size:16px; font-weight:700; color:var(--accent, #6c5ce7);
+                min-height:22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .sp-chip-absent { opacity:0.75; text-decoration:line-through; }
+            .sp-table-handle.fige { cursor:default; }
+            /* Une place vide en classe : c'est une chaise, pas un bouton « + ». */
+            .sp-seat-solde { font-size:10px; font-weight:800; line-height:1;
+                padding:1px 4px; border-radius:999px; }
+            .sp-seat-solde.plus { color:#00875a; background:rgba(0,184,148,0.16); }
+            .sp-seat-solde.moins { color:#c0392b; background:rgba(214,48,49,0.14); }
+            .sp-seat.absent { opacity:0.45; text-decoration:line-through; background:var(--bg);
+                border-style:dashed; }
+            .sp-seat.interroge { outline:3px solid #fdcb6e; outline-offset:1px;
+                box-shadow:0 0 0 6px rgba(253,203,110,0.28); }
             .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); }
             .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px;
                 touch-action: none; }
@@ -19691,6 +19713,7 @@ async function openSeatingPlanEditor(classId, hote) {
             .sp-seats-grid { display:grid; gap:4px; padding:6px; }
             .sp-seat { background:var(--bg); border:1px dashed var(--border); border-radius:6px; font-size:12px; display:flex; align-items:center; justify-content:center; text-align:center; padding:4px 5px; overflow:hidden; min-width:64px; min-height:${SP_SEAT_H}px; color:var(--muted); }
             .sp-seat.filled { background:var(--accent-soft); border:1px solid var(--accent); font-weight:600; color:var(--ink); cursor:grab; }
+            .sp-seat.filled[data-student]:not([draggable]) { cursor:pointer; }
             .sp-seat.dragover { border-color:#00b894 !important; background:rgba(0,184,148,0.15) !important; }
             .sp-seat { gap:2px; flex-direction:column; }
             /* L'avatar était POSÉ À CÔTÉ du nom et lui prenait un tiers de la
@@ -19748,6 +19771,65 @@ async function openSeatingPlanEditor(classId, hote) {
         plan.remplissage = { ordre: 'alpha', sens: 'row', premierRang: true };
     }
     const remplissage = plan.remplissage;
+
+    // ---------------------------------------------------------------------
+    // DEUX MÉTIERS, DEUX MODES.
+    // « Organiser », c'est préparer la salle : poser les tables, placer les
+    // élèves. On le fait une fois, au calme. « En classe », c'est s'en servir
+    // pendant l'heure : faire l'appel en regardant les chaises vides,
+    // interroger, voir où en est chacun. Le second geste se faisait jusqu'ici
+    // dans une liste alphabétique, alors que le professeur, lui, regarde la
+    // salle. Et pendant l'heure, rien ne doit pouvoir être déplacé par
+    // mégarde : en mode classe, ni les tables ni les élèves ne bougent.
+    // ---------------------------------------------------------------------
+    let spMode = plan.mode === 'classe' ? 'classe' : 'organiser';
+    let spInterroge = null;   // la place mise en avant par le tirage
+
+    function eleveDuSiege(sid) {
+        return (classObj.students || []).find(s => s.id === sid) || null;
+    }
+
+    // Le solde affiché sur la place. Les points vivent dans la fiche de
+    // l'élève (`pts`), écrits par le widget des points : on les lit, on ne
+    // les touche pas.
+    function soldeDe(sid) {
+        const e = eleveDuSiege(sid);
+        const p = e && e.pts;
+        if (!p) return 0;
+        return (p.plus || 0) - (p.moins || 0);
+    }
+
+    function estAbsentSiege(sid) {
+        const e = eleveDuSiege(sid);
+        return !!(typeof Appel !== 'undefined' && Appel.estAbsent(e));
+    }
+
+    // « Chacun son tour » : on ne retire pas un nom du chapeau au hasard à
+    // chaque fois, on vide le chapeau avant de le remplir à nouveau. Sans
+    // cela, les mêmes passent trois fois et d'autres jamais.
+    function elevesInterrogeables() {
+        const assis = [];
+        (plan.tables || []).forEach(t => (t.seats || []).forEach(sid => {
+            if (sid && !estAbsentSiege(sid) && eleveDuSiege(sid)) assis.push(sid);
+        }));
+        return assis;
+    }
+
+    function tirerUnEleve() {
+        const assis = elevesInterrogeables();
+        if (!assis.length) return null;
+        if (!Array.isArray(plan.tirage)) plan.tirage = [];
+        // Un élève parti, absent ou déplacé ne doit pas bloquer le chapeau.
+        plan.tirage = plan.tirage.filter(id => assis.includes(id));
+        let restants = assis.filter(id => !plan.tirage.includes(id));
+        if (!restants.length) { plan.tirage = []; restants = assis; }
+        const choisi = restants[Math.floor(Math.random() * restants.length)];
+        plan.tirage.push(choisi);
+        spInterroge = choisi;
+        persist();
+        render();
+        return choisi;
+    }
 
     const SP_ZOOM_MIN = 0.3, SP_ZOOM_MAX = 1.4;
     let spZoom = (typeof plan.zoom === 'number' && isFinite(plan.zoom))
@@ -20202,32 +20284,55 @@ async function openSeatingPlanEditor(classId, hote) {
     function render() {
         const unassigned = getUnassignedStudents();
 
+        const enClasse = spMode === 'classe';
         const tablesHtml = plan.tables.map(t => {
             if (t.isTeacherDesk) {
                 return `
                     <div class="sp-table sp-teacher-desk" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:150px;">
-                        <div class="sp-table-handle" data-table="${t.id}">
+                        ${enClasse ? `<div class="sp-table-handle fige" data-table="${t.id}"></div>` : `<div class="sp-table-handle" data-table="${t.id}">
                             <span></span>
                             <span class="sp-table-del" data-table="${t.id}" title="Supprimer">🗑️</span>
-                        </div>
+                        </div>`}
                         <div style="padding:14px 10px; text-align:center; font-size:12px; font-weight:700; color:var(--ink);">🧑‍🏫 Bureau du prof</div>
                     </div>
                 `;
             }
-            const seatsHtml = t.seats.map((sid, idx) => sid
-                ? `<div class="sp-seat filled" draggable="true" data-table="${t.id}" data-seat="${idx}" title="${studentName(sid)}"><span class="sp-seat-avatar">${studentAvatar(sid, 18)}</span><span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span></div>`
-                : `<div class="sp-seat" data-table="${t.id}" data-seat="${idx}">+</div>`
-            ).join('');
-            return `
-                <div class="sp-table" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:${t.cols * largeurPlace() + 12}px;">
-                    <div class="sp-table-handle" data-table="${t.id}">
+            const seatsHtml = t.seats.map((sid, idx) => {
+                if (!sid) return `<div class="sp-seat" data-table="${t.id}" data-seat="${idx}">${enClasse ? '' : '+'}</div>`;
+                // Pendant l'heure, une place ne se glisse pas : on ne veut pas
+                // rendre les élèves de place d'un geste de trop.
+                const absent = enClasse && estAbsentSiege(sid);
+                const solde = enClasse ? soldeDe(sid) : 0;
+                const marques = [
+                    'sp-seat filled',
+                    absent ? 'absent' : '',
+                    enClasse && spInterroge === sid ? 'interroge' : ''
+                ].filter(Boolean).join(' ');
+                const bulle = enClasse
+                    ? `${studentName(sid)}${absent ? " — absent aujourd'hui" : ''} — cliquez pour changer`
+                    : studentName(sid);
+                return `<div class="${marques}" ${enClasse ? '' : 'draggable="true"'} data-table="${t.id}" data-seat="${idx}"
+                             data-student="${sid}" title="${bulle}">
+                            <span class="sp-seat-avatar">${studentAvatar(sid, 18)}</span>
+                            <span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span>
+                            ${solde ? `<span class="sp-seat-solde ${solde > 0 ? 'plus' : 'moins'}">${solde > 0 ? '+' : ''}${solde}</span>` : ''}
+                        </div>`;
+            }).join('');
+            // Pendant l'heure, la poignée ne porte plus rien : on ne supprime
+            // pas une table d'un doigt posé de travers devant la classe.
+            const poigneeHtml = enClasse
+                ? `<div class="sp-table-handle fige" data-table="${t.id}"></div>`
+                : `<div class="sp-table-handle" data-table="${t.id}">
                         <span class="sp-table-resize-group">
                             <span class="sp-table-resize" data-table="${t.id}" data-delta="-1" title="Retirer une place">−</span>
                             <span class="sp-table-cap">${t.capacity}</span>
                             <span class="sp-table-resize" data-table="${t.id}" data-delta="1" title="Ajouter une place">+</span>
                         </span>
                         <span class="sp-table-del" data-table="${t.id}" title="Supprimer la table">🗑️</span>
-                    </div>
+                    </div>`;
+            return `
+                <div class="sp-table" data-table="${t.id}" style="left:${t.x}px; top:${t.y}px; width:${t.cols * largeurPlace() + 12}px;">
+                    ${poigneeHtml}
                     <div class="sp-seats-grid" style="grid-template-columns: repeat(${t.cols}, 1fr);">${seatsHtml}</div>
                 </div>
             `;
@@ -20239,15 +20344,19 @@ async function openSeatingPlanEditor(classId, hote) {
 
         const templateOptions = SEATING_TEMPLATES.map((t, i) => `<option value="${i}">${t.label}</option>`).join('');
 
-        box.innerHTML = `
-            <!-- Posé dans « Mes classes », ce bandeau ferait doublon : l'onglet
-                 dit « Plan de classe », celui du dessus dit laquelle. -->
-            <div style="display:${dansUnVolet ? 'none' : 'flex'}; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
-                <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${classObj.name}</h3>
-                <button id="sp-close" style="border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted);">&times;</button>
-            </div>
-            <div style="display:flex; flex:1; min-height:0;">
-                <div class="sp-left-col">
+        // Pendant l'heure, la colonne de droite ne sert plus à placer les
+        // élèves : elle dit qui manque, ce qu'on recopie ensuite dans le
+        // logiciel de vie scolaire.
+        const absents = (classObj.students || []).filter(s => Appel.estAbsent(s));
+        const absentsHtml = {
+            combien: absents.length,
+            html: absents.length
+                ? absents.map(s => `<div class="sp-chip sp-chip-absent" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${s.name}</div>`).join('')
+                : `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">Personne ne manque 🎉</div>`
+        };
+
+        // --- LA COLONNE DU MODE ORGANISER : préparer la salle ---
+        const colonneOrganiser = `
                     <label class="sp-section-label" style="margin-top:0;">Outil</label>
                     <div style="display:flex; gap:4px;">
                         <button class="btn-action ${currentTool === 'select' ? 'primary' : 'secondary'} sp-tool-btn" data-tool="select">🖱️ Sélection</button>
@@ -20291,7 +20400,46 @@ async function openSeatingPlanEditor(classId, hote) {
 
                     <label class="sp-section-label">Export</label>
                     <button id="sp-export-pdf" class="btn-action secondary sp-left-btn">📄 Export PDF</button>
-                    <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>
+                    <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>`;
+
+        // --- LA COLONNE DU MODE EN CLASSE : se servir de la salle ---
+        const assis = elevesInterrogeables();
+        const dejaTires = Array.isArray(plan.tirage) ? plan.tirage.filter(id => assis.includes(id)).length : 0;
+        const nomTire = spInterroge ? studentName(spInterroge) : '';
+        const colonneEnClasse = `
+                    <label class="sp-section-label" style="margin-top:0;">Appel</label>
+                    <div class="sp-appel-resume" id="sp-appel-resume">${Appel.resume(classObj) || 'Aucun élève'}</div>
+                    <div class="sp-aide-mode">Cliquez une place pour marquer l'élève absent, et de nouveau pour le rendre présent.</div>
+                    <button id="sp-tous-presents" class="btn-action secondary sp-left-btn">✓ Tous présents</button>
+
+                    <label class="sp-section-label">Interroger</label>
+                    <div class="sp-tirage-nom" id="sp-tirage-nom">${nomTire ? '👉 ' + nomTire : '—'}</div>
+                    <button id="sp-tirer" class="btn-action primary sp-left-btn">🎲 Au hasard</button>
+                    <div class="sp-aide-mode">Chacun son tour : personne n'est repris tant que tout le monde n'est pas passé.
+                        <b>${dejaTires} / ${assis.length}</b> interrogés.</div>
+                    <button id="sp-tirage-reset" class="btn-action secondary sp-left-btn">↺ Remettre tout le monde dans le chapeau</button>
+
+                    <label class="sp-section-label">Export</label>
+                    <button id="sp-export-pdf" class="btn-action secondary sp-left-btn">📄 Export PDF</button>
+                    <button id="sp-stamp-board" class="btn-action secondary sp-left-btn">🖼️ Tamponner sur le tableau</button>`;
+
+        box.innerHTML = `
+            <!-- Posé dans « Mes classes », ce bandeau ferait doublon : l'onglet
+                 dit « Plan de classe », celui du dessus dit laquelle. -->
+            <div style="display:${dansUnVolet ? 'none' : 'flex'}; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
+                <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${classObj.name}</h3>
+                <button id="sp-close" style="border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted);">&times;</button>
+            </div>
+            <div style="display:flex; flex:1; min-height:0;">
+                <div class="sp-left-col">
+                    <!-- Préparer la salle et s'en servir sont deux moments
+                         différents : l'un se fait au calme, l'autre debout
+                         devant vingt-cinq élèves. -->
+                    <div class="sp-modes">
+                        <button class="sp-mode${spMode === 'organiser' ? ' actif' : ''}" data-mode="organiser">🛠️ Organiser</button>
+                        <button class="sp-mode${spMode === 'classe' ? ' actif' : ''}" data-mode="classe">👋 En classe</button>
+                    </div>
+                    ${spMode === 'classe' ? colonneEnClasse : colonneOrganiser}
                 </div>
                 <div class="sp-scene">
                     <div class="sp-canvas-wrap">
@@ -20308,8 +20456,8 @@ async function openSeatingPlanEditor(classId, hote) {
                     </div>
                 </div>
                 <div class="sp-sidebar">
-                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:8px;">Non placés (${unassigned.length})</label>
-                    ${sidebarHtml}
+                    <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:8px;">${spMode === 'classe' ? `Absents (${absentsHtml.combien})` : `Non placés (${unassigned.length})`}</label>
+                    ${spMode === 'classe' ? absentsHtml.html : sidebarHtml}
                 </div>
             </div>
         `;
@@ -20329,22 +20477,59 @@ async function openSeatingPlanEditor(classId, hote) {
             document.body.removeChild(modal);
         };
 
+        // La colonne de gauche change avec le mode : chaque bouton est branché
+        // s'il est là, et seulement s'il est là.
+        const siLa = (sel, fn) => { const el = box.querySelector(sel); if (el) fn(el); };
+
+        // Changer de mode : c'est tout ce qui reste commun aux deux colonnes.
+        box.querySelectorAll('.sp-mode').forEach(btn => {
+            btn.onclick = () => {
+                if (spMode === btn.dataset.mode) return;
+                spMode = btn.dataset.mode;
+                plan.mode = spMode;
+                // On sort du mode classe : la mise en avant du tirage n'a plus
+                // lieu d'être sur un plan qu'on réorganise.
+                if (spMode !== 'classe') spInterroge = null;
+                persist();
+                render();
+            };
+        });
+
         box.querySelectorAll('[data-add]').forEach(btn => {
             btn.onclick = () => newTable(parseInt(btn.dataset.add));
         });
 
-        box.querySelector('#sp-add-desk').onclick = addTeacherDesk;
+        siLa('#sp-add-desk', el => { el.onclick = addTeacherDesk; });
 
-        box.querySelector('#sp-apply-template').onclick = () => {
-            const val = box.querySelector('#sp-template').value;
-            if (val === '') { if (typeof showToast === 'function') showToast('Choisis un modèle dans la liste.'); return; }
-            applyTemplate(parseInt(val));
-        };
+        siLa('#sp-apply-template', el => {
+            el.onclick = () => {
+                const val = box.querySelector('#sp-template').value;
+                if (val === '') { if (typeof showToast === 'function') showToast('Choisis un modèle dans la liste.'); return; }
+                applyTemplate(parseInt(val));
+            };
+        });
 
-        box.querySelector('#sp-reset-plan').onclick = resetPlan;
+        siLa('#sp-reset-plan', el => { el.onclick = resetPlan; });
 
-        box.querySelector('#sp-export-pdf').onclick = exportToPdf;
-        box.querySelector('#sp-stamp-board').onclick = stampToBoard;
+        siLa('#sp-export-pdf', el => { el.onclick = exportToPdf; });
+        siLa('#sp-stamp-board', el => { el.onclick = stampToBoard; });
+
+        // --- EN CLASSE : l'appel se fait sur les chaises, et le tirage
+        // désigne une place, pas une ligne dans une liste. ---
+        siLa('#sp-tous-presents', el => {
+            el.onclick = () => { Appel.tousPresents(classObj); persist(); render(); };
+        });
+        siLa('#sp-tirer', el => {
+            el.onclick = () => {
+                const choisi = tirerUnEleve();
+                if (!choisi && typeof showToast === 'function') {
+                    showToast('Personne à interroger : aucune place occupée par un élève présent');
+                }
+            };
+        });
+        siLa('#sp-tirage-reset', el => {
+            el.onclick = () => { plan.tirage = []; spInterroge = null; persist(); render(); };
+        });
 
         const canvasWrapEl = box.querySelector('.sp-canvas-wrap');
         box.querySelectorAll('.sp-tool-btn').forEach(btn => {
@@ -20391,18 +20576,22 @@ async function openSeatingPlanEditor(classId, hote) {
             };
         });
 
-        box.querySelector('#sp-autofill').onclick = () => {
-            remplissage.ordre = box.querySelector('#sp-order').value;
-            remplissage.sens = box.querySelector('#sp-direction').value;
-            remplissage.premierRang = box.querySelector('#sp-respect-front').checked;
-            autoFill(remplissage.ordre, remplissage.premierRang, remplissage.sens);
-        };
+        siLa('#sp-autofill', el => {
+            el.onclick = () => {
+                remplissage.ordre = box.querySelector('#sp-order').value;
+                remplissage.sens = box.querySelector('#sp-direction').value;
+                remplissage.premierRang = box.querySelector('#sp-respect-front').checked;
+                autoFill(remplissage.ordre, remplissage.premierRang, remplissage.sens);
+            };
+        });
 
-        box.querySelector('#sp-clear-seats').onclick = () => {
-            plan.tables.forEach(t => t.seats = t.seats.map(() => null));
-            persist();
-            render();
-        };
+        siLa('#sp-clear-seats', el => {
+            el.onclick = () => {
+                plan.tables.forEach(t => t.seats = t.seats.map(() => null));
+                persist();
+                render();
+            };
+        });
 
         box.querySelectorAll('.sp-table-del').forEach(el => {
             el.onclick = (e) => {
@@ -20507,6 +20696,9 @@ async function openSeatingPlanEditor(classId, hote) {
             // doigt sur un écran tactile, où la souris émulée n'envoie aucun
             // mouvement entre le poser et le lever.
             handle.addEventListener('pointerdown', (e) => {
+                // En classe, le plan est un état des lieux : il se regarde, il
+                // ne se réarrange pas.
+                if (spMode === 'classe') return;
                 if (currentTool !== 'select') return;
                 if (e.pointerType === 'mouse' && e.button !== 0) return;
                 if (e.target.classList.contains('sp-table-del') || e.target.classList.contains('sp-table-resize')) return;
@@ -20547,6 +20739,25 @@ async function openSeatingPlanEditor(classId, hote) {
                 document.addEventListener('pointercancel', onUp);
             });
         });
+
+        // --- EN CLASSE : UN CLIC SUR UNE PLACE FAIT L'APPEL ---
+        // C'est le geste du début d'heure : on regarde la salle, on tape les
+        // chaises vides. Dans une liste alphabétique, il fallait retrouver le
+        // nom de celui qu'on voit manquer.
+        if (spMode === 'classe') {
+            box.querySelectorAll('.sp-seat.filled').forEach(seat => {
+                seat.addEventListener('click', () => {
+                    const sid = seat.dataset.student;
+                    if (!sid) return;
+                    Appel.basculer(classObj, sid);
+                    // Un absent ne reste pas la personne interrogée.
+                    if (spInterroge === sid && estAbsentSiege(sid)) spInterroge = null;
+                    persist();
+                    render();
+                });
+            });
+            return;   // rien à glisser pendant l'heure
+        }
 
         // Glisser-déposer des élèves (liste <-> siège, siège <-> siège)
         box.querySelectorAll('.sp-chip').forEach(chip => {

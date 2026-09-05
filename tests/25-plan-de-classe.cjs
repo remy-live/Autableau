@@ -317,6 +317,136 @@ module.exports = async function (browser) {
     r.egal('le curseur de zoom flotte au-dessus du plan',
         place, { dansLaScene: true, surLePlan: true, visible: true });
 
+    // =====================================================================
+    // « EN CLASSE » : LE PLAN COMME SURFACE DU QUOTIDIEN
+    // Préparer la salle et s'en servir sont deux moments différents. Pendant
+    // l'heure, on regarde la salle : on tape les chaises vides pour faire
+    // l'appel, on interroge, et surtout rien ne doit bouger par mégarde.
+    // =====================================================================
+    const enClasse = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        document.querySelector('.sp-mode[data-mode="classe"]').click();
+        await attendre(300);
+        const cls = await ClassesStore.loadAll();
+        const c = cls.find(x => x.id === 'cz');
+        return {
+            retenu: c.seatingPlan.mode,
+            colonne: !!document.querySelector('#sp-tirer'),
+            plusDOrganisation: !document.querySelector('#sp-autofill'),
+            // Les places ne se glissent plus, les tables non plus.
+            placesGlissables: document.querySelectorAll('.sp-seat.filled[draggable="true"]').length,
+            poigneesFigees: document.querySelectorAll('.sp-table-handle.fige').length,
+            corbeilles: document.querySelectorAll('.sp-table-del').length,
+            resume: (document.querySelector('#sp-appel-resume') || {}).textContent
+        };
+    });
+    r.egal('le mode « En classe » est retenu avec la classe', enClasse.retenu, 'classe');
+    r.egal('il remplace les outils d\'organisation par ceux de l\'heure',
+        { classe: enClasse.colonne, organisation: enClasse.plusDOrganisation },
+        { classe: true, organisation: true });
+    r.egal('et rien ne peut plus être déplacé ni supprimé par mégarde',
+        { places: enClasse.placesGlissables, corbeilles: enClasse.corbeilles },
+        { places: 0, corbeilles: 0 });
+    r.verifie('les poignées des tables sont figées', enClasse.poigneesFigees >= 6,
+        String(enClasse.poigneesFigees));
+    r.egal('l\'appel commence entier', enClasse.resume, '12 présents');
+
+    // UNE TABLE NE SE DÉPLACE PLUS : la vérification qui compte, puisque
+    // c'est le geste qu'on fait sans le vouloir en montrant le plan.
+    const figee = await page.evaluate(async () => {
+        const poignee = document.querySelector('.sp-table-handle');
+        const cls = await ClassesStore.loadAll();
+        const t = cls.find(x => x.id === 'cz').seatingPlan.tables.find(x => x.id === poignee.dataset.table);
+        const avant = t.x;
+        const b = poignee.getBoundingClientRect();
+        const p = (type, x) => new PointerEvent(type, {
+            bubbles: true, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+            button: 0, clientX: x, clientY: b.y + 5
+        });
+        poignee.dispatchEvent(p('pointerdown', b.x + 10));
+        document.dispatchEvent(p('pointermove', b.x + 160));
+        document.dispatchEvent(p('pointerup', b.x + 160));
+        await new Promise(res => setTimeout(res, 150));
+        return { avant, apres: t.x };
+    });
+    r.egal('la table reste où elle est pendant l\'heure', figee.apres, figee.avant);
+
+    // L'APPEL SUR LES CHAISES : le geste du début d'heure.
+    const appel = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const nomDe = () => document.querySelectorAll('.sp-seat.filled')[0].dataset.student;
+        const premier = nomDe();
+        document.querySelectorAll('.sp-seat.filled')[0].click();
+        await attendre(250);
+        const cls1 = await ClassesStore.loadAll();
+        const e1 = cls1.find(x => x.id === 'cz').students.find(s => s.id === premier);
+        const apresUn = {
+            absent: !!e1.absent,
+            journal: (e1.journal || []).filter(x => x.t === 'a').length,
+            resume: document.querySelector('#sp-appel-resume').textContent,
+            barree: document.querySelectorAll('.sp-seat.absent').length,
+            listeDroite: document.querySelectorAll('.sp-chip-absent').length
+        };
+        // Un second clic corrige : l'élève redevient présent, et la trace part.
+        document.querySelectorAll('.sp-seat.filled')[0].click();
+        await attendre(250);
+        const cls2 = await ClassesStore.loadAll();
+        const e2 = cls2.find(x => x.id === 'cz').students.find(s => s.id === premier);
+        return {
+            apresUn,
+            apresDeux: {
+                absent: !!e2.absent,
+                journal: (e2.journal || []).filter(x => x.t === 'a').length,
+                resume: document.querySelector('#sp-appel-resume').textContent
+            }
+        };
+    });
+    r.egal('un clic sur une place marque l\'absence, et la journée est datée',
+        { absent: appel.apresUn.absent, journal: appel.apresUn.journal, resume: appel.apresUn.resume },
+        { absent: true, journal: 1, resume: '11 présents, 1 absent' });
+    r.egal('la place et la colonne de droite le montrent',
+        { barree: appel.apresUn.barree, liste: appel.apresUn.listeDroite }, { barree: 1, liste: 1 });
+    r.egal('un second clic corrige l\'appel, trace comprise',
+        appel.apresDeux, { absent: false, journal: 0, resume: '12 présents' });
+
+    // LE TIRAGE : chacun son tour, et pas les absents.
+    const tirage = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        document.querySelector('#sp-tirage-reset').click();
+        await attendre(200);
+        // Deux absents : ils ne doivent jamais sortir du chapeau.
+        const absents = [];
+        for (const i of [3, 8]) {
+            const s = document.querySelectorAll('.sp-seat.filled')[i];
+            absents.push(s.dataset.student);
+            s.click();
+            await attendre(150);
+        }
+        const tires = [];
+        for (let n = 0; n < 10; n++) {
+            document.querySelector('#sp-tirer').click();
+            await attendre(120);
+            tires.push(document.querySelector('.sp-seat.interroge').dataset.student);
+        }
+        // Le onzième repart d'un chapeau plein.
+        document.querySelector('#sp-tirer').click();
+        await attendre(120);
+        const onzieme = document.querySelector('.sp-seat.interroge').dataset.student;
+        const cls = await ClassesStore.loadAll();
+        return {
+            distincts: new Set(tires).size,
+            combien: tires.length,
+            absentsTires: tires.filter(id => absents.includes(id)).length,
+            recommence: (cls.find(x => x.id === 'cz').seatingPlan.tirage || []).length,
+            onziemeConnu: tires.includes(onzieme)
+        };
+    });
+    r.egal('dix tirages donnent dix élèves différents, jamais un absent',
+        { distincts: tirage.distincts, combien: tirage.combien, absents: tirage.absentsTires },
+        { distincts: 10, combien: 10, absents: 0 });
+    r.egal('tout le monde passé, le chapeau se remplit à nouveau',
+        { reste: tirage.recommence, deja: tirage.onziemeConnu }, { reste: 1, deja: true });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

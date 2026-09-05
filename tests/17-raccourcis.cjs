@@ -717,6 +717,47 @@ module.exports = async function (browser) {
         modeDocument = 'cadre'; setMode('pointer'); draw();
     });
 
+    // L'AIDE COUVRE CE QUI NE S'INVENTE PAS. Deux gestes se sont révélés
+    // incompréhensibles sans un mot d'explication : la classe (une fenêtre,
+    // trois vues) et la séance (garder la préparation, puis la rappeler).
+    // Ils étaient absents de l'aide, ou noyés au milieu du compas.
+    const aideMetier = await page.evaluate(() => {
+        document.getElementById('btn-help').click();
+        const titres = Array.from(document.querySelectorAll('#aide-pages .aide-section h3'))
+            .map(h => h.textContent.trim());
+        const cherche = (mot) => {
+            filtrerLAide(mot);
+            const n = Array.from(document.querySelectorAll('#aide-pages li:not([hidden])')).length;
+            filtrerLAide('');
+            return n;
+        };
+        const texte = document.getElementById('aide-pages').textContent;
+        const resultats = {
+            preparation: cherche('préparation'),
+            appel: cherche('appel'),
+            hasard: cherche('hasard')
+        };
+        // Le mot-à-mot des deux boutons du menu : l'aide doit nommer ce que
+        // l'écran nomme, sinon la recherche ne trouve rien.
+        const memeMots = {
+            garder: texte.includes('Garder ce tableau comme préparation'),
+            refaire: texte.includes('Refaire cette séance avec une autre classe'),
+            enClasse: texte.includes('En classe')
+        };
+        document.getElementById('help-modal').style.display = 'none';
+        return { titres, resultats, memeMots };
+    });
+    r.verifie('l\'aide a une rubrique pour les classes, le plan et la séance',
+        aideMetier.titres.some(t => /Mes classes/.test(t))
+        && aideMetier.titres.some(t => /plan de classe/i.test(t))
+        && aideMetier.titres.some(t => /séance/i.test(t)),
+        aideMetier.titres.join(' | '));
+    r.verifie('« préparation », « appel » et « hasard » y trouvent des réponses',
+        aideMetier.resultats.preparation >= 3 && aideMetier.resultats.appel >= 2
+        && aideMetier.resultats.hasard >= 1, JSON.stringify(aideMetier.resultats));
+    r.egal('elle nomme les commandes comme l\'écran les nomme',
+        aideMetier.memeMots, { garder: true, refaire: true, enClasse: true });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
