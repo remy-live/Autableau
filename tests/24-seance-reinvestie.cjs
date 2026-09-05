@@ -170,6 +170,72 @@ module.exports = async function (browser) {
     r.egal('et la liste montre le 📌 et son bouton 👥 en évidence',
         { epingles: marquage.epingles, pretes: marquage.pretes }, { epingles: 1, pretes: 1 });
 
+    // --- RAPPELER LA PRÉPARATION DEPUIS LE MENU, SANS PASSER PAR LA LISTE ---
+    // On garde la préparation dans le menu Séance ; on cherchait au même
+    // endroit comment la rappeler, et la réponse n'était que dans
+    // l'explorateur. Le nouveau tableau doit aussi s'OUVRIR : avant, seul
+    // l'enregistrement changeait de cible et le cours suivant écrasait le
+    // précédent.
+    const parLeMenu = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        texts.length = 0; freehands.length = 0; segments.length = 0;
+        pages.forEach(p => { delete p.preparation; });
+        savedTableaux = [];
+        await localforage.setItem('auTableau_tableaux_list', savedTableaux);
+        selectedBoardId = null;
+
+        // La préparation : l'énoncé, posé avant le cours.
+        texts.push({ id: nextId++, x: 20, y: 20, content: 'Somme des angles', fontSize: 30, color: '#000', z: globalZ++ });
+        syncPage();
+        document.getElementById('project-name-input').value = 'Angles';
+        await saveCurrentBoard(true);
+        marquerLaPreparation();
+        await attendre(400);
+        const source = selectedBoardId;
+
+        // Le cours devant la première classe.
+        for (let i = 0; i < 4; i++) {
+            freehands.push({ id: nextId++, points: [{ x: i * 10, y: 150 }, { x: i * 10 + 8, y: 190 }], color: '#d63031', width: 4, z: globalZ++ });
+        }
+        syncPage();
+        hasUnsavedChanges = true;
+
+        // « Refaire cette séance avec une autre classe »
+        document.getElementById('btn-refaire').click();
+        await attendre(500);
+        const titre = document.getElementById('custom-prompt-title').innerText;
+        const select = document.querySelector('#custom-prompt-inputs select');
+        const proposees = [...select.options].map(o => o.textContent.trim());
+        select.value = 'c43';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        document.getElementById('custom-prompt-ok').click();
+        await attendre(900);
+
+        const traceSource = await localforage.getItem('data_' + source);
+        return {
+            titre, proposees,
+            ouvert: selectedBoardId !== source,
+            nom: (savedTableaux.find(t => t.id === selectedBoardId) || {}).name,
+            titreAffiche: document.getElementById('project-name-input').value,
+            // Ce qui est à l'écran : l'énoncé, et rien du cours précédent.
+            aLEcran: { textes: texts.length, traits: freehands.length },
+            // La séance de la première classe garde sa trace.
+            source: { traits: (traceSource.pages[0].freehands || []).length }
+        };
+    });
+    r.egal('le menu propose de refaire la séance ouverte',
+        parLeMenu.titre, 'Refaire « Angles » avec une autre classe');
+    r.verifie('et laisse choisir la classe',
+        parLeMenu.proposees.length === 4 && parLeMenu.proposees.includes('4e 3'),
+        JSON.stringify(parLeMenu.proposees));
+    r.egal('la nouvelle séance s\'ouvre à l\'écran, prête pour la classe suivante',
+        { ouvert: parLeMenu.ouvert, nom: parLeMenu.nom, titre: parLeMenu.titreAffiche },
+        { ouvert: true, nom: 'Angles — 4e 3', titre: 'Angles — 4e 3' });
+    r.egal('on y retrouve l\'énoncé, sans le cours fait à l\'autre classe',
+        parLeMenu.aLEcran, { textes: 1, traits: 0 });
+    r.egal('et la séance quittée a gardé sa trace, enregistrée au passage',
+        parLeMenu.source.traits, 4);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

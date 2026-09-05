@@ -22224,11 +22224,9 @@ function saveCurrentBoard(discret) {
     if (!name) name = "Sans titre";
     currentBoardName = name;
 
-    if (selectedBoardId) {
-        _doSaveBoard(name, selectedBoardId, discret);
-    } else {
-        _doSaveBoard(name, 'tb_' + Date.now(), discret);
-    }
+    return selectedBoardId
+        ? _doSaveBoard(name, selectedBoardId, discret)
+        : _doSaveBoard(name, 'tb_' + Date.now(), discret);
 }
 
 // ==============================================================================
@@ -22393,8 +22391,18 @@ async function promptReinvestir(id) {
         async (valeurs) => {
             const classeId = Array.isArray(valeurs) ? valeurs[0] : valeurs;
             const c = classes.find(x => x.id === classeId);
+            // Si c'est la séance ouverte qu'on refait, on l'enregistre avant
+            // de la quitter : la trace du cours qu'on vient de faire ne doit
+            // pas rester dans un tableau qu'on s'apprête à remplacer à
+            // l'écran. Et on relit ensuite un fichier à jour.
+            if (selectedBoardId === id && hasUnsavedChanges) await saveCurrentBoard(true);
             const fiche = await reinvestirLaSeance(id, classeId || null, c ? c.name : null);
-            if (fiche) { selectedBoardId = fiche.id; renderExplorerLists(); }
+            if (!fiche) return;
+            renderExplorerLists();
+            // On ouvre la nouvelle séance : sans cela, le tableau à l'écran
+            // restait l'ancien alors que l'enregistrement visait déjà le
+            // nouveau — le cours suivant écrasait le précédent.
+            loadBoard(fiche.id);
         });
 }
 window.promptReinvestir = promptReinvestir;
@@ -22429,9 +22437,11 @@ function _doSaveBoard(name, id, discret) {
     // Sort by most recent
     savedTableaux.sort((a, b) => b.timestamp - a.timestamp);
 
-    // Store lists and real data
+    // Store lists and real data. On rend la promesse : « refaire avec une
+    // autre classe » doit attendre que la trace du cours soit écrite avant de
+    // relire le tableau pour en tirer la préparation.
     localforage.setItem('auTableau_tableaux_list', savedTableaux);
-    localforage.setItem('data_' + id, appState).then(() => {
+    return localforage.setItem('data_' + id, appState).then(() => {
         selectedBoardId = id;
         hasUnsavedChanges = false;
         updateUnsavedIndicator();
@@ -26208,6 +26218,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 + 'une autre classe : un nouveau tableau reparti de la préparation, sans rien effacer de ce que '
                 + 'vous avez fait ici.',
                 false, marquerLaPreparation);
+        });
+    }
+
+    // Rappeler la préparation pour la classe suivante. Le même geste existe
+    // sur chaque ligne de l'explorateur (bouton 👥) ; ici il porte sur la
+    // séance ouverte, qui est enregistrée au passage si elle ne l'est pas.
+    const btnRefaire = document.getElementById('btn-refaire');
+    if (btnRefaire) {
+        btnRefaire.addEventListener('click', async () => {
+            if (!selectedBoardId || !savedTableaux.some(t => t.id === selectedBoardId)) {
+                await saveCurrentBoard(true);
+            }
+            promptReinvestir(selectedBoardId);
         });
     }
 
