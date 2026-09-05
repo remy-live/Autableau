@@ -18654,7 +18654,9 @@ async function openClassManagerModal() {
         dragIndex: null,
         // La fiche ouverte, et la période qu'on y regarde
         ficheEleve: null,
-        fichePeriode: null
+        fichePeriode: null,
+        // La vue courante de la classe : ses élèves, ses points, son plan
+        vue: 'eleves'
     };
     // Ce qu'on est en train de lire : le texte, et les choix faits dessus
     const etatImport = { texte: '', separateur: null, colonnes: null,
@@ -18839,21 +18841,84 @@ async function openClassManagerModal() {
                 ${listHtml}
                 <button id="cm-new-class" class="cm-onglet-plus" title="Nouvelle classe">+</button>
             </div>
+            <!-- LES VUES D'UNE CLASSE SONT DES ONGLETS, PAS DES FENÊTRES.
+                 « Points » refermait « Mes classes » pour ouvrir sa propre
+                 fenêtre ; « Plan » en empilait une par-dessus. Ce sont trois
+                 façons de regarder LA MÊME classe : elles se rangent ici. -->
+            ${selected ? `<div id="cm-vues" role="tablist">
+                ${[['eleves', 'Élèves'], ['points', 'Points'], ['plan', 'Plan de classe']].map(([v, nom]) =>
+                    `<button class="cm-vue${state.vue === v ? ' actif' : ''}" data-vue="${v}">${nom}</button>`).join('')}
+            </div>` : ''}
             <!-- Toute la largeur pour la liste d'élèves : elle prend aussi la
                  hauteur gagnée quand on agrandit la fenêtre. Pas de défilement
                  ici, sinon deux ascenseurs imbriqués et la liste se retrouve
                  écrasée sur trois lignes. -->
             <div id="cm-detail" style="flex:1; min-width:0; min-height:0; display:flex; flex-direction:column;
                         border-top:1px solid var(--border); padding-top:14px;">
-                ${detailHtml}
+                ${state.vue === 'eleves' ? detailHtml : ''}
             </div>
         `;
 
         attachEvents();
+        if (state.vue !== 'eleves') monterLaVue();
+    }
+
+    // Poser la vue demandée DANS le volet. Les deux outils savent désormais
+    // s'installer chez un hôte : on leur donne celui-ci, et l'on récupère la
+    // main quand on revient aux élèves.
+    function monterLaVue() {
+        const volet = box.querySelector('#cm-detail');
+        if (!volet) return;
+        const c = getSelected();
+        if (!c) return;
+        volet.innerHTML = '';
+        volet.style.paddingTop = '0';
+        volet.style.overflow = 'hidden';
+        if (state.vue === 'points') {
+            const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
+            if (!outil || !outil.accueillirDans) {
+                volet.innerHTML = `<div style="padding:20px; color:var(--muted);">L'outil Points n'est pas disponible.</div>`;
+                return;
+            }
+            persist();
+            outil.accueillirDans(volet);
+            outil.ouvrir(c.id);
+        } else if (state.vue === 'plan') {
+            persist();
+            openSeatingPlanEditor(c.id, volet);
+        }
+    }
+
+    // Le plan a son propre bouton « Fermer » : posé ici, il rend la main aux
+    // élèves plutôt que de refermer une fenêtre qui n'existe pas.
+    window.revenirAuxEleves = () => { state.vue = 'eleves'; quitterLesVues(); render(); };
+
+    // Rendre la feuille de points à son état de fenêtre libre : sans cela, la
+    // rouvrir depuis le tableau la ferait apparaître dans un volet disparu.
+    function quitterLesVues() {
+        const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
+        if (outil && outil.accueillirDans) {
+            outil.accueillirDans(null);
+            if (outil.widgetEl) outil.widgetEl.style.display = 'none';
+        }
+        const volet = box.querySelector('#cm-detail');
+        if (volet) { volet.style.paddingTop = '14px'; volet.style.overflow = ''; }
     }
 
     function attachEvents() {
-        box.querySelector('#cm-close').onclick = () => document.body.removeChild(modal);
+        box.querySelector('#cm-close').onclick = () => { quitterLesVues(); document.body.removeChild(modal); };
+
+        // Les onglets de vue : élèves, points, plan de classe
+        box.querySelectorAll('.cm-vue').forEach(b => {
+            b.onclick = () => {
+                const vise = b.dataset.vue;
+                if (vise === state.vue) return;
+                if (state.vue !== 'eleves') quitterLesVues();
+                state.vue = vise;
+                state.ficheEleve = null;
+                render();
+            };
+        });
 
         // --- Sauvegarder / restaurer ---
         const zone = box.querySelector('#cm-restauration');
@@ -18972,25 +19037,17 @@ async function openClassManagerModal() {
         // Le tableau des points : la classe s'affiche en grand, on donne les
         // points d'un doigt. C'est l'outil « Points de classe », ouvert ici
         // sur la classe qu'on est en train de regarder.
+        // Ces deux boutons ouvraient des fenêtres — l'un en refermant celle-ci,
+        // l'autre en s'empilant dessus. Ils conduisent maintenant aux onglets
+        // du même nom, qui montrent la même chose sans quitter la classe.
         const pointsBtn = box.querySelector('#cm-points');
         if (pointsBtn) {
-            pointsBtn.onclick = () => {
-                const c = getSelected();
-                if (!c) return;
-                const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
-                if (!outil) { if (typeof showToast === 'function') showToast('L\'outil Points n\'est pas disponible'); return; }
-                persist();
-                modal.remove();
-                outil.ouvrir(c.id);
-            };
+            pointsBtn.onclick = () => { state.vue = 'points'; state.ficheEleve = null; render(); };
         }
 
         const seatingBtn = box.querySelector('#cm-seating-plan');
         if (seatingBtn) {
-            seatingBtn.onclick = () => {
-                const c = getSelected();
-                if (c) openSeatingPlanEditor(c.id);
-            };
+            seatingBtn.onclick = () => { state.vue = 'plan'; state.ficheEleve = null; render(); };
         }
 
         box.querySelectorAll('.cm-avatar').forEach(btn => {
@@ -19456,7 +19513,10 @@ const SEATING_TEMPLATES = [
     { label: '4 îlots de 6 (24)', rows: 2, cols: 2, capacity: 6 }
 ];
 
-async function openSeatingPlanEditor(classId) {
+// `hote` : quand « Mes classes » le demande, le plan vient se poser DANS la
+// fenêtre, sous son onglet, au lieu d'ouvrir une fenêtre par-dessus. Ouvert
+// depuis ailleurs, il garde son comportement de fenêtre pleine.
+async function openSeatingPlanEditor(classId, hote) {
     const allClasses = await ClassesStore.loadAll();
     const classObj = allClasses.find(c => c.id === classId);
     if (!classObj) return;
@@ -19508,15 +19568,21 @@ async function openSeatingPlanEditor(classId) {
         document.head.appendChild(style);
     }
 
+    const dansUnVolet = !!(hote && hote.isConnected);
     const modal = document.createElement('div');
-    modal.className = 'modal-backdrop';
-    modal.style.cssText = 'position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.75); z-index: 100002; display:flex; justify-content:center; align-items:center;';
-
     const box = document.createElement('div');
-    box.style.cssText = 'background: var(--surface); border-radius: 12px; width: 96vw; height: 92vh; max-width: 1500px; display:flex; flex-direction:column; overflow:hidden; box-shadow: var(--shadow-hover);';
 
-    modal.appendChild(box);
-    document.body.appendChild(modal);
+    if (dansUnVolet) {
+        // Pas de fenêtre, pas de fond : le plan est une VUE de la classe.
+        box.style.cssText = 'background: var(--surface); width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden;';
+        hote.appendChild(box);
+    } else {
+        modal.className = 'modal-backdrop';
+        modal.style.cssText = 'position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.75); z-index: 100002; display:flex; justify-content:center; align-items:center;';
+        box.style.cssText = 'background: var(--surface); border-radius: 12px; width: 96vw; height: 92vh; max-width: 1500px; display:flex; flex-direction:column; overflow:hidden; box-shadow: var(--shadow-hover);';
+        modal.appendChild(box);
+        document.body.appendChild(modal);
+    }
 
     let dragStudentId = null, dragFromTableId = null, dragFromSeatIdx = null;
     let currentTool = 'select';
@@ -19924,7 +19990,9 @@ async function openSeatingPlanEditor(classId) {
         const templateOptions = SEATING_TEMPLATES.map((t, i) => `<option value="${i}">${t.label}</option>`).join('');
 
         box.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
+            <!-- Posé dans « Mes classes », ce bandeau ferait doublon : l'onglet
+                 dit « Plan de classe », celui du dessus dit laquelle. -->
+            <div style="display:${dansUnVolet ? 'none' : 'flex'}; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
                 <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${classObj.name}</h3>
                 <button id="sp-close" style="border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted);">&times;</button>
             </div>
@@ -19986,7 +20054,16 @@ async function openSeatingPlanEditor(classId) {
     }
 
     function attachEvents() {
-        box.querySelector('#sp-close').onclick = () => document.body.removeChild(modal);
+        // Posé dans « Mes classes », le plan n'a pas de fenêtre à refermer :
+        // son bouton rend la main à la liste des élèves.
+        box.querySelector('#sp-close').onclick = () => {
+            if (dansUnVolet) {
+                if (typeof window.revenirAuxEleves === 'function') window.revenirAuxEleves();
+                else box.remove();
+                return;
+            }
+            document.body.removeChild(modal);
+        };
 
         box.querySelectorAll('[data-add]').forEach(btn => {
             btn.onclick = () => newTable(parseInt(btn.dataset.add));

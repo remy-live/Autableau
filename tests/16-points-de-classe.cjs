@@ -673,16 +673,21 @@ module.exports = async function (browser) {
         document.getElementById('cm-points').click();
         await new Promise(r => setTimeout(r, 700));
         const w = document.getElementById('points-widget');
+        const volet = document.querySelector('#cm-detail');
         return {
-            bouton: true,
             widget: !!w,
-            modaleFermee: !document.getElementById('class-manager-modal'),
+            // La feuille de points ne remplace plus « Mes classes » : elle s'y
+            // POSE, sous son onglet. On ne perd donc plus la classe de vue en
+            // allant voir ses points.
+            dansLeVolet: !!(volet && volet.contains(w)),
+            fenetreEncoreLa: !!document.getElementById('class-manager-modal'),
             classe: PluginManager.plugins.classPointsTool.classeId,
             cartes: w ? w.querySelectorAll('.pts-carte').length : 0
         };
     });
     r.verifie('« Mes classes » ouvre le tableau des points', parLesClasses.widget, JSON.stringify(parLesClasses));
-    r.verifie('en refermant la fenêtre des classes', parLesClasses.modaleFermee, JSON.stringify(parLesClasses));
+    r.verifie('sans refermer la fenêtre des classes : il s\'y pose',
+        parLesClasses.fenetreEncoreLa && parLesClasses.dansLeVolet, JSON.stringify(parLesClasses));
     r.verifie('sur la classe qu\'on regardait, pas la première venue',
         parLesClasses.classe === 'cav' && parLesClasses.cartes === 3, JSON.stringify(parLesClasses));
 
@@ -1920,9 +1925,95 @@ module.exports = async function (browser) {
     r.egal('un clic sur un onglet change de classe',
         change, { actifs: ['o2'], eleves: 1 });
 
+    // =====================================================================
+    // LES VUES D'UNE CLASSE SONT DES ONGLETS, PAS DES FENÊTRES
+    // « Points » refermait « Mes classes » pour ouvrir sa propre fenêtre ;
+    // « Plan » en empilait une par-dessus. Ce sont trois façons de regarder LA
+    // MÊME classe : elles n'ont aucune raison d'être trois fenêtres.
+    // =====================================================================
+    const fenetresOuvertes = () => page.evaluate(() => {
+        // Ce qui flotte par-dessus la page : c'est cela qui s'empilait.
+        return [...document.querySelectorAll('body > div')].filter(el => {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && cs.position === 'fixed'
+                && (parseInt(cs.zIndex, 10) || 0) >= 100000;
+        }).map(el => el.id).filter(id => id === 'class-manager-modal' || id === 'points-widget');
+    });
+    const vueOuverte = () => page.evaluate(() => {
+        const a = document.querySelector('.cm-vue.actif');
+        const volet = document.querySelector('#cm-detail');
+        return {
+            vue: a ? a.textContent.trim() : null,
+            points: !!(volet && volet.querySelector('#points-widget')),
+            plan: !!(volet && volet.querySelector('.sp-canvas')),
+            eleves: !!(volet && volet.querySelector('#cm-students-list'))
+        };
+    });
+
+    // On repart d'un écran net : les épreuves précédentes ont pu laisser la
+    // feuille de points ouverte en fenêtre libre.
+    await page.evaluate(async () => {
+        const outil = PluginManager.plugins.classPointsTool;
+        if (outil.accueillirDans) outil.accueillirDans(null);
+        if (outil.widgetEl) outil.widgetEl.style.display = 'none';
+        const m = document.getElementById('class-manager-modal');
+        if (m) m.remove();
+        await openClassManagerModal();
+        await new Promise(res => setTimeout(res, 400));
+    });
+    r.egal('une seule fenêtre à l\'ouverture', await fenetresOuvertes(), ['class-manager-modal']);
+    r.egal('trois vues sont proposées',
+        await page.evaluate(() => [...document.querySelectorAll('.cm-vue')].map(b => b.textContent.trim())),
+        ['Élèves', 'Points', 'Plan de classe']);
+    r.egal('on arrive sur les élèves', await vueOuverte(),
+        { vue: 'Élèves', points: false, plan: false, eleves: true });
+
+    await page.click('.cm-vue[data-vue="points"]');
+    await page.waitForTimeout(1200);
+    r.egal('la feuille de points se pose DANS la fenêtre', await vueOuverte(),
+        { vue: 'Points', points: true, plan: false, eleves: false });
+    r.egal('et rien ne s\'est ouvert par-dessus', await fenetresOuvertes(), ['class-manager-modal']);
+    r.egal('son bandeau et son menu de classe s\'effacent, ils feraient doublon',
+        await page.evaluate(() => {
+            const e = document.querySelector('#pts-entete'), c = document.querySelector('#pts-classe');
+            return { entete: e ? getComputedStyle(e).display : '?', classe: c ? getComputedStyle(c).display : '?' };
+        }), { entete: 'none', classe: 'none' });
+
+    await page.click('.cm-vue[data-vue="plan"]');
+    await page.waitForTimeout(1200);
+    r.egal('le plan de classe aussi', await vueOuverte(),
+        { vue: 'Plan de classe', points: false, plan: true, eleves: false });
+    r.egal('et toujours une seule fenêtre', await fenetresOuvertes(), ['class-manager-modal']);
+
+    await page.click('.cm-vue[data-vue="eleves"]');
+    await page.waitForTimeout(600);
+    r.egal('on revient aux élèves sans rien laisser derrière', await vueOuverte(),
+        { vue: 'Élèves', points: false, plan: false, eleves: true });
+
+    // Les anciens boutons conduisent aux mêmes onglets, sans ouvrir de fenêtre.
+    await page.click('#cm-points');
+    await page.waitForTimeout(1000);
+    r.egal('le bouton « Points » mène à l\'onglet, il n\'ouvre plus de fenêtre',
+        { vue: (await vueOuverte()).vue, fenetres: await fenetresOuvertes() },
+        { vue: 'Points', fenetres: ['class-manager-modal'] });
+
+    // Refermer « Mes classes » doit rendre la feuille à sa vie de fenêtre :
+    // sinon on la rouvrirait depuis le tableau dans un volet disparu.
+    await page.click('#cm-close');
+    await page.waitForTimeout(400);
+    const apresFermeture = await page.evaluate(() => {
+        const outil = PluginManager.plugins.classPointsTool;
+        return { hote: !!outil.hote, dansLeCorps: outil.widgetEl ? outil.widgetEl.parentNode === document.body : null };
+    });
+    r.egal('refermée, la feuille de points redevient une fenêtre libre',
+        apresFermeture, { hote: false, dansLeCorps: true });
+
     await page.evaluate(() => {
         const m = document.getElementById('class-manager-modal');
         if (m) m.remove();
+        const outil = PluginManager.plugins.classPointsTool;
+        if (outil && outil.widgetEl) outil.widgetEl.style.display = 'none';
     });
 
     // =====================================================================

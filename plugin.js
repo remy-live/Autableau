@@ -31634,8 +31634,64 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // Appelé sans argument par le bouton de la palette, ou avec l'identifiant
     // d'une classe quand on arrive depuis « Mes classes » : on ouvre alors
     // directement sur elle, sans la rechercher dans la liste.
+    // ---------------------------------------------------------------------
+    // S'INSTALLER DANS « MES CLASSES », OU FLOTTER TOUT SEUL
+    // Ouverte depuis le tableau, la feuille de points est une fenêtre qui
+    // flotte. Ouverte depuis « Mes classes », elle n'a aucune raison d'en être
+    // une : c'est une vue de la classe qu'on regarde, au même titre que la
+    // liste des élèves. Elle vient alors se poser DANS la fenêtre, sous son
+    // onglet — plus de fenêtres empilées les unes derrière les autres.
+    // ---------------------------------------------------------------------
+    hote: null,
+
+    poserOuAccueillir: function () {
+        const el = this.widgetEl;
+        if (!el) return;
+        if (this.hote && this.hote.isConnected) {
+            if (el.parentNode !== this.hote) this.hote.appendChild(el);
+            el.style.position = 'static';
+            el.style.width = 'auto';
+            el.style.maxWidth = 'none';
+            el.style.maxHeight = 'none';
+            el.style.height = '100%';
+            el.style.borderRadius = '0';
+            el.style.border = 'none';
+            el.style.boxShadow = 'none';
+            el.style.zIndex = 'auto';
+            // Son bandeau à elle ferait doublon avec celui de « Mes classes »,
+            // et son menu déroulant de classe avec les onglets du dessus.
+            const entete = el.querySelector('#pts-entete');
+            if (entete) entete.style.display = 'none';
+            const choixClasse = el.querySelector('#pts-classe');
+            if (choixClasse) choixClasse.style.display = 'none';
+        } else {
+            if (el.parentNode !== document.body) document.body.appendChild(el);
+            el.style.position = 'fixed';
+            el.style.width = '780px';
+            el.style.maxWidth = '94vw';
+            el.style.maxHeight = '86vh';
+            el.style.height = '';
+            el.style.borderRadius = '12px';
+            el.style.border = '1px solid #dfe6e9';
+            el.style.boxShadow = '0 15px 40px rgba(0,0,0,0.25)';
+            el.style.zIndex = '100000';
+            const entete = el.querySelector('#pts-entete');
+            if (entete) entete.style.display = '';
+            const choixClasse = el.querySelector('#pts-classe');
+            if (choixClasse) choixClasse.style.display = '';
+        }
+    },
+
+    // Appelée par « Mes classes » : à partir de maintenant, la feuille se pose
+    // là. Passer null la rend à son état de fenêtre flottante.
+    accueillirDans: function (hote) {
+        this.hote = hote || null;
+        if (this.widgetEl) this.poserOuAccueillir();
+        return this.hote;
+    },
+
     ouvrir: function (classeId) {
-        if (!classeId && this.widgetEl && this.widgetEl.style.display !== 'none') {
+        if (!classeId && !this.hote && this.widgetEl && this.widgetEl.style.display !== 'none') {
             this.widgetEl.style.display = 'none';
             return;
         }
@@ -31665,7 +31721,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     },
 
     construire: function () {
-        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; this.poserOuAccueillir(); return; }
         const el = document.createElement('div');
         el.id = 'points-widget';
         el.style.cssText = 'position:fixed; top:70px; left:120px; width:780px; max-width:94vw; max-height:86vh; background:#fff;'
@@ -31682,13 +31738,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <div id="pts-corps" style="padding:12px 14px; overflow-y:auto; flex:1; background:#f8f9fa;"></div>`;
         document.body.appendChild(el);
         this.widgetEl = el;
+        this.poserOuAccueillir();
 
         // Sur une tablette, une fenêtre de 780 px posée à 120 px du bord sort
-        // de l'écran : on la ramène toujours dedans.
-        const boite = el.getBoundingClientRect();
-        el.style.left = Math.max(8, Math.min(120, window.innerWidth - boite.width - 8)) + 'px';
-        el.style.top = Math.max(8, Math.min(70, window.innerHeight - boite.height - 8)) + 'px';
-        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(el);
+        // de l'écran : on la ramène toujours dedans. Sans objet quand elle est
+        // posée dans « Mes classes » : elle y suit son hôte.
+        if (!this.hote) {
+            const boite = el.getBoundingClientRect();
+            el.style.left = Math.max(8, Math.min(120, window.innerWidth - boite.width - 8)) + 'px';
+            el.style.top = Math.max(8, Math.min(70, window.innerHeight - boite.height - 8)) + 'px';
+            if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(el);
+        }
 
         const entete = el.querySelector('#pts-entete');
         let glisse = false, dx = 0, dy = 0;
@@ -31720,6 +31780,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // ---------- Affichage ----------
     rendre: function () {
         if (!this.widgetEl) return;
+        // La barre est refaite à chaque rendu, et le menu de classe avec elle :
+        // le cacher une fois ne suffit pas, il faut le recacher après. C'est
+        // `poserOuAccueillir`, appelée en fin de rendu, qui s'en charge.
         const barre = this.widgetEl.querySelector('#pts-barre');
         const bande = this.widgetEl.querySelector('#pts-bande');
         const corps = this.widgetEl.querySelector('#pts-corps');
@@ -31745,6 +31808,10 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <button id="pts-annuler" title="Annuler le dernier geste" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px; padding:7px 10px; cursor:pointer;">↶</button>
             <div style="flex:1;"></div>
             <button id="pts-poser" style="border:none; background:#0984e3; color:#fff; border-radius:8px; padding:7px 12px; font-weight:bold; cursor:pointer;">📌 Poser au tableau</button>`;
+
+        // La barre vient d'être refaite : si l'on est posé dans « Mes classes »,
+        // il faut de nouveau effacer ce qui y ferait doublon.
+        this.poserOuAccueillir();
 
         barre.querySelector('#pts-classe').addEventListener('change', (e) => {
             this.classeId = e.target.value; this.editionAvatar = null; this.rendre();

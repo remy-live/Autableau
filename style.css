@@ -8489,3 +8489,32 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     flex: 0 0 auto;
     white-space: nowrap;
 }
+
+/* Les VUES d'une classe : élèves, points, plan. Trois façons de regarder la
+   même classe — elles étaient trois fenêtres, elles sont trois onglets. */
+#cm-vues {
+    display: flex;
+    gap: 3px;
+    padding: 10px 0 0;
+    border-top: 1px solid var(--border, #dfe6e9);
+    margin-top: 4px;
+}
+
+.cm-vue {
+    border: none;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.cm-vue:hover { background: var(--accent-soft, #eef2ff); }
+
+.cm-vue.actif {
+    background: var(--accent, #6c5ce7);
+    color: #fff;
+    font-weight: 600;
+}
