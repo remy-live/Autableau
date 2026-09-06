@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=97">
+    <link rel="stylesheet" href="style.css?v=98">
 </head>
 
 <body>
@@ -499,6 +499,21 @@
         </div>
     </div>
 
+    <!-- LA CLASSE DU MOMENT. On fait cours à une classe à la fois, et rien sur
+         le tableau ne disait laquelle : il fallait ouvrir « Mes classes » pour
+         s'en souvenir, et re-choisir la classe dans chacun des outils. La
+         pastille la nomme, et son menu mène droit au geste voulu — l'appel,
+         les points, le bilan.
+         SOUS LA DATE, à gauche : dans la barre du titre, elle passait sous le
+         tiroir des plugins dès que l'écran se resserre — sur 1100 px, ce
+         tiroir commence à 225 px et mange déjà la fin du titre. -->
+    <div id="classe-boite">
+        <button type="button" id="classe-pastille" data-tooltip="La classe du moment — cliquez pour en changer">
+            <span class="cp-ico">👥</span><span class="cp-nom">Classe</span><span class="cp-chevron">▾</span>
+        </button>
+        <div id="classe-menu" hidden></div>
+    </div>
+
     <div id="canvas-container"></div>
     <div id="drop-overlay">Relâchez l'image ou le PDF ici</div>
     <div id="custom-bars-container"></div>
@@ -706,10 +721,17 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">👥 Mes classes</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><b>La classe du moment :</b> la pastille <b>👥</b> sous la date, dans le coin du
+                            tableau, dit à quelle classe vous faites cours. Un clic ouvre la liste : le nom mène
+                            aux points, et trois raccourcis mènent droit au geste — <b>✓</b> l'appel sur le plan,
+                            <b>🏅</b> les points, <b>📊</b> le bilan. La classe choisie est retenue : c'est elle
+                            qu'on retrouve à la prochaine ouverture, dans tous les outils.</li>
                         <li><b>Une fenêtre, des onglets :</b> « Mes classes » tient dans une seule fenêtre.
-                            En haut, un onglet par classe ; en dessous, trois vues de la classe choisie —
-                            <b>Élèves</b>, <b>Points</b>, <b>Plan de classe</b>. Passer de l'une à l'autre ne
-                            ferme rien et n'empile pas de fenêtres.</li>
+                            En haut, un onglet par classe ; en dessous, quatre vues de la classe choisie, dans
+                            l'ordre où l'on s'en sert — <b>🏅 Points</b> et <b>📊 Bilan</b>, qui servent à chaque
+                            heure, puis <b>🪑 Plan de classe</b>, qu'on fait une fois dans l'année, et
+                            <b>👥 Élèves</b>, qu'on remplit à la rentrée. La fenêtre s'ouvre sur les points ; une
+                            classe qui n'a pas encore d'élèves s'ouvre sur sa liste.</li>
                         <li><b>Pour essayer sans rien saisir :</b> tant qu'aucune classe n'existe, un bouton
                             propose une <b>classe de démonstration</b> — 24 élèves et six semaines de points,
                             avec des cas exprès : des oublis à répétition, des soldes négatifs, un élève souvent
@@ -720,7 +742,8 @@
                             <b>⧉</b> duplique la classe avec ses élèves, ses avatars et ses mémos, mais sans les
                             points ni les badges de l'an dernier. <b>📦</b> l'archive plutôt que de la supprimer.
                             <b>📝</b> sur une ligne note ce qu'il faut avoir en tête pour un élève — tiers-temps,
-                            placement, PAP.</li>
+                            placement, PAP. <b>Copier une classe demande son nom</b> : il propose
+                            « 4A — groupe 2 », pour que cinq copies ne s'appellent pas toutes « 4A (copie) ».</li>
                         <li><b>La fiche d'un élève :</b> dans la vue Points, <b>quand aucun bouton n'est armé</b>,
                             un clic sur une carte ouvre sa fiche — points, badges, oublis et récompenses avec
                             leurs dates. Ce qui est plus personnel — absences et mémo — se trouve derrière
@@ -742,6 +765,10 @@
                             autre élève pour la déplacer, hors des cartes pour l'ôter — un clic dessus suffit
                             aussi. <b>« ＋ Nouveau »</b> crée le vôtre (nom, symbole, couleur) ; les réglages ⚙️
                             permettent de modifier ceux qui existent ou de les écarter de la bande.</li>
+                        <li><b>Noter un oubli depuis le bilan :</b> chaque nature a sa colonne, et
+                            <b>un clic sur une case ajoute un oubli</b> de cette nature, daté du jour. C'est le
+                            geste qu'on faisait sur un cahier : on relit le bilan, on se souvient d'un oubli, on
+                            le note là où on le lit. Le <b>↶</b> de l'en-tête défait le dernier geste.</li>
                         <li><b>Le bilan :</b> chaque oubli est écrit en toutes lettres avec son décompte, et un
                             <b>↻</b> signale les récidives sur des cours qui se suivent — une signature oubliée
                             deux fois d'affilée ne se lit pas comme deux oublis épars. Un <b>liseré rouge</b>
@@ -2408,9 +2435,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=183"></script>
+    <script src="script.js?v=184"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=87"></script>
+    <script src="plugin.js?v=88"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

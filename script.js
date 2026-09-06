@@ -18060,6 +18060,117 @@ const Journal = {
 };
 window.Journal = Journal;
 
+// ==============================================================================
+// LA CLASSE DU MOMENT
+// Un professeur fait cours à une classe à la fois, mais l'application ne le
+// savait nulle part : chaque outil — les points, le plan, le bilan — gardait
+// son propre choix, et il fallait le refaire dans chacun. Une seule classe
+// courante, retenue d'une séance à l'autre, et une pastille sur le tableau qui
+// la nomme et permet d'en changer.
+// ==============================================================================
+const CLE_CLASSE_DU_MOMENT = 'AuTableau_classe_du_moment';
+
+function classeDuMoment(classes) {
+    const liste = classes || [];
+    let id = null;
+    try { id = localStorage.getItem(CLE_CLASSE_DU_MOMENT); } catch (e) { id = null; }
+    if (id && liste.some(c => c.id === id && !c.archivee)) return id;
+    const vivante = liste.find(c => !c.archivee) || liste[0];
+    return vivante ? vivante.id : null;
+}
+
+function poserLaClasseDuMoment(id) {
+    if (!id) return;
+    try { localStorage.setItem(CLE_CLASSE_DU_MOMENT, id); } catch (e) { /* stockage refusé */ }
+    if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+}
+
+// La pastille du coin du tableau : elle nomme la classe du moment.
+async function majPastilleDeClasse() {
+    const pastille = document.getElementById('classe-pastille');
+    if (!pastille) return;
+    let classes = [];
+    try { classes = await ClassesStore.loadAll(); } catch (e) { classes = []; }
+    const vivantes = classes.filter(c => !c.archivee);
+    const c = vivantes.find(x => x.id === classeDuMoment(classes));
+    const nom = pastille.querySelector('.cp-nom');
+    if (nom) nom.textContent = c ? c.name : 'Mes classes';
+    pastille.classList.toggle('vide', !c);
+    pastille.setAttribute('data-tooltip', c
+        ? `${c.name} — la classe du moment ; cliquez pour en changer ou aller droit à l'appel`
+        : 'Aucune classe pour l\'instant — cliquez pour en créer une');
+}
+
+// Le menu de la pastille : une ligne par classe, et trois raccourcis qui
+// mènent droit au geste — l'appel, les points, le bilan.
+function ouvrirLeMenuDeClasse(classes) {
+    const menu = document.getElementById('classe-menu');
+    if (!menu) return;
+    const vivantes = (classes || []).filter(c => !c.archivee);
+    const courante = classeDuMoment(classes || []);
+    const geste = (id, vue, ico, dit) =>
+        `<button class="cl-geste" data-id="${id}" data-vue="${vue}" title="${dit}" data-tooltip="${dit}">${ico}</button>`;
+    menu.innerHTML = `
+        <div class="cl-titre">La classe du moment</div>
+        ${vivantes.length ? vivantes.map(c => `
+            <div class="cl-ligne${c.id === courante ? ' actif' : ''}">
+                <button class="cl-nom" data-id="${c.id}" data-vue="points">
+                    ${echapperTexte(c.name)} <span class="cl-compte">${(c.students || []).length}</span>
+                </button>
+                ${geste(c.id, 'appel', '✓', 'Faire l\'appel sur le plan')}
+                ${geste(c.id, 'points', '🏅', 'Points, oublis et récompenses')}
+                ${geste(c.id, 'bilan', '📊', 'Le bilan de la classe')}
+            </div>`).join('')
+        : '<div class="cl-vide">Aucune classe pour l\'instant.</div>'}
+        <button class="cl-gerer" data-vue="eleves">⚙️ Gérer mes classes…</button>`;
+
+    // La classe demandée devient la classe du moment — c'est la fenêtre
+    // elle-même qui s'en charge, sur la classe qu'elle finit par ouvrir.
+    const aller = (id, vue) => {
+        fermerLeMenuDeClasse();
+        openClassManagerModal(id || undefined, vue);
+    };
+    menu.querySelectorAll('.cl-nom, .cl-geste').forEach(b => {
+        b.onclick = () => aller(b.dataset.id, b.dataset.vue);
+    });
+    const gerer = menu.querySelector('.cl-gerer');
+    if (gerer) gerer.onclick = () => aller(null, vivantes.length ? 'eleves' : undefined);
+
+    menu.hidden = false;
+    document.addEventListener('pointerdown', fermerSiHorsDuMenuDeClasse, true);
+    document.addEventListener('keydown', echapDuMenuDeClasse, true);
+}
+
+function fermerLeMenuDeClasse() {
+    const menu = document.getElementById('classe-menu');
+    if (menu) menu.hidden = true;
+    document.removeEventListener('pointerdown', fermerSiHorsDuMenuDeClasse, true);
+    document.removeEventListener('keydown', echapDuMenuDeClasse, true);
+}
+
+function fermerSiHorsDuMenuDeClasse(e) {
+    const boite = document.getElementById('classe-boite');
+    if (boite && !boite.contains(e.target)) fermerLeMenuDeClasse();
+}
+
+function echapDuMenuDeClasse(e) {
+    if (e.key === 'Escape') { e.stopPropagation(); fermerLeMenuDeClasse(); }
+}
+
+function brancherLaPastilleDeClasse() {
+    const pastille = document.getElementById('classe-pastille');
+    if (!pastille) return;
+    pastille.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const menu = document.getElementById('classe-menu');
+        if (menu && !menu.hidden) { fermerLeMenuDeClasse(); return; }
+        let classes = [];
+        try { classes = await ClassesStore.loadAll(); } catch (err) { classes = []; }
+        ouvrirLeMenuDeClasse(classes);
+    });
+    majPastilleDeClasse();
+}
+
 const Appel = {
     aujourdHui() {
         const d = new Date();
@@ -18705,7 +18816,9 @@ function classeDeDemonstration() {
 }
 window.classeDeDemonstration = classeDeDemonstration;
 
-async function openClassManagerModal() {
+// `classeVoulue` et `vueVoulue` : la pastille de classe ouvre la fenêtre
+// directement sur la classe et le geste demandés.
+async function openClassManagerModal(classeVoulue, vueVoulue) {
     // Deux appels de suite empilaient deux fenêtres identiques l'une sur
     // l'autre : la seconde cachait la première, qui restait là.
     const ancienne = document.getElementById('class-manager-modal');
@@ -18747,13 +18860,28 @@ async function openClassManagerModal() {
         // La fiche ouverte, et la période qu'on y regarde
         ficheEleve: null,
         fichePeriode: null,
-        // La vue courante de la classe : ses élèves, ses points, son plan
-        vue: 'eleves'
+        // La vue courante de la classe : ses points, son bilan, son plan, ses élèves
+        vue: 'eleves',
+        // Le mode demandé pour le plan à sa prochaine ouverture (le raccourci
+        // « Appel » de la pastille de classe)
+        planMode: null
     };
     // Ce qu'on est en train de lire : le texte, et les choix faits dessus
     const etatImport = { texte: '', separateur: null, colonnes: null,
                          dernier: null, ouvert: false, avantImport: null };
-    state.selectedId = state.classes[0] ? state.classes[0].id : null;
+    // La classe du moment est celle qu'on retrouve en ouvrant la fenêtre : le
+    // professeur fait cours à une classe à la fois, et c'est presque toujours
+    // la dernière regardée.
+    state.selectedId = (classeVoulue && state.classes.some(c => c.id === classeVoulue))
+        ? classeVoulue : classeDuMoment(state.classes);
+    // On ouvre là où l'on va : sur les points, qui se donnent à chaque heure.
+    // Une classe sans élèves n'a rien à montrer d'autre que sa liste.
+    const premiere = state.classes.find(c => c.id === state.selectedId);
+    // « Appel » n'est pas une vue de plus : c'est le plan, ouvert du côté où
+    // l'on fait l'appel.
+    if (vueVoulue === 'appel') { state.vue = 'plan'; state.planMode = 'classe'; }
+    else state.vue = vueVoulue || ((premiere && (premiere.students || []).length) ? 'points' : 'eleves');
+    if (state.selectedId) poserLaClasseDuMoment(state.selectedId);
 
     function getSelected() {
         return state.classes.find(c => c.id === state.selectedId) || null;
@@ -18830,9 +18958,12 @@ async function openClassManagerModal() {
             detailHtml = `
                 <div class="cm-entete">
                     <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe">
+                    <!-- « Points » et « Plan » étaient ici ET dans les onglets
+                         du dessus : deux chemins pour le même geste, à deux
+                         endroits différents de la même fenêtre. Les onglets
+                         suffisent ; il ne reste ici que ce qui touche à la
+                         classe elle-même. -->
                     <div class="cm-actions">
-                        <button id="cm-points" class="btn-action primary" title="Les points et les badges de la classe">🏅 Points</button>
-                        <button id="cm-seating-plan" class="btn-action secondary" title="Ouvrir le plan de classe">🪑 Plan</button>
                         <button id="cm-dupliquer" class="btn-action secondary cm-ico" title="Copier cette classe et ses élèves, sans les points ni les badges">⧉</button>
                         <button id="cm-archiver" class="btn-action secondary cm-ico" title="${selected.archivee ? 'Sortir des archives' : 'Archiver : la classe reste, mais quitte les listes'}">${selected.archivee ? '📤' : '📦'}</button>
                         <button id="cm-delete-class" class="btn-action secondary cm-ico cm-danger" title="Supprimer la classe « ${(selected.name || '').replace(/"/g, '&quot;')} » et ses élèves">🗑️</button>
@@ -18939,8 +19070,12 @@ async function openClassManagerModal() {
                  « Points » refermait « Mes classes » pour ouvrir sa propre
                  fenêtre ; « Plan » en empilait une par-dessus. Ce sont trois
                  façons de regarder LA MÊME classe : elles se rangent ici. -->
+            <!-- L'ORDRE EST CELUI DE L'USAGE. Les points, les oublis et les
+                 récompenses se donnent à chaque heure ; le plan de la salle se
+                 fait une fois dans l'année, et la liste des élèves à la
+                 rentrée. Le quotidien vient donc en premier. -->
             ${selected ? `<div id="cm-vues" role="tablist">
-                ${[['eleves', 'Élèves'], ['points', 'Points'], ['plan', 'Plan de classe']].map(([v, nom]) =>
+                ${[['points', '🏅 Points'], ['bilan', '📊 Bilan'], ['plan', '🪑 Plan de classe'], ['eleves', '👥 Élèves']].map(([v, nom]) =>
                     `<button class="cm-vue${state.vue === v ? ' actif' : ''}" data-vue="${v}">${nom}</button>`).join('')}
             </div>` : ''}
             <!-- Toute la largeur pour la liste d'élèves : elle prend aussi la
@@ -18968,7 +19103,7 @@ async function openClassManagerModal() {
         volet.innerHTML = '';
         volet.style.paddingTop = '0';
         volet.style.overflow = 'hidden';
-        if (state.vue === 'points') {
+        if (state.vue === 'points' || state.vue === 'bilan') {
             const outil = window.PluginManager && PluginManager.plugins.classPointsTool;
             if (!outil || !outil.accueillirDans) {
                 volet.innerHTML = `<div style="padding:20px; color:var(--muted);">L'outil Points n'est pas disponible.</div>`;
@@ -18976,16 +19111,23 @@ async function openClassManagerModal() {
             }
             persist();
             outil.accueillirDans(volet);
-            outil.ouvrir(c.id);
+            // Le bilan était un panneau qu'on ouvrait DANS les points, avec son
+            // bouton « Fermer » : c'est une façon de regarder la classe, au
+            // même titre que les autres. Il a son onglet.
+            outil.ouvrir(c.id, { bilan: state.vue === 'bilan' });
         } else if (state.vue === 'plan') {
             persist();
-            openSeatingPlanEditor(c.id, volet);
+            const voulu = state.planMode;
+            state.planMode = null;   // ne vaut que pour cette ouverture-ci
+            openSeatingPlanEditor(c.id, volet, voulu ? { mode: voulu } : undefined);
         }
     }
 
     // Le plan a son propre bouton « Fermer » : posé ici, il rend la main aux
     // élèves plutôt que de refermer une fenêtre qui n'existe pas.
-    window.revenirAuxEleves = () => { state.vue = 'eleves'; quitterLesVues(); render(); };
+    // Le plan rend la main aux points, pas à la liste : c'est de là qu'on
+    // vient, et c'est là qu'on retourne pendant l'heure.
+    window.revenirAuxEleves = () => { state.vue = 'points'; quitterLesVues(); render(); };
 
     // Rendre la feuille de points à son état de fenêtre libre : sans cela, la
     // rouvrir depuis le tableau la ferait apparaître dans un volet disparu.
@@ -19101,7 +19243,15 @@ async function openClassManagerModal() {
         };
 
         box.querySelectorAll('.cm-class-item').forEach(el => {
-            el.onclick = () => { state.selectedId = el.dataset.id; render(); };
+            el.onclick = () => {
+                if (state.vue !== 'eleves') quitterLesVues();
+                state.selectedId = el.dataset.id;
+                state.ficheEleve = null;
+                // Changer d'onglet, c'est changer de classe pour toute
+                // l'application : la pastille du tableau suit.
+                poserLaClasseDuMoment(state.selectedId);
+                render();
+            };
         });
 
         const nameInput = box.querySelector('#cm-class-name');
@@ -19140,22 +19290,6 @@ async function openClassManagerModal() {
                     showToast(avatarsBox.checked ? 'Avatars dessinés' : 'Initiales seulement');
                 }
             };
-        }
-
-        // Le tableau des points : la classe s'affiche en grand, on donne les
-        // points d'un doigt. C'est l'outil « Points de classe », ouvert ici
-        // sur la classe qu'on est en train de regarder.
-        // Ces deux boutons ouvraient des fenêtres — l'un en refermant celle-ci,
-        // l'autre en s'empilant dessus. Ils conduisent maintenant aux onglets
-        // du même nom, qui montrent la même chose sans quitter la classe.
-        const pointsBtn = box.querySelector('#cm-points');
-        if (pointsBtn) {
-            pointsBtn.onclick = () => { state.vue = 'points'; state.ficheEleve = null; render(); };
-        }
-
-        const seatingBtn = box.querySelector('#cm-seating-plan');
-        if (seatingBtn) {
-            seatingBtn.onclick = () => { state.vue = 'plan'; state.ficheEleve = null; render(); };
         }
 
         box.querySelectorAll('.cm-avatar').forEach(btn => {
@@ -19217,22 +19351,36 @@ async function openClassManagerModal() {
         const dupl = box.querySelector('#cm-dupliquer');
         if (dupl) dupl.onclick = () => {
             const c = getSelected(); if (!c) return;
-            const copie = {
-                id: ClassesStore.newId('class'),
-                name: (c.name || 'Classe') + ' (copie)',
-                students: (c.students || []).map(e => ({
-                    id: ClassesStore.newId('stu'), name: e.name,
-                    avatar: e.avatar, photo: e.photo, frontRow: e.frontRow, memo: e.memo
-                })),
-                aSeparer: [],
-                createdAt: Date.now(), updatedAt: Date.now()
-            };
-            state.classes.push(copie);
-            state.selectedId = copie.id;
-            persist(); render();
-            if (typeof showToast === 'function') {
-                showToast('⧉ Classe copiée — sans les points ni les badges');
-            }
+            // ON DEMANDE LE NOM. Sans cela, cinq copies s'appelaient « 4A
+            // (copie) », « 4A (copie) (copie) »… : dans une rangée d'onglets,
+            // rien ne les distinguait plus, et les onglets ne servaient plus à
+            // rien. Le nom proposé est déjà distinct — on n'a qu'à valider.
+            const base = (c.name || 'Classe').replace(/\s*\(copie\)+\s*$/i, '');
+            let n = 2;
+            const pris = (nom) => state.classes.some(x => (x.name || '').toLowerCase() === nom.toLowerCase());
+            while (pris(`${base} — groupe ${n}`)) n++;
+            openSysPromptModal('Copier la classe',
+                `Une nouvelle classe avec les mêmes élèves — sans les points ni les badges. Son nom :`,
+                `${base} — groupe ${n}`, (nom) => {
+                    const propre = (nom || '').trim() || `${base} — groupe ${n}`;
+                    const copie = {
+                        id: ClassesStore.newId('class'),
+                        name: propre,
+                        students: (c.students || []).map(e => ({
+                            id: ClassesStore.newId('stu'), name: e.name,
+                            avatar: e.avatar, photo: e.photo, frontRow: e.frontRow, memo: e.memo
+                        })),
+                        aSeparer: [],
+                        createdAt: Date.now(), updatedAt: Date.now()
+                    };
+                    state.classes.push(copie);
+                    state.selectedId = copie.id;
+                    poserLaClasseDuMoment(copie.id);
+                    persist(); render();
+                    if (typeof showToast === 'function') {
+                        showToast(`⧉ « ${propre} » créée — sans les points ni les badges`);
+                    }
+                });
         };
 
         // --- Archiver ---
@@ -19641,7 +19789,10 @@ const SEATING_TEMPLATES = [
 // `hote` : quand « Mes classes » le demande, le plan vient se poser DANS la
 // fenêtre, sous son onglet, au lieu d'ouvrir une fenêtre par-dessus. Ouvert
 // depuis ailleurs, il garde son comportement de fenêtre pleine.
-async function openSeatingPlanEditor(classId, hote) {
+// `options.mode` : ouvrir de force sur « organiser » ou « en classe ». C'est
+// ce que demande le raccourci « Appel » de la pastille de classe — on vient
+// pour l'appel, pas pour déplacer des tables.
+async function openSeatingPlanEditor(classId, hote, options) {
     const allClasses = await ClassesStore.loadAll();
     const classObj = allClasses.find(c => c.id === classId);
     if (!classObj) return;
@@ -19803,9 +19954,12 @@ async function openSeatingPlanEditor(classId, hote) {
     // tombait sur les boutons pour ajouter des tables, et ne trouvait pas
     // l'appel.
     const planDejaFait = (plan.tables || []).some(t => (t.seats || []).some(Boolean));
-    let spMode = plan.mode === 'classe' || plan.mode === 'organiser'
-        ? plan.mode
-        : (planDejaFait ? 'classe' : 'organiser');
+    const modeDemande = options && options.mode;
+    let spMode = (modeDemande === 'classe' || modeDemande === 'organiser')
+        ? modeDemande
+        : (plan.mode === 'classe' || plan.mode === 'organiser'
+            ? plan.mode
+            : (planDejaFait ? 'classe' : 'organiser'));
     let spInterroge = null;   // la place mise en avant par le tirage
     // Ce qu'un clic sur une place donnera. Rien n'est armé au départ : le
     // clic fait l'appel, qui ne coûte rien et se corrige d'un second clic.
@@ -21453,8 +21607,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const pConfirm = document.getElementById('btn-sys-prompt-confirm');
     if (pConfirm) pConfirm.onclick = () => {
         const val = document.getElementById('sys-prompt-input').value;
+        // ON RETIENT LA SUITE AVANT DE REFERMER : `closeSysPromptModal` remet
+        // le rappel à zéro, si bien qu'il n'était jamais appelé. « Valider »
+        // ne faisait donc rien du tout — ni l'enregistrement d'une interface
+        // sous un nom, ni rien de ce qui passe par cette boîte.
+        const suite = sysPromptCallback;
         closeSysPromptModal();
-        if (sysPromptCallback) sysPromptCallback(val);
+        if (suite) suite(val);
     };
 
     const pInput = document.getElementById('sys-prompt-input');
@@ -21715,6 +21874,7 @@ function initProjectName() {
 document.addEventListener('DOMContentLoaded', () => {
     loadExplorerData();
     initProjectName();
+    if (typeof brancherLaPastilleDeClasse === 'function') brancherLaPastilleDeClasse();
 
     const btnMinPostit = document.getElementById('btn-minimize-postit');
     if (btnMinPostit) {

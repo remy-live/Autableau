@@ -8427,21 +8427,25 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    fenêtre à la liste d'élèves, qui en a bien plus besoin. En onglets, on
    voit toutes les classes d'un coup et la place revient au travail.
    ============================================================ */
+/* LA RANGÉE D'ONGLETS. Sans trait sous elle, l'onglet actif n'avait rien à
+   « mordre » : les cinq classes ressemblaient à cinq boutons posés côte à
+   côte, et rien ne disait laquelle était ouverte. Le trait court sous toute
+   la rangée ; l'onglet actif l'interrompt, comme dans un classeur. */
 #cm-onglets {
     display: flex;
-    align-items: center;
-    gap: 4px;
+    align-items: flex-end;
+    gap: 2px;
     flex-wrap: wrap;
-    padding-bottom: 2px;
+    padding-bottom: 0;
+    border-bottom: 1px solid var(--border, #dfe6e9);
 }
 
 .cm-class-item {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 7px 13px;
-    border: 1px solid var(--border, #dfe6e9);
-    border-bottom-color: transparent;
+    padding: 8px 14px;
+    border: 1px solid transparent;
     border-radius: 9px 9px 0 0;
     background: transparent;
     color: var(--muted, #636e72);
@@ -8449,18 +8453,30 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     font-size: 13px;
     cursor: pointer;
     white-space: nowrap;
+    position: relative;
     margin-bottom: -1px;   /* l'onglet actif mord sur le trait du dessous */
 }
 
-.cm-class-item:hover { background: var(--accent-soft, #eef2ff); }
+.cm-class-item:hover { background: var(--accent-soft, #eef2ff); color: var(--ink, #2d3436); }
 
 /* L'onglet ouvert se rattache à ce qu'il montre : il perd son trait du bas. */
 .cm-class-item.actif {
     background: var(--surface, #fff);
     color: var(--accent, #6c5ce7);
-    font-weight: 600;
+    font-weight: 700;
     border-color: var(--border, #dfe6e9);
     border-bottom-color: var(--surface, #fff);
+}
+
+/* Le liseré coloré du haut : on repère l'onglet ouvert de loin, au
+   vidéoprojecteur comme sur un écran d'ordinateur portable. */
+.cm-class-item.actif::before {
+    content: "";
+    position: absolute;
+    left: -1px; right: -1px; top: -1px;
+    height: 3px;
+    background: var(--accent, #6c5ce7);
+    border-radius: 9px 9px 0 0;
 }
 
 .cm-onglet-compte {
@@ -8519,12 +8535,19 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 /* Les VUES d'une classe : élèves, points, plan. Trois façons de regarder la
    même classe — elles étaient trois fenêtres, elles sont trois onglets. */
+/* LES QUATRE FAÇONS DE REGARDER UNE CLASSE. Un sélecteur en bloc, posé dans
+   son rail : on voit d'un coup qu'il s'agit d'un choix entre quatre, et non
+   de quatre boutons qui feraient quatre choses différentes. Le rail vient
+   sous les onglets de classe, pour que les deux niveaux ne se confondent
+   pas — l'un dit QUELLE classe, l'autre CE QU'ON EN REGARDE. */
 #cm-vues {
-    display: flex;
-    gap: 3px;
-    padding: 10px 0 0;
-    border-top: 1px solid var(--border, #dfe6e9);
-    margin-top: 4px;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    margin: 10px 0 2px;
+    background: var(--bg, #f1f2f6);
+    border-radius: 10px;
+    align-self: flex-start;
 }
 
 .cm-vue {
@@ -8533,17 +8556,19 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     color: var(--muted, #636e72);
     font: inherit;
     font-size: 12.5px;
-    padding: 5px 12px;
-    border-radius: 999px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 8px;
     cursor: pointer;
+    white-space: nowrap;
 }
 
-.cm-vue:hover { background: var(--accent-soft, #eef2ff); }
+.cm-vue:hover { background: var(--accent-soft, #eef2ff); color: var(--ink, #2d3436); }
 
 .cm-vue.actif {
-    background: var(--accent, #6c5ce7);
-    color: #fff;
-    font-weight: 600;
+    background: var(--surface, #fff);
+    color: var(--accent, #6c5ce7);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
 /* CE QUI NE SE PROJETTE PAS. La fiche d'un élève s'ouvre souvent alors que le
@@ -8576,13 +8601,21 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .pts-bilan-table th,
 .pts-bilan-table td { vertical-align: middle; }
 
-/* Le nom prend ce qui reste : c'est lui qu'on lit en premier. */
 .pts-bilan-nom {
-    padding: 7px 10px;
+    padding: 7px 12px 7px 10px;
     white-space: nowrap;
     font-weight: 600;
-    width: 100%;
+    text-align: left;
+    width: 1px;
+    cursor: pointer;
 }
+
+/* LE VIDE A SA COLONNE. La largeur qui reste allait au nom : sur une fenêtre
+   large, cela faisait une colonne de sept cents pixels où trente noms
+   flottaient, et les chiffres se retrouvaient contre le bord droit, loin de
+   l'élève qu'ils concernent. Elle va désormais dans une colonne muette, après
+   les données : tout se lit groupé à gauche. */
+.pts-bilan-reste { width: 100%; padding: 0; }
 
 /* Les nombres : étroits, alignés, en chiffres de même largeur pour qu'une
    colonne se lise d'un coup d'œil. */
@@ -8603,6 +8636,38 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     width: 1px;
     line-height: 1.7;
 }
+
+/* UNE CASE D'OUBLI. Elle se lit — le compte, la récidive — et elle s'écrit :
+   un clic ajoute un oubli de cette nature. Vide, elle ne montre son « + »
+   qu'au survol : trente lignes de croix grises seraient illisibles. */
+.pts-bilan-case {
+    text-align: center;
+    padding: 6px 4px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    color: var(--teinte, #636e72);
+    border-left: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.pts-bilan-case b { font-weight: 800; font-size: 13.5px; }
+
+.pts-bilan-case i {
+    font-style: normal;
+    font-weight: 800;
+    font-size: 10.5px;
+    margin-left: 3px;
+    opacity: 0.8;
+}
+
+.pts-bilan-case.garni { background: color-mix(in srgb, var(--teinte) 10%, transparent); }
+
+/* La suite qui court encore : un liseré sous la case, pas une couleur de plus. */
+.pts-bilan-case.dure { box-shadow: inset 0 -3px 0 var(--teinte); }
+
+.pts-bilan-plus { color: transparent; font-weight: 700; font-size: 14px; }
+.pts-bilan-case:hover { background: color-mix(in srgb, var(--teinte) 18%, transparent); }
+.pts-bilan-case:hover .pts-bilan-plus { color: var(--teinte, #636e72); }
 
 /* La nature de l'oubli EN TOUTES LETTRES, son compte en gras, et la
    répétition à part. Une pastille cerclée : la suite court encore. */
@@ -8662,3 +8727,142 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 }
 
 .cm-onglet-demo:hover { border-style: solid; }
+
+/* ===================================================
+   LA CLASSE DU MOMENT
+   Une pastille dans le coin du tableau : elle dit à quelle classe on fait
+   cours, et son menu mène droit au geste voulu. Rien ne le disait avant —
+   il fallait ouvrir « Mes classes » pour s'en souvenir, et re-choisir la
+   classe dans chacun des outils.
+=================================================== */
+#classe-boite {
+    position: absolute;
+    top: 48px;
+    left: 14px;
+    /* Au-dessus du tiroir des plugins (40) : la pastille est petite et reste à
+       gauche, mais un clic ne doit jamais lui être volé. */
+    z-index: 41;
+    display: flex;
+    align-items: center;
+}
+
+#classe-pastille {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 999px;
+    background: var(--surface, #fff);
+    color: var(--ink, #2d3436);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+#classe-pastille:hover { border-color: var(--accent, #6c5ce7); color: var(--accent, #6c5ce7); }
+#classe-pastille .cp-ico { font-size: 14px; }
+/* Un nom de classe peut être long (« 4A — groupe 2 ») : il se coupe plutôt
+   que de pousser la pastille sous le tiroir des plugins. */
+#classe-pastille .cp-nom { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#classe-pastille .cp-chevron { font-size: 10px; color: var(--muted, #b2bec3); }
+#classe-pastille.vide { color: var(--muted, #636e72); font-weight: 500; }
+
+#classe-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 268px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+    padding: 6px;
+    z-index: 100040;
+}
+
+#classe-menu[hidden] { display: none; }
+
+/* Une ligne par classe : son nom mène aux points, et trois raccourcis
+   posent le geste qu'on venait faire. */
+.cl-ligne {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 9px;
+    padding: 2px;
+}
+
+.cl-ligne:hover { background: var(--bg, #f1f2f6); }
+.cl-ligne.actif { background: var(--accent-soft, #eef2ff); }
+
+.cl-nom {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cl-ligne.actif .cl-nom { color: var(--accent, #6c5ce7); }
+.cl-compte { font-size: 11px; font-weight: 500; color: var(--muted, #b2bec3); }
+
+.cl-geste {
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 8px;
+    padding: 6px 7px;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.cl-geste:hover { background: var(--surface, #fff); border-color: var(--accent, #6c5ce7); }
+
+.cl-titre {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted, #b2bec3);
+    padding: 6px 9px 4px;
+}
+
+.cl-vide { padding: 10px; font-size: 12.5px; color: var(--muted, #636e72); }
+
+.cl-gerer {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    padding: 8px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    border-top: 1px solid var(--border, #dfe6e9);
+    margin-top: 4px;
+}
+
+.cl-gerer:hover { background: var(--bg, #f1f2f6); color: var(--ink, #2d3436); }
+
+.dark-mode #classe-pastille { background: #2d3436; color: #f1f2f6; border-color: #4a5560; }
+.dark-mode #classe-menu { background: #22282c; border-color: #4a5560; }
+.dark-mode .cl-nom { color: #f1f2f6; }
+.dark-mode .cl-ligne:hover { background: rgba(255, 255, 255, 0.06); }

@@ -509,6 +509,9 @@ module.exports = async function (browser) {
             students: ['Ana', 'Bo', 'Cy'].map((n, i) => ({ id: 'av_' + i, name: n })) }]);
         document.getElementById('btn-classes-menu').click();
         await new Promise(r => setTimeout(r, 600));
+        // Les avatars des élèves se règlent dans la vue « Élèves ».
+        document.querySelector('.cm-vue[data-vue="eleves"]').click();
+        await new Promise(r => setTimeout(r, 400));
         const vignettes = document.querySelectorAll('.cm-avatar');
         const out = { vignettes: vignettes.length, distincts: new Set(Array.from(vignettes).map(v => v.innerHTML)).size };
         if (vignettes[1]) {
@@ -561,7 +564,12 @@ module.exports = async function (browser) {
                       'Youssef El Amrani', 'Abdoulaye Diallo', 'Zoé', 'Tom', 'Inès'];
         await ClassesStore.saveAll([{ id: 'clong', name: 'Noms longs',
             students: noms.map((n, i) => ({ id: 'ln' + i, name: n })) }]);
-        document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+        // On referme ce qui traîne — sans ARRACHER les boîtes de dialogue de
+        // la page : « confirmer », « saisir une valeur »… sont écrites dans
+        // index.html, et les supprimer casse tout ce qui les ouvre ensuite.
+        document.querySelectorAll('.modal-backdrop').forEach(m => {
+            if (m.id) m.style.display = 'none'; else m.remove();
+        });
         await openSeatingPlanEditor('clong');
         await new Promise(r => setTimeout(r, 400));
         const choisir = async (v) => {
@@ -644,6 +652,10 @@ module.exports = async function (browser) {
     const dansLesClasses = await page.evaluate(async () => {
         document.getElementById('btn-classes-menu').click();
         await new Promise(r => setTimeout(r, 600));
+        // L'interrupteur des avatars vit dans la vue « Élèves », qui n'est plus
+        // celle d'ouverture : la fenêtre s'ouvre là où l'on va, sur les points.
+        document.querySelector('.cm-vue[data-vue="eleves"]').click();
+        await new Promise(r => setTimeout(r, 400));
         const boite = document.getElementById('cm-avatars');
         const out = { interrupteur: !!boite, coche: boite && boite.checked };
         if (boite) {
@@ -679,7 +691,7 @@ module.exports = async function (browser) {
         const ligne = document.querySelector('#class-manager-modal .cm-class-item[data-id="cav"]');
         if (ligne) ligne.click();
         await new Promise(r => setTimeout(r, 300));
-        document.getElementById('cm-points').click();
+        document.querySelector('.cm-vue[data-vue="points"]').click();
         await new Promise(r => setTimeout(r, 700));
         const w = document.getElementById('points-widget');
         const volet = document.querySelector('#cm-detail');
@@ -883,7 +895,7 @@ module.exports = async function (browser) {
         if (w) w.style.display = 'none';
         const ancienne = document.getElementById('class-manager-modal');
         if (ancienne) ancienne.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 500));
         document.querySelectorAll('.cm-presence')[1].click();
         await new Promise(r => setTimeout(r, 250));
@@ -957,7 +969,7 @@ module.exports = async function (browser) {
             ['Zoé', 'Alice', 'Manon', 'Bilal'].map((n, i) => ({ id: 'x' + i, name: n })) }]);
         const m = document.getElementById('class-manager-modal'); if (m) m.remove();
         const w = document.getElementById('points-widget'); if (w) w.style.display = 'none';
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 500));
 
         const avant = (await ClassesStore.loadAll())[0].students.map(s => s.name);
@@ -978,7 +990,12 @@ module.exports = async function (browser) {
         const cl0 = await ClassesStore.loadAll();
         cl0[0].students[0].pts = { plus: 7, moins: 0, etoiles: 1 };
         cl0[0].students[0].badges = ['b-entraide'];
+        // COPIER DEMANDE UN NOM. « 4A (copie) (copie) (copie) » : dans une
+        // rangée d'onglets, cinq copies du même nom ne se distinguaient plus.
         document.getElementById('cm-dupliquer').click();
+        await new Promise(r => setTimeout(r, 300));
+        const propose = document.getElementById('sys-prompt-input').value;
+        document.getElementById('btn-sys-prompt-confirm').click();
         await new Promise(r => setTimeout(r, 300));
         const cl = await ClassesStore.loadAll();
         const copie = cl[cl.length - 1];
@@ -989,7 +1006,7 @@ module.exports = async function (browser) {
         const archivee = !!(await ClassesStore.loadAll()).find(c => c.archivee);
 
         return {
-            avant, trie, memo,
+            avant, trie, memo, propose,
             copie: {
                 nom: copie.name, eleves: copie.students.length,
                 sansPoints: copie.students.every(s => !s.pts),
@@ -1003,7 +1020,8 @@ module.exports = async function (browser) {
     r.egal('une liste collée arrive dans le désordre', ergo.avant, ['Zoé', 'Alice', 'Manon', 'Bilal']);
     r.egal('« A→Z » la range, accents compris', ergo.trie, ['Alice', 'Bilal', 'Manon', 'Zoé']);
     r.egal('un mémo se note sur un élève', ergo.memo, 'Tiers-temps');
-    r.egal('dupliquer garde le nom, avec « (copie) »', ergo.copie.nom, '6e E (copie)');
+    r.egal('copier propose un nom déjà distinct', ergo.propose, '6e E — groupe 2');
+    r.egal('et la classe le porte', ergo.copie.nom, '6e E — groupe 2');
     r.egal('et tous les élèves', ergo.copie.eleves, 4);
     r.verifie('sans les points de l\'an dernier', ergo.copie.sansPoints);
     r.verifie('ni ses badges', ergo.copie.sansBadges);
@@ -1017,7 +1035,7 @@ module.exports = async function (browser) {
             ['Alice', 'Bilal', 'Chloé', 'Diego', 'Éva', 'Farid', 'Gaïa', 'Hugo']
                 .map((n, i) => ({ id: 'p' + i, name: n })) }]);
         const m = document.getElementById('class-manager-modal'); if (m) m.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 500));
 
         document.getElementById('cm-sep-a').value = 'p0';
@@ -1116,7 +1134,7 @@ module.exports = async function (browser) {
             id: 'cmep', name: '4A',
             students: Array.from({ length: 30 }, (_, i) => ({ id: 'p' + i, name: 'Élève numéro ' + i }))
         }]);
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 400));
 
         const box = document.querySelector('#class-manager-modal .modal-box');
@@ -1187,8 +1205,11 @@ module.exports = async function (browser) {
     r.egal('deux réglages sont repliés par défaut', miseEnPage.replies, 2);
     r.verifie('et ils le sont vraiment', miseEnPage.toutesRepliees);
     r.verifie('dépliés, ils rendent leurs commandes', miseEnPage.separationDispo);
-    r.egal('les cinq actions de la classe sont conservées', miseEnPage.actions,
-        ['cm-points', 'cm-seating-plan', 'cm-dupliquer', 'cm-archiver', 'cm-delete-class']);
+    // « Points » et « Plan » étaient ici ET dans les onglets : le même geste à
+    // deux endroits de la même fenêtre. Ne restent que les actions qui portent
+    // sur la classe elle-même.
+    r.egal('l\'en-tête ne garde que ce qui touche à la classe', miseEnPage.actions,
+        ['cm-dupliquer', 'cm-archiver', 'cm-delete-class']);
     r.verifie('la corbeille réduite à son icône garde son infobulle',
         miseEnPage.supprimeAvecTitre);
 
@@ -1491,14 +1512,12 @@ module.exports = async function (browser) {
     r.egal('deux dates : on ne garde que la période demandée',
         [bilan.ancien.plus, bilan.ancien.totalOublis], [1, 1]);
     r.egal('le solde est la différence', bilan.mois.solde, 1);
-    // LES QUATRE NATURES D'OUBLI ONT QUITTÉ L'EN-TÊTE. Elles y tenaient quatre
-    // colonnes, plus un total, presque toujours vides : elles sont devenues des
-    // pastilles dans une seule colonne, qui ne paraissent que si elles ont
-    // quelque chose à dire. Restent : l'élève, ses points, ses badges, ses
-    // absences, ses oublis.
-    // Cinq colonnes de contenu, plus l'étroite qui porte le chevron : toute la
-    // ligne mène à la fiche, et il faut que cela se voie.
-    r.egal('le tableau tient en cinq colonnes, plus le chevron', bilan.colonnes, 6);
+    // LES QUATRE NATURES D'OUBLI SONT REVENUES DANS L'EN-TÊTE, mais pour une
+    // autre raison qu'avant : ce ne sont plus des colonnes d'affichage presque
+    // toujours vides, ce sont les CASES OÙ L'ON CLIQUE pour noter un oubli.
+    // Élève, points, badges, absences, quatre natures, la colonne muette qui
+    // absorbe le vide, et l'étroite qui porte le chevron.
+    r.egal('le tableau porte une colonne par nature d\'oubli', bilan.colonnes, 10);
     r.egal('une ligne par élève', bilan.lignes, bilan.eleves);
     r.egal('trois trimestres et cinq autres périodes', bilan.periodes, 8);
     r.verifie('et un bouton d\'export PDF', bilan.boutonPdf);
@@ -1509,9 +1528,9 @@ module.exports = async function (browser) {
         const noms = () => Array.from(w.querySelectorAll('#pts-bilan-table tbody tr td:first-child'))
             .map(td => td.textContent.trim());
         const alpha = noms();
-        w.querySelector('.pts-bilan-col[data-col="totalOublis"]').click();
+        w.querySelector('.pts-bilan-col[data-col="o_materiel"]').click();
         const parOublis = noms();
-        w.querySelector('.pts-bilan-col[data-col="totalOublis"]').click();
+        w.querySelector('.pts-bilan-col[data-col="o_materiel"]').click();
         const inverse = noms();
         return { alpha, parOublis, inverse };
     });
@@ -1716,7 +1735,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('auTableau_rappel_classes_reporte');
         const ancienne = document.getElementById('class-manager-modal');
         if (ancienne) ancienne.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 400));
         const visible = !!document.getElementById('cm-rappel');
         const texte = (document.getElementById('cm-rappel') || {}).textContent || '';
@@ -1759,7 +1778,7 @@ module.exports = async function (browser) {
         await p.sauverMaintenant();
         const ancienne = document.getElementById('class-manager-modal');
         if (ancienne) ancienne.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 500));
         document.querySelectorAll('.cm-class-item')[0].click();
         await new Promise(r => setTimeout(r, 300));
@@ -1874,7 +1893,7 @@ module.exports = async function (browser) {
             { id: 'o2', name: '3e A', students: [{ id: 'c', name: 'Zoé' }] },
             { id: 'o3', name: '6e C', students: [] }
         ]);
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(res => setTimeout(res, 400));
     });
 
@@ -2062,20 +2081,22 @@ module.exports = async function (browser) {
         if (outil.widgetEl) outil.widgetEl.style.display = 'none';
         const m = document.getElementById('class-manager-modal');
         if (m) m.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(res => setTimeout(res, 400));
     });
     r.egal('une seule fenêtre à l\'ouverture', await fenetresOuvertes(), ['class-manager-modal']);
-    r.egal('trois vues sont proposées',
-        await page.evaluate(() => [...document.querySelectorAll('.cm-vue')].map(b => b.textContent.trim())),
-        ['Élèves', 'Points', 'Plan de classe']);
-    r.egal('on arrive sur les élèves', await vueOuverte(),
-        { vue: 'Élèves', points: false, plan: false, eleves: true });
+    // L'ORDRE EST CELUI DE L'USAGE : les points se donnent à chaque heure, le
+    // plan se fait une fois dans l'année, la liste à la rentrée.
+    r.egal('quatre vues, dans l\'ordre où l\'on s\'en sert',
+        await page.evaluate(() => [...document.querySelectorAll('.cm-vue')].map(b => b.dataset.vue)),
+        ['points', 'bilan', 'plan', 'eleves']);
+    r.egal('on arrive là où on l\'a demandé', await vueOuverte(),
+        { vue: '👥 Élèves', points: false, plan: false, eleves: true });
 
     await page.click('.cm-vue[data-vue="points"]');
     await page.waitForTimeout(1200);
     r.egal('la feuille de points se pose DANS la fenêtre', await vueOuverte(),
-        { vue: 'Points', points: true, plan: false, eleves: false });
+        { vue: '🏅 Points', points: true, plan: false, eleves: false });
     r.egal('et rien ne s\'est ouvert par-dessus', await fenetresOuvertes(), ['class-manager-modal']);
     r.egal('son bandeau et son menu de classe s\'effacent, ils feraient doublon',
         await page.evaluate(() => {
@@ -2086,20 +2107,20 @@ module.exports = async function (browser) {
     await page.click('.cm-vue[data-vue="plan"]');
     await page.waitForTimeout(1200);
     r.egal('le plan de classe aussi', await vueOuverte(),
-        { vue: 'Plan de classe', points: false, plan: true, eleves: false });
+        { vue: '🪑 Plan de classe', points: false, plan: true, eleves: false });
     r.egal('et toujours une seule fenêtre', await fenetresOuvertes(), ['class-manager-modal']);
 
     await page.click('.cm-vue[data-vue="eleves"]');
     await page.waitForTimeout(600);
     r.egal('on revient aux élèves sans rien laisser derrière', await vueOuverte(),
-        { vue: 'Élèves', points: false, plan: false, eleves: true });
+        { vue: '👥 Élèves', points: false, plan: false, eleves: true });
 
-    // Les anciens boutons conduisent aux mêmes onglets, sans ouvrir de fenêtre.
-    await page.click('#cm-points');
+    // Revenir aux points par l'onglet : toujours une seule fenêtre.
+    await page.click('.cm-vue[data-vue="points"]');
     await page.waitForTimeout(1000);
-    r.egal('le bouton « Points » mène à l\'onglet, il n\'ouvre plus de fenêtre',
+    r.egal('l\'onglet « Points » n\'ouvre pas de fenêtre',
         { vue: (await vueOuverte()).vue, fenetres: await fenetresOuvertes() },
-        { vue: 'Points', fenetres: ['class-manager-modal'] });
+        { vue: '🏅 Points', fenetres: ['class-manager-modal'] });
 
     // Refermer « Mes classes » doit rendre la feuille à sa vie de fenêtre :
     // sinon on la rouvrirait depuis le tableau dans un volet disparu.
@@ -2167,7 +2188,7 @@ module.exports = async function (browser) {
                     absences: par('Malo').datesAbsences },
             theo: { suite: par('Théo').suites.devoirs.suite, enCours: par('Théo').suites.devoirs.enCours },
             zoe: { total: par('Zoé').totalOublis, pire: par('Zoé').pireSuite },
-            pastilles: (html.match(/pts-oubli-pastille/g) || []).length,
+            casesGarnies: (html.match(/pts-bilan-case garni/g) || []).length,
             suivi: /À suivre/.test(html),
             texteSuivi: (html.match(/À suivre[\s\S]{0,200}/) || [''])[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
             infobulleDate: /data-tooltip="[^"]*Signature[^"]*\/[^"]*"/.test(html)
@@ -2178,8 +2199,10 @@ module.exports = async function (browser) {
     // pas — un jour où l'on a noté quelque chose est un jour où on les avait.
     r.egal('les jours où l\'on a vu la classe se déduisent du journal', releveBilan.jours, 5);
 
-    r.verifie('le tableau tient en cinq colonnes, au lieu de onze',
-        releveBilan.colonnes === 6, releveBilan.colonnes + ' colonnes (dont le chevron)');
+    // Élève, points, badges, absences, les quatre natures, la colonne muette
+    // qui absorbe le vide, et l'étroite qui porte le chevron.
+    r.verifie('chaque nature d\'oubli a sa colonne, où l\'on clique pour en ajouter un',
+        releveBilan.colonnes === 10, releveBilan.colonnes + ' colonnes');
     // L'alternance est passée du HTML à la feuille de style : on la mesure donc
     // sur ce qui est RENDU, pas sur la chaîne de caractères.
     const zebre = await page.evaluate(() => {
@@ -2216,8 +2239,8 @@ module.exports = async function (browser) {
         releveBilan.texteSuivi);
     r.verifie('Théo, dont la suite est finie, n\'y figure pas',
         !/Théo/.test(releveBilan.texteSuivi), releveBilan.texteSuivi);
-    r.verifie('trois pastilles d\'oubli, une par élève concerné',
-        releveBilan.pastilles === 3, String(releveBilan.pastilles));
+    r.verifie('trois cases garnies, une par élève concerné',
+        releveBilan.casesGarnies === 3, String(releveBilan.casesGarnies));
 
     // =====================================================================
     // UNE CLASSE POUR ESSAYER
@@ -2228,7 +2251,7 @@ module.exports = async function (browser) {
     await pageDemo.waitForFunction(() => typeof openClassManagerModal === 'function', { timeout: 20000 });
     await pageDemo.evaluate(async () => {
         await ClassesStore.saveAll([]);
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(res => setTimeout(res, 500));
     });
     r.verifie('sans aucune classe, on propose d\'en essayer une',
@@ -2284,25 +2307,28 @@ module.exports = async function (browser) {
         P.bilanPeriode = 'tout'; P.panneauBilan = true; P.rendre();
         await new Promise(res => setTimeout(res, 400));
         const w = document.getElementById('points-widget');
-        const past = [...w.querySelectorAll('.pts-oubli-pastille')];
+        const cases = [...w.querySelectorAll('.pts-bilan-case')];
+        const garnies = cases.filter(c => c.classList.contains('garni'));
         return {
             lignes: w.querySelectorAll('.pts-bilan-ligne').length,
             fleches: w.querySelectorAll('.pts-bilan-fleche').length,
             alertes: w.querySelectorAll('.pts-bilan-ligne.pts-bilan-alerte').length,
-            // Les noms EN TOUTES LETTRES : « Sign 3 ↻3 » ne se lisait pas
-            libelles: [...new Set(past.map(p => (p.firstChild ? p.firstChild.textContent : '').trim()))].sort(),
-            cerclees: w.querySelectorAll('.pts-oubli-pastille.dure').length,
-            infobulleAvecDates: past.some(p => /\d{2}\/\d{2}/.test(p.getAttribute('data-tooltip') || ''))
+            // Une colonne par nature, nommée en toutes lettres dans l'en-tête
+            libelles: [...w.querySelectorAll('.pts-bilan-col')].map(t => t.textContent.trim().replace(/ [▲▼]$/, ''))
+                .filter(x => ['Matériel', 'Carnet', 'Devoirs', 'Signature'].includes(x)).sort(),
+            garnies: garnies.length,
+            cerclees: w.querySelectorAll('.pts-bilan-case.dure').length,
+            infobulleAvecDates: garnies.some(c => /\d{2}\/\d{2}/.test(c.getAttribute('data-tooltip') || ''))
         };
     });
     r.egal('une ligne par élève, chacune menant quelque part',
         { l: lisible.lignes, f: lisible.fleches }, { l: 24, f: 24 });
-    r.verifie('les natures d\'oubli s\'écrivent en entier',
-        lisible.libelles.every(x => ['Matériel', 'Carnet', 'Devoirs', 'Signature'].includes(x)),
-        lisible.libelles.join(', '));
-    r.verifie('les séries qui durent sont cerclées', lisible.cerclees >= 2, String(lisible.cerclees));
+    r.egal('les quatre natures ont chacune leur colonne, nommée en entier',
+        lisible.libelles, ['Carnet', 'Devoirs', 'Matériel', 'Signature']);
+    r.verifie('les cases garnies portent le compte', lisible.garnies >= 8, String(lisible.garnies));
+    r.verifie('les séries qui durent sont soulignées', lisible.cerclees >= 2, String(lisible.cerclees));
     r.verifie('et leurs lignes signalées', lisible.alertes >= 2, String(lisible.alertes));
-    r.verifie('les dates restent au survol de la pastille', lisible.infobulleAvecDates);
+    r.verifie('les dates restent au survol de la case', lisible.infobulleAvecDates);
 
     // TOUTE LA LIGNE OUVRE LA FICHE : les dates n'étaient qu'au survol d'une
     // pastille, il fallait le savoir et viser juste.
@@ -2392,7 +2418,7 @@ module.exports = async function (browser) {
     const dessus = await pageDessus.evaluate(async () => {
         await ClassesStore.saveAll([{ id: 'cz1', name: '4A', students: [{ id: 'a1', name: 'Amel' }] }]);
         const m = document.getElementById('class-manager-modal'); if (m) m.remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 400));
         const fenetre = document.getElementById('class-manager-modal');
         openConfirmModal('Supprimer', 'Question posée par-dessus', true, () => { });
@@ -2419,6 +2445,134 @@ module.exports = async function (browser) {
         dessus.infobulle > dessus.boite, JSON.stringify(dessus));
     r.verifie('aucune erreur JS en posant la question', errDessus.length === 0, errDessus.join(' | '));
     await ctxDessus.close();
+
+    // =====================================================================
+    // LA CLASSE DU MOMENT, ET L'ORDRE DE L'USAGE
+    // On fait cours à une classe à la fois : le tableau doit dire laquelle, et
+    // mener droit au geste. Et la fenêtre s'ouvre là où l'on va — les points,
+    // qui se donnent à chaque heure — non sur la liste des élèves, qu'on
+    // remplit à la rentrée.
+    // =====================================================================
+    const { context: ctxJour, page: pageJour, erreurs: errJour } = await ouvrirApp(browser);
+    await pageJour.waitForFunction(() => typeof majPastilleDeClasse === 'function', { timeout: 20000 });
+
+    const pastille = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        await ClassesStore.saveAll([
+            { id: 'k1', name: '4A', students: ['Ana', 'Bo', 'Cy'].map((n, i) => ({ id: 'p' + i, name: n })) },
+            { id: 'k2', name: '5C', students: [{ id: 'q0', name: 'Dan' }] }
+        ]);
+        await majPastilleDeClasse();
+        const lu = () => document.querySelector('#classe-pastille .cp-nom').textContent.trim();
+        const auDepart = lu();
+        document.getElementById('classe-pastille').click();
+        await attendre(300);
+        const menu = document.getElementById('classe-menu');
+        const ouvert = !menu.hidden;
+        const lignes = menu.querySelectorAll('.cl-ligne').length;
+        const gestes = [...menu.querySelectorAll('.cl-ligne')[1].querySelectorAll('.cl-geste')]
+            .map(b => b.dataset.vue);
+        // On demande l'appel de la seconde classe : elle devient la classe du
+        // moment, et l'on arrive sur le plan, du côté où l'on fait l'appel.
+        menu.querySelectorAll('.cl-ligne')[1].querySelector('.cl-geste[data-vue="appel"]').click();
+        await attendre(900);
+        const vue = (document.querySelector('.cm-vue.actif') || {}).dataset?.vue;
+        return {
+            auDepart, ouvert, lignes, gestes,
+            apres: lu(),
+            retenu: localStorage.getItem('AuTableau_classe_du_moment'),
+            vue,
+            planEnClasse: !!document.querySelector('.sp-mode.actif[data-mode="classe"]'),
+            menuReferme: document.getElementById('classe-menu').hidden
+        };
+    });
+    r.egal('la pastille nomme la classe du moment', pastille.auDepart, '4A');
+    r.egal('son menu liste les classes, chacune avec ses trois raccourcis',
+        { ouvert: pastille.ouvert, lignes: pastille.lignes, gestes: pastille.gestes },
+        { ouvert: true, lignes: 2, gestes: ['appel', 'points', 'bilan'] });
+    r.egal('« appel » change la classe du moment et l\'ouvre sur le plan',
+        { nom: pastille.apres, retenu: pastille.retenu, vue: pastille.vue },
+        { nom: '5C', retenu: 'k2', vue: 'plan' });
+    r.verifie('et le plan s\'ouvre du côté où l\'on fait l\'appel', pastille.planEnClasse);
+    r.verifie('le menu se referme derrière lui', pastille.menuReferme);
+
+    const ouverture = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const rouvrir = async () => {
+            const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+            const outil = PluginManager.plugins.classPointsTool;
+            if (outil.accueillirDans) outil.accueillirDans(null);
+            if (outil.widgetEl) outil.widgetEl.style.display = 'none';
+            await openClassManagerModal();
+            await attendre(700);
+            return (document.querySelector('.cm-vue.actif') || {}).dataset?.vue;
+        };
+        // La classe du moment est la 5C : c'est elle qu'on retrouve.
+        const vue = await rouvrir();
+        const onglet = (document.querySelector('.cm-class-item.actif') || {}).textContent.trim();
+        // Une classe sans élèves n'a rien à montrer d'autre que sa liste.
+        const cls = await ClassesStore.loadAll();
+        cls.push({ id: 'k3', name: 'Neuve', students: [] });
+        await ClassesStore.saveAll(cls);
+        poserLaClasseDuMoment('k3');
+        const vueVide = await rouvrir();
+        return { vue, onglet, vueVide };
+    });
+    r.egal('la fenêtre s\'ouvre sur les points de la classe du moment',
+        { vue: ouverture.vue, onglet: ouverture.onglet.replace(/\s+/g, ' ') }, { vue: 'points', onglet: '5C 1' });
+    r.egal('mais sur la liste quand la classe n\'a pas encore d\'élèves', ouverture.vueVide, 'eleves');
+
+    // LE BILAN EST UN ONGLET, et ses cases se remplissent d'un clic.
+    const bilanOnglet = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        poserLaClasseDuMoment('k1');
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        await openClassManagerModal('k1', 'bilan');
+        await attendre(900);
+        const volet = document.querySelector('#cm-detail');
+        const table = volet.querySelector('#pts-bilan-table');
+        const barreVisible = (sel) => {
+            const el = volet.querySelector(sel);
+            return !!(el && getComputedStyle(el).display !== 'none');
+        };
+        const avant = table.querySelectorAll('.pts-bilan-case.garni').length;
+        // Une case vide, cliquée : un oubli daté de plus.
+        const cible = volet.querySelector('.pts-bilan-case[data-type="carnet"]');
+        const eleveId = cible.dataset.eleve;
+        cible.click();
+        await attendre(400);
+        const cls = await ClassesStore.loadAll();
+        const e = cls.find(c => c.id === 'k1').students.find(s => s.id === eleveId);
+        const traces = (e.journal || []).filter(x => x.t === 'o' && x.v === 'carnet');
+        const apres = volet.querySelectorAll('.pts-bilan-case.garni').length;
+        // Et « ↶ » le défait.
+        volet.querySelector('#pts-bilan-annuler').click();
+        await attendre(400);
+        const cls2 = await ClassesStore.loadAll();
+        const e2 = cls2.find(c => c.id === 'k1').students.find(s => s.id === eleveId);
+        return {
+            dansLeVolet: !!table,
+            barre: barreVisible('#pts-barre'), bande: barreVisible('#pts-bande'),
+            sansFermer: !volet.querySelector('#pts-bilan-fermer'),
+            avant, apres, traces: traces.length, date: traces[0] && traces[0].d,
+            apresAnnulation: (e2.journal || []).filter(x => x.t === 'o' && x.v === 'carnet').length
+        };
+    });
+    const aujourdHui = new Date();
+    const jourAttendu = aujourdHui.getFullYear() + '-'
+        + String(aujourdHui.getMonth() + 1).padStart(2, '0') + '-'
+        + String(aujourdHui.getDate()).padStart(2, '0');
+    r.verifie('le bilan s\'ouvre dans son onglet, à l\'intérieur de la fenêtre', bilanOnglet.dansLeVolet);
+    r.egal('sans la barre des points ni la bande des badges, qui n\'y servent pas',
+        { barre: bilanOnglet.barre, bande: bilanOnglet.bande }, { barre: false, bande: false });
+    r.verifie('ni bouton « Fermer » : on en sort par les onglets', bilanOnglet.sansFermer);
+    r.egal('un clic sur une case note un oubli daté du jour',
+        { cases: bilanOnglet.apres, traces: bilanOnglet.traces, date: bilanOnglet.date },
+        { cases: bilanOnglet.avant + 1, traces: 1, date: jourAttendu });
+    r.egal('et « ↶ » le défait', bilanOnglet.apresAnnulation, 0);
+
+    r.verifie('aucune erreur JS en changeant de classe', errJour.length === 0, errJour.join(' | '));
+    await ctxJour.close();
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

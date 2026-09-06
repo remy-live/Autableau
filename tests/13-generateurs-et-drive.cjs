@@ -732,7 +732,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_fenetres');
         await ClassesStore.saveAll([{ id: 'cf', name: 'Test', students:
             Array.from({ length: 20 }, (_, i) => ({ id: 'x' + i, name: 'Élève ' + i })) }]);
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 700));
         const box = document.querySelector('#class-manager-modal .modal-box');
         return {
@@ -837,7 +837,7 @@ module.exports = async function (browser) {
     const reouverture = await page.evaluate(async () => {
         const vise = JSON.parse(localStorage.getItem('board_fenetres'))['class-manager'];
         document.getElementById('class-manager-modal').remove();
-        await openClassManagerModal();
+        await openClassManagerModal(null, 'eleves');
         await new Promise(r => setTimeout(r, 700));
         const r2 = document.querySelector('#class-manager-modal .modal-box').getBoundingClientRect();
         document.getElementById('class-manager-modal').remove();

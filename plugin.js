@@ -31735,13 +31735,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return this.hote;
     },
 
-    ouvrir: function (classeId) {
+    // `options.bilan` : ouvrir directement sur le bilan. C'est un onglet de
+    // « Mes classes », au même titre que les points — et non plus un panneau
+    // qu'on déplie par-dessus eux.
+    ouvrir: function (classeId, options) {
         if (!classeId && !this.hote && this.widgetEl && this.widgetEl.style.display !== 'none') {
             this.widgetEl.style.display = 'none';
             return;
         }
         this.panneauReglages = false;
-        this.panneauBilan = false;
+        this.panneauBilan = !!(options && options.bilan);
         this.ficheEleve = null;
         this.editionAvatar = null;
         this.editionBadge = null;
@@ -31879,8 +31882,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
         this.rendreBande(bande);
 
+        // LE BILAN N'EST PAS UN ÉCRAN DE PLUS AU-DESSUS DES POINTS : c'est une
+        // autre façon de regarder la classe. Ni la barre des modes ni la bande
+        // des badges n'y servent — le tableau a ses propres gestes — et deux
+        // rangées de boutons inutiles au-dessus d'un tableau de trente lignes
+        // mangeaient la hauteur qui lui manquait.
+        if (barre) barre.style.display = this.panneauBilan ? 'none' : '';
+        if (bande) bande.style.display = this.panneauBilan ? 'none' : '';
+
         if (this.editionBadge) { corps.innerHTML = this.htmlBadge(); this.brancherBadge(); return; }
-        if (this.panneauBilan) { corps.innerHTML = this.htmlBilan(); this.brancherBilan(); return; }
+        if (this.panneauBilan) { corps.innerHTML = this.htmlBilan(); this.brancherBilan(); this.poserOuAccueillir(); return; }
         if (this.panneauReglages) { corps.innerHTML = this.htmlReglages(); this.brancherReglages(); return; }
         if (this.editionAvatar) { corps.innerHTML = this.htmlAvatar(); this.brancherAvatar(); return; }
         // La fiche d'un élève : c'est ce qu'on obtient en cliquant son nom
@@ -32219,7 +32230,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             });
             const datesAbsences = traces.filter(x => x.t === 'a')
                 .map(x => x.d.slice(8, 10) + '/' + x.d.slice(5, 7));
+            // Chaque nature à plat : c'est la clé de tri de sa colonne.
+            const parNature = {};
+            this.TYPES_OUBLI.forEach(t => { parNature['o_' + t.id] = oublis[t.id]; });
             return {
+                ...parNature,
                 id: e.id, nom: e.name || '',
                 plus: compte('p'), moins: compte('m'), badges: compte('b'),
                 absences: compte('a'), datesAbsences,
@@ -32244,34 +32259,39 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // forme de pastilles qui ne paraissent que si elles ont quelque chose à
     // dire. Les dates, elles, étaient dans le journal mais nulle part à
     // l'écran : elles arrivent au survol, là où on les cherche.
+    // UNE LIGNE DU BILAN.
+    // Une colonne par nature d'oubli, à nouveau — mais pour une autre raison
+    // qu'avant. Ces colonnes étaient de l'espace mort : quatre en-têtes pour
+    // des cases presque toujours vides. Elles sont maintenant la SURFACE DE
+    // SAISIE : on relit le bilan, on se souvient d'un oubli du jour, on clique
+    // la case. C'est le geste que le professeur faisait sur son cahier.
     ligneDuBilan: function (l, rang) {
         const rien = '<span class="pts-bilan-vide">–</span>';
+        const dit = (texte) => this.echapper(texte);
 
-        // LES OUBLIS EN TOUTES LETTRES. « Sign 3 ↻3 » ne se lisait pas : quatre
-        // lettres tronquées, un compteur et un signe, sans un mot pour dire de
-        // quoi il s'agissait. Le nom entier tient dans la place qu'occupait la
-        // colonne, et la répétition se dit en français.
-        const pastilles = this.TYPES_OUBLI.map(t => {
+        const cases = this.TYPES_OUBLI.map(t => {
             const n = l.oublis[t.id];
-            if (!n) return '';
             const s = l.suites[t.id] || { suite: 0, enCours: false };
             const recidive = s.suite >= 2;
             const dates = (l.datesOublis[t.id] || []).join(', ');
-            const dit = `${t.nom} : ${n} fois${dates ? ' — le ' + dates : ''}`
-                + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure encore' : ''}` : '');
-            return `<span class="pts-oubli-pastille${s.enCours ? ' dure' : ''}" data-tooltip="${this.echapper(dit)}"
-                style="color:${t.couleur}; background:${t.couleur}1a; --teinte:${t.couleur};">
-                ${this.echapper(t.nom)}<b>${n}</b>${recidive ? `<i title="${s.suite} cours de suite">↻${s.suite}</i>` : ''}</span>`;
-        }).filter(Boolean).join('');
+            const bulle = n
+                ? `${t.nom} : ${n} fois${dates ? ' — le ' + dates : ''}`
+                    + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure encore' : ''}` : '')
+                    + ' — cliquez pour en ajouter un'
+                : `Aucun oubli de ${t.nom.toLowerCase()} — cliquez pour en ajouter un`;
+            return `<td class="pts-bilan-case${n ? ' garni' : ''}${s.enCours ? ' dure' : ''}"
+                    data-eleve="${l.id}" data-type="${t.id}" data-tooltip="${dit(bulle)}"
+                    style="--teinte:${t.couleur};">
+                ${n ? `<b>${n}</b>${recidive ? `<i>↻${s.suite}</i>` : ''}` : '<span class="pts-bilan-plus">+</span>'}
+            </td>`;
+        }).join('');
 
         const detailPoints = `${l.plus} bonus, ${l.moins} malus`;
-        const dit = (texte) => this.echapper(texte);
         // Celui dont une suite court encore : la ligne le dit, on ne la cherche pas.
         const alerte = l.suiteEnCours ? ' pts-bilan-alerte' : '';
 
-        return `<tr class="pts-bilan-ligne${alerte}" data-eleve="${l.id}"
-                data-tooltip="Voir la fiche de ${dit(l.nom)}">
-            <td class="pts-bilan-nom">${this.echapper(l.nom)}</td>
+        return `<tr class="pts-bilan-ligne${alerte}" data-eleve="${l.id}">
+            <td class="pts-bilan-nom" data-tooltip="Voir la fiche de ${dit(l.nom)}">${this.echapper(l.nom)}</td>
             <td class="pts-bilan-nb" data-tooltip="${dit(detailPoints)}"
                 style="color:${l.solde < 0 ? '#d63031' : (l.solde > 0 ? '#00b894' : '#b2bec3')};">
                 ${l.solde ? (l.solde > 0 ? '+' : '') + l.solde : rien}</td>
@@ -32279,7 +32299,8 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <td class="pts-bilan-nb"
                 data-tooltip="${dit(l.absences ? 'Absent le ' + l.datesAbsences.join(', ') : 'Aucune absence')}"
                 style="color:${l.absences ? '#e17055' : '#b2bec3'};">${l.absences || rien}</td>
-            <td class="pts-bilan-oublis">${pastilles || rien}</td>
+            ${cases}
+            <td class="pts-bilan-reste"></td>
             <td class="pts-bilan-fiche"><span class="pts-bilan-fleche" title="Ouvrir la fiche">›</span></td>
         </tr>`;
     },
@@ -32311,10 +32332,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 <b style="font-size:14px;">Bilan — ${this.echapper((classe && classe.name) || 'Classe')}</b>
                 <span style="font-size:12px; color:#636e72;">${this.nomDeLaPeriode()}</span>
                 <div style="flex:1;"></div>
+                <span style="font-size:11.5px; color:#636e72;">Cliquez une case d'oubli pour en ajouter un</span>
+                <button id="pts-bilan-annuler" data-tooltip="Défaire le dernier geste"
+                        style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
+                        padding:7px 11px; font-size:12px; cursor:pointer;">↶</button>
                 <button id="pts-bilan-pdf" style="border:none; background:#00b894; color:#fff; border-radius:8px;
                         padding:7px 13px; font-size:12px; font-weight:bold; cursor:pointer;">⬇ Exporter en PDF</button>
-                <button id="pts-bilan-fermer" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
-                        padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>
+                ${this.hote ? '' : `<button id="pts-bilan-fermer" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
+                        padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>`}
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                 ${p('tri0')}${p('tri1')}${p('tri2')}
@@ -32335,12 +32360,17 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                         ${entete('solde', 'Points', 'Bonus moins malus — le détail au survol')}
                         ${entete('badges', 'Badges', 'Badges reçus sur la période')}
                         ${entete('absences', 'Abs.', "Jours d'absence — les dates au survol")}
-                        ${entete('totalOublis', 'Oublis', 'Le détail par nature, avec les dates au survol')}
+                        ${this.TYPES_OUBLI.map(t => entete('o_' + t.id, t.nom,
+                            `Oublis de ${t.nom.toLowerCase()} — cliquez une case pour en ajouter un`)).join('')}
+                        <!-- Le vide se met ICI, pas dans la colonne des noms :
+                             les chiffres restent contre l'élève qu'ils
+                             concernent, au lieu de fuir vers le bord droit. -->
+                        <th class="pts-bilan-reste"></th>
                         <th class="pts-bilan-fiche"></th>
                     </tr></thead>
                     <tbody>
                         ${lignes.length ? lignes.map((l, i) => this.ligneDuBilan(l, i)).join('')
-                : `<tr><td colspan="6" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
+                : `<tr><td colspan="${6 + this.TYPES_OUBLI.length}" style="padding:22px; text-align:center; color:#636e72;">Rien sur cette période.</td></tr>`}
                     </tbody>
                 </table>
             </div>
@@ -32380,6 +32410,21 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.ficheEleve = tr.dataset.eleve;
             this.rendre();
         }));
+        // UNE CASE D'OUBLI SE REMPLIT D'UN CLIC. On relit le bilan, on se
+        // souvient d'un oubli du jour : il se note là où on le lit, sans
+        // repasser par la grille des points. Le clic ne remonte pas à la
+        // ligne, sinon on ouvrirait la fiche du même geste.
+        el.querySelectorAll('.pts-bilan-case').forEach(td => td.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const fait = this.appliquerA(this.classeCourante(), td.dataset.eleve,
+                { t: 'oubli', typeId: td.dataset.type });
+            if (!fait) return;
+            this.sauver();
+            this.rendre();
+            if (typeof showToast === 'function') showToast(fait.texte);
+        }));
+        const defaire = el.querySelector('#pts-bilan-annuler');
+        if (defaire) defaire.addEventListener('click', () => this.annuler());
         const fermer = el.querySelector('#pts-bilan-fermer');
         if (fermer) fermer.addEventListener('click', () => { this.panneauBilan = false; this.rendre(); });
         const pdf = el.querySelector('#pts-bilan-pdf');
@@ -32598,9 +32643,9 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     style="flex-shrink:0; border:none; background:#2d3436; color:#fff; border-radius:14px;
                            padding:5px 11px; font-size:12px; cursor:pointer;">✕ Reposer</button>` : ''}
             <div style="flex:1;"></div>
-            <button id="pts-bilan" data-tooltip="Le bilan de la classe, sur la période de votre choix"
+            ${this.hote ? '' : `<button id="pts-bilan" data-tooltip="Le bilan de la classe, sur la période de votre choix"
                     style="flex-shrink:0; border:1px solid #dfe6e9; background:#fff; color:#2d3436; border-radius:14px;
-                           padding:4px 12px; font-size:12px; cursor:pointer; font-weight:600;">📊 Bilan</button>
+                           padding:4px 12px; font-size:12px; cursor:pointer; font-weight:600;">📊 Bilan</button>`}
             </div>`;
 
         const reposer = bande.querySelector('#pts-badge-poser');
