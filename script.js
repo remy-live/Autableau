@@ -18070,18 +18070,22 @@ window.Journal = Journal;
 // ==============================================================================
 const CLE_CLASSE_DU_MOMENT = 'AuTableau_classe_du_moment';
 
+// AUCUNE CLASSE EST UNE RÉPONSE. On prépare un cours le dimanche soir, on
+// fait une démonstration, on écrit une note : il n'y a alors pas de classe
+// devant soi, et l'application n'a pas à en désigner une d'office. Tant que
+// rien n'est choisi, la pastille le dit et n'engage rien.
 function classeDuMoment(classes) {
     const liste = classes || [];
     let id = null;
     try { id = localStorage.getItem(CLE_CLASSE_DU_MOMENT); } catch (e) { id = null; }
-    if (id && liste.some(c => c.id === id && !c.archivee)) return id;
-    const vivante = liste.find(c => !c.archivee) || liste[0];
-    return vivante ? vivante.id : null;
+    return (id && liste.some(c => c.id === id && !c.archivee)) ? id : null;
 }
 
 function poserLaClasseDuMoment(id) {
-    if (!id) return;
-    try { localStorage.setItem(CLE_CLASSE_DU_MOMENT, id); } catch (e) { /* stockage refusé */ }
+    try {
+        if (id) localStorage.setItem(CLE_CLASSE_DU_MOMENT, id);
+        else localStorage.removeItem(CLE_CLASSE_DU_MOMENT);
+    } catch (e) { /* stockage refusé */ }
     if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
 }
 
@@ -18094,56 +18098,123 @@ async function majPastilleDeClasse() {
     const vivantes = classes.filter(c => !c.archivee);
     const c = vivantes.find(x => x.id === classeDuMoment(classes));
     const nom = pastille.querySelector('.cp-nom');
-    if (nom) nom.textContent = c ? c.name : 'Mes classes';
+    if (nom) nom.textContent = c ? c.name : 'Choisir une classe';
     pastille.classList.toggle('vide', !c);
     pastille.setAttribute('data-tooltip', c
-        ? `${c.name} — la classe du moment ; cliquez pour en changer ou aller droit à l'appel`
-        : 'Aucune classe pour l\'instant — cliquez pour en créer une');
+        ? `${c.name} — la classe du moment ; cliquez pour l'appel, les points, le bilan, ou pour en changer`
+        : 'Aucune classe choisie — cliquez pour en désigner une');
 }
 
-// Le menu de la pastille : une ligne par classe, et trois raccourcis qui
-// mènent droit au geste — l'appel, les points, le bilan.
+// Le menu de la pastille. Deux états : la liste des classes, ou l'appel de
+// l'une d'elles — l'appel se fait au tableau, en début d'heure, sans ouvrir
+// une fenêtre par-dessus le cours.
+let appelAuTableau = null;   // l'identifiant de la classe dont on fait l'appel
+
 function ouvrirLeMenuDeClasse(classes) {
     const menu = document.getElementById('classe-menu');
     if (!menu) return;
     const vivantes = (classes || []).filter(c => !c.archivee);
     const courante = classeDuMoment(classes || []);
-    const geste = (id, vue, ico, dit) =>
-        `<button class="cl-geste" data-id="${id}" data-vue="${vue}" title="${dit}" data-tooltip="${dit}">${ico}</button>`;
-    menu.innerHTML = `
-        <div class="cl-titre">La classe du moment</div>
-        ${vivantes.length ? vivantes.map(c => `
-            <div class="cl-ligne${c.id === courante ? ' actif' : ''}">
-                <button class="cl-nom" data-id="${c.id}" data-vue="points">
-                    ${echapperTexte(c.name)} <span class="cl-compte">${(c.students || []).length}</span>
-                </button>
-                ${geste(c.id, 'appel', '✓', 'Faire l\'appel sur le plan')}
-                ${geste(c.id, 'points', '🏅', 'Points, oublis et récompenses')}
-                ${geste(c.id, 'bilan', '📊', 'Le bilan de la classe')}
-            </div>`).join('')
-        : '<div class="cl-vide">Aucune classe pour l\'instant.</div>'}
-        <button class="cl-gerer" data-vue="eleves">⚙️ Gérer mes classes…</button>`;
 
-    // La classe demandée devient la classe du moment — c'est la fenêtre
-    // elle-même qui s'en charge, sur la classe qu'elle finit par ouvrir.
-    const aller = (id, vue) => {
-        fermerLeMenuDeClasse();
-        openClassManagerModal(id || undefined, vue);
-    };
-    menu.querySelectorAll('.cl-nom, .cl-geste').forEach(b => {
-        b.onclick = () => aller(b.dataset.id, b.dataset.vue);
-    });
-    const gerer = menu.querySelector('.cl-gerer');
-    if (gerer) gerer.onclick = () => aller(null, vivantes.length ? 'eleves' : undefined);
+    if (appelAuTableau) {
+        const c = vivantes.find(x => x.id === appelAuTableau);
+        if (!c) appelAuTableau = null;
+        else { menu.innerHTML = htmlAppelAuTableau(c); brancherAppelAuTableau(c, classes); }
+    }
+    if (!appelAuTableau) {
+        const geste = (id, vue, ico, dit) =>
+            `<button class="cl-geste" data-id="${id}" data-vue="${vue}" title="${dit}" data-tooltip="${dit}">${ico}</button>`;
+        menu.innerHTML = `
+            <div class="cl-titre">La classe du moment</div>
+            ${vivantes.length ? vivantes.map(c => `
+                <div class="cl-ligne${c.id === courante ? ' actif' : ''}">
+                    <button class="cl-nom" data-id="${c.id}" data-vue="points">
+                        ${echapperTexte(c.name)} <span class="cl-compte">${(c.students || []).length}</span>
+                    </button>
+                    ${geste(c.id, 'appel', '✓', 'Faire l\'appel, ici même')}
+                    ${geste(c.id, 'points', '🏅', 'Points, oublis et récompenses')}
+                    ${geste(c.id, 'bilan', '📊', 'Le bilan de la classe')}
+                </div>`).join('')
+            : '<div class="cl-vide">Aucune classe pour l\'instant.</div>'}
+            ${courante ? '<button class="cl-aucune">— Aucune classe pour le moment —</button>' : ''}
+            <button class="cl-gerer" data-vue="eleves">⚙️ Gérer mes classes…</button>`;
+
+        // La classe demandée devient la classe du moment — c'est la fenêtre
+        // elle-même qui s'en charge, sur la classe qu'elle finit par ouvrir.
+        const aller = (id, vue) => {
+            fermerLeMenuDeClasse();
+            openClassManagerModal(id || undefined, vue);
+        };
+        menu.querySelectorAll('.cl-nom').forEach(b => {
+            b.onclick = () => aller(b.dataset.id, b.dataset.vue);
+        });
+        menu.querySelectorAll('.cl-geste').forEach(b => {
+            b.onclick = () => {
+                // L'appel reste ici : c'est le geste qu'on fait debout, au
+                // tableau, en trois secondes. Le reste ouvre la fenêtre.
+                if (b.dataset.vue === 'appel') {
+                    poserLaClasseDuMoment(b.dataset.id);
+                    appelAuTableau = b.dataset.id;
+                    ouvrirLeMenuDeClasse(classes);
+                    return;
+                }
+                aller(b.dataset.id, b.dataset.vue);
+            };
+        });
+        const aucune = menu.querySelector('.cl-aucune');
+        if (aucune) aucune.onclick = () => {
+            poserLaClasseDuMoment(null);
+            fermerLeMenuDeClasse();
+        };
+        const gerer = menu.querySelector('.cl-gerer');
+        if (gerer) gerer.onclick = () => aller(null, vivantes.length ? 'eleves' : undefined);
+    }
 
     menu.hidden = false;
     document.addEventListener('pointerdown', fermerSiHorsDuMenuDeClasse, true);
     document.addEventListener('keydown', echapDuMenuDeClasse, true);
 }
 
+// L'APPEL AU TABLEAU. On coche les absents dans la liste, sans ouvrir « Mes
+// classes » ni le plan : le tableau reste visible derrière.
+function htmlAppelAuTableau(c) {
+    const eleves = (c.students || []).slice().sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
+    return `
+        <div class="cl-appel-tete">
+            <button class="cl-retour" title="Revenir aux classes">‹</button>
+            <b>${echapperTexte(c.name)}</b>
+            <span class="cl-appel-compte">${Appel.resume(c) || 'Aucun élève'}</span>
+        </div>
+        <div class="cl-appel-liste">
+            ${eleves.length ? eleves.map(e => `
+                <button class="cl-eleve${e.absent ? ' absent' : ''}" data-id="${e.id}">
+                    <span class="cl-coche">${e.absent ? '✕' : '✓'}</span>${echapperTexte(e.name)}
+                </button>`).join('')
+            : '<div class="cl-vide">Cette classe n\'a pas encore d\'élèves.</div>'}
+        </div>
+        <button class="cl-gerer cl-tous">✓ Tous présents</button>`;
+}
+
+function brancherAppelAuTableau(c, classes) {
+    const menu = document.getElementById('classe-menu');
+    const rafraichir = () => {
+        ClassesStore.saveAll(classes);
+        ouvrirLeMenuDeClasse(classes);
+    };
+    menu.querySelectorAll('.cl-eleve').forEach(b => {
+        b.onclick = () => { Appel.basculer(c, b.dataset.id); rafraichir(); };
+    });
+    const retour = menu.querySelector('.cl-retour');
+    if (retour) retour.onclick = () => { appelAuTableau = null; ouvrirLeMenuDeClasse(classes); };
+    const tous = menu.querySelector('.cl-tous');
+    if (tous) tous.onclick = () => { Appel.tousPresents(c); rafraichir(); };
+}
+
 function fermerLeMenuDeClasse() {
     const menu = document.getElementById('classe-menu');
     if (menu) menu.hidden = true;
+    appelAuTableau = null;
     document.removeEventListener('pointerdown', fermerSiHorsDuMenuDeClasse, true);
     document.removeEventListener('keydown', echapDuMenuDeClasse, true);
 }
@@ -18872,8 +18943,13 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
     // La classe du moment est celle qu'on retrouve en ouvrant la fenêtre : le
     // professeur fait cours à une classe à la fois, et c'est presque toujours
     // la dernière regardée.
-    state.selectedId = (classeVoulue && state.classes.some(c => c.id === classeVoulue))
+    // Aucune classe choisie n'empêche pas d'ouvrir la fenêtre : on montre la
+    // première, sans pour autant la désigner comme la classe du moment — ce
+    // choix-là se fait en cliquant, pas en ouvrant.
+    const vivante = state.classes.find(c => !c.archivee) || state.classes[0];
+    const explicite = (classeVoulue && state.classes.some(c => c.id === classeVoulue))
         ? classeVoulue : classeDuMoment(state.classes);
+    state.selectedId = explicite || (vivante ? vivante.id : null);
     // On ouvre là où l'on va : sur les points, qui se donnent à chaque heure.
     // Une classe sans élèves n'a rien à montrer d'autre que sa liste.
     const premiere = state.classes.find(c => c.id === state.selectedId);
@@ -18881,7 +18957,7 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
     // l'on fait l'appel.
     if (vueVoulue === 'appel') { state.vue = 'plan'; state.planMode = 'classe'; }
     else state.vue = vueVoulue || ((premiere && (premiere.students || []).length) ? 'points' : 'eleves');
-    if (state.selectedId) poserLaClasseDuMoment(state.selectedId);
+    if (explicite) poserLaClasseDuMoment(explicite);
 
     function getSelected() {
         return state.classes.find(c => c.id === state.selectedId) || null;
@@ -18908,6 +18984,9 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
                         title="${(c.students || []).length} élève(s)">
                     <span>${c.name || '(sans nom)'}</span>
                     <span class="cm-onglet-compte">${(c.students || []).length}</span>
+                    ${c.id === state.selectedId
+                        ? `<span class="cm-onglet-menu" data-id="${c.id}"
+                                 title="Renommer, copier, archiver, supprimer cette classe">⋯</span>` : ''}
                 </button>
             `).join('');
 
@@ -19141,8 +19220,120 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
         if (volet) { volet.style.paddingTop = '14px'; volet.style.overflow = ''; }
     }
 
+    // --- LES GESTES QUI PORTENT SUR LA CLASSE ELLE-MÊME ---
+    function renommerLaClasse() {
+        const c = getSelected(); if (!c) return;
+        openSysPromptModal('Renommer la classe', 'Son nom :', c.name || '', (nom) => {
+            c.name = (nom || '').trim() || 'Classe sans nom';
+            c.updatedAt = Date.now();
+            persist(); render();
+            if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+        });
+    }
+
+    function copierLaClasse() {
+        const c = getSelected(); if (!c) return;
+        // ON DEMANDE LE NOM. Sans cela, cinq copies s'appelaient « 4A
+        // (copie) », « 4A (copie) (copie) »… : dans une rangée d'onglets,
+        // rien ne les distinguait plus, et les onglets ne servaient plus à
+        // rien. Le nom proposé est déjà distinct — on n'a qu'à valider.
+        const base = (c.name || 'Classe').replace(/\s*\(copie\)+\s*$/i, '');
+        let n = 2;
+        const pris = (nom) => state.classes.some(x => (x.name || '').toLowerCase() === nom.toLowerCase());
+        while (pris(`${base} — groupe ${n}`)) n++;
+        openSysPromptModal('Copier la classe',
+            'Une nouvelle classe avec les mêmes élèves — sans les points ni les badges. Son nom :',
+            `${base} — groupe ${n}`, (nom) => {
+                const propre = (nom || '').trim() || `${base} — groupe ${n}`;
+                const copie = {
+                    id: ClassesStore.newId('class'),
+                    name: propre,
+                    students: (c.students || []).map(e => ({
+                        id: ClassesStore.newId('stu'), name: e.name,
+                        avatar: e.avatar, photo: e.photo, frontRow: e.frontRow, memo: e.memo
+                    })),
+                    aSeparer: [],
+                    createdAt: Date.now(), updatedAt: Date.now()
+                };
+                state.classes.push(copie);
+                state.selectedId = copie.id;
+                poserLaClasseDuMoment(copie.id);
+                persist(); render();
+                if (typeof showToast === 'function') {
+                    showToast(`⧉ « ${propre} » créée — sans les points ni les badges`);
+                }
+            });
+    }
+
+    function archiverLaClasse() {
+        const c = getSelected(); if (!c) return;
+        c.archivee = !c.archivee;
+        c.updatedAt = Date.now();
+        persist(); render();
+        if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+        if (typeof showToast === 'function') {
+            showToast(c.archivee ? '📦 Classe archivée' : '📤 Classe sortie des archives');
+        }
+    }
+
+    function supprimerLaClasse() {
+        const c = getSelected(); if (!c) return;
+        openConfirmModal(
+            'Supprimer la classe',
+            `Supprimer la classe "${c.name}" et ses ${(c.students || []).length} élève(s) ? Cette action est irréversible.`,
+            true,
+            () => {
+                state.classes = state.classes.filter(cl => cl.id !== c.id);
+                state.selectedId = state.classes[0] ? state.classes[0].id : null;
+                if (classeDuMoment(state.classes) === null) poserLaClasseDuMoment(null);
+                persist();
+                render();
+                if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+            }
+        );
+    }
+
+    // Le petit menu du « ⋯ » de l'onglet ouvert.
+    function ouvrirLeMenuDeLOnglet(ancre) {
+        fermerLeMenuDeLOnglet();
+        const c = getSelected(); if (!c) return;
+        const pop = document.createElement('div');
+        pop.className = 'cm-onglet-popup';
+        pop.innerHTML = `
+            <button data-geste="renommer">✎ Renommer…</button>
+            <button data-geste="copier">⧉ Copier la classe…</button>
+            <button data-geste="archiver">${c.archivee ? '📤 Sortir des archives' : '📦 Archiver'}</button>
+            <button data-geste="supprimer" class="cm-danger">🗑️ Supprimer la classe</button>`;
+        const b = ancre.getBoundingClientRect();
+        pop.style.left = Math.round(b.left - 60) + 'px';
+        pop.style.top = Math.round(b.bottom + 6) + 'px';
+        document.body.appendChild(pop);
+        const gestes = { renommer: renommerLaClasse, copier: copierLaClasse, archiver: archiverLaClasse, supprimer: supprimerLaClasse };
+        pop.querySelectorAll('button').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                fermerLeMenuDeLOnglet();
+                const f = gestes[btn.dataset.geste];
+                if (f) f();
+            };
+        });
+        setTimeout(() => document.addEventListener('pointerdown', fermerLeMenuDeLOngletSiDehors, true), 0);
+    }
+
+    function fermerLeMenuDeLOnglet() {
+        document.querySelectorAll('.cm-onglet-popup').forEach(p => p.remove());
+        document.removeEventListener('pointerdown', fermerLeMenuDeLOngletSiDehors, true);
+    }
+
+    function fermerLeMenuDeLOngletSiDehors(e) {
+        if (!e.target.closest('.cm-onglet-popup')) fermerLeMenuDeLOnglet();
+    }
+
     function attachEvents() {
-        box.querySelector('#cm-close').onclick = () => { quitterLesVues(); document.body.removeChild(modal); };
+        fermerLeMenuDeLOnglet();
+        box.querySelector('#cm-close').onclick = () => {
+            quitterLesVues(); fermerLeMenuDeLOnglet(); document.body.removeChild(modal);
+        };
 
         const boutonDemo = box.querySelector('#cm-demo');
         if (boutonDemo) {
@@ -19263,23 +19454,19 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
         }
 
         const delBtn = box.querySelector('#cm-delete-class');
-        if (delBtn) {
-            delBtn.onclick = () => {
-                const c = getSelected();
-                if (!c) return;
-                openConfirmModal(
-                    "Supprimer la classe",
-                    `Supprimer la classe "${c.name}" et ses ${(c.students || []).length} élève(s) ? Cette action est irréversible.`,
-                    true,
-                    () => {
-                        state.classes = state.classes.filter(cl => cl.id !== c.id);
-                        state.selectedId = state.classes[0] ? state.classes[0].id : null;
-                        persist();
-                        render();
-                    }
-                );
+        if (delBtn) delBtn.onclick = supprimerLaClasse;
+
+        // LE MENU DE L'ONGLET. Renommer, copier, archiver, supprimer : ce sont
+        // des gestes qui portent sur LA CLASSE, pas sur ce qu'on regarde
+        // d'elle. Ils vivaient dans la vue « Élèves » — qui n'est plus celle
+        // d'ouverture : on ne savait plus où supprimer une classe. Ils sont
+        // désormais sur son onglet, là où elle est nommée.
+        box.querySelectorAll('.cm-onglet-menu').forEach(el => {
+            el.onclick = (e) => {
+                e.stopPropagation();
+                ouvrirLeMenuDeLOnglet(el);
             };
-        }
+        });
 
         const avatarsBox = box.querySelector('#cm-avatars');
         if (avatarsBox) {
@@ -19349,53 +19536,13 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
         // En fin d'année on repart de la même liste ; les points et les badges
         // de l'an dernier, eux, n'ont rien à y faire.
         const dupl = box.querySelector('#cm-dupliquer');
-        if (dupl) dupl.onclick = () => {
-            const c = getSelected(); if (!c) return;
-            // ON DEMANDE LE NOM. Sans cela, cinq copies s'appelaient « 4A
-            // (copie) », « 4A (copie) (copie) »… : dans une rangée d'onglets,
-            // rien ne les distinguait plus, et les onglets ne servaient plus à
-            // rien. Le nom proposé est déjà distinct — on n'a qu'à valider.
-            const base = (c.name || 'Classe').replace(/\s*\(copie\)+\s*$/i, '');
-            let n = 2;
-            const pris = (nom) => state.classes.some(x => (x.name || '').toLowerCase() === nom.toLowerCase());
-            while (pris(`${base} — groupe ${n}`)) n++;
-            openSysPromptModal('Copier la classe',
-                `Une nouvelle classe avec les mêmes élèves — sans les points ni les badges. Son nom :`,
-                `${base} — groupe ${n}`, (nom) => {
-                    const propre = (nom || '').trim() || `${base} — groupe ${n}`;
-                    const copie = {
-                        id: ClassesStore.newId('class'),
-                        name: propre,
-                        students: (c.students || []).map(e => ({
-                            id: ClassesStore.newId('stu'), name: e.name,
-                            avatar: e.avatar, photo: e.photo, frontRow: e.frontRow, memo: e.memo
-                        })),
-                        aSeparer: [],
-                        createdAt: Date.now(), updatedAt: Date.now()
-                    };
-                    state.classes.push(copie);
-                    state.selectedId = copie.id;
-                    poserLaClasseDuMoment(copie.id);
-                    persist(); render();
-                    if (typeof showToast === 'function') {
-                        showToast(`⧉ « ${propre} » créée — sans les points ni les badges`);
-                    }
-                });
-        };
+        if (dupl) dupl.onclick = copierLaClasse;
 
         // --- Archiver ---
         // Supprimer une classe de l'an dernier, c'est perdre son histoire.
         // L'archiver la range sans rien jeter.
         const arch = box.querySelector('#cm-archiver');
-        if (arch) arch.onclick = () => {
-            const c = getSelected(); if (!c) return;
-            c.archivee = !c.archivee;
-            c.updatedAt = Date.now();
-            persist(); render();
-            if (typeof showToast === 'function') {
-                showToast(c.archivee ? '📦 Classe archivée' : '📤 Classe sortie des archives');
-            }
-        };
+        if (arch) arch.onclick = archiverLaClasse;
 
         // --- Le mémo d'un élève ---
         box.querySelectorAll('.cm-memo').forEach(btn => {

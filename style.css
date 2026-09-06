@@ -4622,7 +4622,8 @@ body.dark-mode {
 /* --- Titre du tableau --- */
 .project-name-wrapper {
     position: absolute;
-    top: 14px;
+    /* Sous la pastille de classe, qui occupe désormais le coin. */
+    top: 50px;
     /* EN HAUT À GAUCHE, ET NON AU MILIEU. Le tiroir des plugins occupe le
        haut au CENTRE : la date y était soit derrière lui — invisible dans
        l'interface par défaut, on ne la voyait qu'en mode Focus — soit devant,
@@ -8737,8 +8738,11 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 =================================================== */
 #classe-boite {
     position: absolute;
-    top: 48px;
-    left: 14px;
+    /* DANS LE COIN, avant tout le reste : c'est la première chose à savoir en
+       arrivant devant une classe. La date descend d'un cran pour lui laisser
+       le coin. */
+    top: 12px;
+    left: 12px;
     /* Au-dessus du tiroir des plugins (40) : la pastille est petite et reste à
        gauche, mais un clic ne doit jamais lui être volé. */
     z-index: 41;
@@ -8866,3 +8870,152 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .dark-mode #classe-menu { background: #22282c; border-color: #4a5560; }
 .dark-mode .cl-nom { color: #f1f2f6; }
 .dark-mode .cl-ligne:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* L'APPEL AU TABLEAU. En début d'heure, on coche les absents sans ouvrir de
+   fenêtre par-dessus le cours : la liste tient dans le menu de la pastille. */
+.cl-appel-tete {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 8px;
+    border-bottom: 1px solid var(--border, #dfe6e9);
+    margin-bottom: 4px;
+}
+
+.cl-retour {
+    border: none;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font-size: 18px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.cl-retour:hover { background: var(--bg, #f1f2f6); color: var(--ink, #2d3436); }
+.cl-appel-compte { margin-left: auto; font-size: 11.5px; color: var(--muted, #636e72); }
+
+.cl-appel-liste {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    max-height: 46vh;
+    overflow-y: auto;
+}
+
+.cl-eleve {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cl-eleve:hover { background: var(--bg, #f1f2f6); }
+.cl-coche { color: #00b894; font-weight: 800; font-size: 12px; }
+.cl-eleve.absent { color: var(--muted, #b2bec3); text-decoration: line-through; }
+.cl-eleve.absent .cl-coche { color: #d63031; text-decoration: none; }
+
+.cl-aucune {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    padding: 7px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.cl-aucune:hover { background: var(--bg, #f1f2f6); color: var(--ink, #2d3436); }
+
+.dark-mode .cl-eleve { color: #f1f2f6; }
+.dark-mode .cl-eleve:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* LE MENU DE L'ONGLET. Renommer, copier, archiver, supprimer une classe : des
+   gestes qui portent sur la classe, et non sur ce qu'on regarde d'elle. Ils
+   vivaient dans la vue « Élèves », qui n'est plus celle d'ouverture — on ne
+   trouvait plus où supprimer une classe. */
+.cm-onglet-menu {
+    margin-left: 2px;
+    padding: 0 4px;
+    border-radius: 6px;
+    color: var(--muted, #b2bec3);
+    font-weight: 700;
+    line-height: 1;
+}
+
+.cm-onglet-menu:hover { background: var(--accent-soft, #eef2ff); color: var(--accent, #6c5ce7); }
+
+.cm-onglet-popup {
+    position: fixed;
+    z-index: 100060;
+    min-width: 208px;
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+    padding: 5px;
+}
+
+.cm-onglet-popup button {
+    display: block;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+.cm-onglet-popup button:hover { background: var(--bg, #f1f2f6); }
+.cm-onglet-popup button.cm-danger { color: #d63031; }
+.cm-onglet-popup button.cm-danger:hover { background: rgba(214, 48, 49, 0.12); }
+
+.dark-mode .cm-onglet-popup { background: #22282c; border-color: #4a5560; }
+.dark-mode .cm-onglet-popup button { color: #f1f2f6; }
+.dark-mode .cm-onglet-popup button:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* Le bilan : ajouter ou retirer un oubli. Deux états qui se voient. */
+.pts-bilan-modes {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--bg, #f1f2f6);
+    border-radius: 9px;
+}
+
+.pts-bilan-mode {
+    border: none;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 5px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pts-bilan-mode.actif { background: var(--surface, #fff); color: var(--accent, #6c5ce7); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+
+/* Ce que le bilan met de côté : la barre des modes et la bande des badges. */
+.pts-hors-jeu { display: none !important; }

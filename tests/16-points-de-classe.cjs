@@ -2460,41 +2460,67 @@ module.exports = async function (browser) {
         const attendre = ms => new Promise(res => setTimeout(res, ms));
         await ClassesStore.saveAll([
             { id: 'k1', name: '4A', students: ['Ana', 'Bo', 'Cy'].map((n, i) => ({ id: 'p' + i, name: n })) },
-            { id: 'k2', name: '5C', students: [{ id: 'q0', name: 'Dan' }] }
+            { id: 'k2', name: '5C', students: ['Dan', 'Eve'].map((n, i) => ({ id: 'q' + i, name: n })) }
         ]);
+        localStorage.removeItem('AuTableau_classe_du_moment');
         await majPastilleDeClasse();
         const lu = () => document.querySelector('#classe-pastille .cp-nom').textContent.trim();
+        // AUCUNE CLASSE D'OFFICE : on prépare un cours le dimanche soir sans
+        // avoir de classe devant soi.
         const auDepart = lu();
         document.getElementById('classe-pastille').click();
         await attendre(300);
         const menu = document.getElementById('classe-menu');
         const ouvert = !menu.hidden;
         const lignes = menu.querySelectorAll('.cl-ligne').length;
+        const sansChoix = { aucune: !!menu.querySelector('.cl-aucune') };
         const gestes = [...menu.querySelectorAll('.cl-ligne')[1].querySelectorAll('.cl-geste')]
             .map(b => b.dataset.vue);
-        // On demande l'appel de la seconde classe : elle devient la classe du
-        // moment, et l'on arrive sur le plan, du côté où l'on fait l'appel.
+
+        // L'APPEL SE FAIT ICI, au tableau : pas de fenêtre par-dessus le cours.
         menu.querySelectorAll('.cl-ligne')[1].querySelector('.cl-geste[data-vue="appel"]').click();
-        await attendre(900);
-        const vue = (document.querySelector('.cm-vue.actif') || {}).dataset?.vue;
+        await attendre(300);
+        const appel = {
+            eleves: menu.querySelectorAll('.cl-eleve').length,
+            compte: menu.querySelector('.cl-appel-compte').textContent.trim(),
+            fenetre: !!document.getElementById('class-manager-modal')
+        };
+        menu.querySelectorAll('.cl-eleve')[0].click();
+        await attendre(300);
+        const cls = await ClassesStore.loadAll();
+        const marque = {
+            absent: !!cls.find(c => c.id === 'k2').students[0].absent,
+            compte: document.querySelector('#classe-menu .cl-appel-compte').textContent.trim(),
+            barre: document.querySelectorAll('#classe-menu .cl-eleve.absent').length
+        };
+        document.querySelector('#classe-menu .cl-tous').click();
+        await attendre(300);
+        const cls2 = await ClassesStore.loadAll();
+        const remis = cls2.find(c => c.id === 'k2').students.every(e => !e.absent);
+        // On revient à la liste des classes
+        document.querySelector('#classe-menu .cl-retour').click();
+        await attendre(200);
+        const revenu = document.querySelectorAll('#classe-menu .cl-ligne').length;
         return {
-            auDepart, ouvert, lignes, gestes,
+            auDepart, ouvert, lignes, sansChoix, gestes, appel, marque, remis, revenu,
             apres: lu(),
-            retenu: localStorage.getItem('AuTableau_classe_du_moment'),
-            vue,
-            planEnClasse: !!document.querySelector('.sp-mode.actif[data-mode="classe"]'),
-            menuReferme: document.getElementById('classe-menu').hidden
+            retenu: localStorage.getItem('AuTableau_classe_du_moment')
         };
     });
-    r.egal('la pastille nomme la classe du moment', pastille.auDepart, '4A');
-    r.egal('son menu liste les classes, chacune avec ses trois raccourcis',
+    r.egal('aucune classe n\'est choisie d\'office', pastille.auDepart, 'Choisir une classe');
+    r.egal('le menu liste les classes, chacune avec ses trois raccourcis',
         { ouvert: pastille.ouvert, lignes: pastille.lignes, gestes: pastille.gestes },
         { ouvert: true, lignes: 2, gestes: ['appel', 'points', 'bilan'] });
-    r.egal('« appel » change la classe du moment et l\'ouvre sur le plan',
-        { nom: pastille.apres, retenu: pastille.retenu, vue: pastille.vue },
-        { nom: '5C', retenu: 'k2', vue: 'plan' });
-    r.verifie('et le plan s\'ouvre du côté où l\'on fait l\'appel', pastille.planEnClasse);
-    r.verifie('le menu se referme derrière lui', pastille.menuReferme);
+    r.verifie('et sans classe choisie, rien à décocher', !pastille.sansChoix.aucune);
+    r.egal('« appel » désigne la classe du moment et ouvre sa liste, sans fenêtre',
+        { nom: pastille.apres, retenu: pastille.retenu, eleves: pastille.appel.eleves,
+          compte: pastille.appel.compte, fenetre: pastille.appel.fenetre },
+        { nom: '5C', retenu: 'k2', eleves: 2, compte: '2 présents', fenetre: false });
+    r.egal('un clic sur un nom le note absent, et le compte suit',
+        { absent: pastille.marque.absent, compte: pastille.marque.compte, barres: pastille.marque.barre },
+        { absent: true, compte: '1 présents, 1 absent', barres: 1 });
+    r.verifie('« tous présents » efface l\'appel', pastille.remis);
+    r.egal('et l\'on revient à la liste des classes', pastille.revenu, 2);
 
     const ouverture = await pageJour.evaluate(async () => {
         const attendre = ms => new Promise(res => setTimeout(res, ms));
@@ -2519,7 +2545,7 @@ module.exports = async function (browser) {
         return { vue, onglet, vueVide };
     });
     r.egal('la fenêtre s\'ouvre sur les points de la classe du moment',
-        { vue: ouverture.vue, onglet: ouverture.onglet.replace(/\s+/g, ' ') }, { vue: 'points', onglet: '5C 1' });
+        { vue: ouverture.vue, onglet: ouverture.onglet.replace(/\s+/g, ' ') }, { vue: 'points', onglet: '5C 2 ⋯' });
     r.egal('mais sur la liste quand la classe n\'a pas encore d\'élèves', ouverture.vueVide, 'eleves');
 
     // LE BILAN EST UN ONGLET, et ses cases se remplissent d'un clic.
@@ -2570,6 +2596,107 @@ module.exports = async function (browser) {
         { cases: bilanOnglet.apres, traces: bilanOnglet.traces, date: bilanOnglet.date },
         { cases: bilanOnglet.avant + 1, traces: 1, date: jourAttendu });
     r.egal('et « ↶ » le défait', bilanOnglet.apresAnnulation, 0);
+
+    // RETIRER UN OUBLI POSÉ PAR MÉGARDE, et la répétition dite tout de suite.
+    const corriger = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const P = PluginManager.plugins.classPointsTool;
+        const volet = document.querySelector('#cm-detail');
+        const cible = volet.querySelector('.pts-bilan-case[data-type="devoirs"]');
+        const eleveId = cible.dataset.eleve;
+        const compte = async () => {
+            const cls = await ClassesStore.loadAll();
+            const e = cls.find(c => c.id === 'k1').students.find(s => s.id === eleveId);
+            return (e.journal || []).filter(x => x.t === 'o' && x.v === 'devoirs').length;
+        };
+        cible.click();
+        await attendre(300);
+        const apresAjout = await compte();
+        // On passe en « retirer » : la même case reprend l'oubli.
+        volet.querySelector('.pts-bilan-mode[data-retire="1"]').click();
+        await attendre(300);
+        const modeVisible = !!volet.querySelector('.pts-bilan-mode[data-retire="1"].actif');
+        volet.querySelector(`.pts-bilan-case[data-type="devoirs"][data-eleve="${eleveId}"]`).click();
+        await attendre(300);
+        const apresRetrait = await compte();
+        volet.querySelector('.pts-bilan-mode[data-retire="0"]').click();
+        await attendre(200);
+        return { apresAjout, modeVisible, apresRetrait };
+    });
+    r.egal('un oubli posé se reprend en passant en « retirer »',
+        { ajout: corriger.apresAjout, mode: corriger.modeVisible, retrait: corriger.apresRetrait },
+        { ajout: 1, mode: true, retrait: 0 });
+
+    const repetition = await pageJour.evaluate(async () => {
+        const P = PluginManager.plugins.classPointsTool;
+        const classe = (await ClassesStore.loadAll()).find(c => c.id === 'k1');
+        const eleve = classe.students[0];
+        const jour = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10); };
+        eleve.journal = [
+            { d: jour(2), t: 'o', v: 'signature' },
+            { d: jour(1), t: 'o', v: 'signature' }
+        ];
+        // Un jour de classe de plus, pour que « aujourd'hui » compte
+        classe.students[1].journal = [{ d: jour(2), t: 'p' }, { d: jour(1), t: 'p' }];
+        const fait = P.appliquerA(classe, eleve.id, { t: 'oubli', typeId: 'signature' });
+        return fait.texte;
+    });
+    r.verifie('noter le troisième oubli d\'affilée le dit tout de suite',
+        /3 cours de suite/.test(repetition), repetition);
+
+    // LA LIGNE « AUJOURD'HUI » : ce que l'heure en cours a produit.
+    const aujourdhui = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const P = PluginManager.plugins.classPointsTool;
+        P.panneauBilan = false; P.rendre();
+        await attendre(300);
+        const lu = () => {
+            const el = document.querySelector('#pts-aujourdhui');
+            return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
+        };
+        const avecOublis = lu();
+        // Sur une classe où rien ne s'est passé aujourd'hui, la ligne se tait.
+        const cls = await ClassesStore.loadAll();
+        cls.find(c => c.id === 'k1').students.forEach(e => { e.journal = []; delete e.absent; });
+        await ClassesStore.saveAll(cls);
+        P.rendre();
+        await attendre(200);
+        return { avecOublis, sansRien: lu() };
+    });
+    r.verifie('la ligne du jour compte ce qui vient d\'être donné',
+        /Aujourd'hui/.test(aujourdhui.avecOublis || '') && /oubli/.test(aujourdhui.avecOublis || ''),
+        String(aujourdhui.avecOublis));
+    r.egal('et elle se tait quand il ne s\'est rien passé', aujourdhui.sansRien, null);
+
+    // LE BILAN EN TABLEUR : point-virgule, accents lisibles, une ligne par élève.
+    const csv = await pageJour.evaluate(async () => {
+        const P = PluginManager.plugins.classPointsTool;
+        const cls = await ClassesStore.loadAll();
+        const classe = cls.find(c => c.id === 'k1');
+        classe.students[0].journal = [{ d: Journal.jour(), t: 'o', v: 'carnet' }];
+        classe.students[0].name = 'Ana; dite "Nana"';
+        P.bilanPeriode = 'tout';
+        let texte = null, nom = null;
+        const vraiUrl = URL.createObjectURL, vraiClic = HTMLAnchorElement.prototype.click;
+        URL.createObjectURL = (blob) => { texte = blob; return 'blob:faux'; };
+        HTMLAnchorElement.prototype.click = function () { nom = this.download; };
+        try { P.exporterLeBilanCSV(); } finally {
+            URL.createObjectURL = vraiUrl; HTMLAnchorElement.prototype.click = vraiClic;
+        }
+        const contenu = texte ? await texte.text() : '';
+        // `Blob.text()` avale la marque d'ordre : on regarde les octets.
+        const octets = texte ? [...new Uint8Array(await texte.arrayBuffer()).slice(0, 3)] : [];
+        return { nom, lignes: contenu.trim().split(/\r\n/), octets };
+    });
+    r.verifie('le fichier porte le nom de la classe et la date',
+        /^bilan-.+-\d{4}-\d{2}-\d{2}\.csv$/.test(csv.nom || ''), String(csv.nom));
+    r.egal('une ligne d\'en-tête et une par élève', csv.lignes.length, 4);
+    r.verifie('les colonnes sont séparées par des points-virgules, comme l\'attend un tableur français',
+        (csv.lignes[0] || '').split(';').length >= 10, csv.lignes[0]);
+    r.verifie('un nom qui contient un point-virgule ne casse pas le tableau',
+        (csv.lignes[1] || '').startsWith('"Ana; dite ""Nana"""'), csv.lignes[1]);
+    r.egal('et le fichier commence par la marque qui rend les accents lisibles',
+        csv.octets, [239, 187, 191]);
 
     r.verifie('aucune erreur JS en changeant de classe', errJour.length === 0, errJour.join(' | '));
     await ctxJour.close();

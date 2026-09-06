@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=98">
+    <link rel="stylesheet" href="style.css?v=99">
 </head>
 
 <body>
@@ -721,11 +721,17 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">👥 Mes classes</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
-                        <li><b>La classe du moment :</b> la pastille <b>👥</b> sous la date, dans le coin du
-                            tableau, dit à quelle classe vous faites cours. Un clic ouvre la liste : le nom mène
-                            aux points, et trois raccourcis mènent droit au geste — <b>✓</b> l'appel sur le plan,
-                            <b>🏅</b> les points, <b>📊</b> le bilan. La classe choisie est retenue : c'est elle
-                            qu'on retrouve à la prochaine ouverture, dans tous les outils.</li>
+                        <li><b>La classe du moment :</b> la pastille <b>👥</b> dans le coin du tableau dit à
+                            quelle classe vous faites cours. Un clic ouvre la liste : le nom mène aux points, et
+                            trois raccourcis mènent droit au geste — <b>✓</b> l'appel, <b>🏅</b> les points,
+                            <b>📊</b> le bilan. La classe choisie est retenue d'une séance à l'autre, dans tous
+                            les outils. <b>Aucune n'est choisie d'office</b> : on prépare un cours le dimanche
+                            soir sans avoir de classe devant soi, et « — Aucune classe pour le moment — » rend
+                            la pastille au repos.</li>
+                        <li><b>L'appel au tableau, sans rien ouvrir :</b> le <b>✓</b> d'une classe déroule ses
+                            élèves dans la pastille elle-même. Un clic sur un nom le note absent, un autre le
+                            rend présent, « Tous présents » efface l'appel — et le tableau reste visible
+                            derrière. C'est le geste de début d'heure, en trois secondes.</li>
                         <li><b>Une fenêtre, des onglets :</b> « Mes classes » tient dans une seule fenêtre.
                             En haut, un onglet par classe ; en dessous, quatre vues de la classe choisie, dans
                             l'ordre où l'on s'en sert — <b>🏅 Points</b> et <b>📊 Bilan</b>, qui servent à chaque
@@ -768,7 +774,18 @@
                         <li><b>Noter un oubli depuis le bilan :</b> chaque nature a sa colonne, et
                             <b>un clic sur une case ajoute un oubli</b> de cette nature, daté du jour. C'est le
                             geste qu'on faisait sur un cahier : on relit le bilan, on se souvient d'un oubli, on
-                            le note là où on le lit. Le <b>↶</b> de l'en-tête défait le dernier geste.</li>
+                            le note là où on le lit. Le sélecteur <b>＋ Ajouter / － Retirer</b> de l'en-tête
+                            change ce que le clic fait — de quoi reprendre un oubli posé sur la mauvaise ligne —
+                            et le <b>↶</b> défait le dernier geste.</li>
+                        <li><b>Ce qui s'est passé aujourd'hui :</b> au-dessus des cartes, une ligne compte les
+                            absents, les bonus, les malus, les badges et les oublis <b>du jour</b>. Elle ne
+                            paraît que s'il s'est passé quelque chose.</li>
+                        <li><b>La répétition se dit tout de suite :</b> en notant un oubli qui en suit d'autres
+                            sur les cours précédents, le message le dit — « 3 cours de suite ». On l'apprenait
+                            au bilan, en fin de trimestre ; c'est au moment de le noter que cela sert.</li>
+                        <li><b>Exporter le bilan :</b> <b>PDF</b> pour la feuille qu'on pose sur une table, ou
+                            <b>CSV</b> pour le tableur du conseil de classe — une ligne par élève, les dates
+                            comprises, avec les points-virgules et les accents qu'attend un tableur français.</li>
                         <li><b>Le bilan :</b> chaque oubli est écrit en toutes lettres avec son décompte, et un
                             <b>↻</b> signale les récidives sur des cours qui se suivent — une signature oubliée
                             deux fois d'affilée ne se lit pas comme deux oublis épars. Un <b>liseré rouge</b>
@@ -2435,9 +2452,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=184"></script>
+    <script src="script.js?v=185"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=88"></script>
+    <script src="plugin.js?v=89"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

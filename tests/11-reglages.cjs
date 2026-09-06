@@ -573,8 +573,9 @@ module.exports = async function (browser) {
                  memoire: localStorage.getItem('auTableau_titre_pose') };
     });
     r.egal('« remettre en haut à gauche » défait le déplacement', remise.pose, null);
+    // Sous la pastille de la classe du moment, qui occupe désormais le coin.
     r.verifie('elle retrouve le haut du tableau, à gauche',
-        remise.haut < 40 && remise.gauche < 40, JSON.stringify(remise));
+        remise.haut < 70 && remise.gauche < 40, JSON.stringify(remise));
     r.verifie('sans recouvrir les onglets des plugins',
         !remise.chevauche, JSON.stringify(remise));
     r.egal('et l\'oubli est retenu', remise.memoire, null);

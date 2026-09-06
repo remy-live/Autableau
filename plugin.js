@@ -31584,7 +31584,14 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.noterAuJournal(eleve, 'o', geste.typeId);
             this.retenir({ t: 'oubli', classeId: classe.id, eleveId, typeId: geste.typeId });
             const n = this.compterOublis(eleve, geste.typeId);
-            return { eleve, texte: `📝 ${eleve.name} — oubli de ${type.nom.toLowerCase()} (${n}${n > 1 ? 'e' : 're'} fois)` };
+            // LA RÉPÉTITION SE DIT TOUT DE SUITE. Trois signatures oubliées
+            // trois cours d'affilée, ce n'est pas trois oublis épars : on
+            // l'apprenait au bilan, en fin de trimestre, alors que c'est au
+            // moment de le noter que la remarque sert.
+            const suite = this.suiteDOublis(eleve, geste.typeId, this.joursDeClasse('', ''));
+            const dit = (suite && suite.enCours && suite.suite >= 2)
+                ? ` — ${suite.suite} cours de suite` : '';
+            return { eleve, texte: `📝 ${eleve.name} — oubli de ${type.nom.toLowerCase()} (${n}${n > 1 ? 'e' : 're'} fois)${dit}` };
         }
         const delta = geste.delta || 0;
         if (!delta) return null;
@@ -31887,8 +31894,11 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         // des badges n'y servent — le tableau a ses propres gestes — et deux
         // rangées de boutons inutiles au-dessus d'un tableau de trente lignes
         // mangeaient la hauteur qui lui manquait.
-        if (barre) barre.style.display = this.panneauBilan ? 'none' : '';
-        if (bande) bande.style.display = this.panneauBilan ? 'none' : '';
+        // Par une CLASSE et non par le style : la barre porte un « display »
+        // en ligne, posé à sa construction ; le remettre à vide le supprimait,
+        // et ses boutons repassaient à la ligne les uns sous les autres.
+        if (barre) barre.classList.toggle('pts-hors-jeu', this.panneauBilan);
+        if (bande) bande.classList.toggle('pts-hors-jeu', this.panneauBilan);
 
         if (this.editionBadge) { corps.innerHTML = this.htmlBadge(); this.brancherBadge(); return; }
         if (this.panneauBilan) { corps.innerHTML = this.htmlBilan(); this.brancherBilan(); this.poserOuAccueillir(); return; }
@@ -31934,7 +31944,8 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                     ? `Cliquez sur le compteur à corriger : le vert, le rouge, ou une étoile.`
                     : ''));
 
-        corps.innerHTML = (consigne
+        corps.innerHTML = this.htmlAujourdHui(classe)
+            + (consigne
             ? `<div id="pts-consigne" style="font-size:12px; color:#636e72; background:#fff; border:1px dashed #b2bec3;
                     border-radius:8px; padding:7px 10px; margin-bottom:10px;">${consigne}</div>` : '')
             + `<div id="pts-grille" style="display:flex; flex-wrap:wrap; gap:10px;">`
@@ -32060,6 +32071,8 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // colonne, et s'emporte en PDF pour le conseil de classe ou l'entretien.
     // ==========================================
     panneauBilan: false,
+    // Dans le bilan : le clic sur une case ajoute un oubli, ou en retire un.
+    bilanRetire: false,
     bilanPeriode: 'mois',
     bilanDebut: '', bilanFin: '',
     bilanTri: { col: 'nom', sens: 1 },
@@ -32274,15 +32287,16 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             const s = l.suites[t.id] || { suite: 0, enCours: false };
             const recidive = s.suite >= 2;
             const dates = (l.datesOublis[t.id] || []).join(', ');
+            const geste = this.bilanRetire ? 'cliquez pour en retirer un' : 'cliquez pour en ajouter un';
             const bulle = n
                 ? `${t.nom} : ${n} fois${dates ? ' — le ' + dates : ''}`
                     + (recidive ? ` — ${s.suite} cours de suite${s.enCours ? ', et cela dure encore' : ''}` : '')
-                    + ' — cliquez pour en ajouter un'
-                : `Aucun oubli de ${t.nom.toLowerCase()} — cliquez pour en ajouter un`;
+                    + ' — ' + geste
+                : `Aucun oubli de ${t.nom.toLowerCase()} — ${geste}`;
             return `<td class="pts-bilan-case${n ? ' garni' : ''}${s.enCours ? ' dure' : ''}"
                     data-eleve="${l.id}" data-type="${t.id}" data-tooltip="${dit(bulle)}"
                     style="--teinte:${t.couleur};">
-                ${n ? `<b>${n}</b>${recidive ? `<i>↻${s.suite}</i>` : ''}` : '<span class="pts-bilan-plus">+</span>'}
+                ${n ? `<b>${n}</b>${recidive ? `<i>↻${s.suite}</i>` : ''}` : `<span class="pts-bilan-plus">${this.bilanRetire ? '–' : '+'}</span>`}
             </td>`;
         }).join('');
 
@@ -32303,6 +32317,41 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             <td class="pts-bilan-reste"></td>
             <td class="pts-bilan-fiche"><span class="pts-bilan-fleche" title="Ouvrir la fiche">›</span></td>
         </tr>`;
+    },
+
+    // CE QUI S'EST PASSÉ AUJOURD'HUI, en une ligne, au-dessus des cartes.
+    // L'heure en cours se lisait nulle part : pour savoir combien d'absents et
+    // combien d'oublis on avait notés, il fallait ouvrir le bilan et le régler
+    // sur « cette semaine ». La ligne ne paraît que s'il y a eu quelque chose.
+    htmlAujourdHui: function (classe) {
+        if (!classe) return '';
+        const jour = Journal.jour();
+        let plus = 0, moins = 0, oublis = 0, badges = 0;
+        (classe.students || []).forEach(e => {
+            Journal.de(e).forEach(x => {
+                if (x.d !== jour) return;
+                if (x.t === 'p') plus++;
+                else if (x.t === 'm') moins++;
+                else if (x.t === 'o') oublis++;
+                else if (x.t === 'b') badges++;
+            });
+        });
+        const absents = (classe.students || []).filter(s => s.absent).length;
+        if (!plus && !moins && !oublis && !badges && !absents) return '';
+        const bout = (n, texte, couleur) => n
+            ? `<span style="color:${couleur}; font-weight:700;">${n}</span> ${texte}` : '';
+        const morceaux = [
+            bout(absents, absents > 1 ? 'absents' : 'absent', '#e17055'),
+            bout(plus, plus > 1 ? 'bonus' : 'bonus', '#00b894'),
+            bout(moins, 'malus', '#d63031'),
+            bout(badges, badges > 1 ? 'badges' : 'badge', '#0984e3'),
+            bout(oublis, oublis > 1 ? 'oublis' : 'oubli', '#6c5ce7')
+        ].filter(Boolean);
+        return `<div id="pts-aujourdhui" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                    font-size:12px; color:#636e72; background:#f7f9fa; border:1px solid #dfe6e9;
+                    border-radius:9px; padding:6px 11px; margin-bottom:10px;">
+            <b style="color:#2d3436;">Aujourd'hui</b>${morceaux.join('<span style="color:#dfe6e9;">·</span>')}
+        </div>`;
     },
 
     htmlBilan: function () {
@@ -32332,12 +32381,22 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 <b style="font-size:14px;">Bilan — ${this.echapper((classe && classe.name) || 'Classe')}</b>
                 <span style="font-size:12px; color:#636e72;">${this.nomDeLaPeriode()}</span>
                 <div style="flex:1;"></div>
-                <span style="font-size:11.5px; color:#636e72;">Cliquez une case d'oubli pour en ajouter un</span>
+                <!-- AJOUTER OU RETIRER. Un oubli se note d'un clic dans sa
+                     case ; il faut pouvoir le reprendre aussi — on se trompe
+                     de ligne, l'élève avait son carnet finalement. Le mode se
+                     voit, il ne se devine pas à un clic droit. -->
+                <div class="pts-bilan-modes">
+                    <button class="pts-bilan-mode${this.bilanRetire ? '' : ' actif'}" data-retire="0">＋ Ajouter</button>
+                    <button class="pts-bilan-mode${this.bilanRetire ? ' actif' : ''}" data-retire="1">－ Retirer</button>
+                </div>
                 <button id="pts-bilan-annuler" data-tooltip="Défaire le dernier geste"
                         style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
                         padding:7px 11px; font-size:12px; cursor:pointer;">↶</button>
+                <button id="pts-bilan-csv" data-tooltip="Le même tableau pour un tableur — conseil de classe, bulletins"
+                        style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
+                        padding:7px 12px; font-size:12px; cursor:pointer;">⬇ CSV</button>
                 <button id="pts-bilan-pdf" style="border:none; background:#00b894; color:#fff; border-radius:8px;
-                        padding:7px 13px; font-size:12px; font-weight:bold; cursor:pointer;">⬇ Exporter en PDF</button>
+                        padding:7px 13px; font-size:12px; font-weight:bold; cursor:pointer;">⬇ PDF</button>
                 ${this.hote ? '' : `<button id="pts-bilan-fermer" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
                         padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>`}
             </div>
@@ -32416,6 +32475,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         // ligne, sinon on ouvrirait la fiche du même geste.
         el.querySelectorAll('.pts-bilan-case').forEach(td => td.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (this.bilanRetire) { this.retirerOubli(td.dataset.eleve, td.dataset.type); return; }
             const fait = this.appliquerA(this.classeCourante(), td.dataset.eleve,
                 { t: 'oubli', typeId: td.dataset.type });
             if (!fait) return;
@@ -32423,12 +32483,18 @@ registerPlugin('classPointsTool', 'Outils Profs', {
             this.rendre();
             if (typeof showToast === 'function') showToast(fait.texte);
         }));
+        el.querySelectorAll('.pts-bilan-mode').forEach(b => b.addEventListener('click', () => {
+            this.bilanRetire = b.dataset.retire === '1';
+            this.rendre();
+        }));
         const defaire = el.querySelector('#pts-bilan-annuler');
         if (defaire) defaire.addEventListener('click', () => this.annuler());
         const fermer = el.querySelector('#pts-bilan-fermer');
         if (fermer) fermer.addEventListener('click', () => { this.panneauBilan = false; this.rendre(); });
         const pdf = el.querySelector('#pts-bilan-pdf');
         if (pdf) pdf.addEventListener('click', () => this.exporterLeBilan());
+        const csv = el.querySelector('#pts-bilan-csv');
+        if (csv) csv.addEventListener('click', () => this.exporterLeBilanCSV());
     },
 
     // Le PDF : le même tableau, en paysage, avec la classe et la période en
@@ -32533,6 +32599,42 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         doc.save(`bilan-${propre}.pdf`);
         if (typeof showToast === 'function') showToast(`Bilan de ${eleve.name} exporté`);
         return true;
+    },
+
+    // LE MÊME BILAN, EN TABLEUR. Le PDF se pose sur une table ; le fichier
+    // CSV se colle dans le tableur du conseil de classe, où l'on trie et l'on
+    // additionne. Point-virgule et BOM : c'est ce qu'attend un tableur
+    // francophone, sinon les accents arrivent en charabia et tout tient dans
+    // une seule colonne.
+    exporterLeBilanCSV: function () {
+        const classe = this.classeCourante();
+        const lignes = this.lignesDuBilan();
+        if (!classe) return null;
+        const champ = (v) => {
+            const t = String(v === undefined || v === null ? '' : v);
+            return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+        };
+        const entetes = ['Élève', 'Bonus', 'Malus', 'Solde', 'Étoiles', 'Badges', 'Absences']
+            .concat(this.TYPES_OUBLI.map(t => t.nom))
+            .concat(['Dates des absences', 'Dates des oublis']);
+        const corps = lignes.map(l => [
+            l.nom, l.plus, l.moins, l.solde, l.etoiles, l.badges, l.absences
+        ].concat(this.TYPES_OUBLI.map(t => l.oublis[t.id] || 0))
+            .concat([
+                (l.datesAbsences || []).join(' '),
+                this.TYPES_OUBLI.map(t => (l.datesOublis[t.id] || []).length
+                    ? `${t.nom} : ${(l.datesOublis[t.id] || []).join(' ')}` : '').filter(Boolean).join(' | ')
+            ]).map(champ).join(';'));
+        const texte = '﻿' + [entetes.map(champ).join(';')].concat(corps).join('\r\n');
+        const nom = `bilan-${(classe.name || 'classe').replace(/[^\wÀ-ÿ -]/g, '')}-${Journal.jour()}.csv`;
+        const lien = document.createElement('a');
+        lien.href = URL.createObjectURL(new Blob([texte], { type: 'text/csv;charset=utf-8' }));
+        lien.download = nom;
+        document.body.appendChild(lien);
+        lien.click();
+        setTimeout(() => { URL.revokeObjectURL(lien.href); lien.remove(); }, 1000);
+        if (typeof showToast === 'function') showToast(`⬇ ${nom}`);
+        return nom;
     },
 
     exporterLeBilan: function () {
