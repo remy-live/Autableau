@@ -758,6 +758,27 @@ module.exports = async function (browser) {
     r.egal('elle nomme les commandes comme l\'écran les nomme',
         aideMetier.memeMots, { garder: true, refaire: true, enClasse: true });
 
+    // LES PASTILLES NE S'EMPILENT PLUS. Un geste en déclenche souvent un
+    // autre, chacun avec son message : trois pastilles l'une sur l'autre
+    // masquaient le bas du tableau et ne se lisaient plus.
+    const pastilles = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        document.querySelectorAll('.toast').forEach(t => t.remove());
+        showToast('Tableau sauvegardé !');
+        showToast('Tableau sauvegardé !');
+        showToast('Tableau sauvegardé !');
+        await attendre(60);
+        const memeMessage = document.querySelectorAll('.toast').length;
+        ['un', 'deux', 'trois', 'quatre', 'cinq'].forEach(m => showToast(m));
+        await attendre(60);
+        const beaucoup = [...document.querySelectorAll('.toast')].map(t => t.innerText);
+        document.querySelectorAll('.toast').forEach(t => t.remove());
+        return { memeMessage, beaucoup };
+    });
+    r.egal('le même message trois fois de suite n\'en fait qu\'un', pastilles.memeMessage, 1);
+    r.egal('et il n\'en reste jamais plus de trois — les plus anciennes partent',
+        pastilles.beaucoup, ['trois', 'quatre', 'cinq']);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

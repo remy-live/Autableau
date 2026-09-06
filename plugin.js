@@ -6305,6 +6305,17 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         return { ancre: 'middle', x };
     },
 
+    // ON TRAVAILLE SUR LA FRISE, PAS À CÔTÉ. L'aperçu porte des repères — le
+    // numéro de la période, celui d'une frontière — pour qu'un clic dessus
+    // renomme, et qu'un glissement déplace une date. L'image posée au tableau,
+    // elle, n'en a pas besoin : elle est rasterisée.
+    marque: function (etat, quoi, p) {
+        if (!etat.__vif) return '';
+        const i = (etat.periodes || []).indexOf(p);
+        if (i < 0) return '';
+        return ` data-${quoi}="${i}"`;
+    },
+
     fabriquerSVG: function (etat, largeur) {
         const L = largeur || 1200;
         const marge = Math.round(L * 0.035);
@@ -6313,7 +6324,11 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         const plan = this.placer(etat, utile);
 
         const hautTitre = etat.titre ? 44 : 10;
-        const hauteurVoie = etat.style === 'jalons' ? 14 : 46;
+        // LA HAUTEUR SE RÈGLE. 46 pixels, c'était bien pour deux mots ; au
+        // vidéoprojecteur, du fond de la classe, une bande plus épaisse se
+        // lit mieux — et « Première Guerre mondiale » y tient enfin.
+        const epaisseur = Math.max(24, Math.min(140, Number(etat.hauteurVoie) || 46));
+        const hauteurVoie = etat.style === 'jalons' ? 14 : epaisseur;
         const ecart = etat.style === 'jalons' ? 20 : 6;
         const pile = plan.voies * hauteurVoie + (plan.voies - 1) * ecart;
         // Le nom d'une période se pose DANS la voie, sauf en « jalons » où la
@@ -6368,13 +6383,13 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
             const opacite = etat.style === 'bandeau' ? 1 : 0.9;
             corps += `<rect x="${x.toFixed(1)}" y="${y}" width="${l.toFixed(1)}" height="${hauteurVoie}"
                 rx="${rayon}" fill="${c.p.couleur}" fill-opacity="${opacite}"
-                stroke="#2d3436" stroke-width="1.2"/>`;
+                stroke="#2d3436" stroke-width="1.2"${this.marque(etat, 'periode', c.p)}/>`;
             if (etat.options.noms) {
-                const taille = 15;
-                corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + 5}"
+                const taille = Math.max(12, Math.min(30, Math.round(hauteurVoie * 0.33)));
+                corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + taille * 0.35}"
                     text-anchor="middle" font-family="sans-serif" font-size="${taille}" font-weight="600"
                     fill="#ffffff" stroke="rgba(0,0,0,0.35)" stroke-width="2.5" paint-order="stroke"
-                    >${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
+                    ${this.marque(etat, 'periode', c.p)}>${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
             }
         });
 
@@ -6422,6 +6437,30 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
                 font-size="13" fill="#2d3436"
                 >${this.echapper(this.anneeEnClair(e.annee, true) + ' · ' + e.libelle)}</text>`;
         });
+
+        // --- LES FRONTIÈRES SE PRENNENT À LA MAIN ---
+        // Poser 1789 au clavier suppose de le savoir. Tirer la limite entre
+        // deux périodes, c'est la manière dont on lit une frise. Les poignées
+        // sont posées en dernier : elles doivent recevoir le clic avant les
+        // bandes. Seulement à l'échelle du temps — en cases égales, la largeur
+        // ne dit rien de la durée, et la tirer n'aurait aucun sens.
+        if (etat.__vif && etat.echelle === 'proportionnelle') {
+            const vues = new Set();
+            plan.cases.forEach(c => {
+                [[c.p.debut, marge + c.x], [c.p.fin, marge + c.x + c.l]].forEach(paire => {
+                    const annee = paire[0], px = paire[1];
+                    const cle = Math.round(px);
+                    if (vues.has(cle)) return;
+                    vues.add(cle);
+                    corps += `<rect class="frise-poignee" x="${(px - 6).toFixed(1)}" y="${yPile - 5}"
+                        width="12" height="${pile + 10}" fill="transparent"
+                        data-frontiere="${annee}" data-x="${px.toFixed(2)}"/>`;
+                });
+            });
+            // De quoi retrouver l'année sous un pixel, pendant le glissement.
+            corps += `<metadata id="frise-repere" data-marge="${marge}" data-utile="${utile}"
+                data-debut="${plan.bornes.debut}" data-fin="${plan.bornes.fin}"></metadata>`;
+        }
 
         return {
             svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${hauteur}" viewBox="0 0 ${L} ${hauteur}">
@@ -6498,6 +6537,11 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
                     <label class="atelier-label">Affichage</label>
                     <label class="atelier-case"><input type="checkbox" id="frise-opt-noms"> Écrire le nom des périodes</label>
                     <label class="atelier-case"><input type="checkbox" id="frise-opt-dates"> Écrire les dates</label>
+                    <div class="frise-hauteur">
+                        <span>Hauteur des bandes</span>
+                        <input type="range" id="frise-hauteur" min="24" max="140" step="2" value="46">
+                        <b id="frise-hauteur-lu">46</b>
+                    </div>
                 </div>
             </div>
             <div class="atelier-pied">
@@ -6552,6 +6596,12 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
             this.etat.evenements.push({ annee: Math.round((b.debut + b.fin) / 2), libelle: 'Événement' });
             this.rendre();
         });
+        const hauteur = fond.querySelector('#frise-hauteur');
+        hauteur.addEventListener('input', () => {
+            this.etat.hauteurVoie = Number(hauteur.value);
+            fond.querySelector('#frise-hauteur-lu').textContent = hauteur.value;
+            this.apercu();
+        });
         fond.querySelector('#frise-poser').addEventListener('click', () => this.poser());
     },
 
@@ -6570,16 +6620,31 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         fond.querySelector('#frise-titre').value = this.etat.titre || '';
         fond.querySelector('#frise-opt-noms').checked = !!this.etat.options.noms;
         fond.querySelector('#frise-opt-dates').checked = !!this.etat.options.dates;
+        const curseurH = fond.querySelector('#frise-hauteur');
+        const epaisseur = Number(this.etat.hauteurVoie) || 46;
+        curseurH.value = epaisseur;
+        curseurH.disabled = this.etat.style === 'jalons';
+        fond.querySelector('#frise-hauteur-lu').textContent = this.etat.style === 'jalons' ? '—' : epaisseur;
 
         // --- Les périodes ---
         const boite = fond.querySelector('#frise-periodes');
+        // LE NOM SUR SA PROPRE LIGNE. Coincé entre la couleur et les deux
+        // années, il ne montrait que six caractères : on tapait « Première
+        // Guerre mondiale » à l'aveugle. Il prend toute la largeur ; la
+        // couleur, les dates et la corbeille tiennent sur la ligne du dessous.
         boite.innerHTML = this.etat.periodes.map((p, i) => `
-            <div class="frise-ligne" data-periode="${i}">
-                <input type="color" value="${p.couleur}" data-champ="couleur" data-i="${i}">
-                <input type="text" value="${this.echapper(p.nom)}" data-champ="nom" data-i="${i}" class="frise-nom">
-                <input type="number" value="${p.debut}" data-champ="debut" data-i="${i}" class="frise-an" title="Début (négatif = av. J.-C.)">
-                <input type="number" value="${p.fin}" data-champ="fin" data-i="${i}" class="frise-an" title="Fin">
-                <button class="frise-x" data-retirer-periode="${i}" title="Retirer">✕</button>
+            <div class="frise-bloc" data-periode="${i}">
+                <input type="text" value="${this.echapper(p.nom)}" data-champ="nom" data-i="${i}"
+                       class="frise-nom" placeholder="Nom de la période">
+                <div class="frise-ligne">
+                    <input type="color" value="${p.couleur}" data-champ="couleur" data-i="${i}">
+                    <label class="frise-de">de</label>
+                    <input type="number" value="${p.debut}" data-champ="debut" data-i="${i}" class="frise-an" title="Début (négatif = av. J.-C.)">
+                    <label class="frise-de">à</label>
+                    <input type="number" value="${p.fin}" data-champ="fin" data-i="${i}" class="frise-an" title="Fin">
+                    <span style="flex:1"></span>
+                    <button class="frise-x" data-retirer-periode="${i}" title="Retirer">✕</button>
+                </div>
             </div>`).join('') || '<div class="atelier-vide">Aucune période.</div>';
 
         // --- Les événements ---
@@ -6636,9 +6701,132 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
     apercu: function () {
         const zone = document.getElementById('frise-apercu');
         if (!zone) return;
-        const fait = this.fabriquerSVG(this.etat, 900);
+        this.etat.__vif = true;
+        let fait;
+        try { fait = this.fabriquerSVG(this.etat, 900); } finally { delete this.etat.__vif; }
         zone.innerHTML = fait.svg.replace(/width="\d+" height="(\d+)"/,
             'width="100%" height="$1" style="max-width:100%"');
+        this.brancherLApercu(zone);
+    },
+
+    // ------------------------------------------------------------------
+    // TRAVAILLER SUR LA FRISE ELLE-MÊME
+    // Le panneau de droite reste : il permet de poser une date exacte. Mais
+    // l'essentiel se fait ici — on écrit le nom là où on le lit, et l'on tire
+    // une frontière là où on la voit.
+    // ------------------------------------------------------------------
+    brancherLApercu: function (zone) {
+        const svg = zone.querySelector('svg');
+        if (!svg) return;
+        zone.style.position = 'relative';
+
+        // --- Écrire le nom d'une période, sur la période ---
+        zone.querySelectorAll('[data-periode]').forEach(el => {
+            el.style.cursor = 'text';
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.saisirLeNom(zone, Number(el.dataset.periode));
+            });
+        });
+
+        // --- Tirer une frontière ---
+        const repere = svg.querySelector('#frise-repere');
+        zone.querySelectorAll('[data-frontiere]').forEach(el => {
+            el.style.cursor = 'ew-resize';
+            el.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!repere) return;
+                const boite = svg.getBoundingClientRect();
+                const large = (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) || 900;
+                const echelle = boite.width / large;
+                const marge = Number(repere.dataset.marge);
+                const utile = Number(repere.dataset.utile);
+                const debut = Number(repere.dataset.debut);
+                const fin = Number(repere.dataset.fin);
+                const anneeSous = (clientX) => {
+                    const x = (clientX - boite.left) / echelle;
+                    const part = Math.max(0, Math.min(1, (x - marge) / utile));
+                    return Math.round(debut + part * (fin - debut));
+                };
+                const bouge = (ev) => {
+                    const an = anneeSous(ev.clientX);
+                    if (an === this._frontiereCourante) return;
+                    this.deplacerLaFrontiere(this._frontiereCourante, an);
+                    this._frontiereCourante = an;
+                };
+                const fini = () => {
+                    window.removeEventListener('pointermove', bouge);
+                    window.removeEventListener('pointerup', fini);
+                    this._frontiereCourante = null;
+                    this.rendre();      // le panneau de droite montre les dates atteintes
+                };
+                this._frontiereCourante = Number(el.dataset.frontiere);
+                window.addEventListener('pointermove', bouge);
+                window.addEventListener('pointerup', fini);
+            });
+        });
+    },
+
+    // Toutes les bornes qui valaient cette année-là suivent : deux périodes
+    // qui se touchaient doivent continuer de se toucher.
+    deplacerLaFrontiere: function (ancienne, nouvelle) {
+        if (!isFinite(nouvelle) || nouvelle === ancienne) return false;
+        let change = false;
+        (this.etat.periodes || []).forEach(p => {
+            if (p.debut === ancienne && nouvelle < p.fin) { p.debut = nouvelle; change = true; }
+            if (p.fin === ancienne && nouvelle > p.debut) { p.fin = nouvelle; change = true; }
+        });
+        if (!change) return false;
+        this.etat.modele = '';
+        this.apercu();
+        return true;
+    },
+
+    saisirLeNom: function (zone, i) {
+        const p = this.etat.periodes[i];
+        if (!p) return null;
+        zone.querySelectorAll('.frise-saisie').forEach(x => { if (x.parentNode) x.remove(); });
+        const cible = zone.querySelector('rect[data-periode="' + i + '"]')
+            || zone.querySelector('[data-periode="' + i + '"]');
+        if (!cible) return null;
+        const b = cible.getBoundingClientRect();
+        const cadre = zone.getBoundingClientRect();
+        const champ = document.createElement('input');
+        champ.type = 'text';
+        champ.className = 'frise-saisie';
+        champ.value = p.nom || '';
+        champ.style.left = Math.round(b.left - cadre.left + 3) + 'px';
+        champ.style.top = Math.round(b.top - cadre.top + (b.height - 30) / 2) + 'px';
+        champ.style.width = Math.max(110, Math.round(b.width - 6)) + 'px';
+        zone.appendChild(champ);
+        champ.focus();
+        champ.select();
+        champ.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') champ.blur();
+            if (e.key === 'Escape') { champ.dataset.annule = '1'; champ.blur(); }
+        });
+        champ.addEventListener('input', () => {
+            p.nom = champ.value;
+            // On ne redessine pas sous les doigts : le champ garde le curseur.
+            const texte = zone.querySelector('text[data-periode="' + i + '"]');
+            if (texte) texte.textContent = this.tenirDans(champ.value, b.width / (cadre.width / 900) - 8, 15);
+        });
+        // Le champ peut partir de deux façons : parce qu'on le referme, ou
+        // parce que l'aperçu est redessiné sous lui. Le navigateur envoie
+        // alors un second « blur » sur un champ déjà détaché — d'où le verrou
+        // et le filet : retirer deux fois lève une erreur.
+        let parti = false;
+        champ.addEventListener('blur', () => {
+            if (parti) return;
+            parti = true;
+            const annule = !!champ.dataset.annule;
+            try { champ.remove(); } catch (e) { /* déjà retiré avec l'aperçu */ }
+            if (!annule) { p.nom = champ.value; this.etat.modele = ''; }
+            this.rendre();
+        });
+        return champ;
     },
 
     // ------------------------------------------------------------------

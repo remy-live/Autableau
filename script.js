@@ -10553,17 +10553,40 @@ function showToast(msg) {
         container.id = 'toast-container';
         (document.body || document.documentElement).appendChild(container);
     }
+    // TROIS PASTILLES EMPILÉES NE SE LISENT PLUS. Un geste en déclenche
+    // souvent un autre — donner un point enregistre la classe, qui le dit à
+    // son tour — et l'on se retrouvait avec une pile qui masquait le bas du
+    // tableau. Deux règles suffisent : le même message ne s'affiche pas deux
+    // fois de suite (il se contente de repartir pour trois secondes), et il
+    // n'en reste jamais plus de trois à l'écran.
+    const vivants = [...container.querySelectorAll('.toast')];
+    const dejaLa = vivants[vivants.length - 1];
+    if (dejaLa && dejaLa.dataset.msg === String(msg)) {
+        clearTimeout(Number(dejaLa.dataset.minuteur));
+        dejaLa.dataset.minuteur = String(setTimeout(() => {
+            dejaLa.classList.remove('show');
+            setTimeout(() => dejaLa.remove(), 300);
+        }, 3000));
+        return;
+    }
+    while (container.querySelectorAll('.toast').length >= 3) {
+        const vieux = container.querySelector('.toast');
+        clearTimeout(Number(vieux.dataset.minuteur));
+        vieux.remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.innerText = msg;
+    toast.dataset.msg = String(msg);
     container.appendChild(toast);
 
     setTimeout(() => toast.classList.add('show'), 10);
 
-    setTimeout(() => {
+    toast.dataset.minuteur = String(setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, 3000));
 }
 
 // --- MOTEUR D'IMPORTATION PDF ---

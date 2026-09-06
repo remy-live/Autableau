@@ -7996,8 +7996,23 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .frise-ligne input[type="color"] { width: 28px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; flex: none; }
-.frise-ligne .frise-nom { flex: 1; min-width: 0; padding: 5px 7px; font-size: 13px; }
-.frise-ligne .frise-an { width: 62px; flex: none; padding: 5px 4px; font-size: 12px; text-align: center; }
+/* La règle du panneau impose « width:100% » à tout champ de nombre : sans un
+   sélecteur au moins aussi précis, les deux années s'étiraient sur toute la
+   largeur et la seconde sortait du panneau. */
+.frise-ligne input.frise-an { width: 74px; flex: none; padding: 5px 4px; font-size: 12px; text-align: center; }
+.frise-ligne input.frise-nom { flex: 1; min-width: 0; padding: 5px 7px; font-size: 13px; }
+.frise-de { font-size: 11.5px; color: #94a3b8; }
+
+/* Le nom d'une période prend toute la largeur : coincé entre la couleur et
+   les deux années, il n'en montrait que six caractères. */
+.frise-bloc {
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    border-radius: 9px;
+    padding: 6px 7px 2px;
+    margin-bottom: 6px;
+}
+
+.frise-bloc .frise-nom { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px; }
 .frise-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; flex: none; }
 .frise-x:hover { color: #e11d48; }
 
@@ -9019,3 +9034,37 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 /* Ce que le bilan met de côté : la barre des modes et la bande des badges. */
 .pts-hors-jeu { display: none !important; }
+
+/* ON ÉCRIT SUR LA FRISE. Le nom d'une période se tapait dans un champ large
+   de six caractères, à droite ; il se tape maintenant là où on le lit. */
+.frise-saisie {
+    position: absolute;
+    z-index: 5;
+    height: 30px;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    color: #2d3436;
+    background: #fff;
+    border: 2px solid var(--accent, #6c5ce7);
+    border-radius: 7px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+#frise-apercu [data-periode] { cursor: text; }
+#frise-apercu .frise-poignee { cursor: ew-resize; }
+#frise-apercu .frise-poignee:hover { fill: rgba(108, 92, 231, 0.35); }
+
+.frise-hauteur {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: #636e72;
+    padding: 6px 2px;
+}
+
+.frise-hauteur input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent, #6c5ce7); }
+.frise-hauteur b { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }

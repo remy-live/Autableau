@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=99">
+    <link rel="stylesheet" href="style.css?v=100">
 </head>
 
 <body>
@@ -668,6 +668,17 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📜 Atelier frises</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><b>On écrit sur la frise :</b> un clic sur une période ouvre un champ posé
+                            <b>dessus</b> — le nom se tape là où on le lit. Il se tapait dans une case large de
+                            six caractères, à droite, coincée entre la couleur et deux années.</li>
+                        <li><b>On tire les frontières :</b> à l'échelle du temps, la limite entre deux périodes
+                            se prend à la souris ou au doigt et se déplace. Les deux dates qui se touchaient
+                            suivent ensemble — deux périodes contiguës le restent. Le panneau de droite montre
+                            les dates atteintes, et permet toujours d'en poser une exacte au clavier.
+                            En <b>cases égales</b>, il n'y a rien à tirer : la largeur ne dit plus la durée.</li>
+                        <li><b>La hauteur des bandes se règle</b> (rubrique Affichage) : 46 pixels conviennent à
+                            deux mots, mais au vidéoprojecteur une bande plus épaisse se lit du fond de la
+                            classe — et le nom grossit avec elle.</li>
                         <li><strong>Des modèles prêts à poser :</strong> les grandes périodes de l'histoire, le
                             XXe siècle, la Révolution française, l'Antiquité, le Moyen Âge, les régimes politiques
                             français depuis 1789, la Seconde Guerre mondiale — et une frise vide. Les dates sont
@@ -2452,9 +2463,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=185"></script>
+    <script src="script.js?v=186"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=89"></script>
+    <script src="plugin.js?v=90"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

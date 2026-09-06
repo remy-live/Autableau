@@ -270,6 +270,104 @@ module.exports = async function (browser) {
     r.egal('une frise de l\'ancienne version est reprise, pas perdue',
         ancienne, [[1900, 1950, '#0984e3'], [1950, 2000, '#e74c3c']]);
 
+    // =====================================================================
+    // ON TRAVAILLE SUR LA FRISE, PAS À CÔTÉ
+    // Le nom d'une période se tapait dans un champ large de six caractères,
+    // coincé entre la couleur et deux années. On l'écrit maintenant là où on
+    // le lit, et l'on tire les frontières à la main.
+    // =====================================================================
+    const surLaFrise = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const F = PluginManager.plugins.friseTool;
+        F.ouvrir(F.etatDuModele('vide'));
+        await attendre(400);
+        const zone = document.getElementById('frise-apercu');
+        // Sans repères sur l'aperçu, rien de tout cela n'existe : on le dit
+        // dans la ligne qui le concerne plutôt que d'emporter la suite.
+        if (!zone.querySelector('rect[data-periode="0"]')) return { sansReperes: true };
+
+        // 1. Écrire le nom sur la période
+        zone.querySelector('rect[data-periode="0"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await attendre(200);
+        const champ = zone.querySelector('.frise-saisie');
+        if (!champ) return { sansChamp: true };
+        const surLaBande = (() => {
+            const b = zone.querySelector('rect[data-periode="0"]').getBoundingClientRect();
+            const c = champ.getBoundingClientRect();
+            return c.left >= b.left - 6 && c.right <= b.right + 12
+                && c.top >= b.top - 20 && c.bottom <= b.bottom + 20;
+        })();
+        champ.value = 'Belle Époque';
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+        champ.dispatchEvent(new Event('blur'));
+        await attendre(250);
+        const nom = F.etat.periodes[0].nom;
+        const dansLePanneau = document.querySelector('#frise-periodes .frise-nom').value;
+
+        // 2. Tirer la frontière de 1950 vers la droite
+        const avant = [F.etat.periodes[0].fin, F.etat.periodes[1].debut];
+        const svg = zone.querySelector('svg');
+        const poignee = [...zone.querySelectorAll('[data-frontiere]')]
+            .find(el => el.dataset.frontiere === '1950');
+        if (!poignee) return { sansPoignee: true };
+        const b = svg.getBoundingClientRect();
+        const large = svg.viewBox.baseVal.width;
+        const versX = (annee) => {
+            const rep = svg.querySelector('#frise-repere');
+            const marge = Number(rep.dataset.marge), utile = Number(rep.dataset.utile);
+            const d = Number(rep.dataset.debut), f = Number(rep.dataset.fin);
+            const x = marge + ((annee - d) / (f - d)) * utile;
+            return b.left + x * (b.width / large);
+        };
+        const cibleX = versX(1980);
+        poignee.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: versX(1950), clientY: b.top + 20 }));
+        window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cibleX, clientY: b.top + 20 }));
+        window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cibleX, clientY: b.top + 20 }));
+        await attendre(300);
+        const apres = [F.etat.periodes[0].fin, F.etat.periodes[1].debut];
+
+        // 3. La hauteur des bandes
+        const hauteurDe = () => Number((zone.querySelector('svg').getAttribute('height') || 0));
+        const h1 = hauteurDe();
+        const curseur = document.getElementById('frise-hauteur');
+        curseur.value = '120';
+        curseur.dispatchEvent(new Event('input', { bubbles: true }));
+        await attendre(200);
+        const h2 = hauteurDe();
+        const bande = zone.querySelector('rect[data-periode="0"]');
+        const epaisseur = Number(bande.getAttribute('height'));
+        const taille = Number(zone.querySelector('text[data-periode="0"]').getAttribute('font-size'));
+
+        // 4. En cases égales, pas de frontière à tirer
+        document.getElementById('frise-echelle').value = 'egale';
+        document.getElementById('frise-echelle').dispatchEvent(new Event('change', { bubbles: true }));
+        await attendre(250);
+        const enCasesEgales = zone.querySelectorAll('[data-frontiere]').length;
+
+        // 5. L'image posée n'a pas besoin des repères
+        const posee = F.fabriquerSVG(F.etat, 1200).svg;
+        F.fermer();
+        return {
+            surLaBande, nom, dansLePanneau, avant, apres, h1, h2, epaisseur, taille,
+            enCasesEgales, reperesDansLImage: /data-periode|data-frontiere/.test(posee)
+        };
+    });
+    r.verifie('le champ de saisie se pose SUR la période cliquée', surLaFrise.surLaBande,
+        JSON.stringify(surLaFrise));
+    r.egal('ce qu\'on y tape devient le nom de la période', surLaFrise.nom, 'Belle Époque');
+    r.egal('et le panneau de droite le reprend', surLaFrise.dansLePanneau, 'Belle Époque');
+    r.egal('tirer la frontière déplace les deux dates qui se touchaient',
+        { avant: surLaFrise.avant, apres: surLaFrise.apres },
+        { avant: [1950, 1950], apres: [1980, 1980] });
+    r.verifie('la hauteur des bandes se règle, et la frise grandit avec',
+        surLaFrise.h2 > surLaFrise.h1 && surLaFrise.epaisseur === 120,
+        JSON.stringify({ h1: surLaFrise.h1, h2: surLaFrise.h2, e: surLaFrise.epaisseur }));
+    r.verifie('le nom grossit avec la bande', surLaFrise.taille > 15, String(surLaFrise.taille));
+    r.egal('en cases égales, aucune frontière ne se tire — la largeur ne dit plus la durée',
+        surLaFrise.enCasesEgales, 0);
+    r.verifie('et l\'image posée au tableau ne porte aucun repère de travail',
+        !surLaFrise.reperesDansLImage);
+
     await page.evaluate(() => {
         const p = PluginManager.plugins.friseTool;
         p.fermer(); p.currentStamp = null;
