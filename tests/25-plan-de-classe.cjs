@@ -447,6 +447,99 @@ module.exports = async function (browser) {
     r.egal('tout le monde passé, le chapeau se remplit à nouveau',
         { reste: tirage.recommence, deja: tirage.onziemeConnu }, { reste: 1, deja: true });
 
+    // --- DONNER UN POINT DEPUIS LE PLAN ---
+    // Les mêmes points que la feuille : mêmes compteurs, même journal daté,
+    // même pile d'annulation. Sinon le bilan compterait deux fois, ou pas.
+    const donner = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const lire = async (id) => {
+            const cls = await ClassesStore.loadAll();
+            const e = cls.find(x => x.id === 'cz').students.find(s => s.id === id);
+            return {
+                plus: (e.pts || {}).plus || 0, moins: (e.pts || {}).moins || 0,
+                p: (e.journal || []).filter(x => x.t === 'p').length,
+                o: (e.journal || []).filter(x => x.t === 'o' && x.v === 'devoirs').length,
+                absent: !!e.absent
+            };
+        };
+        document.querySelector('#sp-tous-presents').click();
+        await attendre(250);
+
+        const dit = () => document.querySelector('#sp-clic-dit').textContent.trim();
+        const auDepart = dit();
+
+        // On arme le bonus, puis on clique une place.
+        const boutons = [...document.querySelectorAll('.sp-donne')];
+        boutons[0].click();
+        await attendre(200);
+        const arme = { dit: dit(), actifs: document.querySelectorAll('.sp-donne.actif').length };
+
+        const cible = document.querySelectorAll('.sp-seat.filled')[0].dataset.student;
+        const avant = await lire(cible);
+        document.querySelectorAll('.sp-seat.filled')[0].click();
+        await attendre(300);
+        const apres = await lire(cible);
+
+        // L'annulation de la feuille défait un point donné depuis le plan.
+        document.querySelector('#sp-annuler-point').click();
+        await attendre(300);
+        const annule = await lire(cible);
+
+        // Un oubli : même chemin, autre nature.
+        const oubliBtn = boutons.find(b => b.textContent.trim() === 'Devoirs');
+        oubliBtn.click();
+        await attendre(200);
+        document.querySelectorAll('.sp-seat.filled')[0].click();
+        await attendre(300);
+        const avecOubli = await lire(cible);
+
+        // Un second clic sur le bouton désarme : le clic redevient l'appel.
+        oubliBtn.click();
+        await attendre(200);
+        const desarme = { dit: dit(), actifs: document.querySelectorAll('.sp-donne.actif').length };
+        document.querySelectorAll('.sp-seat.filled')[0].click();
+        await attendre(300);
+        const apresDesarme = await lire(cible);
+
+        return { auDepart, arme, avant, apres, annule, avecOubli, desarme, apresDesarme };
+    });
+    r.egal('sans rien d\'armé, le clic est annoncé comme l\'appel', donner.auDepart, "fait l'appel");
+    r.egal('armer le bonus change ce que le clic fera',
+        { dit: donner.arme.dit, actifs: donner.arme.actifs },
+        { dit: 'donne un point bonus', actifs: 1 });
+    r.egal('le point donné depuis le plan compte comme celui de la feuille',
+        { plus: donner.apres.plus, journal: donner.apres.p },
+        { plus: donner.avant.plus + 1, journal: donner.avant.p + 1 });
+    r.egal('et il ne touche pas à l\'appel', donner.apres.absent, false);
+    r.egal('« annuler le dernier » le défait, trace comprise',
+        { plus: donner.annule.plus, journal: donner.annule.p },
+        { plus: donner.avant.plus, journal: donner.avant.p });
+    r.egal('un oubli armé se note daté, sur le bon motif', donner.avecOubli.o, 1);
+    r.egal('désarmer rend le clic à l\'appel',
+        { dit: donner.desarme.dit, actifs: donner.desarme.actifs, absent: donner.apresDesarme.absent },
+        { dit: "fait l'appel", actifs: 0, absent: true });
+
+    // ON NE DONNE RIEN À QUELQU'UN QUI N'ÉTAIT PAS LÀ.
+    const absentIntouchable = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const place = document.querySelectorAll('.sp-seat.filled')[0];
+        const id = place.dataset.student;          // laissé absent juste avant
+        document.querySelectorAll('.sp-donne')[0].click();   // bonus
+        await attendre(200);
+        const cls0 = await ClassesStore.loadAll();
+        const avant = ((cls0.find(x => x.id === 'cz').students.find(s => s.id === id).pts) || {}).plus || 0;
+        place.click();
+        await attendre(300);
+        const cls1 = await ClassesStore.loadAll();
+        const e = cls1.find(x => x.id === 'cz').students.find(s => s.id === id);
+        document.querySelectorAll('.sp-donne')[0].click();   // on désarme
+        await attendre(150);
+        return { avant, apres: (e.pts || {}).plus || 0, toujoursAbsent: !!e.absent };
+    });
+    r.egal('un élève noté absent ne reçoit rien',
+        { points: absentIntouchable.apres, absent: absentIntouchable.toujoursAbsent },
+        { points: absentIntouchable.avant, absent: true });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

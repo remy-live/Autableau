@@ -31570,20 +31570,46 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     retirerDuJournal: function (eleve, t, v) { return Journal.retirer(eleve, t, v); },
     tracesEntre: function (eleve, debut, fin) { return Journal.entre(eleve, debut, fin); },
 
+    // ---------- Donner depuis ailleurs ----------
+    // Le plan de classe donne les mêmes points que cette feuille : mêmes
+    // compteurs, même journal daté, même pile d'annulation. La classe est
+    // passée en clair — le plan peut en montrer une autre que la feuille, et
+    // la feuille peut n'avoir jamais été ouverte. Ni enregistrement ni
+    // redessin ici : c'est à l'appelant, qui sait ce qu'il a sous les yeux.
+    appliquerA: function (classe, eleveId, geste) {
+        const eleve = (classe && classe.students || []).find(s => s.id === eleveId);
+        if (!eleve) return null;
+        if (geste.t === 'oubli') {
+            const type = this.typeOubli(geste.typeId); if (!type) return null;
+            this.noterAuJournal(eleve, 'o', geste.typeId);
+            this.retenir({ t: 'oubli', classeId: classe.id, eleveId, typeId: geste.typeId });
+            const n = this.compterOublis(eleve, geste.typeId);
+            return { eleve, texte: `📝 ${eleve.name} — oubli de ${type.nom.toLowerCase()} (${n}${n > 1 ? 'e' : 're'} fois)` };
+        }
+        const delta = geste.delta || 0;
+        if (!delta) return null;
+        const p = this.pointsDe(eleve);
+        if (delta > 0) p.plus += delta; else p.moins += -delta;
+        this.noterAuJournal(eleve, delta > 0 ? 'p' : 'm');
+        this.retenir({ t: 'pt', classeId: classe.id, eleveId, delta });
+        let texte = `${delta > 0 ? '👍' : '👎'} ${eleve.name}`;
+        if (delta < 0 && p.moins === this.reglages.seuilRetenue) {
+            texte = `⚠️ ${eleve.name} atteint ${p.moins} points négatifs`;
+        }
+        if (delta > 0 && p.plus === this.reglages.seuilNote) {
+            texte = `🎓 ${eleve.name} atteint ${p.plus} points : la note peut être mise`;
+        }
+        return { eleve, texte };
+    },
+
     // Poser un oubli : daté, comptabilisé, annulable.
     noterOubli: function (eleveId, typeId) {
-        const classe = this.classeCourante(); if (!classe) return null;
-        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return null;
-        const type = this.typeOubli(typeId); if (!type) return null;
-        const trace = this.noterAuJournal(eleve, 'o', typeId);
-        this.retenir({ t: 'oubli', classeId: classe.id, eleveId, typeId });
+        const fait = this.appliquerA(this.classeCourante(), eleveId, { t: 'oubli', typeId });
+        if (!fait) return null;
         this.sauver();
         this.rendre();
-        if (typeof showToast === 'function') {
-            const n = this.compterOublis(eleve, typeId);
-            showToast(`📝 ${eleve.name} — oubli de ${type.nom.toLowerCase()} (${n}${n > 1 ? 'e' : 're'} fois)`);
-        }
-        return trace;
+        if (typeof showToast === 'function') showToast(fait.texte);
+        return true;
     },
     retirerOubli: function (eleveId, typeId) {
         const classe = this.classeCourante(); if (!classe) return false;
@@ -31608,10 +31634,22 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return this.classes.find(c => c.id === this.classeId) || this.classes[0] || null;
     },
 
+    // Retrouver une classe par son identifiant, même si la feuille n'a jamais
+    // été ouverte : un point donné depuis le plan de classe doit rester
+    // annulable ici, et sa classe n'est alors que dans le magasin commun.
+    classeParId: function (id) {
+        return (this.classes || []).find(c => c.id === id)
+            || (((typeof ClassesStore !== 'undefined' && ClassesStore._cache) || []).find(c => c.id === id))
+            || null;
+    },
+
     // Le magasin sait regrouper les écritures : ici, on se contente de dire
-    // que quelque chose a changé.
+    // que quelque chose a changé. Une feuille jamais ouverte n'a pas de
+    // classes en mémoire : écrire sa liste vide effacerait l'année.
     sauver: function () {
-        if (typeof ClassesStore !== 'undefined') ClassesStore.saveAll(this.classes);
+        if (typeof ClassesStore === 'undefined') return;
+        const aEcrire = (this.classes && this.classes.length) ? this.classes : ClassesStore._cache;
+        if (aEcrire) ClassesStore.saveAll(aEcrire);
     },
     // Avant d'exporter, de fermer, de quitter la page : on n'attend plus.
     sauverMaintenant: function () {
@@ -32814,21 +32852,13 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     },
 
     compter: function (eleveId, delta) {
-        const classe = this.classeCourante(); if (!classe) return;
-        const eleve = (classe.students || []).find(s => s.id === eleveId); if (!eleve) return;
-        const p = this.pointsDe(eleve);
-        if (delta > 0) p.plus += delta; else p.moins += -delta;
-        this.noterAuJournal(eleve, delta > 0 ? 'p' : 'm');
-        this.retenir({ t: 'pt', classeId: classe.id, eleveId, delta });
+        const fait = this.appliquerA(this.classeCourante(), eleveId, { t: 'pt', delta });
+        if (!fait) return;
         this.sauver();
         this.rendre();
-
-        if (delta < 0 && p.moins === this.reglages.seuilRetenue && typeof showToast === 'function') {
-            showToast(`⚠️ ${eleve.name} atteint ${p.moins} points négatifs`);
-        }
-        if (delta > 0 && p.plus === this.reglages.seuilNote && typeof showToast === 'function') {
-            showToast(`🎓 ${eleve.name} atteint ${p.plus} points : la note peut être mise`);
-        }
+        // Sur la feuille, la carte montre déjà le compte : on ne dit que ce
+        // qu'elle ne montre pas, les seuils atteints.
+        if (typeof showToast === 'function' && /^(⚠️|🎓)/.test(fait.texte)) showToast(fait.texte);
     },
 
     // Retirer à la main : on ne peut pas descendre sous zéro, et l'on dit
@@ -32878,7 +32908,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     annuler: function () {
         const dernier = this.historique.pop();
         if (!dernier) { if (typeof showToast === 'function') showToast('Rien à annuler'); return; }
-        const classe = this.classes.find(c => c.id === dernier.classeId);
+        const classe = this.classeParId(dernier.classeId);
 
         if (dernier.t === 'fournee') {
             (dernier.eleves || []).forEach(id => {

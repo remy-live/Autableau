@@ -19686,6 +19686,18 @@ async function openSeatingPlanEditor(classId, hote) {
                 border-radius:8px; }
             .sp-mode.actif { background:var(--accent, #6c5ce7); border-color:var(--accent, #6c5ce7); color:#fff; }
             .sp-aide-mode { font-size:11px; line-height:1.45; color:var(--muted, #636e72); }
+            /* La même place sert à trois gestes : on dit lequel avant tout. */
+            .sp-clic-dit { font-size:13px; font-weight:700; color:var(--muted, #636e72);
+                background:var(--bg); border:1px dashed var(--border); border-radius:8px;
+                padding:6px 8px; text-align:center; }
+            .sp-clic-dit.donne { color:var(--accent, #6c5ce7); border-style:solid;
+                border-color:var(--accent, #6c5ce7); background:var(--accent-soft, #eef2ff); }
+            .sp-donne-grille { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+            .sp-donne { padding:7px 4px; font-size:11px; font-weight:600; cursor:pointer;
+                border:1px solid var(--border); background:var(--bg); color:var(--ink);
+                border-radius:8px; }
+            .sp-donne:hover { border-color:var(--accent, #6c5ce7); }
+            .sp-donne.actif { background:var(--accent, #6c5ce7); border-color:var(--accent, #6c5ce7); color:#fff; }
             .sp-appel-resume { font-size:15px; font-weight:700; color:var(--ink); }
             .sp-tirage-nom { font-size:16px; font-weight:700; color:var(--accent, #6c5ce7);
                 min-height:22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -19784,6 +19796,36 @@ async function openSeatingPlanEditor(classId, hote) {
     // ---------------------------------------------------------------------
     let spMode = plan.mode === 'classe' ? 'classe' : 'organiser';
     let spInterroge = null;   // la place mise en avant par le tirage
+    // Ce qu'un clic sur une place donnera. Rien n'est armé au départ : le
+    // clic fait l'appel, qui ne coûte rien et se corrige d'un second clic.
+    // Un point, lui, ne se donne jamais par mégarde.
+    let spDonne = null;       // null | { t:'pt', delta } | { t:'oubli', typeId }
+
+    // Les gestes de la feuille de points, donnés depuis le plan : mêmes
+    // compteurs, même journal daté, même pile d'annulation. On passe par elle
+    // plutôt que d'écrire les points ici, pour qu'il n'y ait qu'une façon de
+    // les compter dans toute l'application.
+    function feuilleDePoints() {
+        const p = (typeof PluginManager !== 'undefined' && PluginManager.plugins)
+            ? PluginManager.plugins['classPointsTool'] : null;
+        return (p && typeof p.appliquerA === 'function') ? p : null;
+    }
+
+    function donnerA(sid) {
+        const feuille = feuilleDePoints();
+        if (!feuille) {
+            if (typeof showToast === 'function') showToast('Les points de classe ne sont pas disponibles');
+            return null;
+        }
+        const fait = feuille.appliquerA(classObj, sid, spDonne);
+        if (!fait) return null;
+        persist();
+        // La feuille de points, si elle est ouverte quelque part, doit montrer
+        // le même compte que le plan.
+        if (typeof feuille.rendre === 'function') feuille.rendre();
+        if (typeof showToast === 'function') showToast(fait.texte);
+        return fait;
+    }
 
     function eleveDuSiege(sid) {
         return (classObj.students || []).find(s => s.id === sid) || null;
@@ -20406,10 +20448,36 @@ async function openSeatingPlanEditor(classId, hote) {
         const assis = elevesInterrogeables();
         const dejaTires = Array.isArray(plan.tirage) ? plan.tirage.filter(id => assis.includes(id)).length : 0;
         const nomTire = spInterroge ? studentName(spInterroge) : '';
+        // Ce que le clic sur une place va faire : c'est la première chose à
+        // dire, puisque la même place sert à trois gestes.
+        const TYPES_OUBLI_PLAN = (feuilleDePoints() || {}).TYPES_OUBLI || [];
+        const arme = (g) => spDonne && spDonne.t === g.t
+            && (g.t === 'oubli' ? spDonne.typeId === g.typeId : spDonne.delta === g.delta);
+        const boutonDonne = (g, texte, couleur) => `
+                        <button class="sp-donne${arme(g) ? ' actif' : ''}" data-donne='${JSON.stringify(g)}'
+                                ${couleur && arme(g) ? `style="background:${couleur}; border-color:${couleur}; color:#fff;"` : ''}>${texte}</button>`;
         const colonneEnClasse = `
-                    <label class="sp-section-label" style="margin-top:0;">Appel</label>
+                    <label class="sp-section-label" style="margin-top:0;">Le clic sur une place</label>
+                    <div class="sp-clic-dit ${spDonne ? 'donne' : ''}" id="sp-clic-dit">${spDonne
+                        ? (spDonne.t === 'oubli'
+                            ? 'note un oubli de ' + ((TYPES_OUBLI_PLAN.find(t => t.id === spDonne.typeId) || {}).nom || '').toLowerCase()
+                            : (spDonne.delta > 0 ? 'donne un point bonus' : 'donne un point malus'))
+                        : "fait l'appel"}</div>
+
+                    <label class="sp-section-label">Donner</label>
+                    <div class="sp-donne-grille">
+                        ${boutonDonne({ t: 'pt', delta: 1 }, '➕ Bonus', '#00b894')}
+                        ${boutonDonne({ t: 'pt', delta: -1 }, '➖ Malus', '#d63031')}
+                    </div>
+                    <div class="sp-donne-grille">
+                        ${TYPES_OUBLI_PLAN.map(t => boutonDonne({ t: 'oubli', typeId: t.id }, t.nom, t.couleur)).join('')}
+                    </div>
+                    <div class="sp-aide-mode">Rien n'est armé au départ. Un second clic sur le bouton désarme et rend le clic à l'appel.</div>
+                    <button id="sp-annuler-point" class="btn-action secondary sp-left-btn">↶ Annuler le dernier</button>
+
+                    <label class="sp-section-label">Appel</label>
                     <div class="sp-appel-resume" id="sp-appel-resume">${Appel.resume(classObj) || 'Aucun élève'}</div>
-                    <div class="sp-aide-mode">Cliquez une place pour marquer l'élève absent, et de nouveau pour le rendre présent.</div>
+                    <div class="sp-aide-mode">Sans rien d'armé, un clic sur une place marque l'élève absent, et de nouveau le rend présent.</div>
                     <button id="sp-tous-presents" class="btn-action secondary sp-left-btn">✓ Tous présents</button>
 
                     <label class="sp-section-label">Interroger</label>
@@ -20516,6 +20584,27 @@ async function openSeatingPlanEditor(classId, hote) {
 
         // --- EN CLASSE : l'appel se fait sur les chaises, et le tirage
         // désigne une place, pas une ligne dans une liste. ---
+        // Armer ce que le clic donnera — ou le désarmer, ce qui rend le clic
+        // à l'appel.
+        box.querySelectorAll('.sp-donne').forEach(btn => {
+            btn.onclick = () => {
+                let g = null;
+                try { g = JSON.parse(btn.dataset.donne); } catch (e) { g = null; }
+                if (!g) return;
+                const memeChose = spDonne && spDonne.t === g.t
+                    && (g.t === 'oubli' ? spDonne.typeId === g.typeId : spDonne.delta === g.delta);
+                spDonne = memeChose ? null : g;
+                render();
+            };
+        });
+        siLa('#sp-annuler-point', el => {
+            el.onclick = () => {
+                const feuille = feuilleDePoints();
+                if (feuille && typeof feuille.annuler === 'function') feuille.annuler();
+                render();
+            };
+        });
+
         siLa('#sp-tous-presents', el => {
             el.onclick = () => { Appel.tousPresents(classObj); persist(); render(); };
         });
@@ -20749,6 +20838,15 @@ async function openSeatingPlanEditor(classId, hote) {
                 seat.addEventListener('click', () => {
                     const sid = seat.dataset.student;
                     if (!sid) return;
+                    if (spDonne) {
+                        // On ne donne rien à un absent : il n'était pas là.
+                        if (estAbsentSiege(sid)) {
+                            if (typeof showToast === 'function') showToast(`${studentName(sid)} est noté absent`);
+                            return;
+                        }
+                        if (donnerA(sid)) render();
+                        return;
+                    }
                     Appel.basculer(classObj, sid);
                     // Un absent ne reste pas la personne interrogée.
                     if (spInterroge === sid && estAbsentSiege(sid)) spInterroge = null;
