@@ -2379,6 +2379,47 @@ module.exports = async function (browser) {
     r.verifie('aucune erreur JS sur la classe de démonstration', errDemo.length === 0, errDemo.join(' | '));
     await ctxDemo.close();
 
+    // UNE QUESTION SE POSE PAR-DESSUS CE QU'ELLE CONCERNE.
+    // « Mes classes » n'a plus de voile noir et monte à 100010 ; les boîtes de
+    // dialogue étaient au même étage et s'ajoutaient AVANT dans la page. À
+    // égalité, c'est la fenêtre qui gagnait : « supprimer cette classe ? » se
+    // posait derrière elle, et plus rien ne répondait.
+    // Dans un onglet neuf : une étape plus haut nettoie les voiles oubliés en
+    // supprimant tous les « .modal-backdrop » de la page, boîte de dialogue
+    // comprise. C'est justement elle qu'on veut voir ici.
+    const { context: ctxDessus, page: pageDessus, erreurs: errDessus } = await ouvrirApp(browser);
+    await pageDessus.waitForFunction(() => typeof openClassManagerModal === 'function', { timeout: 20000 });
+    const dessus = await pageDessus.evaluate(async () => {
+        await ClassesStore.saveAll([{ id: 'cz1', name: '4A', students: [{ id: 'a1', name: 'Amel' }] }]);
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        await openClassManagerModal();
+        await new Promise(r => setTimeout(r, 400));
+        const fenetre = document.getElementById('class-manager-modal');
+        openConfirmModal('Supprimer', 'Question posée par-dessus', true, () => { });
+        await new Promise(r => setTimeout(r, 250));
+        const boite = document.getElementById('confirm-modal');
+        const lu = (el) => parseInt(getComputedStyle(el).zIndex, 10) || 0;
+        // Ce que voit vraiment le doigt du professeur au centre de la boîte
+        const b = boite.querySelector('.modal-box').getBoundingClientRect();
+        const dessous = document.elementFromPoint(b.x + b.width / 2, b.y + 20);
+        const infobulle = document.getElementById('dt-tooltip');
+        const res = {
+            boite: lu(boite), fenetre: lu(fenetre),
+            infobulle: infobulle ? lu(infobulle) : 0,
+            atteignable: !!(dessous && boite.contains(dessous))
+        };
+        document.getElementById('confirm-modal').style.display = 'none';
+        if (fenetre) fenetre.remove();
+        return res;
+    });
+    r.verifie('une boîte de dialogue passe au-dessus de « Mes classes »',
+        dessus.boite > dessus.fenetre, JSON.stringify(dessus));
+    r.verifie('et c\'est bien elle que l\'on touche', dessus.atteignable, JSON.stringify(dessus));
+    r.verifie('l\'infobulle, elle, passe au-dessus de tout',
+        dessus.infobulle > dessus.boite, JSON.stringify(dessus));
+    r.verifie('aucune erreur JS en posant la question', errDessus.length === 0, errDessus.join(' | '));
+    await ctxDessus.close();
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

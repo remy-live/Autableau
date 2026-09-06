@@ -540,6 +540,48 @@ module.exports = async function (browser) {
         { points: absentIntouchable.apres, absent: absentIntouchable.toujoursAbsent },
         { points: absentIntouchable.avant, absent: true });
 
+    // --- DE QUEL CÔTÉ LE PLAN S'OUVRE ---
+    // Il s'ouvrait toujours sur « Organiser » : le professeur qui vient faire
+    // l'appel tombait sur les boutons pour ajouter des tables, et ne trouvait
+    // pas l'appel. Une salle déjà faite s'ouvre du côté où l'on s'en sert.
+    const ouverture = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const modeAffiche = () => (document.querySelector('.sp-mode.actif') || {}).dataset?.mode;
+        const rouvrir = async (id) => {
+            const m = document.getElementById('seating-plan-modal');
+            document.querySelectorAll('.modal-backdrop').forEach(x => {
+                if (x.querySelector('#sp-canvas')) x.remove();
+            });
+            if (m) m.remove();
+            await openSeatingPlanEditor(id);
+            await attendre(500);
+            return modeAffiche();
+        };
+        const cls = await ClassesStore.loadAll();
+        const c = cls.find(x => x.id === 'cz');
+
+        // 1. Une salle faite, sans choix retenu : on vient s'en servir.
+        delete c.seatingPlan.mode;
+        const faite = await rouvrir('cz');
+
+        // 2. Une salle vide : il n'y a rien à faire d'autre que la préparer.
+        cls.push({
+            id: 'cvide', name: 'Vide', students: [{ id: 'v1', name: 'Solo' }],
+            seatingPlan: { tables: [{ id: 'tv', x: 40, y: 60, capacity: 2, cols: 2, seats: [null, null] }] }
+        });
+        await ClassesStore.saveAll(cls);
+        const vide = await rouvrir('cvide');
+
+        // 3. Le choix retenu l'emporte sur les deux.
+        c.seatingPlan.mode = 'organiser';
+        await ClassesStore.saveAll(cls);
+        const retenu = await rouvrir('cz');
+        return { faite, vide, retenu };
+    });
+    r.egal('une salle déjà faite s\'ouvre du côté « En classe »', ouverture.faite, 'classe');
+    r.egal('une salle vide s\'ouvre du côté « Organiser »', ouverture.vide, 'organiser');
+    r.egal('mais le choix retenu l\'emporte toujours', ouverture.retenu, 'organiser');
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

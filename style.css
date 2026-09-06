@@ -2289,7 +2289,12 @@ input[type=range]::-moz-range-thumb {
     height: 100vh;
     background: rgba(0, 0, 0, 0.4);
     backdrop-filter: blur(4px);
-    z-index: 100010;
+    /* AU-DESSUS DES FENÊTRES. « Mes classes » est à 100010 et s'ajoute en fin
+       de page : à égalité, c'est elle qui l'emportait, et la question
+       « supprimer cette classe ? » se posait DERRIÈRE la fenêtre — on ne
+       voyait qu'un voile et plus rien ne répondait. Une question se pose
+       toujours par-dessus ce qu'elle concerne. */
+    z-index: 100050;
     display: none;
     align-items: center;
     justify-content: center;
@@ -3488,7 +3493,10 @@ body.dark-mode {
 =================================================== */
 #dt-tooltip {
     position: fixed;
-    z-index: 100000;
+    /* Une infobulle passe par-dessus tout, fenêtres et boîtes de dialogue
+       comprises : à 100000, celles du bilan (les dates d'un oubli) restaient
+       derrière la fenêtre « Mes classes ». */
+    z-index: 100100;
     background: #1e272e;
     color: #fff;
     padding: 6px 10px;

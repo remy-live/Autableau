@@ -19680,10 +19680,13 @@ async function openSeatingPlanEditor(classId, hote) {
             .sp-tool-btn { flex:1; padding:8px 4px; font-size:11px; }
 
             /* LES DEUX MÉTIERS DU PLAN : préparer la salle, puis s'en servir. */
-            .sp-modes { display:flex; gap:4px; margin-bottom:4px; }
-            .sp-mode { flex:1; padding:7px 4px; font-size:11px; font-weight:600; cursor:pointer;
+            .sp-modes { display:flex; gap:5px; margin-bottom:8px; }
+            .sp-mode { flex:1; padding:10px 4px 8px; font-size:12px; font-weight:700; cursor:pointer;
                 border:1px solid var(--border); background:var(--bg); color:var(--muted);
-                border-radius:8px; }
+                border-radius:10px; line-height:1.25; }
+            .sp-mode small { display:block; font-size:9.5px; font-weight:600; opacity:0.8;
+                text-transform:uppercase; letter-spacing:0.2px; margin-top:2px; }
+            .sp-mode:hover { border-color:var(--accent, #6c5ce7); color:var(--ink); }
             .sp-mode.actif { background:var(--accent, #6c5ce7); border-color:var(--accent, #6c5ce7); color:#fff; }
             .sp-aide-mode { font-size:11px; line-height:1.45; color:var(--muted, #636e72); }
             /* La même place sert à trois gestes : on dit lequel avant tout. */
@@ -19794,7 +19797,15 @@ async function openSeatingPlanEditor(classId, hote) {
     // salle. Et pendant l'heure, rien ne doit pouvoir être déplacé par
     // mégarde : en mode classe, ni les tables ni les élèves ne bougent.
     // ---------------------------------------------------------------------
-    let spMode = plan.mode === 'classe' ? 'classe' : 'organiser';
+    // Le mode d'ouverture. Le choix retenu avec la classe l'emporte ; sinon,
+    // une salle déjà faite s'ouvre du côté où l'on s'en sert. On ouvrait
+    // toujours sur « Organiser » : le professeur qui vient faire l'appel
+    // tombait sur les boutons pour ajouter des tables, et ne trouvait pas
+    // l'appel.
+    const planDejaFait = (plan.tables || []).some(t => (t.seats || []).some(Boolean));
+    let spMode = plan.mode === 'classe' || plan.mode === 'organiser'
+        ? plan.mode
+        : (planDejaFait ? 'classe' : 'organiser');
     let spInterroge = null;   // la place mise en avant par le tirage
     // Ce qu'un clic sur une place donnera. Rien n'est armé au départ : le
     // clic fait l'appel, qui ne coûte rien et se corrige d'un second clic.
@@ -20504,8 +20515,10 @@ async function openSeatingPlanEditor(classId, hote) {
                          différents : l'un se fait au calme, l'autre debout
                          devant vingt-cinq élèves. -->
                     <div class="sp-modes">
-                        <button class="sp-mode${spMode === 'organiser' ? ' actif' : ''}" data-mode="organiser">🛠️ Organiser</button>
-                        <button class="sp-mode${spMode === 'classe' ? ' actif' : ''}" data-mode="classe">👋 En classe</button>
+                        <button class="sp-mode${spMode === 'organiser' ? ' actif' : ''}" data-mode="organiser"
+                                title="Poser les tables, placer les élèves">🛠️ Organiser<small>la salle</small></button>
+                        <button class="sp-mode${spMode === 'classe' ? ' actif' : ''}" data-mode="classe"
+                                title="Faire l'appel, interroger, donner des points">👋 En classe<small>appel, points</small></button>
                     </div>
                     ${spMode === 'classe' ? colonneEnClasse : colonneOrganiser}
                 </div>
