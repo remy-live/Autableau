@@ -9186,6 +9186,13 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 }
 
 .bm-btn:hover { border-color: #6c5ce7; color: #6c5ce7; }
+.bm-btn:disabled { opacity: 0.3; cursor: default; }
+.bm-btn:disabled:hover { border-color: #dfe6e9; color: #2d3436; }
+
+/* La pagination du tableau, dans le tiroir : petite, mais une ligne. */
+.bm-pages { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.bm-pages b { font-size: 11.5px; min-width: 30px; text-align: center; }
+.bm-mini { padding: 5px 7px; font-size: 11px; }
 .bm-vider { color: #d63031; padding: 6px 9px; }
 
 /* Le morceau qui suit le doigt entre le tiroir et le tableau. */

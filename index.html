@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=106">
+    <link rel="stylesheet" href="style.css?v=107">
 </head>
 
 <body>
@@ -363,6 +363,18 @@
         <span class="bm-titre">✂ <b id="bm-compte">0</b> <span id="bm-mot">morceaux</span>
             <i>glissez-en un où vous le voulez</i></span>
         <div class="bm-rail" id="bm-rail"></div>
+        <!-- LA PAGE DU TABLEAU, DEPUIS LE TIROIR. On découpe un poly sur la
+             page 1 et l'on veut coller les exercices sur la page 2 : sans
+             cela il fallait aller chercher la pagination dans le tiroir du
+             bas, en espérant que les morceaux survivent au voyage. Ils le
+             font — le tiroir n'appartient à aucune page — mais encore
+             fallait-il oser. -->
+        <span class="bm-pages" role="group" aria-label="Page du tableau">
+            <button class="bm-btn bm-mini" id="bm-page-prec" data-tooltip="Page précédente du tableau">◀</button>
+            <b id="bm-page">1/1</b>
+            <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
+            <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
+        </span>
         <button class="bm-btn" id="bm-ranger"
             data-tooltip="Poser tous les morceaux côte à côte, à côté du document — et y aller">⇥ Poser à côté</button>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
@@ -946,6 +958,17 @@
                             — trois bandes larges s'empilent, trois exercices étroits se rangent côte à
                             côte. Ils restent <b>tenus</b> après la pose : un seul geste les déplace tous
                             si la place ne convient pas.<br>
+                            <b>Coller sur une autre page du tableau :</b> le tiroir porte sa propre
+                            pagination — <b>◀ 2/3 ▶</b> et <b>＋</b> pour une page vierge. Le tiroir ne
+                            tient à aucune page, il traverse : on découpe le poly sur la page 1, on ouvre
+                            une page blanche, on pose. C'est le geste de qui refait une fiche
+                            d'exercices.<br>
+                            <b>Agrandi, un morceau redemande sa page.</b> Posé trois fois plus grand, il
+                            montrerait trois fois les mêmes pixels — du flou projeté au mur. Il garde donc
+                            le lien vers son PDF et fait <b>rendre à nouveau sa page</b>, à la finesse
+                            qu'il lui faut. Le document d'à côté profite de la même image : six morceaux
+                            d'un poly ne pèsent toujours pas six pages, et le document montré petit ne
+                            ramène pas la page à sa taille — c'est le plus exigeant des deux qui décide.<br>
                             La <b>croix d'une vignette</b> jette ce morceau-là ; le <b>✕</b> du bout de la
                             bande vide tout le tiroir. Dans les deux cas, ce qui est déjà posé reste.
                             Le tiroir est un lieu de passage : il ne se sauvegarde pas, contrairement aux
@@ -2601,7 +2624,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=195"></script>
+    <script src="script.js?v=196"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

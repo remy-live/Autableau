@@ -1887,6 +1887,149 @@ module.exports = async function (browser) {
     r.verifie('un morceau se remet en rognage', retaille.enRognage, JSON.stringify(retaille));
     r.verifie('et peut reprendre du terrain sur la page', retaille.plusGrand, JSON.stringify(retaille));
 
+    // =====================================================================
+    // AGRANDI, IL RÉCLAME UNE PAGE PLUS FINE
+    // Un morceau posé trois fois plus grand montrait trois fois les mêmes
+    // pixels : on projetait du flou. Il porte maintenant la clé de son
+    // document et sait redemander SA page, rendue à la finesse qu'il faut.
+    // =====================================================================
+    const finesse = await page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; selectedItems = [];
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'poly.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 900));
+        const doc = images[0];
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+
+        basculerLaDecoupe(true);
+        const rect = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.3, h: doc.h * 0.2 };
+        decoupeGeste = { obj: doc, debut: { x: rect.x, y: rect.y }, rect };
+        const m = finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+        if (!m) return { rate: true };
+        const cleAuTiroir = !!m.cle;
+
+        poserTousLesMorceaux();
+        const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        if (!morceau) return { rate: true };
+        const avant = {
+            cw: morceau.cw, memeSrc: morceau.src === doc.src,
+            // Combien de pixels d'écran pour un pixel de la page : au-dessus
+            // de 1, on étire.
+            finesse: (morceau.w * zoom) / morceau.cw
+        };
+        // PERSONNE NE LE DEMANDE À LA MAIN. L'affinage part tout seul de la
+        // pose, après le délai qui laisse le geste se poser.
+        await new Promise(r => setTimeout(r, 1400));
+        const apres = {
+            cw: morceau.cw, memeSrc: morceau.src === doc.src,
+            finesse: (morceau.w * zoom) / morceau.cw
+        };
+        return { cleAuTiroir, cle: !!morceau.pluginData.cle, avant, apres,
+                 agrandi: morceau.w / m.w };
+    }, { octets: pdf });
+    r.verifie('la clé du document voyage avec le morceau, du tiroir au tableau',
+        finesse.cleAuTiroir && finesse.cle, JSON.stringify(finesse));
+    r.verifie('posé agrandi, il réclame plus de pixels qu\'il n\'en a',
+        finesse.agrandi > 1.5 && finesse.avant.finesse > 1.15, JSON.stringify(finesse));
+    r.verifie('la page est redemandée plus fine TOUTE SEULE, et il en a assez',
+        finesse.apres.cw > finesse.avant.cw * 1.1
+        && finesse.apres.finesse < finesse.avant.finesse, JSON.stringify(finesse));
+    // Six morceaux d'un poly ne pèsent pas six pages : c'est tout l'intérêt du
+    // partage, et affiner ne doit pas le rompre.
+    r.verifie('et le document le suit sur la MÊME image : on n\'en garde pas deux',
+        finesse.avant.memeSrc && finesse.apres.memeSrc, JSON.stringify(finesse));
+
+    // ET L'INVERSE, QUI EST LE VRAI PIÈGE : le document reste montré petit à
+    // côté du morceau agrandi. Ils partagent la même page rendue — affiner
+    // pour le document, qui n'a besoin de rien, ramenait la page à sa taille
+    // modeste et rendait flou le morceau d'à côté.
+    const partageDeLaPage = await page.evaluate(async () => {
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        if (!doc || !morceau) return { rate: true };
+        const besoin = { doc: (doc.w * zoom) / doc.cw, morceau: (morceau.w * zoom) / morceau.cw };
+        const avant = { cw: morceau.cw, src: morceau.src };
+        const change = await affinerLaPage(doc);
+        return { besoin, avant: { cw: avant.cw }, apres: { cw: morceau.cw },
+                 memeSrc: morceau.src === doc.src, change };
+    });
+    r.verifie('le document montré petit est bien le moins exigeant des deux',
+        partageDeLaPage.besoin.doc < partageDeLaPage.besoin.morceau, JSON.stringify(partageDeLaPage));
+    r.verifie('et affiner pour lui ne rend pas flou le morceau agrandi d\'à côté',
+        partageDeLaPage.apres.cw >= partageDeLaPage.avant.cw - 0.5 && partageDeLaPage.memeSrc,
+        JSON.stringify(partageDeLaPage));
+
+    // =====================================================================
+    // CHANGER DE PAGE DEPUIS LE TIROIR
+    // Découper sur la page 1, coller sur la page 2 : c'est le geste de qui
+    // refait une fiche d'exercices.
+    // =====================================================================
+    const pagesDuTiroir = await page.evaluate(() => {
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        images.length = 0; images.push(doc);
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        [0.15, 0.5].forEach(p => {
+            const r = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * p, l: doc.w * 0.3, h: doc.h * 0.18 };
+            decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+            finirGesteDeDecoupe();
+        });
+        basculerLaDecoupe(false);
+        const pagesAvant = pages.length;
+        const surLaUne = images.length;
+        const libelleAvant = document.getElementById('bm-page').textContent;
+
+        document.getElementById('bm-page-plus').click();
+        const neuve = {
+            pages: pages.length - pagesAvant,
+            derniere: currentPageIndex === pages.length - 1,
+            vide: images.length === 0,
+            // LE TIROIR TRAVERSE : il n'appartient à aucune page.
+            tiroir: morceauxEnAttente.length,
+            visible: !document.getElementById('bande-morceaux').hidden,
+            libelle: document.getElementById('bm-page').textContent
+        };
+
+        poserTousLesMorceaux();
+        const posee = { ici: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length,
+                        tiroir: morceauxEnAttente.length };
+
+        document.getElementById('bm-page-prec').click();
+        const revenu = { index: currentPageIndex,
+                         morceaux: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length,
+                         doc: images.filter(o => o.pluginData && o.pluginData.id === 'pdfDoc').length,
+                         libelle: document.getElementById('bm-page').textContent };
+        // ET PAR L'AUTRE BOUT : la pagination du tiroir du bas change la page
+        // elle aussi, celle du tiroir à morceaux ne doit pas mentir.
+        document.getElementById('btn-next-page').click();
+        const parLAutreBout = { index: currentPageIndex,
+                                libelle: document.getElementById('bm-page').textContent,
+                                bas: document.getElementById('page-indicator').innerText };
+        return { pagesAvant, surLaUne, libelleAvant, neuve, posee, revenu, parLAutreBout };
+    });
+    r.egal('＋ ouvre une page vierge et s\'y rend',
+        { pages: pagesDuTiroir.neuve.pages, derniere: pagesDuTiroir.neuve.derniere,
+          vide: pagesDuTiroir.neuve.vide },
+        { pages: 1, derniere: true, vide: true });
+    r.egal('le tiroir traverse le changement de page, vignettes comprises',
+        { tiroir: pagesDuTiroir.neuve.tiroir, visible: pagesDuTiroir.neuve.visible },
+        { tiroir: 2, visible: true });
+    r.verifie('et sa pagination suit celle du tableau',
+        pagesDuTiroir.neuve.libelle !== pagesDuTiroir.libelleAvant
+        && pagesDuTiroir.neuve.libelle.startsWith(String(pagesDuTiroir.pagesAvant + 1)),
+        JSON.stringify(pagesDuTiroir));
+    r.egal('« Poser à côté » les pose sur la page où l\'on est',
+        { ici: pagesDuTiroir.posee.ici, tiroir: pagesDuTiroir.posee.tiroir }, { ici: 2, tiroir: 0 });
+    r.egal('et la page d\'avant est restée ce qu\'elle était : le document, sans les morceaux',
+        { morceaux: pagesDuTiroir.revenu.morceaux, doc: pagesDuTiroir.revenu.doc },
+        { morceaux: 0, doc: 1 });
+    r.egal('changer de page par la pagination du bas met à jour celle du tiroir',
+        { tiroir: pagesDuTiroir.parLAutreBout.libelle, bas: pagesDuTiroir.parLAutreBout.bas },
+        { tiroir: '2/2', bas: '2/2' });
+
     await page.evaluate(() => {
         basculerLaDecoupe(false);
         images.length = 0; selectedItems = []; majBarreDocument(); draw();

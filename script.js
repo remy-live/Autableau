@@ -1019,6 +1019,9 @@ function loadPage(index) {
 
 function updatePageUI() {
     document.getElementById('page-indicator').innerText = (currentPageIndex + 1) + '/' + pages.length;
+    // Le tiroir à morceaux porte la même pagination : elle ne doit pas mentir
+    // quand on change de page par l'autre bout.
+    if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
     document.getElementById('btn-prev-page').style.opacity = currentPageIndex === 0 ? 0.3 : 1;
     document.getElementById('btn-prev-page').style.pointerEvents = currentPageIndex === 0 ? 'none' : 'auto';
     document.getElementById('btn-next-page').style.opacity = currentPageIndex === pages.length - 1 ? 0.3 : 1;
@@ -10994,7 +10997,17 @@ function finesseDemandee(obj) {
 async function affinerLaPage(obj) {
     const d = obj && obj.pluginData && documentsPdf.get(obj.pluginData.cle);
     if (!d || !obj.pluginData.page) return false;
-    const besoin = finesseDemandee(obj);
+
+    // PLUSIEURS OBJETS PARTAGENT LA MÊME PAGE RENDUE : le document, et les
+    // morceaux qu'on y a découpés — c'est ce partage qui fait que six morceaux
+    // d'un poly ne pèsent pas six pages. La finesse est donc celle du PLUS
+    // EXIGEANT d'entre eux : affinée pour le document montré petit, la page
+    // rendait flous les morceaux qu'on venait d'agrandir à côté.
+    const ancienSrc = obj.src;
+    let besoin = finesseDemandee(obj);
+    (images || []).forEach(o => {
+        if (o.src === ancienSrc) besoin = Math.max(besoin, finesseDemandee(o));
+    });
 
     const numero = obj.pluginData.page;
     const actuel = (d.rendus && d.rendus.get(numero)) || null;
@@ -11024,13 +11037,30 @@ async function affinerLaPage(obj) {
 
     // La page a pu changer pendant le calcul : on ne repeint pas au hasard.
     if (obj.pluginData.page !== numero) return false;
-    const k = rendu.l / (actuel ? actuel.l : (imageCache[obj.src] || {}).naturalWidth || rendu.l);
-    obj.src = rendu.src;
-    obj.cx *= k; obj.cy *= k; obj.cw *= k; obj.ch *= k;
-    if (obj.pluginData.surlignes) {
-        obj.pluginData.surlignes = obj.pluginData.surlignes.map(z => ({
-            x: z.x * k, y: z.y * k, l: z.l * k, h: z.h * k
-        }));
+    const k = rendu.l / (actuel ? actuel.l : (imageCache[ancienSrc] || {}).naturalWidth || rendu.l);
+    // TOUS CEUX QUI MONTRAIENT CETTE PAGE PASSENT À LA NOUVELLE. Ne changer
+    // que celui qu'on affine aurait doublé l'image en mémoire, et laissé les
+    // autres sur l'ancienne — deux poids, deux mesures pour la même page.
+    const suivre = (o) => {
+        o.src = rendu.src;
+        o.cx *= k; o.cy *= k; o.cw *= k; o.ch *= k;
+        if (o.pluginData && o.pluginData.surlignes) {
+            o.pluginData.surlignes = o.pluginData.surlignes.map(z => ({
+                x: z.x * k, y: z.y * k, l: z.l * k, h: z.h * k
+            }));
+        }
+    };
+    (images || []).forEach(o => { if (o.src === ancienSrc) suivre(o); });
+    if (obj.src === ancienSrc) suivre(obj);
+    // Et ceux qui attendent au tiroir : posés plus tard, ils seraient restés
+    // sur une page qui n'existe plus.
+    if (typeof morceauxEnAttente !== 'undefined') {
+        morceauxEnAttente.forEach(m => {
+            if (m.src !== ancienSrc) return;
+            m.src = rendu.src;
+            m.cx *= k; m.cy *= k; m.cw *= k; m.ch *= k;
+        });
+        if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
     }
     if (d.rendus) d.rendus.set(numero, rendu);
     draw();
@@ -12240,6 +12270,11 @@ function prendreUnMorceau(source, r, silencieux) {
         nom: pd.nom || source.fileName || 'Document',
         page: pd.page || 1,
         pdfRef: pd.pdfRef || null,
+        // LA CLÉ DU DOCUMENT VOYAGE AVEC LE MORCEAU. Sans elle, il n'était
+        // qu'une image : posé trois fois plus grand, il montrait trois fois
+        // les mêmes pixels, et l'on projetait du flou. Avec elle, il sait
+        // redemander SA page au PDF, rendue à la finesse qu'il lui faut.
+        cle: pd.cle || null,
         source: source.id
     };
     morceauxEnAttente.push(morceau);
@@ -12475,6 +12510,7 @@ function majLeTiroirDesMorceaux() {
     if (compte) compte.textContent = String(morceauxEnAttente.length);
     const mot = document.getElementById('bm-mot');
     if (mot) mot.textContent = morceauxEnAttente.length > 1 ? 'morceaux' : 'morceau';
+    majLaPageDuTiroir();
     const rail = document.getElementById('bm-rail');
     if (!rail) return;
     rail.innerHTML = '';
@@ -12595,15 +12631,30 @@ function poserLeMorceau(m, ou) {
         id: nextId++, x: centre.x - m.w / 2, y: centre.y - m.h / 2, w: m.w, h: m.h,
         cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
         src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
+        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null }
     };
     images.push(objet);
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
     majLeTiroirDesMorceaux();
+    affinerLesMorceaux([objet]);
     saveState();
     draw();
     return objet;
+}
+
+// Celui qui réclame le plus de finesse tire les autres avec lui : ils
+// partagent la même page rendue.
+function affinerLesMorceaux(poses) {
+    if (!poses || !poses.length || typeof demanderAffinage !== 'function') return null;
+    let vise = null, plus = 0;
+    poses.forEach(o => {
+        if (!o.pluginData || !o.pluginData.cle) return;
+        const b = finesseDemandee(o);
+        if (b > plus) { plus = b; vise = o; }
+    });
+    if (vise) demanderAffinage(vise);
+    return vise;
 }
 
 // ------------------------------------------------------------------
@@ -12721,7 +12772,7 @@ function poserTousLesMorceaux() {
                 id: nextId++, x, y: y + (hauteurs[n] - m.h * s) / 2, w: m.w * s, h: m.h * s,
                 cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
                 src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
+                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null }
             });
             x += m.w * s + ecart;
         });
@@ -12741,6 +12792,9 @@ function poserTousLesMorceaux() {
     // Posés ET tenus : le lot se déplace d'un geste si la place ne convient pas.
     selectedItems = poses.map(o => ({ type: 'image', id: o.id }));
     majLeTiroirDesMorceaux();
+    // AGRANDIS, ILS RÉCLAMENT UNE PAGE PLUS FINE. Rien ne le demandait pour
+    // eux : l'affinage ne suivait que le document tenu par la barre.
+    affinerLesMorceaux(poses);
     saveState();
     draw();
     if (typeof showToast === 'function') {
@@ -12751,11 +12805,41 @@ function poserTousLesMorceaux() {
     return combien;
 }
 
+// LA PAGE DU TABLEAU, DEPUIS LE TIROIR. Découper sur la page 1 et coller sur
+// la page 2 est le geste même de qui refait une fiche d'exercices : le tiroir
+// ne appartient à aucune page, il traverse. Encore fallait-il pouvoir changer
+// de page sans le quitter des yeux.
+function majLaPageDuTiroir() {
+    const ou = document.getElementById('bm-page');
+    if (!ou || typeof pages === 'undefined') return;
+    ou.textContent = (currentPageIndex + 1) + '/' + pages.length;
+    const prec = document.getElementById('bm-page-prec');
+    const suiv = document.getElementById('bm-page-suiv');
+    if (prec) prec.disabled = currentPageIndex === 0;
+    if (suiv) suiv.disabled = currentPageIndex >= pages.length - 1;
+}
+
 function brancherLeTiroirDesMorceaux() {
     const ranger = document.getElementById('bm-ranger');
     if (ranger) ranger.addEventListener('click', poserTousLesMorceaux);
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
+    const prec = document.getElementById('bm-page-prec');
+    if (prec) prec.addEventListener('click', () => {
+        if (currentPageIndex > 0) { loadPage(currentPageIndex - 1); majLaPageDuTiroir(); }
+    });
+    const suiv = document.getElementById('bm-page-suiv');
+    if (suiv) suiv.addEventListener('click', () => {
+        if (currentPageIndex < pages.length - 1) { loadPage(currentPageIndex + 1); majLaPageDuTiroir(); }
+    });
+    const plus = document.getElementById('bm-page-plus');
+    if (plus) plus.addEventListener('click', () => {
+        pages.push(createNewPage());
+        loadPage(pages.length - 1);
+        majLaPageDuTiroir();
+        if (typeof showToast === 'function') showToast('Page vierge — vos morceaux vous ont suivi');
+    });
+    majLaPageDuTiroir();
     // La bande se déplace, comme celle du lecteur : elle n'a pas à rester
     // devant ce qu'on regarde.
     const poignee = document.getElementById('bm-poignee');
