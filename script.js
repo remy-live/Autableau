@@ -19005,7 +19005,7 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
             : state.classes.map(c => `
                 <button class="cm-class-item${c.id === state.selectedId ? ' actif' : ''}" data-id="${c.id}"
                         title="${(c.students || []).length} élève(s)">
-                    <span>${c.name || '(sans nom)'}</span>
+                    <span>${echapperTexte(c.name || '(sans nom)')}</span>
                     <span class="cm-onglet-compte">${(c.students || []).length}</span>
                     ${c.id === state.selectedId
                         ? `<span class="cm-onglet-menu" data-id="${c.id}"
@@ -19043,7 +19043,7 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
                     <span class="cm-poignee">⠿</span>
                     <button class="cm-avatar" data-idx="${idx}" data-tooltip="Changer l'avatar de ${echapperTexte(s.name)}"
                             >${AvatarsEleves.svg(s, 26)}</button>
-                    <span class="cm-nom">${s.name}</span>
+                    <span class="cm-nom">${echapperTexte(s.name)}</span>
                     <button class="${outil(s.memo)} cm-memo" data-idx="${idx}"
                             data-tooltip="${s.memo ? echapperTexte(s.memo) : 'Noter quelque chose sur ' + echapperTexte(s.name)}">📝</button>
                     <button class="${outil(s.absent)} cm-presence" data-idx="${idx}"
@@ -19059,7 +19059,7 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
 
             detailHtml = `
                 <div class="cm-entete">
-                    <input type="text" id="cm-class-name" value="${selected.name || ''}" placeholder="Nom de la classe">
+                    <input type="text" id="cm-class-name" value="${echapperTexte(selected.name || '')}" placeholder="Nom de la classe">
                     <!-- « Points » et « Plan » étaient ici ET dans les onglets
                          du dessus : deux chemins pour le même geste, à deux
                          endroits différents de la même fenêtre. Les onglets
@@ -19068,7 +19068,7 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
                     <div class="cm-actions">
                         <button id="cm-dupliquer" class="btn-action secondary cm-ico" title="Copier cette classe et ses élèves, sans les points ni les badges">⧉</button>
                         <button id="cm-archiver" class="btn-action secondary cm-ico" title="${selected.archivee ? 'Sortir des archives' : 'Archiver : la classe reste, mais quitte les listes'}">${selected.archivee ? '📤' : '📦'}</button>
-                        <button id="cm-delete-class" class="btn-action secondary cm-ico cm-danger" title="Supprimer la classe « ${(selected.name || '').replace(/"/g, '&quot;')} » et ses élèves">🗑️</button>
+                        <button id="cm-delete-class" class="btn-action secondary cm-ico cm-danger" title="Supprimer la classe « ${echapperTexte(selected.name || '')} » et ses élèves">🗑️</button>
                     </div>
                 </div>
 
@@ -19105,11 +19105,11 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
                     <summary>À ne pas mettre ensemble${nbPaires ? ` <b>(${nbPaires})</b>` : ''}</summary>
                     <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
                         <select id="cm-sep-a" style="flex:1; min-width:0;">
-                            ${(selected.students || []).map((e, i) => `<option value="${e.id}">${e.name}</option>`).join('')}
+                            ${(selected.students || []).map((e, i) => `<option value="${e.id}">${echapperTexte(e.name)}</option>`).join('')}
                         </select>
                         <span style="font-size:12px; color:var(--muted);">et</span>
                         <select id="cm-sep-b" style="flex:1; min-width:0;">
-                            ${(selected.students || []).map((e, i) => `<option value="${e.id}" ${i === 1 ? 'selected' : ''}>${e.name}</option>`).join('')}
+                            ${(selected.students || []).map((e, i) => `<option value="${e.id}" ${i === 1 ? 'selected' : ''}>${echapperTexte(e.name)}</option>`).join('')}
                         </select>
                         <button id="cm-sep-ajouter" class="btn-action secondary">Séparer</button>
                     </div>
@@ -20658,10 +20658,17 @@ async function openSeatingPlanEditor(classId, hote, options) {
         }
     }
 
+    // Le nom NU : il sert aussi à dessiner sur une toile et à écrire des
+    // messages, où « &amp; » s'afficherait tel quel. C'est donc chaque
+    // gabarit HTML qui l'échappe — voir `nomEchappe` juste en dessous.
     function studentName(id) {
         const s = (classObj.students || []).find(st => st.id === id);
         return s ? s.name : '?';
     }
+    // Le même, prêt à entrer dans du HTML. Un nom d'élève vient d'une liste
+    // collée depuis un logiciel de vie scolaire, ou d'un fichier de classes
+    // qu'un collègue a envoyé : ce n'est pas du texte qu'on écrit soi-même.
+    function nomEchappe(id) { return echapperTexte(studentName(id)); }
     function isFrontRow(id) {
         const s = (classObj.students || []).find(st => st.id === id);
         return !!(s && s.frontRow);
@@ -20700,12 +20707,12 @@ async function openSeatingPlanEditor(classId, hote, options) {
                     enClasse && spInterroge === sid ? 'interroge' : ''
                 ].filter(Boolean).join(' ');
                 const bulle = enClasse
-                    ? `${studentName(sid)}${absent ? " — absent aujourd'hui" : ''} — cliquez pour changer`
-                    : studentName(sid);
+                    ? `${nomEchappe(sid)}${absent ? " — absent aujourd'hui" : ''} — cliquez pour changer`
+                    : nomEchappe(sid);
                 return `<div class="${marques}" ${enClasse ? '' : 'draggable="true"'} data-table="${t.id}" data-seat="${idx}"
                              data-student="${sid}" title="${bulle}">
                             <span class="sp-seat-avatar">${studentAvatar(sid, 18)}</span>
-                            <span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${studentName(sid)}</span>
+                            <span class="sp-seat-name">${isFrontRow(sid) ? '⭐ ' : ''}${nomEchappe(sid)}</span>
                             ${solde ? `<span class="sp-seat-solde ${solde > 0 ? 'plus' : 'moins'}">${solde > 0 ? '+' : ''}${solde}</span>` : ''}
                         </div>`;
             }).join('');
@@ -20731,7 +20738,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
 
         const sidebarHtml = unassigned.length === 0
             ? `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">Tous les élèves sont placés 🎉</div>`
-            : unassigned.map(s => `<div class="sp-chip ${s.frontRow ? 'frontrow' : ''}" draggable="true" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${s.frontRow ? '⭐ ' : ''}${s.name}</div>`).join('');
+            : unassigned.map(s => `<div class="sp-chip ${s.frontRow ? 'frontrow' : ''}" draggable="true" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${s.frontRow ? '⭐ ' : ''}${echapperTexte(s.name)}</div>`).join('');
 
         const templateOptions = SEATING_TEMPLATES.map((t, i) => `<option value="${i}">${t.label}</option>`).join('');
 
@@ -20742,7 +20749,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
         const absentsHtml = {
             combien: absents.length,
             html: absents.length
-                ? absents.map(s => `<div class="sp-chip sp-chip-absent" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${s.name}</div>`).join('')
+                ? absents.map(s => `<div class="sp-chip sp-chip-absent" data-student="${s.id}"><span class="sp-chip-avatar">${AvatarsEleves.svg(s, 20)}</span>${echapperTexte(s.name)}</div>`).join('')
                 : `<div style="font-size:12px; color:var(--muted); text-align:center; margin-top:20px;">Personne ne manque 🎉</div>`
         };
 
@@ -20796,7 +20803,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
         // --- LA COLONNE DU MODE EN CLASSE : se servir de la salle ---
         const assis = elevesInterrogeables();
         const dejaTires = Array.isArray(plan.tirage) ? plan.tirage.filter(id => assis.includes(id)).length : 0;
-        const nomTire = spInterroge ? studentName(spInterroge) : '';
+        const nomTire = spInterroge ? nomEchappe(spInterroge) : '';
         // Ce que le clic sur une place va faire : c'est la première chose à
         // dire, puisque la même place sert à trois gestes.
         const TYPES_OUBLI_PLAN = (feuilleDePoints() || {}).TYPES_OUBLI || [];
@@ -20844,7 +20851,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
             <!-- Posé dans « Mes classes », ce bandeau ferait doublon : l'onglet
                  dit « Plan de classe », celui du dessus dit laquelle. -->
             <div style="display:${dansUnVolet ? 'none' : 'flex'}; justify-content:space-between; align-items:center; padding:15px 20px; border-bottom:1px solid var(--border);">
-                <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${classObj.name}</h3>
+                <h3 style="margin:0; color:var(--accent);">🪑 Plan de classe — ${echapperTexte(classObj.name)}</h3>
                 <button id="sp-close" style="border:none; background:none; font-size:22px; cursor:pointer; color:var(--muted);">&times;</button>
             </div>
             <div style="display:flex; flex:1; min-height:0;">
@@ -22384,7 +22391,7 @@ function buildTree(items, parentId) {
                 <div class="folder-toggle">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </div>
-                <span class="icon">${TREE_ICON_FOLDER}</span> <span class="label" style="font-weight:600;">${item.name}</span>
+                <span class="icon">${TREE_ICON_FOLDER}</span> <span class="label" style="font-weight:600;">${echapperTexte(item.name)}</span>
             `;
             treeItem.onclick = (e) => {
                 if (e.target.closest('.folder-toggle')) {
@@ -22398,8 +22405,8 @@ function buildTree(items, parentId) {
             const icon = currentExplorerTab === 'tableaux' ? TREE_ICON_TABLEAU : TREE_ICON_INTERFACE;
             const isRenaming = renamingItemId === item.id;
             const labelHTML = isRenaming
-                ? `<input type="text" id="rename-input-${item.id}" class="rename-input" value="${item.name}" />`
-                : `<span class="label">${item.name}</span>`;
+                ? `<input type="text" id="rename-input-${item.id}" class="rename-input" value="${echapperTexte(item.name)}" />`
+                : `<span class="label">${echapperTexte(item.name)}</span>`;
 
             // La classe à qui la séance a été faite, quand on le sait : sans
             // cela, quatre lignes du même nom ne se distinguent pas.
@@ -23314,7 +23321,7 @@ function showCalendarResults(dateStr, saves) {
 
         d.innerHTML = `
             <div>
-                <div style="font-weight:600; font-size:14px; display:flex; align-items:center; gap:6px;"><span class="icon">${typeIcon}</span> ${s.name}</div>
+                <div style="font-weight:600; font-size:14px; display:flex; align-items:center; gap:6px;"><span class="icon">${typeIcon}</span> ${echapperTexte(s.name)}</div>
                 <div style="font-size:11px; color:var(--muted);">${typeStr} - ${s.time}</div>
             </div>
             <button class="btn-action secondary" style="padding:4px 12px; font-size:12px;">Ouvrir</button>

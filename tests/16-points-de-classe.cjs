@@ -2718,6 +2718,69 @@ module.exports = async function (browser) {
     r.egal('et le fichier commence par la marque qui rend les accents lisibles',
         csv.octets, [239, 187, 191]);
 
+    // =====================================================================
+    // UN NOM N'EST PAS DU CODE
+    // Les listes d'élèves sont collées depuis un logiciel de vie scolaire, et
+    // les classes s'échangent en fichier entre collègues : ce texte-là n'est
+    // pas écrit par nous. Posé tel quel dans du HTML, un nom bien choisi
+    // s'exécuterait — et il aurait alors accès à tout ce que le navigateur
+    // garde ici : les tableaux, les classes, le dossier de sauvegarde.
+    const piege = await pageJour.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        window.__piege = 0;
+        const mechant = '<img src=x onerror="window.__piege++">Zoé';
+        await ClassesStore.saveAll([{
+            id: 'kx', name: mechant + ' la classe',
+            students: [{ id: 'z0', name: mechant }, { id: 'z1', name: 'Autre' }],
+            seatingPlan: { tables: [{ id: 't0', x: 40, y: 60, capacity: 2, cols: 2, seats: ['z0', 'z1'] }] }
+        }]);
+        const m = document.getElementById('class-manager-modal'); if (m) m.remove();
+        const outil = PluginManager.plugins.classPointsTool;
+        if (outil.accueillirDans) outil.accueillirDans(null);
+        if (outil.widgetEl) outil.widgetEl.style.display = 'none';
+
+        // La liste des élèves, la feuille de points, le plan, le bilan.
+        await openClassManagerModal('kx', 'eleves');
+        await attendre(600);
+        const dansLaListe = (document.querySelector('.cm-nom') || {}).textContent;
+        document.querySelector('.cm-vue[data-vue="points"]').click();
+        await attendre(700);
+        document.querySelector('.cm-vue[data-vue="plan"]').click();
+        await attendre(900);
+        const surLaPlace = (document.querySelector('.sp-seat-name') || {}).textContent;
+        document.querySelector('.cm-vue[data-vue="bilan"]').click();
+        await attendre(700);
+        const dansLeBilan = (document.querySelector('.pts-bilan-nom') || {}).textContent;
+
+        // Et la pastille du tableau, qui nomme la classe.
+        await majPastilleDeClasse();
+        // Le menu a pu rester ouvert d'une épreuve précédente : un clic le
+        // refermerait au lieu de l'ouvrir.
+        fermerLeMenuDeClasse();
+        document.getElementById('classe-pastille').click();
+        let dansLeMenu = null;
+        for (let i = 0; i < 20 && dansLeMenu === null; i++) {
+            await attendre(100);
+            const el = document.querySelector('#classe-menu .cl-nom');
+            if (el) dansLeMenu = el.textContent;
+        }
+        fermerLeMenuDeClasse();
+        await attendre(400);
+        return {
+            piege: window.__piege,
+            images: document.querySelectorAll('img[src="x"]').length,
+            dansLaListe, surLaPlace, dansLeBilan,
+            menuContient: (dansLeMenu || '').includes('<img'),
+            mechant
+        };
+    });
+    r.egal('un nom qui ressemble à du code ne s\'exécute nulle part', piege.piege, 0);
+    r.egal('et il n\'entre pas non plus dans la page', piege.images, 0);
+    r.egal('la liste des élèves l\'écrit tel quel', piege.dansLaListe, piege.mechant);
+    r.egal('la place du plan aussi', (piege.surLaPlace || '').trim(), piege.mechant);
+    r.egal('et le bilan', piege.dansLeBilan, piege.mechant);
+    r.verifie('la pastille de classe également', piege.menuContient, JSON.stringify(piege));
+
     r.verifie('aucune erreur JS en changeant de classe', errJour.length === 0, errJour.join(' | '));
     await ctxJour.close();
 
