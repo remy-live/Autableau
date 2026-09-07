@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=100">
+    <link rel="stylesheet" href="style.css?v=101">
 </head>
 
 <body>
@@ -794,9 +794,12 @@
                         <li><b>La répétition se dit tout de suite :</b> en notant un oubli qui en suit d'autres
                             sur les cours précédents, le message le dit — « 3 cours de suite ». On l'apprenait
                             au bilan, en fin de trimestre ; c'est au moment de le noter que cela sert.</li>
-                        <li><b>Exporter le bilan :</b> <b>PDF</b> pour la feuille qu'on pose sur une table, ou
-                            <b>CSV</b> pour le tableur du conseil de classe — une ligne par élève, les dates
-                            comprises, avec les points-virgules et les accents qu'attend un tableur français.</li>
+                        <li><b>Exporter le bilan :</b> <b>PDF</b> pour la feuille qu'on pose sur une table —
+                            un vrai tableau, colonnes bordées, en-tête sur fond gris et une ligne sur deux
+                            teintée, l'en-tête étant repris en haut de chaque page — ou <b>CSV</b> pour le
+                            tableur du conseil de classe, une ligne par élève, les dates comprises, avec les
+                            points-virgules et les accents qu'attend un tableur français. La fiche d'un élève
+                            s'imprime de la même façon, ses relevés en colonnes datées.</li>
                         <li><b>Le bilan :</b> chaque oubli est écrit en toutes lettres avec son décompte, et un
                             <b>↻</b> signale les récidives sur des cours qui se suivent — une signature oubliée
                             deux fois d'affilée ne se lit pas comme deux oublis épars. Un <b>liseré rouge</b>
@@ -859,7 +862,9 @@
                         <li><b>Voir la salle en entier :</b> le curseur de zoom flotte en bas à droite du plan ;
                             <b>⤢</b> fait entrer la salle entière dans le cadre. À la <b>molette</b>, on zoome
                             sous le pointeur ; sur un écran tactile, <b>deux doigts</b> pincent pour la taille et
-                            glissent pour se déplacer.</li>
+                            glissent pour se déplacer. <b>Glisser à côté des tables</b> pousse le plan, sans
+                            avoir à prendre d'outil — l'outil <b>Main</b> permet en plus de le pousser en
+                            passant par-dessus les tables.</li>
                         <li><b>Sortir le plan :</b> <b>📄 Export PDF</b> pour la version papier — celle qu'on
                             pose sur le bureau au premier cours — et <b>🖼️ Tamponner sur le tableau</b> pour le
                             poser comme image sur le tableau et écrire dessus.</li>
@@ -2463,9 +2468,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=186"></script>
+    <script src="script.js?v=187"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=90"></script>
+    <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

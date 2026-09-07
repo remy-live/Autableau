@@ -32694,6 +32694,87 @@ registerPlugin('classPointsTool', 'Outils Profs', {
     // Cette feuille-là ne parle que de leur enfant, avec les DATES — c'est
     // toujours la première question posée.
     // ---------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // UN VRAI TABLEAU DANS LE PDF
+    // Les colonnes n'étaient que des positions : du texte posé à intervalles
+    // réguliers, sans un trait. Sur trente lignes et douze colonnes, l'œil
+    // perdait la ligne en cours de route et ne savait plus quel nombre allait
+    // avec quel élève. Un quadrillage, un bandeau d'en-tête et une ligne sur
+    // deux teintée : c'est ce qu'on attend d'un tableau qu'on pose sur une
+    // table de conseil de classe.
+    // ------------------------------------------------------------------
+    dessinerTableauPDF: function (doc, o) {
+        const colonnes = o.colonnes || [];
+        const largeur = colonnes.reduce((s, c) => s + c.l, 0);
+        const hl = o.hauteurLigne || 17;
+        const hEntete = o.hauteurEntete || 20;
+        const bas = o.bas || (doc.internal.pageSize.getHeight() - 40);
+        const x0 = o.x;
+        let y = o.y;
+
+        const texte = (v, c, x, ligneY, hauteur) => {
+            const gauche = c.a === 'left';
+            doc.text(String(v === undefined || v === null ? '' : v),
+                gauche ? x + 5 : x + c.l / 2, ligneY + hauteur - (hauteur > 18 ? 7 : 5),
+                { align: gauche ? 'left' : 'center', maxWidth: c.l - 8 });
+        };
+
+        const entete = () => {
+            doc.setFillColor(237, 242, 247);
+            doc.rect(x0, y, largeur, hEntete, 'F');
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(o.tailleEntete || 8.5);
+            doc.setTextColor(45, 52, 54);
+            let x = x0;
+            colonnes.forEach((c, i) => {
+                texte(c.t, c, x, y, hEntete);
+                x += c.l;
+                if (i < colonnes.length - 1) {
+                    doc.setDrawColor(190); doc.setLineWidth(0.4);
+                    doc.line(x, y, x, y + hEntete);
+                }
+            });
+            doc.setDrawColor(120); doc.setLineWidth(0.8);
+            doc.rect(x0, y, largeur, hEntete);
+            y += hEntete;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(o.taille || 9.5);
+        };
+
+        entete();
+        (o.lignes || []).forEach((cellules, n) => {
+            if (y + hl > bas) {
+                doc.addPage();
+                y = o.yPageSuivante || 50;
+                entete();
+            }
+            // UNE LIGNE SUR DEUX. Sur une classe entière, c'est ce qui garde
+            // l'œil sur la bonne ligne d'un bout à l'autre de la largeur.
+            if (n % 2 === 1) {
+                doc.setFillColor(247, 249, 251);
+                doc.rect(x0, y, largeur, hl, 'F');
+            }
+            doc.setTextColor(45, 52, 54);
+            let x = x0;
+            cellules.forEach((v, i) => {
+                const c = colonnes[i];
+                if (!c) return;
+                texte(v, c, x, y, hl);
+                x += c.l;
+                if (i < colonnes.length - 1) {
+                    doc.setDrawColor(220); doc.setLineWidth(0.3);
+                    doc.line(x, y, x, y + hl);
+                }
+            });
+            doc.setDrawColor(205); doc.setLineWidth(0.3);
+            doc.rect(x0, y, largeur, hl);
+            y += hl;
+        });
+
+        // Le cadre extérieur par-dessus : il ferme le tableau d'un trait net.
+        doc.setDrawColor(120); doc.setLineWidth(0.8);
+        doc.line(x0, y, x0 + largeur, y);
+        return y;
+    },
+
     exporterLaFiche: function (eleveId) {
         this.sauverMaintenant();
         const jsPDFctor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
@@ -32737,48 +32818,46 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         y += 70;
 
         const titre = (t) => {
-            if (y > H - marge - 40) { doc.addPage(); y = 60; }
+            if (y > H - marge - 60) { doc.addPage(); y = 60; }
             doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-            doc.text(t, marge, y); y += 6;
-            doc.setDrawColor(220); doc.line(marge, y, L - marge, y);
-            y += 16;
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+            doc.setTextColor(45, 52, 54);
+            doc.text(t, marge, y);
+            y += 10;
         };
-        const ligne = (gauche, droite) => {
-            if (y > H - marge) { doc.addPage(); y = 60; }
-            doc.text(String(gauche), marge, y);
-            if (droite) {
-                doc.setTextColor(110);
-                doc.text(String(droite), L - marge, y, { align: 'right' });
-                doc.setTextColor(0);
-            }
-            y += 15;
+        // Les trois relevés sont des tableaux, eux aussi : « ce qui s'est
+        // passé » à gauche, « quand » à droite, en colonnes bordées.
+        const tableau = (colonnes, rangs) => {
+            y = this.dessinerTableauPDF(doc, {
+                x: marge, y, colonnes, lignes: rangs,
+                bas: H - marge - 20, yPageSuivante: 60, taille: 9.5
+            });
+            y += 20;
         };
+        const large = L - marge * 2;
+        const colonnesDatees = [{ t: 'Relevé', l: Math.round(large * 0.45), a: 'left' },
+                                { t: 'Dates', l: large - Math.round(large * 0.45), a: 'left' }];
 
         // LES DATES : c'est pour elles qu'on imprime cette feuille.
         titre('Oublis');
-        let unOubli = false;
+        const rangsOublis = [];
         this.TYPES_OUBLI.forEach(t => {
             const n = l.oublis[t.id];
             if (!n) return;
-            unOubli = true;
             const s = l.suites[t.id] || { suite: 0, enCours: false };
-            const suite = s.suite >= 2 ? `  (${s.suite} cours de suite${s.enCours ? ', en cours' : ''})` : '';
-            ligne(`${t.nom} : ${n}${suite}`, (l.datesOublis[t.id] || []).join(', '));
+            const suite = s.suite >= 2 ? ` (${s.suite} cours de suite${s.enCours ? ', en cours' : ''})` : '';
+            rangsOublis.push([`${t.nom} : ${n}${suite}`, (l.datesOublis[t.id] || []).join(', ')]);
         });
-        if (!unOubli) ligne('Aucun oubli sur la période.');
-        y += 8;
+        tableau(colonnesDatees, rangsOublis.length ? rangsOublis : [['Aucun oubli sur la période.', '']]);
 
         titre('Absences');
-        if (l.absences) ligne(`${l.absences} jour(s) manqué(s)`, (l.datesAbsences || []).join(', '));
-        else ligne('Aucune absence relevée.');
-        y += 8;
+        tableau(colonnesDatees, l.absences
+            ? [[`${l.absences} jour(s) manqué(s)`, (l.datesAbsences || []).join(', ')]]
+            : [['Aucune absence relevée.', '']]);
 
         titre('Récompenses');
-        const badges = this.badgesDe ? this.badgesDe(eleve) : null;
-        if (l.badges) ligne(`${l.badges} badge(s) sur la période`);
-        else ligne('Aucun badge sur la période.');
-        void badges;
+        tableau(colonnesDatees, l.badges
+            ? [[`${l.badges} badge(s) sur la période`, '']]
+            : [['Aucun badge sur la période.', '']]);
 
         doc.setFontSize(8); doc.setTextColor(140);
         doc.text('Au Tableau ! — ' + new Date().toLocaleDateString(), marge, H - 24);
@@ -32845,39 +32924,36 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         doc.text(this.nomDeLaPeriode(), marge, 62);
         doc.setTextColor(0);
 
-        const colonnes = [{ t: 'Élève', l: 160, a: 'left' }, { t: 'Bonus', l: 50 }, { t: 'Malus', l: 50 },
-            { t: 'Solde', l: 50 }, { t: 'Badges', l: 54 }, { t: 'Absences', l: 58 }]
-            .concat(this.TYPES_OUBLI.map(t => ({ t: t.nom, l: 60 })))
-            .concat([{ t: 'Oublis', l: 54 }]);
+        // Les colonnes tiennent la largeur d'une A4 paysage : le nom prend ce
+        // qui reste une fois les nombres servis.
+        const nombres = [{ t: 'Bonus', l: 46 }, { t: 'Malus', l: 46 }, { t: 'Solde', l: 46 },
+            { t: 'Badges', l: 50 }, { t: 'Abs.', l: 44 }]
+            .concat(this.TYPES_OUBLI.map(t => ({ t: t.nom, l: 62 })))
+            .concat([{ t: 'Oublis', l: 50 }]);
+        const restant = (L - marge * 2) - nombres.reduce((s, c) => s + c.l, 0);
+        const colonnes = [{ t: 'Élève', l: Math.max(120, restant), a: 'left' }].concat(nombres);
 
-        let y = 86;
-        const enTete = () => {
-            let x = marge;
-            doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-            colonnes.forEach(c => {
-                doc.text(c.t, c.a === 'left' ? x : x + c.l / 2, y, { align: c.a === 'left' ? 'left' : 'center' });
-                x += c.l;
-            });
-            doc.setDrawColor(200); doc.line(marge, y + 4, marge + colonnes.reduce((s, c) => s + c.l, 0), y + 4);
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-            y += 18;
-        };
-        enTete();
+        const rien = '—';
+        const corps = lignes.map(li => [li.nom, li.plus || rien, li.moins || rien,
+            li.solde ? (li.solde > 0 ? '+' : '') + li.solde : rien, li.badges || rien, li.absences || rien]
+            .concat(this.TYPES_OUBLI.map(t => li.oublis[t.id] || rien))
+            .concat([li.totalOublis || rien]));
 
-        lignes.forEach(li => {
-            if (y > H - marge) { doc.addPage(); y = 56; enTete(); }
-            const cases = [li.nom, li.plus || '', li.moins || '',
-                (li.solde > 0 ? '+' : '') + (li.solde || ''), li.badges || '', li.absences || '']
-                .concat(this.TYPES_OUBLI.map(t => li.oublis[t.id] || ''))
-                .concat([li.totalOublis || '']);
-            let x = marge;
-            cases.forEach((v, i) => {
-                const c = colonnes[i];
-                doc.text(String(v), c.a === 'left' ? x : x + c.l / 2, y, { align: c.a === 'left' ? 'left' : 'center' });
-                x += c.l;
-            });
-            y += 16;
+        let y = this.dessinerTableauPDF(doc, {
+            x: marge, y: 84, colonnes, lignes: corps,
+            bas: H - marge - 14, yPageSuivante: 52
         });
+        y += 16;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110);
+        const totaux = lignes.reduce((t, li) => {
+            t.plus += li.plus; t.moins += li.moins; t.badges += li.badges;
+            t.oublis += li.totalOublis; t.absences += li.absences; return t;
+        }, { plus: 0, moins: 0, badges: 0, oublis: 0, absences: 0 });
+        if (y < H - marge - 10) {
+            doc.text(`${lignes.length} élève(s) — ${totaux.plus} bonus, ${totaux.moins} malus, `
+                + `${totaux.badges} badge(s), ${totaux.oublis} oubli(s), ${totaux.absences} absence(s).`, marge, y);
+        }
+        doc.setTextColor(0);
 
         doc.setFontSize(8); doc.setTextColor(140);
         doc.text('Au Tableau ! — ' + new Date().toLocaleDateString('fr-FR'), marge, H - 20);

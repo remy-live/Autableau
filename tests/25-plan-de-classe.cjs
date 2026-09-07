@@ -582,6 +582,59 @@ module.exports = async function (browser) {
     r.egal('une salle vide s\'ouvre du côté « Organiser »', ouverture.vide, 'organiser');
     r.egal('mais le choix retenu l\'emporte toujours', ouverture.retenu, 'organiser');
 
+    // --- SE DÉPLACER SANS PRENDRE D'OUTIL ---
+    // Glisser à côté des tables pousse le plan. Il fallait aller chercher
+    // l'outil Main, qu'on ne pense pas à prendre quand on veut simplement
+    // voir le fond de la salle.
+    const pousser = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        // Un plan qui déborde, et l'outil Sélection — pas la Main.
+        document.querySelector('.sp-mode[data-mode="organiser"]').click();
+        await attendre(300);
+        document.querySelector('.sp-tool-btn[data-tool="select"]').click();
+        const s = document.querySelector('#sp-zoom');
+        s.value = '140'; s.dispatchEvent(new Event('input', { bubbles: true }));
+        await attendre(200);
+        cadre.scrollLeft = 120;
+        const avant = cadre.scrollLeft;
+        const b = cadre.getBoundingClientRect();
+        // Un point du cadre où il n'y a pas de table
+        const vide = { x: b.right - 12, y: b.bottom - 12 };
+        const p = (type, x) => new PointerEvent(type, {
+            bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse',
+            isPrimary: true, button: 0, clientX: x, clientY: vide.y
+        });
+        const surLeVide = document.elementFromPoint(vide.x, vide.y);
+        cadre.dispatchEvent(p('pointerdown', vide.x));
+        document.dispatchEvent(p('pointermove', vide.x - 70));
+        document.dispatchEvent(p('pointerup', vide.x - 70));
+        await attendre(150);
+        const apres = cadre.scrollLeft;
+
+        // Sur une table, en revanche, le plan ne bouge pas : c'est la table
+        // qu'on déplace.
+        const tableEl = document.querySelector('.sp-table');
+        const table = tableEl.getBoundingClientRect();
+        cadre.scrollLeft = 120;
+        const avantTable = cadre.scrollLeft;
+        tableEl.dispatchEvent(p('pointerdown', table.left + 8));
+        document.dispatchEvent(p('pointermove', table.left - 60));
+        document.dispatchEvent(p('pointerup', table.left - 60));
+        await attendre(150);
+        return {
+            avant, apres, avantTable, apresTable: cadre.scrollLeft,
+            surUneTable: !!(surLeVide && surLeVide.closest('.sp-table')),
+            curseur: getComputedStyle(cadre).cursor
+        };
+    });
+    r.egal('un point vide du cadre est bien vide', pousser.surUneTable, false);
+    r.verifie('glisser à côté des tables pousse le plan, sans prendre la Main',
+        pousser.apres > pousser.avant + 40, JSON.stringify(pousser));
+    r.egal('mais glisser une table ne pousse pas le plan',
+        pousser.apresTable, pousser.avantTable);
+    r.egal('et le curseur dit que le fond se prend', pousser.curseur, 'grab');
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

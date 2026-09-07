@@ -20036,7 +20036,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
                 border-style:dashed; }
             .sp-seat.interroge { outline:3px solid #fdcb6e; outline-offset:1px;
                 box-shadow:0 0 0 6px rgba(253,203,110,0.28); }
-            .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); }
+            .sp-table { position:absolute; background:var(--surface); border:2px solid var(--muted); border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,0.15); cursor:default; }
             .sp-table-handle { height:20px; background:var(--bg); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; cursor:grab; display:flex; align-items:center; justify-content:space-between; padding:0 4px;
                 touch-action: none; }
             .sp-table-resize-group { display:flex; align-items:center; gap:2px; }
@@ -20538,8 +20538,18 @@ async function openSeatingPlanEditor(classId, hote, options) {
             if (typeof saveState === 'function') saveState();
             if (typeof draw === 'function') draw();
             if (typeof showToast === 'function') showToast('🖼️ Plan tamponné ! Double-clic dessus pour le rééditer.');
-            // ✅ Fermer l'éditeur ET la fenêtre "Mes classes" ouverte derrière
-            document.querySelectorAll('.modal-backdrop').forEach(m => m.remove());
+            // Fermer l'éditeur ET la fenêtre « Mes classes » ouverte derrière —
+            // CELLES-LÀ SEULEMENT. On retirait ici tous les « .modal-backdrop »
+            // de la page : or « confirmer », « saisir une valeur » et les
+            // autres boîtes de dialogue en portent la classe et sont écrites
+            // dans index.html. Tamponner un plan les arrachait donc pour de
+            // bon, et la question suivante — « supprimer cette classe ? » —
+            // n'avait plus de fenêtre où s'afficher.
+            document.querySelectorAll('.modal-backdrop').forEach(m => {
+                if (!m.id) m.remove();
+            });
+            const fenetreClasses = document.getElementById('class-manager-modal');
+            if (fenetreClasses) fenetreClasses.remove();
         };
         img.src = dataUrl;
     }
@@ -20963,15 +20973,20 @@ async function openSeatingPlanEditor(classId, hote, options) {
                 currentTool = btn.dataset.tool;
                 box.querySelectorAll('.sp-tool-btn').forEach(b => b.className = 'btn-action secondary sp-tool-btn');
                 btn.className = 'btn-action primary sp-tool-btn';
-                canvasWrapEl.style.cursor = currentTool === 'hand' ? 'grab' : 'default';
+                canvasWrapEl.style.cursor = 'grab';
             };
         });
-        canvasWrapEl.style.cursor = currentTool === 'hand' ? 'grab' : 'default';
+        // Le fond se prend toujours : le curseur le dit.
+        canvasWrapEl.style.cursor = 'grab';
 
-        // Outil Main : glisser sur le canevas pour le faire défiler — à la
-        // souris comme au doigt.
+        // SE DÉPLACER SANS OUTIL. Glisser à côté des tables fait défiler le
+        // plan — à la souris comme au doigt, dans les deux modes. Il fallait
+        // jusqu'ici prendre l'outil Main, qu'on ne trouve pas quand on veut
+        // simplement pousser le plan pour voir le fond de la salle. L'outil
+        // Main reste : lui seul permet de glisser PAR-DESSUS une table.
         canvasWrapEl.addEventListener('pointerdown', (e) => {
-            if (currentTool !== 'hand' || e.target.closest('.sp-table')) return;
+            const surUneTable = !!e.target.closest('.sp-table');
+            if (surUneTable && currentTool !== 'hand') return;
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.preventDefault();
             const startX = e.clientX, startY = e.clientY;

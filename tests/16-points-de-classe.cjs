@@ -1549,15 +1549,29 @@ module.exports = async function (browser) {
         // On intercepte la CONSTRUCTION : « save » écrirait vraiment un
         // fichier, et le test n'en veut pas — il veut le document.
         let recu = null, pages = 0;
+        // ON COMPTE LES TRAITS. Le tableau n'était que du texte posé à
+        // intervalles réguliers : sur trente lignes et douze colonnes, l'œil
+        // perdait la ligne en route. On vérifie donc qu'il y a un cadre par
+        // ligne, des séparateurs de colonnes, et une ligne sur deux teintée.
+        const traits = { rect: 0, remplis: 0, lignes: 0 };
         const faux = function (...args) {
             const doc = new ctor(...args);
+            const vraiRect = doc.rect.bind(doc);
+            doc.rect = (x, y, w, h, style) => {
+                traits.rect++;
+                if (style === 'F') traits.remplis++;
+                return vraiRect(x, y, w, h, style);
+            };
+            const vraieLigne = doc.line.bind(doc);
+            doc.line = (...a) => { traits.lignes++; return vraieLigne(...a); };
             doc.save = (nom) => { recu = nom; pages = doc.internal.getNumberOfPages(); };
             return doc;
         };
         if (window.jspdf && window.jspdf.jsPDF) window.jspdf.jsPDF = faux; else window.jsPDF = faux;
         const rendu = p.exporterLeBilan();
         if (window.jspdf && window.jspdf.jsPDF === faux) window.jspdf.jsPDF = ctor; else window.jsPDF = ctor;
-        return { rendu, recu, pages, periode: p.nomDeLaPeriode() };
+        return { rendu, recu, pages, traits, eleves: p.lignesDuBilan().length,
+                 colonnes: 6 + p.TYPES_OUBLI.length, periode: p.nomDeLaPeriode() };
     });
     if (pdf.absent) {
         r.verifie('jsPDF n\'est pas chargé dans ce contexte : export non testé', true);
@@ -1566,6 +1580,12 @@ module.exports = async function (browser) {
         r.verifie('le fichier porte le nom de la classe et la date',
             /^bilan-.+-\d{4}-\d{2}-\d{2}\.pdf$/.test(pdf.recu || ''), String(pdf.recu));
         r.verifie('et tient au moins sur une page', pdf.pages >= 1, String(pdf.pages));
+        r.verifie('chaque ligne du tableau porte son cadre',
+            pdf.traits.rect >= pdf.eleves + 1, JSON.stringify(pdf.traits));
+        r.verifie('une ligne sur deux est teintée, et l\'en-tête aussi',
+            pdf.traits.remplis >= Math.floor(pdf.eleves / 2) + 1, JSON.stringify(pdf.traits));
+        r.verifie('les colonnes sont séparées par des traits',
+            pdf.traits.lignes >= (pdf.colonnes - 1) * pdf.eleves, JSON.stringify(pdf.traits));
     }
     r.verifie('la période est dite en toutes lettres',
         /ce mois-ci/.test(pdf.periode || ''), String(pdf.periode));
