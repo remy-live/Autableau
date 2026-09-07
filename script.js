@@ -19993,7 +19993,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
                 background:var(--surface); border:1px solid var(--border);
                 border-radius:20px; padding:6px 12px; box-shadow:0 3px 12px rgba(0,0,0,0.18); }
             .sp-zoom-boite input[type=range] { width:120px; min-width:0; accent-color: var(--accent, #6c5ce7); cursor:pointer; }
-            .sp-zoom-lu { font-size:11px; color:var(--muted, #636e72); min-width:34px; text-align:right;
+            .sp-zoom-lu { font-size:11px; color:var(--muted, #636e72); min-width:44px; text-align:right;
                 font-variant-numeric: tabular-nums; }
             .sp-zoom-btn { border:none; background:transparent; cursor:pointer; font-size:14px;
                 color:var(--muted, #636e72); padding:0 2px; line-height:1; }
@@ -20208,7 +20208,11 @@ async function openSeatingPlanEditor(classId, hote, options) {
         return choisi;
     }
 
-    const SP_ZOOM_MIN = 0.3, SP_ZOOM_MAX = 1.4;
+    // JUSQU'À TROIS FOIS. La butée était à 140 % : de quoi lire un plan, pas
+    // de quoi montrer un coin de la salle au vidéoprojecteur, ni pointer une
+    // place précise en réunion. Le curseur va donc jusqu'à 300 %, et sa borne
+    // vient d'ici — les deux ne peuvent plus se contredire.
+    const SP_ZOOM_MIN = 0.3, SP_ZOOM_MAX = 3;
     let spZoom = (typeof plan.zoom === 'number' && isFinite(plan.zoom))
         ? Math.max(SP_ZOOM_MIN, Math.min(SP_ZOOM_MAX, plan.zoom)) : 1;
     // Deux doigts sur le plan : on pince et on se déplace. Tant que le geste
@@ -20864,7 +20868,8 @@ async function openSeatingPlanEditor(classId, hote, options) {
                     <!-- Le réglage du zoom reste sur le plan, pas au fond de la
                          colonne de gauche : c'est là qu'on le cherche. -->
                     <div class="sp-zoom-boite">
-                        <input type="range" id="sp-zoom" min="30" max="140" step="1" value="${Math.round(spZoom * 100)}"
+                        <input type="range" id="sp-zoom" min="${Math.round(SP_ZOOM_MIN * 100)}"
+                               max="${Math.round(SP_ZOOM_MAX * 100)}" step="1" value="${Math.round(spZoom * 100)}"
                                aria-label="Taille du plan" title="Molette, ou deux doigts pour pincer">
                         <span class="sp-zoom-lu" id="sp-zoom-lu">${Math.round(spZoom * 100)} %</span>
                         <button id="sp-zoom-ajuster" class="sp-zoom-btn" title="Tout voir">⤢</button>

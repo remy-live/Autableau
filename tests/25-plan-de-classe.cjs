@@ -635,6 +635,37 @@ module.exports = async function (browser) {
         pousser.apresTable, pousser.avantTable);
     r.egal('et le curseur dit que le fond se prend', pousser.curseur, 'grab');
 
+    // --- ON PEUT ZOOMER PLUS FORT ---
+    // 140 %, c'était de quoi lire un plan ; pas de quoi montrer un coin de la
+    // salle au vidéoprojecteur, ni pointer une place précise en réunion.
+    const fort = await page.evaluate(async () => {
+        const attendre = ms => new Promise(res => setTimeout(res, ms));
+        const s = document.querySelector('#sp-zoom');
+        const bornes = { min: Number(s.min), max: Number(s.max) };
+        s.value = String(bornes.max);
+        s.dispatchEvent(new Event('input', { bubbles: true }));
+        await attendre(250);
+        const c = document.querySelector('#sp-canvas');
+        const k = parseFloat((String(c.style.transform).match(/scale\(([\d.]+)\)/) || [0, 1])[1]);
+        // La molette ne doit pas dépasser la butée non plus
+        const cadre = document.querySelector('.sp-canvas-wrap');
+        const b = cadre.getBoundingClientRect();
+        for (let i = 0; i < 30; i++) {
+            cadre.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+                deltaY: -120, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 }));
+        }
+        await attendre(200);
+        const apres = parseFloat((String(c.style.transform).match(/scale\(([\d.]+)\)/) || [0, 1])[1]);
+        const lu = document.querySelector('#sp-zoom-lu');
+        const deborde = lu.scrollWidth > lu.clientWidth + 1;
+        return { bornes, k, apres, texte: lu.textContent.trim(), deborde };
+    });
+    r.egal('le curseur monte jusqu\'à trois fois', fort.bornes, { min: 30, max: 300 });
+    r.verifie('et le plan y va vraiment', Math.abs(fort.k - 3) < 0.01, String(fort.k));
+    r.verifie('la molette s\'arrête à la même butée', Math.abs(fort.apres - 3) < 0.01, String(fort.apres));
+    r.egal('le facteur atteint est écrit en entier', fort.texte, '300 %');
+    r.verifie('sans déborder de sa place', !fort.deborde, JSON.stringify(fort));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
