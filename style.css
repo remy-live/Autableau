@@ -9068,3 +9068,105 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 .frise-hauteur input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent, #6c5ce7); }
 .frise-hauteur b { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   LE TIROIR À MORCEAUX
+   Un bout découpé se posait aussitôt sur le tableau, à côté du document :
+   sur une page pleine, il tombait sur ce qui s'y trouvait déjà. Découper et
+   placer sont deux gestes ; le tiroir les sépare.
+   ============================================================ */
+#bande-morceaux {
+    position: fixed;
+    left: 50%;
+    bottom: var(--haut-du-tiroir, 96px);
+    transform: translateX(-50%);
+    z-index: 46;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 76vw;
+    padding: 7px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #dfe6e9;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+
+#bande-morceaux[hidden] { display: none; }
+
+.bm-poignee {
+    border: none;
+    background: none;
+    color: #b2bec3;
+    cursor: grab;
+    font-size: 15px;
+    line-height: 1;
+    padding: 4px 2px;
+    touch-action: none;
+}
+
+.bm-titre { font-size: 13px; color: #636e72; white-space: nowrap; }
+.bm-titre b { color: #2d3436; font-size: 14px; }
+
+.bm-rail {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    max-width: 52vw;
+    padding: 2px;
+}
+
+/* Une vignette montre le morceau tel qu'il sera posé : le même fond d'image,
+   cadré au même endroit. Rien n'est redessiné pour cela. */
+.bm-vignette {
+    position: relative;
+    flex: 0 0 auto;
+    height: 66px;
+    min-width: 34px;
+    max-width: 160px;
+    overflow: hidden;
+    border: 1px solid #dfe6e9;
+    border-radius: 7px;
+    background: #fff;
+    cursor: grab;
+    touch-action: none;
+}
+
+.bm-vignette:hover { border-color: #6c5ce7; box-shadow: 0 3px 10px rgba(108, 92, 231, 0.25); }
+.bm-vignette img { position: absolute; left: 0; top: 0; max-width: none; pointer-events: none; }
+.bm-vignette.enMain { opacity: 0.35; }
+
+.bm-btn {
+    border: 1px solid #dfe6e9;
+    background: #fff;
+    color: #2d3436;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.bm-btn:hover { border-color: #6c5ce7; color: #6c5ce7; }
+.bm-vider { color: #d63031; padding: 6px 9px; }
+
+/* Le morceau qui suit le doigt entre le tiroir et le tableau. */
+#bm-fantome {
+    position: fixed;
+    z-index: 100070;
+    pointer-events: none;
+    overflow: hidden;
+    border: 2px solid #6c5ce7;
+    border-radius: 6px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+    opacity: 0.9;
+}
+
+#bm-fantome img { position: absolute; left: 0; top: 0; max-width: none; }
+
+.dark-mode #bande-morceaux { background: rgba(30, 39, 46, 0.97); border-color: #3d4852; }
+.dark-mode .bm-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
+.dark-mode .bm-titre b { color: #f1f2f6; }

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=102">
+    <link rel="stylesheet" href="style.css?v=103">
 </head>
 
 <body>
@@ -348,6 +348,20 @@
          apparaît. -->
     <!-- LA BANDE DU LECTEUR. Elle ne s'ouvre que sur demande, et elle rend le
          tableau exactement comme elle l'a trouvé quand on la referme. -->
+    <!-- LE TIROIR À MORCEAUX. Un bout découpé se posait aussitôt sur le
+         tableau, à côté du document : sur une page pleine, il tombait sur ce
+         qui s'y trouvait déjà. On les range ici en découpant, et on les sort
+         un par un là où on les veut — découper et placer sont deux gestes,
+         qui n'ont pas à se faire en même temps. -->
+    <div id="bande-morceaux" role="group" aria-label="Morceaux découpés" hidden>
+        <button class="bm-poignee" id="bm-poignee"
+            data-tooltip="Déplacer le tiroir — double-clic pour le remettre en place">⠿</button>
+        <span class="bm-titre">✂ <b id="bm-compte">0</b></span>
+        <div class="bm-rail" id="bm-rail"></div>
+        <button class="bm-btn" id="bm-ranger" data-tooltip="Poser tous les morceaux en ligne sur le tableau">⇥ Tout poser</button>
+        <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
+    </div>
+
     <div id="bande-lecture" role="group" aria-label="Lecteur : rejouer le tableau">
         <!-- LA POIGNÉE. On déplace la bande où l'on veut ; un double-clic la
              remet à sa place, au-dessus du tiroir du bas. -->
@@ -913,9 +927,16 @@
                             une page de tableau par page du document, se choisit dans le menu Importer.</li>
                         <li><strong>Prendre un morceau — deux exercices côte à côte :</strong> le bouton
                             <b>✂ Découper</b> de la barre du document, puis on <b>trace un rectangle</b> sur la
-                            page : le morceau se pose <b>à côté</b>, prêt à être déplacé. On recommence pour le
-                            deuxième exercice, ils se rangent en ligne. Les ciseaux restent pris tant qu'on
-                            n'a pas fini — <b>Échap</b> les repose.<br>
+                            page : le morceau part dans le <b>tiroir</b>, en bas de l'écran. On découpe ainsi
+                            tout ce qu'on veut d'affilée — les ciseaux restent pris tant qu'on n'a pas fini,
+                            <b>Échap</b> les repose.<br>
+                            Le tiroir se vide quand on veut : on <b>glisse une vignette</b> à l'endroit voulu
+                            du tableau (un simple clic la pose au milieu de l'écran), ou bien
+                            <b>⇥ Tout poser</b> range tout d'un coup en ligne, à l'écran, sans rien
+                            recouvrir. <b>✕</b> jette ce qu'on ne garde pas ; ce qui est déjà posé reste.
+                            Le tiroir est un lieu de passage : il ne se sauvegarde pas, contrairement aux
+                            morceaux posés sur le tableau. Sa poignée se déplace, un double-clic la remet
+                            en place.<br>
                             Un morceau n'est pas une nouvelle image : il montre la <b>même page</b>, cadrée
                             autrement. Six morceaux d'un poly ne pèsent donc pas six pages, et le bouton
                             <b>✂ de rognage</b> les retaille — on peut rendre à un morceau ce qu'on lui a coupé
@@ -2490,7 +2511,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=190"></script>
+    <script src="script.js?v=191"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

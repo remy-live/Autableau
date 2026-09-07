@@ -1399,17 +1399,18 @@ module.exports = async function (browser) {
     // =====================================================================
     const morceaux = await page.evaluate(async ({ octets }) => {
         panX = 0; panY = 0; zoom = 1; images.length = 0;
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
         await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'poly.pdf', { type: 'application/pdf' }));
         await new Promise(r => setTimeout(r, 900));
         const doc = images[0];
         selectedItems = [{ type: 'image', id: doc.id }];
         majBarreDocument();
         const boutonAvant = getComputedStyle(document.getElementById('doc-decouper')).display;
+        const tiroirAvant = document.getElementById('bande-morceaux').hidden;
 
         basculerLaDecoupe(true);
         const allume = document.getElementById('doc-decouper').classList.contains('actif');
 
-        // Le haut de la page
         const tracer = (part) => {
             const r = { x: doc.x + doc.w * part.x, y: doc.y + doc.h * part.y,
                         l: doc.w * part.l, h: doc.h * part.h };
@@ -1435,22 +1436,19 @@ module.exports = async function (browser) {
 
         basculerLaDecoupe(false);
         return {
-            boutonAvant, allume,
+            boutonAvant, allume, tiroirAvant,
             eteint: !document.getElementById('doc-decouper').classList.contains('actif'),
-            combien: images.length,
-            // On ne rend que le fait : un morceau entier remplirait le
-            // rapport d'échec de plusieurs milliers de caractères d'image.
+            // LE TABLEAU N'A PAS BOUGÉ : les morceaux sont au tiroir.
+            surLeTableau: images.length,
+            auTiroir: morceauxEnAttente.length,
+            tiroirVisible: !document.getElementById('bande-morceaux').hidden,
+            compte: document.getElementById('bm-compte').textContent,
+            vignettes: document.querySelectorAll('#bm-rail .bm-vignette').length,
             rien: !!rien, frolement: !!frolement,
-            // Le morceau montre la MÊME page, avec un autre cadrage
-            memeSource: !!(m1 && m2 && m1.src === doc.src && m2.src === doc.src),
-            cadrages: m1 && m2 && (Math.round(m1.cy) !== Math.round(m2.cy)),
-            // Il ne prend qu'une part de la page
+            memeSource: !!(m1 && m2 && m1.src === doc.src),
+            cadrages: !!(m1 && m2 && Math.round(m1.cy) !== Math.round(m2.cy)),
             partiel: !!(m1 && m1.cw < doc.cw && m1.ch < doc.ch),
-            // Il se pose À CÔTÉ, pas sur le document
-            aCote: !!(m1 && m1.x >= doc.x + doc.w) || !!(m1 && m1.y >= doc.y + doc.h),
-            enRangee: !!(m1 && m2 && m2.x > m1.x),
-            // Et il sait d'où il vient
-            provenance: m1 && m1.pluginData,
+            provenance: m1 && { nom: m1.nom, page: m1.page },
             docIntact: { w: Math.round(doc.w), cw: Math.round(doc.cw) }
         };
     }, { octets: pdf });
@@ -1458,25 +1456,118 @@ module.exports = async function (browser) {
         morceaux.boutonAvant !== 'none', String(morceaux.boutonAvant));
     r.egal('il s\'allume et s\'éteint', { allume: morceaux.allume, eteint: morceaux.eteint },
         { allume: true, eteint: true });
-    r.egal('deux rectangles tracés donnent deux morceaux, en plus du document',
-        morceaux.combien, 3);
+    r.egal('le tiroir ne paraît que lorsqu\'il a quelque chose dedans',
+        { avant: morceaux.tiroirAvant, apres: morceaux.tiroirVisible }, { avant: true, apres: true });
+    r.egal('deux rectangles tracés vont au tiroir, pas sur le tableau',
+        { tableau: morceaux.surLeTableau, tiroir: morceaux.auTiroir }, { tableau: 1, tiroir: 2 });
+    r.egal('et le tiroir les montre et les compte',
+        { compte: morceaux.compte, vignettes: morceaux.vignettes }, { compte: '2', vignettes: 2 });
     r.egal('un simple clic ne fabrique rien', morceaux.rien, false);
     r.egal('ni un frôlement sur un tableau dézoomé', morceaux.frolement, false);
     r.verifie('un morceau montre la même page, cadrée autrement',
         morceaux.memeSource && morceaux.cadrages && morceaux.partiel, JSON.stringify(morceaux));
-    r.verifie('il se pose à côté du document, pas dessus', morceaux.aCote, JSON.stringify(morceaux));
-    r.verifie('et les suivants se rangent à sa suite', morceaux.enRangee, JSON.stringify(morceaux));
     r.egal('le morceau sait de quel fichier et de quelle page il vient',
-        { id: morceaux.provenance.id, nom: morceaux.provenance.nom, page: morceaux.provenance.page },
-        { id: 'morceau', nom: 'poly.pdf', page: 1 });
+        morceaux.provenance, { nom: 'poly.pdf', page: 1 });
     r.verifie('le document source n\'a pas bougé',
         morceaux.docIntact.w > 0 && morceaux.docIntact.cw > 0, JSON.stringify(morceaux.docIntact));
+
+    // SORTIR DU TIROIR : on lâche le morceau là où on le veut.
+    const sortieDuTiroir = await page.evaluate(async () => {
+        const avant = { tableau: images.length, tiroir: morceauxEnAttente.length };
+        const m = morceauxEnAttente[0];
+        if (!m) return { vide: true, avant, apres: avant, centre: null, memeCadrage: false, estUnMorceau: false };
+        const pose = poserLeMorceau(m, { x: 500, y: 400 });
+        return {
+            avant,
+            apres: { tableau: images.length, tiroir: morceauxEnAttente.length },
+            centre: { x: Math.round(pose.x + pose.w / 2), y: Math.round(pose.y + pose.h / 2) },
+            memeCadrage: pose.cx === m.cx && pose.cw === m.cw,
+            estUnMorceau: pose.pluginData.id === 'morceau'
+        };
+    });
+    r.egal('sortir un morceau le retire du tiroir et le pose sur le tableau',
+        { tableau: sortieDuTiroir.apres.tableau, tiroir: sortieDuTiroir.apres.tiroir },
+        { tableau: sortieDuTiroir.avant.tableau + 1, tiroir: sortieDuTiroir.avant.tiroir - 1 });
+    r.egal('il se pose là où on le lâche', sortieDuTiroir.centre, { x: 500, y: 400 });
+    r.verifie('avec le cadrage qu\'on lui a découpé',
+        sortieDuTiroir.memeCadrage && sortieDuTiroir.estUnMorceau, JSON.stringify(sortieDuTiroir));
+
+    // « TOUT POSER » : la rangée d'exercices, d'un seul geste.
+    const rangee = await page.evaluate(async () => {
+        // On remplit le tiroir de trois morceaux du même document
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        // On repart d'un tiroir vide : ce qui restait du bloc précédent
+        // fausserait le compte.
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        [0.05, 0.35, 0.65].forEach(p => {
+            const r = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * p, l: doc.w * 0.25, h: doc.h * 0.2 };
+            decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+            finirGesteDeDecoupe();
+        });
+        basculerLaDecoupe(false);
+        const avant = images.length;
+        const combien = poserTousLesMorceaux();
+        const poses = images.filter(o => o.pluginData && o.pluginData.id === 'morceau');
+        const trois = poses.slice(-3).sort((a, b) => a.x - b.x);
+        return {
+            combien, ajoutes: images.length - avant,
+            tiroirVide: morceauxEnAttente.length === 0,
+            cache: document.getElementById('bande-morceaux').hidden,
+            memeLigne: trois.length === 3
+                && Math.abs(trois[0].y - trois[1].y) < 1 && Math.abs(trois[1].y - trois[2].y) < 1,
+            sansChevauchement: trois.length === 3
+                && trois[0].x + trois[0].w <= trois[1].x + 0.5
+                && trois[1].x + trois[1].w <= trois[2].x + 0.5
+        };
+    });
+    r.egal('« tout poser » vide le tiroir sur le tableau',
+        { combien: rangee.combien, ajoutes: rangee.ajoutes, vide: rangee.tiroirVide, cache: rangee.cache },
+        { combien: 3, ajoutes: 3, vide: true, cache: true });
+    r.verifie('les morceaux se rangent côte à côte, sans se recouvrir',
+        rangee.memeLigne && rangee.sansChevauchement, JSON.stringify(rangee));
+
+    // Et quand ils ne tiennent plus dans la largeur, la rangée passe à la
+    // ligne : sinon les derniers finissaient hors de l'écran.
+    const retourALaLigne = await page.evaluate(async () => {
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        // Trois morceaux larges comme les deux tiers de l'écran : deux n'y
+        // tiennent pas ensemble.
+        const large = (window.innerWidth / zoom) * 0.66;
+        const k = large / doc.w;
+        [0.05, 0.35, 0.65].forEach(p => {
+            const r = { x: doc.x, y: doc.y + doc.h * p, l: doc.w * Math.min(1, k), h: doc.h * 0.2 };
+            decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+            finirGesteDeDecoupe();
+        });
+        basculerLaDecoupe(false);
+        poserTousLesMorceaux();
+        const trois = images.filter(o => o.pluginData && o.pluginData.id === 'morceau')
+            .slice(-3).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+        if (trois.length < 3) return { lignes: 0, croise: true, deborde: true, manque: trois.length };
+        const lignes = [...new Set(trois.map(o => Math.round(o.y)))];
+        // Aucun ne recouvre un autre, quelle que soit la ligne où il est.
+        let croise = false;
+        for (let i = 0; i < trois.length; i++) for (let j = i + 1; j < trois.length; j++) {
+            const a = trois[i], b = trois[j];
+            if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) croise = true;
+        }
+        const droite = (window.innerWidth - panX) / zoom;
+        return { lignes: lignes.length, croise, deborde: trois.some(o => o.x + o.w > droite + 1) };
+    });
+    r.verifie('trop larges, ils passent à la ligne au lieu de sortir de l\'écran',
+        retourALaLigne.lignes > 1 && !retourALaLigne.croise && !retourALaLigne.deborde,
+        JSON.stringify(retourALaLigne));
+
 
     // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
     // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
     // lui a coupé de trop.
     const retaille = await page.evaluate(async () => {
         const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        if (!morceau) return { enRognage: false, plusGrand: false, aucun: true };
         selectedItems = [{ type: 'image', id: morceau.id }];
         majBarreDocument();
         const avant = { ch: morceau.ch, cy: morceau.cy };

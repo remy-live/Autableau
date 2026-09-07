@@ -12102,32 +12102,6 @@ function finirGesteDeDecoupe() {
     return prendreUnMorceau(g.obj, g.rect);
 }
 
-// Où poser le morceau : à droite du document, et à la suite de ceux qu'on a
-// déjà pris — c'est justement la rangée qu'on cherche à faire. Mais un morceau
-// posé hors de l'écran est un morceau qu'on croit perdu : quand la place
-// manque à droite, la rangée passe SOUS le document.
-function placeDuMorceau(source, largeur, hauteur) {
-    const vue = {
-        x: (0 - panX) / zoom, y: (0 - panY) / zoom,
-        d: (window.innerWidth - panX) / zoom, b: (window.innerHeight - panY) / zoom
-    };
-    const tient = (x, y) => (x + largeur) <= vue.d - 8 && (y + hauteur) <= vue.b - 8;
-
-    const freres = images.filter(o => o.pluginData && o.pluginData.id === 'morceau'
-        && o.pluginData.source === source.id);
-    if (freres.length) {
-        const dernier = freres.reduce((a, b) => ((b.x + b.w) > (a.x + a.w) ? b : a));
-        const cote = { x: dernier.x + dernier.w + 20, y: dernier.y };
-        if (tient(cote.x, cote.y)) return cote;
-        // La rangée est pleine : on en commence une autre sous la précédente.
-        const plusBas = freres.reduce((a, b) => ((b.y + b.h) > (a.y + a.h) ? b : a));
-        return { x: source.x + source.w + 30, y: plusBas.y + plusBas.h + 20 };
-    }
-    const droite = { x: source.x + source.w + 30, y: source.y };
-    if (tient(droite.x, droite.y)) return droite;
-    return { x: source.x, y: source.y + source.h + 30 };
-}
-
 function prendreUnMorceau(source, r) {
     const img = imageCache[source.src];
     if (!img || !source.cw || !source.ch) {
@@ -12144,31 +12118,26 @@ function prendreUnMorceau(source, r) {
     const ch = Math.max(1, Math.min(NH - cy, r.h / ky));
     if (cw < 4 || ch < 4) return null;
 
-    const w = cw * kx, h = ch * ky;
-    const ou = placeDuMorceau(source, w, h);
     const pd = source.pluginData || {};
+    // LE MORCEAU VA DANS LE TIROIR, PAS SUR LE TABLEAU. Posé aussitôt à côté
+    // du document, il tombait sur ce qui s'y trouvait déjà — et l'on découpe
+    // souvent trois bouts d'affilée avant de décider où ils vont.
     const morceau = {
-        id: nextId++, x: ou.x, y: ou.y, w, h,
+        id: nextId++, w: cw * kx, h: ch * ky,
         cx, cy, cw, ch,
         src: source.src,
-        fileName: (pd.nom || source.fileName || 'Document') + ' — morceau',
-        z: globalZ++,
-        ratioLocked: true,
         // D'OÙ IL VIENT. Le morceau garde sa page et son fichier : c'est ce qui
         // permettra de le redemander net, et de savoir ce qu'on a découpé.
-        pluginData: {
-            id: 'morceau', source: source.id,
-            nom: pd.nom || source.fileName || 'Document',
-            page: pd.page || 1,
-            pdfRef: pd.pdfRef || null
-        }
+        nom: pd.nom || source.fileName || 'Document',
+        page: pd.page || 1,
+        pdfRef: pd.pdfRef || null,
+        source: source.id
     };
-    images.push(morceau);
-    selectedItems = [{ type: 'image', id: morceau.id }];
-    saveState();
+    morceauxEnAttente.push(morceau);
+    majLeTiroirDesMorceaux();
     draw();
     if (typeof showToast === 'function') {
-        showToast('✂ Morceau posé à côté — le bouton de rognage le retaille');
+        showToast('✂ Morceau rangé dans le tiroir — glissez-le où vous le voulez');
     }
     return morceau;
 }
@@ -12194,6 +12163,203 @@ function dessinerLaDecoupe(ctx) {
         ctx.strokeRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
     }
     ctx.restore();
+}
+
+// ------------------------------------------------------------------
+// LE TIROIR À MORCEAUX
+// Découper et placer sont deux gestes. On découpe vite, plusieurs bouts à la
+// suite ; on les place ensuite, un par un, là où on les veut. Le tiroir tient
+// entre les deux — il ne survit pas à la séance, c'est un lieu de passage :
+// un morceau posé sur le tableau, lui, est enregistré comme tout le reste.
+// ------------------------------------------------------------------
+let morceauxEnAttente = [];
+
+function majLeTiroirDesMorceaux() {
+    const bande = document.getElementById('bande-morceaux');
+    if (!bande) return;
+    bande.hidden = morceauxEnAttente.length === 0;
+    const compte = document.getElementById('bm-compte');
+    if (compte) compte.textContent = String(morceauxEnAttente.length);
+    const rail = document.getElementById('bm-rail');
+    if (!rail) return;
+    rail.innerHTML = '';
+    morceauxEnAttente.forEach(m => {
+        const img = imageCache[m.src];
+        const NW = (img && img.naturalWidth) || m.cw;
+        const NH = (img && img.naturalHeight) || m.ch;
+        const H = 66;
+        const k = H / m.ch;
+        const vignette = document.createElement('div');
+        vignette.className = 'bm-vignette';
+        vignette.dataset.id = String(m.id);
+        vignette.style.width = Math.max(24, Math.min(160, Math.round(m.cw * k))) + 'px';
+        vignette.title = `${m.nom} — page ${m.page} · glissez-le sur le tableau`;
+        const el = document.createElement('img');
+        el.src = m.src;
+        el.style.width = (NW * k) + 'px';
+        el.style.height = (NH * k) + 'px';
+        el.style.left = (-m.cx * k) + 'px';
+        el.style.top = (-m.cy * k) + 'px';
+        vignette.appendChild(el);
+        rail.appendChild(vignette);
+    });
+    brancherLesVignettes();
+}
+
+// Sortir un morceau du tiroir : il suit le doigt, et se pose là où on le
+// lâche. Un simple clic le pose au milieu de l'écran — au doigt, on ne vise
+// pas toujours juste.
+function brancherLesVignettes() {
+    document.querySelectorAll('#bm-rail .bm-vignette').forEach(v => {
+        v.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            const m = morceauxEnAttente.find(x => String(x.id) === v.dataset.id);
+            if (!m) return;
+            const depart = { x: e.clientX, y: e.clientY };
+            let glisse = false;
+            const fantome = fantomeDuMorceau(m);
+            const suivre = (ev) => {
+                if (!glisse && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < 6) return;
+                glisse = true;
+                v.classList.add('enMain');
+                fantome.style.display = 'block';
+                fantome.style.left = (ev.clientX - fantome._l / 2) + 'px';
+                fantome.style.top = (ev.clientY - fantome._h / 2) + 'px';
+            };
+            const lacher = (ev) => {
+                window.removeEventListener('pointermove', suivre);
+                window.removeEventListener('pointerup', lacher);
+                fantome.remove();
+                v.classList.remove('enMain');
+                const surLeTableau = ev.target === canvas
+                    || (ev.clientY < window.innerHeight && !ev.target.closest('#bande-morceaux'));
+                if (!glisse) { poserLeMorceau(m, null); return; }
+                if (!surLeTableau) return;
+                poserLeMorceau(m, { x: (ev.clientX - panX) / zoom, y: (ev.clientY - panY) / zoom });
+            };
+            window.addEventListener('pointermove', suivre);
+            window.addEventListener('pointerup', lacher);
+        });
+    });
+}
+
+function fantomeDuMorceau(m) {
+    document.querySelectorAll('#bm-fantome').forEach(x => x.remove());
+    const img = imageCache[m.src];
+    const NW = (img && img.naturalWidth) || m.cw;
+    const NH = (img && img.naturalHeight) || m.ch;
+    // À la taille qu'il aura sur le tableau, vue à travers le zoom courant.
+    const l = Math.max(24, Math.min(window.innerWidth * 0.7, m.w * zoom));
+    const k = l / m.cw;
+    const h = m.ch * k;
+    const boite = document.createElement('div');
+    boite.id = 'bm-fantome';
+    boite.style.display = 'none';
+    boite.style.width = l + 'px';
+    boite.style.height = h + 'px';
+    boite._l = l; boite._h = h;
+    const el = document.createElement('img');
+    el.src = m.src;
+    el.style.width = (NW * k) + 'px';
+    el.style.height = (NH * k) + 'px';
+    el.style.left = (-m.cx * k) + 'px';
+    el.style.top = (-m.cy * k) + 'px';
+    boite.appendChild(el);
+    document.body.appendChild(boite);
+    return boite;
+}
+
+// `ou` en coordonnées du tableau, ou rien pour le milieu de l'écran.
+function poserLeMorceau(m, ou) {
+    const centre = ou || {
+        x: (window.innerWidth / 2 - panX) / zoom,
+        y: (window.innerHeight / 2 - panY) / zoom
+    };
+    const objet = {
+        id: nextId++, x: centre.x - m.w / 2, y: centre.y - m.h / 2, w: m.w, h: m.h,
+        cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
+        src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
+        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
+    };
+    images.push(objet);
+    morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
+    selectedItems = [{ type: 'image', id: objet.id }];
+    majLeTiroirDesMorceaux();
+    saveState();
+    draw();
+    return objet;
+}
+
+// Tout poser d'un coup, en ligne, dans la partie visible du tableau : c'est
+// le cas courant — deux ou trois exercices côte à côte.
+function poserTousLesMorceaux() {
+    if (!morceauxEnAttente.length) return 0;
+    const marge = 40 / zoom;
+    const gauche = (0 - panX) / zoom + marge;
+    const droite = (window.innerWidth - panX) / zoom - marge;
+    const haut = (0 - panY) / zoom + marge;
+    const ecart = 20 / zoom;
+    let x = gauche, y = haut, hauteurDeLaRangee = 0;
+    const combien = morceauxEnAttente.length;
+    morceauxEnAttente.slice().forEach(m => {
+        if (x > gauche && x + m.w > droite) { x = gauche; y += hauteurDeLaRangee + ecart; hauteurDeLaRangee = 0; }
+        const objet = {
+            id: nextId++, x, y, w: m.w, h: m.h,
+            cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
+            src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
+            pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
+        };
+        images.push(objet);
+        x += m.w + ecart;
+        hauteurDeLaRangee = Math.max(hauteurDeLaRangee, m.h);
+    });
+    morceauxEnAttente = [];
+    selectedItems = [];
+    majLeTiroirDesMorceaux();
+    saveState();
+    draw();
+    if (typeof showToast === 'function') showToast(`${combien} morceau(x) posé(s) en ligne`);
+    return combien;
+}
+
+function brancherLeTiroirDesMorceaux() {
+    const ranger = document.getElementById('bm-ranger');
+    if (ranger) ranger.addEventListener('click', poserTousLesMorceaux);
+    const vider = document.getElementById('bm-vider');
+    if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
+    // La bande se déplace, comme celle du lecteur : elle n'a pas à rester
+    // devant ce qu'on regarde.
+    const poignee = document.getElementById('bm-poignee');
+    const bande = document.getElementById('bande-morceaux');
+    if (poignee && bande) {
+        poignee.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            const b = bande.getBoundingClientRect();
+            const ecart = { x: e.clientX - b.left, y: e.clientY - b.top };
+            const bouger = (ev) => {
+                bande.style.left = Math.max(4, Math.min(window.innerWidth - b.width - 4, ev.clientX - ecart.x)) + 'px';
+                bande.style.top = Math.max(4, Math.min(window.innerHeight - b.height - 4, ev.clientY - ecart.y)) + 'px';
+                bande.style.bottom = 'auto';
+                bande.style.transform = 'none';
+            };
+            const finir = () => {
+                window.removeEventListener('pointermove', bouger);
+                window.removeEventListener('pointerup', finir);
+            };
+            window.addEventListener('pointermove', bouger);
+            window.addEventListener('pointerup', finir);
+        });
+        poignee.addEventListener('dblclick', () => {
+            bande.style.left = ''; bande.style.top = ''; bande.style.bottom = ''; bande.style.transform = '';
+        });
+    }
+}
+
+function viderLeTiroirDesMorceaux() {
+    if (!morceauxEnAttente.length) return;
+    morceauxEnAttente = [];
+    majLeTiroirDesMorceaux();
+    if (typeof showToast === 'function') showToast('Tiroir vidé — les morceaux déjà posés restent');
 }
 
 function documentSousLePoint(pos) {
@@ -27078,6 +27244,7 @@ const TEINTES_PAPIER = [
 
 document.addEventListener('DOMContentLoaded', () => {
     if (typeof brancherBarreDocument === 'function') brancherBarreDocument();
+    if (typeof brancherLeTiroirDesMorceaux === 'function') brancherLeTiroirDesMorceaux();
     if (typeof brancherLeLecteur === 'function') brancherLeLecteur();
 
     // LA SAUVEGARDE DE SÉCURITÉ. On demande aussi au navigateur de ne pas
