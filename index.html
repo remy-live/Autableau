@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=107">
+    <link rel="stylesheet" href="style.css?v=108">
 </head>
 
 <body>
@@ -1049,6 +1049,20 @@
                             l'objet, un petit menu flottant : les <b>actions</b> — verrouiller, dupliquer,
                             supprimer. Rien ne se trouve dans les deux. En <b>plein écran</b>, la barre des
                             propriétés descend en bas : la page occupe alors tout le haut.</li>
+                        <li><strong>Deux options contre l'encombrement</strong> (roue crantée du tiroir du
+                            haut, rubrique <b>Encombrement</b>). Aucune n'est active au départ : c'est vous
+                            qui décidez.<br>
+                            <b>Tiroirs refermés tout seuls</b> — le tiroir des plugins et celui du bas se
+                            referment dès que vous <b>retournez au tableau</b> (un simple appui dessus).
+                            On y va chercher un outil, on revient écrire, et ils cessent de manger le tiers
+                            de l'écran. Leurs chevrons suivent : rien ne disparaît, tout se rouvre d'un
+                            clic.<br>
+                            <b>Barre d'outils réduite</b> — la barre de gauche ne garde que les gestes du
+                            quotidien, jusqu'à la <b>gomme</b> et au <b>pointeur laser</b> ; la géométrie et
+                            les instruments s'effacent. Indispensables en cours de maths, encombrants pour
+                            qui vient écrire trois lignes. Une <b>poignée paraît au coin inférieur droit</b>
+                            de la barre : on la <b>tire</b> (ou on clique dessus) et tout revient — et
+                            l'option s'éteint du même coup, puisque vous l'avez redemandée.</li>
                         <li><strong>La barre debout, pour les documents :</strong> le bouton <b>⊟</b> de sa
                             poignée met la barre des propriétés <b>debout au bord droit</b>. Ce n'est pas une
                             coquetterie : un tableau est en 16/9, une page en 1/1,41 — quand la page occupe
@@ -1540,6 +1554,24 @@
                     <line x1="8" y1="9" x2="16" y2="9" />
                     <line x1="8" y1="13" x2="14" y2="13" />
                 </svg></button>
+
+            <button class="btn danger" data-mode="eraser" title="Gomme"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                    <path d="M22 21H7" />
+                    <path d="m5 11 9 9" />
+                </svg></button>
+            <button class="btn" data-mode="laser" title="Pointeur Laser"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon">
+                    <path
+                        d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 4.93l1.41 1.41" />
+                    <circle cx="12" cy="12" r="3" fill="#e74c3c" stroke="none" />
+                </svg></button>
+            <!-- LA SUITE DE LA BARRE. Géométrie et instruments : indispensables
+                 en cours de maths, encombrants pour qui vient écrire trois
+                 lignes au tableau. L'option « Barre d'outils réduite » les
+                 efface ; la poignée du coin inférieur droit les ramène. -->
+            <div id="outils-en-plus" class="outils-suite">
             <button class="btn" data-mode="point" title="Point"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
                     <circle cx="12" cy="12" r="3" fill="currentColor" />
@@ -1583,19 +1615,6 @@
                     viewBox="0 0 24 24" class="stroke-icon">
                     <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg></button>
-            <button class="btn" data-mode="laser" title="Pointeur Laser"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <path
-                        d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 4.93l1.41 1.41" />
-                    <circle cx="12" cy="12" r="3" fill="#e74c3c" stroke="none" />
-                </svg></button>
-
-            <button class="btn danger" data-mode="eraser" title="Gomme"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
-                    <path d="M22 21H7" />
-                    <path d="m5 11 9 9" />
-                </svg></button>
             <div></div> <!-- Empty cell for grid layout to match screenshot -->
 
             <button class="btn" id="btn-ruler" data-widget="ruler" title="Règle">
@@ -1632,7 +1651,18 @@
                 </svg>
             </button>
         </div>
-    </div>
+                </div>
+            <!-- LA POIGNÉE DU COIN. On tire, la barre entière revient — et
+                 l'option se désactive : on l'a redemandée, ce n'est plus
+                 une réduction subie. -->
+            <button class="btn outils-poignee" id="outils-poignee" type="button"
+                data-tooltip="Tirez pour retrouver toute la barre">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                    <circle cx="8" cy="16" r="1.6" /><circle cx="14" cy="16" r="1.6" />
+                    <circle cx="14" cy="10" r="1.6" /><circle cx="20" cy="16" r="1.6" />
+                </svg>
+            </button>
+        </div>
 
     <div class="drawer drawer-h drawer-top" id="bar-plugins">
         <div class="drawer-header">
@@ -1677,6 +1707,12 @@
                     <div class="rp-titre">Documents</div>
                     <button class="rp-choix" id="rp-zones"
                         title="Sur un PDF vectoriel, repérer les lignes et les cases à remplir : l'outil Texte les éclaire, et le clic y pose le bloc à la bonne taille">Repérer les zones à remplir</button>
+
+                    <div class="rp-titre">Encombrement</div>
+                    <button class="rp-choix" id="rp-tiroirs-auto"
+                        title="Les tiroirs du haut et du bas se referment dès qu'on retourne au tableau">Tiroirs refermés tout seuls</button>
+                    <button class="rp-choix" id="rp-barre-courte"
+                        title="Ne garder que les gestes du quotidien : la géométrie et les instruments s'effacent. La poignée du coin inférieur droit les ramène">Barre d'outils réduite</button>
 
                     <div class="rp-titre">Astuces</div>
                     <button class="rp-choix" id="rp-astuces">Astuce au démarrage</button>
@@ -2624,7 +2660,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=196"></script>
+    <script src="script.js?v=197"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

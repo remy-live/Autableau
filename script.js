@@ -7999,7 +7999,16 @@ wysiwygText.addEventListener('input', () => {
 
 canvas.addEventListener('pointerdown', (e) => {
     if (e.target !== canvas) return;
-    activePointers.set(e.pointerId, e); canvas.setPointerCapture(e.pointerId);
+    // ON RETOURNE AU TABLEAU : les tiroirs n'ont plus rien à y faire. On y va
+    // chercher un outil, on revient écrire, et ils continuaient de manger le
+    // tiers de l'écran. C'est une OPTION : rien ne se referme chez qui ne l'a
+    // pas demandé.
+    if (typeof refermerLesTiroirs === 'function') refermerLesTiroirs();
+    activePointers.set(e.pointerId, e);
+    // Le pointeur peut avoir été relâché entre l'événement et nous — un doigt
+    // qui quitte l'écran, un stylet qui sort de portée. La capture échoue
+    // alors, et emportait tout le geste avec elle.
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
 
     const rawPos = getRawLogicalPos(e);
     lastRawX = rawPos.x; lastRawY = rawPos.y;
@@ -28858,7 +28867,99 @@ function majReglagesBarre() {
     if (bEncre) bEncre.classList.toggle('actif', encreAccrochee);
     const bZones = document.getElementById('rp-zones');
     if (bZones) bZones.classList.toggle('actif', zonesActives);
+    const bTiroirs = document.getElementById('rp-tiroirs-auto');
+    if (bTiroirs) bTiroirs.classList.toggle('actif', tiroirsAuto);
+    const bCourte = document.getElementById('rp-barre-courte');
+    if (bCourte) bCourte.classList.toggle('actif', barreCourte);
 }
+
+// ==================================================================
+// L'ENCOMBREMENT, EN DEUX OPTIONS
+// Ouvrir un polycopié empilait six surfaces autour de lui. Chacune a ses
+// raisons, mais aucune ne cède jamais le pas. Plutôt que d'arbitrer à la
+// place du professeur, on lui donne les deux leviers — et rien ne bouge
+// tant qu'il ne les a pas demandés.
+// ==================================================================
+const CLE_TIROIRS_AUTO = 'auTableau_tiroirs_auto';
+const CLE_BARRE_COURTE = 'auTableau_barre_courte';
+let tiroirsAuto = false;
+let barreCourte = false;
+try {
+    tiroirsAuto = localStorage.getItem(CLE_TIROIRS_AUTO) === 'true';
+    barreCourte = localStorage.getItem(CLE_BARRE_COURTE) === 'true';
+} catch (e) { /* stockage refusé */ }
+
+function poserLaBarreCourte() {
+    document.body.classList.toggle('barre-outils-courte', barreCourte);
+}
+
+function basculerLaBarreCourte(force) {
+    barreCourte = (force === undefined) ? !barreCourte : !!force;
+    try { localStorage.setItem(CLE_BARRE_COURTE, barreCourte ? 'true' : 'false'); } catch (e) { /* refusé */ }
+    poserLaBarreCourte();
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    return barreCourte;
+}
+window.basculerLaBarreCourte = basculerLaBarreCourte;
+
+function basculerLesTiroirsAuto(force) {
+    tiroirsAuto = (force === undefined) ? !tiroirsAuto : !!force;
+    try { localStorage.setItem(CLE_TIROIRS_AUTO, tiroirsAuto ? 'true' : 'false'); } catch (e) { /* refusé */ }
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    return tiroirsAuto;
+}
+window.basculerLesTiroirsAuto = basculerLesTiroirsAuto;
+
+// REFERMER LES TIROIRS QUAND ON RETOURNE AU TABLEAU. On y va chercher un
+// outil, on revient écrire : le tiroir n'a plus de raison de manger le tiers
+// de l'écran. Il se referme comme il s'est ouvert, par sa propre poignée —
+// ainsi le chevron reste d'accord avec ce qu'on voit.
+function refermerLesTiroirs() {
+    if (!tiroirsAuto) return false;
+    let ferme = false;
+    const haut = document.getElementById('bar-plugins');
+    if (haut && !haut.classList.contains('closed')
+        && typeof togglePluginDrawer === 'function') { togglePluginDrawer(); ferme = true; }
+    const bas = document.getElementById('bottom-drawer');
+    if (bas && !bas.classList.contains('closed')
+        && typeof toggleBottomDrawer === 'function') { toggleBottomDrawer(); ferme = true; }
+    return ferme;
+}
+window.refermerLesTiroirs = refermerLesTiroirs;
+
+// LA POIGNÉE DU COIN. On tire, la suite de la barre revient — et l'option
+// s'éteint : on l'a redemandée, ce n'est plus une réduction subie. Le clic
+// simple fait la même chose : viser huit pixels avec un doigt sur un tableau
+// numérique n'est pas donné à tout le monde.
+function brancherLaPoigneeDesOutils() {
+    const poignee = document.getElementById('outils-poignee');
+    if (!poignee) return;
+    const rendre = () => {
+        if (!barreCourte) return;
+        basculerLaBarreCourte(false);
+        if (typeof showToast === 'function') showToast('Toute la barre est revenue');
+    };
+    poignee.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const depart = { x: e.clientX, y: e.clientY };
+        const suivre = (ev) => {
+            if (Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < 8) return;
+            fini(); rendre();
+        };
+        const fini = () => {
+            window.removeEventListener('pointermove', suivre);
+            window.removeEventListener('pointerup', fini);
+        };
+        window.addEventListener('pointermove', suivre);
+        window.addEventListener('pointerup', fini);
+    });
+    poignee.addEventListener('click', rendre);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    poserLaBarreCourte();
+    brancherLaPoigneeDesOutils();
+});
 
 function basculerReglagesBarre(e) {
     if (e) e.stopPropagation();
@@ -28905,6 +29006,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof showToast === 'function') {
             showToast(active ? 'L\'encre s\'accroche à ce qu\'elle annote'
                              : 'L\'encre reste indépendante');
+        }
+    });
+
+    const bTiroirs = document.getElementById('rp-tiroirs-auto');
+    if (bTiroirs) bTiroirs.addEventListener('click', () => {
+        const actif = basculerLesTiroirsAuto();
+        if (typeof showToast === 'function') {
+            showToast(actif ? 'Les tiroirs se refermeront dès que vous reviendrez au tableau'
+                            : 'Les tiroirs restent ouverts tant que vous ne les fermez pas');
+        }
+    });
+
+    const bCourte = document.getElementById('rp-barre-courte');
+    if (bCourte) bCourte.addEventListener('click', () => {
+        const actif = basculerLaBarreCourte();
+        if (typeof showToast === 'function') {
+            showToast(actif ? 'Barre réduite — la poignée du coin la ramène en entier'
+                            : 'Toute la barre est revenue');
         }
     });
 

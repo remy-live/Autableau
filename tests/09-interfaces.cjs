@@ -151,6 +151,154 @@ module.exports = async function (browser) {
         /Remettre les interfaces fournies/.test(cycle.messageVide), cycle.messageVide);
     r.egal('elles reviennent toutes', cycle.apres, ATTENDUES.length);
 
+    // =====================================================================
+    // L'ENCOMBREMENT, EN DEUX OPTIONS
+    // Ouvrir un polycopié empilait six surfaces autour de lui. On ne tranche
+    // pas à la place du professeur : on lui donne les leviers, et rien ne
+    // bouge tant qu'il ne les a pas demandés.
+    // =====================================================================
+
+    // D'ABORD L'ORDRE DE LA BARRE. La gomme et le pointeur laser sont des
+    // gestes du quotidien : ils passent sous le texte et le post-it, avec eux.
+    const ordre = await page.evaluate(() => {
+        const barre = document.getElementById('bar-tools');
+        const modes = Array.from(barre.querySelectorAll('.btn[data-mode]')).map(b => b.dataset.mode);
+        const suite = document.getElementById('outils-en-plus');
+        return {
+            modes,
+            // Ce qui suit la gomme et le laser est dans l'enveloppe qui s'efface.
+            dansLaSuite: Array.from(suite.querySelectorAll('.btn[data-mode],.btn[data-widget]'))
+                .map(b => b.dataset.mode || b.dataset.widget),
+            // Et rien de ce qui reste n'y est.
+            gommeDehors: !suite.querySelector('[data-mode="eraser"]'),
+            laserDehors: !suite.querySelector('[data-mode="laser"]')
+        };
+    });
+    r.egal('la gomme et le pointeur laser sont remontés sous le post-it',
+        ordre.modes.slice(ordre.modes.indexOf('text')),
+        ['text', 'postit', 'eraser', 'laser', 'point', 'segment', 'demi-droite', 'droite',
+         'curve', 'circle', 'polygon', 'rectangle']);
+    r.verifie('et tout ce qui vient APRÈS eux est ce qui pourra s\'effacer',
+        ordre.dansLaSuite[0] === 'point' && ordre.dansLaSuite.includes('compass')
+        && ordre.gommeDehors && ordre.laserDehors, JSON.stringify(ordre));
+
+    // L'OPTION « BARRE RÉDUITE ».
+    const courte = await page.evaluate(() => {
+        // « Masqué » se mesure DANS LA BARRE, en remontant jusqu'à elle : un
+        // bouton rangé dans une enveloppe en display:none garde son propre
+        // display calculé, et la barre elle-même n'est pas encore montrée à
+        // ce stade du démarrage — tout paraîtrait masqué.
+        const vu = (sel) => {
+            const barre = document.getElementById('bar-tools');
+            let el = document.querySelector(sel);
+            if (!el) return false;
+            while (el && el !== barre) {
+                if (getComputedStyle(el).display === 'none') return false;
+                el = el.parentElement;
+            }
+            return true;
+        };
+        basculerLaBarreCourte(false);
+        const avant = { suite: vu('#outils-en-plus'), poignee: vu('#outils-poignee'),
+                        gomme: vu('#bar-tools [data-mode="eraser"]') };
+
+        const actif = basculerLaBarreCourte(true);
+        const reduite = {
+            actif,
+            // Ce qui reste : jusqu'à la gomme et au laser.
+            gomme: vu('#bar-tools [data-mode="eraser"]'),
+            laser: vu('#bar-tools [data-mode="laser"]'),
+            postit: vu('#bar-tools [data-mode="postit"]'),
+            // Ce qui s'efface : la géométrie et les instruments.
+            point: vu('#bar-tools [data-mode="point"]'),
+            compas: vu('#bar-tools [data-widget="compass"]'),
+            // Et la poignée paraît, puisqu'il y a quelque chose à retrouver.
+            poignee: vu('#outils-poignee'),
+            retenu: localStorage.getItem('auTableau_barre_courte'),
+            allume: document.getElementById('rp-barre-courte').classList.contains('actif')
+        };
+
+        // LA POIGNÉE : on tire, tout revient — ET L'OPTION S'ÉTEINT.
+        const p = document.getElementById('outils-poignee');
+        const opt = (x, y) => ({ pointerId: 7, pointerType: 'mouse', isPrimary: true,
+                                 clientX: x, clientY: y, bubbles: true, cancelable: true });
+        const r0 = p.getBoundingClientRect();
+        p.dispatchEvent(new PointerEvent('pointerdown', opt(r0.left + 5, r0.top + 5)));
+        window.dispatchEvent(new PointerEvent('pointermove', opt(r0.left + 30, r0.top + 30)));
+        window.dispatchEvent(new PointerEvent('pointerup', opt(r0.left + 30, r0.top + 30)));
+        const tiree = {
+            point: vu('#bar-tools [data-mode="point"]'),
+            compas: vu('#bar-tools [data-widget="compass"]'),
+            poignee: vu('#outils-poignee'),
+            optionEteinte: localStorage.getItem('auTableau_barre_courte') === 'false',
+            allume: document.getElementById('rp-barre-courte').classList.contains('actif')
+        };
+        return { avant, reduite, tiree };
+    });
+    r.egal('sans l\'option, toute la barre est là et la poignée ne paraît pas',
+        { suite: courte.avant.suite, poignee: courte.avant.poignee }, { suite: true, poignee: false });
+    r.egal('réduite, on garde tout jusqu\'à la gomme et au laser',
+        { postit: courte.reduite.postit, gomme: courte.reduite.gomme, laser: courte.reduite.laser },
+        { postit: true, gomme: true, laser: true });
+    r.egal('et ce qui vient après s\'efface',
+        { point: courte.reduite.point, compas: courte.reduite.compas }, { point: false, compas: false });
+    r.egal('la poignée paraît, et le réglage est allumé et retenu',
+        { poignee: courte.reduite.poignee, retenu: courte.reduite.retenu, allume: courte.reduite.allume },
+        { poignee: true, retenu: 'true', allume: true });
+    r.egal('tirer la poignée ramène tout ET ÉTEINT l\'option',
+        { point: courte.tiree.point, compas: courte.tiree.compas, poignee: courte.tiree.poignee,
+          eteinte: courte.tiree.optionEteinte, allume: courte.tiree.allume },
+        { point: true, compas: true, poignee: false, eteinte: true, allume: false });
+
+    // L'OPTION « TIROIRS REFERMÉS TOUT SEULS ».
+    const tiroirs = await page.evaluate(() => {
+        const ouvrir = () => {
+            const haut = document.getElementById('bar-plugins');
+            const bas = document.getElementById('bottom-drawer');
+            if (haut.classList.contains('closed')) togglePluginDrawer();
+            if (bas.classList.contains('closed')) toggleBottomDrawer();
+            return { haut: !haut.classList.contains('closed'), bas: !bas.classList.contains('closed') };
+        };
+        const etat = () => ({
+            haut: !document.getElementById('bar-plugins').classList.contains('closed'),
+            bas: !document.getElementById('bottom-drawer').classList.contains('closed')
+        });
+        const c = document.getElementById('board');
+        const toucherLeTableau = () => c.dispatchEvent(new PointerEvent('pointerdown', {
+            pointerId: 9, pointerType: 'mouse', isPrimary: true,
+            clientX: 400, clientY: 300, bubbles: true, cancelable: true }));
+
+        // SANS L'OPTION, RIEN NE BOUGE : c'est la moitié qui compte.
+        basculerLesTiroirsAuto(false);
+        ouvrir();
+        toucherLeTableau();
+        const sansOption = etat();
+
+        const actif = basculerLesTiroirsAuto(true);
+        const ouverts = ouvrir();
+        toucherLeTableau();
+        const apres = etat();
+        // Le chevron doit dire la même chose que le tiroir.
+        const chevron = {
+            haut: document.getElementById('plugin-chev').innerHTML.includes('6 9 12 15 18 9'),
+            bas: document.getElementById('bot-chev').innerHTML.includes('18 15 12 9 6 15')
+        };
+        return { sansOption, actif, ouverts, apres, chevron,
+                 retenu: localStorage.getItem('auTableau_tiroirs_auto'),
+                 allume: document.getElementById('rp-tiroirs-auto').classList.contains('actif') };
+    });
+    r.egal('sans l\'option, revenir au tableau ne referme rien',
+        tiroirs.sansOption, { haut: true, bas: true });
+    r.egal('avec l\'option, les deux tiroirs se referment dès qu\'on revient au tableau',
+        { ouverts: tiroirs.ouverts, apres: tiroirs.apres },
+        { ouverts: { haut: true, bas: true }, apres: { haut: false, bas: false } });
+    r.verifie('et leurs chevrons disent la même chose qu\'eux',
+        tiroirs.chevron.haut && tiroirs.chevron.bas, JSON.stringify(tiroirs.chevron));
+    r.egal('le réglage est allumé et retenu',
+        { retenu: tiroirs.retenu, allume: tiroirs.allume }, { retenu: 'true', allume: true });
+
+    await page.evaluate(() => { basculerLesTiroirsAuto(false); basculerLaBarreCourte(false); });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

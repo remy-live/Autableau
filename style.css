@@ -9287,3 +9287,29 @@ body.focus-mode #bar-style.vertical.visible { transform: translateY(-50%); }
 .btn-orienter:hover { color: var(--accent, #6c5ce7); background: #f1f2f6; }
 .btn-orienter.actif { color: var(--accent, #6c5ce7); }
 .dark-mode .btn-orienter:hover { background: #2f3941; }
+
+
+/* ============================================================
+   LA BARRE D'OUTILS RÉDUITE
+   Vingt-deux outils dans une colonne : indispensable en cours de maths,
+   encombrant pour qui vient écrire trois lignes au tableau. L'option ne garde
+   que les gestes du quotidien — jusqu'à la gomme et au pointeur laser — et
+   efface la géométrie et les instruments. Rien n'est perdu : la poignée du
+   coin inférieur droit les ramène, et l'option s'éteint avec.
+   ============================================================ */
+.outils-suite { display: contents; }
+body.barre-outils-courte #outils-en-plus { display: none; }
+
+/* La poignée ne paraît QUE quand il y a quelque chose à retrouver : sans
+   cela, elle promettrait un geste qui ne rend rien. */
+.outils-poignee { display: none; }
+body.barre-outils-courte .outils-poignee {
+    display: flex;
+    align-self: flex-end;
+    margin-top: 2px;
+    padding: 2px 4px;
+    opacity: 0.45;
+    cursor: nwse-resize;
+    touch-action: none;
+}
+body.barre-outils-courte .outils-poignee:hover { opacity: 1; }
