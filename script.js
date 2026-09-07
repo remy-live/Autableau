@@ -75,6 +75,10 @@ function glisserLeZoom() {
     zoom = (Math.abs(reste - 1) < 0.005) ? zoomVise : zoom * Math.pow(reste, 0.34);
     panX = ancreDuZoom.ex - ancreDuZoom.lx * zoom;
     panY = ancreDuZoom.ey - ancreDuZoom.ly * zoom;
+    // En présentation, le zoom ne fait pas non plus sortir la page de l'écran :
+    // on visait un détail du bas et le tableau se vidait.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && typeof bornerLaPresentation === 'function') bornerLaPresentation();
     majCurseurZoom(); majPastilleZoom();
     updateWysiwygPosition();
     draw();
@@ -4912,6 +4916,17 @@ window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if (declencherRaccourci(e)) { e.preventDefault(); return; }
 
+    // EN PRÉSENTATION, on descend D'ABORD dans la page, et l'on ne tourne
+    // qu'une fois arrivé en bas — comme dans un lecteur de PDF. Sans cela,
+    // Page↓ sautait la moitié basse de chaque page, qu'on n'avait aucun moyen
+    // d'atteindre puisque les barres sont effacées. (Les flèches gauche et
+    // droite, elles, tournent tout de suite : voir juste en dessous.)
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && !e.ctrlKey && !e.metaKey && !e.altKey && cleDePresentation(e)) {
+        e.preventDefault();
+        return;
+    }
+
     // Feuilleter un document au clavier. Les flèches ne servent à rien d'autre
     // sur le tableau, et devant une classe on tourne les pages sans quitter la
     // page des yeux pour viser un bouton de six millimètres.
@@ -6454,6 +6469,10 @@ function updateCursor() {
 
     if (isCropMode) { canvas.classList.add('cursor-crosshair'); return; }
     if (isPanningView || isSpacePressed || mode === 'move') { canvas.classList.add(isPanningView ? 'cursor-grabbing' : 'cursor-grab'); return; }
+    // En présentation, le glisser prend la page : le curseur le dit.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours && mode === 'pointer') {
+        canvas.classList.add('cursor-grab'); return;
+    }
     if (isDraggingObjs) { canvas.classList.add('cursor-grabbing'); return; }
     if (hoveredObj && hoveredObj.type === 'handle') {
         const hn = hoveredObj.name;
@@ -8100,6 +8119,15 @@ canvas.addEventListener('pointerdown', (e) => {
         return;
     }
 
+    // EN PRÉSENTATION, glisser prend la page comme une main. Les barres sont
+    // effacées : l'outil Main est hors d'atteinte, et c'était le seul geste
+    // qui restait pour aller voir plus bas. Le crayon et le texte passent
+    // avant, plus haut : on annote toujours sur la page présentée.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && mode === 'pointer' && documentPresente()) {
+        isPanningView = true; updateCursor(); return;
+    }
+
     // En mode « page », glisser DANS le document le fait coulisser dans son
     // cadre : l'objet, lui, ne bouge pas.
     const docChoisi = (typeof documentSelectionne === 'function') ? documentSelectionne() : null;
@@ -8571,6 +8599,8 @@ canvas.addEventListener('pointermove', (e) => {
     if (isPanningView && activePointers.size < 2) {
         panX += (e.clientX - lastMouseX);
         panY += (e.clientY - lastMouseY);
+        // La page présentée ne se laisse pas pousser hors de l'écran.
+        if (typeof presentationEnCours !== 'undefined' && presentationEnCours) bornerLaPresentation();
         lastMouseX = e.clientX;
         lastMouseY = e.clientY;
         updateWysiwygPosition();
@@ -9129,6 +9159,28 @@ canvas.addEventListener('wheel', (e) => {
     // prendre le crayon vide la sélection, et l'on se retrouvait à zoomer avec
     // un geste et à dézoomer avec un autre — la page restait rognée sur ce
     // qu'on avait agrandi, sans moyen évident de revenir en arrière.
+    // EN PRÉSENTATION, la molette DÉFILE et c'est Ctrl qui zoome — l'inverse
+    // du tableau, et l'usage de tous les lecteurs de PDF. Elle zoomait la page
+    // dans son cadre : on agrandissait un détail, et le reste de la page
+    // devenait inatteignable.
+    if (presentationEnCours && documentPresente()) {
+        majPastilleZoom();
+        if (e.ctrlKey || e.metaKey) {
+            const depart = (zoomVise === null) ? zoom : zoomVise;
+            viserLeZoom(depart * facteurDeMolette(e, 700), e.clientX, e.clientY);
+            return;
+        }
+        // Le pavé tactile compte en pixels, la molette parfois en lignes ou en
+        // pages : sans quoi un cran ne bougeait rien du tout.
+        const H = canvas.clientHeight || window.innerHeight;
+        let dy = e.deltaY, dx = e.deltaX;
+        if (e.deltaMode === 1) { dy *= 16; dx *= 16; }
+        else if (e.deltaMode === 2) { dy *= H; dx *= H; }
+        if (dx) { panX -= dx; bornerLaPresentation(); }
+        defilerLaPresentation(dy);
+        return;
+    }
+
     const docPage = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
     if (docPage && estUnDocumentPose(docPage) && modeDocument === 'page' && !docPage.locked) {
         const p = getRawLogicalPos(e);
@@ -17494,6 +17546,125 @@ function cadrerSurLaLargeur(obj) {
 }
 window.cadrerSurLaLargeur = cadrerSurLaLargeur;
 
+// ==================================================================
+// DÉFILER DANS LA PAGE PRÉSENTÉE
+// Plein écran, on zoome pour montrer un détail — et le bas de la page devient
+// inatteignable. Les barres sont effacées, donc pas d'outil Main ; la molette
+// zoomait la page dans son cadre ; Page↓ et les flèches tournaient les pages.
+// Il ne restait RIEN pour descendre.
+//
+// La vue se conduit donc ici comme un lecteur de PDF : la molette défile,
+// Ctrl+molette zoome, glisser prend la page comme une main, Page↓ et la barre
+// d'espace descendent d'un écran — et quand il n'y a plus rien dessous, la
+// page suivante arrive, cadrée sur son haut. Les flèches gauche et droite,
+// elles, tournent tout de suite : c'est le geste du présentateur.
+// ==================================================================
+
+// Le document présenté, s'il est encore là.
+function documentPresente() {
+    if (!presentationEnCours) return null;
+    const doc = (typeof getObjectById === 'function') ? getObjectById('image', presentationEnCours) : null;
+    if (!doc) { presentationEnCours = null; return null; }
+    return doc;
+}
+window.documentPresente = documentPresente;
+
+// LA PAGE NE SORT PAS DE L'ÉCRAN. Sans cette borne, un coup de molette de trop
+// laissait le tableau vide et l'on ne savait plus où la page était passée.
+// Quand elle tient à l'écran, elle est centrée : c'est le cadrage « page
+// entière », et il n'y a rien à défiler.
+function bornerLaPresentation() {
+    const doc = documentPresente();
+    if (!doc) return;
+    const L = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    const l = doc.w * zoom, h = doc.h * zoom;
+    panX = (l <= L) ? (L - l) / 2 - doc.x * zoom
+        : Math.min(-doc.x * zoom, Math.max(L - (doc.x + doc.w) * zoom, panX));
+    panY = (h <= H) ? (H - h) / 2 - doc.y * zoom
+        : Math.min(-doc.y * zoom, Math.max(H - (doc.y + doc.h) * zoom, panY));
+}
+window.bornerLaPresentation = bornerLaPresentation;
+
+// Défiler de `dy` pixels d'écran. Rend ce qui n'a PAS pu être fait : c'est ce
+// reste-là qui dit qu'on est au bout de la page et qu'il faut tourner.
+function defilerLaPresentation(dy) {
+    const doc = documentPresente();
+    if (!doc) return dy;
+    const avant = panY;
+    panY -= dy;
+    bornerLaPresentation();
+    if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+    if (typeof draw === 'function') draw();
+    return dy - (avant - panY);
+}
+window.defilerLaPresentation = defilerLaPresentation;
+
+// Un écran plein, moins un doigt de recouvrement : on ne perd pas la ligne
+// qu'on était en train de lire.
+function pasDeDefilement() {
+    const H = canvas.clientHeight || window.innerHeight;
+    return Math.max(80, H * 0.88);
+}
+
+// Poser la vue sur le haut ou sur le bas de la page.
+function cadrerLeBordDeLaPage(doc, versLeHaut) {
+    const H = canvas.clientHeight || window.innerHeight;
+    panY = versLeHaut ? -doc.y * zoom : H - (doc.y + doc.h) * zoom;
+    bornerLaPresentation();
+    if (typeof draw === 'function') draw();
+}
+
+// Descendre — et si l'on est déjà en bas, tourner la page. On remonte de la
+// même façon : au sommet, la page précédente arrive cadrée sur son bas, et
+// non sur son haut, pour qu'on la reprenne là où on l'avait laissée.
+function defilerOuTourner(sens) {
+    const doc = documentPresente();
+    if (!doc) return false;
+    // On ne tourne que si RIEN n'a bougé. Tant qu'il reste un bout de page à
+    // faire glisser, même petit, la touche sert à cela : sinon un appui près
+    // du bas sautait les trois dernières lignes de l'exercice.
+    const pas = sens * pasDeDefilement();
+    const reste = defilerLaPresentation(pas);
+    if (Math.abs(pas - reste) > 1) return true;
+
+    if (typeof estUnPdfFeuilletable !== 'function' || !estUnPdfFeuilletable(doc)) return true;
+    const page = doc.pluginData.page, total = doc.pluginData.pages;
+    if ((sens > 0 && page >= total) || (sens < 0 && page <= 1)) {
+        if (typeof showToast === 'function') {
+            showToast(sens > 0 ? 'Fin du document' : 'Début du document');
+        }
+        return true;
+    }
+    // La page suivante est rendue en différé ; la géométrie du cadre, elle, ne
+    // change pas — on peut poser la vue tout de suite.
+    // Une page qui ne se rend pas ne doit pas emporter le geste avec elle :
+    // on reste devant le document plutôt que devant une erreur.
+    Promise.resolve(feuilleterPdf(doc, sens > 0 ? 1 : -1)).catch(() => {});
+    cadrerLeBordDeLaPage(doc, sens > 0);
+    return true;
+}
+window.defilerOuTourner = defilerOuTourner;
+
+// Les touches d'un lecteur de PDF. Rend vrai si la touche a servi ici.
+function cleDePresentation(e) {
+    const doc = documentPresente();
+    if (!doc) return false;
+    const H = canvas.clientHeight || window.innerHeight;
+    switch (e.key) {
+        case 'PageDown': defilerOuTourner(1); return true;
+        case 'PageUp': defilerOuTourner(-1); return true;
+        // La barre d'espace fait glisser le tableau partout ailleurs ; ici elle
+        // descend, comme dans tous les lecteurs. Avec Maj, elle remonte.
+        case ' ': defilerOuTourner(e.shiftKey ? -1 : 1); return true;
+        case 'ArrowDown': defilerLaPresentation(H * 0.18); return true;
+        case 'ArrowUp': defilerLaPresentation(-H * 0.18); return true;
+        case 'Home': cadrerLeBordDeLaPage(doc, true); return true;
+        case 'End': cadrerLeBordDeLaPage(doc, false); return true;
+    }
+    return false;
+}
+
 // Le geste demandé : plein écran, interface effacée, le document occupe tout
 // l'espace, et l'on est en mode page — on fait glisser la page dans son cadre
 // et la molette la zoome.
@@ -17552,7 +17723,7 @@ function presenterLeDocument() {
     setTimeout(cadrer, 250);
 
     showToast(cadrageDePresentation === 'largeur'
-        ? 'Toute la largeur — défilez pour parcourir la page ; « D » revient à la page entière'
+        ? 'Toute la largeur — molette ou Page↓ pour descendre, Ctrl+molette pour zoomer'
         : (rogne ? 'Page entière en plein écran — « D » à nouveau pour toute la largeur'
                  : 'Document en pleine page — « D » à nouveau pour toute la largeur'));
     return true;

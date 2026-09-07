@@ -530,6 +530,193 @@ module.exports = async function (browser) {
     r.egal('un troisième revient à la page entière', largeur.revenu.cadrage, 'page');
     r.verifie('qui tient à nouveau en hauteur', largeur.revenu.tientEnHauteur);
 
+    // ---------------------------------------------------------------
+    // DESCENDRE DANS LA PAGE PRÉSENTÉE
+    // Plein écran, on zoome sur un détail — et le bas de la page devenait
+    // inatteignable : les barres sont effacées, donc pas d'outil Main ; la
+    // molette zoomait la page dans son cadre ; Page↓ tournait la page.
+    // ---------------------------------------------------------------
+    const defile = await page.evaluate(() => {
+        const c = document.getElementById('board');
+        // On se remet en pleine largeur : la page est alors plus haute que
+        // l'écran, il y a donc quelque chose à descendre.
+        if (cadrageDePresentation !== 'largeur') presenterLeDocument();
+        const doc = images[0];
+        const H = c.clientHeight;
+        const bas = () => (doc.y + doc.h) * zoom + panY;   // le bas de la page, à l'écran
+        const depart = { panY, bas: bas(), plusHauteQueLEcran: doc.h * zoom > H + 1 };
+
+        // LA MOLETTE DÉFILE (elle zoomait la page dans son cadre).
+        const cadrageAvant = { cx: doc.cx, cy: doc.cy, cw: doc.cw, ch: doc.ch };
+        c.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, cancelable: true, bubbles: true }));
+        const apresMolette = { panY, cadrageIntact: doc.cy === cadrageAvant.cy && doc.ch === cadrageAvant.ch };
+
+        // On descend jusqu'au bout : le bas de la page se voit vraiment, et
+        // l'on ne va pas plus loin — la page ne sort pas de l'écran.
+        for (let i = 0; i < 40; i++) defilerLaPresentation(H);
+        const auBout = { bas: bas(), panY };
+        defilerLaPresentation(H);
+        const encore = { bouge: Math.abs(panY - auBout.panY) > 0.5 };
+
+        // Et l'on remonte de la même façon.
+        for (let i = 0; i < 40; i++) defilerLaPresentation(-H);
+        const auSommet = { haut: doc.y * zoom + panY };
+
+        return { depart, apresMolette, auBout, encore, auSommet, H };
+    });
+    r.verifie('en pleine largeur, la page est plus haute que l\'écran',
+        defile.depart.plusHauteQueLEcran, JSON.stringify(defile.depart));
+    r.verifie('la molette FAIT DESCENDRE, elle ne zoome plus la page dans son cadre',
+        defile.apresMolette.panY < defile.depart.panY - 100 && defile.apresMolette.cadrageIntact,
+        JSON.stringify(defile.apresMolette));
+    r.verifie('on descend jusqu\'à voir le bas de la page',
+        Math.abs(defile.auBout.bas - defile.H) < 2, JSON.stringify(defile.auBout));
+    r.verifie('et pas plus loin : la page ne sort pas de l\'écran',
+        !defile.encore.bouge, JSON.stringify(defile.encore));
+    r.verifie('on remonte jusqu\'au haut de la page, pas au-delà',
+        Math.abs(defile.auSommet.haut) < 2, JSON.stringify(defile.auSommet));
+
+    // Ctrl+molette zoome, comme dans un lecteur de PDF — et le zoom non plus
+    // ne fait pas sortir la page de l'écran.
+    const zoomEnPresentation = await page.evaluate(async () => {
+        const c = document.getElementById('board');
+        const doc = images[0];
+        const avant = zoom;
+        c.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, ctrlKey: true, cancelable: true, bubbles: true }));
+        await new Promise(ok => setTimeout(ok, 400));
+        const H = c.clientHeight, L = c.clientWidth;
+        return {
+            plusGrand: zoom > avant * 1.05,
+            // La page couvre encore l'écran : ni trou en haut, ni trou à gauche.
+            couvre: doc.y * zoom + panY <= 1 && (doc.y + doc.h) * zoom + panY >= H - 1
+                && doc.x * zoom + panX <= 1 && (doc.x + doc.w) * zoom + panX >= L - 1
+        };
+    });
+    r.verifie('Ctrl+molette zoome la vue', zoomEnPresentation.plusGrand, JSON.stringify(zoomEnPresentation));
+    r.verifie('et le zoom ne laisse pas la page sortir de l\'écran',
+        zoomEnPresentation.couvre, JSON.stringify(zoomEnPresentation));
+
+    // LE CLAVIER, comme dans un lecteur : Page↓ descend d'un écran, et ne
+    // tourne la page qu'une fois arrivé en bas.
+    const clavier = await page.evaluate(() => {
+        const c = document.getElementById('board');
+        const doc = images[0];
+        const H = c.clientHeight;
+        // De la place à revendre sous les yeux : on mesure le PAS, pas la
+        // butée du bas de la page.
+        zoom = zoom * 3;
+        bornerLaPresentation();
+        cadrerLeBordDeLaPage(doc, true);
+        const haut = panY;
+        const touche = (key, opts) => window.dispatchEvent(
+            new KeyboardEvent('keydown', Object.assign({ key, bubbles: true, cancelable: true }, opts || {})));
+
+        touche('PageDown');
+        const unEcran = { descendu: haut - panY, presque: Math.abs((haut - panY) - H * 0.88) < 2 };
+        touche('PageUp');
+        const remonte = Math.abs(panY - haut) < 2;
+
+        touche('ArrowDown');
+        const petitPas = haut - panY;
+        touche('ArrowUp');
+
+        touche(' ');
+        const espace = haut - panY;
+        touche(' ', { shiftKey: true });
+        const espaceMaj = Math.abs(panY - haut) < 2;
+
+        touche('End');
+        const enBas = (doc.y + doc.h) * zoom + panY;
+        touche('Home');
+        const enHaut = doc.y * zoom + panY;
+        return { unEcran, remonte, petitPas, espace, espaceMaj, enBas, enHaut, H };
+    });
+    r.verifie('Page↓ descend d\'un écran, moins un doigt de recouvrement',
+        clavier.unEcran.presque, JSON.stringify(clavier.unEcran));
+    r.verifie('Page↑ remonte d\'autant', clavier.remonte, JSON.stringify(clavier));
+    r.verifie('les flèches haut et bas font un petit pas',
+        clavier.petitPas > 10 && clavier.petitPas < clavier.unEcran.descendu,
+        JSON.stringify(clavier));
+    r.verifie('la barre d\'espace descend, Maj+espace remonte',
+        Math.abs(clavier.espace - clavier.unEcran.descendu) < 2 && clavier.espaceMaj,
+        JSON.stringify(clavier));
+    r.verifie('Fin va au bas de la page, Origine à son haut',
+        Math.abs(clavier.enBas - clavier.H) < 2 && Math.abs(clavier.enHaut) < 2,
+        JSON.stringify(clavier));
+
+    // ARRIVÉ EN BAS, Page↓ tourne la page et l'on repart de son haut — c'est
+    // le défilement continu d'un lecteur de PDF. À la dernière page, on le dit
+    // et l'on ne bouge plus.
+    const tourne = await page.evaluate(() => {
+        const doc = images[0];
+        // Le document d'essai n'a pas de vraies pages : on l'inscrit tout de
+        // même au registre, c'est lui qui dit qu'un PDF se feuillette.
+        documentsPdf.set('x', { pages: 3 });
+        doc.pluginData.page = 1;
+        cadrerLeBordDeLaPage(doc, false);
+        const enBasAvant = (doc.y + doc.h) * zoom + panY;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true }));
+        const revenuEnHaut = Math.abs(doc.y * zoom + panY) < 2;
+
+        // Dernière page : on reste où l'on est.
+        doc.pluginData.page = doc.pluginData.pages;
+        cadrerLeBordDeLaPage(doc, false);
+        const avant = panY;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true }));
+        return { enBasAvant, revenuEnHaut, immobile: Math.abs(panY - avant) < 0.5 };
+    });
+    r.verifie('en bas de page, Page↓ tourne et repart du haut de la suivante',
+        tourne.revenuEnHaut, JSON.stringify(tourne));
+    r.verifie('mais à la dernière page, on ne bouge plus', tourne.immobile, JSON.stringify(tourne));
+
+    // GLISSER PREND LA PAGE, comme la main d'un lecteur : c'est le seul geste
+    // qui reste quand les barres sont effacées.
+    const glisse = await page.evaluate(() => {
+        const c = document.getElementById('board');
+        const doc = images[0];
+        doc.pluginData.page = 1;
+        setMode('pointer');
+        cadrerLeBordDeLaPage(doc, true);
+        const avant = panY;
+        const options = (x, y) => ({ pointerId: 1, pointerType: 'mouse', isPrimary: true,
+                                     clientX: x, clientY: y, buttons: 1, bubbles: true, cancelable: true });
+        c.dispatchEvent(new PointerEvent('pointerdown', options(400, 400)));
+        const prise = isPanningView;
+        c.dispatchEvent(new PointerEvent('pointermove', options(400, 250)));
+        c.dispatchEvent(new PointerEvent('pointerup', options(400, 250)));
+        return { prise, descendu: avant - panY, cadrageIntact: doc.cy === 0 || true };
+    });
+    r.verifie('glisser prend la page comme une main', glisse.prise, JSON.stringify(glisse));
+    r.verifie('et la fait descendre de ce qu\'on a tiré',
+        Math.abs(glisse.descendu - 150) < 2, JSON.stringify(glisse));
+
+    // HORS PRÉSENTATION, RIEN NE CHANGE : la molette zoome toujours la page
+    // dans son cadre, et Page↓ tourne la page tout de suite.
+    const horsPresentation = await page.evaluate(() => {
+        quitterLaPresentation();
+        const doc = images[0];
+        modeDocument = 'page';
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        panX = 0; panY = 0; zoom = 1;
+        const c = document.getElementById('board');
+        const avant = { ch: doc.ch, panY };
+        c.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: -300, clientX: doc.x * zoom + panX + 10, clientY: doc.y * zoom + panY + 10,
+            cancelable: true, bubbles: true }));
+        return { cadrageChange: doc.ch !== avant.ch, vueImmobile: panY === avant.panY };
+    });
+    r.verifie('hors présentation, la molette zoome toujours la page dans son cadre',
+        horsPresentation.cadrageChange && horsPresentation.vueImmobile,
+        JSON.stringify(horsPresentation));
+
+    await page.evaluate(() => {
+        // Le faux document quitte le registre : il ferait feuilleter dans le
+        // vide les blocs qui suivent.
+        documentsPdf.delete('x');
+        if (!presentationEnCours) presenterLeDocument();
+    });
+
     // Quitter le mode Focus met fin à la présentation, fond sombre compris
     const sortie = await page.evaluate(() => {
         toggleFocusMode();
