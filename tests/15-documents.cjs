@@ -1747,6 +1747,70 @@ module.exports = async function (browser) {
         jete.apres === 2 && !jete.restants.includes(jete.jete)
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
 
+    // =====================================================================
+    // LA BARRE DEBOUT
+    // Un tableau est en 16/9, une page en 1/1,41 : les colonnes latérales sont
+    // perdues d'avance, la hauteur est ce qui manque. Debout au bord droit, la
+    // barre ne coûte rien ; à plat en haut, elle rétrécit la page.
+    // =====================================================================
+    const orientation = await page.evaluate(() => {
+        const doc = images[0];
+        selectedItems = [{ type: 'image', id: doc.id }];
+        basculerLOrientationDeLaBarre(false);
+        updateStyleBarContext();
+        const barre = document.getElementById('bar-style');
+        const libelle = () => getComputedStyle(document.querySelector('#doc-decouper span')).display;
+        const aPlat = { vertical: barre.classList.contains('vertical'), libelle: libelle() };
+
+        basculerLOrientationDeLaBarre(true);
+        const r = barre.getBoundingClientRect();
+        const debout = {
+            vertical: barre.classList.contains('vertical'),
+            colonne: getComputedStyle(barre).flexDirection,
+            // AU BORD DROIT : le gauche appartient à la barre des outils.
+            aDroite: (window.innerWidth - r.right) < 40 && r.left > window.innerWidth / 2,
+            tientEnHauteur: r.height <= window.innerHeight + 1,
+            libelle: libelle(),
+            // Sauf « ◀ 3 /9 ▶ », qui ne se lit pas en colonne.
+            pagination: getComputedStyle(document.getElementById('doc-pages')).flexDirection,
+            retenu: localStorage.getItem('auTableau_barre_debout')
+        };
+
+        // LE PIÈGE : chaque changement de sélection RÉÉCRIT la liste des
+        // classes de la barre. L'orientation est un meuble, pas un contexte —
+        // elle doit y survivre.
+        selectedItems = [];
+        updateStyleBarContext();
+        selectedItems = [{ type: 'image', id: doc.id }];
+        updateStyleBarContext();
+        const apresSelection = barre.classList.contains('vertical');
+
+        basculerLOrientationDeLaBarre(false);
+        const recouchee = { vertical: barre.classList.contains('vertical'),
+                            retenu: localStorage.getItem('auTableau_barre_debout'),
+                            libelle: libelle() };
+        return { aPlat, debout, apresSelection, recouchee };
+    });
+    r.egal('à plat, la barre est une ligne et ses boutons portent leur mot',
+        { vertical: orientation.aPlat.vertical, libelle: orientation.aPlat.libelle !== 'none' },
+        { vertical: false, libelle: true });
+    r.egal('debout, elle devient une colonne', 
+        { vertical: orientation.debout.vertical, colonne: orientation.debout.colonne },
+        { vertical: true, colonne: 'column' });
+    r.verifie('rangée au bord DROIT, et tenant dans la hauteur',
+        orientation.debout.aDroite && orientation.debout.tientEnHauteur,
+        JSON.stringify(orientation.debout));
+    r.egal('debout, les mots s\'effacent : il ne reste que les icônes',
+        orientation.debout.libelle, 'none');
+    r.egal('mais la pagination reste une ligne', orientation.debout.pagination, 'row');
+    r.egal('le choix est retenu d\'une séance à l\'autre', orientation.debout.retenu, 'true');
+    r.verifie('et un changement de sélection ne la recouche pas',
+        orientation.apresSelection, JSON.stringify(orientation));
+    r.egal('la bascule inverse la remet à plat, mots compris',
+        { vertical: orientation.recouchee.vertical, retenu: orientation.recouchee.retenu,
+          mots: orientation.recouchee.libelle !== 'none' },
+        { vertical: false, retenu: 'false', mots: true });
+
     // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
     // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
     // lui a coupé de trop.

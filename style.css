@@ -9199,3 +9199,60 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .dark-mode #bande-morceaux { background: rgba(30, 39, 46, 0.97); border-color: #3d4852; }
 .dark-mode .bm-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
 .dark-mode .bm-titre b { color: #f1f2f6; }
+
+/* ============================================================
+   LA BARRE DE STYLE DEBOUT
+   Un tableau est en 16/9, une page en 1/1,41. Quand la page occupe toute la
+   hauteur, il reste de chaque côté une colonne large de 0,53 fois la hauteur
+   de l'écran — près de quatre cents pixels sur un portable, six cents sur un
+   vidéoprojecteur — que rien n'occupera jamais. Une barre à plat, elle, prend
+   cinquante pixels de HAUTEUR, et c'est la hauteur qui fixe la taille de la
+   page : la page rétrécit alors dans les DEUX dimensions.
+   Debout, la barre taxe la dimension abondante au lieu de la dimension rare.
+   Au bord DROIT : le gauche appartient déjà à la barre des outils.
+   ============================================================ */
+#bar-style.vertical {
+    left: auto;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+    align-items: center;
+    flex-wrap: nowrap;
+    width: max-content;
+    max-width: 200px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-radius: 26px;
+    padding: 10px 7px;
+    row-gap: 3px;
+}
+
+/* Le mode Focus recentrait la barre à l'horizontale : debout, elle se centre
+   en hauteur. */
+body.focus-mode #bar-style.vertical.visible { transform: translateY(-50%); }
+
+/* DEBOUT, PAS DE MOTS. Une colonne assez large pour « Numéroter » ne serait
+   plus une colonne. Les infobulles disent ce que font les icônes, et la barre
+   à plat garde ses libellés pour qui préfère les lire. */
+#bar-style.vertical .doc-btn > span,
+#bar-style.vertical .doc-titre { display: none; }
+
+/* Les séparateurs se couchent avec la barre. */
+#bar-style.vertical .doc-sep { width: 22px; height: 1px; margin: 3px 0; }
+.toolbar.vertical .divider { width: 24px; height: 1px; margin: 5px 0; }
+
+/* Mais « ◀ 3 /9 ▶ » reste une ligne : une pagination en colonne ne se lit pas.
+   Idem pour l'épaisseur et l'opacité, qui sont des curseurs. */
+#bar-style.vertical #doc-pages,
+#bar-style.vertical .slider-container,
+#bar-style.vertical .opacity-container { flex-direction: row; }
+#bar-style.vertical .slider-container input[type="range"] { width: 68px; }
+
+/* La poignée et les deux boutons de meuble se rangent en haut, en ligne. */
+#bar-style.vertical .drag-handle { margin-right: 0 !important; margin-bottom: 4px; }
+
+.btn-orienter:hover { color: var(--accent, #6c5ce7); background: #f1f2f6; }
+.btn-orienter.actif { color: var(--accent, #6c5ce7); }
+.dark-mode .btn-orienter:hover { background: #2f3941; }

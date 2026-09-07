@@ -717,15 +717,95 @@ module.exports = async function (browser) {
         if (!presentationEnCours) presenterLeDocument();
     });
 
+    // ---------------------------------------------------------------
+    // CE QUE LA BARRE MONTRE EN PLEIN ÉCRAN
+    // On est là pour montrer la page à la classe. « Cadre / coulisser » ne dit
+    // plus rien de vrai — le glisser prend la page comme une main — et l'on ne
+    // débite pas un poly devant trente élèves.
+    // ---------------------------------------------------------------
+    const barreDuPlein = await page.evaluate(() => {
+        // Un vrai PDF garde sa pagination en plein écran : on remet le faux
+        // document au registre le temps de ce bloc.
+        documentsPdf.set('x', { pages: 3 });
+        majBarreDocument();
+        const vu = (id) => {
+            const el = document.getElementById(id);
+            return !!el && getComputedStyle(el).display !== 'none';
+        };
+        const bouton = document.getElementById('doc-plein-ecran');
+        const enPlein = {
+            presentation: !!presentationEnCours,
+            modes: vu('doc-modes'), reperer: vu('doc-reperer'),
+            // Ce qui reste : feuilleter, écrire, découper au besoin.
+            pages: vu('doc-pages'), decouper: vu('doc-decouper'),
+            plein: vu('doc-plein-ecran'), allume: bouton.classList.contains('actif')
+        };
+        // LE MÊME BOUTON EN SORT.
+        bouton.click();
+        const sorti = {
+            presentation: !!presentationEnCours,
+            modes: vu('doc-modes'), reperer: vu('doc-reperer'),
+            allume: bouton.classList.contains('actif')
+        };
+        // ET Y RENTRE.
+        bouton.click();
+        const rentre = { presentation: !!presentationEnCours,
+                         allume: bouton.classList.contains('actif') };
+        documentsPdf.delete('x');
+        majBarreDocument();
+        return { enPlein, sorti, rentre };
+    });
+    r.verifie('le plein écran a enfin un bouton, et il est allumé quand on y est',
+        barreDuPlein.enPlein.plein && barreDuPlein.enPlein.allume, JSON.stringify(barreDuPlein.enPlein));
+    r.egal('en plein écran, « cadre / coulisser » et « Repérer » s\'effacent',
+        { modes: barreDuPlein.enPlein.modes, reperer: barreDuPlein.enPlein.reperer },
+        { modes: false, reperer: false });
+    r.egal('mais on garde de quoi feuilleter et de quoi découper',
+        { pages: barreDuPlein.enPlein.pages, decouper: barreDuPlein.enPlein.decouper },
+        { pages: true, decouper: true });
+    r.egal('le même bouton en sort, et les deux commandes reviennent',
+        { presentation: barreDuPlein.sorti.presentation, allume: barreDuPlein.sorti.allume,
+          modes: barreDuPlein.sorti.modes, reperer: barreDuPlein.sorti.reperer },
+        { presentation: false, allume: false, modes: true, reperer: true });
+    r.egal('et il y rentre',
+        { presentation: barreDuPlein.rentre.presentation, allume: barreDuPlein.rentre.allume },
+        { presentation: true, allume: true });
+
+    // ON REND L'ÉCRAN TEL QU'ON L'A TROUVÉ, ET DANS UN ÉTAT DÉCIDÉ.
+    // Le cadrage de la présentation est repris 250 ms plus tard : le plein
+    // écran du NAVIGATEUR redimensionne la fenêtre — ici 800 pixels de haut
+    // deviennent 893 — et l'on ne peut pas cadrer avant de connaître la taille
+    // qu'on aura. La page se retrouvait donc cadrée pour une fenêtre qui
+    // n'était plus, et débordait de l'écran : ce qui suit lit un pixel du coin,
+    // et tombait tantôt sur le fond, tantôt sur le bord de la page. On laisse
+    // retomber ce qui est en vol, puis on recadre sur la taille COURANTE.
+    await page.waitForTimeout(320);
+    await page.evaluate(() => { cadrerSurLObjet(images[0], 1); draw(); });
+
     // Quitter le mode Focus met fin à la présentation, fond sombre compris
     const sortie = await page.evaluate(() => {
+        // ON MESURE UN PIXEL : il faut donc que l'écran soit dans un état
+        // décidé. Le plein écran du NAVIGATEUR change la taille de la fenêtre
+        // sous nos pieds, et un glissement de zoom peut encore être en vol :
+        // on les coupe, et on cadre la page à 60 % pour que le coin qu'on lit
+        // soit franchement HORS de la page.
+        zoomVise = null; ancreDuZoom = null;
+        cadrerSurLObjet(images[0], 0.6);
+        draw();
         toggleFocusMode();
         draw();
+
         const g = document.getElementById('board').getContext('2d');
         const bord = g.getImageData(4, 4, 1, 1).data;
-        return { enCours: presentationEnCours, clair: bord[0] > 150, px: [bord[0],bord[1],bord[2]], focus: document.body.classList.contains('focus-mode') };
+        const d0 = images[0];
+        return { enCours: presentationEnCours, clair: bord[0] > 150, px: [bord[0],bord[1],bord[2]],
+                 focus: document.body.classList.contains('focus-mode'),
+                 // Le coin lu est bien hors de la page : sinon on ne mesurerait
+                 // pas le pourtour mais le document lui-même.
+                 horsPage: (d0.x * zoom + panX) > 12 && (d0.y * zoom + panY) > 12 };
     });
     r.verifie('quitter le mode Focus met fin à la présentation', !sortie.enCours);
+    r.verifie('le coin qu\'on mesure est bien en dehors de la page', sortie.horsPage, JSON.stringify(sortie));
     r.verifie('et le fond sombre s\'en va avec elle', sortie.clair, JSON.stringify(sortie));
 
     await page.evaluate(() => { if (!document.body.classList.contains('focus-mode')) toggleFocusMode(); });

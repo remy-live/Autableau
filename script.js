@@ -5831,6 +5831,49 @@ function replacerLaBarreStyle() {
 }
 window.replacerLaBarreStyle = replacerLaBarreStyle;
 
+// LA BARRE SE MET DEBOUT.
+// Un tableau est en 16/9, une page en 1/1,41 : quand la page occupe toute la
+// hauteur, il reste de chaque côté une colonne que rien n'occupera jamais.
+// Une barre à plat, elle, mange de la HAUTEUR — la dimension qui fixe la
+// taille de la page. Debout au bord droit (le gauche est à la barre des
+// outils), elle ne coûte rien.
+// Le choix est celui de l'utilisateur et il est retenu : PAS de bascule
+// automatique selon la forme du document. Une barre qui pivote toute seule
+// devant une classe, on la cherche.
+const CLE_BARRE_DEBOUT = 'auTableau_barre_debout';
+let barreDebout = false;
+try { barreDebout = localStorage.getItem(CLE_BARRE_DEBOUT) === 'true'; } catch (e) { /* stockage refusé */ }
+
+function majBoutonDOrientation() {
+    const b = document.getElementById('bar-style-orienter');
+    if (!b) return;
+    b.classList.toggle('actif', barreDebout);
+    b.title = barreDebout ? 'Coucher la barre, en haut' : 'Mettre la barre debout, au bord droit';
+}
+
+function basculerLOrientationDeLaBarre(force) {
+    barreDebout = (force === undefined) ? !barreDebout : !!force;
+    try { localStorage.setItem(CLE_BARRE_DEBOUT, barreDebout ? 'true' : 'false'); } catch (e) { /* stockage refusé */ }
+    // ON CHANGE DE MEUBLE : la place gardée à la main ne vaut plus. Une barre
+    // posée en haut au milieu, remise debout, se retrouvait à cheval sur le
+    // bord de l'écran.
+    barreStylePosee = null;
+    retenirLaBarreStyle();
+    majBoutonDOrientation();
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+    if (typeof showToast === 'function') {
+        showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, en haut');
+    }
+    return barreDebout;
+}
+window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('bar-style-orienter');
+    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); basculerLOrientationDeLaBarre(); });
+    majBoutonDOrientation();
+});
+
 // La poignée générique des barres déplace celle-ci comme les autres ; il ne
 // manquait qu'un endroit où retenir le résultat.
 document.addEventListener('DOMContentLoaded', () => {
@@ -5852,7 +5895,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- GESTION SELECTION ET STYLES ---
 function updateStyleBarContext() {
-    const barStyle = document.getElementById('bar-style'); barStyle.className = "toolbar visible";
+    // La liste des classes est entièrement réécrite ici : l'orientation, qui
+    // n'est pas un contexte mais un meuble, doit être remise avec.
+    const barStyle = document.getElementById('bar-style');
+    barStyle.className = 'toolbar visible' + (barreDebout ? ' vertical' : '');
     if (barStyle.parentNode !== document.body) {
         document.body.appendChild(barStyle);
         localStorage.setItem('minimized_bar-style', 'false');
@@ -5880,6 +5926,15 @@ function updateStyleBarContext() {
             Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
         barStyle.style.top = Math.round(Math.max(4,
             Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
+    } else if (barreDebout) {
+        // DEBOUT, AU BORD DROIT. Le gauche appartient à la barre des outils :
+        // deux colonnes du même côté seraient pires que ce qu'on remplace.
+        barStyle.removeAttribute('data-dragged');
+        barStyle.style.left = 'auto';
+        barStyle.style.right = '20px';
+        barStyle.style.top = '50%';
+        barStyle.style.bottom = 'auto';
+        barStyle.style.transform = 'translateY(-50%)';
     } else {
         barStyle.removeAttribute('data-dragged');
         barStyle.style.left = '50%';
@@ -13293,8 +13348,13 @@ function majBarreDocument() {
     barre.classList.toggle('doc-allege', unDocument);
     majBoutonRouvrir();
     if (!unDocument && modeDocument === 'page') modeDocument = 'cadre';
-    document.getElementById('doc-modes').style.display = unDocument ? 'contents' : 'none';
-    document.getElementById('doc-modes-sep').style.display = unDocument ? 'block' : 'none';
+    // EN PLEIN ÉCRAN, « cadre / coulisser » n'a plus d'objet : le glisser prend
+    // la page comme une main et la molette défile. Le bouton disait alors une
+    // chose qui n'arrivait pas, ce qui est pire que de ne rien dire.
+    const enPresentation = typeof presentationEnCours !== 'undefined' && !!presentationEnCours;
+    const montrerLesModes = unDocument && !enPresentation;
+    document.getElementById('doc-modes').style.display = montrerLesModes ? 'contents' : 'none';
+    document.getElementById('doc-modes-sep').style.display = montrerLesModes ? 'block' : 'none';
     majIconeDuMode(obj);
     // Les zones à remplir ne se cherchent que dans un PDF : un scan n'est
     // qu'une image, et une photo collée encore moins.
@@ -13312,9 +13372,24 @@ function majBarreDocument() {
         bDecouper.classList.toggle('actif', decoupeActive);
     }
     // Repérer tout seul : même règle que les ciseaux — tout ce qui est une
-    // image posée, y compris un morceau qu'on redécoupe.
+    // image posée, y compris un morceau qu'on redécoupe. MAIS PAS EN PLEIN
+    // ÉCRAN : on est là pour montrer la page à la classe, pas pour la
+    // débiter. Le repérage se fait en préparant, tranquillement.
     const bReperer = document.getElementById('doc-reperer');
-    if (bReperer) bReperer.style.display = obj && obj.src ? 'inline-flex' : 'none';
+    if (bReperer) bReperer.style.display = (obj && obj.src && !enPresentation) ? 'inline-flex' : 'none';
+
+    // LE PLEIN ÉCRAN, ENFIN BOUTONNÉ. Il n'existait qu'à la touche « D ».
+    // Le même bouton en sort : allumé, il dit où l'on est.
+    const bPlein = document.getElementById('doc-plein-ecran');
+    if (bPlein) {
+        bPlein.style.display = unDocument ? 'inline-flex' : 'none';
+        bPlein.classList.toggle('actif', enPresentation);
+        bPlein.setAttribute('data-tooltip', enPresentation
+            ? 'Quitter le plein écran (Échap)'
+            : 'Présenter en plein écran (D) — molette et Page↓ pour descendre dans la page');
+    }
+    const sepPlein = document.getElementById('doc-plein-ecran-sep');
+    if (sepPlein) sepPlein.style.display = unDocument ? 'inline-block' : 'none';
     const groupeZones = document.getElementById('doc-zones-edition');
     const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
@@ -13466,6 +13541,17 @@ function brancherBarreDocument() {
         const bouton = b('doc-reperer');
         if (!bouton) return;
         bouton.addEventListener('click', () => { repererLesExercices(); });
+    })();
+
+    // Le plein écran : le même bouton y entre et en sort.
+    (function () {
+        const bouton = b('doc-plein-ecran');
+        if (!bouton) return;
+        bouton.addEventListener('click', () => {
+            if (presentationEnCours) quitterLaPresentation();
+            else presenterLeDocument();
+            majBarreDocument();
+        });
     })();
 
     // Clic bref : allumer ou éteindre le repérage. APPUI LONG : ouvrir la

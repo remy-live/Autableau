@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=104">
+    <link rel="stylesheet" href="style.css?v=105">
 </head>
 
 <body>
@@ -1017,6 +1017,16 @@
                             l'objet, un petit menu flottant : les <b>actions</b> — verrouiller, dupliquer,
                             supprimer. Rien ne se trouve dans les deux. En <b>plein écran</b>, la barre des
                             propriétés descend en bas : la page occupe alors tout le haut.</li>
+                        <li><strong>La barre debout, pour les documents :</strong> le bouton <b>⊟</b> de sa
+                            poignée met la barre des propriétés <b>debout au bord droit</b>. Ce n'est pas une
+                            coquetterie : un tableau est en 16/9, une page en 1/1,41 — quand la page occupe
+                            toute la hauteur, il reste de chaque côté une colonne large de plus d'un
+                            demi-écran que rien n'occupera jamais, tandis qu'une barre à plat mange de la
+                            <b>hauteur</b>, la dimension qui fixe la taille de la page. Debout, elle ne coûte
+                            rien ; les libellés s'effacent alors et il ne reste que les icônes, avec leurs
+                            infobulles. Le choix est retenu d'une séance à l'autre, et rien ne le fait tout
+                            seul : une barre qui pivote d'elle-même, on la cherche. Le bouton la recouche.
+                            Sur un document <b>paysage</b>, c'est l'inverse — gardez-la à plat.</li>
                         <li><strong>L'apparence tient derrière sa pastille :</strong> la couleur, l'épaisseur du
                             trait et l'opacité se règlent dans la fenêtre qu'ouvre le rond de couleur. Deux
                             curseurs posés à même la barre la faisaient longue de moitié, pour des réglages
@@ -1031,13 +1041,19 @@
                             document offre alors <b>Crayon</b>, <b>Texte</b> et <b>Sélection</b> pour annoter la
                             page sans quitter le plein écran. La barre de style revient avec l'outil, pour
                             choisir sa couleur et son épaisseur ; <b>Sélection</b> rend le document en main.</li>
+                        <li><strong>Présenter en plein écran :</strong> le bouton <b>⛶</b>, en tête de la
+                            barre du document, ou la touche <b>D</b>. Tout s'efface, la page prend l'écran.
+                            Le même bouton en sort, comme <b>Échap</b>. Un second <b>D</b> passe en
+                            <b>toute la largeur</b> — la page d'un bord à l'autre, on défile. Pendant la
+                            présentation, <b>Cadre / coulisser</b> et <b>⌁ Repérer</b> s'effacent de la barre :
+                            on est là pour montrer la page, pas pour la débiter.</li>
                         <li><strong>Descendre dans la page, en plein écran :</strong> une fois présenté, le
                             document se conduit comme dans un lecteur de PDF. La <b>molette défile</b> et
                             <b>Ctrl+molette zoome</b> (c'est l'inverse du tableau, et l'usage de tous les
                             lecteurs) ; <b>glisser prend la page</b> comme une main, puisque les barres sont
-                            effacées. Au clavier : <b>Page↓</b> et la <b>barre d'espace</b> descendent d'un
+                            effacées. Au clavier : <b>Page↓</b> (<b>PgSuiv</b>) et la <b>barre d'espace</b> descendent d'un
                             écran — moins un doigt de recouvrement, on ne perd pas la ligne qu'on lisait —,
-                            <b>Page↑</b> et <b>Maj+espace</b> remontent, les <b>flèches ↑ ↓</b> font un petit
+                            <b>Page↑</b> (<b>PgPréc</b>) et <b>Maj+espace</b> remontent, les <b>flèches ↑ ↓</b> font un petit
                             pas, <b>Origine</b> et <b>Fin</b> vont au haut et au bas de la page.<br>
                             Arrivé en bas, <b>Page↓ tourne la page</b> et repart de son haut : on parcourt tout
                             le document sans jamais quitter le plein écran. Les <b>flèches ← →</b>, elles,
@@ -2097,6 +2113,20 @@
              en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
              La place choisie est retenue d'une seance a l'autre. -->
         <div class="drag-wrapper">
+            <!-- DEBOUT OU À PLAT. Un tableau est en 16/9, une page en 1/1,41 :
+                 quand la page occupe toute la hauteur, il reste de chaque côté
+                 une colonne large de plus d'un demi-écran que rien n'occupera
+                 jamais. Une barre à plat, elle, mange de la HAUTEUR — la
+                 dimension qui fixe la taille de la page. Debout au bord droit,
+                 elle ne coûte rien. Le choix est retenu ; il n'est pas fait
+                 tout seul, une barre qui pivote d'elle-même se cherche. -->
+            <button class="btn-minimize btn-orienter" id="bar-style-orienter"
+                title="Mettre la barre debout, au bord droit"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="9" width="18" height="6" rx="2" />
+                    <path d="M12 3v3M12 18v3" />
+                </svg></button>
             <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <line x1="5" y1="12" x2="19" y2="12" />
                 </svg></button>
@@ -2111,6 +2141,18 @@
             </svg>
         </div>
         <div class="style-group group-document">
+        <!-- LE PLEIN ÉCRAN N'AVAIT PAS DE BOUTON. La présentation existait
+             depuis longtemps — tout s'efface, la page prend l'écran — mais on
+             ne pouvait l'appeler qu'à la touche « D ». Invisible pour qui n'a
+             pas lu l'aide, c'est-à-dire pour presque tout le monde. Il ouvre
+             la séance de lecture ; c'est pourquoi il vient en premier. -->
+        <button class="doc-btn" id="doc-plein-ecran"
+            data-tooltip="Présenter en plein écran (D) — molette et Page↓ pour descendre dans la page">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+            </svg></button>
+        <i class="doc-sep" id="doc-plein-ecran-sep"></i>
         <span id="doc-pages">
             <button class="doc-btn" id="doc-prec" data-tooltip="Page précédente">◀</button>
             <!-- Le numéro est un champ : sur un document de quarante pages,
@@ -2548,7 +2590,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=193"></script>
+    <script src="script.js?v=194"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
