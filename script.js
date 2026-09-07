@@ -10660,7 +10660,7 @@ function checkMissingMedias() {
     missingMedias.forEach((item, idx) => {
         box.innerHTML += `
             <div style="padding: 6px 0; border-bottom: 1px solid var(--border);">
-                <strong>Page ${item.pageIndex + 1}</strong> : ${item.metadata.fileName}
+                <strong>Page ${item.pageIndex + 1}</strong> : ${echapperTexte(item.metadata.fileName)}
             </div>
         `;
     });
@@ -18533,7 +18533,7 @@ function ouvrirReglageAvatar(eleve, enregistrer) {
             <div style="display:flex; gap:18px; align-items:flex-start;">
                 <div style="text-align:center; flex:none;">
                     <div id="av-apercu" style="background:#fff; border:2px solid var(--border); border-radius:14px; padding:10px;">${AvatarsEleves.svg(eleve, 110)}</div>
-                    <div style="font-size:12px; font-weight:600; margin-top:6px;">${eleve.name || ''}</div>
+                    <div style="font-size:12px; font-weight:600; margin-top:6px;">${echapperTexte(eleve.name || '')}</div>
                     <button id="av-hasard" class="btn-action secondary" style="margin-top:8px; width:100%; padding:6px; font-size:12px;">🎲 Au hasard</button>
                     <button id="av-image" class="btn-action secondary" style="margin-top:6px; width:100%; padding:6px; font-size:12px;">🖼️ Une photo</button>
                     <input type="file" id="av-fichier" accept="image/*" style="display:none;">
@@ -18645,7 +18645,7 @@ function showClassConflictModal(conflict, callback) {
     const mergedCount = new Set([...localNames, ...importedNames]).size;
 
     box.innerHTML = `
-        <h3 style="margin-top: 0; color: var(--accent);">⚠️ Conflit sur la classe "${conflict.local.name}"</h3>
+        <h3 style="margin-top: 0; color: var(--accent);">⚠️ Conflit sur la classe "${echapperTexte(conflict.local.name)}"</h3>
         <p style="font-size: 13px; color: var(--muted);">Cette classe existe déjà avec une liste d'élèves différente. Que voulez-vous faire ?</p>
         <div style="display:flex; gap:12px; margin: 15px 0; font-size:12px;">
             <div style="flex:1; background:var(--bg); border-radius:6px; padding:8px; max-height:150px; overflow-y:auto;">
@@ -22411,7 +22411,7 @@ function buildTree(items, parentId) {
             // La classe à qui la séance a été faite, quand on le sait : sans
             // cela, quatre lignes du même nom ne se distinguent pas.
             const marqueClasse = (currentExplorerTab === 'tableaux' && item.classeNom)
-                ? `<span class="tree-classe" title="Séance faite avec ${item.classeNom}">${item.classeNom}</span>` : '';
+                ? `<span class="tree-classe" title="Séance faite avec ${echapperTexte(item.classeNom)}">${echapperTexte(item.classeNom)}</span>` : '';
 
             // Une séance dont la préparation est gardée se refait avec une
             // autre classe. Sans marque visible, rien ne distinguait celles
@@ -24129,7 +24129,7 @@ function showExportOptionsModal(board) {
             advancedHtml += `
                 <label style="display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; font-size: 12px;">
                     <input type="checkbox" class="export-file-checkbox" data-id="${file.id}" checked style="cursor: pointer;">
-                    <span>${icon} ${file.name}</span>
+                    <span>${icon} ${echapperTexte(file.name)}</span>
                     <span style="color: var(--muted); font-size: 11px;">(${ext})</span>
                 </label>
             `;
@@ -24232,7 +24232,7 @@ function showExportOptionsModal(board) {
     let summaryTextSizes = `${filesList.length} fichier${filesList.length !== 1 ? 's' : ''} — Toutes pages`;
 
     box.innerHTML = `
-        <h3 style="margin-top: 0; color: var(--accent); margin-bottom: 10px;">Exporter "${board.name}"</h3>
+        <h3 style="margin-top: 0; color: var(--accent); margin-bottom: 10px;">Exporter "${echapperTexte(board.name)}"</h3>
 
         <div style="margin-bottom: 20px;">
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
@@ -25767,7 +25767,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
             if (index === currentIndex) li.classList.add('active');
 
             li.innerHTML = `
-                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">${index + 1}. ${track.name}</span>
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">${index + 1}. ${echapperTexte(track.name)}</span>
                 <button class="media-delete-btn" title="Supprimer">${svgClose}</button>
             `;
 

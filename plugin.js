@@ -2710,7 +2710,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
         const container = document.getElementById('stat-rows'); container.innerHTML = '';
         this.state.rows.forEach((r, idx) => {
             container.innerHTML += `<div style="display:flex; gap:6px; align-items:center;">
-                <input type="text" value="${r.label}" class="prompt-input" oninput="pluginStatUpdate(${idx}, 'label', this.value)" style="flex:2; padding:6px; font-size:13px; border-radius:4px; border:1px solid #dfe6e9;">
+                <input type="text" value="${echapperTexte(r.label)}" class="prompt-input" oninput="pluginStatUpdate(${idx}, 'label', this.value)" style="flex:2; padding:6px; font-size:13px; border-radius:4px; border:1px solid #dfe6e9;">
                 <input type="number" value="${r.val}" class="prompt-input" oninput="pluginStatUpdate(${idx}, 'val', this.value)" style="flex:1; padding:6px; font-size:13px; border-radius:4px; border:1px solid #dfe6e9;">
                 <button style="border:none; background:transparent; cursor:pointer; color:#d63031; padding:0 6px; font-weight:bold; font-size:14px;" onclick="pluginStatRemove(${idx})">✕</button>
             </div>`;
@@ -16058,9 +16058,9 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             <div class="podium-container">
         `;
 
-        if (sorted[1]) podiumHtml += `<div class="podium-step step-2"><div>🥈 ${sorted[1].name}</div><div style="font-size:24px;margin-top:10px;">${sorted[1].score} pts</div></div>`;
-        if (sorted[0]) podiumHtml += `<div class="podium-step step-1"><div>👑 ${sorted[0].name}</div><div style="font-size:32px;margin-top:10px;">${sorted[0].score} pts</div></div>`;
-        if (sorted[2]) podiumHtml += `<div class="podium-step step-3"><div>🥉 ${sorted[2].name}</div><div style="font-size:20px;margin-top:10px;">${sorted[2].score} pts</div></div>`;
+        if (sorted[1]) podiumHtml += `<div class="podium-step step-2"><div>🥈 ${this.echapper(sorted[1].name)}</div><div style="font-size:24px;margin-top:10px;">${sorted[1].score} pts</div></div>`;
+        if (sorted[0]) podiumHtml += `<div class="podium-step step-1"><div>👑 ${this.echapper(sorted[0].name)}</div><div style="font-size:32px;margin-top:10px;">${sorted[0].score} pts</div></div>`;
+        if (sorted[2]) podiumHtml += `<div class="podium-step step-3"><div>🥉 ${this.echapper(sorted[2].name)}</div><div style="font-size:20px;margin-top:10px;">${sorted[2].score} pts</div></div>`;
 
         podiumHtml += `</div>`;
 
@@ -16068,7 +16068,7 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
             podiumHtml += `<div style="margin-top:30px; width:100%; max-width:500px; max-height:200px; overflow-y:auto; background:rgba(255,255,255,0.05); padding:15px; border-radius:12px;">`;
             for (let i = 3; i < sorted.length; i++) {
                 podiumHtml += `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.1); font-size:16px;">
-                    <span>${i + 1}. ${sorted[i].name}</span><span>${sorted[i].score} pts</span>
+                    <span>${i + 1}. ${this.echapper(sorted[i].name)}</span><span>${sorted[i].score} pts</span>
                 </div>`;
             }
             podiumHtml += `</div>`;
@@ -17521,7 +17521,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
             // Label
             html += `<div style="width:${wHead}; flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:5px;">`;
             html += `<button onclick="window.SignVarDynamic.removeRow(${rIdx})" style="background:none; border:none; color:#d63031; cursor:pointer; padding:0; font-size:0.9rem;" title="Supprimer">✖</button>`;
-            html += `<input type="text" value="${row.label}" oninput="window.SignVarDynamic.updateLabel(${rIdx}, this)" style="width:100%; text-align:center; border:1px solid #ccc; border-radius:4px; font-family:monospace;">`;
+            html += `<input type="text" value="${echapperTexte(row.label)}" oninput="window.SignVarDynamic.updateLabel(${rIdx}, this)" style="width:100%; text-align:center; border:1px solid #ccc; border-radius:4px; font-family:monospace;">`;
             html += `</div>`;
 
             // Cellules (Racines et Intervalles)
@@ -33556,7 +33556,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
         return `<div style="display:flex; gap:18px; align-items:flex-start;">
             <div style="text-align:center;">
                 <div style="background:#fff; border:2px solid #dfe6e9; border-radius:14px; padding:10px;">${this.avatarSVG(eleve, 110)}</div>
-                <div style="font-size:12px; font-weight:600; margin-top:6px;">${eleve.name}</div>
+                <div style="font-size:12px; font-weight:600; margin-top:6px;">${this.echapper(eleve.name)}</div>
                 <button id="pts-hasard" style="margin-top:8px; width:100%; padding:6px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:12px;">🎲 Au hasard</button>
                 <button id="pts-image" style="margin-top:6px; width:100%; padding:6px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:12px;">🖼️ Une image</button>
                 <input type="file" id="pts-fichier" accept="image/*" style="display:none;">
@@ -33625,7 +33625,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
 
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${H}" viewBox="0 0 ${L} ${H}">`;
         svg += `<rect x="1" y="1" width="${L - 2}" height="${H - 2}" rx="10" fill="#ffffff" stroke="#dfe6e9" stroke-width="2"/>`;
-        svg += `<text x="${marge}" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#2d3436">${classe.name || 'Classe'} — points</text>`;
+        svg += `<text x="${marge}" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#2d3436">${this.echapper(classe.name || 'Classe')} — points</text>`;
         svg += `<line x1="${marge}" y1="${enTete - 12}" x2="${L - marge}" y2="${enTete - 12}" stroke="#dfe6e9" stroke-width="2"/>`;
 
         eleves.forEach((e, i) => {
