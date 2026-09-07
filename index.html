@@ -911,6 +911,16 @@
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Par défaut le
                             <b>document feuilletable</b> — posé en un seul objet sur le tableau. L'autre mode,
                             une page de tableau par page du document, se choisit dans le menu Importer.</li>
+                        <li><strong>Prendre un morceau — deux exercices côte à côte :</strong> le bouton
+                            <b>✂ Découper</b> de la barre du document, puis on <b>trace un rectangle</b> sur la
+                            page : le morceau se pose <b>à côté</b>, prêt à être déplacé. On recommence pour le
+                            deuxième exercice, ils se rangent en ligne. Les ciseaux restent pris tant qu'on
+                            n'a pas fini — <b>Échap</b> les repose.<br>
+                            Un morceau n'est pas une nouvelle image : il montre la <b>même page</b>, cadrée
+                            autrement. Six morceaux d'un poly ne pèsent donc pas six pages, et le bouton
+                            <b>✂ de rognage</b> les retaille — on peut rendre à un morceau ce qu'on lui a coupé
+                            de trop, sans le refaire. Ce qu'on avait écrit sur le document ne part pas avec :
+                            on découpe l'énoncé, pas la correction de l'an dernier.</li>
                         <li><strong>Cadrer, plutôt que déformer :</strong> une image ou un PDF qu'on vient de poser
                             s'ajuste d'abord en <b>ouvrant ou fermant ses bords</b> : on montre ce qu'on veut, sans
                             changer la taille de ce qui est écrit dessus. Le bouton ✂ de la barre du document rend
@@ -2129,6 +2139,18 @@
                 <path d="M8 10v4M6.5 10h3M6.5 14h3" />
                 <path d="M12.5 12H18" stroke-dasharray="2 2.5" />
             </svg><span>Remplir</span></button>
+        <!-- PRENDRE UN MORCEAU. Pour poser deux exercices côte à côte, il
+             fallait dupliquer le document, rogner chaque copie, aligner à
+             l'œil : trois gestes par morceau. On trace ici un rectangle sur la
+             page, et le morceau se pose à côté, prêt à être déplacé. -->
+        <button class="doc-btn" id="doc-decouper"
+            data-tooltip="Prendre un morceau : tracez un rectangle sur le document, il se pose à côté">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="2.4" />
+                <circle cx="6" cy="18" r="2.4" />
+                <path d="M8.1 7.3L20 17M8.1 16.7L20 7" />
+            </svg><span>Découper</span></button>
         <!-- LA RETOUCHE PREND TOUTE LA BARRE. Ces boutons vivaient au milieu
              des quinze autres, sans un mot pour dire ce qu'ils font : on ne
              pouvait ni les trouver ni les comprendre. Pendant la retouche, les
@@ -2468,7 +2490,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=189"></script>
+    <script src="script.js?v=190"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

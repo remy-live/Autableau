@@ -1391,6 +1391,110 @@ module.exports = async function (browser) {
     r.verifie('rien de tenu : le bouton du volet s\'en va',
         !(await visibles()).voletBtn);
 
+    // =====================================================================
+    // PRENDRE UN MORCEAU
+    // Deux exercices côte à côte, pris dans le même poly : il fallait
+    // dupliquer le document, rogner chaque copie, aligner à l'œil. On trace un
+    // rectangle, le morceau se pose à côté.
+    // =====================================================================
+    const morceaux = await page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'poly.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 900));
+        const doc = images[0];
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        const boutonAvant = getComputedStyle(document.getElementById('doc-decouper')).display;
+
+        basculerLaDecoupe(true);
+        const allume = document.getElementById('doc-decouper').classList.contains('actif');
+
+        // Le haut de la page
+        const tracer = (part) => {
+            const r = { x: doc.x + doc.w * part.x, y: doc.y + doc.h * part.y,
+                        l: doc.w * part.l, h: doc.h * part.h };
+            decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+            return finirGesteDeDecoupe();
+        };
+        const m1 = tracer({ x: 0.08, y: 0.10, l: 0.80, h: 0.22 });
+        const m2 = tracer({ x: 0.08, y: 0.45, l: 0.80, h: 0.20 });
+
+        // Un simple clic ne fabrique rien
+        decoupeGeste = { obj: doc, debut: { x: doc.x + 10, y: doc.y + 10 },
+                         rect: { x: doc.x + 10, y: doc.y + 10, l: 1, h: 1 } };
+        const rien = finirGesteDeDecoupe();
+
+        // Ni un frôlement sur un tableau très dézoomé : soixante unités de plan
+        // n'y font que neuf pixels sous le doigt, ce n'est pas un rectangle.
+        const zoomAvant = zoom;
+        zoom = 0.15;
+        decoupeGeste = { obj: doc, debut: { x: doc.x + 10, y: doc.y + 10 },
+                         rect: { x: doc.x + 10, y: doc.y + 10, l: 60, h: 60 } };
+        const frolement = finirGesteDeDecoupe();
+        zoom = zoomAvant;
+
+        basculerLaDecoupe(false);
+        return {
+            boutonAvant, allume,
+            eteint: !document.getElementById('doc-decouper').classList.contains('actif'),
+            combien: images.length,
+            // On ne rend que le fait : un morceau entier remplirait le
+            // rapport d'échec de plusieurs milliers de caractères d'image.
+            rien: !!rien, frolement: !!frolement,
+            // Le morceau montre la MÊME page, avec un autre cadrage
+            memeSource: !!(m1 && m2 && m1.src === doc.src && m2.src === doc.src),
+            cadrages: m1 && m2 && (Math.round(m1.cy) !== Math.round(m2.cy)),
+            // Il ne prend qu'une part de la page
+            partiel: !!(m1 && m1.cw < doc.cw && m1.ch < doc.ch),
+            // Il se pose À CÔTÉ, pas sur le document
+            aCote: !!(m1 && m1.x >= doc.x + doc.w) || !!(m1 && m1.y >= doc.y + doc.h),
+            enRangee: !!(m1 && m2 && m2.x > m1.x),
+            // Et il sait d'où il vient
+            provenance: m1 && m1.pluginData,
+            docIntact: { w: Math.round(doc.w), cw: Math.round(doc.cw) }
+        };
+    }, { octets: pdf });
+    r.verifie('le bouton Découper paraît sur un document tenu',
+        morceaux.boutonAvant !== 'none', String(morceaux.boutonAvant));
+    r.egal('il s\'allume et s\'éteint', { allume: morceaux.allume, eteint: morceaux.eteint },
+        { allume: true, eteint: true });
+    r.egal('deux rectangles tracés donnent deux morceaux, en plus du document',
+        morceaux.combien, 3);
+    r.egal('un simple clic ne fabrique rien', morceaux.rien, false);
+    r.egal('ni un frôlement sur un tableau dézoomé', morceaux.frolement, false);
+    r.verifie('un morceau montre la même page, cadrée autrement',
+        morceaux.memeSource && morceaux.cadrages && morceaux.partiel, JSON.stringify(morceaux));
+    r.verifie('il se pose à côté du document, pas dessus', morceaux.aCote, JSON.stringify(morceaux));
+    r.verifie('et les suivants se rangent à sa suite', morceaux.enRangee, JSON.stringify(morceaux));
+    r.egal('le morceau sait de quel fichier et de quelle page il vient',
+        { id: morceaux.provenance.id, nom: morceaux.provenance.nom, page: morceaux.provenance.page },
+        { id: 'morceau', nom: 'poly.pdf', page: 1 });
+    r.verifie('le document source n\'a pas bougé',
+        morceaux.docIntact.w > 0 && morceaux.docIntact.cw > 0, JSON.stringify(morceaux.docIntact));
+
+    // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
+    // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
+    // lui a coupé de trop.
+    const retaille = await page.evaluate(async () => {
+        const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        selectedItems = [{ type: 'image', id: morceau.id }];
+        majBarreDocument();
+        const avant = { ch: morceau.ch, cy: morceau.cy };
+        basculerLeRognage(morceau, true);
+        const enRognage = !!morceau.isCropping;
+        // On rend au morceau cent pixels de page vers le bas
+        morceau.ch = Math.min(morceau.ch + 100, 100000);
+        basculerLeRognage(morceau, false);
+        return { enRognage, avant, apres: { ch: morceau.ch }, plusGrand: morceau.ch > avant.ch };
+    });
+    r.verifie('un morceau se remet en rognage', retaille.enRognage, JSON.stringify(retaille));
+    r.verifie('et peut reprendre du terrain sur la page', retaille.plusGrand, JSON.stringify(retaille));
+
+    await page.evaluate(() => {
+        basculerLaDecoupe(false);
+        images.length = 0; selectedItems = []; majBarreDocument(); draw();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -4947,6 +4947,11 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Les ciseaux se reposent d'un Échap, comme tout le reste.
+    if (decoupeActive && e.key === 'Escape') {
+        e.preventDefault(); basculerLaDecoupe(false); return;
+    }
+
     // RETOUCHE DES ZONES : les mêmes touches qu'ailleurs, mais elles portent
     // sur la zone tenue et non sur les objets du tableau.
     if (zonesEdition) {
@@ -7956,6 +7961,11 @@ canvas.addEventListener('pointerdown', (e) => {
     // on ne peut plus atteindre le bas d'une grande page.
     if (zonesEdition && (!e || !e.button) && commencerGesteDeZone(rawPos)) return;
 
+    // DÉCOUPER : tant que les ciseaux sont pris, le geste appartient au
+    // document qu'on découpe — sauf le bouton du milieu, qui fait toujours
+    // glisser le tableau.
+    if (decoupeActive && (!e || !e.button) && commencerGesteDeDecoupe(rawPos)) return;
+
     // --- INTERCEPTION INSTRUMENTS ---
     let targetWidget = null;
     let wType = '';
@@ -8386,6 +8396,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (PluginManager.trigger('onPointerMove', rawPos, e)) return;
 
     if (zoneGeste) { poursuivreGesteDeZone(rawPos); return; }
+    if (decoupeGeste) { poursuivreGesteDeDecoupe(rawPos); return; }
 
     if (glissePage) { poursuivreGlissePage(rawPos); return; }
 
@@ -8914,6 +8925,7 @@ function handlePointerUp(e) {
     if (e.type === 'pointerout' && !e.buttons) return;
 
     if (zoneGeste) { finirGesteDeZone(); activePointers.delete(e.pointerId); return; }
+    if (decoupeGeste) { finirGesteDeDecoupe(); activePointers.delete(e.pointerId); return; }
 
     // Tampon tactile : la pose est validée au relâchement du doigt/stylet
     if (touchStampPointerId !== null && e.pointerId === touchStampPointerId) {
@@ -10511,6 +10523,9 @@ function draw() {
         ctx.scale(zoom, zoom);
         
         PluginManager.trigger('onDraw', ctx, panX, panY, zoom);
+        // Le rectangle qu'on est en train de découper, par-dessus tout le
+        // reste : c'est lui qu'on regarde pendant qu'on le trace.
+        if (typeof dessinerLaDecoupe === 'function') dessinerLaDecoupe(ctx);
         ctx.restore();
 
         peindreLeFondDePresentation();
@@ -12016,6 +12031,171 @@ function zonesRetouchables(obj) {
     return obj.pluginData.zones;
 }
 
+// ==============================================================================
+// PRENDRE UN MORCEAU D'UN DOCUMENT
+// On pose souvent deux exercices côte à côte, pris dans le même poly. Il
+// fallait dupliquer le document, rogner chaque copie, aligner à l'œil : trois
+// gestes par morceau, et chaque copie traînait le document entier derrière
+// elle. On trace ici un rectangle sur la page, et le morceau se pose à côté.
+//
+// UN MORCEAU N'EST PAS UNE NOUVELLE IMAGE. Il montre la MÊME page, avec un
+// cadrage différent — les images se partagent leur source à l'enregistrement,
+// si bien que six morceaux d'un poly ne pèsent pas six pages. Et comme il ne
+// s'agit que d'un cadrage, le bouton de rognage le retaille : on peut rendre
+// au morceau ce qu'on lui a coupé de trop, sans le refaire.
+// ==============================================================================
+let decoupeActive = false;
+let decoupeGeste = null;
+
+function basculerLaDecoupe(force) {
+    const veut = (force === undefined) ? !decoupeActive : !!force;
+    // Les deux se disputeraient le même geste sur le même document.
+    if (veut && typeof zonesEdition !== 'undefined' && zonesEdition
+        && typeof basculerEditionDesZones === 'function') basculerEditionDesZones(false);
+    decoupeActive = veut;
+    decoupeGeste = null;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    draw();
+    if (typeof showToast === 'function') {
+        showToast(veut ? '✂ Tracez un rectangle sur le document : le morceau se pose à côté'
+                       : 'Découpage terminé');
+    }
+    return decoupeActive;
+}
+
+// N'importe quelle image posée, document ou scan — et un morceau lui-même, car
+// on découpe parfois en deux fois.
+function imageSousLePoint(pos) {
+    let trouve = null;
+    images.forEach(obj => {
+        if (!obj || obj.rotation || obj.angle) return;
+        if (pos.x >= obj.x && pos.x <= obj.x + obj.w && pos.y >= obj.y && pos.y <= obj.y + obj.h) trouve = obj;
+    });
+    return trouve;
+}
+
+function commencerGesteDeDecoupe(pos) {
+    const obj = imageSousLePoint(pos);
+    if (!obj) return false;
+    decoupeGeste = { obj, debut: { x: pos.x, y: pos.y }, rect: null };
+    draw();
+    return true;
+}
+
+function poursuivreGesteDeDecoupe(pos) {
+    const g = decoupeGeste;
+    if (!g) return;
+    g.rect = {
+        x: Math.min(g.debut.x, pos.x), y: Math.min(g.debut.y, pos.y),
+        l: Math.abs(pos.x - g.debut.x), h: Math.abs(pos.y - g.debut.y)
+    };
+    draw();
+}
+
+function finirGesteDeDecoupe() {
+    const g = decoupeGeste;
+    decoupeGeste = null;
+    if (!g || !g.rect) { draw(); return null; }
+    // Un simple clic n'est pas un rectangle : sans ce garde-fou, chaque clic à
+    // côté poserait un morceau grand comme rien.
+    if (g.rect.l * zoom < 14 || g.rect.h * zoom < 14) { draw(); return null; }
+    return prendreUnMorceau(g.obj, g.rect);
+}
+
+// Où poser le morceau : à droite du document, et à la suite de ceux qu'on a
+// déjà pris — c'est justement la rangée qu'on cherche à faire. Mais un morceau
+// posé hors de l'écran est un morceau qu'on croit perdu : quand la place
+// manque à droite, la rangée passe SOUS le document.
+function placeDuMorceau(source, largeur, hauteur) {
+    const vue = {
+        x: (0 - panX) / zoom, y: (0 - panY) / zoom,
+        d: (window.innerWidth - panX) / zoom, b: (window.innerHeight - panY) / zoom
+    };
+    const tient = (x, y) => (x + largeur) <= vue.d - 8 && (y + hauteur) <= vue.b - 8;
+
+    const freres = images.filter(o => o.pluginData && o.pluginData.id === 'morceau'
+        && o.pluginData.source === source.id);
+    if (freres.length) {
+        const dernier = freres.reduce((a, b) => ((b.x + b.w) > (a.x + a.w) ? b : a));
+        const cote = { x: dernier.x + dernier.w + 20, y: dernier.y };
+        if (tient(cote.x, cote.y)) return cote;
+        // La rangée est pleine : on en commence une autre sous la précédente.
+        const plusBas = freres.reduce((a, b) => ((b.y + b.h) > (a.y + a.h) ? b : a));
+        return { x: source.x + source.w + 30, y: plusBas.y + plusBas.h + 20 };
+    }
+    const droite = { x: source.x + source.w + 30, y: source.y };
+    if (tient(droite.x, droite.y)) return droite;
+    return { x: source.x, y: source.y + source.h + 30 };
+}
+
+function prendreUnMorceau(source, r) {
+    const img = imageCache[source.src];
+    if (!img || !source.cw || !source.ch) {
+        if (typeof showToast === 'function') showToast('Ce document ne se découpe pas');
+        return null;
+    }
+    const NW = img.naturalWidth || source.cw, NH = img.naturalHeight || source.ch;
+    const kx = source.w / source.cw, ky = source.h / source.ch;
+    if (!kx || !ky) return null;
+    // Le rectangle tracé sur le tableau, ramené en pixels de la page.
+    const cx = Math.max(0, Math.min(NW - 1, (r.x - source.x) / kx + source.cx));
+    const cy = Math.max(0, Math.min(NH - 1, (r.y - source.y) / ky + source.cy));
+    const cw = Math.max(1, Math.min(NW - cx, r.l / kx));
+    const ch = Math.max(1, Math.min(NH - cy, r.h / ky));
+    if (cw < 4 || ch < 4) return null;
+
+    const w = cw * kx, h = ch * ky;
+    const ou = placeDuMorceau(source, w, h);
+    const pd = source.pluginData || {};
+    const morceau = {
+        id: nextId++, x: ou.x, y: ou.y, w, h,
+        cx, cy, cw, ch,
+        src: source.src,
+        fileName: (pd.nom || source.fileName || 'Document') + ' — morceau',
+        z: globalZ++,
+        ratioLocked: true,
+        // D'OÙ IL VIENT. Le morceau garde sa page et son fichier : c'est ce qui
+        // permettra de le redemander net, et de savoir ce qu'on a découpé.
+        pluginData: {
+            id: 'morceau', source: source.id,
+            nom: pd.nom || source.fileName || 'Document',
+            page: pd.page || 1,
+            pdfRef: pd.pdfRef || null
+        }
+    };
+    images.push(morceau);
+    selectedItems = [{ type: 'image', id: morceau.id }];
+    saveState();
+    draw();
+    if (typeof showToast === 'function') {
+        showToast('✂ Morceau posé à côté — le bouton de rognage le retaille');
+    }
+    return morceau;
+}
+
+// Le rectangle en cours de tracé, et le document qu'il vise.
+function dessinerLaDecoupe(ctx) {
+    if (!decoupeActive) return;
+    const lw = 1 / zoom;
+    ctx.save();
+    const g = decoupeGeste;
+    if (g && g.obj) {
+        ctx.strokeStyle = 'rgba(108,92,231,0.55)';
+        ctx.lineWidth = 2 * lw;
+        ctx.setLineDash([]);
+        ctx.strokeRect(g.obj.x, g.obj.y, g.obj.w, g.obj.h);
+    }
+    if (g && g.rect && g.rect.l > 0 && g.rect.h > 0) {
+        ctx.fillStyle = 'rgba(108,92,231,0.14)';
+        ctx.fillRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
+        ctx.strokeStyle = '#6c5ce7';
+        ctx.lineWidth = 2 * lw;
+        ctx.setLineDash([7 * lw, 5 * lw]);
+        ctx.strokeRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
+    }
+    ctx.restore();
+}
+
 function documentSousLePoint(pos) {
     let trouve = null;
     images.forEach(obj => {
@@ -12617,6 +12797,13 @@ function majBarreDocument() {
         bZones.style.display = unPdf ? 'inline-flex' : 'none';
         bZones.classList.toggle('actif', zonesActives);
     }
+    // Découper vaut pour tout ce qui est une image posée : un PDF, un scan,
+    // une photo — et un morceau, qu'on redécoupe parfois en deux fois.
+    const bDecouper = document.getElementById('doc-decouper');
+    if (bDecouper) {
+        bDecouper.style.display = obj && obj.src ? 'inline-flex' : 'none';
+        bDecouper.classList.toggle('actif', decoupeActive);
+    }
     const groupeZones = document.getElementById('doc-zones-edition');
     const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
@@ -12753,6 +12940,15 @@ function brancherBarreDocument() {
         }
     });
 
+
+    // LES CISEAUX : on trace un rectangle sur le document, le morceau se pose
+    // à côté. Le bouton reste allumé tant qu'on en prend d'autres — on découpe
+    // rarement un seul exercice.
+    (function () {
+        const bouton = b('doc-decouper');
+        if (!bouton) return;
+        bouton.addEventListener('click', () => { basculerLaDecoupe(); });
+    })();
 
     // Clic bref : allumer ou éteindre le repérage. APPUI LONG : ouvrir la
     // retouche, pour dessiner ce qui manque et effacer ce qui est de trop.
