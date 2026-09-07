@@ -9137,6 +9137,12 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .bm-vignette img { position: absolute; left: 0; top: 0; max-width: none; pointer-events: none; }
 .bm-vignette.enMain { opacity: 0.35; }
 
+/* Le titre du tiroir tient sur deux lignes : ce qu'il y a dedans, et ce qu'on
+   peut en faire. La seconde est la phrase du geste qui ne se devine pas. */
+.bm-titre { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; }
+.bm-titre i { font-style: normal; font-size: 10.5px; color: #8c9296; white-space: nowrap; }
+.dark-mode .bm-titre i { color: #9aa3a8; }
+
 /* JETER CELUI-LÀ, PAS LES AUTRES. Le repérage automatique range parfois un
    bandeau d'en-tête ou un numéro de page avec les exercices : la croix ne
    paraît que sous le doigt, pour ne pas manger la vignette. */
@@ -9233,10 +9239,28 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    en hauteur. */
 body.focus-mode #bar-style.vertical.visible { transform: translateY(-50%); }
 
-/* DEBOUT, PAS DE MOTS. Une colonne assez large pour « Numéroter » ne serait
-   plus une colonne. Les infobulles disent ce que font les icônes, et la barre
-   à plat garde ses libellés pour qui préfère les lire. */
-#bar-style.vertical .doc-btn > span,
+/* DEBOUT, LE MOT PASSE SOUS L'ICÔNE. À côté, il ferait une colonne large
+   comme « Numéroter » — ce ne serait plus une colonne. Mais sans lui, ⌁ et le
+   cadre pointillé de « Remplir » ne se devinent pas : on ne découvre pas un
+   outil par son infobulle, on la lit quand on le cherche déjà. Neuf pixels
+   suffisent à reconnaître un mot qu'on connaît. */
+#bar-style.vertical .doc-btn {
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 4px;
+    min-width: 46px;
+}
+
+#bar-style.vertical .doc-btn > span {
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    max-width: 62px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 #bar-style.vertical .doc-titre { display: none; }
 
 /* Les séparateurs se couchent avec la barre. */

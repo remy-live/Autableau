@@ -12473,6 +12473,8 @@ function majLeTiroirDesMorceaux() {
     bande.hidden = morceauxEnAttente.length === 0;
     const compte = document.getElementById('bm-compte');
     if (compte) compte.textContent = String(morceauxEnAttente.length);
+    const mot = document.getElementById('bm-mot');
+    if (mot) mot.textContent = morceauxEnAttente.length > 1 ? 'morceaux' : 'morceau';
     const rail = document.getElementById('bm-rail');
     if (!rail) return;
     rail.innerHTML = '';
@@ -12671,14 +12673,30 @@ function meilleurPartage(ms, L, H, ecart) {
     return { partage: mieux, echelle: meilleure };
 }
 
+// OÙ LES POSER — ET CE QU'ON MONTRE ENSUITE.
+// « Tout poser » remplissait L'ÉCRAN, c'est-à-dire la place exacte du document
+// qu'on venait de découper : les morceaux tombaient dessus, on ne comprenait
+// plus rien à ce qu'on voyait, et le geste avait l'air d'avoir échoué. Ils se
+// rangent maintenant À CÔTÉ de tout ce qui est déjà là — à droite, dans le
+// sens de la lecture — et LA VUE LES SUIT. Poser sans montrer, c'est perdre
+// celui qui vient d'appuyer.
+function placeLibrePourLesMorceaux() {
+    const marge = 30 / zoom;
+    const L = ((canvas.clientWidth || window.innerWidth) / zoom) - 2 * marge;
+    const H = ((canvas.clientHeight || window.innerHeight) / zoom) - 2 * marge;
+    const pris = (typeof boiteDuTravail === 'function') ? boiteDuTravail() : null;
+    if (!pris) {
+        // Tableau vide : là où l'on regarde, il n'y a rien à éviter.
+        return { x: (0 - panX) / zoom + marge, y: (0 - panY) / zoom + marge, L, H, aCote: false };
+    }
+    return { x: pris.x + pris.l + 80 / zoom, y: pris.y, L, H, aCote: true };
+}
+
 function poserTousLesMorceaux() {
     if (!morceauxEnAttente.length) return 0;
-    const marge = 30 / zoom;
     const ecart = 16 / zoom;
-    const gauche = (0 - panX) / zoom + marge;
-    const haut = (0 - panY) / zoom + marge;
-    const L = (window.innerWidth - panX) / zoom - marge - gauche;
-    const H = (window.innerHeight - panY) / zoom - marge - haut;
+    const zone = placeLibrePourLesMorceaux();
+    const gauche = zone.x, haut = zone.y, L = zone.L, H = zone.H;
     const ms = morceauxEnAttente.slice();
     const combien = ms.length;
 
@@ -12693,12 +12711,13 @@ function poserTousLesMorceaux() {
     const totalH = hauteurs.reduce((t, x) => t + x, 0) + ecart * (partage.length - 1);
     let y = haut + Math.max(0, (H - totalH) / 2);
 
+    const poses = [];
     partage.forEach((ligne, n) => {
         const largeur = ligne.reduce((t, i) => t + ms[i].w * s, 0) + ecart * (ligne.length - 1);
         let x = gauche + Math.max(0, (L - largeur) / 2);
         ligne.forEach(i => {
             const m = ms[i];
-            images.push({
+            poses.push({
                 id: nextId++, x, y: y + (hauteurs[n] - m.h * s) / 2, w: m.w * s, h: m.h * s,
                 cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
                 src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
@@ -12708,13 +12727,27 @@ function poserTousLesMorceaux() {
         });
         y += hauteurs[n] + ecart;
     });
+    poses.forEach(o => images.push(o));
 
     morceauxEnAttente = [];
-    selectedItems = [];
+    // ON VA LES VOIR. Ils sont ailleurs que sous les yeux : sans ce
+    // déplacement, l'écran ne changerait pas et l'on croirait qu'il ne s'est
+    // rien passé.
+    if (zone.aCote) {
+        const marge = 30 / zoom;
+        panX = -(gauche - marge) * zoom;
+        panY = -(haut - marge) * zoom;
+    }
+    // Posés ET tenus : le lot se déplace d'un geste si la place ne convient pas.
+    selectedItems = poses.map(o => ({ type: 'image', id: o.id }));
     majLeTiroirDesMorceaux();
     saveState();
     draw();
-    if (typeof showToast === 'function') showToast(`${combien} morceau(x) posé(s), au plus grand`);
+    if (typeof showToast === 'function') {
+        showToast(zone.aCote
+            ? `${combien} morceau(x) posé(s) à côté du document — les voici`
+            : `${combien} morceau(x) posé(s), au plus grand`);
+    }
     return combien;
 }
 

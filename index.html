@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=105">
+    <link rel="stylesheet" href="style.css?v=106">
 </head>
 
 <body>
@@ -356,9 +356,15 @@
     <div id="bande-morceaux" role="group" aria-label="Morceaux découpés" hidden>
         <button class="bm-poignee" id="bm-poignee"
             data-tooltip="Déplacer le tiroir — double-clic pour le remettre en place">⠿</button>
-        <span class="bm-titre">✂ <b id="bm-compte">0</b></span>
+        <!-- LE TIROIR DIT CE QU'IL ATTEND. « ✂ 3 » ne disait rien : on
+             découpait, les vignettes arrivaient, et l'on restait devant sans
+             savoir quoi en faire. Il porte maintenant le mot, et la phrase du
+             geste qu'on ne devine pas — glisser une vignette. -->
+        <span class="bm-titre">✂ <b id="bm-compte">0</b> <span id="bm-mot">morceaux</span>
+            <i>glissez-en un où vous le voulez</i></span>
         <div class="bm-rail" id="bm-rail"></div>
-        <button class="bm-btn" id="bm-ranger" data-tooltip="Poser tous les morceaux en ligne sur le tableau">⇥ Tout poser</button>
+        <button class="bm-btn" id="bm-ranger"
+            data-tooltip="Poser tous les morceaux côte à côte, à côté du document — et y aller">⇥ Poser à côté</button>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
 
@@ -930,13 +936,16 @@
                             page : le morceau part dans le <b>tiroir</b>, en bas de l'écran. On découpe ainsi
                             tout ce qu'on veut d'affilée — les ciseaux restent pris tant qu'on n'a pas fini,
                             <b>Échap</b> les repose.<br>
-                            Le tiroir se vide quand on veut : on <b>glisse une vignette</b> à l'endroit voulu
-                            du tableau (un simple clic la pose au milieu de l'écran), ou bien
-                            <b>⇥ Tout poser</b> range tout d'un coup en ligne, à l'écran, sans rien
-                            recouvrir : ils sont <b>agrandis autant que la place le permet</b>, tous du
-                            même facteur, parce qu'un exercice au quart de sa page ne se lit pas depuis le
-                            fond de la classe. La disposition est choisie pour cela — trois bandes larges
-                            s'empilent, trois exercices étroits se rangent côte à côte.<br>
+            <b>Une fois qu'ils sont au tiroir</b>, deux chemins. On <b>glisse une vignette</b>
+                            à l'endroit voulu du tableau (un simple clic la pose au milieu de l'écran) ;
+                            ou bien <b>⇥ Poser à côté</b> les range tous d'un coup, <b>à droite du
+                            document</b> — jamais dessus — et <b>la vue va les chercher</b> : on voit
+                            aussitôt le résultat. Ils sont alors <b>agrandis autant que la place le
+                            permet</b>, tous du même facteur, parce qu'un exercice au quart de sa page ne
+                            se lit pas depuis le fond de la classe ; la disposition est choisie pour cela
+                            — trois bandes larges s'empilent, trois exercices étroits se rangent côte à
+                            côte. Ils restent <b>tenus</b> après la pose : un seul geste les déplace tous
+                            si la place ne convient pas.<br>
                             La <b>croix d'une vignette</b> jette ce morceau-là ; le <b>✕</b> du bout de la
                             bande vide tout le tiroir. Dans les deux cas, ce qui est déjà posé reste.
                             Le tiroir est un lieu de passage : il ne se sauvegarde pas, contrairement aux
@@ -1023,8 +1032,10 @@
                             toute la hauteur, il reste de chaque côté une colonne large de plus d'un
                             demi-écran que rien n'occupera jamais, tandis qu'une barre à plat mange de la
                             <b>hauteur</b>, la dimension qui fixe la taille de la page. Debout, elle ne coûte
-                            rien ; les libellés s'effacent alors et il ne reste que les icônes, avec leurs
-                            infobulles. Le choix est retenu d'une séance à l'autre, et rien ne le fait tout
+                            rien. Debout, le mot passe <b>sous l'icône</b>, en tout petit : à côté, il ferait
+                            une colonne large comme « Numéroter » ; absent, ⌁ et le cadre pointillé de
+                            « Remplir » ne se devineraient pas — on ne découvre pas un outil par son
+                            infobulle, on la lit quand on le cherche déjà. Le choix est retenu d'une séance à l'autre, et rien ne le fait tout
                             seul : une barre qui pivote d'elle-même, on la cherche. Le bouton la recouche.
                             Sur un document <b>paysage</b>, c'est l'inverse — gardez-la à plat.</li>
                         <li><strong>L'apparence tient derrière sa pastille :</strong> la couleur, l'épaisseur du
@@ -2590,7 +2601,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=194"></script>
+    <script src="script.js?v=195"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

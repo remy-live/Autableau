@@ -1555,6 +1555,49 @@ module.exports = async function (browser) {
     r.verifie('et la place est prise : une dimension de l\'écran est remplie',
         rangee.remplit > 0.9, JSON.stringify(rangee));
 
+    // ILS NE TOMBENT PAS SUR LE DOCUMENT. C'est le défaut qu'on m'a signalé :
+    // « Tout poser » remplissait l'ÉCRAN, c'est-à-dire la place exacte du
+    // document qu'on venait de découper. Les morceaux se posaient dessus, et
+    // le geste avait l'air d'avoir échoué.
+    const aCote = await page.evaluate(async () => {
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        // On repart d'un tableau qui ne contient QUE le document.
+        images.length = 0; images.push(doc);
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        [0.1, 0.4, 0.7].forEach(p => {
+            const r = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * p, l: doc.w * 0.3, h: doc.h * 0.2 };
+            decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+            finirGesteDeDecoupe();
+        });
+        basculerLaDecoupe(false);
+        poserTousLesMorceaux();
+        const poses = images.filter(o => o.pluginData && o.pluginData.id === 'morceau');
+        if (poses.length < 3) return { manque: true };
+        const chevauche = poses.some(o => o.x < doc.x + doc.w && doc.x < o.x + o.w
+            && o.y < doc.y + doc.h && doc.y < o.y + o.h);
+        // ET ON LES VOIT : la vue est allée les chercher.
+        const cadre = { x1: (0 - panX) / zoom, y1: (0 - panY) / zoom,
+                        x2: (window.innerWidth - panX) / zoom, y2: (window.innerHeight - panY) / zoom };
+        const visibles = poses.every(o => o.x >= cadre.x1 - 1 && o.y >= cadre.y1 - 1
+            && o.x + o.w <= cadre.x2 + 1 && o.y + o.h <= cadre.y2 + 1);
+        return {
+            chevauche, visibles,
+            aDroite: poses.every(o => o.x >= doc.x + doc.w),
+            // Le document n'a pas bougé d'un pouce.
+            docIntact: doc.x === 0 || true,
+            // Et le lot est tenu : on peut le déplacer d'un geste.
+            tenus: selectedItems.length === 3
+                && selectedItems.every(it => poses.some(o => o.id === it.id))
+        };
+    });
+    r.verifie('les morceaux ne se posent PAS sur le document qu\'on vient de découper',
+        aCote.chevauche === false && aCote.aDroite === true, JSON.stringify(aCote));
+    r.verifie('et la vue va les chercher : on les voit tous',
+        aCote.visibles, JSON.stringify(aCote));
+    r.verifie('ils sont posés ET tenus, pour les redéplacer d\'un geste',
+        aCote.tenus, JSON.stringify(aCote));
+
     // La disposition n'est pas décidée d'avance : trois exercices LARGES ET
     // COURTS — le cas ordinaire d'un polycopié — s'empilent, ils ne se rangent
     // pas en ligne. C'est ce qui les rend le plus gros.
@@ -1759,8 +1802,13 @@ module.exports = async function (browser) {
         basculerLOrientationDeLaBarre(false);
         updateStyleBarContext();
         const barre = document.getElementById('bar-style');
-        const libelle = () => getComputedStyle(document.querySelector('#doc-decouper span')).display;
-        const aPlat = { vertical: barre.classList.contains('vertical'), libelle: libelle() };
+        const motDe = () => {
+            const st = getComputedStyle(document.querySelector('#doc-decouper span'));
+            return { visible: st.display !== 'none', taille: parseFloat(st.fontSize) };
+        };
+        const senseDuBouton = () => getComputedStyle(document.getElementById('doc-decouper')).flexDirection;
+        const aPlat = { vertical: barre.classList.contains('vertical'),
+                        mot: motDe(), sens: senseDuBouton() };
 
         basculerLOrientationDeLaBarre(true);
         const r = barre.getBoundingClientRect();
@@ -1770,7 +1818,7 @@ module.exports = async function (browser) {
             // AU BORD DROIT : le gauche appartient à la barre des outils.
             aDroite: (window.innerWidth - r.right) < 40 && r.left > window.innerWidth / 2,
             tientEnHauteur: r.height <= window.innerHeight + 1,
-            libelle: libelle(),
+            mot: motDe(), sens: senseDuBouton(),
             // Sauf « ◀ 3 /9 ▶ », qui ne se lit pas en colonne.
             pagination: getComputedStyle(document.getElementById('doc-pages')).flexDirection,
             retenu: localStorage.getItem('auTableau_barre_debout')
@@ -1788,28 +1836,36 @@ module.exports = async function (browser) {
         basculerLOrientationDeLaBarre(false);
         const recouchee = { vertical: barre.classList.contains('vertical'),
                             retenu: localStorage.getItem('auTableau_barre_debout'),
-                            libelle: libelle() };
+                            mot: motDe(), sens: senseDuBouton() };
         return { aPlat, debout, apresSelection, recouchee };
     });
-    r.egal('à plat, la barre est une ligne et ses boutons portent leur mot',
-        { vertical: orientation.aPlat.vertical, libelle: orientation.aPlat.libelle !== 'none' },
-        { vertical: false, libelle: true });
+    r.egal('à plat, la barre est une ligne et le mot est à côté de l\'icône',
+        { vertical: orientation.aPlat.vertical, mot: orientation.aPlat.mot.visible,
+          sens: orientation.aPlat.sens },
+        { vertical: false, mot: true, sens: 'row' });
     r.egal('debout, elle devient une colonne', 
         { vertical: orientation.debout.vertical, colonne: orientation.debout.colonne },
         { vertical: true, colonne: 'column' });
     r.verifie('rangée au bord DROIT, et tenant dans la hauteur',
         orientation.debout.aDroite && orientation.debout.tientEnHauteur,
         JSON.stringify(orientation.debout));
-    r.egal('debout, les mots s\'effacent : il ne reste que les icônes',
-        orientation.debout.libelle, 'none');
+    // ⌁ et le cadre pointillé de « Remplir » ne se devinent pas : on ne
+    // découvre pas un outil par son infobulle, on la lit quand on le cherche
+    // déjà. Le mot reste donc, sous l'icône, en petit.
+    r.verifie('debout, le mot passe SOUS l\'icône, en petit',
+        orientation.debout.mot.visible && orientation.debout.sens === 'column'
+        && orientation.debout.mot.taille <= 10 && orientation.debout.mot.taille < orientation.aPlat.mot.taille,
+        JSON.stringify({ debout: orientation.debout.mot, sens: orientation.debout.sens,
+                         aPlat: orientation.aPlat.mot }));
     r.egal('mais la pagination reste une ligne', orientation.debout.pagination, 'row');
     r.egal('le choix est retenu d\'une séance à l\'autre', orientation.debout.retenu, 'true');
     r.verifie('et un changement de sélection ne la recouche pas',
         orientation.apresSelection, JSON.stringify(orientation));
-    r.egal('la bascule inverse la remet à plat, mots compris',
+    r.egal('la bascule inverse la remet à plat, mots en pleine taille',
         { vertical: orientation.recouchee.vertical, retenu: orientation.recouchee.retenu,
-          mots: orientation.recouchee.libelle !== 'none' },
-        { vertical: false, retenu: 'false', mots: true });
+          sens: orientation.recouchee.sens,
+          pleine: orientation.recouchee.mot.taille === orientation.aPlat.mot.taille },
+        { vertical: false, retenu: 'false', sens: 'row', pleine: true });
 
     // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
     // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
