@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=103">
+    <link rel="stylesheet" href="style.css?v=104">
 </head>
 
 <body>
@@ -933,10 +933,21 @@
                             Le tiroir se vide quand on veut : on <b>glisse une vignette</b> à l'endroit voulu
                             du tableau (un simple clic la pose au milieu de l'écran), ou bien
                             <b>⇥ Tout poser</b> range tout d'un coup en ligne, à l'écran, sans rien
-                            recouvrir. <b>✕</b> jette ce qu'on ne garde pas ; ce qui est déjà posé reste.
+                            recouvrir : ils sont <b>agrandis autant que la place le permet</b>, tous du
+                            même facteur, parce qu'un exercice au quart de sa page ne se lit pas depuis le
+                            fond de la classe. La disposition est choisie pour cela — trois bandes larges
+                            s'empilent, trois exercices étroits se rangent côte à côte.<br>
+                            La <b>croix d'une vignette</b> jette ce morceau-là ; le <b>✕</b> du bout de la
+                            bande vide tout le tiroir. Dans les deux cas, ce qui est déjà posé reste.
                             Le tiroir est un lieu de passage : il ne se sauvegarde pas, contrairement aux
                             morceaux posés sur le tableau. Sa poignée se déplace, un double-clic la remet
                             en place.<br>
+                            <b>⌁ Repérer</b> fait le travail tout seul : la page est relue, on y cherche les
+                            <b>bandes restées blanches</b> — celles qui séparent deux exercices, franchement
+                            plus hautes que l'espace entre deux lignes — et tous les blocs partent au tiroir
+                            d'un coup, colonnes comprises. Ce n'est qu'une proposition : on jette d'un doigt
+                            ce qui n'était pas un exercice, puis « Tout poser ». Sur une page d'un seul
+                            tenant, il le dit et ne range rien.<br>
                             Un morceau n'est pas une nouvelle image : il montre la <b>même page</b>, cadrée
                             autrement. Six morceaux d'un poly ne pèsent donc pas six pages, et le bouton
                             <b>✂ de rognage</b> les retaille — on peut rendre à un morceau ce qu'on lui a coupé
@@ -2172,6 +2183,19 @@
                 <circle cx="6" cy="18" r="2.4" />
                 <path d="M8.1 7.3L20 17M8.1 16.7L20 7" />
             </svg><span>Découper</span></button>
+        <!-- REPÉRER TOUT SEUL. Viser trois rectangles à la main sur un
+             polycopié, c'est trois fois viser. Ce qui sépare deux exercices se
+             voit — une bande de page restée blanche : on la cherche, et tous
+             les blocs partent au tiroir d'un coup. On y jette ensuite ce qui
+             n'était pas un exercice. -->
+        <button class="doc-btn" id="doc-reperer"
+            data-tooltip="Repérer les exercices de la page et les envoyer au tiroir">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="3.5" width="16" height="6" rx="1.5" stroke-dasharray="3 2.2" />
+                <rect x="4" y="12.5" width="16" height="8" rx="1.5" stroke-dasharray="3 2.2" />
+                <path d="M2.5 11h19" stroke-dasharray="1.5 2" opacity="0.6" />
+            </svg><span>Repérer</span></button>
         <!-- LA RETOUCHE PREND TOUTE LA BARRE. Ces boutons vivaient au milieu
              des quinze autres, sans un mot pour dire ce qu'ils font : on ne
              pouvait ni les trouver ni les comprendre. Pendant la retouche, les
@@ -2511,7 +2535,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=191"></script>
+    <script src="script.js?v=192"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -12102,7 +12102,9 @@ function finirGesteDeDecoupe() {
     return prendreUnMorceau(g.obj, g.rect);
 }
 
-function prendreUnMorceau(source, r) {
+// `silencieux` : le repérage en prend une douzaine d'un coup, il annonce le
+// total lui-même plutôt que douze fois la même chose.
+function prendreUnMorceau(source, r, silencieux) {
     const img = imageCache[source.src];
     if (!img || !source.cw || !source.ch) {
         if (typeof showToast === 'function') showToast('Ce document ne se découpe pas');
@@ -12134,6 +12136,7 @@ function prendreUnMorceau(source, r) {
         source: source.id
     };
     morceauxEnAttente.push(morceau);
+    if (silencieux) return morceau;
     majLeTiroirDesMorceaux();
     draw();
     if (typeof showToast === 'function') {
@@ -12163,6 +12166,189 @@ function dessinerLaDecoupe(ctx) {
         ctx.strokeRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
     }
     ctx.restore();
+}
+
+// ==================================================================
+// REPÉRER LES EXERCICES TOUT SEUL
+// Tracer trois rectangles à la main sur un polycopié, c'est trois fois viser.
+// Or ce qui sépare deux exercices se voit : une bande de page restée blanche,
+// franchement plus haute que l'espace entre deux lignes. On lit donc la page,
+// on cherche ces bandes-là, et l'on coupe dedans — d'abord en travers, puis
+// dans l'autre sens pour les polycopiés en colonnes, en alternant.
+//
+// C'est la « coupe en X et en Y », la plus vieille méthode de mise en page
+// qui soit, et elle vaut ici : nos pages sont des pages d'exercices, faites
+// de blocs rectangulaires séparés par du blanc. Rien de tout cela n'est sûr —
+// ce qui sort part au TIROIR, pas sur le tableau, et l'on y jette d'un doigt
+// ce qui n'était pas un exercice.
+// ==================================================================
+const BLOCS_LARGEUR = 760;   // la page est relue en petit : on cherche du blanc
+const BLOCS_MAX = 14;        // au-delà, ce n'est plus un repérage mais un hachoir
+const BLOCS_PROFONDEUR = 4;  // lignes, colonnes, lignes, colonnes
+
+// Le masque d'encre, puis son intégrale : la somme de l'encre d'un rectangle
+// quelconque se lit alors en quatre accès, et les profils de chaque bande
+// coûtent le tour du rectangle, pas sa surface.
+function integraleDeLEncre(encre, w, h) {
+    const S = new Int32Array((w + 1) * (h + 1));
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            S[(y + 1) * (w + 1) + x + 1] = S[y * (w + 1) + x + 1] + S[(y + 1) * (w + 1) + x]
+                - S[y * (w + 1) + x] + encre[y * w + x];
+        }
+    }
+    return S;
+}
+function encreDuRectangle(S, w, x1, y1, x2, y2) {
+    if (x2 < x1 || y2 < y1) return 0;
+    const W = w + 1;
+    return S[(y2 + 1) * W + x2 + 1] - S[y1 * W + x2 + 1] - S[(y2 + 1) * W + x1] + S[y1 * W + x1];
+}
+
+// Resserrer un rectangle sur ce qu'il contient vraiment : les marges de la
+// page n'ont pas à voyager avec l'exercice.
+function resserrerSurLEncre(S, w, r) {
+    let { x1, y1, x2, y2 } = r;
+    while (y1 <= y2 && encreDuRectangle(S, w, x1, y1, x2, y1) === 0) y1++;
+    while (y2 >= y1 && encreDuRectangle(S, w, x1, y2, x2, y2) === 0) y2--;
+    while (x1 <= x2 && encreDuRectangle(S, w, x1, y1, x1, y2) === 0) x1++;
+    while (x2 >= x1 && encreDuRectangle(S, w, x2, y1, x2, y2) === 0) x2--;
+    return (x2 >= x1 && y2 >= y1) ? { x1, y1, x2, y2 } : null;
+}
+
+// LES SÉPARATEURS. Une page écrite est pleine de blancs : entre deux mots,
+// entre deux lignes. Ce qui sépare deux BLOCS est un blanc nettement plus
+// large que les autres — on prend donc pour mesure le blanc courant de cette
+// page-ci, et l'on ne retient que ceux qui le doublent.
+function separateursDuProfil(profil, minimum) {
+    const trous = [];
+    let debut = -1;
+    for (let i = 0; i < profil.length; i++) {
+        if (profil[i] === 0) { if (debut < 0) debut = i; }
+        else if (debut >= 0) { trous.push({ a: debut, b: i - 1 }); debut = -1; }
+    }
+    // Les blancs des BORDS ne séparent rien : le resserrage les a déjà mangés.
+    const internes = trous.filter(t => t.a > 0 && t.b < profil.length - 1);
+    if (!internes.length) return [];
+    // La comparaison au blanc courant ne vaut que s'il Y A un blanc courant :
+    // une gouttière de colonnes est souvent le SEUL blanc de sa bande, et se
+    // demander à elle-même d'être deux fois plus large qu'elle-même l'écartait
+    // — un polycopié en deux colonnes revenait d'un seul tenant. Avec un ou
+    // deux blancs, on s'en tient donc à la mesure absolue.
+    const longueurs = internes.map(t => t.b - t.a + 1).sort((a, b) => a - b);
+    const courant = longueurs[longueurs.length >> 1];
+    const seuil = internes.length >= 3 ? Math.max(minimum, courant * 2) : minimum;
+    return internes.filter(t => t.b - t.a + 1 >= seuil);
+}
+
+function couperEnBlocs(S, w, h, rect, sens, profondeur, sortie) {
+    const r = resserrerSurLEncre(S, w, rect);
+    if (!r) return;
+    if (sortie.length >= BLOCS_MAX || profondeur <= 0) { sortie.push(r); return; }
+
+    const enLignes = sens === 'y';
+    const taille = enLignes ? (r.y2 - r.y1 + 1) : (r.x2 - r.x1 + 1);
+    const profil = new Int32Array(taille);
+    for (let i = 0; i < taille; i++) {
+        profil[i] = enLignes
+            ? encreDuRectangle(S, w, r.x1, r.y1 + i, r.x2, r.y1 + i)
+            : encreDuRectangle(S, w, r.x1 + i, r.y1, r.x1 + i, r.y2);
+    }
+    // Une gouttière de colonnes est large ; une respiration entre exercices
+    // l'est moins. On ne les mesure pas de la même façon.
+    const minimum = enLignes ? Math.max(4, Math.round(h * 0.014)) : Math.max(6, Math.round(w * 0.035));
+    const coupures = separateursDuProfil(profil, minimum);
+
+    if (!coupures.length) {
+        // Rien dans ce sens-là : on tente l'autre, une fois, puis on s'arrête.
+        if (rect.__autre) { sortie.push(r); return; }
+        r.__autre = true;
+        couperEnBlocs(S, w, h, r, enLignes ? 'x' : 'y', profondeur - 1, sortie);
+        return;
+    }
+
+    let debut = 0;
+    const parts = [];
+    coupures.forEach(t => { parts.push([debut, t.a - 1]); debut = t.b + 1; });
+    parts.push([debut, taille - 1]);
+    parts.forEach(([a, b]) => {
+        if (b < a) return;
+        const sous = enLignes
+            ? { x1: r.x1, y1: r.y1 + a, x2: r.x2, y2: r.y1 + b }
+            : { x1: r.x1 + a, y1: r.y1, x2: r.x1 + b, y2: r.y2 };
+        couperEnBlocs(S, w, h, sous, enLignes ? 'x' : 'y', profondeur - 1, sortie);
+    });
+}
+
+// Rend les blocs en coordonnées du TABLEAU, prêts pour les ciseaux.
+function repererLesBlocs(source) {
+    const img = imageCache[source.src];
+    if (!img || !source.cw || !source.ch) return [];
+    const AW = Math.max(60, Math.min(BLOCS_LARGEUR, Math.round(source.cw)));
+    const AH = Math.max(60, Math.round(AW * source.ch / source.cw));
+    const c = document.createElement('canvas');
+    c.width = AW; c.height = AH;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, AW, AH);
+    let data;
+    try {
+        g.drawImage(img, source.cx, source.cy, source.cw, source.ch, 0, 0, AW, AH);
+        data = g.getImageData(0, 0, AW, AH).data;
+    } catch (e) { return []; }
+
+    // Le même partage que pour les zones à remplir : le sombre, et le clair
+    // franchement coloré — un titre imprimé en orange est de l'encre lui aussi.
+    const encre = new Uint8Array(AW * AH);
+    let total = 0;
+    for (let i = 0, p = 0; p < encre.length; i += 4, p++) {
+        const r = data[i], v = data[i + 1], bl = data[i + 2];
+        const lum = (r * 299 + v * 587 + bl * 114) / 1000;
+        const vif = Math.max(r, v, bl) - Math.min(r, v, bl);
+        const dessus = (data[i + 3] > 40 && (lum < 205 || (lum < 235 && vif > 55))) ? 1 : 0;
+        encre[p] = dessus; total += dessus;
+    }
+    if (total < AW * AH * 0.001) return [];   // une page blanche n'a rien à dire
+
+    const S = integraleDeLEncre(encre, AW, AH);
+    const blocs = [];
+    couperEnBlocs(S, AW, AH, { x1: 0, y1: 0, x2: AW - 1, y2: AH - 1 }, 'y', BLOCS_PROFONDEUR, blocs);
+
+    // Ce qui est minuscule n'est pas un exercice : un numéro de page, un pied
+    // de page, une trace de scan.
+    const surfaceMin = AW * AH * 0.008;
+    const marge = Math.max(2, Math.round(AH * 0.006));
+    const kx = source.w / AW, ky = source.h / AH;
+    return blocs
+        .filter(b => (b.x2 - b.x1 + 1) * (b.y2 - b.y1 + 1) >= surfaceMin
+            && (b.y2 - b.y1 + 1) >= AH * 0.02)
+        .sort((a, b) => (a.y1 - b.y1) || (a.x1 - b.x1))
+        .map(b => {
+            const x1 = Math.max(0, b.x1 - marge), y1 = Math.max(0, b.y1 - marge);
+            const x2 = Math.min(AW - 1, b.x2 + marge), y2 = Math.min(AH - 1, b.y2 + marge);
+            return { x: source.x + x1 * kx, y: source.y + y1 * ky,
+                     l: (x2 - x1 + 1) * kx, h: (y2 - y1 + 1) * ky };
+        });
+}
+
+// Le bouton ⌁ : on repère, tout part au tiroir, on y jette ce qui n'en était
+// pas. C'est le seul ordre qui tienne — juger un découpage se fait sur les
+// morceaux, pas sur des pointillés posés par-dessus la page.
+function repererLesExercices() {
+    const obj = (typeof documentDeLaBarre === 'function' && documentDeLaBarre()) || null;
+    if (!obj || !obj.src) return 0;
+    const blocs = repererLesBlocs(obj);
+    if (blocs.length < 2) {
+        showToast(blocs.length
+            ? 'Un seul bloc sur cette page — tracez le rectangle à la main avec ✂'
+            : 'Rien à repérer sur cette page');
+        return 0;
+    }
+    let pris = 0;
+    blocs.forEach(r => { if (prendreUnMorceau(obj, r, true)) pris++; });
+    majLeTiroirDesMorceaux();
+    draw();
+    showToast(`⌁ ${pris} blocs repérés — au tiroir. Jetez ce qui n'en est pas, puis « Tout poser »`);
+    return pris;
 }
 
 // ------------------------------------------------------------------
@@ -12201,15 +12387,36 @@ function majLeTiroirDesMorceaux() {
         el.style.left = (-m.cx * k) + 'px';
         el.style.top = (-m.cy * k) + 'px';
         vignette.appendChild(el);
+        // Le repérage automatique en range parfois un de trop — un pied de
+        // page, un bandeau d'en-tête. On le jette d'un doigt, sans toucher aux
+        // autres.
+        const jeter = document.createElement('button');
+        jeter.className = 'bm-jeter';
+        jeter.type = 'button';
+        jeter.dataset.id = String(m.id);
+        jeter.title = 'Jeter ce morceau';
+        jeter.setAttribute('aria-label', 'Jeter ce morceau');
+        jeter.textContent = '✕';
+        vignette.appendChild(jeter);
         rail.appendChild(vignette);
     });
     brancherLesVignettes();
+}
+
+function jeterLeMorceau(id) {
+    const avant = morceauxEnAttente.length;
+    morceauxEnAttente = morceauxEnAttente.filter(m => String(m.id) !== String(id));
+    if (morceauxEnAttente.length !== avant) majLeTiroirDesMorceaux();
 }
 
 // Sortir un morceau du tiroir : il suit le doigt, et se pose là où on le
 // lâche. Un simple clic le pose au milieu de l'écran — au doigt, on ne vise
 // pas toujours juste.
 function brancherLesVignettes() {
+    document.querySelectorAll('#bm-rail .bm-jeter').forEach(b => {
+        b.addEventListener('click', (e) => { e.stopPropagation(); jeterLeMorceau(b.dataset.id); });
+        b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    });
     document.querySelectorAll('#bm-rail .bm-vignette').forEach(v => {
         v.addEventListener('pointerdown', (e) => {
             e.preventDefault();
@@ -12290,35 +12497,117 @@ function poserLeMorceau(m, ou) {
     return objet;
 }
 
-// Tout poser d'un coup, en ligne, dans la partie visible du tableau : c'est
-// le cas courant — deux ou trois exercices côte à côte.
+// ------------------------------------------------------------------
+// TOUT POSER, EN REMPLISSANT L'ÉCRAN
+// À leur taille d'origine, trois exercices découpés dans un A4 occupaient le
+// quart du tableau : au fond de la classe on ne lisait rien, et il fallait les
+// agrandir un par un. On cherche donc la disposition qui les fait tenir LE
+// PLUS GRAND POSSIBLE dans la partie visible.
+//
+// L'ordre du tiroir est celui de la page : on ne mélange pas les exercices, on
+// choisit seulement OÙ passer à la ligne. Il n'y a donc qu'un partage en
+// tranches successives à essayer — deux puissance n moins un, quelques
+// centaines pour une poignée de morceaux — et l'on garde celui qui autorise le
+// plus gros agrandissement. Tous les morceaux le subissent ENSEMBLE : deux
+// exercices d'une même page gardent leur taille l'un par rapport à l'autre.
+// ------------------------------------------------------------------
+const MORCEAU_AGRANDI_MAX = 3;   // au-delà, on ne montre plus que du flou
+
+function partagesEnLignes(n) {
+    // n grand : on n'essaie plus tout, seulement des lignes bien remplies.
+    if (n > 10) {
+        const out = [];
+        for (let lignes = 1; lignes <= Math.min(n, 6); lignes++) {
+            const parLigne = Math.ceil(n / lignes);
+            const d = [];
+            for (let i = 0; i < n; i += parLigne) d.push(Array.from({ length: Math.min(parLigne, n - i) }, (_, k) => i + k));
+            out.push(d);
+        }
+        return out;
+    }
+    const out = [];
+    for (let masque = 0; masque < (1 << (n - 1)); masque++) {
+        const d = [];
+        let courante = [0];
+        for (let i = 1; i < n; i++) {
+            if (masque & (1 << (i - 1))) { d.push(courante); courante = []; }
+            courante.push(i);
+        }
+        d.push(courante);
+        out.push(d);
+    }
+    return out;
+}
+
+// Le facteur commun le plus grand qui fasse tenir cette disposition-là.
+function echelleDuPartage(partage, ms, L, H, ecart) {
+    let s = Infinity, hauteurs = 0;
+    for (const ligne of partage) {
+        let largeur = 0, haute = 0;
+        for (const i of ligne) { largeur += ms[i].w; haute = Math.max(haute, ms[i].h); }
+        const place = L - ecart * (ligne.length - 1);
+        if (place <= 0 || largeur <= 0) return 0;
+        s = Math.min(s, place / largeur);
+        hauteurs += haute;
+    }
+    const placeH = H - ecart * (partage.length - 1);
+    if (placeH <= 0 || hauteurs <= 0) return 0;
+    return Math.min(s, placeH / hauteurs);
+}
+
+function meilleurPartage(ms, L, H, ecart) {
+    let mieux = null, meilleure = -1;
+    partagesEnLignes(ms.length).forEach(p => {
+        const s = echelleDuPartage(p, ms, L, H, ecart);
+        if (s > meilleure) { meilleure = s; mieux = p; }
+    });
+    return { partage: mieux, echelle: meilleure };
+}
+
 function poserTousLesMorceaux() {
     if (!morceauxEnAttente.length) return 0;
-    const marge = 40 / zoom;
+    const marge = 30 / zoom;
+    const ecart = 16 / zoom;
     const gauche = (0 - panX) / zoom + marge;
-    const droite = (window.innerWidth - panX) / zoom - marge;
     const haut = (0 - panY) / zoom + marge;
-    const ecart = 20 / zoom;
-    let x = gauche, y = haut, hauteurDeLaRangee = 0;
-    const combien = morceauxEnAttente.length;
-    morceauxEnAttente.slice().forEach(m => {
-        if (x > gauche && x + m.w > droite) { x = gauche; y += hauteurDeLaRangee + ecart; hauteurDeLaRangee = 0; }
-        const objet = {
-            id: nextId++, x, y, w: m.w, h: m.h,
-            cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
-            src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-            pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
-        };
-        images.push(objet);
-        x += m.w + ecart;
-        hauteurDeLaRangee = Math.max(hauteurDeLaRangee, m.h);
+    const L = (window.innerWidth - panX) / zoom - marge - gauche;
+    const H = (window.innerHeight - panY) / zoom - marge - haut;
+    const ms = morceauxEnAttente.slice();
+    const combien = ms.length;
+
+    const { partage, echelle } = meilleurPartage(ms, L, H, ecart);
+    // On agrandit tant que ça reste net : un timbre-poste étiré à toute la
+    // largeur du tableau n'est plus lisible, il est gros.
+    const s = Math.max(0.05, Math.min(echelle, MORCEAU_AGRANDI_MAX));
+
+    // Le pavé fini est centré : sur un partage qui ne remplit pas tout à fait,
+    // mieux vaut du blanc des deux côtés qu'un tas collé en haut à gauche.
+    const hauteurs = partage.map(ligne => Math.max(...ligne.map(i => ms[i].h)) * s);
+    const totalH = hauteurs.reduce((t, x) => t + x, 0) + ecart * (partage.length - 1);
+    let y = haut + Math.max(0, (H - totalH) / 2);
+
+    partage.forEach((ligne, n) => {
+        const largeur = ligne.reduce((t, i) => t + ms[i].w * s, 0) + ecart * (ligne.length - 1);
+        let x = gauche + Math.max(0, (L - largeur) / 2);
+        ligne.forEach(i => {
+            const m = ms[i];
+            images.push({
+                id: nextId++, x, y: y + (hauteurs[n] - m.h * s) / 2, w: m.w * s, h: m.h * s,
+                cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
+                src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
+                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef }
+            });
+            x += m.w * s + ecart;
+        });
+        y += hauteurs[n] + ecart;
     });
+
     morceauxEnAttente = [];
     selectedItems = [];
     majLeTiroirDesMorceaux();
     saveState();
     draw();
-    if (typeof showToast === 'function') showToast(`${combien} morceau(x) posé(s) en ligne`);
+    if (typeof showToast === 'function') showToast(`${combien} morceau(x) posé(s), au plus grand`);
     return combien;
 }
 
@@ -12970,6 +13259,10 @@ function majBarreDocument() {
         bDecouper.style.display = obj && obj.src ? 'inline-flex' : 'none';
         bDecouper.classList.toggle('actif', decoupeActive);
     }
+    // Repérer tout seul : même règle que les ciseaux — tout ce qui est une
+    // image posée, y compris un morceau qu'on redécoupe.
+    const bReperer = document.getElementById('doc-reperer');
+    if (bReperer) bReperer.style.display = obj && obj.src ? 'inline-flex' : 'none';
     const groupeZones = document.getElementById('doc-zones-edition');
     const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
@@ -13114,6 +13407,13 @@ function brancherBarreDocument() {
         const bouton = b('doc-decouper');
         if (!bouton) return;
         bouton.addEventListener('click', () => { basculerLaDecoupe(); });
+    })();
+
+    // ⌁ Repérer : la page est lue, ses blocs partent au tiroir.
+    (function () {
+        const bouton = b('doc-reperer');
+        if (!bouton) return;
+        bouton.addEventListener('click', () => { repererLesExercices(); });
     })();
 
     // Clic bref : allumer ou éteindre le repérage. APPUI LONG : ouvrir la

@@ -9137,6 +9137,35 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 .bm-vignette img { position: absolute; left: 0; top: 0; max-width: none; pointer-events: none; }
 .bm-vignette.enMain { opacity: 0.35; }
 
+/* JETER CELUI-LÀ, PAS LES AUTRES. Le repérage automatique range parfois un
+   bandeau d'en-tête ou un numéro de page avec les exercices : la croix ne
+   paraît que sous le doigt, pour ne pas manger la vignette. */
+.bm-jeter {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    line-height: 1;
+    font-size: 11px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(214, 48, 49, 0.92);
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.bm-vignette:hover .bm-jeter,
+.bm-jeter:focus-visible { opacity: 1; }
+
+/* Au doigt, il n'y a pas de survol : la croix reste là. */
+@media (hover: none) {
+    .bm-jeter { opacity: 0.85; }
+}
+
 .bm-btn {
     border: 1px solid #dfe6e9;
     background: #fff;
