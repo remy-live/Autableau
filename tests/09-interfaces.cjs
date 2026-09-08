@@ -188,97 +188,109 @@ module.exports = async function (browser) {
     // bouge tant qu'il ne les a pas demandés.
     // =====================================================================
 
-    // D'ABORD L'ORDRE DE LA BARRE. La gomme et le pointeur laser sont des
-    // gestes du quotidien : ils passent sous le texte et le post-it, avec eux.
+    // D'ABORD L'ORDRE. La barre de gauche n'est pas « bar-tools » — celle-là
+    // est masquée depuis longtemps par la feuille de style — mais une BARRE
+    // FLOTTANTE, dont le contenu est retenu chez l'utilisateur. La gomme et le
+    // pointeur laser sont des gestes du quotidien : ils passent sous le texte
+    // et le post-it, dans le gabarit ET dans la barre déjà rangée.
     const ordre = await page.evaluate(() => {
-        const barre = document.getElementById('bar-tools');
-        const modes = Array.from(barre.querySelectorAll('.btn[data-mode]')).map(b => b.dataset.mode);
-        const suite = document.getElementById('outils-en-plus');
-        return {
-            modes,
-            // Ce qui suit la gomme et le laser est dans l'enveloppe qui s'efface.
-            dansLaSuite: Array.from(suite.querySelectorAll('.btn[data-mode],.btn[data-widget]'))
-                .map(b => b.dataset.mode || b.dataset.widget),
-            // Et rien de ce qui reste n'y est.
-            gommeDehors: !suite.querySelector('[data-mode="eraser"]'),
-            laserDehors: !suite.querySelector('[data-mode="laser"]')
-        };
+        const gabarit = Array.from(
+            document.querySelectorAll('#bar-tools .btn[data-mode]')).map(b => b.dataset.mode);
+        // UNE INSTALLATION NEUVE : sans barre principale rangée, l'application
+        // la refabrique d'après le gabarit. C'est ce chemin-là qu'on éprouve.
+        saveStoredFloatingToolbars(getStoredFloatingToolbars().filter(t => t.id !== 'system-toolbar-main'));
+        renderFloatingToolbars();
+        const pool = document.querySelector('#system-toolbar-main .cwrap');
+        const posee = Array.from(pool.children).map(b => b.dataset.dragSourceToolId);
+        return { gabarit, posee };
     });
-    r.egal('la gomme et le pointeur laser sont remontés sous le post-it',
-        ordre.modes.slice(ordre.modes.indexOf('text')),
-        ['text', 'postit', 'eraser', 'laser', 'point', 'segment', 'demi-droite', 'droite',
-         'curve', 'circle', 'polygon', 'rectangle']);
-    r.verifie('et tout ce qui vient APRÈS eux est ce qui pourra s\'effacer',
-        ordre.dansLaSuite[0] === 'point' && ordre.dansLaSuite.includes('compass')
-        && ordre.gommeDehors && ordre.laserDehors, JSON.stringify(ordre));
+    r.egal('dans le gabarit, la gomme et le laser suivent le post-it',
+        ordre.gabarit.slice(ordre.gabarit.indexOf('text'), ordre.gabarit.indexOf('text') + 4),
+        ['text', 'postit', 'eraser', 'laser']);
+    r.egal('et dans la barre posée sur le tableau, de même',
+        ordre.posee.slice(ordre.posee.indexOf('text'), ordre.posee.indexOf('text') + 4),
+        ['text', 'postit', 'eraser', 'laser']);
 
-    // L'OPTION « BARRE RÉDUITE ».
+    // UNE BARRE DÉJÀ RANGÉE AUTREMENT est remontée une fois, et une seule :
+    // ranger sa barre reste l'affaire du professeur.
+    const remontee = await page.evaluate(() => {
+        const ancien = ['btn-undo', 'pointer', 'freehand', 'text', 'postit',
+                        'point', 'segment', 'circle', 'laser', 'eraser', 'ruler'];
+        const barres = getStoredFloatingToolbars().map(tb =>
+            tb.id === 'system-toolbar-main' ? { ...tb, items: ancien.slice() } : tb);
+        saveStoredFloatingToolbars(barres);
+        localStorage.removeItem('auTableau_ordre_quotidien_v1');
+        const bougee = remonterLesGestesDuQuotidien();
+        const apres = getStoredFloatingToolbars().find(t => t.id === 'system-toolbar-main').items;
+
+        // Une seconde fois ne bouge plus rien, même si l'on rerange à la main.
+        const rerange = getStoredFloatingToolbars().map(tb =>
+            tb.id === 'system-toolbar-main' ? { ...tb, items: ancien.slice() } : tb);
+        saveStoredFloatingToolbars(rerange);
+        const encore = remonterLesGestesDuQuotidien();
+        const final = getStoredFloatingToolbars().find(t => t.id === 'system-toolbar-main').items;
+        return { bougee, apres, encore, final, ancien };
+    });
+    r.egal('une barre rangée à l\'ancienne voit ses deux gestes remonter',
+        remontee.apres,
+        ['btn-undo', 'pointer', 'freehand', 'text', 'postit', 'eraser', 'laser',
+         'point', 'segment', 'circle', 'ruler']);
+    r.egal('et rien n\'est perdu : les mêmes outils, dans le même ordre pour le reste',
+        remontee.apres.slice().sort(), remontee.ancien.slice().sort());
+    r.egal('on ne repasse pas derrière le professeur une seconde fois',
+        { encore: remontee.encore, intact: remontee.final.join() === remontee.ancien.join() },
+        { encore: false, intact: true });
+
+    // L'OPTION « BARRE RÉDUITE », sur la vraie barre.
     const courte = await page.evaluate(() => {
-        // « Masqué » se mesure DANS LA BARRE, en remontant jusqu'à elle : un
-        // bouton rangé dans une enveloppe en display:none garde son propre
-        // display calculé, et la barre elle-même n'est pas encore montrée à
-        // ce stade du démarrage — tout paraîtrait masqué.
-        const vu = (sel) => {
-            const barre = document.getElementById('bar-tools');
-            let el = document.querySelector(sel);
-            if (!el) return false;
-            while (el && el !== barre) {
-                if (getComputedStyle(el).display === 'none') return false;
-                el = el.parentElement;
-            }
-            return true;
-        };
+        // Une barre connue : le bloc précédent l'a rangée autrement pour
+        // éprouver la remontée, et l'on mesure ici une coupure, pas un héritage.
+        const items = ['btn-undo', 'btn-redo', 'pointer', 'move', 'freehand', 'highlighter',
+                       'text', 'postit', 'eraser', 'laser',
+                       'point', 'segment', 'circle', 'ruler', 'compass'];
+        saveStoredFloatingToolbars(getStoredFloatingToolbars().map(tb =>
+            tb.id === 'system-toolbar-main' ? { ...tb, items: items.slice() } : tb));
+        renderFloatingToolbars();
+        const barre = document.getElementById('system-toolbar-main');
+        const pool = barre.querySelector('.cwrap');
+        const vus = () => Array.from(pool.children)
+            .filter(b => b.getClientRects().length > 0)
+            .map(b => b.dataset.dragSourceToolId);
         basculerLaBarreCourte(false);
-        const avant = { suite: vu('#outils-en-plus'), poignee: vu('#outils-poignee'),
-                        gomme: vu('#bar-tools [data-mode="eraser"]') };
+        const avant = { n: vus().length, h: Math.round(barre.getBoundingClientRect().height) };
 
-        const actif = basculerLaBarreCourte(true);
-        const reduite = {
-            actif,
-            // Ce qui reste : jusqu'à la gomme et au laser.
-            gomme: vu('#bar-tools [data-mode="eraser"]'),
-            laser: vu('#bar-tools [data-mode="laser"]'),
-            postit: vu('#bar-tools [data-mode="postit"]'),
-            // Ce qui s'efface : la géométrie et les instruments.
-            point: vu('#bar-tools [data-mode="point"]'),
-            compas: vu('#bar-tools [data-widget="compass"]'),
-            // Et la poignée paraît, puisqu'il y a quelque chose à retrouver.
-            poignee: vu('#outils-poignee'),
-            retenu: localStorage.getItem('auTableau_barre_courte'),
-            allume: document.getElementById('rp-barre-courte').classList.contains('actif')
-        };
+        basculerLaBarreCourte(true);
+        const reduite = { n: vus().length, restants: vus(),
+                          h: Math.round(barre.getBoundingClientRect().height),
+                          retenu: localStorage.getItem('auTableau_barre_courte'),
+                          allume: document.getElementById('rp-barre-courte').classList.contains('actif') };
 
-        // LA POIGNÉE : on tire, tout revient — ET L'OPTION S'ÉTEINT.
-        const p = document.getElementById('outils-poignee');
-        const opt = (x, y) => ({ pointerId: 7, pointerType: 'mouse', isPrimary: true,
-                                 clientX: x, clientY: y, bubbles: true, cancelable: true });
-        const r0 = p.getBoundingClientRect();
-        p.dispatchEvent(new PointerEvent('pointerdown', opt(r0.left + 5, r0.top + 5)));
-        window.dispatchEvent(new PointerEvent('pointermove', opt(r0.left + 30, r0.top + 30)));
-        window.dispatchEvent(new PointerEvent('pointerup', opt(r0.left + 30, r0.top + 30)));
-        const tiree = {
-            point: vu('#bar-tools [data-mode="point"]'),
-            compas: vu('#bar-tools [data-widget="compass"]'),
-            poignee: vu('#outils-poignee'),
-            optionEteinte: localStorage.getItem('auTableau_barre_courte') === 'false',
-            allume: document.getElementById('rp-barre-courte').classList.contains('actif')
-        };
-        return { avant, reduite, tiree };
+        // LA POIGNÉE DU COIN : on tire, tout revient, et l'option s'éteint.
+        const coin = barre.querySelector('.custom-resizer');
+        const rc = coin.getBoundingClientRect();
+        coin.dispatchEvent(new PointerEvent('pointerdown', {
+            pointerId: 11, pointerType: 'mouse', isPrimary: true,
+            clientX: rc.left + 4, clientY: rc.top + 4, bubbles: true, cancelable: true }));
+        const rendue = { n: vus().length, h: Math.round(barre.getBoundingClientRect().height),
+                         eteinte: localStorage.getItem('auTableau_barre_courte') === 'false',
+                         allume: document.getElementById('rp-barre-courte').classList.contains('actif') };
+        return { avant, reduite, rendue };
     });
-    r.egal('sans l\'option, toute la barre est là et la poignée ne paraît pas',
-        { suite: courte.avant.suite, poignee: courte.avant.poignee }, { suite: true, poignee: false });
-    r.egal('réduite, on garde tout jusqu\'à la gomme et au laser',
-        { postit: courte.reduite.postit, gomme: courte.reduite.gomme, laser: courte.reduite.laser },
-        { postit: true, gomme: true, laser: true });
-    r.egal('et ce qui vient après s\'efface',
-        { point: courte.reduite.point, compas: courte.reduite.compas }, { point: false, compas: false });
-    r.egal('la poignée paraît, et le réglage est allumé et retenu',
-        { poignee: courte.reduite.poignee, retenu: courte.reduite.retenu, allume: courte.reduite.allume },
-        { poignee: true, retenu: 'true', allume: true });
-    r.egal('tirer la poignée ramène tout ET ÉTEINT l\'option',
-        { point: courte.tiree.point, compas: courte.tiree.compas, poignee: courte.tiree.poignee,
-          eteinte: courte.tiree.optionEteinte, allume: courte.tiree.allume },
-        { point: true, compas: true, poignee: false, eteinte: true, allume: false });
+    r.verifie('sans l\'option, toute la barre est là',
+        courte.avant.n === 15, JSON.stringify(courte.avant));
+    r.egal('réduite, il ne reste que les gestes du quotidien, gomme et laser compris',
+        courte.reduite.restants,
+        ['btn-undo', 'btn-redo', 'pointer', 'move', 'freehand', 'highlighter',
+         'text', 'postit', 'eraser', 'laser']);
+    r.verifie('et la barre raccourcit pour de bon',
+        courte.reduite.h < courte.avant.h * 0.75, JSON.stringify(courte));
+    r.egal('le réglage est allumé et retenu',
+        { retenu: courte.reduite.retenu, allume: courte.reduite.allume },
+        { retenu: 'true', allume: true });
+    r.egal('tirer le coin ramène tout ET ÉTEINT l\'option',
+        { n: courte.rendue.n, hauteur: courte.rendue.h === courte.avant.h,
+          eteinte: courte.rendue.eteinte, allume: courte.rendue.allume },
+        { n: courte.avant.n, hauteur: true, eteinte: true, allume: false });
 
     // L'OPTION « TIROIRS REFERMÉS TOUT SEULS ».
     const tiroirs = await page.evaluate(() => {

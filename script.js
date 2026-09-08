@@ -6471,6 +6471,12 @@ function updateCursor() {
     }
 
     if (isCropMode) { canvas.classList.add('cursor-crosshair'); return; }
+    // LES CISEAUX SONT ARMÉS : le curseur doit le dire. Il gardait la main du
+    // déplacement, si bien qu'on croyait pouvoir prendre le document — et le
+    // clic traçait un rectangle. Une croix annonce un tracé.
+    if (typeof decoupeActive !== 'undefined' && decoupeActive) {
+        canvas.classList.add('cursor-crosshair'); return;
+    }
     if (isPanningView || isSpacePressed || mode === 'move') { canvas.classList.add(isPanningView ? 'cursor-grabbing' : 'cursor-grab'); return; }
     // En présentation, le glisser prend la page : le curseur le dit.
     if (typeof presentationEnCours !== 'undefined' && presentationEnCours && mode === 'pointer') {
@@ -12457,11 +12463,32 @@ function repererLesExercices() {
             : 'Rien à repérer sur cette page');
         return 0;
     }
-    let pris = 0;
-    blocs.forEach(r => { if (prendreUnMorceau(obj, r, true)) pris++; });
+    // CE QUI EST DÉJÀ LÀ N'EST PAS REPROPOSÉ. Relancer le repérage sur la même
+    // page retrouve évidemment les mêmes blocs : sans cette mémoire, le tiroir
+    // doublait à chaque appui, et ce qu'on venait de jeter revenait.
+    const deja = new Set(morceauxEnAttente.map(signatureDuMorceau));
+    let pris = 0, ecartes = 0;
+    blocs.forEach(r => {
+        const m = prendreUnMorceau(obj, r, true);
+        if (!m) return;
+        const signe = signatureDuMorceau(m);
+        if (morceauxJetes.has(signe) || deja.has(signe)) {
+            morceauxEnAttente = morceauxEnAttente.filter(x => x !== m);
+            ecartes++;
+            return;
+        }
+        deja.add(signe);
+        pris++;
+    });
     majLeTiroirDesMorceaux();
     draw();
-    showToast(`⌁ ${pris} blocs repérés — au tiroir. Jetez ce qui n'en est pas, puis « Tout poser »`);
+    if (!pris) {
+        showToast(ecartes ? 'Ces blocs ont déjà été jetés — rien de nouveau à repérer'
+                          : 'Rien à repérer sur cette page');
+        return 0;
+    }
+    showToast(`⌁ ${pris} blocs repérés — au tiroir. Jetez ce qui n'en est pas, puis « Poser à côté »`
+        + (ecartes ? ` (${ecartes} déjà jeté(s), écarté(s))` : ''));
     return pris;
 }
 
@@ -12520,9 +12547,25 @@ function majLeTiroirDesMorceaux() {
     brancherLesVignettes();
 }
 
+// CE QU'ON A JETÉ NE REVIENT PAS. « ⌁ Repérer » relit la page et retrouve
+// évidemment les mêmes blocs : on jetait le bandeau d'en-tête, on relançait le
+// repérage pour un autre exercice, et il était là de nouveau. On retient donc
+// ce qu'on a écarté — par sa place exacte sur la page, pas par son numéro, qui
+// change à chaque découpe.
+const morceauxJetes = new Set();
+
+function signatureDuMorceau(m) {
+    return [m.src, Math.round(m.cx), Math.round(m.cy),
+            Math.round(m.cw), Math.round(m.ch)].join('|');
+}
+
 function jeterLeMorceau(id) {
     const avant = morceauxEnAttente.length;
-    morceauxEnAttente = morceauxEnAttente.filter(m => String(m.id) !== String(id));
+    morceauxEnAttente = morceauxEnAttente.filter(m => {
+        if (String(m.id) !== String(id)) return true;
+        morceauxJetes.add(signatureDuMorceau(m));
+        return false;
+    });
     if (morceauxEnAttente.length !== avant) majLeTiroirDesMorceaux();
 }
 
@@ -12609,6 +12652,8 @@ function poserLeMorceau(m, ou) {
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
     majLeTiroirDesMorceaux();
+    // Sorti du tiroir et posé : on ne découpe plus, on place.
+    if (typeof basculerLaDecoupe === 'function' && decoupeActive) basculerLaDecoupe(false);
     affinerLesMorceaux([objet]);
     saveState();
     draw();
@@ -12764,6 +12809,10 @@ function poserTousLesMorceaux() {
     // Posés ET tenus : le lot se déplace d'un geste si la place ne convient pas.
     selectedItems = poses.map(o => ({ type: 'image', id: o.id }));
     majLeTiroirDesMorceaux();
+    // POSER TERMINE LE DÉCOUPAGE. Les ciseaux restaient armés : le clic suivant
+    // retaillait le morceau qu'on venait de poser au lieu de le prendre, et
+    // l'on ne pouvait plus rien sélectionner sans deviner qu'il fallait Échap.
+    if (typeof basculerLaDecoupe === 'function' && decoupeActive) basculerLaDecoupe(false);
     // AGRANDIS, ILS RÉCLAMENT UNE PAGE PLUS FINE. Rien ne le demandait pour
     // eux : l'affinage ne suivait que le document tenu par la barre.
     affinerLesMorceaux(poses);
@@ -12842,6 +12891,7 @@ function brancherLeTiroirDesMorceaux() {
 
 function viderLeTiroirDesMorceaux() {
     if (!morceauxEnAttente.length) return;
+    morceauxEnAttente.forEach(m => morceauxJetes.add(signatureDuMorceau(m)));
     morceauxEnAttente = [];
     majLeTiroirDesMorceaux();
     if (typeof showToast === 'function') showToast('Tiroir vidé — les morceaux déjà posés restent');
@@ -16606,6 +16656,33 @@ function removePluginFromFloatingToolbar(toolbarId, toolId) {
     renderFloatingToolbars();
 }
 
+// LES GESTES DU QUOTIDIEN S'ARRÊTENT À LA GOMME ET AU POINTEUR LASER. Ce qui
+// suit — géométrie et instruments — est indispensable en cours de maths et
+// encombrant pour qui vient écrire trois lignes au tableau. On marque la
+// suite ; c'est la feuille de style qui l'efface, sur l'option seule.
+const DERNIERS_DU_QUOTIDIEN = ['eraser', 'laser'];
+
+function marquerLaSuiteDeLaBarre(pool, toolbar) {
+    if (!pool || !toolbar || toolbar.id !== 'system-toolbar-main') return 0;
+    const boutons = Array.from(pool.children);
+    // Le dernier des deux, quel que soit l'ordre où on les a rangés.
+    let coupure = -1;
+    boutons.forEach((el, i) => {
+        const id = el.dataset && el.dataset.dragSourceToolId;
+        if (id && DERNIERS_DU_QUOTIDIEN.includes(id)) coupure = i;
+    });
+    // Ni gomme ni laser dans cette barre : on ne devine pas où couper.
+    if (coupure < 0) return 0;
+    let marques = 0;
+    boutons.forEach((el, i) => {
+        if (i <= coupure) return;
+        el.classList.add('outil-en-plus');
+        marques++;
+    });
+    return marques;
+}
+window.marquerLaSuiteDeLaBarre = marquerLaSuiteDeLaBarre;
+
 function renderFloatingToolbar(toolbar) {
     const container = document.getElementById('custom-bars-container');
     if (!container) return;
@@ -16932,6 +17009,13 @@ function renderFloatingToolbar(toolbar) {
         });
     }
 
+    // CE QUI S'EFFACE QUAND LA BARRE EST RÉDUITE. La barre de gauche n'est pas
+    // « bar-tools » — celle-là est masquée depuis longtemps — mais une barre
+    // flottante, dont l'ordre appartient à celui qui l'a rangée. On coupe donc
+    // d'après SON contenu : tout ce qui vient après la gomme et le pointeur
+    // laser, les derniers gestes du quotidien.
+    marquerLaSuiteDeLaBarre(pool, toolbar);
+
     const resizer = document.createElement('div');
     resizer.className = 'custom-resizer';
     resizer.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v6h-6"></path><path d="M21 21l-7-7"></path></svg>';
@@ -17049,6 +17133,18 @@ function renderFloatingToolbar(toolbar) {
         } : tb));
     };
     resizer.addEventListener('pointerdown', (e) => {
+        // LA POIGNÉE DU COIN RAMÈNE LA BARRE ENTIÈRE. Tant que l'option de
+        // réduction est active, ce coin ne sert pas à redimensionner mais à
+        // retrouver ce qui manque — et l'option s'éteint avec, puisqu'on
+        // vient de la redemander. Sans cela il aurait fallu retourner dans
+        // les réglages pour défaire un geste qu'on regrette aussitôt.
+        if (toolbar.id === 'system-toolbar-main'
+            && typeof barreCourte !== 'undefined' && barreCourte) {
+            e.preventDefault(); e.stopPropagation();
+            basculerLaBarreCourte(false);
+            if (typeof showToast === 'function') showToast('Toute la barre est revenue');
+            return;
+        }
         isResizing = true;
         resizeStartX = e.clientX;
         resizeInitialW = bar.offsetWidth;
@@ -17186,6 +17282,10 @@ function renderFloatingToolbars() {
         }
     }
     localStorage.setItem('board_toolbars_migrated_v2', 'true');
+
+    // La gomme et le pointeur laser remontent auprès du texte et du post-it :
+    // ce sont des gestes du quotidien, ils traînaient après toute la géométrie.
+    if (typeof remonterLesGestesDuQuotidien === 'function') remonterLesGestesDuQuotidien();
 
     container.innerHTML = '';
     getStoredFloatingToolbars().forEach(toolbar => renderFloatingToolbar(toolbar));
@@ -28855,6 +28955,41 @@ try {
 function poserLaBarreCourte() {
     document.body.classList.toggle('barre-outils-courte', barreCourte);
 }
+
+// LA BARRE DE GAUCHE EST UNE BARRE FLOTTANTE, et son ordre est celui que
+// l'utilisateur lui a donné — pas celui du gabarit. La gomme et le pointeur
+// laser y traînaient donc encore après toute la géométrie : les remonter dans
+// le gabarit ne suffisait pas, il fallait les remonter là où ils sont.
+// Une fois, sans y revenir : ranger sa barre reste l'affaire du professeur.
+const CLE_ORDRE_QUOTIDIEN = 'auTableau_ordre_quotidien_v1';
+
+function remonterLesGestesDuQuotidien() {
+    try { if (localStorage.getItem(CLE_ORDRE_QUOTIDIEN) === 'true') return false; } catch (e) { return false; }
+    let bougee = false;
+    const barres = getStoredFloatingToolbars().map(tb => {
+        if (tb.id !== 'system-toolbar-main' || !Array.isArray(tb.items)) return tb;
+        const items = tb.items.slice();
+        const apres = Math.max(items.indexOf('postit'), items.indexOf('text'));
+        const gomme = items.indexOf('eraser'), laser = items.indexOf('laser');
+        // Rien à faire s'ils y sont déjà, ou s'ils n'y sont pas du tout.
+        if (apres < 0 || (gomme < 0 && laser < 0)) return tb;
+        if (gomme > apres && gomme <= apres + 2 && (laser < 0 || laser <= apres + 2)) return tb;
+        const suite = items.filter(x => x !== 'eraser' && x !== 'laser');
+        const place = Math.max(suite.indexOf('postit'), suite.indexOf('text')) + 1;
+        const remis = [
+            ...suite.slice(0, place),
+            ...(gomme >= 0 ? ['eraser'] : []),
+            ...(laser >= 0 ? ['laser'] : []),
+            ...suite.slice(place)
+        ];
+        bougee = true;
+        return { ...tb, items: remis };
+    });
+    if (bougee) saveStoredFloatingToolbars(barres);
+    try { localStorage.setItem(CLE_ORDRE_QUOTIDIEN, 'true'); } catch (e) { /* refusé */ }
+    return bougee;
+}
+window.remonterLesGestesDuQuotidien = remonterLesGestesDuQuotidien;
 
 function basculerLaBarreCourte(force) {
     barreCourte = (force === undefined) ? !barreCourte : !!force;

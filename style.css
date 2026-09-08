@@ -9232,21 +9232,14 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    encombrant pour qui vient écrire trois lignes au tableau. L'option ne garde
    que les gestes du quotidien — jusqu'à la gomme et au pointeur laser — et
    efface la géométrie et les instruments. Rien n'est perdu : la poignée du
-   coin inférieur droit les ramène, et l'option s'éteint avec.
+   coin inférieur droit, celle qui redimensionne d'ordinaire, les ramène et
+   éteint l'option du même coup.
    ============================================================ */
-.outils-suite { display: contents; }
-body.barre-outils-courte #outils-en-plus { display: none; }
+body.barre-outils-courte #system-toolbar-main .outil-en-plus { display: none !important; }
 
-/* La poignée ne paraît QUE quand il y a quelque chose à retrouver : sans
-   cela, elle promettrait un geste qui ne rend rien. */
-.outils-poignee { display: none; }
-body.barre-outils-courte .outils-poignee {
-    display: flex;
-    align-self: flex-end;
-    margin-top: 2px;
-    padding: 2px 4px;
-    opacity: 0.45;
+/* La poignée s'annonce : c'est elle qui rend ce qui manque. */
+body.barre-outils-courte #system-toolbar-main .custom-resizer {
+    opacity: 1;
+    color: var(--accent, #6c5ce7);
     cursor: nwse-resize;
-    touch-action: none;
 }
-body.barre-outils-courte .outils-poignee:hover { opacity: 1; }

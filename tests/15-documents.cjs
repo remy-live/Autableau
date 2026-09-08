@@ -1790,6 +1790,96 @@ module.exports = async function (browser) {
         jete.apres === 2 && !jete.restants.includes(jete.jete)
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
 
+    // =====================================================================
+    // CE QU'ON A JETÉ NE REVIENT PAS
+    // « ⌁ Repérer » relit la page et retrouve évidemment les mêmes blocs : on
+    // jetait le bandeau d'en-tête, on relançait le repérage, il était là de
+    // nouveau. Et les ciseaux restaient armés après la pose, si bien que le
+    // clic suivant retaillait au lieu de choisir.
+    // =====================================================================
+    const jete2 = await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 800; c.height = 1100;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, 800, 1100);
+        g.fillStyle = '#111';
+        const pave = (haut) => { for (let i = 0; i < 6; i++) g.fillRect(80, haut + i * 22, 620, 9); };
+        pave(90); pave(430); pave(780);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const doc = { id: nextId++, x: 100, y: 60, w: 400, h: 550, cx: 0, cy: 0, cw: 800, ch: 1100,
+                      src: url, fileName: 'exos.png', z: globalZ++ };
+        images.push(doc);
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+
+        const premier = repererLesExercices();
+        // On en jette un, puis on relance le repérage sur la MÊME page.
+        const vise = morceauxEnAttente[1].id;
+        jeterLeMorceau(vise);
+        const apresJet = morceauxEnAttente.length;
+        const second = repererLesExercices();
+        const apresSecond = morceauxEnAttente.length;
+
+        // Et vider le tiroir vaut jet, lui aussi.
+        viderLeTiroirDesMorceaux();
+        const troisieme = repererLesExercices();
+        return { premier, apresJet, second, apresSecond, troisieme,
+                 tiroir: morceauxEnAttente.length };
+    });
+    r.egal('le repérage trouve les trois blocs', jete2.premier, 3);
+    r.egal('on en jette un : il en reste deux', jete2.apresJet, 2);
+    r.egal('relancer le repérage ne ramène pas celui qu\'on a jeté',
+        { nouveaux: jete2.second, tiroir: jete2.apresSecond }, { nouveaux: 0, tiroir: 2 });
+    r.egal('et vider le tiroir vaut jet : plus rien ne revient',
+        { nouveaux: jete2.troisieme, tiroir: jete2.tiroir }, { nouveaux: 0, tiroir: 0 });
+
+    // POSER TERMINE LE DÉCOUPAGE, et le curseur dit quand les ciseaux sont armés.
+    const finDeDecoupe = await page.evaluate(() => {
+        const doc = images.find(o => o.pluginData === undefined || o.pluginData.id !== 'morceau');
+        const canevas = document.getElementById('board');
+        morceauxEnAttente = [];
+        basculerLaDecoupe(true);
+        updateCursor();
+        const arme = { actif: decoupeActive, croix: canevas.classList.contains('cursor-crosshair'),
+                       main: canevas.classList.contains('cursor-grab') };
+        const rr = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.4, h: doc.h * 0.15 };
+        decoupeGeste = { obj: doc, debut: { x: rr.x, y: rr.y }, rect: rr };
+        finirGesteDeDecoupe();
+        const avantPose = decoupeActive;
+        poserTousLesMorceaux();
+        updateCursor();
+        const apres = { actif: decoupeActive, croix: canevas.classList.contains('cursor-crosshair') };
+        // ET ON PEUT ENFIN LE PRENDRE : le clic ne retaille plus.
+        const m = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        selectedItems = [];
+        setMode('pointer');
+        const pos = { x: m.x + m.w / 2, y: m.y + m.h / 2 };
+        canevas.dispatchEvent(new PointerEvent('pointerdown', {
+            pointerId: 21, pointerType: 'mouse', isPrimary: true, buttons: 1,
+            clientX: pos.x * zoom + panX, clientY: pos.y * zoom + panY,
+            bubbles: true, cancelable: true }));
+        canevas.dispatchEvent(new PointerEvent('pointerup', {
+            pointerId: 21, pointerType: 'mouse', isPrimary: true,
+            clientX: pos.x * zoom + panX, clientY: pos.y * zoom + panY,
+            bubbles: true, cancelable: true }));
+        return { arme, avantPose, apres,
+                 choisi: selectedItems.length === 1 && selectedItems[0].id === m.id,
+                 morceaux: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('ciseaux armés, le curseur est une croix — pas une main',
+        { croix: finDeDecoupe.arme.croix, main: finDeDecoupe.arme.main }, { croix: true, main: false });
+    r.egal('ils restent armés tant qu\'on découpe', finDeDecoupe.avantPose, true);
+    r.egal('poser les repose, et le curseur cesse d\'annoncer un tracé',
+        { actif: finDeDecoupe.apres.actif, croix: finDeDecoupe.apres.croix },
+        { actif: false, croix: false });
+    r.verifie('et le morceau posé se laisse enfin prendre, sans être retaillé',
+        finDeDecoupe.choisi && finDeDecoupe.morceaux === 1, JSON.stringify(finDeDecoupe));
+
     // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
     // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
     // lui a coupé de trop.
