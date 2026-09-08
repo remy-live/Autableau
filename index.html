@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=110">
+    <link rel="stylesheet" href="style.css?v=111">
 </head>
 
 <body>
@@ -987,6 +987,12 @@
                             morceau posé à côté y tomberait dans le noir, hors d'atteinte. Poser à côté
                             <b>quitte donc le plein écran</b>. Un morceau lâché <b>sur</b> la page
                             projetée, lui, s'y voit très bien : la présentation continue.<br>
+                            <b>Sortir du plein écran du navigateur :</b> présenter le prend, quitter la
+                            présentation le rend — ce qu'un geste ouvre, il le referme. Et tant qu'on y
+                            est, la barre du document porte un bouton pour en sortir <b>sans</b> cesser de
+                            montrer la page : le seul autre vit dans le tiroir du bas, que le plein écran
+                            efface. Si vous étiez déjà en plein écran avant de présenter, on ne vous en
+                            sort pas.<br>
                             <b>Poser termine le découpage :</b> les ciseaux se reposent, et l'on peut
                             reprendre en main ce qu'on vient de poser. Tant qu'ils sont armés, le curseur
                             est une <b>croix</b> — c'est ce qui annonce un tracé.<br>
@@ -1069,6 +1075,16 @@
                             barre traversait l'écran. Le mot est dans l'<b>infobulle</b> — elle dit la même
                             chose, et plus longuement, sans rien coûter tant qu'on ne la demande pas.
                             Chaque bouton en a une : une icône muette ne serait qu'un rébus.</li>
+                        <li><strong>La barre debout, au bord droit :</strong> le bouton <b>⊟</b> de sa
+                            poignée la met en colonne. Ce n'est pas une coquetterie : un tableau est en
+                            16/9, une page en 1/1,41 — quand la page occupe toute la hauteur, il reste de
+                            chaque côté une colonne large de plus d'un demi-écran que rien n'occupera
+                            jamais, tandis qu'une barre à plat mange de la <b>hauteur</b>, la dimension
+                            qui fixe la taille de la page. Debout, elle tient en quatre-vingts pixels et ne
+                            coûte rien. La pagination y reste une ligne — <b>◀ 3 /9 ▶</b> ne se lit pas en
+                            colonne. Le choix est retenu d'une séance à l'autre, et rien ne le fait tout
+                            seul : une barre qui pivote d'elle-même, on la cherche. Sur un document
+                            <b>paysage</b>, c'est l'inverse — gardez-la à plat.</li>
                         <li><strong>Deux options contre l'encombrement</strong> (roue crantée du tiroir du
                             haut, rubrique <b>Encombrement</b>). Aucune n'est active au départ : c'est vous
                             qui décidez.<br>
@@ -2177,6 +2193,19 @@
              en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
              La place choisie est retenue d'une seance a l'autre. -->
         <div class="drag-wrapper">
+            <!-- DEBOUT OU À PLAT. Un tableau est en 16/9, une page en 1/1,41 :
+                 quand la page occupe toute la hauteur, il reste de chaque côté
+                 une colonne que rien n'occupera jamais, tandis qu'une barre à
+                 plat mange de la HAUTEUR — la dimension qui fixe la taille de
+                 la page. Le choix est retenu ; il n'est pas fait tout seul,
+                 une barre qui pivote d'elle-même se cherche. -->
+            <button class="btn-minimize btn-orienter" id="bar-style-orienter"
+                title="Mettre la barre debout, au bord droit"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="9" width="18" height="6" rx="2" />
+                    <path d="M12 3v3M12 18v3" />
+                </svg></button>
             <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <line x1="5" y1="12" x2="19" y2="12" />
                 </svg></button>
@@ -2201,6 +2230,16 @@
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+            </svg></button>
+        <!-- SORTIR DU PLEIN ÉCRAN DU NAVIGATEUR. Il n'existait aucun bouton
+             pour cela : le seul vivait dans le tiroir du bas, que le plein
+             écran efface. On entrait, et il fallait connaître la touche Échap
+             — ou deviner. Celui-ci ne paraît que lorsqu'il sert. -->
+        <button class="doc-btn" id="doc-sortir-navigateur" style="display:none;"
+            data-tooltip="Sortir du plein écran du navigateur">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
             </svg></button>
         <i class="doc-sep" id="doc-plein-ecran-sep"></i>
         <span id="doc-pages">
@@ -2640,7 +2679,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=200"></script>
+    <script src="script.js?v=201"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -5834,6 +5834,49 @@ function replacerLaBarreStyle() {
 }
 window.replacerLaBarreStyle = replacerLaBarreStyle;
 
+// LA BARRE SE MET DEBOUT.
+// Un tableau est en 16/9, une page en 1/1,41 : quand la page occupe toute la
+// hauteur, il reste de chaque côté une colonne large de plus d'un demi-écran
+// que rien n'occupera jamais. Une barre à plat, elle, mange de la HAUTEUR — la
+// dimension qui fixe la taille de la page.
+// Elle n'était pas montrable tant que sept boutons y écrivaient leur nom : une
+// colonne large comme « Numéroter » n'est plus une colonne. Les libellés étant
+// partis dans les infobulles, elle tient maintenant en quarante pixels.
+// L'orientation vit sur le CORPS de la page : la liste des classes de la barre
+// est entièrement réécrite à chaque changement de sélection.
+const CLE_BARRE_DEBOUT = 'auTableau_barre_debout';
+let barreDebout = false;
+try { barreDebout = localStorage.getItem(CLE_BARRE_DEBOUT) === 'true'; } catch (e) { /* stockage refusé */ }
+
+function majBoutonDOrientation() {
+    const b = document.getElementById('bar-style-orienter');
+    if (!b) return;
+    b.classList.toggle('actif', barreDebout);
+    b.title = barreDebout ? 'Coucher la barre, en haut' : 'Mettre la barre debout, au bord droit';
+}
+
+function basculerLOrientationDeLaBarre(force) {
+    barreDebout = (force === undefined) ? !barreDebout : !!force;
+    try { localStorage.setItem(CLE_BARRE_DEBOUT, barreDebout ? 'true' : 'false'); } catch (e) { /* refusé */ }
+    // ON CHANGE DE MEUBLE : la place gardée à la main ne vaut plus, elle
+    // laisserait la barre à cheval sur un bord.
+    barreStylePosee = null;
+    retenirLaBarreStyle();
+    majBoutonDOrientation();
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+    if (typeof showToast === 'function') {
+        showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, en haut');
+    }
+    return barreDebout;
+}
+window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('bar-style-orienter');
+    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); basculerLOrientationDeLaBarre(); });
+    majBoutonDOrientation();
+});
+
 // La poignée générique des barres déplace celle-ci comme les autres ; il ne
 // manquait qu'un endroit où retenir le résultat.
 document.addEventListener('DOMContentLoaded', () => {
@@ -5855,7 +5898,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- GESTION SELECTION ET STYLES ---
 function updateStyleBarContext() {
-    const barStyle = document.getElementById('bar-style'); barStyle.className = "toolbar visible";
+    // La liste des classes est entièrement réécrite ici : l'orientation, qui
+    // n'est pas un contexte mais un meuble, doit être remise avec.
+    const barStyle = document.getElementById('bar-style');
+    barStyle.className = 'toolbar visible' + (barreDebout ? ' vertical' : '');
     if (barStyle.parentNode !== document.body) {
         document.body.appendChild(barStyle);
         localStorage.setItem('minimized_bar-style', 'false');
@@ -5883,6 +5929,15 @@ function updateStyleBarContext() {
             Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
         barStyle.style.top = Math.round(Math.max(4,
             Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
+    } else if (barreDebout) {
+        // DEBOUT, AU BORD DROIT. Le gauche appartient à la barre des outils :
+        // deux colonnes du même côté seraient pires que ce qu'on remplace.
+        barStyle.removeAttribute('data-dragged');
+        barStyle.style.left = 'auto';
+        barStyle.style.right = '20px';
+        barStyle.style.top = '50%';
+        barStyle.style.bottom = 'auto';
+        barStyle.style.transform = 'translateY(-50%)';
     } else {
         barStyle.removeAttribute('data-dragged');
         barStyle.style.left = '50%';
@@ -13569,6 +13624,11 @@ function majBarreDocument() {
     }
     const sepPlein = document.getElementById('doc-plein-ecran-sep');
     if (sepPlein) sepPlein.style.display = unDocument ? 'inline-block' : 'none';
+    // Sortir du plein écran du navigateur : seulement quand on y est.
+    const bSortir = document.getElementById('doc-sortir-navigateur');
+    if (bSortir) {
+        bSortir.style.display = (unDocument && document.fullscreenElement) ? 'inline-flex' : 'none';
+    }
     const groupeZones = document.getElementById('doc-zones-edition');
     const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
@@ -13720,6 +13780,19 @@ function brancherBarreDocument() {
         const bouton = b('doc-reperer');
         if (!bouton) return;
         bouton.addEventListener('click', () => { repererLesExercices(); });
+    })();
+
+    // Sortir du plein écran du navigateur, sans quitter ce qu'on regarde.
+    (function () {
+        const bouton = b('doc-sortir-navigateur');
+        if (!bouton) return;
+        bouton.addEventListener('click', () => {
+            pleinEcranDeLaPresentation = false;
+            if (document.fullscreenElement && document.exitFullscreen) {
+                document.exitFullscreen().catch(() => { /* le navigateur refuse */ });
+            }
+            majBarreDocument();
+        });
     })();
 
     // Le plein écran : le même bouton y entre et en sort.
@@ -17800,6 +17873,13 @@ function couleurParRaccourci(n) {
     return true;
 }
 
+// Échap sort du plein écran sans passer par nous : la barre doit le voir,
+// sinon elle propose d'en sortir alors qu'on n'y est plus.
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) pleinEcranDeLaPresentation = false;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+});
+
 function basculerPleinEcran() {
     if (!document.fullscreenElement) {
         const p = document.documentElement.requestFullscreen();
@@ -18001,7 +18081,12 @@ function presenterLeDocument() {
         : 'page';
     presentationEnCours = doc.id;
 
-    if (!document.fullscreenElement) basculerPleinEcran();
+    // CE QUE LA PRÉSENTATION OUVRE, ELLE LE REFERME. Le plein écran du
+    // navigateur restait allumé quand on quittait la présentation, et rien ne
+    // permettait d'en sortir : le seul bouton vit dans le tiroir du bas, que
+    // le plein écran efface. On ne referme que ce qu'on a ouvert soi-même :
+    // qui était déjà en plein écran avant y reste.
+    if (!document.fullscreenElement) { pleinEcranDeLaPresentation = true; basculerPleinEcran(); }
     // Le mode Focus efface les barres ; on ne l'allume que s'il ne l'est pas
     // déjà, pour que le raccourci ne le coupe pas en croyant l'allumer.
     if (!document.body.classList.contains('focus-mode')
@@ -18045,10 +18130,19 @@ function presenterLeDocument() {
 }
 
 // Sortir de la présentation : le fond sombre s'en va avec elle.
+// Vrai si c'est la présentation qui a demandé le plein écran du navigateur.
+let pleinEcranDeLaPresentation = false;
+
 function quitterLaPresentation() {
     if (!presentationEnCours) return false;
     presentationEnCours = null;
     cadrageDePresentation = 'page';
+    if (pleinEcranDeLaPresentation) {
+        pleinEcranDeLaPresentation = false;
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => { /* le navigateur refuse */ });
+        }
+    }
     if (document.body.classList.contains('focus-mode')
         && typeof toggleFocusMode === 'function') toggleFocusMode();
     if (typeof draw === 'function') draw();

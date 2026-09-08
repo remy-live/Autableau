@@ -771,6 +771,66 @@ module.exports = async function (browser) {
         { presentation: barreDuPlein.rentre.presentation, allume: barreDuPlein.rentre.allume },
         { presentation: true, allume: true });
 
+    // ---------------------------------------------------------------
+    // SORTIR DU PLEIN ÉCRAN DU NAVIGATEUR
+    // Ce que la présentation ouvre, elle le referme : le plein écran du
+    // navigateur restait allumé quand on quittait la présentation, et rien ne
+    // permettait d'en sortir — le seul bouton vit dans le tiroir du bas, que
+    // le plein écran efface.
+    // ---------------------------------------------------------------
+    const navigateur = await page.evaluate(async () => {
+        const vu = (id) => {
+            const el = document.getElementById(id);
+            return !!el && getComputedStyle(el).display !== 'none';
+        };
+        // On repart à plat, sans plein écran.
+        if (presentationEnCours) quitterLaPresentation();
+        if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) { } }
+        await new Promise(r => setTimeout(r, 200));
+        majBarreDocument();
+        const avant = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur') };
+
+        presenterLeDocument();
+        await new Promise(r => setTimeout(r, 350));
+        majBarreDocument();
+        const pendant = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur'),
+                          pris: pleinEcranDeLaPresentation };
+
+        quitterLaPresentation();
+        await new Promise(r => setTimeout(r, 350));
+        majBarreDocument();
+        const apres = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur') };
+        return { avant, pendant, apres };
+    });
+    r.egal('hors plein écran, le bouton de sortie ne paraît pas',
+        { plein: navigateur.avant.plein, bouton: navigateur.avant.bouton },
+        { plein: false, bouton: false });
+    r.egal('présenter prend le plein écran du navigateur, et le bouton paraît',
+        { plein: navigateur.pendant.plein, bouton: navigateur.pendant.bouton,
+          pris: navigateur.pendant.pris },
+        { plein: true, bouton: true, pris: true });
+    r.egal('quitter la présentation le rend, et le bouton s\'en va avec',
+        { plein: navigateur.apres.plein, bouton: navigateur.apres.bouton },
+        { plein: false, bouton: false });
+
+    // ET LE BOUTON EN SORT SANS QUITTER CE QU'ON REGARDE.
+    const sortieNavigateur = await page.evaluate(async () => {
+        presenterLeDocument();
+        await new Promise(r => setTimeout(r, 350));
+        majBarreDocument();
+        const avant = { plein: !!document.fullscreenElement, presentation: !!presentationEnCours };
+        document.getElementById('doc-sortir-navigateur').click();
+        await new Promise(r => setTimeout(r, 350));
+        return { avant, apres: { plein: !!document.fullscreenElement,
+                                 presentation: !!presentationEnCours } };
+    });
+    r.egal('le bouton sort du plein écran du navigateur',
+        { avant: sortieNavigateur.avant.plein, apres: sortieNavigateur.apres.plein },
+        { avant: true, apres: false });
+    r.egal('sans mettre fin à ce qu\'on est en train de montrer',
+        { avant: sortieNavigateur.avant.presentation, apres: sortieNavigateur.apres.presentation },
+        { avant: true, apres: true });
+
     // ON REND L'ÉCRAN TEL QU'ON L'A TROUVÉ, ET DANS UN ÉTAT DÉCIDÉ.
     // Le cadrage de la présentation est repris 250 ms plus tard : le plein
     // écran du NAVIGATEUR redimensionne la fenêtre — ici 800 pixels de haut

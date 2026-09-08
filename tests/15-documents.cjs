@@ -1791,6 +1791,94 @@ module.exports = async function (browser) {
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
 
     // =====================================================================
+    // LA BARRE DU DOCUMENT, DEBOUT
+    // Un tableau est en 16/9, une page en 1/1,41 : les colonnes latérales sont
+    // perdues d'avance, la hauteur est ce qui manque. Elle n'était pas
+    // montrable tant que sept boutons y écrivaient leur nom ; les libellés
+    // partis dans les infobulles, elle tient en quatre-vingts pixels.
+    // =====================================================================
+    const debout = await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 800;
+        const g = c.getContext('2d'); g.fillStyle = '#eee'; g.fillRect(0, 0, 600, 800);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        images.length = 0;
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 600, ch: 800,
+                      src: url, fileName: 'p.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'zz', page: 2, pages: 9 } };
+        images.push(doc);
+        documentsPdf.set('zz', { pages: 9 });
+        selectedItems = [{ type: 'image', id: doc.id }];
+
+        const mesure = () => {
+            updateStyleBarContext();
+            const b = document.getElementById('bar-style');
+            const rb = b.getBoundingClientRect();
+            const pagination = document.getElementById('doc-pages').getBoundingClientRect();
+            // Les boutons de la barre, la pagination mise à part : elle est une
+            // ligne à elle seule.
+            const dansLaPagination = new Set(
+                Array.from(document.querySelectorAll('#doc-pages *')));
+            const boutons = Array.from(b.querySelectorAll('.doc-btn'))
+                .filter(e => !dansLaPagination.has(e) && e.getClientRects().length > 0)
+                .map(e => { const q = e.getBoundingClientRect();
+                            return { c: Math.round(q.left + q.width / 2),
+                                     l: Math.round(q.left), r: Math.round(q.right),
+                                     t: Math.round(q.top), b: Math.round(q.bottom) }; });
+            return {
+                w: Math.round(rb.width), h: Math.round(rb.height),
+                gauche: Math.round(rb.left), droite: Math.round(rb.right),
+                milieu: Math.round(rb.top + rb.height / 2),
+                sens: getComputedStyle(b).flexDirection,
+                nBoutons: boutons.length,
+                // TOUS SUR LA MÊME COLONNE : c'est ce qui manquait. Chaque
+                // contexte est un « groupe » qui est lui-même une rangée, et
+                // les boutons restaient alignés à l'intérieur.
+                colonnes: [...new Set(boutons.map(e => e.c))].length,
+                deborde: boutons.some(e => e.l < rb.left - 1 || e.r > rb.right + 1
+                                           || e.t < rb.top - 1 || e.b > rb.bottom + 1),
+                paginationEnLigne: getComputedStyle(document.getElementById('doc-pages')).flexDirection,
+                paginationDedans: pagination.right <= rb.right + 1 && pagination.left >= rb.left - 1,
+                defile: b.scrollHeight > b.clientHeight + 1
+            };
+        };
+        basculerLOrientationDeLaBarre(false);
+        const plat = mesure();
+        basculerLOrientationDeLaBarre(true);
+        const dressee = mesure();
+        const retenu = localStorage.getItem('auTableau_barre_debout');
+        // LE PIÈGE : la liste des classes est réécrite à chaque sélection.
+        selectedItems = []; updateStyleBarContext();
+        selectedItems = [{ type: 'image', id: doc.id }]; updateStyleBarContext();
+        const survit = document.getElementById('bar-style').classList.contains('vertical');
+        basculerLOrientationDeLaBarre(false);
+        const recouchee = mesure();
+        return { plat, dressee, retenu, survit, recouchee,
+                 ecran: { L: window.innerWidth, H: window.innerHeight } };
+    });
+    r.egal('à plat, la barre est une ligne', debout.plat.sens, 'row');
+    r.egal('debout, elle devient une colonne', debout.dressee.sens, 'column');
+    r.verifie('et TOUS ses boutons tiennent sur une seule colonne',
+        debout.dressee.nBoutons > 5 && debout.dressee.colonnes === 1,
+        JSON.stringify(debout.dressee));
+    r.verifie('rien ne déborde d\'elle, et rien n\'exige de défiler',
+        !debout.dressee.deborde && !debout.dressee.defile, JSON.stringify(debout.dressee));
+    r.verifie('elle est étroite, rangée au bord DROIT et centrée en hauteur',
+        debout.dressee.w < 140 && (debout.ecran.L - debout.dressee.droite) < 40
+        && debout.dressee.gauche > debout.ecran.L / 2
+        && Math.abs(debout.dressee.milieu - debout.ecran.H / 2) < 3,
+        JSON.stringify({ d: debout.dressee, e: debout.ecran }));
+    r.egal('mais « ◀ 2 /9 ▶ » reste une ligne, et tient dans la colonne',
+        { sens: debout.dressee.paginationEnLigne, dedans: debout.dressee.paginationDedans },
+        { sens: 'row', dedans: true });
+    r.egal('le choix est retenu, et un changement de sélection ne la recouche pas',
+        { retenu: debout.retenu, survit: debout.survit }, { retenu: 'true', survit: true });
+    r.egal('la bascule inverse la remet à plat', debout.recouchee.sens, 'row');
+
+    // =====================================================================
     // ON NE POSE PAS À CÔTÉ D'UNE PAGE QU'ON PROJETTE
     // En présentation, le pourtour est peint sombre PAR-DESSUS tout le reste,
     // et la vue est bornée à la page : un morceau posé à côté tombait dans le
