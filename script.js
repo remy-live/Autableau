@@ -15959,12 +15959,43 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             return;
         }
         else if (field.type === 'checkbox') {
+            // UNE CASE À COCHER EST UNE LIGNE, PAS UN CHAMP. Elle avait son
+            // libellé en petites majuscules au-dessus d'un carré nu posé à
+            // gauche : on devait deviner à quoi ce carré se rapportait, et
+            // rien ne se cliquait sauf les vingt pixels du carré. Le libellé
+            // entre dans la ligne, et la ligne entière devient la cible.
             inp = document.createElement('input');
             inp.type = 'checkbox';
             inp.checked = !!field.value;
-            inp.style.width = '20px';
-            inp.style.height = '20px';
+            inp.style.width = '17px';
+            inp.style.height = '17px';
+            inp.style.margin = '0';
+            inp.style.flexShrink = '0';
             inp.style.cursor = 'pointer';
+
+            // La ligne s'étire sur la hauteur de sa rangée : un libellé qui
+            // passe à la ligne ne doit pas rendre sa case plus haute que sa
+            // voisine.
+            wrap.style.alignSelf = 'stretch';
+            const ligne = document.createElement('label');
+            ligne.className = 'prompt-case' + (inp.checked ? ' cochee' : '');
+            const dit = document.createElement('span');
+            dit.innerText = field.label;
+            ligne.appendChild(inp);
+            ligne.appendChild(dit);
+
+            inp.addEventListener('change', () => {
+                ligne.classList.toggle('cochee', inp.checked);
+                if (onChange && typeof onChange === 'function') {
+                    const rendu = onChange(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value));
+                    if (rendu && previewBox && typeof rendu === 'string') previewBox.innerHTML = rendu;
+                }
+            });
+
+            wrap.appendChild(ligne);
+            container.appendChild(wrap);
+            inputElements.push(inp);
+            return;
         }
         else {
             inp = document.createElement('input');

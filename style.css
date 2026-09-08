@@ -3399,6 +3399,111 @@ body.dark-mode {
     border-color: #a29bfe;
 }
 
+/* UNE CASE À COCHER EST UNE LIGNE, PAS UN CHAMP. Elle portait une étiquette
+   minuscule au-dessus d'un carré nu, et l'on devait deviner à quoi ce carré
+   se rapportait. Le libellé entre dans la ligne, la ligne entière se clique,
+   et cochée elle se teinte au lieu de s'aplatir sous un bleu de système. */
+.prompt-case {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    gap: 9px;
+    padding: 9px 10px;
+    border: 1px solid #dfe6e9;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.6);
+    font-size: 13px;
+    font-weight: 600;
+    color: #2d3436;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.prompt-case:hover {
+    border-color: #b9b0f5;
+    background: rgba(108, 92, 231, 0.06);
+}
+
+.prompt-case.cochee {
+    border-color: #6c5ce7;
+    background: rgba(108, 92, 231, 0.12);
+    color: #5a4bd0;
+}
+
+/* La case elle-même est dessinée : celle du navigateur arrive cerclée de
+   noir épais quand elle est vide, et le carré vide pesait alors plus lourd
+   à l'œil que le choix qu'on venait de faire à côté. */
+.prompt-case input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid #b2bec3;
+    border-radius: 5px;
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.prompt-case input[type="checkbox"]::after {
+    content: '';
+    width: 4px;
+    height: 8px;
+    margin-top: -2px;
+    border: solid #ffffff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) scale(0);
+    transition: transform 0.12s ease;
+}
+
+.prompt-case input[type="checkbox"]:checked {
+    background: #6c5ce7;
+    border-color: #6c5ce7;
+}
+
+.prompt-case input[type="checkbox"]:checked::after {
+    transform: rotate(45deg) scale(1);
+}
+
+.prompt-case input[type="checkbox"]:focus-visible {
+    outline: 2px solid #6c5ce7;
+    outline-offset: 2px;
+}
+
+.dark-mode .prompt-case {
+    border-color: #636e72;
+    background: rgba(45, 52, 54, 0.6);
+    color: #dfe6e9;
+}
+
+.dark-mode .prompt-case:hover {
+    border-color: #8175d8;
+    background: rgba(162, 155, 254, 0.10);
+}
+
+.dark-mode .prompt-case.cochee {
+    border-color: #a29bfe;
+    background: rgba(162, 155, 254, 0.18);
+    color: #d6d1ff;
+}
+
+.dark-mode .prompt-case input[type="checkbox"] {
+    background: #2d3436;
+    border-color: #636e72;
+}
+
+.dark-mode .prompt-case input[type="checkbox"]:checked {
+    background: #a29bfe;
+    border-color: #a29bfe;
+}
+
+.dark-mode .prompt-case input[type="checkbox"]::after {
+    border-color: #2d3436;
+}
+
 /* =====================================
    MENU FLOTTANT & ROTATION
    ===================================== */

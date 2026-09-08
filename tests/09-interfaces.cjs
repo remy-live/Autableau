@@ -341,6 +341,55 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => { basculerLesTiroirsAuto(false); basculerLaBarreCourte(false); });
 
+    // =====================================================================
+    // UNE CASE À COCHER EST UNE LIGNE, PAS UN CHAMP
+    // Elle portait son libellé en petites majuscules AU-DESSUS d'un carré nu :
+    // on devait deviner à quoi ce carré se rapportait, et seuls ses vingt
+    // pixels se cliquaient. Le libellé entre dans la ligne, et toute la ligne
+    // devient la cible — ce qui compte sur un écran qu'on touche du doigt.
+    // =====================================================================
+    const cases = await page.evaluate(async () => {
+        let rendu = null;
+        openCustomPrompt('Essai', [
+            { type: 'checkbox', label: 'Première', value: false },
+            { type: 'checkbox', label: 'Seconde', value: true }
+        ], (res) => { rendu = res.slice(); return ''; }, () => {});
+
+        const lignes = [...document.querySelectorAll('#custom-prompt-inputs .prompt-case')];
+        const coche = (l) => l.querySelector('input[type="checkbox"]');
+        const dedans = lignes.map(l => l.textContent.trim());
+        // AUCUNE ÉTIQUETTE AU-DESSUS : le libellé est dans la ligne, une fois.
+        const auDessus = [...document.querySelectorAll('#custom-prompt-inputs label')]
+            .filter(l => !l.classList.contains('prompt-case')).map(l => l.textContent.trim());
+
+        if (lignes.length < 2 || !coche(lignes[0])) return { n: lignes.length, dedans, auDessus };
+        const avant = coche(lignes[0]).checked;
+        // On clique le TEXTE, pas le carré.
+        (lignes[0].querySelector('span') || lignes[0]).click();
+        const apres = coche(lignes[0]).checked;
+        const teintee = lignes[0].classList.contains('cochee');
+        // Et l'aperçu a été prévenu du nouvel état.
+        const vuParLApercu = rendu && rendu[0] === true;
+
+        // La case déjà cochée s'ouvre teintée.
+        const secondeTeintee = lignes[1].classList.contains('cochee');
+        // Le carré est dessiné par nous : pas de cerclage noir du navigateur.
+        const dessine = getComputedStyle(coche(lignes[0])).appearance === 'none';
+
+        document.getElementById('custom-prompt-modal').style.display = 'none';
+        return { n: lignes.length, dedans, auDessus, avant, apres, teintee,
+                 vuParLApercu, secondeTeintee, dessine };
+    });
+    r.egal('le libellé est dans la ligne, et nulle part au-dessus',
+        { n: cases.n, dedans: cases.dedans, auDessus: cases.auDessus },
+        { n: 2, dedans: ['Première', 'Seconde'], auDessus: [] });
+    r.egal('cliquer le texte coche la case, et la ligne se teinte',
+        { avant: cases.avant, apres: cases.apres, teintee: cases.teintee },
+        { avant: false, apres: true, teintee: true });
+    r.verifie('l\'aperçu est prévenu du nouvel état', cases.vuParLApercu, String(cases.vuParLApercu));
+    r.verifie('une case déjà cochée s\'ouvre teintée', cases.secondeTeintee, String(cases.secondeTeintee));
+    r.verifie('et le carré est le nôtre, pas celui du navigateur', cases.dessine, String(cases.dessine));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -573,6 +573,87 @@ module.exports = async function (browser) {
     r.verifie('et les décimales portent leur nom, pas seulement leur lettre',
         numeration.nomsDecimaux, String(numeration.nomsDecimaux));
 
+    // =====================================================================
+    // QUATRE CASES, ET QUATRE MODÈLES
+    // On cochait les dixièmes, les centièmes et les millièmes un par un pour
+    // n'en retirer presque jamais : six cases là où quatre suffisent. La
+    // partie décimale se prend d'un bloc, et un modèle décide de l'habillage
+    // — celui qu'on projette, celui qu'on photocopie, celui qui va sur un
+    // fond noir.
+    // =====================================================================
+    const habits = await page.evaluate(() => {
+        const t = PluginManager.plugins['cduGeneratorTool'];
+        const champs = t.champsDuTableau('full', '3', null);
+        const texte = (spec, lignes, modele) => decodeURIComponent(escape(
+            atob(t.getCDUSvg(spec, lignes, modele).replace('data:image/svg+xml;base64,', ''))));
+        // La fenêtre telle qu'elle s'ouvre : quatre cases, puis deux listes.
+        const forme = champs.map(c => c.type);
+        const libelles = champs.filter(c => c.type === 'checkbox').map(c => c.label);
+
+        // Les réponses, dans l'ordre où la fenêtre les rend.
+        const decoche = [false, false, true, false, 'sobre', '5'];
+        const cochee = [false, false, true, true, 'ardoise', '2'];
+        const lus = t.reglagesDesReponses(cochee);
+
+        // Chaque modèle teint le tableau à sa façon, et lui seul.
+        const ardoise = texte('milliers', '3', 'ardoise');
+        const couleur = texte('milliers', '3', 'couleur');
+        return {
+            forme, libelles,
+            sansDecimale: t.specDesReponses(decoche),
+            avecDecimale: t.specDesReponses(cochee),
+            // LE PIÈGE : le modèle s'est glissé AVANT les lignes.
+            lus: { spec: lus.spec, modele: lus.modele, lignes: lus.lignes },
+            // Un modèle inconnu, ou un tableau enregistré avant qu'il y en
+            // ait plusieurs, retombe sur le premier.
+            repli: t.modeleValide('inventé').cle,
+            replySansRien: t.modeleValide(undefined).cle,
+            memeQueCouleur: texte('milliers', '3', 'inventé') === couleur,
+            ardoiseSombre: ardoise.includes('#2f3640') && !ardoise.includes('#eff6fd'),
+            couleurClaire: couleur.includes('#eff6fd') && !couleur.includes('#2f3640'),
+            tousDistincts: new Set(t.MODELES.map(m => texte('milliers,dixiemes', '3', m.cle))).size,
+            combien: t.MODELES.length
+        };
+    });
+    r.egal('la fenêtre tient en quatre cases et deux listes',
+        { forme: habits.forme, libelles: habits.libelles },
+        { forme: ['checkbox', 'checkbox', 'checkbox', 'checkbox', 'select', 'select'],
+          libelles: ['Milliards', 'Millions', 'Milliers', 'Partie décimale'] });
+    r.egal('« Partie décimale » prend les trois rangs d\'un bloc',
+        { sans: habits.sansDecimale, avec: habits.avecDecimale },
+        { sans: 'milliers', avec: 'milliers,dixiemes,centiemes,milliemes' });
+    r.egal('le modèle se lit avant les lignes, pas à leur place',
+        habits.lus,
+        { spec: 'milliers,dixiemes,centiemes,milliemes', modele: 'ardoise', lignes: '2' });
+    r.egal('un modèle inconnu retombe sur le premier, sans rien casser',
+        { repli: habits.repli, sansRien: habits.replySansRien, dessine: habits.memeQueCouleur },
+        { repli: 'couleur', sansRien: 'couleur', dessine: true });
+    // LE MODÈLE DOIT REVENIR AVEC LE TABLEAU : posé sur le tableau, il est
+    // gardé dans l'objet, et « Modifier » doit rouvrir la fenêtre sur le
+    // modèle qu'on avait choisi — pas sur le premier de la liste.
+    const retour = await page.evaluate(async () => {
+        const t = PluginManager.plugins['cduGeneratorTool'];
+        const avant = images.length;
+        t.buildCDUTable('milliers,dixiemes,centiemes,milliemes', '2', 'ardoise');
+        for (let i = 0; i < 60 && images.length === avant; i++) await new Promise(r => setTimeout(r, 20));
+        const pose = images[images.length - 1];
+        if (!pose || !pose.pluginData) return { args: 'aucun tableau posé' };
+        const champs = t.champsDuTableau(pose.pluginData.args[0], pose.pluginData.args[1], pose.pluginData.args[2]);
+        const listes = champs.filter(c => c.type === 'select').map(c => c.value);
+        const cochees = champs.filter(c => c.type === 'checkbox').map(c => c.value);
+        images.splice(images.length - 1, 1);
+        return { args: pose.pluginData.args, listes, cochees };
+    });
+    r.egal('le modèle voyage avec le tableau, et « Modifier » le retrouve',
+        retour,
+        { args: ['milliers,dixiemes,centiemes,milliemes', '2', 'ardoise'],
+          listes: ['ardoise', '2'], cochees: [false, false, true, true] });
+
+    r.egal('et chaque modèle a bien sa teinte à lui',
+        { sombre: habits.ardoiseSombre, claire: habits.couleurClaire,
+          distincts: habits.tousDistincts },
+        { sombre: true, claire: true, distincts: habits.combien });
+
     await context.close();
     return r.bilan();
 };
