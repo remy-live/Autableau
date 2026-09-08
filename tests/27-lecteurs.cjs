@@ -314,6 +314,75 @@ module.exports = async function (browser) {
     r.egal('« A-B » est écrit, pas dessiné', vitesse.ab, 'A-B');
 
     // ---------------------------------------------------------------
+    // LE LECTEUR RESSEMBLE AU RESTE DE L'APPLICATION
+    // « Je le trouve moche » : ce n'était plus un problème de rangement mais
+    // de système visuel. Cinq tailles de texte, deux familles, et un violet
+    // criard employé à deux échelles — un gros disque et un pavé plein qui se
+    // battaient dans trois cents pixels. La maison a ses règles : treize
+    // pixels demi-gras, et pour marquer l'actif un violet pâle avec du texte
+    // violet, jamais un aplat.
+    // ---------------------------------------------------------------
+    await page.evaluate(() => {
+        ['Un', 'Deux'].forEach(n =>
+            handleMp3Drop(new File([new Uint8Array(2048)], n + '.mp3', { type: 'audio/mpeg' })));
+    });
+    await page.waitForTimeout(200);
+    const style = await page.evaluate(() => {
+        const st = (sel, prop) => {
+            const e = document.querySelector(sel);
+            return e ? getComputedStyle(e)[prop] : null;
+        };
+        const actif = document.querySelector('#mp3-playlist li.active');
+        const stActif = getComputedStyle(actif);
+        // La couleur d'accent de la maison, telle que la page la définit.
+        const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+        return {
+            // UNE SEULE ÉCHELLE : le titre et les pistes à la même mesure.
+            titre: st('#mp3-title', 'fontSize'),
+            piste: stActif.fontSize,
+            // L'ACTIF EST UN VIOLET PÂLE AVEC DU TEXTE VIOLET, pas un aplat.
+            fond: stActif.backgroundColor,
+            encre: stActif.color,
+            accent,
+            // Les temps ne sont plus en machine à écrire.
+            tempsFamille: st('#mp3-time-current', 'fontFamily'),
+            tempsTaille: st('#mp3-time-current', 'fontSize'),
+            // Les trois pastilles ont la même forme : saut, vitesse, A-B.
+            rayons: ['#mp3-back', '#mp3-speed', '#mp3-ab-toggle']
+                .map(x => st(x, 'borderRadius')),
+            // Et le chiffre du saut se lit : il était logé dans l'arc de la
+            // flèche, cinq pixels dans un anneau qui en compte sept.
+            chiffre: (() => {
+                const n = document.getElementById('mp3-back-n');
+                const b = document.getElementById('mp3-back');
+                const rn = n.getBoundingClientRect(), rb = b.getBoundingClientRect();
+                const svg = b.querySelector('svg').getBoundingClientRect();
+                return { largeur: Math.round(rn.width), taille: getComputedStyle(n).fontSize,
+                         // À CÔTÉ de la flèche : leurs boîtes ne se recouvrent pas.
+                         aCote: rn.left >= svg.right - 1,
+                         dansLeBouton: rn.left >= rb.left && rn.right <= rb.right + 1 };
+            })()
+        };
+    });
+    r.egal('le titre et les pistes partagent la mesure de la maison',
+        { titre: style.titre, piste: style.piste }, { titre: '13px', piste: '13px' });
+    r.verifie('la piste jouée est un violet PÂLE, avec du texte violet',
+        /^rgba\(/.test(style.fond) && parseFloat((style.fond.match(/[\d.]+\)$/) || ['1'])[0]) < 0.4,
+        style.fond);
+    r.verifie('et son texte porte la couleur d\'accent, pas du blanc sur aplat',
+        style.encre !== 'rgb(255, 255, 255)', style.encre);
+    r.verifie('les temps ne sont plus en machine à écrire',
+        !/mono/i.test(style.tempsFamille) && style.tempsTaille === '11px',
+        JSON.stringify({ f: style.tempsFamille, t: style.tempsTaille }));
+    r.verifie('saut, vitesse et A-B ont la même forme de pastille',
+        style.rayons.every(x => x === style.rayons[0]) && style.rayons[0] === '8px',
+        JSON.stringify(style.rayons));
+    r.verifie('le chiffre du saut est lisible, à côté de la flèche et non dedans',
+        style.chiffre.largeur >= 6 && style.chiffre.taille === '11px'
+        && style.chiffre.aCote && style.chiffre.dansLeBouton,
+        JSON.stringify(style.chiffre));
+
+    // ---------------------------------------------------------------
     // LE LECTEUR VIDÉO SORT DE LA MÊME FABRIQUE
     // ---------------------------------------------------------------
     await poser(['Extrait de film'], 'video');

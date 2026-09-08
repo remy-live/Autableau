@@ -26855,8 +26855,8 @@ function ensureMediaPlayerStyles() {
         .media-player-panel {
             position: fixed; bottom: 20px; right: 20px; width: 320px; min-width: 260px; max-width: 800px;
             display: flex; flex-direction: column;
-            background: var(--surface, rgba(255, 255, 255, 0.92)); color: var(--ink, #2d3436); border-radius: 14px;
-            box-shadow: var(--shadow-hover, 0 12px 32px rgba(0, 0, 0, .15));
+            background: var(--surface, rgba(255, 255, 255, 0.92)); color: var(--ink, #2d3436); border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(45, 52, 54, 0.18);
             backdrop-filter: blur(16px);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             z-index: 100000;
@@ -26904,10 +26904,13 @@ function ensureMediaPlayerStyles() {
         .media-player-panel.minimized { resize: none; min-height: 0; height: auto !important; }
 
         .media-header {
-            background: transparent; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;
+            background: transparent; padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: center;
             cursor: grab;
         }
-        .media-title { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+        /* LA MESURE DE LA MAISON : 13 pixels, demi-gras. C'est celle des menus
+           de réglages et du tiroir à morceaux. Le lecteur en comptait cinq
+           différentes, et deux familles — il ne ressemblait à rien d'autre. */
+        .media-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 6px; }
 
         .media-btn {
             background: none; border: none; color: var(--muted, #636e72); cursor: pointer;
@@ -26918,7 +26921,8 @@ function ensureMediaPlayerStyles() {
         .media-btn.active-btn { color: var(--accent, #6c5ce7); background: var(--accent-soft, rgba(108, 92, 231, 0.15)); }
         .media-btn:active { transform: scale(0.9); }
         .media-btn-play {
-            width: 38px; height: 38px; background: var(--accent, #6c5ce7); color: #fff;
+            width: 40px; height: 40px; background: var(--accent, #6c5ce7); color: #fff;
+            box-shadow: 0 2px 6px rgba(108, 92, 231, 0.28);
         }
         .media-btn-play:hover { background: var(--accent, #6c5ce7); opacity: 0.85; color: #fff; }
 
@@ -26929,11 +26933,14 @@ function ensureMediaPlayerStyles() {
         .media-progress-wrapper { position: relative; margin: 4px 0 22px; padding-top: 24px; }
         .media-progress-container {
             width: 100%; height: 6px; position: relative; cursor: pointer;
-            background: var(--bg, #f5f6fa); border-radius: 999px; overflow: hidden;
+            background: var(--border, #dfe6e9); border-radius: 999px; overflow: hidden;
         }
         .media-progress-bar { height: 100%; background: var(--accent, #6c5ce7); width: 0%; pointer-events: none; border-radius: 999px; }
         .media-ab-fill { position: absolute; top: 0; height: 100%; background: var(--accent-soft, rgba(108, 92, 231, 0.25)); z-index: 1; display: none; }
-        .media-time-row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.68rem; font-family: monospace; color: var(--muted, #636e72); }
+        .media-time-row {
+            display: flex; justify-content: space-between; margin-top: 6px;
+            font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted, #636e72);
+        }
 
         .media-ab-pointer {
             position: absolute; top: 22px; cursor: ew-resize; transform: translateX(-50%); z-index: 5;
@@ -26952,19 +26959,20 @@ function ensureMediaPlayerStyles() {
            d'autre. Le volume et la vitesse vivaient là et prenaient la place
            du geste qu'on cherche en cours — revenir cinq secondes en arrière. */
         .media-commandes {
-            display: flex; align-items: center; justify-content: center;
-            gap: 6px; margin: 2px 0 6px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
         }
-        .media-reglages {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 6px; margin-top: 2px;
-        }
+        /* LE VOLUME À GAUCHE, LES TROIS BOUTONS GROUPÉS À DROITE. Répartis par
+           « space-between », quatre éléments de largeurs différentes tombaient
+           à des places arbitraires : la rangée paraissait éparpillée. */
+        .media-reglages { display: flex; align-items: center; gap: 6px; }
+        .media-reglages .media-slider-row { flex: 1 1 auto; }
+        .media-reglages .media-btn { flex: 0 0 auto; }
         /* La vitesse est un bouton, pas un curseur : un texte court, de la
            largeur d'une icône, aligné sur les autres commandes. */
         .media-btn.media-vitesse {
-            width: auto; min-width: 34px; padding: 0 7px; border-radius: 14px;
-            font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums;
-            font-family: inherit;
+            width: auto; min-width: 34px; height: 28px; padding: 0 9px; border-radius: 8px;
+            font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+            font-family: inherit; letter-spacing: 0.01em;
         }
 
         /* LE CHEVRON DE LA LISTE, avec le nombre de pistes : il ne paraît qu'à
@@ -26973,10 +26981,10 @@ function ensureMediaPlayerStyles() {
            de pistes se lisait comme une puissance. Un fond et un peu d'air le
            rendent à ce qu'il est : un bouton. */
         .media-chevron {
-            width: auto; height: 20px; padding: 0 6px; border-radius: 10px; gap: 3px;
-            flex: 0 0 auto; background: var(--bg, #f5f6fa);
+            width: auto; height: 22px; padding: 0 7px; border-radius: 8px; gap: 3px;
+            flex: 0 0 auto; background: var(--bg, #f5f6fa); color: var(--muted, #636e72);
         }
-        .media-chevron .media-compte { font-size: 0.66rem; font-weight: 700; }
+        .media-chevron .media-compte { font-size: 11px; font-weight: 700; }
         .media-chevron.ouvert svg { transform: rotate(180deg); }
         .media-chevron svg { transition: transform 0.15s; }
 
@@ -26989,15 +26997,18 @@ function ensureMediaPlayerStyles() {
         }
 
         /* LE NOMBRE EST SUR LE BOUTON : on sait de combien il saute avant
-           d'appuyer, et l'appui long le change sans ouvrir de fenêtre. */
-        .media-saut { position: relative; }
-        .media-saut-n {
-            position: absolute; bottom: 1px; right: 1px;
-            font-size: 8px; font-weight: 700; line-height: 1;
-            background: var(--surface, #fff); border-radius: 6px; padding: 0 2px;
-            color: var(--muted, #636e72); pointer-events: none;
+           d'appuyer, et l'appui long le change sans ouvrir de fenêtre.
+           À CÔTÉ DE LA FLÈCHE, PAS DEDANS : logé dans l'arc, il faisait cinq
+           pixels de large dans un anneau qui en compte sept — rendu, mesuré, et
+           illisible. Le bouton devient une pastille, comme celles de la vitesse
+           et de A-B : trois textes, une même forme. */
+        .media-btn.media-saut {
+            width: auto; height: 30px; padding: 0 8px 0 6px; gap: 1px; border-radius: 8px;
         }
-        .media-btn.media-saut:hover .media-saut-n { color: var(--ink, #2d3436); }
+        .media-saut-n {
+            font-size: 11px; font-weight: 700; line-height: 1;
+            color: currentColor; pointer-events: none; font-variant-numeric: tabular-nums;
+        }
 
         /* A ET B, CACHÉS PAR DÉFAUT. La barre retrouve sa hauteur : sans les
            poignées ni leurs étiquettes, il n'y a plus rien à réserver
@@ -27019,17 +27030,29 @@ function ensureMediaPlayerStyles() {
             background: var(--accent, #6c5ce7); cursor: pointer;
         }
 
+        /* LA LISTE NE CASSE PLUS LE PANNEAU EN DEUX. Un trait dur et un fond
+           différent en faisaient deux cartes sans rapport ; il ne reste qu'un
+           filet très léger et de l'air. */
         .media-playlist {
-            list-style: none; padding: 4px; margin: 0; overflow-y: auto; max-height: 150px;
-            border-top: 1px solid var(--border, #dfe6e9); background: var(--bg, #f5f6fa);
+            list-style: none; padding: 2px 8px 8px; margin: 0; overflow-y: auto; max-height: 150px;
+            /* Un filet neutre : il doit rester discret sur fond clair comme
+               sur fond sombre. */
+            border-top: 1px solid rgba(128, 128, 128, 0.16); background: transparent;
         }
         .media-playlist li {
-            padding: 7px 10px; font-size: 0.78rem; border-radius: 8px; margin-bottom: 2px;
-            display: flex; justify-content: space-between; align-items: center;
-            cursor: grab;
+            padding: 7px 9px; font-size: 13px; font-weight: 600; border-radius: 8px; margin-top: 2px;
+            display: flex; justify-content: space-between; align-items: center; gap: 6px;
+            cursor: grab; color: var(--ink, #2d3436);
         }
-        .media-playlist li.active { background: var(--accent, #6c5ce7); color: #fff; }
-        .media-playlist li:hover:not(.active) { background: var(--accent-soft, rgba(108, 92, 231, 0.12)); }
+        /* LA MARQUE DE LA MAISON : un violet pâle et du texte violet — c'est ce
+           que font les menus de réglages. Le pavé violet plein se battait avec
+           le bouton de lecture : deux aplats de la même couleur, à deux
+           échelles, dans un panneau de trois cents pixels. */
+        .media-playlist li.active {
+            background: var(--accent-hover, rgba(108, 92, 231, 0.14));
+            color: var(--accent, #6c5ce7); font-weight: 700;
+        }
+        .media-playlist li:hover:not(.active) { background: var(--accent-soft, rgba(108, 92, 231, 0.10)); }
         .media-delete-btn {
             background: none; border: none; color: var(--muted, #636e72); cursor: pointer; padding: 2px 6px;
             display: flex; align-items: center; justify-content: center; border-radius: 50%;
@@ -27044,9 +27067,11 @@ function ensureMediaPlayerStyles() {
         /* La liste dit ce qu'on peut y faire : elle se réordonne, et une piste
            tirée dehors s'en va dans un lecteur à elle. */
         .media-playlist-aide {
-            font-size: 0.62rem; color: var(--muted, #636e72); text-align: center;
-            padding: 3px 6px 5px; background: var(--bg, #f5f6fa); line-height: 1.3;
+            font-size: 11px; color: #b2bec3; text-align: center;
+            padding: 2px 10px 9px; background: transparent; line-height: 1.35;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        .media-playlist-aide sup { font-size: 8px; }
     `;
     document.head.appendChild(style);
 }
@@ -27135,7 +27160,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                 </div>
             </div>
 
-            <div id="${id('body')}" class="media-body" style="padding: 4px 14px 14px; display: flex; flex-direction: column;">
+            <div id="${id('body')}" class="media-body" style="padding: 2px 12px 12px; display: flex; flex-direction: column; gap: 10px;">
                 ${mediaType === 'video' ? `<${mediaType} id="${id('media')}" class="media-video-el"></${mediaType}>` : `<${mediaType} id="${id('media')}" style="display:none;"></${mediaType}>`}
 
                 <!-- LA RANGÉE DE COMMANDES. Le saut en arrière est le geste
@@ -27210,7 +27235,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
             <ul id="${id('playlist')}" class="media-playlist"></ul>
             <div class="media-playlist-aide" id="${id('playlist-aide')}">
-                Double-clic pour lire · glisser pour réordonner · <b>tirer dehors</b> pour un second lecteur
+                Double-clic pour lire · <b>tirer dehors</b> : 2<sup>e</sup> lecteur
             </div>
         `;
         document.body.appendChild(container);
