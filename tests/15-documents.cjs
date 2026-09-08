@@ -755,7 +755,15 @@ module.exports = async function (browser) {
             entier: o.cx === 0 && o.cy === 0 && o.cw === nat.naturalWidth && o.ch === nat.naturalHeight,
             cadreGarde: Math.abs(o.w - largeurAvant) < 0.5,
             proportion: Math.abs(o.w / o.h - nat.naturalWidth / nat.naturalHeight) < 0.02,
-            seRetire: (majReglagesDuVolet(), getComputedStyle(document.getElementById('dv-entiere')).display === 'none')
+            // IL NE S'EFFACE PLUS : c'est lui qui ramène au cadrage. Un
+            // bouton qui ne fait qu'aller n'est pas un réglage, c'est une
+            // perte — sur un morceau découpé, elle était irréparable.
+            retour: (majReglagesDuVolet(), (() => {
+                const b = document.getElementById('dv-entiere');
+                return { la: getComputedStyle(b).display !== 'none',
+                         allume: b.classList.contains('actif'),
+                         dit: (b.querySelector('span') || {}).textContent };
+            })())
         };
     });
     r.verifie('« page entière » est proposé dans le volet quand le document est rogné',
@@ -763,7 +771,10 @@ module.exports = async function (browser) {
     r.verifie('il remet toute la page dans le cadre', retourEntier.entier, JSON.stringify(retourEntier));
     r.verifie('en gardant la place prise sur le tableau', retourEntier.cadreGarde, JSON.stringify(retourEntier));
     r.verifie('et sans déformer la page', retourEntier.proportion, JSON.stringify(retourEntier));
-    r.verifie('une fois entière, le bouton s\'efface', retourEntier.seRetire, JSON.stringify(retourEntier));
+    r.egal('une fois entière, le MÊME bouton propose de revenir au cadrage',
+        { la: retourEntier.retour.la, allume: retourEntier.retour.allume,
+          dit: retourEntier.retour.dit },
+        { la: true, allume: true, dit: 'Revenir au cadrage d\'avant' });
 
     // Une page d'un autre format ne reprend pas le découpage de la précédente
     const autreFormat = await page.evaluate(async () => {
@@ -1789,6 +1800,92 @@ module.exports = async function (browser) {
     r.verifie('la croix ne jette que celui-là',
         jete.apres === 2 && !jete.restants.includes(jete.jete)
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
+
+    // =====================================================================
+    // UN MORCEAU EST UN DOCUMENT, ET « PAGE ENTIÈRE » FAIT L'ALLER-RETOUR
+    // Rangé parmi les tampons de plugins, un morceau perdait toute la barre du
+    // document. Et « page entière » ouvrait son cadre sur la page sans retour :
+    // on voulait jeter un œil au reste, on y restait.
+    // =====================================================================
+    const allerRetour = await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 800;
+        const g = c.getContext('2d'); g.fillStyle = '#eee'; g.fillRect(0, 0, 600, 800);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 600, ch: 800,
+                      src: url, fileName: 'p.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'zz', page: 1, pages: 3 } };
+        images.push(doc);
+        documentsPdf.set('zz', { pages: 3 });
+        selectedItems = [{ type: 'image', id: doc.id }];
+        basculerLaDecoupe(true);
+        const rr = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.4, h: doc.h * 0.2 };
+        decoupeGeste = { obj: doc, debut: { x: rr.x, y: rr.y }, rect: rr };
+        finirGesteDeDecoupe();
+        poserTousLesMorceaux();
+        const m = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        selectedItems = [{ type: 'image', id: m.id }];
+        majBarreDocument();
+
+        const vu = (id) => {
+            const el = document.getElementById(id);
+            return !!el && getComputedStyle(el).display !== 'none';
+        };
+        const enMain = {
+            reconnu: estUnDocumentPose(m),
+            plein: vu('doc-plein-ecran'),
+            modes: vu('doc-modes'),
+            // Le bouton de la barre est masqué sur un document allégé : c'est
+            // le VOLET qui porte ce réglage, et c'est de là qu'on l'ouvre.
+            entiere: vu('dv-entiere')
+        };
+        const decoupe = { cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch, w: m.w, h: m.h };
+
+        // ALLER : la page entière.
+        document.getElementById('dv-entiere').click();
+        const ouvert = {
+            cw: m.cw, ch: m.ch,
+            entierePage: Math.abs(m.cw - 600) < 1 && Math.abs(m.ch - 800) < 1,
+            boutonLa: vu('dv-entiere'),
+            revient: document.getElementById('dv-entiere').classList.contains('actif'),
+            dit: (document.getElementById('dv-entiere').querySelector('span') || {}).textContent
+        };
+        // RETOUR : le morceau, tel qu'il était.
+        document.getElementById('dv-entiere').click();
+        const revenu = {
+            memeCadrage: Math.abs(m.cx - decoupe.cx) < 0.5 && Math.abs(m.cy - decoupe.cy) < 0.5
+                && Math.abs(m.cw - decoupe.cw) < 0.5 && Math.abs(m.ch - decoupe.ch) < 0.5,
+            memeTaille: Math.abs(m.w - decoupe.w) < 0.5 && Math.abs(m.h - decoupe.h) < 0.5,
+            revient: document.getElementById('dv-entiere').classList.contains('actif')
+        };
+
+        // ET PRÉSENTER UN MORCEAU NE LE DÉFAIT PAS : son cadrage EST le
+        // découpage.
+        presenterLeDocument();
+        const presente = { cw: m.cw, ch: m.ch,
+                           intact: Math.abs(m.cw - decoupe.cw) < 0.5 && Math.abs(m.ch - decoupe.ch) < 0.5 };
+        quitterLaPresentation();
+        return { enMain, decoupe, ouvert, revenu, presente };
+    });
+    r.egal('un morceau est reconnu comme un document, et garde toute sa barre',
+        { reconnu: allerRetour.enMain.reconnu, plein: allerRetour.enMain.plein,
+          entiere: allerRetour.enMain.entiere },
+        { reconnu: true, plein: true, entiere: true });
+    r.verifie('« page entière » ouvre bien le cadre sur toute la page',
+        allerRetour.ouvert.entierePage, JSON.stringify(allerRetour.ouvert));
+    r.verifie('et le bouton reste là, en disant qu\'il ramène au morceau',
+        allerRetour.ouvert.boutonLa && allerRetour.ouvert.revient
+        && /morceau/.test(allerRetour.ouvert.dit || ''), JSON.stringify(allerRetour.ouvert));
+    r.verifie('le retour rend le morceau tel qu\'il était, cadrage ET taille',
+        allerRetour.revenu.memeCadrage && allerRetour.revenu.memeTaille
+        && !allerRetour.revenu.revient, JSON.stringify(allerRetour.revenu));
+    r.verifie('et présenter un morceau ne l\'ouvre pas en pleine page',
+        allerRetour.presente.intact, JSON.stringify(allerRetour.presente));
 
     // =====================================================================
     // LA BARRE DU DOCUMENT, DEBOUT

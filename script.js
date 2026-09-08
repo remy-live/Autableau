@@ -13319,6 +13319,20 @@ function retrouverLesImages(fichiers) {
     });
 }
 
+// Revenir au cadrage qu'on avait avant d'ouvrir la page en grand.
+function revenirAuCadrage(obj) {
+    const garde = obj && obj.cadrageDAvant;
+    if (!garde) return false;
+    const avant = (typeof cadrageDe === 'function') ? cadrageDe(obj) : null;
+    obj.cx = garde.cx; obj.cy = garde.cy; obj.cw = garde.cw; obj.ch = garde.ch;
+    obj.w = garde.w; obj.h = garde.h;
+    delete obj.cadrageDAvant;
+    if (typeof suivreLeCadrage === 'function' && avant) suivreLeCadrage(obj, avant);
+    if (obj.pluginData) obj.pluginData.pageRognee = true;
+    return true;
+}
+window.revenirAuCadrage = revenirAuCadrage;
+
 function documentEstRogne(obj) {
     const nat = obj && imageCache[obj.src];
     if (!nat || !nat.naturalWidth) return false;
@@ -13332,6 +13346,10 @@ function montrerToutLeDocument(obj) {
     const nat = obj && imageCache[obj.src];
     if (!nat || !nat.naturalWidth) return;
     const avant = cadrageDe(obj);
+    // ON GARDE LE CADRAGE QU'ON DÉFAIT. Sur un morceau découpé, « page
+    // entière » effaçait le découpage sans retour : on voulait jeter un œil
+    // au reste de la page, on y restait.
+    obj.cadrageDAvant = { cx: obj.cx, cy: obj.cy, cw: obj.cw, ch: obj.ch, w: obj.w, h: obj.h };
     obj.cx = 0; obj.cy = 0;
     obj.cw = nat.naturalWidth; obj.ch = nat.naturalHeight;
     obj.h = obj.w * (nat.naturalHeight / nat.naturalWidth);
@@ -13502,6 +13520,12 @@ window.documentDeLaBarre = documentDeLaBarre;
 function estUnDocumentPose(obj) {
     if (!obj) return false;
     if (obj.pluginData && obj.pluginData.id === 'pdfDoc') return true;
+    // UN MORCEAU EN EST UN AUSSI. Ce n'est pas un tampon de plugin : c'est un
+    // cadrage sur une page, avec son fichier et son numéro de page. Rangé
+    // parmi les tampons, il perdait toute la barre du document — le plein
+    // écran, sa sortie, le mode « cadre / coulisser » — alors que ce sont
+    // précisément les gestes qu'on veut sur un exercice découpé.
+    if (obj.pluginData && obj.pluginData.id === 'morceau') return true;
     if (obj.pluginData) return false;          // un tampon de plugin
     return true;                               // une image importée ou collée
 }
@@ -13642,9 +13666,31 @@ function majBarreDocument() {
     document.getElementById('doc-grille').classList.toggle('actif', !!obj.sousLaGrille);
     document.getElementById('doc-proportions').classList.toggle('actif', obj.ratioLocked !== false);
     document.getElementById('doc-rogner').classList.toggle('actif', !!obj.isCropping);
-    // Le retour à la page entière ne se propose que s'il y a un cadrage à défaire
+    // ALLER ET RETOUR. Cadré, le bouton ouvre la page entière ; ouvert, il
+    // ramène au cadrage qu'on avait — s'il y en avait un à garder. Un bouton
+    // qui ne fait qu'aller n'est pas un réglage, c'est une perte.
     const entiere = document.getElementById('doc-entiere');
-    if (entiere) entiere.style.display = documentEstRogne(obj) ? 'inline-flex' : 'none';
+    if (entiere) {
+        const rogneMaintenant = documentEstRogne(obj);
+        const peutRevenir = !rogneMaintenant && !!obj.cadrageDAvant;
+        entiere.style.display = (rogneMaintenant || peutRevenir) ? 'inline-flex' : 'none';
+        entiere.classList.toggle('actif', peutRevenir);
+        entiere.setAttribute('data-tooltip', peutRevenir
+            ? (obj.pluginData && obj.pluginData.id === 'morceau'
+                ? 'Revenir au morceau découpé' : 'Revenir au cadrage d\'avant')
+            : 'Montrer la page entière dans le cadre');
+        const dessin = document.getElementById('icone-doc-entiere');
+        if (dessin) {
+            dessin.innerHTML = peutRevenir
+                // Une flèche qui rentre dans un cadre : on revient au morceau.
+                ? '<rect x="4" y="4" width="16" height="16" rx="2" />'
+                  + '<path d="M9 9h6v6H9z" stroke-dasharray="2 2" />'
+                  + '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5" />'
+                : '<rect x="4" y="4" width="16" height="16" rx="2" />'
+                  + '<path d="M9 9h6v6H9z" stroke-dasharray="2 2" />'
+                  + '<path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />';
+        }
+    }
     if (typeof majLeVolet === 'function') majLeVolet();
     majReglagesDuVolet();
     // Surtout PAS d'appel à updateStyleBarContext ici : c'est elle qui nous
@@ -13706,8 +13752,23 @@ function majReglagesDuVolet() {
     allume('dv-grille', !!o.sousLaGrille);
     allume('dv-proportions', o.ratioLocked !== false);
     allume('dv-rogner', !!o.isCropping);
+    // ALLER ET RETOUR, ICI AUSSI. C'est de ce volet qu'on ouvre la page en
+    // grand — le bouton de la barre est masqué sur un document. Le retour
+    // devait donc s'y trouver, sans quoi il n'existait nulle part.
     const entiere = document.getElementById('dv-entiere');
-    if (entiere) entiere.style.display = (typeof documentEstRogne === 'function' && documentEstRogne(o)) ? 'flex' : 'none';
+    if (entiere) {
+        const rogne = (typeof documentEstRogne === 'function') && documentEstRogne(o);
+        const peutRevenir = !rogne && !!o.cadrageDAvant;
+        entiere.style.display = (rogne || peutRevenir) ? 'flex' : 'none';
+        entiere.classList.toggle('actif', peutRevenir);
+        const mot = entiere.querySelector('span');
+        if (mot) {
+            mot.textContent = peutRevenir
+                ? (o.pluginData && o.pluginData.id === 'morceau'
+                    ? 'Revenir au morceau découpé' : 'Revenir au cadrage d\'avant')
+                : 'Montrer la page entière';
+        }
+    }
 }
 window.majReglagesDuVolet = majReglagesDuVolet;
 
@@ -13899,9 +13960,20 @@ function brancherBarreDocument() {
 
     b('doc-entiere').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;
+        // Le même bouton fait l'aller et le retour : c'est l'état du cadrage
+        // qui dit lequel des deux.
+        if (!documentEstRogne(o) && o.cadrageDAvant) {
+            const morceau = !!(o.pluginData && o.pluginData.id === 'morceau');
+            revenirAuCadrage(o);
+            majBarreDocument(); draw(); saveState();
+            if (typeof showToast === 'function') {
+                showToast(morceau ? 'Retour au morceau découpé' : 'Retour au cadrage d\'avant');
+            }
+            return;
+        }
         montrerToutLeDocument(o);
         majBarreDocument(); draw(); saveState();
-        if (typeof showToast === 'function') showToast('Document montré en entier');
+        if (typeof showToast === 'function') showToast('Document montré en entier — le même bouton revient au cadrage');
     });
 
 
@@ -18103,7 +18175,11 @@ function presenterLeDocument() {
     // « occuper tout l'espace » veut alors bien dire ce qu'il dit.
     // Le geste est annulable (Ctrl+Z) et le bouton « page entière » de la
     // barre du document mène au même état : rien n'est perdu.
-    const rogne = typeof documentEstRogne === 'function' && documentEstRogne(doc);
+    // UN MORCEAU N'EST PAS UN DOCUMENT ROGNÉ PAR MÉGARDE : son cadrage EST ce
+    // qu'on a découpé. L'ouvrir en grand pour le présenter, c'était présenter
+    // la page dont on venait d'extraire l'exercice.
+    const unMorceau = !!(doc.pluginData && doc.pluginData.id === 'morceau');
+    const rogne = !unMorceau && typeof documentEstRogne === 'function' && documentEstRogne(doc);
     if (rogne && typeof montrerToutLeDocument === 'function') {
         montrerToutLeDocument(doc);
         if (typeof saveState === 'function') saveState();

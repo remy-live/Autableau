@@ -1011,6 +1011,14 @@
                             s'ajuste d'abord en <b>ouvrant ou fermant ses bords</b> : on montre ce qu'on veut, sans
                             changer la taille de ce qui est écrit dessus. Le bouton ✂ de la barre du document rend
                             le redimensionnement quand on en a besoin.</li>
+                        <li><strong>« Montrer la page entière » fait l'aller ET le retour :</strong> le
+                            réglage du volet ouvre le cadre sur toute la page, et <b>le même bouton ramène
+                            au cadrage</b> — il dit alors « Revenir au cadrage d'avant », ou « Revenir au
+                            morceau découpé ». Sur un exercice découpé, l'aller simple faisait perdre le
+                            découpage pour avoir voulu jeter un œil au reste de la page.<br>
+                            Un <b>morceau est un document comme un autre</b> : il garde toute la barre —
+                            le plein écran, sa sortie, le cadrage. Et le <b>présenter ne l'ouvre pas en
+                            pleine page</b> : son cadrage EST le découpage.</li>
                         <li><strong>Le cadrage d'un PDF, de page en page :</strong> un découpage posé sur une page
                             vaut pour les suivantes — l'en-tête coupé une fois reste coupé. Il ne suit pas une page
                             d'un autre format (une planche à l'italienne au milieu d'un document à la française) :
@@ -2403,9 +2411,14 @@
                 <path d="M6 2v14a2 2 0 0 0 2 2h14" />
                 <path d="M2 6h14a2 2 0 0 1 2 2v14" />
             </svg></button>
-        <button class="doc-btn" id="doc-entiere" title="Montrer la page entière dans le cadre" style="display:none;">
+        <!-- ALLER ET RETOUR. « Page entière » ouvrait le cadre sur toute la page
+             sans retour : sur un morceau découpé, c'était perdre le découpage
+             pour avoir voulu jeter un œil au reste. Le même bouton ramène au
+             cadrage, et son dessin dit lequel des deux il fera. -->
+        <button class="doc-btn" id="doc-entiere"
+            data-tooltip="Montrer la page entière dans le cadre" style="display:none;">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
+                stroke-linecap="round" stroke-linejoin="round" id="icone-doc-entiere">
                 <rect x="4" y="4" width="16" height="16" rx="2" />
                 <path d="M9 9h6v6H9z" stroke-dasharray="2 2" />
                 <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
@@ -2679,7 +2692,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=201"></script>
+    <script src="script.js?v=202"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
