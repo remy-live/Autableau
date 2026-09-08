@@ -6526,6 +6526,12 @@ function updateCursor() {
     }
 
     if (isCropMode) { canvas.classList.add('cursor-crosshair'); return; }
+    // Une adresse sous le pointeur : la main qui montre, comme partout.
+    if (mode === 'pointer' && !isPanningView && !isSpacePressed
+        && typeof lienSousLePoint === 'function' && typeof mouseLogicalPos !== 'undefined'
+        && mouseLogicalPos && lienSousLePoint(mouseLogicalPos)) {
+        canvas.style.cursor = 'pointer'; return;
+    }
     // LES CISEAUX SONT ARMÉS : le curseur doit le dire. Il gardait la main du
     // déplacement, si bien qu'on croyait pouvoir prendre le document — et le
     // clic traçait un rectangle. Une croix annonce un tracé.
@@ -6598,6 +6604,88 @@ function getObjectById(type, id) {
 // on ne coupe que sur les retours à la ligne explicites.
 // ==============================================================================
 const TEXT_HEADING_FACTOR = { H1: 1.6, H2: 1.3, H3: 1.15 };
+
+// ==================================================================
+// LES LIENS ÉCRITS SUR LE TABLEAU
+// « Il me manque la possibilité de cliquer sur des liens. » Une adresse posée
+// sur le tableau n'était qu'un texte dessiné sur un canvas : rien ne disait
+// que c'en était une, et rien ne s'ouvrait. On repère donc l'adresse DANS le
+// texte, on la peint autrement, et l'on garde son rectangle pour savoir où le
+// doigt tombe.
+//
+// ON NE DEVINE PAS. Seuls « http:// », « https:// » et « www. » font un lien :
+// accepter « machin.fr » nu ferait un lien de « 1.5 » et de « M.Dupont ».
+// ==================================================================
+const MOTIF_LIEN = /((?:https?:\/\/|www\.)[^\s<>"'()]*[^\s<>"'(),.;:!?])/gi;
+const COULEUR_LIEN = '#0984e3';
+
+function normaliserLeLien(brut) {
+    const t = String(brut || '').trim();
+    if (/^www\./i.test(t)) return 'https://' + t;
+    return t;
+}
+
+// UN LIEN N'OUVRE QUE LE WEB. Un tableau se partage entre collègues par un
+// fichier : une adresse « javascript: » ou « data: » qui s'y serait glissée
+// s'exécuterait chez celui qui clique, avec tout ce que son navigateur garde.
+function lienOuvrable(brut) {
+    const url = normaliserLeLien(brut);
+    try {
+        const u = new URL(url);
+        return (u.protocol === 'http:' || u.protocol === 'https:') ? url : null;
+    } catch (e) { return null; }
+}
+
+// Le texte découpé en morceaux : ce qui est lien, ce qui ne l'est pas.
+function morceauxAvecLiens(texte) {
+    const out = [];
+    let dernier = 0;
+    String(texte).replace(MOTIF_LIEN, (trouve, _g, index) => {
+        if (index > dernier) out.push({ texte: texte.slice(dernier, index), url: null });
+        out.push({ texte: trouve, url: lienOuvrable(trouve) });
+        dernier = index + trouve.length;
+        return trouve;
+    });
+    if (dernier < texte.length) out.push({ texte: texte.slice(dernier), url: null });
+    return out;
+}
+
+function texteContientUnLien(texte) {
+    MOTIF_LIEN.lastIndex = 0;
+    return MOTIF_LIEN.test(String(texte || ''));
+}
+
+function ouvrirLeLien(url) {
+    const sur = lienOuvrable(url);
+    if (!sur) { if (typeof showToast === 'function') showToast('Ce lien ne mène pas au web'); return false; }
+    window.open(sur, '_blank', 'noopener,noreferrer');
+    return true;
+}
+window.ouvrirLeLien = ouvrirLeLien;
+
+// Le lien sous un point du tableau, s'il y en a un. Les rectangles sont gardés
+// dans le repère NON TOURNÉ du bloc : on ramène donc le point dedans.
+function lienSousLePoint(pos) {
+    if (typeof texts === 'undefined' || !pos) return null;
+    for (let i = texts.length - 1; i >= 0; i--) {
+        const t = texts[i];
+        if (!t.__liens || !t.__liens.length) continue;
+        if (typeof surUneAutrePage === 'function' && surUneAutrePage(t)) continue;
+        let p = pos;
+        if (t.angle && t.__lienCentre) {
+            const dx = pos.x - t.__lienCentre.x, dy = pos.y - t.__lienCentre.y;
+            const c = Math.cos(-t.angle), s = Math.sin(-t.angle);
+            p = { x: t.__lienCentre.x + dx * c - dy * s, y: t.__lienCentre.y + dx * s + dy * c };
+        }
+        for (const l of t.__liens) {
+            if (p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h) {
+                return { texte: t, url: l.url, rect: l };
+            }
+        }
+    }
+    return null;
+}
+window.lienSousLePoint = lienSousLePoint;
 
 function layoutTextObject(obj, measureCtx) {
     const baseSize = obj.fontSize || 24;
@@ -8192,6 +8280,15 @@ canvas.addEventListener('pointerdown', (e) => {
         return;
     }
 
+    // UN LIEN S'OUVRE COMME PARTOUT : on appuie dessus, et il s'ouvre au
+    // relâcher si le doigt n'a pas bougé. Prendre le clic ici volerait le
+    // glisser — on veut pouvoir déplacer un bloc qui contient une adresse.
+    lienPresse = null;
+    if (mode === 'pointer' && typeof lienSousLePoint === 'function') {
+        const touche = lienSousLePoint(rawPos);
+        if (touche) lienPresse = { url: touche.url, depart: { x: e.clientX, y: e.clientY } };
+    }
+
     // EN PRÉSENTATION, glisser prend la page comme une main. Les barres sont
     // effacées : l'outil Main est hors d'atteinte, et c'était le seul geste
     // qui restait pour aller voir plus bas. Le crayon et le texte passent
@@ -9018,7 +9115,24 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', handlePointerUp); canvas.addEventListener('pointercancel', handlePointerUp); canvas.addEventListener('pointerout', handlePointerUp);
 
+// Le lien sur lequel on vient d'appuyer, et d'où.
+let lienPresse = null;
+
 function handlePointerUp(e) {
+    // LE LIEN S'OUVRE AU RELÂCHER, et seulement si l'on n'a pas glissé : sinon
+    // déplacer un bloc qui porte une adresse ouvrirait un onglet à chaque fois.
+    if (lienPresse && e.type === 'pointerup') {
+        const l = lienPresse;
+        lienPresse = null;
+        const bouge = Math.hypot(e.clientX - l.depart.x, e.clientY - l.depart.y);
+        if (bouge < 6 && typeof lienSousLePoint === 'function') {
+            const encore = lienSousLePoint(getRawLogicalPos(e));
+            if (encore && encore.url === l.url) ouvrirLeLien(l.url);
+        }
+    } else if (e.type !== 'pointermove') {
+        lienPresse = null;
+    }
+
     // pointerout partage ce gestionnaire comme filet de sécurité, mais pendant un
     // vrai geste le canvas garde le pointeur capturé (setPointerCapture) : les
     // événements lui arrivent même hors de la fenêtre. Un pointerout SANS bouton
@@ -10217,6 +10331,17 @@ function draw() {
                         ctx.textBaseline = 'top';
                         ctx.textAlign = 'left'; // 🌟 C'EST CECI QUI RÉPARE LE DÉCALAGE !
 
+                        // LES LIENS SE RELÈVENT EN MÊME TEMPS QU'ON PEINT. C'est
+                        // le seul endroit où l'on connaît la place exacte de
+                        // chaque mot ; les recalculer ailleurs, c'est se
+                        // condamner à deux mises en page qui divergent.
+                        // Le quadtree de rendu travaille sur des COPIES : on
+                        // écrit sur l'objet d'origine, comme les mesures.
+                        const porteurDesLiens = (typeof getObjectById === 'function')
+                            ? (getObjectById('text', obj.id) || obj) : obj;
+                        porteurDesLiens.__liens = [];
+                        porteurDesLiens.__lienCentre = { x: cx, y: cy };
+
                         lines.forEach((L) => {
                             // Le demi-interligne : le DOM centre chaque ligne dans sa
                             // line-box, on compense pour retomber sur la saisie
@@ -10248,13 +10373,42 @@ function draw() {
                                 setFont(seg.style);
                                 const ty = basY(seg.style);
                                 const ts = tailleDe(seg.style);
-                                ctx.fillStyle = seg.style.color || renderColor;
-                                ctx.fillText(seg.text, curX, ty);
                                 const sw = ctx.measureText(seg.text).width;
-                                if (seg.style.underline) {
-                                    ctx.beginPath();
-                                    ctx.moveTo(curX, ty + ts * 1.1); ctx.lineTo(curX + sw, ty + ts * 1.1);
-                                    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, ts * 0.08); ctx.stroke();
+                                const encreDuSeg = seg.style.color || renderColor;
+
+                                // LE CHEMIN ORDINAIRE RESTE INTACT : on ne
+                                // découpe le segment que s'il porte une
+                                // adresse. Un texte sans lien se peint
+                                // exactement comme avant, d'un seul trait.
+                                if (texteContientUnLien(seg.text)) {
+                                    let dx = 0;
+                                    morceauxAvecLiens(seg.text).forEach(part => {
+                                        const pw = ctx.measureText(part.texte).width;
+                                        ctx.fillStyle = part.url ? COULEUR_LIEN : encreDuSeg;
+                                        ctx.fillText(part.texte, curX + dx, ty);
+                                        if (part.url || seg.style.underline) {
+                                            ctx.beginPath();
+                                            ctx.moveTo(curX + dx, ty + ts * 1.1);
+                                            ctx.lineTo(curX + dx + pw, ty + ts * 1.1);
+                                            ctx.strokeStyle = ctx.fillStyle;
+                                            ctx.lineWidth = Math.max(1, ts * 0.08); ctx.stroke();
+                                        }
+                                        if (part.url) {
+                                            porteurDesLiens.__liens.push({
+                                                url: part.url, x: curX + dx, y: ty,
+                                                w: pw, h: Math.max(ts * 1.25, 10)
+                                            });
+                                        }
+                                        dx += pw;
+                                    });
+                                } else {
+                                    ctx.fillStyle = encreDuSeg;
+                                    ctx.fillText(seg.text, curX, ty);
+                                    if (seg.style.underline) {
+                                        ctx.beginPath();
+                                        ctx.moveTo(curX, ty + ts * 1.1); ctx.lineTo(curX + sw, ty + ts * 1.1);
+                                        ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = Math.max(1, ts * 0.08); ctx.stroke();
+                                    }
                                 }
                                 curX += sw;
                             });
