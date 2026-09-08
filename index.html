@@ -375,8 +375,10 @@
             <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
             <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
         </span>
+        <!-- Le libellé suit la page : « Poser à côté » là où il y a déjà
+             quelque chose, « Poser » sur une page vierge. -->
         <button class="bm-btn" id="bm-ranger"
-            data-tooltip="Poser tous les morceaux côte à côte, à côté du document — et y aller">⇥ Poser à côté</button>
+            data-tooltip="Poser tous les morceaux côte à côte">⇥ Poser</button>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
 
@@ -950,9 +952,11 @@
                             <b>Échap</b> les repose.<br>
             <b>Une fois qu'ils sont au tiroir</b>, deux chemins. On <b>glisse une vignette</b>
                             à l'endroit voulu du tableau (un simple clic la pose au milieu de l'écran) ;
-                            ou bien <b>⇥ Poser à côté</b> les range tous d'un coup, <b>à droite du
+                            ou bien le bouton du tiroir les range tous d'un coup, <b>à droite du
                             document</b> — jamais dessus — et <b>la vue va les chercher</b> : on voit
-                            aussitôt le résultat. Ils sont alors <b>agrandis autant que la place le
+                            aussitôt le résultat. Il dit où ça va : <b>⇥ Poser à côté</b> là où il y a
+                            déjà quelque chose, <b>⇥ Poser</b> sur une page vierge — et il suit le
+                            changement de page tout seul. Ils sont alors <b>agrandis autant que la place le
                             permet</b>, tous du même facteur, parce qu'un exercice au quart de sa page ne
                             se lit pas depuis le fond de la classe ; la disposition est choisie pour cela
                             — trois bandes larges s'empilent, trois exercices étroits se rangent côte à
@@ -978,6 +982,11 @@
                             tiroir vidé, ne sera plus reproposé par le repérage — qui retrouverait sinon les
                             mêmes blocs à chaque appui. Et relancer le repérage sur une page déjà lue
                             n'ajoute rien en double.<br>
+                            <b>On ne pose pas à côté d'une page qu'on projette :</b> en plein écran, le
+                            pourtour de la page est peint sombre et la vue ne peut pas la quitter — un
+                            morceau posé à côté y tomberait dans le noir, hors d'atteinte. Poser à côté
+                            <b>quitte donc le plein écran</b>. Un morceau lâché <b>sur</b> la page
+                            projetée, lui, s'y voit très bien : la présentation continue.<br>
                             <b>Poser termine le découpage :</b> les ciseaux se reposent, et l'on peut
                             reprendre en main ce qu'on vient de poser. Tant qu'ils sont armés, le curseur
                             est une <b>croix</b> — c'est ce qui annonce un tracé.<br>
@@ -2631,7 +2640,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=199"></script>
+    <script src="script.js?v=200"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

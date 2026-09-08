@@ -12636,6 +12636,27 @@ function fantomeDuMorceau(m) {
     return boite;
 }
 
+// EN PRÉSENTATION, LE POURTOUR DE LA PAGE EST PEINT SOMBRE — par-dessus tout
+// le reste — et la vue ne peut pas quitter la page. Un morceau posé à côté
+// tombait donc dans le noir, hors d'atteinte : on le cherchait sans pouvoir y
+// aller. Poser à côté, c'est préparer, pas montrer. On sort donc du plein
+// écran — sauf si le morceau atterrit SUR la page projetée, où il se voit très
+// bien et où on l'a peut-être voulu.
+function quitterLaPresentationSiOnPoseDehors(rect) {
+    if (typeof presentationEnCours === 'undefined' || !presentationEnCours) return false;
+    const page = (typeof documentPresente === 'function') ? documentPresente() : null;
+    if (!page) return false;
+    if (rect && rect.x >= page.x && rect.y >= page.y
+        && rect.x + rect.w <= page.x + page.w && rect.y + rect.h <= page.y + page.h) {
+        return false;
+    }
+    quitterLaPresentation();
+    if (typeof showToast === 'function') {
+        showToast('Plein écran quitté : on ne pose pas à côté d\'une page qu\'on projette');
+    }
+    return true;
+}
+
 // `ou` en coordonnées du tableau, ou rien pour le milieu de l'écran.
 function poserLeMorceau(m, ou) {
     const centre = ou || {
@@ -12648,6 +12669,7 @@ function poserLeMorceau(m, ou) {
         src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
         pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null }
     };
+    quitterLaPresentationSiOnPoseDehors(objet);
     images.push(objet);
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
@@ -12762,6 +12784,9 @@ function placeLibrePourLesMorceaux() {
 
 function poserTousLesMorceaux() {
     if (!morceauxEnAttente.length) return 0;
+    // On sort du plein écran AVANT de choisir la place : tant qu'il dure, la
+    // vue est bornée à la page et n'irait pas voir ce qu'on vient de poser.
+    quitterLaPresentationSiOnPoseDehors(null);
     const ecart = 16 / zoom;
     const zone = placeLibrePourLesMorceaux();
     const gauche = zone.x, haut = zone.y, L = zone.L, H = zone.H;
@@ -12821,7 +12846,7 @@ function poserTousLesMorceaux() {
     if (typeof showToast === 'function') {
         showToast(zone.aCote
             ? `${combien} morceau(x) posé(s) à côté du document — les voici`
-            : `${combien} morceau(x) posé(s), au plus grand`);
+            : `${combien} morceau(x) posé(s) sur cette page, au plus grand`);
     }
     return combien;
 }
@@ -12830,7 +12855,22 @@ function poserTousLesMorceaux() {
 // la page 2 est le geste même de qui refait une fiche d'exercices : le tiroir
 // ne appartient à aucune page, il traverse. Encore fallait-il pouvoir changer
 // de page sans le quitter des yeux.
+// LE BOUTON DIT OÙ ÇA VA. « Poser à côté » ment sur une page vierge : il n'y a
+// rien à côté de quoi se ranger, on pose, c'est tout. Le libellé suit donc la
+// page où l'on est — c'est le seul moyen qu'il reste vrai après un changement
+// de page.
+function majLeBoutonPoser() {
+    const b = document.getElementById('bm-ranger');
+    if (!b) return;
+    const occupe = (typeof boiteDuTravail === 'function') && !!boiteDuTravail();
+    b.textContent = occupe ? '⇥ Poser à côté' : '⇥ Poser';
+    b.setAttribute('data-tooltip', occupe
+        ? 'Poser tous les morceaux côte à côte, à côté de ce qui est déjà là — et y aller'
+        : 'Poser tous les morceaux côte à côte sur cette page vierge');
+}
+
 function majLaPageDuTiroir() {
+    majLeBoutonPoser();
     const ou = document.getElementById('bm-page');
     if (!ou || typeof pages === 'undefined') return;
     ou.textContent = (currentPageIndex + 1) + '/' + pages.length;

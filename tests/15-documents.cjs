@@ -1791,6 +1791,109 @@ module.exports = async function (browser) {
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
 
     // =====================================================================
+    // ON NE POSE PAS À CÔTÉ D'UNE PAGE QU'ON PROJETTE
+    // En présentation, le pourtour est peint sombre PAR-DESSUS tout le reste,
+    // et la vue est bornée à la page : un morceau posé à côté tombait dans le
+    // noir, hors d'atteinte.
+    // =====================================================================
+    const enPlein = await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 800;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, 600, 800);
+        g.fillStyle = '#111';
+        for (let i = 0; i < 20; i++) g.fillRect(50, 30 + i * 36, 500, 12);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 600, ch: 800,
+                      src: url, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'zz', page: 1, pages: 1 } };
+        images.push(doc);
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+
+        basculerLaDecoupe(true);
+        const rr = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.4, h: doc.h * 0.2 };
+        decoupeGeste = { obj: doc, debut: { x: rr.x, y: rr.y }, rect: rr };
+        finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+
+        presenterLeDocument();
+        const enPresentation = !!presentationEnCours;
+        poserTousLesMorceaux();
+        const apres = !!presentationEnCours;
+        const m = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        const cadre = { x1: (0 - panX) / zoom, y1: (0 - panY) / zoom,
+                        x2: (window.innerWidth - panX) / zoom, y2: (window.innerHeight - panY) / zoom };
+        return {
+            enPresentation, apres,
+            // Posé à côté du document, et VU : la vue a pu aller le chercher.
+            aCote: !!m && m.x >= doc.x + doc.w,
+            visible: !!m && m.x >= cadre.x1 - 1 && m.x + m.w <= cadre.x2 + 1
+                     && m.y >= cadre.y1 - 1 && m.y + m.h <= cadre.y2 + 1
+        };
+    });
+    r.egal('la présentation était bien en cours', enPlein.enPresentation, true);
+    r.egal('poser à côté en sort : sinon les morceaux tombent dans le noir',
+        enPlein.apres, false);
+    r.verifie('et ils sont posés à côté, sous les yeux',
+        enPlein.aCote && enPlein.visible, JSON.stringify(enPlein));
+
+    // Mais un morceau lâché SUR la page projetée s'y voit très bien : on ne
+    // coupe pas la présentation pour cela.
+    const surLaPage = await page.evaluate(() => {
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        images.length = 0; images.push(doc);
+        morceauxEnAttente = [];
+        basculerLaDecoupe(true);
+        const rr = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.3, h: doc.h * 0.1 };
+        decoupeGeste = { obj: doc, debut: { x: rr.x, y: rr.y }, rect: rr };
+        const m = finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+        presenterLeDocument();
+        const avant = !!presentationEnCours;
+        // Lâché au milieu de la page.
+        poserLeMorceau(m, { x: doc.x + doc.w / 2, y: doc.y + doc.h / 2 });
+        return { avant, apres: !!presentationEnCours };
+    });
+    r.egal('un morceau lâché sur la page projetée ne coupe pas la présentation',
+        { avant: surLaPage.avant, apres: surLaPage.apres }, { avant: true, apres: true });
+
+    // LE BOUTON DIT OÙ ÇA VA. « Poser à côté » ment sur une page vierge.
+    const libelle = await page.evaluate(() => {
+        quitterLaPresentation();
+        const b = document.getElementById('bm-ranger');
+        images.length = 0; texts.length = 0; freehands.length = 0;
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const surPageVierge = b.textContent.trim();
+        images.push({ id: nextId++, x: 0, y: 0, w: 100, h: 100, src: 'x', z: globalZ++ });
+        majLeTiroirDesMorceaux();
+        const surPageOccupee = b.textContent.trim();
+        // Et il suit un changement de page, sans qu'on touche au tiroir.
+        const combienDePages = pages.length;
+        pages.push(createNewPage());
+        loadPage(pages.length - 1);
+        const apresPageNeuve = b.textContent.trim();
+        // On rend les pages telles qu'on les a trouvées : ce qui suit compte
+        // les siennes.
+        loadPage(0);
+        pages.length = combienDePages;
+        updatePageUI();
+        return { surPageVierge, surPageOccupee, apresPageNeuve, pagesRendues: pages.length === combienDePages };
+    });
+    r.egal('sur une page vierge, le bouton dit simplement « Poser »',
+        libelle.surPageVierge, '⇥ Poser');
+    r.egal('là où il y a déjà quelque chose, il dit « Poser à côté »',
+        libelle.surPageOccupee, '⇥ Poser à côté');
+    r.egal('et il suit le changement de page tout seul',
+        { libelle: libelle.apresPageNeuve, rendues: libelle.pagesRendues },
+        { libelle: '⇥ Poser', rendues: true });
+
+    // =====================================================================
     // CE QU'ON A JETÉ NE REVIENT PAS
     // « ⌁ Repérer » relit la page et retrouve évidemment les mêmes blocs : on
     // jetait le bandeau d'en-tête, on relançait le repérage, il était là de
