@@ -26959,7 +26959,34 @@ function ensureMediaPlayerStyles() {
             display: flex; align-items: center; justify-content: space-between;
             gap: 6px; margin-top: 2px;
         }
-        .media-vitesse { min-width: 28px; text-align: right; font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+        /* La vitesse est un bouton, pas un curseur : un texte court, de la
+           largeur d'une icône, aligné sur les autres commandes. */
+        .media-btn.media-vitesse {
+            width: auto; min-width: 34px; padding: 0 7px; border-radius: 14px;
+            font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums;
+            font-family: inherit;
+        }
+
+        /* LE CHEVRON DE LA LISTE, avec le nombre de pistes : il ne paraît qu'à
+           partir de deux, et se retourne quand la liste est ouverte. */
+        /* UNE PASTILLE, PAS UN EXPOSANT. Posé nu à côté du titre, le nombre
+           de pistes se lisait comme une puissance. Un fond et un peu d'air le
+           rendent à ce qu'il est : un bouton. */
+        .media-chevron {
+            width: auto; height: 20px; padding: 0 6px; border-radius: 10px; gap: 3px;
+            flex: 0 0 auto; background: var(--bg, #f5f6fa);
+        }
+        .media-chevron .media-compte { font-size: 0.66rem; font-weight: 700; }
+        .media-chevron.ouvert svg { transform: rotate(180deg); }
+        .media-chevron svg { transition: transform 0.15s; }
+
+        /* LE TITRE SE RENOMME : un nom de fichier n'est pas un titre. */
+        .media-title { cursor: text; border-radius: 5px; padding: 1px 3px; margin-left: -3px; }
+        .media-title:hover { background: var(--accent-soft, rgba(108, 92, 231, 0.12)); }
+        .media-title.en-saisie {
+            background: var(--surface, #fff); outline: 2px solid var(--accent, #6c5ce7);
+            cursor: text; overflow: visible; text-overflow: clip;
+        }
 
         /* LE NOMBRE EST SUR LE BOUTON : on sait de combien il saute avant
            d'appuyer, et l'appui long le change sans ouvrir de fenêtre. */
@@ -27063,6 +27090,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     // Une flèche qui revient sur ses pas, et son symétrique.
     const svgBack = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 8V5l-5 4.5 5 4.5v-3c2.8 0 5 2.2 5 5s-2.2 5-5 5-5-2.2-5-5h-2c0 3.9 3.1 7 7 7s7-3.1 7-7-3.1-7-7-7z"/></svg>`;
     const svgFwd = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 8V5l5 4.5-5 4.5v-3c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5h2c0 3.9-3.1 7-7 7s-7-3.1-7-7 3.1-7 7-7z"/></svg>`;
+    const svgChevron = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
     const svgVol = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
     const svgFullscreen = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
 
@@ -27076,9 +27104,22 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
         container.innerHTML = `
             <div id="${id('header')}" class="media-header">
-                <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1;">
+                <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; flex: 1;">
                     <span style="font-size: 0.9rem;">${icon}</span>
-                    <span id="${id('title')}" class="media-title">${defaultTitle}</span>
+                    <!-- UN NOM DE FICHIER N'EST PAS UN TITRE.
+                         « 2021_06_09_15_14_42 » occupait la plus grosse
+                         typographie du panneau sans rien dire — ni ce qu'on
+                         écoute, ni pour quelle classe. Un double-clic le
+                         renomme : c'est le seul endroit où le professeur peut
+                         dire ce que c'est. -->
+                    <span id="${id('title')}" class="media-title"
+                        data-tooltip="Double-clic pour renommer">${defaultTitle}</span>
+                    <!-- LA LISTE NE S'IMPOSE PLUS. À une seule piste elle
+                         redisait le titre et prenait le tiers du panneau. -->
+                    <button class="media-btn media-chevron" id="${id('playlist-toggle')}"
+                        data-tooltip="Voir la liste des pistes" style="display:none;">
+                        ${svgChevron}<span class="media-compte" id="${id('compte')}">1</span>
+                    </button>
                 </div>
 
                 <div id="${id('mini-controls')}" style="display: none; align-items: center; gap: 2px; margin: 0 10px;">
@@ -27140,10 +27181,13 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                         ${svgVol}
                         <input type="range" class="media-slider" id="${id('volume')}" min="0" max="1" step="0.05" value="1">
                     </div>
-                    <div class="media-slider-row" data-tooltip="Vitesse de lecture">
-                        <input type="range" class="media-slider" id="${id('speed-slider')}" min="0.5" max="2" step="0.1" value="1">
-                        <span id="${id('speed-display')}" class="media-vitesse">1.0x</span>
-                    </div>
+                    <!-- LA VITESSE N'EST PAS UNE GRANDEUR CONTINUE. Personne ne
+                         vise 1,3× : on veut ralentir un peu, ou revenir au
+                         normal. Un curseur pour trois valeurs utiles, c'est une
+                         fausse précision qui coûte un geste — et deux curseurs
+                         côte à côte ne se distinguaient pas l'un de l'autre. -->
+                    <button class="media-btn media-vitesse" id="${id('speed')}"
+                        data-tooltip="Vitesse de lecture">1×</button>
                     <button class="media-btn" id="${id('toggle-loop')}" data-tooltip="Mode de boucle (Désactivé / Tout / Un)" style="position: relative;">
                         ${svgLoop}
                         <span id="${id('loop-badge')}" style="position:absolute; top:0px; right:0px; background:var(--accent, #6c5ce7); color:#fff; font-size:8px; border-radius:50%; width:12px; height:12px; display:none; align-items:center; justify-content:center; font-weight:bold;">1</span>
@@ -27152,7 +27196,14 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                          langue qui refait écouter trois secondes. Montrés à
                          tous, ils encombraient la barre de deux poignées et de
                          deux étiquettes qu'on ne comprenait pas. -->
-                    <button class="media-btn" id="${id('ab-toggle')}" data-tooltip="Montrer les repères A-B, pour rejouer un passage">AB</button>
+                    <!-- « A-B » EN TOUTES LETTRES. J'avais essayé un dessin —
+                         deux bornes et le passage entre elles : à dix-sept
+                         pixels, les points et les pointillés se rejoignent en
+                         une tache, et l'on confondait le bouton avec celui
+                         d'à côté. Deux lettres se lisent. La pastille est
+                         celle de la vitesse : deux textes, même forme. -->
+                    <button class="media-btn media-vitesse" id="${id('ab-toggle')}"
+                        data-tooltip="Montrer les repères A-B, pour rejouer un passage">A-B</button>
                     <button class="media-btn media-ab-seul" id="${id('play-selection')}" data-tooltip="Activer boucle A-B">${svgPlaySel}</button>
                 </div>
             </div>
@@ -27169,6 +27220,9 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         brancherLeSaut(el('back'), -1);
         brancherLeSaut(el('fwd'), +1);
         majLePas();
+        majLaVitesse();
+        brancherLeTitre();
+        brancherLeChevron();
         const bascule = el('ab-toggle');
         if (bascule) bascule.addEventListener('click', () => {
             reperesAB = !reperesAB;
@@ -27184,10 +27238,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     function renderPlaylist() {
         const list = el('playlist');
         list.innerHTML = '';
-        // La ligne d'aide ne sert qu'avec plusieurs pistes : seule, une liste
-        // n'a ni ordre à changer ni second lecteur à peupler.
-        const aide = el('playlist-aide');
-        if (aide) aide.style.display = playlist.length > 1 ? 'block' : 'none';
+        majLaListe();
 
         playlist.forEach((track, index) => {
             const li = document.createElement('li');
@@ -27416,13 +27467,15 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
         volSlider.oninput = (e) => { mediaEl.volume = e.target.value; };
 
-        const speedSlider = el('speed-slider');
-        const speedDisplay = el('speed-display');
-        speedSlider.oninput = (e) => {
-            const speed = parseFloat(e.target.value);
-            mediaEl.playbackRate = speed;
-            speedDisplay.textContent = speed.toFixed(1) + 'x';
-        };
+        // QUATRE CRANS, PAS UN CURSEUR. Ralentir pour une dictée, revenir au
+        // normal : c'est tout ce qu'on demande à ce réglage.
+        const boutonVitesse = el('speed');
+        if (boutonVitesse) boutonVitesse.addEventListener('click', () => {
+            const i = VITESSES.indexOf(vitesse);
+            vitesse = VITESSES[(i + 1) % VITESSES.length];
+            mediaEl.playbackRate = vitesse;
+            majLaVitesse();
+        });
 
         const minBtn = el('minimize');
         const closeBtn = el('close');
@@ -27493,6 +27546,85 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
             document.addEventListener('fullscreenchange', onFullscreenChange);
             document.addEventListener('webkitfullscreenchange', onFullscreenChange);
         }
+    }
+
+    // Un texte court, sans décimale inutile : « 1× », « 0,75× ».
+    const VITESSES = [1, 0.75, 1.25, 1.5];
+    let vitesse = 1;
+    function majLaVitesse() {
+        const b = el('speed');
+        if (!b) return;
+        b.textContent = String(vitesse).replace('.', ',') + '×';
+        b.classList.toggle('active-btn', vitesse !== 1);
+        b.setAttribute('data-tooltip', 'Vitesse de lecture — ' + b.textContent);
+    }
+
+    // RENOMMER LA PISTE. Un double-clic sur le titre le rend modifiable ;
+    // Entrée valide, Échap renonce. Le nom vit avec la piste, donc la liste
+    // le suit.
+    function brancherLeTitre() {
+        const t = el('title');
+        if (!t) return;
+        t.addEventListener('dblclick', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (!playlist.length || t.isContentEditable) return;
+            const avant = playlist[currentIndex].name;
+            t.contentEditable = 'true';
+            t.classList.add('en-saisie');
+            t.focus();
+            const r = document.createRange();
+            r.selectNodeContents(t);
+            const sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(r);
+
+            let fini = false;
+            const finir = (garder) => {
+                if (fini) return;
+                fini = true;
+                t.contentEditable = 'false';
+                t.classList.remove('en-saisie');
+                const neuf = (t.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+                if (garder && neuf) playlist[currentIndex].name = neuf;
+                t.textContent = playlist[currentIndex].name;
+                renderPlaylist();
+            };
+            t.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') { ev.preventDefault(); finir(true); }
+                else if (ev.key === 'Escape') { ev.preventDefault(); finir(false); }
+                ev.stopPropagation();
+            });
+            t.addEventListener('blur', () => finir(true), { once: true });
+        });
+        // La poignée de déplacement ne doit pas prendre le geste de saisie.
+        t.addEventListener('pointerdown', (e) => { if (t.isContentEditable) e.stopPropagation(); });
+    }
+
+    // LE CHEVRON N'EXISTE QUE S'IL Y A UNE LISTE À OUVRIR.
+    let listeOuverte = true;
+    function brancherLeChevron() {
+        const b = el('playlist-toggle');
+        if (!b) return;
+        b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            listeOuverte = !listeOuverte;
+            majLaListe();
+        });
+    }
+
+    function majLaListe() {
+        const liste = el('playlist');
+        const aide = el('playlist-aide');
+        const b = el('playlist-toggle');
+        const compte = el('compte');
+        const plusieurs = playlist.length > 1;
+        // À une seule piste, la liste redit le titre : elle ne paraît pas, et
+        // le chevron non plus — il n'y aurait rien à ouvrir.
+        if (b) b.style.display = plusieurs ? 'flex' : 'none';
+        if (compte) compte.textContent = String(playlist.length);
+        if (b) b.classList.toggle('ouvert', listeOuverte);
+        const montrer = plusieurs && listeOuverte;
+        if (liste) liste.style.display = montrer ? 'block' : 'none';
+        if (aide) aide.style.display = montrer ? 'block' : 'none';
     }
 
     function majLePas() {

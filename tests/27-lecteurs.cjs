@@ -202,6 +202,118 @@ module.exports = async function (browser) {
         { avant: 2, apres: 2, troisieme: false });
 
     // ---------------------------------------------------------------
+    // UN NOM DE FICHIER N'EST PAS UN TITRE
+    // « 2021_06_09_15_14_42 » occupait la plus grosse typographie du panneau
+    // sans rien dire — ni ce qu'on écoute, ni pour quelle classe — et la liste
+    // le redisait juste en dessous.
+    // ---------------------------------------------------------------
+    const renommer = await page.evaluate(async () => {
+        const t = document.getElementById('mp3-title');
+        const avant = t.textContent;
+        const frapper = (touche) => t.dispatchEvent(
+            new KeyboardEvent('keydown', { key: touche, bubbles: true, cancelable: true }));
+
+        t.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const enSaisie = { editable: t.isContentEditable,
+                           marque: t.classList.contains('en-saisie') };
+        t.textContent = '  Dictée   n°3  ';
+        frapper('Enter');
+        await new Promise(r => setTimeout(r, 50));
+        const apres = {
+            titre: t.textContent,
+            editable: t.isContentEditable,
+            // LA LISTE SUIT : le nom vit avec la piste, pas avec l'en-tête.
+            liste: (document.querySelector('#mp3-playlist li.active') || {}).textContent || ''
+        };
+
+        // ÉCHAP RENONCE.
+        t.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        t.textContent = 'zzz';
+        frapper('Escape');
+        await new Promise(r => setTimeout(r, 50));
+        return { avant, enSaisie, apres, apresEchap: t.textContent };
+    });
+    r.egal('le double-clic ouvre la saisie du titre',
+        renommer.enSaisie, { editable: true, marque: true });
+    r.egal('Entrée le renomme, espaces en trop rabotés',
+        { titre: renommer.apres.titre, ferme: renommer.apres.editable },
+        { titre: 'Dictée n°3', ferme: false });
+    r.verifie('et la liste porte le nouveau nom : il vit avec la piste',
+        /Dictée n°3/.test(renommer.apres.liste), JSON.stringify(renommer.apres));
+    r.egal('Échap renonce et rend le nom d\'avant', renommer.apresEchap, 'Dictée n°3');
+
+    // ---------------------------------------------------------------
+    // LA LISTE NE S'IMPOSE PLUS
+    // À une seule piste elle redisait le titre et prenait le tiers du panneau.
+    // ---------------------------------------------------------------
+    const liste = await page.evaluate(() => {
+        const p = document.getElementById('mp3-player');
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return !!e && e.getClientRects().length > 0;
+        };
+        const aDeux = { liste: vu('mp3-playlist'), chevron: vu('mp3-playlist-toggle'),
+                        compte: (document.getElementById('mp3-compte') || {}).textContent,
+                        hauteur: Math.round(p.getBoundingClientRect().height) };
+        // Le chevron la referme.
+        document.getElementById('mp3-playlist-toggle').click();
+        const repliee = { liste: vu('mp3-playlist'), aide: vu('mp3-playlist-aide'),
+                          hauteur: Math.round(p.getBoundingClientRect().height) };
+        document.getElementById('mp3-playlist-toggle').click();
+        const rouverte = vu('mp3-playlist');
+
+        // On n'en garde qu'une : la liste et le chevron s'en vont.
+        while (document.querySelectorAll('#mp3-playlist li').length > 1) {
+            document.querySelector('#mp3-playlist li:last-child .media-delete-btn').click();
+        }
+        const aUne = { liste: vu('mp3-playlist'), chevron: vu('mp3-playlist-toggle'),
+                       aide: vu('mp3-playlist-aide'),
+                       hauteur: Math.round(p.getBoundingClientRect().height) };
+        return { aDeux, repliee, rouverte, aUne };
+    });
+    r.egal('à deux pistes, la liste est là et le chevron les compte',
+        { liste: liste.aDeux.liste, chevron: liste.aDeux.chevron, compte: liste.aDeux.compte },
+        { liste: true, chevron: true, compte: '2' });
+    r.egal('le chevron la replie et la rouvre',
+        { repliee: liste.repliee.liste, aide: liste.repliee.aide, rouverte: liste.rouverte },
+        { repliee: false, aide: false, rouverte: true });
+    r.egal('à une seule piste, ni liste ni chevron : elle redirait le titre',
+        { liste: liste.aUne.liste, chevron: liste.aUne.chevron, aide: liste.aUne.aide },
+        { liste: false, chevron: false, aide: false });
+    r.verifie('et le panneau y perd le tiers de sa hauteur',
+        liste.aUne.hauteur < liste.aDeux.hauteur * 0.7,
+        JSON.stringify({ aDeux: liste.aDeux.hauteur, aUne: liste.aUne.hauteur }));
+
+    // ---------------------------------------------------------------
+    // LA VITESSE N'EST PAS UNE GRANDEUR CONTINUE
+    // Personne ne vise 1,3× : on ralentit un peu, ou l'on revient au normal.
+    // Et deux curseurs côte à côte ne se distinguaient pas l'un de l'autre.
+    // ---------------------------------------------------------------
+    const vitesse = await page.evaluate(() => {
+        const m = document.getElementById('mp3-media');
+        const b = document.getElementById('mp3-speed');
+        const curseurs = document.querySelectorAll('#mp3-player .media-reglages .media-slider').length;
+        const crans = [];
+        for (let i = 0; i < 5; i++) {
+            crans.push({ mot: b.textContent, taux: m.playbackRate,
+                         marque: b.classList.contains('active-btn') });
+            b.click();
+        }
+        return { curseurs, crans, ab: document.getElementById('mp3-ab-toggle').textContent.trim() };
+    });
+    r.egal('il ne reste qu\'un seul curseur : celui du volume', vitesse.curseurs, 1);
+    r.egal('la vitesse tourne sur quatre crans, et le bouton dit lequel',
+        vitesse.crans.map(c => c.mot), ['1×', '0,75×', '1,25×', '1,5×', '1×']);
+    r.egal('et elle agit vraiment sur la lecture',
+        vitesse.crans.map(c => c.taux), [1, 0.75, 1.25, 1.5, 1]);
+    r.egal('le bouton s\'allume dès qu\'on quitte la vitesse normale',
+        vitesse.crans.map(c => c.marque), [false, true, true, true, false]);
+    // Un dessin de dix-sept pixels ne dit pas « A-B » : les points et les
+    // pointillés s'y rejoignent en une tache, et l'on confondait ce bouton
+    // avec celui d'à côté.
+    r.egal('« A-B » est écrit, pas dessiné', vitesse.ab, 'A-B');
+
+    // ---------------------------------------------------------------
     // LE LECTEUR VIDÉO SORT DE LA MÊME FABRIQUE
     // ---------------------------------------------------------------
     await poser(['Extrait de film'], 'video');
