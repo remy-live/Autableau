@@ -26965,7 +26965,11 @@ function ensureMediaPlayerStyles() {
            « space-between », quatre éléments de largeurs différentes tombaient
            à des places arbitraires : la rangée paraissait éparpillée. */
         .media-reglages { display: flex; align-items: center; gap: 6px; }
-        .media-reglages .media-slider-row { flex: 1 1 auto; }
+        /* LE CURSEUR S'ÉTIRE, PAS SA RANGÉE. Étirer la rangée ne faisait que
+           déplacer le vide : le curseur gardait ses cinquante-quatre pixels et
+           laissait un trou de deux centimètres entre lui et les pastilles. */
+        .media-reglages .media-slider-row { flex: 1 1 auto; min-width: 0; }
+        .media-reglages .media-slider-row .media-slider { width: auto; flex: 1 1 auto; min-width: 40px; }
         .media-reglages .media-btn { flex: 0 0 auto; }
         /* La vitesse est un bouton, pas un curseur : un texte court, de la
            largeur d'une icône, aligné sur les autres commandes. */
