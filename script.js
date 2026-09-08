@@ -26948,9 +26948,39 @@ function ensureMediaPlayerStyles() {
             font-size: 0.55rem; color: var(--muted, #636e72); pointer-events: none; white-space: nowrap; font-family: monospace;
         }
 
-        .media-slider-row { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--muted, #636e72); }
+        /* LA RANGÉE QU'ON REGARDE EN DIRECT : cinq boutons, centrés, rien
+           d'autre. Le volume et la vitesse vivaient là et prenaient la place
+           du geste qu'on cherche en cours — revenir cinq secondes en arrière. */
+        .media-commandes {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; margin: 2px 0 6px;
+        }
+        .media-reglages {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 6px; margin-top: 2px;
+        }
+        .media-vitesse { min-width: 28px; text-align: right; font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+
+        /* LE NOMBRE EST SUR LE BOUTON : on sait de combien il saute avant
+           d'appuyer, et l'appui long le change sans ouvrir de fenêtre. */
+        .media-saut { position: relative; }
+        .media-saut-n {
+            position: absolute; bottom: 1px; right: 1px;
+            font-size: 8px; font-weight: 700; line-height: 1;
+            background: var(--surface, #fff); border-radius: 6px; padding: 0 2px;
+            color: var(--muted, #636e72); pointer-events: none;
+        }
+        .media-btn.media-saut:hover .media-saut-n { color: var(--ink, #2d3436); }
+
+        /* A ET B, CACHÉS PAR DÉFAUT. La barre retrouve sa hauteur : sans les
+           poignées ni leurs étiquettes, il n'y a plus rien à réserver
+           au-dessus ni en dessous. */
+        .media-player-panel.sans-ab .media-ab-seul { display: none !important; }
+        .media-player-panel.sans-ab .media-progress-wrapper { margin: 4px 0 4px; padding-top: 2px; }
+
+        .media-slider-row { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; color: var(--muted, #636e72); }
         .media-slider {
-            -webkit-appearance: none; appearance: none; width: 60px; height: 4px; border-radius: 999px;
+            -webkit-appearance: none; appearance: none; width: 54px; height: 4px; border-radius: 999px;
             background: var(--border, #dfe6e9); accent-color: var(--accent, #6c5ce7); cursor: pointer;
         }
         .media-slider::-webkit-slider-thumb {
@@ -26974,9 +27004,22 @@ function ensureMediaPlayerStyles() {
         .media-playlist li.active { background: var(--accent, #6c5ce7); color: #fff; }
         .media-playlist li:hover:not(.active) { background: var(--accent-soft, rgba(108, 92, 231, 0.12)); }
         .media-delete-btn {
-            background: none; border: none; color: var(--muted, #636e72); cursor: pointer; padding: 2px 6px; display:flex; align-items:center; justify-content:center; border-radius: 50%;
+            background: none; border: none; color: var(--muted, #636e72); cursor: pointer; padding: 2px 6px;
+            display: flex; align-items: center; justify-content: center; border-radius: 50%;
+            opacity: 0; transition: opacity 0.12s;
         }
-        .media-delete-btn:hover { color: var(--red, #e74c3c); }
+        .media-playlist li:hover .media-delete-btn,
+        .media-playlist li.active .media-delete-btn { opacity: 0.75; }
+        .media-delete-btn:hover { color: var(--red, #e74c3c); opacity: 1; }
+        /* Au doigt, il n'y a pas de survol : la croix reste là. */
+        @media (hover: none) { .media-delete-btn { opacity: 0.7; } }
+
+        /* La liste dit ce qu'on peut y faire : elle se réordonne, et une piste
+           tirée dehors s'en va dans un lecteur à elle. */
+        .media-playlist-aide {
+            font-size: 0.62rem; color: var(--muted, #636e72); text-align: center;
+            padding: 3px 6px 5px; background: var(--bg, #f5f6fa); line-height: 1.3;
+        }
     `;
     document.head.appendChild(style);
 }
@@ -26986,6 +27029,24 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     let currentIndex = 0;
     let container = null;
     let mediaEl = null;
+
+    // LE PAS DU SAUT. Cinq secondes par défaut : c'est la longueur d'une phrase
+    // qu'on redemande. Il se change par un appui long sur le bouton lui-même —
+    // pas de fenêtre de réglage à ouvrir devant la classe, et le nombre est
+    // écrit sur le bouton, donc on sait toujours ce qu'il fera.
+    const PAS_POSSIBLES = [3, 5, 10, 15, 30];
+    const CLE_PAS = 'auTableau_saut_' + mediaType;
+    let pasDuSaut = 5;
+    try {
+        const garde = parseInt(localStorage.getItem(CLE_PAS), 10);
+        if (PAS_POSSIBLES.includes(garde)) pasDuSaut = garde;
+    } catch (e) { /* stockage refusé */ }
+
+    // LES REPÈRES A-B, cachés par défaut : ils ne servent qu'à qui refait
+    // écouter trois secondes, et encombraient la barre pour tous les autres.
+    const CLE_AB = 'auTableau_reperes_ab';
+    let reperesAB = false;
+    try { reperesAB = localStorage.getItem(CLE_AB) === 'true'; } catch (e) { /* refusé */ }
 
     let loopStart = null, loopEnd = null, loopMode = 0; // 0: off, 1: all, 2: one
     let isABLooping = false;
@@ -26999,6 +27060,10 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     const svgPlaySel = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/><path d="M3 4v16h2V4H3zm16 0v16h2V4h-2z"/></svg>`;
     const svgMin = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 12h16v2H4z"/></svg>`;
     const svgClose = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
+    // Une flèche qui revient sur ses pas, et son symétrique.
+    const svgBack = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 8V5l-5 4.5 5 4.5v-3c2.8 0 5 2.2 5 5s-2.2 5-5 5-5-2.2-5-5h-2c0 3.9 3.1 7 7 7s7-3.1 7-7-3.1-7-7-7z"/></svg>`;
+    const svgFwd = `<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 8V5l5 4.5-5 4.5v-3c-2.8 0-5 2.2-5 5s2.2 5 5 5 5-2.2 5-5h2c0 3.9-3.1 7-7 7s-7-3.1-7-7 3.1-7 7-7z"/></svg>`;
+    const svgVol = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
     const svgFullscreen = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
 
     const id = (suffix) => `${idPrefix}-${suffix}`;
@@ -27032,17 +27097,22 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
             <div id="${id('body')}" class="media-body" style="padding: 4px 14px 14px; display: flex; flex-direction: column;">
                 ${mediaType === 'video' ? `<${mediaType} id="${id('media')}" class="media-video-el"></${mediaType}>` : `<${mediaType} id="${id('media')}" style="display:none;"></${mediaType}>`}
 
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
-                        <button class="media-btn" id="${id('prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
-                        <button class="media-btn media-btn-play" id="${id('play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
-                        <button class="media-btn" id="${id('next')}" data-tooltip="Piste suivante">${svgNext}</button>
-                    </div>
-
-                    <div class="media-slider-row">
-                        <span>Vol</span>
-                        <input type="range" class="media-slider" id="${id('volume')}" min="0" max="1" step="0.05" value="1">
-                    </div>
+                <!-- LA RANGÉE DE COMMANDES. Le saut en arrière est le geste
+                     du professeur : « redites-moi la phrase ». Il était
+                     introuvable — il fallait viser la barre de progression au
+                     pixel près, en direct devant la classe. -->
+                <div class="media-commandes">
+                    <button class="media-btn" id="${id('prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
+                    <button class="media-btn media-saut" id="${id('back')}"
+                        data-tooltip="Revenir en arrière — appui long pour changer le pas">
+                        ${svgBack}<span class="media-saut-n" id="${id('back-n')}">5</span>
+                    </button>
+                    <button class="media-btn media-btn-play" id="${id('play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
+                    <button class="media-btn media-saut" id="${id('fwd')}"
+                        data-tooltip="Avancer — appui long pour changer le pas">
+                        ${svgFwd}<span class="media-saut-n" id="${id('fwd-n')}">5</span>
+                    </button>
+                    <button class="media-btn" id="${id('next')}" data-tooltip="Piste suivante">${svgNext}</button>
                 </div>
 
                 <div id="${id('progress-wrapper')}" class="media-progress-wrapper">
@@ -27050,10 +27120,10 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                         <div id="${id('ab-fill')}" class="media-ab-fill" style="left: 0%; width: 100%;"></div>
                         <div id="${id('progress-bar')}" class="media-progress-bar"></div>
                     </div>
-                    <div class="media-ab-pointer" id="${id('ab-thumb-a')}" style="left: 0%;" title="Point A">
+                    <div class="media-ab-pointer media-ab-seul" id="${id('ab-thumb-a')}" style="left: 0%;" title="Point A">
                         <span class="media-ab-label" id="${id('ab-time-a')}">0:00</span>
                     </div>
-                    <div class="media-ab-pointer" id="${id('ab-thumb-b')}" style="left: 100%;" title="Point B">
+                    <div class="media-ab-pointer media-ab-seul" id="${id('ab-thumb-b')}" style="left: 100%;" title="Point B">
                         <span class="media-ab-label" id="${id('ab-time-b')}">0:00</span>
                     </div>
                     <div class="media-time-row">
@@ -27062,29 +27132,50 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                     </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
-                    <div style="display: flex; align-items: center; gap: 4px;">
-                        <button class="media-btn" id="${id('toggle-loop')}" data-tooltip="Mode de boucle (Désactivé / Tout / Un)" style="position: relative;">
-                            ${svgLoop}
-                            <span id="${id('loop-badge')}" style="position:absolute; top:0px; right:0px; background:var(--accent, #6c5ce7); color:#fff; font-size:8px; border-radius:50%; width:12px; height:12px; display:none; align-items:center; justify-content:center; font-weight:bold;">1</span>
-                        </button>
-                        <button class="media-btn" id="${id('play-selection')}" data-tooltip="Activer boucle A-B">${svgPlaySel}</button>
+                <!-- LES RÉGLAGES, EN SECOND. Le volume, la vitesse, la boucle
+                     et les repères A-B se règlent une fois et ne servent plus :
+                     ils encombraient la rangée qu'on regarde en direct. -->
+                <div class="media-reglages">
+                    <div class="media-slider-row" data-tooltip="Volume">
+                        ${svgVol}
+                        <input type="range" class="media-slider" id="${id('volume')}" min="0" max="1" step="0.05" value="1">
                     </div>
-
-                    <div class="media-slider-row">
-                        <span>Vit.</span>
+                    <div class="media-slider-row" data-tooltip="Vitesse de lecture">
                         <input type="range" class="media-slider" id="${id('speed-slider')}" min="0.5" max="2" step="0.1" value="1">
-                        <span id="${id('speed-display')}" style="min-width: 25px; text-align: right;">1.0x</span>
+                        <span id="${id('speed-display')}" class="media-vitesse">1.0x</span>
                     </div>
+                    <button class="media-btn" id="${id('toggle-loop')}" data-tooltip="Mode de boucle (Désactivé / Tout / Un)" style="position: relative;">
+                        ${svgLoop}
+                        <span id="${id('loop-badge')}" style="position:absolute; top:0px; right:0px; background:var(--accent, #6c5ce7); color:#fff; font-size:8px; border-radius:50%; width:12px; height:12px; display:none; align-items:center; justify-content:center; font-weight:bold;">1</span>
+                    </button>
+                    <!-- A ET B NE SERVENT QU'À QUELQUES-UNS : à un cours de
+                         langue qui refait écouter trois secondes. Montrés à
+                         tous, ils encombraient la barre de deux poignées et de
+                         deux étiquettes qu'on ne comprenait pas. -->
+                    <button class="media-btn" id="${id('ab-toggle')}" data-tooltip="Montrer les repères A-B, pour rejouer un passage">AB</button>
+                    <button class="media-btn media-ab-seul" id="${id('play-selection')}" data-tooltip="Activer boucle A-B">${svgPlaySel}</button>
                 </div>
             </div>
 
             <ul id="${id('playlist')}" class="media-playlist"></ul>
+            <div class="media-playlist-aide" id="${id('playlist-aide')}">
+                Double-clic pour lire · glisser pour réordonner · <b>tirer dehors</b> pour un second lecteur
+            </div>
         `;
         document.body.appendChild(container);
         mediaEl = el('media');
 
         setupEvents();
+        brancherLeSaut(el('back'), -1);
+        brancherLeSaut(el('fwd'), +1);
+        majLePas();
+        const bascule = el('ab-toggle');
+        if (bascule) bascule.addEventListener('click', () => {
+            reperesAB = !reperesAB;
+            try { localStorage.setItem(CLE_AB, reperesAB ? 'true' : 'false'); } catch (e) { /* refusé */ }
+            poserLesReperesAB();
+        });
+        poserLesReperesAB();
         setupABSliders();
         setupDragMove();
         setupResizer();
@@ -27093,6 +27184,10 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     function renderPlaylist() {
         const list = el('playlist');
         list.innerHTML = '';
+        // La ligne d'aide ne sert qu'avec plusieurs pistes : seule, une liste
+        // n'a ni ordre à changer ni second lecteur à peupler.
+        const aide = el('playlist-aide');
+        if (aide) aide.style.display = playlist.length > 1 ? 'block' : 'none';
 
         playlist.forEach((track, index) => {
             const li = document.createElement('li');
@@ -27131,7 +27226,20 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                 e.dataTransfer.setData('text/plain', index);
                 li.style.opacity = '0.5';
             };
-            li.ondragend = () => { li.style.opacity = '1'; };
+            // TIRÉE HORS DU LECTEUR, la piste s'en va dans un lecteur à elle.
+            // C'est le geste de qui veut faire écouter deux extraits l'un
+            // après l'autre sans les rechercher dans une liste : deux
+            // lecteurs, deux boutons, sous les yeux.
+            li.ondragend = (e) => {
+                li.style.opacity = '1';
+                if (!container) return;
+                const b = container.getBoundingClientRect();
+                const dehors = e.clientX < b.left || e.clientX > b.right
+                    || e.clientY < b.top || e.clientY > b.bottom;
+                // Un lâcher à (0, 0) est un abandon, pas une sortie.
+                if (!dehors || (!e.clientX && !e.clientY)) return;
+                detacherLaPiste(index, e.clientX, e.clientY);
+            };
             li.ondragover = (e) => { e.preventDefault(); };
             li.ondrop = (e) => {
                 e.preventDefault();
@@ -27149,6 +27257,43 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
             list.appendChild(li);
         });
+    }
+
+    // Sortir une piste de cette liste et la confier à un lecteur neuf.
+    function detacherLaPiste(index, x, y) {
+        const piste = playlist[index];
+        if (!piste || typeof ouvrirUnLecteurAPart !== 'function') return null;
+        const neuf = ouvrirUnLecteurAPart(mediaType, piste, x, y);
+        if (!neuf) return null;
+        playlist.splice(index, 1);
+        if (!playlist.length) {
+            // Il ne restait qu'elle : ce lecteur-ci n'a plus d'objet.
+            if (mediaEl) { mediaEl.pause(); mediaEl.removeAttribute('src'); }
+            if (container) container.style.display = 'none';
+            return neuf;
+        }
+        if (currentIndex >= playlist.length) currentIndex = playlist.length - 1;
+        else if (currentIndex > index) currentIndex--;
+        renderPlaylist();
+        return neuf;
+    }
+
+    // Recevoir une piste venue d'un autre lecteur, et se poser où on l'a lâchée.
+    function adopterLaPiste(piste, x, y) {
+        ensureMediaPlayerStyles();
+        if (!container) build();
+        playlist.push(piste);
+        container.style.display = 'block';
+        if (isFinite(x) && isFinite(y) && (x || y)) {
+            const l = container.offsetWidth || 320, h = container.offsetHeight || 200;
+            container.style.right = 'auto';
+            container.style.bottom = 'auto';
+            container.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - l - 8, x - l / 2))) + 'px';
+            container.style.top = Math.round(Math.max(8, Math.min(window.innerHeight - h - 8, y - 20))) + 'px';
+        }
+        currentIndex = playlist.length - 1;
+        playCurrent();
+        return true;
     }
 
     function playCurrent() {
@@ -27348,6 +27493,48 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
             document.addEventListener('fullscreenchange', onFullscreenChange);
             document.addEventListener('webkitfullscreenchange', onFullscreenChange);
         }
+    }
+
+    function majLePas() {
+        [el('back-n'), el('fwd-n')].forEach(e => { if (e) e.textContent = String(pasDuSaut); });
+    }
+
+    function poserLesReperesAB() {
+        if (container) container.classList.toggle('sans-ab', !reperesAB);
+        const b = el('ab-toggle');
+        if (b) {
+            b.classList.toggle('active-btn', reperesAB);
+            b.setAttribute('data-tooltip', reperesAB
+                ? 'Cacher les repères A-B'
+                : 'Montrer les repères A-B, pour rejouer un passage');
+        }
+    }
+
+    // Saut, et réglage du pas par appui long : un seul bouton, deux gestes,
+    // aucun clavier — c'est ce qu'il faut devant une classe.
+    function brancherLeSaut(bouton, sens) {
+        if (!bouton) return;
+        let minuteur = null, longAppui = false;
+        const annuler = () => { clearTimeout(minuteur); minuteur = null; };
+        bouton.addEventListener('pointerdown', () => {
+            longAppui = false;
+            annuler();
+            minuteur = setTimeout(() => {
+                longAppui = true;
+                const i = PAS_POSSIBLES.indexOf(pasDuSaut);
+                pasDuSaut = PAS_POSSIBLES[(i + 1) % PAS_POSSIBLES.length];
+                try { localStorage.setItem(CLE_PAS, String(pasDuSaut)); } catch (e) { /* refusé */ }
+                majLePas();
+                if (typeof showToast === 'function') showToast(`Saut de ${pasDuSaut} secondes`);
+            }, 550);
+        });
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach(n => bouton.addEventListener(n, annuler));
+        bouton.addEventListener('click', () => {
+            if (longAppui) { longAppui = false; return; }
+            if (!mediaEl || !isFinite(mediaEl.duration)) return;
+            const voulu = mediaEl.currentTime + sens * pasDuSaut;
+            mediaEl.currentTime = Math.max(0, Math.min(mediaEl.duration, voulu));
+        });
     }
 
     function setupABSliders() {
@@ -27568,11 +27755,33 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         }
     }
 
-    return { handleDrop };
+    return { handleDrop, adopterLaPiste, detacherLaPiste,
+             pistes: () => playlist.slice(),
+             boite: () => container };
 }
 
 const audioMediaPlayer = createMediaPlayer({ mediaType: 'audio', idPrefix: 'mp3', defaultTitle: 'Lecteur Audio', icon: '🎵' });
 const videoMediaPlayer = createMediaPlayer({ mediaType: 'video', idPrefix: 'vidp', defaultTitle: 'Lecteur Vidéo', icon: '🎬' });
+
+// LES LECTEURS EN PLUS. Un seul lecteur par sorte suffisait tant qu'on
+// écoutait une piste à la fois ; pour comparer deux extraits, il en faut deux,
+// chacun avec son bouton. On en fabrique un à la demande, en tirant une piste
+// hors de la liste.
+const lecteursAPart = [];
+
+function ouvrirUnLecteurAPart(mediaType, piste, x, y) {
+    const rang = lecteursAPart.length + 2;
+    const lecteur = createMediaPlayer({
+        mediaType,
+        idPrefix: (mediaType === 'video' ? 'vidp' : 'mp3') + '-' + rang,
+        defaultTitle: mediaType === 'video' ? 'Lecteur Vidéo' : 'Lecteur Audio',
+        icon: mediaType === 'video' ? '🎬' : '🎵'
+    });
+    lecteursAPart.push(lecteur);
+    lecteur.adopterLaPiste(piste, x, y);
+    return lecteur;
+}
+window.ouvrirUnLecteurAPart = ouvrirUnLecteurAPart;
 
 function handleMp3Drop(file) { audioMediaPlayer.handleDrop(file); }
 function handleVideoDrop(file) { videoMediaPlayer.handleDrop(file); }
