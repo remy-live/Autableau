@@ -5834,49 +5834,6 @@ function replacerLaBarreStyle() {
 }
 window.replacerLaBarreStyle = replacerLaBarreStyle;
 
-// LA BARRE SE MET DEBOUT.
-// Un tableau est en 16/9, une page en 1/1,41 : quand la page occupe toute la
-// hauteur, il reste de chaque côté une colonne que rien n'occupera jamais.
-// Une barre à plat, elle, mange de la HAUTEUR — la dimension qui fixe la
-// taille de la page. Debout au bord droit (le gauche est à la barre des
-// outils), elle ne coûte rien.
-// Le choix est celui de l'utilisateur et il est retenu : PAS de bascule
-// automatique selon la forme du document. Une barre qui pivote toute seule
-// devant une classe, on la cherche.
-const CLE_BARRE_DEBOUT = 'auTableau_barre_debout';
-let barreDebout = false;
-try { barreDebout = localStorage.getItem(CLE_BARRE_DEBOUT) === 'true'; } catch (e) { /* stockage refusé */ }
-
-function majBoutonDOrientation() {
-    const b = document.getElementById('bar-style-orienter');
-    if (!b) return;
-    b.classList.toggle('actif', barreDebout);
-    b.title = barreDebout ? 'Coucher la barre, en haut' : 'Mettre la barre debout, au bord droit';
-}
-
-function basculerLOrientationDeLaBarre(force) {
-    barreDebout = (force === undefined) ? !barreDebout : !!force;
-    try { localStorage.setItem(CLE_BARRE_DEBOUT, barreDebout ? 'true' : 'false'); } catch (e) { /* stockage refusé */ }
-    // ON CHANGE DE MEUBLE : la place gardée à la main ne vaut plus. Une barre
-    // posée en haut au milieu, remise debout, se retrouvait à cheval sur le
-    // bord de l'écran.
-    barreStylePosee = null;
-    retenirLaBarreStyle();
-    majBoutonDOrientation();
-    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
-    if (typeof showToast === 'function') {
-        showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, en haut');
-    }
-    return barreDebout;
-}
-window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
-
-document.addEventListener('DOMContentLoaded', () => {
-    const b = document.getElementById('bar-style-orienter');
-    if (b) b.addEventListener('click', (e) => { e.stopPropagation(); basculerLOrientationDeLaBarre(); });
-    majBoutonDOrientation();
-});
-
 // La poignée générique des barres déplace celle-ci comme les autres ; il ne
 // manquait qu'un endroit où retenir le résultat.
 document.addEventListener('DOMContentLoaded', () => {
@@ -5898,10 +5855,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- GESTION SELECTION ET STYLES ---
 function updateStyleBarContext() {
-    // La liste des classes est entièrement réécrite ici : l'orientation, qui
-    // n'est pas un contexte mais un meuble, doit être remise avec.
-    const barStyle = document.getElementById('bar-style');
-    barStyle.className = 'toolbar visible' + (barreDebout ? ' vertical' : '');
+    const barStyle = document.getElementById('bar-style'); barStyle.className = "toolbar visible";
     if (barStyle.parentNode !== document.body) {
         document.body.appendChild(barStyle);
         localStorage.setItem('minimized_bar-style', 'false');
@@ -5929,15 +5883,6 @@ function updateStyleBarContext() {
             Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
         barStyle.style.top = Math.round(Math.max(4,
             Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
-    } else if (barreDebout) {
-        // DEBOUT, AU BORD DROIT. Le gauche appartient à la barre des outils :
-        // deux colonnes du même côté seraient pires que ce qu'on remplace.
-        barStyle.removeAttribute('data-dragged');
-        barStyle.style.left = 'auto';
-        barStyle.style.right = '20px';
-        barStyle.style.top = '50%';
-        barStyle.style.bottom = 'auto';
-        barStyle.style.transform = 'translateY(-50%)';
     } else {
         barStyle.removeAttribute('data-dragged');
         barStyle.style.left = '50%';
@@ -11020,9 +10965,18 @@ async function affinerLaPage(obj) {
 
     const numero = obj.pluginData.page;
     const actuel = (d.rendus && d.rendus.get(numero)) || null;
-    const echelle = (actuel && actuel.echelle) || currentPdfQuality;
     const page = await d.doc.getPage(numero);
     const nature = page.getViewport({ scale: 1 });
+    // L'ÉCHELLE SE MESURE SUR L'IMAGE QU'ON REGARDE. Elle se lisait dans le
+    // registre des rendus, qui dit ce qui a été calculé pour cette page — pas
+    // ce que cet objet-ci montre. Les deux se séparent dès qu'un objet reste
+    // sur une image plus ancienne, et l'on décidait alors d'affiner ou non
+    // d'après une image que personne n'avait sous les yeux : le morceau qu'on
+    // venait d'agrandir repartait plus grossier qu'avant.
+    const ancienne = imageCache[ancienSrc];
+    const echelle = (ancienne && ancienne.naturalWidth && nature.width)
+        ? (ancienne.naturalWidth / nature.width)
+        : ((actuel && actuel.echelle) || currentPdfQuality);
     // La finesse suit la demande dans LES DEUX SENS. Une page rendue six fois
     // trop grande puis montrée petite ne fait pas une belle petite image : le
     // navigateur jette cinq pixels sur six, et cela se voit — c'est le grain
@@ -11046,7 +11000,16 @@ async function affinerLaPage(obj) {
 
     // La page a pu changer pendant le calcul : on ne repeint pas au hasard.
     if (obj.pluginData.page !== numero) return false;
-    const k = rendu.l / (actuel ? actuel.l : (imageCache[ancienSrc] || {}).naturalWidth || rendu.l);
+    // LE FACTEUR SE PREND SUR L'IMAGE QU'ON REGARDE, pas sur le registre des
+    // rendus. Le registre dit ce qui a été calculé pour cette page ; l'objet,
+    // lui, peut être resté sur une image plus ancienne — un morceau posé
+    // avant un affinage, un tableau rouvert. On mettait alors le cadrage à
+    // l'échelle d'une image que personne ne montrait : le document affichait
+    // une région qui n'existait plus, et tout ce qu'on y découpait ensuite
+    // tombait dans le vide.
+    const largeurAncienne = (ancienne && ancienne.naturalWidth)
+        || (actuel && actuel.l) || rendu.l;
+    const k = rendu.l / largeurAncienne;
     // TOUS CEUX QUI MONTRAIENT CETTE PAGE PASSENT À LA NOUVELLE. Ne changer
     // que celui qu'on affine aurait doublé l'image en mémoire, et laissé les
     // autres sur l'ancienne — deux poids, deux mesures pour la même page.

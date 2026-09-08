@@ -152,6 +152,36 @@ module.exports = async function (browser) {
     r.egal('elles reviennent toutes', cycle.apres, ATTENDUES.length);
 
     // =====================================================================
+    // LA BARRE DU DOCUMENT : DES ICÔNES, ET RIEN QUE DES ICÔNES
+    // Sept boutons portaient leur mot et la barre traversait l'écran — au
+    // point qu'on a cru qu'il fallait la mettre debout. Le mot vit maintenant
+    // dans l'infobulle : elle dit la même chose, et plus longuement, sans
+    // rien coûter tant qu'on ne la demande pas.
+    // =====================================================================
+    const barreDoc = await page.evaluate(() => {
+        const barre = document.getElementById('bar-style');
+        const boutons = Array.from(barre.querySelectorAll('.doc-btn'));
+        // UNE ICÔNE MUETTE EST UN RÉBUS. Puisqu'il n'y a plus de mot écrit,
+        // chaque bouton DOIT porter de quoi se nommer.
+        const muets = boutons.filter(b => !b.getAttribute('data-tooltip') && !b.getAttribute('title'))
+            .map(b => b.id || b.className);
+        // Et aucun ne doit être vide : une icône, ou au moins un caractère.
+        const vides = boutons.filter(b => !b.querySelector('svg') && !b.textContent.trim())
+            .map(b => b.id || b.className);
+        // Plus un seul mot écrit dans la barre.
+        const mots = boutons.filter(b => {
+            const m = b.querySelector('span');
+            return m && getComputedStyle(m).display !== 'none';
+        }).map(b => b.id || (b.textContent || '').trim().slice(0, 20));
+        return { combien: boutons.length, muets, vides, mots };
+    });
+    r.verifie('la barre du document a bien ses boutons', barreDoc.combien > 10, String(barreDoc.combien));
+    r.egal('aucun mot écrit : il ne reste que les icônes', barreDoc.mots, []);
+    r.egal('et pas une seule icône muette : chacune porte son infobulle',
+        barreDoc.muets, []);
+    r.egal('ni un seul bouton vide', barreDoc.vides, []);
+
+    // =====================================================================
     // L'ENCOMBREMENT, EN DEUX OPTIONS
     // Ouvrir un polycopié empilait six surfaces autour de lui. On ne tranche
     // pas à la place du professeur : on lui donne les leviers, et rien ne

@@ -1790,83 +1790,6 @@ module.exports = async function (browser) {
         jete.apres === 2 && !jete.restants.includes(jete.jete)
         && jete.vignettes === 2 && jete.compte === '2', JSON.stringify(jete));
 
-    // =====================================================================
-    // LA BARRE DEBOUT
-    // Un tableau est en 16/9, une page en 1/1,41 : les colonnes latérales sont
-    // perdues d'avance, la hauteur est ce qui manque. Debout au bord droit, la
-    // barre ne coûte rien ; à plat en haut, elle rétrécit la page.
-    // =====================================================================
-    const orientation = await page.evaluate(() => {
-        const doc = images[0];
-        selectedItems = [{ type: 'image', id: doc.id }];
-        basculerLOrientationDeLaBarre(false);
-        updateStyleBarContext();
-        const barre = document.getElementById('bar-style');
-        const motDe = () => {
-            const st = getComputedStyle(document.querySelector('#doc-decouper span'));
-            return { visible: st.display !== 'none', taille: parseFloat(st.fontSize) };
-        };
-        const senseDuBouton = () => getComputedStyle(document.getElementById('doc-decouper')).flexDirection;
-        const aPlat = { vertical: barre.classList.contains('vertical'),
-                        mot: motDe(), sens: senseDuBouton() };
-
-        basculerLOrientationDeLaBarre(true);
-        const r = barre.getBoundingClientRect();
-        const debout = {
-            vertical: barre.classList.contains('vertical'),
-            colonne: getComputedStyle(barre).flexDirection,
-            // AU BORD DROIT : le gauche appartient à la barre des outils.
-            aDroite: (window.innerWidth - r.right) < 40 && r.left > window.innerWidth / 2,
-            tientEnHauteur: r.height <= window.innerHeight + 1,
-            mot: motDe(), sens: senseDuBouton(),
-            // Sauf « ◀ 3 /9 ▶ », qui ne se lit pas en colonne.
-            pagination: getComputedStyle(document.getElementById('doc-pages')).flexDirection,
-            retenu: localStorage.getItem('auTableau_barre_debout')
-        };
-
-        // LE PIÈGE : chaque changement de sélection RÉÉCRIT la liste des
-        // classes de la barre. L'orientation est un meuble, pas un contexte —
-        // elle doit y survivre.
-        selectedItems = [];
-        updateStyleBarContext();
-        selectedItems = [{ type: 'image', id: doc.id }];
-        updateStyleBarContext();
-        const apresSelection = barre.classList.contains('vertical');
-
-        basculerLOrientationDeLaBarre(false);
-        const recouchee = { vertical: barre.classList.contains('vertical'),
-                            retenu: localStorage.getItem('auTableau_barre_debout'),
-                            mot: motDe(), sens: senseDuBouton() };
-        return { aPlat, debout, apresSelection, recouchee };
-    });
-    r.egal('à plat, la barre est une ligne et le mot est à côté de l\'icône',
-        { vertical: orientation.aPlat.vertical, mot: orientation.aPlat.mot.visible,
-          sens: orientation.aPlat.sens },
-        { vertical: false, mot: true, sens: 'row' });
-    r.egal('debout, elle devient une colonne', 
-        { vertical: orientation.debout.vertical, colonne: orientation.debout.colonne },
-        { vertical: true, colonne: 'column' });
-    r.verifie('rangée au bord DROIT, et tenant dans la hauteur',
-        orientation.debout.aDroite && orientation.debout.tientEnHauteur,
-        JSON.stringify(orientation.debout));
-    // ⌁ et le cadre pointillé de « Remplir » ne se devinent pas : on ne
-    // découvre pas un outil par son infobulle, on la lit quand on le cherche
-    // déjà. Le mot reste donc, sous l'icône, en petit.
-    r.verifie('debout, le mot passe SOUS l\'icône, en petit',
-        orientation.debout.mot.visible && orientation.debout.sens === 'column'
-        && orientation.debout.mot.taille <= 10 && orientation.debout.mot.taille < orientation.aPlat.mot.taille,
-        JSON.stringify({ debout: orientation.debout.mot, sens: orientation.debout.sens,
-                         aPlat: orientation.aPlat.mot }));
-    r.egal('mais la pagination reste une ligne', orientation.debout.pagination, 'row');
-    r.egal('le choix est retenu d\'une séance à l\'autre', orientation.debout.retenu, 'true');
-    r.verifie('et un changement de sélection ne la recouche pas',
-        orientation.apresSelection, JSON.stringify(orientation));
-    r.egal('la bascule inverse la remet à plat, mots en pleine taille',
-        { vertical: orientation.recouchee.vertical, retenu: orientation.recouchee.retenu,
-          sens: orientation.recouchee.sens,
-          pleine: orientation.recouchee.mot.taille === orientation.aPlat.mot.taille },
-        { vertical: false, retenu: 'false', sens: 'row', pleine: true });
-
     // LE RETOUR EN ARRIÈRE EST GRATUIT : un morceau n'est qu'un cadrage sur la
     // page entière, donc le rognage le retaille — et peut lui rendre ce qu'on
     // lui a coupé de trop.
@@ -1911,6 +1834,12 @@ module.exports = async function (browser) {
         if (!m) return { rate: true };
         const cleAuTiroir = !!m.cle;
 
+        // ON REGARDE DE PRÈS. Posé au zoom 1, un morceau agrandi trois fois
+        // tombe pile sur ce que la qualité de base fournit — il ne manque
+        // rien, il n'y a rien à observer, et la mesure dépendrait alors du
+        // réglage de qualité qu'un bloc précédent a pu changer. Au zoom 3, il
+        // manque des pixels quelle que soit la finesse de départ.
+        zoom = 3;
         poserTousLesMorceaux();
         const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
         if (!morceau) return { rate: true };
@@ -1953,14 +1882,24 @@ module.exports = async function (browser) {
         const besoin = { doc: (doc.w * zoom) / doc.cw, morceau: (morceau.w * zoom) / morceau.cw };
         const avant = { cw: morceau.cw, src: morceau.src };
         const change = await affinerLaPage(doc);
+        const img = imageCache[doc.src];
+        const dansLImage = !!img && doc.cx + doc.cw <= (img.naturalWidth || 0) + 1
+            && doc.cy + doc.ch <= (img.naturalHeight || 0) + 1;
         return { besoin, avant: { cw: avant.cw }, apres: { cw: morceau.cw },
-                 memeSrc: morceau.src === doc.src, change };
+                 memeSrc: morceau.src === doc.src, change, dansLImage,
+                 cadre: { cw: Math.round(doc.cw), ch: Math.round(doc.ch),
+                          NW: img && img.naturalWidth, NH: img && img.naturalHeight } };
     });
     r.verifie('le document montré petit est bien le moins exigeant des deux',
         partageDeLaPage.besoin.doc < partageDeLaPage.besoin.morceau, JSON.stringify(partageDeLaPage));
     r.verifie('et affiner pour lui ne rend pas flou le morceau agrandi d\'à côté',
         partageDeLaPage.apres.cw >= partageDeLaPage.avant.cw - 0.5 && partageDeLaPage.memeSrc,
         JSON.stringify(partageDeLaPage));
+    // L'affinage redimensionne l'image ET le cadrage : s'ils se désaccordent,
+    // le document montre une région qui n'existe plus, et tout ce qu'on y
+    // découpe ensuite tombe dans le vide.
+    r.verifie('et le cadrage du document reste dans son image',
+        partageDeLaPage.dansLImage, JSON.stringify(partageDeLaPage.cadre));
 
     // =====================================================================
     // CHANGER DE PAGE DEPUIS LE TIROIR
@@ -1968,6 +1907,10 @@ module.exports = async function (browser) {
     // refait une fiche d'exercices.
     // =====================================================================
     const pagesDuTiroir = await page.evaluate(() => {
+        // On repose la vue : les deux blocs précédents regardaient la page de
+        // très près pour mesurer sa finesse, et un zoom laissé en l'air
+        // changerait la taille des morceaux qu'on découpe ici.
+        zoom = 1;
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         images.length = 0; images.push(doc);
         morceauxEnAttente = []; majLeTiroirDesMorceaux();

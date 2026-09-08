@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=108">
+    <link rel="stylesheet" href="style.css?v=109">
 </head>
 
 <body>
@@ -1048,7 +1048,11 @@
                             <b>Cadre</b> / <b>Page</b>, le rognage, les proportions, l'apparence. Au-dessus de
                             l'objet, un petit menu flottant : les <b>actions</b> — verrouiller, dupliquer,
                             supprimer. Rien ne se trouve dans les deux. En <b>plein écran</b>, la barre des
-                            propriétés descend en bas : la page occupe alors tout le haut.</li>
+                            propriétés descend en bas : la page occupe alors tout le haut.<br>
+                            Elle ne porte <b>que des icônes</b> : sept boutons écrivaient leur nom et la
+                            barre traversait l'écran. Le mot est dans l'<b>infobulle</b> — elle dit la même
+                            chose, et plus longuement, sans rien coûter tant qu'on ne la demande pas.
+                            Chaque bouton en a une : une icône muette ne serait qu'un rébus.</li>
                         <li><strong>Deux options contre l'encombrement</strong> (roue crantée du tiroir du
                             haut, rubrique <b>Encombrement</b>). Aucune n'est active au départ : c'est vous
                             qui décidez.<br>
@@ -1063,18 +1067,6 @@
                             qui vient écrire trois lignes. Une <b>poignée paraît au coin inférieur droit</b>
                             de la barre : on la <b>tire</b> (ou on clique dessus) et tout revient — et
                             l'option s'éteint du même coup, puisque vous l'avez redemandée.</li>
-                        <li><strong>La barre debout, pour les documents :</strong> le bouton <b>⊟</b> de sa
-                            poignée met la barre des propriétés <b>debout au bord droit</b>. Ce n'est pas une
-                            coquetterie : un tableau est en 16/9, une page en 1/1,41 — quand la page occupe
-                            toute la hauteur, il reste de chaque côté une colonne large de plus d'un
-                            demi-écran que rien n'occupera jamais, tandis qu'une barre à plat mange de la
-                            <b>hauteur</b>, la dimension qui fixe la taille de la page. Debout, elle ne coûte
-                            rien. Debout, le mot passe <b>sous l'icône</b>, en tout petit : à côté, il ferait
-                            une colonne large comme « Numéroter » ; absent, ⌁ et le cadre pointillé de
-                            « Remplir » ne se devineraient pas — on ne découvre pas un outil par son
-                            infobulle, on la lit quand on le cherche déjà. Le choix est retenu d'une séance à l'autre, et rien ne le fait tout
-                            seul : une barre qui pivote d'elle-même, on la cherche. Le bouton la recouche.
-                            Sur un document <b>paysage</b>, c'est l'inverse — gardez-la à plat.</li>
                         <li><strong>L'apparence tient derrière sa pastille :</strong> la couleur, l'épaisseur du
                             trait et l'opacité se règlent dans la fenêtre qu'ouvre le rond de couleur. Deux
                             curseurs posés à même la barre la faisaient longue de moitié, pour des réglages
@@ -2183,20 +2175,6 @@
              en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
              La place choisie est retenue d'une seance a l'autre. -->
         <div class="drag-wrapper">
-            <!-- DEBOUT OU À PLAT. Un tableau est en 16/9, une page en 1/1,41 :
-                 quand la page occupe toute la hauteur, il reste de chaque côté
-                 une colonne large de plus d'un demi-écran que rien n'occupera
-                 jamais. Une barre à plat, elle, mange de la HAUTEUR — la
-                 dimension qui fixe la taille de la page. Debout au bord droit,
-                 elle ne coûte rien. Le choix est retenu ; il n'est pas fait
-                 tout seul, une barre qui pivote d'elle-même se cherche. -->
-            <button class="btn-minimize btn-orienter" id="bar-style-orienter"
-                title="Mettre la barre debout, au bord droit"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="9" width="18" height="6" rx="2" />
-                    <path d="M12 3v3M12 18v3" />
-                </svg></button>
             <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <line x1="5" y1="12" x2="19" y2="12" />
                 </svg></button>
@@ -2660,7 +2638,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=197"></script>
+    <script src="script.js?v=198"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=91"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
