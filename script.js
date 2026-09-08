@@ -27053,6 +27053,11 @@ function ensureMediaPlayerStyles() {
         .media-player-panel:fullscreen, .media-player-panel:-webkit-full-screen {
             width: 100vw !important; height: 100vh !important; max-width: 100vw;
             border-radius: 0; background: #000;
+            /* AUCUN HABILLAGE NE SURVIT AU PLEIN ÉCRAN : l'image prend tout,
+               et les commandes redeviennent une surcouche empilée au bas.
+               La « Réglette », qui met le panneau en ligne, y aurait renvoyé
+               l'en-tête et les boutons chacun de leur côté de l'écran. */
+            flex-direction: column !important; flex-wrap: nowrap !important;
         }
         /* En plein écran, la vidéo est centrée en position fixe : elle ne bouge jamais,
            les contrôles deviennent une surcouche flottante par-dessus. */
@@ -27064,11 +27069,13 @@ function ensureMediaPlayerStyles() {
             width: auto; height: auto; max-width: 100vw; max-height: 100vh; object-fit: contain; margin: 0;
         }
         .media-player-panel:fullscreen .media-header, .media-player-panel:-webkit-full-screen .media-header {
+            display: block !important;
             position: absolute; top: 0; left: 0; right: 0; z-index: 10;
             background: linear-gradient(rgba(0,0,0,0.7), transparent);
             padding: 16px; transition: opacity 0.25s ease;
         }
         .media-player-panel:fullscreen .media-body, .media-player-panel:-webkit-full-screen .media-body {
+            flex-direction: column !important; flex-wrap: nowrap !important;
             position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
             background: linear-gradient(transparent, rgba(0,0,0,0.75) 45%);
             padding: 40px 20px 16px !important; transition: opacity 0.25s ease;
@@ -27114,6 +27121,11 @@ function ensureMediaPlayerStyles() {
         .media-video-el {
             width: 100%; display: block; background: #000; border-radius: 10px; margin-bottom: 10px;
         }
+
+        /* LE CORPS EST UNE COLONNE DE BOÎTES, et cela se dit ici et non dans
+           l'attribut « style » du bloc : un habillage qui veut en faire une
+           ligne ne peut rien contre un style posé à même la balise. */
+        .media-body { padding: 2px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 
         .media-progress-wrapper { position: relative; margin: 4px 0 22px; padding-top: 24px; }
         .media-progress-container {
@@ -27261,8 +27273,231 @@ function ensureMediaPlayerStyles() {
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .media-playlist-aide sup { font-size: 8px; }
+
+        /* ════════════════════════════════════════════════════════════════
+           L'HABILLAGE DU LECTEUR
+           Un même lecteur, cinq allures. Ce n'est pas une coquetterie : on
+           ne pilote pas de la même façon à la souris sur un portable, du
+           doigt sur un écran interactif de deux mètres, ou en projetant
+           dans une salle qu'on a mise dans le noir. Le panneau ne change
+           pas — ce sont les mêmes boutons, les mêmes réglages, la même
+           liste — seule sa mise en page suit ce qu'on en fait.
+           ════════════════════════════════════════════════════════════════ */
+        .media-mot { display: none; font-size: 12px; font-weight: 600; line-height: 1; }
+        .media-icone { display: flex; align-items: center; justify-content: center; }
+        /* L'anneau du « Cadran » vit dans le pli : partout ailleurs le
+           bouton de lecture reprend sa place comme si rien ne l'entourait. */
+        .media-anneau { display: contents; }
+        .media-anneau-svg { display: none; }
+        .media-anneau-fond { fill: none; stroke: var(--border, #dfe6e9); stroke-width: 7; }
+        .media-anneau-jauge {
+            fill: none; stroke: var(--accent, #6c5ce7); stroke-width: 7; stroke-linecap: round;
+            stroke-dasharray: 282.744; stroke-dashoffset: 282.744;
+            transition: stroke-dashoffset 0.15s linear;
+        }
+
+        /* ──── TABLEAU BLANC : tout se prend du doigt ──── */
+        .habillage-tni { width: 460px; }
+        .habillage-tni .media-title { font-size: 19px; }
+        .habillage-tni .media-body { gap: 12px; padding: 4px 16px 16px; }
+        /* LA BARRE PASSE AU-DESSUS DES COMMANDES : on lit d'abord où l'on
+           en est, on agit ensuite. */
+        .habillage-tni .media-video-el { order: 0; }
+        .habillage-tni .media-progress-wrapper { order: 1; }
+        .habillage-tni .media-commandes { order: 2; }
+        .habillage-tni .media-reglages { order: 3; }
+        .habillage-tni.sans-ab .media-progress-wrapper { margin: 8px 0 4px; padding-top: 6px; }
+        .habillage-tni .media-progress-container { height: 13px; border-radius: 8px; overflow: visible; }
+        .habillage-tni .media-progress-bar { position: relative; }
+        /* UNE POIGNÈE DE VINGT-HUIT PIXELS : on la saisit sans viser. */
+        .habillage-tni .media-progress-bar::after {
+            content: ''; position: absolute; right: -14px; top: 50%;
+            width: 28px; height: 28px; margin-top: -14px; border-radius: 50%;
+            background: var(--surface, #fff); border: 4px solid var(--accent, #6c5ce7);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+        }
+        .habillage-tni .media-time-row { font-size: 16px; font-weight: 600; margin-top: 12px; }
+        .habillage-tni .media-commandes { gap: 7px; }
+        .habillage-tni .media-commandes .media-btn {
+            flex: 1 1 0; width: auto; height: 66px; gap: 5px;
+            flex-direction: column; border-radius: 14px;
+            border: 2px solid var(--border, #dfe6e9); color: var(--ink, #2d3436);
+        }
+        .habillage-tni .media-commandes .media-btn:hover {
+            border-color: var(--accent, #6c5ce7); background: var(--accent-soft, rgba(108, 92, 231, 0.1));
+            color: var(--accent, #6c5ce7);
+        }
+        .habillage-tni .media-commandes .media-btn-play {
+            flex: 0 0 100px; background: var(--accent, #6c5ce7);
+            border-color: var(--accent, #6c5ce7); color: #fff;
+        }
+        .habillage-tni .media-commandes .media-btn-play:hover {
+            background: var(--accent, #6c5ce7); color: #fff; opacity: 0.88;
+        }
+        .habillage-tni .media-commandes .media-icone svg { width: 24px; height: 24px; }
+        .habillage-tni .media-commandes .media-btn-play .media-icone svg { width: 28px; height: 28px; }
+        /* CHAQUE COMMANDE PORTE SON MOT : rien n'est deviné, et un élève
+           peut s'en servir au tableau. */
+        .habillage-tni .media-mot { display: block; }
+        .habillage-tni .media-saut-n { font-size: 12px; }
+        .habillage-tni .media-saut-n::after { content: ' s'; }
+        .habillage-tni .media-reglages .media-btn { width: 34px; height: 34px; }
+        .habillage-tni .media-reglages .media-btn.media-vitesse { width: auto; min-width: 40px; }
+
+        /* ──── CARTOUCHE : sombre, contrasté, lisible du fond de la salle ──── */
+        .habillage-cartouche {
+            background: #16151c; color: #f4f3f8; border-color: #2b2936;
+            box-shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.9);
+        }
+        .habillage-cartouche .media-title { font-size: 17px; color: #f4f3f8; }
+        .habillage-cartouche .media-title:hover { background: rgba(185, 174, 255, 0.16); }
+        .habillage-cartouche .media-btn { color: #b9b4cc; }
+        .habillage-cartouche .media-btn:hover { color: #fff; background: #2a2837; }
+        .habillage-cartouche .media-btn.active-btn { color: #cdc4ff; background: rgba(185, 174, 255, 0.18); }
+        .habillage-cartouche .media-chevron { background: #262433; color: #b9b4cc; }
+        .habillage-cartouche .media-video-el { order: 0; }
+        .habillage-cartouche .media-progress-wrapper { order: 1; display: flex; flex-direction: column; }
+        .habillage-cartouche .media-commandes { order: 2; }
+        .habillage-cartouche .media-reglages { order: 3; }
+        .habillage-cartouche .media-progress-container { background: #302d3d; height: 7px; }
+        .habillage-cartouche .media-progress-bar { background: #b9aeff; }
+        /* LE CHRONO PASSE AU-DESSUS DE LA BARRE, et prend la place d'un
+           titre : c'est le seul chiffre qu'on cherche des yeux de loin. */
+        .habillage-cartouche .media-time-row {
+            order: -1; margin: 0 0 12px; gap: 9px;
+            justify-content: flex-start; align-items: baseline;
+            font-size: 34px; font-weight: 500; color: #f4f3f8;
+        }
+        .habillage-cartouche .media-t-total { font-size: 16px; color: #78738f; }
+        .habillage-cartouche .media-t-total::before { content: '/ '; }
+        .habillage-cartouche .media-commandes .media-btn:not(.media-btn-play) { width: 40px; height: 40px; }
+        .habillage-cartouche .media-commandes .media-btn.media-saut { width: auto; }
+        .habillage-cartouche .media-btn-play {
+            width: 54px; height: 54px; background: #b9aeff; color: #16151c; box-shadow: none;
+        }
+        .habillage-cartouche .media-btn-play:hover { background: #cdc4ff; color: #16151c; opacity: 1; }
+        .habillage-cartouche .media-slider { background: #302d3d; }
+        .habillage-cartouche .media-playlist { border-top-color: rgba(255, 255, 255, 0.1); }
+        .habillage-cartouche .media-playlist li { color: #e7e5f0; }
+        .habillage-cartouche .media-playlist li:hover:not(.active) { background: #262433; }
+        .habillage-cartouche .media-playlist li.active { background: rgba(185, 174, 255, 0.16); color: #cdc4ff; }
+        .habillage-cartouche .media-playlist-aide { color: #6e6a85; }
+        .habillage-cartouche .media-ab-pointer { border-color: #16151c; }
+
+        /* ──── RÉGLETTE : une seule ligne, qu'on oublie ──── */
+        .habillage-reglette {
+            width: 840px; max-width: 94vw;
+            flex-direction: row; flex-wrap: wrap; align-items: center;
+            padding: 6px 9px; gap: 10px;
+        }
+        /* L'EN-TÊTE S'EFFACE COMME BOÎTE, pas comme contenu : ses trois
+           groupes deviennent des éléments de la ligne, ce qui permet de
+           renvoyer « réduire » et « fermer » au bout — sans quoi ils
+           restaient plantés au milieu, entre le titre et les commandes. */
+        .habillage-reglette .media-header { display: contents; }
+        /* LE TITRE NE SE LAISSE PAS ÉCRASER : sans plancher, les commandes et
+           les réglages, qui ne cèdent rien, le réduisaient à sa seule note de
+           musique. */
+        .habillage-reglette .media-header > div:nth-child(1) { order: 1; flex: 1 1 170px; min-width: 170px; }
+        .habillage-reglette .media-header > div:nth-child(2) { order: 2; }
+        .habillage-reglette .media-header > div:nth-child(3) { order: 4; }
+        .habillage-reglette .media-body { order: 3; flex-direction: row; align-items: center; padding: 0; gap: 10px; flex: 0 0 auto; }
+        .habillage-reglette .media-progress-wrapper { margin: 0; padding: 0; display: flex; align-items: center; gap: 7px; }
+        .habillage-reglette .media-progress-container { flex: 0 0 150px; height: 4px; }
+        .habillage-reglette .media-time-row { margin: 0; gap: 5px; flex: 0 0 auto; }
+        .habillage-reglette .media-t-total::before { content: '/ '; }
+        .habillage-reglette .media-commandes { gap: 3px; }
+        .habillage-reglette .media-reglages .media-slider { flex: 0 0 46px; width: 46px; min-width: 0; }
+        .habillage-reglette .media-btn-play { width: 32px; height: 32px; border-radius: 9px; box-shadow: none; }
+        .habillage-reglette .media-btn-play svg { width: 14px; height: 14px; }
+        /* LES REPÈRES A-B N'ONT PAS LEUR PLACE SUR UNE LIGNE : deux poignées
+           et leurs deux étiquettes demandent de la hauteur au-dessus et en
+           dessous de la barre, et il n'y en a pas. Le bouton s'en va avec
+           eux, plutôt que de rester là sans rien faire. */
+        .habillage-reglette .media-ab-seul, .habillage-reglette .media-ab-bouton { display: none !important; }
+        .habillage-reglette .media-playlist { order: 5; flex: 1 0 100%; }
+        .habillage-reglette .media-playlist-aide { order: 6; flex: 1 0 100%; }
+        /* UNE VIDÉO NE TIENT PAS SUR UNE LIGNE. L'habillage garde ce qu'il
+           peut — des commandes compactes — mais l'en-tête redevient une
+           barre au-dessus de l'image, faute de quoi « réduire » et
+           « fermer » finissaient rejetés sous le panneau. */
+        .habillage-reglette.video-panel { width: 440px; }
+        .habillage-reglette.video-panel .media-header { display: flex; padding: 10px 12px 6px; }
+        .habillage-reglette.video-panel .media-body { flex: 1 0 100%; flex-wrap: wrap; }
+        .habillage-reglette .media-video-el { flex: 1 0 100%; margin-bottom: 8px; }
+
+        /* ──── CADRAN : la progression fait le tour du bouton ──── */
+        .habillage-cadran { width: 380px; }
+        .habillage-cadran .media-body { gap: 8px; }
+        .habillage-cadran .media-anneau {
+            display: inline-flex; position: relative; flex: 0 0 74px;
+            width: 74px; height: 74px; align-items: center; justify-content: center;
+        }
+        .habillage-cadran .media-anneau-svg {
+            display: block; position: absolute; top: 0; left: 0;
+            width: 74px; height: 74px; transform: rotate(-90deg);
+        }
+        .habillage-cadran .media-btn-play { width: 50px; height: 50px; box-shadow: none; }
+        /* LA BARRE S'EFFACE : c'est l'anneau qui dit où l'on en est. Elle
+           revient dès qu'on demande les repères A-B, qui ont besoin, eux,
+           d'une ligne droite le long de laquelle se poser. */
+        .habillage-cadran.sans-ab .media-progress-container { display: none; }
+        .habillage-cadran.sans-ab .media-progress-wrapper { margin: 0; padding: 0; }
+        .habillage-cadran .media-time-row { justify-content: center; gap: 6px; }
+        .habillage-cadran .media-t-total::before { content: '/ '; }
     `;
     document.head.appendChild(style);
+}
+
+// ==================================================================
+// L'HABILLAGE DU LECTEUR, AU CHOIX
+// Cinq mises en page pour le même lecteur. Le choix vaut pour tous les
+// lecteurs ouverts — l'audio, la vidéo, et ceux qu'on a sortis de la
+// liste — parce qu'un professeur qui pilote au doigt le fait partout.
+// ==================================================================
+// LE TOUR DE L'ANNEAU, en unités du dessin : 2 pi r, pour un rayon de 45
+// dans une vue de cent sur cent. C'est la longueur du trait à découvrir.
+const TOUR_DE_LANNEAU = 2 * Math.PI * 45;
+
+const CLE_HABILLAGE_LECTEUR = 'auTableau_lecteur_habillage';
+const HABILLAGES_LECTEUR = [
+    { cle: 'tni', nom: 'Tableau blanc', quoi: 'Grandes cibles et mots sous les icônes : pour un écran qu\'on touche du doigt' },
+    { cle: 'papier', nom: 'Papier', quoi: 'Clair et posé, à la mesure du reste de l\'application' },
+    { cle: 'cartouche', nom: 'Cartouche', quoi: 'Fond sombre et gros chrono : pour projeter, et se lire du fond de la classe' },
+    { cle: 'reglette', nom: 'Réglette', quoi: 'Une seule ligne, qui ne mange presque rien du tableau (sans les repères A-B)' },
+    { cle: 'cadran', nom: 'Cadran', quoi: 'La progression fait le tour du bouton de lecture, sans barre' }
+];
+
+let habillageDuLecteur = 'tni';
+try {
+    const garde = localStorage.getItem(CLE_HABILLAGE_LECTEUR);
+    if (garde) habillageDuLecteur = garde;
+} catch (e) { /* stockage refusé */ }
+
+// Un habillage inconnu — un réglage d'une autre version, une clé bricolée —
+// retombe sur celui d'origine plutôt que de laisser un panneau sans mise en page.
+function habillageValide(cle) {
+    return HABILLAGES_LECTEUR.some(h => h.cle === cle) ? cle : HABILLAGES_LECTEUR[0].cle;
+}
+
+function classeDHabillage(cle) {
+    return 'habillage-' + habillageValide(cle);
+}
+
+function poserLHabillageDesLecteurs() {
+    habillageDuLecteur = habillageValide(habillageDuLecteur);
+    document.querySelectorAll('.media-player-panel').forEach(panneau => {
+        HABILLAGES_LECTEUR.forEach(h => panneau.classList.remove('habillage-' + h.cle));
+        panneau.classList.add(classeDHabillage(habillageDuLecteur));
+    });
+}
+
+function choisirLHabillageDuLecteur(cle) {
+    habillageDuLecteur = habillageValide(cle);
+    try { localStorage.setItem(CLE_HABILLAGE_LECTEUR, habillageDuLecteur); } catch (e) { /* refusé */ }
+    poserLHabillageDesLecteurs();
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    return habillageDuLecteur;
 }
 
 function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
@@ -27311,10 +27546,25 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     const id = (suffix) => `${idPrefix}-${suffix}`;
     const el = (suffix) => document.getElementById(id(suffix));
 
+    // ON NE REMPLACE QUE L'ICÔNE. Le bouton de lecture porte un mot sous
+    // elle dans l'habillage « Tableau blanc » : réécrire tout son contenu
+    // pour passer de ▶ à ⏸ emportait le mot avec, au premier appui. Et le
+    // mot dit la même chose que l'icône — « Lire » sous une pause serait
+    // pire que pas de mot du tout.
+    function poserLIcone(bouton, dessin, mot) {
+        if (!bouton) return;
+        const niche = bouton.querySelector('.media-icone');
+        if (niche) niche.innerHTML = dessin;
+        else bouton.innerHTML = dessin;
+        const dit = bouton.querySelector('.media-mot');
+        if (dit && mot) dit.textContent = mot;
+    }
+
     function build() {
         container = document.createElement('div');
         container.id = id('player');
-        container.className = 'media-player-panel' + (mediaType === 'video' ? ' video-panel' : '');
+        container.className = 'media-player-panel' + (mediaType === 'video' ? ' video-panel' : '')
+            + ' ' + classeDHabillage(habillageDuLecteur);
 
         container.innerHTML = `
             <div id="${id('header')}" class="media-header">
@@ -27349,7 +27599,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                 </div>
             </div>
 
-            <div id="${id('body')}" class="media-body" style="padding: 2px 12px 12px; display: flex; flex-direction: column; gap: 10px;">
+            <div id="${id('body')}" class="media-body">
                 ${mediaType === 'video' ? `<${mediaType} id="${id('media')}" class="media-video-el"></${mediaType}>` : `<${mediaType} id="${id('media')}" style="display:none;"></${mediaType}>`}
 
                 <!-- LA RANGÉE DE COMMANDES. Le saut en arrière est le geste
@@ -27357,17 +27607,32 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                      introuvable — il fallait viser la barre de progression au
                      pixel près, en direct devant la classe. -->
                 <div class="media-commandes">
-                    <button class="media-btn" id="${id('prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
+                    <button class="media-btn" id="${id('prev')}" data-tooltip="Piste précédente">
+                        <span class="media-icone">${svgPrev}</span><span class="media-mot">Précédente</span>
+                    </button>
                     <button class="media-btn media-saut" id="${id('back')}"
                         data-tooltip="Revenir en arrière — appui long pour changer le pas">
-                        ${svgBack}<span class="media-saut-n" id="${id('back-n')}">5</span>
+                        <span class="media-icone">${svgBack}</span><span class="media-saut-n" id="${id('back-n')}">5</span>
                     </button>
-                    <button class="media-btn media-btn-play" id="${id('play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
+                    <!-- L'ANNEAU DU « CADRAN ». Partout ailleurs il est dans
+                         le pli — le bouton de lecture reprend sa place comme
+                         si rien ne l'entourait. -->
+                    <span class="media-anneau">
+                        <svg class="media-anneau-svg" viewBox="0 0 100 100" aria-hidden="true">
+                            <circle class="media-anneau-fond" cx="50" cy="50" r="45"></circle>
+                            <circle class="media-anneau-jauge" id="${id('anneau')}" cx="50" cy="50" r="45"></circle>
+                        </svg>
+                        <button class="media-btn media-btn-play" id="${id('play')}" data-tooltip="Lecture / Pause">
+                            <span class="media-icone">${svgPlay}</span><span class="media-mot">Lire</span>
+                        </button>
+                    </span>
                     <button class="media-btn media-saut" id="${id('fwd')}"
                         data-tooltip="Avancer — appui long pour changer le pas">
-                        ${svgFwd}<span class="media-saut-n" id="${id('fwd-n')}">5</span>
+                        <span class="media-icone">${svgFwd}</span><span class="media-saut-n" id="${id('fwd-n')}">5</span>
                     </button>
-                    <button class="media-btn" id="${id('next')}" data-tooltip="Piste suivante">${svgNext}</button>
+                    <button class="media-btn" id="${id('next')}" data-tooltip="Piste suivante">
+                        <span class="media-icone">${svgNext}</span><span class="media-mot">Suivante</span>
+                    </button>
                 </div>
 
                 <div id="${id('progress-wrapper')}" class="media-progress-wrapper">
@@ -27382,8 +27647,8 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                         <span class="media-ab-label" id="${id('ab-time-b')}">0:00</span>
                     </div>
                     <div class="media-time-row">
-                        <span id="${id('time-current')}">0:00</span>
-                        <span id="${id('time-duration')}">0:00</span>
+                        <span class="media-t-actuel" id="${id('time-current')}">0:00</span>
+                        <span class="media-t-total" id="${id('time-duration')}">0:00</span>
                     </div>
                 </div>
 
@@ -27416,7 +27681,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                          une tache, et l'on confondait le bouton avec celui
                          d'à côté. Deux lettres se lisent. La pastille est
                          celle de la vitesse : deux textes, même forme. -->
-                    <button class="media-btn media-vitesse" id="${id('ab-toggle')}"
+                    <button class="media-btn media-vitesse media-ab-bouton" id="${id('ab-toggle')}"
                         data-tooltip="Montrer les repères A-B, pour rejouer un passage">A-B</button>
                     <button class="media-btn media-ab-seul" id="${id('play-selection')}" data-tooltip="Activer boucle A-B">${svgPlaySel}</button>
                 </div>
@@ -27548,7 +27813,11 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         ensureMediaPlayerStyles();
         if (!container) build();
         playlist.push(piste);
-        container.style.display = 'block';
+        // « flex », PAS « block » : le panneau est une colonne de boîtes, et
+        // l'habillage « Réglette » en fait une ligne. Un display posé en
+        // ligne écrase celui de la feuille de style, et la mise en page de
+        // l'habillage ne prend plus.
+        container.style.display = 'flex';
         if (isFinite(x) && isFinite(y) && (x || y)) {
             const l = container.offsetWidth || 320, h = container.offsetHeight || 200;
             container.style.right = 'auto';
@@ -27569,8 +27838,8 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         mediaEl.src = track.url;
         mediaEl.play().catch(e => console.warn(e));
 
-        el('play').innerHTML = svgPause;
-        el('mini-play').innerHTML = svgPause;
+        poserLIcone(el('play'), svgPause, 'Pause');
+        poserLIcone(el('mini-play'), svgPause);
 
         loopStart = null;
         loopEnd = null;
@@ -27604,12 +27873,12 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         const togglePlay = () => {
             if (mediaEl.paused) {
                 mediaEl.play();
-                playBtn.innerHTML = svgPause;
-                miniPlayBtn.innerHTML = svgPause;
+                poserLIcone(playBtn, svgPause, 'Pause');
+                poserLIcone(miniPlayBtn, svgPause);
             } else {
                 mediaEl.pause();
-                playBtn.innerHTML = svgPlay;
-                miniPlayBtn.innerHTML = svgPlay;
+                poserLIcone(playBtn, svgPlay, 'Lire');
+                poserLIcone(miniPlayBtn, svgPlay);
             }
         };
         playBtn.onclick = togglePlay;
@@ -27639,8 +27908,8 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                     playNext();
                 } else {
                     mediaEl.pause();
-                    playBtn.innerHTML = svgPlay;
-                    miniPlayBtn.innerHTML = svgPlay;
+                    poserLIcone(playBtn, svgPlay, 'Lire');
+                    poserLIcone(miniPlayBtn, svgPlay);
                 }
             }
         };
@@ -27669,7 +27938,13 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
             const percent = (mediaEl.currentTime / mediaEl.duration) * 100;
             timeCurrent.textContent = formatTime(mediaEl.currentTime);
             timeDuration.textContent = formatTime(mediaEl.duration);
-            progressBar.style.width = Math.max(0, Math.min(100, percent)) + '%';
+            const part = Math.max(0, Math.min(100, percent));
+            progressBar.style.width = part + '%';
+
+            // L'ANNEAU DU « CADRAN » suit la même avancée que la barre : il
+            // se remplit en découvrant son trait, de zéro à sa circonférence.
+            const anneau = el('anneau');
+            if (anneau) anneau.style.strokeDashoffset = String(TOUR_DE_LANNEAU * (1 - part / 100));
 
             if (loopEnd === null && mediaEl.duration > 0) {
                 const timeB = el('ab-time-b');
@@ -28093,7 +28368,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         });
 
         if (container.style.display === 'none' || playlist.length === 1) {
-            container.style.display = 'block';
+            container.style.display = 'flex';
             currentIndex = playlist.length - 1;
             playCurrent();
         } else {
@@ -29715,6 +29990,9 @@ function majReglagesBarre() {
     if (bTiroirs) bTiroirs.classList.toggle('actif', tiroirsAuto);
     const bCourte = document.getElementById('rp-barre-courte');
     if (bCourte) bCourte.classList.toggle('actif', barreCourte);
+    popup.querySelectorAll('[data-habillage]').forEach(b => {
+        b.classList.toggle('actif', b.dataset.habillage === habillageValide(habillageDuLecteur));
+    });
 }
 
 // ==================================================================
@@ -29904,6 +30182,16 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(actif ? 'Barre réduite — la poignée du coin la ramène en entier'
                             : 'Toute la barre est revenue');
         }
+    });
+
+    // L'HABILLAGE DU LECTEUR : le changement se voit tout de suite sur les
+    // lecteurs déjà ouverts, sans avoir à les refermer.
+    popup.querySelectorAll('[data-habillage]').forEach(b => {
+        b.addEventListener('click', () => {
+            const pris = choisirLHabillageDuLecteur(b.dataset.habillage);
+            const habit = HABILLAGES_LECTEUR.find(h => h.cle === pris);
+            if (habit && typeof showToast === 'function') showToast('Lecteur : ' + habit.nom);
+        });
     });
 
     const bZones = document.getElementById('rp-zones');

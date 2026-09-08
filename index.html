@@ -985,7 +985,18 @@
                             rouvre. Dedans, un <b>double-clic</b> lit une piste, un <b>glisser</b> la
                             réordonne, la <b>croix</b> la retire — et la <b>tirer hors du lecteur</b> lui
                             ouvre un <b>second lecteur</b>, posé là où on l'a lâchée. C'est ce qu'il faut
-                            pour comparer deux extraits : deux lecteurs, deux boutons, sous les yeux.</li>
+                            pour comparer deux extraits : deux lecteurs, deux boutons, sous les yeux.<br>
+                            <b>Cinq habillages</b>, dans <i>Réglages ▸ Lecteur audio et vidéo</i> — le même
+                            lecteur, les mêmes boutons, une autre mise en page, et le changement se voit
+                            aussitôt sur les lecteurs déjà ouverts. <b>Tableau blanc</b> (par défaut) :
+                            grandes cibles et un mot sous chaque icône, pour un écran qu'on touche du
+                            doigt et pour qu'un élève s'en serve. <b>Papier</b> : clair et posé, à la
+                            mesure du reste de l'application. <b>Cartouche</b> : fond sombre et chrono
+                            géant, pour projeter et se lire du fond de la classe. <b>Réglette</b> : une
+                            seule ligne, qui ne mange presque rien du tableau — les repères A-B n'y sont
+                            pas, faute de hauteur pour leurs deux poignées. <b>Cadran</b> : la
+                            progression fait le tour du bouton de lecture, sans barre ; la barre revient
+                            si l'on demande les repères A-B, qui ont besoin d'une ligne droite.</li>
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Par défaut le
                             <b>document feuilletable</b> — posé en un seul objet sur le tableau. L'autre mode,
                             une page de tableau par page du document, se choisit dans le menu Importer.</li>
@@ -1773,6 +1784,18 @@
                     <div class="rp-titre">Documents</div>
                     <button class="rp-choix" id="rp-zones"
                         title="Sur un PDF vectoriel, repérer les lignes et les cases à remplir : l'outil Texte les éclaire, et le clic y pose le bloc à la bonne taille">Repérer les zones à remplir</button>
+
+                    <div class="rp-titre">Lecteur audio et vidéo</div>
+                    <button class="rp-choix" data-habillage="tni"
+                        title="Grandes cibles et mots sous les icônes : pour un écran qu'on touche du doigt">Tableau blanc</button>
+                    <button class="rp-choix" data-habillage="papier"
+                        title="Clair et posé, à la mesure du reste de l'application">Papier</button>
+                    <button class="rp-choix" data-habillage="cartouche"
+                        title="Fond sombre et gros chrono : pour projeter, et se lire du fond de la classe">Cartouche</button>
+                    <button class="rp-choix" data-habillage="reglette"
+                        title="Une seule ligne, qui ne mange presque rien du tableau (sans les repères A-B)">Réglette</button>
+                    <button class="rp-choix" data-habillage="cadran"
+                        title="La progression fait le tour du bouton de lecture, sans barre">Cadran</button>
 
                     <div class="rp-titre">Encombrement</div>
                     <button class="rp-choix" id="rp-tiroirs-auto"
@@ -2740,7 +2763,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=209"></script>
+    <script src="script.js?v=210"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

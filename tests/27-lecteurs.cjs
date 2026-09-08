@@ -175,7 +175,13 @@ module.exports = async function (browser) {
             // Il a ses propres commandes : c'est ce qui fait « deux lecteurs ».
             saAvance: !!document.getElementById('mp3-2-back'),
             // Et il s'est posé là où on l'a lâché, pas dans le coin.
-            aGauche: second ? second.getBoundingClientRect().left < b.left : false
+            aGauche: second ? second.getBoundingClientRect().left < b.left : false,
+            // IL EST UNE COLONNE DE BOÎTES, comme le premier : un panneau
+            // posé « en bloc » ignorerait la mise en page de l'habillage,
+            // et la « Réglette » n'y tiendrait plus sur une ligne.
+            enBoites: second ? getComputedStyle(second).display : null,
+            // Et il porte l'habillage en cours, pas celui d'origine.
+            habille: second ? second.className.includes('habillage-') : false
         };
     });
     r.egal('la piste quitte la liste du premier',
@@ -184,6 +190,9 @@ module.exports = async function (browser) {
         detachee.second && detachee.titreDuSecond === detachee.nom && detachee.saAvance,
         JSON.stringify(detachee));
     r.verifie('posé là où on l\'a lâchée', detachee.aGauche, JSON.stringify(detachee));
+    r.egal('et bâti comme le premier : une colonne de boîtes, et son habillage',
+        { boites: detachee.enBoites, habille: detachee.habille },
+        { boites: 'flex', habille: true });
 
     // Un lâcher DANS le lecteur ne détache rien : c'est un simple réordonnancement.
     const dedans = await page.evaluate(() => {
@@ -327,6 +336,13 @@ module.exports = async function (browser) {
             handleMp3Drop(new File([new Uint8Array(2048)], n + '.mp3', { type: 'audio/mpeg' })));
     });
     await page.waitForTimeout(200);
+    // CES MESURES SONT CELLES DE « PAPIER ». Depuis qu'il y a cinq
+    // habillages, il faut dire lequel on relit : « Tableau blanc » grossit
+    // le titre et les cibles À DESSEIN, pour le doigt. C'est « Papier » qui
+    // porte la mesure de la maison, et c'est lui qu'on tient ici — les
+    // autres sont vérifiés plus bas, sur ce qui les distingue.
+    await page.evaluate(() => choisirLHabillageDuLecteur('papier'));
+    await page.waitForTimeout(260);
     const style = await page.evaluate(() => {
         const st = (sel, prop) => {
             const e = document.querySelector(sel);
@@ -404,7 +420,147 @@ module.exports = async function (browser) {
         JSON.stringify(video));
     r.egal('avec son propre pas, réglé de son côté', video.pas, '5');
 
+    // =====================================================================
+    // L'HABILLAGE : CINQ ALLURES POUR LE MÊME LECTEUR
+    // On ne pilote pas de la même façon à la souris sur un portable, du
+    // doigt sur un écran de deux mètres, ou en projetant dans une salle
+    // qu'on a mise dans le noir. Ce sont les mêmes boutons et les mêmes
+    // réglages — seule la mise en page suit ce qu'on en fait.
+    // =====================================================================
+    const cles = await page.evaluate(() => HABILLAGES_LECTEUR.map(h => h.cle));
+    const classes = {}, releve = {};
+    for (const cle of cles) {
+        // LES BOUTONS SE TRANSFORMENT EN CENT CINQUANTE MILLISECONDES : lus
+        // à l'instant du clic, ils rendent encore les mesures de l'habillage
+        // qu'on vient de quitter. C'est un piège de mesure, pas un défaut du
+        // lecteur — on laisse la transition finir.
+        await page.evaluate((c) => choisirLHabillageDuLecteur(c), cle);
+        await page.waitForTimeout(260);
+        const vus = await page.evaluate(() => {
+            const p = document.getElementById('mp3-player');
+            const mesure = (sel) => {
+                const e = p.querySelector(sel);
+                if (!e) return null;
+                const r = e.getBoundingClientRect();
+                return { l: Math.round(r.width), h: Math.round(r.height) };
+            };
+            const vu = (sel) => {
+                const e = p.querySelector(sel);
+                return !!e && e.getClientRects().length > 0;
+            };
+            return {
+                // UN SEUL HABILLAGE À LA FOIS : le précédent doit s'en aller,
+                // sinon deux mises en page se disputeraient le même panneau.
+                poses: HABILLAGES_LECTEUR.filter(a => p.classList.contains('habillage-' + a.cle)).map(a => a.cle),
+                bouton: mesure('.media-btn-play'),
+                mot: vu('.media-btn-play .media-mot'),
+                anneau: vu('.media-anneau-svg'),
+                barre: vu('.media-progress-container'),
+                // Les commandes et la liste ne disparaissent jamais.
+                commandes: vu('.media-commandes'),
+                liste: vu('.media-playlist'),
+                // Le titre et les commandes sur la même ligne, ou l'un sous
+                // l'autre : c'est toute la différence de la « Réglette ».
+                ligne: {
+                    titre: Math.round(p.querySelector('.media-title').getBoundingClientRect().top),
+                    cmd: Math.round(p.querySelector('.media-commandes').getBoundingClientRect().top)
+                }
+            };
+        });
+        classes[cle] = vus.poses;
+        releve[cle] = vus;
+    }
+
+    const reste = await page.evaluate(() => {
+        // LE CHOIX SE RETIENT, et se retrouve allumé dans les réglages.
+        choisirLHabillageDuLecteur('cartouche');
+        const retenu = localStorage.getItem('auTableau_lecteur_habillage');
+        const allume = [...document.querySelectorAll('#reglages-barre [data-habillage]')]
+            .filter(b => b.classList.contains('actif')).map(b => b.dataset.habillage);
+        // UN HABILLAGE INCONNU NE LAISSE PAS LE PANNEAU SANS MISE EN PAGE.
+        choisirLHabillageDuLecteur('inventé');
+        const repli = habillageDuLecteur;
+        const classeDuRepli = document.getElementById('mp3-player').classList.contains('habillage-tni');
+        return { retenu, allume, repli, classeDuRepli };
+    });
+
+    r.egal('cinq habillages, et un seul posé à la fois',
+        cles.map(c => classes[c].join(',')),
+        ['tni', 'papier', 'cartouche', 'reglette', 'cadran']);
+    r.verifie('aucun ne fait disparaître les commandes ni la liste',
+        cles.every(c => releve[c].commandes && releve[c].liste), JSON.stringify(releve));
+    // CHACUN A CE QUI LE DISTINGUE, et ne l'emprunte pas aux autres.
+    r.egal('« Tableau blanc » est le seul à écrire le mot sous l\'icône',
+        cles.filter(c => releve[c].mot), ['tni']);
+    r.egal('« Cadran » est le seul à montrer l\'anneau — et le seul sans barre',
+        { anneau: cles.filter(c => releve[c].anneau), sansBarre: cles.filter(c => !releve[c].barre) },
+        { anneau: ['cadran'], sansBarre: ['cadran'] });
+    r.verifie('le bouton de lecture du « Tableau blanc » se prend du doigt',
+        releve.tni.bouton.h >= 60 && releve.tni.bouton.l >= 90,
+        JSON.stringify(releve.tni.bouton));
+    // ET IL EST BIEN PLUS GROS QU'AILLEURS : c'est ce qui fait l'habillage.
+    r.verifie('là où « Papier » se vise à la souris, et « Réglette » s\'efface',
+        releve.tni.bouton.h > releve.papier.bouton.h
+        && releve.papier.bouton.h > releve.reglette.bouton.h,
+        JSON.stringify({ tni: releve.tni.bouton.h, papier: releve.papier.bouton.h,
+                         reglette: releve.reglette.bouton.h }));
+    // ET LA « RÉGLETTE » EST LA SEULE À TENIR SUR UNE LIGNE : le titre et
+    // les commandes s'y côtoient au lieu de s'empiler.
+    r.egal('« Réglette » est la seule à mettre le titre et les commandes côte à côte',
+        cles.filter(c => Math.abs(releve[c].ligne.titre - releve[c].ligne.cmd) < 16), ['reglette']);
+    r.egal('le choix est retenu, et allumé dans les réglages',
+        { retenu: reste.retenu, allume: reste.allume },
+        { retenu: 'cartouche', allume: ['cartouche'] });
+    r.egal('un habillage inconnu retombe sur le premier, sans laisser le panneau nu',
+        { repli: reste.repli, pose: reste.classeDuRepli },
+        { repli: 'tni', pose: true });
+
+    // LE MOT DIT LA MÊME CHOSE QUE L'ICÔNE. Le bouton se réécrivait en
+    // entier pour passer de ▶ à ⏸ : le mot partait avec, au premier appui.
+    const motDuBouton = await page.evaluate(() => {
+        const bouton = document.getElementById('mp3-play');
+        const mot = () => bouton.querySelector('.media-mot').textContent;
+        const media = document.getElementById('mp3-media');
+        // Un fichier d'essai n'a pas de vraie piste : on prête au lecteur
+        // une lecture qui marche, sinon « paused » resterait vrai et le
+        // second appui relancerait au lieu d'arrêter.
+        let joue = false;
+        Object.defineProperty(media, 'paused', { configurable: true, get: () => !joue });
+        media.play = () => { joue = true; return Promise.resolve(); };
+        media.pause = () => { joue = false; };
+        bouton.click();                     // on lance
+        const enLecture = mot();
+        bouton.click();                     // on arrête
+        return { enLecture, arrete: mot(), icone: !!bouton.querySelector('.media-icone svg') };
+    });
+    r.egal('et le mot du bouton suit son état, sans effacer l\'icône',
+        motDuBouton, { enLecture: 'Pause', arrete: 'Lire', icone: true });
+
+    // L'ANNEAU SUIT LA LECTURE : il découvre son trait de zéro à sa
+    // circonférence, comme la barre se remplit de zéro à cent pour cent.
+    const anneau = await page.evaluate(() => {
+        const media = document.getElementById('mp3-media');
+        const jauge = document.getElementById('mp3-anneau');
+        const lu = () => parseFloat(jauge.style.strokeDashoffset || '0');
+        Object.defineProperty(media, 'duration', { configurable: true, get: () => 100 });
+        media.currentTime = 0; media.dispatchEvent(new Event('timeupdate'));
+        const debut = lu();
+        media.currentTime = 50; media.dispatchEvent(new Event('timeupdate'));
+        const moitie = lu();
+        media.currentTime = 100; media.dispatchEvent(new Event('timeupdate'));
+        const fin = lu();
+        return {
+            lu: { debut: Math.round(debut), moitie: Math.round(moitie), fin: Math.round(fin) },
+            // Ce qu'on attend se déduit du tour de l'anneau lui-même : plein
+            // au départ, à moitié découvert au milieu, effacé à la fin.
+            attendu: { debut: Math.round(TOUR_DE_LANNEAU), moitie: Math.round(TOUR_DE_LANNEAU / 2), fin: 0 }
+        };
+    });
+    r.egal('l\'anneau du « Cadran » se remplit avec la lecture',
+        anneau.lu, anneau.attendu);
+
     await page.evaluate(() => {
+        choisirLHabillageDuLecteur('tni');
         ['mp3-player', 'mp3-2-player', 'vidp-player'].forEach(id => {
             const p = document.getElementById(id);
             if (p) p.remove();
