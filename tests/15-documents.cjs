@@ -857,9 +857,12 @@ module.exports = async function (browser) {
         fusion.dansLaBarre, JSON.stringify(fusion));
 
     // --- ÉCRIRE ET DESSINER SUR LE DOCUMENT EN PLEIN ÉCRAN ---
-    // En Focus toutes les barres d'outils sont effacées : sans de quoi écrire
-    // dans la barre du document, on ne peut ni annoter un PDF projeté, ni y
-    // poser une étiquette sans quitter le plein écran.
+    // DE QUOI ÉCRIRE, DÈS QU'ON TIENT UN DOCUMENT. Ces trois outils ne
+    // paraissaient qu'en plein écran, au motif qu'ailleurs les vraies barres
+    // sont « sous la main ». Mais quand on ouvre un polycopié, c'est la barre
+    // du document qu'on regarde : aller chercher le crayon à l'autre bout de
+    // l'écran pour revenir écrire sur la page, c'est deux voyages pour un
+    // geste.
     const outilsDoc = await page.evaluate(() => {
         if (document.body.classList.contains('focus-mode')) toggleFocusMode();
         setMode('pointer');
@@ -885,9 +888,9 @@ module.exports = async function (browser) {
                 .filter(id => document.getElementById(id).querySelector('svg')).length
         };
     });
-    r.egal('hors Focus, la barre du document n\'offre pas d\'outils : les vraies barres sont là',
-        outilsDoc.horsFocus, 'none');
-    r.verifie('en Focus, elle en offre', outilsDoc.enFocus === 'contents', outilsDoc.enFocus);
+    r.egal('un document tenu offre de quoi écrire, plein écran ou non',
+        { horsFocus: outilsDoc.horsFocus, enFocus: outilsDoc.enFocus },
+        { horsFocus: 'contents', enFocus: 'contents' });
     r.verifie('le crayon, le texte et le retour à la sélection',
         outilsDoc.crayon && outilsDoc.texte && outilsDoc.main, JSON.stringify(outilsDoc));
     r.egal('et l\'infobulle du crayon porte sa touche', outilsDoc.toucheCrayon, 'C');
@@ -992,6 +995,61 @@ module.exports = async function (browser) {
     r.verifie('et remet le document en main', retourMain.memeDoc, JSON.stringify(retourMain));
     r.egal('la barre n\'a plus de page à retenir', retourMain.docRetenu, null);
     r.egal('et ses réglages reviennent', retourMain.cadre, 'contents');
+
+    // AU PREMIER CLIC SUR UN DOCUMENT, hors plein écran : les trois outils sont
+    // là, et prendre le crayon ne fait pas disparaître la barre — on écrit sur
+    // CE document, la barre continue de parler de lui.
+    const premierClic = await page.evaluate(() => {
+        const focusAuDepart = document.body.classList.contains('focus-mode');
+        if (focusAuDepart) toggleFocusMode();
+        setMode('pointer');
+        selectedItems = [];
+        docEnAnnotation = null;
+        majBarreDocument();
+        const doc = images[0];
+        // Un vrai clic sur le document, comme le professeur le ferait.
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        const vu = (id) => {
+            const el = document.getElementById(id);
+            return !!el && getComputedStyle(el).display !== 'none';
+        };
+        const auClic = { crayon: vu('doc-outil-crayon'), texte: vu('doc-outil-texte'),
+                         main: vu('doc-outil-main') };
+
+        // ON PREND LE CRAYON : la sélection se vide, la barre doit rester.
+        document.getElementById('doc-outil-crayon').click();
+        const auCrayon = {
+            mode, retenu: docEnAnnotation === doc.id,
+            barreLa: !!documentDeLaBarre() && documentDeLaBarre().id === doc.id,
+            ctx: document.getElementById('bar-style').classList.contains('ctx-document'),
+            allume: document.getElementById('doc-outil-crayon').classList.contains('actif'),
+            // MAIS PAS LE MODE « ANNOTE » : hors plein écran, la barre ne se
+            // réorganise pas — les vraies barres sont là, et ses réglages de
+            // cadre n'ont pas à disparaître.
+            annote: document.getElementById('bar-style').classList.contains('annote')
+        };
+        // « Sélection » rend le document en main.
+        document.getElementById('doc-outil-main').click();
+        const retour = { mode, choisi: selectedItems.length === 1 && selectedItems[0].id === doc.id };
+        // On rend le plein écran tel qu'on l'a trouvé : ce qui suit y compte.
+        if (focusAuDepart && !document.body.classList.contains('focus-mode')) toggleFocusMode();
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        return { auClic, auCrayon, retour, focusRendu: focusAuDepart === document.body.classList.contains('focus-mode') };
+    });
+    r.egal('au premier clic sur un document, les trois outils sont là',
+        premierClic.auClic, { crayon: true, texte: true, main: true });
+    r.egal('prendre le crayon garde la barre sur CE document',
+        { mode: premierClic.auCrayon.mode, retenu: premierClic.auCrayon.retenu,
+          barreLa: premierClic.auCrayon.barreLa, ctx: premierClic.auCrayon.ctx,
+          allume: premierClic.auCrayon.allume },
+        { mode: 'freehand', retenu: true, barreLa: true, ctx: true, allume: true });
+    r.egal('sans pour autant la réorganiser : « annote » est réservé au plein écran',
+        premierClic.auCrayon.annote, false);
+    r.egal('et « Sélection » rend le document en main',
+        { retour: premierClic.retour, focusRendu: premierClic.focusRendu },
+        { retour: { mode: 'pointer', choisi: true }, focusRendu: true });
 
     // Quitter le Focus : les vraies barres reviennent, la mémoire s'efface
     const sortie = await page.evaluate(() => {

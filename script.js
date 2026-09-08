@@ -13471,24 +13471,34 @@ let docEnAnnotation = null;
 // Appelée par setMode, avant qu'il ne vide la sélection.
 function retenirLeDocumentAnnote(nouvelOutil) {
     if (!OUTILS_ANNOTATION.includes(nouvelOutil)) return;
-    if (!document.body.classList.contains('focus-mode')) return;
     const doc = documentSelectionne();
     if (doc) docEnAnnotation = doc.id;
 }
 window.retenirLeDocumentAnnote = retenirLeDocumentAnnote;
 
-function enTrainDAnnoter() {
+// LA BARRE PARLE ENCORE DE CE DOCUMENT. On a pris un outil en le tenant, la
+// sélection s'est vidée — mais c'est toujours sur lui qu'on écrit, et la barre
+// doit rester là : sans quoi prendre le crayon la ferait disparaître, avec les
+// pages et le reste.
+function documentAnnoteEnCours() {
     return !!docEnAnnotation
-        && document.body.classList.contains('focus-mode')
         && selectedItems.length === 0
         && OUTILS_ANNOTATION.includes(mode);
+}
+
+// « EN TRAIN D'ANNOTER » reste réservé au PLEIN ÉCRAN, et c'est autre chose :
+// là, la barre CHANGE DE FORME — les réglages du cadre se retirent, le curseur
+// d'opacité vise le document sans qu'il soit sélectionné. Hors plein écran,
+// les vraies barres sont là et rien n'a à se réorganiser.
+function enTrainDAnnoter() {
+    return documentAnnoteEnCours() && document.body.classList.contains('focus-mode');
 }
 
 // Le document dont la barre parle : celui qu'on tient, ou celui qu'on annote.
 function documentDeLaBarre() {
     const choisi = documentSelectionne();
     if (choisi) return choisi;
-    if (!enTrainDAnnoter()) return null;
+    if (!documentAnnoteEnCours()) return null;
     const obj = getObjectById('image', docEnAnnotation);
     if (!obj) { docEnAnnotation = null; return null; }
     return obj;
@@ -13546,23 +13556,29 @@ function majBarreDocument() {
     const barre = document.getElementById('bar-style');
     if (!barre) return;
 
-    // En Focus, toutes les barres d'outils sont effacées : c'est ici qu'on
-    // prend de quoi écrire sur la page. Ailleurs elles sont sous la main.
     const enFocus = document.body.classList.contains('focus-mode');
-    const groupeOutils = document.getElementById('doc-annoter');
-    if (groupeOutils) {
-        groupeOutils.style.display = enFocus ? 'contents' : 'none';
-        document.getElementById('doc-annoter-sep').style.display = enFocus ? 'block' : 'none';
-        document.getElementById('doc-outil-main').classList.toggle('actif', mode === 'pointer');
-        document.getElementById('doc-outil-crayon').classList.toggle('actif', mode === 'freehand');
-        document.getElementById('doc-outil-texte').classList.toggle('actif', mode === 'text');
-    }
     // Pendant qu'on écrit dessus, le document n'est plus tenu : les réglages
     // qui demandent de l'avoir en main — cadre, page, rogner, dupliquer — se
     // retirent plutôt que de rester là sans rien à saisir.
     barre.classList.toggle('annote', enTrainDAnnoter());
 
     const obj = documentDeLaBarre();
+
+    // DE QUOI ÉCRIRE, DÈS QU'ON TIENT UN DOCUMENT. Ces trois outils ne
+    // paraissaient qu'en plein écran, au motif que les barres y sont effacées
+    // et qu'ailleurs elles sont « sous la main ». Mais quand on ouvre un
+    // polycopié, c'est ICI qu'on regarde : aller chercher le crayon à l'autre
+    // bout de l'écran pour revenir écrire sur la page, c'est deux voyages
+    // pour un geste.
+    const groupeOutils = document.getElementById('doc-annoter');
+    if (groupeOutils) {
+        const surUnDocument = !!obj && estUnDocumentPose(obj);
+        groupeOutils.style.display = surUnDocument ? 'contents' : 'none';
+        document.getElementById('doc-annoter-sep').style.display = surUnDocument ? 'block' : 'none';
+        document.getElementById('doc-outil-main').classList.toggle('actif', mode === 'pointer');
+        document.getElementById('doc-outil-crayon').classList.toggle('actif', mode === 'freehand');
+        document.getElementById('doc-outil-texte').classList.toggle('actif', mode === 'text');
+    }
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         barre.classList.remove('ctx-document', 'annote', 'zones-edition', 'doc-allege');
         // UNE VIGNETTE DE PLUGIN N'EST PAS UN DOCUMENT : on sort par ici, et
