@@ -12235,24 +12235,47 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
         grid.appendChild(btn);
     },
 
+    // Les cases de la fenêtre, dans l'ordre où on les lit : les grosses classes
+    // d'abord, puis la virgule, puis les décimales. Les unités n'y sont pas —
+    // c'est autour d'elles que le tableau se construit.
+    champsDuTableau: function (spec, rowsStr) {
+        const { entieres, decimales } = this.lireLesClasses(spec);
+        const prises = new Set(entieres.map(c => c.cle).concat(decimales.map(d => d.cle)));
+        const cases = this.CLASSES.map(c => ({ type: 'checkbox', label: c.nom, value: prises.has(c.cle) }))
+            .concat(this.DECIMALES.map(d => ({
+                type: 'checkbox', label: d.nom.charAt(0).toUpperCase() + d.nom.slice(1), value: prises.has(d.cle)
+            })));
+        return cases.concat([{
+            type: 'select', label: 'Nombre de lignes', value: String(rowsStr || '3'),
+            options: ['1', '2', '3', '5', '8', '10'].map(v => ({ value: v, label: v + (v === '1' ? ' ligne' : ' lignes') }))
+        }]);
+    },
+
+    // Ce que la fenêtre rend, ramené à la forme courte qu'on enregistre.
+    specDesReponses: function (res) {
+        const cles = this.CLASSES.map(c => c.cle).concat(this.DECIMALES.map(d => d.cle));
+        const choisies = cles.filter((cle, i) => !!res[i]);
+        return choisies.join(',');
+    },
+
+    apercu: function (res) {
+        const spec = this.specDesReponses(res);
+        const lignes = res[res.length - 1];
+        return `<div style="width:100%; height:100%; display:flex; justify-content:center; align-items:center; padding:10px;"><img src="${this.getCDUSvg(spec, lignes)}" style="max-width:100%; max-height:110px; object-fit:contain; border-radius:4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`;
+    },
+
     openPrompt: function () {
-        openCustomPrompt("Tableau de Numération", [
-            { type: 'select', label: 'Format du tableau', value: 'full', options: [{ value: 'full', label: 'Complet (Millièmes)' }, { value: 'int', label: 'Entiers uniquement' }] },
-            { type: 'select', label: 'Nombre de lignes', value: '3', options: [{ value: '1', label: '1 ligne' }, { value: '2', label: '2 lignes' }, { value: '3', label: '3 lignes' }, { value: '5', label: '5 lignes' }, { value: '8', label: '8 lignes' }, { value: '10', label: '10 lignes' }] }
-        ],
-            (res) => `<div style="width:100%; height:100%; display:flex; justify-content:center; align-items:center; padding:10px;"><img src="${this.getCDUSvg(res[0], res[1])}" style="max-width:100%; max-height:110px; object-fit:contain; border-radius:4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`,
-            (res) => this.buildCDUTable(res[0], res[1]));
+        openCustomPrompt("Tableau de Numération", this.champsDuTableau('full', '3'),
+            (res) => this.apercu(res),
+            (res) => this.buildCDUTable(this.specDesReponses(res), res[res.length - 1]));
     },
 
     edit: function (imgObj) {
         if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
         const args = imgObj.pluginData.args;
         const groupId = imgObj.pluginData.groupId;
-        openCustomPrompt("Modifier Tableau de Numération", [
-            { type: 'select', label: 'Format du tableau', value: args[0], options: [{ value: 'full', label: 'Complet (Millièmes)' }, { value: 'int', label: 'Entiers uniquement' }] },
-            { type: 'select', label: 'Nombre de lignes', value: args[1], options: [{ value: '1', label: '1 ligne' }, { value: '2', label: '2 lignes' }, { value: '3', label: '3 lignes' }, { value: '5', label: '5 lignes' }, { value: '8', label: '8 lignes' }, { value: '10', label: '10 lignes' }] }
-        ],
-            (res) => `<div style="width:100%; height:100%; display:flex; justify-content:center; align-items:center; padding:10px;"><img src="${this.getCDUSvg(res[0], res[1])}" style="max-width:100%; max-height:110px; object-fit:contain; border-radius:4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>`,
+        openCustomPrompt("Modifier Tableau de Numération", this.champsDuTableau(args[0], args[1]),
+            (res) => this.apercu(res),
             (res) => {
                 if (groupId && typeof images !== 'undefined') {
                     for (let i = images.length - 1; i >= 0; i--) {
@@ -12262,82 +12285,124 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
                     }
                 }
                 if (typeof draw === 'function') draw();
-                this.buildCDUTable(res[0], res[1]);
+                this.buildCDUTable(this.specDesReponses(res), res[res.length - 1]);
             });
     },
 
-    getCDUSvg: function (format, rowsStr) {
+    // LES CLASSES, DE LA PLUS GROSSE À LA PLUS PETITE. Les unités ne sont pas
+    // dans la liste : elles n'ont pas à se retirer, c'est autour d'elles que
+    // tout le tableau est construit — la virgule se place à leur droite.
+    CLASSES: [
+        { cle: 'milliards', nom: 'Milliards', couleur: '#8e44ad' },
+        { cle: 'millions', nom: 'Millions', couleur: '#2980b9' },
+        { cle: 'milliers', nom: 'Milliers', couleur: '#27ae60' }
+    ],
+    DECIMALES: [
+        { cle: 'dixiemes', nom: 'dixièmes', lettre: 'd' },
+        { cle: 'centiemes', nom: 'centièmes', lettre: 'c' },
+        { cle: 'milliemes', nom: 'millièmes', lettre: 'm' }
+    ],
+
+    // UN TABLEAU DE NUMÉRATION N'A PAS DE TROU. Ses colonnes sont des
+    // puissances de dix CONSÉCUTIVES : sauter les milliers entre les millions
+    // et les unités ferait lire un nombre faux — les chiffres restent côte à
+    // côte, mais ne valent plus ce qu'ils semblent valoir. On garde donc les
+    // cases cochées, et l'on comble ce qui manque entre elles et la virgule.
+    lireLesClasses: function (spec) {
+        // Les tableaux enregistrés avant les milliards portent « full » ou
+        // « int » : ils continuent de s'ouvrir tels qu'on les avait faits.
+        // Une chaîne VIDE est un choix : « rien que les unités ». Seule
+        // l'absence de réglage vaut défaut — sans quoi décocher tout ramenait
+        // le tableau complet.
+        if (spec === 'int') spec = 'millions,milliers';
+        else if (spec === 'full' || spec === undefined || spec === null) {
+            spec = 'millions,milliers,dixiemes,centiemes,milliemes';
+        }
+        const demande = new Set(String(spec).split(','));
+
+        // Côté entier : on descend depuis la plus grosse classe demandée.
+        const rang = this.CLASSES.findIndex(c => demande.has(c.cle));
+        const entieres = (rang < 0) ? [] : this.CLASSES.slice(rang);
+        // Côté décimal : on s'éloigne de la virgule jusqu'à la plus fine.
+        let profondeur = 0;
+        this.DECIMALES.forEach((d, i) => { if (demande.has(d.cle)) profondeur = i + 1; });
+        return { entieres, decimales: this.DECIMALES.slice(0, profondeur) };
+    },
+
+    // Ce que le tableau mesure, une fois ses classes connues.
+    mesurerLeTableau: function (spec, rowsStr) {
+        const { entieres, decimales } = this.lireLesClasses(spec);
         const rows = parseInt(rowsStr) || 3;
-        const hasDecimals = (format !== 'int');
-        const numCols = hasDecimals ? 12 : 9;
-        const w = numCols * 70;
-        const rowH = 60;
-        const h = 120 + (rows * rowH); // Hauteur dynamique selon le nombre de lignes
+        const colEnt = (entieres.length + 1) * 3;      // + les unités, toujours là
+        const w = (colEnt + decimales.length) * 70;
+        return { entieres, decimales, rows, colEnt, w, h: 120 + rows * 60, virgule: colEnt * 70 };
+    },
+
+    getCDUSvg: function (spec, rowsStr) {
+        const m = this.mesurerLeTableau(spec, rowsStr);
+        const { entieres, decimales, rows, w, h, virgule } = m;
+        const colW = 70, rowH = 60;
 
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
-        svg += `<rect x="0" y="0" width="630" height="${h}" fill="#e3f2fd" stroke="#2d3436" stroke-width="4"/>`;
-        if (hasDecimals) svg += `<rect x="630" y="0" width="210" height="${h}" fill="#fff3e0" stroke="#2d3436" stroke-width="4"/>`;
+        svg += `<rect x="0" y="0" width="${virgule}" height="${h}" fill="#e3f2fd" stroke="#2d3436" stroke-width="4"/>`;
+        if (decimales.length) svg += `<rect x="${virgule}" y="0" width="${w - virgule}" height="${h}" fill="#fff3e0" stroke="#2d3436" stroke-width="4"/>`;
 
-        // En-têtes horizontaux
         svg += `<line x1="0" y1="40" x2="${w}" y2="40" stroke="#2d3436" stroke-width="2"/>`;
         svg += `<line x1="0" y1="80" x2="${w}" y2="80" stroke="#2d3436" stroke-width="2"/>`;
-
-        // Lignes horizontales des cellules
         for (let r = 0; r <= rows; r++) {
-            let y = 120 + r * rowH;
-            let sw = (r === 0 || r === rows) ? 2 : 1;
-            svg += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="#2d3436" stroke-width="${sw}"/>`;
+            const y = 120 + r * rowH;
+            svg += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="#2d3436" stroke-width="${(r === 0 || r === rows) ? 2 : 1}"/>`;
         }
 
-        // Séparateurs verticaux principaux
-        svg += `<line x1="210" y1="40" x2="210" y2="${h}" stroke="#2d3436" stroke-width="3"/>`;
-        svg += `<line x1="420" y1="40" x2="420" y2="${h}" stroke="#2d3436" stroke-width="3"/>`;
-        if (hasDecimals) svg += `<line x1="630" y1="0" x2="630" y2="${h}" stroke="#e74c3c" stroke-width="6"/>`;
+        // Les classes entières, unités comprises : trois colonnes chacune.
+        const groupes = entieres.concat([{ cle: 'unites', nom: 'Unités', couleur: '#2d3436' }]);
+        groupes.forEach((classeDeNumeration, i) => {
+            const x = i * 3 * colW;
+            if (i > 0) svg += `<line x1="${x}" y1="40" x2="${x}" y2="${h}" stroke="#2d3436" stroke-width="3"/>`;
+            svg += `<text x="${x + 1.5 * colW}" y="68" font-family="sans-serif" font-size="18" fill="#2d3436" text-anchor="middle">${classeDeNumeration.nom}</text>`;
+            ['C', 'D', 'U'].forEach((lettre, j) => {
+                const cx = x + j * colW;
+                if (j > 0) svg += `<line x1="${cx}" y1="80" x2="${cx}" y2="${h}" stroke="#2d3436" stroke-width="1" stroke-dasharray="4 4"/>`;
+                svg += `<text x="${cx + colW / 2}" y="108" font-family="sans-serif" font-size="20" font-weight="bold" fill="${classeDeNumeration.couleur}" text-anchor="middle">${lettre}</text>`;
+            });
+        });
 
-        // Séparateurs fins C D U
-        for (let i = 1; i < numCols; i++) {
-            if (i % 3 !== 0) svg += `<line x1="${i * 70}" y1="80" x2="${i * 70}" y2="${h}" stroke="#2d3436" stroke-width="1" stroke-dasharray="4 4"/>`;
-        }
+        // LA VIRGULE, en rouge et épaisse : c'est le repère du tableau.
+        if (decimales.length) svg += `<line x1="${virgule}" y1="0" x2="${virgule}" y2="${h}" stroke="#e74c3c" stroke-width="6"/>`;
 
-        svg += `<text x="315" y="28" font-family="sans-serif" font-size="20" font-weight="bold" fill="#0984e3" text-anchor="middle">PARTIE ENTIÈRE</text>`;
-        if (hasDecimals) svg += `<text x="735" y="28" font-family="sans-serif" font-size="20" font-weight="bold" fill="#e67e22" text-anchor="middle">PARTIE DÉCIMALE</text>`;
+        // Les décimales, une colonne chacune. Elles portent leur nom : depuis
+        // qu'on peut les retirer une à une, la lettre seule ne suffit plus à
+        // dire laquelle manque.
+        decimales.forEach((rangDecimal, i) => {
+            const x = virgule + i * colW;
+            if (i > 0) svg += `<line x1="${x}" y1="80" x2="${x}" y2="${h}" stroke="#2d3436" stroke-width="1" stroke-dasharray="4 4"/>`;
+            svg += `<text x="${x + colW / 2}" y="68" font-family="sans-serif" font-size="14" fill="#2d3436" text-anchor="middle">${rangDecimal.nom}</text>`;
+            svg += `<text x="${x + colW / 2}" y="108" font-family="sans-serif" font-size="20" font-weight="bold" fill="#d35400" text-anchor="middle">${rangDecimal.lettre}</text>`;
+        });
 
-        svg += `<text x="105" y="68" font-family="sans-serif" font-size="18" fill="#2d3436" text-anchor="middle">Millions</text>`;
-        svg += `<text x="315" y="68" font-family="sans-serif" font-size="18" fill="#2d3436" text-anchor="middle">Milliers</text>`;
-        // "Unités simples" devient "Unités"
-        svg += `<text x="525" y="68" font-family="sans-serif" font-size="18" fill="#2d3436" text-anchor="middle">Unités</text>`;
+        svg += `<text x="${virgule / 2}" y="28" font-family="sans-serif" font-size="20" font-weight="bold" fill="#0984e3" text-anchor="middle">PARTIE ENTIÈRE</text>`;
+        if (decimales.length) svg += `<text x="${(virgule + w) / 2}" y="28" font-family="sans-serif" font-size="20" font-weight="bold" fill="#e67e22" text-anchor="middle">PARTIE DÉCIMALE</text>`;
 
-        const cdu = ['C', 'D', 'U', 'C', 'D', 'U', 'C', 'D', 'U', 'd', 'c', 'm'];
-        const cols = ['#2980b9', '#2980b9', '#2980b9', '#27ae60', '#27ae60', '#27ae60', '#2d3436', '#2d3436', '#2d3436', '#d35400', '#d35400', '#d35400'];
-        for (let i = 0; i < numCols; i++) {
-            svg += `<text x="${i * 70 + 35}" y="108" font-family="sans-serif" font-size="20" font-weight="bold" fill="${cols[i]}" text-anchor="middle">${cdu[i]}</text>`;
-        }
         svg += `</svg>`;
         return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     },
 
-    buildCDUTable: function (format, rowsStr) {
-        const rows = parseInt(rowsStr) || 3;
-        const hasDecimals = (format !== 'int');
-        const numCols = hasDecimals ? 12 : 9;
-        const w = numCols * 70;
-        const h = 120 + (rows * 60);
+    buildCDUTable: function (spec, rowsStr) {
+        const { w, h } = this.mesurerLeTableau(spec, rowsStr);
 
         const logicalCenterX = (window.innerWidth / 2 - panX) / zoom;
         const logicalCenterY = (window.innerHeight / 2 - panY) / zoom;
         const startX = logicalCenterX - (w / 2);
-        const startY = logicalCenterY - (h / 2); // Le tableau se centre parfaitement peu importe sa hauteur
+        const startY = logicalCenterY - (h / 2);
 
         let groupId = 'cdu_' + Date.now() + '_' + Math.random();
         const img = new Image();
         img.onload = () => {
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'cduGeneratorTool', args: [format, rowsStr], groupId: groupId } });
-
-            // Fini les petits points générés automatiquement !
+            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'cduGeneratorTool', args: [spec, rowsStr], groupId: groupId } });
             if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
         };
-        img.src = this.getCDUSvg(format, rowsStr);
+        img.src = this.getCDUSvg(spec, rowsStr);
         showToast("🧮 Tableau généré !");
     }
 });

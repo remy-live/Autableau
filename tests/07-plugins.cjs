@@ -496,6 +496,83 @@ module.exports = async function (browser) {
     r.egal('« Modifier » paraît sur toutes les vignettes qui se rouvrent', barres.modifierManquant, []);
     r.egal('et sur aucune de celles qui ne se rouvrent pas', barres.modifierEnTrop, []);
 
+    // =====================================================================
+    // LE TABLEAU DE NUMÉRATION : CHAQUE CLASSE SE RETIRE
+    // Il s'arrêtait aux millions et n'offrait que deux formats. On coche
+    // maintenant les classes qu'on veut — mais un tableau de numération n'a
+    // pas de trou : ses colonnes sont des puissances de dix CONSÉCUTIVES, et
+    // sauter les milliers entre les millions et les unités ferait lire un
+    // nombre faux.
+    // =====================================================================
+    const numeration = await page.evaluate(() => {
+        const t = PluginManager.plugins['cduGeneratorTool'];
+        const lire = (spec) => {
+            const m = t.lireLesClasses(spec);
+            return { e: m.entieres.map(c => c.cle), d: m.decimales.map(c => c.cle) };
+        };
+        const largeur = (spec) => t.mesurerLeTableau(spec, '3').w;
+        // Le SVG, décodé, pour y lire les en-têtes.
+        const texte = (spec) => decodeURIComponent(escape(
+            atob(t.getCDUSvg(spec, '3').replace('data:image/svg+xml;base64,', ''))));
+        return {
+            // LES MILLIARDS, qui manquaient.
+            milliards: lire('milliards'),
+            titreMilliards: /Milliards/.test(texte('milliards')),
+            // UNE CLASSE SEULE : on comble jusqu'aux unités, sinon les chiffres
+            // resteraient côte à côte sans valoir ce qu'ils semblent valoir.
+            trouEntier: lire('milliards,unites'),
+            trouDecimal: lire('milliemes'),
+            // Les décimales se retirent une à une.
+            dixiemesSeules: lire('dixiemes'),
+            // Les unités ne se retirent pas : tout se construit autour d'elles.
+            rienDuTout: lire(''),
+            unitesToujours: /Unités/.test(texte('')),
+            // La largeur suit ce qu'on demande : trois colonnes par classe
+            // entière, une par décimale.
+            largeurs: {
+                unitesSeules: largeur(''),
+                avecMilliers: largeur('milliers'),
+                avecMilliards: largeur('milliards'),
+                complet: largeur('milliards,milliemes')
+            },
+            // LES ANCIENS TABLEAUX S'OUVRENT TELS QU'ON LES AVAIT FAITS.
+            legacyFull: lire('full'),
+            legacyInt: lire('int'),
+            // La virgule ne se dessine que s'il y a une partie décimale.
+            virguleSansDecimale: !/#e74c3c/.test(texte('milliers')),
+            virguleAvec: /#e74c3c/.test(texte('dixiemes')),
+            // Les décimales portent leur nom : la lettre seule ne dit plus
+            // laquelle manque, maintenant qu'on peut les retirer une à une.
+            nomsDecimaux: /dixièmes/.test(texte('dixiemes,centiemes'))
+                && /centièmes/.test(texte('dixiemes,centiemes'))
+        };
+    });
+    r.egal('les milliards existent, et le tableau les nomme',
+        { classes: numeration.milliards.e, titre: numeration.titreMilliards },
+        { classes: ['milliards', 'millions', 'milliers'], titre: true });
+    r.egal('une classe cochée haut comble tout jusqu\'aux unités',
+        numeration.trouEntier.e, ['milliards', 'millions', 'milliers']);
+    r.egal('et les millièmes ramènent avec eux les dixièmes et les centièmes',
+        numeration.trouDecimal.d, ['dixiemes', 'centiemes', 'milliemes']);
+    r.egal('mais les dixièmes seuls restent seuls',
+        numeration.dixiemesSeules.d, ['dixiemes']);
+    r.egal('les unités ne se retirent pas : tout se construit autour d\'elles',
+        { classes: numeration.rienDuTout.e, decimales: numeration.rienDuTout.d,
+          ecrites: numeration.unitesToujours },
+        { classes: [], decimales: [], ecrites: true });
+    r.egal('la largeur suit : trois colonnes par classe, une par décimale',
+        numeration.largeurs,
+        { unitesSeules: 210, avecMilliers: 420, avecMilliards: 840, complet: 1050 });
+    r.egal('un tableau enregistré avant les milliards s\'ouvre tel qu\'il était',
+        { full: numeration.legacyFull, int: numeration.legacyInt },
+        { full: { e: ['millions', 'milliers'], d: ['dixiemes', 'centiemes', 'milliemes'] },
+          int: { e: ['millions', 'milliers'], d: [] } });
+    r.egal('la virgule rouge ne paraît que s\'il y a une partie décimale',
+        { sans: numeration.virguleSansDecimale, avec: numeration.virguleAvec },
+        { sans: true, avec: true });
+    r.verifie('et les décimales portent leur nom, pas seulement leur lettre',
+        numeration.nomsDecimaux, String(numeration.nomsDecimaux));
+
     await context.close();
     return r.bilan();
 };

@@ -43,7 +43,9 @@ const RELUS = [
     { motif: /^t\.nom\.toLowerCase\(\)$/, pourquoi: 'TYPES_OUBLI : nos quatre motifs' },
     { motif: /^outil\(s\.memo\)$/, pourquoi: 'rend un nom de classe CSS, pas le mémo' },
     { motif: /^eleve\.memo\s*\?/, pourquoi: 'le mémo n\'est qu\'une condition : les deux branches sont des littéraux' },
-    { motif: /^spDonne\s*\?/, pourquoi: 'les deux branches sont des littéraux' }
+    { motif: /^spDonne\s*\?/, pourquoi: 'les deux branches sont des littéraux' },
+    { motif: /^classeDeNumeration\.nom$/, pourquoi: 'CLASSES du tableau de numération : notre table' },
+    { motif: /^rangDecimal\.nom$/, pourquoi: 'DECIMALES du tableau de numération : notre table' }
 ];
 
 // Toutes les interpolations d'un source, avec leur position.
