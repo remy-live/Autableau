@@ -8637,9 +8637,11 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     100% { outline-color: rgba(108, 92, 231, 0); outline-offset: 13px; }
 }
 
+/* QUATRE FOIS, ET NON DEUX. « Une fois c'est trop peu » : le temps de tourner
+   la tête vers la classe et de revenir, le halo était déjà passé. */
 .se-signale {
     outline: 3px solid transparent;
-    animation: barreSeSignale 0.85s ease-out 2;
+    animation: barreSeSignale 0.85s ease-out 4;
 }
 
 @media (prefers-reduced-motion: reduce) {

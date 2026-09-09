@@ -1376,6 +1376,63 @@ module.exports = async function (browser) {
         basDeLEcran.plancher < 860 || basDeLEcran.q.b <= basDeLEcran.d.t,
         JSON.stringify(basDeLEcran));
 
+    // EN PRÉSENTATION, LA MAIN NE PREND PAS TOUT. « Quand je crée du texte ou
+    // du trait et qu'après je prends la souris, je ne peux pas bouger les
+    // objets sur le pdf. » Le glisser prenait la page quoi qu'on vise : on
+    // écrivait un mot sur la page, on reprenait la flèche pour le replacer, et
+    // la page défilait sous le mot. Ce qu'on a posé dessus se rattrape
+    // maintenant comme ailleurs ; le vide et la page restent la main.
+    const surLaPagePresentee = await page.evaluate(async () => {
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        // Une page haute : plus grande que l'écran, on doit pouvoir y défiler.
+        images.push({ id: nextId++, x: 100, y: 100, w: 600, h: 1600, z: globalZ++, nomFichier: 'poly.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        presentationEnCours = images[0].id;
+        if (!document.body.classList.contains('focus-mode')) toggleFocusMode();
+        // Un trait posé sur la page, tel que le crayon le pose.
+        const cx = 400, cy = 400;
+        freehands.push({ id: nextId++, type: 'freehand',
+                         points: [{ x: cx - 40, y: cy }, { x: cx, y: cy }, { x: cx + 40, y: cy }],
+                         color: '#e74c3c', width: 4, z: globalZ++ });
+        setMode('pointer'); selectedItems = []; draw();
+        await new Promise(r => setTimeout(r, 150));
+        return { ecran: { x: Math.round(cx * zoom + panX), y: Math.round(cy * zoom + panY) },
+                 vide: { x: Math.round(300 * zoom + panX), y: Math.round(650 * zoom + panY) },
+                 traitAvant: Math.round(freehands[0].points[0].x),
+                 panAvant: Math.round(panY) };
+    });
+    // On rattrape le trait : c'est LUI qui bouge, pas la page.
+    await page.mouse.move(surLaPagePresentee.ecran.x, surLaPagePresentee.ecran.y);
+    await page.mouse.down();
+    await page.mouse.move(surLaPagePresentee.ecran.x + 80, surLaPagePresentee.ecran.y + 40, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(180);
+    const apresLeTrait = await page.evaluate(() => ({
+        trait: Math.round(freehands[0].points[0].x), pan: Math.round(panY) }));
+    r.verifie('en présentation, on rattrape ce qu\'on a posé sur la page',
+        apresLeTrait.trait > surLaPagePresentee.traitAvant + 20,
+        JSON.stringify({ avant: surLaPagePresentee.traitAvant, apres: apresLeTrait }));
+
+    // Mais la page elle-même reste la main : sans quoi on ne descendrait plus.
+    await page.mouse.move(surLaPagePresentee.vide.x, surLaPagePresentee.vide.y);
+    await page.mouse.down();
+    await page.mouse.move(surLaPagePresentee.vide.x, surLaPagePresentee.vide.y - 120, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(180);
+    const apresLaPage = await page.evaluate(() => {
+        const p = Math.round(panY);
+        presentationEnCours = null;
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        images.length = 0; freehands.length = 0; selectedItems = [];
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); updateQuickMenu(); draw();
+        return p;
+    });
+    r.verifie('et glisser la page la fait toujours défiler sous les yeux',
+        apresLaPage !== apresLeTrait.pan, JSON.stringify({ avant: apresLeTrait.pan, apres: apresLaPage }));
+
     // ET PENDANT QU'ON PROJETTE, IL NE PARAÎT PAS DU TOUT. « Que penses-tu de
     // ce doublon des barres en bas ? » — deux meubles pour la même page, dont
     // l'un ne sert à rien là : verrouiller, dupliquer, SUPPRIMER, devant la
@@ -1454,6 +1511,47 @@ module.exports = async function (browser) {
         signal.apresLeSaut.bougee && signal.apresLeSaut.signale, JSON.stringify(signal));
     r.verifie('mais elle ne clignote pas quand elle reste où elle est',
         signal.auRepos === false && signal.surPlace === false, JSON.stringify(signal));
+    // QUATRE FOIS, ET NON UNE : « une fois c'est trop peu ». Le temps de
+    // tourner la tête vers la classe et de revenir, le halo était déjà passé.
+    const clignote = await page.evaluate(() => {
+        const b = document.getElementById('bar-document');
+        b.classList.add('se-signale');
+        const n = getComputedStyle(b).animationIterationCount;
+        b.classList.remove('se-signale');
+        return n;
+    });
+    r.verifie('et il clignote quatre fois, pas une', Number(clignote) >= 4, String(clignote));
+
+    // ET LE DOCUMENT LÂCHÉ NE SE RÉVEILLE PAS. « Le pdf n'est plus sélectionné,
+    // mais lorsque j'appuie sur l'outil Texte dans la barre de gauche, sa barre
+    // revient. » Le souvenir du document annoté ne s'effaçait jamais : repris
+    // l'outil, la barre revenait pour un document que plus personne ne tenait.
+    const lache = await page.evaluate(async () => {
+        images.length = 0; selectedItems = []; setMode('pointer');
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        // On prend le crayon EN TENANT le document : la barre doit rester.
+        setMode('freehand'); docEnAnnotation = images[0].id; majBarreDocument();
+        await new Promise(r => setTimeout(r, 80));
+        const enTenant = document.getElementById('bar-document').classList.contains('ctx-document');
+        // On lâche le document, puis on reprend l'outil Texte à la barre de gauche.
+        selectedItems = []; setMode('pointer'); majBarreDocument();
+        await new Promise(r => setTimeout(r, 80));
+        const lachee = document.getElementById('bar-document').classList.contains('ctx-document');
+        setMode('text'); majBarreDocument();
+        await new Promise(r => setTimeout(r, 80));
+        const apresLOutil = document.getElementById('bar-document').classList.contains('ctx-document');
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); draw();
+        return { enTenant, lachee, apresLOutil, souvenir: docEnAnnotation };
+    });
+    r.verifie('le crayon pris EN TENANT le document garde sa barre', lache.enTenant,
+        JSON.stringify(lache));
+    r.egal('le document lâché, sa barre s\'en va — et l\'outil Texte ne la rappelle pas',
+        { lachee: lache.lachee, apresLOutil: lache.apresLOutil, souvenir: lache.souvenir },
+        { lachee: false, apresLOutil: false, souvenir: null });
 
     // CE QUI A DÉMÉNAGÉ AGIT VRAIMENT. Un réglage qui a changé de meuble et
     // ne fait plus rien est pire que celui qu'on a déplacé.
@@ -1471,9 +1569,12 @@ module.exports = async function (browser) {
         // ET PENDANT QU'ON ANNOTE, la sélection est VIDE — c'est la page tenue
         // par la barre qui compte. La pile agit sur la sélection : sans rendre
         // le document en main le temps du clic, le réglage ne touchait rien.
+        // Dans cet ordre-là, comme le fait « annoterLeDocument » : l'outil
+        // d'abord, le souvenir ensuite — car prendre un outil SANS document en
+        // main efface justement ce souvenir.
         selectedItems = [];
-        docEnAnnotation = o.id;
         setMode('freehand');
+        docEnAnnotation = o.id;
         o.z = 5;
         document.getElementById('dv-devant').click();
         const enAnnotant = o.z > 5;

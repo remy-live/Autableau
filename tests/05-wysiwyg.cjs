@@ -629,6 +629,43 @@ module.exports = async function (browser) {
     await page.evaluate(() => { texts.length = 0; setMode('pointer'); isDraggingObjs = false; draw(); });
 
     // =====================================================================
+    // UNE SEULE BARRE POUR LE MOT QU'ON ÉCRIT
+    // « Pourquoi la barre de style apparaît alors qu'au-dessus du texte ça
+    //   apparaît ? » — deux barres pour le même mot : celle du texte flotte
+    //   au-dessus du bloc et porte le gras, la taille, la couleur ; celle du
+    //   style affichait les mêmes réglages en haut de l'écran.
+    // =====================================================================
+    const deuxBarresDuTexte = await page.evaluate(async () => {
+        texts.length = 0; panX = 0; panY = 0; zoom = 1; selectedItems = [];
+        setMode('text'); updateStyleBarContext();
+        await new Promise(r => setTimeout(r, 100));
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            const s = getComputedStyle(e);
+            return s.display !== 'none' && parseFloat(s.opacity) > 0.05
+                && e.getBoundingClientRect().height > 4;
+        };
+        const avant = vu('bar-style');
+        // On ouvre la saisie : la barre du texte prend le relais.
+        ouvrirLaSaisie(null, { x: 300, y: 300 });
+        await new Promise(r => setTimeout(r, 120));
+        updateStyleBarContext();
+        const pendant = { style: vu('bar-style'), saisie: wysiwygText.style.display === 'block' };
+        wysiwygText.innerText = 'un mot';
+        finalizeText();
+        await new Promise(r => setTimeout(r, 120));
+        const apres = { style: vu('bar-style'), poses: texts.length };
+        texts.length = 0; setMode('pointer'); draw();
+        return { avant, pendant, apres };
+    });
+    r.verifie('l\'outil Texte en main, la barre de style est là',
+        deuxBarresDuTexte.avant, JSON.stringify(deuxBarresDuTexte));
+    r.egal('mais elle se tait pendant qu\'on écrit : la barre du texte suffit',
+        deuxBarresDuTexte.pendant, { style: false, saisie: true });
+    r.egal('et elle reprend la parole une fois le bloc posé',
+        deuxBarresDuTexte.apres, { style: true, poses: 1 });
+
+    // =====================================================================
     // LE TIROIR PEND DE SON PROPRE BOUTON
     // « Taille, police, interligne » s'ouvrait collé au bord GAUCHE de la
     // barre, quel que soit l'onglet : le panneau paraissait à l'autre bout
@@ -685,6 +722,39 @@ module.exports = async function (browser) {
         && tiroir.auBordGauche.gauche >= 0
         && tiroir.auBordDroit.droite <= tiroir.ecran,
         JSON.stringify({ gauche: tiroir.auBordGauche, droite: tiroir.auBordDroit }));
+
+    // NI PAR LE HAUT. Le tiroir s'ouvre du côté opposé au texte pour ne pas
+    // tomber dessus ; la barre collée au bord haut de la fenêtre l'ouvrait donc
+    // vers le haut, et « les options étaient tronquées par le haut de la
+    // fenêtre ». Il choisit maintenant le côté qui a la place.
+    const enHautDeLEcran = await page.evaluate(async () => {
+        const tt = document.getElementById('text-toolbar');
+        const z = document.getElementById('wysiwyg-text');
+        tt.style.display = 'flex';
+        tt.style.left = '360px';
+        // La barre tout en haut, et le bloc de saisie EN DESSOUS d'elle :
+        // c'est le cas qui la faisait ouvrir vers le haut.
+        tt.style.top = '2px';
+        z.style.display = 'block';
+        z.style.left = '360px';
+        z.style.top = '200px';
+        const onglet = tt.querySelector('.tt-tab[data-panel="size"]');
+        const panneau = tt.querySelector('.tt-panel[data-panel="size"]');
+        if (panneau.classList.contains('tt-open')) onglet.click();
+        onglet.click();
+        await new Promise(r => setTimeout(r, 60));
+        const p = panneau.getBoundingClientRect();
+        const m = { haut: Math.round(p.top), bas: Math.round(p.bottom),
+                    vers: panneau.classList.contains('tt-up') ? 'haut' : 'bas',
+                    ecran: window.innerHeight };
+        onglet.click();
+        tt.style.display = 'none';
+        z.style.display = 'none';
+        return m;
+    });
+    r.verifie('barre collée en haut, le tiroir descend au lieu d\'être tronqué',
+        enHautDeLEcran.haut >= 0 && enHautDeLEcran.bas <= enHautDeLEcran.ecran,
+        JSON.stringify(enHautDeLEcran));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

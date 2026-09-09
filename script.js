@@ -6000,7 +6000,7 @@ function signalerLaBarreDuDocument(barre) {
     void barre.offsetWidth;                     // relance l'animation
     barre.classList.add('se-signale');
     clearTimeout(finDuSignalDeLaBarre);
-    finDuSignalDeLaBarre = setTimeout(() => barre.classList.remove('se-signale'), 1900);
+    finDuSignalDeLaBarre = setTimeout(() => barre.classList.remove('se-signale'), 3700);
     return true;
 }
 window.signalerLaBarreDuDocument = signalerLaBarreDuDocument;
@@ -6107,8 +6107,19 @@ function updateStyleBarContext() {
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
+    // PENDANT QU'ON ÉCRIT, LA BARRE DU TEXTE SUFFIT. Elle flotte au-dessus du
+    // bloc et porte tout ce qui le concerne — le gras, la taille, la couleur,
+    // l'alignement. La barre de style affichait les mêmes réglages en haut de
+    // l'écran : deux barres pour le même mot, à deux endroits, et l'on ne
+    // savait plus laquelle règle quoi. Elle se tait le temps de la saisie, et
+    // revient dès que le bloc est posé.
+    if (typeof wysiwygText !== 'undefined' && wysiwygText
+        && wysiwygText.style.display === 'block') {
+        barStyle.classList.remove('visible');
+        barStyle.removeAttribute('data-dragged');
+    }
     // --- NOUVEAU : On ajoute 'ctx-point' pour les outils segment, curve et polygon ---
-    if (targetType === 'point') barStyle.classList.add('ctx-point');
+    else if (targetType === 'point') barStyle.classList.add('ctx-point');
     else if (['segment', 'droite', 'demi-droite', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
     else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) barStyle.classList.add('ctx-line');
     else if (targetType === 'text') barStyle.classList.add('ctx-text');
@@ -6713,8 +6724,11 @@ function updateCursor() {
         canvas.classList.add('cursor-crosshair'); return;
     }
     if (isPanningView || isSpacePressed || mode === 'move') { canvas.classList.add(isPanningView ? 'cursor-grabbing' : 'cursor-grab'); return; }
-    // En présentation, le glisser prend la page : le curseur le dit.
-    if (typeof presentationEnCours !== 'undefined' && presentationEnCours && mode === 'pointer') {
+    // En présentation, le glisser prend la page : le curseur le dit. Sur ce
+    // qu'on a posé dessus, en revanche, il redevient une flèche — c'est là
+    // qu'on rattrape son mot ou son trait.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours && mode === 'pointer'
+        && (!hoveredObj || (hoveredObj.type === 'image' && hoveredObj.id === presentationEnCours))) {
         canvas.classList.add('cursor-grab'); return;
     }
     if (isDraggingObjs) { canvas.classList.add('cursor-grabbing'); return; }
@@ -7920,6 +7934,10 @@ function finalizeText() {
         wysiwygText.style.display = 'none'; wysiwygText.innerText = ''; editingTextId = null; tempTextLogicalPos = null;
         couleurBlocSaisie = null;
         if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
+        // La barre de style s'était tue le temps de la saisie : le bloc posé,
+        // elle reprend la parole — sans quoi elle resterait muette jusqu'au
+        // prochain changement de sélection.
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
         if (hasChanged) { saveState(); draw(); }
     }
 }
@@ -8516,8 +8534,18 @@ canvas.addEventListener('pointerdown', (e) => {
     // effacées : l'outil Main est hors d'atteinte, et c'était le seul geste
     // qui restait pour aller voir plus bas. Le crayon et le texte passent
     // avant, plus haut : on annote toujours sur la page présentée.
+    //
+    // MAIS SEULEMENT QUAND ON NE VISE RIEN. « En plein écran, sur un pdf,
+    // quand je crée du texte ou du trait et qu'après je prends la souris, je
+    // ne peux pas bouger les objets sur le pdf. » La main prenait TOUT : on
+    // écrivait un mot sur la page, on reprenait la flèche pour le replacer, et
+    // le glissement faisait défiler la page sous le mot. Ce qu'on a posé sur
+    // la page se rattrape donc comme ailleurs ; c'est le vide — et la page
+    // elle-même — qui reste la main.
     if (typeof presentationEnCours !== 'undefined' && presentationEnCours
-        && mode === 'pointer' && documentPresente()) {
+        && mode === 'pointer' && documentPresente()
+        && (!clickedObj
+            || (clickedObj.type === 'image' && clickedObj.id === presentationEnCours))) {
         isPanningView = true; updateCursor(); return;
     }
 
@@ -13907,7 +13935,12 @@ let docEnAnnotation = null;
 function retenirLeDocumentAnnote(nouvelOutil) {
     if (!OUTILS_ANNOTATION.includes(nouvelOutil)) return;
     const doc = documentSelectionne();
-    if (doc) docEnAnnotation = doc.id;
+    // ON NE RÉVEILLE PAS UN DOCUMENT QU'ON A LÂCHÉ. Le souvenir sert à garder
+    // la barre quand on prend un outil EN TENANT le document. Mais il ne
+    // s'effaçait jamais : le polycopié lâché, on reprenait l'outil Texte à la
+    // barre de gauche et sa barre revenait — pour un document que plus
+    // personne ne tenait, et qui n'était même plus à l'écran.
+    docEnAnnotation = doc ? doc.id : null;
 }
 window.retenirLeDocumentAnnote = retenirLeDocumentAnnote;
 
@@ -15024,6 +15057,21 @@ if (textToolbar) {
                 const voulu = Math.max(8, Math.min(window.innerWidth - 8 - p0.width,
                     ongletR.left + ongletR.width / 2 - p0.width / 2));
                 panneau.style.left = Math.round(voulu - p0.left) + 'px';
+
+                // ET IL NE SORT PAS PAR LE HAUT. La barre collée au bord haut
+                // de la fenêtre ouvrait son tiroir vers le haut : « les options
+                // étaient tronquées par le haut de la fenêtre ». On choisit le
+                // côté qui a la place, et non plus seulement celui qui est
+                // opposé au texte.
+                let r = panneau.getBoundingClientRect();
+                if (r.top < 8 && panneau.classList.contains('tt-up')) {
+                    panneau.classList.remove('tt-up');
+                    r = panneau.getBoundingClientRect();
+                }
+                if (r.bottom > window.innerHeight - 8 && !panneau.classList.contains('tt-up')
+                    && barre.top - r.height - 8 > 0) {
+                    panneau.classList.add('tt-up');
+                }
             }
             wysiwygText.focus();
         });
@@ -31674,23 +31722,31 @@ function chapitresDeLaDemonstration() {
 
         { titre: 'Vos tableaux, et votre interface',
           dit: 'Chaque tableau est un fichier, rangé dans vos dossiers. Et l\'interface est à vous : on se fabrique ses propres barres d\'outils, on les pose où l\'on veut, et l\'on en garde plusieurs toutes prêtes.',
-          duree: 46000,
+          duree: 58000,
           faire: async (g) => {
+              // ON DIT AVANT D'OUVRIR. Les deux tiroirs s'ouvraient dans la
+              // premiere seconde du chapitre : le temps de lire la phrase,
+              // l'ecran avait deja change deux fois, et l'on n'avait vu ni
+              // d'ou cela venait, ni sur quoi la main avait appuye.
+              g.dire('Deux choses vous appartiennent, et l\'on ne le dit jamais assez : vos tableaux, et votre interface.');
+              await g.tempo(3200);
+              g.dire('Vos fichiers d\'abord : tout ce qui les concerne tient dans le tiroir du bas.');
+              await g.montrer('#bottom-drawer .drawer-toggle', 'Sa languette', 2800);
               const bas = document.getElementById('bottom-drawer');
               if (bas && bas.classList.contains('closed')) {
-                  g.dire('Tout ce qui concerne vos fichiers est dans le tiroir du bas.');
-                  await g.viser('#bottom-drawer .drawer-toggle', 'Le tiroir du bas');
+                  await g.viser('#bottom-drawer .drawer-toggle', 'On l\'ouvre');
               }
-              await g.tempo(1200);
+              await g.tempo(2000);
               g.dire('« Mes tableaux » : chaque tableau est un fichier, rangé dans vos dossiers à vous.');
+              await g.montrer('#btn-tableaux', 'Mes tableaux', 3000);
+              g.dire('On l\'ouvre, et ils sont tous là.');
               await g.viser('#btn-tableaux', 'Mes tableaux');
               await g.tempo(3000);
               g.dire('On les ouvre, on les range, on les jette — et la corbeille les rend si l\'on s\'est trompé.');
               await g.tempo(2600);
-              if (typeof toggleRightDrawer === 'function') {
-                  const droite = document.getElementById('right-drawer');
-                  if (droite && !droite.classList.contains('closed')) toggleRightDrawer();
-              }
+              const droite = document.getElementById('right-drawer');
+              if (droite && droite.classList.contains('open')
+                  && typeof toggleRightDrawer === 'function') toggleRightDrawer();
               await g.tempo(900);
 
               // UNE VRAIE BARRE, SANS RIEN ÉCRIRE CHEZ LE PROFESSEUR. On passe
@@ -31721,14 +31777,19 @@ function chapitresDeLaDemonstration() {
 
         { titre: 'Enregistrer, exporter, partager',
           dit: 'Le tableau s\'enregistre dans un fichier, s\'exporte en image ou en PDF, et se partage tel quel — rien n\'est prisonnier de l\'application.',
-          duree: 38000,
+          duree: 46000,
           faire: async (g) => {
+              // ON DIT AVANT D'OUVRIR, ici aussi : le tiroir se dépliait dans
+              // la première seconde, avant qu'on ait lu d'où cela venait.
+              g.dire('Un tableau n\'est pas prisonnier de l\'application : il en sort de plusieurs façons.');
+              await g.tempo(3000);
               const bas = document.getElementById('bottom-drawer');
               if (bas && bas.classList.contains('closed')) {
-                  g.dire('Le tiroir du bas se déplie par sa languette.');
-                  await g.viser('#bottom-drawer .drawer-toggle', 'Le tiroir du bas');
+                  g.dire('Tout cela est dans le tiroir du bas, qui se déplie par sa languette.');
+                  await g.montrer('#bottom-drawer .drawer-toggle', 'Sa languette', 2600);
+                  await g.viser('#bottom-drawer .drawer-toggle', 'On l\'ouvre');
               }
-              await g.tempo(1200);
+              await g.tempo(1800);
               g.dire('« Exporter », en bas : c\'est par là qu\'on sort du tableau.');
               await g.viser('#btn-export-menu', 'Exporter');
               await g.tempo(2800);
@@ -32047,13 +32108,18 @@ async function jouerLeChapitre(i) {
     // LES TIROIRS SE REFERMENT ENTRE DEUX CHAPITRES : celui qui en a besoin
     // l'ouvre lui-même, et l'on voit alors qu'il l'ouvre. Laissés ouverts,
     // ils recouvraient la barre de la visite et le tableau qu'elle montre.
-    ['bar-plugins', 'bottom-drawer', 'right-drawer'].forEach((id, k) => {
+    // LE TIROIR DE DROITE SE FERME À L'ENVERS DES AUTRES : il s'ouvre par
+    // « open » quand les deux autres se ferment par « closed ». Traité comme
+    // eux, il ne se fermait pas — il s'OUVRAIT au début de chaque chapitre.
+    ['bar-plugins', 'bottom-drawer'].forEach((id, k) => {
         const e = document.getElementById(id);
         if (!e || e.classList.contains('closed')) return;
         if (k === 0 && typeof togglePluginDrawer === 'function') togglePluginDrawer();
         if (k === 1 && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
-        if (k === 2 && typeof toggleRightDrawer === 'function') toggleRightDrawer();
     });
+    const tiroirDroit = document.getElementById('right-drawer');
+    if (tiroirDroit && tiroirDroit.classList.contains('open')
+        && typeof toggleRightDrawer === 'function') toggleRightDrawer();
     if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
     // ET LE LECTEUR DU CHAPITRE D'AVANT S'EN VA AVEC LUI. Celui de la dictée
     // restait ouvert par-dessus le chapitre des exports, au coin de l'écran,

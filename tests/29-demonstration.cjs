@@ -652,6 +652,32 @@ module.exports = async function (browser) {
         { avant: instruments.avant, pendant: instruments.pendant }, { avant: true, pendant: false });
     r.egal('…et il est rendu en sortant', instruments.apres, true);
 
+    // ON DIT AVANT D'OUVRIR. « N'ouvre peut-être pas le tiroir des tableaux et
+    // des interfaces tout de suite » : les deux tiroirs se dépliaient dans la
+    // première seconde du chapitre, avant qu'on ait lu d'où cela venait — le
+    // temps de suivre la phrase, l'écran avait déjà changé deux fois.
+    for (const [rang, nom] of [[8, 'des tableaux et de l\'interface'], [9, 'des exports']]) {
+        await page.evaluate((k) => { demarrerLaDemonstration(); allerAuChapitre(k); }, rang);
+        let tourDeLaPhrase = -1, tourDuTiroir = -1;
+        for (let k = 0; k < 60 && tourDuTiroir < 0; k++) {
+            await page.waitForTimeout(60);
+            const e = await page.evaluate(() => ({
+                dit: document.getElementById('demo-dit').textContent.trim().length > 0,
+                // Le tiroir de droite s'ouvre par « open » quand les deux
+                // autres se ferment par « closed » : le lire à l'envers, c'est
+                // le croire ouvert en permanence.
+                tiroir: !document.getElementById('bottom-drawer').classList.contains('closed')
+                    || document.getElementById('right-drawer').classList.contains('open')
+            }));
+            if (e.dit && tourDeLaPhrase < 0) tourDeLaPhrase = k;
+            if (e.tiroir && tourDuTiroir < 0) tourDuTiroir = k;
+        }
+        await page.evaluate(() => arreterLaDemonstration());
+        r.verifie('le chapitre ' + nom + ' parle avant d\'ouvrir un tiroir',
+            tourDeLaPhrase >= 0 && tourDuTiroir > tourDeLaPhrase,
+            JSON.stringify({ phrase: tourDeLaPhrase, tiroir: tourDuTiroir }));
+    }
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
