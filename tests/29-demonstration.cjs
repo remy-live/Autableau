@@ -103,9 +103,13 @@ module.exports = async function (browser) {
         // c'est la source qui fait foi, pas une liste tenue à côté.
         const src = chapitresDeLaDemonstration().map(c => String(c.faire)).join('\n');
         const trouves = [];
-        const motif = /g\.viser\(\s*(?:outil\(\s*)?['"]([^'"]+)['"]/g;
+        // Le guillemet du dedans compte : « [data-plugin-key="Tableau de
+        // Numération"] » est un sélecteur parfaitement valide, et une lecture
+        // qui s'arrête au premier guillemet venu en fabriquait un cassé — le
+        // test tombait sur sa propre coupure, pas sur un vrai manque.
+        const motif = /g\.(?:viser|montrer)\(\s*(?:outil\(\s*)?(['"])((?:(?!\1)[^\\]|\\.)*)\1/g;
         let m;
-        while ((m = motif.exec(src))) trouves.push(m[1]);
+        while ((m = motif.exec(src))) trouves.push(m[2]);
         const manquants = trouves.filter(sel => {
             const s = sel.startsWith('#') || sel.startsWith('.') ? sel
                 : `#system-toolbar-main [data-mode="${sel}"]`;
@@ -311,6 +315,168 @@ module.exports = async function (browser) {
     });
     r.egal('Échap la referme, et rend sa page avec',
         echap, { dedans: true, dehors: true, pages: depart.pages });
+
+    // =====================================================================
+    // ON DOIT VOIR CE QU'ELLE FAIT
+    // « Le trait ne suit pas exactement le curseur. Pars d'un fond blanc.
+    //   On ne voit pas la barre du pdf, cachée par le lecteur. On ne voit pas
+    //   sur quoi tu cliques ou les combinaisons de touches. J'ai l'impression
+    //   de ne rien avoir appris. » — tout ce bloc répond à cela.
+    // =====================================================================
+
+    // LE FOND. Une visite ouverte sur du Seyes montrait ses traits par-dessus
+    // une réglure : on ne voyait plus ce qu'elle dessinait.
+    const fond = await page.evaluate(async () => {
+        currentBgIndex = 2;                      // du Seyes avant la visite
+        demarrerLaDemonstration();
+        await new Promise(r => setTimeout(r, 150));
+        const pendant = backgrounds[currentBgIndex];
+        arreterLaDemonstration();
+        await new Promise(r => setTimeout(r, 150));
+        const apres = backgrounds[currentBgIndex];
+        currentBgIndex = 0; draw();
+        return { pendant, apres };
+    });
+    r.egal('elle part d\'une page blanche, et rend le fond d\'avant en sortant',
+        fond, { pendant: 'blanc', apres: 'seyes' });
+
+    // LA MAIN COLLE AU TRAIT. Elle se rendait au point suivant en 120 ms
+    // d'animation, alors qu'un point tombe toutes les 38 ms : trois points de
+    // retard en permanence, et le trait sortait DEVANT elle.
+    const mainCollee = await page.evaluate(() => {
+        const m = document.getElementById('demo-main');
+        m.className = 'visible';
+        const glisse = getComputedStyle(m).transitionProperty;
+        m.classList.add('trace');
+        const collee = getComputedStyle(m).transitionProperty;
+        m.className = '';
+        return { glisse, collee };
+    });
+    r.verifie('hors tracé, la main glisse jusqu\'à son point',
+        /left/.test(mainCollee.glisse) && /top/.test(mainCollee.glisse), JSON.stringify(mainCollee));
+    r.verifie('mais pendant un tracé elle est LÀ où le trait se pose, sans retard',
+        !/left/.test(mainCollee.collee) && !/top/.test(mainCollee.collee), JSON.stringify(mainCollee));
+
+    // L'ONDE DU CLIC ET LES TOUCHES. On voyait l'effet, jamais le geste.
+    const gestesVus = await page.evaluate(async () => {
+        demarrerLaDemonstration();
+        const d = laDemo;
+        const g = gestesDeLaDemo(d, d.jeton);
+        // L'onde part du point touché, et repart d'un second clic au même
+        // endroit : deux clics de suite ne doivent pas n'en montrer qu'un.
+        g.onde(400, 300);
+        const o = document.getElementById('demo-clic');
+        const premiere = { visible: getComputedStyle(o).display, x: o.style.left, y: o.style.top,
+                           anime: o.classList.contains('frappe') };
+        g.onde(700, 500);
+        const seconde = { x: o.style.left, anime: o.classList.contains('frappe') };
+
+        // Le bouton visé se détache AVANT d'être cliqué.
+        const crayon = document.querySelector('#system-toolbar-main [data-mode="freehand"]');
+        g.souligner(crayon);
+        const souligne = !!crayon && crayon.classList.contains('demo-vise');
+        g.souligner(null);
+        const relache = !!crayon && !crayon.classList.contains('demo-vise');
+
+        // Les touches se montrent, s'enfoncent, et font l'action AU MOMENT où
+        // elles sont enfoncées — pas avant.
+        let faitQuand = null;
+        const attente = g.touches(['Ctrl', 'Z'], () => {
+            faitQuand = [...document.querySelectorAll('#demo-touches .demo-touche')]
+                .every(c => c.classList.contains('enfoncee'));
+        });
+        await new Promise(r => setTimeout(r, 120));
+        const boite = document.getElementById('demo-touches');
+        const montrees = { visible: boite.classList.contains('visible'),
+                           caps: [...boite.querySelectorAll('.demo-touche')].map(c => c.textContent),
+                           plus: boite.querySelectorAll('.demo-plus').length };
+        await attente;
+        const rangees = !boite.classList.contains('visible') && boite.children.length === 0;
+        arreterLaDemonstration();
+        return { premiere, seconde, souligne, relache, montrees, faitQuand, rangees };
+    });
+    r.egal('l\'onde du clic part du point touché',
+        { visible: gestesVus.premiere.visible, x: gestesVus.premiere.x, y: gestesVus.premiere.y,
+          anime: gestesVus.premiere.anime },
+        { visible: 'block', x: '400px', y: '300px', anime: true });
+    r.egal('et un second clic la relance ailleurs', gestesVus.seconde, { x: '700px', anime: true });
+    r.verifie('le bouton visé se détache avant d\'être cliqué, puis se relâche',
+        gestesVus.souligne && gestesVus.relache, JSON.stringify(gestesVus));
+    r.egal('les combinaisons de touches se montrent, touche par touche',
+        gestesVus.montrees, { visible: true, caps: ['Ctrl', 'Z'], plus: 1 });
+    r.verifie('et l\'action se fait quand les touches sont enfoncées, pas avant',
+        gestesVus.faitQuand === true, String(gestesVus.faitQuand));
+    r.verifie('puis le cartouche se range', gestesVus.rangees, String(gestesVus.rangees));
+
+    // LA BARRE DE LA VISITE NE CACHE PLUS CELLE DU DOCUMENT. Le chapitre du
+    // document passe en plein écran EN COURS DE ROUTE : la barre de la visite
+    // restait alors en bas, exactement là où celle du document venait de se
+    // poser.
+    const deuxBarres = await page.evaluate(async () => {
+        demarrerLaDemonstration();
+        const barre = document.getElementById('demo-barre');
+        const enBas = barre.classList.contains('en-haut');
+        toggleFocusMode();
+        await new Promise(r => setTimeout(r, 60));
+        const enHaut = barre.classList.contains('en-haut');
+        // Et elles ne se recouvrent pas : on mesure les deux rectangles.
+        images.push({ id: nextId++, x: 40, y: 40, w: 300, h: 400, z: globalZ++ });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 60));
+        const a = barre.getBoundingClientRect();
+        const b = document.getElementById('bar-document').getBoundingClientRect();
+        const chevauche = !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top);
+        toggleFocusMode();
+        arreterLaDemonstration();
+        return { enBas, enHaut, chevauche, demo: Math.round(a.top), doc: Math.round(b.top) };
+    });
+    r.verifie('la barre de la visite monte dès qu\'on passe en plein écran',
+        gestesVus && deuxBarres.enBas === false && deuxBarres.enHaut === true, JSON.stringify(deuxBarres));
+    r.verifie('et elle ne recouvre plus la barre du document',
+        !deuxBarres.chevauche, JSON.stringify(deuxBarres));
+
+    // LE CHAPITRE DES OUTILS OUVRE VRAIMENT LA FENÊTRE DU PLUGIN. Il appelait
+    // la fonction du plugin en douce : on voyait le tableau apparaître sans
+    // avoir rien vu ni choisi — « on ne voit pas l'ouverture des plugins ».
+    await page.evaluate(() => { facteurDAttenteDeLaDemo = 0.05; });
+    await page.evaluate(() => { demarrerLaDemonstration(); allerAuChapitre(4); });
+    let fenetreVue = false, casesVues = 0;
+    for (let k = 0; k < 60 && !fenetreVue; k++) {
+        await page.waitForTimeout(150);
+        const vu = await page.evaluate(() => {
+            const m = document.getElementById('custom-prompt-modal');
+            return { ouverte: !!m && getComputedStyle(m).display !== 'none',
+                     cases: document.querySelectorAll('#custom-prompt-inputs .prompt-case').length };
+        });
+        if (vu.ouverte) { fenetreVue = true; casesVues = vu.cases; }
+    }
+    r.verifie('le chapitre des outils ouvre pour de vrai la fenêtre du plugin',
+        fenetreVue && casesVues >= 3, JSON.stringify({ fenetreVue, casesVues }));
+
+    // Et ce qu'il ouvre, il le referme. Deux sorties à vérifier, car ce sont
+    // deux chemins différents : changer de chapitre en plein milieu, et
+    // arrêter la visite.
+    const fermee = () => page.evaluate(() => {
+        const m = document.getElementById('custom-prompt-modal');
+        return !m || getComputedStyle(m).display === 'none';
+    });
+    await page.evaluate(() => allerAuChapitre(0));
+    await page.waitForTimeout(300);
+    const apresChangement = await fermee();
+    r.verifie('changer de chapitre referme la fenêtre du plugin restée ouverte',
+        apresChangement, String(apresChangement));
+
+    await page.evaluate(() => { allerAuChapitre(4); });
+    for (let k = 0; k < 60; k++) {
+        await page.waitForTimeout(150);
+        if (!(await fermee())) break;
+    }
+    await page.evaluate(() => arreterLaDemonstration());
+    await page.waitForTimeout(250);
+    const apresLaFenetre = await fermee();
+    r.verifie('et arrêter la visite la referme aussi',
+        apresLaFenetre, String(apresLaFenetre));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

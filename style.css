@@ -9777,6 +9777,119 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 #demo-main.visible { display: block; }
 #demo-main.vite { transition-duration: 0.12s, 0.12s, 0.14s, 0.14s, 0.14s; }
 
+/* PENDANT UN TRACÉ, LA MAIN NE GLISSE PLUS : ELLE EST LÀ.
+   Le trait se pose au point exact, à chaque événement ; la main, elle,
+   s'y rendait en 120 ms d'animation. Un point tous les 38 ms : elle avait
+   trois points de retard en permanence, et l'on voyait le trait sortir
+   devant elle au lieu de sortir de dessous. */
+#demo-main.trace {
+    transition-property: width, height, background, box-shadow;
+    transition-duration: 0.14s;
+}
+
+/* L'ONDE DU CLIC : elle part du point touché et s'élargit en s'effaçant.
+   Sans elle, la main appuyait dans le vide — on voyait le résultat, jamais
+   l'endroit. */
+#demo-clic {
+    display: none;
+    position: fixed;
+    left: -300px;
+    top: -300px;
+    width: 26px;
+    height: 26px;
+    margin: -13px 0 0 -13px;
+    border-radius: 50%;
+    border: 3px solid #d63031;
+    background: rgba(214, 48, 49, 0.18);
+    z-index: 200000;
+    pointer-events: none;
+}
+
+#demo-clic.frappe {
+    display: block;
+    animation: demoOndeDuClic 0.62s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes demoOndeDuClic {
+    0% { transform: scale(0.35); opacity: 0; }
+    18% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(3.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #demo-clic.frappe { animation-duration: 0.3s; }
+}
+
+/* LES TOUCHES, EN GRAND, AU MILIEU DU BAS. Un raccourci ne s'apprend pas
+   dans une phrase : il s'apprend en voyant les touches s'enfoncer. */
+#demo-touches {
+    display: none;
+    position: fixed;
+    left: 50%;
+    bottom: 128px;
+    transform: translateX(-50%);
+    z-index: 200001;
+    pointer-events: none;
+    gap: 8px;
+    align-items: center;
+}
+
+#demo-touches.visible { display: flex; }
+#demo-barre.en-haut ~ #demo-touches { bottom: auto; top: 128px; }
+
+#demo-touches .demo-touche {
+    min-width: 42px;
+    padding: 9px 13px;
+    border-radius: 9px;
+    background: #f7f6fb;
+    color: #16151c;
+    font-size: 17px;
+    font-weight: 800;
+    text-align: center;
+    border: 1px solid #cfcbe0;
+    border-bottom-width: 4px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+    transform: translateY(0);
+    transition: transform 0.1s ease, border-bottom-width 0.1s ease, background 0.1s ease;
+}
+
+#demo-touches .demo-touche.enfoncee {
+    background: #6c5ce7;
+    color: #fff;
+    border-color: #4b3fc4;
+    border-bottom-width: 1px;
+    transform: translateY(3px);
+}
+
+/* Le « + » se lit sur le tableau, qui est blanc pendant la visite : blanc sur
+   blanc, il avait disparu entre les deux touches. */
+#demo-touches .demo-plus {
+    color: #16151c;
+    font-size: 19px;
+    font-weight: 800;
+    text-shadow: 0 0 6px #fff, 0 0 3px #fff;
+}
+
+/* CE QUI VA ÊTRE CLIQUÉ SE DÉTACHE. Le halo tient à l'élément lui-même, si
+   bien qu'on retrouve ensuite le même bouton, à la même place, dans sa vraie
+   barre — c'est là tout l'intérêt de montrer sur le vrai tableau. */
+.demo-vise {
+    position: relative;
+    z-index: 200002 !important;
+    border-radius: 10px;
+    box-shadow: 0 0 0 3px #6c5ce7, 0 0 0 9px rgba(108, 92, 231, 0.28) !important;
+    animation: demoRespire 1.4s ease-in-out infinite;
+}
+
+@keyframes demoRespire {
+    0%, 100% { box-shadow: 0 0 0 3px #6c5ce7, 0 0 0 9px rgba(108, 92, 231, 0.28); }
+    50% { box-shadow: 0 0 0 3px #6c5ce7, 0 0 0 14px rgba(108, 92, 231, 0.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .demo-vise { animation: none; }
+}
+
 #demo-main.appuie {
     width: 26px;
     height: 26px;

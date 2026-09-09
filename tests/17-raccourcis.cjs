@@ -740,7 +740,17 @@ module.exports = async function (browser) {
             pages: vu('doc-pages'), decouper: vu('doc-decouper'),
             plein: vu('doc-plein-ecran'), allume: bouton.classList.contains('actif')
         };
-        // LE MÊME BOUTON EN SORT.
+        // LE MÊME BOUTON MÈNE AU TEMPS SUIVANT : la page reste en grand, les
+        // barres reviennent par-dessus pour qu'on écrive dessus.
+        bouton.click();
+        const avecBarres = {
+            presentation: !!presentationEnCours,
+            focus: document.body.classList.contains('focus-mode'),
+            modes: vu('doc-modes'), reperer: vu('doc-reperer'),
+            allume: bouton.classList.contains('actif'),
+            marque: bouton.classList.contains('avec-barres')
+        };
+        // PUIS IL EN SORT.
         bouton.click();
         const sorti = {
             presentation: !!presentationEnCours,
@@ -753,7 +763,7 @@ module.exports = async function (browser) {
                          allume: bouton.classList.contains('actif') };
         documentsPdf.delete('x');
         majBarreDocument();
-        return { enPlein, sorti, rentre };
+        return { enPlein, avecBarres, sorti, rentre };
     });
     r.verifie('le plein écran a enfin un bouton, et il est allumé quand on y est',
         barreDuPlein.enPlein.plein && barreDuPlein.enPlein.allume, JSON.stringify(barreDuPlein.enPlein));
@@ -763,7 +773,16 @@ module.exports = async function (browser) {
     r.egal('mais on garde de quoi feuilleter et de quoi découper',
         { pages: barreDuPlein.enPlein.pages, decouper: barreDuPlein.enPlein.decouper },
         { pages: true, decouper: true });
-    r.egal('le même bouton en sort, et les deux commandes reviennent',
+    // LE DEUXIÈME TEMPS : la page reste en grand, les barres reviennent. C'est
+    // ce qui manquait — on projetait un exercice, on voulait l'annoter, il
+    // fallait tout quitter, écrire, et tout remettre en grand.
+    r.egal('un second appui garde le plein écran ET rend les barres',
+        { presentation: barreDuPlein.avecBarres.presentation,
+          focus: barreDuPlein.avecBarres.focus,
+          allume: barreDuPlein.avecBarres.allume,
+          marque: barreDuPlein.avecBarres.marque },
+        { presentation: true, focus: false, allume: true, marque: true });
+    r.egal('le troisième en sort, et les deux commandes reviennent',
         { presentation: barreDuPlein.sorti.presentation, allume: barreDuPlein.sorti.allume,
           modes: barreDuPlein.sorti.modes, reperer: barreDuPlein.sorti.reperer },
         { presentation: false, allume: false, modes: true, reperer: true });
@@ -772,64 +791,68 @@ module.exports = async function (browser) {
         { presentation: true, allume: true });
 
     // ---------------------------------------------------------------
-    // SORTIR DU PLEIN ÉCRAN DU NAVIGATEUR
-    // Ce que la présentation ouvre, elle le referme : le plein écran du
-    // navigateur restait allumé quand on quittait la présentation, et rien ne
-    // permettait d'en sortir — le seul bouton vit dans le tiroir du bas, que
-    // le plein écran efface.
+    // LE PLEIN ÉCRAN EST UN CYCLE À TROIS TEMPS
+    // « Les boutons quitter le plein écran et sortir du plein écran du
+    //   navigateur n'ont aucun intérêt. On pourrait avoir un cycle → Plein
+    //   écran → Plein écran avec toolbar → Sortie du plein écran. »
+    // Les deux boutons menaient au même endroit ; il manquait celui qu'on
+    // veut vraiment — garder la page en grand ET récupérer ses outils.
     // ---------------------------------------------------------------
-    const navigateur = await page.evaluate(async () => {
-        const vu = (id) => {
-            const el = document.getElementById(id);
-            return !!el && getComputedStyle(el).display !== 'none';
-        };
-        // On repart à plat, sans plein écran.
+    const cycle = await page.evaluate(async () => {
+        const bouton = document.getElementById('doc-plein-ecran');
+        const releve = () => ({
+            etat: etatDuPleinEcran(),
+            presentation: !!presentationEnCours,
+            focus: document.body.classList.contains('focus-mode'),
+            plein: !!document.fullscreenElement,
+            aide: bouton.getAttribute('data-tooltip'),
+            icone: (document.getElementById('doc-plein-ecran-icone') || {}).innerHTML || ''
+        });
+        // On repart à plat.
         if (presentationEnCours) quitterLaPresentation();
         if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch (e) { } }
         await new Promise(r => setTimeout(r, 200));
         majBarreDocument();
-        const avant = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur') };
+        const depart = releve();
 
-        presenterLeDocument();
+        bouton.click();
         await new Promise(r => setTimeout(r, 350));
         majBarreDocument();
-        const pendant = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur'),
-                          pris: pleinEcranDeLaPresentation };
+        const premier = releve();
 
-        quitterLaPresentation();
+        bouton.click();
+        await new Promise(r => setTimeout(r, 250));
+        majBarreDocument();
+        const second = releve();
+
+        bouton.click();
         await new Promise(r => setTimeout(r, 350));
         majBarreDocument();
-        const apres = { plein: !!document.fullscreenElement, bouton: vu('doc-sortir-navigateur') };
-        return { avant, pendant, apres };
+        const troisieme = releve();
+        return { depart, premier, second, troisieme,
+                 disparu: !document.getElementById('doc-sortir-navigateur') };
     });
-    r.egal('hors plein écran, le bouton de sortie ne paraît pas',
-        { plein: navigateur.avant.plein, bouton: navigateur.avant.bouton },
-        { plein: false, bouton: false });
-    r.egal('présenter prend le plein écran du navigateur, et le bouton paraît',
-        { plein: navigateur.pendant.plein, bouton: navigateur.pendant.bouton,
-          pris: navigateur.pendant.pris },
-        { plein: true, bouton: true, pris: true });
-    r.egal('quitter la présentation le rend, et le bouton s\'en va avec',
-        { plein: navigateur.apres.plein, bouton: navigateur.apres.bouton },
-        { plein: false, bouton: false });
-
-    // ET LE BOUTON EN SORT SANS QUITTER CE QU'ON REGARDE.
-    const sortieNavigateur = await page.evaluate(async () => {
-        presenterLeDocument();
-        await new Promise(r => setTimeout(r, 350));
-        majBarreDocument();
-        const avant = { plein: !!document.fullscreenElement, presentation: !!presentationEnCours };
-        document.getElementById('doc-sortir-navigateur').click();
-        await new Promise(r => setTimeout(r, 350));
-        return { avant, apres: { plein: !!document.fullscreenElement,
-                                 presentation: !!presentationEnCours } };
-    });
-    r.egal('le bouton sort du plein écran du navigateur',
-        { avant: sortieNavigateur.avant.plein, apres: sortieNavigateur.apres.plein },
-        { avant: true, apres: false });
-    r.egal('sans mettre fin à ce qu\'on est en train de montrer',
-        { avant: sortieNavigateur.avant.presentation, apres: sortieNavigateur.apres.presentation },
-        { avant: true, apres: true });
+    r.egal('premier temps : la page seule, en plein écran, barres effacées',
+        { etat: cycle.premier.etat, presentation: cycle.premier.presentation,
+          focus: cycle.premier.focus, plein: cycle.premier.plein },
+        { etat: 1, presentation: true, focus: true, plein: true });
+    r.egal('deuxième temps : la page reste en grand, les barres reviennent',
+        { etat: cycle.second.etat, presentation: cycle.second.presentation,
+          focus: cycle.second.focus, plein: cycle.second.plein },
+        { etat: 2, presentation: true, focus: false, plein: true });
+    r.egal('troisième temps : on sort de tout, et l\'écran est rendu',
+        { etat: cycle.troisieme.etat, presentation: cycle.troisieme.presentation,
+          focus: cycle.troisieme.focus, plein: cycle.troisieme.plein },
+        { etat: 0, presentation: false, focus: false, plein: false });
+    r.verifie('le bouton dit à chaque fois où il mène, et son icône change',
+        /Présenter/.test(cycle.depart.aide) && /barres/.test(cycle.premier.aide)
+        && /[Qq]uitter/.test(cycle.second.aide)
+        && cycle.depart.icone !== cycle.premier.icone
+        && cycle.premier.icone !== cycle.second.icone,
+        JSON.stringify({ depart: cycle.depart.aide, premier: cycle.premier.aide,
+                         second: cycle.second.aide }));
+    r.verifie('et le bouton « sortir du plein écran du navigateur » a disparu : il ne servait à rien',
+        cycle.disparu, String(cycle.disparu));
 
     // ON REND L'ÉCRAN TEL QU'ON L'A TROUVÉ, ET DANS UN ÉTAT DÉCIDÉ.
     // Le cadrage de la présentation est repris 250 ms plus tard : le plein

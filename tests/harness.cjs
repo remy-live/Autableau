@@ -128,6 +128,30 @@ function petitPdf(pages) {
     return Buffer.from(out, 'latin1');
 }
 
+// UNE PAGE A4, aux vraies dimensions du format : 595,276 × 841,89 points,
+// c'est-à-dire 21 × 29,7 cm. C'est ce que le tableau doit poser tel quel — la
+// règle virtuelle mise en travers doit lire 29,7 cm, et non « à peine 10 ».
+function pdfA4(pages) {
+    pages = pages || 1;
+    const kids = [];
+    for (let i = 0; i < pages; i++) kids.push(`${3 + i} 0 R`);
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pages} >>`
+    ];
+    for (let i = 0; i < pages; i++) {
+        objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.276 841.89] /Resources << >> >>');
+    }
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(q => { out += String(q).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
 // UNE FICHE D'EXERCICE, comme un polycopié propre : des lignes réglées à
 // écrire, des cases vides à remplir, des cases DÉJÀ remplies, un bandeau de
 // titre en couleur, et un tableau serré. La détection doit retenir les
@@ -329,4 +353,4 @@ function polyEnCouleur(taille) {
     return Buffer.from(out, 'latin1');
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, fichePdf, polyDense, polyEnCases, polyEnCouleur };
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, pdfA4, fichePdf, polyDense, polyEnCases, polyEnCouleur };

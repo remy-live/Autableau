@@ -1,7 +1,7 @@
 // Naviguer dans un PDF posé sur le tableau : garder les pages rendues,
 // aller droit à un numéro, feuilleter au clavier et au doigt, l'encre qui
 // appartient à sa page, le volet des vignettes et la recherche dans le texte.
-const { creerRapport, ouvrirApp, petitPdf, fichePdf, polyDense, polyEnCases, polyEnCouleur, tableauVierge } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, pdfA4, fichePdf, polyDense, polyEnCases, polyEnCouleur, tableauVierge } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Navigation dans les PDF');
@@ -1526,6 +1526,58 @@ module.exports = async function (browser) {
     await ctxZones.close();
 
     r.verifie('aucune erreur JS au rechargement', errNeuf.length === 0, errNeuf.join(' | '));
+
+    // =====================================================================
+    // UN A4 POSÉ MESURE 29,7 cm SOUS LA RÈGLE
+    // « J'ai fait un pdf sur un A4. Mais quand je pose la règle virtuelle
+    //   dessus, ça fait à peine 10 cm. Logiquement je pose mon pdf et la règle
+    //   virtuelle doit mesurer 29,7 cm. »
+    // La page était rétrécie pour tenir dans les trois quarts de l'écran ; sa
+    // taille au tableau n'avait donc rien à voir avec sa taille réelle.
+    // =====================================================================
+    const a4 = await page.evaluate(async ({ octets }) => {
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'A4.pdf', { type: 'application/pdf' }));
+        await new Promise(r => setTimeout(r, 600));
+        const o = images[images.length - 1];
+        if (!o) return { pose: false };
+        // Un centimètre du tableau vaut cinquante pixels : c'est la graduation
+        // de la règle, « cm = 50 » chez elle. On mesure donc la page dans SES
+        // unités à elle, et non en pixels d'écran.
+        return {
+            pose: true,
+            largeur: +(o.w / 50).toFixed(2),
+            hauteur: +(o.h / 50).toFixed(2),
+            // Et elle tient dans l'écran : à sa vraie taille elle est plus
+            // grande que le tableau, on recule donc pour la voir en entier.
+            tientEnLargeur: o.w * zoom <= window.innerWidth,
+            tientEnHauteur: o.h * zoom <= window.innerHeight,
+            // La page reste au milieu de ce qu'on regarde.
+            centree: Math.abs((o.x + o.w / 2) * zoom + panX - window.innerWidth / 2) < 2
+        };
+    }, { octets: Array.from(pdfA4()) });
+    r.egal('une page A4 posée mesure 21 cm sur 29,7 — sa vraie taille',
+        { l: a4.largeur, h: a4.hauteur }, { l: 21, h: 29.7 });
+    r.verifie('et l\'on recule juste assez pour la voir en entier',
+        a4.tientEnLargeur && a4.tientEnHauteur && a4.centree, JSON.stringify(a4));
+
+    // La règle virtuelle posée le long de la page lit bien ces 29,7 cm : c'est
+    // le geste du professeur, pas un calcul.
+    const sousLaRegle = await page.evaluate(() => {
+        const o = images[images.length - 1];
+        document.querySelector('.btn[data-widget="ruler"]').click();
+        const w = widgets.ruler;
+        // La règle est couchée le long du bord gauche de la page, à la
+        // verticale : son zéro sur le haut de la page.
+        w.x = o.x; w.y = o.y; w.angle = Math.PI / 2;
+        w.width = o.h;                       // on l'allonge jusqu'au bas de la page
+        const local = w.toLocal(o.x, o.y + o.h);
+        document.querySelector('.btn[data-widget="ruler"]').click();
+        return { cm: +(local.x / 50).toFixed(2), ecart: +Math.abs(local.y).toFixed(3) };
+    });
+    r.egal('la règle couchée le long de la page lit 29,7 cm', sousLaRegle.cm, 29.7);
+    r.verifie('sans dévier de son bord', sousLaRegle.ecart < 0.01, JSON.stringify(sousLaRegle));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

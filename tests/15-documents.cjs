@@ -1299,6 +1299,44 @@ module.exports = async function (browser) {
     });
 
     // =========================================================================
+    // PRENDRE UN OUTIL RANGE LES CISEAUX
+    // Le découpage accapare le geste sur le document : tant qu'il est armé, le
+    // clic taille un morceau au lieu de dessiner. On prenait le crayon, on
+    // croyait dessiner, et l'on découpait — rien ne disait qu'il fallait
+    // d'abord ressortir par Échap.
+    // =========================================================================
+    const ciseaux = await page.evaluate(() => {
+        images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        setMode('pointer');
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        basculerLaDecoupe(true);
+        const arme = decoupeActive;
+        // Un morceau pris ne désarme PAS : on découpe rarement un seul exercice.
+        prendreUnMorceau(images[0], { x: 220, y: 180, l: 150, h: 120 }, true);
+        const apresUnMorceau = decoupeActive;
+        // Mais prendre un outil, si.
+        setMode('freehand');
+        const apresLeCrayon = decoupeActive;
+        // La retouche des zones accapare le même geste, et se range pareil.
+        basculerEditionDesZones(true);
+        const zonesArmees = zonesEdition;
+        setMode('text');
+        const zonesApres = zonesEdition;
+        setMode('pointer');
+        if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
+        images.length = 0; selectedItems = []; majBarreDocument(); draw();
+        return { arme, apresUnMorceau, apresLeCrayon, zonesArmees, zonesApres };
+    });
+    r.verifie('les ciseaux restent armés d\'un morceau à l\'autre',
+        ciseaux.arme === true && ciseaux.apresUnMorceau === true, JSON.stringify(ciseaux));
+    r.verifie('mais prendre le crayon les range : on dessine, on ne découpe plus',
+        ciseaux.apresLeCrayon === false, JSON.stringify(ciseaux));
+    r.verifie('et la retouche des zones se range de la même façon',
+        ciseaux.zonesArmees === true && ciseaux.zonesApres === false, JSON.stringify(ciseaux));
+
+    // =========================================================================
     // ROGNER EST UN MODE QU'ON ALLUME, PAS UN ÉTAT CACHÉ
     // Un document arrivait EN ROGNAGE sans que rien ne le dise : ses poignées
     // ne redimensionnaient donc pas, et rien à l'écran ne l'expliquait. Il se
@@ -1665,7 +1703,14 @@ module.exports = async function (browser) {
             // « Le plus de place possible » : une des deux dimensions est prise
             // presque entièrement, sinon on pouvait encore agrandir.
             remplit: Math.max((boite.x2 - boite.x1) / (cadre.x2 - cadre.x1),
-                              (boite.y2 - boite.y1) / (cadre.y2 - cadre.y1))
+                              (boite.y2 - boite.y1) / (cadre.y2 - cadre.y1)),
+            // …sauf quand le plafond d'agrandissement s'y oppose : un exercice
+            // ne dépasse pas TROIS FOIS sa taille imprimée. Depuis qu'un
+            // document mesure sa vraie taille — une A4 fait 29,7 cm sur le
+            // tableau —, ce plafond veut enfin dire quelque chose : avant, il
+            // se comptait à partir d'une page rétrécie pour tenir dans
+            // l'écran, et dépendait donc de la taille de la fenêtre.
+            auPlafond: Math.max(...poses.map((o, i) => o.w / tailleDOrigine[i])) >= MORCEAU_AGRANDI_MAX - 0.001
         };
     });
     r.egal('« tout poser » vide le tiroir sur le tableau',
@@ -1675,8 +1720,8 @@ module.exports = async function (browser) {
         rangee.croise === false && rangee.dedans === true, JSON.stringify(rangee));
     r.verifie('ils sont agrandis, tous du même facteur',
         rangee.agrandis && rangee.memeFacteur, JSON.stringify(rangee));
-    r.verifie('et la place est prise : une dimension de l\'écran est remplie',
-        rangee.remplit > 0.9, JSON.stringify(rangee));
+    r.verifie('et la place est prise, sauf à buter sur les trois fois la taille imprimée',
+        rangee.remplit > 0.9 || rangee.auPlafond, JSON.stringify(rangee));
 
     // ILS NE TOMBENT PAS SUR LE DOCUMENT. C'est le défaut qu'on m'a signalé :
     // « Tout poser » remplissait l'ÉCRAN, c'est-à-dire la place exacte du

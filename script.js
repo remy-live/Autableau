@@ -1334,9 +1334,19 @@ function toggleFocusMode() {
     // document n'a plus à retenir la page qu'on annotait.
     if (!enFocus && typeof docEnAnnotation !== 'undefined') docEnAnnotation = null;
     if (typeof majBarreDocument === 'function') majBarreDocument();
+    // LA BARRE DE LA VISITE MONTE AVEC LE PLEIN ÉCRAN. Elle ne se replaçait
+    // qu'au début d'un chapitre : celui qui présentait un document passait en
+    // plein écran EN COURS DE ROUTE, et la barre de la visite restait en bas,
+    // exactement là où la barre du document venait de se poser — on ne voyait
+    // donc jamais celle dont le chapitre parlait.
+    if (typeof placerLaBarreDeLaDemo === 'function') placerLaBarreDeLaDemo();
     // On quitte le mode Focus : la présentation se termine avec lui, et le
-    // fond sombre du pourtour de la page s'en va.
-    if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
+    // fond sombre du pourtour de la page s'en va. SAUF au deuxième temps du
+    // cycle du plein écran, où c'est justement ce qu'on demande : la page en
+    // grand, et les barres par-dessus pour écrire dessus.
+    if (!enFocus && typeof presentationAvecBarres !== 'undefined' && presentationAvecBarres) {
+        if (typeof draw === 'function') draw();
+    } else if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
         presentationEnCours = null;
         cadrageDePresentation = 'page';
         if (typeof draw === 'function') draw();
@@ -6475,6 +6485,16 @@ function setMode(newMode) {
     // et toute autre façon de prendre l'outil en profitent aussi.
     if (typeof retenirLeDocumentAnnote === 'function') retenirLeDocumentAnnote(newMode);
 
+    // PRENDRE UN OUTIL RANGE LES CISEAUX. Le découpage accapare le geste sur
+    // le document : tant qu'il est armé, le clic taille un morceau au lieu de
+    // dessiner. On prenait le crayon, on croyait dessiner, et l'on découpait —
+    // rien ne disait qu'il fallait d'abord ressortir par Échap. La retouche
+    // des zones accapare le même geste et se range pour la même raison.
+    if (typeof decoupeActive !== 'undefined' && decoupeActive
+        && typeof basculerLaDecoupe === 'function') basculerLaDecoupe(false);
+    if (typeof zonesEdition !== 'undefined' && zonesEdition
+        && typeof basculerEditionDesZones === 'function') basculerEditionDesZones(false);
+
     mode = newMode;
     window.isEditingProjectTitle = false;
 
@@ -11291,6 +11311,31 @@ function reglerImportPdf(feuilletable) {
     try { localStorage.setItem('board_pdf_feuilletable', importPdfFeuilletable ? '1' : '0'); } catch (e) { /* stockage refusé */ }
 }
 
+// ==============================================================================
+// UN DOCUMENT POSÉ MESURE CE QU'IL MESURE
+//
+// « J'ai fait un pdf sur un A4. Mais quand je pose la règle virtuelle dessus,
+//   ça fait à peine 10 cm. Logiquement je pose mon pdf et la règle virtuelle
+//   doit mesurer 29,7 cm. »
+//
+// Un centimètre du tableau vaut cinquante pixels : c'est la graduation des
+// instruments — « cm = 50 » chez la règle comme chez l'équerre. Or la page
+// était rétrécie pour tenir dans les trois quarts de l'écran (d'où les 10 cm),
+// ou bien posée à la taille de son RENDU, laquelle dépend de la finesse
+// choisie dans les réglages : la même page mesurait 33,7 cm en Ultra HD et
+// 16,8 cm en finesse normale. Une page a une taille réelle, écrite dans le
+// fichier en points typographiques : c'est celle-là qu'on pose.
+// ==============================================================================
+const PIXELS_PAR_CM = 50;
+const POINTS_PAR_POUCE = 72;
+
+function tailleReelleDuPdf(page) {
+    const vue = page.getViewport({ scale: 1 });          // en points
+    const k = (2.54 / POINTS_PAR_POUCE) * PIXELS_PAR_CM;  // points → pixels du tableau
+    return { l: Math.max(1, Math.round(vue.width * k)), h: Math.max(1, Math.round(vue.height * k)) };
+}
+window.tailleReelleDuPdf = tailleReelleDuPdf;
+
 async function dessinerPagePdf(doc, numero) {
     const page = await doc.getPage(numero);
     const viewport = page.getViewport({ scale: currentPdfQuality });
@@ -11648,11 +11693,9 @@ async function poserPdfFeuilletable(file) {
         const rendu = await rendreLaPage(dossier, 1);
         preparerLesVoisines(dossier, 1, doc.numPages);
 
-        // La page occupe les trois quarts de ce qu'on voit, sans déformation
-        const dispoL = (window.innerWidth * 0.75) / zoom;
-        const dispoH = (window.innerHeight * 0.75) / zoom;
-        const k = Math.min(dispoL / rendu.l, dispoH / rendu.h);
-        const l = Math.round(rendu.l * k), h = Math.round(rendu.h * k);
+        // LA PAGE EST POSÉE À SA TAILLE RÉELLE : une A4 mesure 29,7 cm sous la
+        // règle, quelle que soit la finesse de rendu choisie.
+        const { l, h } = tailleReelleDuPdf(await doc.getPage(1));
         const cx = (window.innerWidth / 2 - panX) / zoom;
         const cy = (window.innerHeight / 2 - panY) / zoom;
 
@@ -11664,6 +11707,13 @@ async function poserPdfFeuilletable(file) {
         }));
         const pose = images[images.length - 1];
         selectedItems = [{ type: 'image', id: pose.id }];
+        // À sa vraie taille, une page est souvent plus grande que ce qu'on voit
+        // — c'est le tableau qui est petit, pas la page. On RECULE alors juste
+        // assez pour la voir en entier ; on ne s'approche jamais, sinon poser
+        // un document changerait la vue du travail déjà en place.
+        if (l * zoom > window.innerWidth * 0.92 || h * zoom > window.innerHeight * 0.92) {
+            if (typeof cadrerSurLObjet === 'function') cadrerSurLObjet(pose, 0.9);
+        }
         saveState(); draw();
         if (typeof updateQuickMenu === 'function') updateQuickMenu();
         // L'écriture se met d'emblée à la taille du document : c'est presque
@@ -14015,23 +14065,26 @@ function majBarreDocument() {
     const bReperer = document.getElementById('doc-reperer');
     if (bReperer) bReperer.style.display = (obj && obj.src && !enPresentation) ? 'inline-flex' : 'none';
 
-    // LE PLEIN ÉCRAN, ENFIN BOUTONNÉ. Il n'existait qu'à la touche « D ».
-    // Le même bouton en sort : allumé, il dit où l'on est.
+    // LE PLEIN ÉCRAN EST UN CYCLE À TROIS TEMPS, et le bouton dit à chaque
+    // fois où il mène : la page seule, puis la page avec les outils, puis la
+    // sortie. Les deux boutons d'avant — « quitter » et « sortir du plein
+    // écran du navigateur » — ne menaient qu'au même endroit.
     const bPlein = document.getElementById('doc-plein-ecran');
+    const etatPlein = (typeof etatDuPleinEcran === 'function') ? etatDuPleinEcran() : 0;
     if (bPlein) {
         bPlein.style.display = unDocument ? 'inline-flex' : 'none';
-        bPlein.classList.toggle('actif', enPresentation);
-        bPlein.setAttribute('data-tooltip', enPresentation
-            ? 'Quitter le plein écran (Échap)'
-            : 'Présenter en plein écran (D) — molette et Page↓ pour descendre dans la page');
+        bPlein.classList.toggle('actif', etatPlein > 0);
+        bPlein.classList.toggle('avec-barres', etatPlein === 2);
+        bPlein.setAttribute('data-tooltip', [
+            'Présenter en plein écran (D) — molette et Page↓ pour descendre dans la page',
+            'Garder le plein écran ET retrouver les barres, pour écrire sur la page',
+            'Quitter le plein écran (Échap)'
+        ][etatPlein]);
+        const icone = document.getElementById('doc-plein-ecran-icone');
+        if (icone) icone.innerHTML = ICONES_PLEIN_ECRAN[etatPlein];
     }
     const sepPlein = document.getElementById('doc-plein-ecran-sep');
     if (sepPlein) sepPlein.style.display = unDocument ? 'inline-block' : 'none';
-    // Sortir du plein écran du navigateur : seulement quand on y est.
-    const bSortir = document.getElementById('doc-sortir-navigateur');
-    if (bSortir) {
-        bSortir.style.display = (unDocument && document.fullscreenElement) ? 'inline-flex' : 'none';
-    }
     const groupeZones = document.getElementById('doc-zones-edition');
     const enRetouche = unPdf && zonesEdition;
     if (groupeZones) {
@@ -14088,6 +14141,17 @@ const ICONES_MODE_DOC = {
         + '<rect x="8" y="8" width="12" height="8.5" rx="1.5"/>'
         + '<path d="M6.6 12H3.4M4.8 10.2L3 12l1.8 1.8"/>'
 };
+
+// LES TROIS TEMPS DU PLEIN ÉCRAN, chacun montrant CE QU'IL VA FAIRE :
+// les quatre coins qui s'écartent (on agrandit), la page avec ses barres
+// (on rappelle les outils), les quatre coins qui se referment (on sort).
+const ICONES_PLEIN_ECRAN = [
+    '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    '<rect x="3" y="4" width="18" height="16" rx="2"/>'
+        + '<path d="M3 8.5h18" opacity="0.9"/>'
+        + '<path d="M6 6.2h2M10 6.2h2M14 6.2h2" stroke-width="1.6"/>',
+    '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'
+];
 
 // Le bouton « Modifier » ne parait que si la vignette tenue sait se rouvrir,
 // et sur une seule a la fois : rouvrir deux outils d'un coup n'a pas de sens.
@@ -14223,27 +14287,12 @@ function brancherBarreDocument() {
     })();
 
     // Sortir du plein écran du navigateur, sans quitter ce qu'on regarde.
-    (function () {
-        const bouton = b('doc-sortir-navigateur');
-        if (!bouton) return;
-        bouton.addEventListener('click', () => {
-            pleinEcranDeLaPresentation = false;
-            if (document.fullscreenElement && document.exitFullscreen) {
-                document.exitFullscreen().catch(() => { /* le navigateur refuse */ });
-            }
-            majBarreDocument();
-        });
-    })();
-
-    // Le plein écran : le même bouton y entre et en sort.
+    // LE PLEIN ÉCRAN, EN TROIS TEMPS : la page seule, la page avec les barres
+    // pour écrire dessus, puis la sortie. Un seul bouton pour les trois.
     (function () {
         const bouton = b('doc-plein-ecran');
         if (!bouton) return;
-        bouton.addEventListener('click', () => {
-            if (presentationEnCours) quitterLaPresentation();
-            else presenterLeDocument();
-            majBarreDocument();
-        });
+        bouton.addEventListener('click', () => { cyclerLePleinEcran(); });
     })();
 
     // Clic bref : allumer ou éteindre le repérage. APPUI LONG : ouvrir la
@@ -14541,11 +14590,16 @@ async function loadPdf(file) {
                 const targetIdx = startPageIdx + (i - 1);
                 if (targetIdx >= pages.length) pages.push(createNewPage());
 
+                // LA PAGE MESURE CE QU'ELLE MESURE, et non ce que la finesse de
+                // rendu lui donne de pixels : la même A4 faisait 33,7 cm sous
+                // la règle en Ultra HD et 16,8 en finesse normale.
+                const vraie = tailleReelleDuPdf(page);
+
                 await new Promise((resolve) => {
                     const img = new Image();
                     img.onload = () => {
-                        const w = img.width; const h = img.height;
-                        const newImgObj = { id: nextId++, x: -w / 2, y: -h / 2, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: dataUrl, z: -999, isBg: true };
+                        const w = vraie.l; const h = vraie.h;
+                        const newImgObj = { id: nextId++, x: -w / 2, y: -h / 2, w: w, h: h, cx: 0, cy: 0, cw: img.width, ch: img.height, src: dataUrl, z: -999, isBg: true };
                         pages[targetIdx].images.push(newImgObj);
                         pages[targetIdx].thumbnail = thumbDataUrl;
                         // Stocker les métadonnées du PDF (pas les données binaires)
@@ -18628,9 +18682,62 @@ function presenterLeDocument() {
 // Vrai si c'est la présentation qui a demandé le plein écran du navigateur.
 let pleinEcranDeLaPresentation = false;
 
+// ==============================================================================
+// LE PLEIN ÉCRAN EST UN CYCLE À TROIS TEMPS
+//
+// Il y avait deux boutons pour en sortir — « quitter le plein écran » et
+// « sortir du plein écran du navigateur » — et rien pour ce qu'on veut
+// vraiment : garder la page en grand ET récupérer ses outils. On projetait un
+// exercice, on voulait l'annoter, il fallait tout quitter, écrire, et tout
+// remettre en grand.
+//
+//   1. PLEIN ÉCRAN : la page seule, les barres effacées. C'est ce qu'on montre.
+//   2. PLEIN ÉCRAN AVEC LES BARRES : la page reste en grand, les outils
+//      reviennent par-dessus. C'est là qu'on écrit sur ce qu'on montre.
+//   3. SORTIE : on retrouve son tableau.
+//
+// Un seul bouton, et il dit à chaque fois où il mène.
+// ==============================================================================
+let presentationAvecBarres = false;
+
+function etatDuPleinEcran() {
+    if (typeof presentationEnCours === 'undefined' || !presentationEnCours) return 0;
+    return presentationAvecBarres ? 2 : 1;
+}
+
+function cyclerLePleinEcran() {
+    const etat = etatDuPleinEcran();
+    if (etat === 0) {
+        presentationAvecBarres = false;
+        const ouvert = presenterLeDocument();
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+        return ouvert ? 1 : 0;
+    }
+    if (etat === 1) {
+        // La page reste en grand ; ce sont les barres qu'on rappelle. Le
+        // drapeau se lève AVANT, sinon quitter le mode Focus ferme la
+        // présentation avec lui — c'est sa règle par ailleurs.
+        presentationAvecBarres = true;
+        if (document.body.classList.contains('focus-mode')
+            && typeof toggleFocusMode === 'function') toggleFocusMode();
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+        if (typeof draw === 'function') draw();
+        if (typeof showToast === 'function') {
+            showToast('Plein écran avec les outils — écrivez sur la page, elle reste en grand');
+        }
+        return 2;
+    }
+    quitterLaPresentation();
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    return 0;
+}
+window.cyclerLePleinEcran = cyclerLePleinEcran;
+window.etatDuPleinEcran = etatDuPleinEcran;
+
 function quitterLaPresentation() {
     if (!presentationEnCours) return false;
     presentationEnCours = null;
+    presentationAvecBarres = false;
     cadrageDePresentation = 'page';
     if (pleinEcranDeLaPresentation) {
         pleinEcranDeLaPresentation = false;
@@ -30724,8 +30831,24 @@ function mainDeLaDemoVers(x, y, mot, vite) {
 
 function cacherLaMainDeLaDemo() {
     const main = document.getElementById('demo-main');
-    if (!main) return;
-    main.classList.remove('visible', 'appuie', 'a-un-mot');
+    if (main) main.classList.remove('visible', 'appuie', 'a-un-mot', 'trace');
+    const touches = document.getElementById('demo-touches');
+    if (touches) { touches.classList.remove('visible'); touches.innerHTML = ''; }
+}
+
+// L'ONDE DU CLIC. La main allait sur le bouton, le bouton changeait, et rien
+// ne disait « c'est ici que le clic a eu lieu » : le regard arrivait toujours
+// trop tard. L'onde part du point touché, comme un doigt sur une vitre.
+function ondeDuClicDeLaDemo(x, y) {
+    const o = document.getElementById('demo-clic');
+    if (!o) return;
+    o.classList.remove('frappe');
+    // Relire une propriété de mise en page relance l'animation : sans cela,
+    // deux clics de suite au même endroit n'en montreraient qu'un.
+    void o.offsetWidth;
+    o.style.left = Math.round(x) + 'px';
+    o.style.top = Math.round(y) + 'px';
+    o.classList.add('frappe');
 }
 
 // ------------------------------------------------------------------
@@ -30776,17 +30899,66 @@ function gestesDeLaDemo(d, jeton) {
         const e = trouve(cible);
         if (!e || !e.getClientRects().length) { if (e && e.click) e.click(); await tempo(500); return !!e; }
         const b = e.getBoundingClientRect();
-        mainDeLaDemoVers(b.left + b.width / 2, b.top + b.height / 2, mot);
-        await tempo(700);
+        const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+        mainDeLaDemoVers(cx, cy, mot);
+        // ON VOIT LE BOUTON AVANT DE LE VOIR CLIQUÉ. La main arrivait et
+        // appuyait dans la foulée : le temps de suivre le mouvement, l'écran
+        // avait déjà changé, et l'on n'avait pas vu où.
+        souligner(e);
+        await tempo(900);
         vivant();
         const main = document.getElementById('demo-main');
         if (main) main.classList.add('appuie');
-        await tempo(260);
+        await tempo(320);
         vivant();
+        ondeDuClicDeLaDemo(cx, cy);
         e.click();
         if (main) main.classList.remove('appuie');
-        await tempo(420);
+        await tempo(560);
+        souligner(null);
         return true;
+    };
+
+    // LE BOUTON VISÉ SE DÉTACHE. Un halo posé sur l'élément lui-même : on
+    // sait ce qui va être cliqué avant que ce soit fait, et l'on retrouve le
+    // même bouton, plus tard, dans sa vraie barre.
+    const souligner = (e) => {
+        document.querySelectorAll('.demo-vise').forEach(x => x.classList.remove('demo-vise'));
+        if (e && e.classList) e.classList.add('demo-vise');
+    };
+
+    // LES TOUCHES SE MONTRENT. « Ctrl+Z revient en arrière » se disait dans la
+    // phrase pendant que le tableau reculait tout seul : on voyait l'effet,
+    // jamais le geste. Elles s'enfoncent l'une après l'autre, comme sous les
+    // doigts, puis l'action se fait.
+    const touches = async (liste, faire) => {
+        vivant();
+        const boite = document.getElementById('demo-touches');
+        if (!boite) { if (faire) faire(); return; }
+        boite.innerHTML = '';
+        const caps = liste.map((t, i) => {
+            if (i) {
+                const plus = document.createElement('span');
+                plus.className = 'demo-plus';
+                plus.textContent = '+';
+                boite.appendChild(plus);
+            }
+            const c = document.createElement('span');
+            c.className = 'demo-touche';
+            c.textContent = t;
+            boite.appendChild(c);
+            return c;
+        });
+        boite.classList.add('visible');
+        await tempo(420);
+        for (const c of caps) { vivant(); c.classList.add('enfoncee'); await tempo(260); }
+        vivant();
+        if (faire) faire();
+        await tempo(700);
+        caps.forEach(c => c.classList.remove('enfoncee'));
+        await tempo(520);
+        boite.classList.remove('visible');
+        boite.innerHTML = '';
     };
 
     // LES GESTES VISENT L'ÉCRAN, PAS LE REPÈRE DU TABLEAU. Celui-ci se
@@ -30814,10 +30986,16 @@ function gestesDeLaDemo(d, jeton) {
         vivant();
         const p0 = surEcran(points[0][0], points[0][1]);
         mainDeLaDemoVers(p0.x, p0.y, mot);
-        await tempo(600);
+        await tempo(700);
         vivant();
         const main = document.getElementById('demo-main');
         if (main) main.classList.add('appuie');
+        // LA MAIN COLLE AU TRAIT. Elle se rendait au point suivant en 120 ms
+        // d'animation, alors qu'un point tombe toutes les 38 ms : elle avait
+        // trois points de retard en permanence, et le trait paraissait sortir
+        // DEVANT elle. Le temps du tracé, elle est là où le trait se pose.
+        if (main) main.classList.add('trace');
+        ondeDuClicDeLaDemo(p0.x, p0.y);
         evt('pointerdown', p0.x, p0.y, true);
         for (let i = 1; i < points.length; i++) {
             vivant();
@@ -30830,8 +31008,8 @@ function gestesDeLaDemo(d, jeton) {
         vivant();
         const f = surEcran(points[points.length - 1][0], points[points.length - 1][1]);
         evt('pointerup', f.x, f.y, false);
-        if (main) main.classList.remove('appuie');
-        await tempo(320);
+        if (main) main.classList.remove('appuie', 'trace');
+        await tempo(420);
     };
 
     const glisser = (x1, y1, x2, y2, mot) => tracer(
@@ -30843,18 +31021,37 @@ function gestesDeLaDemo(d, jeton) {
         vivant();
         const p = surEcran(x, y);
         mainDeLaDemoVers(p.x, p.y, mot);
-        await tempo(560);
+        await tempo(700);
         vivant();
         const main = document.getElementById('demo-main');
         if (main) main.classList.add('appuie');
+        ondeDuClicDeLaDemo(p.x, p.y);
         evt('pointerdown', p.x, p.y, true);
-        await tempo(120);
+        await tempo(140);
         evt('pointerup', p.x, p.y, false);
         if (main) main.classList.remove('appuie');
-        await tempo(320);
+        await tempo(460);
+    };
+
+    // MONTRER SANS CLIQUER : la main se pose sur un endroit de l'écran et
+    // s'y attarde, le temps qu'on le regarde. C'est ce qui manquait le plus —
+    // la démonstration disait « la barre du document » sans jamais la
+    // désigner, et l'on cherchait des yeux pendant qu'elle parlait d'autre
+    // chose.
+    const montrer = async (cible, mot, duree) => {
+        vivant();
+        const e = trouve(cible);
+        if (!e || !e.getClientRects().length) { await tempo(duree || 1200); return false; }
+        const b = e.getBoundingClientRect();
+        mainDeLaDemoVers(b.left + b.width / 2, b.top + b.height / 2, mot);
+        souligner(e);
+        await tempo(duree || 1800);
+        souligner(null);
+        return true;
     };
 
     return { vivant, tempo, dire, viser, tracer, glisser, toucher, ecran,
+             touches, montrer, souligner, onde: ondeDuClicDeLaDemo,
              cacher: cacherLaMainDeLaDemo };
 }
 
@@ -30960,207 +31157,289 @@ function chapitresDeLaDemonstration() {
 
     return [
         { titre: 'Écrire, effacer, revenir en arrière',
-          dit: 'Trois gestes, et l\'on peut déjà faire cours : le crayon écrit, la gomme efface, et l\'on revient en arrière autant qu\'on veut.',
-          duree: 26000,
+          dit: 'Trois gestes, et l\'on peut déjà faire cours : le crayon écrit, la gomme efface, et Ctrl+Z revient en arrière autant qu\'on veut.',
+          duree: 42000,
           faire: async (g) => {
-              g.dire('Le crayon, dans la barre de gauche.');
+              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
+              g.dire('Tous les outils tiennent dans la barre de gauche. Le crayon est le premier.');
+              await g.montrer('#system-toolbar-main', 'La barre des outils', 2200);
+              g.dire('On le prend en cliquant dessus — regardez bien où la main appuie.');
               await g.viser(outil('freehand'), 'Le crayon');
               setMode('freehand');
-              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
-              g.dire('On écrit comme sur un tableau : le trait suit la main.');
-              await g.tracer(tremble([E(0.28, 0.34), E(0.40, 0.26), E(0.52, 0.40), E(0.64, 0.30)], 7), 'On écrit');
-              await g.tracer(tremble([E(0.28, 0.52), E(0.46, 0.47), E(0.64, 0.56)], 7));
-              g.dire('La gomme efface ce qu\'on touche — pas la page entière.');
+              await g.tempo(900);
+              g.dire('Et l\'on écrit comme sur un tableau : le trait sort de sous le doigt.');
+              await g.tracer(tremble([E(0.30, 0.32), E(0.40, 0.25), E(0.50, 0.38), E(0.60, 0.28)], 7), 'On écrit');
+              await g.tempo(1000);
+              await g.tracer(tremble([E(0.30, 0.50), E(0.45, 0.45), E(0.60, 0.54)], 7));
+              await g.tempo(1400);
+              g.dire('La gomme, elle, efface ce qu\'on touche — pas la page entière.');
               await g.viser(outil('eraser'), 'La gomme');
               setMode('eraser');
-              const a = E(0.46, 0.47), b = E(0.64, 0.56);
+              await g.tempo(700);
+              const a = E(0.45, 0.45), b = E(0.60, 0.54);
               await g.glisser(a[0], a[1], b[0], b[1], 'On efface');
-              g.dire('Et Ctrl+Z revient en arrière, jusqu\'à cent fois.');
+              await g.tempo(1600);
+              g.dire('Un geste regretté ? Ctrl et Z, ensemble : le tableau revient en arrière.');
               g.cacher();
-              if (typeof undo === 'function') { undo(); await g.tempo(700); undo(); }
-              setMode('pointer');
-              await g.tempo(1400);
-          } },
-
-        { titre: 'Le stylo qui redresse les formes',
-          dit: 'On trace un rectangle à main levée, on GARDE le doigt appuyé une seconde à la fin — et la forme se redresse toute seule.',
-          duree: 22000,
-          faire: async (g) => {
-              await g.viser(outil('freehand'), 'Le crayon');
-              setMode('freehand');
-              g.dire('Un rectangle tracé à la main, bien de travers.');
-              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
-              const R = [E(0.30, 0.26), E(0.62, 0.23), E(0.64, 0.56), E(0.31, 0.59), E(0.30, 0.26)];
-              g.dire('On garde le doigt appuyé une seconde à la fin du tracé…');
-              await g.tracer(tremble(R, 6), 'On garde appuyé', 1500);
-              g.dire('…et il se redresse. Les cercles, les triangles, les losanges aussi.');
-              g.cacher();
+              await g.touches(['Ctrl', 'Z'], () => { if (typeof undo === 'function') undo(); });
+              await g.tempo(1200);
+              g.dire('Autant de fois qu\'on veut — jusqu\'à cent gestes en arrière.');
+              await g.touches(['Ctrl', 'Z'], () => { if (typeof undo === 'function') undo(); });
               setMode('pointer');
               await g.tempo(2200);
           } },
 
+        { titre: 'Le stylo qui redresse les formes',
+          dit: 'On trace une forme à main levée, on GARDE le doigt appuyé une seconde à la fin — et elle se redresse toute seule.',
+          duree: 40000,
+          faire: async (g) => {
+              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
+              g.dire('Reprenons le crayon.');
+              await g.viser(outil('freehand'), 'Le crayon');
+              setMode('freehand');
+              await g.tempo(800);
+              g.dire('Un rectangle tracé à la main, bien de travers — comme au tableau, en vitesse.');
+              const R = [E(0.32, 0.28), E(0.60, 0.25), E(0.62, 0.54), E(0.33, 0.57), E(0.32, 0.28)];
+              g.dire('Tout le secret est à la fin : on GARDE le doigt appuyé une seconde, sans relever.');
+              await g.tracer(tremble(R, 6), 'On garde appuyé…', 1800);
+              g.dire('Et il se redresse. Rien à choisir, rien à cocher : c\'est l\'attente qui le demande.');
+              await g.tempo(3000);
+              g.dire('Le même geste vaut pour un cercle, un triangle, une flèche, un losange.');
+              const C = [];
+              for (let k = 0; k <= 26; k++) {
+                  const t = (k / 26) * Math.PI * 2;
+                  const p = g.ecran(0.46 + Math.cos(t) * 0.085, 0.42 + Math.sin(t) * 0.14);
+                  C.push([p.x + Math.sin(k * 2.3) * 4, p.y + Math.cos(k * 1.9) * 4]);
+              }
+              await g.tracer(C, 'On garde appuyé…', 1800);
+              g.cacher();
+              setMode('pointer');
+              await g.tempo(3000);
+          } },
+
         { titre: 'Ouvrir un document, et le présenter',
           dit: 'Un PDF ou une image se glisse sur le tableau. Sa barre à lui apparaît : on écrit dessus, on le présente en grand, on tourne les pages.',
-          duree: 24000,
+          duree: 40000,
           faire: async (g) => {
-              g.dire('Voici une fiche, posée sur le tableau.');
+              g.dire('Une fiche glissée sur le tableau s\'y pose, tout simplement.');
               const doc = await poserLaFiche();
-              await g.tempo(1200);
-              g.dire('On la choisit : sa barre paraît, avec ce qu\'on peut en faire.');
-              selectedItems = [doc];
+              await g.tempo(2200);
+              g.dire('On la touche pour la prendre en main.');
+              await g.toucher(window.innerWidth / 2, window.innerHeight / 2, 'On la choisit');
+              selectedItems = [{ type: 'image', id: doc.id }];
               if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
-              draw();
-              await g.tempo(1800);
-              g.dire('Le plein écran la met au milieu, sur fond sombre : c\'est ce qu\'on projette.');
-              await g.viser('#doc-plein-ecran', 'Plein écran');
-              await g.tempo(2400);
-              g.dire('Et l\'on en sort comme on y est entré.');
-              if (typeof presentationEnCours !== 'undefined') presentationEnCours = null;
-              document.body.classList.remove('focus-mode');
               if (typeof majBarreDocument === 'function') majBarreDocument();
+              draw();
+              await g.tempo(1400);
+              g.dire('Une barre paraît : elle ne parle QUE du document tenu, et de rien d\'autre.');
+              await g.montrer('#bar-document', 'La barre du document', 3000);
+              g.dire('Le plein écran le met au milieu, sur fond sombre : c\'est ce qu\'on projette.');
+              await g.viser('#doc-plein-ecran', 'Plein écran');
+              await g.tempo(2600);
+              g.dire('Sa barre l\'a suivi en bas de l\'écran : les pages, le crayon, tout reste sous la main.');
+              await g.montrer('#bar-document', 'Elle est toujours là', 3000);
+              g.dire('Le même bouton mène au temps suivant : la page reste en grand, TOUTES les barres reviennent.');
+              await g.viser('#doc-plein-ecran', 'Et les outils');
+              await g.tempo(3000);
+              g.dire('C\'est là qu\'on écrit sur ce qu\'on projette, sans rien quitter ni rien remettre en place.');
+              await g.tempo(2600);
+              g.dire('Un troisième appui en sort, et l\'on retrouve son tableau.');
+              await g.viser('#doc-plein-ecran', 'On en sort');
+              if (typeof presentationEnCours !== 'undefined' && presentationEnCours) quitterLaPresentation();
+              if (typeof majBarreDocument === 'function') majBarreDocument();
+              placerLaBarreDeLaDemo();
               selectedItems = [];
               if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
               draw();
               g.cacher();
-              await g.tempo(1200);
+              await g.tempo(2000);
           } },
 
         { titre: 'Découper un exercice, le tiroir, poser',
           dit: 'On découpe les exercices d\'une fiche, ils vont au tiroir — et l\'on pose ce qu\'on veut, quand on veut, aussi grand que la place le permet.',
-          duree: 26000,
+          duree: 42000,
           faire: async (g) => {
               const doc = await poserLaFiche();
-              await g.tempo(900);
-              g.dire('On trace un rectangle sur l\'exercice : il part au tiroir, en bas.');
+              selectedItems = [{ type: 'image', id: doc.id }];
+              if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+              if (typeof majBarreDocument === 'function') majBarreDocument();
+              draw();
+              await g.tempo(1600);
+              g.dire('« Découper », dans la barre du document : on entoure ce qu\'on veut prendre.');
+              await g.montrer('#doc-decouper', 'Découper', 2600);
+              await g.tempo(600);
               const bandes = [
                   { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.10, l: doc.w * 0.92, h: doc.h * 0.30 },
                   { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.42, l: doc.w * 0.92, h: doc.h * 0.32 }
               ];
-              for (const r of bandes) {
+              const mots = ['Le premier exercice', 'Le second'];
+              for (let k = 0; k < bandes.length; k++) {
+                  const r = bandes[k];
+                  // Le rectangle se voit se tracer sur la fiche, comme à la main.
+                  const x1 = r.x * zoom + panX, y1 = r.y * zoom + panY;
+                  const x2 = (r.x + r.l) * zoom + panX, y2 = (r.y + r.h) * zoom + panY;
+                  g.dire('On entoure l\'exercice : il part au tiroir, en bas.');
+                  await g.tracer([[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]], mots[k]);
                   prendreUnMorceau(doc, r, true);
                   if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
-                  await g.tempo(1100);
+                  await g.tempo(1800);
               }
-              g.dire('Deux exercices au tiroir. On les pose d\'un seul geste…');
-              await g.tempo(1400);
+              g.dire('Les deux morceaux attendent dans le tiroir du bas, à leur taille.');
+              await g.montrer('#bottom-drawer', 'Le tiroir', 2600);
+              g.dire('On les pose d\'un seul geste…');
+              await g.tempo(1200);
               images.length = 0;
               draw();
               if (typeof poserTousLesMorceaux === 'function') poserTousLesMorceaux();
               g.dire('…et ils occupent toute la place disponible, côte à côte, en grand.');
               g.cacher();
-              await g.tempo(2600);
+              await g.tempo(3400);
           } },
 
         { titre: 'Les tampons et les générateurs',
           dit: 'Le tiroir du haut fabrique ce qu\'on dessinait à la main : tableaux de numération, droites graduées, frises, quadrillages, plans de classe.',
-          duree: 24000,
+          duree: 46000,
           faire: async (g) => {
+              g.dire('Le tiroir du haut se replie et se déplie par sa languette.');
               const haut = document.getElementById('bar-plugins');
-              if (haut && haut.classList.contains('closed') && typeof togglePluginDrawer === 'function') togglePluginDrawer();
-              await g.tempo(900);
-              g.dire('Le tiroir du haut : chaque vignette pose un objet fini sur le tableau.');
+              if (haut && haut.classList.contains('closed')) {
+                  await g.viser('.drawer-toggle[data-target="bar-plugins"]', 'Le tiroir du haut');
+              }
+              await g.tempo(1400);
+              g.dire('Chaque vignette est un outil : il pose un objet FINI sur le tableau.');
+              await g.montrer('#plugins-grid', 'Les outils', 2600);
+              g.dire('Prenons le tableau de numération. On clique sur sa vignette…');
+              const ouvert = await g.viser(
+                  '#plugins-grid .btn[data-plugin-key="Tableau de Numération"]', 'Tableau de numération');
               await g.tempo(1600);
-              g.dire('Le tableau de numération, par exemple — on coche les classes qu\'on veut.');
+              if (ouvert && document.getElementById('custom-prompt-modal')) {
+                  g.dire('…et une fenêtre demande ce qu\'on veut : les classes, la partie décimale, le modèle.');
+                  await g.montrer('#custom-prompt-inputs', 'Ce qu\'on choisit', 3200);
+                  g.dire('On ajoute la classe des milliards — toute la ligne répond, pas seulement la case.');
+                  const cases = document.querySelectorAll('#custom-prompt-inputs .prompt-case');
+                  if (cases.length) await g.viser(cases[0], 'Les milliards');
+                  await g.tempo(1600);
+                  g.dire('L\'aperçu se refait à chaque fois : on voit ce qu\'on va poser avant de le poser.');
+                  await g.montrer('#custom-prompt-preview', 'L\'aperçu', 2800);
+                  g.dire('Et l\'on valide.');
+                  await g.viser('#custom-prompt-ok', 'Créer');
+                  await g.tempo(2600);
+              }
+              g.dire('Le tableau est posé, à l\'échelle du tableau — pas une image collée.');
+              await g.tempo(2400);
+              g.dire('Rien n\'est figé : un double-clic dessus rouvre la fenêtre et le refait.');
               const num = PluginManager && PluginManager.plugins && PluginManager.plugins['cduGeneratorTool'];
-              if (num) {
-                  num.buildCDUTable('millions,milliers,dixiemes,centiemes,milliemes', '3', 'couleur');
-                  await g.tempo(1800);
-                  g.dire('Quatre modèles pour le même tableau : celui qu\'on projette, celui qu\'on photocopie…');
+              if (num && images.length) {
                   images.length = 0; draw();
                   num.buildCDUTable('milliers,dixiemes,centiemes,milliemes', '2', 'ardoise');
-                  await g.tempo(2000);
+                  await g.tempo(1200);
+                  g.dire('Quatre modèles pour le même tableau : celui qu\'on projette, celui qu\'on photocopie.');
               }
-              g.dire('Et il se rouvre pour être modifié : rien n\'est figé une fois posé.');
               g.cacher();
-              await g.tempo(1800);
+              await g.tempo(3000);
           } },
 
         { titre: 'Les outils un peu magiques',
           dit: 'Repérer tout seul les exercices d\'une page, éclairer les cases à remplir, rendre les adresses cliquables : ce qu\'on ne pense pas à demander.',
-          duree: 26000,
+          duree: 42000,
           faire: async (g) => {
               const doc = await poserLaFiche();
-              selectedItems = [doc];
+              selectedItems = [{ type: 'image', id: doc.id }];
               if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+              if (typeof majBarreDocument === 'function') majBarreDocument();
               draw();
-              await g.tempo(1000);
-              g.dire('« Repérer » lit la page et propose ses exercices, déjà découpés.');
+              await g.tempo(1600);
+              g.dire('Découper trois exercices à la main, c\'est viser trois fois. « Repérer » le fait pour vous.');
+              await g.montrer('#doc-reperer', 'Repérer les exercices', 2600);
+              g.dire('Il cherche les bandes blanches qui séparent les exercices, et les envoie au tiroir.');
               if (typeof repererLesExercices === 'function') {
                   repererLesExercices();
-                  await g.tempo(2400);
+                  await g.tempo(3200);
                   if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
               }
               selectedItems = [];
               images.length = 0;
               draw();
-              g.dire('Une adresse écrite au tableau devient un lien : un clic l\'ouvre.');
+              await g.tempo(900);
+              g.dire('Autre chose : une adresse écrite au tableau devient un lien.');
               texts.push({ id: nextId++, type: 'text',
                   x: (window.innerWidth / 2 - panX) / zoom - 260,
                   y: (window.innerHeight / 2 - panY) / zoom - 20,
-                  text: 'La séance est là : www.education.gouv.fr',
-                  color: '#2d3436', size: 30, font: 'Roboto', z: globalZ++ });
+                  content: 'La séance est là : www.education.gouv.fr',
+                  color: '#2d3436', fontSize: 30, fontFamily: 'Roboto', z: globalZ++ });
               draw();
-              await g.tempo(2600);
-              g.dire('Et sur un PDF, l\'outil Texte éclaire les cases à remplir et s\'y pose tout seul.');
+              await g.tempo(1400);
+              g.dire('Un clic dessus l\'ouvre : plus besoin de recopier l\'adresse dans le navigateur.');
+              await g.montrer('#board', 'Un lien, pas du texte', 2800);
+              g.dire('Et sur un PDF, l\'outil Texte éclaire les cases à remplir et s\'y pose tout seul, à la bonne taille.');
               g.cacher();
-              await g.tempo(2200);
+              await g.tempo(3000);
           } },
 
         { titre: 'Les classes',
           dit: 'La classe du moment se choisit dans le coin : l\'appel, les points, le bilan et le plan de classe la suivent partout.',
-          duree: 22000,
+          duree: 38000,
           faire: async (g) => {
-              g.dire('Une classe de démonstration, inventée pour l\'occasion.');
-              await g.tempo(1000);
-              g.dire('La pastille du coin nomme la classe du moment ; elle ouvre tout le reste.');
-              await g.viser('#classe-pastille', 'La classe');
-              await g.tempo(2600);
+              g.dire('En haut, une pastille nomme la classe du moment. Ici, une classe inventée pour la visite.');
+              await g.montrer('#classe-pastille', 'La classe du moment', 2800);
+              g.dire('Elle ouvre tout le reste : l\'appel, les points, le tirage au sort, le plan de classe.');
+              await g.viser('#classe-pastille', 'On l\'ouvre');
+              await g.tempo(3200);
+              g.dire('Une seule liste d\'élèves, partagée : ce qu\'on saisit ici se retrouve partout ailleurs.');
+              await g.tempo(2400);
               if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
               g.dire('L\'appel se fait au tableau, sans ouvrir de fenêtre par-dessus le cours.');
-              await g.tempo(1800);
-              g.dire('Les points de classe, le tirage au sort et le plan de classe partagent la même liste.');
+              await g.tempo(2400);
+              g.dire('Et rien ne quitte l\'ordinateur : les élèves restent chez vous.');
               g.cacher();
-              await g.tempo(2000);
+              await g.tempo(2600);
           } },
 
         { titre: 'Audio et vidéo',
           dit: 'Un fichier son ou une vidéo glissés sur le tableau ouvrent un lecteur fait pour la classe : saut en arrière, vitesse, repères A-B.',
-          duree: 26000,
+          duree: 42000,
           faire: async (g) => {
-              g.dire('On glisse un fichier son : le lecteur s\'ouvre.');
+              g.dire('On glisse un fichier son sur le tableau : un lecteur s\'ouvre.');
               if (typeof audioMediaPlayer !== 'undefined') audioMediaPlayer.handleDrop(pisteDeDemonstration(6));
-              await g.tempo(1600);
-              g.dire('Le geste du cours, c\'est « redites-moi la phrase » : le saut en arrière est là, sous le doigt.');
+              await g.tempo(2400);
+              g.dire('Il n\'est pas fait pour écouter de la musique, mais pour faire cours.');
+              await g.montrer('.media-player-panel', 'Le lecteur', 2600);
+              g.dire('Le geste de la dictée, c\'est « redites-moi la phrase ». Le saut en arrière est là, sous le doigt.');
               await g.viser('#mp3-back', 'Cinq secondes en arrière');
-              await g.tempo(1200);
+              await g.tempo(1800);
               g.dire('Un appui long dessus change le pas : 3, 5, 10, 15 ou 30 secondes.');
-              await g.tempo(1600);
+              await g.tempo(2200);
               g.dire('Et cinq habillages, du plus grand au plus discret, selon l\'écran qu\'on a.');
               await g.viser('#mp3-habits', 'L\'habillage');
-              await g.tempo(2200);
+              await g.tempo(3000);
               const menu = document.getElementById('mp3-habits-menu');
               if (menu) menu.classList.remove('ouvert');
               g.cacher();
-              await g.tempo(1000);
+              await g.tempo(1600);
           } },
 
         { titre: 'Enregistrer, exporter, partager',
           dit: 'Le tableau s\'enregistre dans un fichier, s\'exporte en image ou en PDF, et se partage tel quel — rien n\'est prisonnier de l\'application.',
-          duree: 20000,
+          duree: 38000,
           faire: async (g) => {
               const bas = document.getElementById('bottom-drawer');
-              if (bas && bas.classList.contains('closed') && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
-              await g.tempo(800);
-              g.dire('Le menu « Exporter », en bas.');
+              if (bas && bas.classList.contains('closed')) {
+                  g.dire('Le tiroir du bas se déplie par sa languette.');
+                  await g.viser('#bottom-drawer .drawer-toggle', 'Le tiroir du bas');
+              }
+              await g.tempo(1200);
+              g.dire('« Exporter », en bas : c\'est par là qu\'on sort du tableau.');
               await g.viser('#btn-export-menu', 'Exporter');
-              await g.tempo(2200);
-              g.dire('La page seule, tout le tableau, une capture, un film de la séance.');
-              await g.tempo(2400);
+              await g.tempo(2800);
+              g.dire('La page seule, tout le tableau, une capture d\'une zone, un film de la séance.');
+              await g.montrer('#export-popup-menu', 'Ce qu\'on peut sortir', 3200);
               const menu = document.getElementById('export-popup-menu');
               if (menu) menu.classList.remove('visible');
-              g.dire('Un tableau enregistré se rouvre partout : c\'est un fichier, et il vous appartient.');
+              g.dire('Et Ctrl+S enregistre le tableau dans un fichier, qui se rouvre partout.');
+              await g.touches(['Ctrl', 'S']);
+              g.dire('Il vous appartient : ni compte, ni abonnement, ni serveur.');
               g.cacher();
-              await g.tempo(2000);
+              await g.tempo(2800);
           } }
     ];
 }
@@ -31306,6 +31585,23 @@ function bloquerPendantLaDemo(oui) {
     }
 }
 
+// CE QU'UN CHAPITRE OUVRE, LE SUIVANT NE L'HÉRITE PAS. La fenêtre d'un outil
+// reste ouverte tant qu'on ne l'a pas validée : celui qui changeait de
+// chapitre au milieu du tableau de numération la retrouvait posée en travers
+// du chapitre suivant, et la visite continuait derrière.
+function fermerCeQueLaDemoAOuvert() {
+    const popup = document.getElementById('export-popup-menu');
+    if (popup) popup.classList.remove('visible');
+    const boite = document.getElementById('custom-prompt-modal');
+    if (boite && boite.getClientRects().length) {
+        boite.style.display = 'none';
+        if (typeof refermerLaBoite === 'function') refermerLaBoite();
+    }
+    const habits = document.getElementById('mp3-habits-menu');
+    if (habits) habits.classList.remove('ouvert');
+    document.querySelectorAll('.demo-vise').forEach(e => e.classList.remove('demo-vise'));
+}
+
 // La barre monte quand elle recouvre ce qu'elle montre : un document
 // présenté occupe le bas de l'écran.
 function placerLaBarreDeLaDemo() {
@@ -31338,8 +31634,15 @@ function demarrerLaDemonstration() {
         tiroirBas: !!document.getElementById('bottom-drawer')
             && !document.getElementById('bottom-drawer').classList.contains('closed'),
         focus: document.body.classList.contains('focus-mode'),
+        fond: currentBgIndex,
         lecteurs: ouverts
     };
+
+    // ELLE PART D'UNE PAGE BLANCHE. Le fond du tableau ne se range pas par
+    // page : une visite ouverte sur du Seyes ou du millimétré montrait ses
+    // traits par-dessus une réglure, et l'on ne voyait plus ce qu'elle
+    // dessinait. Le fond d'avant est rendu en sortant, comme le reste.
+    currentBgIndex = 0;
 
     // LA DÉMONSTRATION A SA PAGE. Elle est ajoutée EN DERNIER et retirée en
     // sortant : les pages du professeur ne changent pas de rang, et rien de
@@ -31418,8 +31721,7 @@ async function jouerLeChapitre(i) {
     selectedItems = [];
     if (typeof setMode === 'function') setMode('pointer');
     cacherLaMainDeLaDemo();
-    const popup = document.getElementById('export-popup-menu');
-    if (popup) popup.classList.remove('visible');
+    fermerCeQueLaDemoAOuvert();
     if (typeof draw === 'function') draw();
     if (typeof majBarreDocument === 'function') majBarreDocument();
     placerLaBarreDeLaDemo();
@@ -31500,8 +31802,7 @@ function arreterLaDemonstration() {
     fermerLaListeDeLaDemo();
     const barre = document.getElementById('demo-barre');
     if (barre) { barre.classList.remove('visible', 'en-haut'); }
-    const popup = document.getElementById('export-popup-menu');
-    if (popup) popup.classList.remove('visible');
+    fermerCeQueLaDemoAOuvert();
     if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
     if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
 
@@ -31531,6 +31832,8 @@ function arreterLaDemonstration() {
     if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
 
     if (typeof setMode === 'function') setMode(d.avant.outil || 'pointer');
+    // Le fond du tableau était à elle le temps de la visite : il est rendu.
+    if (typeof d.avant.fond === 'number') currentBgIndex = d.avant.fond;
     const haut = document.getElementById('bar-plugins');
     if (haut && (!haut.classList.contains('closed')) !== d.avant.tiroirHaut
         && typeof togglePluginDrawer === 'function') togglePluginDrawer();

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=119">
+    <link rel="stylesheet" href="style.css?v=120">
 </head>
 
 <body>
@@ -1091,15 +1091,13 @@
                             morceau posé à côté y tomberait dans le noir, hors d'atteinte. Poser à côté
                             <b>quitte donc le plein écran</b>. Un morceau lâché <b>sur</b> la page
                             projetée, lui, s'y voit très bien : la présentation continue.<br>
-                            <b>Sortir du plein écran du navigateur :</b> présenter le prend, quitter la
-                            présentation le rend — ce qu'un geste ouvre, il le referme. Et tant qu'on y
-                            est, la barre du document porte un bouton pour en sortir <b>sans</b> cesser de
-                            montrer la page : le seul autre vit dans le tiroir du bas, que le plein écran
-                            efface. Si vous étiez déjà en plein écran avant de présenter, on ne vous en
-                            sort pas.<br>
+                            <b>Le plein écran du navigateur :</b> présenter le prend, sortir du cycle le
+                            rend — ce qu'un geste ouvre, il le referme. Si vous étiez déjà en plein écran
+                            avant de présenter, on ne vous en sort pas.<br>
                             <b>Poser termine le découpage :</b> les ciseaux se reposent, et l'on peut
                             reprendre en main ce qu'on vient de poser. Tant qu'ils sont armés, le curseur
-                            est une <b>croix</b> — c'est ce qui annonce un tracé.<br>
+                            est une <b>croix</b> — c'est ce qui annonce un tracé. <b>Prendre un outil les
+                            range aussi</b> : on ne découpe plus quand on croit dessiner.<br>
                             <b>⌁ Repérer</b> fait le travail tout seul : la page est relue, on y cherche les
                             <b>bandes restées blanches</b> — celles qui séparent deux exercices, franchement
                             plus hautes que l'espace entre deux lignes — et tous les blocs partent au tiroir
@@ -1231,12 +1229,22 @@
                             <b>D</b> sur un document sélectionné) les barres d'outils s'effacent et ceux-ci
                             sont alors les seuls disponibles. La barre de style revient avec l'outil, pour
                             choisir sa couleur et son épaisseur ; <b>Sélection</b> rend le document en main.</li>
-                        <li><strong>Présenter en plein écran :</strong> le bouton <b>⛶</b>, en tête de la
-                            barre du document, ou la touche <b>D</b>. Tout s'efface, la page prend l'écran.
-                            Le même bouton en sort, comme <b>Échap</b>. Un second <b>D</b> passe en
-                            <b>toute la largeur</b> — la page d'un bord à l'autre, on défile. Pendant la
-                            présentation, <b>Cadre / coulisser</b> et <b>⌁ Repérer</b> s'effacent de la barre :
-                            on est là pour montrer la page, pas pour la débiter.</li>
+                        <li><strong>Le plein écran est un cycle à trois temps :</strong> le bouton <b>⛶</b>,
+                            en tête de la barre du document, ou la touche <b>D</b>.<br>
+                            <b>1.</b> La page seule : tout s'efface, elle prend l'écran. C'est ce qu'on montre.<br>
+                            <b>2.</b> La page <b>et les barres</b> : elle reste en grand, les outils reviennent
+                            par-dessus. C'est là qu'on écrit sur ce qu'on projette, sans rien quitter.<br>
+                            <b>3.</b> La sortie : on retrouve son tableau, et le navigateur son état d'avant.<br>
+                            L'icône du bouton dit à chaque fois où il mène ; <b>Échap</b> sort tout de suite.
+                            Un second <b>D</b> passe en <b>toute la largeur</b> — la page d'un bord à l'autre,
+                            on défile. Pendant la présentation, <b>Cadre / coulisser</b> et <b>⌁ Repérer</b>
+                            s'effacent de la barre : on est là pour montrer la page, pas pour la débiter.</li>
+                        <li><strong>Un document posé mesure ce qu'il mesure :</strong> une page <b>A4</b>
+                            fait <b>21 × 29,7 cm</b> sur le tableau — posez la <b>règle virtuelle</b> en travers,
+                            elle le lit. La taille vient du fichier lui-même, pas de la place qu'il reste à
+                            l'écran ni de la finesse de rendu choisie. Une page est souvent plus grande que
+                            ce qu'on voit : on recule alors juste assez pour la voir en entier, sans jamais
+                            s'approcher — le travail déjà posé ne bouge pas.</li>
                         <li><strong>Descendre dans la page, en plein écran :</strong> une fois présenté, le
                             document se conduit comme dans un lecteur de PDF. La <b>molette défile</b> et
                             <b>Ctrl+molette zoome</b> (c'est l'inverse du tableau, et l'usage de tous les
@@ -1353,6 +1361,16 @@
          ================================================================== -->
     <div id="demo-voile"></div>
     <div id="demo-main"><div id="demo-main-mot"></div></div>
+    <!-- ON DOIT VOIR SUR QUOI ELLE APPUIE. La main allait sur le bouton et le
+         bouton changeait, mais rien ne disait « c'est ICI que le clic a eu
+         lieu » : le regard arrivait trop tard. L'onde part du point touché et
+         s'élargit, comme un doigt sur une vitre. -->
+    <div id="demo-clic"></div>
+    <!-- ET LES COMBINAISONS DE TOUCHES. « Ctrl+Z revient en arrière » se
+         disait dans la phrase, et le tableau revenait en arrière tout seul :
+         on voyait l'effet sans jamais voir le geste. Les touches se montrent
+         maintenant, frappées l'une après l'autre. -->
+    <div id="demo-touches"></div>
     <div id="demo-barre">
         <div class="demo-rang" id="demo-rang">1/9</div>
         <div class="demo-texte">
@@ -2532,21 +2550,17 @@
              ne pouvait l'appeler qu'à la touche « D ». Invisible pour qui n'a
              pas lu l'aide, c'est-à-dire pour presque tout le monde. Il ouvre
              la séance de lecture ; c'est pourquoi il vient en premier. -->
+        <!-- LE PLEIN ÉCRAN EST UN CYCLE À TROIS TEMPS. Il y avait deux boutons
+             pour en sortir — « quitter » et « sortir du plein écran du
+             navigateur » — et rien pour ce qu'on veut vraiment : garder la
+             page en grand ET récupérer ses outils pour écrire dessus. Un seul
+             bouton désormais : page seule → page avec les barres → sortie ;
+             son icône dit à chaque fois où il mène. -->
         <button class="doc-btn" id="doc-plein-ecran"
             data-tooltip="Présenter en plein écran (D) — molette et Page↓ pour descendre dans la page">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
+                stroke-linecap="round" stroke-linejoin="round" id="doc-plein-ecran-icone">
                 <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-            </svg></button>
-        <!-- SORTIR DU PLEIN ÉCRAN DU NAVIGATEUR. Il n'existait aucun bouton
-             pour cela : le seul vivait dans le tiroir du bas, que le plein
-             écran efface. On entrait, et il fallait connaître la touche Échap
-             — ou deviner. Celui-ci ne paraît que lorsqu'il sert. -->
-        <button class="doc-btn" id="doc-sortir-navigateur" style="display:none;"
-            data-tooltip="Sortir du plein écran du navigateur">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
             </svg></button>
         <i class="doc-sep" id="doc-plein-ecran-sep"></i>
         <span id="doc-pages">
@@ -2876,7 +2890,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=218"></script>
+    <script src="script.js?v=219"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
