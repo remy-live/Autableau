@@ -2064,6 +2064,41 @@ module.exports = async function (browser) {
         updateStyleBarContext();
         return { surLeTableau, vraimentSurLeTableau, enPleinEcran, vraimentEnPleinEcran };
     });
+    // DEBOUT, LA RÉGLETTE DE TAILLE N'A PAS LA LARGEUR DE GLISSER. Elle y
+    // restait posée en travers avec son champ de nombre, qui sortait par la
+    // droite, à cheval sur le bord de la barre. On garde l'icône et le
+    // NOMBRE — qui se tape et se lit, ce que la réglette ne fait ni l'un ni
+    // l'autre — et la réglette s'efface.
+    const reglette = await page.evaluate(() => {
+        const mesure = () => {
+            const barre = document.getElementById('bar-style').getBoundingClientRect();
+            const num = document.getElementById('font-size-num').getBoundingClientRect();
+            return {
+                regle: getComputedStyle(document.getElementById('font-size')).display,
+                deborde: Math.round(num.right - barre.right) > 0
+                    || Math.round(barre.left - num.left) > 0,
+                largeurDeLaBarre: Math.round(barre.width)
+            };
+        };
+        selectedItems = [];
+        setMode('text');
+        basculerLOrientationDeLaBarre(true);
+        updateStyleBarContext();
+        const debout = mesure();
+        basculerLOrientationDeLaBarre(false);
+        updateStyleBarContext();
+        const plat = mesure();
+        setMode('pointer');
+        return { debout, plat };
+    });
+    r.egal('debout, la réglette de taille s\'efface et le nombre reste dans la barre',
+        { regle: reglette.debout.regle, deborde: reglette.debout.deborde },
+        { regle: 'none', deborde: false });
+    r.egal('à plat, elle est là comme avant', reglette.plat.regle, 'block');
+    r.verifie('et la barre debout y gagne en étroitesse',
+        reglette.debout.largeurDeLaBarre < reglette.plat.largeurDeLaBarre,
+        JSON.stringify({ debout: reglette.debout.largeurDeLaBarre, plat: reglette.plat.largeurDeLaBarre }));
+
     r.egal('le bouton promet le bord où la barre se posera VRAIMENT',
         { promis: [promesse.surLeTableau, promesse.enPleinEcran],
           tenu: [promesse.vraimentSurLeTableau, promesse.vraimentEnPleinEcran] },

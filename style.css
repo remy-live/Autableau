@@ -9417,6 +9417,28 @@ body.focus-mode #bar-style.vertical.visible { transform: translateY(-50%); }
    qui est lui-même une rangée : mettre la barre en colonne ne suffisait pas,
    les boutons restaient alignés à l'intérieur de leur groupe et débordaient
    par le côté. C'est ce qu'elle faisait « très mal ». */
+/* LE CURSEUR DE TAILLE, DEBOUT. Une réglette horizontale et son champ de
+   nombre dans une colonne de cent cinquante pixels : le nombre sortait par
+   la droite, à cheval sur le bord de la barre. Debout, on garde l'icône et
+   le NOMBRE — qui se tape et se lit, ce que la réglette ne fait ni l'un ni
+   l'autre — et la réglette s'efface, faute de largeur où glisser. */
+#bar-style.vertical .slider-container {
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 3px 0;
+    box-sizing: border-box;
+}
+
+#bar-style.vertical .slider-container input[type="range"] { display: none; }
+
+#bar-style.vertical .slider-container .slider-num {
+    width: 52px;
+    text-align: center;
+}
+
+#bar-style.vertical .slider-icon { margin: 0; }
+
 #bar-style.vertical .style-group,
 #bar-style.vertical .tool-group {
     flex-direction: column;

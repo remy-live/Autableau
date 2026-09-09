@@ -444,6 +444,121 @@ module.exports = async function (browser) {
     r.verifie('l\'aide liste les transformations à la frappe',
         aide.n === 11 && /\*/.test(aide.t) && /×/.test(aide.t) && /÷/.test(aide.t), aide.t);
 
+    // =====================================================================
+    // AVEC L'OUTIL TEXTE EN MAIN, LE CLIC EST UN CURSEUR
+    // Il fermait la saisie et s'arrêtait là : pour écrire la ligne suivante,
+    // il fallait sortir de l'outil, le reprendre, puis re-cliquer — trois
+    // gestes pour une ligne de plus, en direct devant la classe.
+    // =====================================================================
+    const enchaine = await page.evaluate(async () => {
+        const c = document.getElementById('board');
+        const w = document.getElementById('wysiwyg-text');
+        texts.length = 0;
+        setMode('text');
+        const cliquer = (x, y) => {
+            ['pointerdown', 'pointerup'].forEach(t => c.dispatchEvent(new PointerEvent(t, {
+                bubbles: true, cancelable: true, clientX: x, clientY: y,
+                pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0,
+                buttons: t === 'pointerdown' ? 1 : 0 })));
+        };
+        const ouverte = () => w.style.display === 'block';
+
+        cliquer(420, 300);
+        await new Promise(r => setTimeout(r, 60));
+        const premier = ouverte();
+        w.innerText = 'première ligne';
+
+        // On clique AILLEURS : ce qui est écrit se pose, et la saisie rouvre
+        // sous le pointeur — on tape aussitôt, sans reprendre l'outil.
+        cliquer(420, 460);
+        await new Promise(r => setTimeout(r, 60));
+        // Un bloc de texte garde ce qu'on a écrit dans « content ».
+        const contenu = (t) => t.content || '';
+        const apres = { ouverte: ouverte(), outil: mode, poses: texts.map(contenu) };
+        w.innerText = 'seconde ligne';
+
+        // Et la nouvelle saisie est bien à l'endroit désigné, pas restée
+        // là où était la première.
+        const bougee = tempTextLogicalPos
+            && Math.abs((panY + tempTextLogicalPos.y * zoom) - 460) < 60;
+
+        // Échap la referme pour de bon : on doit pouvoir en sortir.
+        w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 60));
+        const sortie = { ouverte: ouverte(), poses: texts.length };
+        texts.length = 0; setMode('pointer'); draw();
+        return { premier, apres, bougee, sortie };
+    });
+    r.egal('le clic ouvre la saisie, et le clic suivant pose la ligne ET en rouvre une',
+        { premier: enchaine.premier, encore: enchaine.apres.ouverte,
+          outil: enchaine.apres.outil, poses: enchaine.apres.poses },
+        { premier: true, encore: true, outil: 'text', poses: [enchaine.apres.poses[0]] });
+    r.verifie('et c\'est bien ce qu\'on venait d\'écrire qui s\'est posé',
+        /première ligne/.test(enchaine.apres.poses[0] || ''),
+        JSON.stringify(enchaine.apres.poses));
+    r.verifie('et elle rouvre là où l\'on a cliqué, pas là où était la précédente',
+        enchaine.bougee, String(enchaine.bougee));
+    r.egal('Échap la referme pour de bon, en posant ce qui était écrit',
+        enchaine.sortie, { ouverte: false, poses: 2 });
+
+    // =====================================================================
+    // LE TIROIR PEND DE SON PROPRE BOUTON
+    // « Taille, police, interligne » s'ouvrait collé au bord GAUCHE de la
+    // barre, quel que soit l'onglet : le panneau paraissait à l'autre bout
+    // de l'icône qui venait de l'ouvrir.
+    // =====================================================================
+    const tiroir = await page.evaluate(async () => {
+        const tt = document.getElementById('text-toolbar');
+        tt.style.display = 'flex';
+        tt.style.left = '360px';
+        tt.style.top = '300px';
+        const ouvrirEtMesurer = async (nom) => {
+            const onglet = tt.querySelector(`.tt-tab[data-panel="${nom}"]`);
+            const panneau = tt.querySelector(`.tt-panel[data-panel="${nom}"]`);
+            if (!onglet || !panneau) return 'introuvable';
+            if (panneau.classList.contains('tt-open')) onglet.click();
+            onglet.click();
+            await new Promise(r => setTimeout(r, 40));
+            const p = panneau.getBoundingClientRect();
+            const m = { gauche: Math.round(p.left), droite: Math.round(p.right) };
+            onglet.click();
+            return m;
+        };
+        // AUX DEUX BORDS DE L'ÉCRAN, il ne doit pas sortir : centré sur son
+        // bouton, un tiroir plus large que ce qui reste passerait dehors.
+        tt.style.left = '0px';
+        const auBordGauche = await ouvrirEtMesurer('size');
+        tt.style.left = (window.innerWidth - tt.getBoundingClientRect().width) + 'px';
+        const auBordDroit = await ouvrirEtMesurer('size');
+        tt.style.left = '360px';
+
+        const mesures = { auBordGauche, auBordDroit, ecran: window.innerWidth };
+        for (const nom of ['size', 'para', 'align']) {
+            const onglet = tt.querySelector(`.tt-tab[data-panel="${nom}"]`);
+            const panneau = tt.querySelector(`.tt-panel[data-panel="${nom}"]`);
+            if (!onglet || !panneau) { mesures[nom] = 'introuvable'; continue; }
+            if (panneau.classList.contains('tt-open')) onglet.click();
+            onglet.click();
+            await new Promise(r => setTimeout(r, 40));
+            const o = onglet.getBoundingClientRect(), p = panneau.getBoundingClientRect();
+            mesures[nom] = {
+                ecart: Math.round(Math.abs((o.left + o.width / 2) - (p.left + p.width / 2))),
+                dansLEcran: p.left >= 0 && p.right <= window.innerWidth
+            };
+            onglet.click();
+        }
+        tt.style.display = 'none';
+        return mesures;
+    });
+    r.verifie('chaque tiroir s\'ouvre centré sur l\'icône qui l\'a ouvert',
+        ['size', 'para', 'align'].every(n => tiroir[n] && tiroir[n].ecart <= 2),
+        JSON.stringify(tiroir));
+    r.verifie('et aucun ne sort de l\'écran, même aux deux bords',
+        ['size', 'para', 'align'].every(n => tiroir[n] && tiroir[n].dansLEcran)
+        && tiroir.auBordGauche.gauche >= 0
+        && tiroir.auBordDroit.droite <= tiroir.ecran,
+        JSON.stringify({ gauche: tiroir.auBordGauche, droite: tiroir.auBordDroit }));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

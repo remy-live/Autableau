@@ -8230,7 +8230,17 @@ canvas.addEventListener('pointerdown', (e) => {
         initialPanX = panX; initialPanY = panY; initialZoom = zoom; updateCursor(); return;
     }
 
-    if (wysiwygText.style.display === 'block') { finalizeText(); return; }
+    // ON VALIDE, ET L'ON REPART. Le clic ailleurs fermait la saisie et
+    // s'arrêtait là : pour écrire le mot suivant, il fallait sortir de l'outil
+    // Texte, puis le reprendre, puis re-cliquer — trois gestes pour une ligne
+    // de plus, en direct devant la classe. Avec l'outil Texte en main, le clic
+    // EST un curseur : on pose ce qui vient d'être écrit, et l'on rouvre la
+    // saisie à l'endroit désigné. On tape aussitôt.
+    if (wysiwygText.style.display === 'block') {
+        finalizeText();
+        if (mode !== 'text' || e.button !== 0 || isSpacePressed) return;
+        // ... et le reste du traitement rouvre la saisie sous le pointeur.
+    }
 
     lastMouseX = e.clientX; lastMouseY = e.clientY;
     lastDownClientX = e.clientX; lastDownClientY = e.clientY;
@@ -14687,12 +14697,18 @@ if (textToolbar) {
                 const barreAuDessus = barre.bottom <= saisie.top + 2;
                 panneau.classList.toggle('tt-up', barreAuDessus);
 
-                // ... et il doit rester dans l'écran
+                // LE TIROIR PEND DE SON PROPRE BOUTON. Il s'ouvrait collé au
+                // bord GAUCHE de la barre, quel que soit l'onglet : le panneau
+                // « Taille, police, interligne » paraissait à l'autre bout de
+                // l'icône qui venait de l'ouvrir, et l'on cherchait le lien
+                // entre les deux. Il se centre maintenant sous — ou sur — le
+                // bouton, et ne sort pas de l'écran pour autant.
                 panneau.style.left = '0px';
-                const r = panneau.getBoundingClientRect();
-                if (r.right > window.innerWidth - 8) {
-                    panneau.style.left = Math.max(-r.left + 8, window.innerWidth - 8 - r.right) + 'px';
-                }
+                const p0 = panneau.getBoundingClientRect();
+                const ongletR = tab.getBoundingClientRect();
+                const voulu = Math.max(8, Math.min(window.innerWidth - 8 - p0.width,
+                    ongletR.left + ongletR.width / 2 - p0.width / 2));
+                panneau.style.left = Math.round(voulu - p0.left) + 'px';
             }
             wysiwygText.focus();
         });
