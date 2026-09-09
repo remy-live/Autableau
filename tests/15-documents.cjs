@@ -1376,6 +1376,46 @@ module.exports = async function (browser) {
         basDeLEcran.plancher < 860 || basDeLEcran.q.b <= basDeLEcran.d.t,
         JSON.stringify(basDeLEcran));
 
+    // ET PENDANT QU'ON PROJETTE, IL NE PARAÎT PAS DU TOUT. « Que penses-tu de
+    // ce doublon des barres en bas ? » — deux meubles pour la même page, dont
+    // l'un ne sert à rien là : verrouiller, dupliquer, SUPPRIMER, devant la
+    // classe, sur la page qu'on montre. Un appui sur le plein écran les rend.
+    const enProjection = await page.evaluate(async () => {
+        images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); updateQuickMenu();
+        await new Promise(r => setTimeout(r, 200));
+        const vu = () => document.getElementById('quick-edit-menu').classList.contains('visible');
+        const avant = vu();
+        const premier = cyclerLePleinEcran();
+        await new Promise(r => setTimeout(r, 300));
+        const enPlein = { etat: premier, menu: vu(),
+                          barre: document.getElementById('bar-document').classList.contains('visible') };
+        // Deuxième temps : les barres reviennent, le menu de l'objet non.
+        cyclerLePleinEcran();
+        await new Promise(r => setTimeout(r, 300));
+        const avecBarres = vu();
+        cyclerLePleinEcran();
+        await new Promise(r => setTimeout(r, 300));
+        const rendu = vu();
+        // On rend le tableau au bloc suivant, tel qu'il l'attend.
+        images.length = 0;
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); updateQuickMenu(); draw();
+        return { avant, enPlein, avecBarres, rendu };
+    });
+    r.egal('hors projection, le menu de l\'objet est là',
+        enProjection.avant, true);
+    r.egal('mais en projection il s\'efface : une seule barre au bas de l\'écran',
+        { etat: enProjection.enPlein.etat, menu: enProjection.enPlein.menu,
+          barre: enProjection.enPlein.barre },
+        { etat: 1, menu: false, barre: true });
+    r.egal('y compris au deuxième temps, quand les barres reviennent',
+        enProjection.avecBarres, false);
+    r.egal('et il revient dès qu\'on sort du plein écran', enProjection.rendu, true);
+
     // ELLE SE SIGNALE QUAND ELLE CHANGE DE PLACE. « Parfois la toolbar du pdf
     // va à un autre endroit pour ne pas se faire écraser, mais on la cherche
     // du coup. » Elle passe du haut au bas en plein écran, se met debout, se

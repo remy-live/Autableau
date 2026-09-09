@@ -16738,6 +16738,16 @@ function updateQuickMenu() {
     // barre fixe, elle, porte les PROPRIÉTÉS : les pages, le cadre, l'apparence.
     // Un document y a droit comme les autres objets.
     if (typeof majBarreDocument === 'function') majBarreDocument();
+    // PENDANT QU'ON PROJETTE, ON NE RETOUCHE PAS L'OBJET. Le menu de l'objet
+    // venait s'empiler au bas de l'écran, juste au-dessus de la barre du
+    // document : deux meubles pour la même page, dont l'un ne sert à rien ici.
+    // Verrouiller, dupliquer, SUPPRIMER — devant la classe, sur la page qu'on
+    // montre, la corbeille à un doigt du bord n'est pas un service. Un appui
+    // sur le bouton du plein écran rend tout cela.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours) {
+        quickMenu.classList.remove('visible');
+        return;
+    }
     if (unMenuEstOuvert()) { quickMenu.classList.remove('visible'); return; }
     // En pleine saisie, la barre d'édition suffit : le menu rapide se poserait
     // en travers du texte voisin.
@@ -18831,6 +18841,8 @@ function cyclerLePleinEcran() {
         return 2;
     }
     quitterLaPresentation();
+    // « majBarreDocument » rafraîchit aussi le menu de l'objet : il revient
+    // avec le tableau, sans qu'on ait à le lui dire deux fois.
     if (typeof majBarreDocument === 'function') majBarreDocument();
     return 0;
 }
