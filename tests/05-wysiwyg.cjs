@@ -646,10 +646,12 @@ module.exports = async function (browser) {
                 && e.getBoundingClientRect().height > 4;
         };
         const avant = vu('bar-style');
-        // On ouvre la saisie : la barre du texte prend le relais.
+        // On ouvre la saisie : la barre du texte prend le relais. On ne
+        // rappelle RIEN à la main — c'est justement ce qui manquait : la barre
+        // de style était rendue muette au bon endroit, mais personne ne
+        // repassait par là une fois la saisie ouverte.
         ouvrirLaSaisie(null, { x: 300, y: 300 });
-        await new Promise(r => setTimeout(r, 120));
-        updateStyleBarContext();
+        await new Promise(r => setTimeout(r, 200));
         const pendant = { style: vu('bar-style'), saisie: wysiwygText.style.display === 'block' };
         wysiwygText.innerText = 'un mot';
         finalizeText();
@@ -664,6 +666,40 @@ module.exports = async function (browser) {
         deuxBarresDuTexte.pendant, { style: false, saisie: true });
     r.egal('et elle reprend la parole une fois le bloc posé',
         deuxBarresDuTexte.apres, { style: true, poses: 1 });
+
+    // ET LE MÊME GESTE À LA VRAIE SOURIS. « Aucun intérêt des 3 barres » : la
+    // barre de style était rendue muette au bon endroit, mais personne ne
+    // repassait par là une fois la saisie ouverte — elle restait affichée avec
+    // la taille et la couleur pendant que la barre du texte disait la même
+    // chose au-dessus du mot.
+    await page.evaluate(() => {
+        texts.length = 0; panX = 0; panY = 0; zoom = 1; selectedItems = [];
+        setMode('text'); draw();
+    });
+    await page.waitForTimeout(150);
+    const barresVues = () => page.evaluate(() => {
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            if (!e) return false;
+            const s = getComputedStyle(e);
+            return s.display !== 'none' && parseFloat(s.opacity) > 0.05
+                && e.getBoundingClientRect().height > 4;
+        };
+        return { texte: vu('text-toolbar'), style: vu('bar-style') };
+    });
+    await page.mouse.click(420, 320);
+    await page.waitForTimeout(300);
+    await page.keyboard.type('un mot');
+    await page.waitForTimeout(200);
+    const enEcrivant = await barresVues();
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(350);
+    const apresEcrit = await barresVues();
+    await page.evaluate(() => { texts.length = 0; setMode('pointer'); draw(); });
+    r.egal('à la vraie souris, écrire ne laisse QUE la barre du texte',
+        enEcrivant, { texte: true, style: false });
+    r.egal('et le bloc posé, la barre de style revient seule',
+        apresEcrit, { texte: false, style: true });
 
     // =====================================================================
     // LE TIROIR PEND DE SON PROPRE BOUTON

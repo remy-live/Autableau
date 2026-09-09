@@ -1655,6 +1655,102 @@ module.exports = async function (browser) {
         && apresLaPoignee.x > grandirAvecLaPage.x,
         JSON.stringify({ avant: grandirAvecLaPage, apres: apresLaPoignee }));
 
+    // 4. ROGNER N'EST PAS REDIMENSIONNER. « Le cropping compresse les objets
+    // dans le pdf » : l'encre était étirée pour tenir dans la nouvelle boîte,
+    // comme lors d'un agrandissement. Or rogner ne change pas l'échelle du
+    // contenu, seulement ce qu'on en voit — le mot écrit sur la page reste où
+    // il est, à sa taille, et ce qui tombe hors du cadre est simplement caché.
+    const avantDeRogner = await page.evaluate(async () => {
+        images.length = 0; texts.length = 0; freehands.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        // Une page DEUX FOIS PLUS LARGE QUE HAUTE, qu'on va recouper dans une
+        // autre proportion : « page entière » devra alors rendre au cadre la
+        // forme de la page, et sa HAUTEUR changera en même temps que le
+        // cadrage. C'est là, les deux bougeant ensemble, que l'encre se
+        // faisait compresser.
+        const bande = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
+            + '<rect width="400" height="200" fill="#fff"/></svg>');
+        await new Promise(res => {
+            const i = new Image();
+            i.onload = () => { imageCache[i.src] = i; res(); };
+            i.src = bande;
+        });
+        const o = { id: nextId++, x: 200, y: 150, w: 400, h: 200, cx: 0, cy: 0, cw: 400, ch: 200,
+                    src: bande, z: globalZ++, nomFichier: 'page.png',
+                    ratioLocked: false, isCropping: true };
+        images.push(o);
+        texts.push({ id: nextId++, x: o.x + 120, y: o.y + 80, content: 'mot', fontSize: 30,
+                     color: '#2d3436', z: globalZ++, surObjet: { type: 'image', id: o.id } });
+        freehands.push({ id: nextId++,
+            points: [{ x: o.x + 140, y: o.y + 120 }, { x: o.x + 300, y: o.y + 120 }],
+            color: '#e74c3c', width: 5, z: globalZ++, surObjet: { type: 'image', id: o.id } });
+        selectedItems = [{ type: 'image', id: o.id }];
+        updateQuickMenu(); draw();
+        await new Promise(r => setTimeout(r, 120));
+        return { taille: texts[0].fontSize, x: Math.round(texts[0].x), y: Math.round(texts[0].y),
+                 long: Math.round(freehands[0].points[1].x - freehands[0].points[0].x),
+                 coin: { x: Math.round(o.x * zoom + panX), y: Math.round(o.y * zoom + panY) } };
+    });
+    // On referme le coin HAUT-GAUCHE : la page perd sa marge de gauche et son
+    // haut — le cadrage se déplace en même temps qu'il se resserre.
+    await page.mouse.move(avantDeRogner.coin.x, avantDeRogner.coin.y);
+    await page.mouse.down();
+    await page.mouse.move(avantDeRogner.coin.x + 80, avantDeRogner.coin.y + 20, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    const apresLeRognage = await page.evaluate(() => {
+        const o = images[0];
+        return { cadre: { w: Math.round(o.w), h: Math.round(o.h),
+                          cx: Math.round(o.cx), cy: Math.round(o.cy),
+                          cw: Math.round(o.cw), ch: Math.round(o.ch) },
+                 taille: Math.round(texts[0].fontSize),
+                 x: Math.round(texts[0].x), y: Math.round(texts[0].y),
+                 long: Math.round(freehands[0].points[1].x - freehands[0].points[0].x) };
+    });
+    r.egal('la poignée du mode rognage referme le cadre sur ce qu\'on garde',
+        apresLeRognage.cadre, { w: 320, h: 180, cx: 80, cy: 20, cw: 320, ch: 180 });
+    r.egal('et ce qu\'on a écrit dessus garde sa place et sa taille : rogner n\'est pas redimensionner',
+        { taille: apresLeRognage.taille, x: apresLeRognage.x, y: apresLeRognage.y,
+          long: apresLeRognage.long },
+        { taille: Math.round(avantDeRogner.taille), x: avantDeRogner.x, y: avantDeRogner.y,
+          long: avantDeRogner.long });
+
+    // « PAGE ENTIÈRE » remet toute l'image dans la MÊME largeur de cadre : là,
+    // le contenu rapetisse pour de bon, et l'encre doit rapetisser avec lui.
+    // 320 px de tableau montrent désormais les 400 px de la page, soit 0,8× —
+    // et le mot, qui était à 40 px du bord gauche du cadre, s'y retrouve à 96.
+    const pageEntiere = await page.evaluate(() => {
+        const o = images[0];
+        o.isCropping = false;
+        montrerToutLeDocument(o);
+        return { cadre: { w: Math.round(o.w), h: Math.round(o.h),
+                          cw: Math.round(o.cw), ch: Math.round(o.ch) },
+                 taille: Math.round(texts[0].fontSize),
+                 x: Math.round(texts[0].x), y: Math.round(texts[0].y),
+                 long: Math.round(freehands[0].points[1].x - freehands[0].points[0].x) };
+    });
+    r.egal('« page entière » rend au cadre la forme de la page',
+        pageEntiere.cadre, { w: 320, h: 160, cw: 400, ch: 200 });
+    r.egal('et l\'encre rapetisse d\'autant, sans se déformer',
+        { taille: pageEntiere.taille, x: pageEntiere.x, y: pageEntiere.y, long: pageEntiere.long },
+        { taille: 24, x: 376, y: 234, long: 128 });
+
+    const retourAuCadrage = await page.evaluate(() => {
+        const o = images[0];
+        revenirAuCadrage(o);
+        const m = { taille: Math.round(texts[0].fontSize),
+                    x: Math.round(texts[0].x), y: Math.round(texts[0].y),
+                    long: Math.round(freehands[0].points[1].x - freehands[0].points[0].x) };
+        images.length = 0; texts.length = 0; freehands.length = 0; selectedItems = [];
+        draw();
+        return m;
+    });
+    r.egal('et revenir au cadrage d\'avant rend au mot exactement sa taille et sa place',
+        retourAuCadrage,
+        { taille: Math.round(avantDeRogner.taille), x: avantDeRogner.x,
+          y: avantDeRogner.y, long: avantDeRogner.long });
+
     // ET PENDANT QU'ON PROJETTE, IL NE PARAÎT PAS DU TOUT. « Que penses-tu de
     // ce doublon des barres en bas ? » — deux meubles pour la même page, dont
     // l'un ne sert à rien là : verrouiller, dupliquer, SUPPRIMER, devant la

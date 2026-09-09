@@ -8718,6 +8718,12 @@ function ouvrirLaSaisie(vise, pos) {
     updateWysiwygPosition();
 
     saisieRouverteParUnClic();
+    // LA BARRE DE STYLE SE TAIT MAINTENANT, ET NON À LA PROCHAINE SÉLECTION.
+    // Elle était rendue muette au bon endroit — mais personne ne repassait par
+    // là une fois la saisie ouverte : elle restait affichée en bas de l'écran,
+    // avec la taille et la couleur, pendant que la barre du texte disait la
+    // même chose au-dessus du mot. Trois barres pour un mot.
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
     setTimeout(() => {
         wysiwygText.focus();
         laSaisieARepriseLaMain();
@@ -8807,6 +8813,7 @@ function rouvrirLeTexte(t) {
     // (le « mousedown » vient après notre « pointerdown ») : on prévient, sinon
     // ce blur-là refermerait aussitôt ce qu'on vient d'ouvrir.
     saisieRouverteParUnClic();
+    if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
     setTimeout(() => {
         wysiwygText.focus();
         laSaisieARepriseLaMain();
@@ -9316,7 +9323,14 @@ canvas.addEventListener('pointermove', (e) => {
                 tournerLesTextes(type, obj.id, centre, dAngle);
                 tournerLesFormes(type, obj.id, centre, dAngle);
             }
-            const apres = boiteDeLHote(type, obj);
+            // ROGNER N'EST PAS REDIMENSIONNER. « Le cropping compresse les
+            // objets dans le pdf » : l'encre était étirée pour tenir dans la
+            // nouvelle boîte, comme lors d'un agrandissement — or rogner ne
+            // change pas l'échelle du contenu, seulement ce qu'on en voit. Le
+            // texte écrit sur la page reste où il est, à sa taille ; ce qui
+            // tombe hors du cadre est simplement caché.
+            const enRognage = (obj.isCropping === true);
+            const apres = enRognage ? null : boiteDeLHote(type, obj);
             if (apres) {
                 etirerLesTraits(type, obj.id, encreAvant.boite, apres);
                 etirerLesTextes(type, obj.id, encreAvant.boite, apres);
@@ -14582,18 +14596,30 @@ function brancherBarreDocument() {
 // plus bas dès qu'on zoomait pour montrer un détail. Ce n'est pas le zoom du
 // tableau, qui agrandit tout ensemble et ne pose pas ce problème.
 function cadrageDe(obj) {
-    return obj ? { cx: obj.cx, cy: obj.cy, cw: obj.cw, ch: obj.ch } : null;
+    // LA TAILLE DE LA BOÎTE COMPTE AUTANT QUE LE CADRAGE : « page entière » et
+    // « revenir au cadrage d'avant » changent les deux ensemble, et n'en
+    // regarder qu'un compressait l'encre. Le coin haut-gauche, lui, ne bouge
+    // dans aucune de ces manœuvres : c'est le point fixe.
+    return obj ? { cx: obj.cx, cy: obj.cy, cw: obj.cw, ch: obj.ch,
+                   w: obj.w, h: obj.h } : null;
 }
 
 function suivreLeCadrage(obj, avant) {
-    if (!obj || !avant || !avant.cw || !avant.ch || !obj.cw || !obj.ch) return;
+    if (!obj || !avant || !avant.cw || !avant.ch || !avant.w || !avant.h
+        || !obj.cw || !obj.ch || !obj.w || !obj.h) return;
     if (avant.cx === obj.cx && avant.cy === obj.cy
         && avant.cw === obj.cw && avant.ch === obj.ch) return;
     // Un point du tableau se lit en pixels d'image avec l'ancien cadrage, puis
-    // se relit en coordonnées du tableau avec le nouveau. C'est affine.
-    const kx = avant.cw / obj.cw, ky = avant.ch / obj.ch;
-    const dx = (avant.cx - obj.cx) * (obj.w / obj.cw);
-    const dy = (avant.cy - obj.cy) * (obj.h / obj.ch);
+    // se relit en coordonnées du tableau avec le nouveau. C'est affine — mais
+    // l'échelle qui compte est « pixels d'image par pixel de tableau », et non
+    // la seule largeur du cadrage : quand la boîte change EN MÊME TEMPS que le
+    // cadrage, les deux se compensent, et n'en regarder qu'un compressait
+    // l'encre à chaque retour à la page entière.
+    const sxAvant = avant.cw / avant.w, sxApres = obj.cw / obj.w;
+    const syAvant = avant.ch / avant.h, syApres = obj.ch / obj.h;
+    const kx = sxAvant / sxApres, ky = syAvant / syApres;
+    const dx = (avant.cx - obj.cx) / sxApres;
+    const dy = (avant.cy - obj.cy) / syApres;
     const versX = (X) => obj.x + dx + (X - obj.x) * kx;
     const versY = (Y) => obj.y + dy + (Y - obj.y) * ky;
     const k = Math.sqrt(Math.abs(kx * ky));
