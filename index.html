@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=113">
+    <link rel="stylesheet" href="style.css?v=115">
 </head>
 
 <body>
@@ -564,7 +564,7 @@
         <div class="modal-box help-content" style="max-height: 80vh; overflow-y: auto; max-width: 600px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 class="modal-title" style="margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" class="stroke-icon"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg> Aide Complète</h2>
-                <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">🎯 Visite Guidée</button>
+                <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">▶ Démonstration</button>
             </div>
 
             <!-- On cherche, on ne navigue pas : un seul champ filtre toute
@@ -584,6 +584,32 @@
             <div class="aide-progres" id="aide-progres"></div>
 
             <div class="aide-pages" id="aide-pages">
+                <div class="aide-section">
+                    <h3 style="color: var(--accent); margin-top: 0;">▶ La démonstration</h3>
+                    <p style="font-size: 13px; line-height: 1.6; margin-top: 0;">
+                        Elle se joue <b>sur ce tableau</b>, en quatre minutes environ. <b>Rien n'est
+                        simulé</b> : ni image, ni film, ni faux bouton. Une main va jusqu'à la vraie
+                        icône, appuie — et le tableau fait vraiment ce qu'elle raconte. Elle se
+                        déroule sur <b>une page à elle</b>, retirée en sortant : votre travail n'est
+                        pas touché, et vos classes ne sont ni lues ni modifiées.
+                    </p>
+                    <!-- LE SOMMAIRE EST ÉCRIT À PARTIR DES CHAPITRES, jamais recopié à
+                         côté : une ligne ajoutée au programme s'ajoute ici toute seule,
+                         et ne peut pas mentir sur ce que la démonstration montre. -->
+                    <ol id="demo-sommaire" style="font-size: 13px; line-height: 1.7; margin: 8px 0 10px 18px;"></ol>
+                    <p style="font-size: 13px; line-height: 1.6;">
+                        <b>☰</b> ouvre la liste des chapitres pour aller droit à celui qu'on veut ;
+                        le <b>curseur</b> de la barre porte un jalon par chapitre ; <b>⏮ ⏸ ⏭</b> et
+                        <b>✕</b> pour sortir. La <b>vitesse</b> se règle du demi au double pendant
+                        qu'on regarde. La pause <b>suspend</b> : on repart où l'on s'était arrêté.
+                        Au clavier : <b>←</b> <b>→</b>, <b>espace</b>, <b>Échap</b>.
+                    </p>
+                    <p style="font-size: 13px; line-height: 1.6;">
+                        Pendant la démonstration, la souris ne touche plus le tableau — seule la
+                        barre répond. Sans cela, un geste de la vraie main se mêlerait à celui de
+                        la visite.
+                    </p>
+                </div>
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📐 Navigation</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
@@ -1293,21 +1319,68 @@
 
             <div style="margin-top: 15px; display: flex; gap: 10px;">
                 <button class="btn-action secondary" onclick="document.getElementById('help-modal').style.display='none'" style="flex:1;">Fermer</button>
-                <button class="btn-action primary" id="btn-help-tour" style="flex:1; background: #6c5ce7;">Démarrer Visite</button>
+                <button class="btn-action primary" id="btn-help-tour" style="flex:1; background: #6c5ce7;">▶ Lancer la démonstration</button>
             </div>
         </div>
     </div>
 
-    <div id="guided-tour-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9998;"></div>
-    <div id="guided-tour-tooltip" style="display: none; position: fixed; background: white; border-radius: 8px; padding: 15px; z-index: 9999; box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 300px;">
-        <h3 id="tour-step-title" style="margin: 0 0 10px 0; color: var(--accent);"></h3>
-        <p id="tour-step-text" style="margin: 0 0 15px 0; font-size: 14px; line-height: 1.5;"></p>
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <div style="font-size: 12px; color: #999;" id="tour-step-counter"></div>
-            <div style="display: flex; gap: 5px;">
-                <button id="btn-tour-prev" class="btn-action secondary" style="padding: 4px 10px; font-size: 12px;">← Préc</button>
-                <button id="btn-tour-next" class="btn-action primary" style="padding: 4px 10px; font-size: 12px;">Suiv →</button>
-                <button id="btn-tour-close" class="btn-action secondary" onclick="closeTour()" style="padding: 4px 10px; font-size: 12px;">Fin</button>
+    <!-- ==================================================================
+         LA DÉMONSTRATION
+         Elle remplace l'ancienne « visite guidée », qui montrait les quatre
+         coins de l'écran avec des bulles et n'apprenait aucun geste. Ici la
+         main appuie sur les VRAIES icônes et le tableau fait vraiment ce
+         qu'on raconte : rien n'est simulé, ni image ni film.
+         ================================================================== -->
+    <div id="demo-voile"></div>
+    <div id="demo-main"><div id="demo-main-mot"></div></div>
+    <div id="demo-barre">
+        <div class="demo-rang" id="demo-rang">1/9</div>
+        <div class="demo-texte">
+            <div id="demo-titre"></div>
+            <div id="demo-dit"></div>
+            <!-- Le curseur porte un jalon par chapitre : on parcourt d'un
+                 geste au lieu d'appuyer neuf fois sur ⏭. -->
+            <input type="range" id="demo-curseur" min="0" max="100" step="1" value="0"
+                aria-label="Aller à un moment de la démonstration">
+        </div>
+        <div class="demo-vitesse" title="Vitesse de la démonstration">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>
+            </svg>
+            <input type="range" id="demo-vitesse" min="0.5" max="2" step="0.25" value="1"
+                aria-label="Vitesse de la démonstration">
+            <span id="demo-vitesse-mot">×1</span>
+        </div>
+        <div class="demo-boutons">
+            <button id="demo-chapitres" data-tooltip="Choisir le chapitre">☰</button>
+            <button id="demo-prec" data-tooltip="Chapitre précédent">⏮</button>
+            <button id="demo-pause" data-tooltip="Pause">⏸</button>
+            <button id="demo-suiv" data-tooltip="Chapitre suivant">⏭</button>
+            <button id="demo-stop" data-tooltip="Quitter la démonstration">✕</button>
+            <div id="demo-liste">
+                <div class="demo-liste-titre">Chapitres</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="demo-invite" class="modal-backdrop" style="display: none;">
+        <div class="modal-box">
+            <h2 class="modal-title" style="margin-top:0;">Bienvenue au tableau</h2>
+            <p style="font-size:14px; line-height:1.6; color:var(--muted); margin:0;">
+                Une <b>démonstration</b> peut vous montrer l'application en marche, sur ce tableau
+                même : la main appuie sur les vraies icônes et le tableau fait vraiment ce qu'elle
+                raconte. Neuf chapitres, quatre minutes — et l'on peut aller droit à celui qu'on
+                veut, régler la vitesse, ou sortir à tout moment.
+            </p>
+            <ul class="demo-invite-liste" id="demo-invite-liste"></ul>
+            <p style="font-size:12px; color:var(--muted); margin:6px 0 0;">
+                Elle se joue sur une page à elle : votre travail n'est pas touché. Vous la
+                retrouverez ensuite dans l'aide <b>(?)</b>.
+            </p>
+            <div style="margin-top: 18px; display: flex; gap: 10px;">
+                <button class="btn-action secondary" id="demo-invite-non" style="flex:1;">Plus tard</button>
+                <button class="btn-action primary" id="demo-invite-oui" style="flex:1;">▶ Voir la démonstration</button>
             </div>
         </div>
     </div>
@@ -1771,20 +1844,23 @@
                         <path d="M9.64 6.16L9.77 2.35L14.23 2.35L14.36 6.16A6.3 6.3 0 0 1 15.88 7.04L19.24 5.25L21.47 9.11L18.24 11.12A6.3 6.3 0 0 1 18.24 12.88L21.47 14.89L19.24 18.75L15.88 16.96A6.3 6.3 0 0 1 14.36 17.84L14.23 21.65L9.77 21.65L9.64 17.84A6.3 6.3 0 0 1 8.12 16.96L4.76 18.75L2.53 14.89L5.76 12.88A6.3 6.3 0 0 1 5.76 11.12L2.53 9.11L4.76 5.25L8.12 7.04A6.3 6.3 0 0 1 9.64 6.16Z"></path>
                     </svg>
                 </button>
+                <!-- QUATRE RUBRIQUES, PLUS SEPT. Le menu comptait un titre par
+                     réglage ou presque — « Titre du tableau », « Annotations »,
+                     « Documents », « Astuces » — et l'on parcourait plus de
+                     titres que de choix. Ce qui se règle une fois pour toutes
+                     tient en trois familles, plus ce qui sert à découvrir. -->
                 <div id="reglages-barre" class="reglages-popup">
-                    <div class="rp-titre">Affichage des outils</div>
+                    <div class="rp-titre">Apparence</div>
                     <button class="rp-choix" data-libelles="non">Icônes seules</button>
                     <button class="rp-choix" data-libelles="oui">Icônes et noms</button>
                     <button class="rp-choix" data-libelles="couleur">Noms et couleurs</button>
-
-                    <div class="rp-titre">Titre du tableau</div>
+                    <button class="rp-choix" id="rp-contours"
+                        title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
-                    <div class="rp-titre">Annotations</div>
+                    <div class="rp-titre">Sur le tableau</div>
                     <button class="rp-choix" id="rp-encre-accrochee"
                         title="Un trait posé sur un texte ou une image le suit quand on le déplace">Encre accrochée à l'objet</button>
-
-                    <div class="rp-titre">Documents</div>
                     <button class="rp-choix" id="rp-zones"
                         title="Sur un PDF vectoriel, repérer les lignes et les cases à remplir : l'outil Texte les éclaire, et le clic y pose le bloc à la bonne taille">Repérer les zones à remplir</button>
 
@@ -1794,7 +1870,9 @@
                     <button class="rp-choix" id="rp-barre-courte"
                         title="Ne garder que les gestes du quotidien : la géométrie et les instruments s'effacent. La poignée du coin inférieur droit les ramène">Barre d'outils réduite</button>
 
-                    <div class="rp-titre">Astuces</div>
+                    <div class="rp-titre">Découvrir</div>
+                    <button class="rp-choix" id="rp-demonstration"
+                        title="Neuf chapitres joués sur ce tableau : la main appuie sur les vraies icônes, et le tableau fait vraiment ce qu'elle raconte">▶ La démonstration</button>
                     <button class="rp-choix" id="rp-astuces">Astuce au démarrage</button>
                     <button class="rp-choix" onclick="montrerAstuce(true)">Voir une astuce</button>
                 </div>
@@ -2754,7 +2832,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=212"></script>
+    <script src="script.js?v=213"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

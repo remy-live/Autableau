@@ -69,6 +69,15 @@ async function ouvrirApp(browser, options = {}) {
             } catch (e) { /* stockage refusé */ }
         });
     }
+    // L'invitation à la démonstration s'ouvre 1,8 s après le chargement, au
+    // tout premier démarrage, et couvre l'écran : sur un navigateur neuf elle
+    // paraîtrait dans toutes les suites. On fait comme si elle avait déjà été
+    // proposée — sauf, bien sûr, pour celle qui l'éprouve.
+    if (!options.invitation) {
+        await context.addInitScript(() => {
+            try { localStorage.setItem('auTableau_demo_vue', 'true'); } catch (e) { /* refusé */ }
+        });
+    }
     const erreurs = [];
     page.on('pageerror', e => { if (!BRUIT.test(e.message)) erreurs.push(e.message.slice(0, 160)); });
     await page.goto(APP_URL);

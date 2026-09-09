@@ -19280,7 +19280,13 @@ const ClassesStore = {
         if (this._minuteurEcriture) { clearTimeout(this._minuteurEcriture); this._minuteurEcriture = null; }
         const fini = this._finEcriture;
         this._promesseEcriture = null; this._finEcriture = null;
-        try { if (this._cache) await localforage.setItem(CLASSES_STORAGE_KEY, this._cache); }
+        // RIEN NE S'ÉCRIT PENDANT LA DÉMONSTRATION. La classe qu'elle montre
+        // est inventée et ne vit qu'en mémoire ; sans ce verrou, un point
+        // donné à « Chloé » pendant la visite écraserait les vraies classes
+        // du professeur sur le disque. Le verrou est ICI, au dernier moment
+        // avant le disque, et non chez les vingt appelants.
+        const enVisite = typeof laDemo !== 'undefined' && !!laDemo;
+        try { if (this._cache && !enVisite) await localforage.setItem(CLASSES_STORAGE_KEY, this._cache); }
         catch (e) { /* écriture refusée */ }
         if (fini) fini();
     },
@@ -25170,6 +25176,10 @@ function proposerDeReprendreLaSecurite(handle) {
 // cours qui ne tient qu'à un navigateur.
 function rappelerLaSauvegarde() {
     if (dossierSecurite) return false;
+    // Pas pendant la démonstration : elle occupe l'écran entier, et un
+    // bandeau posé par-dessus ce qu'elle montre n'aide personne. Le rappel
+    // reviendra — il tient au nombre de jours, pas à cet instant-là.
+    if (typeof laDemo !== 'undefined' && laDemo) return false;
     const jours = joursSansSauvegarde();
     if (jours < 7) return false;
     if (document.getElementById('bandeau-securite')) return false;
@@ -27056,6 +27066,10 @@ function ensureMediaPlayerStyles() {
     style.id = 'media-player-styles';
     style.innerHTML = `
         .media-player-panel {
+            /* LA LARGEUR QU'ON POSE EST CELLE QU'ON OBTIENT. Sans cela la
+               bordure s'ajoutait par-dessus, et chaque redimensionnement
+               faisait grandir le panneau de deux pixels de plus que demandé. */
+            box-sizing: border-box;
             position: fixed; bottom: 20px; right: 20px; width: 320px; min-width: 260px; max-width: 800px;
             display: flex; flex-direction: column;
             background: var(--surface, rgba(255, 255, 255, 0.92)); color: var(--ink, #2d3436); border-radius: 12px;
@@ -27141,6 +27155,31 @@ function ensureMediaPlayerStyles() {
         .media-video-el {
             width: 100%; display: block; background: #000; border-radius: 10px; margin-bottom: 10px;
         }
+
+        /* LE COIN QU'ON TIRE. Il se voit — deux traits en biais —, il fait
+           trente pixels de côté, et il prend les deux dimensions. */
+        .media-bord-droit {
+            position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
+            cursor: ew-resize; z-index: 100;
+        }
+        .media-coin {
+            position: absolute; right: 0; bottom: 0; width: 20px; height: 20px;
+            cursor: nwse-resize; z-index: 101; opacity: 0.5;
+            background-image:
+                linear-gradient(135deg, transparent 46%, currentColor 46%, currentColor 56%, transparent 56%),
+                linear-gradient(135deg, transparent 66%, currentColor 66%, currentColor 76%, transparent 76%);
+            color: var(--muted, #636e72);
+        }
+        .media-coin:hover { opacity: 1; color: var(--accent, #6c5ce7); }
+        .media-player-panel:fullscreen .media-coin,
+        .media-player-panel.minimized .media-coin { display: none; }
+
+        /* UNE HAUTEUR IMPOSÉE SE PARTAGE. Sans cela la liste gardait ses cent
+           cinquante pixels et tout ce qu'on avait tiré n'était que du vide. */
+        .media-player-panel.taille-libre { overflow: hidden; }
+        .media-player-panel.taille-libre .media-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+        .media-player-panel.taille-libre .media-playlist { flex: 1 1 auto; max-height: none; min-height: 0; }
+        .media-player-panel.taille-libre .media-video-el { flex: 1 1 auto; min-height: 0; object-fit: contain; height: auto; }
 
         /* LE CORPS EST UNE COLONNE DE BOÎTES, et cela se dit ici et non dans
            l'attribut « style » du bloc : un habillage qui veut en faire une
@@ -27285,14 +27324,6 @@ function ensureMediaPlayerStyles() {
         /* Au doigt, il n'y a pas de survol : la croix reste là. */
         @media (hover: none) { .media-delete-btn { opacity: 0.7; } }
 
-        /* La liste dit ce qu'on peut y faire : elle se réordonne, et une piste
-           tirée dehors s'en va dans un lecteur à elle. */
-        .media-playlist-aide {
-            font-size: 11px; color: #b2bec3; text-align: center;
-            padding: 2px 10px 9px; background: transparent; line-height: 1.35;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .media-playlist-aide sup { font-size: 8px; }
 
         /* ════════════════════════════════════════════════════════════════
            L'HABILLAGE DU LECTEUR
@@ -27441,7 +27472,6 @@ function ensureMediaPlayerStyles() {
         .habillage-cartouche .media-playlist li { color: #e7e5f0; }
         .habillage-cartouche .media-playlist li:hover:not(.active) { background: #262433; }
         .habillage-cartouche .media-playlist li.active { background: rgba(185, 174, 255, 0.16); color: #cdc4ff; }
-        .habillage-cartouche .media-playlist-aide { color: #6e6a85; }
         .habillage-cartouche .media-ab-pointer { border-color: #16151c; }
         .habillage-cartouche .media-habits { background: #1e1c27; border-color: #2b2936; }
         .habillage-cartouche .media-habits-choix { color: #e7e5f0; }
@@ -27481,7 +27511,6 @@ function ensureMediaPlayerStyles() {
            eux, plutôt que de rester là sans rien faire. */
         .habillage-reglette .media-ab-seul, .habillage-reglette .media-ab-bouton { display: none !important; }
         .habillage-reglette .media-playlist { order: 5; flex: 1 0 100%; }
-        .habillage-reglette .media-playlist-aide { order: 6; flex: 1 0 100%; }
         /* UNE VIDÉO NE TIENT PAS SUR UNE LIGNE. L'habillage garde ce qu'il
            peut — des commandes compactes — mais l'en-tête redevient une
            barre au-dessus de l'image, faute de quoi « réduire » et
@@ -27785,10 +27814,12 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                 </div>
             </div>
 
-            <ul id="${id('playlist')}" class="media-playlist"></ul>
-            <div class="media-playlist-aide" id="${id('playlist-aide')}">
-                Double-clic pour lire · <b>tirer dehors</b> : 2<sup>e</sup> lecteur
-            </div>
+            <!-- LA PHRASE D'AIDE S'EN EST ALLÉE. Elle occupait une ligne sous
+                 chaque lecteur, en permanence, pour dire deux gestes qu'on
+                 apprend une fois. Elle vit maintenant dans l'infobulle de la
+                 liste — et dans l'aide, qui est faite pour ça. -->
+            <ul id="${id('playlist')}" class="media-playlist"
+                data-tooltip="Double-clic pour lire · glisser pour réordonner · tirer dehors : second lecteur"></ul>
         `;
         document.body.appendChild(container);
         mediaEl = el('media');
@@ -28252,7 +28283,6 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
     function majLaListe() {
         const liste = el('playlist');
-        const aide = el('playlist-aide');
         const b = el('playlist-toggle');
         const compte = el('compte');
         const plusieurs = playlist.length > 1;
@@ -28263,7 +28293,6 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         if (b) b.classList.toggle('ouvert', listeOuverte);
         const montrer = plusieurs && listeOuverte;
         if (liste) liste.style.display = montrer ? 'block' : 'none';
-        if (aide) aide.style.display = montrer ? 'block' : 'none';
     }
 
     function majLePas() {
@@ -28474,41 +28503,55 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         });
     }
 
+    // ON REDIMENSIONNE LE LECTEUR PAR SON COIN, EN LARGEUR ET EN HAUTEUR.
+    // Il n'y avait qu'une lisière de six pixels sur le bord droit, invisible
+    // et ne changeant que la largeur : une vidéo restait de la taille qu'on
+    // lui avait donnée, et une longue liste de pistes ne pouvait pas
+    // respirer. La poignée du coin se voit et prend les deux dimensions ; le
+    // bord droit reste là pour qui ne veut que la largeur.
     function setupResizer() {
-        const resizer = document.createElement('div');
-        resizer.style.cssText = 'position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: ew-resize; z-index: 100;';
-        container.appendChild(resizer);
+        const bord = document.createElement('div');
+        bord.className = 'media-bord-droit';
+        container.appendChild(bord);
+        const coin = document.createElement('div');
+        coin.className = 'media-coin';
+        coin.setAttribute('data-tooltip', 'Redimensionner le lecteur');
+        container.appendChild(coin);
 
-        let isResizing = false;
-        let startW, startX;
+        let enCours = null;   // { l, h, x, y, hauteurAussi }
 
-        resizer.onmousedown = (e) => {
-            isResizing = true;
+        const prendre = (e, hauteurAussi) => {
             const rect = container.getBoundingClientRect();
-
+            // Posé par « bottom/right », il grandirait vers le haut et la
+            // gauche : on le rattache à son coin haut-gauche d'abord.
             if (container.style.bottom || container.style.right) {
                 container.style.bottom = 'auto';
                 container.style.right = 'auto';
                 container.style.left = rect.left + 'px';
                 container.style.top = rect.top + 'px';
             }
-
-            startW = rect.width;
-            startX = e.clientX;
+            enCours = { l: rect.width, h: rect.height, x: e.clientX, y: e.clientY, hauteurAussi };
             e.stopPropagation();
             e.preventDefault();
         };
+        bord.onmousedown = (e) => prendre(e, false);
+        coin.onmousedown = (e) => prendre(e, true);
 
         document.addEventListener('mousemove', (e) => {
-            if (!isResizing) return;
-            let newW = startW + (e.clientX - startX);
-            newW = Math.max(260, Math.min(newW, 800));
-            container.style.width = newW + 'px';
+            if (!enCours) return;
+            const l = Math.max(260, Math.min(enCours.l + (e.clientX - enCours.x), window.innerWidth - 24));
+            container.style.width = l + 'px';
+            if (enCours.hauteurAussi) {
+                const h = Math.max(120, Math.min(enCours.h + (e.clientY - enCours.y), window.innerHeight - 24));
+                container.style.height = h + 'px';
+                // LA HAUTEUR CHOISIE EST UNE HAUTEUR IMPOSÉE : sans le dire à
+                // la feuille de style, la liste garderait ses cent cinquante
+                // pixels et le reste ne serait que du vide.
+                container.classList.add('taille-libre');
+            }
         });
 
-        document.addEventListener('mouseup', () => {
-            if (isResizing) isResizing = false;
-        });
+        document.addEventListener('mouseup', () => { enCours = null; });
     }
 
     function handleDrop(file) {
@@ -28636,190 +28679,11 @@ async function importerDocument(fichier, positionEcran) {
 // ==========================================
 // GUIDED TOUR SYSTEM
 // ==========================================
-let currentTourStep = 0;
-const tourSteps = [
-    {
-        title: "✏️ Bienvenue dans Au Tableau",
-        text: "Découvrez les 4 zones principales de ce tableau blanc numérique !",
-        position: "center"
-    },
-    {
-        title: "📦 Zone Plugins - En Haut",
-        text: "Barre EN HAUT : créez vos toolbars personnalisées ou utilisez les modules (Mathjax, Python, Scratch, etc.).",
-        elementId: "bar-plugins",
-        position: "bottom"
-    },
-    {
-        title: "🎨 Barre d'Outils Principale - À GAUCHE",
-        text: "Tous vos outils : sélection, tracé libre, surligneur, gomme, formes géométriques, instruments, texte, etc.",
-        elementId: "system-toolbar-main",
-        position: "center"
-    },
-    {
-        title: "🧲 Contrôles - En Bas",
-        text: "Aimant magnétique, zoom, grille, calculatrice, horloge, chrono, sonomètre, et plus.",
-        elementId: "bottom-drawer",
-        position: "top"
-    },
-    {
-        title: "📁 Mes Tableaux - À DROITE",
-        text: "Explorez vos fichiers, créez de nouveaux tableaux, organisez vos dossiers.",
-        elementId: "right-drawer",
-        position: "left"
-    },
-    {
-        title: "🎯 C'est parti !",
-        text: "Vous connaissez les zones principales. Retrouvez l'aide (?) en bas à droite pour plus de détails.",
-        position: "center"
-    }
-];
-
-function startGuidedTour() {
-    currentTourStep = 0;
-    showTourStep(0);
-}
-
-function showTourStep(stepIdx) {
-    if (stepIdx < 0 || stepIdx >= tourSteps.length) {
-        closeTour();
-        return;
-    }
-
-    currentTourStep = stepIdx;
-    const step = tourSteps[stepIdx];
-
-    const tooltip = document.getElementById('guided-tour-tooltip');
-    tooltip.style.display = 'block';
-
-    document.getElementById('tour-step-title').textContent = step.title;
-    document.getElementById('tour-step-text').textContent = step.text;
-    document.getElementById('tour-step-counter').textContent = `${stepIdx + 1}/${tourSteps.length}`;
-
-    // Ouvrir/afficher les drawers et toolbar si nécessaire
-    const needsDelay = step.elementId === 'bottom-drawer' || step.elementId === 'right-drawer';
-
-    if (step.elementId === 'bar-plugins') {
-        const barPlugins = document.getElementById('bar-plugins');
-        if (barPlugins) barPlugins.style.display = 'flex';
-    }
-    if (step.elementId === 'bar-tools') {
-        const toolbar = document.getElementById('bar-tools');
-        if (toolbar) toolbar.style.display = 'block';
-    }
-    if (step.elementId === 'bottom-drawer') {
-        const drawer = document.getElementById('bottom-drawer');
-        if (drawer) drawer.classList.add('open');
-    }
-    if (step.elementId === 'right-drawer') {
-        const drawer = document.getElementById('right-drawer');
-        if (drawer) drawer.classList.add('open');
-    }
-
-    const doHighlight = () => {
-        let highlightInfo = null;
-        if (step.customRect) {
-            highlightInfo = addHighlight(null, step.customRect);
-        } else if (step.elementId) {
-            highlightInfo = addHighlight(step.elementId);
-        }
-    };
-
-    if (needsDelay) {
-        setTimeout(doHighlight, 300);
-    } else {
-        doHighlight();
-    }
-
-    // Texte toujours au centre
-    const tooltipWidth = 300;
-    const tooltipHeight = 150;
-    const left = Math.max(10, Math.min(window.innerWidth / 2 - tooltipWidth / 2, window.innerWidth - tooltipWidth - 10));
-    const top = Math.max(10, Math.min(window.innerHeight / 2 - tooltipHeight / 2, window.innerHeight - tooltipHeight - 10));
-
-    tooltip.style.left = left + 'px';
-    tooltip.style.top = top + 'px';
-
-    document.getElementById('btn-tour-prev').onclick = () => showTourStep(currentTourStep - 1);
-    document.getElementById('btn-tour-next').onclick = () => showTourStep(currentTourStep + 1);
-}
-
-function addHighlight(elementId, customRect) {
-    let rect;
-
-    if (customRect) {
-        rect = customRect;
-    } else if (elementId) {
-        const el = document.getElementById(elementId);
-        if (!el) return;
-        const bRect = el.getBoundingClientRect();
-        rect = { left: bRect.left, top: bRect.top, width: bRect.width, height: bRect.height };
-    } else {
-        return;
-    }
-
-    const padding = 15;
-
-    let canvas = document.getElementById('tour-highlight-canvas');
-    if (!canvas) {
-        canvas = document.createElement('canvas');
-        canvas.id = 'tour-highlight-canvas';
-        canvas.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            z-index: 9996;
-        `;
-        document.body.appendChild(canvas);
-    }
-
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.clearRect(
-        rect.left - padding,
-        rect.top - padding,
-        rect.width + padding * 2,
-        rect.height + padding * 2
-    );
-
-    ctx.strokeStyle = '#6c5ce7';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = 'rgba(108, 92, 231, 0.8)';
-    ctx.shadowBlur = 15;
-    ctx.strokeRect(
-        rect.left - padding,
-        rect.top - padding,
-        rect.width + padding * 2,
-        rect.height + padding * 2
-    );
-
-    document.body.appendChild(canvas);
-
-    return {
-        centerX: rect.left + rect.width / 2,
-        centerY: rect.top + rect.height / 2,
-        rect: rect
-    };
-}
-
-function removeHighlight() {
-    const canvas = document.getElementById('tour-highlight-canvas');
-    if (canvas) canvas.remove();
-}
-
-function closeTour() {
-    document.getElementById('guided-tour-overlay').style.display = 'none';
-    document.getElementById('guided-tour-tooltip').style.display = 'none';
-    removeHighlight();
-    localStorage.setItem('auTableau_tour_seen', 'true');
-    currentTourStep = 0;
-}
+// L'ANCIENNE « VISITE GUIDÉE » A ÉTÉ RETIRÉE. Elle désignait les quatre
+// coins de l'écran avec des bulles — « Barre EN HAUT », « Barre À GAUCHE » —
+// et n'apprenait pas un geste : on savait où étaient les meubles, pas ce
+// qu'on pouvait en faire. La DÉMONSTRATION la remplace, plus bas dans ce
+// fichier : elle se joue sur le vrai tableau, et montre au lieu de nommer.
 
 function processMath(textObj) {
     // LaTeX n'est pas supporté pour le rendu canvas - garder le texte brut
@@ -28880,22 +28744,8 @@ function debugRemoveElements() {
     if (canvas) canvas.remove();
 }
 
-const btnStartTour = document.getElementById('btn-start-tour');
-const btnHelpTour = document.getElementById('btn-help-tour');
-
-if (btnStartTour) {
-    btnStartTour.addEventListener('click', () => {
-        document.getElementById('help-modal').style.display = 'none';
-        startGuidedTour();
-    });
-}
-
-if (btnHelpTour) {
-    btnHelpTour.addEventListener('click', () => {
-        document.getElementById('help-modal').style.display = 'none';
-        startGuidedTour();
-    });
-}
+// Les deux boutons de l'aide lancent la DÉMONSTRATION : ils sont branchés
+// plus bas, avec elle, une fois la page prête.
 
 setTimeout(() => {
     const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
@@ -30078,6 +29928,14 @@ function basculerAstuces() {
 function montrerAstuce(manuelle, decalage) {
     const boite = document.getElementById('astuce-modal');
     if (!boite) return;
+    // PAS PAR-DESSUS LA DÉMONSTRATION, ni par-dessus l'invitation à la
+    // suivre : l'astuce du jour s'ouvre deux secondes et demie après le
+    // chargement, c'est-à-dire en plein milieu de ce qu'on vient de lancer.
+    if (!manuelle) {
+        if (typeof laDemo !== 'undefined' && laDemo) return;
+        const invite = document.getElementById('demo-invite');
+        if (invite && getComputedStyle(invite).display !== 'none') return;
+    }
     if (decalage) etatAstuces.index = (etatAstuces.index + decalage + ASTUCES.length) % ASTUCES.length;
     const a = ASTUCES[etatAstuces.index % ASTUCES.length];
     document.getElementById('astuce-titre').innerText = a.titre;
@@ -30144,6 +30002,8 @@ function majReglagesBarre() {
     if (bTiroirs) bTiroirs.classList.toggle('actif', tiroirsAuto);
     const bCourte = document.getElementById('rp-barre-courte');
     if (bCourte) bCourte.classList.toggle('actif', barreCourte);
+    const bContours = document.getElementById('rp-contours');
+    if (bContours) bContours.classList.toggle('actif', !contoursDoux);
 }
 
 // ==================================================================
@@ -30153,6 +30013,27 @@ function majReglagesBarre() {
 // place du professeur, on lui donne les deux leviers — et rien ne bouge
 // tant qu'il ne les a pas demandés.
 // ==================================================================
+// CONTOURS FRANCS OU DISCRETS. Le trait d'encre autour des barres et des
+// fenêtres est ce qu'il faut quand on les pose sur un polycopié blanc projeté
+// en grand : sans lui, elles y disparaissent. Sur un écran de bureau, à
+// cinquante centimètres, certains le trouveront dur — d'où le réglage. Le
+// franc est le défaut : c'est celui qui se voit de loin.
+const CLE_CONTOURS_DOUX = 'auTableau_contours_doux';
+let contoursDoux = false;
+try { contoursDoux = localStorage.getItem(CLE_CONTOURS_DOUX) === 'true'; } catch (e) { /* stockage refusé */ }
+
+function poserLesContours() {
+    document.body.classList.toggle('contours-doux', contoursDoux);
+}
+
+function basculerLesContours(force) {
+    contoursDoux = (force === undefined) ? !contoursDoux : !force;
+    try { localStorage.setItem(CLE_CONTOURS_DOUX, contoursDoux ? 'true' : 'false'); } catch (e) { /* refusé */ }
+    poserLesContours();
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    return !contoursDoux;
+}
+
 const CLE_TIROIRS_AUTO = 'auTableau_tiroirs_auto';
 const CLE_BARRE_COURTE = 'auTableau_barre_courte';
 let tiroirsAuto = false;
@@ -30266,6 +30147,7 @@ function brancherLaPoigneeDesOutils() {
 
 document.addEventListener('DOMContentLoaded', () => {
     poserLaBarreCourte();
+    poserLesContours();
     brancherLaPoigneeDesOutils();
 });
 
@@ -30333,6 +30215,22 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(actif ? 'Barre réduite — la poignée du coin la ramène en entier'
                             : 'Toute la barre est revenue');
         }
+    });
+
+    const bContours = document.getElementById('rp-contours');
+    if (bContours) bContours.addEventListener('click', () => {
+        const francs = basculerLesContours();
+        if (typeof showToast === 'function') {
+            showToast(francs ? 'Contours francs : les barres se détachent du fond'
+                             : 'Contours discrets');
+        }
+    });
+
+    const bDemo = document.getElementById('rp-demonstration');
+    if (bDemo) bDemo.addEventListener('click', () => {
+        const popup = document.getElementById('reglages-barre');
+        if (popup) popup.classList.remove('visible');
+        if (typeof demarrerLaDemonstration === 'function') demarrerLaDemonstration();
     });
 
     const bZones = document.getElementById('rp-zones');
@@ -30561,3 +30459,953 @@ document.addEventListener('DOMContentLoaded', () => {
     // Le menu rapide n'a rien à faire par-dessus un tableau masqué
     window.unMasqueEstOuvert = () => rideauVisible() || spotVisible();
 })();
+
+// ==================================================================
+// LA DÉMONSTRATION
+//
+// Une aide qui se MONTRE au lieu de se lire. L'ancienne « visite guidée »
+// désignait les quatre coins de l'écran avec des bulles et n'apprenait pas
+// un geste ; celle-ci se joue sur le vrai tableau — la main va jusqu'à la
+// vraie icône, appuie pour de bon, et l'on voit ce que ça fait. Rien n'est
+// simulé : ni image, ni film, ni faux bouton.
+//
+// TROIS RÈGLES, dont tout le reste découle.
+//
+//   1. ELLE NE COÛTE RIEN À CELUI QUI LA DEMANDE. Elle se joue sur une page
+//      qu'elle crée et retire ; l'outil, la classe du moment, le tiroir, les
+//      lecteurs ouverts sont rendus comme ils étaient. Et rien ne s'écrit
+//      dans les classes tant qu'elle dure : la classe qu'elle montre est
+//      inventée, et ne vit qu'en mémoire.
+//   2. ON PEUT EN SORTIR, ET ALLER OÙ L'ON VEUT. Neuf chapitres, c'est trop
+//      pour avancer un par un quand on cherche celui du découpage : le
+//      sommaire les nomme, et le curseur porte un jalon par chapitre.
+//   3. CHAQUE CHAPITRE SE NETTOIE AVANT DE JOUER. C'est ce qui rend le
+//      choix du chapitre possible : on peut entrer à froid dans n'importe
+//      lequel, sans traîner ce que le précédent avait laissé.
+// ==================================================================
+
+const CLE_DEMO_VUE = 'auTableau_demo_vue';
+const CLE_DEMO_VITESSE = 'auTableau_demo_vitesse';
+
+let laDemo = null;             // l'état de la démonstration en cours
+let vitesseDeLaDemo = 1;       // du demi au double
+try {
+    const v = parseFloat(localStorage.getItem(CLE_DEMO_VITESSE));
+    if (isFinite(v) && v >= 0.5 && v <= 2) vitesseDeLaDemo = v;
+} catch (e) { /* stockage refusé */ }
+
+// Les sondes n'ont pas d'yeux. La démonstration dure quatre minutes, et
+// c'est voulu : chaque geste doit se voir. On laisse donc raccourcir les
+// TEMPS D'ATTENTE — ceux qui n'existent que pour laisser regarder —, jamais
+// les gestes eux-mêmes. Ce qui est mesuré reste ce qui se passe.
+let facteurDAttenteDeLaDemo = 0;
+
+function demonstrationEnCours() { return !!laDemo; }
+
+// ------------------------------------------------------------------
+// LA MAIN
+// ------------------------------------------------------------------
+function mainDeLaDemoVers(x, y, mot, vite) {
+    const main = document.getElementById('demo-main');
+    if (!main) return;
+    main.classList.add('visible');
+    main.classList.toggle('vite', !!vite);
+    main.classList.toggle('a-un-mot', !!mot);
+    const bulle = document.getElementById('demo-main-mot');
+    if (bulle && mot) bulle.textContent = mot;
+    main.style.left = Math.round(x) + 'px';
+    main.style.top = Math.round(y) + 'px';
+}
+
+function cacherLaMainDeLaDemo() {
+    const main = document.getElementById('demo-main');
+    if (!main) return;
+    main.classList.remove('visible', 'appuie', 'a-un-mot');
+}
+
+// ------------------------------------------------------------------
+// LA TROUSSE DE GESTES
+// Tout passe par de vrais événements sur de vrais éléments. Un chapitre ne
+// sait rien faire d'autre.
+// ------------------------------------------------------------------
+function gestesDeLaDemo(d, jeton) {
+    const vivant = () => { if (laDemo !== d || d.jeton !== jeton) throw 'demo-arret'; };
+
+    // UNE PAUSE QUI SUSPEND, PAS QUI RECOMMENCE. Chaque attente décompte le
+    // temps qui passe VRAIMENT, et ne décompte rien tant qu'on est en pause :
+    // on repart exactement là où l'on s'était arrêté, au milieu d'un geste
+    // s'il le faut. La vitesse agit ici, et seulement ici.
+    const tempo = (ms) => new Promise((ok, rate) => {
+        if (facteurDAttenteDeLaDemo > 0 && facteurDAttenteDeLaDemo < 1 && ms > 260) {
+            ms = Math.max(260, ms * facteurDAttenteDeLaDemo);
+        }
+        let reste = ms / (vitesseDeLaDemo || 1), dernier = Date.now();
+        const tic = () => {
+            if (laDemo !== d || d.jeton !== jeton) return rate('demo-arret');
+            const t = Date.now();
+            if (!d.pause) reste -= (t - dernier);
+            dernier = t;
+            if (reste <= 0) return ok();
+            d.attentes.push(setTimeout(tic, Math.max(16, Math.min(90, reste))));
+        };
+        d.attentes.push(setTimeout(tic, Math.max(16, Math.min(90, reste))));
+    });
+
+    const dire = (texte) => {
+        vivant();
+        d.dit = texte;
+        const e = document.getElementById('demo-dit');
+        if (e) e.textContent = texte;
+    };
+
+    const trouve = (cible) => typeof cible === 'string'
+        ? document.querySelector(cible) : (cible || null);
+
+    // ON DÉSIGNE UN BOUTON QUI EXISTE, OU L'ON N'EN DÉSIGNE PAS. La barre
+    // d'Au Tableau se range comme on veut : un professeur peut avoir retiré
+    // l'outil dont parle le chapitre. Plutôt que de pointer le vide, la main
+    // s'abstient et le geste se fait quand même — la démonstration reste
+    // vraie, elle est seulement moins bavarde.
+    const viser = async (cible, mot) => {
+        vivant();
+        const e = trouve(cible);
+        if (!e || !e.getClientRects().length) { if (e && e.click) e.click(); await tempo(500); return !!e; }
+        const b = e.getBoundingClientRect();
+        mainDeLaDemoVers(b.left + b.width / 2, b.top + b.height / 2, mot);
+        await tempo(700);
+        vivant();
+        const main = document.getElementById('demo-main');
+        if (main) main.classList.add('appuie');
+        await tempo(260);
+        vivant();
+        e.click();
+        if (main) main.classList.remove('appuie');
+        await tempo(420);
+        return true;
+    };
+
+    // LES GESTES VISENT L'ÉCRAN, PAS LE REPÈRE DU TABLEAU. Celui-ci se
+    // déplace et se zoome : une démonstration qui trace en coordonnées de
+    // tableau écrit hors de l'écran dès que la vue n'est plus à sa place
+    // d'origine — mesuré, le premier trait sortait par le bas à droite. Un
+    // chapitre dit donc « au tiers de la largeur », et cela vaut partout.
+    const ecran = (fx, fy) => ({ x: Math.round(window.innerWidth * fx),
+                                 y: Math.round(window.innerHeight * fy) });
+    const surEcran = (x, y) => ({ x, y });
+
+    const evt = (type, x, y, appuye) => {
+        const c = document.getElementById('board');
+        if (!c) return;
+        c.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, clientX: x, clientY: y,
+            pointerId: 1, pointerType: 'mouse', isPrimary: true,
+            button: 0, buttons: appuye ? 1 : 0
+        }));
+    };
+
+    // Un trait tracé point par point, comme une main le ferait. Le dernier
+    // point peut s'attarder : c'est ainsi que le stylo redresse les formes.
+    const tracer = async (points, mot, attarder) => {
+        vivant();
+        const p0 = surEcran(points[0][0], points[0][1]);
+        mainDeLaDemoVers(p0.x, p0.y, mot);
+        await tempo(600);
+        vivant();
+        const main = document.getElementById('demo-main');
+        if (main) main.classList.add('appuie');
+        evt('pointerdown', p0.x, p0.y, true);
+        for (let i = 1; i < points.length; i++) {
+            vivant();
+            const p = surEcran(points[i][0], points[i][1]);
+            mainDeLaDemoVers(p.x, p.y, mot, true);
+            evt('pointermove', p.x, p.y, true);
+            await tempo(38);
+        }
+        if (attarder) await tempo(attarder);
+        vivant();
+        const f = surEcran(points[points.length - 1][0], points[points.length - 1][1]);
+        evt('pointerup', f.x, f.y, false);
+        if (main) main.classList.remove('appuie');
+        await tempo(320);
+    };
+
+    const glisser = (x1, y1, x2, y2, mot) => tracer(
+        [[x1, y1], [x1 + (x2 - x1) * 0.25, y1 + (y2 - y1) * 0.25],
+         [x1 + (x2 - x1) * 0.5, y1 + (y2 - y1) * 0.5],
+         [x1 + (x2 - x1) * 0.75, y1 + (y2 - y1) * 0.75], [x2, y2]], mot);
+
+    const toucher = async (x, y, mot) => {
+        vivant();
+        const p = surEcran(x, y);
+        mainDeLaDemoVers(p.x, p.y, mot);
+        await tempo(560);
+        vivant();
+        const main = document.getElementById('demo-main');
+        if (main) main.classList.add('appuie');
+        evt('pointerdown', p.x, p.y, true);
+        await tempo(120);
+        evt('pointerup', p.x, p.y, false);
+        if (main) main.classList.remove('appuie');
+        await tempo(320);
+    };
+
+    return { vivant, tempo, dire, viser, tracer, glisser, toucher, ecran,
+             cacher: cacherLaMainDeLaDemo };
+}
+
+// ------------------------------------------------------------------
+// LA FICHE DE DÉMONSTRATION
+// Fabriquée par l'application elle-même, et non embarquée : rien à
+// charger, rien à télécharger, et cela marche hors connexion — comme le
+// reste. Deux exercices bien séparés : c'est ce que le découpage doit
+// savoir reconnaître.
+// ------------------------------------------------------------------
+function ficheDeDemonstration() {
+    const L = 760, H = 1040;
+    const ligne = (x, y, l) => `<line x1="${x}" y1="${y}" x2="${x + l}" y2="${y}" stroke="#b2bec3" stroke-width="1.4" stroke-dasharray="3 4"/>`;
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L} ${H}" width="${L}" height="${H}">`;
+    s += `<rect width="${L}" height="${H}" fill="#ffffff"/>`;
+    s += `<text x="46" y="62" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#2d3436">Fiche de mathématiques</text>`;
+    s += `<line x1="46" y1="78" x2="${L - 46}" y2="78" stroke="#2d3436" stroke-width="2"/>`;
+
+    s += `<text x="46" y="140" font-family="Georgia, serif" font-size="19" font-weight="bold" fill="#0984e3">Exercice 1 — Calcule</text>`;
+    ['24 + 138 = ', '305 − 47 = ', '12 × 9 = ', '144 : 12 = '].forEach((t, i) => {
+        const y = 186 + i * 52;
+        s += `<text x="60" y="${y}" font-family="Georgia, serif" font-size="18" fill="#2d3436">${t}</text>`;
+        s += ligne(200, y + 5, 180);
+    });
+
+    s += `<text x="46" y="470" font-family="Georgia, serif" font-size="19" font-weight="bold" fill="#0984e3">Exercice 2 — Le problème du car</text>`;
+    ['Un car de 55 places emmène 3 classes en sortie.',
+     'La première compte 24 élèves, la deuxième 26,', 'la troisième 22. Combien de cars faut-il ?'].forEach((t, i) => {
+        s += `<text x="60" y="${512 + i * 30}" font-family="Georgia, serif" font-size="17" fill="#2d3436">${t}</text>`;
+    });
+    for (let i = 0; i < 4; i++) s += ligne(60, 640 + i * 42, L - 120);
+
+    s += `<text x="46" y="840" font-family="Georgia, serif" font-size="19" font-weight="bold" fill="#0984e3">Exercice 3 — Complète</text>`;
+    for (let i = 0; i < 3; i++) {
+        s += `<text x="60" y="${892 + i * 44}" font-family="Georgia, serif" font-size="17" fill="#2d3436">${i + 1}.</text>`;
+        s += ligne(90, 897 + i * 44, L - 150);
+    }
+    s += `</svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(s)));
+}
+
+// Une piste sans son, d'une poignée de secondes : le chapitre montre le
+// lecteur, ses commandes et ses habillages — pas le contenu d'un fichier
+// qu'il faudrait embarquer.
+function pisteDeDemonstration(secondes) {
+    const taux = 8000, n = taux * (secondes || 6);
+    const o = new ArrayBuffer(44 + n * 2), v = new DataView(o);
+    const mot = (p, t) => { for (let i = 0; i < t.length; i++) v.setUint8(p + i, t.charCodeAt(i)); };
+    mot(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); mot(8, 'WAVE'); mot(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, taux, true); v.setUint32(28, taux * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    mot(36, 'data'); v.setUint32(40, n * 2, true);
+    return new File([o], 'Dictée n°3 — Le loup et l\'agneau.wav', { type: 'audio/wav' });
+}
+
+// ------------------------------------------------------------------
+// LE PROGRAMME
+// C'est la seule source : le sommaire de l'aide, la liste des chapitres de
+// la barre et les jalons du curseur en sont tous tirés. Une ligne ajoutée
+// ici s'ajoute partout, et ne peut pas mentir sur ce qui est montré.
+// ------------------------------------------------------------------
+function chapitresDeLaDemonstration() {
+    const outil = (m) => `#system-toolbar-main [data-mode="${m}"]`;
+
+    // Un rectangle tremblé, tracé comme à la main : c'est ce que le stylo
+    // doit redresser. Le tremblement est calculé, pas tiré au sort — une
+    // démonstration doit se rejouer à l'identique.
+    const tremble = (sommets, pas) => {
+        pas = pas || 6;
+        const t = [];
+        for (let k = 0; k < sommets.length - 1; k++) {
+            for (let i = 0; i < pas; i++) {
+                const u = i / pas;
+                t.push([sommets[k][0] + (sommets[k + 1][0] - sommets[k][0]) * u + Math.sin(k * 5 + i * 1.7) * 5,
+                        sommets[k][1] + (sommets[k + 1][1] - sommets[k][1]) * u + Math.cos(k * 3 + i * 2.1) * 5]);
+            }
+        }
+        t.push(sommets[sommets.length - 1]);
+        return t;
+    };
+
+    // Le document de la fiche, posé au milieu de ce qu'on voit.
+    const poserLaFiche = () => new Promise((ok) => {
+        const src = ficheDeDemonstration();
+        const img = new Image();
+        img.onload = () => {
+            imageCache[img.src] = img;
+            const h = Math.min(window.innerHeight - 150, 660);
+            const l = h * (img.naturalWidth / img.naturalHeight);
+            const obj = {
+                id: nextId++, x: (window.innerWidth / 2 - panX) / zoom - l / 2,
+                y: (window.innerHeight / 2 - panY) / zoom - h / 2 - 20,
+                w: l, h: h, cx: 0, cy: 0, cw: img.naturalWidth, ch: img.naturalHeight,
+                src: img.src, z: globalZ++, nomFichier: 'Fiche de démonstration', page: 1
+            };
+            images.push(obj);
+            draw();
+            ok(obj);
+        };
+        img.src = src;
+    });
+
+    return [
+        { titre: 'Écrire, effacer, revenir en arrière',
+          dit: 'Trois gestes, et l\'on peut déjà faire cours : le crayon écrit, la gomme efface, et l\'on revient en arrière autant qu\'on veut.',
+          duree: 26000,
+          faire: async (g) => {
+              g.dire('Le crayon, dans la barre de gauche.');
+              await g.viser(outil('freehand'), 'Le crayon');
+              setMode('freehand');
+              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
+              g.dire('On écrit comme sur un tableau : le trait suit la main.');
+              await g.tracer(tremble([E(0.28, 0.34), E(0.40, 0.26), E(0.52, 0.40), E(0.64, 0.30)], 7), 'On écrit');
+              await g.tracer(tremble([E(0.28, 0.52), E(0.46, 0.47), E(0.64, 0.56)], 7));
+              g.dire('La gomme efface ce qu\'on touche — pas la page entière.');
+              await g.viser(outil('eraser'), 'La gomme');
+              setMode('eraser');
+              const a = E(0.46, 0.47), b = E(0.64, 0.56);
+              await g.glisser(a[0], a[1], b[0], b[1], 'On efface');
+              g.dire('Et Ctrl+Z revient en arrière, jusqu\'à cent fois.');
+              g.cacher();
+              if (typeof undo === 'function') { undo(); await g.tempo(700); undo(); }
+              setMode('pointer');
+              await g.tempo(1400);
+          } },
+
+        { titre: 'Le stylo qui redresse les formes',
+          dit: 'On trace un rectangle à main levée, on GARDE le doigt appuyé une seconde à la fin — et la forme se redresse toute seule.',
+          duree: 22000,
+          faire: async (g) => {
+              await g.viser(outil('freehand'), 'Le crayon');
+              setMode('freehand');
+              g.dire('Un rectangle tracé à la main, bien de travers.');
+              const E = (fx, fy) => { const p = g.ecran(fx, fy); return [p.x, p.y]; };
+              const R = [E(0.30, 0.26), E(0.62, 0.23), E(0.64, 0.56), E(0.31, 0.59), E(0.30, 0.26)];
+              g.dire('On garde le doigt appuyé une seconde à la fin du tracé…');
+              await g.tracer(tremble(R, 6), 'On garde appuyé', 1500);
+              g.dire('…et il se redresse. Les cercles, les triangles, les losanges aussi.');
+              g.cacher();
+              setMode('pointer');
+              await g.tempo(2200);
+          } },
+
+        { titre: 'Ouvrir un document, et le présenter',
+          dit: 'Un PDF ou une image se glisse sur le tableau. Sa barre à lui apparaît : on écrit dessus, on le présente en grand, on tourne les pages.',
+          duree: 24000,
+          faire: async (g) => {
+              g.dire('Voici une fiche, posée sur le tableau.');
+              const doc = await poserLaFiche();
+              await g.tempo(1200);
+              g.dire('On la choisit : sa barre paraît, avec ce qu\'on peut en faire.');
+              selectedItems = [doc];
+              if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+              draw();
+              await g.tempo(1800);
+              g.dire('Le plein écran la met au milieu, sur fond sombre : c\'est ce qu\'on projette.');
+              await g.viser('#doc-plein-ecran', 'Plein écran');
+              await g.tempo(2400);
+              g.dire('Et l\'on en sort comme on y est entré.');
+              if (typeof presentationEnCours !== 'undefined') presentationEnCours = null;
+              document.body.classList.remove('focus-mode');
+              if (typeof majBarreDocument === 'function') majBarreDocument();
+              selectedItems = [];
+              if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+              draw();
+              g.cacher();
+              await g.tempo(1200);
+          } },
+
+        { titre: 'Découper un exercice, le tiroir, poser',
+          dit: 'On découpe les exercices d\'une fiche, ils vont au tiroir — et l\'on pose ce qu\'on veut, quand on veut, aussi grand que la place le permet.',
+          duree: 26000,
+          faire: async (g) => {
+              const doc = await poserLaFiche();
+              await g.tempo(900);
+              g.dire('On trace un rectangle sur l\'exercice : il part au tiroir, en bas.');
+              const bandes = [
+                  { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.10, l: doc.w * 0.92, h: doc.h * 0.30 },
+                  { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.42, l: doc.w * 0.92, h: doc.h * 0.32 }
+              ];
+              for (const r of bandes) {
+                  prendreUnMorceau(doc, r, true);
+                  if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
+                  await g.tempo(1100);
+              }
+              g.dire('Deux exercices au tiroir. On les pose d\'un seul geste…');
+              await g.tempo(1400);
+              images.length = 0;
+              draw();
+              if (typeof poserTousLesMorceaux === 'function') poserTousLesMorceaux();
+              g.dire('…et ils occupent toute la place disponible, côte à côte, en grand.');
+              g.cacher();
+              await g.tempo(2600);
+          } },
+
+        { titre: 'Les tampons et les générateurs',
+          dit: 'Le tiroir du haut fabrique ce qu\'on dessinait à la main : tableaux de numération, droites graduées, frises, quadrillages, plans de classe.',
+          duree: 24000,
+          faire: async (g) => {
+              const haut = document.getElementById('bar-plugins');
+              if (haut && haut.classList.contains('closed') && typeof togglePluginDrawer === 'function') togglePluginDrawer();
+              await g.tempo(900);
+              g.dire('Le tiroir du haut : chaque vignette pose un objet fini sur le tableau.');
+              await g.tempo(1600);
+              g.dire('Le tableau de numération, par exemple — on coche les classes qu\'on veut.');
+              const num = PluginManager && PluginManager.plugins && PluginManager.plugins['cduGeneratorTool'];
+              if (num) {
+                  num.buildCDUTable('millions,milliers,dixiemes,centiemes,milliemes', '3', 'couleur');
+                  await g.tempo(1800);
+                  g.dire('Quatre modèles pour le même tableau : celui qu\'on projette, celui qu\'on photocopie…');
+                  images.length = 0; draw();
+                  num.buildCDUTable('milliers,dixiemes,centiemes,milliemes', '2', 'ardoise');
+                  await g.tempo(2000);
+              }
+              g.dire('Et il se rouvre pour être modifié : rien n\'est figé une fois posé.');
+              g.cacher();
+              await g.tempo(1800);
+          } },
+
+        { titre: 'Les outils un peu magiques',
+          dit: 'Repérer tout seul les exercices d\'une page, éclairer les cases à remplir, rendre les adresses cliquables : ce qu\'on ne pense pas à demander.',
+          duree: 26000,
+          faire: async (g) => {
+              const doc = await poserLaFiche();
+              selectedItems = [doc];
+              if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+              draw();
+              await g.tempo(1000);
+              g.dire('« Repérer » lit la page et propose ses exercices, déjà découpés.');
+              if (typeof repererLesExercices === 'function') {
+                  repererLesExercices();
+                  await g.tempo(2400);
+                  if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
+              }
+              selectedItems = [];
+              images.length = 0;
+              draw();
+              g.dire('Une adresse écrite au tableau devient un lien : un clic l\'ouvre.');
+              texts.push({ id: nextId++, type: 'text',
+                  x: (window.innerWidth / 2 - panX) / zoom - 260,
+                  y: (window.innerHeight / 2 - panY) / zoom - 20,
+                  text: 'La séance est là : www.education.gouv.fr',
+                  color: '#2d3436', size: 30, font: 'Roboto', z: globalZ++ });
+              draw();
+              await g.tempo(2600);
+              g.dire('Et sur un PDF, l\'outil Texte éclaire les cases à remplir et s\'y pose tout seul.');
+              g.cacher();
+              await g.tempo(2200);
+          } },
+
+        { titre: 'Les classes',
+          dit: 'La classe du moment se choisit dans le coin : l\'appel, les points, le bilan et le plan de classe la suivent partout.',
+          duree: 22000,
+          faire: async (g) => {
+              g.dire('Une classe de démonstration, inventée pour l\'occasion.');
+              await g.tempo(1000);
+              g.dire('La pastille du coin nomme la classe du moment ; elle ouvre tout le reste.');
+              await g.viser('#classe-pastille', 'La classe');
+              await g.tempo(2600);
+              if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
+              g.dire('L\'appel se fait au tableau, sans ouvrir de fenêtre par-dessus le cours.');
+              await g.tempo(1800);
+              g.dire('Les points de classe, le tirage au sort et le plan de classe partagent la même liste.');
+              g.cacher();
+              await g.tempo(2000);
+          } },
+
+        { titre: 'Audio et vidéo',
+          dit: 'Un fichier son ou une vidéo glissés sur le tableau ouvrent un lecteur fait pour la classe : saut en arrière, vitesse, repères A-B.',
+          duree: 26000,
+          faire: async (g) => {
+              g.dire('On glisse un fichier son : le lecteur s\'ouvre.');
+              if (typeof audioMediaPlayer !== 'undefined') audioMediaPlayer.handleDrop(pisteDeDemonstration(6));
+              await g.tempo(1600);
+              g.dire('Le geste du cours, c\'est « redites-moi la phrase » : le saut en arrière est là, sous le doigt.');
+              await g.viser('#mp3-back', 'Cinq secondes en arrière');
+              await g.tempo(1200);
+              g.dire('Un appui long dessus change le pas : 3, 5, 10, 15 ou 30 secondes.');
+              await g.tempo(1600);
+              g.dire('Et cinq habillages, du plus grand au plus discret, selon l\'écran qu\'on a.');
+              await g.viser('#mp3-habits', 'L\'habillage');
+              await g.tempo(2200);
+              const menu = document.getElementById('mp3-habits-menu');
+              if (menu) menu.classList.remove('ouvert');
+              g.cacher();
+              await g.tempo(1000);
+          } },
+
+        { titre: 'Enregistrer, exporter, partager',
+          dit: 'Le tableau s\'enregistre dans un fichier, s\'exporte en image ou en PDF, et se partage tel quel — rien n\'est prisonnier de l\'application.',
+          duree: 20000,
+          faire: async (g) => {
+              const bas = document.getElementById('bottom-drawer');
+              if (bas && bas.classList.contains('closed') && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
+              await g.tempo(800);
+              g.dire('Le menu « Exporter », en bas.');
+              await g.viser('#btn-export-menu', 'Exporter');
+              await g.tempo(2200);
+              g.dire('La page seule, tout le tableau, une capture, un film de la séance.');
+              await g.tempo(2400);
+              const menu = document.getElementById('export-popup-menu');
+              if (menu) menu.classList.remove('visible');
+              g.dire('Un tableau enregistré se rouvre partout : c\'est un fichier, et il vous appartient.');
+              g.cacher();
+              await g.tempo(2000);
+          } }
+    ];
+}
+
+// ------------------------------------------------------------------
+// LE SOMMAIRE, écrit à partir du programme — jamais recopié à côté.
+// ------------------------------------------------------------------
+function sommaireDeLaDemonstration() {
+    const chapitres = chapitresDeLaDemonstration();
+    ['demo-sommaire', 'demo-invite-liste'].forEach(id => {
+        const ol = document.getElementById(id);
+        if (!ol) return;
+        ol.innerHTML = '';
+        chapitres.forEach(c => {
+            const li = document.createElement('li');
+            li.textContent = c.titre;
+            ol.appendChild(li);
+        });
+    });
+
+    const liste = document.getElementById('demo-liste');
+    if (liste) {
+        liste.querySelectorAll('button').forEach(b => b.remove());
+        chapitres.forEach((c, i) => {
+            const b = document.createElement('button');
+            b.dataset.chapitre = String(i);
+            const n = document.createElement('b');
+            n.textContent = String(i + 1);
+            const t = document.createElement('span');
+            t.textContent = c.titre;
+            b.appendChild(n); b.appendChild(t);
+            b.addEventListener('click', () => {
+                fermerLaListeDeLaDemo();
+                allerAuChapitre(i);
+            });
+            liste.appendChild(b);
+        });
+    }
+    return chapitres.length;
+}
+
+function fermerLaListeDeLaDemo() {
+    const l = document.getElementById('demo-liste');
+    if (l) l.classList.remove('ouvert');
+}
+
+function majLaListeDeLaDemo() {
+    const l = document.getElementById('demo-liste');
+    if (!l || !laDemo) return;
+    l.querySelectorAll('[data-chapitre]').forEach(b => {
+        b.classList.toggle('actif', Number(b.dataset.chapitre) === laDemo.i);
+    });
+}
+
+// ------------------------------------------------------------------
+// LA VITESSE. Du demi au double, réglable pendant qu'on regarde : on ne
+// montre pas à la même allure une salle qui découvre et soi-même qui
+// cherche un geste précis.
+// ------------------------------------------------------------------
+function reglerLaVitesseDeLaDemo(v) {
+    const n = parseFloat(v);
+    vitesseDeLaDemo = (isFinite(n) && n >= 0.5 && n <= 2) ? n : 1;
+    try { localStorage.setItem(CLE_DEMO_VITESSE, String(vitesseDeLaDemo)); } catch (e) { /* refusé */ }
+    const mot = document.getElementById('demo-vitesse-mot');
+    if (mot) mot.textContent = '×' + String(vitesseDeLaDemo).replace('.', ',');
+    const curseur = document.getElementById('demo-vitesse');
+    if (curseur && parseFloat(curseur.value) !== vitesseDeLaDemo) curseur.value = String(vitesseDeLaDemo);
+    return vitesseDeLaDemo;
+}
+
+// ------------------------------------------------------------------
+// LA BARRE
+// ------------------------------------------------------------------
+function majLaBarreDeLaDemo() {
+    const d = laDemo;
+    if (!d) return;
+    const c = d.chapitres[d.i];
+    const mets = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; };
+    mets('demo-rang', (d.i + 1) + '/' + d.chapitres.length);
+    mets('demo-titre', c.titre);
+    mets('demo-dit', d.dit || c.dit);
+    const p = document.getElementById('demo-pause');
+    if (p) {
+        p.textContent = d.pause ? '▶' : '⏸';
+        p.setAttribute('data-tooltip', d.pause ? 'Reprendre' : 'Pause');
+    }
+    majLaListeDeLaDemo();
+}
+
+function avancementDuChapitre() {
+    const d = laDemo;
+    if (!d) return 0;
+    if (d.fini) return 1;
+    // La durée est un RELEVÉ, pas une promesse : elle ne sert qu'à faire
+    // avancer la pastille dans la largeur de son chapitre, et celle-ci ne
+    // dépasse jamais le jalon suivant même si le chapitre s'attarde.
+    const duree = ((d.chapitres[d.i] || {}).duree || 20000) / (vitesseDeLaDemo || 1);
+    return Math.max(0, Math.min(0.97, (Date.now() - (d.debut || Date.now())) / duree));
+}
+
+function majLeCurseurDeLaDemo() {
+    const d = laDemo;
+    const c = document.getElementById('demo-curseur');
+    if (!d || !c) return;
+    const n = d.chapitres.length;
+    c.max = String(n * 100);
+    if (!d.glisse) c.value = String(Math.round((d.i + avancementDuChapitre()) * 100));
+    // Les jalons : un trait clair à chaque frontière de chapitre. Il faut les
+    // dessiner ici — la feuille de style ne sait pas combien il y en a.
+    const traits = [];
+    for (let k = 1; k < n; k++) {
+        const p = (k / n) * 100;
+        traits.push(`rgba(255,255,255,0.22) ${p}%`, `rgba(255,255,255,0.6) ${p}%`,
+                    `rgba(255,255,255,0.6) calc(${p}% + 2px)`, `rgba(255,255,255,0.22) calc(${p}% + 2px)`);
+    }
+    c.style.background = 'linear-gradient(90deg, rgba(255,255,255,0.22) 0%, '
+        + traits.join(', ') + ', rgba(255,255,255,0.22) 100%)';
+}
+
+// PENDANT LA DÉMONSTRATION, LA SOURIS NE TOUCHE PLUS LE TABLEAU. Un geste
+// de la vraie main se mêlerait à celui de la visite — on tracerait par-dessus
+// ce qu'elle montre. Le voile avale les gestes ; le clavier ne garde que les
+// commandes de la barre.
+function bloquerPendantLaDemo(oui) {
+    const voile = document.getElementById('demo-voile');
+    if (voile) voile.style.display = oui ? 'block' : 'none';
+    if (oui && !laDemo.clavier) {
+        laDemo.clavier = (e) => {
+            if (!laDemo) return;
+            const k = e.key;
+            if (k === 'ArrowRight') chapitreVoisin(1);
+            else if (k === 'ArrowLeft') chapitreVoisin(-1);
+            else if (k === ' ' || k === 'Spacebar') pauseDeLaDemonstration();
+            else if (k === 'Escape') arreterLaDemonstration();
+            else if (k === 'Tab') return;
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        window.addEventListener('keydown', laDemo.clavier, true);
+    } else if (!oui && laDemo && laDemo.clavier) {
+        window.removeEventListener('keydown', laDemo.clavier, true);
+        laDemo.clavier = null;
+    }
+}
+
+// La barre monte quand elle recouvre ce qu'elle montre : un document
+// présenté occupe le bas de l'écran.
+function placerLaBarreDeLaDemo() {
+    const barre = document.getElementById('demo-barre');
+    if (!barre) return;
+    barre.classList.toggle('en-haut', document.body.classList.contains('focus-mode'));
+}
+
+// ------------------------------------------------------------------
+// LE DÉROULEMENT
+// ------------------------------------------------------------------
+function demarrerLaDemonstration() {
+    if (laDemo) return laDemo;
+    const chapitres = chapitresDeLaDemonstration();
+    sommaireDeLaDemonstration();
+
+    // CE QU'ON REND EN SORTANT, noté avant tout : la page, l'outil, la classe
+    // du moment, l'état des tiroirs, et les lecteurs déjà ouverts. Une
+    // démonstration ne coûte pas son travail à qui la demande.
+    const ouverts = [...document.querySelectorAll('.media-player-panel')].map(p => p.id);
+    let classeAvant = null;
+    try { classeAvant = localStorage.getItem(CLE_CLASSE_DU_MOMENT); } catch (e) { /* refusé */ }
+    const avant = {
+        page: currentPageIndex,
+        outil: typeof mode !== 'undefined' ? mode : 'pointer',
+        classe: classeAvant,
+        classesEnMemoire: (typeof ClassesStore !== 'undefined') ? ClassesStore._cache : null,
+        tiroirHaut: !(document.getElementById('bar-plugins') || {}).classList
+            || !document.getElementById('bar-plugins').classList.contains('closed'),
+        tiroirBas: !!document.getElementById('bottom-drawer')
+            && !document.getElementById('bottom-drawer').classList.contains('closed'),
+        focus: document.body.classList.contains('focus-mode'),
+        lecteurs: ouverts
+    };
+
+    // LA DÉMONSTRATION A SA PAGE. Elle est ajoutée EN DERNIER et retirée en
+    // sortant : les pages du professeur ne changent pas de rang, et rien de
+    // ce qu'elle dessine ne se mêle à son travail.
+    if (typeof syncPage === 'function') syncPage();
+    pages.push(createNewPage());
+    loadPage(pages.length - 1);
+
+    laDemo = { chapitres, i: 0, pause: false, jeton: 0, attentes: [], fini: false,
+               avant, page: pages.length - 1, dit: '' };
+
+    // LA CLASSE MONTRÉE EST INVENTÉE, et ne vit qu'en mémoire : les vraies
+    // classes ne sont ni lues ni écrites tant que la démonstration dure.
+    if (typeof ClassesStore !== 'undefined') {
+        ClassesStore._cache = [{
+            id: 'classe_demonstration', name: 'Démonstration — 6e B', demonstration: true,
+            students: ['Alix', 'Bastien', 'Chloé', 'Diego', 'Éléa', 'Farid', 'Gaby', 'Hugo',
+                       'Inès', 'Jules', 'Kenza', 'Léo'].map((n, i) => ({ id: 'eleve_demo_' + i, name: n })),
+            createdAt: Date.now(), updatedAt: Date.now()
+        }];
+        try { localStorage.setItem(CLE_CLASSE_DU_MOMENT, 'classe_demonstration'); } catch (e) { /* refusé */ }
+        if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+    }
+
+    const bandeau = document.getElementById('bandeau-securite');
+    if (bandeau) bandeau.remove();
+    const astuce = document.getElementById('astuce-modal');
+    if (astuce) astuce.style.display = 'none';
+    const barre = document.getElementById('demo-barre');
+    if (barre) barre.classList.add('visible');
+    reglerLaVitesseDeLaDemo(vitesseDeLaDemo);
+    bloquerPendantLaDemo(true);
+    majLeCurseurDeLaDemo();
+    try { localStorage.setItem(CLE_DEMO_VUE, 'true'); } catch (e) { /* refusé */ }
+
+    // La pastille avance pendant le chapitre : c'est ce qui la fait voir
+    // progresser au lieu de sauter d'un jalon au suivant.
+    laDemo.battement = setInterval(() => {
+        if (laDemo && !laDemo.pause) majLeCurseurDeLaDemo();
+    }, 220);
+
+    jouerLeChapitre(0);
+    return laDemo;
+}
+
+async function jouerLeChapitre(i) {
+    const d = laDemo;
+    if (!d) return;
+    if (d.attentes) { d.attentes.forEach(t => clearTimeout(t)); d.attentes = []; }
+    const jeton = ++d.jeton;
+    d.i = Math.max(0, Math.min(d.chapitres.length - 1, i));
+    d.fini = false;
+    d.debut = Date.now();
+
+    // CHAQUE CHAPITRE SE NETTOIE AVANT DE JOUER. C'est ce qui rend le choix
+    // du chapitre possible : on entre à froid dans n'importe lequel, sans
+    // traîner ce que le précédent avait laissé derrière lui.
+    if (typeof presentationEnCours !== 'undefined') presentationEnCours = null;
+    document.body.classList.remove('focus-mode');
+    if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
+    // LES TIROIRS SE REFERMENT ENTRE DEUX CHAPITRES : celui qui en a besoin
+    // l'ouvre lui-même, et l'on voit alors qu'il l'ouvre. Laissés ouverts,
+    // ils recouvraient la barre de la visite et le tableau qu'elle montre.
+    ['bar-plugins', 'bottom-drawer'].forEach((id, k) => {
+        const e = document.getElementById(id);
+        if (!e || e.classList.contains('closed')) return;
+        if (k === 0 && typeof togglePluginDrawer === 'function') togglePluginDrawer();
+        if (k === 1 && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
+    });
+    if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
+    ['images', 'texts', 'freehands', 'segments', 'circles', 'rectangles',
+     'points', 'curves', 'polygons', 'arcs'].forEach(nom => {
+        try { if (Array.isArray(window[nom])) window[nom].length = 0; } catch (e) { /* liaison */ }
+    });
+    images.length = 0; texts.length = 0; freehands.length = 0;
+    selectedItems = [];
+    if (typeof setMode === 'function') setMode('pointer');
+    cacherLaMainDeLaDemo();
+    const popup = document.getElementById('export-popup-menu');
+    if (popup) popup.classList.remove('visible');
+    if (typeof draw === 'function') draw();
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    placerLaBarreDeLaDemo();
+    d.dit = '';
+    majLaBarreDeLaDemo();
+    majLeCurseurDeLaDemo();
+
+    const g = gestesDeLaDemo(d, jeton);
+    try {
+        await d.chapitres[d.i].faire(g);
+        d.fini = true;
+        cacherLaMainDeLaDemo();
+        await g.tempo(1800);
+    } catch (e) {
+        // Un chapitre interrompu — on en a changé, on est sorti — n'est pas
+        // une panne : on s'arrête là, sans bruit. Un chapitre qui RATE ne doit
+        // pas arrêter la démonstration non plus : on passe au suivant.
+        if (e === 'demo-arret') return;
+        d.fini = true;
+        if (typeof console !== 'undefined') console.warn('Démonstration, chapitre ' + (d.i + 1), e);
+    }
+    if (laDemo !== d || d.jeton !== jeton) return;
+    if (d.i >= d.chapitres.length - 1) arreterLaDemonstration();
+    else jouerLeChapitre(d.i + 1);
+}
+
+// SUSPENDRE, PAS RECOMMENCER. On ne coupe rien : les attentes cessent de
+// décompter, et l'on repart exactement là où l'on s'était arrêté.
+function pauseDeLaDemonstration() {
+    const d = laDemo;
+    if (!d) return false;
+    d.pause = !d.pause;
+    if (d.pause) d.arret = Date.now();
+    else if (d.arret) { d.debut += Date.now() - d.arret; d.arret = 0; }
+    majLaBarreDeLaDemo();
+    return d.pause;
+}
+
+function chapitreVoisin(pas) {
+    const d = laDemo;
+    if (!d) return;
+    d.pause = false;
+    if (pas > 0 && d.i >= d.chapitres.length - 1) { arreterLaDemonstration(); return; }
+    jouerLeChapitre(d.i + pas);
+}
+
+function allerAuChapitre(i) {
+    const d = laDemo;
+    if (!d) return;
+    d.pause = false;
+    jouerLeChapitre(i);
+}
+
+// Le curseur travaille en centièmes : le chapitre est la partie entière, ce
+// qui permet à la pastille d'avancer À L'INTÉRIEUR d'un chapitre au lieu de
+// sauter d'un jalon au suivant.
+function versLeChapitreDuCurseur(v) {
+    const d = laDemo;
+    if (!d) return;
+    d.glisse = true;
+    clearTimeout(d.finGlisse);
+    d.finGlisse = setTimeout(() => { if (laDemo === d) d.glisse = false; }, 700);
+    const i = Math.max(0, Math.min(d.chapitres.length - 1,
+        Math.floor((parseInt(v, 10) || 0) / 100)));
+    if (i === d.i && !d.fini) return;
+    allerAuChapitre(i);
+}
+
+function arreterLaDemonstration() {
+    const d = laDemo;
+    if (!d) return;
+    if (d.attentes) { d.attentes.forEach(t => clearTimeout(t)); d.attentes = []; }
+    if (d.battement) { clearInterval(d.battement); d.battement = null; }
+    bloquerPendantLaDemo(false);
+    laDemo = null;
+
+    cacherLaMainDeLaDemo();
+    fermerLaListeDeLaDemo();
+    const barre = document.getElementById('demo-barre');
+    if (barre) { barre.classList.remove('visible', 'en-haut'); }
+    const popup = document.getElementById('export-popup-menu');
+    if (popup) popup.classList.remove('visible');
+    if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
+    if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
+
+    // LES LECTEURS QU'ELLE A OUVERTS S'EN VONT AVEC ELLE ; ceux qui étaient
+    // là avant restent.
+    [...document.querySelectorAll('.media-player-panel')].forEach(p => {
+        if (d.avant.lecteurs.indexOf(p.id) === -1) p.remove();
+    });
+
+    // LA PAGE DE LA DÉMONSTRATION EST RETIRÉE, et l'on revient là où l'on
+    // était. Elle était la dernière : aucune page du professeur ne change
+    // de rang.
+    if (typeof presentationEnCours !== 'undefined') presentationEnCours = null;
+    document.body.classList.toggle('focus-mode', !!d.avant.focus);
+    if (d.page >= 0 && d.page < pages.length) pages.splice(d.page, 1);
+    if (!pages.length) pages.push(createNewPage());
+    currentPageIndex = -1;   // la page de la visite n'existe plus : rien à y ranger
+    loadPage(Math.max(0, Math.min(pages.length - 1, d.avant.page)));
+
+    // LES CLASSES REDEVIENNENT CELLES DU PROFESSEUR, à l'objet près : la
+    // classe montrée n'a jamais quitté la mémoire.
+    if (typeof ClassesStore !== 'undefined') ClassesStore._cache = d.avant.classesEnMemoire;
+    try {
+        if (d.avant.classe) localStorage.setItem(CLE_CLASSE_DU_MOMENT, d.avant.classe);
+        else localStorage.removeItem(CLE_CLASSE_DU_MOMENT);
+    } catch (e) { /* refusé */ }
+    if (typeof majPastilleDeClasse === 'function') majPastilleDeClasse();
+
+    if (typeof setMode === 'function') setMode(d.avant.outil || 'pointer');
+    const haut = document.getElementById('bar-plugins');
+    if (haut && (!haut.classList.contains('closed')) !== d.avant.tiroirHaut
+        && typeof togglePluginDrawer === 'function') togglePluginDrawer();
+    const bas = document.getElementById('bottom-drawer');
+    if (bas && (!bas.classList.contains('closed')) !== d.avant.tiroirBas
+        && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
+
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+
+window.demarrerLaDemonstration = demarrerLaDemonstration;
+window.arreterLaDemonstration = arreterLaDemonstration;
+
+// ------------------------------------------------------------------
+// LES BRANCHEMENTS
+// ------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+    sommaireDeLaDemonstration();
+    reglerLaVitesseDeLaDemo(vitesseDeLaDemo);
+
+    const b = (id, quoi) => { const e = document.getElementById(id); if (e) e.addEventListener('click', quoi); };
+    b('demo-prec', () => chapitreVoisin(-1));
+    b('demo-suiv', () => chapitreVoisin(1));
+    b('demo-pause', () => pauseDeLaDemonstration());
+    b('demo-stop', () => arreterLaDemonstration());
+    b('demo-chapitres', (e) => {
+        e.stopPropagation();
+        const l = document.getElementById('demo-liste');
+        if (l) { l.classList.toggle('ouvert'); majLaListeDeLaDemo(); }
+    });
+    const curseur = document.getElementById('demo-curseur');
+    if (curseur) curseur.addEventListener('input', () => versLeChapitreDuCurseur(curseur.value));
+    const vit = document.getElementById('demo-vitesse');
+    if (vit) vit.addEventListener('input', () => reglerLaVitesseDeLaDemo(vit.value));
+
+    ['btn-start-tour', 'btn-help-tour'].forEach(id => b(id, () => {
+        const aide = document.getElementById('help-modal');
+        if (aide) aide.style.display = 'none';
+        demarrerLaDemonstration();
+    }));
+
+    // L'INVITATION DU PREMIER DÉMARRAGE. Elle ne paraît qu'une fois — ce qui
+    // suit, c'est le tableau, pas une fenêtre à refermer chaque matin — et
+    // jamais par-dessus quelqu'un qui a déjà commencé à travailler.
+    const invite = document.getElementById('demo-invite');
+    b('demo-invite-non', () => { if (invite) invite.style.display = 'none'; });
+    b('demo-invite-oui', () => {
+        if (invite) invite.style.display = 'none';
+        demarrerLaDemonstration();
+    });
+});
+
+function laDemonstrationADejaEteVue() {
+    try { return localStorage.getItem(CLE_DEMO_VUE) === 'true'; } catch (e) { return true; }
+}
+
+function proposerLaDemonstrationAuPremierDemarrage() {
+    if (laDemonstrationADejaEteVue() || laDemo) return false;
+    if (typeof aDejaAgi !== 'undefined' && aDejaAgi) return false;
+    const modaleReprise = document.getElementById('restore-modal');
+    if (modaleReprise && getComputedStyle(modaleReprise).display !== 'none') return false;
+    const astuce = document.getElementById('astuce-modal');
+    if (astuce && getComputedStyle(astuce).display !== 'none') return false;
+    const invite = document.getElementById('demo-invite');
+    if (!invite) return false;
+    sommaireDeLaDemonstration();
+    invite.style.display = 'flex';
+    // Vue une fois, elle ne se propose plus : « plus tard » veut dire « je
+    // sais qu'elle existe », et l'aide (?) la garde à portée.
+    try { localStorage.setItem(CLE_DEMO_VUE, 'true'); } catch (e) { /* refusé */ }
+    return true;
+}
+
+window.addEventListener('load', () => { setTimeout(proposerLaDemonstrationAuPremierDemarrage, 1800); });
+
+// Échap referme la liste des chapitres avant de sortir de la démonstration.
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const l = document.getElementById('demo-liste');
+    if (l && l.classList.contains('ouvert')) { fermerLaListeDeLaDemo(); e.stopImmediatePropagation(); }
+}, true);

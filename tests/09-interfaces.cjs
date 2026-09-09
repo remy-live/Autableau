@@ -452,6 +452,64 @@ module.exports = async function (browser) {
         trouvees.every(s => parseFloat(contours.clair[s].epaisseur) <= 1),
         JSON.stringify(trouvees.map(s => contours.clair[s].epaisseur)));
 
+    // =====================================================================
+    // LE MENU DES RÉGLAGES NE S'ALLONGE PAS
+    // Il comptait un titre par réglage ou presque — « Titre du tableau »,
+    // « Annotations », « Documents », « Astuces » — et l'on parcourait plus
+    // de titres que de choix. Ce qui se règle une fois pour toutes tient en
+    // trois familles, plus ce qui sert à découvrir.
+    // =====================================================================
+    const reglages = await page.evaluate(() => {
+        const popup = document.getElementById('reglages-barre');
+        const titres = [...popup.querySelectorAll('.rp-titre')].map(t => t.textContent.trim());
+        const choix = popup.querySelectorAll('.rp-choix').length;
+        // Aucun choix ne traîne avant le premier titre : chacun appartient
+        // à une rubrique, sinon la rubrique ne veut rien dire.
+        const enfants = [...popup.children];
+        const premierTitre = enfants.findIndex(e => e.classList.contains('rp-titre'));
+        const orphelins = enfants.slice(0, premierTitre).filter(e => e.classList.contains('rp-choix')).length;
+        return { titres, choix, orphelins };
+    });
+    r.verifie('quatre rubriques au plus, et plus de choix que de titres',
+        reglages.titres.length <= 4 && reglages.choix > reglages.titres.length * 2,
+        JSON.stringify(reglages));
+    r.egal('et aucun réglage ne traîne hors d\'une rubrique', reglages.orphelins, 0);
+
+    // L'OPTION DES CONTOURS. Le trait d'encre est le défaut — c'est celui qui
+    // se voit de loin —, mais il se rend discret pour qui travaille le nez
+    // sur l'écran.
+    const option = await page.evaluate(() => {
+        const lu = () => getComputedStyle(document.getElementById('bar-style')).borderTopColor;
+        const clarte = (rgb) => {
+            const n = (rgb.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+            return (0.2126 * n[0] + 0.7152 * n[1] + 0.0722 * n[2]) / 255;
+        };
+        const bouton = document.getElementById('rp-contours');
+        const auDepart = { franc: clarte(lu()) < 0.45, allume: bouton.classList.contains('actif') };
+        bouton.click();
+        return { auDepart, bouton: !!bouton,
+                 retenu: localStorage.getItem('auTableau_contours_doux'),
+                 eteint: !bouton.classList.contains('actif'),
+                 corps: document.body.classList.contains('contours-doux') };
+    });
+    await page.waitForTimeout(450);
+    const doux = await page.evaluate(() => {
+        const clarte = (rgb) => {
+            const n = (rgb.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+            return (0.2126 * n[0] + 0.7152 * n[1] + 0.0722 * n[2]) / 255;
+        };
+        const c = clarte(getComputedStyle(document.getElementById('bar-style')).borderTopColor);
+        basculerLesContours(true);
+        return c;
+    });
+    r.egal('le contour franc est le défaut, et il est allumé dans les réglages',
+        option.auDepart, { franc: true, allume: true });
+    r.egal('on peut l\'adoucir, et le choix se retient',
+        { retenu: option.retenu, eteint: option.eteint, corps: option.corps },
+        { retenu: 'true', eteint: true, corps: true });
+    r.verifie('adouci, le trait redevient un gris discret',
+        doux > 0.45, String(doux));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

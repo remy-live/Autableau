@@ -53,7 +53,13 @@ module.exports = async function (browser) {
             reperes: { a: vu('mp3-ab-thumb-a'), b: vu('mp3-ab-thumb-b'),
                        boucle: vu('mp3-play-selection'), bascule: vu('mp3-ab-toggle') },
             pistes: p.querySelectorAll('.media-playlist li').length,
-            aide: vu('mp3-playlist-aide')
+            // LA PHRASE D'AIDE S'EN EST ALLÉE : elle occupait une ligne sous
+            // chaque lecteur, en permanence, pour dire deux gestes qu'on
+            // apprend une fois. Elle vit dans l'infobulle de la liste.
+            aide: vu('mp3-playlist-aide'),
+            dansLInfobulle: /tirer dehors/.test(
+                (document.getElementById('mp3-playlist') || {}).getAttribute
+                    ? document.getElementById('mp3-playlist').getAttribute('data-tooltip') || '' : '')
         };
     });
     r.verifie('le lecteur s\'ouvre sur les pistes déposées',
@@ -64,8 +70,9 @@ module.exports = async function (browser) {
         arrivee.saut, { arriere: true, avant: true, pas: '5' });
     r.egal('mais A et B ne sont pas là : ils se demandent',
         arrivee.reperes, { a: false, b: false, boucle: false, bascule: true });
-    r.verifie('la liste dit ce qu\'on peut y faire, dès qu\'il y a de quoi',
-        arrivee.aide, String(arrivee.aide));
+    r.egal('la phrase d\'aide ne mange plus une ligne : elle est dans l\'infobulle',
+        { sousLeLecteur: arrivee.aide, dansLInfobulle: arrivee.dansLInfobulle },
+        { sousLeLecteur: false, dansLInfobulle: true });
 
     // ---------------------------------------------------------------
     // LE SAUT EN ARRIÈRE, ET SON PAS
@@ -266,7 +273,7 @@ module.exports = async function (browser) {
                         hauteur: Math.round(p.getBoundingClientRect().height) };
         // Le chevron la referme.
         document.getElementById('mp3-playlist-toggle').click();
-        const repliee = { liste: vu('mp3-playlist'), aide: vu('mp3-playlist-aide'),
+        const repliee = { liste: vu('mp3-playlist'),
                           hauteur: Math.round(p.getBoundingClientRect().height) };
         document.getElementById('mp3-playlist-toggle').click();
         const rouverte = vu('mp3-playlist');
@@ -276,7 +283,6 @@ module.exports = async function (browser) {
             document.querySelector('#mp3-playlist li:last-child .media-delete-btn').click();
         }
         const aUne = { liste: vu('mp3-playlist'), chevron: vu('mp3-playlist-toggle'),
-                       aide: vu('mp3-playlist-aide'),
                        hauteur: Math.round(p.getBoundingClientRect().height) };
         return { aDeux, repliee, rouverte, aUne };
     });
@@ -284,13 +290,17 @@ module.exports = async function (browser) {
         { liste: liste.aDeux.liste, chevron: liste.aDeux.chevron, compte: liste.aDeux.compte },
         { liste: true, chevron: true, compte: '2' });
     r.egal('le chevron la replie et la rouvre',
-        { repliee: liste.repliee.liste, aide: liste.repliee.aide, rouverte: liste.rouverte },
-        { repliee: false, aide: false, rouverte: true });
+        { repliee: liste.repliee.liste, rouverte: liste.rouverte },
+        { repliee: false, rouverte: true });
     r.egal('à une seule piste, ni liste ni chevron : elle redirait le titre',
-        { liste: liste.aUne.liste, chevron: liste.aUne.chevron, aide: liste.aUne.aide },
-        { liste: false, chevron: false, aide: false });
-    r.verifie('et le panneau y perd le tiers de sa hauteur',
-        liste.aUne.hauteur < liste.aDeux.hauteur * 0.7,
+        { liste: liste.aUne.liste, chevron: liste.aUne.chevron },
+        { liste: false, chevron: false });
+    // IL Y GAGNE LA HAUTEUR DE LA LISTE. On la mesurait en proportion, mais
+    // depuis que la phrase d'aide ne mange plus sa ligne, le panneau est plus
+    // court des deux côtés : c'est la hauteur RENDUE qui compte, et elle vaut
+    // les deux rangées de la liste.
+    r.verifie('et le panneau y gagne la hauteur de la liste',
+        liste.aDeux.hauteur - liste.aUne.hauteur >= 60,
         JSON.stringify({ aDeux: liste.aDeux.hauteur, aUne: liste.aUne.hauteur }));
 
     // ---------------------------------------------------------------
@@ -635,6 +645,61 @@ module.exports = async function (browser) {
         { recule: replie.pas, memePas: true });
     r.egal('il ne paraît qu\'une fois le lecteur replié',
         { replie: replie.visible, rouvert: replie.cacheUneFoisRouvert }, { replie: true, rouvert: true });
+
+    // =====================================================================
+    // ON REDIMENSIONNE LE LECTEUR PAR SON COIN
+    // Il n'y avait qu'une lisière de six pixels sur le bord droit, invisible,
+    // et ne changeant que la largeur : une vidéo restait de la taille qu'on
+    // lui avait donnée, et une longue liste de pistes ne pouvait pas
+    // respirer. La poignée du coin se voit et prend les deux dimensions.
+    // =====================================================================
+    const taille = await page.evaluate(() => {
+        choisirLHabillageDuLecteur('papier');
+        const p = document.getElementById('mp3-player');
+        p.style.left = '200px'; p.style.top = '120px';
+        p.style.right = 'auto'; p.style.bottom = 'auto';
+        p.style.width = ''; p.style.height = '';
+        const coin = p.querySelector('.media-coin');
+        if (!coin) return { manque: 'pas de poignée de coin' };
+        const b = p.getBoundingClientRect();
+        const vue = coin.getBoundingClientRect();
+        const avant = { l: Math.round(b.width), h: Math.round(b.height) };
+        const tirer = (dx, dy) => {
+            coin.dispatchEvent(new MouseEvent('mousedown', { bubbles: true,
+                clientX: vue.left + 8, clientY: vue.top + 8 }));
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true,
+                clientX: vue.left + 8 + dx, clientY: vue.top + 8 + dy }));
+            document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        };
+        tirer(120, 90);
+        const r2 = p.getBoundingClientRect();
+        const apres = { l: Math.round(r2.width), h: Math.round(r2.height) };
+        // LA HAUTEUR CHOISIE SE PARTAGE : sans le dire à la feuille de style,
+        // la liste garderait ses cent cinquante pixels et le reste ne serait
+        // que du vide.
+        const libre = p.classList.contains('taille-libre');
+        const listeSEtire = getComputedStyle(p.querySelector('.media-playlist')).maxHeight;
+        // Et l'on ne le réduit pas à rien.
+        tirer(-4000, -4000);
+        const minimum = { l: Math.round(p.getBoundingClientRect().width),
+                          h: Math.round(p.getBoundingClientRect().height) };
+        p.style.width = ''; p.style.height = ''; p.classList.remove('taille-libre');
+        return { avant, apres, libre, listeSEtire, minimum, vuLeCoin: vue.width >= 14 };
+    });
+    // Sans poignée, rien de ce qui suit n'a de sens : on le dit une fois par
+    // vérification plutôt que de laisser la suite s'écrouler.
+    const sansPoignee = !!taille.manque;
+    r.verifie('la poignée du coin se voit', !sansPoignee && taille.vuLeCoin, JSON.stringify(taille));
+    r.egal('elle agrandit le lecteur EN LARGEUR ET EN HAUTEUR',
+        sansPoignee ? taille.manque
+            : { plusLarge: taille.apres.l - taille.avant.l, plusHaut: taille.apres.h - taille.avant.h },
+        { plusLarge: 120, plusHaut: 90 });
+    r.egal('la hauteur choisie se partage : la liste s\'étire au lieu de laisser du vide',
+        sansPoignee ? taille.manque : { libre: taille.libre, liste: taille.listeSEtire },
+        { libre: true, liste: 'none' });
+    r.verifie('et l\'on ne peut pas le réduire à rien',
+        !sansPoignee && taille.minimum.l >= 260 && taille.minimum.h >= 120,
+        JSON.stringify(taille.minimum || taille.manque));
 
     // ON DÉPLACE LE LECTEUR EN LE PRENANT PAR LA POIGNÉE — et l'appui sur
     // le DESSIN d'un bouton ne le déplace pas : on ne regardait que la
