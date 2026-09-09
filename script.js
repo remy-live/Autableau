@@ -27283,7 +27283,46 @@ function ensureMediaPlayerStyles() {
            pas — ce sont les mêmes boutons, les mêmes réglages, la même
            liste — seule sa mise en page suit ce qu'on en fait.
            ════════════════════════════════════════════════════════════════ */
-        .media-mot { display: none; font-size: 12px; font-weight: 600; line-height: 1; }
+        /* LA POIGNÉE DE DÉPLACEMENT. Elle ne paraît que là où l'en-tête a
+           cessé d'être une bande où saisir la fenêtre — ailleurs, tout le
+           bandeau du titre s'attrape déjà. */
+        .media-poignee {
+            display: none; flex: 0 0 11px; width: 11px; height: 24px;
+            cursor: grab; border-radius: 3px;
+            background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+            background-size: 5px 5px; background-position: 1px 3px;
+            color: var(--muted, #b2bec3); opacity: 0.55;
+        }
+        .media-poignee:hover { opacity: 1; }
+
+        /* LE MENU DES HABILLAGES, dans le lecteur lui-même. */
+        .media-habits {
+            display: none; position: absolute; top: 40px; right: 10px; z-index: 30;
+            min-width: 186px; padding: 6px;
+            background: var(--surface, #fff); color: var(--ink, #2d3436);
+            border: 1px solid var(--border, #dfe6e9); border-radius: 10px;
+            box-shadow: 0 10px 28px rgba(45, 52, 54, 0.2);
+        }
+        .media-habits.ouvert { display: block; }
+        .media-player-panel.habits-ouverts { overflow: visible; }
+        .media-habits-titre {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--muted, #636e72); padding: 3px 9px 7px;
+        }
+        .media-habits-choix {
+            display: block; width: 100%; text-align: left;
+            border: none; background: none; cursor: pointer;
+            padding: 7px 9px; border-radius: 7px;
+            font-family: inherit; font-size: 13px; font-weight: 600;
+            color: var(--ink, #2d3436);
+        }
+        .media-habits-choix:hover { background: var(--accent-soft, rgba(108, 92, 231, 0.1)); }
+        .media-habits-choix.actif {
+            background: var(--accent-hover, rgba(108, 92, 231, 0.14));
+            color: var(--accent, #6c5ce7);
+        }
+
+        .media-mot { display: none; font-size: 11.5px; font-weight: 600; line-height: 1; }
         .media-icone { display: flex; align-items: center; justify-content: center; }
         /* L'anneau du « Cadran » vit dans le pli : partout ailleurs le
            bouton de lecture reprend sa place comme si rien ne l'entourait. */
@@ -27297,8 +27336,8 @@ function ensureMediaPlayerStyles() {
         }
 
         /* ──── TABLEAU BLANC : tout se prend du doigt ──── */
-        .habillage-tni { width: 460px; }
-        .habillage-tni .media-title { font-size: 19px; }
+        .habillage-tni { width: 470px; }
+        .habillage-tni .media-title { font-size: 17px; }
         .habillage-tni .media-body { gap: 12px; padding: 4px 16px 16px; }
         /* LA BARRE PASSE AU-DESSUS DES COMMANDES : on lit d'abord où l'on
            en est, on agit ensuite. */
@@ -27306,21 +27345,22 @@ function ensureMediaPlayerStyles() {
         .habillage-tni .media-progress-wrapper { order: 1; }
         .habillage-tni .media-commandes { order: 2; }
         .habillage-tni .media-reglages { order: 3; }
-        .habillage-tni.sans-ab .media-progress-wrapper { margin: 8px 0 4px; padding-top: 6px; }
-        .habillage-tni .media-progress-container { height: 13px; border-radius: 8px; overflow: visible; }
+        .habillage-tni .media-progress-wrapper { margin-left: 9px; margin-right: 9px; }
+        .habillage-tni.sans-ab .media-progress-wrapper { margin: 8px 9px 4px; padding-top: 6px; }
+        .habillage-tni .media-progress-container { height: 12px; border-radius: 7px; overflow: visible; }
         .habillage-tni .media-progress-bar { position: relative; }
         /* UNE POIGNÈE DE VINGT-HUIT PIXELS : on la saisit sans viser. */
         .habillage-tni .media-progress-bar::after {
-            content: ''; position: absolute; right: -14px; top: 50%;
-            width: 28px; height: 28px; margin-top: -14px; border-radius: 50%;
+            content: ''; position: absolute; right: -13px; top: 50%;
+            width: 26px; height: 26px; margin-top: -13px; border-radius: 50%;
             background: var(--surface, #fff); border: 4px solid var(--accent, #6c5ce7);
             box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
         }
-        .habillage-tni .media-time-row { font-size: 16px; font-weight: 600; margin-top: 12px; }
+        .habillage-tni .media-time-row { font-size: 15px; font-weight: 600; margin-top: 11px; }
         .habillage-tni .media-commandes { gap: 7px; }
         .habillage-tni .media-commandes .media-btn {
-            flex: 1 1 0; width: auto; height: 66px; gap: 5px;
-            flex-direction: column; border-radius: 14px;
+            flex: 1 1 0; width: auto; height: 58px; gap: 4px;
+            flex-direction: column; border-radius: 13px;
             border: 2px solid var(--border, #dfe6e9); color: var(--ink, #2d3436);
         }
         .habillage-tni .media-commandes .media-btn:hover {
@@ -27328,18 +27368,18 @@ function ensureMediaPlayerStyles() {
             color: var(--accent, #6c5ce7);
         }
         .habillage-tni .media-commandes .media-btn-play {
-            flex: 0 0 100px; background: var(--accent, #6c5ce7);
+            flex: 0 0 92px; background: var(--accent, #6c5ce7);
             border-color: var(--accent, #6c5ce7); color: #fff;
         }
         .habillage-tni .media-commandes .media-btn-play:hover {
             background: var(--accent, #6c5ce7); color: #fff; opacity: 0.88;
         }
-        .habillage-tni .media-commandes .media-icone svg { width: 24px; height: 24px; }
-        .habillage-tni .media-commandes .media-btn-play .media-icone svg { width: 28px; height: 28px; }
+        .habillage-tni .media-commandes .media-icone svg { width: 21px; height: 21px; }
+        .habillage-tni .media-commandes .media-btn-play .media-icone svg { width: 25px; height: 25px; }
         /* CHAQUE COMMANDE PORTE SON MOT : rien n'est deviné, et un élève
            peut s'en servir au tableau. */
         .habillage-tni .media-mot { display: block; }
-        .habillage-tni .media-saut-n { font-size: 12px; }
+        .habillage-tni .media-saut-n { font-size: 11.5px; }
         .habillage-tni .media-saut-n::after { content: ' s'; }
         .habillage-tni .media-reglages .media-btn { width: 34px; height: 34px; }
         .habillage-tni .media-reglages .media-btn.media-vitesse { width: auto; min-width: 40px; }
@@ -27383,10 +27423,14 @@ function ensureMediaPlayerStyles() {
         .habillage-cartouche .media-playlist li.active { background: rgba(185, 174, 255, 0.16); color: #cdc4ff; }
         .habillage-cartouche .media-playlist-aide { color: #6e6a85; }
         .habillage-cartouche .media-ab-pointer { border-color: #16151c; }
+        .habillage-cartouche .media-habits { background: #1e1c27; border-color: #2b2936; }
+        .habillage-cartouche .media-habits-choix { color: #e7e5f0; }
+        .habillage-cartouche .media-habits-choix:hover { background: #2a2837; }
+        .habillage-cartouche .media-habits-choix.actif { background: rgba(185, 174, 255, 0.16); color: #cdc4ff; }
 
         /* ──── RÉGLETTE : une seule ligne, qu'on oublie ──── */
         .habillage-reglette {
-            width: 840px; max-width: 94vw;
+            width: 890px; max-width: 94vw;
             flex-direction: row; flex-wrap: wrap; align-items: center;
             padding: 6px 9px; gap: 10px;
         }
@@ -27395,10 +27439,11 @@ function ensureMediaPlayerStyles() {
            renvoyer « réduire » et « fermer » au bout — sans quoi ils
            restaient plantés au milieu, entre le titre et les commandes. */
         .habillage-reglette .media-header { display: contents; }
+        .habillage-reglette .media-poignee { display: block; }
         /* LE TITRE NE SE LAISSE PAS ÉCRASER : sans plancher, les commandes et
            les réglages, qui ne cèdent rien, le réduisaient à sa seule note de
            musique. */
-        .habillage-reglette .media-header > div:nth-child(1) { order: 1; flex: 1 1 170px; min-width: 170px; }
+        .habillage-reglette .media-header > div:nth-child(1) { order: 1; flex: 1 1 160px; min-width: 160px; }
         .habillage-reglette .media-header > div:nth-child(2) { order: 2; }
         .habillage-reglette .media-header > div:nth-child(3) { order: 4; }
         .habillage-reglette .media-body { order: 3; flex-direction: row; align-items: center; padding: 0; gap: 10px; flex: 0 0 auto; }
@@ -27423,6 +27468,7 @@ function ensureMediaPlayerStyles() {
            « fermer » finissaient rejetés sous le panneau. */
         .habillage-reglette.video-panel { width: 440px; }
         .habillage-reglette.video-panel .media-header { display: flex; padding: 10px 12px 6px; }
+        .habillage-reglette.video-panel .media-poignee { display: none; }
         .habillage-reglette.video-panel .media-body { flex: 1 0 100%; flex-wrap: wrap; }
         .habillage-reglette .media-video-el { flex: 1 0 100%; margin-bottom: 8px; }
 
@@ -27484,19 +27530,30 @@ function classeDHabillage(cle) {
     return 'habillage-' + habillageValide(cle);
 }
 
+// LE CHOIX SE FAIT DANS LE LECTEUR, PAS DANS LES RÉGLAGES. C'est là qu'on
+// le voit et c'est là qu'on le cherche ; et le menu des réglages, déjà long
+// de sept sections, n'avait pas à s'allonger de cinq lignes de plus. Chaque
+// lecteur ouvert porte donc son propre menu — ils disent tous la même chose,
+// puisque le réglage est commun.
+function majLesChoixDHabillage() {
+    document.querySelectorAll('[data-habillage]').forEach(b => {
+        b.classList.toggle('actif', b.dataset.habillage === habillageDuLecteur);
+    });
+}
+
 function poserLHabillageDesLecteurs() {
     habillageDuLecteur = habillageValide(habillageDuLecteur);
     document.querySelectorAll('.media-player-panel').forEach(panneau => {
         HABILLAGES_LECTEUR.forEach(h => panneau.classList.remove('habillage-' + h.cle));
         panneau.classList.add(classeDHabillage(habillageDuLecteur));
     });
+    majLesChoixDHabillage();
 }
 
 function choisirLHabillageDuLecteur(cle) {
     habillageDuLecteur = habillageValide(cle);
     try { localStorage.setItem(CLE_HABILLAGE_LECTEUR, habillageDuLecteur); } catch (e) { /* refusé */ }
     poserLHabillageDesLecteurs();
-    if (typeof majReglagesBarre === 'function') majReglagesBarre();
     return habillageDuLecteur;
 }
 
@@ -27542,6 +27599,8 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     const svgChevron = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
     const svgVol = `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
     const svgFullscreen = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
+    // Une mise en page : un cadre partagé. C'est ce que le bouton propose.
+    const svgHabits = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`;
 
     const id = (suffix) => `${idPrefix}-${suffix}`;
     const el = (suffix) => document.getElementById(id(suffix));
@@ -27569,6 +27628,13 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         container.innerHTML = `
             <div id="${id('header')}" class="media-header">
                 <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; flex: 1;">
+                    <!-- LA POIGNÉE. Dans l'habillage « Réglette », l'en-tête
+                         n'est plus une bande : il n'y avait plus un centimètre
+                         de vide où saisir la fenêtre pour la déplacer, et
+                         l'on tirait sur le titre sans savoir que c'était
+                         permis. Ici la poignée le dit. -->
+                    <span class="media-poignee" id="${id('poignee')}"
+                        data-tooltip="Déplacer le lecteur" aria-hidden="true"></span>
                     <span style="font-size: 0.9rem;">${icon}</span>
                     <!-- UN NOM DE FICHIER N'EST PAS UN TITRE.
                          « 2021_06_09_15_14_42 » occupait la plus grosse
@@ -27593,6 +27659,9 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 2px;">
+                    <!-- L'HABILLAGE SE CHANGE ICI, dans le lecteur : c'est là
+                         qu'on le voit, donc là qu'on le cherche. -->
+                    <button class="media-btn" id="${id('habits')}" data-tooltip="Habillage du lecteur">${svgHabits}</button>
                     ${mediaType === 'video' ? `<button class="media-btn" id="${id('fullscreen')}" data-tooltip="Plein écran">${svgFullscreen}</button>` : ''}
                     <button class="media-btn" id="${id('minimize')}" data-tooltip="Réduire">${svgMin}</button>
                     <button class="media-btn" id="${id('close')}" data-tooltip="Fermer">${svgClose}</button>
@@ -27695,6 +27764,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         document.body.appendChild(container);
         mediaEl = el('media');
 
+        construireLeMenuDHabillage();
         setupEvents();
         brancherLeSaut(el('back'), -1);
         brancherLeSaut(el('fwd'), +1);
@@ -27712,6 +27782,55 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         setupABSliders();
         setupDragMove();
         setupResizer();
+    }
+
+    // LE MENU DES HABILLAGES, construit pièce à pièce plutôt qu'en une
+    // chaîne de balises : les noms viennent de notre table, mais un nom posé
+    // par « textContent » ne peut rien être d'autre qu'un nom.
+    function construireLeMenuDHabillage() {
+        const menu = document.createElement('div');
+        menu.className = 'media-habits';
+        menu.id = id('habits-menu');
+
+        const titre = document.createElement('div');
+        titre.className = 'media-habits-titre';
+        titre.textContent = 'Habillage du lecteur';
+        menu.appendChild(titre);
+
+        HABILLAGES_LECTEUR.forEach(habit => {
+            const choix = document.createElement('button');
+            choix.className = 'media-habits-choix';
+            choix.dataset.habillage = habit.cle;
+            choix.title = habit.quoi;
+            choix.textContent = habit.nom;
+            choix.addEventListener('click', () => {
+                choisirLHabillageDuLecteur(habit.cle);
+                fermerLeMenu();
+            });
+            menu.appendChild(choix);
+        });
+        container.appendChild(menu);
+
+        // Le panneau rogne ce qui dépasse, pour ses coins arrondis : le menu
+        // s'en trouverait coupé s'il descendait plus bas que lui.
+        const fermerLeMenu = () => {
+            menu.classList.remove('ouvert');
+            container.classList.remove('habits-ouverts');
+        };
+        const bouton = el('habits');
+        if (bouton) bouton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ouvre = !menu.classList.contains('ouvert');
+            menu.classList.toggle('ouvert', ouvre);
+            container.classList.toggle('habits-ouverts', ouvre);
+            majLesChoixDHabillage();
+        });
+        document.addEventListener('mousedown', (e) => {
+            if (!menu.classList.contains('ouvert')) return;
+            if (menu.contains(e.target) || (bouton && bouton.contains(e.target))) return;
+            fermerLeMenu();
+        });
+        majLesChoixDHabillage();
     }
 
     function renderPlaylist() {
@@ -28291,6 +28410,10 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     function setupDragMove() {
         const headerEl = el('header');
         headerEl.addEventListener('mousedown', (e) => {
+            // UN BOUTON, C'EST AUSSI SON ICÔNE. On ne regardait que la balise
+            // sous le pointeur : appuyer sur le dessin d'une croix, et non
+            // sur ses bords, lançait un déplacement de la fenêtre.
+            if (e.target.closest && e.target.closest('button')) return;
             if (e.target.tagName.toLowerCase() === 'button') return;
             isDragging = true;
             headerEl.style.cursor = 'grabbing';
@@ -29990,9 +30113,6 @@ function majReglagesBarre() {
     if (bTiroirs) bTiroirs.classList.toggle('actif', tiroirsAuto);
     const bCourte = document.getElementById('rp-barre-courte');
     if (bCourte) bCourte.classList.toggle('actif', barreCourte);
-    popup.querySelectorAll('[data-habillage]').forEach(b => {
-        b.classList.toggle('actif', b.dataset.habillage === habillageValide(habillageDuLecteur));
-    });
 }
 
 // ==================================================================
@@ -30182,16 +30302,6 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(actif ? 'Barre réduite — la poignée du coin la ramène en entier'
                             : 'Toute la barre est revenue');
         }
-    });
-
-    // L'HABILLAGE DU LECTEUR : le changement se voit tout de suite sur les
-    // lecteurs déjà ouverts, sans avoir à les refermer.
-    popup.querySelectorAll('[data-habillage]').forEach(b => {
-        b.addEventListener('click', () => {
-            const pris = choisirLHabillageDuLecteur(b.dataset.habillage);
-            const habit = HABILLAGES_LECTEUR.find(h => h.cle === pris);
-            if (habit && typeof showToast === 'function') showToast('Lecteur : ' + habit.nom);
-        });
     });
 
     const bZones = document.getElementById('rp-zones');

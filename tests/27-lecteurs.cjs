@@ -459,6 +459,9 @@ module.exports = async function (browser) {
                 // Les commandes et la liste ne disparaissent jamais.
                 commandes: vu('.media-commandes'),
                 liste: vu('.media-playlist'),
+                // LA POIGNÉE DE DÉPLACEMENT : elle ne paraît que là où
+                // l'en-tête a cessé d'être une bande qu'on peut saisir.
+                poignee: vu('.media-poignee'),
                 // Le titre et les commandes sur la même ligne, ou l'un sous
                 // l'autre : c'est toute la différence de la « Réglette ».
                 ligne: {
@@ -471,18 +474,39 @@ module.exports = async function (browser) {
         releve[cle] = vus;
     }
 
+    // LE CHOIX SE FAIT DANS LE LECTEUR, PAS DANS LES RÉGLAGES. C'est là
+    // qu'on le voit, donc là qu'on le cherche — et le menu des réglages,
+    // déjà long de sept sections, n'avait pas à s'allonger de cinq lignes.
     const reste = await page.evaluate(() => {
-        // LE CHOIX SE RETIENT, et se retrouve allumé dans les réglages.
-        choisirLHabillageDuLecteur('cartouche');
+        const menu = document.getElementById('mp3-habits-menu');
+        const bouton = document.getElementById('mp3-habits');
+        const dansLesReglages = document.querySelectorAll('#reglages-barre [data-habillage]').length;
+        if (!menu || !bouton) return { combien: 0, dansLesReglages, manque: 'pas de menu dans le lecteur' };
+
+        const fermeAvant = !menu.classList.contains('ouvert');
+        bouton.click();
+        const ouvertApres = menu.classList.contains('ouvert');
+        // ON CHOISIT DEPUIS LE MENU, et il se referme.
+        menu.querySelector('[data-habillage="cartouche"]').click();
+        const referme = !menu.classList.contains('ouvert');
+
         const retenu = localStorage.getItem('auTableau_lecteur_habillage');
-        const allume = [...document.querySelectorAll('#reglages-barre [data-habillage]')]
+        const allume = [...menu.querySelectorAll('[data-habillage]')]
             .filter(b => b.classList.contains('actif')).map(b => b.dataset.habillage);
+
         // UN HABILLAGE INCONNU NE LAISSE PAS LE PANNEAU SANS MISE EN PAGE.
         choisirLHabillageDuLecteur('inventé');
         const repli = habillageDuLecteur;
         const classeDuRepli = document.getElementById('mp3-player').classList.contains('habillage-tni');
-        return { retenu, allume, repli, classeDuRepli };
+        return { retenu, allume, repli, classeDuRepli,
+                 dansLesReglages, fermeAvant, ouvertApres, referme,
+                 combien: menu.querySelectorAll('[data-habillage]').length };
     });
+    r.egal('le menu vit dans le lecteur, et plus dans les réglages',
+        { auLecteur: reste.combien, auxReglages: reste.dansLesReglages }, { auLecteur: 5, auxReglages: 0 });
+    r.egal('le bouton l\'ouvre, un choix le referme',
+        { avant: reste.fermeAvant, ouvert: reste.ouvertApres, referme: reste.referme },
+        { avant: true, ouvert: true, referme: true });
 
     r.egal('cinq habillages, et un seul posé à la fois',
         cles.map(c => classes[c].join(',')),
@@ -495,8 +519,11 @@ module.exports = async function (browser) {
     r.egal('« Cadran » est le seul à montrer l\'anneau — et le seul sans barre',
         { anneau: cles.filter(c => releve[c].anneau), sansBarre: cles.filter(c => !releve[c].barre) },
         { anneau: ['cadran'], sansBarre: ['cadran'] });
+    // QUARANTE-QUATRE PIXELS est le plancher admis pour une cible qu'on
+    // touche du doigt. On garde de la marge : c'est la raison d'être de
+    // cet habillage, et on ne doit pas pouvoir la rogner sans le voir.
     r.verifie('le bouton de lecture du « Tableau blanc » se prend du doigt',
-        releve.tni.bouton.h >= 60 && releve.tni.bouton.l >= 90,
+        releve.tni.bouton.h >= 52 && releve.tni.bouton.l >= 80,
         JSON.stringify(releve.tni.bouton));
     // ET IL EST BIEN PLUS GROS QU'AILLEURS : c'est ce qui fait l'habillage.
     r.verifie('là où « Papier » se vise à la souris, et « Réglette » s\'efface',
@@ -508,7 +535,11 @@ module.exports = async function (browser) {
     // les commandes s'y côtoient au lieu de s'empiler.
     r.egal('« Réglette » est la seule à mettre le titre et les commandes côte à côte',
         cles.filter(c => Math.abs(releve[c].ligne.titre - releve[c].ligne.cmd) < 16), ['reglette']);
-    r.egal('le choix est retenu, et allumé dans les réglages',
+    // ET C'EST LA SEULE OÙ IL FAUT UNE POIGNÉE : ailleurs, tout le bandeau
+    // du titre s'attrape déjà.
+    r.egal('elle est aussi la seule à montrer une poignée pour se déplacer',
+        cles.filter(c => releve[c].poignee), ['reglette']);
+    r.egal('le choix est retenu, et coché dans le menu',
         { retenu: reste.retenu, allume: reste.allume },
         { retenu: 'cartouche', allume: ['cartouche'] });
     r.egal('un habillage inconnu retombe sur le premier, sans laisser le panneau nu',
@@ -558,6 +589,35 @@ module.exports = async function (browser) {
     });
     r.egal('l\'anneau du « Cadran » se remplit avec la lecture',
         anneau.lu, anneau.attendu);
+
+    // ON DÉPLACE LE LECTEUR EN LE PRENANT PAR LA POIGNÉE — et l'appui sur
+    // le DESSIN d'un bouton ne le déplace pas : on ne regardait que la
+    // balise sous le pointeur, si bien qu'appuyer sur la croix elle-même,
+    // et non sur ses bords, emportait la fenêtre.
+    const glisse = await page.evaluate(() => {
+        choisirLHabillageDuLecteur('reglette');
+        const p = document.getElementById('mp3-player');
+        p.style.left = '300px'; p.style.top = '200px';
+        p.style.right = 'auto'; p.style.bottom = 'auto';
+        const ou = () => Math.round(p.getBoundingClientRect().left);
+        const tirer = (cible, de, a) => {
+            cible.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: de, clientY: 210 }));
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: a, clientY: 260 }));
+            document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        };
+        const depart = ou();
+        tirer(document.getElementById('mp3-poignee'), 310, 410);
+        const parLaPoignee = ou();
+
+        // Le dessin d'un bouton n'est pas une prise : c'est le bouton.
+        const avantBouton = ou();
+        const icone = document.querySelector('#mp3-close svg') || document.getElementById('mp3-close');
+        tirer(icone, 500, 700);
+        return { bougeDeLaPoignee: parLaPoignee - depart, bougeDuBouton: ou() - avantBouton };
+    });
+    r.egal('la poignée déplace la fenêtre, le dessin d\'un bouton non',
+        { poignee: glisse.bougeDeLaPoignee, bouton: glisse.bougeDuBouton },
+        { poignee: 100, bouton: 0 });
 
     await page.evaluate(() => {
         choisirLHabillageDuLecteur('tni');
