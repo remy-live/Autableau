@@ -6081,7 +6081,17 @@ function updateStyleBarContext() {
     else if (['segment', 'droite', 'demi-droite', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
     else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) barStyle.classList.add('ctx-line');
     else if (targetType === 'text') barStyle.classList.add('ctx-text');
-    else if (targetType === 'image') { /* le groupe « document » ci-dessous s'en charge */ }
+    else if (targetType === 'image') {
+        // UN DOCUMENT TENU N'A QU'UNE BARRE. Il en paraissait TROIS empilées
+        // par-dessus la page : la sienne, celle du style, et le menu de
+        // l'objet. Pour un document, la barre de style ne portait plus que la
+        // pile, l'opacité et le presse-papiers — la pile et l'opacité ont
+        // rejoint le volet, où elles portent un nom, et le presse-papiers
+        // reste au clavier (Ctrl+C, Ctrl+X, Ctrl+V) avec la duplication dans
+        // le menu de l'objet. Elle n'a donc plus rien à dire ici.
+        barStyle.classList.remove('visible');
+        barStyle.removeAttribute('data-dragged');
+    }
     else {
         barStyle.classList.remove('visible');
         barStyle.removeAttribute('data-dragged');
@@ -14195,6 +14205,11 @@ function majReglagesDuVolet() {
     allume('dv-grille', !!o.sousLaGrille);
     allume('dv-proportions', o.ratioLocked !== false);
     allume('dv-rogner', !!o.isCropping);
+    // L'opacité de la page dit la sienne, sans se dérober sous les doigts.
+    const opacite = document.getElementById('dv-opacite');
+    if (opacite && document.activeElement !== opacite) {
+        opacite.value = String(o.opacity === undefined ? 1 : o.opacity);
+    }
     // ALLER ET RETOUR, ICI AUSSI. C'est de ce volet qu'on ouvre la page en
     // grand — le bouton de la barre est masqué sur un document. Le retour
     // devait donc s'y trouver, sans quoi il n'existait nulle part.
@@ -14354,10 +14369,39 @@ function brancherBarreDocument() {
     // choses que les boutons qui ont quitte la barre : on relaie plutot que de
     // reecrire, et il n'y a donc qu'un seul comportement a maintenir.
     [['dv-rogner', 'doc-rogner'], ['dv-entiere', 'doc-entiere'],
-     ['dv-proportions', 'doc-proportions'], ['dv-grille', 'doc-grille']].forEach(([relais, vrai]) => {
+     ['dv-proportions', 'doc-proportions'], ['dv-grille', 'doc-grille'],
+     // La pile arrive de la barre de style, qui s'efface quand on tient un
+     // document : mêmes boutons, relayés, donc un seul comportement à tenir.
+     ['dv-devant', 'btn-z-up'], ['dv-derriere', 'btn-z-down']].forEach(([relais, vrai]) => {
         const r = b(relais), v = b(vrai);
-        if (r && v) r.addEventListener('click', () => { v.click(); majReglagesDuVolet(); });
+        if (r && v) r.addEventListener('click', () => {
+            // Les boutons de la pile agissent sur la SÉLECTION, vide quand on
+            // annote la page : on remet le document tenu en main le temps du
+            // clic, sans quoi le réglage du volet ne toucherait rien.
+            const o = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+            const avant = selectedItems;
+            if (o && !avant.length) selectedItems = [{ type: 'image', id: o.id }];
+            v.click();
+            selectedItems = avant;
+            majReglagesDuVolet();
+        });
     });
+
+    // L'OPACITÉ DE LA PAGE, elle aussi venue de la barre de style : on rend la
+    // page transparente pour écrire par-dessus, c'est le geste du calque.
+    (function () {
+        const curseur = b('dv-opacite');
+        if (!curseur) return;
+        const poser = (fin) => {
+            const o = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
+            if (!o) return;
+            o.opacity = parseFloat(curseur.value);
+            draw();
+            if (fin && typeof saveState === 'function') saveState();
+        };
+        curseur.addEventListener('input', () => poser(false));
+        curseur.addEventListener('change', () => poser(true));
+    })();
 
     b('doc-grille').addEventListener('click', () => {
         const o = documentDeLaBarre(); if (!o) return;

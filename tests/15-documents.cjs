@@ -1299,6 +1299,91 @@ module.exports = async function (browser) {
     });
 
     // =========================================================================
+    // UN DOCUMENT TENU N'A QU'UNE BARRE
+    // « Ça fait beaucoup de barres pour le pdf ! » — il en paraissait TROIS
+    // empilées par-dessus la page : la sienne, celle du style, et le menu de
+    // l'objet. Pour un document, celle du style ne portait plus que la pile,
+    // l'opacité et le presse-papiers ; les deux premières ont rejoint le volet,
+    // où elles portent enfin un nom.
+    // =========================================================================
+    const empilement = await page.evaluate(async () => {
+        images.length = 0; texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        setMode('pointer');
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext(); majBarreDocument(); updateQuickMenu();
+        await new Promise(r => setTimeout(r, 350));
+        const dehors = (el) => {
+            if (!el) return false;
+            const b = el.getBoundingClientRect();
+            const s = getComputedStyle(el);
+            return b.width > 4 && b.height > 4 && s.display !== 'none' && s.opacity !== '0' && !el.hidden;
+        };
+        const flottantes = ['bar-document', 'bar-style', 'quick-edit-menu']
+            .filter(id => dehors(document.getElementById(id)));
+
+        // Et la barre de style revient dès qu'on prend un outil pour écrire
+        // dessus : c'est là qu'on choisit sa couleur et son épaisseur.
+        document.getElementById('doc-outil-crayon').click();
+        await new Promise(r => setTimeout(r, 350));
+        const auCrayon = { style: dehors(document.getElementById('bar-style')),
+                           doc: dehors(document.getElementById('bar-document')) };
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        return { flottantes, auCrayon };
+    });
+    r.egal('un document tenu : sa barre et le menu de l\'objet, et rien de plus',
+        empilement.flottantes, ['bar-document', 'quick-edit-menu']);
+    r.egal('mais la barre de style revient avec l\'outil, pour choisir sa couleur',
+        empilement.auCrayon, { style: true, doc: true });
+
+    // CE QUI A DÉMÉNAGÉ AGIT VRAIMENT. Un réglage qui a changé de meuble et
+    // ne fait plus rien est pire que celui qu'on a déplacé.
+    const voletAgit = await page.evaluate(async () => {
+        const o = images[0];
+        o.z = 5; o.opacity = 1;
+        voletOuvert = true; majLeVolet(); majReglagesDuVolet();
+        await new Promise(r => setTimeout(r, 200));
+        const zAvant = o.z;
+        document.getElementById('dv-devant').click();
+        const devant = o.z > zAvant;
+        document.getElementById('dv-derriere').click();
+        const derriere = o.z < zAvant;
+
+        // ET PENDANT QU'ON ANNOTE, la sélection est VIDE — c'est la page tenue
+        // par la barre qui compte. La pile agit sur la sélection : sans rendre
+        // le document en main le temps du clic, le réglage ne touchait rien.
+        selectedItems = [];
+        docEnAnnotation = o.id;
+        setMode('freehand');
+        o.z = 5;
+        document.getElementById('dv-devant').click();
+        const enAnnotant = o.z > 5;
+        docEnAnnotation = null; setMode('pointer');
+        selectedItems = [{ type: 'image', id: o.id }];
+
+        // Et l'opacité : on rend la page transparente pour écrire par-dessus.
+        const c = document.getElementById('dv-opacite');
+        c.value = '0.4';
+        c.dispatchEvent(new Event('input', { bubbles: true }));
+        const opacite = o.opacity;
+        // Le curseur dit la sienne quand on rouvre le volet sur cette page.
+        o.opacity = 0.7; majReglagesDuVolet();
+        const relu = parseFloat(c.value);
+        o.opacity = 1; c.value = '1';
+        voletOuvert = false; majLeVolet();
+        images.length = 0; selectedItems = []; majBarreDocument(); draw();
+        return { devant, derriere, enAnnotant, opacite, relu };
+    });
+    r.verifie('« Mettre devant » et « Mettre derrière » agissent depuis le volet',
+        voletAgit.devant && voletAgit.derriere, JSON.stringify(voletAgit));
+    r.verifie('y compris pendant qu\'on annote la page, sélection vide',
+        voletAgit.enAnnotant, JSON.stringify(voletAgit));
+    r.egal('et l\'opacité de la page s\'y règle, et s\'y relit',
+        { pose: voletAgit.opacite, relu: voletAgit.relu }, { pose: 0.4, relu: 0.7 });
+
+    // =========================================================================
     // PRENDRE UN OUTIL RANGE LES CISEAUX
     // Le découpage accapare le geste sur le document : tant qu'il est armé, le
     // clic taille un morceau au lieu de dessiner. On prenait le crayon, on
@@ -1509,9 +1594,13 @@ module.exports = async function (browser) {
     let ouvert = await ouvrirLeVolet();
     r.verifie('un PDF feuilletable montre sa pagination ET le bouton du volet',
         etatBarre.voletBtn && etatBarre.pagination, JSON.stringify(etatBarre));
-    r.egal('son volet porte les trois réglages, avec la recherche et les vignettes',
+    // SIX RÉGLAGES, et non plus trois : la pile et l'opacité sont arrivées de
+    // la barre de style, qui s'efface désormais quand on tient un document —
+    // il en paraissait trois empilées par-dessus la page.
+    r.egal('son volet porte ses réglages, avec la recherche et les vignettes',
         { r: ouvert.reglages, ch: ouvert.recherche, li: ouvert.liste },
-        { r: ['dv-rogner', 'dv-proportions', 'dv-grille'], ch: true, li: true });
+        { r: ['dv-rogner', 'dv-proportions', 'dv-grille', 'dv-devant', 'dv-derriere', 'dv-opacite-boite'],
+          ch: true, li: true });
     await fermerLeVolet();
 
     // Un PDF rouvert d'un tableau enregistré : la pagination n'existe plus.
@@ -1522,7 +1611,8 @@ module.exports = async function (browser) {
         etatBarre.voletBtn && !etatBarre.pagination, JSON.stringify(etatBarre));
     r.egal('et ses réglages sont là, la liste des pages en moins',
         { r: ouvert.reglages, ch: ouvert.recherche, li: ouvert.liste },
-        { r: ['dv-rogner', 'dv-proportions', 'dv-grille'], ch: false, li: false });
+        { r: ['dv-rogner', 'dv-proportions', 'dv-grille', 'dv-devant', 'dv-derriere', 'dv-opacite-boite'],
+          ch: false, li: false });
     await fermerLeVolet();
 
     // Un scan importé : ni pages ni recherche, mais les mêmes réglages.
@@ -1538,7 +1628,8 @@ module.exports = async function (browser) {
     etatBarre = await visibles();
     ouvert = await ouvrirLeVolet();
     r.verifie('un scan importé donne accès au volet, lui aussi', etatBarre.voletBtn, JSON.stringify(etatBarre));
-    r.egal('avec les mêmes réglages', ouvert.reglages, ['dv-rogner', 'dv-proportions', 'dv-grille']);
+    r.egal('avec les mêmes réglages', ouvert.reglages,
+        ['dv-rogner', 'dv-proportions', 'dv-grille', 'dv-devant', 'dv-derriere', 'dv-opacite-boite']);
 
     if (ouvert.reglages.includes('dv-proportions')) {
         await page.click('#dv-proportions');

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=120">
+    <link rel="stylesheet" href="style.css?v=121">
 </head>
 
 <body>
@@ -269,6 +269,32 @@
                     <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" fill-opacity="0.18"
                         stroke-width="1.8" />
                 </svg><span>Passer sous le quadrillage</span></button>
+            <!-- LA PILE ET L'OPACITÉ ARRIVENT DE LA BARRE DE STYLE. Un document
+                 tenu faisait paraître TROIS barres empilées par-dessus la page :
+                 la sienne, celle du style, et le menu de l'objet. Celle du style
+                 ne portait plus, pour lui, que la pile, l'opacité et le
+                 presse-papiers ; elle s'efface, et ce qui sert vraiment est ici,
+                 avec un nom, dans la fiche de la page. -->
+            <button class="dv-reglage" id="dv-devant">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="9" width="12" height="12" rx="2" opacity="0.45" />
+                    <rect x="9" y="3" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.18" />
+                </svg><span>Mettre devant</span></button>
+            <button class="dv-reglage" id="dv-derriere">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="3" width="12" height="12" rx="2" opacity="0.45" />
+                    <rect x="3" y="9" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.18" />
+                </svg><span>Mettre derrière</span></button>
+            <label class="dv-reglage dv-curseur" id="dv-opacite-boite">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" fill-opacity="0.35" stroke="none" />
+                </svg><span>Opacité</span>
+                <input type="range" id="dv-opacite" min="0.1" max="1" step="0.05" value="1"
+                    data-tooltip="Rendre la page transparente pour écrire par-dessus">
+            </label>
         </div>
         <div id="dv-etat"></div>
         <div id="dv-liste"></div>
@@ -1175,12 +1201,18 @@
                         <li><strong>Zoomer sans pixelliser :</strong> la page est redessinée à la finesse qu'on lui
                             demande, dans les deux sens — jusqu'à douze fois sa taille naturelle en zoomant, et plus
                             légère en dézoomant, ce qui évite le grain.</li>
-                        <li><strong>Deux barres, deux métiers.</strong> En haut, fixe, la barre des
-                            <b>propriétés</b> : ce qui définit l'objet — les pages du document,
-                            <b>Cadre</b> / <b>Page</b>, le rognage, les proportions, l'apparence. Au-dessus de
-                            l'objet, un petit menu flottant : les <b>actions</b> — verrouiller, dupliquer,
-                            supprimer. Rien ne se trouve dans les deux. En <b>plein écran</b>, la barre des
-                            propriétés descend en bas : la page occupe alors tout le haut.<br>
+                        <li><strong>Un document tenu n'a qu'UNE barre.</strong> En haut, fixe, la barre du
+                            <b>document</b> : ses pages, le plein écran, <b>Cadre</b> / <b>Page</b>, de quoi
+                            écrire dessus, les zones, les ciseaux, le rognage. Au-dessus de l'objet, un petit
+                            menu flottant : les <b>actions</b> — verrouiller, dupliquer, supprimer. Et c'est
+                            tout : la barre de <b>style</b> s'efface quand on tient un document, car elle n'y
+                            portait plus que la pile, l'opacité et le presse-papiers — la <b>pile</b> et
+                            l'<b>opacité</b> sont maintenant dans le <b>volet</b> de la page, avec un nom, à
+                            côté du rognage et des proportions ; le presse-papiers reste au clavier
+                            (<b>Ctrl+C</b>, <b>Ctrl+X</b>, <b>Ctrl+V</b>) et la duplication dans le menu de
+                            l'objet. La barre de style revient dès qu'on prend un <b>outil</b> pour écrire sur
+                            la page : c'est là qu'on choisit sa couleur et son épaisseur. En <b>plein écran</b>,
+                            la barre du document descend en bas : la page occupe alors tout le haut.<br>
                             Elle ne porte <b>que des icônes</b> : sept boutons écrivaient leur nom et la
                             barre traversait l'écran. Le mot est dans l'<b>infobulle</b> — elle dit la même
                             chose, et plus longuement, sans rien coûter tant qu'on ne la demande pas.
@@ -2890,7 +2922,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=219"></script>
+    <script src="script.js?v=220"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

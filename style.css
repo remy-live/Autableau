@@ -8603,6 +8603,18 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 .dark-mode .dv-reglage { color: #dfe6e9; }
 .dark-mode .dv-reglage:hover { background: #2f3941; }
+
+/* L'opacité de la page est un RÉGLAGE, pas un bouton : elle se pousse. Elle
+   vivait derrière le bouton de couleur de la barre de style — celle-là même
+   qui s'efface quand on tient un document. */
+.dv-curseur { cursor: default; }
+.dv-curseur input[type="range"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: 4px;
+    accent-color: #6c5ce7;
+    cursor: pointer;
+}
 .dark-mode .dv-titre { color: #7f8c8d; }
 
 /* ============================================================
