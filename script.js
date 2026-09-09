@@ -24268,6 +24268,11 @@ function renderTrashList() {
     trashListEl.innerHTML = '';
     const list = currentExplorerTab === 'tableaux' ? savedTableaux : savedInterfaces;
     const deletedItems = list.filter(t => t.deleted);
+    // LE NOMBRE DIT CE QUI ATTEND PLUS BAS. La liste est bornée en hauteur —
+    // sans quoi elle poussait l'arborescence hors du tiroir — et rien ne
+    // disait alors qu'il en restait sous le pli.
+    const compte = document.getElementById('trash-compte');
+    if (compte) compte.textContent = deletedItems.length ? String(deletedItems.length) : '';
     if (deletedItems.length === 0) {
         trashListEl.innerHTML = `<div style="padding:10px; color:#636e72; font-size:12px; text-align:center;">Corbeille vide</div>`;
         return;

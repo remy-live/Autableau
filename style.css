@@ -1563,6 +1563,7 @@ html {
     margin-top: 12px;
     border-top: 1px solid var(--border);
     padding-top: 12px;
+    flex-shrink: 0;
 }
 
 .trash-header {
@@ -1600,11 +1601,47 @@ html {
     background: rgba(128, 128, 128, 0.16);
 }
 
+/* LA CORBEILLE NE MANGE PAS LE TIROIR. Elle poussait l'arborescence hors de
+   l'écran : vingt tableaux jetés — ce qu'une année de séances produit — la
+   faisaient déborder de deux cent cinquante pixels, et il fallait faire
+   défiler tout le panneau pour retrouver ses dossiers. Elle défile chez elle,
+   et son nombre dit ce qui attend plus bas. */
 .trash-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    max-height: min(34vh, 240px);
+    overflow-y: auto;
+    /* De quoi laisser passer la barre de défilement sans coller aux bords. */
+    padding-right: 2px;
 }
+
+.trash-list::-webkit-scrollbar { width: 6px; }
+.trash-list::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.3);
+    border-radius: 3px;
+}
+
+/* La section ne force plus la hauteur de son parent : c'est la liste qui
+   décide de la sienne, et elle est bornée. */
+#trash-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.trash-compte {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    background: rgba(128, 128, 128, 0.14);
+    border-radius: 999px;
+    padding: 1px 7px;
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.trash-compte:empty { display: none; }
 
 .trash-item {
     display: flex;

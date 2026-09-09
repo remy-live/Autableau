@@ -1528,6 +1528,53 @@ module.exports = async function (browser) {
     r.verifie('aucune erreur JS au rejouement', err2.length === 0, err2.join(' | '));
     await ctx2.close();
 
+    // =====================================================================
+    // LA CORBEILLE NE MANGE PAS LE TIROIR
+    // Vingt tableaux jetés — ce qu'une année de séances produit — poussaient
+    // l'arborescence hors de l'écran : la liste débordait de deux cent
+    // cinquante pixels et il fallait faire défiler tout le panneau pour
+    // retrouver ses dossiers.
+    // =====================================================================
+    const corbeille = await page.evaluate(() => {
+        const tiroir = document.getElementById('right-drawer');
+        tiroir.classList.add('open');
+        const mesure = () => {
+            const liste = document.getElementById('trash-list');
+            const r = liste.getBoundingClientRect(), t = tiroir.getBoundingClientRect();
+            return {
+                items: liste.querySelectorAll('.tree-item').length,
+                // Elle reste DANS le tiroir…
+                deborde: Math.round(r.bottom - t.bottom) > 1,
+                // … parce qu'elle défile CHEZ ELLE, et non en poussant le reste.
+                defileChezElle: liste.scrollHeight > liste.clientHeight + 1,
+                defileLeTiroir: tiroir.scrollHeight > tiroir.clientHeight + 1,
+                compte: (document.getElementById('trash-compte') || {}).textContent
+            };
+        };
+        const avant = savedTableaux.length;
+        for (let i = 1; i <= 20; i++) {
+            savedTableaux.push({ id: 'sup_essai_' + i, name: 'Séance ' + i,
+                                 type: 'file', deleted: true, parent: 'root', data: {} });
+        }
+        renderTrashList();
+        const pleine = mesure();
+        // Vidée, le nombre s'en va avec elle : une pastille à zéro serait un
+        // bruit permanent.
+        savedTableaux.length = avant;
+        renderTrashList();
+        const vide = { compte: (document.getElementById('trash-compte') || {}).textContent };
+        tiroir.classList.remove('open');
+        return { pleine, vide };
+    });
+    r.egal('vingt tableaux jetés tiennent dans le tiroir, et la liste défile chez elle',
+        { items: corbeille.pleine.items, deborde: corbeille.pleine.deborde,
+          defileChezElle: corbeille.pleine.defileChezElle,
+          defileLeTiroir: corbeille.pleine.defileLeTiroir },
+        { items: 20, deborde: false, defileChezElle: true, defileLeTiroir: false });
+    r.egal('et son nombre dit ce qui attend sous le pli',
+        { pleine: corbeille.pleine.compte, vide: corbeille.vide.compte },
+        { pleine: '20', vide: '' });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

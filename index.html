@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=118">
+    <link rel="stylesheet" href="style.css?v=119">
 </head>
 
 <body>
@@ -2331,7 +2331,7 @@
         <div id="interfaces-container"></div>
         <div id="trash-section" ondragover="handleTrashDragOver(event)" ondrop="handleTrashDrop(event)">
             <div class="trash-header" style="justify-content: center; position: relative;">
-                <span class="trash-title">Corbeille</span>
+                <span class="trash-title">Corbeille</span><span class="trash-compte" id="trash-compte"></span>
                 <div class="trash-actions" style="position: absolute; right: 0;">
                     <button class="trash-btn" onclick="emptyTrash()">Vider</button>
                 </div>
@@ -2869,7 +2869,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=215"></script>
+    <script src="script.js?v=216"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
