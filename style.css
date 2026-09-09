@@ -317,7 +317,8 @@ html {
     transform: translateY(-50%);
 }
 
-#bar-style {
+#bar-style,
+#bar-document {
     left: 50%;
     top: 20px;
     transform: translateX(-50%);
@@ -327,7 +328,8 @@ html {
     pointer-events: none;
 }
 
-#bar-style.visible {
+#bar-style.visible,
+#bar-document.visible {
     opacity: 1;
     pointer-events: auto;
 }
@@ -336,7 +338,8 @@ html {
    width:max-content est indispensable : la barre est en position fixed à
    left:50%, sans quoi la largeur disponible tombe à 50vw et elle se replie
    inutilement sur les grands écrans. */
-#bar-style {
+#bar-style,
+#bar-document {
     box-sizing: border-box;
     width: max-content;
     max-width: calc(100vw - 16px);
@@ -1666,10 +1669,16 @@ body.focus-mode .drawer {
    reste du temps elles sont masquées (display:none) et le Focus garde son
    calme. Le « transform » doit être remis : la règle du Focus le remplace par
    un scale(0.95) qui décentrerait la barre de style. */
-body.focus-mode #bar-style.visible {
+body.focus-mode #bar-style.visible,
+body.focus-mode #bar-document.visible {
     opacity: 1 !important;
     pointer-events: auto !important;
     transform: translateX(-50%);
+}
+
+/* Debout, le « transform » du Focus la décentrerait sur la hauteur. */
+body.focus-mode #bar-document.visible.vertical {
+    transform: translateY(-50%);
 }
 
 body.focus-mode #text-toolbar {
@@ -1776,7 +1785,7 @@ body.focus-mode #exit-focus-cross {
 #bar-style.ctx-text .group-text,
 #bar-style.ctx-zindex .group-zindex,
 #bar-style.ctx-lock .group-lock,
-#bar-style.ctx-document .group-document {
+#bar-document.ctx-document .group-document {
     display: flex;
 }
 
@@ -6169,7 +6178,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    sélectionnée. Elles vivaient dans une barre à part, posée sous l'objet et
    déplaçable ; elles sont maintenant un contexte de la barre unique, qui ne
    bouge pas. Il n'y a donc plus ni poignée, ni repli, ni pastille. */
-#bar-style .group-document { gap: 6px; }
+#bar-document .group-document { gap: 6px; }
 
 #doc-pages { display: flex; align-items: center; gap: 2px; }
 
@@ -6353,20 +6362,25 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    Le « !important » est indispensable : ces groupes portent un display posé
    en ligne par le script.
    ------------------------------------------------------------------ */
-#bar-style.zones-edition #doc-pages,
-#bar-style.zones-edition #doc-pages-sep,
-#bar-style.zones-edition #doc-modes,
-#bar-style.zones-edition #doc-modes-sep,
-#bar-style.zones-edition #doc-annoter,
-#bar-style.zones-edition #doc-annoter-sep,
-#bar-style.zones-edition #doc-zones,
-#bar-style.zones-edition #doc-grille,
-#bar-style.zones-edition #doc-proportions,
-#bar-style.zones-edition #doc-rogner,
-#bar-style.zones-edition #doc-entiere,
-#bar-style.zones-edition #btn-color-popover,
-#bar-style.zones-edition .style-group:not(.group-document),
-#bar-style.zones-edition .divider { display: none !important; }
+#bar-document.zones-edition #doc-pages,
+#bar-document.zones-edition #doc-pages-sep,
+#bar-document.zones-edition #doc-modes,
+#bar-document.zones-edition #doc-modes-sep,
+#bar-document.zones-edition #doc-annoter,
+#bar-document.zones-edition #doc-annoter-sep,
+#bar-document.zones-edition #doc-zones,
+#bar-document.zones-edition #doc-grille,
+#bar-document.zones-edition #doc-proportions,
+#bar-document.zones-edition #doc-rogner,
+#bar-document.zones-edition #doc-entiere,
+#bar-document.zones-edition #btn-color-popover,
+/* PENDANT LA RETOUCHE DES ZONES, LA BARRE DE STYLE S'EFFACE. On numérote des
+   cases à remplir : la couleur du trait, l'épaisseur et la pile n'y ont aucun
+   rôle, et elles encombraient un geste déjà minutieux. */
+#bar-style.zones-edition { display: none !important; }
+
+#bar-document.zones-edition .style-group:not(.group-document),
+#bar-document.zones-edition .divider { display: none !important; }
 
 /* Le titre du groupe : il dit de quoi la barre parle, une fois pour toutes,
    au lieu de le laisser deviner bouton par bouton. */
@@ -6385,13 +6399,13 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 /* On écrit sur le document : il n'est plus tenu, et les réglages qui demandent
    de l'avoir en main n'auraient rien à saisir. Le « !important » est
    indispensable : ces groupes portent un display posé en ligne par le script. */
-#bar-style.annote #doc-modes,
-#bar-style.annote #doc-modes-sep,
-#bar-style.annote #doc-proportions,
-#bar-style.annote #doc-rogner,
+#bar-document.annote #doc-modes,
+#bar-document.annote #doc-modes-sep,
+#bar-document.annote #doc-proportions,
+#bar-document.annote #doc-rogner,
 /* Copier, couper, coller, dupliquer : la sélection est vide pendant qu'on
    annote, ils n'auraient rien à prendre. */
-#bar-style.annote .group-edition { display: none !important; }
+#bar-document.annote .group-edition { display: none !important; }
 /* Le cadenas, la duplication et l'opacité ne sont plus ici : la barre unique
    les portait DÉJÀ pour tous les objets, et se retrouvait avec deux cadenas
    côte à côte une fois les deux barres réunies. Ce sont les versions générales
@@ -8239,14 +8253,17 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    resté seul en bout de barre, ou collé à un autre, dessinait un trait
    vertical au milieu de nulle part — très visible sur un document, où
    plusieurs groupes sont masqués à la fois. */
-#bar-style .doc-sep:first-child,
-#bar-style .doc-sep:last-child,
 #bar-style .divider:first-child,
 #bar-style .divider:last-child,
-#bar-style .doc-sep + .doc-sep,
 #bar-style .divider + .divider,
-#bar-style .doc-sep + .divider,
-#bar-style .divider + .doc-sep { display: none; }
+#bar-document .doc-sep:first-child,
+#bar-document .doc-sep:last-child,
+#bar-document .divider:first-child,
+#bar-document .divider:last-child,
+#bar-document .doc-sep + .doc-sep,
+#bar-document .divider + .divider,
+#bar-document .doc-sep + .divider,
+#bar-document .divider + .doc-sep { display: none; }
 
 /* ============================================================
    LE LECTEUR : REJOUER CE QUI S'EST PASSÉ AU TABLEAU
@@ -8493,21 +8510,21 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    ============================================================ */
 /* Le quadrillage part dans TOUS les cas : c'est un réglage de page, pas un
    outil d'écriture, et il n'a pas plus sa place ici quand on annote. */
-#bar-style.doc-allege #doc-grille,
-#bar-style.doc-allege #doc-sep,
-#bar-style.doc-allege:not(.annote) #doc-proportions,
-#bar-style.doc-allege:not(.annote) #doc-entiere,
-#bar-style.doc-allege:not(.annote) #btn-color-popover,
-#bar-style.doc-allege:not(.annote) .group-zindex,
-#bar-style.doc-allege:not(.annote) .group-edition,
+#bar-document.doc-allege #doc-grille,
+#bar-document.doc-allege #doc-sep,
+#bar-document.doc-allege:not(.annote) #doc-proportions,
+#bar-document.doc-allege:not(.annote) #doc-entiere,
+#bar-document.doc-allege:not(.annote) #btn-color-popover,
+#bar-document.doc-allege:not(.annote) .group-zindex,
+#bar-document.doc-allege:not(.annote) .group-edition,
 /* Le séparateur qui suivait la pastille de couleur restait seul en bout de
    barre : les gardes génériques ne l'attrapent pas, puisque les groupes
    masqués comptent encore comme des frères. */
-#bar-style.doc-allege:not(.annote) #btn-color-popover + .divider { display: none !important; }
+#bar-document.doc-allege:not(.annote) #btn-color-popover + .divider { display: none !important; }
 
 /* Cadre et Page deviennent un simple interrupteur à deux icônes : leur nom
    tenait plus de place que le réglage lui-même, et l'infobulle le dit. */
-#bar-style .doc-mode { padding: 5px 7px; }
+#bar-document .doc-mode { padding: 5px 7px; }
 
 /* --- Les réglages de page, dans le volet --- */
 #dv-reglages {
@@ -9391,7 +9408,7 @@ body.barre-outils-courte #system-toolbar-main .custom-resizer {
    Les libellés partis dans les infobulles, elle tient en quarante pixels.
    Au bord DROIT : le gauche appartient à la barre des outils.
    ============================================================ */
-#bar-style.vertical {
+#bar-document.vertical {
     left: auto;
     right: 20px;
     top: 50%;
@@ -9411,60 +9428,43 @@ body.barre-outils-courte #system-toolbar-main .custom-resizer {
 
 /* Le mode Focus recentrait la barre à l'horizontale ; debout, elle se centre
    en hauteur. */
-body.focus-mode #bar-style.vertical.visible { transform: translateY(-50%); }
+body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 
 /* LES GROUPES SE COUCHENT AUSSI. Chaque contexte de la barre est un « groupe »
    qui est lui-même une rangée : mettre la barre en colonne ne suffisait pas,
    les boutons restaient alignés à l'intérieur de leur groupe et débordaient
    par le côté. C'est ce qu'elle faisait « très mal ». */
-/* LE CURSEUR DE TAILLE, DEBOUT. Une réglette horizontale et son champ de
-   nombre dans une colonne de cent cinquante pixels : le nombre sortait par
-   la droite, à cheval sur le bord de la barre. Debout, on garde l'icône et
-   le NOMBRE — qui se tape et se lit, ce que la réglette ne fait ni l'un ni
-   l'autre — et la réglette s'efface, faute de largeur où glisser. */
-#bar-style.vertical .slider-container {
-    justify-content: center;
-    gap: 6px;
-    width: 100%;
-    padding: 3px 0;
-    box-sizing: border-box;
-}
+/* LA RÉGLETTE DE TAILLE NE SE MET PLUS EN TRAVERS D'UNE COLONNE, et il n'y a
+   plus rien à contourner pour cela : elle vit dans la barre de STYLE, et
+   celle-ci ne se met jamais debout. Seule la barre du document le fait, et
+   elle ne porte aucune réglette. */
 
-#bar-style.vertical .slider-container input[type="range"] { display: none; }
-
-#bar-style.vertical .slider-container .slider-num {
-    width: 52px;
-    text-align: center;
-}
-
-#bar-style.vertical .slider-icon { margin: 0; }
-
-#bar-style.vertical .style-group,
-#bar-style.vertical .tool-group {
+#bar-document.vertical .style-group,
+#bar-document.vertical .tool-group {
     flex-direction: column;
     align-items: center;
     gap: 3px;
 }
 
 /* Les séparateurs et la poignée se couchent avec elle. */
-#bar-style.vertical .doc-sep { width: 20px; height: 1px; margin: 3px 0; }
+#bar-document.vertical .doc-sep { width: 20px; height: 1px; margin: 3px 0; }
 .toolbar.vertical .divider { width: 22px; height: 1px; margin: 4px 0; }
-#bar-style.vertical .drag-handle { margin-right: 0 !important; margin-bottom: 2px; }
-#bar-style.vertical .drag-wrapper { flex-direction: row; gap: 2px; }
+#bar-document.vertical .drag-handle { margin-right: 0 !important; margin-bottom: 2px; }
+#bar-document.vertical .drag-wrapper { flex-direction: row; gap: 2px; }
 
 /* MAIS « ◀ 3 /9 ▶ » RESTE UNE LIGNE : une pagination en colonne ne se lit pas.
    Les curseurs aussi — un réglage vertical ne se règle pas. */
-#bar-style.vertical #doc-pages,
-#bar-style.vertical .slider-container,
-#bar-style.vertical .opacity-container { flex-direction: row; }
+#bar-document.vertical #doc-pages,
+#bar-document.vertical .slider-container,
+#bar-document.vertical .opacity-container { flex-direction: row; }
 /* La pagination débordait de la colonne : ses flèches, écartées comme sur une
    barre longue, faisaient à elles seules la largeur de la barre. Serrée, elle
    tient dans la colonne sans cesser d'être une ligne. */
-#bar-style.vertical #doc-pages { gap: 0; }
-#bar-style.vertical #doc-pages .doc-btn { padding: 4px 2px; }
-#bar-style.vertical #doc-page-num { max-width: 3ch; padding-left: 2px; padding-right: 2px; }
-#bar-style.vertical #doc-total { font-size: 11px; }
-#bar-style.vertical .slider-container input[type="range"] { width: 58px; }
+#bar-document.vertical #doc-pages { gap: 0; }
+#bar-document.vertical #doc-pages .doc-btn { padding: 4px 2px; }
+#bar-document.vertical #doc-page-num { max-width: 3ch; padding-left: 2px; padding-right: 2px; }
+#bar-document.vertical #doc-total { font-size: 11px; }
+#bar-document.vertical .slider-container input[type="range"] { width: 58px; }
 
 .btn-orienter:hover { color: var(--accent, #6c5ce7); background: #f1f2f6; }
 .btn-orienter.actif { color: var(--accent, #6c5ce7); }

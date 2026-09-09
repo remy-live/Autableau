@@ -159,7 +159,7 @@ module.exports = async function (browser) {
     // rien coûter tant qu'on ne la demande pas.
     // =====================================================================
     const barreDoc = await page.evaluate(() => {
-        const barre = document.getElementById('bar-style');
+        const barre = document.getElementById('bar-document');
         const boutons = Array.from(barre.querySelectorAll('.doc-btn'));
         // UNE ICÔNE MUETTE EST UN RÉBUS. Puisqu'il n'y a plus de mot écrit,
         // chaque bouton DOIT porter de quoi se nommer.

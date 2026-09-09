@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=116">
+    <link rel="stylesheet" href="style.css?v=117">
 </head>
 
 <body>
@@ -223,10 +223,11 @@
          sélectionné et le suit. Elle sépare les deux gestes qui se marchent
          dessus : régler le cadre, ou faire coulisser la page à l'intérieur.
          Les flèches n'apparaissent que pour un PDF feuilletable. -->
-    <!-- La barre du document a fusionné avec la barre de style : une seule
-         barre contextuelle, toujours à la même place, dont le contenu change
-         avec ce qui est sélectionné. Ses commandes sont devenues le groupe
-         « group-document » de #bar-style, plus haut. -->
+    <!-- La barre du document est un meuble à part : « bar-document », plus
+         bas. Elle avait fusionné avec la barre de style, et choisir le crayon
+         pendant qu'on tenait un polycopié y déversait tous les réglages du
+         crayon par-dessus les pages, le plein écran et le découpage. Deux
+         meubles, deux propos — et celui du document seul se met debout. -->
 
     <!-- Le volet du document : les pages en vignettes, et la recherche dans
          leur texte. Les deux répondent à la même question — « où est-ce ? » —
@@ -613,6 +614,14 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">📐 Navigation</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><strong>Deux barres, deux propos :</strong> celle du <b>document</b>
+                            ne parle que du PDF ou de l'image qu'on tient — pages, plein écran,
+                            découpage, annotation — et c'est la <b>seule</b> qui se met <b>debout</b>,
+                            au bord droit : une page est haute et étroite, là où le tableau est large.
+                            Celle du <b>style</b> règle l'outil ou l'objet du moment (couleur,
+                            épaisseur, taille du texte) et revient toujours à sa place, juste en
+                            dessous. Prendre le crayon pendant qu'on tient un polycopié ne déverse
+                            donc plus les réglages du crayon dans la barre du document.</li>
                         <li><strong>Écrire à la suite :</strong> avec l'outil <b>Texte</b> en main, un clic
                             ailleurs <b>pose la ligne écrite et en rouvre une</b> à l'endroit désigné : on
                             tape aussitôt. Il n'y a plus à sortir de l'outil, le reprendre, puis
@@ -2345,6 +2354,148 @@
              en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
              La place choisie est retenue d'une seance a l'autre. -->
         <div class="drag-wrapper">
+            <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                </svg></button>
+        </div>
+        <div class="drag-handle cbar-head"
+            style="cursor: move; opacity: 0.5; padding: 4px; margin-right: 8px; display: flex; align-items: center;"
+            title="Déplacer">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
+                <path
+                    d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"
+                    fill="currentColor" />
+            </svg>
+        </div>
+        <!-- ROUVRIR LA VIGNETTE. Soixante-quatre outils sur quatre-vingt-six
+             posent une vignette qu'on peut reprendre — et rien ne le disait :
+             il fallait deviner le double-clic. Le bouton porte son nom, parce
+             que c'est l'action principale sur une vignette d'outil. -->
+        <button class="doc-btn" id="btn-rouvrir-vignette" style="display:none;"
+            data-tooltip="Rouvrir cet outil pour le modifier (double-clic sur la vignette)">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 20.5h4.5L20 9a2.5 2.5 0 0 0-3.5-3.5L5 17v3.5z" />
+                <path d="M14.5 7L17 9.5" />
+            </svg><span>Modifier</span></button>
+        <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
+            <div id="color-indicator"></div>
+        </button>
+        <div class="divider"></div>
+        <div class="style-group group-point">
+            <div class="divider"></div><button class="btn" id="btn-shape" title="Forme de point"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape">
+                    <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" />
+                    <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" />
+                </svg></button>
+        </div>
+
+        <div class="style-group group-line">
+            <div class="divider"></div>
+            <!-- L'ÉPAISSEUR EST REVENUE ICI. Je l'avais rangée dans la pastille
+                 de couleur pour raccourcir la barre : on ne la trouvait plus, et
+                 c'est le réglage qu'on touche le plus souvent en écrivant. Le
+                 nombre s'affiche à côté, comme pour la taille du texte. -->
+            <div class="slider-container" title="Épaisseur du trait">
+                <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14"
+                        height="14" fill="currentColor">
+                        <path d="M3 12h18v2H3zM3 6.5h18v1.2H3zM3 18h18v2.6H3z" />
+                    </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3"
+                    aria-label="Épaisseur du trait"><input type="number" id="line-width-num" class="slider-num" min="1"
+                    max="60" step="1" value="3" title="Épaisseur, en points" aria-label="Épaisseur du trait">
+            </div>
+            <button class="btn" id="btn-dash" title="Style de trait"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon" id="icon-dash">
+                    <line x1="4" y1="12" x2="20" y2="12" stroke-width="3" />
+                </svg></button>
+            <button class="btn" id="btn-arrow-start" title="Flèche au début (Origine)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <line x1="21" y1="12" x2="3" y2="12" />
+                    <polyline points="10 5 3 12 10 19" />
+                </svg></button>
+            <button class="btn" id="btn-arrow-end" title="Flèche à la fin (Destination)"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <polyline points="14 5 21 12 14 19" />
+                </svg></button>
+        </div>
+
+        <div class="style-group group-text">
+            <div class="divider"></div>
+            <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
+                 on ne pouvait ni la lire ni descendre plus bas. Le nombre
+                 l'affiche et se tape directement, au-delà du curseur si besoin. -->
+            <div class="slider-container" title="Taille du texte">
+                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
+                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
+                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
+            </div>
+        </div>
+
+        <!-- L'ORDRE, ET C'EST LUI QUI FAIT LA COHÉRENCE. De gauche à droite :
+             ce qui ne concerne QUE cet objet (pages, cadre, rognage), puis son
+             APPARENCE (couleur, épaisseur, opacité, texte), puis son PLACE dans
+             la pile, puis le PRESSE-PAPIERS, le CADENAS, et la suppression tout
+             au bout — la seule action irréversible, seule et en rouge. -->
+        <div class="style-group group-lock">
+            <button class="btn group-postit" id="btn-minimize-postit" style="display:none;"
+                title="Réduire/Agrandir le post-it"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                    class="stroke-icon">
+                    <path d="M4 4h16v16H4z" stroke="currentColor" fill="none" />
+                    <line x1="4" y1="9" x2="20" y2="9" />
+                </svg></button>
+            <div class="divider"></div>
+        </div>
+        <div class="style-group group-zindex">
+            <div class="divider"></div><button class="btn" id="btn-z-up" title="Mettre au premier plan"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
+                    <rect x="8" y="8" width="13" height="9" rx="1.5" />
+                    <path d="M12 6.5V1.5M9.5 4l2.5-2.5L14.5 4" />
+                </svg></button><button class="btn" id="btn-z-down" title="Mettre à l'arrière-plan"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="11" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
+                    <rect x="3" y="8" width="13" height="9" rx="1.5" />
+                    <path d="M12 1.5v5M9.5 4l2.5 2.5L14.5 4" />
+                </svg></button>
+        </div>
+        <div class="style-group group-edition">
+            <button class="btn" id="btn-copier" title="Copier (Ctrl+C)"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="9" y="9" width="12" height="12" rx="2" />
+                    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+                </svg></button>
+            <button class="btn" id="btn-couper" title="Couper (Ctrl+X)"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon">
+                    <circle cx="6" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <line x1="20" y1="4" x2="8.12" y2="15.88" />
+                    <line x1="14.47" y1="14.48" x2="20" y2="20" />
+                    <line x1="8.12" y1="8.12" x2="12" y2="12" />
+                </svg></button>
+            <button class="btn" id="btn-coller" title="Coller (Ctrl+V)"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" />
+                </svg></button>
+            <div class="divider"></div>
+        </div>
+
+
+    </div>
+
+    <!-- ==================================================================
+         LA BARRE DU DOCUMENT, ET RIEN D'AUTRE
+         Elle avait fusionné avec la barre de style : une seule barre
+         contextuelle dont le contenu changeait. À l'usage, c'est intenable —
+         choisir le crayon pendant qu'on tient un polycopié y déversait TOUS
+         les réglages du crayon, par-dessus les pages, le plein écran et le
+         découpage. Deux meubles, deux propos : celui-ci ne parle QUE du
+         document tenu, et lui seul a le droit de se mettre debout, parce
+         qu'une page est haute et étroite là où le tableau est large.
+         ================================================================== -->
+    <div class="toolbar" id="bar-document">
+        <div class="drag-wrapper">
             <!-- DEBOUT OU À PLAT. Un tableau est en 16/9, une page en 1/1,41 :
                  quand la page occupe toute la hauteur, il reste de chaque côté
                  une colonne que rien n'occupera jamais, tandis qu'une barre à
@@ -2358,12 +2509,9 @@
                     <rect x="3" y="9" width="18" height="6" rx="2" />
                     <path d="M12 3v3M12 18v3" />
                 </svg></button>
-            <button class="btn-minimize" title="Réduire"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                </svg></button>
         </div>
         <div class="drag-handle cbar-head"
-            style="cursor: move; opacity: 0.5; padding: 4px; margin-right: 8px; display: flex; align-items: center;"
+            style="cursor: move; opacity: 0.5; padding: 4px; margin-right: 6px; display: flex; align-items: center;"
             title="Déplacer">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16">
                 <path
@@ -2568,121 +2716,6 @@
                 <path d="M9 9L4 4M15 9l5-5M9 15l-5 5M15 15l5 5" />
             </svg></button>
         </div>
-        <!-- ROUVRIR LA VIGNETTE. Soixante-quatre outils sur quatre-vingt-six
-             posent une vignette qu'on peut reprendre — et rien ne le disait :
-             il fallait deviner le double-clic. Le bouton porte son nom, parce
-             que c'est l'action principale sur une vignette d'outil. -->
-        <button class="doc-btn" id="btn-rouvrir-vignette" style="display:none;"
-            data-tooltip="Rouvrir cet outil pour le modifier (double-clic sur la vignette)">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9"
-                stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 20.5h4.5L20 9a2.5 2.5 0 0 0-3.5-3.5L5 17v3.5z" />
-                <path d="M14.5 7L17 9.5" />
-            </svg><span>Modifier</span></button>
-        <button class="btn" id="btn-color-popover" title="Couleur et Opacité">
-            <div id="color-indicator"></div>
-        </button>
-        <div class="divider"></div>
-        <div class="style-group group-point">
-            <div class="divider"></div><button class="btn" id="btn-shape" title="Forme de point"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape">
-                    <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" />
-                    <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" />
-                </svg></button>
-        </div>
-
-        <div class="style-group group-line">
-            <div class="divider"></div>
-            <!-- L'ÉPAISSEUR EST REVENUE ICI. Je l'avais rangée dans la pastille
-                 de couleur pour raccourcir la barre : on ne la trouvait plus, et
-                 c'est le réglage qu'on touche le plus souvent en écrivant. Le
-                 nombre s'affiche à côté, comme pour la taille du texte. -->
-            <div class="slider-container" title="Épaisseur du trait">
-                <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14"
-                        height="14" fill="currentColor">
-                        <path d="M3 12h18v2H3zM3 6.5h18v1.2H3zM3 18h18v2.6H3z" />
-                    </svg></div><input type="range" id="line-width" min="1" max="10" step="1" value="3"
-                    aria-label="Épaisseur du trait"><input type="number" id="line-width-num" class="slider-num" min="1"
-                    max="60" step="1" value="3" title="Épaisseur, en points" aria-label="Épaisseur du trait">
-            </div>
-            <button class="btn" id="btn-dash" title="Style de trait"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon" id="icon-dash">
-                    <line x1="4" y1="12" x2="20" y2="12" stroke-width="3" />
-                </svg></button>
-            <button class="btn" id="btn-arrow-start" title="Flèche au début (Origine)"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <line x1="21" y1="12" x2="3" y2="12" />
-                    <polyline points="10 5 3 12 10 19" />
-                </svg></button>
-            <button class="btn" id="btn-arrow-end" title="Flèche à la fin (Destination)"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <line x1="3" y1="12" x2="21" y2="12" />
-                    <polyline points="14 5 21 12 14 19" />
-                </svg></button>
-        </div>
-
-        <div class="style-group group-text">
-            <div class="divider"></div>
-            <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
-                 on ne pouvait ni la lire ni descendre plus bas. Le nombre
-                 l'affiche et se tape directement, au-delà du curseur si besoin. -->
-            <div class="slider-container" title="Taille du texte">
-                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
-                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
-                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
-            </div>
-        </div>
-
-        <!-- L'ORDRE, ET C'EST LUI QUI FAIT LA COHÉRENCE. De gauche à droite :
-             ce qui ne concerne QUE cet objet (pages, cadre, rognage), puis son
-             APPARENCE (couleur, épaisseur, opacité, texte), puis son PLACE dans
-             la pile, puis le PRESSE-PAPIERS, le CADENAS, et la suppression tout
-             au bout — la seule action irréversible, seule et en rouge. -->
-        <div class="style-group group-lock">
-            <button class="btn group-postit" id="btn-minimize-postit" style="display:none;"
-                title="Réduire/Agrandir le post-it"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                    class="stroke-icon">
-                    <path d="M4 4h16v16H4z" stroke="currentColor" fill="none" />
-                    <line x1="4" y1="9" x2="20" y2="9" />
-                </svg></button>
-            <div class="divider"></div>
-        </div>
-        <div class="style-group group-zindex">
-            <div class="divider"></div><button class="btn" id="btn-z-up" title="Mettre au premier plan"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="3" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
-                    <rect x="8" y="8" width="13" height="9" rx="1.5" />
-                    <path d="M12 6.5V1.5M9.5 4l2.5-2.5L14.5 4" />
-                </svg></button><button class="btn" id="btn-z-down" title="Mettre à l'arrière-plan"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="11" y="13" width="10" height="8" rx="1.5" opacity="0.45" />
-                    <rect x="3" y="8" width="13" height="9" rx="1.5" />
-                    <path d="M12 1.5v5M9.5 4l2.5 2.5L14.5 4" />
-                </svg></button>
-        </div>
-        <div class="style-group group-edition">
-            <button class="btn" id="btn-copier" title="Copier (Ctrl+C)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="9" y="9" width="12" height="12" rx="2" />
-                    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-                </svg></button>
-            <button class="btn" id="btn-couper" title="Couper (Ctrl+X)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <circle cx="6" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <line x1="20" y1="4" x2="8.12" y2="15.88" />
-                    <line x1="14.47" y1="14.48" x2="20" y2="20" />
-                    <line x1="8.12" y1="8.12" x2="12" y2="12" />
-                </svg></button>
-            <button class="btn" id="btn-coller" title="Coller (Ctrl+V)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-                    <rect x="8" y="2" width="8" height="4" rx="1" />
-                </svg></button>
-            <div class="divider"></div>
-        </div>
-
-
     </div>
 
     <div id="color-popover">
@@ -2836,7 +2869,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=214"></script>
+    <script src="script.js?v=215"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

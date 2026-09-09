@@ -355,7 +355,7 @@ module.exports = async function (browser) {
     const barre = await page.evaluate(() => {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateQuickMenu();
-        const b = document.getElementById('bar-style');
+        const b = document.getElementById('bar-document');
         return {
             visible: b.classList.contains('visible'),
             info: document.getElementById('doc-page-num').value + '/' + images[0].pluginData.pages,
@@ -377,7 +377,7 @@ module.exports = async function (browser) {
     // retrouver dans les deux — c'est ce qui rendait la première fusion
     // illisible, avec deux cadenas côte à côte.
     const partage = await page.evaluate(() => {
-        const barreFixe = document.getElementById('bar-style');
+        const barreFixe = document.getElementById('bar-document');
         const flottant = document.getElementById('quick-edit-menu');
         const dedans = (el) => Array.from(el.querySelectorAll('button, input[type=range]'))
             .map(b2 => b2.id).filter(Boolean);
@@ -404,7 +404,7 @@ module.exports = async function (browser) {
     // avec les autres, et la page se lit de haut en bas — la barre n'a rien à
     // faire dans le début.
     const enBasEnFocus = await page.evaluate(() => {
-        const b2 = document.getElementById('bar-style');
+        const b2 = document.getElementById('bar-document');
         const tiroir = document.getElementById('bottom-drawer');
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateStyleBarContext();
@@ -424,7 +424,7 @@ module.exports = async function (browser) {
     // ELLE SE DÉPLACE ET S'EN SOUVIENT. Fixe ne veut pas dire clouée : sur un
     // document en plein écran elle peut tomber en travers de ce qu'on montre.
     const deplacee = await page.evaluate(() => {
-        const barre = document.getElementById('bar-style');
+        const barre = document.getElementById('bar-document');
         const poignee = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
         const aUnePoignee = !!poignee, aUnRepli = !!barre.querySelector('.btn-minimize');
         // On la remet d'abord à sa place automatique : le test précédent l'a
@@ -443,10 +443,10 @@ module.exports = async function (browser) {
         selectedItems = []; updateStyleBarContext();
         selectedItems = [{ type: 'image', id: images[0].id }]; updateStyleBarContext();
         const apres = barre.getBoundingClientRect();
-        const memoire = JSON.parse(localStorage.getItem('auTableau_barre_style') || 'null');
+        const memoire = JSON.parse(localStorage.getItem('auTableau_barre_document') || 'null');
         // et le double-clic sur la poignée défait tout
         poignee.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-        const remise = { pose: barreStylePosee, memoire: localStorage.getItem('auTableau_barre_style') };
+        const remise = { pose: barreStylePosee, memoire: localStorage.getItem('auTableau_barre_document') };
         return { aUnePoignee, aUnRepli, pose, memoire,
                  bougeX: Math.round(apres.left - r0.left), bougeY: Math.round(apres.top - r0.top),
                  dansEcran: apres.left >= 0 && apres.top >= 0
@@ -580,7 +580,7 @@ module.exports = async function (browser) {
         return {
             images: images.length,
             oublie: !documentsPdf.has(cle),
-            barre: document.getElementById('bar-style').classList.contains('ctx-document')
+            barre: document.getElementById('bar-document').classList.contains('ctx-document')
         };
     });
     r.egal('✕ retire le document du tableau', ferme.images, 0);
@@ -593,7 +593,7 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'image', id: images[images.length - 1].id }];
         updateQuickMenu();
         return {
-            barre: document.getElementById('bar-style').classList.contains('ctx-document'),
+            barre: document.getElementById('bar-document').classList.contains('ctx-document'),
             fleches: document.getElementById('doc-pages').style.display,
             proportions: !!document.getElementById('doc-proportions'),
             rogner: !!document.getElementById('doc-rogner'),
@@ -846,7 +846,7 @@ module.exports = async function (browser) {
             dansLaBarre: ['doc-mode-bascule', 'doc-prec', 'doc-suiv']
                 .every(id => {
                     const e = document.getElementById(id);
-                    return e && e.closest('#bar-style');
+                    return e && e.closest('#bar-document');
                 })
         };
     });
@@ -903,7 +903,7 @@ module.exports = async function (browser) {
     // et continuer de parler du document qu'on annote.
     const auCrayon = await page.evaluate(() => {
         document.getElementById('doc-outil-crayon').click();
-        const barre = document.getElementById('bar-style');
+        const barre = document.getElementById('bar-document');
         return {
             mode,
             selection: selectedItems.length,
@@ -939,7 +939,7 @@ module.exports = async function (browser) {
     await page.waitForTimeout(150);
     const apresTrait = await page.evaluate(() => ({
         traits: freehands.length,
-        barreVisible: document.getElementById('bar-style').classList.contains('ctx-document'),
+        barreVisible: document.getElementById('bar-document').classList.contains('ctx-document'),
         docRetenu: docEnAnnotation !== null
     }));
     r.egal('on écrit bien sur le document', apresTrait.traits, 1);
@@ -961,7 +961,7 @@ module.exports = async function (browser) {
     // choisirait sa couleur et son épaisseur à l'aveugle.
     await page.waitForTimeout(400);
     const styleEnFocus = await page.evaluate(() => {
-        const b = document.getElementById('bar-style');
+        const b = document.getElementById('bar-document');
         const s = getComputedStyle(b);
         return { visible: b.classList.contains('visible'), opacite: s.opacity, clics: s.pointerEvents };
     });
@@ -973,7 +973,7 @@ module.exports = async function (browser) {
         document.getElementById('doc-outil-texte').click();
         return {
             mode,
-            barreVisible: document.getElementById('bar-style').classList.contains('ctx-document'),
+            barreVisible: document.getElementById('bar-document').classList.contains('ctx-document'),
             texteActif: document.getElementById('doc-outil-texte').classList.contains('actif')
         };
     });
@@ -1022,12 +1022,12 @@ module.exports = async function (browser) {
         const auCrayon = {
             mode, retenu: docEnAnnotation === doc.id,
             barreLa: !!documentDeLaBarre() && documentDeLaBarre().id === doc.id,
-            ctx: document.getElementById('bar-style').classList.contains('ctx-document'),
+            ctx: document.getElementById('bar-document').classList.contains('ctx-document'),
             allume: document.getElementById('doc-outil-crayon').classList.contains('actif'),
             // MAIS PAS LE MODE « ANNOTE » : hors plein écran, la barre ne se
             // réorganise pas — les vraies barres sont là, et ses réglages de
             // cadre n'ont pas à disparaître.
-            annote: document.getElementById('bar-style').classList.contains('annote')
+            annote: document.getElementById('bar-document').classList.contains('annote')
         };
         // « Sélection » rend le document en main.
         document.getElementById('doc-outil-main').click();
@@ -1058,7 +1058,7 @@ module.exports = async function (browser) {
         return {
             docRetenu: docEnAnnotation,
             groupe: getComputedStyle(document.getElementById('doc-annoter')).display,
-            barreVisible: document.getElementById('bar-style').classList.contains('ctx-document')
+            barreVisible: document.getElementById('bar-document').classList.contains('ctx-document')
         };
     });
     r.egal('en quittant le Focus, la page annotée est oubliée', sortie.docRetenu, null);
@@ -1131,13 +1131,20 @@ module.exports = async function (browser) {
         });
         texts.push({ id: nextId++, x: 400, y: 200, content: 'essai', size: 24, color: '#000', z: globalZ++ });
 
-        const barre = document.getElementById('bar-style');
+        // DEUX MEUBLES, DEUX PROPOS. Le document a sa barre ; le style a la
+        // sienne. Choisir le crayon pendant qu'on tenait un polycopié
+        // déversait tous les réglages du crayon par-dessus les pages et le
+        // découpage — c'est ce qui a été séparé.
+        const barre = document.getElementById('bar-document');
+        const style = document.getElementById('bar-style');
         const etat = (n) => {
             const r = barre.getBoundingClientRect();
             const vu = (id) => document.getElementById(id).offsetParent !== null;
-            return { nom: n, visible: barre.classList.contains('visible'),
+            return { nom: n,
+                     visible: barre.classList.contains('visible'),
                      document: barre.classList.contains('ctx-document'),
-                     texte: barre.classList.contains('ctx-text'),
+                     styleVisible: style.classList.contains('visible'),
+                     texte: style.classList.contains('ctx-text'),
                      // L'ordre de gauche à droite, et ce qui se voit vraiment
                      rogner: vu('doc-rogner'),
                      x: Math.round((r.left + r.right) / 2), y: Math.round(r.top) };
@@ -1156,9 +1163,16 @@ module.exports = async function (browser) {
     r.verifie('une image : la barre montre les réglages du document',
         contextes.surImage.visible && contextes.surImage.document,
         JSON.stringify(contextes.surImage));
-    r.verifie('un texte : elle montre ceux du texte, et pas ceux du document',
-        contextes.surTexte.visible && contextes.surTexte.texte && !contextes.surTexte.document,
+    r.verifie('un texte : la barre de STYLE montre les siens, et celle du document s\'en va',
+        contextes.surTexte.styleVisible && contextes.surTexte.texte
+        && !contextes.surTexte.document,
         JSON.stringify(contextes.surTexte));
+    // ET LE CAS QUI A TOUT DÉCLENCHÉ : le crayon pris pendant qu'on tient un
+    // polycopié. Les réglages du crayon vont dans la barre de style ; celle
+    // du document n'en reçoit aucun.
+    r.egal('prendre un outil ne déverse rien dans la barre du document',
+        { document: contextes.outilEnMain.document, style: contextes.outilEnMain.styleVisible },
+        { document: false, style: true });
     // LE ROGNAGE EST REVENU DANS LA BARRE, et lui seul : c'est un MODE qu'on
     // allume et qu'on éteint, pas un réglage qu'on règle une fois. Les autres
     // — proportions, quadrillage — sont restés dans le volet, où ils portent
@@ -1189,9 +1203,14 @@ module.exports = async function (browser) {
     const ordre = await page.evaluate(() => {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateStyleBarContext();
+        // DANS LA BARRE DU DOCUMENT, et nulle part ailleurs : la couleur, la
+        // pile et le presse-papiers vivent depuis toujours dans la barre de
+        // STYLE, qui est un autre meuble — les y trouver n'est pas les
+        // trouver ici.
         const x = (id) => {
             const e = document.getElementById(id);
-            return e && e.getClientRects().length ? e.getBoundingClientRect().left : null;
+            if (!e || !e.closest('#bar-document') || !e.getClientRects().length) return null;
+            return e.getBoundingClientRect().left;
         };
         // Sur une IMAGE ordinaire, ni pages ni zones : elles n'ont de sens que
         // sur un PDF. Il reste « Cadre / Page », qui dit ce qu'un glissement
@@ -1970,7 +1989,7 @@ module.exports = async function (browser) {
 
         const mesure = () => {
             updateStyleBarContext();
-            const b = document.getElementById('bar-style');
+            const b = document.getElementById('bar-document');
             const rb = b.getBoundingClientRect();
             const pagination = document.getElementById('doc-pages').getBoundingClientRect();
             // Les boutons de la barre, la pagination mise à part : elle est une
@@ -2008,7 +2027,7 @@ module.exports = async function (browser) {
         // LE PIÈGE : la liste des classes est réécrite à chaque sélection.
         selectedItems = []; updateStyleBarContext();
         selectedItems = [{ type: 'image', id: doc.id }]; updateStyleBarContext();
-        const survit = document.getElementById('bar-style').classList.contains('vertical');
+        const survit = document.getElementById('bar-document').classList.contains('vertical');
         basculerLOrientationDeLaBarre(false);
         const recouchee = mesure();
         return { plat, dressee, retenu, survit, recouchee,
@@ -2042,7 +2061,7 @@ module.exports = async function (browser) {
         const b = document.getElementById('bar-style-orienter');
         const lire = () => b.title;
         const ouEst = () => {
-            const r = document.getElementById('bar-style').getBoundingClientRect();
+            const r = document.getElementById('bar-document').getBoundingClientRect();
             return (r.top + r.bottom) / 2 < window.innerHeight / 2 ? 'en haut' : 'en bas';
         };
         basculerLOrientationDeLaBarre(true);       // debout : c'est là que le
@@ -2064,40 +2083,104 @@ module.exports = async function (browser) {
         updateStyleBarContext();
         return { surLeTableau, vraimentSurLeTableau, enPleinEcran, vraimentEnPleinEcran };
     });
-    // DEBOUT, LA RÉGLETTE DE TAILLE N'A PAS LA LARGEUR DE GLISSER. Elle y
-    // restait posée en travers avec son champ de nombre, qui sortait par la
-    // droite, à cheval sur le bord de la barre. On garde l'icône et le
-    // NOMBRE — qui se tape et se lit, ce que la réglette ne fait ni l'un ni
-    // l'autre — et la réglette s'efface.
+    // LA RÉGLETTE DE TAILLE N'EST PLUS JAMAIS EN TRAVERS D'UNE COLONNE. Elle
+    // vit dans la barre de STYLE, et celle-ci ne se met plus debout : le
+    // problème ne se contourne pas, il n'existe plus. C'est la barre du
+    // document qui pivote, et elle ne porte aucune réglette.
     const reglette = await page.evaluate(() => {
-        const mesure = () => {
-            const barre = document.getElementById('bar-style').getBoundingClientRect();
-            const num = document.getElementById('font-size-num').getBoundingClientRect();
-            return {
-                regle: getComputedStyle(document.getElementById('font-size')).display,
-                deborde: Math.round(num.right - barre.right) > 0
-                    || Math.round(barre.left - num.left) > 0,
-                largeurDeLaBarre: Math.round(barre.width)
-            };
-        };
+        basculerLOrientationDeLaBarre(true);
         selectedItems = [];
         setMode('text');
-        basculerLOrientationDeLaBarre(true);
         updateStyleBarContext();
-        const debout = mesure();
+        const etat = {
+            styleDebout: document.getElementById('bar-style').classList.contains('vertical'),
+            regletteDansLeStyle: !!document.querySelector('#bar-style #font-size'),
+            regletteDansLeDoc: !!document.querySelector('#bar-document input[type="range"]'),
+            // Et elle reste dans sa barre, sans déborder.
+            deborde: (() => {
+                const b = document.getElementById('bar-style').getBoundingClientRect();
+                const n = document.getElementById('font-size-num').getBoundingClientRect();
+                return Math.round(n.right - b.right) > 0 || Math.round(b.left - n.left) > 0;
+            })()
+        };
         basculerLOrientationDeLaBarre(false);
-        updateStyleBarContext();
-        const plat = mesure();
         setMode('pointer');
-        return { debout, plat };
+        return etat;
     });
-    r.egal('debout, la réglette de taille s\'efface et le nombre reste dans la barre',
-        { regle: reglette.debout.regle, deborde: reglette.debout.deborde },
-        { regle: 'none', deborde: false });
-    r.egal('à plat, elle est là comme avant', reglette.plat.regle, 'block');
-    r.verifie('et la barre debout y gagne en étroitesse',
-        reglette.debout.largeurDeLaBarre < reglette.plat.largeurDeLaBarre,
-        JSON.stringify({ debout: reglette.debout.largeurDeLaBarre, plat: reglette.plat.largeurDeLaBarre }));
+    r.egal('la réglette de taille vit dans la barre de style, qui ne se met jamais debout',
+        reglette,
+        { styleDebout: false, regletteDansLeStyle: true, regletteDansLeDoc: false, deborde: false });
+
+    // SEULE LA BARRE DU DOCUMENT SE MET DEBOUT. Celle de style, qui change de
+    // contenu à chaque sélection, resterait introuvable si elle pivotait —
+    // et c'est elle qui recevait, par-dessus les pages et le découpage, tous
+    // les réglages de l'outil qu'on venait de prendre.
+    const seuleLaSienne = await page.evaluate(() => {
+        basculerLOrientationDeLaBarre(true);
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        setMode('freehand');
+        updateStyleBarContext();
+        const etat = {
+            docDebout: document.getElementById('bar-document').classList.contains('vertical'),
+            styleDebout: document.getElementById('bar-style').classList.contains('vertical'),
+            outilsDansLeDoc: document.querySelectorAll(
+                '#bar-document .group-line, #bar-document .group-text, #bar-document #btn-color-popover').length,
+            documentDansLeStyle: document.querySelectorAll('#bar-style .group-document').length
+        };
+        basculerLOrientationDeLaBarre(false);
+        setMode('pointer');
+        return etat;
+    });
+    r.egal('seule la barre du document se met debout, et les deux ne se mélangent pas',
+        seuleLaSienne,
+        { docDebout: true, styleDebout: false, outilsDansLeDoc: 0, documentDansLeStyle: 0 });
+
+    // ET ELLES NE SE POSENT PAS L'UNE SUR L'AUTRE. Séparées, elles visent la
+    // même place — au milieu, en haut. Celle du document la garde, c'est elle
+    // qu'on tient ; l'autre se range juste en dessous.
+    const cote = await page.evaluate(() => {
+        const doc = document.getElementById('bar-document');
+        const style = document.getElementById('bar-style');
+        const mesure = () => {
+            const d = doc.getBoundingClientRect(), s = style.getBoundingClientRect();
+            return {
+                deuxVisibles: doc.classList.contains('visible') && style.classList.contains('visible'),
+                chevauche: !(d.bottom <= s.top || s.bottom <= d.top
+                             || d.right <= s.left || s.right <= d.left),
+                styleSousLeDoc: Math.round(s.top - d.bottom)
+            };
+        };
+        basculerLOrientationDeLaBarre(false);
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        setMode('freehand');
+        updateStyleBarContext();
+        const aPlat = mesure();
+        // En plein écran, le document prend le bas : l'autre se range dessus.
+        document.body.classList.add('focus-mode');
+        updateStyleBarContext();
+        const d2 = doc.getBoundingClientRect(), s2 = style.getBoundingClientRect();
+        const enFocus = {
+            chevauche: !(d2.bottom <= s2.top || s2.bottom <= d2.top
+                         || d2.right <= s2.left || s2.right <= d2.left),
+            // Et elle est AU-DESSUS, dans l'écran : posée en dessous elle
+            // sortirait par le bas, ce qui ne chevauche rien mais ne se voit
+            // pas non plus.
+            auDessus: Math.round(d2.top - s2.bottom),
+            dansLEcran: s2.top >= 0 && s2.bottom <= window.innerHeight + 1
+        };
+        document.body.classList.remove('focus-mode');
+        setMode('pointer');
+        updateStyleBarContext();
+        return { aPlat, enFocus };
+    });
+    r.egal('les deux barres à plat ne se recouvrent pas : l\'une se range sous l\'autre',
+        { deux: cote.aPlat.deuxVisibles, chevauche: cote.aPlat.chevauche,
+          dessous: cote.aPlat.styleSousLeDoc >= 0 && cote.aPlat.styleSousLeDoc <= 20 },
+        { deux: true, chevauche: false, dessous: true });
+    r.egal('et pas davantage en plein écran, où le document prend le bas',
+        { chevauche: cote.enFocus.chevauche, dansLEcran: cote.enFocus.dansLEcran,
+          auDessus: cote.enFocus.auDessus >= 0 && cote.enFocus.auDessus <= 20 },
+        { chevauche: false, dansLEcran: true, auDessus: true });
 
     r.egal('le bouton promet le bord où la barre se posera VRAIMENT',
         { promis: [promesse.surLeTableau, promesse.enPleinEcran],

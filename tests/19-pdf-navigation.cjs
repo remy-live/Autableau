@@ -685,7 +685,7 @@ module.exports = async function (browser) {
         await allerALaPage(images[0], 1);
         majBarreDocument();
     });
-    await page.waitForSelector('#bar-style.ctx-document', { timeout: 5000 });
+    await page.waitForSelector('#bar-document.ctx-document', { timeout: 5000 });
     await page.click('#doc-volet-btn');
     await attendre(() => {
         const im = document.querySelectorAll('#dv-liste img[data-vignette]');
@@ -922,7 +922,7 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateStyleBarContext();
         const b2 = document.getElementById('doc-zones');
-        const dansLaBarre = !!(b2 && b2.closest('#bar-style'));
+        const dansLaBarre = !!(b2 && b2.closest('#bar-document'));
         const visible = !!(b2 && b2.getClientRects().length);
         b2.click();
         const apres = { actif: zonesActives, allume: b2.classList.contains('actif'),

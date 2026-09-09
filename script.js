@@ -5806,13 +5806,17 @@ document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
-// LA BARRE DE STYLE SE DÉPLACE, ET S'EN SOUVIENT.
-// Elle a beau être fixe, elle peut tomber en travers de ce qu'on montre — un
-// document en plein écran, par exemple. On la prend par sa poignée ; un
-// double-clic dessus la remet à sa place automatique. La position est bornée à
-// L'ENREGISTREMENT autant qu'à l'affichage : gardée hors de l'écran, elle
-// reviendrait telle quelle demain, hors d'atteinte.
-const CLE_BARRE_STYLE = 'auTableau_barre_style';
+// LA BARRE DU DOCUMENT SE DÉPLACE, ET S'EN SOUVIENT.
+// Elle peut tomber en travers de ce qu'on montre — une page en plein écran,
+// par exemple. On la prend par sa poignée ; un double-clic dessus la remet à
+// sa place automatique. La position est bornée à L'ENREGISTREMENT autant qu'à
+// l'affichage : gardée hors de l'écran, elle reviendrait telle quelle demain,
+// hors d'atteinte.
+//
+// C'EST LA BARRE DU DOCUMENT, ET ELLE SEULE. La barre de style, elle, revient
+// toujours à sa place : elle change de contenu à chaque sélection, et une
+// barre dont le contenu change ET qui bouge ne se retrouve plus.
+const CLE_BARRE_STYLE = 'auTableau_barre_document';
 let barreStylePosee = null;
 try {
     const brut = JSON.parse(localStorage.getItem(CLE_BARRE_STYLE) || 'null');
@@ -5829,7 +5833,7 @@ function retenirLaBarreStyle() {
 function replacerLaBarreStyle() {
     barreStylePosee = null;
     retenirLaBarreStyle();
-    updateStyleBarContext();
+    placerLaBarreDuDocument();
     if (typeof showToast === 'function') showToast('Barre remise à sa place');
 }
 window.replacerLaBarreStyle = replacerLaBarreStyle;
@@ -5874,12 +5878,90 @@ function basculerLOrientationDeLaBarre(force) {
     barreStylePosee = null;
     retenirLaBarreStyle();
     majBoutonDOrientation();
+    placerLaBarreDuDocument();
+    // La barre de style se range sous celle du document quand toutes deux
+    // sont à plat : elle doit donc être replacée avec.
     if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
     if (typeof showToast === 'function') {
         showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, ' + placeDeLaBarreAPlat());
     }
     return barreDebout;
 }
+
+// OÙ SE POSE LA BARRE DU DOCUMENT. Debout au bord droit — le gauche appartient
+// à la barre des outils, deux colonnes du même côté seraient pires que ce
+// qu'on remplace. À plat, EN HAUT d'ordinaire, car le bas est la zone où l'on
+// écrit ; EN BAS dès qu'un document occupe l'écran, parce que la page se lit
+// de haut en bas et que la barre ne doit pas manger son début.
+function placerLaBarreDuDocument() {
+    const barre = document.getElementById('bar-document');
+    if (!barre) return;
+    barre.classList.toggle('vertical', barreDebout);
+    if (barre.parentNode !== document.body) document.body.appendChild(barre);
+
+    if (barreStylePosee) {
+        // DÉPLACÉE À LA MAIN, elle reste où on l'a mise : sans cela le
+        // prochain changement de page la ramènerait à sa place automatique.
+        const l = barre.offsetWidth || 480, h = barre.offsetHeight || 44;
+        barre.dataset.dragged = 'true';
+        barre.style.transform = 'none';
+        barre.style.right = 'auto';
+        barre.style.bottom = 'auto';
+        barre.style.left = Math.round(Math.max(4,
+            Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
+        barre.style.top = Math.round(Math.max(4,
+            Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
+        return;
+    }
+    barre.removeAttribute('data-dragged');
+    if (barreDebout) {
+        barre.style.left = 'auto';
+        barre.style.right = '20px';
+        barre.style.top = '50%';
+        barre.style.bottom = 'auto';
+        barre.style.transform = 'translateY(-50%)';
+        return;
+    }
+    barre.style.left = '50%';
+    barre.style.transform = 'translateX(-50%)';
+    barre.style.right = 'auto';
+    if (document.body.classList.contains('focus-mode')) {
+        barre.style.top = 'auto';
+        barre.style.bottom = '16px';
+    } else {
+        const tiroirHaut = document.getElementById('bar-plugins');
+        const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
+        barre.style.bottom = 'auto';
+        barre.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
+    }
+}
+window.placerLaBarreDuDocument = placerLaBarreDuDocument;
+
+// LES DEUX BARRES NE SE POSENT PAS L'UNE SUR L'AUTRE. Elles visent la même
+// place — au milieu, en haut, ou en bas en plein écran. Celle du document
+// garde cette place : c'est elle qu'on tient. La barre de style se range
+// juste à côté, du côté où il reste de la place.
+function rangerLesDeuxBarres() {
+    const style = document.getElementById('bar-style');
+    const doc = document.getElementById('bar-document');
+    if (!style || !doc) return;
+    const deuxAPlat = doc.classList.contains('visible')
+        && !doc.classList.contains('vertical')
+        && style.classList.contains('visible')
+        && !style.dataset.dragged;
+    if (!deuxAPlat) return;
+    const r = doc.getBoundingClientRect();
+    if (!r.height) return;
+    if (document.body.classList.contains('focus-mode')) {
+        // En bas : le document occupe le bord, le style se pose au-dessus.
+        style.style.top = 'auto';
+        style.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px';
+    } else {
+        style.style.bottom = 'auto';
+        style.style.top = Math.round(r.bottom + 8) + 'px';
+    }
+}
+window.rangerLesDeuxBarres = rangerLesDeuxBarres;
 window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -5891,7 +5973,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // La poignée générique des barres déplace celle-ci comme les autres ; il ne
 // manquait qu'un endroit où retenir le résultat.
 document.addEventListener('DOMContentLoaded', () => {
-    const barre = document.getElementById('bar-style');
+    const barre = document.getElementById('bar-document');
     const poignee = barre && (barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle'));
     if (!barre || !poignee) return;
     window.addEventListener('mouseup', () => {
@@ -5909,10 +5991,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- GESTION SELECTION ET STYLES ---
 function updateStyleBarContext() {
-    // La liste des classes est entièrement réécrite ici : l'orientation, qui
-    // n'est pas un contexte mais un meuble, doit être remise avec.
+    // LA BARRE DE STYLE NE PARLE PLUS DU DOCUMENT. Les deux avaient fusionné,
+    // et choisir le crayon pendant qu'on tenait un polycopié y déversait tous
+    // les réglages du crayon par-dessus les pages, le plein écran et le
+    // découpage. Le document a sa barre — c'est « bar-document » — et elle
+    // seule se met debout : une page est haute et étroite, là où le tableau
+    // est large.
     const barStyle = document.getElementById('bar-style');
-    barStyle.className = 'toolbar visible' + (barreDebout ? ' vertical' : '');
+    barStyle.className = 'toolbar visible';
     if (barStyle.parentNode !== document.body) {
         document.body.appendChild(barStyle);
         localStorage.setItem('minimized_bar-style', 'false');
@@ -5927,29 +6013,10 @@ function updateStyleBarContext() {
     // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
     // les barres du bas se sont effacées — la place est libre.
     const enFocus = document.body.classList.contains('focus-mode');
-    // DÉPLACÉE À LA MAIN, elle reste où on l'a mise. Sans cela le prochain
-    // changement de sélection la ramenait à sa place automatique, et le
-    // déplacement ne servait à rien.
-    if (barreStylePosee) {
-        const l = barStyle.offsetWidth || 480, h = barStyle.offsetHeight || 44;
-        barStyle.dataset.dragged = 'true';
-        barStyle.style.transform = 'none';
-        barStyle.style.right = 'auto';
-        barStyle.style.bottom = 'auto';
-        barStyle.style.left = Math.round(Math.max(4,
-            Math.min(window.innerWidth - l - 4, barreStylePosee.x))) + 'px';
-        barStyle.style.top = Math.round(Math.max(4,
-            Math.min(window.innerHeight - h - 4, barreStylePosee.y))) + 'px';
-    } else if (barreDebout) {
-        // DEBOUT, AU BORD DROIT. Le gauche appartient à la barre des outils :
-        // deux colonnes du même côté seraient pires que ce qu'on remplace.
-        barStyle.removeAttribute('data-dragged');
-        barStyle.style.left = 'auto';
-        barStyle.style.right = '20px';
-        barStyle.style.top = '50%';
-        barStyle.style.bottom = 'auto';
-        barStyle.style.transform = 'translateY(-50%)';
-    } else {
+    // ELLE REVIENT TOUJOURS À SA PLACE. Son contenu change à chaque sélection ;
+    // une barre dont le contenu change ET qui bouge ne se retrouve plus. C'est
+    // la barre du DOCUMENT qui se déplace et se met debout.
+    {
         barStyle.removeAttribute('data-dragged');
         barStyle.style.left = '50%';
         barStyle.style.transform = 'translateX(-50%)';
@@ -5984,12 +6051,16 @@ function updateStyleBarContext() {
     }
     // ----------------------------------------------------------------------------------
 
-    // LE DOCUMENT EST UN CONTEXTE COMME UN AUTRE. La barre du document a
-    // fusionné ici : une seule barre contextuelle, toujours à la même place,
-    // dont le contenu change avec ce qui est sélectionné. Elle se règle sur
-    // « documentDeLaBarre » et non sur la seule sélection, car en mode Focus
-    // on annote la page avec un outil en main, sélection vide.
+    // LA BARRE DU DOCUMENT EST UN AUTRE MEUBLE, et elle se règle sur
+    // « documentDeLaBarre » et non sur la seule sélection : en mode Focus, on
+    // annote la page avec un outil en main, sélection vide.
     if (typeof majBarreDocument === 'function') majBarreDocument();
+
+    // PENDANT LA RETOUCHE DES ZONES, LA BARRE DE STYLE N'A RIEN À DIRE. On
+    // numérote des cases à remplir : la couleur du trait, l'épaisseur et la
+    // pile n'y ont aucun rôle, et elles encombraient un geste déjà minutieux.
+    // Et les deux ne se posent pas l'une sur l'autre.
+    if (typeof rangerLesDeuxBarres === 'function') rangerLesDeuxBarres();
 
     if (selectedItems.length > 0) {
         barStyle.classList.add('ctx-zindex', 'ctx-lock');
@@ -13724,16 +13795,33 @@ function estUnPdfFeuilletable(obj) {
         && documentsPdf.has(obj.pluginData.cle));
 }
 
-// LA BARRE DU DOCUMENT A FUSIONNÉ AVEC LA BARRE DE STYLE. Ses commandes sont
-// devenues le groupe « document » de #bar-style : une seule barre contextuelle,
-// toujours à la même place, dont le contenu change avec ce qui est sélectionné.
-// Ce qui n'a plus d'objet est parti avec : la poignée, le repli en pastille, la
-// place retenue d'une séance à l'autre, et le bouton « ⋯ » qui appelait l'autre
-// barre. Une barre qui ne bouge pas n'a besoin d'aucun des cinq.
+// LA BARRE DU DOCUMENT EST UN MEUBLE À PART, et ne parle que du document tenu.
+//
+// Elle avait fusionné avec la barre de style : une seule barre contextuelle
+// dont le contenu changeait. À l'usage, c'est intenable — choisir le crayon
+// pendant qu'on tient un polycopié y déversait TOUS les réglages du crayon
+// (couleur, épaisseur, opacité, formes) par-dessus les pages, le plein écran
+// et le découpage, et l'on ne retrouvait plus rien.
+//
+// Deux meubles, deux propos. Et celui-ci seul a le droit de se mettre debout :
+// une page est haute et étroite là où le tableau est large, si bien qu'une
+// barre à plat lui mange la seule dimension qui compte. La barre de style,
+// elle, revient toujours à sa place — son contenu change à chaque sélection,
+// et une barre dont le contenu change ET qui bouge ne se retrouve plus.
 
 function majBarreDocument() {
-    const barre = document.getElementById('bar-style');
+    const barre = document.getElementById('bar-document');
     if (!barre) return;
+    placerLaBarreDuDocument();
+
+    // PENDANT LA RETOUCHE DES ZONES, LA BARRE DE STYLE S'EFFACE. On numérote
+    // des cases à remplir : la couleur du trait, l'épaisseur et la pile n'y
+    // ont aucun rôle, et elles encombraient un geste déjà minutieux. C'est
+    // ici qu'on le dit, et non dans « updateStyleBarContext » : on entre dans
+    // la retouche par un bouton de CETTE barre, sans passer par l'autre.
+    const style = document.getElementById('bar-style');
+    if (style) style.classList.toggle('zones-edition',
+        typeof zonesEdition !== 'undefined' && !!zonesEdition);
 
     const enFocus = document.body.classList.contains('focus-mode');
     // Pendant qu'on écrit dessus, le document n'est plus tenu : les réglages
