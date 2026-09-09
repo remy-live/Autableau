@@ -149,7 +149,7 @@ html {
     width: 48px;
     height: 16px;
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--contour);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -366,10 +366,10 @@ html {
     max-width: calc(100vw - 80px) !important;
     background: rgba(255, 255, 255, 0.92);
     backdrop-filter: blur(16px);
-    border: 1px solid #dfe6e9;
+    border: 1px solid var(--contour);
     border-top: none;
     border-radius: 0 0 16px 16px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .08);
+    box-shadow: var(--contour-ombre), 0 8px 24px rgba(0, 0, 0, .08);
     padding: 6px 12px 4px;
     display: flex;
     flex-direction: column;
@@ -1319,12 +1319,12 @@ html {
 
 .dark-mode .drawer {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
 }
 
 .dark-mode .drawer-toggle {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
     color: #b2bec3;
 }
 
@@ -1345,12 +1345,12 @@ html {
 .dark-mode #bar-plugins,
 .dark-mode #bar-plugins.drawer-top {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
 }
 
 .dark-mode #bar-plugins .drawer-toggle {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
     color: #b2bec3;
 }
 
@@ -1390,7 +1390,7 @@ html {
     width: 16px;
     height: 48px;
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--contour);
     border-right: none;
     border-radius: 8px 0 0 8px;
     display: flex;
@@ -1902,10 +1902,10 @@ body.focus-mode #exit-focus-cross {
     transform: translateX(-50%);
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(15px);
-    border: 1px solid rgba(223, 230, 233, 0.8);
+    border: 1px solid var(--contour);
     border-radius: 16px;
     padding: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--contour-ombre), 0 10px 30px rgba(0, 0, 0, 0.15);
     display: none;
     flex-direction: column;
     gap: 12px;
@@ -2126,10 +2126,10 @@ input[type=range]::-moz-range-thumb {
     transform: translate(-50%, -50%);
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(15px);
-    border: 1px solid rgba(223, 230, 233, 0.8);
+    border: 1px solid var(--contour);
     border-radius: 16px;
     padding: 24px;
-    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--contour-ombre), 0 15px 40px rgba(0, 0, 0, 0.25);
     display: none;
     flex-direction: column;
     gap: 16px;
@@ -2806,7 +2806,7 @@ body.dark-mode {
 .dark-mode .donation-box {
     background: #2d3436;
     color: #dfe6e9;
-    border-color: #636e72;
+    border-color: var(--contour);
 }
 
 .dark-mode .modal-title,
@@ -2871,7 +2871,7 @@ body.dark-mode {
 .dark-mode #export-popover,
 .dark-mode #color-popover {
     background: rgba(45, 52, 54, 0.98);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
 }
 
 .dark-mode .export-option {
@@ -3552,9 +3552,9 @@ body.dark-mode {
     z-index: 15000;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(223, 230, 233, 0.8);
+    border: 1px solid var(--contour);
     border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--contour-ombre), 0 4px 15px rgba(0, 0, 0, 0.15);
     padding: 4px;
     gap: 4px;
     align-items: center;
@@ -3607,7 +3607,7 @@ body.dark-mode {
 
 .dark-mode #quick-edit-menu {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
 }
 
 .dark-mode #quick-edit-menu .btn-quick {
@@ -5481,9 +5481,9 @@ dark-mode .title-btn:hover {
     left: 0;
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
+    border: 1px solid var(--contour);
     border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--contour-ombre), 0 10px 30px rgba(0, 0, 0, 0.18);
     padding: 8px;
     gap: 6px;
     flex-direction: column;
@@ -6210,8 +6210,8 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     z-index: 14002;
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(8px);
-    border-right: 1px solid rgba(0, 0, 0, 0.12);
-    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.10);
+    border-right: 1px solid var(--contour);
+    box-shadow: var(--contour-ombre), 4px 0 18px rgba(0, 0, 0, 0.14);
     flex-direction: column;
     font-family: sans-serif;
     font-size: 13px;
@@ -6313,7 +6313,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     text-align: left;
 }
 
-.dark-mode #doc-volet { background: rgba(30, 39, 46, 0.98); border-right-color: #3d4852; }
+.dark-mode #doc-volet { background: rgba(30, 39, 46, 0.98); border-right-color: var(--contour); }
 .dark-mode #dv-nom, .dark-mode .dv-num { color: #dfe6e9; }
 .dark-mode #dv-chercher { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
 .dark-mode .dv-page:hover { background: #2f3941; }

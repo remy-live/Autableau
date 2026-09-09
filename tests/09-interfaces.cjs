@@ -398,7 +398,19 @@ module.exports = async function (browser) {
     // plus. Le contour est maintenant celui de l'encre — et sur fond sombre,
     // un trait clair, car le même noir s'y fondrait tout autant.
     // =====================================================================
-    const SURFACES = ['#bar-style', '#system-toolbar-main', '#bande-morceaux', '#reglages-barre'];
+    // LES BARRES, LES FENÊTRES, LES MODALES ET LES TIROIRS : tout ce qui se
+    // pose PAR-DESSUS le tableau. Un polycopié blanc ouvert en grand les
+    // faisait disparaître l'une après l'autre.
+    const SURFACES = [
+        '#bar-style', '#bar-document', '#system-toolbar-main', '#bande-morceaux',
+        '#reglages-barre', '#help-modal .modal-box', '#bottom-drawer',
+        '#color-popover', '#export-popover', '#quick-edit-menu',
+        // Le tiroir du haut pend du bord de l'écran : il n'a pas de bord
+        // supérieur, et le volet du document n'a de trait qu'à droite,
+        // là où il touche le tableau.
+        { sel: '#bar-plugins', cote: 'Bottom' },
+        { sel: '#doc-volet', cote: 'Right' }
+    ];
     // La couleur du trait passe d'un thème à l'autre EN TROIS DIXIÈMES DE
     // SECONDE : lue à l'instant du changement, elle rend encore celle du
     // thème qu'on vient de quitter. C'est un piège de mesure, pas un défaut.
@@ -410,11 +422,15 @@ module.exports = async function (browser) {
             return (0.2126 * n[0] + 0.7152 * n[1] + 0.0722 * n[2]) / 255;
         };
         const vu = {};
-        surfaces.forEach(sel => {
+        surfaces.forEach(item => {
+            // Le volet du document n'a de trait que sur son bord droit :
+            // c'est par là qu'il touche le tableau.
+            const sel = typeof item === 'string' ? item : item.sel;
+            const cote = typeof item === 'string' ? 'Top' : item.cote;
             const e = document.querySelector(sel);
             if (!e) return;
             const st = getComputedStyle(e);
-            vu[sel] = { couleur: st.borderTopColor, epaisseur: st.borderTopWidth,
+            vu[sel] = { couleur: st['border' + cote + 'Color'], epaisseur: st['border' + cote + 'Width'],
                         // LE SECOND PIXEL EST UNE OMBRE SANS FLOU, hors du
                         // calcul de place : une vraie bordure de deux pixels
                         // agrandirait la barre d'autant, et celle du document
