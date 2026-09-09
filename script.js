@@ -12962,6 +12962,8 @@ function majLeTiroirDesMorceaux() {
     const bande = document.getElementById('bande-morceaux');
     if (!bande) return;
     bande.hidden = morceauxEnAttente.length === 0;
+    // La bande occupe le bas de l'écran ; la barre de la visite aussi.
+    if (typeof placerLaBarreDeLaDemo === 'function') placerLaBarreDeLaDemo();
     const compte = document.getElementById('bm-compte');
     if (compte) compte.textContent = String(morceauxEnAttente.length);
     const mot = document.getElementById('bm-mot');
@@ -16675,6 +16677,27 @@ function unMenuEstOuvert() {
     return false;
 }
 
+// JUSQU'OÙ LE BAS DE L'ÉCRAN EST LIBRE. Les barres flottantes qui se posent
+// contre le bord bas — celle du document en plein écran, celle du style, celle
+// de la visite, la bande des morceaux — sont un plancher : ce qui se place
+// « en bas faute de mieux » doit s'arrêter au-dessus d'elles, sans quoi deux
+// meubles se recouvrent et l'on clique sur celui qu'on ne visait pas.
+function plafondDesBarresDuBas() {
+    let bas = window.innerHeight;
+    ['bar-document', 'bar-style', 'demo-barre', 'bande-morceaux'].forEach(id => {
+        const e = document.getElementById(id);
+        if (!e || e.hidden) return;
+        const s = getComputedStyle(e);
+        if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return;
+        const r = e.getBoundingClientRect();
+        if (r.height < 4) return;
+        // Seules celles qui touchent vraiment le bord bas font plancher.
+        if (r.bottom > window.innerHeight - 90) bas = Math.min(bas, Math.round(r.top));
+    });
+    return bas;
+}
+window.plafondDesBarresDuBas = plafondDesBarresDuBas;
+
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
@@ -16759,10 +16782,15 @@ function updateQuickMenu() {
             // Maintient le menu dans l'écran (indispensable sur tablette)
             const mw = quickMenu.offsetWidth || 220, mh = quickMenu.offsetHeight || 40;
             const pad = 8;
+            // ET IL NE SE POSE PAS SUR UNE BARRE. En plein écran, la page
+            // occupe tout l'écran : faute de place dessous, le menu se
+            // rabattait au ras du bord — exactement là où la barre du document
+            // vient de se poser, et les deux se recouvraient.
+            const plancher = plafondDesBarresDuBas();
             screenX = Math.max(mw / 2 + pad, Math.min(window.innerWidth - mw / 2 - pad, screenX));
-            if (screenY + mh > window.innerHeight - pad) {
+            if (screenY + mh > plancher - pad) {
                 const above = by * zoom + panY - mh - 20;
-                screenY = above > pad ? above : Math.max(pad, window.innerHeight - mh - pad);
+                screenY = above > pad ? above : Math.max(pad, plancher - mh - pad);
             }
             screenY = Math.max(pad, screenY);
             quickMenu.style.left = screenX + 'px';
@@ -19224,6 +19252,9 @@ function toggleBottomDrawer(event) {
     icon.innerHTML = isClosed
         ? '<polyline points="18 15 12 9 6 15"/>'
         : '<polyline points="6 9 12 15 18 9"/>';
+    // La barre de la visite occupe le même bas d'écran : elle monte plutôt
+    // que de s'expliquer par-dessus le tiroir dont elle parle.
+    if (typeof placerLaBarreDeLaDemo === 'function') placerLaBarreDeLaDemo();
 }
 
 // ==============================================================================
@@ -30967,8 +30998,24 @@ function gestesDeLaDemo(d, jeton) {
     // sait ce qui va être cliqué avant que ce soit fait, et l'on retrouve le
     // même bouton, plus tard, dans sa vraie barre.
     const souligner = (e) => {
-        document.querySelectorAll('.demo-vise').forEach(x => x.classList.remove('demo-vise'));
-        if (e && e.classList) e.classList.add('demo-vise');
+        document.querySelectorAll('.demo-vise').forEach(x => {
+            x.classList.remove('demo-vise');
+            if (x.dataset.demoPosition === 'pretee') {
+                x.style.position = '';
+                delete x.dataset.demoPosition;
+            }
+        });
+        if (!e || !e.classList) return;
+        // LE HALO NE DÉPLACE RIEN. Il lui faut une position pour que le
+        // z-index prenne — mais la poser d'office DÉCROCHAIT ce qui en avait
+        // déjà une : le tiroir du bas, en « fixed », retombait dans le flux et
+        // allait flotter au milieu de la page. On ne la prête qu'à ceux qui
+        // n'en ont pas, et on la reprend en relâchant.
+        if (getComputedStyle(e).position === 'static') {
+            e.style.position = 'relative';
+            e.dataset.demoPosition = 'pretee';
+        }
+        e.classList.add('demo-vise');
     };
 
     // LES TOUCHES SE MONTRENT. « Ctrl+Z revient en arrière » se disait dans la
@@ -31309,9 +31356,9 @@ function chapitresDeLaDemonstration() {
               if (typeof majBarreDocument === 'function') majBarreDocument();
               draw();
               await g.tempo(1600);
-              g.dire('« Découper », dans la barre du document : on entoure ce qu\'on veut prendre.');
-              await g.montrer('#doc-decouper', 'Découper', 2600);
-              await g.tempo(600);
+              g.dire('« Découper », dans la barre du document : on arme les ciseaux.');
+              await g.viser('#doc-decouper', 'Découper');
+              await g.tempo(1400);
               const bandes = [
                   { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.10, l: doc.w * 0.92, h: doc.h * 0.30 },
                   { x: doc.x + doc.w * 0.04, y: doc.y + doc.h * 0.42, l: doc.w * 0.92, h: doc.h * 0.32 }
@@ -31319,15 +31366,21 @@ function chapitresDeLaDemonstration() {
               const mots = ['Le premier exercice', 'Le second'];
               for (let k = 0; k < bandes.length; k++) {
                   const r = bandes[k];
-                  // Le rectangle se voit se tracer sur la fiche, comme à la main.
+                  // LE VRAI GESTE, avec le vrai cadre. Le chapitre appelait la
+                  // fonction de découpe en douce pendant que la main faisait le
+                  // tour du rectangle : on voyait la main bouger, jamais le
+                  // cadre — « on ne voit pas le cadre autour ». Les ciseaux
+                  // sont armés, et le glissement en diagonale trace pour de
+                  // bon le rectangle en pointillés qu'on voit à l'usage.
                   const x1 = r.x * zoom + panX, y1 = r.y * zoom + panY;
                   const x2 = (r.x + r.l) * zoom + panX, y2 = (r.y + r.h) * zoom + panY;
-                  g.dire('On entoure l\'exercice : il part au tiroir, en bas.');
-                  await g.tracer([[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]], mots[k]);
-                  prendreUnMorceau(doc, r, true);
+                  g.dire('On entoure l\'exercice, d\'un coin à l\'autre : il part au tiroir, en bas.');
+                  await g.glisser(x1, y1, x2, y2, mots[k]);
                   if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
-                  await g.tempo(1800);
+                  await g.tempo(2000);
               }
+              if (typeof decoupeActive !== 'undefined' && decoupeActive
+                  && typeof basculerLaDecoupe === 'function') basculerLaDecoupe(false);
               g.dire('Les deux morceaux attendent dans le tiroir du bas, à leur taille.');
               await g.montrer('#bottom-drawer', 'Le tiroir', 2600);
               g.dire('On les pose d\'un seul geste…');
@@ -31460,6 +31513,53 @@ function chapitresDeLaDemonstration() {
               if (menu) menu.classList.remove('ouvert');
               g.cacher();
               await g.tempo(1600);
+          } },
+
+        { titre: 'Vos tableaux, et votre interface',
+          dit: 'Chaque tableau est un fichier, rangé dans vos dossiers. Et l\'interface est à vous : on se fabrique ses propres barres d\'outils, on les pose où l\'on veut, et l\'on en garde plusieurs toutes prêtes.',
+          duree: 46000,
+          faire: async (g) => {
+              const bas = document.getElementById('bottom-drawer');
+              if (bas && bas.classList.contains('closed')) {
+                  g.dire('Tout ce qui concerne vos fichiers est dans le tiroir du bas.');
+                  await g.viser('#bottom-drawer .drawer-toggle', 'Le tiroir du bas');
+              }
+              await g.tempo(1200);
+              g.dire('« Mes tableaux » : chaque tableau est un fichier, rangé dans vos dossiers à vous.');
+              await g.viser('#btn-tableaux', 'Mes tableaux');
+              await g.tempo(3000);
+              g.dire('On les ouvre, on les range, on les jette — et la corbeille les rend si l\'on s\'est trompé.');
+              await g.tempo(2600);
+              if (typeof toggleRightDrawer === 'function') {
+                  const droite = document.getElementById('right-drawer');
+                  if (droite && !droite.classList.contains('closed')) toggleRightDrawer();
+              }
+              await g.tempo(900);
+
+              // UNE VRAIE BARRE, SANS RIEN ÉCRIRE CHEZ LE PROFESSEUR. On passe
+              // par la fonction qui DESSINE la barre, pas par celle qui
+              // l'enregistre : la panoplie du professeur n'est pas touchée.
+              g.dire('L\'interface, elle, est à vous. Glissez un outil du tiroir sur le tableau…');
+              await g.tempo(1800);
+              const barreDemo = {
+                  id: 'floating-demo', name: 'Ma barre', x: Math.round(window.innerWidth * 0.30),
+                  y: Math.round(window.innerHeight * 0.30), palette: 'default',
+                  titlePalette: 'default', borderPalette: 'default', iconSize: '1',
+                  items: ['freehand', 'text', 'eraser', 'Tableau de Numération']
+              };
+              if (typeof renderFloatingToolbar === 'function') renderFloatingToolbar(barreDemo);
+              await g.tempo(1400);
+              g.dire('…et une barre naît sous lui. On y range ensuite ce qu\'on veut, dans l\'ordre qu\'on veut.');
+              await g.montrer('#floating-demo', 'Votre barre', 3200);
+              g.dire('Elle se déplace par sa poignée, se colore, se met debout, et se referme d\'un clic.');
+              await g.tempo(3000);
+              g.dire('On s\'en fait autant qu\'on veut : une par matière, une pour la géométrie, une pour la dictée.');
+              await g.tempo(2600);
+              const posee = document.getElementById('floating-demo');
+              if (posee) posee.remove();
+              g.dire('Et tout cet agencement se garde sous un nom : une interface pour la maternelle, une pour le collège.');
+              g.cacher();
+              await g.tempo(3000);
           } },
 
         { titre: 'Enregistrer, exporter, partager',
@@ -31643,15 +31743,48 @@ function fermerCeQueLaDemoAOuvert() {
     }
     const habits = document.getElementById('mp3-habits-menu');
     if (habits) habits.classList.remove('ouvert');
-    document.querySelectorAll('.demo-vise').forEach(e => e.classList.remove('demo-vise'));
+    // La barre d'outils que le chapitre de l'interface fabrique est à elle : on
+    // la dessine sans jamais l'enregistrer, et elle s'en va avec son chapitre
+    // comme avec la visite entière.
+    const barreDeLaDemo = document.getElementById('floating-demo');
+    if (barreDeLaDemo) barreDeLaDemo.remove();
+    document.querySelectorAll('.demo-vise').forEach(e => {
+        e.classList.remove('demo-vise');
+        if (e.dataset.demoPosition === 'pretee') { e.style.position = ''; delete e.dataset.demoPosition; }
+    });
 }
 
 // La barre monte quand elle recouvre ce qu'elle montre : un document
 // présenté occupe le bas de l'écran.
+// ON REFERME LE LECTEUR COMME UN PROFESSEUR LE FERMERAIT : par son ✕. Le
+// retirer du DOM laissait l'objet lecteur pointer sur un panneau qui n'existe
+// plus — la piste suivante déposée sur le tableau, dans la même séance, ne
+// s'ouvrait plus du tout et levait une erreur. On n'enlève de force que ce qui
+// n'a pas de bouton.
+function fermerLesLecteursDeLaDemo(d) {
+    const siens = (d && d.avant && d.avant.lecteurs) || [];
+    [...document.querySelectorAll('.media-player-panel')].forEach(p => {
+        if (siens.indexOf(p.id) !== -1) return;      // il était là avant elle
+        const fermer = p.querySelector('[id$="-close"]');
+        if (fermer) fermer.click();
+        else p.remove();
+    });
+}
+
+// ELLE MONTE DÈS QU'ELLE RECOUVRE CE QU'ELLE MONTRE. Le bas de l'écran est
+// occupé tour à tour par la page présentée, par le tiroir du bas — celui-là
+// même qu'un chapitre ouvre pour montrer « Exporter » — et par la bande des
+// morceaux découpés. La visite s'expliquait alors PAR-DESSUS ce dont elle
+// parlait.
 function placerLaBarreDeLaDemo() {
     const barre = document.getElementById('demo-barre');
     if (!barre) return;
-    barre.classList.toggle('en-haut', document.body.classList.contains('focus-mode'));
+    const bas = document.getElementById('bottom-drawer');
+    const bande = document.getElementById('bande-morceaux');
+    const gene = document.body.classList.contains('focus-mode')
+        || (bas && !bas.classList.contains('closed'))
+        || (bande && !bande.hidden);
+    barre.classList.toggle('en-haut', !!gene);
 }
 
 // ------------------------------------------------------------------
@@ -31665,7 +31798,12 @@ function demarrerLaDemonstration() {
     // CE QU'ON REND EN SORTANT, noté avant tout : la page, l'outil, la classe
     // du moment, l'état des tiroirs, et les lecteurs déjà ouverts. Une
     // démonstration ne coûte pas son travail à qui la demande.
-    const ouverts = [...document.querySelectorAll('.media-player-panel')].map(p => p.id);
+    // LES LECTEURS DÉJÀ OUVERTS, c'est-à-dire ceux qu'on VOIT. Un lecteur
+    // refermé laisse son panneau en coulisse, éteint : compté comme « déjà
+    // là », il faisait passer pour celui du professeur celui que la visite
+    // rouvrait ensuite — et elle le laissait derrière elle en partant.
+    const ouverts = [...document.querySelectorAll('.media-player-panel')]
+        .filter(p => getComputedStyle(p).display !== 'none').map(p => p.id);
     let classeAvant = null;
     try { classeAvant = localStorage.getItem(CLE_CLASSE_DU_MOMENT); } catch (e) { /* refusé */ }
     const avant = {
@@ -31679,6 +31817,8 @@ function demarrerLaDemonstration() {
             && !document.getElementById('bottom-drawer').classList.contains('closed'),
         focus: document.body.classList.contains('focus-mode'),
         fond: currentBgIndex,
+        instruments: (typeof instrumentsPourEnregistrement === 'function')
+            ? instrumentsPourEnregistrement() : null,
         lecteurs: ouverts
     };
 
@@ -31750,13 +31890,24 @@ async function jouerLeChapitre(i) {
     // LES TIROIRS SE REFERMENT ENTRE DEUX CHAPITRES : celui qui en a besoin
     // l'ouvre lui-même, et l'on voit alors qu'il l'ouvre. Laissés ouverts,
     // ils recouvraient la barre de la visite et le tableau qu'elle montre.
-    ['bar-plugins', 'bottom-drawer'].forEach((id, k) => {
+    ['bar-plugins', 'bottom-drawer', 'right-drawer'].forEach((id, k) => {
         const e = document.getElementById(id);
         if (!e || e.classList.contains('closed')) return;
         if (k === 0 && typeof togglePluginDrawer === 'function') togglePluginDrawer();
         if (k === 1 && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
+        if (k === 2 && typeof toggleRightDrawer === 'function') toggleRightDrawer();
     });
     if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
+    // ET LE LECTEUR DU CHAPITRE D'AVANT S'EN VA AVEC LUI. Celui de la dictée
+    // restait ouvert par-dessus le chapitre des exports, au coin de l'écran,
+    // à jouer sa piste pendant qu'on parlait d'autre chose. Ceux qui étaient
+    // là AVANT la visite, eux, ne bougent pas : ils sont au professeur.
+    fermerLesLecteursDeLaDemo(d);
+    // LES INSTRUMENTS POSÉS D'AVANT NE SONT PAS À ELLE. Un compas laissé sur
+    // le tableau restait planté au milieu de la visite, chapitre après
+    // chapitre : la page est neuve, les instruments ne l'étaient pas — ils ne
+    // se rangent pas par page. Ils sont rendus en sortant, comme le fond.
+    if (typeof reposerLesInstruments === 'function') reposerLesInstruments({});
     ['images', 'texts', 'freehands', 'segments', 'circles', 'rectangles',
      'points', 'curves', 'polygons', 'arcs'].forEach(nom => {
         try { if (Array.isArray(window[nom])) window[nom].length = 0; } catch (e) { /* liaison */ }
@@ -31852,9 +32003,7 @@ function arreterLaDemonstration() {
 
     // LES LECTEURS QU'ELLE A OUVERTS S'EN VONT AVEC ELLE ; ceux qui étaient
     // là avant restent.
-    [...document.querySelectorAll('.media-player-panel')].forEach(p => {
-        if (d.avant.lecteurs.indexOf(p.id) === -1) p.remove();
-    });
+    fermerLesLecteursDeLaDemo(d);
 
     // LA PAGE DE LA DÉMONSTRATION EST RETIRÉE, et l'on revient là où l'on
     // était. Elle était la dernière : aucune page du professeur ne change
@@ -31878,6 +32027,10 @@ function arreterLaDemonstration() {
     if (typeof setMode === 'function') setMode(d.avant.outil || 'pointer');
     // Le fond du tableau était à elle le temps de la visite : il est rendu.
     if (typeof d.avant.fond === 'number') currentBgIndex = d.avant.fond;
+    // Les instruments qu'on avait posés reviennent où ils étaient.
+    if (d.avant.instruments && typeof reposerLesInstruments === 'function') {
+        reposerLesInstruments(d.avant.instruments);
+    }
     const haut = document.getElementById('bar-plugins');
     if (haut && (!haut.classList.contains('closed')) !== d.avant.tiroirHaut
         && typeof togglePluginDrawer === 'function') togglePluginDrawer();

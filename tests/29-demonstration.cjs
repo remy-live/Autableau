@@ -59,8 +59,8 @@ module.exports = async function (browser) {
                 || !!document.getElementById('guided-tour-overlay')
         };
     });
-    r.verifie('la démonstration a neuf chapitres, chacun avec sa phrase et son geste',
-        programme.titres.length === 9 && programme.tousOntUneAction && programme.tousOntUnePhrase,
+    r.verifie('la démonstration a dix chapitres, chacun avec sa phrase et son geste',
+        programme.titres.length === 10 && programme.tousOntUneAction && programme.tousOntUnePhrase,
         JSON.stringify({ n: programme.titres.length, action: programme.tousOntUneAction,
                          phrase: programme.tousOntUnePhrase }));
     r.egal('le sommaire de l\'aide est écrit à partir des chapitres, pas recopié',
@@ -80,12 +80,17 @@ module.exports = async function (browser) {
             magiques: /redresse|repér|magiq/.test(tout),
             exports: /export/.test(tout),
             documents: /document|découp/.test(tout),
-            media: /vidéo|son/.test(tout)
+            media: /vidéo|son/.test(tout),
+            // « Tu ne parles pas des tableaux et interface et de la
+            // possibilité de créer ses toolbars. »
+            tableaux: /tableau est un fichier|mes tableaux|dossiers/i.test(tout),
+            interface: /interface/i.test(tout),
+            barres: /barres d'outils|ses propres barres/i.test(tout)
         };
     });
     r.egal('elle couvre les plugins, les classes, les outils magiques et les exports',
         sujets, { plugins: true, classes: true, magiques: true, exports: true,
-                  documents: true, media: true });
+                  documents: true, media: true, tableaux: true, interface: true, barres: true });
 
     // =====================================================================
     // CHAQUE ICÔNE DÉSIGNÉE EXISTE
@@ -96,6 +101,11 @@ module.exports = async function (browser) {
         // qu'une fois une piste déposée — le chapitre le fait lui-même. On
         // en ouvre un pour que la vérification porte sur toutes.
         handleMp3Drop(new File([new Uint8Array(512)], 'essai.mp3', { type: 'audio/mpeg' }));
+        // Et la barre d'outils que le chapitre de l'interface fabrique : elle
+        // n'existe que le temps de ce chapitre, comme le lecteur.
+        renderFloatingToolbar({ id: 'floating-demo', name: 'Ma barre', x: 40, y: 40,
+            palette: 'default', titlePalette: 'default', borderPalette: 'default',
+            iconSize: '1', items: ['freehand'] });
     });
     await page.waitForTimeout(250);
     const cibles = await page.evaluate(() => {
@@ -120,7 +130,14 @@ module.exports = async function (browser) {
     r.verifie('la démonstration désigne au moins six icônes',
         cibles.trouves.length >= 6, JSON.stringify(cibles.trouves));
     r.egal('et chacune existe VRAIMENT dans la page', cibles.manquants, []);
-    await page.evaluate(() => { const p = document.getElementById('mp3-player'); if (p) p.remove(); });
+    await page.evaluate(() => {
+        // On le referme par son ✕, comme un professeur le ferait : le retirer
+        // du DOM laisse l'objet lecteur pointer sur un panneau disparu, et la
+        // piste suivante ne s'ouvre plus de la séance.
+        const f = document.querySelector('#mp3-player [id$="-close"]');
+        if (f) f.click();
+        const b = document.getElementById('floating-demo'); if (b) b.remove();
+    });
 
     // =====================================================================
     // ELLE SE JOUE, ET CHAQUE CHAPITRE FAIT QUELQUE CHOSE
@@ -152,14 +169,14 @@ module.exports = async function (browser) {
     r.egal('elle s\'ouvre sur son premier chapitre, derrière un voile, sur une page à elle',
         { barre: lancee.barre, voile: lancee.voile, rang: lancee.rang,
           pages: lancee.pages, sienne: lancee.surSaPage },
-        { barre: true, voile: 'block', rang: '1/9', pages: depart.pages + 1, sienne: true });
+        { barre: true, voile: 'block', rang: '1/10', pages: depart.pages + 1, sienne: true });
 
     // CHAQUE CHAPITRE FAIT VRAIMENT QUELQUE CHOSE. On entre dans chacun À
     // FROID, comme le fait le sommaire : c'est ce que le nettoyage d'entrée
     // doit permettre.
     const vides = [];
     const joues = [];
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
         await page.evaluate((k) => allerAuChapitre(k), i);
         // CE QU'UN CHAPITRE FAIT SE VOIT PENDANT QU'IL JOUE. Certains
         // montrent un GESTE — on écrit, puis on efface, puis on annule — et
@@ -172,7 +189,8 @@ module.exports = async function (browser) {
                 titre: document.getElementById('demo-titre').textContent,
                 objets: images.length + texts.length + freehands.length + rectangles.length
                     + circles.length + polygons.length,
-                lecteur: !!document.querySelector('.media-player-panel'),
+                lecteur: (() => { const p = document.querySelector('.media-player-panel');
+                return !!p && getComputedStyle(p).display !== 'none'; })(),
                 main: document.getElementById('demo-main').classList.contains('visible'),
                 menu: !!document.querySelector('#classe-menu:not([hidden])')
                     || !!document.querySelector('#export-popup-menu.visible')
@@ -185,7 +203,7 @@ module.exports = async function (browser) {
         joues.push(titre);
         if (!agi) vides.push((i + 1) + ' ' + titre);
     }
-    r.egal('chacun des neuf chapitres agit vraiment sur le tableau', vides, []);
+    r.egal('chacun des dix chapitres agit vraiment sur le tableau', vides, []);
 
     // =====================================================================
     // LE LECTEUR : LE CHAPITRE PAR SON NOM, LES JALONS, LA VITESSE
@@ -216,10 +234,10 @@ module.exports = async function (browser) {
     });
     r.egal('la liste ouvre, mène au chapitre nommé, se referme et le coche',
         { ouverte: lecteur.ouverte, ...lecteur.apresLeNom },
-        { ouverte: true, rang: '4/9', refermee: true, coche: true });
+        { ouverte: true, rang: '4/10', refermee: true, coche: true });
     r.egal('le curseur va où l\'on veut, et porte un jalon par chapitre',
         { rang: lecteur.apresLeCurseur, max: lecteur.max, jalons: lecteur.jalons },
-        { rang: '7/9', max: 900, jalons: 16 });
+        { rang: '7/10', max: 1000, jalons: 18 });
 
     const vitesse = await page.evaluate(() => {
         const c = document.getElementById('demo-vitesse');
@@ -288,7 +306,11 @@ module.exports = async function (browser) {
             textes: texts.map(t => t.text),
             outil: mode,
             classesEnMemoire: ClassesStore._cache,
-            lecteur: !!document.querySelector('.media-player-panel'),
+            // « Il s'en va » veut dire : plus rien à l'écran. Il se referme par
+            // son ✕, comme chez un professeur — le panneau reste en coulisse,
+            // éteint : l'arracher du DOM cassait le lecteur pour la séance.
+            lecteur: (() => { const p = document.querySelector('.media-player-panel');
+                return !!p && getComputedStyle(p).display !== 'none'; })(),
             classeDuMoment: localStorage.getItem('AuTableau_classe_du_moment')
         };
     });
@@ -477,6 +499,158 @@ module.exports = async function (browser) {
     const apresLaFenetre = await fermee();
     r.verifie('et arrêter la visite la referme aussi',
         apresLaFenetre, String(apresLaFenetre));
+
+    // =====================================================================
+    // CE QU'ELLE MONTRE NE DÉRANGE RIEN, ET NE SE MET PAS EN TRAVERS
+    // =====================================================================
+
+    // LE HALO NE DÉPLACE PAS CE QU'IL DÉSIGNE. Il posait « position: relative »
+    // pour que son z-index prenne : tout élément déjà positionné en « fixed »
+    // — le tiroir du bas — retombait alors dans le flux et allait flotter au
+    // milieu de la page. « Y a eu un décroché du tiroir du bas ! »
+    const halo = await page.evaluate(async () => {
+        demarrerLaDemonstration();
+        const g = gestesDeLaDemo(laDemo, laDemo.jeton);
+        const t = document.getElementById('bottom-drawer');
+        if (t.classList.contains('closed')) toggleBottomDrawer();
+        await new Promise(r => setTimeout(r, 300));
+        const avant = Math.round(t.getBoundingClientRect().top);
+        g.souligner(t);
+        const pendant = { top: Math.round(t.getBoundingClientRect().top),
+                          pos: getComputedStyle(t).position,
+                          marque: t.classList.contains('demo-vise') };
+        g.souligner(null);
+        const apres = { top: Math.round(t.getBoundingClientRect().top),
+                        style: t.getAttribute('style') || '' };
+        // Et celui qui n'a AUCUNE position en reçoit une le temps du halo —
+        // sans quoi son z-index ne prendrait pas — puis la rend.
+        const sans = document.createElement('div');
+        sans.style.width = '20px'; sans.style.height = '20px';
+        document.body.appendChild(sans);
+        const pretAvant = getComputedStyle(sans).position;
+        g.souligner(sans);
+        const pretPendant = getComputedStyle(sans).position;
+        g.souligner(null);
+        const pretApres = { pos: getComputedStyle(sans).position, style: sans.getAttribute('style') };
+        sans.remove();
+        if (!t.classList.contains('closed')) toggleBottomDrawer();
+        arreterLaDemonstration();
+        return { avant, pendant, apres, pretAvant, pretPendant, pretApres };
+    });
+    r.verifie('le halo désigne sans déplacer : un meuble en « fixed » ne décroche pas',
+        halo.pendant.top === halo.avant && halo.pendant.pos === 'fixed' && halo.pendant.marque,
+        JSON.stringify(halo));
+    r.verifie('et il ne laisse rien derrière lui', halo.apres.top === halo.avant && !halo.apres.style,
+        JSON.stringify(halo));
+    r.egal('celui qui n\'a pas de position en reçoit une, puis la rend',
+        { avant: halo.pretAvant, pendant: halo.pretPendant, apres: halo.pretApres.pos },
+        { avant: 'static', pendant: 'relative', apres: 'static' });
+
+    // LE DÉCOUPAGE SE MONTRE AVEC SON CADRE. Le chapitre appelait la fonction
+    // de découpe en douce pendant que la main faisait le tour du rectangle :
+    // on voyait la main bouger, jamais le cadre en pointillés.
+    await page.evaluate(() => { demarrerLaDemonstration(); allerAuChapitre(3); });
+    let ciseauxVus = false, cadreVu = false;
+    for (let k = 0; k < 80 && !cadreVu; k++) {
+        await page.waitForTimeout(120);
+        const e = await page.evaluate(() => ({
+            armes: typeof decoupeActive !== 'undefined' && decoupeActive,
+            cadre: !!(typeof decoupeGeste !== 'undefined' && decoupeGeste && decoupeGeste.rect
+                      && decoupeGeste.rect.l > 4 && decoupeGeste.rect.h > 4)
+        }));
+        if (e.armes) ciseauxVus = true;
+        if (e.cadre) cadreVu = true;
+    }
+    let decoupes = 0;
+    for (let k = 0; k < 60 && decoupes < 1; k++) {
+        await page.waitForTimeout(150);
+        decoupes = await page.evaluate(() => morceauxEnAttente.length);
+    }
+    await page.evaluate(() => arreterLaDemonstration());
+    r.verifie('le chapitre du découpage arme pour de vrai les ciseaux', ciseauxVus, String(ciseauxVus));
+    r.verifie('et le cadre en pointillés se trace sous la main', cadreVu, String(cadreVu));
+    r.verifie('les morceaux partent bien au tiroir', decoupes >= 1, String(decoupes));
+
+    // LA BARRE DE LA VISITE MONTE AUSSI QUAND LE TIROIR DU BAS S'OUVRE — le
+    // chapitre des exports l'ouvre justement pour le montrer, et la visite
+    // s'expliquait par-dessus.
+    const placement = await page.evaluate(async () => {
+        demarrerLaDemonstration();
+        const barre = document.getElementById('demo-barre');
+        const bas = document.getElementById('bottom-drawer');
+        if (!bas.classList.contains('closed')) toggleBottomDrawer();
+        await new Promise(r => setTimeout(r, 120));
+        const ferme = barre.classList.contains('en-haut');
+        toggleBottomDrawer();
+        await new Promise(r => setTimeout(r, 120));
+        const ouvert = barre.classList.contains('en-haut');
+        toggleBottomDrawer();
+        arreterLaDemonstration();
+        return { ferme, ouvert };
+    });
+    r.egal('la barre de la visite monte dès que le tiroir du bas s\'ouvre',
+        placement, { ferme: false, ouvert: true });
+
+    // LE LECTEUR D'UN CHAPITRE S'EN VA AVEC LUI. Celui de la dictée restait
+    // ouvert par-dessus le chapitre des exports, à jouer sa piste.
+    await page.evaluate(() => { demarrerLaDemonstration(); allerAuChapitre(7); });
+    let lecteurVu = false;
+    for (let k = 0; k < 40 && !lecteurVu; k++) {
+        await page.waitForTimeout(150);
+        lecteurVu = await page.evaluate(() => !!document.querySelector('.media-player-panel'));
+    }
+    const lecteurRange = await page.evaluate(async () => {
+        const ouverts = () => [...document.querySelectorAll('.media-player-panel')]
+            .filter(p => getComputedStyle(p).display !== 'none').length;
+        const avant = ouverts();
+        allerAuChapitre(0);
+        await new Promise(r => setTimeout(r, 250));
+        const apres = ouverts();
+        arreterLaDemonstration();
+        return { avant, apres };
+    });
+    r.egal('le lecteur d\'un chapitre ne déborde pas sur le suivant',
+        { avant: lecteurRange.avant > 0, apres: lecteurRange.apres }, { avant: true, apres: 0 });
+
+    // ET LA BARRE D'OUTILS QU'ELLE FABRIQUE N'EST PAS ENREGISTRÉE. L'interface
+    // du professeur est à lui : la visite la montre, elle ne la remplace pas.
+    const avantInterface = await page.evaluate(() => {
+        demarrerLaDemonstration(); allerAuChapitre(8);
+        return localStorage.getItem('board_floating_toolbars');
+    });
+    let barreVue = false;
+    for (let k = 0; k < 60 && !barreVue; k++) {
+        await page.waitForTimeout(150);
+        barreVue = await page.evaluate(() => !!document.getElementById('floating-demo'));
+    }
+    const interfaceIntacte = await page.evaluate(async (avant) => {
+        arreterLaDemonstration();
+        await new Promise(r => setTimeout(r, 250));
+        return { intact: localStorage.getItem('board_floating_toolbars') === avant,
+                 reste: !!document.getElementById('floating-demo') };
+    }, avantInterface);
+    interfaceIntacte.pendant = barreVue;
+    r.verifie('la barre qu\'elle fabrique se voit vraiment…', interfaceIntacte.pendant,
+        JSON.stringify(interfaceIntacte));
+    r.verifie('…mais l\'interface du professeur n\'a rien reçu, et la barre s\'en va avec elle',
+        interfaceIntacte.intact && !interfaceIntacte.reste, JSON.stringify(interfaceIntacte));
+
+    // LES INSTRUMENTS POSÉS D'AVANT NE RESTENT PAS PLANTÉS DANS LA VISITE.
+    const instruments = await page.evaluate(async () => {
+        document.querySelector('.btn[data-widget="compass"]').click();
+        const avant = activeWidgets.compass;
+        demarrerLaDemonstration();
+        await new Promise(r => setTimeout(r, 250));
+        const pendant = activeWidgets.compass;
+        arreterLaDemonstration();
+        await new Promise(r => setTimeout(r, 200));
+        const apres = activeWidgets.compass;
+        document.querySelector('.btn[data-widget="compass"]').click();
+        return { avant, pendant, apres };
+    });
+    r.egal('un compas posé d\'avant ne reste pas planté au milieu de la visite…',
+        { avant: instruments.avant, pendant: instruments.pendant }, { avant: true, pendant: false });
+    r.egal('…et il est rendu en sortant', instruments.apres, true);
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

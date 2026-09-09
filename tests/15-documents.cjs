@@ -1338,6 +1338,44 @@ module.exports = async function (browser) {
     r.egal('mais la barre de style revient avec l\'outil, pour choisir sa couleur',
         empilement.auCrayon, { style: true, doc: true });
 
+    // ET LES DEUX QUI RESTENT NE SE RECOUVRENT PAS. En plein écran, la page
+    // occupe tout l'écran : le menu de l'objet, faute de place dessous, se
+    // rabattait au ras du bord — exactement là où la barre du document vient
+    // de se poser. « Les barres du bas se chevauchent. »
+    const basDeLEcran = await page.evaluate(async () => {
+        panX = 0; panY = 0; zoom = 1; images.length = 0; selectedItems = [];
+        images.push({ id: nextId++, x: 20, y: 20, w: window.innerWidth - 40, h: window.innerHeight - 40,
+                      z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        presentationEnCours = images[0].id;
+        if (!document.body.classList.contains('focus-mode')) toggleFocusMode();
+        updateStyleBarContext(); majBarreDocument(); updateQuickMenu();
+        await new Promise(r => setTimeout(r, 400));
+        const boite = (id) => {
+            const r = document.getElementById(id).getBoundingClientRect();
+            return { t: Math.round(r.top), b: Math.round(r.bottom), l: Math.round(r.left), r: Math.round(r.right) };
+        };
+        const q = boite('quick-edit-menu'), d = boite('bar-document');
+        const plancher = plafondDesBarresDuBas();
+        presentationEnCours = null;
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        // On rend le document au bloc suivant, tel qu'il l'attend.
+        images.length = 0;
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); updateQuickMenu(); draw();
+        return {
+            q, d, plancher,
+            croise: !(q.r < d.l || d.r < q.l || q.b < d.t || d.b < q.t),
+            dedans: q.b <= window.innerHeight && q.t >= 0
+        };
+    });
+    r.verifie('en plein écran, le menu de l\'objet ne tombe pas sur la barre du document',
+        !basDeLEcran.croise && basDeLEcran.dedans, JSON.stringify(basDeLEcran));
+    r.verifie('la barre du bas fait plancher : rien ne se pose plus bas qu\'elle',
+        basDeLEcran.plancher < 860 || basDeLEcran.q.b <= basDeLEcran.d.t,
+        JSON.stringify(basDeLEcran));
+
     // CE QUI A DÉMÉNAGÉ AGIT VRAIMENT. Un réglage qui a changé de meuble et
     // ne fait plus rien est pire que celui qu'on a déplacé.
     const voletAgit = await page.evaluate(async () => {

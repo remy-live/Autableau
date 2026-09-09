@@ -9885,8 +9885,12 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 /* CE QUI VA ÊTRE CLIQUÉ SE DÉTACHE. Le halo tient à l'élément lui-même, si
    bien qu'on retrouve ensuite le même bouton, à la même place, dans sa vraie
    barre — c'est là tout l'intérêt de montrer sur le vrai tableau. */
+/* PAS DE « position » ICI. Le halo en posait une — « relative », pour que le
+   z-index prenne — et cela DÉCROCHAIT tout élément déjà positionné : le tiroir
+   du bas, en « fixed », retombait dans le flux et allait flotter au milieu de
+   la page. Un élément qu'on désigne ne doit pas bouger d'un pixel. Ceux qui
+   n'ont aucune position reçoivent la leur en propre, le temps du halo. */
 .demo-vise {
-    position: relative;
     z-index: 200002 !important;
     border-radius: 10px;
     box-shadow: 0 0 0 3px #6c5ce7, 0 0 0 9px rgba(108, 92, 231, 0.28) !important;
