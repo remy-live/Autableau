@@ -1066,6 +1066,36 @@ module.exports = async function (browser) {
     r.verifie('et la barre s\'en va avec, plus rien n\'étant sélectionné', !sortie.barreVisible,
         JSON.stringify(sortie));
 
+    // ELLE S'EN VA POUR DE BON. « ctx-document » range les commandes, mais la
+    // barre gardait « visible » : restait au milieu de l'écran une pastille
+    // orpheline — la poignée et le bouton d'orientation d'une barre qui ne
+    // parle plus de rien. On mesure ce qui reste à l'écran, pas les classes.
+    await page.waitForTimeout(400);
+    const refermee = await page.evaluate(() => {
+        const b = document.getElementById('bar-document');
+        const s = getComputedStyle(b);
+        const r = b.getBoundingClientRect();
+        // Ce qu'un doigt pourrait encore toucher dans la barre
+        const attrapables = Array.from(b.querySelectorAll('button, .drag-handle, .drag-wrapper'))
+            .filter(el => {
+                const er = el.getBoundingClientRect();
+                return er.width > 0 && er.height > 0 && getComputedStyle(el).display !== 'none';
+            }).length;
+        const auMilieu = document.elementFromPoint(
+            Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+        return {
+            visible: b.classList.contains('visible'),
+            opacite: s.opacity,
+            clics: s.pointerEvents,
+            attrapables,
+            barreSousLeDoigt: !!(auMilieu && auMilieu.closest && auMilieu.closest('#bar-document'))
+        };
+    });
+    r.verifie('la barre du document est vraiment refermée, pas réduite à une pastille',
+        refermee.opacite === '0' && !refermee.visible, JSON.stringify(refermee));
+    r.verifie('et rien n\'y reste sous le doigt',
+        refermee.clics === 'none' && refermee.barreSousLeDoigt === false, JSON.stringify(refermee));
+
     // --- « CADRE / PAGE » N'EST PAS POUR TOUT LE MONDE ---
     // Faire coulisser une page à l'intérieur d'un pion d'échecs n'a aucun sens.
     // Ces deux boutons sont réservés aux images importées et aux documents.
@@ -1226,8 +1256,13 @@ module.exports = async function (browser) {
     r.verifie('sur une image, la barre garde le bouton de mode et le rognage',
         suite.every(v => v !== null),
         JSON.stringify(ordre));
-    r.verifie('rien de sélectionné, un crayon en main : elle règle l\'outil',
-        contextes.outilEnMain.visible && !contextes.outilEnMain.document,
+    // Cette ligne lisait « visible » sur la barre du DOCUMENT pour dire que
+    // l'outil est réglé — elle ne passait que parce que cette barre gardait
+    // « visible » après coup. C'est la barre de STYLE qui règle l'outil ;
+    // celle du document, elle, doit s'être refermée pour de bon.
+    r.verifie('rien de sélectionné, un crayon en main : le style règle l\'outil, le document s\'efface',
+        contextes.outilEnMain.styleVisible && !contextes.outilEnMain.document
+        && !contextes.outilEnMain.visible,
         JSON.stringify(contextes.outilEnMain));
     // Le cœur du parti pris : elle ne se déplace pas d'un objet à l'autre.
     const places = [contextes.surImage, contextes.surTexte, contextes.outilEnMain];

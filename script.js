@@ -7862,7 +7862,35 @@ function finalizeText() {
         if (hasChanged) { saveState(); draw(); }
     }
 }
-wysiwygText.addEventListener('blur', finalizeText);
+// LE CLIC QUI ROUVRAIT LA SAISIE LA REFERMAIT AUSSITÔT.
+// Cliquer ailleurs pendant qu'on écrit doit poser la ligne et rouvrir la
+// saisie sous le pointeur. Or le clic, lui, continue son chemin : après le
+// « pointerdown » que nous traitons vient le « mousedown » du navigateur, qui
+// retire le focus du bloc de saisie — et ce blur-là repassait par
+// finalizeText, qui refermait la zone à peine rouverte. On tapait dans le
+// vide. Pendant le court instant où la saisie se rouvre, le blur est donc
+// ignoré, et le focus lui revient.
+let saisieEnCoursDeReouverture = 0;
+function saisieRouverteParUnClic() {
+    saisieEnCoursDeReouverture = Date.now();
+}
+function saisieToutJusteRouverte() {
+    return Date.now() - saisieEnCoursDeReouverture < 400;
+}
+// La parenthèse se referme dès que le focus est revenu — ou, si le bloc ne
+// l'avait jamais perdu, dès que la saisie a fini de s'ouvrir. Passé quoi les
+// blurs redeviennent de vrais départs, et posent la ligne comme avant.
+function laSaisieARepriseLaMain() { saisieEnCoursDeReouverture = 0; }
+
+wysiwygText.addEventListener('blur', () => {
+    // La saisie qui vient de rouvrir se donne le focus d'elle-même, un souffle
+    // plus tard : ce blur-ci n'est que le contrecoup du clic qui l'a ouverte.
+    if (saisieToutJusteRouverte() && wysiwygText.style.display === 'block') return;
+    finalizeText();
+});
+// Le focus revenu, la parenthèse est refermée : les blurs suivants sont de
+// vrais départs, et ils posent la ligne comme avant.
+wysiwygText.addEventListener('focus', laSaisieARepriseLaMain);
 // Le premier paragraphe d'une saisie est un simple nœud texte à la racine :
 // aucune commande de bloc (titre, alignement, liste) ne peut s'y appliquer, et
 // les rattrapages laissaient parfois une ligne vide surdimensionnée.
@@ -8593,8 +8621,10 @@ function ouvrirLaSaisie(vise, pos) {
 
     updateWysiwygPosition();
 
+    saisieRouverteParUnClic();
     setTimeout(() => {
         wysiwygText.focus();
+        laSaisieARepriseLaMain();
         if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
     }, 10);
 }
@@ -8677,8 +8707,13 @@ function rouvrirLeTexte(t) {
     // d'édition du texte le remplace le temps de la saisie.
     if (typeof updateQuickMenu === 'function') updateQuickMenu();
     draw();
+    // Le clic qui rouvre ce texte va encore retirer le focus au bloc de saisie
+    // (le « mousedown » vient après notre « pointerdown ») : on prévient, sinon
+    // ce blur-là refermerait aussitôt ce qu'on vient d'ouvrir.
+    saisieRouverteParUnClic();
     setTimeout(() => {
         wysiwygText.focus();
+        laSaisieARepriseLaMain();
         const range = document.createRange(); range.selectNodeContents(wysiwygText); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
         if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
     }, 10);
@@ -13904,7 +13939,11 @@ function majBarreDocument() {
         document.getElementById('doc-outil-texte').classList.toggle('actif', mode === 'text');
     }
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
-        barre.classList.remove('ctx-document', 'annote', 'zones-edition', 'doc-allege');
+        // ELLE S'EFFACE POUR DE BON. On retirait « ctx-document », qui range
+        // les commandes, mais pas « visible » : il restait au milieu de
+        // l'écran une pastille orpheline — la poignée et le bouton
+        // d'orientation d'une barre qui ne parle plus de rien.
+        barre.classList.remove('visible', 'ctx-document', 'annote', 'zones-edition', 'doc-allege');
         // UNE VIGNETTE DE PLUGIN N'EST PAS UN DOCUMENT : on sort par ici, et
         // c'est justement le cas ou « Modifier » doit paraitre.
         majBoutonRouvrir();

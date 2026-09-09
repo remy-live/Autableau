@@ -502,58 +502,131 @@ module.exports = async function (browser) {
         enchaine.sortie, { ouverte: false, poses: 2 });
 
     // =====================================================================
+    // LE MÊME ENCHAÎNEMENT, MAIS À LA VRAIE SOURIS
+    // Les événements fabriqués à la main ne font pas tout : après le
+    // « pointerdown » que nous traitons, un vrai clic envoie encore son
+    // « mousedown », qui retire le focus du bloc de saisie. Ce blur-là
+    // refermait la zone à peine rouverte — on tapait dans le vide, et pas un
+    // test ne le voyait. On refait donc le geste pour de bon, au clavier et à
+    // la souris, sans jamais toucher au DOM.
+    // =====================================================================
+    await page.evaluate(() => {
+        texts.length = 0; panX = 0; panY = 0; zoom = 1;
+        selectedItems = []; setMode('text'); draw();
+    });
+    await page.mouse.click(430, 300);
+    await page.waitForTimeout(150);
+    await page.keyboard.type('première ligne');
+    await page.mouse.click(430, 430);
+    await page.waitForTimeout(200);
+    const vraiClic = await page.evaluate(() => ({
+        ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
+        focus: document.activeElement ? document.activeElement.id : '',
+        posees: texts.length
+    }));
+    r.verifie('à la vraie souris, le clic ailleurs rouvre bel et bien la saisie',
+        vraiClic.ouverte, JSON.stringify(vraiClic));
+    r.verifie('et le curseur y est déjà : le clic ne le fait pas fuir',
+        vraiClic.focus === 'wysiwyg-text', JSON.stringify(vraiClic));
+
+    await page.keyboard.type('seconde ligne');
+    await page.waitForTimeout(120);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const deuxLignes = await page.evaluate(() => texts.map(t => (t.content || '').replace(/<[^>]*>/g, '')));
+    r.verifie('on tape aussitôt, sans re-cliquer, et les deux lignes sont posées',
+        deuxLignes.length === 2 && /première ligne/.test(deuxLignes[0] || '')
+        && /seconde ligne/.test(deuxLignes[1] || ''), JSON.stringify(deuxLignes));
+
+    await page.evaluate(() => { texts.length = 0; setMode('pointer'); draw(); });
+
+    // =====================================================================
     // ET LE CLIC SUR UNE LIGNE DÉJÀ ÉCRITE LA ROUVRE
     // L'outil Texte en main, cliquer sur un texte posé basculait sur la
     // flèche et se mettait à le traîner : pour corriger un mot, il fallait
-    // sortir de l'outil et double-cliquer.
+    // sortir de l'outil et double-cliquer. À la vraie souris, là encore : le
+    // blur du clic ne doit pas refermer ce que le clic vient d'ouvrir.
     // =====================================================================
-    const reprise = await page.evaluate(async () => {
-        const c = document.getElementById('board');
-        const w = document.getElementById('wysiwyg-text');
-        texts.length = 0;
-        panX = 0; panY = 0; zoom = 1;
-        setMode('text');
-        const cliquer = (x, y) => {
-            ['pointerdown', 'pointerup'].forEach(t => c.dispatchEvent(new PointerEvent(t, {
-                bubbles: true, cancelable: true, clientX: x, clientY: y,
-                pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0,
-                buttons: t === 'pointerdown' ? 1 : 0 })));
-        };
-
-        // Une ligne écrite puis posée : Échap la range sans rien rouvrir.
-        cliquer(430, 320);
-        await new Promise(r => setTimeout(r, 60));
-        w.innerText = 'le mot a corriger';
-        w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await new Promise(r => setTimeout(r, 80));
-        const pose = texts[0];
-        if (!pose) return { pose: null };
-
-        // On revient dessus avec l'outil Texte : elle doit se rouvrir.
-        setMode('text');
-        cliquer(panX + pose.x * zoom + 12, panY + pose.y * zoom + 6);
-        await new Promise(r => setTimeout(r, 80));
-        const etat = {
-            ouverte: w.style.display === 'block',
-            edite: editingTextId === pose.id,
-            outil: mode,
-            dedans: w.innerText,
-            nombre: texts.length,
-            traine: !!isDraggingObjs
-        };
-        w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await new Promise(r => setTimeout(r, 60));
-        texts.length = 0; setMode('pointer'); isDraggingObjs = false; draw();
-        return { pose: pose.content, etat };
+    await page.evaluate(() => {
+        texts.length = 0; panX = 0; panY = 0; zoom = 1;
+        selectedItems = []; isDraggingObjs = false; setMode('text'); draw();
     });
+    await page.mouse.click(430, 320);
+    await page.waitForTimeout(150);
+    await page.keyboard.type('le mot a corriger');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const posee = await page.evaluate(() => {
+        const t = texts[0];
+        return t ? { id: t.id, x: panX + t.x * zoom, y: panY + t.y * zoom, h: t._cachedH || 20 } : null;
+    });
+    r.verifie('la ligne est posée avant qu\'on y revienne', !!posee, JSON.stringify(posee));
+
+    await page.mouse.click(posee.x + 14, posee.y + posee.h / 2);
+    await page.waitForTimeout(200);
+    const reprise = await page.evaluate(() => ({
+        ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
+        focus: document.activeElement ? document.activeElement.id : '',
+        edite: editingTextId,
+        outil: mode,
+        dedans: document.getElementById('wysiwyg-text').innerText,
+        nombre: texts.length,
+        traine: !!isDraggingObjs
+    }));
     r.verifie('l\'outil Texte en main, cliquer sur une ligne écrite la rouvre',
-        reprise.etat && reprise.etat.ouverte && reprise.etat.edite, JSON.stringify(reprise));
-    r.verifie('on y retrouve ce qui était écrit, prêt à être corrigé',
-        reprise.etat && /le mot a corriger/.test(reprise.etat.dedans || ''), JSON.stringify(reprise));
+        reprise.ouverte && reprise.edite === posee.id, JSON.stringify(reprise));
+    r.verifie('le curseur y est, prêt à corriger, sans second clic',
+        reprise.focus === 'wysiwyg-text', JSON.stringify(reprise));
+    r.verifie('on y retrouve ce qui était écrit',
+        /le mot a corriger/.test(reprise.dedans || ''), JSON.stringify(reprise));
     r.verifie('sans basculer sur la flèche ni se mettre à la traîner',
-        reprise.etat && reprise.etat.outil === 'text' && reprise.etat.traine === false, JSON.stringify(reprise));
+        reprise.outil === 'text' && reprise.traine === false, JSON.stringify(reprise));
     r.verifie('et sans poser une seconde ligne par-dessus',
-        reprise.etat && reprise.etat.nombre === 1, JSON.stringify(reprise));
+        reprise.nombre === 1, JSON.stringify(reprise));
+
+    // La correction tapée remplace bien l'ancienne ligne, sans en créer une
+    await page.keyboard.type(' !');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const corrigee = await page.evaluate(() => texts.map(t => (t.content || '').replace(/<[^>]*>/g, '')));
+    r.verifie('la correction remplace la ligne au lieu d\'en ajouter une',
+        corrigee.length === 1 && /le mot a corriger !/.test(corrigee[0] || ''), JSON.stringify(corrigee));
+
+    // Et le cas qui les enchaîne : on écrit une ligne, et sans la valider on
+    // va cliquer sur une ligne d'avant pour la corriger. Le clic pose la
+    // nouvelle ET rouvre l'ancienne, d'un seul geste.
+    await page.evaluate(() => { texts.length = 0; setMode('text'); draw(); });
+    await page.mouse.click(430, 320);
+    await page.waitForTimeout(150);
+    await page.keyboard.type('ancienne');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const ancienne = await page.evaluate(() => {
+        const t = texts[0];
+        return t ? { id: t.id, x: panX + t.x * zoom, y: panY + t.y * zoom, h: t._cachedH || 20 } : null;
+    });
+    await page.mouse.click(430, 480);
+    await page.waitForTimeout(150);
+    await page.keyboard.type('toute fraiche');
+    await page.mouse.click(ancienne.x + 14, ancienne.y + ancienne.h / 2);
+    await page.waitForTimeout(220);
+    const enchainee = await page.evaluate(() => ({
+        ouverte: document.getElementById('wysiwyg-text').style.display === 'block',
+        focus: document.activeElement ? document.activeElement.id : '',
+        edite: editingTextId,
+        dedans: document.getElementById('wysiwyg-text').innerText,
+        posees: texts.map(t => (t.content || '').replace(/<[^>]*>/g, ''))
+    }));
+    r.verifie('en pleine saisie, le clic sur une ligne d\'avant la rouvre',
+        enchainee.ouverte && enchainee.edite === ancienne.id
+        && /ancienne/.test(enchainee.dedans || ''), JSON.stringify(enchainee));
+    r.verifie('le curseur l\'a suivie, et la ligne en cours s\'est posée au passage',
+        enchainee.focus === 'wysiwyg-text' && enchainee.posees.length === 2
+        && enchainee.posees.some(t => /toute fraiche/.test(t)), JSON.stringify(enchainee));
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    await page.evaluate(() => { texts.length = 0; setMode('pointer'); isDraggingObjs = false; draw(); });
 
     // =====================================================================
     // LE TIROIR PEND DE SON PROPRE BOUTON

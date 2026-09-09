@@ -719,10 +719,24 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
     const dollar = await page.evaluate(() => ({
         blocs: texts.length,
         contenu: (texts[0] && texts[0].content || '').replace(/<[^>]*>/g, ''),
-        saisieOuverte: getComputedStyle(document.getElementById('wysiwyg-text')).display !== 'none'
+        resteEcrit: document.getElementById('wysiwyg-text').innerText.trim()
     }));
     r.egal('un dollar isolé ne pose qu\'UN bloc de texte', dollar.blocs, 1);
-    r.verifie('et la saisie se referme normalement', !dollar.saisieOuverte, JSON.stringify(dollar));
+    // La validation doit aller à son terme : le bloc est posé et la zone
+    // repart VIDE. (Elle repart, et ne se referme pas : l'outil Texte en main,
+    // le clic ailleurs rouvre une saisie sous le pointeur — c'est voulu. Ce
+    // qu'on traque ici, c'est l'erreur en plein milieu, qui laissait le texte
+    // dans la zone tout en le posant déjà sur le tableau.)
+    r.verifie('et la validation va à son terme : la saisie repart vide',
+        dollar.resteEcrit === '', JSON.stringify(dollar));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const refermee = await page.evaluate(() => ({
+        blocs: texts.length,
+        fermee: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'none'
+    }));
+    r.verifie('et Échap la referme sans rien poser de plus',
+        refermee.fermee && refermee.blocs === 1, JSON.stringify(refermee));
     r.verifie('le texte est intact', dollar.contenu.indexOf('12 $ environ') >= 0, dollar.contenu);
 
     // Et la formule, elle, se compose vraiment : c'est ce que ces appels
