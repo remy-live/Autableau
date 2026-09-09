@@ -5848,11 +5848,22 @@ const CLE_BARRE_DEBOUT = 'auTableau_barre_debout';
 let barreDebout = false;
 try { barreDebout = localStorage.getItem(CLE_BARRE_DEBOUT) === 'true'; } catch (e) { /* stockage refusé */ }
 
+// LA BARRE À PLAT NE SE POSE PAS TOUJOURS AU MÊME BORD : en haut d'ordinaire,
+// car le bas est la zone où l'on écrit ; EN BAS dès qu'un document occupe
+// l'écran, parce que la page se lit de haut en bas et que la barre ne doit pas
+// manger son début. Le bouton promettait « en haut » dans les deux cas, et
+// l'on cherchait ensuite la barre là où elle n'était pas.
+function placeDeLaBarreAPlat() {
+    return document.body.classList.contains('focus-mode') ? 'en bas' : 'en haut';
+}
+
 function majBoutonDOrientation() {
     const b = document.getElementById('bar-style-orienter');
     if (!b) return;
     b.classList.toggle('actif', barreDebout);
-    b.title = barreDebout ? 'Coucher la barre, en haut' : 'Mettre la barre debout, au bord droit';
+    b.title = barreDebout
+        ? 'Coucher la barre, ' + placeDeLaBarreAPlat()
+        : 'Mettre la barre debout, au bord droit';
 }
 
 function basculerLOrientationDeLaBarre(force) {
@@ -5865,7 +5876,7 @@ function basculerLOrientationDeLaBarre(force) {
     majBoutonDOrientation();
     if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
     if (typeof showToast === 'function') {
-        showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, en haut');
+        showToast(barreDebout ? 'Barre debout, au bord droit' : 'Barre à plat, ' + placeDeLaBarreAPlat());
     }
     return barreDebout;
 }
@@ -5953,6 +5964,10 @@ function updateStyleBarContext() {
             barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
         }
     }
+
+    // Le bouton dit où la barre ira : cela dépend du plein écran, qui change
+    // sans qu'on touche à l'orientation.
+    majBoutonDOrientation();
 
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
@@ -17558,7 +17573,10 @@ function applyFloatingToolbarStyle(bar) {
     const iconSize = parseFloat(bar.dataset.iconSize || '1');
 
     const palettes = {
-        default: { bg: 'var(--surface)', title: 'rgba(248,248,250,0.92)', border: 'var(--border)', shadow: 'var(--shadow)' },
+        // LE CONTOUR PAR DÉFAUT EST UNE ENCRE, pas un gris pâle : posée sur
+        // un polycopié blanc, la barre disparaissait. Les palettes de
+        // couleur, elles, gardent la leur — c'est un choix du professeur.
+        default: { bg: 'var(--surface)', title: 'rgba(248,248,250,0.92)', border: 'var(--contour)', shadow: 'var(--contour-ombre)' },
         blue: { bg: 'rgba(235, 243, 255, 0.96)', title: 'rgba(220, 230, 255, 0.95)', border: 'rgba(100, 128, 235, 0.45)', shadow: '0 8px 24px rgba(93, 132, 232, 0.14)' },
         green: { bg: 'rgba(235, 251, 239, 0.96)', title: 'rgba(220, 246, 229, 0.95)', border: 'rgba(87, 178, 110, 0.45)', shadow: '0 8px 24px rgba(94, 187, 124, 0.14)' },
         purple: { bg: 'rgba(245, 240, 255, 0.96)', title: 'rgba(234, 228, 255, 0.95)', border: 'rgba(130, 109, 229, 0.45)', shadow: '0 8px 24px rgba(131, 108, 230, 0.14)' },
@@ -17568,7 +17586,7 @@ function applyFloatingToolbarStyle(bar) {
         teal: { bg: 'rgba(226, 249, 248, 0.96)', title: 'rgba(213, 247, 245, 0.95)', border: 'rgba(41, 191, 179, 0.45)', shadow: '0 8px 24px rgba(82, 210, 201, 0.14)' }
     };
     const borders = {
-        default: 'var(--border)',
+        default: 'var(--contour)',
         blue: 'rgba(63, 110, 230, 0.9)',
         green: 'rgba(55, 171, 115, 0.9)',
         purple: 'rgba(106, 83, 226, 0.9)',
@@ -27041,11 +27059,13 @@ function ensureMediaPlayerStyles() {
             position: fixed; bottom: 20px; right: 20px; width: 320px; min-width: 260px; max-width: 800px;
             display: flex; flex-direction: column;
             background: var(--surface, rgba(255, 255, 255, 0.92)); color: var(--ink, #2d3436); border-radius: 12px;
-            box-shadow: 0 12px 32px rgba(45, 52, 54, 0.18);
+            box-shadow: var(--contour-ombre), 0 12px 32px rgba(45, 52, 54, 0.22);
             backdrop-filter: blur(16px);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             z-index: 100000;
-            border: 1px solid var(--border, #dfe6e9);
+            /* LE MÊME CONTOUR QUE LES BARRES : posé sur un document blanc,
+               un filet gris pâle ne se voyait plus. */
+            border: 1px solid var(--contour, #2d3436);
             user-select: none;
             overflow: hidden;
         }
@@ -27300,8 +27320,8 @@ function ensureMediaPlayerStyles() {
             display: none; position: absolute; top: 40px; right: 10px; z-index: 30;
             min-width: 186px; padding: 6px;
             background: var(--surface, #fff); color: var(--ink, #2d3436);
-            border: 1px solid var(--border, #dfe6e9); border-radius: 10px;
-            box-shadow: 0 10px 28px rgba(45, 52, 54, 0.2);
+            border: 1px solid var(--contour, #2d3436); border-radius: 10px;
+            box-shadow: var(--contour-ombre), 0 10px 28px rgba(45, 52, 54, 0.24);
         }
         .media-habits.ouvert { display: block; }
         .media-player-panel.habits-ouverts { overflow: visible; }
@@ -27654,6 +27674,15 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
 
                 <div id="${id('mini-controls')}" style="display: none; align-items: center; gap: 2px; margin: 0 10px;">
                     <button class="media-btn" id="${id('mini-prev')}" data-tooltip="Piste précédente">${svgPrev}</button>
+                    <!-- LE SAUT EN ARRIÈRE SUIT JUSQUE DANS LE LECTEUR RÉDUIT.
+                         « Redites-moi la phrase » est le geste du cours, et
+                         c'est justement quand le lecteur est replié, hors du
+                         chemin, qu'on le demande — il fallait le rouvrir
+                         pour cinq secondes. -->
+                    <button class="media-btn media-saut" id="${id('mini-back')}"
+                        data-tooltip="Revenir en arrière — appui long pour changer le pas">
+                        <span class="media-icone">${svgBack}</span><span class="media-saut-n" id="${id('mini-back-n')}">5</span>
+                    </button>
                     <button class="media-btn" id="${id('mini-play')}" data-tooltip="Lecture / Pause">${svgPlay}</button>
                     <button class="media-btn" id="${id('mini-next')}" data-tooltip="Piste suivante">${svgNext}</button>
                 </div>
@@ -27768,6 +27797,8 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
         setupEvents();
         brancherLeSaut(el('back'), -1);
         brancherLeSaut(el('fwd'), +1);
+        // Le même geste et le même pas, réduit ou non : c'est un seul réglage.
+        brancherLeSaut(el('mini-back'), -1);
         majLePas();
         majLaVitesse();
         brancherLeTitre();
@@ -28236,7 +28267,7 @@ function createMediaPlayer({ mediaType, idPrefix, defaultTitle, icon }) {
     }
 
     function majLePas() {
-        [el('back-n'), el('fwd-n')].forEach(e => { if (e) e.textContent = String(pasDuSaut); });
+        [el('back-n'), el('fwd-n'), el('mini-back-n')].forEach(e => { if (e) e.textContent = String(pasDuSaut); });
     }
 
     function poserLesReperesAB() {

@@ -590,6 +590,52 @@ module.exports = async function (browser) {
     r.egal('l\'anneau du « Cadran » se remplit avec la lecture',
         anneau.lu, anneau.attendu);
 
+    // =====================================================================
+    // LE SAUT EN ARRIÈRE SUIT JUSQUE DANS LE LECTEUR RÉDUIT
+    // « Redites-moi la phrase » est LE geste du cours, et c'est justement
+    // quand le lecteur est replié, hors du chemin, qu'on le demande : il
+    // fallait le rouvrir pour cinq secondes. Même bouton, même pas.
+    // =====================================================================
+    const replie = await page.evaluate(async () => {
+        choisirLHabillageDuLecteur('papier');
+        const media = document.getElementById('mp3-media');
+        Object.defineProperty(media, 'duration', { configurable: true, get: () => 60 });
+        media.currentTime = 30;
+
+        const replier = document.getElementById('mp3-minimize');
+        const corps = document.getElementById('mp3-body');
+        // On repart d'un lecteur déplié, quoi qu'aient fait les blocs d'avant.
+        if (corps.style.display === 'none') { replier.click(); await new Promise(r => setTimeout(r, 60)); }
+        replier.click();
+        await new Promise(r => setTimeout(r, 60));
+
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return !!e && e.getClientRects().length > 0;
+        };
+        const bouton = document.getElementById('mp3-mini-back');
+        if (!bouton) return { manque: 'pas de saut dans le lecteur réduit' };
+        const avant = media.currentTime;
+        bouton.click();
+        const apres = media.currentTime;
+
+        // LE PAS EST LE MÊME DES DEUX CÔTÉS : c'est un seul réglage, et le
+        // bloc d'avant a pu le changer par appui long.
+        const pas = Number(document.getElementById('mp3-back-n').textContent);
+        const memePas = document.getElementById('mp3-mini-back-n').textContent === String(pas);
+
+        const visible = vu('mp3-mini-back');
+        replier.click();
+        await new Promise(r => setTimeout(r, 60));
+        const cacheUneFoisRouvert = !vu('mp3-mini-back');
+        return { visible, recule: avant - apres, pas, memePas, cacheUneFoisRouvert };
+    });
+    r.egal('réduit, le lecteur garde son saut en arrière — et il recule du pas réglé',
+        { recule: replie.recule, memePas: replie.memePas },
+        { recule: replie.pas, memePas: true });
+    r.egal('il ne paraît qu\'une fois le lecteur replié',
+        { replie: replie.visible, rouvert: replie.cacheUneFoisRouvert }, { replie: true, rouvert: true });
+
     // ON DÉPLACE LE LECTEUR EN LE PRENANT PAR LA POIGNÉE — et l'appui sur
     // le DESSIN d'un bouton ne le déplace pas : on ne regardait que la
     // balise sous le pointeur, si bien qu'appuyer sur la croix elle-même,

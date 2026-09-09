@@ -2033,6 +2033,43 @@ module.exports = async function (browser) {
         { retenu: debout.retenu, survit: debout.survit }, { retenu: 'true', survit: true });
     r.egal('la bascule inverse la remet à plat', debout.recouchee.sens, 'row');
 
+    // LE BOUTON DIT OÙ LA BARRE IRA VRAIMENT. À plat elle se pose EN HAUT
+    // d'ordinaire — le bas est la zone où l'on écrit — mais EN BAS dès qu'un
+    // document occupe l'écran, car la page se lit de haut en bas. Le bouton
+    // promettait « en haut » dans les deux cas, et l'on cherchait ensuite la
+    // barre là où elle n'était pas.
+    const promesse = await page.evaluate(() => {
+        const b = document.getElementById('bar-style-orienter');
+        const lire = () => b.title;
+        const ouEst = () => {
+            const r = document.getElementById('bar-style').getBoundingClientRect();
+            return (r.top + r.bottom) / 2 < window.innerHeight / 2 ? 'en haut' : 'en bas';
+        };
+        basculerLOrientationDeLaBarre(true);       // debout : c'est là que le
+                                                   // bouton promet le retour
+        document.body.classList.remove('focus-mode');
+        updateStyleBarContext();
+        const surLeTableau = lire();
+        basculerLOrientationDeLaBarre(false);
+        const vraimentSurLeTableau = ouEst();
+
+        basculerLOrientationDeLaBarre(true);
+        document.body.classList.add('focus-mode');
+        updateStyleBarContext();
+        const enPleinEcran = lire();
+        basculerLOrientationDeLaBarre(false);
+        const vraimentEnPleinEcran = ouEst();
+
+        document.body.classList.remove('focus-mode');
+        updateStyleBarContext();
+        return { surLeTableau, vraimentSurLeTableau, enPleinEcran, vraimentEnPleinEcran };
+    });
+    r.egal('le bouton promet le bord où la barre se posera VRAIMENT',
+        { promis: [promesse.surLeTableau, promesse.enPleinEcran],
+          tenu: [promesse.vraimentSurLeTableau, promesse.vraimentEnPleinEcran] },
+        { promis: ['Coucher la barre, en haut', 'Coucher la barre, en bas'],
+          tenu: ['en haut', 'en bas'] });
+
     // =====================================================================
     // ON NE POSE PAS À CÔTÉ D'UNE PAGE QU'ON PROJETTE
     // En présentation, le pourtour est peint sombre PAR-DESSUS tout le reste,

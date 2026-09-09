@@ -27,6 +27,18 @@
     --accent-hover: rgba(108, 92, 231, 0.15);
     --red: #e74c3c;
     --btn-size: 36px;
+    /* LE CONTOUR DES SURFACES FLOTTANTES. Un gris très pâle suffisait tant
+       qu'elles se posaient sur le fond du tableau ; sur un document blanc
+       ouvert en grand, la barre disparaissait purement et simplement, et
+       l'on cherchait un bouton qu'on ne voyait plus. Ce contour-là est celui
+       de l'encre : il tient sur le blanc d'une page comme sur le fond. */
+    --contour: #2d3436;
+    /* DEUX PIXELS VISIBLES, ZÉRO PIXEL PRIS. Le trait doit se voir de loin,
+       mais une bordure de deux pixels agrandit la barre d'autant — et celle
+       du document, posée sur le haut d'une fiche, recouvrait alors la
+       première case à remplir. Le second pixel est donc une ombre sans
+       flou : elle se dessine hors de la boîte sans entrer dans son calcul. */
+    --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(45, 52, 54, 0.16);
 }
 
 body.dark-mode {
@@ -41,6 +53,10 @@ body.dark-mode {
     --accent: #a29bfe;
     --accent-soft: rgba(162, 155, 254, 0.15);
     --accent-hover: rgba(162, 155, 254, 0.25);
+    /* Sur fond sombre, c'est un trait CLAIR qui détache : le même noir s'y
+       fondrait exactement comme le gris pâle se fondait sur le blanc. */
+    --contour: #8d99a6;
+    --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(0, 0, 0, 0.5);
 }
 
 body,
@@ -266,8 +282,8 @@ html {
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(12px);
     border-radius: 20px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-    border: 1px solid var(--border);
+    box-shadow: var(--contour-ombre);
+    border: 1px solid var(--contour);
     display: flex;
     align-items: center;
     padding: 6px;
@@ -626,8 +642,8 @@ html {
     gap: 6px;
     background: var(--surface);
     backdrop-filter: blur(18px);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow);
+    border: 1px solid var(--contour);
+    box-shadow: var(--contour-ombre);
     width: max-content;
     transition: opacity 0.3s, transform 0.3s;
     pointer-events: auto;
@@ -729,8 +745,8 @@ html {
     max-width: 320px;
     border-radius: 2px;
     background: var(--surface);
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    box-shadow: var(--shadow);
+    border: 1px solid var(--contour);
+    box-shadow: var(--contour-ombre);
     padding: 12px;
     display: none;
     z-index: 30;
@@ -954,7 +970,7 @@ html {
 
 .dark-mode .custom-toolbar {
     background: rgba(45, 52, 54, 0.94);
-    border-color: rgba(162, 155, 254, 0.18);
+    border-color: var(--contour);
 }
 
 .dark-mode .cbar-head,
@@ -2719,7 +2735,7 @@ body.dark-mode {
 .dark-mode .toolbar,
 .dark-mode #time-widget {
     background: rgba(45, 52, 54, 0.95);
-    border-color: rgba(99, 110, 114, 0.8);
+    border-color: var(--contour);
 }
 
 .dark-mode .btn {
@@ -5737,9 +5753,9 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     right: 0;
     min-width: 200px;
     background: var(--surface, #fff);
-    border: 1px solid var(--border, #dfe6e9);
+    border: 1px solid var(--contour);
     border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(45, 52, 54, 0.18);
+    box-shadow: var(--contour-ombre), 0 12px 32px rgba(45, 52, 54, 0.22);
     padding: 8px;
     display: none;
     z-index: 16500;
@@ -9204,8 +9220,8 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     padding: 7px 10px;
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.97);
-    border: 1px solid #dfe6e9;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--contour);
+    box-shadow: var(--contour-ombre), 0 8px 28px rgba(45, 52, 54, 0.2);
 }
 
 #bande-morceaux[hidden] { display: none; }
@@ -9325,7 +9341,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 #bm-fantome img { position: absolute; left: 0; top: 0; max-width: none; }
 
-.dark-mode #bande-morceaux { background: rgba(30, 39, 46, 0.97); border-color: #3d4852; }
+.dark-mode #bande-morceaux { background: rgba(30, 39, 46, 0.97); border-color: var(--contour); }
 .dark-mode .bm-btn { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
 .dark-mode .bm-titre b { color: #f1f2f6; }
 

@@ -390,6 +390,68 @@ module.exports = async function (browser) {
     r.verifie('une case déjà cochée s\'ouvre teintée', cases.secondeTeintee, String(cases.secondeTeintee));
     r.verifie('et le carré est le nôtre, pas celui du navigateur', cases.dessine, String(cases.dessine));
 
+    // =====================================================================
+    // LES SURFACES FLOTTANTES SE DÉTACHENT DE CE QU'ELLES RECOUVRENT
+    // Un filet gris très pâle suffisait tant qu'elles se posaient sur le fond
+    // du tableau. Sur un polycopié blanc ouvert en grand, la barre disparais-
+    // sait purement et simplement : on cherchait un bouton qu'on ne voyait
+    // plus. Le contour est maintenant celui de l'encre — et sur fond sombre,
+    // un trait clair, car le même noir s'y fondrait tout autant.
+    // =====================================================================
+    const SURFACES = ['#bar-style', '#system-toolbar-main', '#bande-morceaux', '#reglages-barre'];
+    // La couleur du trait passe d'un thème à l'autre EN TROIS DIXIÈMES DE
+    // SECONDE : lue à l'instant du changement, elle rend encore celle du
+    // thème qu'on vient de quitter. C'est un piège de mesure, pas un défaut.
+    const releverLesContours = () => page.evaluate((surfaces) => {
+        // Le contraste d'un trait, en clarté : un gris à 0,88 se perd sur une
+        // page blanche, une encre à 0,2 s'y voit.
+        const clarte = (rgb) => {
+            const n = (rgb.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+            return (0.2126 * n[0] + 0.7152 * n[1] + 0.0722 * n[2]) / 255;
+        };
+        const vu = {};
+        surfaces.forEach(sel => {
+            const e = document.querySelector(sel);
+            if (!e) return;
+            const st = getComputedStyle(e);
+            vu[sel] = { couleur: st.borderTopColor, epaisseur: st.borderTopWidth,
+                        // LE SECOND PIXEL EST UNE OMBRE SANS FLOU, hors du
+                        // calcul de place : une vraie bordure de deux pixels
+                        // agrandirait la barre d'autant, et celle du document
+                        // recouvrait alors la première case d'une fiche.
+                        liseré: /0px 0px 0px 1px/.test(st.boxShadow),
+                        clarte: clarte(st.borderTopColor) };
+        });
+        return vu;
+    }, SURFACES);
+
+    const clair = await releverLesContours();
+    await page.evaluate(() => document.body.classList.add('dark-mode'));
+    await page.waitForTimeout(450);
+    const sombre = await releverLesContours();
+    await page.evaluate(() => document.body.classList.remove('dark-mode'));
+    await page.waitForTimeout(450);
+    const contours = { clair, sombre, attendues: SURFACES.length };
+    const trouvees = Object.keys(contours.clair);
+    r.egal('les quatre surfaces flottantes ont bien un contour',
+        trouvees.length, contours.attendues);
+    r.verifie('sur fond clair, leur trait est une ENCRE, pas un gris qui s\'efface',
+        trouvees.every(s => contours.clair[s].clarte < 0.45),
+        JSON.stringify(contours.clair));
+    r.verifie('et sur fond sombre il s\'éclaircit, sinon il s\'y fondrait pareil',
+        trouvees.every(s => contours.sombre[s].clarte > 0.45),
+        JSON.stringify(contours.sombre));
+    // DEUX PIXELS VISIBLES, ZÉRO PIXEL PRIS : le second est une ombre sans
+    // flou. Une vraie bordure de deux pixels agrandissait la barre d'autant,
+    // et celle du document, posée sur le haut d'une fiche, recouvrait alors
+    // la première case à remplir.
+    r.verifie('il se double d\'un liseré qui ne prend aucune place',
+        trouvees.every(s => contours.clair[s].liseré),
+        JSON.stringify(trouvees.map(s => [s, contours.clair[s].liseré])));
+    r.verifie('et la bordure elle-même n\'a pas grossi',
+        trouvees.every(s => parseFloat(contours.clair[s].epaisseur) <= 1),
+        JSON.stringify(trouvees.map(s => contours.clair[s].epaisseur)));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
