@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=122">
+    <link rel="stylesheet" href="style.css?v=123">
 </head>
 
 <body>
@@ -801,6 +801,12 @@
                 <div class="aide-section">
                     <h3 style="color: var(--accent); margin-top: 0;">🛠️ Outils</h3>
                     <ul style="font-size: 13px; line-height: 1.6;">
+                        <li><strong>Le trait autour des barres et des fenêtres :</strong> il est <b>noir</b>
+                            parce que c'est la couleur choisie, pas parce qu'il est écrit en dur — la
+                            <b>couleur des contours</b>, dans les réglages d'apparence, la change pour tout :
+                            les barres, les tiroirs, les modales, et les <b>fenêtres des outils</b>, qui
+                            portent désormais le même trait que le reste. « Contours francs » l'adoucit pour
+                            qui travaille le nez sur l'écran.</li>
                         <li><strong>Règle/Équerre :</strong> Glisser pour positionner</li>
                         <li><strong>Rapporteur :</strong> on l'attrape par son disque, on le tourne par les
                             pastilles ↻ de ses deux bouts. Le crayon <b>longe sa jupe</b> pour tracer la ligne
@@ -1213,6 +1219,10 @@
                             l'objet. La barre de style revient dès qu'on prend un <b>outil</b> pour écrire sur
                             la page : c'est là qu'on choisit sa couleur et son épaisseur. En <b>plein écran</b>,
                             la barre du document descend en bas : la page occupe alors tout le haut.<br>
+                            <b>Elle se signale quand elle change de place :</b> elle passe du haut au bas
+                            en plein écran, se met debout, se range sous un tiroir qui s'ouvre — à chaque
+                            fois elle réapparaissait ailleurs sans rien dire, et on la cherchait. Un halo
+                            bref part de son contour, le temps d'y poser les yeux.<br>
                             Elle ne porte <b>que des icônes</b> : sept boutons écrivaient leur nom et la
                             barre traversait l'écran. Le mot est dans l'<b>infobulle</b> — elle dit la même
                             chose, et plus longuement, sans rien coûter tant qu'on ne la demande pas.
@@ -1926,6 +1936,18 @@
                     <button class="rp-choix" data-libelles="couleur">Noms et couleurs</button>
                     <button class="rp-choix" id="rp-contours"
                         title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
+                    <!-- LE TRAIT EST NOIR PARCE QUE C'EST LA COULEUR CHOISIE,
+                         et non parce qu'il est écrit en dur : qui la veut
+                         bleue, ou assortie à son école, la change ici — les
+                         barres, les fenêtres, les tiroirs et les fenêtres des
+                         outils la suivent toutes. -->
+                    <label class="rp-couleur" id="rp-contour-boite"
+                        title="La couleur du trait autour des barres et des fenêtres">
+                        <input type="color" id="rp-contour-couleur" value="#000000">
+                        <span>Couleur des contours</span>
+                        <button type="button" class="rp-rendre" id="rp-contour-rendre"
+                            style="display:none;">Noir</button>
+                    </label>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
                     <div class="rp-titre">Sur le tableau</div>
@@ -2922,7 +2944,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=221"></script>
+    <script src="script.js?v=222"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=93"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

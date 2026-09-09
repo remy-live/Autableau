@@ -31,8 +31,12 @@
        qu'elles se posaient sur le fond du tableau ; sur un document blanc
        ouvert en grand, la barre disparaissait purement et simplement, et
        l'on cherchait un bouton qu'on ne voyait plus. Ce contour-là est celui
-       de l'encre : il tient sur le blanc d'une page comme sur le fond. */
-    --contour: #2d3436;
+       de l'encre : il tient sur le blanc d'une page comme sur le fond.
+       NOIR, et non plus « presque noir » : c'est le trait d'un feutre sur une
+       page. Et c'est une COULEUR DE RÉGLAGE — celui qui la veut bleue, ou
+       assortie à son école, la change dans l'apparence, et tout suit : les
+       barres, les fenêtres, les tiroirs et les fenêtres des outils. */
+    --contour: #000000;
     /* DEUX PIXELS VISIBLES, ZÉRO PIXEL PRIS. Le trait doit se voir de loin,
        mais une bordure de deux pixels agrandit la barre d'autant — et celle
        du document, posée sur le haut d'une fiche, recouvrait alors la
@@ -8607,6 +8611,76 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 /* L'opacité de la page est un RÉGLAGE, pas un bouton : elle se pousse. Elle
    vivait derrière le bouton de couleur de la barre de style — celle-là même
    qui s'efface quand on tient un document. */
+/* LE TRAIT DES FENÊTRES D'OUTILS. Soixante-deux outils sur quatre-vingt-cinq
+   passent par la fenêtre de réglages commune, qui le porte déjà. Les autres
+   ouvrent la leur, écrite à la main : les border une par une, c'est cinquante
+   endroits à tenir à jour, et le prochain outil écrit n'en aurait pas. Le
+   trait se pose donc à l'ouverture, sur ce qui EST une fenêtre. */
+/* Celle qui a déjà un trait le garde — on n'en change QUE la couleur : lui en
+   poser un second l'agrandirait d'un pixel sous les doigts, et une fenêtre qui
+   grandit en s'ouvrant se remarque. */
+.contour-fenetre { border-color: var(--contour) !important; }
+
+/* Celle qui n'en a pas en reçoit un, comme les barres et les tiroirs. */
+.contour-fenetre.contour-ajoute {
+    border: 1px solid var(--contour) !important;
+    box-shadow: var(--contour-ombre) !important;
+}
+
+/* ELLE SE SIGNALE QUAND ELLE CHANGE DE PLACE. Un halo bref part de son
+   contour : le temps d'y poser les yeux, pas plus. On passe par « outline »
+   et non par une ombre — l'ombre porte déjà le liseré du contour, et outline
+   ne prend aucune place dans la mise en page. */
+@keyframes barreSeSignale {
+    0% { outline-color: rgba(108, 92, 231, 0.95); outline-offset: 1px; }
+    70% { outline-color: rgba(108, 92, 231, 0); outline-offset: 13px; }
+    100% { outline-color: rgba(108, 92, 231, 0); outline-offset: 13px; }
+}
+
+.se-signale {
+    outline: 3px solid transparent;
+    animation: barreSeSignale 0.85s ease-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .se-signale { animation: none; outline-color: rgba(108, 92, 231, 0.9); }
+}
+
+/* La couleur du contour se choisit : une pastille dans l'apparence. */
+.rp-couleur {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: inherit;
+}
+
+.rp-couleur input[type="color"] {
+    width: 30px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.rp-couleur .rp-rendre {
+    margin-left: auto;
+    border: none;
+    background: none;
+    color: #6c5ce7;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.rp-couleur .rp-rendre:hover { background: rgba(108, 92, 231, 0.12); }
+
 .dv-curseur { cursor: default; }
 .dv-curseur input[type="range"] {
     flex: 1 1 auto;

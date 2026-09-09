@@ -5971,8 +5971,39 @@ function placerLaBarreDuDocument() {
         barre.style.bottom = 'auto';
         barre.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
     }
+    signalerLaBarreDuDocument(barre);
 }
 window.placerLaBarreDuDocument = placerLaBarreDuDocument;
+
+// ELLE SE SIGNALE QUAND ELLE CHANGE DE PLACE.
+// « Parfois la toolbar du pdf va à un autre endroit pour ne pas se faire
+//   écraser, mais on la cherche du coup. » Elle passe du haut au bas en plein
+//   écran, se met debout, se range sous un tiroir qui s'ouvre : à chaque fois
+//   elle réapparaît ailleurs, sans rien dire. Un halo bref part de son
+//   contour — le temps d'y poser les yeux, pas plus.
+let placeDeLaBarreDuDocument = '';
+let finDuSignalDeLaBarre = null;
+
+function signalerLaBarreDuDocument(barre) {
+    if (!barre) return false;
+    const s = barre.style;
+    const place = [barre.classList.contains('visible') ? 'vue' : 'cachee',
+                   barre.classList.contains('vertical') ? 'debout' : 'plat',
+                   s.top, s.bottom, s.left, s.right].join('|');
+    if (place === placeDeLaBarreDuDocument) return false;
+    const premiere = placeDeLaBarreDuDocument === '';
+    placeDeLaBarreDuDocument = place;
+    // On ne clignote pas pour une barre qu'on ne voit pas, ni au tout premier
+    // placement — personne ne la cherchait encore.
+    if (premiere || !barre.classList.contains('visible')) return false;
+    barre.classList.remove('se-signale');
+    void barre.offsetWidth;                     // relance l'animation
+    barre.classList.add('se-signale');
+    clearTimeout(finDuSignalDeLaBarre);
+    finDuSignalDeLaBarre = setTimeout(() => barre.classList.remove('se-signale'), 1900);
+    return true;
+}
+window.signalerLaBarreDuDocument = signalerLaBarreDuDocument;
 
 // LES DEUX BARRES NE SE POSENT PAS L'UNE SUR L'AUTRE. Elles visent la même
 // place — au milieu, en haut, ou en bas en plein écran. Celle du document
@@ -30413,6 +30444,114 @@ function poserLesContours() {
     document.body.classList.toggle('contours-doux', contoursDoux);
 }
 
+// ==================================================================
+// LA COULEUR DU CONTOUR EST UN RÉGLAGE
+// Le trait est noir parce que c'est la couleur choisie, pas parce qu'il est
+// écrit en dur : celui qui la veut bleue, ou assortie à son école, la change
+// ici, et tout suit — les barres, les fenêtres, les tiroirs, et les fenêtres
+// des outils. Le noir reste le défaut : c'est celui qui se voit de loin.
+// ==================================================================
+const CLE_COULEUR_CONTOUR = 'auTableau_couleur_contour';
+const CONTOUR_PAR_DEFAUT = '#000000';
+let couleurDuContour = null;
+try {
+    const c = localStorage.getItem(CLE_COULEUR_CONTOUR);
+    if (c && /^#[0-9a-f]{6}$/i.test(c)) couleurDuContour = c;
+} catch (e) { /* stockage refusé */ }
+
+function poserLaCouleurDuContour() {
+    const r = document.documentElement;
+    if (couleurDuContour) r.style.setProperty('--contour', couleurDuContour);
+    else r.style.removeProperty('--contour');
+    const champ = document.getElementById('rp-contour-couleur');
+    if (champ) champ.value = couleurDuContour || CONTOUR_PAR_DEFAUT;
+    const rendre = document.getElementById('rp-contour-rendre');
+    if (rendre) rendre.style.display = couleurDuContour ? 'inline-block' : 'none';
+}
+
+function reglerLaCouleurDuContour(c) {
+    // Une couleur qu'on ne sait pas lire ne remplace pas celle qui marche.
+    couleurDuContour = (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? c.toLowerCase() : null;
+    try {
+        if (couleurDuContour) localStorage.setItem(CLE_COULEUR_CONTOUR, couleurDuContour);
+        else localStorage.removeItem(CLE_COULEUR_CONTOUR);
+    } catch (e) { /* refusé */ }
+    poserLaCouleurDuContour();
+    return couleurDuContour || CONTOUR_PAR_DEFAUT;
+}
+window.reglerLaCouleurDuContour = reglerLaCouleurDuContour;
+
+// ==================================================================
+// LE TRAIT SUIT LES FENÊTRES DES OUTILS
+// Soixante-deux outils sur quatre-vingt-cinq passent par la fenêtre de
+// réglages commune, qui porte le trait. Les autres ouvrent la leur, chacune
+// écrite à la main : les border une par une, c'est cinquante endroits à tenir
+// à jour, et le prochain outil écrit n'en aurait toujours pas. On pose donc le
+// trait à l'ouverture, sur ce qui EST une fenêtre : une boîte posée sur le
+// tableau, assez grande pour se lire, avec un fond à elle et des coins
+// arrondis — et qui n'a pas déjà son propre trait.
+// ==================================================================
+function estUneFenetreDOutil(el) {
+    if (!el || el.nodeType !== 1 || !el.isConnected) return false;
+    if (el.classList.contains('contour-fenetre')) return false;
+    // Les meubles du tableau ont déjà le leur, et la visite a le sien.
+    if (el.closest('#board, .toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    if (s.position !== 'fixed' && s.position !== 'absolute') return false;
+    // Un voile de fond n'est pas une fenêtre : il couvre tout l'écran.
+    const r = el.getBoundingClientRect();
+    if (r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2) return false;
+    if (r.width < 150 || r.height < 70) return false;
+    const fond = s.backgroundColor || '';
+    if (!fond || fond === 'transparent' || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(fond)) return false;
+    if (parseFloat(s.borderRadius) < 4) return false;
+    return true;
+}
+
+// Celle qui a déjà un trait le garde — on n'en change QUE la couleur, pour ne
+// pas la faire grandir d'un pixel sous les doigts. Celle qui n'en a pas en
+// reçoit un.
+function fenetreSansTrait(el) {
+    const s = getComputedStyle(el);
+    return s.borderTopStyle === 'none' || parseFloat(s.borderTopWidth) < 0.5;
+}
+
+function poserLeContourDesFenetres(racine) {
+    if (!racine || racine.nodeType !== 1) return 0;
+    let posees = 0;
+    const voir = (el, profondeur) => {
+        if (profondeur > 3 || !el || el.nodeType !== 1) return;
+        if (estUneFenetreDOutil(el)) {
+            el.classList.add('contour-fenetre');
+            if (fenetreSansTrait(el)) el.classList.add('contour-ajoute');
+            posees++;
+            return;
+        }
+        for (const enfant of el.children) voir(enfant, profondeur + 1);
+    };
+    voir(racine, 0);
+    return posees;
+}
+window.poserLeContourDesFenetres = poserLeContourDesFenetres;
+
+function surveillerLesFenetresDOutils() {
+    if (!window.MutationObserver || window.__contourEnVeille) return;
+    window.__contourEnVeille = true;
+    const obs = new MutationObserver((lots) => {
+        lots.forEach(lot => {
+            lot.addedNodes.forEach(n => {
+                if (!n || n.nodeType !== 1) return;
+                const posees = poserLeContourDesFenetres(n);
+                // Une fenêtre posée cachée puis montrée n'avait, à l'instant
+                // de sa pose, ni taille ni fond : on repasse une fois.
+                if (!posees) setTimeout(() => poserLeContourDesFenetres(n), 260);
+            });
+        });
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+}
+
 function basculerLesContours(force) {
     contoursDoux = (force === undefined) ? !contoursDoux : !force;
     try { localStorage.setItem(CLE_CONTOURS_DOUX, contoursDoux ? 'true' : 'false'); } catch (e) { /* refusé */ }
@@ -30535,6 +30674,12 @@ function brancherLaPoigneeDesOutils() {
 document.addEventListener('DOMContentLoaded', () => {
     poserLaBarreCourte();
     poserLesContours();
+    poserLaCouleurDuContour();
+    surveillerLesFenetresDOutils();
+    const champ = document.getElementById('rp-contour-couleur');
+    if (champ) champ.addEventListener('input', () => reglerLaCouleurDuContour(champ.value));
+    const rendre = document.getElementById('rp-contour-rendre');
+    if (rendre) rendre.addEventListener('click', (e) => { e.stopPropagation(); reglerLaCouleurDuContour(null); });
     brancherLaPoigneeDesOutils();
 });
 

@@ -1376,6 +1376,45 @@ module.exports = async function (browser) {
         basDeLEcran.plancher < 860 || basDeLEcran.q.b <= basDeLEcran.d.t,
         JSON.stringify(basDeLEcran));
 
+    // ELLE SE SIGNALE QUAND ELLE CHANGE DE PLACE. « Parfois la toolbar du pdf
+    // va à un autre endroit pour ne pas se faire écraser, mais on la cherche
+    // du coup. » Elle passe du haut au bas en plein écran, se met debout, se
+    // range sous un tiroir qui s'ouvre : à chaque fois elle réapparaît
+    // ailleurs, sans rien dire.
+    const signal = await page.evaluate(async () => {
+        const barre = document.getElementById('bar-document');
+        images.length = 0; selectedItems = [];
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 60));
+        barre.classList.remove('se-signale');
+        const auRepos = barre.classList.contains('se-signale');
+        const placeAvant = barre.style.top;
+
+        // Le plein écran la fait descendre en bas : c'est là qu'on la perd.
+        toggleFocusMode();
+        await new Promise(r => setTimeout(r, 60));
+        const apresLeSaut = { signale: barre.classList.contains('se-signale'),
+                              bougee: barre.style.top !== placeAvant };
+
+        // Et un second placement AU MÊME ENDROIT ne clignote pas pour rien.
+        barre.classList.remove('se-signale');
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 60));
+        const surPlace = barre.classList.contains('se-signale');
+
+        toggleFocusMode();
+        await new Promise(r => setTimeout(r, 60));
+        // On laisse le document en place : le bloc suivant compte dessus.
+        majBarreDocument(); draw();
+        return { auRepos, apresLeSaut, surPlace };
+    });
+    r.verifie('la barre du document se signale quand elle change de place',
+        signal.apresLeSaut.bougee && signal.apresLeSaut.signale, JSON.stringify(signal));
+    r.verifie('mais elle ne clignote pas quand elle reste où elle est',
+        signal.auRepos === false && signal.surPlace === false, JSON.stringify(signal));
+
     // CE QUI A DÉMÉNAGÉ AGIT VRAIMENT. Un réglage qui a changé de meuble et
     // ne fait plus rien est pire que celui qu'on a déplacé.
     const voletAgit = await page.evaluate(async () => {

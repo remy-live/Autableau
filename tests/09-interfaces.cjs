@@ -526,6 +526,107 @@ module.exports = async function (browser) {
     r.verifie('adouci, le trait redevient un gris discret',
         doux > 0.45, String(doux));
 
+    // =====================================================================
+    // LA COULEUR DU CONTOUR EST UN RÉGLAGE
+    // « Fais un bord noir, mais parce que la couleur globale du bord est
+    //   noire — on peut la changer. » Le trait n'est plus écrit en dur : il
+    //   est noir parce que c'est la couleur choisie.
+    // =====================================================================
+    // LA BORDURE S'ANIME EN 0,3 s : lue tout de suite, on tombe sur une valeur
+    // du milieu de l'animation — ni l'ancienne, ni la nouvelle. On laisse donc
+    // le temps à chaque changement de se poser avant de le mesurer.
+    const lireLeTrait = () => page.evaluate(() =>
+        getComputedStyle(document.getElementById('bar-style')).borderTopColor);
+    await page.waitForTimeout(450);
+    const couleur = { parDefaut: await lireLeTrait() };
+    Object.assign(couleur, await page.evaluate(() => ({
+        valeurDepart: document.getElementById('rp-contour-couleur').value,
+        rendreCache: getComputedStyle(document.getElementById('rp-contour-rendre')).display === 'none'
+    })));
+
+    await page.evaluate(() => {
+        const champ = document.getElementById('rp-contour-couleur');
+        champ.value = '#0984e3';
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(450);
+    couleur.change = await page.evaluate(() => ({
+        retenu: localStorage.getItem('auTableau_couleur_contour'),
+        rendreVu: getComputedStyle(document.getElementById('rp-contour-rendre')).display !== 'none'
+    }));
+    couleur.change.barre = await lireLeTrait();
+
+    await page.evaluate(() => document.getElementById('rp-contour-rendre').click());
+    await page.waitForTimeout(450);
+    couleur.rendu = await page.evaluate(() => ({
+        efface: localStorage.getItem('auTableau_couleur_contour'),
+        champ: document.getElementById('rp-contour-couleur').value
+    }));
+    couleur.rendu.barre = await lireLeTrait();
+
+    // Une couleur qu'on ne sait pas lire ne remplace pas celle qui marche.
+    couleur.bricolee = await page.evaluate(() => reglerLaCouleurDuContour('bleu ciel'));
+    await page.waitForTimeout(450);
+    couleur.apresBricolage = await lireLeTrait();
+    r.egal('le trait est noir, et c\'est la couleur du réglage',
+        { barre: couleur.parDefaut, champ: couleur.valeurDepart, rendreCache: couleur.rendreCache },
+        { barre: 'rgb(0, 0, 0)', champ: '#000000', rendreCache: true });
+    r.egal('on la change, et TOUT la suit — la barre comme le reste',
+        { barre: couleur.change.barre, retenu: couleur.change.retenu, rendre: couleur.change.rendreVu },
+        { barre: 'rgb(9, 132, 227)', retenu: '#0984e3', rendre: true });
+    r.egal('et « Noir » la rend',
+        { barre: couleur.rendu.barre, efface: couleur.rendu.efface, champ: couleur.rendu.champ },
+        { barre: 'rgb(0, 0, 0)', efface: null, champ: '#000000' });
+    r.egal('une couleur illisible ne remplace pas celle qui marche',
+        { rendu: couleur.bricolee, barre: couleur.apresBricolage },
+        { rendu: '#000000', barre: 'rgb(0, 0, 0)' });
+
+    // =====================================================================
+    // ET LES FENÊTRES DES OUTILS PORTENT LE MÊME TRAIT
+    // Soixante-deux outils sur quatre-vingt-cinq passent par la fenêtre de
+    // réglages commune, qui l'a déjà. Les cinquante autres ouvrent la leur,
+    // écrite à la main, chacune avec son gris pâle : le trait se pose à
+    // l'ouverture, sur ce qui EST une fenêtre.
+    // =====================================================================
+    const fenetres = await page.evaluate(async () => {
+        const vues = [];
+        const btns = [...document.querySelectorAll('#plugins-grid .btn')];
+        for (const b of btns) {
+            const avant = new Set([...document.querySelectorAll('body *')]);
+            try { b.click(); } catch (e) { continue; }
+            await new Promise(r => setTimeout(r, 110));
+            const neufs = [...document.querySelectorAll('body *')].filter(e => !avant.has(e));
+            const boite = neufs.find(e => {
+                const s = getComputedStyle(e), r = e.getBoundingClientRect();
+                return (s.position === 'fixed' || s.position === 'absolute')
+                    && r.width > 150 && r.height > 70 && s.display !== 'none'
+                    && !(r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2)
+                    && parseFloat(s.borderRadius) >= 4;
+            });
+            if (boite) {
+                const s = getComputedStyle(boite);
+                vues.push({ quoi: (boite.id || boite.className || '?').slice(0, 24),
+                            couleur: s.borderTopColor,
+                            // Elle ne doit pas grandir en s'ouvrant : celle qui
+                            // avait déjà un trait garde son épaisseur.
+                            epaisseur: s.borderTopWidth });
+            }
+            neufs.forEach(e => { if (e.parentElement === document.body) e.remove(); });
+            const c = document.getElementById('custom-prompt-modal');
+            if (c && getComputedStyle(c).display !== 'none') {
+                c.style.display = 'none';
+                if (typeof refermerLaBoite === 'function') refermerLaBoite();
+            }
+            document.querySelectorAll('.live-modal-backdrop').forEach(x => x.remove());
+        }
+        return { n: vues.length, palots: vues.filter(v => v.couleur !== 'rgb(0, 0, 0)'),
+                 gros: vues.filter(v => parseFloat(v.epaisseur) > 6) };
+    });
+    r.verifie('les fenêtres des outils s\'ouvrent bien (une bonne vingtaine)',
+        fenetres.n >= 20, String(fenetres.n));
+    r.egal('et toutes portent le trait noir, comme les barres', fenetres.palots, []);
+    r.egal('sans avoir grossi en s\'ouvrant', fenetres.gros, []);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
