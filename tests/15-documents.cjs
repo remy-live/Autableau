@@ -1433,6 +1433,228 @@ module.exports = async function (browser) {
     r.verifie('et glisser la page la fait toujours défiler sous les yeux',
         apresLaPage !== apresLeTrait.pan, JSON.stringify({ avant: apresLeTrait.pan, apres: apresLaPage }));
 
+    // LA BARRE PARLE DE LA PAGE PROJETÉE, PAS DE LA SÉLECTION. « J'ai
+    // sélectionné un objet, je l'ai bougé, mais quand je clique ailleurs je ne
+    // reviens pas sur mon pdf » : la barre suivait la seule sélection ; on
+    // prenait un mot posé sur la page, la page n'était plus « choisie », et sa
+    // barre s'en allait avec ses pages et son plein écran — sans moyen de la
+    // rappeler, puisqu'en présentation la page se prend à la main.
+    const barreEnProjection = await page.evaluate(async () => {
+        images.length = 0; texts.length = 0; points.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++, nomFichier: 'doc.pdf' });
+        texts.push({ id: nextId++, x: 100, y: 200, content: 'un mot', fontSize: 30,
+                     color: '#2d3436', z: globalZ++ });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        presentationEnCours = images[0].id;
+        if (!document.body.classList.contains('focus-mode')) toggleFocusMode();
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 120));
+        const enTenantLaPage = document.getElementById('bar-document').classList.contains('ctx-document');
+        // On prend le mot posé dessus : la page n'est plus « choisie ».
+        selectedItems = [{ type: 'text', id: texts[0].id }];
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 120));
+        const surLeMot = document.getElementById('bar-document').classList.contains('ctx-document');
+        // Et l'on lâche tout : la barre parle encore de la page qu'on projette.
+        selectedItems = [];
+        majBarreDocument();
+        await new Promise(r => setTimeout(r, 120));
+        const rienDeChoisi = {
+            ctx: document.getElementById('bar-document').classList.contains('ctx-document'),
+            vue: getComputedStyle(document.getElementById('bar-document')).opacity !== '0',
+            doc: !!documentDeLaBarre()
+        };
+        presentationEnCours = null;
+        if (document.body.classList.contains('focus-mode')) toggleFocusMode();
+        texts.length = 0;
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); draw();
+        return { enTenantLaPage, surLeMot, rienDeChoisi };
+    });
+    r.verifie('en projection, la barre parle de la page même quand on tient autre chose',
+        barreEnProjection.enTenantLaPage && barreEnProjection.surLeMot,
+        JSON.stringify(barreEnProjection));
+    r.egal('et elle reste là quand on ne tient plus rien : on retrouve son pdf',
+        barreEnProjection.rienDeChoisi, { ctx: true, vue: true, doc: true });
+
+    // UN DOCUMENT EST UNE SURFACE, PAS UN OBSTACLE. « L'outil point n'a pas
+    // dessiné de point sur mon pdf » : le crayon, le texte, le segment, le
+    // cercle se posent tous sur un polycopié ; le point, seul, était refusé —
+    // cliquer sur la page rendait un « clickedObj », et rien ne se posait.
+    const pointSurLaPage = await page.evaluate(async () => {
+        images.length = 0; points.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        magnetMode = false;
+        images.push({ id: nextId++, x: 200, y: 150, w: 500, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        setMode('point');
+        draw();
+        return { x: 400, y: 400, avant: points.length };
+    });
+    await page.mouse.click(pointSurLaPage.x, pointSurLaPage.y);
+    await page.waitForTimeout(200);
+    const posePoint = await page.evaluate(() => {
+        const n = points.length;
+        const p = points[points.length - 1];
+        const dedans = !!p && p.x > 200 && p.x < 700 && p.y > 150 && p.y < 650;
+        setMode('pointer'); points.length = 0; magnetMode = true;
+        images.length = 0;
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); draw();
+        return { n, dedans };
+    });
+    r.egal('l\'outil Point pose son point SUR le document', posePoint.n, 1);
+    r.verifie('et il tombe bien sur la page, là où l\'on a cliqué', posePoint.dedans,
+        JSON.stringify(posePoint));
+
+    // =========================================================================
+    // CE QU'ON ÉCRIT SUR UNE PAGE APPARTIENT À CETTE PAGE
+    // « Quand je croppe et que je déplace, des bouts de ce qui était dans le
+    //   pdf sortent du cadre. Vérifie vraiment tout le fonctionnement du pdf,
+    //   des outils dessus, de redimensionnement. »
+    // =========================================================================
+
+    // 1. UNE PAGE ROGNÉE S'ARRÊTE À SON CADRE, l'encre comprise. Elle SUIVAIT
+    // le rognage — elle se replace avec la page — mais rien ne la coupait : ce
+    // qui était écrit sur la partie retirée continuait de se voir, étalé autour.
+    const encreRognee = await page.evaluate(async () => {
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const carre = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">'
+            + '<rect width="400" height="400" fill="#fff"/></svg>');
+        await new Promise(res => {
+            const i = new Image();
+            i.onload = () => { imageCache[i.src] = i; res(); };
+            i.src = carre;
+        });
+        const o = { id: nextId++, x: 300, y: 200, w: 400, h: 400, cx: 0, cy: 0, cw: 400, ch: 400,
+                    src: carre, z: globalZ++, nomFichier: 'page.png' };
+        images.push(o);
+        // Deux traits : l'un en haut de la page, l'autre en bas.
+        const trait = (y, x0, x1) => ({ id: nextId++,
+            points: [{ x: (x0 === undefined ? o.x + 80 : x0), y },
+                     { x: (x1 === undefined ? o.x + 320 : x1), y }],
+            color: '#e74c3c', width: 5, z: globalZ++,
+            surObjet: { type: 'image', id: o.id } });
+        freehands.push(trait(o.y + 80), trait(o.y + 320));
+        // Et un trait qui DÉBORDE volontairement dans la marge : sur une page
+        // entière, c'est un trait qu'on a voulu là — la flèche qui montre
+        // quelque chose à côté. Il ne doit pas être coupé.
+        freehands.push(trait(o.y + 40, o.x + 300, o.x + o.w + 160));
+        draw();
+        const rouge = () => {
+            const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 180 && d[i + 1] < 110 && d[i + 2] < 110) n++;
+            }
+            return n;
+        };
+        const avant = rouge();
+        // Le débord se compte à part : à droite de la page, hors du cadre.
+        const dehors = () => {
+            const x0 = Math.round((o.x + o.w) * zoom + panX) + 4;
+            const d = ctx.getImageData(x0, 0, Math.max(1, canvas.width - x0), canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 180 && d[i + 1] < 110 && d[i + 2] < 110) n++;
+            }
+            return n;
+        };
+        const debordAvant = dehors();
+        // On ne garde que la moitié haute : le trait du bas tombe hors du cadre.
+        o.ch = 200; o.h = 200;
+        draw();
+        const apres = rouge();
+        const debordApres = dehors();
+        images.length = 0; freehands.length = 0; draw();
+        return { avant, apres, debordAvant, debordApres, rogne: avant > 0 };
+    });
+    r.verifie('deux traits écrits sur la page se voient',
+        encreRognee.avant > 400, JSON.stringify(encreRognee));
+    r.verifie('page ENTIÈRE, le trait qui déborde dans la marge se voit : on l\'a voulu là',
+        encreRognee.debordAvant > 100, JSON.stringify(encreRognee));
+    r.verifie('et la page rognée n\'en montre plus qu\'un : l\'encre s\'arrête au cadre',
+        encreRognee.apres > 0 && encreRognee.apres < encreRognee.avant * 0.6
+        && encreRognee.debordApres === 0,
+        JSON.stringify(encreRognee));
+
+    // 2. UN POINT POSÉ SUR LA PAGE LUI APPARTIENT. L'encre, les textes et les
+    // figures s'y accrochaient ; le point posé seul, non — on marquait un
+    // endroit, on déplaçait le polycopié, et la croix restait sur le tableau.
+    const pointAccroche = await page.evaluate(async () => {
+        images.length = 0; points.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1; magnetMode = false;
+        images.push({ id: nextId++, x: 200, y: 150, w: 500, h: 500, z: globalZ++,
+                      nomFichier: 'doc.pdf',
+                      pluginData: { id: 'pdfDoc', cle: 'x', page: 1, pages: 3 } });
+        documentsPdf.set('x', { pages: 3 });
+        setMode('point');
+        return { x: 400, y: 400 };
+    });
+    await page.mouse.click(pointAccroche.x, pointAccroche.y);
+    await page.waitForTimeout(200);
+    const suitLaPage = await page.evaluate(() => {
+        const p = points[0], o = images[0];
+        const releve = { accroche: !!(p && p.surObjet && p.surObjet.id === o.id),
+                         page: !!(p && p.surPage), avant: p ? Math.round(p.x) : null };
+        // La page s'en va : le point part avec elle.
+        deplacerLesTraits('image', o.id, 120, 0);
+        const apres = Math.round(points[0].x);
+        documentsPdf.delete('x');
+        setMode('pointer'); points.length = 0; images.length = 0; magnetMode = true;
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); draw();
+        return { ...releve, apres, attendu: releve.avant + 120 };
+    });
+    r.verifie('un point posé sur la page s\'y accroche, et appartient à sa page',
+        suitLaPage.accroche && suitLaPage.page, JSON.stringify(suitLaPage));
+    r.verifie('et il part avec elle quand on la déplace',
+        Math.abs(suitLaPage.apres - suitLaPage.attendu) < 1, JSON.stringify(suitLaPage));
+
+    // 3. LA POIGNÉE AGRANDIT LA PAGE ET CE QU'ON A ÉCRIT DESSUS. Le relevé
+    // d'avant-manœuvre ne se faisait que s'il y avait un TRAIT accroché : un
+    // document ne portant qu'un bloc de texte était agrandi sans lui.
+    const grandirAvecLaPage = await page.evaluate(async () => {
+        images.length = 0; texts.length = 0; freehands.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const o = { id: nextId++, x: 200, y: 150, w: 400, h: 400, z: globalZ++, nomFichier: 'doc.pdf',
+                    ratioLocked: false };
+        images.push(o);
+        texts.push({ id: nextId++, x: o.x + 60, y: o.y + 60, content: 'essai', fontSize: 24,
+                     color: '#2d3436', z: globalZ++, surObjet: { type: 'image', id: o.id } });
+        selectedItems = [{ type: 'image', id: o.id }];
+        updateQuickMenu(); draw();
+        await new Promise(r => setTimeout(r, 120));
+        return { w: o.w, taille: texts[0].fontSize, x: Math.round(texts[0].x),
+                 coin: { x: Math.round((o.x + o.w) * zoom + panX),
+                         y: Math.round((o.y + o.h) * zoom + panY) } };
+    });
+    await page.mouse.move(grandirAvecLaPage.coin.x, grandirAvecLaPage.coin.y);
+    await page.mouse.down();
+    await page.mouse.move(grandirAvecLaPage.coin.x + 200, grandirAvecLaPage.coin.y + 200, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    const apresLaPoignee = await page.evaluate(() => {
+        const m = { w: Math.round(images[0].w), taille: Math.round(texts[0].fontSize),
+                    x: Math.round(texts[0].x) };
+        images.length = 0; texts.length = 0; selectedItems = [];
+        images.push({ id: nextId++, x: 200, y: 150, w: 400, h: 500, z: globalZ++, nomFichier: 'doc.pdf' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); updateQuickMenu(); draw();
+        return m;
+    });
+    r.verifie('la poignée agrandit bien la page',
+        apresLaPoignee.w > grandirAvecLaPage.w + 50,
+        JSON.stringify({ avant: grandirAvecLaPage.w, apres: apresLaPoignee.w }));
+    r.verifie('et ce qu\'on a écrit dessus grandit avec elle, même sans un seul trait',
+        apresLaPoignee.taille > grandirAvecLaPage.taille + 2
+        && apresLaPoignee.x > grandirAvecLaPage.x,
+        JSON.stringify({ avant: grandirAvecLaPage, apres: apresLaPoignee }));
+
     // ET PENDANT QU'ON PROJETTE, IL NE PARAÎT PAS DU TOUT. « Que penses-tu de
     // ce doublon des barres en bas ? » — deux meubles pour la même page, dont
     // l'un ne sert à rien là : verrouiller, dupliquer, SUPPRIMER, devant la

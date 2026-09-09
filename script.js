@@ -8599,11 +8599,18 @@ canvas.addEventListener('pointerdown', (e) => {
         const surUnTrace = (actionPos.source === 'intersection' || actionPos.source === 'figure')
             && (!clickedObj || clickedObj.type !== 'point');
         const surUnCroisement = actionPos.source === 'intersection' && surUnTrace;
-        if (!clickedObj || surUnTrace) {
+        // ET UN DOCUMENT EST UNE SURFACE, PAS UN OBSTACLE. Le crayon, le
+        // texte, le segment, le cercle : tout se pose sur un polycopié. Le
+        // point, seul, était refusé — cliquer sur la page rendait un
+        // « clickedObj », et rien ne se posait. Sur une page projetée, marquer
+        // un endroit est pourtant LE geste qu'on fait.
+        const surUnDocument = !!clickedObj && clickedObj.type === 'image';
+        if (!clickedObj || surUnTrace || surUnDocument) {
             const pt = { id: nextId++, x: actionPos.x, y: actionPos.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ };
             // Posé sur un croisement, le point appartient aux deux objets : il
             // les suivra si on les déplace.
             if (surUnCroisement && actionPos.refs) pt.depend = { refs: actionPos.refs };
+            if (typeof accrocherLePoint === 'function') accrocherLePoint(pt);
             points.push(pt);
             saveState();
         }
@@ -9111,7 +9118,16 @@ canvas.addEventListener('pointermove', (e) => {
         const obj = getObjectById(type, selectedItems[0].id);
         // On relève la boîte et l'angle AVANT la manœuvre : l'encre accrochée
         // subira ensuite exactement la même transformation.
-        const encreAvant = traitsAccrochesA(type, obj.id).length
+        // TOUTE L'ENCRE COMPTE, pas seulement les traits. Le relevé d'avant-
+        // manœuvre ne se faisait que s'il y avait un TRAIT accroché : un
+        // document ne portant qu'un bloc de texte, une figure ou un point
+        // était agrandi sans eux — ils restaient à leur place et à leur
+        // taille, à côté de la page qui venait de grandir.
+        const porteDeLEncre = traitsAccrochesA(type, obj.id).length
+            || textesAccrochesA(type, obj.id).length
+            || formesAccrochesA(type, obj.id).length
+            || pointsAccrochesA(type, obj.id).length;
+        const encreAvant = porteDeLEncre
             ? { boite: boiteDeLHote(type, obj), angle: obj.angle || 0 } : null;
         if (!obj.locked) {
             if (draggedHandle === 'ROT') {
@@ -9361,6 +9377,9 @@ canvas.addEventListener('pointermove', (e) => {
             .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
         imgsToMove.forEach(iid => traitsAccrochesA('image', iid)
             .forEach(f => { if (!freehandsToMove.has(f.id)) f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); }));
+        // Les points posés seuls sur la page partent avec elle, comme le reste.
+        imgsToMove.forEach(iid => pointsAccrochesA('image', iid)
+            .forEach(p => { if (!ptsToMove.has(p.id) && !p.depend) { p.x += dx; p.y += dy; } }));
         // Les blocs de texte écrits sur une image partent avec elle, de même
         imgsToMove.forEach(iid => textesAccrochesA('image', iid)
             .forEach(t => { if (!txtsToMove.has(t.id)) { t.x += dx; t.y += dy; } }));
@@ -9970,6 +9989,20 @@ function draw() {
 
         displayList.forEach(item => {
             const obj = item.obj;
+            // CE QU'ON A ÉCRIT SUR UNE PAGE ROGNÉE S'ARRÊTE À SON CADRE.
+            // « Quand je croppe et que je déplace, des bouts de ce qui était
+            // dans le pdf sortent du cadre. » L'encre accrochée SUIVAIT le
+            // rognage — elle se replace avec la page — mais rien ne la coupait :
+            // ce qui était écrit sur la partie retirée continuait de se voir,
+            // étalé autour de la page comme des bavures. Une page rognée montre
+            // ce qu'elle montre, l'encre comprise.
+            const cadreHote = cadreQuiRogneCetObjet(obj);
+            if (cadreHote) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(cadreHote.x, cadreHote.y, cadreHote.w, cadreHote.h);
+                ctx.clip();
+            }
             const isSel = isSelected(item.type, obj.id);
             const isHov = hoveredObj && hoveredObj.type === item.type && hoveredObj.id === obj.id;
             const sc = isSel ? "#6c5ce7" : (isHov ? (mode === 'eraser' ? "#d63031" : (isDarkMode ? "#dfe6e9" : "#b2bec3")) : null);
@@ -10759,6 +10792,7 @@ function draw() {
                 ctx.restore();
             }
             ctx.shadowBlur = 0;
+            if (cadreHote) ctx.restore();
         });
 
         // --- POINT FANTÔME DE L'AIMANT ---
@@ -13796,6 +13830,19 @@ function revenirAuCadrage(obj) {
 }
 window.revenirAuCadrage = revenirAuCadrage;
 
+// LE CADRE QUI ROGNE UN OBJET ACCROCHÉ. Une page rognée montre ce qu'elle
+// montre : l'encre qu'on a posée dessus ne déborde pas de son cadre. On ne
+// coupe QUE sur une page rognée — sur une page entière, un trait qui dépasse
+// dans la marge est un trait qu'on a voulu là.
+function cadreQuiRogneCetObjet(obj) {
+    if (!obj || !obj.surObjet || obj.surObjet.type !== 'image') return null;
+    const hote = (typeof getObjectById === 'function') ? getObjectById('image', obj.surObjet.id) : null;
+    if (!hote || hote.angle || hote.rotation) return null;
+    if (!documentEstRogne(hote)) return null;
+    return hote;
+}
+window.cadreQuiRogneCetObjet = cadreQuiRogneCetObjet;
+
 function documentEstRogne(obj) {
     const nat = obj && imageCache[obj.src];
     if (!nat || !nat.naturalWidth) return false;
@@ -13966,6 +14013,13 @@ function enTrainDAnnoter() {
 function documentDeLaBarre() {
     const choisi = documentSelectionne();
     if (choisi) return choisi;
+    // PENDANT QU'ON PROJETTE, LA BARRE PARLE DE LA PAGE PROJETÉE. Elle suivait
+    // la seule sélection : on prenait un mot posé sur la page pour le
+    // déplacer, la page n'était plus « choisie », et la barre s'en allait avec
+    // ses pages, son plein écran et ses ciseaux — on ne revenait plus à son
+    // PDF, puisque la page elle-même, en présentation, se prend à la main.
+    const projete = (typeof documentPresente === 'function') ? documentPresente() : null;
+    if (projete) return projete;
     if (!documentAnnoteEnCours()) return null;
     const obj = getObjectById('image', docEnAnnotation);
     if (!obj) { docEnAnnotation = null; return null; }
@@ -14548,6 +14602,10 @@ function suivreLeCadrage(obj, avant) {
     traitsAccrochesA('image', obj.id).forEach(f => {
         f.points.forEach(p => { p.x = versX(p.x); p.y = versY(p.y); });
         if (change) f.width = Math.max(0.5, (f.width || 2) * k);
+    });
+    pointsAccrochesA('image', obj.id).forEach(p => {
+        if (p.depend) return;
+        p.x = versX(p.x); p.y = versY(p.y);
     });
     const formes = formesAccrochesA('image', obj.id);
     pointsDesFormes(formes).forEach(p => { p.x = versX(p.x); p.y = versY(p.y); });
@@ -18273,24 +18331,50 @@ function traitsAccrochesA(type, id) {
     return freehands.filter(f => f.surObjet && f.surObjet.type === type && f.surObjet.id === id);
 }
 
+// UN POINT POSÉ SUR UNE PAGE LUI APPARTIENT, LUI AUSSI. L'encre, les textes et
+// les figures s'y accrochaient ; le point posé seul, non — on marquait un
+// endroit sur un polycopié, on déplaçait le polycopié, et la croix restait sur
+// le tableau. Sur un PDF feuilletable, elle se voyait même sur toutes les
+// pages. (Les points qui définissent une figure ne sont pas concernés : c'est
+// la figure qui les emporte, sinon ils avanceraient deux fois.)
+function accrocherLePoint(pt) {
+    if (!pt) return null;
+    if (typeof noterLaPage === 'function') noterLaPage(pt, pt.x, pt.y);
+    if (!encreAccrochee) return null;
+    let choisi = null;
+    images.forEach(i => {
+        if (pt.x < i.x || pt.x > i.x + i.w || pt.y < i.y || pt.y > i.y + i.h) return;
+        if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
+    });
+    if (!choisi) return null;
+    pt.surObjet = { type: 'image', id: choisi.id };
+    return choisi;
+}
+window.accrocherLePoint = accrocherLePoint;
+
+function pointsAccrochesA(type, id) {
+    return points.filter(p => p.surObjet && p.surObjet.type === type && p.surObjet.id === id);
+}
+
 // Le même déplacement que l'hôte
 function deplacerLesTraits(type, id, dx, dy) {
     traitsAccrochesA(type, id).forEach(f => {
         f.points.forEach(p => { p.x += dx; p.y += dy; });
     });
+    pointsAccrochesA(type, id).forEach(p => { if (!p.depend) { p.x += dx; p.y += dy; } });
 }
 
 // La même rotation, autour du même centre
 function tournerLesTraits(type, id, centre, dAngle) {
     if (!dAngle) return;
     const co = Math.cos(dAngle), si = Math.sin(dAngle);
-    traitsAccrochesA(type, id).forEach(f => {
-        f.points.forEach(p => {
-            const x = p.x - centre.x, y = p.y - centre.y;
-            p.x = centre.x + x * co - y * si;
-            p.y = centre.y + x * si + y * co;
-        });
-    });
+    const tourner = (p) => {
+        const x = p.x - centre.x, y = p.y - centre.y;
+        p.x = centre.x + x * co - y * si;
+        p.y = centre.y + x * si + y * co;
+    };
+    traitsAccrochesA(type, id).forEach(f => f.points.forEach(tourner));
+    pointsAccrochesA(type, id).forEach(p => { if (!p.depend) tourner(p); });
 }
 
 // Le même agrandissement : le trait garde sa place SUR l'objet, et son
@@ -18300,20 +18384,23 @@ function etirerLesTraits(type, id, avant, apres) {
     if (!avant || !apres || !avant.w || !avant.h) return;
     const kx = apres.w / avant.w, ky = apres.h / avant.h;
     if (kx === 1 && ky === 1 && avant.x === apres.x && avant.y === apres.y) return;
+    const etirer = (p) => {
+        p.x = apres.x + (p.x - avant.x) * kx;
+        p.y = apres.y + (p.y - avant.y) * ky;
+    };
     traitsAccrochesA(type, id).forEach(f => {
-        f.points.forEach(p => {
-            p.x = apres.x + (p.x - avant.x) * kx;
-            p.y = apres.y + (p.y - avant.y) * ky;
-        });
+        f.points.forEach(etirer);
         const k = Math.sqrt(Math.abs(kx * ky));
         if (k > 0 && isFinite(k)) f.width = Math.max(0.5, (f.width || 2) * k);
     });
+    pointsAccrochesA(type, id).forEach(p => { if (!p.depend) etirer(p); });
 }
 
 // L'hôte s'en va : l'encre reste, mais redevient libre. Effacer en douce
 // l'annotation de quelqu'un serait pire que de la laisser flotter.
 function decrocherLesTraits(type, id) {
     traitsAccrochesA(type, id).forEach(f => { delete f.surObjet; });
+    pointsAccrochesA(type, id).forEach(p => { delete p.surObjet; });
     textesAccrochesA(type, id).forEach(t => { delete t.surObjet; });
     formesAccrochesA(type, id).forEach(({ o }) => { delete o.surObjet; });
 }
