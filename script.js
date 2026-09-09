@@ -793,14 +793,34 @@ class ProtractorWidget {
         if (Math.hypot(l.x - (-this.radius - 20), l.y) < 15) return 'rotate';
         
         const d = Math.sqrt(l.x ** 2 + l.y ** 2);
-        if (l.x > -12 && l.x < 12 && l.y < -35 && l.y > -110 && !this.isStamp) {
-            if (l.y > -83) return 'toggleSwap';
-            if (l.y > -55) return 'toggleLock';
+        // LES TROIS BOUTONS SONT DESSINÉS À -45 (cadenas), -73 (inverser) et
+        // -101 (x2) : les frontières tombent donc à -59 et -87. Elles étaient
+        // rangées à l'envers, si bien que le cadenas renvoyait « inverser » —
+        // on cliquait sur le cadenas, et c'étaient les graduations qui se
+        // retournaient.
+        if (l.x > -12 && l.x < 12 && l.y < -33 && l.y > -113 && !this.isStamp) {
+            if (l.y > -59) return 'toggleLock';
+            if (l.y > -87) return 'toggleSwap';
             return 'toggleDouble';
         }
-        if (d < 20) return 'move'; 
-        if (d > this.radius - 30 && d < this.radius + 10 && l.y < 0) return 'traceAngle';
-        if (l.y >= 0 && l.y <= 15 && l.x >= -this.radius && l.x <= this.radius) return 'move';
+        const surLaJupe = l.y >= 0 && l.y <= 15 && l.x >= -this.radius && l.x <= this.radius;
+
+        // CADENAS FERMÉ : le rapporteur est cloué et tout son corps devient un
+        // départ de demi-droite. C'est le geste qu'on fait vraiment : la pointe
+        // au centre, on part vers la graduation lue. Avant, le cadenas ne
+        // servait à rien — on l'allumait, rien ne changeait.
+        if (this.isLocked) {
+            if ((d <= this.radius && l.y < 0) || surLaJupe) return 'traceAngle';
+            return null;
+        }
+
+        if (d < 20) return 'move';
+        if (d > this.radius - 30 && d < this.radius && l.y < 0) return 'traceAngle';
+        // LA JUPE EST UN RAIL, PAS UNE POIGNÉE. C'est le long de la ligne de
+        // base qu'on trace le premier côté d'un angle : si la jupe attrape le
+        // rapporteur, le crayon ne peut se poser nulle part et l'instrument ne
+        // sert plus qu'à mesurer. On l'attrape par son disque, qui est large.
+        if (surLaJupe) return null;
         if (d <= this.radius && l.y < 0) return 'move';
         return null;
     }
@@ -812,6 +832,13 @@ class ProtractorWidget {
         ctx.fillStyle = `rgba(${style.background.color}, 0.4)`; ctx.fill();
         if (style.border.width > 0) { ctx.lineWidth = style.border.width; ctx.strokeStyle = `rgba(${style.border.color}, ${style.border.opacity})`; ctx.stroke(); }
         const gap = 50; ctx.beginPath(); ctx.moveTo(-(r - gap), 0); ctx.lineTo((r - gap), 0); ctx.moveTo(0, -6); ctx.lineTo(0, 8); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.lineWidth = 1.5; ctx.strokeStyle = '#000000'; ctx.stroke();
+        // Cloué : une tête de clou au centre. Elle dit d'un coup d'œil que le
+        // rapporteur ne bougera plus et que le trait partira d'ici.
+        if (this.isLocked && !this.isStamp) {
+            ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fillStyle = style.components.lockActive; ctx.fill();
+            ctx.lineWidth = 1.5; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+        }
         ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = style.graduations.font;
         for (let i = 0; i <= 180; i++) {
             const ang = Math.PI + (i * Math.PI / 180); const cos = Math.cos(ang); const sin = Math.sin(ang);
@@ -7328,7 +7355,11 @@ function accrocheOutils(raw) {
     }
     if (activeWidgets.protractor && widgets.protractor) {
         const w = widgets.protractor, l = w.toLocal(raw.x, raw.y);
-        if (Math.abs(l.y) < portee && l.x > -w.radius && l.x < w.radius) return w.toGlobal(l.x, offset);
+        // La jupe du rapporteur est épaisse : le crayon la longe par-dessous,
+        // mais le trait, lui, se pose sur la ligne de base — celle qui passe
+        // par le centre et par les deux zéros. C'est elle qu'on veut, pas le
+        // bord du plastique.
+        if (l.y > -portee && l.y < 15 + portee && l.x > -w.radius && l.x < w.radius) return w.toGlobal(l.x, offset);
         if (Math.abs(Math.hypot(l.x, l.y) - w.radius) < portee && l.y < 0) {
             const angle = Math.atan2(l.y, l.x);
             return w.toGlobal((w.radius + offset) * Math.cos(angle), (w.radius + offset) * Math.sin(angle));
@@ -8256,7 +8287,14 @@ canvas.addEventListener('pointerdown', (e) => {
     if (targetWidget) {
         const zone = targetWidget.getHitZone(rawPos.x, rawPos.y);
         if (zone === 'toggleSwap' && targetWidget instanceof ProtractorWidget) targetWidget.isReversed = !targetWidget.isReversed;
-        else if (zone === 'toggleLock' && targetWidget instanceof ProtractorWidget) targetWidget.isLocked = !targetWidget.isLocked;
+        else if (zone === 'toggleLock' && targetWidget instanceof ProtractorWidget) {
+            targetWidget.isLocked = !targetWidget.isLocked;
+            if (typeof showToast === 'function') {
+                showToast(targetWidget.isLocked
+                    ? '🔒 Rapporteur cloué : glissez depuis son centre pour tracer la demi-droite'
+                    : '🔓 Rapporteur libre : déplacez-le, ou longez sa ligne de base pour tracer');
+            }
+        }
         else if (zone === 'toggleDouble' && targetWidget instanceof ProtractorWidget) targetWidget.showDouble = !targetWidget.showDouble;
         else if (zone === 'toggleSlide' && targetWidget instanceof SetSquareWidget) targetWidget.slideMode = !targetWidget.slideMode;
         else {
@@ -8503,10 +8541,18 @@ canvas.addEventListener('pointerdown', (e) => {
             const vise = (typeof zoneViseeDetail === 'function') ? zoneViseeDetail(rawPos) : null;
             ouvrirLaSaisie(vise, actionPos);
         } else {
-            // CORRECTION : Si on clique sur un texte existant en mode "T", on l'attrape direct !
-            setMode('pointer');
-            selectObject(clickedObj);
-            isDraggingObjs = true;
+            // ON REPREND LA LIGNE LÀ OÙ ELLE EN ÉTAIT. L'outil Texte en main,
+            // le clic est un curseur : cliquer sur une ligne déjà écrite doit
+            // la rouvrir et rendre la main au clavier, pas basculer sur la
+            // flèche et se mettre à la traîner. Pour la déplacer, la flèche
+            // est à un bouton d'ici ; pour la corriger, il n'y avait plus
+            // que le double-clic — et il fallait d'abord sortir de l'outil.
+            const t = getObjectById('text', clickedObj.id);
+            if (!rouvrirLeTexte(t)) {
+                setMode('pointer');
+                selectObject(clickedObj);
+                isDraggingObjs = true;
+            }
         }
     }
 
@@ -8603,6 +8649,42 @@ function rouvrirLaVignette(imgObj) {
 }
 window.rouvrirLaVignette = rouvrirLaVignette;
 
+// ROUVRIR UN TEXTE DÉJÀ POSÉ. Deux gestes y mènent : le double-clic, quel que
+// soit l'outil en main, et le simple clic quand on tient déjà l'outil Texte —
+// là, le clic est un curseur, et il doit rendre la main au clavier tout de
+// suite. Un seul chemin pour les deux, sinon l'un des deux dérive.
+function rouvrirLeTexte(t) {
+    if (!t || t.locked) return false;
+    editingTextId = t.id;
+
+    // On utilise innerHTML pour récupérer le gras/couleur sauvegardé
+    wysiwygText.innerHTML = t.content;
+
+    // La barre d'outils lit activeStyle : on la synchronise sur le texte édité
+    activeStyle.textAlign = t.align || 'left';
+
+    wysiwygText.style.display = 'block';
+    // Position, police, taille, interligne, couleur et alignement : tout est
+    // dérivé de l'objet édité, avec la même convention que le rendu canvas.
+    updateWysiwygPosition();
+    // Le texte édité ne se dessine plus sur le tableau (c'est la zone de
+    // saisie qui l'affiche), pas plus que son cadre de sélection ni ses
+    // poignées : encore faut-il repeindre pour les effacer. Sans ce
+    // draw(), tout cela restait affiché sous la zone de saisie — un
+    // doublon en léger décalage dans un cadre figé, qui ne s'effaçait
+    // qu'au premier mouvement de souris repeignant la scène.
+    // Le menu rapide (cadenas, copie, corbeille) part avec eux : la barre
+    // d'édition du texte le remplace le temps de la saisie.
+    if (typeof updateQuickMenu === 'function') updateQuickMenu();
+    draw();
+    setTimeout(() => {
+        wysiwygText.focus();
+        const range = document.createRange(); range.selectNodeContents(wysiwygText); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+    }, 10);
+    return true;
+}
+
 canvas.addEventListener('dblclick', (e) => {
     const rawPos = getRawLogicalPos(e); const clickedObj = findObjectAt(rawPos.x, rawPos.y);
     if (clickedObj && clickedObj.type === 'image') {
@@ -8624,37 +8706,7 @@ canvas.addEventListener('dblclick', (e) => {
         }
     }
     if (clickedObj && clickedObj.type === 'text') {
-        const t = getObjectById('text', clickedObj.id);
-        if (t.locked) return;
-        editingTextId = t.id;
-
-        // NOUVEAU : On utilise innerHTML pour récupérer le gras/couleur sauvegardé !
-        wysiwygText.innerHTML = t.content;
-
-        // La barre d'outils lit activeStyle : on la synchronise sur le texte édité
-        activeStyle.textAlign = t.align || 'left';
-
-        wysiwygText.style.display = 'block';
-        // Position, police, taille, interligne, couleur et alignement : tout est
-        // dérivé de l'objet édité, avec la même convention que le rendu canvas.
-        updateWysiwygPosition();
-        // Le texte édité ne se dessine plus sur le tableau (c'est la zone de
-        // saisie qui l'affiche), pas plus que son cadre de sélection ni ses
-        // poignées : encore faut-il repeindre pour les effacer. Sans ce
-        // draw(), tout cela restait affiché sous la zone de saisie — un
-        // doublon en léger décalage dans un cadre figé, qui ne s'effaçait
-        // qu'au premier mouvement de souris repeignant la scène.
-        // Le menu rapide (cadenas, copie, corbeille) part avec eux : la barre
-        // d'édition du texte le remplace le temps de la saisie.
-        if (typeof updateQuickMenu === 'function') updateQuickMenu();
-        draw();
-        setTimeout(() => {
-            wysiwygText.focus();
-            const range = document.createRange(); range.selectNodeContents(wysiwygText); range.collapse(false); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
-
-            // --- NOUVEAU : On force l'affichage de la barre ici ! ---
-            if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
-        }, 10);
+        rouvrirLeTexte(getObjectById('text', clickedObj.id));
     }
     else if (mode === 'curve' && currentCurvePoints.length > 0) {
         const avantValidation = nextId;
@@ -9268,27 +9320,32 @@ function handlePointerUp(e) {
         }
         else if (draggedWidget instanceof ProtractorWidget && draggedWidgetMode === 'traceAngle') {
             const w = draggedWidget;
-            const p1Id = nextId++;
-            points.push({ id: p1Id, x: w.x, y: w.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+            // Cloué, on part souvent du centre lui-même : un clic sans glisser
+            // n'a alors aucune direction, et poserait une demi-droite
+            // horizontale que personne n'a demandée.
+            if (Math.hypot(lastRawX - w.x, lastRawY - w.y) >= 12) {
+                const p1Id = nextId++;
+                points.push({ id: p1Id, x: w.x, y: w.y, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
 
-            const p2Id = nextId++;
-            const rawAngle = Math.atan2(lastRawY - w.y, lastRawX - w.x);
-            const px = w.x + Math.cos(rawAngle) * w.radius;
-            const py = w.y + Math.sin(rawAngle) * w.radius;
-            points.push({ id: p2Id, x: px, y: py, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
+                const p2Id = nextId++;
+                const rawAngle = Math.atan2(lastRawY - w.y, lastRawX - w.x);
+                const px = w.x + Math.cos(rawAngle) * w.radius;
+                const py = w.y + Math.sin(rawAngle) * w.radius;
+                points.push({ id: p2Id, x: px, y: py, color: activeStyle.strokeColor, shape: activeStyle.pointShape, z: globalZ++ });
 
-            segments.push({
-                id: nextId++,
-                p1_id: p1Id,
-                p2_id: p2Id,
-                color: activeStyle.strokeColor,
-                width: activeStyle.lineWidth,
-                dash: activeStyle.lineDash,
-                arrowStart: 0,
-                arrowEnd: 0,
-                z: globalZ++
-            });
-            saveState();
+                segments.push({
+                    id: nextId++,
+                    p1_id: p1Id,
+                    p2_id: p2Id,
+                    color: activeStyle.strokeColor,
+                    width: activeStyle.lineWidth,
+                    dash: activeStyle.lineDash,
+                    arrowStart: 0,
+                    arrowEnd: 0,
+                    z: globalZ++
+                });
+                saveState();
+            }
         }
 
         draggedWidget = null;

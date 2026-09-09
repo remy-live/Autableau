@@ -502,6 +502,60 @@ module.exports = async function (browser) {
         enchaine.sortie, { ouverte: false, poses: 2 });
 
     // =====================================================================
+    // ET LE CLIC SUR UNE LIGNE DÉJÀ ÉCRITE LA ROUVRE
+    // L'outil Texte en main, cliquer sur un texte posé basculait sur la
+    // flèche et se mettait à le traîner : pour corriger un mot, il fallait
+    // sortir de l'outil et double-cliquer.
+    // =====================================================================
+    const reprise = await page.evaluate(async () => {
+        const c = document.getElementById('board');
+        const w = document.getElementById('wysiwyg-text');
+        texts.length = 0;
+        panX = 0; panY = 0; zoom = 1;
+        setMode('text');
+        const cliquer = (x, y) => {
+            ['pointerdown', 'pointerup'].forEach(t => c.dispatchEvent(new PointerEvent(t, {
+                bubbles: true, cancelable: true, clientX: x, clientY: y,
+                pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0,
+                buttons: t === 'pointerdown' ? 1 : 0 })));
+        };
+
+        // Une ligne écrite puis posée : Échap la range sans rien rouvrir.
+        cliquer(430, 320);
+        await new Promise(r => setTimeout(r, 60));
+        w.innerText = 'le mot a corriger';
+        w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 80));
+        const pose = texts[0];
+        if (!pose) return { pose: null };
+
+        // On revient dessus avec l'outil Texte : elle doit se rouvrir.
+        setMode('text');
+        cliquer(panX + pose.x * zoom + 12, panY + pose.y * zoom + 6);
+        await new Promise(r => setTimeout(r, 80));
+        const etat = {
+            ouverte: w.style.display === 'block',
+            edite: editingTextId === pose.id,
+            outil: mode,
+            dedans: w.innerText,
+            nombre: texts.length,
+            traine: !!isDraggingObjs
+        };
+        w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 60));
+        texts.length = 0; setMode('pointer'); isDraggingObjs = false; draw();
+        return { pose: pose.content, etat };
+    });
+    r.verifie('l\'outil Texte en main, cliquer sur une ligne écrite la rouvre',
+        reprise.etat && reprise.etat.ouverte && reprise.etat.edite, JSON.stringify(reprise));
+    r.verifie('on y retrouve ce qui était écrit, prêt à être corrigé',
+        reprise.etat && /le mot a corriger/.test(reprise.etat.dedans || ''), JSON.stringify(reprise));
+    r.verifie('sans basculer sur la flèche ni se mettre à la traîner',
+        reprise.etat && reprise.etat.outil === 'text' && reprise.etat.traine === false, JSON.stringify(reprise));
+    r.verifie('et sans poser une seconde ligne par-dessus',
+        reprise.etat && reprise.etat.nombre === 1, JSON.stringify(reprise));
+
+    // =====================================================================
     // LE TIROIR PEND DE SON PROPRE BOUTON
     // « Taille, police, interligne » s'ouvrait collé au bord GAUCHE de la
     // barre, quel que soit l'onglet : le panneau paraissait à l'autre bout

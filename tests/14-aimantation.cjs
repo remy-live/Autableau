@@ -885,6 +885,161 @@ module.exports = async function (browser) {
     r.verifie('et le fantôme s\'ajoute au dessin, aimant coupé',
         fantomeVisible.avecCurseur > fantomeVisible.sansCurseur, JSON.stringify(fantomeVisible));
 
+    // ---------------------------------------------------------------
+    // LE RAPPORTEUR : ON DOIT POUVOIR DESSINER AVEC
+    // Tout son corps renvoyait « move » : le crayon ne pouvait se poser nulle
+    // part, et le cadenas, lui, n'était lu par personne — on l'allumait, rien
+    // ne changeait. Désormais la jupe est un rail, et le cadenas cloue
+    // l'instrument pour tracer depuis son centre.
+    // ---------------------------------------------------------------
+    await tableauVierge(page);
+    const poserRapporteur = async (verrou) => await page.evaluate((v) => {
+        panX = 0; panY = 0; zoom = 1;
+        magnetMode = true; aimant = { grille: false, outils: true, intersections: false };
+        if (!activeWidgets.protractor) document.querySelector('.btn[data-widget="protractor"]').click();
+        const w = widgets.protractor;
+        w.x = 500; w.y = 380; w.angle = 0; w.isLocked = v;
+        setMode('freehand');
+        draw();
+        return { x: w.x, y: w.y, rayon: w.radius, epaisseur: activeStyle.lineWidth };
+    }, verrou);
+
+    const rap = await poserRapporteur(false);
+
+    const zonesRapporteur = await page.evaluate(() => {
+        const w = widgets.protractor;
+        const zone = (lx, ly) => { const g = w.toGlobal(lx, ly); return w.getHitZone(g.x, g.y); };
+        const colle = (lx, ly) => {
+            const g = w.toGlobal(lx, ly);
+            const p = accrocheOutils(g);
+            return p ? w.toLocal(p.x, p.y) : null;
+        };
+        return {
+            jupe: zone(110, 8), sousJupe: zone(110, 20),
+            disque: zone(60, -60), couronne: zone(0, -(w.radius - 12)),
+            horsArc: zone((w.radius + 6) * Math.cos(-2.2), (w.radius + 6) * Math.sin(-2.2)),
+            colleJupe: colle(110, 8), colleSousJupe: colle(110, 20),
+            colleArc: colle((w.radius + 6) * Math.cos(-2.2), (w.radius + 6) * Math.sin(-2.2)),
+            rayon: w.radius
+        };
+    });
+    r.verifie('la jupe du rapporteur n\'attrape plus l\'instrument : le crayon peut s\'y poser',
+        zonesRapporteur.jupe === null && zonesRapporteur.sousJupe === null, JSON.stringify(zonesRapporteur));
+    r.verifie('mais son disque reste la poignée qui le déplace',
+        zonesRapporteur.disque === 'move', JSON.stringify(zonesRapporteur));
+    r.verifie('et le bord de l\'arc se laisse longer, lui aussi',
+        zonesRapporteur.horsArc === null
+        && zonesRapporteur.colleArc
+        && Math.abs(Math.hypot(zonesRapporteur.colleArc.x, zonesRapporteur.colleArc.y) - zonesRapporteur.rayon) <= rap.epaisseur,
+        JSON.stringify(zonesRapporteur));
+    r.verifie('le trait posé sur la jupe se colle à la ligne de base',
+        zonesRapporteur.colleJupe && Math.abs(zonesRapporteur.colleJupe.y) <= rap.epaisseur
+        && zonesRapporteur.colleSousJupe && Math.abs(zonesRapporteur.colleSousJupe.y) <= rap.epaisseur,
+        JSON.stringify(zonesRapporteur));
+
+    // Le geste, pour de vrai : on longe la jupe au crayon.
+    await page.mouse.move(rap.x - 120, rap.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(rap.x + 20, rap.y + 9, { steps: 10 });
+    await page.mouse.move(rap.x + 120, rap.y + 8, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+    const traitLonge = await page.evaluate(() => {
+        const w = widgets.protractor;
+        const f = freehands[freehands.length - 1];
+        if (!f) return { n: freehands.length };
+        const ecarts = f.points.map(p => Math.abs(w.toLocal(p.x, p.y).y));
+        return { n: freehands.length, pire: Math.max(...ecarts), bouge: Math.hypot(w.x - 500, w.y - 380) };
+    });
+    r.verifie('on peut enfin dessiner le long du rapporteur',
+        traitLonge.n === 1, JSON.stringify(traitLonge));
+    r.verifie('le trait suit sa ligne de base, et l\'instrument n\'a pas bougé',
+        traitLonge.pire !== undefined && traitLonge.pire <= rap.epaisseur && traitLonge.bouge < 0.01,
+        JSON.stringify(traitLonge));
+
+    // --- LE CADENAS ---
+    await tableauVierge(page);
+    await poserRapporteur(false);
+    // Chaque bouton doit répondre de LUI-MÊME : les seuils étaient rangés à
+    // l'envers, et le cadenas actionnait le bouton « inverser ».
+    const boutonsRapporteur = await page.evaluate(() => {
+        const w = widgets.protractor;
+        const zone = (ly) => { const g = w.toGlobal(0, ly); return w.getHitZone(g.x, g.y); };
+        return { cadenas: zone(-45), inverser: zone(-73), double: zone(-101) };
+    });
+    r.verifie('les trois boutons du rapporteur répondent chacun du sien',
+        boutonsRapporteur.cadenas === 'toggleLock'
+        && boutonsRapporteur.inverser === 'toggleSwap'
+        && boutonsRapporteur.double === 'toggleDouble', JSON.stringify(boutonsRapporteur));
+
+    const clicCadenas = await page.evaluate(() => {
+        const w = widgets.protractor;
+        const g = w.toGlobal(0, -45);
+        return { x: g.x, y: g.y, avant: w.isLocked, inverse: w.isReversed };
+    });
+    await page.mouse.click(clicCadenas.x, clicCadenas.y);
+    await page.waitForTimeout(80);
+    const cadenas = await page.evaluate(() => ({
+        verrou: widgets.protractor.isLocked, inverse: widgets.protractor.isReversed
+    }));
+    r.verifie('le cadenas se ferme quand on clique dessus',
+        clicCadenas.avant === false && cadenas.verrou === true, JSON.stringify({ clicCadenas, cadenas }));
+    r.verifie('et il ne retourne pas les graduations à la place',
+        cadenas.inverse === clicCadenas.inverse, JSON.stringify({ clicCadenas, cadenas }));
+
+    // Cloué, un glissement depuis le centre trace la demi-droite
+    await page.mouse.move(500, 380);
+    await page.mouse.down();
+    await page.mouse.move(560, 300, { steps: 8 });
+    await page.mouse.move(620, 260, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(120);
+    const demiDroite = await page.evaluate(() => {
+        const w = widgets.protractor;
+        const s = segments[segments.length - 1];
+        if (!s) return { segments: segments.length, bouge: Math.hypot(w.x - 500, w.y - 380) };
+        const p1 = points.find(p => p.id === s.p1_id), p2 = points.find(p => p.id === s.p2_id);
+        return {
+            segments: segments.length,
+            bouge: Math.hypot(w.x - 500, w.y - 380),
+            depart: Math.hypot(p1.x - w.x, p1.y - w.y),
+            longueur: Math.hypot(p2.x - p1.x, p2.y - p1.y),
+            vise: Math.abs(Math.atan2(p2.y - p1.y, p2.x - p1.x) - Math.atan2(260 - 380, 620 - 500))
+        };
+    });
+    r.verifie('cloué, le rapporteur ne se déplace plus quand on glisse dessus',
+        demiDroite.bouge < 0.01, JSON.stringify(demiDroite));
+    r.verifie('et le glissement trace une demi-droite depuis son centre',
+        demiDroite.segments === 1 && demiDroite.depart < 0.01
+        && Math.abs(demiDroite.longueur - rap.rayon) < 0.5 && demiDroite.vise < 0.01,
+        JSON.stringify(demiDroite));
+
+    // Un clic sans glisser n'a pas de direction : il ne trace rien
+    await page.mouse.click(500, 380);
+    await page.waitForTimeout(80);
+    const clicSec = await page.evaluate(() => segments.length);
+    r.egal('un clic sec au centre ne pose pas de demi-droite au hasard', clicSec, 1);
+
+    // Rouvert, l'instrument redevient déplaçable
+    await page.mouse.click(clicCadenas.x, clicCadenas.y);
+    await page.waitForTimeout(80);
+    await page.evaluate(() => { magnetMode = false; });
+    await page.mouse.move(560, 320);
+    await page.mouse.down();
+    await page.mouse.move(600, 340, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+    const cadenasRouvert = await page.evaluate(() => ({
+        verrou: widgets.protractor.isLocked,
+        deplace: Math.hypot(widgets.protractor.x - 500, widgets.protractor.y - 380)
+    }));
+    r.verifie('cadenas rouvert, on le déplace de nouveau',
+        cadenasRouvert.verrou === false && cadenasRouvert.deplace > 30, JSON.stringify(cadenasRouvert));
+
+    await page.evaluate(() => {
+        if (activeWidgets.protractor) document.querySelector('.btn[data-widget="protractor"]').click();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
