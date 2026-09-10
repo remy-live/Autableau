@@ -2221,8 +2221,18 @@ body.focus-mode #exit-focus-cross {
     font-weight: 600;
 }
 
-.opacity-container input {
+.opacity-container input[type=range] {
     flex: 1;
+}
+
+/* Le nombre garde sa largeur : sans cela il se partageait la place avec le
+   curseur, et l'un comme l'autre finissaient trop courts pour servir. */
+.opacity-container .slider-num {
+    flex: 0 0 46px;
+}
+
+.opacity-container .opacity-pc {
+    margin-left: -4px;
 }
 
 .slider-container {
@@ -2269,10 +2279,16 @@ body.focus-mode #exit-focus-cross {
     justify-content: center;
 }
 
+/* ON DOIT POUVOIR ATTRAPER LE CURSEUR. Sans hauteur, la boîte d'un curseur
+   « appearance: none » se réduit à celle de sa piste : quatre pixels. La
+   pastille dépassait donc de sa propre boîte — on la voyait, mais la bande
+   sensible à la souris faisait quatre pixels de haut, et le geste ratait une
+   fois sur deux. Beaucoup en concluaient que le réglage n'existait pas. */
 input[type=range] {
     appearance: none;
     -webkit-appearance: none;
     width: 65px;
+    height: 18px;
     background: transparent;
     cursor: pointer;
 }
@@ -3144,9 +3160,16 @@ body.dark-mode {
     background: rgba(255, 255, 255, 0.85) !important;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    /* LA BARRE DE STYLE DU TEXTE PORTE LE MÊME TRAIT QUE LES AUTRES. Elle
+       était la seule surface flottante à garder son contour d'origine — un
+       noir à huit pour cent, c'est-à-dire un gris très pâle. Posée sur la
+       page blanche d'un document projeté, elle s'y effaçait, et le réglage
+       d'apparence qui noircit toutes les barres la laissait de côté. Ses
+       propres tiroirs, eux, suivaient déjà le réglage : la barre paraissait
+       donc sans bord au-dessus de tiroirs cernés de noir. */
+    border: 1px solid var(--contour);
     border-radius: 14px !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+    box-shadow: var(--contour-ombre), 0 8px 32px rgba(0, 0, 0, 0.12) !important;
 }
 
 #text-toolbar button {

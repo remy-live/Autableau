@@ -19,11 +19,14 @@ const ATTENDUES = [
 // CHARGER UNE INTERFACE REDÉMARRE TOUTE L'APPLICATION — quatre-vingt-six
 // outils à réenregistrer. Vingt secondes suffisent d'ordinaire, mais pas
 // quand la machine porte déjà la suite entière : l'attente expirait, et
-// c'est le fichier complet qui tombait, pas une vérification.
+// c'est le fichier complet qui tombait, pas une vérification. Quarante-cinq
+// ne suffisent pas toujours non plus : on lâche donc la bride pour de bon.
+// Une attente longue ne coûte rien tant qu'elle aboutit — c'est le plafond
+// qui compte, pas le temps passé.
 async function chargerInterface(page, id) {
     await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
-    await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 45000 });
-    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 45000 });
+    await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 120000 });
+    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 120000 });
     // Le démarrage réécrit les barres (migration, remise en place). Attendre
     // qu'elles « ne bougent plus » ne suffit pas : sur une machine lente, les
     // barres de l'interface PRÉCÉDENTE tiennent en place assez longtemps pour
@@ -40,7 +43,7 @@ async function chargerInterface(page, id) {
         if (!memes) return false;
         // ... et qu'elles soient vraiment dessinées, s'il y en a
         return !voulues.length || document.querySelectorAll('#custom-bars-container > *').length > 0;
-    }, id, { timeout: 45000, polling: 200 });
+    }, id, { timeout: 120000, polling: 200 });
 }
 
 module.exports = async function (browser) {
@@ -559,6 +562,42 @@ module.exports = async function (browser) {
         rendreVu: getComputedStyle(document.getElementById('rp-contour-rendre')).display !== 'none'
     }));
     couleur.change.barre = await lireLeTrait();
+
+    // TOUTES LES BARRES, PAS SEULEMENT CELLE DE STYLE. « Pour toutes les
+    // toolbars, même celle de style, mets le bord noir (ou configurable). »
+    // La barre de mise en forme du texte gardait son propre contour — un noir
+    // à huit pour cent, c'est-à-dire un gris très pâle : posée sur la page
+    // blanche d'un document projeté, elle s'y effaçait, et le réglage la
+    // laissait de côté alors que ses PROPRES TIROIRS le suivaient déjà.
+    //
+    // On mesure avec la couleur de réglage en cours (un bleu franc) : le noir
+    // par défaut se confondrait avec un trait simplement resté noir.
+    const surfaces = await page.evaluate(() => {
+        const sels = ['#bar-style', '#bar-document', '#text-toolbar', '#text-toolbar .tt-panel',
+            '#color-popover', '#export-popover', '#quick-edit-menu', '#bottom-drawer',
+            '#bar-plugins', '#right-drawer', '.toolbar-menu', '#bande-morceaux', '.custom-toolbar'];
+        const teinte = getComputedStyle(document.body).getPropertyValue('--contour').trim();
+        const enRgb = (hex) => {
+            const n = hex.replace('#', '');
+            return `rgb(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)})`;
+        };
+        const vise = enRgb(teinte);
+        const manquantes = [];
+        sels.forEach(s => {
+            const e = document.querySelector(s);
+            if (!e) return;                     // pas encore né : rien à mesurer
+            const c = getComputedStyle(e);
+            // Le trait se porte de deux façons : une vraie bordure, ou l'anneau
+            // sans flou de l'ombre — celle des tiroirs, qui ne doit rien
+            // ajouter à leur largeur.
+            const parLaBordure = parseFloat(c.borderTopWidth) > 0 && c.borderTopColor === vise;
+            const parLOmbre = (c.boxShadow || '').includes(vise);
+            if (!parLaBordure && !parLOmbre) manquantes.push(s + ' → ' + c.borderTopColor);
+        });
+        return { vise, manquantes };
+    });
+    r.egal('toutes les barres portent le trait du réglage, la barre du texte comprise',
+        surfaces.manquantes, []);
 
     await page.evaluate(() => document.getElementById('rp-contour-rendre').click());
     await page.waitForTimeout(450);

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=129">
+    <link rel="stylesheet" href="style.css?v=130">
 </head>
 
 <body>
@@ -2864,8 +2864,14 @@
             <div class="cr-titre">Mes couleurs</div>
             <div class="cr-liste" id="cr-liste"></div>
         </div>
+        <!-- LE POURCENTAGE, À CÔTÉ DU CURSEUR. Le curseur seul ne dit pas où
+             il en est : on tirait à l'estime, et « à moitié transparent » se
+             retrouvait de mémoire d'une séance à l'autre. Le nombre se lit et
+             se tape, comme celui de l'épaisseur du trait. -->
         <div class="opacity-container">Opacité : <input type="range" id="opacity-slider" min="0" max="1" step="0.05"
-                value="1"></div>
+                value="1" aria-label="Opacité"><input type="number" id="opacity-num" class="slider-num" min="0"
+                max="100" step="5" value="100" title="Opacité, en pour cent"
+                aria-label="Opacité en pour cent"><span class="opacity-pc">%</span></div>
         <!-- L'ÉPAISSEUR ET L'OPACITÉ DU TAMPON DESCENDENT ICI. Deux curseurs
              posés à même la barre la faisaient longue de moitié, pour deux
              réglages qu'on touche une fois par séance. La pastille de couleur
@@ -3000,7 +3006,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=235"></script>
+    <script src="script.js?v=236"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=99"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -5943,7 +5943,9 @@ document.querySelectorAll('.popover-tab').forEach(tab => {
         document.querySelectorAll('.popover-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         popoverTarget = tab.dataset.target;
-        document.getElementById('opacity-slider').value = popoverTarget === 'stroke' ? activeStyle.strokeOpacity : activeStyle.fillOpacity;
+        const opac = popoverTarget === 'stroke' ? activeStyle.strokeOpacity : activeStyle.fillOpacity;
+        document.getElementById('opacity-slider').value = opac;
+        afficherLOpacite(opac);
         document.getElementById('btn-no-fill').style.display = popoverTarget === 'fill' ? 'flex' : 'none';
         majLaPastilleActive();
     });
@@ -6136,7 +6138,7 @@ function majCoherenceDeLaPastille() {
         document.querySelectorAll('#color-popover .popover-tab').forEach(t =>
             t.classList.toggle('active', t.dataset.target === 'stroke'));
         const curseur = document.getElementById('opacity-slider');
-        if (curseur) curseur.value = activeStyle.strokeOpacity;
+        if (curseur) { curseur.value = activeStyle.strokeOpacity; afficherLOpacite(activeStyle.strokeOpacity); }
     }
     if (sansFond) sansFond.style.display = (aDuSens && popoverTarget === 'fill') ? 'flex' : 'none';
     if (colorIndicator) colorIndicator.classList.toggle('pastille-pleine', !aDuSens);
@@ -6165,8 +6167,54 @@ document.addEventListener('DOMContentLoaded', () => {
     majCoherenceDeLaPastille();
     updateColorIndicator();
 });
+// ==================================================================
+// « NE PAS RÉÉCRIRE SOUS LES DOIGTS » — MAIS SEULEMENT SOUS LES DOIGTS
+//
+// Les curseurs de la barre ne se rafraîchissent pas pendant qu'on les tire :
+// sans cela, un rafraîchissement tombant au milieu du geste ramènerait la
+// pastille en arrière. Le garde-fou regardait le FOCUS — qui reste au curseur
+// bien après que le geste est fini. Conséquence : on réglait l'opacité d'un
+// trait, on sélectionnait un tampon dans la foulée, et le curseur restait sur
+// la valeur du trait. Il affichait alors, avec aplomb, l'opacité de quelque
+// chose que personne n'avait sous les yeux.
+//
+// Ce qu'il faut protéger, c'est le geste en cours, pas le souvenir du geste.
+// ==================================================================
+let curseurTenu = null;
+document.addEventListener('pointerdown', (e) => {
+    const c = e.target;
+    curseurTenu = (c && c.matches && c.matches('input[type=range]')) ? c : null;
+}, true);
+['pointerup', 'pointercancel'].forEach(ev =>
+    document.addEventListener(ev, () => { curseurTenu = null; }, true));
+
+function curseurEnMain(el) { return !!el && curseurTenu === el; }
+window.curseurEnMain = curseurEnMain;
+
+// LE NOMBRE ET LE CURSEUR DISENT LA MÊME CHOSE. L'opacité se règle en
+// pour cent — c'est ainsi qu'on en parle — et le curseur, lui, va de 0 à 1 :
+// une seule porte les met d'accord, quel que soit celui des deux qu'on touche.
+function afficherLOpacite(v) {
+    const num = document.getElementById('opacity-num');
+    if (num && document.activeElement !== num) num.value = Math.round(v * 100);
+}
+window.afficherLOpacite = afficherLOpacite;
+
+document.getElementById('opacity-num')?.addEventListener('input', (e) => {
+    const pc = parseFloat(e.target.value);
+    if (!Number.isFinite(pc)) return;      // un champ vidé ne pose pas « pas un nombre »
+    const curseur = document.getElementById('opacity-slider');
+    if (!curseur) return;
+    // On ne borne pas ici : un curseur refuse de lui-même ce qui sort de ses
+    // bornes, et deux bornages sur la même valeur finissent par se contredire.
+    curseur.value = pc / 100;
+    curseur.dispatchEvent(new Event('input', { bubbles: true }));
+    curseur.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 document.getElementById('opacity-slider').addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
+    afficherLOpacite(v);
     // Sur une sélection de tampons, le curseur règle l'opacité de l'image
     if (selectionIsOnlyImages()) {
         applyPluginStampOpacityLive(v);
@@ -6184,7 +6232,7 @@ document.getElementById('opacity-slider').addEventListener('change', (e) => {
 document.getElementById('stamp-opacity')?.addEventListener('input', (e) => {
     applyPluginStampOpacityLive(parseFloat(e.target.value));
     const twin = document.getElementById('opacity-slider');
-    if (twin) twin.value = e.target.value;
+    if (twin) { twin.value = e.target.value; afficherLOpacite(parseFloat(e.target.value)); }
 });
 document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
     stampOpacityPending = null; stampOpacityBusy = false;
@@ -6628,7 +6676,7 @@ function syncStampStyleControls() {
         opacityBox.firstChild.textContent = 'Opacité du tampon : ';
         const op = objs.length ? currentStampOpacity(objs[0]) : 1;
         const input = document.getElementById('opacity-slider');
-        if (input && document.activeElement !== input) input.value = op;
+        if (input && !curseurEnMain(input)) { input.value = op; afficherLOpacite(op); }
     }
     // Les onglets Contour/Fond n'ont pas de sens sur un tampon : la pastille
     // recolore le dessin entier.
@@ -6642,14 +6690,14 @@ function syncStampStyleControls() {
         stampOpacityBox.style.display = objs.length ? 'flex' : 'none';
         const input = document.getElementById('stamp-opacity');
         const op = objs.length ? currentStampOpacity(objs[0]) : 1;
-        if (input && document.activeElement !== input) input.value = op;
+        if (input && !curseurEnMain(input)) input.value = op;
     }
 
     // Le curseur reflète l'épaisseur courante du tampon sélectionné
     if (canWidth && objs.length && typeof getPluginStampStrokeScale === 'function') {
         const input = document.getElementById('line-width');
         const scale = getPluginStampStrokeScale(objs[0]);
-        if (input && document.activeElement !== input) input.value = Math.round(scale * 3);
+        if (input && !curseurEnMain(input)) input.value = Math.round(scale * 3);
     }
 }
 
