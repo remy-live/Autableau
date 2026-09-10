@@ -327,6 +327,39 @@
 
         <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
 
+        <!-- TOURNER ET RETOURNER. Trois gestes qu'on refait vingt fois dans
+             une séance : redresser une photo prise de travers, mettre une
+             figure dans l'autre sens, et — en géométrie — construire le
+             symétrique d'un tracé, qui est ici EXACT, puisque ce sont les
+             points eux-mêmes qui se reflètent. -->
+        <button class="btn-quick" id="btn-quick-rotate" title="Tourner d'un quart de tour (Maj : dans l'autre sens)">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 13a8 8 0 1 0 3-6.2" />
+                <path d="M4 4v4h4" />
+            </svg>
+        </button>
+
+        <button class="btn-quick" id="btn-quick-flip-h" title="Retourner de gauche à droite">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v18" stroke-dasharray="3 3" />
+                <path d="M9 7L4 12l5 5z" />
+                <path d="M15 7l5 5-5 5z" />
+            </svg>
+        </button>
+
+        <button class="btn-quick" id="btn-quick-flip-v" title="Retourner de haut en bas">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12h18" stroke-dasharray="3 3" />
+                <path d="M7 9L12 4l5 5z" />
+                <path d="M7 15l5 5 5-5z" />
+            </svg>
+        </button>
+
+        <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
+
         <button class="btn-quick danger" id="btn-quick-delete" title="Supprimer">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3017,7 +3050,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=237"></script>
+    <script src="script.js?v=238"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=99"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

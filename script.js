@@ -3640,10 +3640,21 @@ function generateSVGString(rect, keepBg) {
 
         if (item.type === 'image') {
             let transformAttr = "";
-            if (angle !== 0) {
+            {
+                // LE RETOURNEMENT S'EXPORTE COMME LA ROTATION. Sans cela, une
+                // image retournée au tableau revenait à l'endroit dans le PDF
+                // et dans l'image enregistrée : ce qu'on montre et ce qu'on
+                // distribue aux élèves n'auraient plus été la même page.
                 const cx = obj.x + (obj.w / 2);
                 const cy = obj.y + (obj.h / 2);
-                transformAttr = ` transform="rotate(${angleDeg}, ${cx}, ${cy})"`;
+                const morceaux = [];
+                if (angle !== 0) morceaux.push(`rotate(${angleDeg}, ${cx}, ${cy})`);
+                if (obj.retourneH || obj.retourneV) {
+                    morceaux.push(`translate(${cx}, ${cy})`);
+                    morceaux.push(`scale(${obj.retourneH ? -1 : 1}, ${obj.retourneV ? -1 : 1})`);
+                    morceaux.push(`translate(${-cx}, ${-cy})`);
+                }
+                if (morceaux.length) transformAttr = ` transform="${morceaux.join(' ')}"`;
             }
             const opacityAttr = (obj.opacity !== undefined && obj.opacity < 1) ? ` opacity="${obj.opacity}"` : "";
             if (obj.cw !== undefined && obj.ch !== undefined && imageCache[obj.src]) {
@@ -10479,6 +10490,16 @@ function draw() {
                 // 2. Appliquer la rotation (si elle existe)
                 if (obj.angle) ctx.rotate(obj.angle);
 
+                // 2 bis. LE RETOURNEMENT, dans le repère de l'image et APRÈS
+                // la rotation : c'est ce qui fait qu'un miroir sur une image
+                // déjà inclinée reflète ce qu'on voit, et non ce qu'on verrait
+                // si elle était droite. Le cadre et les poignées, dessinés
+                // dans le même repère, s'y reflètent aussi — huit pastilles
+                // symétriques donnent le même dessin des deux côtés.
+                if (obj.retourneH || obj.retourneV) {
+                    ctx.scale(obj.retourneH ? -1 : 1, obj.retourneV ? -1 : 1);
+                }
+
                 // 3. Dessiner l'image (en compensant la translation)
                 if (imageCache[obj.src] && !obj.sousLaGrille) {
                     // Opacité propre au tampon (1 = opaque, valeur par défaut)
@@ -17209,6 +17230,193 @@ function getSelectionLogicalBounds() {
     return { bx: mx, by: my, bw: Mx - mx, bh: My - my };
 }
 
+// ===========================================================================
+// TOURNER ET RETOURNER CE QU'ON TIENT
+//
+// « Dans la petite barre, rajoute peut-être un bouton de rotation de 90° et un
+// flip vertical et horizontal. C'est toujours pratique. »
+//
+// Trois gestes, une seule mécanique : une transformation du plan appliquée à
+// tout ce qui est tenu — et à l'encre posée dessus, qui suit son hôte comme
+// elle le suit déjà quand on le déplace. Le quart de tour se fait autour du
+// CENTRE DE LA SÉLECTION, le retournement est une symétrie par rapport à son
+// axe médian : deux objets tenus ensemble se retournent l'un par rapport à
+// l'autre, et non chacun dans son coin.
+//
+// SUR UNE FIGURE DE GÉOMÉTRIE, C'EST LA SYMÉTRIE AXIALE, exacte : ce sont les
+// POINTS qui bougent, pas une image du tracé. Le cercle reste un cercle, ses
+// deux points restent ses deux points, et tout ce qui s'y accrochait tient
+// toujours.
+//
+// LE TEXTE, LUI, RESTE LISIBLE. Retourner un bloc mettrait ses lettres à
+// l'envers : le miroir le déplace comme le reste — son centre se reflète —
+// mais on ne renverse pas ce qui se lit. Personne n'a jamais voulu d'un énoncé
+// en écriture spéculaire.
+// ===========================================================================
+const QUART_DE_TOUR = Math.PI / 2;
+
+// Ce que la sélection tient vraiment : les objets choisis, et avec eux tous
+// les membres des groupes auxquels ils appartiennent.
+function objetsTenus() {
+    const map = new Map();
+    (typeof selectedItems === 'undefined' ? [] : selectedItems).forEach(item => {
+        const obj = getObjectById(item.type, item.id);
+        if (!obj) return;
+        map.set(item.type + '-' + item.id, { type: item.type, id: item.id });
+        if (obj.groupId && typeof getGroupMembers === 'function') {
+            getGroupMembers(obj.groupId).forEach(m =>
+                map.set(m.type + '-' + m.id, { type: m.type, id: m.id }));
+        }
+    });
+    return Array.from(map.values());
+}
+window.objetsTenus = objetsTenus;
+
+// `t` : { pointDe(p) → {x, y}, dAngle, miroirH, miroirV }
+function appliquerALaSelection(t) {
+    const items = objetsTenus();
+    if (!items.length) return false;
+    // Un objet verrouillé ne bouge pas — sauf pris dans un groupe, comme
+    // partout ailleurs dans le tableau.
+    const bougeables = items.filter(it => {
+        const o = getObjectById(it.type, it.id);
+        return o && (!o.locked || o.groupId);
+    });
+    if (!bougeables.length) {
+        if (typeof showToast === 'function') showToast('Cet objet est verrouillé');
+        return false;
+    }
+
+    // On rassemble AVANT de transformer : deux figures peuvent partager un
+    // sommet, et il ne doit pas tourner deux fois.
+    const pts = new Set(), traits = new Set(), textes = new Set();
+    const imgs = new Set(), lesArcs = new Set(), postits = new Set();
+
+    bougeables.forEach(it => {
+        const o = getObjectById(it.type, it.id);
+        if (!o) return;
+        if (it.type === 'point') pts.add(it.id);
+        else if (it.type === 'segment' || it.type === 'rectangle') { pts.add(o.p1_id); pts.add(o.p2_id); }
+        else if (it.type === 'circle') { pts.add(o.center_id); pts.add(o.edge_id); }
+        else if (it.type === 'curve' || it.type === 'polygon') (o.points || []).forEach(id => pts.add(id));
+        else if (it.type === 'freehand') traits.add(it.id);
+        else if (it.type === 'text') textes.add(it.id);
+        else if (it.type === 'image') imgs.add(it.id);
+        else if (it.type === 'arc') lesArcs.add(it.id);
+        else if (it.type === 'htmlPostit') postits.add(it.id);
+    });
+
+    // L'ENCRE POSÉE SUR UN OBJET TOURNE AVEC LUI. C'est déjà vrai au
+    // déplacement et à la rotation à la poignée : ce serait incompréhensible
+    // qu'un quart de tour laisse en arrière la correction écrite sur la page.
+    const accrocher = (type, id) => {
+        traitsAccrochesA(type, id).forEach(f => traits.add(f.id));
+        textesAccrochesA(type, id).forEach(x => textes.add(x.id));
+        pointsAccrochesA(type, id).forEach(p => { if (!p.depend) pts.add(p.id); });
+        const formes = formesAccrochesA(type, id);
+        pointsDesFormes(formes).forEach(p => pts.add(p.id));
+        formes.forEach(({ famille, o }) => { if (famille === 'arc') lesArcs.add(o.id); });
+    };
+    Array.from(imgs).forEach(id => accrocher('image', id));
+    Array.from(textes).forEach(id => accrocher('text', id));
+
+    const bouger = (p) => { const n = t.pointDe(p); p.x = n.x; p.y = n.y; };
+    const miroir = !!(t.miroirH || t.miroirV);
+
+    pts.forEach(id => { const p = getObjectById('point', id); if (p && !p.depend) bouger(p); });
+    traits.forEach(id => { const f = getObjectById('freehand', id); if (f) (f.points || []).forEach(bouger); });
+
+    imgs.forEach(id => {
+        const o = getObjectById('image', id);
+        if (!o) return;
+        const c = t.pointDe({ x: o.x + o.w / 2, y: o.y + o.h / 2 });
+        o.x = c.x - o.w / 2; o.y = c.y - o.h / 2;
+        if (t.dAngle) o.angle = (o.angle || 0) + t.dAngle;
+        // UN MIROIR RENVERSE LA ROTATION. Refléter puis tourner de θ revient à
+        // tourner de −θ puis refléter : sans cette bascule, une image déjà
+        // inclinée partait de travers au premier retournement.
+        if (miroir) {
+            o.angle = -(o.angle || 0);
+            if (t.miroirH) o.retourneH = !o.retourneH;
+            if (t.miroirV) o.retourneV = !o.retourneV;
+        }
+    });
+
+    // Un bloc de texte se déplace par SON CENTRE : mirer son seul point
+    // d'ancrage l'aurait fait glisser d'une largeur de bloc, selon qu'il est
+    // aligné à gauche, centré ou à droite.
+    const parLeCentre = (o, boite) => {
+        if (!boite) return;
+        const avant = { x: boite.bx + boite.bw / 2, y: boite.by + boite.bh / 2 };
+        const apres = t.pointDe(avant);
+        o.x += apres.x - avant.x;
+        o.y += apres.y - avant.y;
+    };
+    textes.forEach(id => {
+        const o = getObjectById('text', id);
+        if (!o) return;
+        parLeCentre(o, getItemLogicalBounds('text', o));
+        if (t.dAngle) o.angle = (o.angle || 0) + t.dAngle;
+        if (miroir) o.angle = -(o.angle || 0);
+    });
+
+    lesArcs.forEach(id => {
+        const o = getObjectById('arc', id);
+        if (!o) return;
+        const c = t.pointDe({ x: o.cx, y: o.cy });
+        o.cx = c.x; o.cy = c.y;
+        if (t.dAngle) { o.startAngle += t.dAngle; o.endAngle += t.dAngle; }
+        // Un arc reflété se parcourt à l'envers : sans cela, le miroir gardait
+        // le bon cercle mais montrait le morceau complémentaire.
+        if (t.miroirH) { o.startAngle = Math.PI - o.startAngle; o.endAngle = Math.PI - o.endAngle; }
+        if (t.miroirV) { o.startAngle = -o.startAngle; o.endAngle = -o.endAngle; }
+        if (miroir) o.counterClockwise = !o.counterClockwise;
+    });
+
+    // Un post-it est du HTML posé sur le tableau : il se déplace, il ne se
+    // met pas sur la tranche.
+    postits.forEach(id => {
+        const o = (htmlPostits || []).find(p => p.id === id);
+        if (o) parLeCentre(o, { bx: o.x, by: o.y, bw: o.w || 200, bh: o.h || 150 });
+    });
+
+    draw();
+    if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+    saveState();
+    return true;
+}
+window.appliquerALaSelection = appliquerALaSelection;
+
+// Un quart de tour. `sens` négatif pour l'autre côté.
+function tournerLaSelection(sens) {
+    const b = getSelectionLogicalBounds();
+    if (!b) return false;
+    const c = { x: b.bx + b.bw / 2, y: b.by + b.bh / 2 };
+    const a = (sens < 0 ? -1 : 1) * QUART_DE_TOUR;
+    const co = Math.cos(a), si = Math.sin(a);
+    return appliquerALaSelection({
+        pointDe: (p) => ({
+            x: c.x + (p.x - c.x) * co - (p.y - c.y) * si,
+            y: c.y + (p.x - c.x) * si + (p.y - c.y) * co
+        }),
+        dAngle: a
+    });
+}
+window.tournerLaSelection = tournerLaSelection;
+
+// `axe` : 'h' pour le miroir gauche-droite, 'v' pour le miroir haut-bas.
+function retournerLaSelection(axe) {
+    const b = getSelectionLogicalBounds();
+    if (!b) return false;
+    const c = { x: b.bx + b.bw / 2, y: b.by + b.bh / 2 };
+    const h = (axe !== 'v');
+    return appliquerALaSelection({
+        pointDe: (p) => ({ x: h ? 2 * c.x - p.x : p.x, y: h ? p.y : 2 * c.y - p.y }),
+        miroirH: h, miroirV: !h
+    });
+}
+window.retournerLaSelection = retournerLaSelection;
+
 // Supprime toute la sélection (et les groupes associés). Respecte le verrouillage.
 function deleteSelection() {
     if (typeof selectedItems === 'undefined' || !selectedItems.length) return false;
@@ -17594,6 +17802,27 @@ function updateQuickMenu() {
                     duplicateSelection();
                 };
             }
+
+            // Tourner d'un quart de tour, et les deux miroirs. Maj tourne dans
+            // l'autre sens : trois quarts de tour pour revenir en arrière,
+            // c'était une occasion de trop de rater son coup devant la classe.
+            const btnRot = document.getElementById('btn-quick-rotate');
+            if (btnRot) {
+                btnRot.onpointerdown = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    tournerLaSelection(e.shiftKey ? -1 : 1);
+                };
+            }
+            const brancherLeMiroir = (id, axe) => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                b.onpointerdown = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    retournerLaSelection(axe);
+                };
+            };
+            brancherLeMiroir('btn-quick-flip-h', 'h');
+            brancherLeMiroir('btn-quick-flip-v', 'v');
 
             const btnDelete = document.getElementById('btn-quick-delete');
             if (btnDelete) {

@@ -382,7 +382,7 @@ module.exports = async function (browser) {
         const dedans = (el) => Array.from(el.querySelectorAll('button, input[type=range]'))
             .map(b2 => b2.id).filter(Boolean);
         const propriete = (id) => /doc-(prec|suiv|page-num|volet|mode|grille|proportions|rogner|entiere|outil)|line-width|stamp-opacity|font-size|btn-color/.test(id);
-        const action = (id) => /quick-(lock|duplicate|delete)/.test(id);
+        const action = (id) => /quick-(lock|duplicate|rotate|flip-h|flip-v|delete)/.test(id);
         const fixe = dedans(barreFixe), flot = dedans(flottant);
         return {
             enDouble: fixe.filter(id => flot.includes(id)),
@@ -397,8 +397,12 @@ module.exports = async function (browser) {
         partage.actionsDansLaFixe.length === 0, JSON.stringify(partage.actionsDansLaFixe));
     r.verifie('et le menu flottant aucune propriété',
         partage.proprietesDansLeFlottant.length === 0, JSON.stringify(partage.proprietesDansLeFlottant));
-    r.verifie('le menu flottant reste court : trois actions',
-        partage.flottant.length <= 4, JSON.stringify(partage.flottant));
+    // IL RESTE COURT. Six gestes : verrouiller, dupliquer, tourner d'un quart
+    // de tour, les deux miroirs, supprimer. C'est le plafond — au-delà, ce
+    // n'est plus une barre flottante mais un second panneau, et l'on retombe
+    // dans la fusion illisible d'où l'on vient.
+    r.verifie('le menu flottant reste court : rien que des gestes, une poignée',
+        partage.flottant.length <= 7, JSON.stringify(partage.flottant));
 
     // EN PLEIN ÉCRAN, elle descend jusqu'au bord : le tiroir du bas s'efface
     // avec les autres, et la page se lit de haut en bas — la barre n'a rien à
