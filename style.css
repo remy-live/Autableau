@@ -43,6 +43,18 @@
        première case à remplir. Le second pixel est donc une ombre sans
        flou : elle se dessine hors de la boîte sans entrer dans son calcul. */
     --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(45, 52, 54, 0.16);
+    /* L'ARRONDI DES SURFACES FLOTTANTES. Sept valeurs cohabitaient : deux
+       pixels sur les menus — des angles vifs au milieu d'une interface
+       entièrement arrondie —, huit sur la barre de l'objet, douze sur les
+       barres personnalisées, quatorze sur celle du texte, seize sur les
+       fenêtres, vingt sur les barres, quarante sur celles du haut, qui en
+       devenaient des capsules. Deux barres côte à côte avec deux arrondis
+       différents se lisent comme deux applications.
+       UN RECTANGLE ARRONDI, LE MÊME PARTOUT — et une seule valeur à changer
+       pour qui le veut plus doux ou plus franc. Les tiroirs n'arrondissent
+       que leurs bords libres : une surface collée au bord de l'écran n'a pas
+       de coin de ce côté-là. */
+    --arrondi: 12px;
 }
 
 body.dark-mode {
@@ -138,7 +150,7 @@ html {
 #bottom-drawer {
     bottom: 0;
     border-bottom: none;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--arrondi) var(--arrondi) 0 0;
     padding: 8px 12px 12px;
 }
 
@@ -299,7 +311,7 @@ html {
     position: fixed;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(12px);
-    border-radius: 20px;
+    border-radius: var(--arrondi);
     box-shadow: var(--contour-ombre);
     border: 1px solid var(--contour);
     display: flex;
@@ -311,7 +323,6 @@ html {
 
 .toolbar.vertical {
     flex-direction: column;
-    border-radius: 25px;
     padding: 10px 8px;
 }
 
@@ -326,7 +337,6 @@ html {
     left: 50%;
     top: 20px;
     transform: translateX(-50%);
-    border-radius: 40px;
     padding: 6px 16px;
     opacity: 0;
     pointer-events: none;
@@ -372,7 +382,7 @@ html {
     backdrop-filter: blur(16px);
     border: 1px solid var(--contour);
     border-top: none;
-    border-radius: 0 0 16px 16px;
+    border-radius: 0 0 var(--arrondi) var(--arrondi);
     box-shadow: var(--contour-ombre), 0 8px 24px rgba(0, 0, 0, .08);
     padding: 6px 12px 4px;
     display: flex;
@@ -655,7 +665,7 @@ html {
 .custom-toolbar {
     position: absolute;
     z-index: 30;
-    border-radius: 12px;
+    border-radius: var(--arrondi);
     padding: 6px;
     width: max-content;
     display: flex;
@@ -764,7 +774,7 @@ html {
     min-width: 260px;
     width: fit-content;
     max-width: 320px;
-    border-radius: 2px;
+    border-radius: var(--arrondi);
     background: var(--surface);
     border: 1px solid var(--contour);
     box-shadow: var(--contour-ombre);
@@ -1116,7 +1126,7 @@ html {
     flex-wrap: wrap;
     gap: 8px;
     padding: 8px;
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(14px);
     border: 1px solid rgba(223, 230, 233, 0.9);
@@ -1369,7 +1379,7 @@ html {
     bottom: 10vh;
     right: 0;
     width: 340px;
-    border-radius: 16px 0 0 16px;
+    border-radius: var(--arrondi) 0 0 var(--arrondi);
     border-right: none;
     display: flex;
     flex-direction: column;
@@ -1782,7 +1792,7 @@ body.focus-mode #exit-focus-cross {
     left: 50%;
     bottom: 20px;
     transform: translateX(-50%);
-    border-radius: 40px;
+    border-radius: var(--arrondi);
     padding: 4px 12px;
     width: max-content;
     max-width: 95vw;
@@ -1944,7 +1954,7 @@ body.focus-mode #exit-focus-cross {
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(15px);
     border: 1px solid var(--contour);
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     padding: 12px;
     box-shadow: var(--contour-ombre), 0 10px 30px rgba(0, 0, 0, 0.15);
     display: none;
@@ -2340,7 +2350,7 @@ input[type=range]::-moz-range-thumb {
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(15px);
     border: 1px solid var(--contour);
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     padding: 24px;
     box-shadow: var(--contour-ombre), 0 15px 40px rgba(0, 0, 0, 0.25);
     display: none;
@@ -2500,7 +2510,7 @@ input[type=range]::-moz-range-thumb {
     background: rgba(45, 52, 54, 0.9);
     color: white;
     padding: 10px 20px;
-    border-radius: 20px;
+    border-radius: var(--arrondi);
     font-size: 14px;
     font-weight: 500;
     opacity: 0;
@@ -2555,7 +2565,7 @@ input[type=range]::-moz-range-thumb {
 .modal-box {
     background: #ffffff;
     padding: 30px;
-    border-radius: 20px;
+    border-radius: var(--arrondi);
     box-shadow: var(--contour-ombre), 0 15px 35px rgba(0, 0, 0, 0.2);
     max-width: 500px;
     width: 90%;
@@ -2647,7 +2657,7 @@ input[type=range]::-moz-range-thumb {
 .donation-box {
     background: white;
     padding: 30px;
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     width: 420px;
     max-width: 90%;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
@@ -2728,7 +2738,7 @@ input[type=range]::-moz-range-thumb {
     gap: 2px;
     background: rgba(241, 242, 246, 0.5);
     padding: 4px 8px;
-    border-radius: 20px;
+    border-radius: var(--arrondi);
     transition: background 0.3s;
 }
 
@@ -2758,7 +2768,7 @@ input[type=range]::-moz-range-thumb {
     right: 20px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(12px);
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
     border: 1px solid rgba(223, 230, 233, 0.8);
     display: none;
@@ -3168,7 +3178,9 @@ body.dark-mode {
        propres tiroirs, eux, suivaient déjà le réglage : la barre paraissait
        donc sans bord au-dessus de tiroirs cernés de noir. */
     border: 1px solid var(--contour);
-    border-radius: 14px !important;
+    /* L'arrondi ne se pose pas ici : cette barre est déclarée une seconde
+       fois, plus bas, et c'est celle-là qui l'emporte. Écrire la valeur aux
+       deux endroits, c'est se préparer à en corriger une seule. */
     box-shadow: var(--contour-ombre), 0 8px 32px rgba(0, 0, 0, 0.12) !important;
 }
 
@@ -3773,7 +3785,7 @@ body.dark-mode {
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(10px);
     border: 1px solid var(--contour);
-    border-radius: 8px;
+    border-radius: var(--arrondi);
     box-shadow: var(--contour-ombre), 0 4px 15px rgba(0, 0, 0, 0.15);
     padding: 4px;
     gap: 4px;
@@ -3902,7 +3914,7 @@ body.dark-mode {
     z-index: 1000;
     min-height: 44px;
     min-width: 80px;
-    border-radius: 24px;
+    border-radius: var(--arrondi);
     transition: background 0.2s, border-color 0.2s;
 }
 
@@ -3996,7 +4008,7 @@ body.dark-mode {
 
 .live-modal-box {
     background: #ffffff;
-    border-radius: 16px;
+    border-radius: var(--arrondi);
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
     width: 700px;
     max-width: 95vw;
@@ -4251,7 +4263,7 @@ body.dark-mode {
     top: 100px;
     width: 320px;
     background: #ffffff;
-    border-radius: 8px;
+    border-radius: var(--arrondi);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     z-index: 100000;
     font-family: sans-serif;
@@ -5662,7 +5674,7 @@ dark-mode .title-btn:hover {
     z-index: 10000;
     padding: 5px 7px !important;
     gap: 3px;
-    border-radius: 12px !important;
+    border-radius: var(--arrondi) !important;
     white-space: nowrap;
 }
 
@@ -5708,7 +5720,7 @@ dark-mode .title-btn:hover {
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(12px);
     border: 1px solid var(--contour);
-    border-radius: 12px;
+    border-radius: var(--arrondi);
     box-shadow: var(--contour-ombre), 0 10px 30px rgba(0, 0, 0, 0.18);
     padding: 8px;
     gap: 6px;
@@ -6090,7 +6102,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     flex-direction: column;
     background: #fff;
     border: 1px solid #dfe6e9;
-    border-radius: 14px;
+    border-radius: var(--arrondi);
     box-shadow: 0 18px 46px rgba(0, 0, 0, 0.25);
     z-index: 100000;
     overflow: hidden;
@@ -6957,7 +6969,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     background: var(--pw-fond);
     color: var(--pw-encre);
     border: 1px solid var(--pw-trait);
-    border-radius: 14px;
+    border-radius: var(--arrondi);
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
     overflow: hidden;
     display: flex;
@@ -7964,7 +7976,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     max-width: 92vw;
     max-height: 70vh;
     background: var(--surface, #fff);
-    border-radius: 14px;
+    border-radius: var(--arrondi);
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
     border: 1px solid var(--border, #dfe6e9);
     display: flex;
@@ -9553,7 +9565,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     gap: 8px;
     max-width: 76vw;
     padding: 7px 10px;
-    border-radius: 12px;
+    border-radius: var(--arrondi);
     background: rgba(255, 255, 255, 0.97);
     border: 1px solid var(--contour);
     box-shadow: var(--contour-ombre), 0 8px 28px rgba(45, 52, 54, 0.2);
@@ -9725,7 +9737,7 @@ body.barre-outils-courte #system-toolbar-main .custom-resizer {
     max-height: calc(100vh - 40px);
     overflow-y: auto;
     overflow-x: hidden;
-    border-radius: 22px;
+    border-radius: var(--arrondi);
     padding: 8px 5px;
     row-gap: 2px;
 }
@@ -9802,7 +9814,7 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
     width: min(880px, calc(100vw - 32px));
     box-sizing: border-box;
     padding: 10px 14px 8px;
-    border-radius: 14px;
+    border-radius: var(--arrondi);
     background: #16151c;
     color: #f4f3f8;
     border: 1px solid #2b2936;

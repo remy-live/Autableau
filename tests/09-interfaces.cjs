@@ -599,6 +599,58 @@ module.exports = async function (browser) {
     r.egal('toutes les barres portent le trait du réglage, la barre du texte comprise',
         surfaces.manquantes, []);
 
+    // ET LE MÊME ARRONDI. « Penses-tu que toutes les toolbars, style compris,
+    // doivent avoir le même style ? Là, l'arrondi des bordures n'est pas le
+    // même. » Sept valeurs cohabitaient : deux pixels sur les menus — des
+    // angles vifs au milieu d'une interface entièrement arrondie —, huit sur
+    // la barre de l'objet, douze sur les barres personnalisées, quatorze sur
+    // celle du texte, seize sur les fenêtres, vingt sur les barres, quarante
+    // sur celles du haut, qui en devenaient des capsules.
+    //
+    // ON LE MESURE EN CHANGEANT LE RÉGLAGE, et non en comptant des douze : un
+    // arrondi écrit en dur au même chiffre passerait pour réglé alors qu'il
+    // resterait à part — c'est exactement ce qui était arrivé au contour.
+    const arrondis = await page.evaluate(async () => {
+        const sels = ['#bar-style', '#bar-document', '#bar-tools', '#text-toolbar',
+            '#text-toolbar .tt-panel', '#color-popover', '#export-popover', '#quick-edit-menu',
+            '#bottom-drawer', '#bar-plugins', '#right-drawer', '.toolbar-menu',
+            '#bande-morceaux', '.custom-toolbar', '#favorites-toolbar', '.modal-box',
+            '#dock', '#time-widget', '#explorateur'];
+        const COINS = ['borderTopLeftRadius', 'borderTopRightRadius',
+            'borderBottomRightRadius', 'borderBottomLeftRadius'];
+        const releve = (attendu) => {
+            const mauvais = [];
+            let mesurees = 0;
+            sels.forEach(s => {
+                const e = document.querySelector(s);
+                if (!e) return;
+                mesurees++;
+                const c = getComputedStyle(e);
+                // Un tiroir collé au bord de l'écran n'a pas de coin de ce
+                // côté-là : le zéro est voulu, tout le reste doit suivre.
+                COINS.forEach(coin => {
+                    const v = c[coin];
+                    if (v !== '0px' && v !== attendu) mauvais.push(`${s} ${coin}=${v}`);
+                });
+            });
+            return { mauvais, mesurees };
+        };
+        const auRepos = releve(getComputedStyle(document.body).getPropertyValue('--arrondi').trim());
+        // On tord le réglage : tout doit suivre. Une surface au moins s'anime
+        // (« transition: all ») : lue tout de suite, on tomberait sur une
+        // valeur du milieu de l'animation.
+        document.documentElement.style.setProperty('--arrondi', '7px');
+        await new Promise(ok => setTimeout(ok, 450));
+        const tordu = releve('7px');
+        document.documentElement.style.removeProperty('--arrondi');
+        return { auRepos, tordu };
+    });
+    r.verifie('une bonne quinzaine de surfaces sont mesurées',
+        arrondis.auRepos.mesurees >= 15, String(arrondis.auRepos.mesurees));
+    r.egal('toutes portent le même arrondi', arrondis.auRepos.mauvais, []);
+    r.egal('et il tient à un seul réglage : on le change, tout suit',
+        arrondis.tordu.mauvais, []);
+
     await page.evaluate(() => document.getElementById('rp-contour-rendre').click());
     await page.waitForTimeout(450);
     couleur.rendu = await page.evaluate(() => ({
