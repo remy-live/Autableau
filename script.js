@@ -26090,6 +26090,11 @@ function reporterLeRappelDesClasses() {
 // Faut-il rappeler ? Seulement s'il y a quelque chose à perdre, et si l'on
 // n'a ni sauvegardé ni écarté le rappel depuis un mois.
 function rappelSauvegardeUtile(classes) {
+    // PAS PENDANT LA VISITE. La classe qu'elle montre est inventée : « dernière
+    // sauvegarde : jamais » y est vrai et sans objet, et le bandeau proposait
+    // d'enregistrer douze élèves qui n'existent pas, en travers de la fenêtre
+    // qu'on est en train de faire visiter.
+    if (typeof demonstrationEnCours === 'function' && demonstrationEnCours()) return false;
     const combien = (classes || []).reduce((n, c) => n + ((c.students || []).length), 0);
     if (!combien) return false;
     const maintenant = Date.now();
@@ -31857,19 +31862,58 @@ function chapitresDeLaDemonstration() {
           } },
 
         { titre: 'Les classes',
-          dit: 'La classe du moment se choisit dans le coin : l\'appel, les points, le bilan et le plan de classe la suivent partout.',
-          duree: 38000,
+          dit: 'La classe du moment se choisit dans le coin : l\'appel se fait au tableau, et les points, le bilan et le plan de classe ouvrent la fenêtre « Mes classes ».',
+          duree: 64000,
           faire: async (g) => {
               g.dire('En haut, une pastille nomme la classe du moment. Ici, une classe inventée pour la visite.');
               await g.montrer('#classe-pastille', 'La classe du moment', 2800);
-              g.dire('Elle ouvre tout le reste : l\'appel, les points, le tirage au sort, le plan de classe.');
+              g.dire('Elle ouvre tout le reste : l\'appel, les points, le bilan, le plan de classe.');
               await g.viser('#classe-pastille', 'On l\'ouvre');
-              await g.tempo(3200);
-              g.dire('Une seule liste d\'élèves, partagée : ce qu\'on saisit ici se retrouve partout ailleurs.');
+              await g.tempo(2600);
+
+              // L'APPEL RESTE AU TABLEAU. C'est le geste qu'on fait debout, en
+              // trois secondes : il n'ouvre aucune fenêtre par-dessus le cours.
+              g.dire('L\'appel se fait ici même, sans rien ouvrir par-dessus le cours.');
+              await g.viser('#classe-menu .cl-geste[data-vue="appel"]', 'Faire l\'appel');
+              await g.tempo(1800);
+              g.dire('On touche un nom, il passe absent. Le compte se tient tout seul, en haut.');
+              const eleves = document.querySelectorAll('#classe-menu .cl-eleve');
+              if (eleves.length > 2) await g.viser(eleves[2], 'Absent');
+              await g.tempo(2200);
+              await g.viser('#classe-menu .cl-retour', 'On revient');
+              await g.tempo(1400);
+
+              // ET LE RESTE EST UNE FENÊTRE, QU'ON OUVRE POUR DE VRAI. Le
+              // chapitre nommait les points, le bilan et le plan de classe sans
+              // jamais les montrer : on entendait parler d'une pièce sans y
+              // entrer. « Tu pourrais ouvrir pour la démo le module classe. »
+              g.dire('Les points, eux, ouvrent la fenêtre « Mes classes ».');
+              const ouverte = await g.viser('#classe-menu .cl-geste[data-vue="points"]', 'Les points');
               await g.tempo(2400);
+              if (ouverte && document.getElementById('class-manager-modal')) {
+                  g.dire('Chaque classe a son onglet, et l\'on donne un point, un oubli, une récompense d\'un clic.');
+                  await g.montrer('#cm-detail', 'Les points de la classe', 3200);
+                  g.dire('La MÊME classe se regarde de quatre façons : les points, le bilan, le plan, les élèves.');
+                  await g.montrer('#cm-vues', 'Les quatre vues', 3000);
+                  g.dire('Le bilan : ce que la classe a accumulé, élève par élève, sur la période.');
+                  await g.viser('#cm-vues .cm-vue[data-vue="bilan"]', 'Le bilan');
+                  await g.tempo(3400);
+                  g.dire('Le plan de classe : la salle telle qu\'elle est, et les élèves placés dessus.');
+                  await g.viser('#cm-vues .cm-vue[data-vue="plan"]', 'Le plan de classe');
+                  await g.tempo(2600);
+                  // LA MÊME LISTE, PARTOUT. C'est la promesse du chapitre, et
+                  // elle se vérifie à l'œil : l'absent coché au tableau il y a
+                  // dix secondes est barré sur le plan.
+                  g.dire('Et l\'absent coché tout à l\'heure au tableau est déjà barré ici : c\'est la même liste.');
+                  await g.tempo(3400);
+                  g.dire('Et la liste des élèves, qu\'on saisit une seule fois : tout le reste s\'y sert.');
+                  await g.viser('#cm-vues .cm-vue[data-vue="eleves"]', 'Les élèves');
+                  await g.tempo(3000);
+                  g.dire('On la referme quand on a fini — le tableau est resté visible tout du long.');
+                  await g.viser('#class-manager-modal #cm-close', 'On referme');
+                  await g.tempo(1600);
+              }
               if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
-              g.dire('L\'appel se fait au tableau, sans ouvrir de fenêtre par-dessus le cours.');
-              await g.tempo(2400);
               g.dire('Et rien ne quitte l\'ordinateur : les élèves restent chez vous.');
               g.cacher();
               await g.tempo(2600);
@@ -32230,6 +32274,17 @@ function fermerCeQueLaDemoAOuvert() {
     }
     const habits = document.getElementById('mp3-habits-menu');
     if (habits) habits.classList.remove('ouvert');
+    // « MES CLASSES » NE SURVIT PAS À SON CHAPITRE. La visite l'ouvre pour de
+    // vrai ; changer de chapitre ou sortir la laissait posée sur le tableau du
+    // professeur, au-dessus de tout. On la referme PAR SON ✕, comme il le
+    // ferait : c'est ce bouton qui quitte proprement les vues qu'elle a
+    // montées — le plan de classe, notamment, vit hors de la fenêtre.
+    const fenetreDesClasses = document.getElementById('class-manager-modal');
+    if (fenetreDesClasses) {
+        const croix = fenetreDesClasses.querySelector('#cm-close');
+        if (croix) croix.click();
+        else fenetreDesClasses.remove();
+    }
     // La barre d'outils que le chapitre de l'interface fabrique est à elle : on
     // la dessine sans jamais l'enregistrer, et elle s'en va avec son chapitre
     // comme avec la visite entière.
@@ -32328,10 +32383,27 @@ function demarrerLaDemonstration() {
     // LA CLASSE MONTRÉE EST INVENTÉE, et ne vit qu'en mémoire : les vraies
     // classes ne sont ni lues ni écrites tant que la démonstration dure.
     if (typeof ClassesStore !== 'undefined') {
+        const eleves = ['Alix', 'Bastien', 'Chloé', 'Diego', 'Éléa', 'Farid', 'Gaby', 'Hugo',
+                        'Inès', 'Jules', 'Kenza', 'Léo'].map((n, i) => ({ id: 'eleve_demo_' + i, name: n }));
+        // ET SA SALLE EST FAITE. Le chapitre ouvre le plan de classe en disant
+        // « la salle telle qu'elle est, et les élèves placés dessus » : il
+        // montrait une grille vide et douze noms en attente à droite. Six
+        // tables doubles, tout le monde assis — la phrase et l'écran disent
+        // enfin la même chose.
+        const tables = [];
+        for (let i = 0; i < 6; i++) {
+            tables.push({
+                id: 'table_demo_' + i,
+                x: 60 + (i % 3) * 220, y: 100 + Math.floor(i / 3) * 180,
+                capacity: 2, cols: 2,
+                seats: [eleves[i * 2].id, eleves[i * 2 + 1].id]
+            });
+        }
+        tables.push({ id: 'bureau_demo', x: 700, y: 20, isTeacherDesk: true, seats: [] });
         ClassesStore._cache = [{
             id: 'classe_demonstration', name: 'Démonstration — 6e B', demonstration: true,
-            students: ['Alix', 'Bastien', 'Chloé', 'Diego', 'Éléa', 'Farid', 'Gaby', 'Hugo',
-                       'Inès', 'Jules', 'Kenza', 'Léo'].map((n, i) => ({ id: 'eleve_demo_' + i, name: n })),
+            students: eleves,
+            seatingPlan: { tables },
             createdAt: Date.now(), updatedAt: Date.now()
         }];
         try { localStorage.setItem(CLE_CLASSE_DU_MOMENT, 'classe_demonstration'); } catch (e) { /* refusé */ }

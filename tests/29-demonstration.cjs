@@ -96,18 +96,24 @@ module.exports = async function (browser) {
     // CHAQUE ICÔNE DÉSIGNÉE EXISTE
     // Une démonstration qui montre un bouton absent est pire qu'une absente.
     // =====================================================================
-    await page.evaluate(() => {
-        // Deux des icônes désignées sont celles du lecteur, qui n'existe
-        // qu'une fois une piste déposée — le chapitre le fait lui-même. On
-        // en ouvre un pour que la vérification porte sur toutes.
+    // ON MONTE D'ABORD CE QUE LES CHAPITRES OUVRENT EUX-MÊMES : le lecteur
+    // (deux icônes), la barre de l'interface, le menu de la pastille et la
+    // fenêtre « Mes classes ». Tout cela sous la visite en cours, donc rien ne
+    // peut aller au disque.
+    await page.evaluate(async () => {
+        demarrerLaDemonstration();
         handleMp3Drop(new File([new Uint8Array(512)], 'essai.mp3', { type: 'audio/mpeg' }));
-        // Et la barre d'outils que le chapitre de l'interface fabrique : elle
-        // n'existe que le temps de ce chapitre, comme le lecteur.
         renderFloatingToolbar({ id: 'floating-demo', name: 'Ma barre', x: 40, y: 40,
             palette: 'default', titlePalette: 'default', borderPalette: 'default',
             iconSize: '1', items: ['freehand'] });
+        ouvrirLeMenuDeClasse(ClassesStore._cache);
+        await openClassManagerModal('classe_demonstration', 'points');
     });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
+    // LE MENU DE LA PASTILLE A DEUX ÉTATS, et le chapitre passe par les deux :
+    // la liste des classes, puis l'appel. Un seul instantané en manquerait
+    // forcément la moitié — on regarde donc dans les deux, et ce qui manque
+    // partout manque vraiment.
     const cibles = await page.evaluate(() => {
         // Les sélecteurs que les chapitres désignent, lus dans leur source :
         // c'est la source qui fait foi, pas une liste tenue à côté.
@@ -120,11 +126,14 @@ module.exports = async function (browser) {
         const motif = /g\.(?:viser|montrer)\(\s*(?:outil\(\s*)?(['"])((?:(?!\1)[^\\]|\\.)*)\1/g;
         let m;
         while ((m = motif.exec(src))) trouves.push(m[2]);
-        const manquants = trouves.filter(sel => {
+        const absent = (sel) => {
             const s = sel.startsWith('#') || sel.startsWith('.') ? sel
                 : `#system-toolbar-main [data-mode="${sel}"]`;
             return !document.querySelector(s);
-        });
+        };
+        let manquants = trouves.filter(absent);
+        const appel = document.querySelector('#classe-menu .cl-geste[data-vue="appel"]');
+        if (appel) { appel.click(); manquants = manquants.filter(absent); }
         return { trouves, manquants };
     });
     r.verifie('la démonstration désigne au moins six icônes',
@@ -137,7 +146,11 @@ module.exports = async function (browser) {
         const f = document.querySelector('#mp3-player [id$="-close"]');
         if (f) f.click();
         const b = document.getElementById('floating-demo'); if (b) b.remove();
+        // La visite montée pour la vérification s'en va : elle referme le menu
+        // de la pastille et la fenêtre des classes en partant.
+        arreterLaDemonstration();
     });
+    await page.waitForTimeout(250);
 
     // =====================================================================
     // ELLE SE JOUE, ET CHAQUE CHAPITRE FAIT QUELQUE CHOSE
@@ -697,6 +710,74 @@ module.exports = async function (browser) {
           stock: panoplie.apres.stock },
         { crayon: false, barres: ['system-toolbar-main', 'floating-perso'],
           stock: ['pointer', 'text', 'laser'] });
+
+    // « TU POURRAIS OUVRIR POUR LA DÉMO LE MODULE CLASSE POUR MONTRER. » Le
+    // chapitre nommait les points, le bilan et le plan de classe sans jamais
+    // les montrer : on entendait parler d'une pièce sans y entrer. Il ouvre
+    // maintenant la fenêtre pour de vrai et passe par ses quatre vues.
+    await page.evaluate(() => { demarrerLaDemonstration(); allerAuChapitre(6); });
+    const moduleClasse = { fenetre: 0, vues: [], appel: 0, absents: 0, rappel: 0, surLePlan: 0 };
+    for (let k = 0; k < 400; k++) {
+        await page.waitForTimeout(90);
+        const e = await page.evaluate(() => ({
+            fenetre: !!document.getElementById('class-manager-modal'),
+            vue: (document.querySelector('#cm-vues .cm-vue.actif') || {}).dataset?.vue || '',
+            appel: !!document.querySelector('#classe-menu .cl-appel-liste'),
+            absents: document.querySelectorAll('#classe-menu .cl-eleve.absent').length,
+            // Le bandeau « dernière sauvegarde : jamais » proposait d'enregistrer
+            // douze élèves inventés, en travers de la fenêtre qu'on fait visiter.
+            rappel: !!document.getElementById('cm-rappel'),
+            // La MÊME liste partout : l'absent coché au tableau est barré sur le plan.
+            surLePlan: document.querySelectorAll('#cm-detail .sp-absents-liste, #cm-detail [class*="absent"]').length,
+            dit: document.getElementById('demo-dit').textContent
+        }));
+        if (e.fenetre) moduleClasse.fenetre++;
+        if (e.vue && !moduleClasse.vues.includes(e.vue)) moduleClasse.vues.push(e.vue);
+        if (e.appel) moduleClasse.appel++;
+        moduleClasse.absents = Math.max(moduleClasse.absents, e.absents);
+        if (e.rappel) moduleClasse.rappel++;
+        if (e.vue === 'plan') moduleClasse.surLePlan = Math.max(moduleClasse.surLePlan, e.surLePlan);
+        if (/rien ne quitte/.test(e.dit)) break;
+    }
+    const apresLeChapitre = await page.evaluate(() => ({
+        fenetre: !!document.getElementById('class-manager-modal'),
+        menu: !document.getElementById('classe-menu').hidden
+    }));
+    await page.evaluate(() => arreterLaDemonstration());
+    await page.waitForTimeout(300);
+    const apresLaVisite = await page.evaluate(() => !!document.getElementById('class-manager-modal'));
+    r.verifie('l\'appel se fait au tableau, et un élève y passe absent',
+        moduleClasse.appel > 0 && moduleClasse.absents === 1, JSON.stringify(moduleClasse));
+    r.verifie('puis le module des classes s\'ouvre POUR DE VRAI',
+        moduleClasse.fenetre > 0, JSON.stringify(moduleClasse));
+    r.egal('et l\'on passe par ses quatre vues, dans l\'ordre de l\'usage',
+        moduleClasse.vues, ['points', 'bilan', 'plan', 'eleves']);
+    r.verifie('le plan montre une salle faite, et l\'absent du tableau y est barré : c\'est la même liste',
+        moduleClasse.surLePlan > 0, JSON.stringify(moduleClasse));
+    r.verifie('le rappel de sauvegarde ne s\'invite pas dans la visite',
+        moduleClasse.rappel === 0, JSON.stringify(moduleClasse));
+    r.egal('la fenêtre est refermée à la fin du chapitre, le menu avec',
+        apresLeChapitre, { fenetre: false, menu: false });
+    r.egal('et elle ne survit pas davantage à la visite', apresLaVisite, false);
+
+    // ET SI L'ON PASSE AU CHAPITRE SUIVANT PENDANT QU'ELLE EST OUVERTE ? Le
+    // chapitre la referme lui-même quand il va au bout ; c'est justement quand
+    // on ne le laisse PAS finir qu'elle restait posée sur le tableau du
+    // professeur, au-dessus de tout, sans plus rien pour la fermer.
+    const enPleinMilieu = await page.evaluate(async () => {
+        demarrerLaDemonstration();
+        await openClassManagerModal('classe_demonstration', 'points');
+        const ouverte = !!document.getElementById('class-manager-modal');
+        chapitreVoisin(1);
+        await new Promise(r => setTimeout(r, 250));
+        const apresLeSaut = !!document.getElementById('class-manager-modal');
+        await openClassManagerModal('classe_demonstration', 'points');
+        arreterLaDemonstration();
+        await new Promise(r => setTimeout(r, 250));
+        return { ouverte, apresLeSaut, apresLArret: !!document.getElementById('class-manager-modal') };
+    });
+    r.egal('changer de chapitre la referme, et sortir aussi',
+        enPleinMilieu, { ouverte: true, apresLeSaut: false, apresLArret: false });
 
     // ON VOIT L'ICÔNE PARTIR DU TIROIR. « On ne voit pas la création de toolbar
     // par glisser-déposer des icônes » : le chapitre le DISAIT, et la barre
