@@ -16,10 +16,14 @@ const ATTENDUES = [
 // Charger une interface redémarre l'application. Attendre « 2,5 s » ne suffit
 // pas : si la machine est chargée, on lisait encore l'ANCIENNE page, avec sa
 // barre complète. On marque donc le document, et on attend qu'il ait disparu.
+// CHARGER UNE INTERFACE REDÉMARRE TOUTE L'APPLICATION — quatre-vingt-six
+// outils à réenregistrer. Vingt secondes suffisent d'ordinaire, mais pas
+// quand la machine porte déjà la suite entière : l'attente expirait, et
+// c'est le fichier complet qui tombait, pas une vérification.
 async function chargerInterface(page, id) {
     await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
-    await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 20000 });
-    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
+    await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 45000 });
+    await page.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 45000 });
     // Le démarrage réécrit les barres (migration, remise en place). Attendre
     // qu'elles « ne bougent plus » ne suffit pas : sur une machine lente, les
     // barres de l'interface PRÉCÉDENTE tiennent en place assez longtemps pour
@@ -36,7 +40,7 @@ async function chargerInterface(page, id) {
         if (!memes) return false;
         // ... et qu'elles soient vraiment dessinées, s'il y en a
         return !voulues.length || document.querySelectorAll('#custom-bars-container > *').length > 0;
-    }, id, { timeout: 20000, polling: 200 });
+    }, id, { timeout: 45000, polling: 200 });
 }
 
 module.exports = async function (browser) {

@@ -22,6 +22,11 @@ module.exports = async function (browser) {
                 || m.periodes.some(x => !(x.fin > x.debut) || !x.nom || !/^#/.test(x.couleur))
                 || !p.STYLES.some(s => s.cle === m.style)).map(m => m.cle),
             styles: p.STYLES.map(s => s.cle),
+            // Un style sans habit se dessinerait comme un bandeau sans le dire.
+            habitsIncomplets: p.STYLES.filter(s => {
+                const h = p.HABITS[s.cle];
+                return !h || !h.encre || !h.fond;
+            }).map(s => s.cle),
             // Les dates de l'usage scolaire
             moyenAge: (() => {
                 const m = p.MODELES.find(x => x.cle === 'grandes-periodes');
@@ -30,12 +35,24 @@ module.exports = async function (browser) {
             })()
         };
     });
-    r.verifie('il y a des modèles prêts à poser', modeles.combien >= 7, String(modeles.combien));
+    r.verifie('il y a des modèles prêts à poser', modeles.combien >= 16, String(modeles.combien));
+    // HUIT MODÈLES DE PLUS. Les premiers couvraient l'histoire de France du CM
+    // à la troisième ; il manquait la préhistoire, les dynasties, l'Europe, la
+    // Guerre froide, les révolutions industrielles — et deux frises qui ne
+    // sont pas de l'histoire du tout : l'année de classe, qu'on affiche en
+    // septembre, et les ères géologiques, qui sont au programme de SVT.
+    r.egal('et les nouveaux venus sont là, jusqu\'à la SVT et à l\'année de classe',
+        ['prehistoire', 'dynasties', 'guerre-froide', 'europe', 'industrielles',
+         'annee-scolaire', 'terre', 'ma-vie'].filter(c => !modeles.noms.includes(c)), []);
     r.verifie('dont les grandes périodes, le XXe siècle et la Révolution',
         ['grandes-periodes', 'xxe', 'revolution', 'antiquite', 'moyen-age'].every(c => modeles.noms.includes(c)),
         JSON.stringify(modeles.noms));
     r.egal('aucun modèle bancal', modeles.bancals, []);
-    r.egal('quatre styles', modeles.styles, ['fleche', 'bandeau', 'ruban', 'jalons']);
+    r.egal('sept styles, et le nom de chacun est écrit',
+        modeles.styles,
+        ['fleche', 'bandeau', 'ruban', 'jalons', 'impression', 'craie', 'cartouche']);
+    r.egal('chaque style a son habit : encre, fond, remplissage',
+        modeles.habitsIncomplets, []);
     r.egal('le Moyen Âge va de 476 à 1492', modeles.moyenAge, [476, 1492]);
 
     // --- LES ANNÉES AVANT NOTRE ÈRE ---
@@ -176,6 +193,154 @@ module.exports = async function (browser) {
         JSON.stringify({ ruban: styles.ruban.aDesArrondis, bandeau: styles.bandeau.aDesArrondis }));
     r.verifie('la flèche et les jalons ont une pointe',
         styles.fleche.aUneFleche && styles.jalons.aUneFleche);
+
+    // --- LES TROIS HABILLAGES DE PLUS ---
+    // Les quatre premiers se ressemblaient beaucoup : une bande colorée, avec
+    // ou sans coins arrondis. Ceux-ci changent de DESTINATION — l'un va à la
+    // photocopieuse, l'autre au tableau noir, le troisième au mur de la classe.
+    const habits = await page.evaluate(() => {
+        const p = PluginManager.plugins.friseTool;
+        const faire = (style) => {
+            const e = p.etatDuModele('xxe');
+            e.style = style;
+            return p.fabriquerSVG(e, 1200);
+        };
+        const lire = (style) => {
+            const f = faire(style);
+            const xs = [];
+            const motif = /\sx1?="(-?\d+(?:\.\d+)?)"/g;
+            let m;
+            while ((m = motif.exec(f.svg)) !== null) xs.push(parseFloat(m[1]));
+            return {
+                svg: f.svg, hauteur: f.hauteur, empreinte: f.svg.length,
+                horsCadre: xs.filter(v => v < -1 || v > 1201).length,
+                // Le fond de l'image, qui n'est plus forcément blanc.
+                fond: (f.svg.match(/<rect width="1200"[^>]*fill="(#[0-9a-f]{6})"/i) || [])[1],
+                // Les aplats de couleur des périodes : la photocopie n'en a pas.
+                aplats: (f.svg.match(/fill="#d63031"/g) || []).length,
+                trames: /url\(#fr-trame-/.test(f.svg),
+                ombre: /filter="url\(#fr-ombre\)"/.test(f.svg),
+                // Le nom d'une période écrit en clair, pour le fond sombre.
+                encreClaire: /fill="#f5f6fa"/.test(f.svg),
+                // LE TITRE AUSSI : écrit en ardoise sur un fond ardoise, il
+                // disparaissait purement et simplement.
+                titre: (f.svg.match(/font-size="26"[^>]*fill="(#[0-9a-f]{6})"/i) || [])[1],
+                // LES NOMS SOUS LES CARTOUCHES SE MESURENT POUR DE VRAI. On
+                // pose le dessin dans la page et l'on demande au navigateur la
+                // boîte de chaque mot : une largeur estimée au compte des
+                // lettres se trompe assez pour laisser passer un recouvrement.
+                sousLesCartes: (() => {
+                    const bac = document.createElement('div');
+                    bac.style.cssText = 'position:fixed; left:-9999px; top:0; width:1200px;';
+                    bac.innerHTML = f.svg;
+                    document.body.appendChild(bac);
+                    const noms = [...bac.querySelectorAll('text')]
+                        .filter(t => t.getAttribute('font-size') === '14'
+                            && t.getAttribute('font-weight') === '700')
+                        .map(t => {
+                            const b = t.getBBox();
+                            return { texte: t.textContent, g: b.x, d: b.x + b.width };
+                        });
+                    bac.remove();
+                    return noms;
+                })()
+            };
+        };
+        // ET SUR UNE FRISE ÉTROITE, où les cartes se serrent : c'est là que
+        // deux noms se touchent, pas sur une frise au large.
+        const serree = (larg) => {
+            const e = p.etatDuModele('xxe');
+            e.style = 'cartouche';
+            const f = p.fabriquerSVG(e, larg);
+            const bac = document.createElement('div');
+            bac.style.cssText = 'position:fixed; left:-9999px; top:0;';
+            bac.innerHTML = f.svg;
+            document.body.appendChild(bac);
+            const noms = [...bac.querySelectorAll('text')]
+                .filter(t => t.getAttribute('font-size') === '14' && t.getAttribute('font-weight') === '700')
+                .map(t => { const b = t.getBBox(); return { texte: t.textContent, g: b.x, d: b.x + b.width }; })
+                .sort((a, b) => a.g - b.g);
+            bac.remove();
+            let choc = null;
+            for (let i = 1; i < noms.length; i++) {
+                if (noms[i].g < noms[i - 1].d - 1) choc = [noms[i - 1].texte, noms[i].texte];
+            }
+            return { combien: noms.length, choc };
+        };
+        return { impression: lire('impression'), craie: lire('craie'),
+                 cartouche: lire('cartouche'), bandeau: lire('bandeau'),
+                 etroites: [1200, 900, 760, 600].map(l => ({ largeur: l, ...serree(l) })) };
+    });
+    r.egal('la photocopie sort en noir et blanc : plus un aplat de couleur',
+        { aplats: habits.impression.aplats, fond: habits.impression.fond },
+        { aplats: 0, fond: '#ffffff' });
+    r.verifie('mais les périodes restent distinctes : une trame par période',
+        habits.impression.trames, JSON.stringify({ trames: habits.impression.trames }));
+    r.egal('le tableau noir a un fond sombre et une encre claire',
+        { fond: habits.craie.fond, encre: habits.craie.encreClaire },
+        { fond: '#26323a', encre: true });
+    r.verifie('les cartouches sont des cartes détachées, avec leur ombre',
+        habits.cartouche.ombre, JSON.stringify({ ombre: habits.cartouche.ombre }));
+    r.verifie('et le nom d\'un cartouche est écrit dans la couleur de sa période',
+        habits.cartouche.svg.indexOf('fill="#d63031"') > 0,
+        'la couleur de la période doit servir au texte');
+    // CHACUN RESTE SOUS SA CARTE. Leur accorder une largeur minimale les
+    // faisait déborder sur leurs voisins : « Belle Époque » recouvrait
+    // « Première Guerre mondiale ». Une carte trop étroite se passe de nom —
+    // sa couleur et ses dates la désignent déjà.
+    const chevauche = (() => {
+        const n = habits.cartouche.sousLesCartes.slice().sort((a, b) => a.g - b.g);
+        for (let i = 1; i < n.length; i++) {
+            if (n[i].g < n[i - 1].d - 1) return [n[i - 1].texte, n[i].texte];
+        }
+        return null;
+    })();
+    r.verifie('plusieurs cartouches portent leur nom',
+        habits.cartouche.sousLesCartes.length >= 3,
+        JSON.stringify(habits.cartouche.sousLesCartes.map(x => x.texte)));
+    r.egal('et aucun nom n\'en recouvre un autre', chevauche, null);
+    // MÊME SERRÉE. C'est sur une frise étroite que deux noms se touchent, pas
+    // sur une frise au large : à 760 pixels, « Entre-deux-guerres » mordait
+    // sur « Seconde Guerre mondiale ».
+    r.egal('à toutes les largeurs, aucun nom ne mord sur son voisin',
+        habits.etroites.filter(e => e.choc).map(e => e.largeur + ' : ' + e.choc.join(' / ')), []);
+    r.verifie('et il en reste toujours à lire, même serrée',
+        habits.etroites.every(e => e.combien >= 3),
+        JSON.stringify(habits.etroites.map(e => [e.largeur, e.combien])));
+    r.egal('sur fond sombre, le titre s\'écrit en clair lui aussi',
+        habits.craie.titre, '#f5f6fa');
+    ['impression', 'craie', 'cartouche'].forEach(s => {
+        r.egal(`rien ne sort de l'image (${s})`, habits[s].horsCadre, 0);
+    });
+    r.verifie('et les trois donnent trois dessins bien distincts du bandeau',
+        new Set(['impression', 'craie', 'cartouche', 'bandeau']
+            .map(s => habits[s].empreinte)).size === 4,
+        JSON.stringify(['impression', 'craie', 'cartouche', 'bandeau'].map(s => habits[s].empreinte)));
+
+    // TOUS LES MODÈLES DANS TOUS LES STYLES. Seize modèles, sept habits :
+    // c'est cent douze frises, et pas une ne doit se dessiner de travers.
+    const croisement = await page.evaluate(() => {
+        const p = PluginManager.plugins.friseTool;
+        const pannes = [];
+        p.MODELES.forEach(m => p.STYLES.forEach(st => {
+            try {
+                const e = p.etatDuModele(m.cle);
+                e.style = st.cle;
+                const f = p.fabriquerSVG(e, 1200);
+                if (!f || !f.svg || f.hauteur < 40) { pannes.push(m.cle + '/' + st.cle); return; }
+                const xs = [];
+                const motif = /\sx1?="(-?\d+(?:\.\d+)?)"/g;
+                let x;
+                while ((x = motif.exec(f.svg)) !== null) xs.push(parseFloat(x[1]));
+                if (xs.some(v => v < -1 || v > 1201)) pannes.push(m.cle + '/' + st.cle + ' (déborde)');
+                if (/NaN|undefined/.test(f.svg)) pannes.push(m.cle + '/' + st.cle + ' (trou)');
+            } catch (err) { pannes.push(m.cle + '/' + st.cle + ' : ' + err.message); }
+        }));
+        return { combien: p.MODELES.length * p.STYLES.length, pannes };
+    });
+    r.verifie('les seize modèles et les sept habits font plus de cent frises',
+        croisement.combien >= 112, String(croisement.combien));
+    r.egal('et pas une ne se dessine de travers', croisement.pannes, []);
 
     // --- L'ATELIER ---
     await page.evaluate(() => PluginManager.plugins.friseTool.ouvrir());

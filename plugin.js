@@ -6185,6 +6185,138 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
                 { annee: 1945, libelle: 'Capitulations' }
             ]
         },
+        // ------------------------------------------------------------------
+        // HUIT MODÈLES DE PLUS. « Pour l'atelier frise, tu peux me faire
+        // d'autres templates et d'autres styles. » Les huit premiers
+        // couvraient l'histoire de France du CM à la troisième ; il manquait
+        // la préhistoire, les dynasties, l'Europe, la Guerre froide, les
+        // révolutions industrielles — et deux frises qui ne sont pas de
+        // l'histoire du tout : l'année de classe, qu'on affiche en septembre,
+        // et les ères géologiques, qui sont au programme de SVT.
+        // ------------------------------------------------------------------
+        {
+            cle: 'prehistoire', nom: 'La Préhistoire',
+            titre: 'La Préhistoire', echelle: 'egale', style: 'ruban',
+            periodes: [
+                { nom: 'Paléolithique', debut: -3000000, fin: -10000, couleur: '#8d6e63' },
+                { nom: 'Néolithique', debut: -10000, fin: -3000, couleur: '#00b894' },
+                { nom: 'Âge des métaux', debut: -3000, fin: -800, couleur: '#e17055' }
+            ],
+            evenements: [
+                { annee: -400000, libelle: 'Maîtrise du feu' },
+                { annee: -36000, libelle: 'Grotte Chauvet' },
+                { annee: -10000, libelle: 'Agriculture et élevage' },
+                { annee: -3300, libelle: 'Écriture' }
+            ]
+        },
+        {
+            cle: 'dynasties', nom: 'Les dynasties royales françaises',
+            titre: 'Les dynasties royales françaises',
+            echelle: 'proportionnelle', style: 'bandeau',
+            periodes: [
+                { nom: 'Mérovingiens', debut: 481, fin: 751, couleur: '#8d6e63' },
+                { nom: 'Carolingiens', debut: 751, fin: 987, couleur: '#e17055' },
+                { nom: 'Capétiens', debut: 987, fin: 1328, couleur: '#0984e3' },
+                { nom: 'Valois', debut: 1328, fin: 1589, couleur: '#00b894' },
+                { nom: 'Bourbons', debut: 1589, fin: 1792, couleur: '#6c5ce7' }
+            ],
+            evenements: [
+                { annee: 496, libelle: 'Baptême de Clovis' },
+                { annee: 800, libelle: 'Charlemagne empereur' },
+                { annee: 987, libelle: 'Hugues Capet' },
+                { annee: 1589, libelle: 'Henri IV' }
+            ]
+        },
+        {
+            cle: 'guerre-froide', nom: 'La Guerre froide',
+            titre: 'La Guerre froide', echelle: 'proportionnelle', style: 'jalons',
+            periodes: [
+                { nom: 'Premières tensions', debut: 1947, fin: 1953, couleur: '#d63031' },
+                { nom: 'Coexistence pacifique', debut: 1953, fin: 1962, couleur: '#0984e3' },
+                { nom: 'Détente', debut: 1962, fin: 1975, couleur: '#00b894' },
+                { nom: 'Guerre fraîche', debut: 1975, fin: 1985, couleur: '#e17055' },
+                { nom: 'Fin du bloc soviétique', debut: 1985, fin: 1991, couleur: '#636e72' }
+            ],
+            evenements: [
+                { annee: 1948, libelle: 'Blocus de Berlin' },
+                { annee: 1961, libelle: 'Mur de Berlin' },
+                { annee: 1962, libelle: 'Crise de Cuba' },
+                { annee: 1989, libelle: 'Chute du Mur' },
+                { annee: 1991, libelle: 'Fin de l\'URSS' }
+            ]
+        },
+        {
+            cle: 'europe', nom: 'La construction européenne',
+            titre: 'La construction européenne', echelle: 'proportionnelle', style: 'ruban',
+            periodes: [
+                { nom: 'Les six', debut: 1957, fin: 1973, couleur: '#0984e3' },
+                { nom: 'Élargissements', debut: 1973, fin: 1992, couleur: '#00b894' },
+                { nom: 'Union européenne', debut: 1992, fin: 2004, couleur: '#6c5ce7' },
+                { nom: 'Europe des 27', debut: 2004, fin: 2030, couleur: '#00cec9' }
+            ],
+            evenements: [
+                { annee: 1951, libelle: 'CECA' },
+                { annee: 1957, libelle: 'Traité de Rome' },
+                { annee: 1992, libelle: 'Maastricht' },
+                { annee: 2002, libelle: 'L\'euro' }
+            ]
+        },
+        {
+            cle: 'industrielles', nom: 'Les révolutions industrielles',
+            titre: 'Les révolutions industrielles', echelle: 'proportionnelle', style: 'bandeau',
+            periodes: [
+                { nom: 'Charbon et vapeur', debut: 1780, fin: 1870, couleur: '#636e72' },
+                { nom: 'Électricité et pétrole', debut: 1870, fin: 1970, couleur: '#fdcb6e' },
+                { nom: 'Informatique', debut: 1970, fin: 2030, couleur: '#0984e3' }
+            ],
+            evenements: [
+                { annee: 1769, libelle: 'Machine à vapeur' },
+                { annee: 1879, libelle: 'Lampe électrique' },
+                { annee: 1969, libelle: 'Premier réseau' },
+                { annee: 1991, libelle: 'Web public' }
+            ]
+        },
+        {
+            cle: 'annee-scolaire', nom: 'L\'année scolaire',
+            titre: 'Notre année scolaire', echelle: 'egale', style: 'ruban',
+            periodes: [
+                { nom: 'Période 1', debut: 9, fin: 11, couleur: '#e17055' },
+                { nom: 'Période 2', debut: 11, fin: 13, couleur: '#0984e3' },
+                { nom: 'Période 3', debut: 13, fin: 15, couleur: '#00b894' },
+                { nom: 'Période 4', debut: 15, fin: 17, couleur: '#fdcb6e' },
+                { nom: 'Période 5', debut: 17, fin: 19, couleur: '#6c5ce7' }
+            ],
+            evenements: []
+        },
+        {
+            cle: 'terre', nom: 'L\'histoire de la Terre',
+            titre: 'L\'histoire de la Terre', echelle: 'egale', style: 'ruban',
+            periodes: [
+                { nom: 'Précambrien', debut: -4600000000, fin: -541000000, couleur: '#636e72' },
+                { nom: 'Paléozoïque', debut: -541000000, fin: -252000000, couleur: '#0984e3' },
+                { nom: 'Mésozoïque', debut: -252000000, fin: -66000000, couleur: '#00b894' },
+                { nom: 'Cénozoïque', debut: -66000000, fin: 0, couleur: '#e17055' }
+            ],
+            evenements: [
+                { annee: -3500000000, libelle: 'Premières bactéries' },
+                { annee: -530000000, libelle: 'Explosion cambrienne' },
+                { annee: -66000000, libelle: 'Fin des dinosaures' }
+            ]
+        },
+        {
+            cle: 'ma-vie', nom: 'Ma vie (frise personnelle)',
+            titre: 'Ma vie', echelle: 'proportionnelle', style: 'jalons',
+            periodes: [
+                { nom: 'Maternelle', debut: 3, fin: 6, couleur: '#fdcb6e' },
+                { nom: 'Élémentaire', debut: 6, fin: 11, couleur: '#0984e3' },
+                { nom: 'Collège', debut: 11, fin: 15, couleur: '#00b894' }
+            ],
+            evenements: [
+                { annee: 0, libelle: 'Ma naissance' },
+                { annee: 6, libelle: 'Le CP' },
+                { annee: 11, libelle: 'La sixième' }
+            ]
+        },
         {
             cle: 'vide', nom: 'Frise vide (à remplir)',
             titre: '', echelle: 'proportionnelle', style: 'fleche',
@@ -6196,12 +6328,48 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         }
     ],
 
+    // TROIS HABILLAGES DE PLUS. Les quatre premiers se ressemblaient beaucoup :
+    // une bande colorée, avec ou sans coins arrondis. Ceux-ci changent
+    // vraiment de destination — l'un va à la photocopieuse, l'autre au tableau
+    // noir, le troisième au mur de la classe.
     STYLES: [
         { cle: 'fleche', nom: 'Flèche du temps' },
         { cle: 'bandeau', nom: 'Bandeau' },
         { cle: 'ruban', nom: 'Ruban arrondi' },
-        { cle: 'jalons', nom: 'Axe et jalons' }
+        { cle: 'jalons', nom: 'Axe et jalons' },
+        { cle: 'impression', nom: 'Photocopie (noir et blanc)' },
+        { cle: 'craie', nom: 'Tableau noir (craie)' },
+        { cle: 'cartouche', nom: 'Cartouches' }
     ],
+
+    // CE QUE CHAQUE HABILLAGE CHANGE. Rassemblé en un seul endroit : la
+    // couleur de l'encre, celle du fond, la façon de remplir une période et
+    // celle d'écrire son nom. Le rendu n'a plus qu'à demander.
+    HABITS: {
+        fleche: { encre: '#2d3436', fond: '#ffffff', nomDansLaVoie: true, opacite: 0.9, rayon: 0 },
+        bandeau: { encre: '#2d3436', fond: '#ffffff', nomDansLaVoie: true, opacite: 1, rayon: 0 },
+        ruban: { encre: '#2d3436', fond: '#ffffff', nomDansLaVoie: true, opacite: 0.9, rayon: 22 },
+        jalons: { encre: '#2d3436', fond: '#ffffff', nomDansLaVoie: false, opacite: 1, rayon: 6 },
+        // LA PHOTOCOPIE NE CONNAÎT PAS LES COULEURS. Une frise en aplats
+        // colorés sort de la machine en cinq gris qui se confondent : ici, les
+        // périodes sont blanches, hachurées différemment, et leur nom est
+        // écrit en noir dedans.
+        impression: { encre: '#000000', fond: '#ffffff', nomDansLaVoie: true,
+                      opacite: 0, rayon: 0, hachures: true, nomEnEncre: true, trait: 2 },
+        // LE TABLEAU NOIR : c'est là que la frise vit pendant l'heure. Fond
+        // sombre, traits clairs, aplats à peine posés — comme à la craie.
+        craie: { encre: '#f5f6fa', fond: '#26323a', nomDansLaVoie: true,
+                 opacite: 0.45, rayon: 4, trait: 1.6 },
+        // LES CARTOUCHES : chaque période est une carte détachée, avec son
+        // nom écrit DESSOUS dans sa propre couleur. C'est la frise qu'on
+        // affiche au mur et qu'on lit de loin.
+        cartouche: { encre: '#2d3436', fond: '#ffffff', nomDansLaVoie: false,
+                     opacite: 1, rayon: 10, carte: true, nomSousLaVoie: true }
+    },
+
+    habitDe: function (style) {
+        return this.HABITS[style] || this.HABITS.bandeau;
+    },
 
     // ------------------------------------------------------------------
     // L'ÉTAT
@@ -6347,6 +6515,7 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         const utile = L - marge * 2 - pointe;
         const plan = this.placer(etat, utile);
 
+        const habit = this.habitDe(etat.style);
         const hautTitre = etat.titre ? 44 : 10;
         // LA HAUTEUR SE RÈGLE. 46 pixels, c'était bien pour deux mots ; au
         // vidéoprojecteur, du fond de la classe, une bande plus épaisse se
@@ -6358,6 +6527,9 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         // Le nom d'une période se pose DANS la voie, sauf en « jalons » où la
         // voie est un simple segment : il se pose alors juste au-dessus.
         const hautNoms = (etat.style === 'jalons' && etat.options.noms) ? 18 : 0;
+        // Les cartouches écrivent le nom SOUS la carte : il faut lui faire
+        // sa place, sinon il tombe sur les dates.
+        const basNoms = (habit.nomSousLaVoie && etat.options.noms) ? 22 : 0;
         const yPile = hautTitre + hautNoms + 14;
         const basPile = yPile + pile;
 
@@ -6367,14 +6539,26 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         // serrées — « 14 juillet : Bastille » recouvrait « 1793 · La Terreur ».
         const evenements = (etat.evenements || []).slice().sort((a, b) => a.annee - b.annee);
         const etiquettes = this.empilerLesEtiquettes(evenements, (e) => marge + plan.position(e.annee), L);
-        const yDates = basPile + 20;
-        const yEvenements = basPile + (etat.options.dates ? 40 : 18);
+        const yDates = basPile + basNoms + 20;
+        const yEvenements = basPile + basNoms + (etat.options.dates ? 40 : 18);
         const hauteur = Math.round(yEvenements + etiquettes.rangs * 22 + 10);
 
         let corps = '';
+        // LES HACHURES DE LA PHOTOCOPIE : une trame par période, pour qu'on
+        // les distingue quand la couleur a disparu dans le gris.
+        if (habit.hachures) {
+            corps += '<defs>' + [0, 45, 90, 135].map((a, i) =>
+                `<pattern id="fr-trame-${i}" width="8" height="8" patternUnits="userSpaceOnUse"
+                    patternTransform="rotate(${a})"><line x1="0" y1="0" x2="0" y2="8"
+                    stroke="#000000" stroke-width="1.1" stroke-opacity="0.45"/></pattern>`).join('') + '</defs>';
+        }
+        if (habit.carte) {
+            corps += `<defs><filter id="fr-ombre" x="-10%" y="-20%" width="120%" height="150%">
+                <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.22"/></filter></defs>`;
+        }
         if (etat.titre) {
             corps += `<text x="${L / 2}" y="30" text-anchor="middle" font-family="sans-serif"
-                font-size="26" font-weight="600" fill="#2d3436">${this.echapper(etat.titre)}</text>`;
+                font-size="26" font-weight="600" fill="${habit.encre}">${this.echapper(etat.titre)}</text>`;
         }
 
         const yDeLaVoie = (v) => yPile + v * (hauteurVoie + ecart);
@@ -6382,10 +6566,10 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         // --- L'axe, pour les styles qui en ont un ---
         if (etat.style === 'fleche') {
             corps += `<rect x="${marge}" y="${yPile}" width="${utile}" height="${pile}" fill="none"
-                stroke="#2d3436" stroke-width="2"/>`;
+                stroke="${habit.encre}" stroke-width="2"/>`;
             const yMil = yPile + pile / 2;
             corps += `<polygon points="${marge + utile},${yPile - 8} ${marge + utile + pointe},${yMil} ${marge + utile},${basPile + 8}"
-                fill="#2d3436"/>`;
+                fill="${habit.encre}"/>`;
         }
 
         // --- Les périodes ---
@@ -6398,22 +6582,62 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
                 if (etat.options.noms) {
                     const a = this.ancrageDe(x + l / 2, L);
                     corps += `<text x="${a.x.toFixed(1)}" y="${yc - 13}" text-anchor="${a.ancre}"
-                        font-family="sans-serif" font-size="13" fill="#2d3436"
+                        font-family="sans-serif" font-size="13" fill="${habit.encre}"
                         >${this.echapper(this.tenirDans(c.p.nom, Math.max(l, 90), 13))}</text>`;
                 }
                 return;
             }
-            const rayon = etat.style === 'ruban' ? Math.min(22, hauteurVoie / 2) : 0;
-            const opacite = etat.style === 'bandeau' ? 1 : 0.9;
+            const rayon = Math.min(habit.rayon, hauteurVoie / 2);
+            const marqueur = this.marque(etat, 'periode', c.p);
+            const rang = plan.cases.indexOf(c);
+            // La photocopie remplit de blanc et pose une trame ; le reste
+            // remplit de la couleur de la période, plus ou moins posée.
+            const remplissage = habit.hachures ? '#ffffff' : c.p.couleur;
             corps += `<rect x="${x.toFixed(1)}" y="${y}" width="${l.toFixed(1)}" height="${hauteurVoie}"
-                rx="${rayon}" fill="${c.p.couleur}" fill-opacity="${opacite}"
-                stroke="#2d3436" stroke-width="1.2"${this.marque(etat, 'periode', c.p)}/>`;
+                rx="${rayon}" fill="${remplissage}" fill-opacity="${habit.hachures ? 1 : habit.opacite}"
+                stroke="${habit.encre}" stroke-width="${habit.trait || 1.2}"
+                ${habit.carte ? 'filter="url(#fr-ombre)"' : ''}${marqueur}/>`;
+            if (habit.hachures) {
+                corps += `<rect x="${x.toFixed(1)}" y="${y}" width="${l.toFixed(1)}" height="${hauteurVoie}"
+                    rx="${rayon}" fill="url(#fr-trame-${rang % 4})" stroke="none"${marqueur}/>`;
+            }
             if (etat.options.noms) {
                 const taille = Math.max(12, Math.min(30, Math.round(hauteurVoie * 0.33)));
-                corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + taille * 0.35}"
-                    text-anchor="middle" font-family="sans-serif" font-size="${taille}" font-weight="600"
-                    fill="#ffffff" stroke="rgba(0,0,0,0.35)" stroke-width="2.5" paint-order="stroke"
-                    ${this.marque(etat, 'periode', c.p)}>${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
+                if (habit.nomSousLaVoie) {
+                    // Le nom SOUS la carte, dans la couleur de la période :
+                    // c'est la carte qu'on regarde, le nom qui l'appelle.
+                    // IL RESTE SOUS SA CARTE. Lui accorder une largeur
+                    // minimale le faisait déborder sur ses voisins : « Belle
+                    // Époque » recouvrait « Première Guerre mondiale ». Une
+                    // carte trop étroite pour deux lettres se passe de nom —
+                    // sa couleur et ses dates la désignent déjà.
+                    // LE NOM TIENT DANS SA CARTE, pas un pixel de plus. Lui
+                    // laisser déborder de huit pixels de chaque côté suffisait
+                    // à ce que deux voisins se touchent dès que la frise est
+                    // étroite : « Entre-deux-guerres » mordait sur « Seconde
+                    // Guerre mondiale » à 760 pixels de large. Les cartes, elles,
+                    // ne se recouvrent jamais : un nom qui reste dedans non plus.
+                    const place = l - 4;
+                    if (place >= 40) {
+                        const a = this.ancrageDe(x + l / 2, L);
+                        corps += `<text x="${a.x.toFixed(1)}" y="${(y + hauteurVoie + 17).toFixed(1)}"
+                            text-anchor="${a.ancre}" font-family="sans-serif" font-size="14" font-weight="700"
+                            fill="${c.p.couleur}"${marqueur}>${this.echapper(this.tenirDans(c.p.nom, place, 14))}</text>`;
+                    }
+                } else if (habit.nomEnEncre) {
+                    // À la photocopie, un nom blanc cerné de noir devient une
+                    // bouillie grise : on écrit en noir, sur le blanc de la
+                    // période, avec un halo blanc pour passer sur la trame.
+                    corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + taille * 0.35}"
+                        text-anchor="middle" font-family="sans-serif" font-size="${taille}" font-weight="700"
+                        fill="${habit.encre}" stroke="#ffffff" stroke-width="3.5" paint-order="stroke"
+                        ${marqueur}>${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
+                } else {
+                    corps += `<text x="${(x + l / 2).toFixed(1)}" y="${y + hauteurVoie / 2 + taille * 0.35}"
+                        text-anchor="middle" font-family="sans-serif" font-size="${taille}" font-weight="600"
+                        fill="#ffffff" stroke="rgba(0,0,0,0.35)" stroke-width="2.5" paint-order="stroke"
+                        ${marqueur}>${this.echapper(this.tenirDans(c.p.nom, l - 8, taille))}</text>`;
+                }
             }
         });
 
@@ -6421,9 +6645,9 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
         if (etat.style === 'jalons') {
             const y = basPile + 2;
             corps += `<line x1="${marge}" y1="${y}" x2="${marge + utile}" y2="${y}"
-                stroke="#2d3436" stroke-width="2.5"/>`;
+                stroke="${habit.encre}" stroke-width="2.5"/>`;
             corps += `<polygon points="${marge + utile},${y - 8} ${marge + utile + pointe},${y} ${marge + utile},${y + 8}"
-                fill="#2d3436"/>`;
+                fill="${habit.encre}"/>`;
         }
 
         // --- Les dates : les bornes de chaque période, une fois chacune ---
@@ -6433,11 +6657,11 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
             const poser = (annee, x) => {
                 if (posees.some(v => Math.abs(v - x) < minimum)) return;
                 posees.push(x);
-                corps += `<line x1="${x.toFixed(1)}" y1="${basPile}" x2="${x.toFixed(1)}" y2="${basPile + 6}"
-                    stroke="#2d3436" stroke-width="1.5"/>`;
+                corps += `<line x1="${x.toFixed(1)}" y1="${basPile + basNoms}" x2="${x.toFixed(1)}" y2="${basPile + basNoms + 6}"
+                    stroke="${habit.encre}" stroke-width="1.5"/>`;
                 const a = this.ancrageDe(x, L);
                 corps += `<text x="${a.x.toFixed(1)}" y="${yDates}" text-anchor="${a.ancre}" font-family="sans-serif"
-                    font-size="14" font-weight="600" fill="#2d3436">${this.echapper(this.anneeEnClair(annee, true))}</text>`;
+                    font-size="14" font-weight="600" fill="${habit.encre}">${this.echapper(this.anneeEnClair(annee, true))}</text>`;
             };
             // De gauche à droite, pour que la date écartée soit la plus à
             // droite d'un couple trop serré — et non la première venue.
@@ -6454,11 +6678,11 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
             const x = marge + plan.position(e.annee);
             const y = yEvenements + etiquettes.rang[i] * 22;
             corps += `<line x1="${x.toFixed(1)}" y1="${basPile + 8}" x2="${x.toFixed(1)}" y2="${y - 9}"
-                stroke="#b2bec3" stroke-width="1.2" stroke-dasharray="3 3"/>`;
-            corps += `<circle cx="${x.toFixed(1)}" cy="${basPile}" r="3.5" fill="#2d3436"/>`;
+                stroke="${habit.encre}" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+            corps += `<circle cx="${x.toFixed(1)}" cy="${basPile}" r="3.5" fill="${habit.encre}"/>`;
             const a = this.ancrageDe(x, L);
             corps += `<text x="${a.x.toFixed(1)}" y="${y}" text-anchor="${a.ancre}" font-family="sans-serif"
-                font-size="13" fill="#2d3436"
+                font-size="13" fill="${habit.encre}"
                 >${this.echapper(this.anneeEnClair(e.annee, true) + ' · ' + e.libelle)}</text>`;
         });
 
@@ -6488,7 +6712,7 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
 
         return {
             svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${L}" height="${hauteur}" viewBox="0 0 ${L} ${hauteur}">
-                <rect width="${L}" height="${hauteur}" fill="#ffffff"/>${corps}</svg>`,
+                <rect width="${L}" height="${hauteur}" rx="${habit.fond === '#ffffff' ? 0 : 10}" fill="${habit.fond}"/>${corps}</svg>`,
             largeur: L, hauteur, voies: plan.voies
         };
     },
