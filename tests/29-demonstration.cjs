@@ -635,6 +635,100 @@ module.exports = async function (browser) {
     r.verifie('…mais l\'interface du professeur n\'a rien reçu, et la barre s\'en va avec elle',
         interfaceIntacte.intact && !interfaceIntacte.reste, JSON.stringify(interfaceIntacte));
 
+    // ET SI LE PROFESSEUR S'EST FAIT SA PANOPLIE ? « Est-ce que ça fonctionne
+    // aussi ? » — non : la visite désigne les VRAIS boutons de la vraie barre
+    // (« le crayon est le premier », et la main appuie dessus), et celle d'un
+    // professeur qui s'est fait la sienne peut ne plus les contenir. La main
+    // désignait alors le vide, et l'outil changeait tout seul. On repose donc
+    // la barre d'origine pour la durée de la visite — SANS RIEN ÉCRIRE — et
+    // l'on rend la sienne en sortant.
+    const panoplie = await page.evaluate(async () => {
+        const garde = localStorage.getItem('board_floating_toolbars');
+        localStorage.setItem('board_floating_toolbars', JSON.stringify([
+            { id: 'system-toolbar-main', name: 'Mes outils', x: 20, y: 80,
+              titlePalette: 'default', palette: 'default', borderPalette: 'default',
+              iconSize: '1', cols: 2, protected: true,
+              initialItems: ['pointer', 'text', 'laser'], items: ['pointer', 'text', 'laser'] },
+            { id: 'floating-perso', name: 'Géométrie', x: 400, y: 300,
+              titlePalette: 'default', palette: 'default', borderPalette: 'default',
+              iconSize: '1', cols: 2, items: ['segment', 'circle'] }
+        ]));
+        renderFloatingToolbars();
+        const lire = () => ({
+            barres: [...document.querySelectorAll('#custom-bars-container .custom-toolbar')].map(b => b.id),
+            crayon: !!document.querySelector('#system-toolbar-main [data-mode="freehand"]'),
+            gomme: !!document.querySelector('#system-toolbar-main [data-mode="eraser"]'),
+            stock: (JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]')
+                .find(t => t.id === 'system-toolbar-main') || {}).items
+        });
+        const sienne = lire();
+        demarrerLaDemonstration();
+        await new Promise(r => setTimeout(r, 250));
+        const pendant = lire();
+        // TOUT CE QUI RAFRAÎCHIT LES BARRES pendant la visite — l'arrimage des
+        // favoris, une seconde et demie après le chargement — lui rendait sa
+        // panoplie AU MILIEU d'un chapitre, et la main se remettait à désigner
+        // des boutons absents.
+        renderFloatingToolbars();
+        const apresUnRafraichissement = lire();
+        arreterLaDemonstration();
+        await new Promise(r => setTimeout(r, 250));
+        const apres = lire();
+        if (garde === null) localStorage.removeItem('board_floating_toolbars');
+        else localStorage.setItem('board_floating_toolbars', garde);
+        renderFloatingToolbars();
+        return { sienne, pendant, apresUnRafraichissement, apres };
+    });
+    r.egal('une panoplie personnalisée peut n\'avoir ni crayon ni gomme',
+        { crayon: panoplie.sienne.crayon, gomme: panoplie.sienne.gomme,
+          barres: panoplie.sienne.barres },
+        { crayon: false, gomme: false, barres: ['system-toolbar-main', 'floating-perso'] });
+    r.egal('la visite repose la barre d\'origine, et n\'écrit rien chez lui',
+        { crayon: panoplie.pendant.crayon, gomme: panoplie.pendant.gomme,
+          barres: panoplie.pendant.barres, stock: panoplie.pendant.stock },
+        { crayon: true, gomme: true, barres: ['system-toolbar-main'],
+          stock: ['pointer', 'text', 'laser'] });
+    r.egal('un rafraîchissement au milieu de la visite ne lui rend pas la sienne trop tôt',
+        { crayon: panoplie.apresUnRafraichissement.crayon,
+          barres: panoplie.apresUnRafraichissement.barres },
+        { crayon: true, barres: ['system-toolbar-main'] });
+    r.egal('et elle lui est rendue en sortant, ses barres à lui comprises',
+        { crayon: panoplie.apres.crayon, barres: panoplie.apres.barres,
+          stock: panoplie.apres.stock },
+        { crayon: false, barres: ['system-toolbar-main', 'floating-perso'],
+          stock: ['pointer', 'text', 'laser'] });
+
+    // ON VOIT L'ICÔNE PARTIR DU TIROIR. « On ne voit pas la création de toolbar
+    // par glisser-déposer des icônes » : le chapitre le DISAIT, et la barre
+    // apparaissait toute seule une seconde plus tard, ailleurs. Et « le lecteur
+    // est en haut » : la barre de la visite était montée pour le tiroir du bas,
+    // juste devant le tiroir des outils qu'on allait ouvrir.
+    await page.evaluate(() => { demarrerLaDemonstration(); allerAuChapitre(8); });
+    const glisse = { fantome: false, enHaut: true, outils: 0, tiroir: false };
+    for (let k = 0; k < 220; k++) {
+        await page.waitForTimeout(90);
+        const e = await page.evaluate(() => ({
+            fantome: getComputedStyle(document.getElementById('drag-ghost')).display !== 'none',
+            enHaut: document.getElementById('demo-barre').classList.contains('en-haut'),
+            tiroir: !document.getElementById('bar-plugins').classList.contains('closed'),
+            outils: document.querySelectorAll('#floating-demo .cwrap .btn').length,
+            dit: document.getElementById('demo-dit').textContent
+        }));
+        if (e.fantome) { glisse.fantome = true; glisse.enHaut = glisse.enHaut && e.enHaut; }
+        if (e.tiroir) glisse.tiroir = true;
+        glisse.outils = Math.max(glisse.outils, e.outils);
+        if (/revient intacte/.test(e.dit)) break;
+    }
+    await page.evaluate(() => arreterLaDemonstration());
+    r.verifie('le chapitre de l\'interface ouvre le tiroir des outils',
+        glisse.tiroir, JSON.stringify(glisse));
+    r.verifie('et l\'on voit l\'icône quitter le tiroir : le fantôme suit la main',
+        glisse.fantome, JSON.stringify(glisse));
+    r.verifie('la barre de la visite est redescendue : elle ne couvre plus le tiroir des outils',
+        glisse.fantome && !glisse.enHaut, JSON.stringify(glisse));
+    r.verifie('et la barre qui naît porte VRAIMENT les outils qu\'on y a déposés',
+        glisse.outils >= 2, JSON.stringify(glisse));
+
     // LES INSTRUMENTS POSÉS D'AVANT NE RESTENT PAS PLANTÉS DANS LA VISITE.
     const instruments = await page.evaluate(async () => {
         document.querySelector('.btn[data-widget="compass"]').click();

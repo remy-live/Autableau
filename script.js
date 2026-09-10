@@ -18142,9 +18142,54 @@ function persistFloatingToolbar(bar) {
     saveStoredFloatingToolbars(toolbars);
 }
 
+// LA PANOPLIE D'ORIGINE, telle qu'elle est écrite dans la page. C'est d'ici
+// que sort la barre principale au premier démarrage — et c'est d'ici aussi
+// que la démonstration reprend l'interface de base le temps de sa visite.
+function outilsParDefautDeLaBarre() {
+    const barTools = document.getElementById('bar-tools');
+    if (!barTools) return [];
+    const ids = [];
+    barTools.querySelectorAll('.btn').forEach(btn => {
+        let id = btn.dataset.pluginKey || btn.dataset.pluginId || btn.dataset.mode || btn.dataset.widget || btn.id || btn.getAttribute('data-tooltip') || btn.title;
+        if (id) ids.push(normalizePluginId(id).replace(/^system:/, ''));
+    });
+    return ids;
+}
+window.outilsParDefautDeLaBarre = outilsParDefautDeLaBarre;
+
+// La barre principale telle qu'elle sort de la boîte : le même objet au
+// premier démarrage et pendant la démonstration.
+function barrePrincipaleParDefaut(items) {
+    return {
+        id: 'system-toolbar-main',
+        name: 'Outils',
+        x: 20,
+        y: 80,
+        titlePalette: 'default',
+        palette: 'default',
+        borderPalette: 'default',
+        iconSize: '1',
+        cols: 2,
+        protected: true,
+        initialItems: [...items],
+        items: [...items]
+    };
+}
+window.barrePrincipaleParDefaut = barrePrincipaleParDefaut;
+
 function renderFloatingToolbars() {
     const container = document.getElementById('custom-bars-container');
     if (!container) return;
+
+    // PENDANT LA VISITE, C'EST LA BARRE D'ORIGINE QU'ON REDESSINE. Tout ce qui
+    // rafraîchit les barres — l'arrimage des favoris, une seconde et demie
+    // après le chargement — ramenait sinon la panoplie du professeur au milieu
+    // d'un chapitre, et la main se remettait à désigner des boutons absents.
+    if (typeof demonstrationEnCours === 'function' && demonstrationEnCours()
+        && typeof poserLInterfaceDeLaDemo === 'function') {
+        poserLInterfaceDeLaDemo();
+        return;
+    }
 
     let toolbars = getStoredFloatingToolbars();
     const hasMain = toolbars.some(t => t.id === 'system-toolbar-main');
@@ -18155,33 +18200,10 @@ function renderFloatingToolbars() {
     // cinq outils retrouvait les vingt-deux par défaut.
     if (!hasMain) {
         toolbars = toolbars.filter(t => t.id !== 'system-toolbar-main');
-        const barTools = document.getElementById('bar-tools');
-        if (barTools) {
-            const defaultIds = [];
-            barTools.querySelectorAll('.btn').forEach(btn => {
-                let id = btn.dataset.pluginKey || btn.dataset.pluginId || btn.dataset.mode || btn.dataset.widget || btn.id || btn.getAttribute('data-tooltip') || btn.title;
-                if (id) {
-                    id = normalizePluginId(id).replace(/^system:/, '');
-                    defaultIds.push(id);
-                }
-            });
-            if (defaultIds.length > 0) {
-                toolbars.unshift({
-                    id: 'system-toolbar-main',
-                    name: 'Outils',
-                    x: 20,
-                    y: 80,
-                    titlePalette: 'default',
-                    palette: 'default',
-                    borderPalette: 'default',
-                    iconSize: '1',
-                    cols: 2,
-                    protected: true,
-                    initialItems: [...defaultIds],
-                    items: [...defaultIds]
-                });
-                saveStoredFloatingToolbars(toolbars);
-            }
+        const defaultIds = outilsParDefautDeLaBarre();
+        if (defaultIds.length > 0) {
+            toolbars.unshift(barrePrincipaleParDefaut(defaultIds));
+            saveStoredFloatingToolbars(toolbars);
         }
     }
     localStorage.setItem('board_toolbars_migrated_v2', 'true');
@@ -31442,6 +31464,49 @@ function gestesDeLaDemo(d, jeton) {
         await tempo(460);
     };
 
+    // GLISSER UN OUTIL DU TIROIR SUR LE TABLEAU. « On ne voit pas la création
+    // de toolbar par glisser-déposer des icônes » : le chapitre le DISAIT, et
+    // la barre apparaissait toute seule une seconde plus tard. On ne voyait ni
+    // l'icône partir du tiroir, ni où elle tombait — c'est pourtant tout le
+    // geste. La main prend la vignette, le fantôme de l'application la suit
+    // jusqu'au point de chute, et c'est là que la barre naît.
+    const glisserOutil = async (cible, x, y, mot) => {
+        vivant();
+        const e = trouve(cible);
+        if (!e || !e.getClientRects().length) { await tempo(600); return false; }
+        const b = e.getBoundingClientRect();
+        const dx = b.left + b.width / 2, dy = b.top + b.height / 2;
+        mainDeLaDemoVers(dx, dy, mot || 'On la prend');
+        souligner(e);
+        await tempo(900);
+        vivant();
+        const main = document.getElementById('demo-main');
+        if (main) main.classList.add('appuie');
+        await tempo(420);
+        vivant();
+        souligner(null);
+        // LE FANTÔME EST CELUI DE L'APPLICATION, pas un dessin à part : c'est
+        // exactement ce qu'un professeur verra sous son doigt.
+        if (typeof setDragGhostFromButton === 'function') setDragGhostFromButton(e, dx, dy);
+        if (main) main.classList.add('trace');
+        const pas = 22;
+        for (let i = 1; i <= pas; i++) {
+            vivant();
+            const u = i / pas;
+            const px = Math.round(dx + (x - dx) * u), py = Math.round(dy + (y - dy) * u);
+            mainDeLaDemoVers(px, py, mot || 'On la pose', true);
+            if (typeof moveDragGhost === 'function') moveDragGhost(px, py);
+            await tempo(46);
+        }
+        await tempo(420);
+        vivant();
+        if (typeof hideDragGhost === 'function') hideDragGhost();
+        ondeDuClicDeLaDemo(x, y);
+        if (main) main.classList.remove('appuie', 'trace');
+        await tempo(420);
+        return true;
+    };
+
     // MONTRER SANS CLIQUER : la main se pose sur un endroit de l'écran et
     // s'y attarde, le temps qu'on le regarde. C'est ce qui manquait le plus —
     // la démonstration disait « la barre du document » sans jamais la
@@ -31460,7 +31525,7 @@ function gestesDeLaDemo(d, jeton) {
     };
 
     return { vivant, tempo, dire, viser, tracer, glisser, toucher, ecran,
-             touches, montrer, souligner, onde: ondeDuClicDeLaDemo,
+             touches, montrer, souligner, glisserOutil, onde: ondeDuClicDeLaDemo,
              cacher: cacherLaMainDeLaDemo };
 }
 
@@ -31865,18 +31930,72 @@ function chapitresDeLaDemonstration() {
               // UNE VRAIE BARRE, SANS RIEN ÉCRIRE CHEZ LE PROFESSEUR. On passe
               // par la fonction qui DESSINE la barre, pas par celle qui
               // l'enregistre : la panoplie du professeur n'est pas touchée.
-              g.dire('L\'interface, elle, est à vous. Glissez un outil du tiroir sur le tableau…');
-              await g.tempo(1800);
+              // LA BARRE DE LA VISITE REDESCEND. Elle était montée en haut
+              // pendant qu'on parlait des fichiers — le tiroir du bas était
+              // ouvert — et c'est en haut que se trouve le tiroir des outils :
+              // « le lecteur est en haut », et il couvrait ce qu'on allait
+              // prendre. On referme le tiroir du bas, la barre retombe, et le
+              // haut de l'écran est rendu au geste.
+              const basOuvert = document.getElementById('bottom-drawer');
+              if (basOuvert && !basOuvert.classList.contains('closed')
+                  && typeof toggleBottomDrawer === 'function') toggleBottomDrawer();
+              placerLaBarreDeLaDemo();
+              await g.tempo(900);
+
+              g.dire('L\'interface, elle, est à vous. Tout part du tiroir des outils, en haut.');
+              const haut = document.getElementById('bar-plugins');
+              if (haut && haut.classList.contains('closed')) {
+                  await g.viser('.drawer-toggle[data-target="bar-plugins"]', 'Le tiroir du haut');
+              }
+              await g.tempo(1600);
+
+              // ON VOIT L'ICÔNE PARTIR ET ON VOIT OÙ ELLE TOMBE. Le geste se
+              // faisait tout seul, hors de l'écran : on lisait « glissez un
+              // outil » et une barre apparaissait ailleurs, sans qu'on ait vu
+              // ni la vignette bouger, ni le point de chute.
+              // ON PREND UNE VIGNETTE QU'ON VOIT. Le tiroir ne montre pas ses
+              // quatre-vingts outils d'un coup : il en présente une poignée à
+              // la fois. Nommer un outil d'avance, c'était viser une vignette
+              // absente de l'écran — la main s'abstenait, et l'on ne voyait
+              // toujours rien partir.
+              const vignettes = [...document.querySelectorAll('#plugins-grid .btn')]
+                  .filter(b => b.getClientRects().length);
+              const chute = g.ecran(0.42, 0.52);
               const barreDemo = {
-                  id: 'floating-demo', name: 'Ma barre', x: Math.round(window.innerWidth * 0.30),
-                  y: Math.round(window.innerHeight * 0.30), palette: 'default',
+                  id: 'floating-demo', name: 'Ma barre', x: Math.max(8, chute.x - 30),
+                  y: Math.max(8, chute.y - 24), palette: 'default',
                   titlePalette: 'default', borderPalette: 'default', iconSize: '1',
-                  items: ['freehand', 'text', 'eraser', 'Tableau de Numération']
+                  items: []
               };
-              if (typeof renderFloatingToolbar === 'function') renderFloatingToolbar(barreDemo);
-              await g.tempo(1400);
-              g.dire('…et une barre naît sous lui. On y range ensuite ce qu\'on veut, dans l\'ordre qu\'on veut.');
-              await g.montrer('#floating-demo', 'Votre barre', 3200);
+              // LA BARRE NE NAÎT QUE D'UN GESTE VU. Pas de vignette sous la
+              // main — un tiroir replié, une catégorie vide —, pas de barre :
+              // une barre qui apparaît sans qu'on ait vu l'icône partir est
+              // exactement ce qu'on reprochait au chapitre.
+              g.dire('On prend une vignette du tiroir et on la glisse sur le tableau, là où on la veut.');
+              if (await g.glisserOutil(vignettes[0], chute.x, chute.y, 'On la glisse')) {
+                  barreDemo.items = [vignettes[0].dataset.pluginKey];
+                  renderFloatingToolbar(barreDemo);
+                  await g.tempo(1400);
+                  g.dire('…et une barre naît sous elle, avec l\'outil qu\'on vient d\'y déposer.');
+                  await g.montrer('#floating-demo', 'Votre barre', 3000);
+
+                  // ET L'ON Y AJOUTE, DEVANT TÉMOIN. Une barre d'un seul outil
+                  // ne dit pas grand-chose : c'est le second glissement, celui
+                  // qui tombe DANS la barre, qui montre qu'on la remplit.
+                  const suivante = vignettes[1] || vignettes[0];
+                  const nee = document.getElementById('floating-demo');
+                  const cible = nee.getBoundingClientRect();
+                  g.dire('On en glisse une autre — lâchée DANS la barre, cette fois, et non à côté.');
+                  if (await g.glisserOutil(suivante, Math.round(cible.right - 14),
+                                           Math.round(cible.top + cible.height / 2), 'Dans la barre')) {
+                      barreDemo.items = [...new Set([...barreDemo.items, suivante.dataset.pluginKey])];
+                      nee.remove();
+                      renderFloatingToolbar(barreDemo);
+                      await g.tempo(1200);
+                      g.dire('Autant d\'outils qu\'on veut, dans l\'ordre qu\'on veut — et l\'on retire de même.');
+                      await g.montrer('#floating-demo', 'Elle se remplit', 2800);
+                  }
+              }
               g.dire('Elle se déplace par sa poignée, se colore, se met debout, et se referme d\'un clic.');
               await g.tempo(3000);
               g.dire('On s\'en fait autant qu\'on veut : une par matière, une pour la géométrie, une pour la dictée.');
@@ -31884,8 +32003,14 @@ function chapitresDeLaDemonstration() {
               const posee = document.getElementById('floating-demo');
               if (posee) posee.remove();
               g.dire('Et tout cet agencement se garde sous un nom : une interface pour la maternelle, une pour le collège.');
-              g.cacher();
               await g.tempo(3000);
+              // ON LE DIT, PUISQUE C'EST VRAI. La visite a reposé la barre
+              // d'origine pour pouvoir en désigner les outils un par un ; un
+              // professeur qui s'est fait la sienne doit savoir qu'elle
+              // l'attend, entière, à la sortie.
+              g.dire('Cette visite, d\'ailleurs, a reposé la barre d\'origine pour vous en montrer les outils : la vôtre revient intacte en sortant.');
+              g.cacher();
+              await g.tempo(3400);
           } },
 
         { titre: 'Enregistrer, exporter, partager',
@@ -32064,6 +32189,37 @@ function bloquerPendantLaDemo(oui) {
 // reste ouverte tant qu'on ne l'a pas validée : celui qui changeait de
 // chapitre au milieu du tableau de numération la retrouvait posée en travers
 // du chapitre suivant, et la visite continuait derrière.
+// L'INTERFACE D'ORIGINE, LE TEMPS DE LA VISITE.
+// « Si l'utilisateur a fait des toolbars personnalisées, est-ce que ça
+// fonctionne aussi ? » — non. La visite désigne les vrais boutons de la vraie
+// barre : « le crayon est le premier », et la main appuie dessus. Un
+// professeur qui s'est fait sa panoplie — trois outils, une barre par matière —
+// regardait une main qui désignait le vide, puis un outil qui changeait tout
+// seul. On repose donc la barre d'origine pour la durée de la visite, et l'on
+// rend la sienne en sortant.
+//
+// SANS RIEN ÉCRIRE CHEZ LUI : on DESSINE les barres, on ne les enregistre
+// jamais — le stockage garde la panoplie du professeur d'un bout à l'autre.
+// Une visite interrompue par une fermeture d'onglet ne peut donc rien lui
+// coûter : la page rouvre sur ses barres à lui.
+function poserLInterfaceDeLaDemo() {
+    const container = document.getElementById('custom-bars-container');
+    if (!container || typeof outilsParDefautDeLaBarre !== 'function') return false;
+    const items = outilsParDefautDeLaBarre();
+    if (!items.length) return false;
+    container.innerHTML = '';
+    renderFloatingToolbar(barrePrincipaleParDefaut(items));
+    return true;
+}
+
+// Et l'on rend les siennes, telles qu'il les a laissées : elles n'ont jamais
+// quitté le stockage, il suffit de les redessiner.
+function rendreLInterfaceDuProfesseur() {
+    if (typeof renderFloatingToolbars === 'function') renderFloatingToolbars();
+}
+window.poserLInterfaceDeLaDemo = poserLInterfaceDeLaDemo;
+window.rendreLInterfaceDuProfesseur = rendreLInterfaceDuProfesseur;
+
 function fermerCeQueLaDemoAOuvert() {
     const popup = document.getElementById('export-popup-menu');
     if (popup) popup.classList.remove('visible');
@@ -32252,6 +32408,10 @@ async function jouerLeChapitre(i) {
     selectedItems = [];
     if (typeof setMode === 'function') setMode('pointer');
     cacherLaMainDeLaDemo();
+    // ET L'INTERFACE D'ORIGINE EST REPOSÉE À CHAQUE CHAPITRE : on entre à
+    // froid dans n'importe lequel, et rien de ce qu'un chapitre a ajouté aux
+    // barres — la « Ma barre » de celui de l'interface — ne traîne au suivant.
+    poserLInterfaceDeLaDemo();
     fermerCeQueLaDemoAOuvert();
     if (typeof draw === 'function') draw();
     if (typeof majBarreDocument === 'function') majBarreDocument();
@@ -32334,6 +32494,10 @@ function arreterLaDemonstration() {
     const barre = document.getElementById('demo-barre');
     if (barre) { barre.classList.remove('visible', 'en-haut'); }
     fermerCeQueLaDemoAOuvert();
+    // ET L'INTERFACE DU PROFESSEUR REVIENT, telle qu'il l'a laissée : ses
+    // barres n'ont jamais quitté le stockage, la visite ne faisait que
+    // dessiner celle d'origine par-dessus.
+    rendreLInterfaceDuProfesseur();
     if (typeof fermerLeMenuDeClasse === 'function') fermerLeMenuDeClasse();
     if (typeof viderLeTiroirDesMorceaux === 'function') viderLeTiroirDesMorceaux();
 
