@@ -1986,16 +1986,101 @@ body.focus-mode #exit-focus-cross {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
+/* LE LIEN ENTRE LE FOND ET LE BORD. Il vit dans la rangée des onglets, à
+   droite : c'est là qu'on choisit lequel des deux on peint, et c'est donc là
+   qu'on dit « les deux ensemble ». */
+.popover-lien {
+    flex: 0 0 auto;
+    width: 30px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 6px;
+    opacity: 0.4;
+    filter: grayscale(1);
+    transition: 0.2s;
+}
 
+.popover-lien:hover { opacity: 0.7; }
+
+.popover-lien[aria-pressed="true"] {
+    opacity: 1;
+    filter: none;
+    background: #fff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+/* MES COULEURS : les dernières mises au point à la main. */
+.color-recentes { display: flex; flex-direction: column; gap: 6px; }
+.color-recentes[hidden] { display: none; }
+
+.cr-titre {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #b2bec3;
+}
+
+.cr-liste { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.cr-pastille {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: 0.2s;
+}
+
+.cr-pastille:hover, .cr-pastille.active { transform: scale(1.1); }
+
+/* La croix ne paraît qu'au survol : une rangée de couleurs constellée de
+   croix ne se lit plus comme une palette. */
+.cr-jeter {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: #2d3436;
+    color: #fff;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cr-pastille:hover .cr-jeter,
+.cr-jeter:focus { opacity: 1; }
+
+/* LA PASTILLE PLEINE : quand le fond n'a aucun sens — un crayon, un trait, un
+   texte —, l'anneau creux montrait un intérieur transparent qui ne voulait
+   rien dire. La pastille est alors un disque de la couleur du trait. */
+#color-indicator.pastille-pleine { border-color: transparent; }
+
+
+/* SEIZE COULEURS EN DEUX RANGÉES DE HUIT, plus la personnalisée et le
+   transparent : la grille reste aussi large qu'avant, elle est seulement
+   plus dense. */
 .color-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 7px;
 }
 
 .color-dot {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     border: 2px solid transparent;
     cursor: pointer;
@@ -4868,6 +4953,9 @@ body.dark-mode {
     border-radius: 8px;
     box-shadow: 0 1px 6px rgba(0, 0, 0, 0.10);
 }
+
+.dark-mode .cr-titre { color: #636e72; }
+.dark-mode .popover-lien[aria-pressed="true"] { background: rgba(255, 255, 255, 0.12); }
 
 .dark-mode .project-name-input {
     background: rgba(30, 39, 46, 0.85);

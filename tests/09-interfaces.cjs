@@ -627,6 +627,52 @@ module.exports = async function (browser) {
     r.egal('et toutes portent le trait noir, comme les barres', fenetres.palots, []);
     r.egal('sans avoir grossi en s\'ouvrant', fenetres.gros, []);
 
+    // ET CELLES QUI NE SONT PAS AJOUTÉES, MAIS MONTRÉES. « Peux-tu aussi pour
+    // les modales des plugins faire un bord noir ? » — la moitié d'entre elles
+    // DORT DÉJÀ dans la page, écrite dans le fichier, et l'outil ne fait que la
+    // rendre visible. Aucun nœud n'est alors ajouté, et le trait se posait à
+    // l'ajout : ces fenêtres-là restaient sans bord. Le contrôle ci-dessus ne
+    // les voyait pas non plus — il ne regarde QUE les éléments neufs.
+    // SUR UNE PAGE NEUVE : le contrôle ci-dessus RETIRE les fenêtres qu'il a
+    // ouvertes, et un outil dont on a arraché la sienne ne sait plus la rouvrir.
+    const { page: page2, context: contexte2 } = await ouvrirApp(browser, { viewport: { width: 1400, height: 900 } });
+    await page2.waitForFunction(() => document.querySelectorAll('#plugins-grid .btn').length > 20,
+        { timeout: 25000 });
+    const montrees = await page2.evaluate(async () => {
+        const sans = [], avec = [];
+        const btns = [...document.querySelectorAll('#plugins-grid .btn')];
+        for (const b of btns) {
+            try { b.click(); } catch (e) { continue; }
+            await new Promise(r => setTimeout(r, 200));
+            // TOUTES les boîtes visibles, neuves ou non.
+            [...document.querySelectorAll('body *')].filter(e => {
+                const s = getComputedStyle(e), r = e.getBoundingClientRect();
+                if (s.display === 'none' || s.visibility === 'hidden') return false;
+                if (e.closest('#board, .toolbar, .drawer, #custom-bars-container')) return false;
+                return (s.position === 'fixed' || s.position === 'absolute')
+                    && r.width > 200 && r.height > 100
+                    && !(r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2)
+                    && parseFloat(s.borderRadius) >= 4;
+            }).forEach(x => {
+                const nom = (x.id || String(x.className) || '?').slice(0, 32);
+                const traite = x.classList.contains('contour-fenetre')
+                    || getComputedStyle(x).borderTopColor === 'rgb(0, 0, 0)';
+                if (traite) { if (!avec.includes(nom)) avec.push(nom); }
+                else if (!sans.includes(nom)) sans.push(nom);
+            });
+            document.querySelectorAll('.live-modal-backdrop').forEach(x => x.remove());
+            document.querySelectorAll('.modal-backdrop').forEach(m => { m.style.display = 'none'; });
+            const c = document.getElementById('custom-prompt-modal');
+            if (c) { c.style.display = 'none'; if (typeof refermerLaBoite === 'function') refermerLaBoite(); }
+        }
+        return { avec: avec.length, sans };
+    });
+    r.verifie('une vingtaine de fenêtres se montrent, neuves ou déjà écrites dans la page',
+        montrees.avec >= 20, JSON.stringify({ avec: montrees.avec }));
+    r.egal('et AUCUNE n\'échappe au trait, pas même celles qu\'on ne fait que démasquer',
+        montrees.sans, []);
+    await contexte2.close();
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

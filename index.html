@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=125">
+    <link rel="stylesheet" href="style.css?v=126">
 </head>
 
 <body>
@@ -2806,18 +2806,50 @@
 
     <div id="color-popover">
         <div class="popover-tabs"><button class="popover-tab active" data-target="stroke">Contour</button><button
-                class="popover-tab" data-target="fill">Fond</button></div>
+                class="popover-tab" data-target="fill">Fond</button>
+            <!-- LIER LE FOND ET LE BORD. Un rectangle bleu à bord bleu se
+                 faisait en deux gestes et deux onglets ; c'est pourtant le cas
+                 le plus courant. Lié, une couleur choisie va aux deux. -->
+            <button class="popover-lien" id="btn-lier-fond-bord" type="button"
+                    title="Lier le fond et le bord : une couleur choisie va aux deux"
+                    aria-pressed="false">🔗</button></div>
+        <!-- SEIZE COULEURS. Sept, c'était la boîte de crayons la plus pauvre de
+             l'armoire : pas de blanc pour écrire sur un fond sombre, pas de
+             brun, pas de rose, et un seul bleu. Deux rangées de huit tiennent
+             dans la même largeur. -->
         <div class="color-grid">
-            <div class="color-dot active" style="background:#e74c3c;" data-color="#e74c3c"></div>
-            <div class="color-dot" style="background:#e67e22;" data-color="#e67e22"></div>
-            <div class="color-dot" style="background:#f1c40f;" data-color="#f1c40f"></div>
-            <div class="color-dot" style="background:#2ecc71;" data-color="#2ecc71"></div>
-            <div class="color-dot" style="background:#3498db;" data-color="#3498db"></div>
-            <div class="color-dot" style="background:#9b59b6;" data-color="#9b59b6"></div>
-            <div class="color-dot" style="background:#2d3436;" data-color="#2d3436"></div>
+            <!-- LES SEPT PREMIÈRES NE BOUGENT PAS D'UN RANG. Ctrl+Maj+chiffre
+                 arme la couleur de ce rang-là : les réordonner pour faire joli
+                 aurait changé sous les doigts les raccourcis qu'un enseignant
+                 a dans la main depuis un an. Les neuf nouvelles s'ajoutent
+                 donc à la suite, dans l'ordre de l'usage. -->
+            <div class="color-dot active" style="background:#e74c3c;" data-color="#e74c3c" title="Rouge"></div>
+            <div class="color-dot" style="background:#e67e22;" data-color="#e67e22" title="Orange"></div>
+            <div class="color-dot" style="background:#f1c40f;" data-color="#f1c40f" title="Jaune"></div>
+            <div class="color-dot" style="background:#2ecc71;" data-color="#2ecc71" title="Vert"></div>
+            <div class="color-dot" style="background:#3498db;" data-color="#3498db" title="Bleu"></div>
+            <div class="color-dot" style="background:#9b59b6;" data-color="#9b59b6" title="Violet"></div>
+            <div class="color-dot" style="background:#2d3436;" data-color="#2d3436" title="Ardoise"></div>
+            <div class="color-dot" style="background:#e84393;" data-color="#e84393" title="Rose"></div>
+            <div class="color-dot" style="background:#8e6e53;" data-color="#8e6e53" title="Brun"></div>
+            <div class="color-dot" style="background:#c0392b;" data-color="#c0392b" title="Rouge foncé"></div>
+            <div class="color-dot" style="background:#16a085;" data-color="#16a085" title="Vert profond"></div>
+            <div class="color-dot" style="background:#1abc9c;" data-color="#1abc9c" title="Turquoise"></div>
+            <div class="color-dot" style="background:#2980b9;" data-color="#2980b9" title="Bleu profond"></div>
+            <div class="color-dot" style="background:#636e72;" data-color="#636e72" title="Gris"></div>
+            <div class="color-dot" style="background:#b2bec3;" data-color="#b2bec3" title="Gris clair"></div>
+            <div class="color-dot" style="background:#ffffff;" data-color="#ffffff" title="Blanc"></div>
             <div class="custom-color-btn" title="Personnalisée"><input type="color" id="popover-custom-color"
                     value="#000000"></div>
             <div class="no-fill-btn" id="btn-no-fill" style="display:none;" title="Transparent"></div>
+        </div>
+        <!-- LES DERNIÈRES COULEURS CHOISIES À LA MAIN. Le sélecteur du système
+             ne garde rien : la teinte qu'on avait mise au point pour la carte
+             de géographie était à refaire à chaque séance. Les huit dernières
+             restent là, et se jettent d'un clic sur leur croix. -->
+        <div class="color-recentes" id="color-recentes" hidden>
+            <div class="cr-titre">Mes couleurs</div>
+            <div class="cr-liste" id="cr-liste"></div>
         </div>
         <div class="opacity-container">Opacité : <input type="range" id="opacity-slider" min="0" max="1" step="0.05"
                 value="1"></div>
@@ -2955,7 +2987,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=229"></script>
+    <script src="script.js?v=230"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=94"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

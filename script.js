@@ -5790,7 +5790,18 @@ function selectionIsOnlyImages() {
 // --- POPOVER COULEUR ---
 const colorPopover = document.getElementById('color-popover'); const btnColorPopover = document.getElementById('btn-color-popover'); const colorIndicator = document.getElementById('color-indicator');
 let popoverTarget = 'stroke';
-function updateColorIndicator() { colorIndicator.style.borderColor = hexToRgba(activeStyle.strokeColor, activeStyle.strokeOpacity); colorIndicator.style.background = activeStyle.isFilled ? hexToRgba(activeStyle.fillColor, activeStyle.fillOpacity) : 'transparent'; }
+function updateColorIndicator() {
+    // SANS FOND POSSIBLE, PAS D'ANNEAU CREUX. Au crayon, sur un texte, sur un
+    // segment, l'anneau entourait un vide qui annonçait un fond transparent —
+    // alors qu'il n'y a pas de fond du tout. La pastille est alors un disque
+    // plein de la couleur du trait, ce qu'elle dit enfin sans mentir.
+    const aDuSens = (typeof leFondADuSens === 'function') ? leFondADuSens() : true;
+    const trait = hexToRgba(activeStyle.strokeColor, activeStyle.strokeOpacity);
+    colorIndicator.style.borderColor = trait;
+    if (!aDuSens) { colorIndicator.style.background = trait; return; }
+    colorIndicator.style.background = activeStyle.isFilled
+        ? hexToRgba(activeStyle.fillColor, activeStyle.fillOpacity) : 'transparent';
+}
 btnColorPopover.addEventListener('click', (e) => { colorPopover.classList.toggle('visible'); e.stopPropagation(); });
 colorPopover.addEventListener('mousedown', (e) => e.stopPropagation());
 colorPopover.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -5798,24 +5809,228 @@ colorPopover.addEventListener('click', (e) => e.stopPropagation());
 
 document.querySelectorAll('.popover-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-        document.querySelectorAll('.popover-tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); popoverTarget = tab.dataset.target;
+        document.querySelectorAll('.popover-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        popoverTarget = tab.dataset.target;
         document.getElementById('opacity-slider').value = popoverTarget === 'stroke' ? activeStyle.strokeOpacity : activeStyle.fillOpacity;
         document.getElementById('btn-no-fill').style.display = popoverTarget === 'fill' ? 'flex' : 'none';
-        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
-        const activeC = popoverTarget === 'stroke' ? activeStyle.strokeColor : activeStyle.fillColor;
-        const dot = document.querySelector(`.color-dot[data-color="${activeC}"]`); if (dot) dot.classList.add('active');
+        majLaPastilleActive();
     });
 });
 
-document.querySelectorAll('.color-dot').forEach(dot => {
-    dot.addEventListener('click', () => {
-        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); dot.classList.add('active');
-        if (popoverTarget === 'stroke') { activeStyle.strokeColor = dot.dataset.color; } else { activeStyle.fillColor = dot.dataset.color; activeStyle.isFilled = true; }
-        updateColorIndicator(); pushStyleToObject();
-        applyPluginStampStyle({ color: dot.dataset.color });
+// ==================================================================
+// UNE SEULE PORTE POUR CHOISIR UNE COULEUR
+// Les pastilles, le sélecteur du système et « mes couleurs » écrivaient
+// chacun sa version du même geste — d'où trois comportements légèrement
+// différents, et le lien fond/bord qui n'aurait tenu que dans l'un des trois.
+// ==================================================================
+function choisirLaCouleur(hex, options) {
+    if (!hex) return;
+    const opt = options || {};
+    // LIÉS, LE FOND ET LE BORD PRENNENT LA MÊME COULEUR. C'est le cas le plus
+    // courant — un rectangle bleu à bord bleu — et il demandait deux gestes
+    // dans deux onglets.
+    const lesDeux = fondEtBordLies();
+    if (lesDeux || popoverTarget === 'stroke') activeStyle.strokeColor = hex;
+    if (lesDeux || popoverTarget === 'fill') {
+        activeStyle.fillColor = hex;
+        // Peindre le fond, c'est vouloir un fond : le rectangle restait vide
+        // tant qu'on n'avait pas compris qu'il fallait aussi quitter
+        // « transparent ». Lié, en revanche, on ne force rien : lier une
+        // couleur ne veut pas dire remplir ce qui ne l'était pas.
+        if (popoverTarget === 'fill') activeStyle.isFilled = true;
+    }
+    if (opt.retenir) retenirUneCouleur(hex);
+    majLaPastilleActive();
+    updateColorIndicator();
+    pushStyleToObject();
+    applyPluginStampStyle({ color: hex });
+}
+window.choisirLaCouleur = choisirLaCouleur;
+
+// La pastille allumée est celle de la couleur en cours — dans la grille comme
+// dans « mes couleurs ». Aucune ne l'est si la couleur ne figure nulle part.
+function majLaPastilleActive() {
+    const active = (popoverTarget === 'fill' && !fondEtBordLies())
+        ? activeStyle.fillColor : activeStyle.strokeColor;
+    const meme = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+    document.querySelectorAll('#color-popover .color-dot').forEach(d => {
+        d.classList.toggle('active', meme(d.dataset.color, active));
     });
+    document.querySelectorAll('#cr-liste .cr-pastille').forEach(d => {
+        d.classList.toggle('active', meme(d.dataset.color, active));
+    });
+}
+window.majLaPastilleActive = majLaPastilleActive;
+
+// ------------------------------------------------------------------
+// MES COULEURS : les dernières mises au point à la main
+// Le sélecteur du système ne garde rien d'une séance à l'autre. La teinte
+// qu'on avait cherchée pour la carte de géographie était à refaire chaque
+// fois — et à refaire à l'œil, donc jamais tout à fait la même.
+// ------------------------------------------------------------------
+const CLE_COULEURS_RECENTES = 'auTableau_couleurs_recentes';
+const COULEURS_RECENTES_MAX = 8;
+let couleursRecentes = [];
+try {
+    const brut = JSON.parse(localStorage.getItem(CLE_COULEURS_RECENTES) || '[]');
+    if (Array.isArray(brut)) couleursRecentes = brut.filter(c => /^#[0-9a-f]{6}$/i.test(c));
+} catch (e) { /* stockage illisible */ }
+
+function enregistrerLesCouleursRecentes() {
+    try { localStorage.setItem(CLE_COULEURS_RECENTES, JSON.stringify(couleursRecentes)); }
+    catch (e) { /* stockage refusé */ }
+}
+
+// Celle de la grille n'a rien à faire ici : elle y est déjà, à demeure.
+function estUneCouleurDeLaGrille(hex) {
+    return [...document.querySelectorAll('#color-popover .color-dot')]
+        .some(d => String(d.dataset.color).toLowerCase() === String(hex).toLowerCase());
+}
+
+function retenirUneCouleur(hex) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return false;
+    const c = hex.toLowerCase();
+    if (estUneCouleurDeLaGrille(c)) return false;
+    couleursRecentes = [c, ...couleursRecentes.filter(x => x !== c)].slice(0, COULEURS_RECENTES_MAX);
+    enregistrerLesCouleursRecentes();
+    majLesCouleursRecentes();
+    return true;
+}
+window.retenirUneCouleur = retenirUneCouleur;
+
+function oublierUneCouleur(hex) {
+    const avant = couleursRecentes.length;
+    couleursRecentes = couleursRecentes.filter(x => x !== String(hex).toLowerCase());
+    if (couleursRecentes.length === avant) return false;
+    enregistrerLesCouleursRecentes();
+    majLesCouleursRecentes();
+    return true;
+}
+window.oublierUneCouleur = oublierUneCouleur;
+
+function majLesCouleursRecentes() {
+    const boite = document.getElementById('color-recentes');
+    const liste = document.getElementById('cr-liste');
+    if (!boite || !liste) return;
+    boite.hidden = couleursRecentes.length === 0;
+    liste.innerHTML = '';
+    couleursRecentes.forEach(c => {
+        const p = document.createElement('div');
+        p.className = 'cr-pastille';
+        p.dataset.color = c;
+        p.style.background = c;
+        p.title = c;
+        p.addEventListener('click', (e) => {
+            if (e.target.closest('.cr-jeter')) return;
+            choisirLaCouleur(c);
+        });
+        const croix = document.createElement('button');
+        croix.type = 'button';
+        croix.className = 'cr-jeter';
+        croix.textContent = '✕';
+        croix.title = 'Jeter cette couleur';
+        croix.addEventListener('click', (e) => { e.stopPropagation(); oublierUneCouleur(c); });
+        p.appendChild(croix);
+        liste.appendChild(p);
+    });
+    majLaPastilleActive();
+}
+window.majLesCouleursRecentes = majLesCouleursRecentes;
+
+// ------------------------------------------------------------------
+// LIER LE FOND ET LE BORD
+// ------------------------------------------------------------------
+const CLE_FOND_LIE = 'auTableau_fond_lie_au_bord';
+let fondLieAuBord = false;
+try { fondLieAuBord = localStorage.getItem(CLE_FOND_LIE) === 'true'; } catch (e) { /* refusé */ }
+
+// Liés, mais seulement là où le fond veut dire quelque chose : sur un crayon
+// ou un texte, le lien n'a rien à lier.
+function fondEtBordLies() { return fondLieAuBord && leFondADuSens(); }
+window.fondEtBordLies = fondEtBordLies;
+
+function lierLeFondEtLeBord(force) {
+    fondLieAuBord = (force === undefined) ? !fondLieAuBord : !!force;
+    try { localStorage.setItem(CLE_FOND_LIE, fondLieAuBord ? 'true' : 'false'); } catch (e) { /* refusé */ }
+    const b = document.getElementById('btn-lier-fond-bord');
+    if (b) b.setAttribute('aria-pressed', fondLieAuBord ? 'true' : 'false');
+    // On lie ce qui est déjà là : sans cela, le lien ne prendrait effet qu'à
+    // la couleur suivante, et l'on croirait qu'il n'a rien fait.
+    if (fondEtBordLies()) {
+        activeStyle.fillColor = activeStyle.strokeColor;
+        updateColorIndicator();
+        pushStyleToObject();
+    }
+    majLaPastilleActive();
+    return fondLieAuBord;
+}
+window.lierLeFondEtLeBord = lierLeFondEtLeBord;
+
+// ------------------------------------------------------------------
+// LA PASTILLE DIT-ELLE VRAI ?
+// « Est-ce que la pastille de couleur est cohérente ? » — non. Elle montrait
+// un anneau (le trait) autour d'un disque (le fond) QUOI QU'ON FASSE : au
+// crayon, à la gomme, sur un texte, sur un segment, le disque intérieur
+// annonçait un fond que rien ne pouvait porter. Et l'onglet « Fond » restait
+// là, à régler une chose sans effet. Le fond n'a de sens que sur ce qui a un
+// dedans : cercle, rectangle, polygone, courbe fermée.
+// ------------------------------------------------------------------
+const OUTILS_AVEC_FOND = ['circle', 'rectangle', 'polygon', 'curve'];
+const OBJETS_AVEC_FOND = ['circle', 'rectangle', 'polygon', 'curve'];
+
+function leFondADuSens() {
+    if (typeof selectedItems !== 'undefined' && selectedItems.length > 0) {
+        return selectedItems.some(i => OBJETS_AVEC_FOND.includes(i.type));
+    }
+    return OUTILS_AVEC_FOND.includes(typeof mode !== 'undefined' ? mode : '');
+}
+window.leFondADuSens = leFondADuSens;
+
+function majCoherenceDeLaPastille() {
+    const aDuSens = leFondADuSens();
+    const ongletFond = document.querySelector('#color-popover .popover-tab[data-target="fill"]');
+    const lien = document.getElementById('btn-lier-fond-bord');
+    const sansFond = document.getElementById('btn-no-fill');
+    if (ongletFond) ongletFond.style.display = aDuSens ? '' : 'none';
+    if (lien) lien.style.display = aDuSens ? '' : 'none';
+    // On ne laisse pas l'onglet « Fond » choisi alors qu'il vient de
+    // disparaître : la pastille suivante serait allée peindre un fond
+    // invisible, et l'on aurait cru le choix perdu.
+    if (!aDuSens && popoverTarget === 'fill') {
+        popoverTarget = 'stroke';
+        document.querySelectorAll('#color-popover .popover-tab').forEach(t =>
+            t.classList.toggle('active', t.dataset.target === 'stroke'));
+        const curseur = document.getElementById('opacity-slider');
+        if (curseur) curseur.value = activeStyle.strokeOpacity;
+    }
+    if (sansFond) sansFond.style.display = (aDuSens && popoverTarget === 'fill') ? 'flex' : 'none';
+    if (colorIndicator) colorIndicator.classList.toggle('pastille-pleine', !aDuSens);
+    majLaPastilleActive();
+}
+window.majCoherenceDeLaPastille = majCoherenceDeLaPastille;
+
+document.querySelectorAll('#color-popover .color-dot').forEach(dot => {
+    dot.addEventListener('click', () => choisirLaCouleur(dot.dataset.color));
 });
-document.getElementById('popover-custom-color').addEventListener('input', (e) => { document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active')); if (popoverTarget === 'stroke') activeStyle.strokeColor = e.target.value; else { activeStyle.fillColor = e.target.value; activeStyle.isFilled = true; } updateColorIndicator(); pushStyleToObject(); applyPluginStampStyle({ color: e.target.value }); });
+// LE SÉLECTEUR DU SYSTÈME RETIENT CE QU'ON Y CHERCHE. « input » se déclenche à
+// chaque frisson du curseur dans le nuancier : on ne garde donc qu'au
+// « change », c'est-à-dire quand la couleur est arrêtée.
+document.getElementById('popover-custom-color').addEventListener('input',
+    (e) => choisirLaCouleur(e.target.value));
+document.getElementById('popover-custom-color').addEventListener('change',
+    (e) => choisirLaCouleur(e.target.value, { retenir: true }));
+document.getElementById('btn-lier-fond-bord')?.addEventListener('click', () => lierLeFondEtLeBord());
+
+// AU DÉMARRAGE : le lien tel qu'on l'a laissé, « mes couleurs » telles qu'on
+// les a mises de côté, et la pastille d'aplomb avec l'outil du moment.
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('btn-lier-fond-bord');
+    if (b) b.setAttribute('aria-pressed', fondLieAuBord ? 'true' : 'false');
+    majLesCouleursRecentes();
+    majCoherenceDeLaPastille();
+    updateColorIndicator();
+});
 document.getElementById('opacity-slider').addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
     // Sur une sélection de tampons, le curseur règle l'opacité de l'image
@@ -6241,6 +6456,11 @@ function syncTextStyleControls() {
 // le curseur d'épaisseur que s'ils agissent vraiment sur le tampon — et jamais
 // l'opacité : un tampon est opaque par nature.
 function syncStampStyleControls() {
+    // L'OUTIL OU LA SÉLECTION VIENNENT DE CHANGER : le fond n'a peut-être plus
+    // de sens. C'est ici qu'on repasse, car c'est ici qu'on repasse déjà pour
+    // tout le reste de la barre de style.
+    if (typeof majCoherenceDeLaPastille === 'function') majCoherenceDeLaPastille();
+
     const colorBtn = document.getElementById('btn-color-popover');
     const widthBox = document.getElementById('line-width')?.closest('.slider-container');
     const opacityBox = document.querySelector('#color-popover .opacity-container');
@@ -30761,6 +30981,36 @@ function surveillerLesFenetresDOutils() {
         });
     });
     obs.observe(document.body, { childList: true, subtree: true });
+
+    // ET CELLES QUI NE SONT PAS AJOUTÉES, MAIS MONTRÉES. « Peux-tu aussi pour
+    // les modales des plugins faire un bord noir ? » — la moitié d'entre elles
+    // dort DÉJÀ dans la page, écrite dans le fichier, et l'outil ne fait que
+    // la rendre visible. Aucun nœud n'est alors ajouté : l'observateur ne
+    // voyait rien passer, et ces fenêtres-là restaient sans trait. On regarde
+    // donc aussi ce qui change d'habit ou de style — mais une fois posé le
+    // temps de laisser retomber la poussière, sans quoi la moindre animation
+    // ferait relire la page cent fois par seconde.
+    let attente = null;
+    const aVoir = new Set();
+    const oeil = new MutationObserver((lots) => {
+        lots.forEach(lot => {
+            const c = lot.target;
+            if (!c || c.nodeType !== 1) return;
+            // On se garde du serpent qui se mord la queue : poser le trait
+            // change une classe, ce qui rappellerait l'observateur.
+            if (lot.attributeName === 'class' && c.classList.contains('contour-fenetre')) return;
+            aVoir.add(c);
+        });
+        if (attente) return;
+        attente = setTimeout(() => {
+            attente = null;
+            const lot = [...aVoir];
+            aVoir.clear();
+            lot.forEach(el => { if (el.isConnected) poserLeContourDesFenetres(el); });
+        }, 120);
+    });
+    oeil.observe(document.body, { attributes: true, subtree: true,
+                                  attributeFilter: ['style', 'class', 'hidden', 'open'] });
 }
 
 function basculerLesContours(force) {
