@@ -760,9 +760,12 @@ module.exports = async function (browser) {
         images.splice(images.length - 1, 1);
         return { args: pose.pluginData.args, listes, cochees };
     });
+    // LE QUATRIÈME ARGUMENT EST CE QU'ON A ÉCRIT DANS LES CASES. Le tableau
+    // était un dessin vide ; il porte maintenant ses chiffres, et un tableau
+    // qu'on vient de poser en a simplement zéro.
     r.egal('le modèle voyage avec le tableau, et « Modifier » le retrouve',
         retour,
-        { args: ['milliers,dixiemes,centiemes,milliemes', '2', 'ardoise'],
+        { args: ['milliers,dixiemes,centiemes,milliemes', '2', 'ardoise', {}],
           listes: ['ardoise', '2'], cochees: [false, false, true, true] });
 
     r.egal('et chaque modèle a bien sa teinte à lui',

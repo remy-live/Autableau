@@ -1233,7 +1233,7 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
             ], (res) => this.generateSVG(res[0], res[2], res[1]),
                 (res) => {
                     createStampFromSVG(this.generateSVG(res[0], res[2], res[1], true), (stamp) => {
-                        this.currentStamp = stamp; this.currentArgs = res;
+                        this.currentStamp = stamp; this.currentArgs = [res[0], res[2], res[1], {}];
                         if (typeof showToast === 'function') showToast("📌 Tamponnez le tableau !");
                     });
                 });
@@ -1249,29 +1249,39 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
             // reprend les trois lignes qu'il a toujours eues.
             this.champLignes(args[2] === undefined ? '3' : args[2]),
             { type: 'color', label: "Couleur", value: args[1] }
-        ], (res) => this.generateSVG(res[0], res[2], res[1]),
+        ], (res) => this.generateSVG(res[0], res[2], res[1], false, this.contenuDe(args)),
             (res) => {
-                createStampFromSVG(this.generateSVG(res[0], res[2], res[1], true), (stamp) => {
+                // CE QU'ON A ÉCRIT DANS LES CASES SURVIT AU RÉGLAGE : changer
+                // la couleur ou le nombre de lignes ne doit pas effacer la
+                // mesure qu'on vient d'y poser.
+                const garde = this.contenuDe(args);
+                createStampFromSVG(this.generateSVG(res[0], res[2], res[1], true, garde), (stamp) => {
                     imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h; imgObj.cw = stamp.w; imgObj.ch = stamp.h;
-                    imgObj.pluginData.args = res;
+                    imgObj.pluginData.args = [res[0], res[2], res[1], garde];
                     if (typeof draw === 'function') draw();
                     if (typeof saveState === 'function') saveState();
                 });
             });
     },
 
-    generateSVG: function (type, color, lignes, isExport = false) {
-        const nLignes = this.nombreDeLignes(lignes);
-        let cols = [];
-        let subCols = 1; // Nombre de sous-colonnes par unité (1 par défaut)
+    // LES COLONNES D'UNE GRANDEUR, décrites une fois pour toutes : le dessin
+    // s'en sert, et le placement d'un nombre aussi. Les tenir à deux endroits,
+    // c'était se condamner à ce qu'ils divergent.
+    colonnesDe: function (type) {
+        if (type === 'mass') return { cols: ['kg', 'hg', 'dag', 'g', 'dg', 'cg', 'mg'], subCols: 1 };
+        if (type === 'cap') return { cols: ['kL', 'hL', 'daL', 'L', 'dL', 'cL', 'mL'], subCols: 1 };
+        if (type === 'num') return { cols: ['C', 'D', 'U', '1/10', '1/100', '1/1000'], subCols: 1 };
+        if (type === 'area') return { cols: ['km²', 'hm²', 'dam²', 'm²', 'dm²', 'cm²', 'mm²'], subCols: 2 };
+        if (type === 'vol') return { cols: ['km³', 'hm³', 'dam³', 'm³', 'dm³', 'cm³', 'mm³'], subCols: 3 };
+        return { cols: ['km', 'hm', 'dam', 'm', 'dm', 'cm', 'mm'], subCols: 1 };
+    },
 
-        // Définition des colonnes et des subdivisions
-        if (type === 'len') cols = ['km', 'hm', 'dam', 'm', 'dm', 'cm', 'mm'];
-        else if (type === 'mass') cols = ['kg', 'hg', 'dag', 'g', 'dg', 'cg', 'mg'];
-        else if (type === 'cap') cols = ['kL', 'hL', 'daL', 'L', 'dL', 'cL', 'mL'];
-        else if (type === 'num') cols = ['C', 'D', 'U', '1/10', '1/100', '1/1000'];
-        else if (type === 'area') { cols = ['km²', 'hm²', 'dam²', 'm²', 'dm²', 'cm²', 'mm²']; subCols = 2; }
-        else if (type === 'vol') { cols = ['km³', 'hm³', 'dam³', 'm³', 'dm³', 'cm³', 'mm³']; subCols = 3; }
+    generateSVG: function (type, color, lignes, isExport = false, contenu) {
+        const nLignes = this.nombreDeLignes(lignes);
+        const plan = this.colonnesDe(type);
+        const cols = plan.cols;
+        const subCols = plan.subCols;
+        const cases = (contenu && typeof contenu === 'object') ? contenu : {};
 
         const colW = isExport ? 90 : 45;
         const rowH = isExport ? 45 : 25;
@@ -1313,7 +1323,207 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
             svg += `<text x="${i * colW + colW / 2}" y="${rowH / 2 + (isExport ? 6 : 3)}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 18 : 10}" fill="${color}" text-anchor="middle">${cols[i]}</text>`;
         }
 
+        // LES CHIFFRES QU'ON Y A POSÉS. La grille ne portait rien : on écrivait
+        // par-dessus au crayon, et elle ne pouvait donc ni placer un nombre, ni
+        // se relire d'une séance à l'autre.
+        const subW = colW / subCols;
+        const nbCases = cols.length * subCols;
+        Object.keys(cases).forEach(k => {
+            const [r, c] = k.split(',').map(Number);
+            if (!isFinite(r) || !isFinite(c) || r < 0 || r >= nLignes || c < 0 || c >= nbCases) return;
+            const texte = String(cases[k]);
+            if (!texte.length) return;
+            const cx = c * subW + subW / 2;
+            const cy = rowH * (r + 1) + rowH / 2;
+            const taille = Math.round((isExport ? 26 : 14) / Math.max(1, texte.length * 0.6));
+            svg += `<text x="${cx.toFixed(1)}" y="${(cy + taille * 0.35).toFixed(1)}" font-family="sans-serif"`
+                + ` font-size="${Math.max(isExport ? 12 : 7, taille)}" font-weight="600" fill="#2d3436"`
+                + ` text-anchor="middle">${xmlEsc(texte)}</text>`;
+        });
+
         return svg + `</svg>`;
+    },
+
+    // ==================================================================
+    // LE TABLEAU DE CONVERSION SE REMPLIT SUR LE TABLEAU
+    // Mêmes gestes que le tableau de numération, à ceci près que l'UNITÉ
+    // compte : « 12,5 cm » ne se pose pas au même endroit que « 12,5 m ».
+    // ==================================================================
+
+    // La géométrie du tampon posé : c'est le dessin d'export qu'on a sous les
+    // yeux, donc ses mesures à lui.
+    mesuresDuTampon: function (args) {
+        const plan = this.colonnesDe(args[0]);
+        const nLignes = this.nombreDeLignes(args[2]);
+        const colW = 90, rowH = 45;
+        return { plan, nLignes, colW, rowH,
+                 subW: colW / plan.subCols,
+                 nbCases: plan.cols.length * plan.subCols,
+                 w: plan.cols.length * colW, h: rowH * (nLignes + 1) };
+    },
+
+    contenuDe: function (args) {
+        const brut = args && args[3];
+        if (!brut || typeof brut !== 'object') return {};
+        const propre = {};
+        Object.keys(brut).forEach(k => {
+            if (/^\d+,\d+$/.test(k) && brut[k] !== '' && brut[k] !== null && brut[k] !== undefined) {
+                propre[k] = String(brut[k]);
+            }
+        });
+        return propre;
+    },
+
+    // LA CASE DES UNITÉS DÉPEND DE L'UNITÉ VISÉE. Le chiffre des unités de
+    // « cm » va dans la DERNIÈRE sous-colonne de la colonne « cm » : c'est là
+    // qu'il vaut un, et les sous-colonnes de gauche valent dix, cent.
+    caseDeLUnite: function (args, unite) {
+        const m = this.mesuresDuTampon(args);
+        const cherche = String(unite || '').trim().toLowerCase();
+        let i = -1;
+        if (cherche) i = m.plan.cols.findIndex(u => u.toLowerCase() === cherche);
+        // Sans unité — ou avec une unité que ce tableau ne connaît pas — on
+        // vise l'unité de référence : celle du milieu, « m », « g », « L ».
+        if (i < 0) i = Math.floor(m.plan.cols.length / 2);
+        return { case: i * m.plan.subCols + (m.plan.subCols - 1),
+                 reconnue: cherche ? m.plan.cols.some(u => u.toLowerCase() === cherche) : true,
+                 unite: m.plan.cols[i] };
+    },
+
+    refaireLeTampon: function (imgObj, reglages) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const type = reglages.type !== undefined ? reglages.type : args[0];
+        const couleur = reglages.couleur !== undefined ? reglages.couleur : args[1];
+        const lignes = reglages.lignes !== undefined ? reglages.lignes : args[2];
+        const contenu = reglages.contenu !== undefined ? reglages.contenu : this.contenuDe(args);
+        const m = this.mesuresDuTampon([type, couleur, lignes]);
+        const garde = {};
+        Object.keys(contenu).forEach(k => {
+            const [r, c] = k.split(',').map(Number);
+            if (r < m.nLignes && c < m.nbCases) garde[k] = contenu[k];
+        });
+        const svg = this.generateSVG(type, couleur, lignes, true, garde);
+        createStampFromSVG(svg, (stamp) => {
+            updatePluginStampInPlace(imgObj, stamp, undefined, { quiet: true });
+            imgObj.pluginData.args = [type, couleur, String(lignes), garde];
+            if (typeof saveState === 'function') saveState();
+            if (typeof updateQuickMenu === 'function') updateQuickMenu();
+            if (typeof draw === 'function') draw();
+        });
+        return true;
+    },
+
+    boiteDeLaCase: function (imgObj, r, c) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const m = this.mesuresDuTampon(args);
+        if (r < 0 || c < 0 || r >= m.nLignes || c >= m.nbCases) return null;
+        const ex = imgObj.w / m.w, ey = imgObj.h / m.h;
+        return { r, c,
+                 x: imgObj.x + c * m.subW * ex, y: imgObj.y + m.rowH * (r + 1) * ey,
+                 w: m.subW * ex, h: m.rowH * ey, taille: 24 * ey };
+    },
+
+    caseSousLePoint: function (imgObj, pos) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const m = this.mesuresDuTampon(args);
+        const ex = imgObj.w / m.w, ey = imgObj.h / m.h;
+        const wx = (pos.x - imgObj.x) / ex, wy = (pos.y - imgObj.y) / ey;
+        // La première rangée est l'en-tête : on n'y écrit pas.
+        if (wy < m.rowH || wy >= m.h || wx < 0 || wx >= m.w) return null;
+        const c = Math.floor(wx / m.subW), r = Math.floor(wy / m.rowH) - 1;
+        return this.boiteDeLaCase(imgObj, r, c);
+    },
+
+    ecrireDansLaCase: function (imgObj, r, c) {
+        const boite = this.boiteDeLaCase(imgObj, r, c);
+        if (!boite) return false;
+        const contenu = this.contenuDe(imgObj.pluginData.args);
+        const cle = r + ',' + c;
+        EditionSurLaGrille.ouvrirLeChamp(boite, contenu[cle] || '', {
+            valider: (texte) => {
+                const propre = String(texte).trim();
+                if (propre === (contenu[cle] || '')) return;
+                const suite = Object.assign({}, contenu);
+                if (propre) suite[cle] = propre; else delete suite[cle];
+                this.refaireLeTampon(imgObj, { contenu: suite });
+            },
+            suivante: (sens) => {
+                const m = this.mesuresDuTampon(imgObj.pluginData.args);
+                const n = GrilleDeChiffres.caseSuivante(r, c, m.nLignes, m.nbCases, sens < 0);
+                setTimeout(() => this.ecrireDansLaCase(imgObj, n.r, n.c), 140);
+            }
+        });
+        return true;
+    },
+
+    editerSurPlace: function (imgObj, pos) {
+        const boite = this.caseSousLePoint(imgObj, pos);
+        if (!boite) return false;
+        this.ecrireDansLaCase(imgObj, boite.r, boite.c);
+        return true;
+    },
+
+    demanderUnNombre: function (imgObj) {
+        const args = imgObj.pluginData.args;
+        const m = this.mesuresDuTampon(args);
+        const contenu = this.contenuDe(args);
+        let rang = 0;
+        for (let r = 0; r < m.nLignes; r++) {
+            const occupee = Object.keys(contenu).some(k => Number(k.split(',')[0]) === r);
+            if (!occupee) { rang = r; break; }
+            rang = Math.min(m.nLignes - 1, r + 1);
+        }
+        const ey = imgObj.h / m.h;
+        const boite = { x: imgObj.x, y: imgObj.y - 46 * ey, w: imgObj.w, h: 40 * ey, taille: 22 * ey };
+        const champ = EditionSurLaGrille.ouvrirLeChamp(boite, '', {
+            valider: (texte) => {
+                const nombre = GrilleDeChiffres.lireLeNombre(texte);
+                if (!nombre) {
+                    if (texte.trim() && typeof showToast === 'function') {
+                        showToast('« ' + texte.trim() + " » n'est pas un nombre.", '#e17055', '📏');
+                    }
+                    return;
+                }
+                const cible = this.caseDeLUnite(args, nombre.unite);
+                const mis = GrilleDeChiffres.poser(nombre, cible.case, m.nbCases);
+                const suite = Object.assign({}, contenu);
+                Object.keys(suite).forEach(k => {
+                    if (Number(k.split(',')[0]) === rang) delete suite[k];
+                });
+                Object.keys(mis.cases).forEach(c => { suite[rang + ',' + c] = mis.cases[c]; });
+                this.refaireLeTampon(imgObj, { contenu: suite });
+                if (nombre.unite && !cible.reconnue && typeof showToast === 'function') {
+                    showToast('« ' + nombre.unite + " » n'est pas dans ce tableau : posé en "
+                        + cible.unite + '.', '#e17055', '📏');
+                } else if (!mis.complet && typeof showToast === 'function') {
+                    showToast(mis.perdus.gauche
+                        ? 'Le tableau ne va pas assez loin à gauche : ' + mis.perdus.gauche + ' chiffre(s) de côté.'
+                        : 'Le tableau ne va pas assez loin à droite : ' + mis.perdus.droite + ' chiffre(s) de côté.',
+                        '#e17055', '📏');
+                }
+            }
+        });
+        if (champ) champ.placeholder = 'Tapez une mesure : 12,5 cm — 3,4 kg — 0,75 L';
+        return true;
+    },
+
+    actionsRapides: function (imgObj) {
+        const args = (imgObj && imgObj.pluginData && imgObj.pluginData.args) || null;
+        if (!args) return [];
+        const m = this.mesuresDuTampon(args);
+        return [
+            { titre: 'Poser une mesure dans le tableau', texte: '123',
+              faire: () => this.demanderUnNombre(imgObj) },
+            { titre: 'Une ligne de plus (' + m.nLignes + ')', texte: '＋⬓',
+              actif: m.nLignes < 12,
+              faire: () => this.refaireLeTampon(imgObj, { lignes: String(m.nLignes + 1) }) },
+            { titre: 'Une ligne de moins', texte: '－⬓',
+              actif: m.nLignes > 1,
+              faire: () => this.refaireLeTampon(imgObj, { lignes: String(m.nLignes - 1) }) },
+            { titre: 'Effacer ce qui est écrit dans les cases', texte: '⌫',
+              actif: Object.keys(this.contenuDe(args)).length > 0,
+              faire: () => this.refaireLeTampon(imgObj, { contenu: {} }) }
+        ];
     },
 
     onDraw: function (ctx) {
@@ -12550,7 +12760,18 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
                 }
                 if (typeof draw === 'function') draw();
                 const g = this.reglagesDesReponses(res);
-                this.buildCDUTable(g.spec, g.lignes, g.modele);
+                // CE QU'ON A ÉCRIT DANS LES CASES SURVIT AU RÉGLAGE. Changer
+                // le nombre de lignes ou le modèle ne doit pas effacer le
+                // nombre qu'on vient d'y placer — sauf, bien sûr, les cases
+                // qui n'existent plus.
+                const avant = this.contenuDe(args);
+                const apres = this.mesurerLeTableau(g.spec, g.lignes);
+                const garde = {};
+                Object.keys(avant).forEach(k => {
+                    const [r, c] = k.split(',').map(Number);
+                    if (r < apres.rows && c < apres.cols) garde[k] = avant[k];
+                });
+                this.buildCDUTable(g.spec, g.lignes, g.modele, garde);
             });
     },
 
@@ -12651,15 +12872,43 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
     // Ce que le tableau mesure, une fois ses classes connues.
     mesurerLeTableau: function (spec, rowsStr) {
         const { entieres, decimales } = this.lireLesClasses(spec);
-        const rows = parseInt(rowsStr) || 3;
+        const rows = this.nombreDeLignes(rowsStr);
         const colEnt = (entieres.length + 1) * 3;      // + les unités, toujours là
-        const w = (colEnt + decimales.length) * 70;
-        return { entieres, decimales, rows, colEnt, w, h: 120 + rows * 60, virgule: colEnt * 70 };
+        const cols = colEnt + decimales.length;
+        const w = cols * 70;
+        return { entieres, decimales, rows, colEnt, cols, w, h: 120 + rows * 60,
+                 virgule: colEnt * 70,
+                 // LA CASE DES UNITÉS : la dernière du bloc entier. C'est le
+                 // pivot de tout — un nombre s'y accroche par son chiffre des
+                 // unités, et le reste se déroule de part et d'autre.
+                 caseDesUnites: colEnt - 1 };
     },
 
-    getCDUSvg: function (spec, rowsStr, modele) {
+    // L'échelle des lignes, la même que celle du tableau de conversion.
+    LIGNES: ['1', '2', '3', '4', '5', '6', '8', '10', '12'],
+    nombreDeLignes: function (v) {
+        const n = parseInt(v, 10);
+        return (isFinite(n) && n >= 1 && n <= 12) ? n : 3;
+    },
+
+    // Ce qu'on a écrit dans les cases, relu d'un tableau posé. Les tableaux
+    // d'avant n'en ont pas : ils sont simplement vides.
+    contenuDe: function (args) {
+        const brut = args && args[3];
+        if (!brut || typeof brut !== 'object') return {};
+        const propre = {};
+        Object.keys(brut).forEach(k => {
+            if (/^\d+,\d+$/.test(k) && brut[k] !== '' && brut[k] !== null && brut[k] !== undefined) {
+                propre[k] = String(brut[k]);
+            }
+        });
+        return propre;
+    },
+
+    getCDUSvg: function (spec, rowsStr, modele, contenu) {
         const m = this.mesurerLeTableau(spec, rowsStr);
         const { entieres, decimales, rows, w, h, virgule } = m;
+        const cases = (contenu && typeof contenu === 'object') ? contenu : {};
         const colW = 70, rowH = 60;
         const p = this.modeleValide(modele);
         const police = 'Segoe UI, Roboto, Helvetica, Arial, sans-serif';
@@ -12727,6 +12976,21 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
             svg += `<text x="${x + colW / 2}" y="109" font-family="${police}" font-size="23" font-weight="700" fill="${p.decimale}" text-anchor="middle">${rangDecimal.lettre}</text>`;
         });
 
+        // LES CHIFFRES QU'ON Y A POSÉS. Ils se dessinent avec le tableau : une
+        // grille qui ne porte rien ne peut ni placer un nombre, ni se relire
+        // d'une séance à l'autre.
+        Object.keys(cases).forEach(k => {
+            const [r, c] = k.split(',').map(Number);
+            if (!isFinite(r) || !isFinite(c) || r < 0 || r >= rows || c < 0 || c >= m.cols) return;
+            const texte = String(cases[k]);
+            if (!texte.length) return;
+            const cx = c * colW + colW / 2;
+            const cy = 120 + r * rowH + rowH / 2;
+            const taille = texte.length > 2 ? 24 : 32;
+            svg += `<text x="${cx}" y="${cy + taille * 0.34}" font-family="${police}" font-size="${taille}"`
+                + ` font-weight="600" fill="${p.encre}" text-anchor="middle">${xmlEsc(texte)}</text>`;
+        });
+
         svg += `<text x="${virgule / 2}" y="27" font-family="${police}" font-size="16" font-weight="700" letter-spacing="1.6" fill="${p.titreEnt}" text-anchor="middle">PARTIE ENTIÈRE</text>`;
         if (decimales.length) svg += `<text x="${(virgule + w) / 2}" y="27" font-family="${police}" font-size="16" font-weight="700" letter-spacing="1.6" fill="${p.titreDec}" text-anchor="middle">PARTIE DÉCIMALE</text>`;
 
@@ -12736,9 +13000,167 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
         return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     },
 
-    buildCDUTable: function (spec, rowsStr, modele) {
+    // ==================================================================
+    // LE TABLEAU SE REMPLIT SUR LE TABLEAU
+    // « Tu pourrais mettre un joli input au-dessus caché par un petit bouton
+    // et on peut taper 12,5 cm et ça se place ; on peut aussi double-cliquer
+    // pour éditer chacune des cases et tabulation pour passer à la suivante ;
+    // et possibilité d'augmenter le nombre de lignes. »
+    //
+    // La grille était un DESSIN : rien dedans, et rien à y mettre autrement
+    // qu'au crayon. Elle porte maintenant ses chiffres, et les trois gestes
+    // se font sans rouvrir la fenêtre.
+    // ==================================================================
+
+    // Refaire le tableau posé, à partir de ses réglages et de son contenu.
+    refaireLeTableau: function (imgObj, reglages) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const spec = reglages.spec !== undefined ? reglages.spec : args[0];
+        const lignes = reglages.lignes !== undefined ? reglages.lignes : args[1];
+        const modele = reglages.modele !== undefined ? reglages.modele : args[2];
+        const contenu = reglages.contenu !== undefined ? reglages.contenu : this.contenuDe(args);
+        const m = this.mesurerLeTableau(spec, lignes);
+        // Les cases qui n'existent plus s'en vont avec elles.
+        const garde = {};
+        Object.keys(contenu).forEach(k => {
+            const [r, c] = k.split(',').map(Number);
+            if (r < m.rows && c < m.cols) garde[k] = contenu[k];
+        });
+        const img = new Image();
+        img.onload = () => {
+            if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
+            const echelle = imgObj.w / (imgObj.cw || m.w);
+            imgObj.src = img.src;
+            imgObj.cx = 0; imgObj.cy = 0; imgObj.cw = m.w; imgObj.ch = m.h;
+            imgObj.w = m.w * echelle; imgObj.h = m.h * echelle;
+            imgObj.pluginData.args = [spec, String(lignes), modele, garde];
+            if (typeof saveState === 'function') saveState();
+            if (typeof updateQuickMenu === 'function') updateQuickMenu();
+            if (typeof draw === 'function') draw();
+        };
+        img.src = this.getCDUSvg(spec, lignes, modele, garde);
+        return true;
+    },
+
+    // La case sous un point du tableau. Les cases d'écriture commencent sous
+    // l'en-tête : au-dessus, ce sont les titres, on n'y écrit pas.
+    caseSousLePoint: function (imgObj, pos) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const m = this.mesurerLeTableau(args[0], args[1]);
+        const ex = imgObj.w / m.w, ey = imgObj.h / m.h;
+        const wx = (pos.x - imgObj.x) / ex, wy = (pos.y - imgObj.y) / ey;
+        if (wy < 120 || wy >= m.h || wx < 0 || wx >= m.w) return null;
+        const c = Math.floor(wx / 70), r = Math.floor((wy - 120) / 60);
+        if (c < 0 || c >= m.cols || r < 0 || r >= m.rows) return null;
+        return this.boiteDeLaCase(imgObj, r, c);
+    },
+
+    boiteDeLaCase: function (imgObj, r, c) {
+        const args = (imgObj.pluginData && imgObj.pluginData.args) || [];
+        const m = this.mesurerLeTableau(args[0], args[1]);
+        if (r < 0 || c < 0 || r >= m.rows || c >= m.cols) return null;
+        const ex = imgObj.w / m.w, ey = imgObj.h / m.h;
+        return { r, c,
+                 x: imgObj.x + c * 70 * ex, y: imgObj.y + (120 + r * 60) * ey,
+                 w: 70 * ex, h: 60 * ey, taille: 30 * ey };
+    },
+
+    ecrireDansLaCase: function (imgObj, r, c) {
+        const boite = this.boiteDeLaCase(imgObj, r, c);
+        if (!boite) return false;
+        const contenu = this.contenuDe(imgObj.pluginData.args);
+        const cle = r + ',' + c;
+        EditionSurLaGrille.ouvrirLeChamp(boite, contenu[cle] || '', {
+            valider: (texte) => {
+                const propre = String(texte).trim();
+                if (propre === (contenu[cle] || '')) return;
+                const suite = Object.assign({}, contenu);
+                if (propre) suite[cle] = propre; else delete suite[cle];
+                this.refaireLeTableau(imgObj, { contenu: suite });
+            },
+            suivante: (sens) => {
+                const m = this.mesurerLeTableau(imgObj.pluginData.args[0], imgObj.pluginData.args[1]);
+                const n = GrilleDeChiffres.caseSuivante(r, c, m.rows, m.cols, sens < 0);
+                setTimeout(() => this.ecrireDansLaCase(imgObj, n.r, n.c), 120);
+            }
+        });
+        return true;
+    },
+
+    editerSurPlace: function (imgObj, pos) {
+        const boite = this.caseSousLePoint(imgObj, pos);
+        if (!boite) return false;
+        this.ecrireDansLaCase(imgObj, boite.r, boite.c);
+        return true;
+    },
+
+    // POSER UN NOMBRE D'UN COUP. Le champ se cache derrière un petit bouton :
+    // il ne sert pas à chaque tableau, et une barre encombrée se lit mal.
+    demanderUnNombre: function (imgObj) {
+        const args = imgObj.pluginData.args;
+        const m = this.mesurerLeTableau(args[0], args[1]);
+        const contenu = this.contenuDe(args);
+        // La première rangée libre : on ne recouvre pas ce qui est déjà écrit.
+        let rang = 0;
+        for (let r = 0; r < m.rows; r++) {
+            const occupee = Object.keys(contenu).some(k => Number(k.split(',')[0]) === r);
+            if (!occupee) { rang = r; break; }
+            rang = Math.min(m.rows - 1, r + 1);
+        }
+        const boite = { x: imgObj.x, y: imgObj.y - 46 * (imgObj.h / m.h),
+                        w: imgObj.w, h: 40 * (imgObj.h / m.h), taille: 22 * (imgObj.h / m.h) };
+        const champ = EditionSurLaGrille.ouvrirLeChamp(boite, '', {
+            valider: (texte) => {
+                const nombre = GrilleDeChiffres.lireLeNombre(texte);
+                if (!nombre) {
+                    if (texte.trim() && typeof showToast === 'function') {
+                        showToast('« ' + texte.trim() + " » n'est pas un nombre.", '#e17055', '🧮');
+                    }
+                    return;
+                }
+                const mis = GrilleDeChiffres.poser(nombre, m.caseDesUnites, m.cols);
+                const suite = Object.assign({}, contenu);
+                // La rangée visée est faite pour ce nombre : on la vide d'abord.
+                Object.keys(suite).forEach(k => {
+                    if (Number(k.split(',')[0]) === rang) delete suite[k];
+                });
+                Object.keys(mis.cases).forEach(c => { suite[rang + ',' + c] = mis.cases[c]; });
+                this.refaireLeTableau(imgObj, { contenu: suite });
+                if (!mis.complet && typeof showToast === 'function') {
+                    showToast(mis.perdus.gauche
+                        ? 'Le tableau ne va pas assez loin à gauche : ' + mis.perdus.gauche + ' chiffre(s) de côté.'
+                        : 'Il manque ' + mis.perdus.droite + ' rang(s) décimal(aux) : ajoutez-les dans les réglages.',
+                        '#e17055', '🧮');
+                }
+            }
+        });
+        if (champ) champ.placeholder = 'Tapez un nombre : 12,5 — 3 407 — 0,75';
+        return true;
+    },
+
+    actionsRapides: function (imgObj) {
+        const args = (imgObj && imgObj.pluginData && imgObj.pluginData.args) || null;
+        if (!args) return [];
+        const m = this.mesurerLeTableau(args[0], args[1]);
+        return [
+            { titre: 'Poser un nombre dans le tableau', texte: '123',
+              faire: () => this.demanderUnNombre(imgObj) },
+            { titre: 'Une ligne de plus (' + m.rows + ')', texte: '＋⬓',
+              actif: m.rows < 12,
+              faire: () => this.refaireLeTableau(imgObj, { lignes: String(m.rows + 1) }) },
+            { titre: 'Une ligne de moins', texte: '－⬓',
+              actif: m.rows > 1,
+              faire: () => this.refaireLeTableau(imgObj, { lignes: String(m.rows - 1) }) },
+            { titre: 'Effacer ce qui est écrit dans les cases', texte: '⌫',
+              actif: Object.keys(this.contenuDe(args)).length > 0,
+              faire: () => this.refaireLeTableau(imgObj, { contenu: {} }) }
+        ];
+    },
+
+    buildCDUTable: function (spec, rowsStr, modele, contenu) {
         const { w, h } = this.mesurerLeTableau(spec, rowsStr);
         modele = this.modeleValide(modele).cle;
+        contenu = (contenu && typeof contenu === 'object') ? contenu : {};
 
         const logicalCenterX = (window.innerWidth / 2 - panX) / zoom;
         const logicalCenterY = (window.innerHeight / 2 - panY) / zoom;
@@ -12749,10 +13171,10 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
         const img = new Image();
         img.onload = () => {
             if (typeof imageCache !== 'undefined') imageCache[img.src] = img;
-            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'cduGeneratorTool', args: [spec, rowsStr, modele], groupId: groupId } });
+            images.push({ id: nextId++, x: startX, y: startY, w: w, h: h, cx: 0, cy: 0, cw: w, ch: h, src: img.src, z: globalZ++, pluginData: { id: 'cduGeneratorTool', args: [spec, rowsStr, modele, contenu], groupId: groupId } });
             if (typeof saveState === 'function') saveState(); if (typeof draw === 'function') draw();
         };
-        img.src = this.getCDUSvg(spec, rowsStr, modele);
+        img.src = this.getCDUSvg(spec, rowsStr, modele, contenu);
         showToast("🧮 Tableau généré !");
     }
 });
@@ -14733,13 +15155,15 @@ registerPlugin('moleculeStudioTool', 'Physique-Chimie', {
 });
 
 // ==========================================
-// 16. TABLEAU & LOGIGRAMME STUDIO (Compact, Nouveaux Templates, Logigrammes parfaits)
+// 16. TABLEAU STUDIO (Compact, Nouveaux Templates, Logigrammes parfaits)
 // ==========================================
 
 registerPlugin('tableStudioTool', 'Outils Profs', {
     editingImage: null,
     currentStamp: null,
     currentState: null,
+    // Le geste en cours quand on tire une séparation de colonne sur le tableau.
+    glisseColonne: null,
     state: {
         rows: 3, cols: 3,
         rowH: [50, 50, 50],
@@ -14765,7 +15189,10 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         const grid = document.getElementById('plugins-grid');
         if (!grid) return;
         const btn = document.createElement('button');
-        btn.className = 'btn'; btn.dataset.mode = 'tableStudio'; btn.title = 'Tableaux & Logigrammes';
+        // L'OUTIL S'APPELLE « TABLEAU ». Le mot « logigramme » ne nomme qu'un de ses
+        // gabarits, parmi une douzaine : le mettre sur l'icône faisait chercher
+        // ailleurs ceux qui voulaient simplement un tableau.
+        btn.className = 'btn'; btn.dataset.mode = 'tableStudio'; btn.title = 'Tableau';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16"/><path d="M4 15h16"/><path d="M10 4v16"/><path d="M15 4v16"/></svg>`;
         grid.appendChild(btn);
 
@@ -15978,49 +16405,50 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     // LE DOUBLE-CLIC ÉCRIT DANS LA CASE, au lieu d'ouvrir l'atelier. Ouvrir
     // une fenêtre plein écran pour taper un mot dans une case était le geste
     // le plus coûteux de l'outil, et le plus fréquent.
+    // ET LA TABULATION PASSE À LA SUIVANTE : on remplit une grille sans jamais
+    // lâcher le clavier pour aller viser la case d'après à la souris.
     editerSurPlace: function (imgObj, pos) {
         const boite = this.caseSousLePoint(imgObj, pos);
         if (!boite) return false;
-        const cle = boite.r + ',' + boite.c;
+        this.ecrireDansLaCase(imgObj, boite.r, boite.c);
+        return true;
+    },
+
+    // La boîte d'une case donnée par son rang, dans le repère du tableau.
+    boiteDeLaCase: function (imgObj, r, c) {
+        const etat = imgObj.pluginData && imgObj.pluginData.state;
+        if (!etat || r < 0 || c < 0 || r >= etat.rows || c >= etat.cols) return null;
+        const pad = 10;
+        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+        const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
+        const ex = imgObj.w / large, ey = imgObj.h / haut;
+        let x = 0; for (let i = 0; i < c; i++) x += etat.colW[i];
+        let y = 0; for (let i = 0; i < r; i++) y += etat.rowH[i];
+        return { r, c, x: imgObj.x + (pad + x) * ex, y: imgObj.y + (pad + y) * ey,
+                 w: etat.colW[c] * ex, h: etat.rowH[r] * ey, taille: 16 * ey };
+    },
+
+    ecrireDansLaCase: function (imgObj, r, c) {
+        const boite = this.boiteDeLaCase(imgObj, r, c);
+        if (!boite) return false;
         const etat = imgObj.pluginData.state;
+        const cle = r + ',' + c;
         const cellule = etat.cells[cle] || {};
-
-        document.querySelectorAll('.ts-champ-case').forEach(e => e.remove());
-        const champ = document.createElement('input');
-        champ.type = 'text';
-        champ.className = 'ts-champ-case';
-        champ.value = cellule.t || '';
-        const surEcran = (x, y) => ({
-            x: x * (typeof zoom !== 'undefined' ? zoom : 1) + (typeof panX !== 'undefined' ? panX : 0),
-            y: y * (typeof zoom !== 'undefined' ? zoom : 1) + (typeof panY !== 'undefined' ? panY : 0)
-        });
-        const coin = surEcran(boite.x, boite.y);
-        const z = (typeof zoom !== 'undefined' ? zoom : 1);
-        champ.style.cssText = 'position:fixed; z-index:100050; box-sizing:border-box;'
-            + ` left:${Math.round(coin.x)}px; top:${Math.round(coin.y)}px;`
-            + ` width:${Math.round(boite.w * z)}px; height:${Math.round(boite.h * z)}px;`
-            + ` font-size:${Math.max(11, Math.round(16 * z))}px;`
-            + ' text-align:center; border:2px solid #0984e3; border-radius:4px;'
-            + ' background:#ffffff; color:#2d3436; outline:none; font-family:sans-serif;';
-        document.body.appendChild(champ);
-        setTimeout(() => { champ.focus(); champ.select(); }, 0);
-
-        let fini = false;
-        const finir = (garder) => {
-            if (fini) return;
-            fini = true;
-            const texte = champ.value;
-            champ.remove();
-            if (!garder || texte === (cellule.t || '')) return;
-            this.surCeTableau(imgObj, (etatVif) => {
-                etatVif.cells[cle] = Object.assign({}, etatVif.cells[cle] || {}, { t: texte });
-            });
-        };
-        champ.addEventListener('blur', () => finir(true));
-        champ.addEventListener('keydown', (e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') { e.preventDefault(); finir(true); }
-            if (e.key === 'Escape') { e.preventDefault(); finir(false); }
+        EditionSurLaGrille.ouvrirLeChamp(boite, cellule.t || '', {
+            valider: (texte) => {
+                if (texte === (cellule.t || '')) return;
+                this.surCeTableau(imgObj, (vif) => {
+                    vif.cells[cle] = Object.assign({}, vif.cells[cle] || {}, { t: texte });
+                });
+            },
+            suivante: (sens) => {
+                const e = imgObj.pluginData.state;
+                const n = GrilleDeChiffres.caseSuivante(r, c, e.rows, e.cols, sens < 0);
+                // Le tampon vient d'être refait : on laisse le dessin se poser
+                // avant d'aller ouvrir la case d'après, sinon le champ se
+                // placerait d'après l'ancienne image.
+                setTimeout(() => this.ecrireDansLaCase(imgObj, n.r, n.c), 120);
+            }
         });
         return true;
     },
@@ -16072,15 +16500,110 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         });
     },
 
+    // ==================================================================
+    // LA LARGEUR D'UNE COLONNE SE TIRE SUR LE TABLEAU
+    // « Le tampon posé, on peut modifier la taille des colonnes avec la souris
+    // sur le canvas ou dans le plugin. » Dans l'atelier, oui, depuis toujours.
+    // Sur le tableau, il fallait le rouvrir pour élargir une colonne d'un
+    // centimètre — et le rouvrir couvre l'écran.
+    // ==================================================================
+
+    // La séparation de colonne sous un point, s'il y en a une. On ne prend le
+    // geste que très près du trait : partout ailleurs, c'est un déplacement de
+    // l'objet, et le lui voler serait pire que de ne rien offrir.
+    separationSousLePoint: function (imgObj, pos) {
+        const etat = imgObj && imgObj.pluginData && imgObj.pluginData.state;
+        if (!etat || !etat.colW) return null;
+        const pad = 10;
+        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+        const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
+        const ex = imgObj.w / large, ey = imgObj.h / haut;
+        const wy = (pos.y - imgObj.y) / ey - pad;
+        if (wy < -6 || wy > haut - pad * 2 + 6) return null;
+        const wx = (pos.x - imgObj.x) / ex - pad;
+        let x = 0;
+        for (let i = 0; i < etat.cols; i++) {
+            x += etat.colW[i];
+            // Le dernier trait est le bord droit : le tirer, c'est
+            // redimensionner l'objet, pas la colonne. On s'arrête avant.
+            if (i === etat.cols - 1) break;
+            if (Math.abs(wx - x) <= 7) return { idx: i, largeur: etat.colW[i] };
+        }
+        return null;
+    },
+
+    tableauPrisEnMain: function () {
+        if (typeof selectedItems === 'undefined' || selectedItems.length !== 1) return null;
+        if (selectedItems[0].type !== 'image') return null;
+        const o = getObjectById('image', selectedItems[0].id);
+        if (!o || o.locked || !o.pluginData || o.pluginData.id !== 'tableStudioTool') return null;
+        return o;
+    },
+
     onDraw: function (ctx) {
         if (mode === 'tableStudio' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
             ctx.globalAlpha = 0.7;
             ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2);
             ctx.globalAlpha = 1.0;
         }
+        // LE TRAIT QU'ON TIRE. Refaire le dessin de la grille à chaque pixel
+        // coûterait trop cher : on montre où la colonne va tomber, et l'on ne
+        // refait la grille qu'au relâchement.
+        const g = this.glisseColonne;
+        if (g && g.xVif !== undefined) {
+            ctx.save();
+            ctx.strokeStyle = '#0984e3';
+            ctx.lineWidth = 2 / ((typeof zoom !== 'undefined' && zoom) || 1);
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(g.xVif, g.obj.y);
+            ctx.lineTo(g.xVif, g.obj.y + g.obj.h);
+            ctx.stroke();
+            ctx.restore();
+        }
+    },
+
+    onPointerMove: function (pos) {
+        const g = this.glisseColonne;
+        if (!g) return false;
+        const large = Math.max(g.minimum, g.largeur0 + (pos.x - g.x0) / g.ex);
+        g.largeur = large;
+        g.xVif = g.xBord + (large - g.largeur0) * g.ex;
+        if (typeof draw === 'function') draw();
+        return true;
+    },
+
+    onPointerUp: function () {
+        const g = this.glisseColonne;
+        if (!g) return false;
+        this.glisseColonne = null;
+        const large = Math.round(g.largeur);
+        if (Math.abs(large - g.largeur0) >= 1) {
+            this.surCeTableau(g.obj, (vif) => { vif.colW[g.idx] = large; });
+        } else if (typeof draw === 'function') draw();
+        return true;
     },
 
     onPointerDown: function (pos) {
+        // D'abord la séparation de colonne : le geste est rare, mais il doit
+        // passer avant la prise de l'objet, sinon on déplace la grille.
+        if (typeof mode !== 'undefined' && mode === 'pointer' && !this.currentStamp) {
+            const obj = this.tableauPrisEnMain();
+            const sep = obj ? this.separationSousLePoint(obj, pos) : null;
+            if (sep) {
+                const etat = obj.pluginData.state;
+                const pad = 10;
+                const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+                const ex = obj.w / large;
+                let x = 0;
+                for (let i = 0; i <= sep.idx; i++) x += etat.colW[i];
+                this.glisseColonne = { obj, idx: sep.idx, x0: pos.x, ex,
+                                       largeur0: sep.largeur, largeur: sep.largeur,
+                                       minimum: 24, xBord: obj.x + (pad + x) * ex,
+                                       xVif: obj.x + (pad + x) * ex };
+                return true;
+            }
+        }
         if (mode === 'tableStudio' && this.currentStamp) {
             images.push({
                 id: nextId++, x: pos.x - this.currentStamp.w / 2, y: pos.y - this.currentStamp.h / 2,
@@ -16096,6 +16619,131 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     }
 });
 
+
+// ==================================================================
+// LES GRILLES OÙ L'ON POSE DES CHIFFRES
+// Le tableau de numération et celui de conversion ont la même vie : une
+// grille de cases, un chiffre par case, et une case de référence — celle des
+// unités, ou celle de l'unité qu'on vise. Ni l'un ni l'autre ne savait ce
+// qu'il y avait dedans, pour la bonne raison qu'il n'y avait rien : on
+// écrivait par-dessus au crayon, et le tableau ne pouvait donc ni placer un
+// nombre, ni relire ce qu'on y avait mis.
+//
+// Ce socle est commun aux deux : il lit un nombre écrit à la main — « 12,5 »,
+// « 12.5 cm », « 0,75 kg » — et sait dans quelles cases poser ses chiffres.
+// ==================================================================
+const GrilleDeChiffres = {
+    // Ce qu'on a tapé, ramené à trois morceaux. On accepte la virgule ET le
+    // point : un élève tape ce qu'il voit au tableau, l'autre ce qu'il voit
+    // sur sa calculatrice.
+    lireLeNombre: function (texte) {
+        const brut = String(texte === undefined || texte === null ? '' : texte).trim();
+        if (!brut) return null;
+        // L'unité est ce qui reste quand on a retiré le nombre : « cm », « m² »,
+        // « kg »… On la garde telle quelle, la grille dira si elle la connaît.
+        const m = brut.match(/^([+-]?)\s*(\d[\d\s]*)(?:[.,](\d+))?\s*([^\d\s]*)$/);
+        if (!m) return null;
+        const entier = m[2].replace(/\s+/g, '');
+        const decimal = (m[3] || '').replace(/\s+/g, '');
+        if (!entier.length && !decimal.length) return null;
+        return { entier, decimal, unite: (m[4] || '').trim(), negatif: m[1] === '-' };
+    },
+
+    // POSER UN NOMBRE DANS UNE RANGÉE. La case de référence porte le chiffre
+    // des unités de l'unité visée ; l'entier se déroule vers la gauche, les
+    // décimales vers la droite. Ce qui ne tient pas dans la grille est rendu :
+    // c'est à l'appelant de le dire, pas à la grille de le taire.
+    poser: function (nombre, caseDesUnites, nbCases) {
+        if (!nombre) return null;
+        const cases = {};
+        const perdus = { gauche: 0, droite: 0 };
+        const ent = nombre.entier || '0';
+        for (let i = 0; i < ent.length; i++) {
+            const c = caseDesUnites - (ent.length - 1 - i);
+            if (c < 0) { perdus.gauche++; continue; }
+            cases[c] = ent[i];
+        }
+        for (let i = 0; i < (nombre.decimal || '').length; i++) {
+            const c = caseDesUnites + 1 + i;
+            if (c >= nbCases) { perdus.droite++; continue; }
+            cases[c] = nombre.decimal[i];
+        }
+        return { cases, perdus, complet: perdus.gauche === 0 && perdus.droite === 0 };
+    },
+
+    // La case suivante, en lecture : on va de gauche à droite, puis on passe à
+    // la rangée d'en dessous. C'est le trajet de la tabulation.
+    caseSuivante: function (r, c, rows, cols, enArriere) {
+        let n = r * cols + c + (enArriere ? -1 : 1);
+        const total = rows * cols;
+        if (n < 0) n = total - 1;
+        if (n >= total) n = 0;
+        return { r: Math.floor(n / cols), c: n % cols };
+    }
+};
+window.GrilleDeChiffres = GrilleDeChiffres;
+
+// ==================================================================
+// ÉCRIRE DANS UNE CASE, SUR LE TABLEAU
+// Un champ posé exactement sur la case qu'on vient de toucher. Entrée
+// valide, Échap renonce, et TABULATION valide puis passe à la case
+// suivante — c'est ainsi qu'on remplit une grille, sans jamais lâcher le
+// clavier pour aller viser la case d'après à la souris.
+// Le mécanisme est commun aux trois grilles : le tableau de numération,
+// celui de conversion et Tableau Studio.
+// ==================================================================
+const EditionSurLaGrille = {
+    CLASSE: 'gr-champ-case',
+
+    fermerLeChamp: function () {
+        document.querySelectorAll('.' + this.CLASSE).forEach(e => e.remove());
+    },
+
+    // « boite » est donnée dans le repère du TABLEAU ; le champ, lui, se pose
+    // sur l'écran. C'est la seule conversion à faire, et elle doit suivre le
+    // zoom : un champ à la bonne place sur un tableau zoomé à 60 % se
+    // retrouverait deux cases plus loin sans elle.
+    ouvrirLeChamp: function (boite, valeur, actions) {
+        this.fermerLeChamp();
+        const z = (typeof zoom !== 'undefined') ? zoom : 1;
+        const px = (typeof panX !== 'undefined') ? panX : 0;
+        const py = (typeof panY !== 'undefined') ? panY : 0;
+        const champ = document.createElement('input');
+        champ.type = 'text';
+        champ.className = this.CLASSE;
+        champ.value = valeur === undefined || valeur === null ? '' : String(valeur);
+        champ.style.cssText = 'position:fixed; z-index:100050; box-sizing:border-box;'
+            + ` left:${Math.round(boite.x * z + px)}px; top:${Math.round(boite.y * z + py)}px;`
+            + ` width:${Math.round(boite.w * z)}px; height:${Math.round(boite.h * z)}px;`
+            + ` font-size:${Math.max(11, Math.round((boite.taille || 18) * z))}px;`
+            + ' text-align:center; border:2px solid #0984e3; border-radius:4px;'
+            + ' background:#ffffff; color:#2d3436; outline:none; font-family:sans-serif;';
+        document.body.appendChild(champ);
+        setTimeout(() => { champ.focus(); champ.select(); }, 0);
+
+        let fini = false;
+        const finir = (garder, ensuite) => {
+            if (fini) return;
+            fini = true;
+            const texte = champ.value;
+            champ.remove();
+            if (garder && actions.valider) actions.valider(texte);
+            if (ensuite && actions.suivante) actions.suivante(ensuite);
+        };
+        champ.addEventListener('blur', () => finir(true, null));
+        champ.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); finir(true, null); }
+            else if (e.key === 'Escape') { e.preventDefault(); finir(false, null); }
+            else if (e.key === 'Tab') {
+                e.preventDefault();
+                finir(true, e.shiftKey ? -1 : 1);
+            }
+        });
+        return champ;
+    }
+};
+window.EditionSurLaGrille = EditionSurLaGrille;
 
 // ==========================================
 // PLUGIN : TIRAGE, SURVIVOR, CARTES & ÎLOTS (COMPLET)

@@ -30285,7 +30285,7 @@ function equilibrerGrillePlugins() {
         'Piano Virtuel': 'Piano', 'Métronome Pro': 'Métronome', 'Accordeur Pro': 'Accordeur',
         'Portée Musicale': 'Portée', 'Frise Historique': 'Frise', 'Atelier cartes': 'Cartes',
         "Lignes d'écriture": 'Lignes', 'Météo du Jour': 'Météo',
-        'Calendrier & Affichages': 'Calendrier', 'Tableaux & Logigrammes': 'Logigrammes',
+        'Calendrier & Affichages': 'Calendrier',
         'Tirage au sort & Groupes': 'Tirage au sort', 'Bulles BD Interactives': 'Bulles BD',
         'Générateur de Labyrinthes': 'Labyrinthes', 'Générateur de Dominos': 'Dominos',
         'Générateur de Binaro': 'Binaro', "Générateur d'Exercices": 'Exercices',

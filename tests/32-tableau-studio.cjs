@@ -177,7 +177,7 @@ module.exports = async function (browser) {
     await page.mouse.dblclick(visee.x, visee.y);
     await page.waitForTimeout(250);
     const champOuvert = await page.evaluate(() => {
-        const c = document.querySelector('.ts-champ-case');
+        const c = document.querySelector('.gr-champ-case');
         if (!c) return { la: false };
         const b = c.getBoundingClientRect();
         return { la: true, vide: c.value === '', large: Math.round(b.width),
@@ -195,7 +195,7 @@ module.exports = async function (browser) {
     await page.waitForTimeout(450);
     const ecrit = await page.evaluate(() => ({
         cellule: images[0].pluginData.state.cells['1,1'],
-        champParti: !document.querySelector('.ts-champ-case'),
+        champParti: !document.querySelector('.gr-champ-case'),
         // Le dessin peut être encodé en base64 ou posé en clair dans l'URL :
         // on lit celui qu'on a, sans supposer lequel.
         dansLeDessin: (() => {
@@ -221,7 +221,7 @@ module.exports = async function (browser) {
     await page.waitForTimeout(350);
     const rien = await page.evaluate(() => ({
         cellule: images[0].pluginData.state.cells['1,1'].t,
-        champParti: !document.querySelector('.ts-champ-case')
+        champParti: !document.querySelector('.gr-champ-case')
     }));
     r.egal('Échap referme sans rien changer', rien, { cellule: 'Lundi', champParti: true });
 
@@ -267,7 +267,7 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => {
         images.length = 0; selectedItems = [];
-        document.querySelectorAll('.ts-champ-case').forEach(e => e.remove());
+        document.querySelectorAll('.gr-champ-case').forEach(e => e.remove());
         updateQuickMenu(); draw();
     });
     // L'ATELIER POSE TOUJOURS SA GRILLE. Le dessin s'y fabriquait au moment de
@@ -292,6 +292,107 @@ module.exports = async function (browser) {
         { tampon: true, fenetre: 'none' });
     r.verifie('et ce tampon a la largeur des quatre colonnes',
         parLAtelier.largeur > 400, JSON.stringify(parLAtelier));
+    // ON RANGE LE TAMPON EN ATTENTE. Tant qu'il en pend un, le prochain clic
+    // le POSE : c'est ce que fait Échap dans la vraie vie, et c'est ce qu'il
+    // faut faire ici avant d'aller tirer une colonne.
+    await page.evaluate(() => {
+        PluginManager.plugins['tableStudioTool'].currentStamp = null;
+        setMode('pointer');
+    });
+
+    // =====================================================================
+    // LA LARGEUR D'UNE COLONNE SE TIRE SUR LE TABLEAU
+    // « Le tampon posé, on peut modifier la taille des colonnes avec la souris
+    // sur le canvas ou dans le plugin. » Dans l'atelier, oui, depuis
+    // toujours ; sur le tableau, il fallait le rouvrir pour élargir une
+    // colonne d'un centimètre — et le rouvrir couvre l'écran.
+    // =====================================================================
+    await poser();
+    await page.waitForTimeout(250);
+    const bords = await page.evaluate(() => {
+        const t = PluginManager.plugins['tableStudioTool'];
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateQuickMenu(); draw();
+        const o = images[0];
+        // ON VISE LE BAS DE LA GRILLE : la barre de l'objet flotte au-dessus
+        // d'elle, et un clic qui tombe sur cette barre-là n'atteint jamais le
+        // tableau — ce n'est pas un défaut du geste, c'est un piège de mesure.
+        const y = Math.round(o.y + o.h - 30);
+        return {
+            // Le trait entre la première et la deuxième colonne.
+            trait: { x: Math.round(o.x + 10 + 120), y },
+            // Une case ordinaire : le geste doit y rester un déplacement.
+            plein: t.separationSousLePoint(o, { x: o.x + 10 + 60, y }),
+            surLeTrait: t.separationSousLePoint(o, { x: o.x + 10 + 120, y }),
+            // Le bord DROIT n'est pas une séparation : le tirer redimensionne
+            // l'objet, et le lui voler serait pire que de ne rien offrir.
+            bordDroit: t.separationSousLePoint(o, { x: o.x + 10 + 360, y }),
+            colW: images[0].pluginData.state.colW.slice(),
+            large: Math.round(o.w)
+        };
+    });
+    r.egal('on ne prend le geste que sur le trait, jamais au milieu d\'une case',
+        { surLeTrait: bords.surLeTrait && bords.surLeTrait.idx, plein: bords.plein },
+        { surLeTrait: 0, plein: null });
+    r.egal('et le bord droit reste au redimensionnement de l\'objet', bords.bordDroit, null);
+
+    await page.mouse.move(bords.trait.x, bords.trait.y);
+    await page.mouse.down();
+    await page.mouse.move(bords.trait.x + 70, bords.trait.y, { steps: 8 });
+    await page.waitForTimeout(150);
+    const pendantLeGlissement = await page.evaluate(() => {
+        const g = PluginManager.plugins['tableStudioTool'].glisseColonne;
+        return { enCours: !!g, largeur: g ? Math.round(g.largeur) : 0,
+                 // La grille n'est pas refaite à chaque pixel : c'est un trait
+                 // de repère qu'on montre, et la colonne n'a pas encore bougé.
+                 pasEncore: images[0].pluginData.state.colW[0] };
+    });
+    r.egal('tirer le trait montre où la colonne va tomber, sans refaire la grille',
+        { enCours: pendantLeGlissement.enCours, large: pendantLeGlissement.largeur > 180,
+          pasEncore: pendantLeGlissement.pasEncore },
+        { enCours: true, large: true, pasEncore: 120 });
+
+    await page.mouse.up();
+    await page.waitForTimeout(450);
+    const apresLeGlissement = await page.evaluate(() => ({
+        colW: images[0].pluginData.state.colW,
+        large: Math.round(images[0].w),
+        fini: !PluginManager.plugins['tableStudioTool'].glisseColonne,
+        selection: selectedItems.length
+    }));
+    r.verifie('au relâchement, la colonne a vraiment gagné sa largeur',
+        apresLeGlissement.colW[0] > 180 && apresLeGlissement.colW[1] === 120,
+        JSON.stringify(apresLeGlissement));
+    r.egal('la grille s\'élargit d\'autant, et reste prise en main',
+        { plusLarge: apresLeGlissement.large > bords.large,
+          fini: apresLeGlissement.fini, selection: apresLeGlissement.selection },
+        { plusLarge: true, fini: true, selection: 1 });
+
+    // UNE COLONNE NE SE REFERME PAS SUR RIEN. Tirée jusqu'au-delà du bord
+    // gauche, elle s'arrête à ce qu'on peut encore lire.
+    await page.evaluate(() => {
+        const o = images[0];
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: o.id }];
+        updateQuickMenu(); draw();
+    });
+    const bord2 = await page.evaluate(() => {
+        const o = images[0];
+        const etat = o.pluginData.state;
+        const pad = 10;
+        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+        const ex = o.w / large;
+        return { x: Math.round(o.x + (pad + etat.colW[0]) * ex), y: Math.round(o.y + o.h - 30) };
+    });
+    await page.mouse.move(bord2.x, bord2.y);
+    await page.mouse.down();
+    await page.mouse.move(bord2.x - 400, bord2.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(450);
+    const plancherColonne = await page.evaluate(() => images[0].pluginData.state.colW[0]);
+    r.verifie('tirée trop loin, la colonne s\'arrête au lieu de disparaître',
+        plancherColonne >= 20 && plancherColonne <= 30, String(plancherColonne));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
