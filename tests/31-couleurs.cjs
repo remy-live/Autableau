@@ -25,6 +25,10 @@ module.exports = async function (browser) {
     // seul bleu et un seul vert.
     // =====================================================================
     const grille = await page.evaluate(() => {
+        // LA GRILLE SE MESURE OUVERTE : repliée, « display:none » ramène ses
+        // colonnes à rien, et l'on compterait la mise en page d'un tiroir
+        // fermé au lieu de celle qu'on voit.
+        document.getElementById('color-popover').classList.add('visible');
         const dots = [...document.querySelectorAll('#color-popover .color-dot')];
         const hex = dots.map(d => d.dataset.color.toLowerCase());
         // Une teinte, en degrés ; le blanc et les gris n'en ont pas.
@@ -45,6 +49,11 @@ module.exports = async function (browser) {
         return {
             combien: hex.length,
             septPremieres: hex.slice(0, 7),
+            cellules: document.querySelector('#color-popover .color-grid').children.length,
+            colonnes: getComputedStyle(document.querySelector('#color-popover .color-grid'))
+                .gridTemplateColumns.split(' ').length,
+            dernier: document.querySelector('#color-popover .color-grid').lastElementChild.className,
+            croixDansLaGrille: !!document.querySelector('#color-popover .color-grid #btn-no-fill'),
             doublons: hex.filter((c, i) => hex.indexOf(c) !== i),
             // Toutes lisibles ? Un jaune sur blanc reste un jaune : ce qu'on
             // vérifie, c'est qu'aucune n'est un doublon déguisé.
@@ -56,7 +65,19 @@ module.exports = async function (browser) {
             sansFond: !!document.getElementById('btn-no-fill')
         };
     });
-    r.egal('la palette offre seize couleurs', grille.combien, 16);
+    r.egal('la palette offre quinze couleurs', grille.combien, 15);
+    // DEUX RANGÉES DE HUIT, PLEINES. « Mets 15 couleurs pour avoir 2 lignes de
+    // 8 couleurs (multicolore au fond). » Le nuancier ferme la marche : c'est
+    // par lui qu'on sort de la palette.
+    r.egal('avec le nuancier en seizième, cela fait deux rangées de huit',
+        { cellules: grille.cellules, colonnes: grille.colonnes, dernier: grille.dernier },
+        { cellules: 16, colonnes: 8, dernier: 'custom-color-btn' });
+    // « NE METS PAS DE CROIX POUR LE COIN SUPÉRIEUR GAUCHE ET LE COIN INFÉRIEUR
+    // DROIT. » « Sans fond » n'est pas une couleur : posé dans la grille, sa
+    // croix occupait un coin et cassait les deux rangées.
+    r.egal('et « sans fond » a quitté la grille : plus de croix dans un coin',
+        grille.croixDansLaGrille, false);
+    await page.evaluate(() => document.getElementById('color-popover').classList.remove('visible'));
     // LES SEPT PREMIÈRES NE BOUGENT PAS D'UN RANG : Ctrl+Maj+chiffre arme la
     // couleur de ce rang-là, et un enseignant les a dans la main.
     r.egal('et les sept premières sont restées à leur rang, pour les raccourcis',
@@ -253,7 +274,14 @@ module.exports = async function (browser) {
     // pour la carte de géographie était à refaire chaque fois.
     await page.reload();
     await page.waitForFunction(() => typeof majLesCouleursRecentes === 'function', { timeout: 25000 });
-    await page.waitForTimeout(400);
+    // ON ATTEND QUE LA RANGÉE SOIT DESSINÉE, et non un délai au jugé : elle se
+    // remplit au chargement du document, et quatre cents millisecondes ne
+    // suffisent pas toujours. Une attente qui EXPIRE ne doit pas faire tomber
+    // la suite entière : c'est la vérification d'après qui dira ce qu'elle a
+    // trouvé, avec le détail sous les yeux.
+    await page.waitForFunction(
+        () => document.querySelectorAll('#cr-liste .cr-pastille').length > 0,
+        { timeout: 45000, polling: 150 }).catch(() => {});
     const demain = await page.evaluate(() => ({
         vues: document.querySelectorAll('#cr-liste .cr-pastille').length,
         cache: document.getElementById('color-recentes').hidden,
@@ -262,6 +290,192 @@ module.exports = async function (browser) {
     r.egal('mes couleurs sont toujours là à la séance suivante',
         { vues: demain.vues, cache: demain.cache }, { vues: 1, cache: false });
     r.egal('et le lien fond/bord aussi, tel qu\'on l\'a laissé', demain.lien, 'false');
+
+    // =====================================================================
+    // LE FANTÔME PORTE LES COULEURS DE CE QU'ON TRACE
+    // « Le fantôme du rectangle devrait avoir les couleurs du rectangle
+    // définitif et être moins opaque ; évidemment, on peut mettre un
+    // rectangle sans fond. » Il était VIOLET, toujours — la même
+    // « rgba(108, 92, 231, 0.5) » pour tout le monde : on choisissait du
+    // rouge, on voyait naître un rectangle violet, et il changeait de couleur
+    // au relâchement.
+    // =====================================================================
+    const fantome = await page.evaluate(() => {
+        activeStyle.strokeColor = '#e74c3c'; activeStyle.strokeOpacity = 1;
+        activeStyle.fillColor = '#3498db'; activeStyle.fillOpacity = 0.4;
+        const lire = (t) => (t.match(/[\d.]+/g) || []).map(Number);
+        activeStyle.isFilled = true;
+        const rempli = { trait: lire(traitDuFantome()), fond: lire(fondDuFantome()) };
+        activeStyle.isFilled = false;
+        const creux = { trait: lire(traitDuFantome()), fond: fondDuFantome() };
+        return { rempli, creux };
+    });
+    r.egal('le fantôme prend la couleur du trait, en plus pâle',
+        { rvb: fantome.rempli.trait.slice(0, 3), opacite: fantome.rempli.trait[3] },
+        { rvb: [231, 76, 60], opacite: 0.55 });
+    r.egal('et la couleur du fond, plus pâle que l\'opacité réglée',
+        { rvb: fantome.rempli.fond.slice(0, 3), opacite: Math.round(fantome.rempli.fond[3] * 100) / 100 },
+        { rvb: [52, 152, 219], opacite: 0.22 });
+    r.egal('sans fond, le fantôme reste creux : un contour se voit vide',
+        fantome.creux.fond, null);
+    r.egal('mais son trait, lui, garde la couleur choisie',
+        fantome.creux.trait.slice(0, 3), [231, 76, 60]);
+
+    // ET À L'ÉCRAN : on trace pour de vrai, et l'on compte les pixels.
+    const surLeTableau = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        points.length = 0; rectangles.length = 0; freehands.length = 0; selectedItems = [];
+        activeStyle.strokeColor = '#e74c3c'; activeStyle.isFilled = false; activeStyle.lineWidth = 5;
+        setMode('rectangle'); draw();
+        return true;
+    });
+    // LE RECTANGLE SE TRACE EN DEUX CLICS, pas en un glissement : un clic pose
+    // le premier coin, on promène la souris — c'est LÀ que le fantôme vit —,
+    // et le second clic arrête la figure.
+    await page.mouse.click(420, 300);
+    await page.waitForTimeout(120);
+    await page.mouse.move(760, 520, { steps: 8 });
+    await page.waitForTimeout(220);
+    const pixels = await page.evaluate(() => {
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let rouge = 0, violet = 0;
+        for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] < 30) continue;
+            // ROUGE : le canal rouge domine nettement les deux autres. Le
+            // fantôme est PÂLE — du rouge à 55 % sur du blanc donne un rose
+            // clair —, et un seuil absolu passait à côté de tout le tracé.
+            if (d[i] - d[i + 1] > 40 && d[i] - d[i + 2] > 40) rouge++;
+            // VIOLET : celui d'autrefois, où le bleu domine le rouge.
+            if (d[i + 2] - d[i] > 30 && d[i + 2] - d[i + 1] > 40) violet++;
+        }
+        return { rouge, violet };
+    });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+        points.length = 0; rectangles.length = 0; selectedItems = [];
+        setMode('pointer'); draw();
+    });
+    r.verifie('à l\'écran, le rectangle en cours de tracé est bien rouge',
+        pixels.rouge > 200, JSON.stringify(pixels));
+    r.egal('et plus un seul pixel violet : la couleur ne change plus au relâchement',
+        pixels.violet, 0);
+
+    // ET SON FOND SUIT L'OPACITÉ RÉGLÉE, pas une valeur écrite en dur. Le
+    // remplissage du fantôme était figé à 0,2 : on réglait le fond à 0,8, on
+    // voyait un voile, et la figure devenait franche au relâchement.
+    const remplissages = [];
+    for (const opacite of [0.15, 0.9]) {
+        await page.evaluate((o) => {
+            panX = 0; panY = 0; zoom = 1;
+            points.length = 0; rectangles.length = 0; selectedItems = [];
+            activeStyle.strokeColor = '#2d3436'; activeStyle.lineWidth = 2;
+            activeStyle.fillColor = '#3498db'; activeStyle.fillOpacity = o; activeStyle.isFilled = true;
+            setMode('rectangle'); draw();
+        }, opacite);
+        await page.mouse.click(420, 300);
+        await page.waitForTimeout(110);
+        await page.mouse.move(760, 520, { steps: 6 });
+        await page.waitForTimeout(200);
+        remplissages.push(await page.evaluate(() => {
+            // Au centre du fantôme : la teinte du fond, mêlée au blanc.
+            const d = ctx.getImageData(590, 410, 4, 4).data;
+            return Math.round(255 - d[0]);   // plus le fond est dense, plus le rouge baisse
+        }));
+        await page.keyboard.press('Escape');
+    }
+    await page.evaluate(() => {
+        points.length = 0; rectangles.length = 0; selectedItems = [];
+        activeStyle.isFilled = false; setMode('pointer'); draw();
+    });
+    r.verifie('le fond du fantôme suit l\'opacité réglée, au lieu d\'un voile figé',
+        remplissages[1] > remplissages[0] * 2.5, JSON.stringify(remplissages));
+
+    // =====================================================================
+    // ET LES FIGURES POSÉES SE MODIFIENT
+    // « Il faut pouvoir modifier les figures. » Une figure tracée doit se
+    // reprendre : sa couleur, son fond, son épaisseur.
+    // =====================================================================
+    const reprises = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        points.length = 0; rectangles.length = 0; circles.length = 0; polygons.length = 0;
+        selectedItems = []; setMode('pointer');
+        const a = { id: nextId++, x: 200, y: 200 }, b = { id: nextId++, x: 400, y: 320 };
+        points.push(a, b);
+        rectangles.push({ id: nextId++, p1_id: a.id, p2_id: b.id, color: '#e74c3c', width: 3,
+                          isFilled: false, fillColor: '#3498db', fillOpacity: 0.2, z: globalZ++ });
+        const rect = rectangles[0];
+        selectedItems = [{ type: 'rectangle', id: rect.id }];
+        popoverTarget = 'stroke';
+        choisirLaCouleur('#16a085');
+        const trait = rect.color;
+        popoverTarget = 'fill';
+        choisirLaCouleur('#f1c40f');
+        const fond = { couleur: rect.fillColor, rempli: rect.isFilled };
+        const champ = document.getElementById('line-width');
+        champ.value = 8; champ.dispatchEvent(new Event('input', { bubbles: true }));
+        const epaisseur = rect.width;
+        // Et l'on peut la vider à nouveau.
+        document.getElementById('btn-no-fill').click();
+        const videe = rect.isFilled;
+        popoverTarget = 'stroke';
+        points.length = 0; rectangles.length = 0; selectedItems = []; draw();
+        return { trait, fond, epaisseur, videe };
+    });
+    r.egal('une figure posée se repeint : trait, fond, épaisseur',
+        { trait: reprises.trait, fond: reprises.fond.couleur, rempli: reprises.fond.rempli,
+          epaisseur: reprises.epaisseur },
+        { trait: '#16a085', fond: '#f1c40f', rempli: true, epaisseur: 8 });
+    r.egal('et « sans fond » la vide de nouveau', reprises.videe, false);
+
+    // =====================================================================
+    // PAS DE CROIX AUX COINS DU RECTANGLE
+    // « Ne mets pas de croix pour le coin supérieur gauche et le coin
+    // inférieur droit. » Un rectangle est fait de deux points, et ces deux
+    // points se dessinaient comme tous les autres : une croix au coin
+    // haut-gauche, une autre au coin bas-droit, sur CHAQUE rectangle du
+    // tableau. Personne ne les y a mises et elles n'apprennent rien.
+    // =====================================================================
+    const coins = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        points.length = 0; rectangles.length = 0; segments.length = 0;
+        circles.length = 0; polygons.length = 0; curves.length = 0;
+        selectedItems = []; setMode('pointer');
+        const a = { id: nextId++, x: 300, y: 260 }, b = { id: nextId++, x: 620, y: 460 };
+        points.push(a, b);
+        rectangles.push({ id: nextId++, p1_id: a.id, p2_id: b.id, color: '#2d3436', width: 3,
+                          isFilled: false, z: globalZ++ });
+        draw();
+        // On compte l'encre AUTOUR d'un coin, hors des côtés du rectangle :
+        // une croix déborde en diagonale, un côté non.
+        // Le carré en diagonale, JUSTE DEHORS : une croix y déborde, un côté
+        // du rectangle non. Chaque coin se regarde du côté où il déborde.
+        const encreAutour = (x, y, dx, dy) => {
+            const d = ctx.getImageData(x + (dx < 0 ? -14 : 2), y + (dy < 0 ? -14 : 2), 12, 12).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40 && d[i] < 200) n++;
+            return n;
+        };
+        const hautGauche = encreAutour(300, 260, -1, -1);
+        const basDroit = encreAutour(620, 460, 1, 1);
+        // ET LE POINT EST TOUJOURS LÀ : caché n'est pas retiré, on doit
+        // pouvoir le reprendre pour déformer le rectangle.
+        const vise = findObjectAt(300, 260);
+        const attrapable = !!(vise && vise.type === 'point' && vise.id === a.id);
+        // Un point qui sert AUSSI à autre chose se remontre : c'est alors un
+        // vrai point de construction, et non un coin.
+        segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, lineType: 'segment',
+                        color: '#e74c3c', width: 3, z: globalZ++ });
+        draw();
+        const avecSegment = encreAutour(300, 260, -1, -1);
+        points.length = 0; rectangles.length = 0; segments.length = 0; draw();
+        return { hautGauche, basDroit, attrapable, avecSegment };
+    });
+    r.egal('les deux coins du rectangle ne portent plus de croix',
+        { hautGauche: coins.hautGauche, basDroit: coins.basDroit }, { hautGauche: 0, basDroit: 0 });
+    r.verifie('mais le point est toujours là, et se reprend pour déformer la figure',
+        coins.attrapable, JSON.stringify(coins));
+    r.verifie('et s\'il sert aussi à autre chose, il se remontre',
+        coins.avecSegment > 0, JSON.stringify(coins));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

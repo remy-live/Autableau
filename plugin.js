@@ -16465,21 +16465,62 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
         this.renderAtelierUI();
     },
 
-    makeStamp: function (groupId) {
-        const group = this.groupState.groups.find(g => g.id === groupId);
-        if (!group) return;
-        const canvasHeight = Math.max(80, 60 + (group.students.length * 35));
-
-        let svgStr = `<svg width="250" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+    // LA CARTE D'UN ÎLOT, DESSINÉE À PART : c'est la même qu'on pose et qu'on
+    // refait quand l'îlot a changé de composition.
+    carteDeLIlot: function (group) {
+        const hauteur = Math.max(80, 60 + (group.students.length * 35));
+        const svgStr = `<svg width="250" height="${hauteur}" xmlns="http://www.w3.org/2000/svg">
             <defs><filter id="ilshadow" x="-10%" y="-10%" width="120%" height="120%"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.15"/></filter></defs>
-            <rect x="10" y="10" width="230" height="${canvasHeight - 20}" rx="8" fill="#ffffff" filter="url(#ilshadow)"/>
+            <rect x="10" y="10" width="230" height="${hauteur - 20}" rx="8" fill="#ffffff" filter="url(#ilshadow)"/>
             <path d="M 10 18 Q 10 10 18 10 L 232 10 Q 240 10 240 18 L 240 18 L 10 18 Z" fill="#0984e3"/>
             <text x="25" y="40" font-family="sans-serif" font-weight="bold" font-size="16" fill="#2d3436">${xmlEsc(group.name)}</text>
             <line x1="25" y1="50" x2="225" y2="50" stroke="#dfe6e9" stroke-width="1"/>
             ${group.students.map((s, i) => `<text x="25" y="${75 + (i * 35)}" font-family="sans-serif" font-size="14" fill="#636e72">👤 ${xmlEsc(s)}</text>`).join('')}
         </svg>`;
+        return { src: "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr))),
+                 w: 250, h: hauteur };
+    },
 
-        const dataUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr)));
+    // ON REFAIT LA CARTE AVEC L'ÎLOT TEL QU'IL EST AUJOURD'HUI. « Il faut
+    // pouvoir modifier les figures » : celle-ci ne se rouvrait pas du tout.
+    // Une carte posée en début d'heure ne suivait aucun remaniement — on
+    // relançait le tirage, les élèves changeaient d'îlot, et la carte du
+    // tableau continuait d'annoncer l'ancienne composition, sans qu'on ait
+    // d'autre recours que de la jeter et d'en reposer une.
+    edit: function (imgObj) {
+        if (!imgObj || !imgObj.pluginData) return;
+        const group = this.groupState.groups.find(g => g.id === imgObj.pluginData.groupId);
+        if (!group) {
+            if (typeof showToast === 'function') {
+                showToast("Cet îlot n'existe plus : rouvrez l'atelier pour en refaire un.", "#e17055", "🎯");
+            }
+            this.toggleWidget();
+            return;
+        }
+        const carte = this.carteDeLIlot(group);
+        const img = new Image();
+        img.onload = () => {
+            if (typeof imageCache !== 'undefined') imageCache[carte.src] = img;
+            // La carte garde sa place et sa largeur : seule sa hauteur suit le
+            // nombre d'élèves, sinon les noms se tasseraient les uns sur les
+            // autres dès qu'on en ajoute un.
+            const echelle = imgObj.w / 250;
+            imgObj.src = carte.src;
+            imgObj.h = carte.h * echelle;
+            imgObj.cx = 0; imgObj.cy = 0; imgObj.cw = carte.w; imgObj.ch = carte.h;
+            if (typeof draw === 'function') draw();
+            if (typeof saveState === 'function') saveState();
+            if (typeof showToast === 'function') showToast("🎯 Îlot mis à jour : " + group.name);
+        };
+        img.src = carte.src;
+    },
+
+    makeStamp: function (groupId) {
+        const group = this.groupState.groups.find(g => g.id === groupId);
+        if (!group) return;
+        const carte = this.carteDeLIlot(group);
+        const canvasHeight = carte.h;
+        const dataUrl = carte.src;
         const img = new Image();
         img.onload = () => {
             this.currentStamp = { img: img, src: dataUrl, w: 250, h: canvasHeight, pluginData: { id: 'randomDrawTool', groupId: group.id } };

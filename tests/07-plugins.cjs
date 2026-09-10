@@ -636,6 +636,39 @@ module.exports = async function (browser) {
     r.verifie('et la fenêtre du tableau de conversion le propose vraiment',
         (fenetreConv.libelles || []).some(l => /nombre de lignes/i.test(l)),
         JSON.stringify(fenetreConv));
+
+    // =====================================================================
+    // TOUT CE QU'UN OUTIL POSE SUR LE TABLEAU DOIT POUVOIR SE ROUVRIR
+    // « Il faut pouvoir modifier les figures. Regarde tous les outils pour
+    // voir si c'est le cas. » Le contrôle ne se fait pas sur une liste tenue
+    // à côté : on déroule les quatre-vingts et quelques outils, on regarde
+    // lesquels POSENT un objet avec sa fiche plugin, et l'on exige de
+    // ceux-là — et de ceux-là seulement — qu'ils sachent se rouvrir. Les jeux
+    // et les instruments, eux, ne laissent rien derrière eux.
+    const rouvrables = await page.evaluate(() => {
+        const manquent = [];
+        const poseurs = [];
+        Object.keys(PluginManager.plugins).forEach(n => {
+            const p = PluginManager.plugins[n];
+            if (!p) return;
+            const src = Object.keys(p).map(k => {
+                try { return typeof p[k] === 'function' ? String(p[k]) : ''; } catch (e) { return ''; }
+            }).join('\n');
+            const pose = /pluginData\s*[:=]/.test(src)
+                && /images\.push|createStampFromSVG|createStampFromCanvas/.test(src);
+            if (!pose) return;
+            poseurs.push(n);
+            if (typeof p.edit !== 'function') manquent.push(n);
+        });
+        return { total: Object.keys(PluginManager.plugins).length, poseurs: poseurs.length, manquent };
+    });
+    r.verifie('une soixantaine d\'outils posent un objet sur le tableau',
+        rouvrables.poseurs >= 60, JSON.stringify({ sur: rouvrables.total, posent: rouvrables.poseurs }));
+    // LE TAMPON QUI EXPLOSE EST LA SEULE EXCEPTION, et c'est une exception
+    // qui se tient : il se détruit lui-même deux secondes et demie après
+    // avoir été posé. Rouvrir ce qui n'existera plus n'a pas de sens.
+    r.egal('et tous savent se rouvrir, sauf celui qui explose de lui-même',
+        rouvrables.manquent, ['extremeStampTool']);
     r.egal('le tableau de conversion se règle enfin en lignes',
         { une: lignes.une.traits, trois: lignes.trois.traits, huit: lignes.huit.traits },
         { une: 2, trois: 4, huit: 9 });

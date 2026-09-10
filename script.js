@@ -3098,6 +3098,35 @@ function getArrowIcon(type, isStart) {
 }
 
 function drawCarreau(minX, maxX, minY, maxY, lw, gw) { ctx.beginPath(); for (let x = Math.floor(minX / 30) * 30; x < maxX; x += 30) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } for (let y = Math.floor(minY / 30) * 30; y < maxY; y += 30) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"; ctx.lineWidth = lw * gw; ctx.stroke(); }
+// LES COINS D'UN RECTANGLE NE SONT PAS DES POINTS DE CONSTRUCTION.
+// « Ne mets pas de croix pour le coin supérieur gauche et le coin inférieur
+// droit. » Un rectangle est fait de deux points, et ces deux points se
+// dessinaient comme tous les autres : une croix au coin haut-gauche, une
+// autre au coin bas-droit, sur chaque rectangle du tableau. Personne ne les y
+// a mises et elles n'apprennent rien — la figure, elle, se lit très bien
+// sans. On les cache donc, comme on cache déjà l'extrémité d'une flèche.
+//
+// CACHER N'EST PAS RETIRER : le point reste là, et se reprend toujours à la
+// souris pour déformer le rectangle. Et s'il sert AUSSI à autre chose — un
+// segment, un cercle, un polygone qui s'y accroche —, il se remontre : c'est
+// alors un vrai point de construction, et non un coin.
+function cacherLesCoinsDesRectangles(cachés) {
+    if (!rectangles || !rectangles.length) return;
+    const ailleurs = new Set();
+    const noter = (id) => { if (id !== undefined && id !== null) ailleurs.add(id); };
+    segments.forEach(o => { noter(o.p1_id); noter(o.p2_id); });
+    circles.forEach(o => { noter(o.center_id); noter(o.edge_id); });
+    curves.forEach(o => (o.points || []).forEach(noter));
+    polygons.forEach(o => (o.points || []).forEach(noter));
+    // Deux rectangles qui partagent un coin : le point sert bien deux fois,
+    // mais il reste un coin des deux côtés — il n'y a pas lieu de le montrer.
+    rectangles.forEach(r => {
+        if (!ailleurs.has(r.p1_id)) cachés.add(r.p1_id);
+        if (!ailleurs.has(r.p2_id)) cachés.add(r.p2_id);
+    });
+}
+window.cacherLesCoinsDesRectangles = cacherLesCoinsDesRectangles;
+
 function drawPoint(minX, maxX, minY, maxY, lw, gw) { const radius = 1.5 * lw * gw; ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.35)"; ctx.beginPath(); for (let x = Math.floor(minX / 30) * 30; x < maxX; x += 30) { for (let y = Math.floor(minY / 30) * 30; y < maxY; y += 30) { ctx.moveTo(x, y); ctx.arc(x, y, radius, 0, Math.PI * 2); } } ctx.fill(); }
 function drawMillimetre(minX, maxX, minY, maxY, lw, gw) { const size = 10; const drawLayer = (stepMult, color, widthMult) => { const step = size * stepMult; ctx.beginPath(); for (let x = Math.floor(minX / step) * step; x < maxX; x += step) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } for (let y = Math.floor(minY / step) * step; y < maxY; y += step) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = color; ctx.lineWidth = lw * widthMult * gw; ctx.stroke(); }; drawLayer(1, isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(230, 126, 34, 0.18)", 1); drawLayer(5, isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(230, 126, 34, 0.45)", 1.5); drawLayer(10, isDarkMode ? "rgba(255,255,255,0.4)" : "#e67e22", 2.2); }
 function drawSeyes(minX, maxX, minY, maxY, lw, gw) { const size = 40; const sub = size / 4; ctx.beginPath(); for (let x = Math.floor(minX / size) * size; x < maxX; x += size) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(116, 185, 255, 0.35)"; ctx.lineWidth = lw * gw; ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / sub) * sub; y < maxY; y += sub) { if (y % size !== 0) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } } ctx.stroke(); ctx.beginPath(); for (let y = Math.floor(minY / size) * size; y < maxY; y += size) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(108, 92, 231, 0.45)"; ctx.lineWidth = lw * 1.6 * gw; ctx.stroke(); }
@@ -3511,6 +3540,7 @@ function generateSVGString(rect, keepBg) {
     let hiddenPoints = new Set();
     segments.forEach(s => { if (s.arrowStart) hiddenPoints.add(s.p1_id); if (s.arrowEnd) hiddenPoints.add(s.p2_id); });
     curves.forEach(c => { if (c.points.length > 1) { if (c.arrowStart) hiddenPoints.add(c.points[0]); if (c.arrowEnd) hiddenPoints.add(c.points[c.points.length - 1]); } });
+    cacherLesCoinsDesRectangles(hiddenPoints);
 
     displayList.forEach(item => {
         const obj = item.obj;
@@ -5790,6 +5820,32 @@ function selectionIsOnlyImages() {
 // --- POPOVER COULEUR ---
 const colorPopover = document.getElementById('color-popover'); const btnColorPopover = document.getElementById('btn-color-popover'); const colorIndicator = document.getElementById('color-indicator');
 let popoverTarget = 'stroke';
+// ==================================================================
+// LE FANTÔME PORTE LES COULEURS DE CE QU'ON TRACE
+// « Le fantôme du rectangle devrait avoir les couleurs du rectangle définitif
+// et être moins opaque. » Il était VIOLET, toujours — la même
+// « rgba(108, 92, 231, 0.5) » pour tout le monde — quelle que soit la couleur
+// en main : on choisissait du rouge, on voyait naître un rectangle violet, et
+// il changeait de couleur au relâchement. Son fond, lui, prenait bien la
+// couleur choisie mais toujours à 0,2 d'opacité, sans rapport avec celle
+// qu'on avait réglée. Il se dessine maintenant dans SES couleurs, en plus
+// pâle — c'est un fantôme, il doit rester distinct du trait posé.
+// Et sans fond reste sans fond : un contour seul se prévisualise creux.
+const PALEUR_DU_FANTOME = 0.55;
+
+function traitDuFantome() {
+    const o = (activeStyle.strokeOpacity === undefined) ? 1 : activeStyle.strokeOpacity;
+    return hexToRgba(activeStyle.strokeColor, o * PALEUR_DU_FANTOME);
+}
+window.traitDuFantome = traitDuFantome;
+
+function fondDuFantome() {
+    if (!activeStyle.isFilled) return null;
+    const o = (activeStyle.fillOpacity === undefined) ? 0.2 : activeStyle.fillOpacity;
+    return hexToRgba(activeStyle.fillColor, o * PALEUR_DU_FANTOME);
+}
+window.fondDuFantome = fondDuFantome;
+
 function updateColorIndicator() {
     // SANS FOND POSSIBLE, PAS D'ANNEAU CREUX. Au crayon, sur un texte, sur un
     // segment, l'anneau entourait un vide qui annonçait un fond transparent —
@@ -10220,6 +10276,7 @@ function draw() {
         let hiddenPoints = new Set();
         segments.forEach(s => { if (s.arrowStart) hiddenPoints.add(s.p1_id); if (s.arrowEnd) hiddenPoints.add(s.p2_id); });
         curves.forEach(c => { if (c.points.length > 1) { if (c.arrowStart) hiddenPoints.add(c.points[0]); if (c.arrowEnd) hiddenPoints.add(c.points[c.points.length - 1]); } });
+        cacherLesCoinsDesRectangles(hiddenPoints);
 
         displayList.forEach(item => {
             const obj = item.obj;
@@ -11083,12 +11140,12 @@ function draw() {
             ctx.beginPath(); const p0 = getObjectById('point', currentPolygonPoints[0]); if (p0) ctx.moveTo(p0.x, p0.y);
             for (let i = 1; i < currentPolygonPoints.length; i++) { const p = getObjectById('point', currentPolygonPoints[i]); if (p) ctx.lineTo(p.x, p.y); }
             ctx.lineTo(mouseLogicalPos.x, mouseLogicalPos.y);
-            if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
+            const remplissage = fondDuFantome(); if (remplissage) { ctx.fillStyle = remplissage; ctx.fill(); }
+            ctx.strokeStyle = traitDuFantome(); ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
 
         if (mode === 'curve' && currentCurvePoints.length > 0 && mouseLogicalPos) {
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); drawSpline(ctx, currentCurvePoints, mouseLogicalPos, false); ctx.setLineDash([]);
+            ctx.strokeStyle = traitDuFantome(); ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); drawSpline(ctx, currentCurvePoints, mouseLogicalPos, false); ctx.setLineDash([]);
 
             if (activeStyle.arrowStart && currentCurvePoints.length > 0) {
                 let pA, pB;
@@ -11096,29 +11153,29 @@ function draw() {
                 else { pA = getObjectById('point', currentCurvePoints[1]); pB = getObjectById('point', currentCurvePoints[0]); }
                 if (pB && pA) {
                     const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
-                    drawArrowHead(ctx, pB.x, pB.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
+                    drawArrowHead(ctx, pB.x, pB.y, angle, traitDuFantome(), activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
                 }
             }
             if (activeStyle.arrowEnd) {
                 const startP = getObjectById('point', currentCurvePoints[currentCurvePoints.length - 1]);
                 if (startP) {
                     const angle = Math.atan2(mouseLogicalPos.y - startP.y, mouseLogicalPos.x - startP.x);
-                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
+                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, traitDuFantome(), activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
                 }
             }
         }
 
         if (mode === 'circle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId); ctx.beginPath(); ctx.arc(startP.x, startP.y, Math.hypot(mouseLogicalPos.x - startP.x, mouseLogicalPos.y - startP.y), 0, Math.PI * 2);
-            if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
+            const remplissage = fondDuFantome(); if (remplissage) { ctx.fillStyle = remplissage; ctx.fill(); }
+            ctx.strokeStyle = traitDuFantome(); ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
         if (mode === 'rectangle' && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
             ctx.beginPath();
             ctx.rect(Math.min(startP.x, mouseLogicalPos.x), Math.min(startP.y, mouseLogicalPos.y), Math.abs(mouseLogicalPos.x - startP.x), Math.abs(mouseLogicalPos.y - startP.y));
-            if (activeStyle.isFilled) { ctx.fillStyle = hexToRgba(activeStyle.fillColor, 0.2); ctx.fill(); }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
+            const remplissage = fondDuFantome(); if (remplissage) { ctx.fillStyle = remplissage; ctx.fill(); }
+            ctx.strokeStyle = traitDuFantome(); ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
         }
         if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite') && creationStartPointId && mouseLogicalPos && getObjectById('point', creationStartPointId)) {
             const startP = getObjectById('point', creationStartPointId);
@@ -11139,16 +11196,16 @@ function draw() {
             } else {
                 ctx.moveTo(startP.x, startP.y); ctx.lineTo(mouseLogicalPos.x, mouseLogicalPos.y);
             }
-            ctx.strokeStyle = "rgba(108, 92, 231, 0.5)"; ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = traitDuFantome(); ctx.lineWidth = activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, activeStyle.lineDash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
 
             if (mode === 'segment') {
                 if (activeStyle.arrowStart) {
                     const angle = Math.atan2(startP.y - mouseLogicalPos.y, startP.x - mouseLogicalPos.x);
-                    drawArrowHead(ctx, startP.x, startP.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
+                    drawArrowHead(ctx, startP.x, startP.y, angle, traitDuFantome(), activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowStart);
                 }
                 if (activeStyle.arrowEnd) {
                     const angle = Math.atan2(mouseLogicalPos.y - startP.y, mouseLogicalPos.x - startP.x);
-                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, "rgba(108, 92, 231, 0.5)", activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
+                    drawArrowHead(ctx, mouseLogicalPos.x, mouseLogicalPos.y, angle, traitDuFantome(), activeStyle.lineWidth, EPAISSEUR_AU_TABLEAU, activeStyle.arrowEnd);
                 }
             }
         }

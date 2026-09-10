@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=126">
+    <link rel="stylesheet" href="style.css?v=127">
 </head>
 
 <body>
@@ -2837,12 +2837,19 @@
             <div class="color-dot" style="background:#1abc9c;" data-color="#1abc9c" title="Turquoise"></div>
             <div class="color-dot" style="background:#2980b9;" data-color="#2980b9" title="Bleu profond"></div>
             <div class="color-dot" style="background:#636e72;" data-color="#636e72" title="Gris"></div>
-            <div class="color-dot" style="background:#b2bec3;" data-color="#b2bec3" title="Gris clair"></div>
             <div class="color-dot" style="background:#ffffff;" data-color="#ffffff" title="Blanc"></div>
+            <!-- QUINZE COULEURS, ET LE NUANCIER EN SEIZIÈME : deux rangées de
+                 huit, pleines, sans case en trop ni case vide. Le multicolore
+                 ferme la marche — c'est par lui qu'on sort de la palette. -->
             <div class="custom-color-btn" title="Personnalisée"><input type="color" id="popover-custom-color"
                     value="#000000"></div>
-            <div class="no-fill-btn" id="btn-no-fill" style="display:none;" title="Transparent"></div>
         </div>
+        <!-- « SANS FOND » N'EST PAS UNE COULEUR, et n'a rien à faire dans la
+             grille : posée dedans, sa croix occupait un coin de la palette et
+             cassait les deux rangées. C'est un interrupteur, il vit à part et
+             ne paraît que lorsqu'on peint le fond. -->
+        <button class="no-fill-btn" id="btn-no-fill" type="button" style="display:none;"
+                title="Un contour sans fond">Sans fond</button>
         <!-- LES DERNIÈRES COULEURS CHOISIES À LA MAIN. Le sélecteur du système
              ne garde rien : la teinte qu'on avait mise au point pour la carte
              de géographie était à refaire à chaque séance. Les huit dernières
@@ -2987,9 +2994,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=230"></script>
+    <script src="script.js?v=231"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=95"></script>
+    <script src="plugin.js?v=96"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=6"></script>
     <script src="./lib/cloud/config.js?v=1"></script>
