@@ -3111,21 +3111,96 @@ function drawCarreau(minX, maxX, minY, maxY, lw, gw) { ctx.beginPath(); for (let
 // segment, un cercle, un polygone qui s'y accroche —, il se remontre : c'est
 // alors un vrai point de construction, et non un coin.
 function cacherLesCoinsDesRectangles(cachés) {
-    if (!rectangles || !rectangles.length) return;
+    // LE PREMIER COIN NON PLUS. « Pas la peine de mettre une croix pour le
+    // premier point » : entre les deux clics, le fantôme montre déjà le
+    // rectangle qui vient, et la croix posée au coin de départ n'apprend rien
+    // de plus. Elle restait pourtant seule à l'écran tant que le second clic
+    // n'était pas donné, puis disparaissait — un clignotement pour rien.
+    const enCours = (typeof mode !== 'undefined' && mode === 'rectangle'
+        && typeof creationStartPointId !== 'undefined' && creationStartPointId !== null)
+        ? creationStartPointId : null;
+    if (enCours === null && (!rectangles || !rectangles.length)) return;
     const ailleurs = new Set();
     const noter = (id) => { if (id !== undefined && id !== null) ailleurs.add(id); };
     segments.forEach(o => { noter(o.p1_id); noter(o.p2_id); });
     circles.forEach(o => { noter(o.center_id); noter(o.edge_id); });
     curves.forEach(o => (o.points || []).forEach(noter));
     polygons.forEach(o => (o.points || []).forEach(noter));
+    if (enCours !== null && !ailleurs.has(enCours)) cachés.add(enCours);
     // Deux rectangles qui partagent un coin : le point sert bien deux fois,
     // mais il reste un coin des deux côtés — il n'y a pas lieu de le montrer.
-    rectangles.forEach(r => {
+    (rectangles || []).forEach(r => {
         if (!ailleurs.has(r.p1_id)) cachés.add(r.p1_id);
         if (!ailleurs.has(r.p2_id)) cachés.add(r.p2_id);
     });
 }
 window.cacherLesCoinsDesRectangles = cacherLesCoinsDesRectangles;
+
+// ---------------------------------------------------------------------------
+// UN RECTANGLE SE REPREND PAR SES POIGNÉES
+//
+// « Il faut pouvoir modifier les figures dessinées (rectangle) en taille et
+// autre. » Un rectangle est fait de deux points, et ces deux points sont
+// maintenant cachés : la figure n'offrait donc plus la moindre prise, sinon en
+// devinant où se trouvaient ses coins invisibles. Sélectionné, il montre les
+// huit poignées d'une boîte — les quatre coins et le milieu des quatre côtés —
+// et les tirer déplace ses deux points. La figure reste faite de points ; on
+// lui rend seulement de quoi l'attraper.
+// ---------------------------------------------------------------------------
+const COTE_MINI_RECTANGLE = 8;      // en pixels du tableau : au-dessous, plus rien à saisir
+
+function boiteDuRectangle(r) {
+    const p1 = r && getObjectById('point', r.p1_id);
+    const p2 = r && getObjectById('point', r.p2_id);
+    if (!p1 || !p2) return null;
+    return {
+        x: Math.min(p1.x, p2.x), y: Math.min(p1.y, p2.y),
+        w: Math.abs(p2.x - p1.x), h: Math.abs(p2.y - p1.y),
+        p1, p2
+    };
+}
+
+// Un point d'intersection est là où deux objets se croisent : on ne le tire pas.
+function rectangleDeformable(r) {
+    const b = boiteDuRectangle(r);
+    if (!b || (r && r.locked)) return null;
+    if (b.p1.depend || b.p2.depend) return null;
+    return b;
+}
+
+function etirerLeRectangle(r, poignee, pos) {
+    const b = rectangleDeformable(r);
+    if (!b) return false;
+    let minX = b.x, maxX = b.x + b.w, minY = b.y, maxY = b.y + b.h;
+    if (poignee.includes('L')) minX = Math.min(pos.x, maxX - COTE_MINI_RECTANGLE);
+    if (poignee.includes('R')) maxX = Math.max(pos.x, minX + COTE_MINI_RECTANGLE);
+    if (poignee.includes('T')) minY = Math.min(pos.y, maxY - COTE_MINI_RECTANGLE);
+    if (poignee.includes('B')) maxY = Math.max(pos.y, minY + COTE_MINI_RECTANGLE);
+    // Chacun des deux points garde son côté : celui qui tenait la gauche la
+    // garde. Sans cela, tirer une poignée au-delà de la poignée opposée faisait
+    // sauter les points l'un sur l'autre.
+    const p1AGauche = b.p1.x <= b.p2.x;
+    const p1EnHaut = b.p1.y <= b.p2.y;
+    b.p1.x = p1AGauche ? minX : maxX; b.p2.x = p1AGauche ? maxX : minX;
+    b.p1.y = p1EnHaut ? minY : maxY; b.p2.y = p1EnHaut ? maxY : minY;
+    return true;
+}
+
+function dessinerLesPoigneesDuRectangle(ctx, b, lw) {
+    const hw = 5 * lw;
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "#6c5ce7";
+    ctx.lineWidth = lw * 2;
+    ctx.fillStyle = "#ffffff";
+    const hx = [b.x, b.x + b.w / 2, b.x + b.w, b.x + b.w, b.x + b.w, b.x + b.w / 2, b.x, b.x];
+    const hy = [b.y, b.y, b.y, b.y + b.h / 2, b.y + b.h, b.y + b.h, b.y + b.h, b.y + b.h / 2];
+    for (let i = 0; i < 8; i++) {
+        ctx.beginPath();
+        ctx.arc(hx[i], hy[i], hw, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+    }
+}
+window.etirerLeRectangle = etirerLeRectangle;
 
 function drawPoint(minX, maxX, minY, maxY, lw, gw) { const radius = 1.5 * lw * gw; ctx.fillStyle = isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.35)"; ctx.beginPath(); for (let x = Math.floor(minX / 30) * 30; x < maxX; x += 30) { for (let y = Math.floor(minY / 30) * 30; y < maxY; y += 30) { ctx.moveTo(x, y); ctx.arc(x, y, radius, 0, Math.PI * 2); } } ctx.fill(); }
 function drawMillimetre(minX, maxX, minY, maxY, lw, gw) { const size = 10; const drawLayer = (stepMult, color, widthMult) => { const step = size * stepMult; ctx.beginPath(); for (let x = Math.floor(minX / step) * step; x < maxX; x += step) { ctx.moveTo(x, minY); ctx.lineTo(x, maxY); } for (let y = Math.floor(minY / step) * step; y < maxY; y += step) { ctx.moveTo(minX, y); ctx.lineTo(maxX, y); } ctx.strokeStyle = color; ctx.lineWidth = lw * widthMult * gw; ctx.stroke(); }; drawLayer(1, isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(230, 126, 34, 0.18)", 1); drawLayer(5, isDarkMode ? "rgba(255,255,255,0.25)" : "rgba(230, 126, 34, 0.45)", 1.5); drawLayer(10, isDarkMode ? "rgba(255,255,255,0.4)" : "#e67e22", 2.2); }
@@ -6885,6 +6960,10 @@ function getHandleAt(lx, ly, obj, type) {
     } else if (type === 'text') {
         startX = obj._cachedStartX || obj.x; startY = obj.y;
         w = obj._cachedW || 100; h = obj._cachedH || 50;
+    } else if (type === 'rectangle') {
+        const b = boiteDuRectangle(obj);
+        if (!b) return null;
+        startX = b.x; startY = b.y; w = b.w; h = b.h;
     } else return null;
 
     cx = startX + w / 2; cy = startY + h / 2;
@@ -6893,8 +6972,10 @@ function getHandleAt(lx, ly, obj, type) {
     const unrotatedX = Math.cos(-angle) * (lx - cx) - Math.sin(-angle) * (ly - cy) + cx;
     const unrotatedY = Math.sin(-angle) * (lx - cx) + Math.cos(-angle) * (ly - cy) + cy;
 
+    // Un rectangle est fait de deux points : il n'a pas d'angle propre à
+    // tourner, et la poignée de rotation n'aurait rien à quoi s'appliquer.
     const rotY = startY - (30 / zoom);
-    if (Math.hypot(unrotatedX - cx, unrotatedY - rotY) <= hw * 1.5) return 'ROT';
+    if (type !== 'rectangle' && Math.hypot(unrotatedX - cx, unrotatedY - rotY) <= hw * 1.5) return 'ROT';
     // Poignées de la bulle interactive
     if (obj.isBubble) {
         // 1. Poignée de la pointe (Absolue)
@@ -6907,7 +6988,7 @@ function getHandleAt(lx, ly, obj, type) {
         let brY = obj.y - pad; // MODIFIÉ : On utilise le haut (y - pad)
         if (Math.hypot(unrotatedX - brX, unrotatedY - brY) <= hw * 1.5) return 'BUBBLE_RESIZE';
     }
-    if (type === 'image') {
+    if (type === 'image' || type === 'rectangle') {
         const hx = [startX, startX + w / 2, startX + w, startX + w, startX + w, startX + w / 2, startX, startX];
         const hy = [startY, startY, startY, startY + h / 2, startY + h, startY + h, startY + h, startY + h / 2];
         const hNames = ['TL', 'T', 'TR', 'R', 'BR', 'B', 'BL', 'L'];
@@ -7930,8 +8011,8 @@ function findObjectAt(lx, ly) {
     const hitZonePt = 15 / zoom;
     const hitZoneLine = 8 / zoom;
 
-    // --- 1. Vérification des poignées (Images ET Textes) ---
-    if (selectedItems.length === 1 && (selectedItems[0].type === 'image' || selectedItems[0].type === 'text')) {
+    // --- 1. Vérification des poignées (Images, Textes ET Rectangles) ---
+    if (selectedItems.length === 1 && ['image', 'text', 'rectangle'].includes(selectedItems[0].type)) {
         const obj = getObjectById(selectedItems[0].type, selectedItems[0].id);
         if (obj) {
             const handle = getHandleAt(lx, ly, obj, selectedItems[0].type);
@@ -9412,7 +9493,11 @@ canvas.addEventListener('pointermove', (e) => {
 
     activeGuides = { x: [], y: [] };
 
-    if (draggedHandle && selectedItems.length === 1 && (selectedItems[0].type === 'image' || selectedItems[0].type === 'text')) {
+    if (draggedHandle && selectedItems.length === 1 && selectedItems[0].type === 'rectangle') {
+        etirerLeRectangle(getObjectById('rectangle', selectedItems[0].id), draggedHandle, rawPos);
+        lastMouseX = e.clientX; lastMouseY = e.clientY;
+    }
+    else if (draggedHandle && selectedItems.length === 1 && (selectedItems[0].type === 'image' || selectedItems[0].type === 'text')) {
         const type = selectedItems[0].type;
         const obj = getObjectById(type, selectedItems[0].id);
         // On relève la boîte et l'angle AVANT la manœuvre : l'encre accrochée
@@ -10593,6 +10678,12 @@ function draw() {
                     if (obj.isFilled) { ctx.fillStyle = hexToRgba(obj.fillColor || obj.color, obj.fillOpacity || 0.2); ctx.fill(); }
                     ctx.strokeStyle = renderColor;
                     ctx.lineWidth = (obj.width || 3) * EPAISSEUR_AU_TABLEAU; setContextDash(ctx, obj.dash, EPAISSEUR_AU_TABLEAU); ctx.stroke(); ctx.setLineDash([]);
+                    // Sélectionné seul, il montre de quoi le reprendre.
+                    if (isSel && !isExportingTransparent && !obj.locked
+                        && selectedItems.length === 1 && selectedItems[0].type === 'rectangle') {
+                        const b = rectangleDeformable(obj);
+                        if (b) dessinerLesPoigneesDuRectangle(ctx, b, lw);
+                    }
                 }
             }
             else if (item.type === 'segment') {
