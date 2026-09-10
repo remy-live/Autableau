@@ -1964,11 +1964,19 @@ module.exports = async function (browser) {
     // conduit maintenant comme tout le reste, et le bouton ✂ fait le mode.
     // =========================================================================
     const octetsPdf = Array.from(petitPdf());
+    // LA VUE REMONTE, UNE FOIS LE DOCUMENT POSÉ. Au milieu de l'écran, son coin
+    // bas-droit tombe DERRIÈRE LE TIROIR DU BAS, qui court sur toute la
+    // largeur : le clic va au tiroir, et la poignée ne bouge pas. C'est un
+    // piège de mesure, pas un défaut du tableau — mais il tenait à trois pixels
+    // près, et le moindre bouton ajouté au tiroir le faisait basculer. On
+    // remonte donc la vue APRÈS la pose, pour ne rien changer à l'endroit où le
+    // document atterrit.
     const poserLeDoc = () => page.evaluate(async ({ octets }) => {
         panX = 0; panY = 0; zoom = 1; images.length = 0;
         await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf', { type: 'application/pdf' }));
         await new Promise(res => setTimeout(res, 1200));
-        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); majBarreDocument(); draw();
+        setMode('pointer'); selectObject({ type: 'image', id: images[0].id }); majBarreDocument();
+        panY = -160; draw();
         const d = images[0];
         return { x: d.x, y: d.y, w: d.w, h: d.h, cw: d.cw, ch: d.ch, rognage: d.isCropping === true };
     }, { octets: octetsPdf });
@@ -1979,9 +1987,13 @@ module.exports = async function (browser) {
             cx: Math.round(d.cx), cy: Math.round(d.cy), cw: Math.round(d.cw), ch: Math.round(d.ch)
         };
     });
-    const tirerLaPoignee = async (hx, hy, ddx, ddy) => {
-        await page.mouse.move(hx, hy); await page.mouse.down();
-        await page.mouse.move(hx + ddx, hy + ddy, { steps: 10 }); await page.mouse.up();
+    // ON DONNE LA POIGNÉE EN COORDONNÉES DU TABLEAU, et la souris s'y rend.
+    // Elles se confondaient tant que la vue était à l'origine ; on la remonte
+    // maintenant (voir « poserLeDoc »), et la conversion doit être faite.
+    const tirerLaPoignee = async (lx, ly, ddx, ddy) => {
+        const p = await page.evaluate(([x, y]) => ({ x: panX + x * zoom, y: panY + y * zoom }), [lx, ly]);
+        await page.mouse.move(p.x, p.y); await page.mouse.down();
+        await page.mouse.move(p.x + ddx, p.y + ddy, { steps: 10 }); await page.mouse.up();
         await page.waitForTimeout(150);
     };
 

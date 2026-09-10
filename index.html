@@ -2189,6 +2189,17 @@
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     <rect x="7" y="7" width="8" height="8" stroke-dasharray="2 2" fill="none"></rect>
                 </svg></button>
+                <!-- TOUT VOIR. Le tableau est infini : on pose un document, on
+                     découpe un exercice qu'on emporte ailleurs, on zoome pour
+                     l'annoter — et l'on ne sait plus où est le reste. Il n'y
+                     avait que la molette et la main pour le retrouver à
+                     l'aveugle. -->
+                <button class="btn" id="btn-voir-tout"
+                    data-tooltip="Tout voir : ramener le document, les morceaux et l'écriture dans l'écran"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
+                    <rect x="8" y="8" width="8" height="8" rx="1" stroke-dasharray="2 2" />
+                </svg></button>
                 <button class="btn" id="btn-loupe" data-tooltip="Loupe" onclick="toggleLoupe()"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <circle cx="11" cy="11" r="8"></circle>
@@ -3006,7 +3017,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=236"></script>
+    <script src="script.js?v=237"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=99"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

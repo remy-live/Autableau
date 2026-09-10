@@ -1349,6 +1349,9 @@ function toggleFocusMode() {
     } else if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
         presentationEnCours = null;
         cadrageDePresentation = 'page';
+        // On sort de la présentation par cette porte-là aussi : le mode du
+        // document doit y être rendu comme par l'autre.
+        if (typeof rendreLeModeDuDocument === 'function') rendreLeModeDuDocument();
         if (typeof draw === 'function') draw();
     }
     majInterrupteursBarre();
@@ -1375,6 +1378,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
         if (!hasSeenWelcome) {
             localStorage.setItem('auTableau_welcome_v2', 'true');
+        }
+    });
+    document.getElementById('btn-voir-tout')?.addEventListener('click', () => {
+        const boite = (typeof boiteDuTravail === 'function') ? boiteDuTravail() : null;
+        voirToutLeTableau();
+        if (typeof showToast === 'function') {
+            showToast(boite ? 'Tout est à l\'écran' : 'Rien à montrer : le tableau est vide');
         }
     });
     document.getElementById('btn-fullscreen').addEventListener('click', () => {
@@ -13674,6 +13684,7 @@ function poserLeMorceau(m, ou) {
     images.push(objet);
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
+    modeDocument = 'cadre';   // on vient de le poser : on le DÉPLACE
     majLeTiroirDesMorceaux();
     // Sorti du tiroir et posé : on ne découpe plus, on place.
     if (typeof basculerLaDecoupe === 'function' && decoupeActive) basculerLaDecoupe(false);
@@ -13834,6 +13845,7 @@ function poserTousLesMorceaux() {
     }
     // Posés ET tenus : le lot se déplace d'un geste si la place ne convient pas.
     selectedItems = poses.map(o => ({ type: 'image', id: o.id }));
+    modeDocument = 'cadre';   // on vient de les poser : on les DÉPLACE
     majLeTiroirDesMorceaux();
     // POSER TERMINE LE DÉCOUPAGE. Les ciseaux restaient armés : le clic suivant
     // retaillait le morceau qu'on venait de poser au lieu de le prendre, et
@@ -14144,6 +14156,24 @@ function brancherLeVolet() {
 // quadrillage, le verrou et le retrait.
 // ---------------------------------------------------
 let modeDocument = 'cadre';
+// Le mode d'avant la présentation, le temps qu'elle dure.
+let modeAvantPresentation = null;
+
+// CE QUE LA PRÉSENTATION CHANGE, ELLE LE REND. En plein écran, glisser fait
+// coulisser la page dans son cadre : c'est le geste attendu là-bas. Mais on
+// sort de la présentation par plusieurs portes — le bouton, la touche, le mode
+// Focus qu'on éteint, le plein écran qu'on quitte — et le mode restait en
+// place. On revenait alors au tableau, on prenait le morceau qu'on venait de
+// découper pour le poser ailleurs, et c'est la page qui coulissait sous lui.
+function rendreLeModeDuDocument() {
+    if (modeAvantPresentation === null) return false;
+    modeDocument = modeAvantPresentation;
+    modeAvantPresentation = null;
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    return true;
+}
+window.rendreLeModeDuDocument = rendreLeModeDuDocument;
+
 let glissePage = null;
 
 // Toute image posée sur le tableau — PDF feuilletable, photo, capture — se
@@ -19496,6 +19526,9 @@ function presenterLeDocument() {
 
     if (typeof setMode === 'function') setMode('pointer');
     selectedItems = [{ type: 'image', id: doc.id }];
+    // On note le mode qu'on trouve : la sortie le rendra (voir
+    // « rendreLeModeDuDocument »).
+    if (modeAvantPresentation === null) modeAvantPresentation = modeDocument;
     modeDocument = 'page';
 
     // On part toujours de la page ENTIÈRE. Sans cela, on présentait le
@@ -19598,6 +19631,7 @@ function quitterLaPresentation() {
     presentationEnCours = null;
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
+    rendreLeModeDuDocument();
     if (pleinEcranDeLaPresentation) {
         pleinEcranDeLaPresentation = false;
         if (document.fullscreenElement && document.exitFullscreen) {
@@ -30062,6 +30096,80 @@ function replacerLaFeuilleSiBesoin() {
     return true;
 }
 
+// Ce que les barres mangent en haut et en bas de l'écran. Elles sont en
+// position fixe : « offsetParent » y vaut toujours null et la mesure rendait 0
+// — ce qu'on cadrait finissait caché dessous.
+function bandeauxDeLEcran() {
+    const hauteurBarre = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el || !el.getClientRects().length) return 0;
+        return Math.min(200, el.getBoundingClientRect().height + 16);
+    };
+    // LE TIROIR DU BAS S'APPELLE « bottom-drawer ». Les trois noms cherchés
+    // ici n'ont jamais existé dans la page : la mesure rendait donc toujours
+    // zéro, et ce qu'on cadrait passait sous le tiroir — à commencer par le
+    // bas d'une copie, là où l'on écrit la note.
+    return {
+        enHaut: Math.max(30, hauteurBarre('#bar-plugins')),
+        enBas: Math.max(30, hauteurBarre('#bottom-drawer'))
+    };
+}
+
+// ---------------------------------------------------------------------------
+// TOUT VOIR D'UN COUP
+//
+// « On n'a aucun bouton pour que tout soit vu sur le canvas. J'ai mis un bout
+// d'exercice, je l'ai mis en plein écran, puis pour revenir au pdf de base
+// avec le bout d'exercice dessus — quelle galère. »
+//
+// Le tableau est infini : on y pose un document, on découpe un exercice qu'on
+// va montrer ailleurs, on zoome pour l'annoter — et l'on finit par ne plus
+// savoir où est le reste. Il n'y avait alors que la molette et la main pour
+// retrouver son travail à l'aveugle. Ce bouton-ci ramène tout dans l'écran :
+// le document, les morceaux posés à côté, ce qui a été écrit autour.
+//
+// Il sort aussi de la présentation, où la vue est retenue sur la page : sans
+// cela il n'aurait rien pu montrer d'autre, et c'est justement de là qu'on
+// cherche à revenir.
+// ---------------------------------------------------------------------------
+const ZOOM_TOUT_VOIR_MAX = 2;    // au-delà, « tout voir » ne montre plus que du gros
+const ZOOM_TOUT_VOIR_MIN = 0.05;
+
+function voirToutLeTableau() {
+    const canvas = document.getElementById('board');
+    if (!canvas) return false;
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && typeof quitterLaPresentation === 'function') quitterLaPresentation();
+
+    const L = canvas.clientWidth || window.innerWidth;
+    const H = canvas.clientHeight || window.innerHeight;
+    const { enHaut, enBas } = bandeauxDeLEcran();
+    const marge = Math.max(24, Math.round(Math.min(L, H) * 0.05));
+
+    const boite = boiteDuTravail();
+    // Une page vide n'a rien à cadrer : on revient simplement au repère, à sa
+    // taille normale. C'est ce qu'on attend d'un bouton qui « remet tout à
+    // l'écran » quand il n'y a rien.
+    if (!boite) {
+        zoom = 1; panX = L / 2; panY = H / 2;
+        majCurseurZoom(); majPastilleZoom(); draw();
+        return true;
+    }
+
+    const libreL = Math.max(120, L - marge * 2);
+    const libreH = Math.max(120, H - enHaut - enBas - marge * 2);
+    // Une boîte plate — tout sur une ligne, ou un seul point — donnerait une
+    // division par zéro : on lui laisse un pixel de côté.
+    const k = Math.min(libreL / Math.max(1, boite.l), libreH / Math.max(1, boite.h));
+    zoom = Math.max(ZOOM_TOUT_VOIR_MIN, Math.min(ZOOM_TOUT_VOIR_MAX, k));
+    panX = marge + (libreL - boite.l * zoom) / 2 - boite.x * zoom;
+    panY = enHaut + marge + (libreH - boite.h * zoom) / 2 - boite.y * zoom;
+
+    majCurseurZoom(); majPastilleZoom(); draw();
+    return true;
+}
+window.voirToutLeTableau = voirToutLeTableau;
+
 function cadrerSurLaFeuille() {
     const bg = backgrounds[currentBgIndex];
     if (!FONDS_FEUILLE.includes(bg)) return;
@@ -30084,15 +30192,7 @@ function cadrerSurLaFeuille() {
     // côté : une A4 entière tenait dans la hauteur, mais à 30 % — illisible du
     // fond de la classe. La feuille remplit donc l'écran en largeur et on
     // descend dedans, comme sur une vraie copie.
-    // Les barres sont en position fixe : « offsetParent » y vaut toujours null
-    // et la mesure rendait 0 — l'en-tête de la copie finissait caché dessous.
-    const hauteurBarre = (sel) => {
-        const el = document.querySelector(sel);
-        if (!el || !el.getClientRects().length) return 0;
-        return Math.min(200, el.getBoundingClientRect().height + 16);
-    };
-    const enHaut = Math.max(30, hauteurBarre('#bar-plugins'));
-    const enBas = Math.max(30, hauteurBarre('#bar-bottom, .drawer-bottom, #bottom-bar'));
+    const { enHaut, enBas } = bandeauxDeLEcran();
     const libre = Math.max(200, hauteurEcran - enHaut - enBas);
 
     // Une marge d'environ 4 % de chaque côté, jamais moins de 24 px
