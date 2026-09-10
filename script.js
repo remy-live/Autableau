@@ -9105,7 +9105,23 @@ canvas.addEventListener('dblclick', (e) => {
         const imgObj = getObjectById('image', clickedObj.id);
         if (imgObj && imgObj.pluginData && imgObj.pluginData.id) {
             const plugin = PluginManager.plugins[imgObj.pluginData.id];
+            // CERTAINS OUTILS SE MODIFIENT SUR PLACE. Ouvrir une fenêtre plein
+            // écran pour taper un mot dans une case était le geste le plus
+            // coûteux d'un tableau, et le plus fréquent : l'outil qui sait le
+            // faire sur le tableau lui-même a la main d'abord. S'il ne sait
+            // pas quoi faire de ce point-là, la fenêtre s'ouvre comme avant.
+            // UN SEUL GESTE, UN SEUL ABOUTISSEMENT. Un second écouteur de
+            // double-clic vit dans « plugin.js », posé sur le document : il
+            // rouvre l'atelier du plugin quoi qu'on fasse ici. Sans arrêter
+            // la propagation, l'édition sur place s'ouvrait ET la fenêtre par
+            // -dessus — les deux à la fois, pour un seul double-clic.
+            if (plugin && typeof plugin.editerSurPlace === 'function'
+                && !imgObj.locked && plugin.editerSurPlace(imgObj, rawPos)) {
+                e.stopPropagation();
+                return;
+            }
             if (plugin && typeof plugin.edit === 'function') {
+                e.stopPropagation();
                 // ✅ On ferme le menu contextuel d'image (cadenas/proportions/crop/corbeille)
                 // avant d'ouvrir la modale du plugin, sinon il flotte par-dessus
                 const quickMenu = document.getElementById('quick-edit-menu');
@@ -17138,9 +17154,70 @@ function plafondDesBarresDuBas() {
 }
 window.plafondDesBarresDuBas = plafondDesBarresDuBas;
 
+// ==================================================================
+// LES GESTES DE L'OUTIL QUI A FAIT L'OBJET
+// « Si on peut même modifier le tableau directement sur le canvas ce serait
+// top (nombre de colonnes, lignes, couleur, édition des cellules). » Pour
+// ajouter une ligne à une grille, il fallait rouvrir l'atelier — une fenêtre
+// qui couvre tout l'écran —, changer une chose, et la refermer. Devant la
+// classe, à chaque fois. Un outil peut désormais poser ses gestes courants
+// dans la barre de l'objet, et les faire sur place.
+// ==================================================================
+function majLesActionsDuPlugin() {
+    const boite = document.getElementById('quick-plugin-actions');
+    if (!boite) return;
+    boite.innerHTML = '';
+    // Un seul objet à la fois : sur une sélection multiple, « une ligne de
+    // plus » ne saurait pas de quelle grille on parle.
+    if (selectedItems.length !== 1 || selectedItems[0].type !== 'image') return;
+    const obj = getObjectById('image', selectedItems[0].id);
+    if (!obj || obj.locked || !obj.pluginData || !obj.pluginData.id) return;
+    const plugin = PluginManager.plugins[obj.pluginData.id];
+    if (!plugin || typeof plugin.actionsRapides !== 'function') return;
+    let actions = [];
+    try { actions = plugin.actionsRapides(obj) || []; } catch (e) { return; }
+
+    actions.forEach(a => {
+        if (a.couleur !== undefined) {
+            const champ = document.createElement('input');
+            champ.type = 'color';
+            champ.className = 'qpa-couleur';
+            champ.value = a.couleur;
+            champ.title = a.titre || '';
+            // « change » et non « input » : le nuancier du système frissonne à
+            // chaque mouvement, et l'on refabriquerait le dessin cent fois.
+            champ.addEventListener('change', (e) => {
+                e.stopPropagation();
+                a.faire(e.target.value);
+            });
+            champ.addEventListener('pointerdown', (e) => e.stopPropagation());
+            boite.appendChild(champ);
+            return;
+        }
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'qpa-btn';
+        b.textContent = a.texte || '·';
+        b.title = a.titre || '';
+        if (a.actif === false) b.disabled = true;
+        b.onpointerdown = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (b.disabled) return;
+            a.faire();
+        };
+        boite.appendChild(b);
+    });
+}
+window.majLesActionsDuPlugin = majLesActionsDuPlugin;
+
 function updateQuickMenu() {
     const quickMenu = document.getElementById('quick-edit-menu');
     if (!quickMenu) return;
+    // LES GESTES DE L'OUTIL SE REFONT À CHAQUE FOIS, en tête : la barre a
+    // vingt raisons de ne pas se montrer — une projection, un menu ouvert,
+    // une saisie —, et chacune laissait en place les boutons de l'objet
+    // d'avant. Verrouiller une grille ne les retirait donc pas.
+    majLesActionsDuPlugin();
     // DEUX BARRES, DEUX MÉTIERS — c'est ainsi que fait Canva, et j'avais eu
     // tort de tout fondre en une. Celle-ci flotte au-dessus de l'objet et porte
     // les ACTIONS : verrou, proportions, rognage, duplication, suppression. La

@@ -2069,6 +2069,58 @@ body.focus-mode #exit-focus-cross {
    rien dire. La pastille est alors un disque de la couleur du trait. */
 #color-indicator.pastille-pleine { border-color: transparent; }
 
+/* LES GESTES DE L'OUTIL, dans la barre de l'objet. Ils ne paraissent que
+   lorsqu'il y en a : une barre avec un séparateur et rien derrière serait
+   pire qu'une barre sans rien. */
+#quick-plugin-actions {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    padding-right: 8px;
+    margin-right: 4px;
+    border-right: 1px solid #dfe6e9;
+}
+
+#quick-plugin-actions:not(:empty) { display: flex; }
+
+.qpa-btn {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    color: #2d3436;
+    font-family: inherit;
+    transition: 0.15s;
+}
+
+.qpa-btn:hover:not(:disabled) { background: #f1f2f6; }
+.qpa-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* La pastille de couleur des traits : un vrai sélecteur, habillé en rond. */
+.qpa-couleur {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 2px solid #dfe6e9;
+    border-radius: 50%;
+    cursor: pointer;
+    background: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.qpa-couleur::-webkit-color-swatch-wrapper { padding: 0; }
+.qpa-couleur::-webkit-color-swatch { border: none; border-radius: 50%; }
+
+.dark-mode .qpa-btn { color: #dfe6e9; }
+.dark-mode .qpa-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.dark-mode #quick-plugin-actions { border-right-color: rgba(255, 255, 255, 0.15); }
+
 
 /* SEIZE COULEURS EN DEUX RANGÉES DE HUIT, plus la personnalisée et le
    transparent : la grille reste aussi large qu'avant, elle est seulement

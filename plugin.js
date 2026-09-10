@@ -15871,28 +15871,29 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         this.htmlLayer.innerHTML = html;
     },
 
-    exportToBoard: function () {
-        if (this.state.rows === 0) { this.close(); return; }
-
+    // LE DESSIN DU TABLEAU, sans la fenêtre. Il se fabriquait au moment de
+    // fermer l'atelier, mêlé au reste : on ne pouvait pas refaire la grille
+    // depuis le tableau lui-même. Il est maintenant à part, et sert aux deux.
+    dessinDuTableau: function () {
         this.selStart = null; this.selEnd = null;
         this.viewport = { x: 0, y: 0 };
         this.render();
 
-        let L = this.getLayout();
-        let width = L.x[L.x.length - 1];
-        let height = L.y[L.y.length - 1];
-
+        const L = this.getLayout();
+        const width = L.x[L.x.length - 1];
+        const height = L.y[L.y.length - 1];
         const pad = 10;
-        let totalW = width + pad * 2;
-        let totalH = height + pad * 2;
+        const dedans = this.svgLayer.innerHTML.match(/<g transform="[^"]*">([\s\S]*?)<\/g>/);
+        if (!dedans) return null;
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width + pad * 2} ${height + pad * 2}"`
+            + ` width="${width + pad * 2}" height="${height + pad * 2}">`
+            + `<g transform="translate(${pad}, ${pad})">${dedans[1]}</g></svg>`;
+    },
 
-        let exportSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalW} ${totalH}" width="${totalW}" height="${totalH}">`;
-        exportSVG += `<g transform="translate(${pad}, ${pad})">`;
-
-        let innerSvg = this.svgLayer.innerHTML.match(/<g transform="[^"]*">([\s\S]*?)<\/g>/)[1];
-        exportSVG += innerSvg;
-
-        exportSVG += `</g></svg>`;
+    exportToBoard: function () {
+        if (this.state.rows === 0) { this.close(); return; }
+        const exportSVG = this.dessinDuTableau();
+        if (!exportSVG) { this.close(); return; }
 
         const target = this.editingImage; // mémorisé avant close() (qui l'efface)
         this.close();
@@ -15905,6 +15906,169 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
                 this.currentState = JSON.parse(JSON.stringify(this.state));
                 if (typeof showToast === 'function') showToast("📌 Cliquez sur le tableau pour poser la grille");
             }
+        });
+    },
+
+    // ==================================================================
+    // LE TABLEAU SE MODIFIE SUR LE TABLEAU
+    // « Améliore Tableau Studio ; d'ailleurs si on peut même modifier le
+    // tableau directement sur le canvas ce serait top (nombre de colonnes,
+    // lignes, couleur, édition des cellules). »
+    //
+    // Pour ajouter une ligne il fallait rouvrir l'atelier, une fenêtre qui
+    // couvre tout l'écran, changer une chose, et la refermer — devant la
+    // classe, à chaque fois. Les gestes courants se font maintenant sur
+    // place : une barre au-dessus de la grille pour les lignes, les colonnes
+    // et la couleur, et un double-clic dans une case pour l'écrire.
+    // ==================================================================
+
+    // On travaille sur l'état d'un tableau POSÉ, sans toucher à celui de
+    // l'atelier : deux grilles ouvertes en même temps ne doivent pas se
+    // mélanger.
+    surCeTableau: function (imgObj, faire) {
+        if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.state) return false;
+        const memoire = this.state, enCours = this.editingImage;
+        this.state = JSON.parse(JSON.stringify(imgObj.pluginData.state));
+        this.editingImage = null;
+        let change = false;
+        try { change = faire(this.state) !== false; } catch (e) { change = false; }
+        const dessin = change ? this.dessinDuTableau() : null;
+        const etat = change ? JSON.parse(JSON.stringify(this.state)) : null;
+        this.state = memoire; this.editingImage = enCours;
+        if (!dessin) return false;
+        createStampFromSVG(dessin, (stamp) => {
+            // « quiet » : ni changement d'outil, ni message. Le message
+            // « Tampon mis à jour » est bon quand on sort d'un atelier, pas à
+            // chaque clic sur « une ligne de plus » ; et rendre l'outil au
+            // pointeur LÂCHE LA GRILLE — la barre s'en allait donc entre deux
+            // lignes, et il fallait la reprendre à chaque fois.
+            updatePluginStampInPlace(imgObj, stamp, etat, { quiet: true });
+        });
+        return true;
+    },
+
+    // La case sous un point du tableau : on ramène le point dans le repère de
+    // la grille, en tenant compte de la place qu'elle occupe à l'écran.
+    caseSousLePoint: function (imgObj, pos) {
+        const etat = imgObj.pluginData && imgObj.pluginData.state;
+        if (!etat) return null;
+        const pad = 10;
+        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+        const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
+        const ex = imgObj.w / large, ey = imgObj.h / haut;
+        const wx = (pos.x - imgObj.x) / ex - pad;
+        const wy = (pos.y - imgObj.y) / ey - pad;
+        let x = 0, c = -1;
+        for (let i = 0; i < etat.cols; i++) {
+            if (wx >= x && wx < x + etat.colW[i]) { c = i; break; }
+            x += etat.colW[i];
+        }
+        let y = 0, r = -1;
+        for (let i = 0; i < etat.rows; i++) {
+            if (wy >= y && wy < y + etat.rowH[i]) { r = i; break; }
+            y += etat.rowH[i];
+        }
+        if (r < 0 || c < 0) return null;
+        // La case, ET sa place à l'écran : c'est là qu'on posera le champ.
+        return { r, c,
+                 x: imgObj.x + (pad + x) * ex, y: imgObj.y + (pad + y) * ey,
+                 w: etat.colW[c] * ex, h: etat.rowH[r] * ey };
+    },
+
+    // LE DOUBLE-CLIC ÉCRIT DANS LA CASE, au lieu d'ouvrir l'atelier. Ouvrir
+    // une fenêtre plein écran pour taper un mot dans une case était le geste
+    // le plus coûteux de l'outil, et le plus fréquent.
+    editerSurPlace: function (imgObj, pos) {
+        const boite = this.caseSousLePoint(imgObj, pos);
+        if (!boite) return false;
+        const cle = boite.r + ',' + boite.c;
+        const etat = imgObj.pluginData.state;
+        const cellule = etat.cells[cle] || {};
+
+        document.querySelectorAll('.ts-champ-case').forEach(e => e.remove());
+        const champ = document.createElement('input');
+        champ.type = 'text';
+        champ.className = 'ts-champ-case';
+        champ.value = cellule.t || '';
+        const surEcran = (x, y) => ({
+            x: x * (typeof zoom !== 'undefined' ? zoom : 1) + (typeof panX !== 'undefined' ? panX : 0),
+            y: y * (typeof zoom !== 'undefined' ? zoom : 1) + (typeof panY !== 'undefined' ? panY : 0)
+        });
+        const coin = surEcran(boite.x, boite.y);
+        const z = (typeof zoom !== 'undefined' ? zoom : 1);
+        champ.style.cssText = 'position:fixed; z-index:100050; box-sizing:border-box;'
+            + ` left:${Math.round(coin.x)}px; top:${Math.round(coin.y)}px;`
+            + ` width:${Math.round(boite.w * z)}px; height:${Math.round(boite.h * z)}px;`
+            + ` font-size:${Math.max(11, Math.round(16 * z))}px;`
+            + ' text-align:center; border:2px solid #0984e3; border-radius:4px;'
+            + ' background:#ffffff; color:#2d3436; outline:none; font-family:sans-serif;';
+        document.body.appendChild(champ);
+        setTimeout(() => { champ.focus(); champ.select(); }, 0);
+
+        let fini = false;
+        const finir = (garder) => {
+            if (fini) return;
+            fini = true;
+            const texte = champ.value;
+            champ.remove();
+            if (!garder || texte === (cellule.t || '')) return;
+            this.surCeTableau(imgObj, (etatVif) => {
+                etatVif.cells[cle] = Object.assign({}, etatVif.cells[cle] || {}, { t: texte });
+            });
+        };
+        champ.addEventListener('blur', () => finir(true));
+        champ.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); finir(true); }
+            if (e.key === 'Escape') { e.preventDefault(); finir(false); }
+        });
+        return true;
+    },
+
+    // LES GESTES COURANTS, SUR PLACE. Ils paraissent dans la barre de l'objet
+    // dès qu'une grille est prise en main.
+    actionsRapides: function (imgObj) {
+        const etat = imgObj && imgObj.pluginData && imgObj.pluginData.state;
+        if (!etat) return [];
+        const grille = () => ({ lignes: etat.rows, colonnes: etat.cols });
+        return [
+            { titre: 'Une ligne de plus (' + grille().lignes + ')', texte: '＋⬓',
+              faire: () => this.surCeTableau(imgObj, (e) => { this.state = e; this.insertRow(e.rows); }) },
+            { titre: 'Une ligne de moins', texte: '－⬓',
+              actif: etat.rows > 1,
+              faire: () => this.surCeTableau(imgObj, (e) => { this.state = e; this.deleteRow(e.rows - 1); }) },
+            { titre: 'Une colonne de plus (' + grille().colonnes + ')', texte: '＋▥',
+              faire: () => this.surCeTableau(imgObj, (e) => { this.state = e; this.insertCol(e.cols); }) },
+            { titre: 'Une colonne de moins', texte: '－▥',
+              actif: etat.cols > 1,
+              faire: () => this.surCeTableau(imgObj, (e) => { this.state = e; this.deleteCol(e.cols - 1); }) },
+            { titre: 'La couleur des traits', couleur: this.couleurDesTraits(etat),
+              faire: (c) => this.surCeTableau(imgObj, (e) => { this.peindreLesTraits(e, c); }) }
+        ];
+    },
+
+    // La couleur qui revient le plus dans les traits : c'est celle qu'on
+    // montre dans la pastille.
+    couleurDesTraits: function (etat) {
+        const compte = {};
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => {
+                // LA BORDURE PORTE SA COULEUR DANS « c », pas dans « color » :
+                // c'est le nom que lit le dessin, et s'en écarter donnait des
+                // traits « stroke="undefined" », c'est-à-dire invisibles.
+                const b = bords[k];
+                if (b && b.c) compte[b.c] = (compte[b.c] || 0) + 1;
+            });
+        });
+        const gagnante = Object.keys(compte).sort((a, b) => compte[b] - compte[a])[0];
+        return gagnante || '#2d3436';
+    },
+
+    peindreLesTraits: function (etat, couleur) {
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => {
+                if (bords[k]) bords[k].c = couleur;
+            });
         });
     },
 
