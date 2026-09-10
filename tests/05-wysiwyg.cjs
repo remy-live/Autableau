@@ -119,7 +119,7 @@ module.exports = async function (browser) {
     const couleur = async (hex) => {
         await page.click('#text-toolbar .tt-tab[data-panel="color"]');
         await page.waitForTimeout(120);
-        await page.click(`#text-toolbar .tt-panel[data-panel="color"] .swatch[data-color="${hex}"]`);
+        await page.click(`#text-toolbar .tt-panel[data-panel="color"] .color-dot[data-color="${hex}"]`);
         await page.waitForTimeout(120);
         await page.click('#text-toolbar .tt-tab[data-panel="color"]'); // referme le tiroir
         await page.waitForTimeout(100);
@@ -150,7 +150,7 @@ module.exports = async function (browser) {
     await scenario('couleur en cours de frappe', async () => {
         await page.keyboard.type('Avant');
         await page.keyboard.press('Enter');
-        await couleur('#d63031');
+        await couleur('#e74c3c');
         await page.keyboard.type('Apres en rouge');
     });
 
@@ -174,7 +174,7 @@ module.exports = async function (browser) {
     await scenario('un mot coloré', async () => {
         await page.keyboard.type('mot cle important');
         await surligner('cle');
-        await couleur('#0984e3');
+        await couleur('#3498db');
     });
 
     await scenario('liste à puces', async () => {
@@ -196,7 +196,7 @@ module.exports = async function (browser) {
         await page.keyboard.press('Enter');
         await page.keyboard.type('second');
         await surligner('second');
-        await couleur('#00b894');
+        await couleur('#2ecc71');
     });
 
     // Réédition : on rouvre un bloc existant, on ajoute une ligne d'une autre
@@ -220,7 +220,7 @@ module.exports = async function (browser) {
     await page.waitForTimeout(400);
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
-    await couleur('#6c5ce7');
+    await couleur('#9b59b6');
     await page.keyboard.type('Ajoutee');
     await page.waitForTimeout(200);
 

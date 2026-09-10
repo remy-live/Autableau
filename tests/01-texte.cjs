@@ -329,7 +329,7 @@ module.exports = async function (browser) {
     await choisir(0, 5);                       // « rouge »
     await page.click('#text-toolbar .tt-tab[data-panel="color"]');
     await page.waitForTimeout(150);
-    await page.click('#text-toolbar .tt-panel[data-panel="color"] .swatch[data-color="#d63031"]');
+    await page.click('#text-toolbar .tt-panel[data-panel="color"] .color-dot[data-color="#e74c3c"]');
     await page.waitForTimeout(150);
 
     // Puis on agrandit « vert » seulement

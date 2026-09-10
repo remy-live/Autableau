@@ -6066,6 +6066,9 @@ function majLesCouleursRecentes() {
         liste.appendChild(p);
     });
     majLaPastilleActive();
+    // La barre de saisie montre la MÊME liste : une couleur jetée d'un côté
+    // resterait sinon proposée de l'autre.
+    if (typeof majLesCouleursRecentesDuTexte === 'function') majLesCouleursRecentesDuTexte();
 }
 window.majLesCouleursRecentes = majLesCouleursRecentes;
 
@@ -15545,81 +15548,143 @@ if (textToolbar) {
         });
     });
 
-    // 3. Remplacement du sélecteur unique par les Pastilles + Roulette
-    const textColorPicker = document.getElementById('text-color-picker');
-    if (textColorPicker && !document.getElementById('text-quick-colors')) {
-        textColorPicker.style.display = 'none'; // On cache la pipette native moche
+    // 3. Le tiroir « couleur » de la barre de saisie
+    construireLesCouleursDuTexte(textToolbar);
+}
 
-        const colorContainer = document.createElement('div');
-        colorContainer.id = 'text-quick-colors';
-        colorContainer.style.display = 'flex';
-        colorContainer.style.gap = '4px';
-        colorContainer.style.alignItems = 'center';
-        colorContainer.style.borderLeft = '1px solid #dfe6e9';
-        colorContainer.style.paddingLeft = '6px';
-        colorContainer.style.marginLeft = '2px';
+// ==================================================================
+// ÉCRIRE ET DESSINER PUISENT AU MÊME NUANCIER
+//
+// La barre de saisie proposait SIX pastilles à elle — et pas même les six
+// premières de la palette des outils : un bleu, un rouge et un vert qui
+// n'existaient nulle part ailleurs dans l'application. Conséquences, toutes
+// les trois du même ordre : la couleur du titre ne pouvait pas être celle du
+// trait qu'on venait de tracer ; la teinte mise au point à la roulette pour un
+// mot était perdue dès le mot suivant ; et « mes couleurs », qui garde les
+// huit dernières, ne se montrait pas là où l'on écrit.
+//
+// Les pastilles se recopient donc de la palette des outils — une seule liste,
+// tenue à un seul endroit, dans index.html — la roulette ferme la grille comme
+// ailleurs, et ce qu'on y choisit entre dans la même mémoire.
+// ==================================================================
+function poserLaCouleurDuTexte(c, options) {
+    if (!c) return;
+    appliquerCouleurTexte(c);
+    activeStyle.strokeColor = c;      // et la suite de la frappe la garde
+    if (options && options.retenir && typeof retenirUneCouleur === 'function') retenirUneCouleur(c);
+    majLesPastillesDuTexte(c);
+    const pastille = document.getElementById('tt-color-dot');
+    if (pastille) pastille.style.background = c;
+}
+window.poserLaCouleurDuTexte = poserLaCouleurDuTexte;
 
-        const colors = ['#2d3436', '#0984e3', '#d63031', '#00b894', '#e17055', '#6c5ce7'];
+// La pastille allumée est celle de la couleur en cours, dans la grille comme
+// dans « mes couleurs ». Aucune ne l'est si la couleur ne figure nulle part.
+//
+// LES DEUX ÉCRITURES DE LA MÊME COULEUR. Le navigateur rend la couleur du
+// curseur en « rgb(142, 110, 83) », la palette la porte en « #8e6e53 » : à
+// comparer les deux chaînes telles quelles, aucune pastille ne s'allumait
+// jamais dès qu'on posait le curseur dans un mot déjà écrit.
+function enSixChiffres(couleur) {
+    const t = String(couleur || '').trim();
+    const m = t.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) return '#' + [1, 2, 3].map(i => Number(m[i]).toString(16).padStart(2, '0')).join('');
+    const court = t.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+    if (court) return ('#' + court[1] + court[1] + court[2] + court[2] + court[3] + court[3]).toLowerCase();
+    return t.slice(0, 7).toLowerCase();
+}
+window.enSixChiffres = enSixChiffres;
 
-        // Fonction pour mettre en surbrillance la pastille active
-        const updateActiveSwatch = (selectedColor) => {
-            colorContainer.querySelectorAll('.swatch, .wheel').forEach(d => {
-                if (d.dataset.color && d.dataset.color.toLowerCase() === selectedColor.toLowerCase()) {
-                    d.style.borderColor = '#b2bec3';
-                } else {
-                    d.style.borderColor = 'transparent';
-                }
-            });
-        };
+function majLesPastillesDuTexte(couleur) {
+    const vise = enSixChiffres(couleur);
+    document.querySelectorAll('#text-quick-colors .color-dot, #text-cr-liste .cr-pastille')
+        .forEach(d => d.classList.toggle('active', enSixChiffres(d.dataset.color) === vise));
+}
+window.majLesPastillesDuTexte = majLesPastillesDuTexte;
 
-        // Création des 6 pastilles de base
-        colors.forEach(c => {
-            const dot = document.createElement('div');
-            dot.className = 'swatch';
-            dot.dataset.color = c;
-            dot.style.width = '20px'; dot.style.height = '20px';
-            dot.style.borderRadius = '50%';
-            dot.style.background = c;
-            dot.style.cursor = 'pointer';
-            dot.style.border = '2px solid transparent';
-
-            dot.addEventListener('click', (e) => {
-                e.stopPropagation();
-                appliquerCouleurTexte(c);
-                activeStyle.strokeColor = c; // Applique la couleur pour la suite de la frappe
-                updateActiveSwatch(c);
-            });
-            colorContainer.appendChild(dot);
-        });
-
-        // Bouton "Roulette" pour les couleurs sur-mesure
-        const wheelBtn = document.createElement('div');
-        wheelBtn.className = 'wheel';
-        wheelBtn.style.width = '20px'; wheelBtn.style.height = '20px';
-        wheelBtn.style.borderRadius = '50%';
-        wheelBtn.style.background = 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)';
-        wheelBtn.style.cursor = 'pointer';
-        wheelBtn.style.border = '2px solid transparent';
-
-        wheelBtn.addEventListener('click', (e) => {
+// « Mes couleurs » sous la grille de la saisie : la même liste que dans la
+// palette des outils, avec la même croix pour en jeter une.
+function majLesCouleursRecentesDuTexte() {
+    const boite = document.getElementById('text-color-recentes');
+    const liste = document.getElementById('text-cr-liste');
+    if (!boite || !liste) return;
+    boite.hidden = couleursRecentes.length === 0;
+    liste.innerHTML = '';
+    couleursRecentes.forEach(c => {
+        const p = document.createElement('div');
+        p.className = 'cr-pastille';
+        p.dataset.color = c;
+        p.style.background = c;
+        p.title = c;
+        p.addEventListener('click', (e) => {
             e.stopPropagation();
-            textColorPicker.click(); // Déclenche le sélecteur natif
+            if (e.target.closest('.cr-jeter')) return;
+            poserLaCouleurDuTexte(c);
         });
+        const croix = document.createElement('button');
+        croix.type = 'button';
+        croix.className = 'cr-jeter';
+        croix.textContent = '✕';
+        croix.title = 'Jeter cette couleur';
+        croix.addEventListener('click', (e) => { e.stopPropagation(); oublierUneCouleur(c); });
+        p.appendChild(croix);
+        liste.appendChild(p);
+    });
+}
+window.majLesCouleursRecentesDuTexte = majLesCouleursRecentesDuTexte;
 
-        // Quand l'utilisateur choisit une couleur dans la roulette
-        textColorPicker.addEventListener('input', (e) => {
-            const c = e.target.value;
-            appliquerCouleurTexte(c);
-            activeStyle.strokeColor = c;
-            updateActiveSwatch(''); // Efface la bordure des pastilles fixes
-            wheelBtn.style.borderColor = '#b2bec3'; // Met la bordure sur la roulette
-        });
+function construireLesCouleursDuTexte(textToolbar) {
+    const textColorPicker = document.getElementById('text-color-picker');
+    if (!textColorPicker || document.getElementById('text-quick-colors')) return;
+    textColorPicker.style.display = 'none';   // la pipette du système reste en coulisse
 
-        colorContainer.appendChild(wheelBtn);
-        // Les pastilles vivent dans le tiroir « couleur », pas dans la rangée
-        const panneauCouleur = document.querySelector('#text-toolbar .tt-panel[data-panel="color"]');
-        (panneauCouleur || textToolbar).appendChild(colorContainer);
-    }
+    const boite = document.createElement('div');
+    boite.id = 'text-quick-colors';
+
+    const grille = document.createElement('div');
+    grille.className = 'color-grid';
+    // LA LISTE N'EST PAS RECOPIÉE À LA MAIN. Deux palettes écrites côte à côte
+    // divergent au premier ajout : celle-ci se lit dans celle des outils.
+    document.querySelectorAll('#color-popover .color-dot').forEach(source => {
+        const c = source.dataset.color;
+        if (!c) return;
+        const dot = document.createElement('div');
+        dot.className = 'color-dot';
+        dot.dataset.color = c;
+        dot.style.background = c;
+        dot.title = source.title || c;
+        dot.addEventListener('click', (e) => { e.stopPropagation(); poserLaCouleurDuTexte(c); });
+        grille.appendChild(dot);
+    });
+
+    // La roulette ferme la grille, en seizième case, comme dans la palette.
+    const roue = document.createElement('div');
+    roue.className = 'custom-color-btn';
+    roue.id = 'text-custom-color';
+    roue.title = 'Personnalisée';
+    roue.addEventListener('click', (e) => { e.stopPropagation(); textColorPicker.click(); });
+    grille.appendChild(roue);
+
+    // Une teinte cherchée à la roulette se garde : c'est tout l'objet de
+    // « mes couleurs », et elle ne s'y rangeait pas quand on écrivait.
+    textColorPicker.addEventListener('input', (e) => poserLaCouleurDuTexte(e.target.value, { retenir: true }));
+
+    const recentes = document.createElement('div');
+    recentes.className = 'color-recentes';
+    recentes.id = 'text-color-recentes';
+    recentes.hidden = true;
+    const titre = document.createElement('div');
+    titre.className = 'cr-titre';
+    titre.textContent = 'Mes couleurs';
+    const liste = document.createElement('div');
+    liste.className = 'cr-liste';
+    liste.id = 'text-cr-liste';
+    recentes.appendChild(titre); recentes.appendChild(liste);
+
+    boite.appendChild(grille); boite.appendChild(recentes);
+    const panneauCouleur = document.querySelector('#text-toolbar .tt-panel[data-panel="color"]');
+    (panneauCouleur || textToolbar).appendChild(boite);
+    majLesCouleursRecentesDuTexte();
 }
 
 // ===================================================
@@ -16082,6 +16147,9 @@ function syncBadgesTexte() {
     if (sizeDisplay2) sizeDisplay2.innerText = Math.round(currentSize);
     const pastille = document.getElementById('tt-color-dot');
     if (pastille) pastille.style.background = couleur;
+    // Et la pastille allumée dans le tiroir suit le curseur : on voit d'un
+    // coup d'œil, sans ouvrir le nuancier, où l'on en est dans la palette.
+    if (typeof majLesPastillesDuTexte === 'function') majLesPastillesDuTexte(couleur);
     if (btnFontCycle) btnFontCycle.style.fontFamily = currentFont;
 }
 

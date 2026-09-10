@@ -5779,19 +5779,13 @@ dark-mode .title-btn:hover {
     }
 }
 
+/* LE NUANCIER DE LA SAISIE EST CELUI DES OUTILS. Quatre colonnes suffisaient
+   pour six pastilles choisies à part ; il y en a maintenant quinze, la
+   roulette et « mes couleurs », dans la même grille de huit qu'ailleurs. */
 #text-toolbar .tt-panel #text-quick-colors {
-    display: grid !important;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 10px;
-    border-left: none !important;
-    padding-left: 0 !important;
-    margin-left: 0 !important;
-}
-
-#text-toolbar .tt-panel #text-quick-colors .swatch,
-#text-toolbar .tt-panel #text-quick-colors .wheel {
-    width: 34px !important;
-    height: 34px !important;
 }
 
 /* ===========================================================
