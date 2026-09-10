@@ -4807,19 +4807,22 @@ body.dark-mode {
 /* --- Titre du tableau --- */
 .project-name-wrapper {
     position: absolute;
-    /* Sous la pastille de classe, qui occupe désormais le coin. */
     top: 50px;
-    /* EN HAUT À GAUCHE, ET NON AU MILIEU. Le tiroir des plugins occupe le
+    /* EN HAUT À DROITE, ET NON AU MILIEU. Le tiroir des plugins occupe le
        haut au CENTRE : la date y était soit derrière lui — invisible dans
        l'interface par défaut, on ne la voyait qu'en mode Focus — soit devant,
-       et elle bouchait alors cinq de ses onglets. À gauche, le haut est libre
-       (vérifié), elle se voit toujours et ne gêne rien. Qui la préfère au
-       milieu l'y emmène par sa poignée : la place choisie est retenue. */
-    left: 14px;
+       et elle bouchait alors cinq de ses onglets. Elle est passée à gauche,
+       puis À DROITE : la gauche appartient à la pastille de classe et à la
+       barre d'outils, qui montent toutes deux le long de ce bord ; le coin
+       droit, lui, est libre — et c'est là qu'une horloge de classe se trouve.
+       Qui la préfère ailleurs l'y emmène par sa poignée : la place choisie
+       est retenue et prime sur celle-ci. */
+    right: 14px;
+    left: auto;
     transform: none;
     /* SOUS le tiroir du haut (z-index 40) : c'est lui qu'on vient chercher en
-       cours, pas la date. Elle ne le gêne pas depuis qu'elle est à gauche, et
-       si on la ramène au milieu, c'est le tiroir qui passe devant. */
+       cours, pas la date. Elle ne le gêne pas depuis qu'elle est sur un bord,
+       et si on la ramène au milieu, c'est le tiroir qui passe devant. */
     z-index: 30;
     display: flex;
     align-items: center;

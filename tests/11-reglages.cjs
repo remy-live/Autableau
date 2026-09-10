@@ -8,6 +8,56 @@ module.exports = async function (browser) {
     const { context, page, erreurs } = await ouvrirApp(browser, { astuces: true });
     await page.waitForFunction(() => typeof reglagesDate !== 'undefined', { timeout: 20000 });
 
+    // AU PREMIER DÉMARRAGE : LA DATE ET LE CADRAN, EN HAUT À DROITE.
+    // « Par défaut, peux-tu mettre la date et l'horloge à aiguilles en haut à
+    // droite ? » L'heure était éteinte et l'horloge en chiffres : il fallait
+    // connaître les réglages du titre pour avoir un cadran. Et le bloc était à
+    // gauche, le long du bord que se partagent déjà la pastille de classe et
+    // la barre d'outils. Ce test vient AVANT ceux qui règlent la date à la
+    // main : c'est l'état d'un navigateur neuf qu'il regarde.
+    const auDepart = await page.evaluate(() => {
+        const cadre = document.getElementById('project-name-wrapper');
+        const r = cadre.getBoundingClientRect();
+        const cadran = document.getElementById('titre-horloge-boite').getBoundingClientRect();
+        return {
+            heure: reglagesDate.heure, horloge: reglagesDate.horloge, date: reglagesDate.affichee,
+            visible: document.getElementById('titre-horloge-boite').classList.contains('visible'),
+            titre: document.getElementById('project-name-input').value,
+            // Contre le bord DROIT, et non le gauche.
+            marge: Math.round(window.innerWidth - r.right),
+            aGauche: Math.round(r.left) < window.innerWidth / 2,
+            // ET TOUT ENTIER À L'ÉCRAN : ancré à droite, le cadran est le
+            // morceau qui touche le bord — c'est lui qu'on dépasserait.
+            deborde: cadran.right > window.innerWidth || cadran.left < 0
+        };
+    });
+    r.egal('au premier démarrage, la date ET l\'horloge à aiguilles sont allumées',
+        { heure: auDepart.heure, horloge: auDepart.horloge, date: auDepart.date,
+          visible: auDepart.visible },
+        { heure: true, horloge: 'aiguilles', date: true, visible: true });
+    r.verifie('et le bloc est posé en haut à DROITE, cadran compris',
+        auDepart.marge <= 20 && !auDepart.aGauche && !auDepart.deborde,
+        JSON.stringify(auDepart));
+
+    // DÉPLACÉ À GAUCHE, IL NE S'ÉTIRE PAS. La place par défaut s'ancre à
+    // droite : posé à gauche sans relâcher ce « right », le bloc aurait ses
+    // deux bords fixés et prendrait toute la largeur de l'écran.
+    const emporte = await page.evaluate(() => {
+        const cadre = document.getElementById('project-name-wrapper');
+        const large = Math.round(cadre.getBoundingClientRect().width);
+        titrePose = { x: 40, y: 300 }; majPoseDuTitre();
+        const pose = cadre.getBoundingClientRect();
+        titrePose = null; majPoseDuTitre();
+        const rendu = cadre.getBoundingClientRect();
+        return { large, poseX: Math.round(pose.left), poseLarge: Math.round(pose.width),
+                 renduMarge: Math.round(window.innerWidth - rendu.right) };
+    });
+    r.egal('emporté à gauche par sa poignée, il garde sa largeur',
+        { x: emporte.poseX, large: emporte.poseLarge }, { x: 40, large: emporte.large });
+    r.verifie('et « remettre en haut à droite » le ramène contre le bord droit',
+        emporte.renduMarge <= 20, JSON.stringify(emporte));
+
+
     // --- ASTUCE DU JOUR ---
     await page.waitForTimeout(2600);
     const astuce = await page.evaluate(() => ({
@@ -63,7 +113,13 @@ module.exports = async function (browser) {
     r.verifie('format court : sans l\'année', !/\d{4}/.test(formats.court), formats.court);
     r.verifie('format chiffré', /^\d{2}\/\d{2}\/\d{4}$/.test(formats.chiffres), formats.chiffres);
 
+    // L'HEURE DANS LE TEXTE, C'EST L'HORLOGE EN CHIFFRES. À aiguilles — le
+    // réglage d'origine depuis qu'on la veut au mur —, l'heure n'est plus
+    // écrite : elle est sur le cadran. Ce test-ci regarde le texte, il pose
+    // donc les chiffres au lieu de compter sur ce qu'il trouve.
     const avecHeure = await page.evaluate(() => {
+        document.querySelector('#reglages-date [data-horloge="chiffres"]').click();
+        if (reglagesDate.heure) document.getElementById('rd-heure').click();
         document.getElementById('rd-heure').click();
         return document.getElementById('project-name-input').value;
     });
@@ -444,13 +500,16 @@ module.exports = async function (browser) {
     const h3 = await page.locator('#titre-horloge').boundingBox();
     await page.mouse.move(h3.x + h3.width / 2, h3.y + h3.height / 2);
     await page.mouse.down();
-    await page.mouse.move(h3.x + h3.width / 2 + 130, h3.y + h3.height / 2 + 30, { steps: 8 });
+    // ON TIRE VERS LA GAUCHE : la place par défaut est contre le bord droit,
+    // et un geste vers la droite serait borné par ce bord au lieu de mesurer
+    // le déplacement.
+    await page.mouse.move(h3.x + h3.width / 2 - 130, h3.y + h3.height / 2 + 30, { steps: 8 });
     await page.mouse.up();
     await page.waitForTimeout(200);
     const apresPose = await page.evaluate(() =>
         Math.round(document.getElementById('project-name-wrapper').getBoundingClientRect().left));
     r.verifie('maintenir et bouger déplace toujours le bloc de la date',
-        apresPose - avantPose > 90, `${avantPose} -> ${apresPose}`);
+        avantPose - apresPose > 90, `${avantPose} -> ${apresPose}`);
 
     // On la déplace encore quand il ne reste que le cadran : la prise est sur
     // le cadre entier, pas sur le champ — qui est alors masqué.
@@ -464,7 +523,7 @@ module.exports = async function (browser) {
         cadre.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true,
             pointerId: 9, button: 0, clientX: x, clientY: y }));
         cadre.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true,
-            pointerId: 9, clientX: x + 200, clientY: y + 150 }));
+            pointerId: 9, clientX: x - 200, clientY: y + 150 }));
         cadre.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 9 }));
         const apres = cadre.getBoundingClientRect();
         const bouge = Math.round(apres.left - c.left);
@@ -475,7 +534,7 @@ module.exports = async function (browser) {
         return { bouge, pose: titrePose };
     });
     r.verifie('on la déplace encore quand il ne reste que le cadran',
-        Math.abs(priseAuCadran.bouge - 200) <= 14, JSON.stringify(priseAuCadran));
+        Math.abs(priseAuCadran.bouge + 200) <= 14, JSON.stringify(priseAuCadran));
     // Le cadre revient à sa place par une transition de 300 ms : sans cette
     // attente, la mesure suivante le saisirait en plein vol.
     await page.waitForTimeout(400);
@@ -508,7 +567,7 @@ module.exports = async function (browser) {
     });
     await page.mouse.move(depart.x, depart.y);
     await page.mouse.down();
-    await page.mouse.move(depart.x + 120, depart.y + 220, { steps: 10 });
+    await page.mouse.move(depart.x - 120, depart.y + 220, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(200);
     const deplacee = await page.evaluate(() => {
@@ -522,7 +581,7 @@ module.exports = async function (browser) {
         };
     });
     r.verifie('on déplace la date en la tirant, d\'autant qu\'on a tiré',
-        !!deplacee.pose && Math.abs(deplacee.gauche - (depart.gauche + 120)) <= 14
+        !!deplacee.pose && Math.abs(deplacee.gauche - (depart.gauche - 120)) <= 14
         && Math.abs(deplacee.haut - (depart.haut + 220)) <= 14,
         JSON.stringify({ depart, deplacee }));
     r.verifie('sans la laisser sortir de l\'écran', deplacee.dansEcran, JSON.stringify(deplacee));
@@ -548,7 +607,7 @@ module.exports = async function (browser) {
         horsEcran.dansEcran && horsEcran.memoire && horsEcran.memoire.x >= 0 && horsEcran.memoire.y >= 0,
         JSON.stringify(horsEcran));
 
-    // « Remettre en haut à gauche », dans les réglages : c'est ce qui remplace
+    // « Remettre en haut à droite », dans les réglages : c'est ce qui remplace
     // le double-clic sur la poignée disparue.
     await page.evaluate(() => {
         basculerReglagesDate();
@@ -560,7 +619,7 @@ module.exports = async function (browser) {
         const c = cadre.getBoundingClientRect();
         // La bande d'onglets des plugins tient le haut au CENTRE. La date y
         // était dessus : cinq onglets devenaient inatteignables. Sa place par
-        // défaut doit donc être ailleurs — en haut à GAUCHE, et sans mordre
+        // défaut doit donc être ailleurs — en haut à DROITE, et sans mordre
         // sur la bande, même quand le tiroir est fermé (les onglets gardent
         // leur place, ils ne font que se replier).
         const onglets = document.getElementById('plugin-tabs');
@@ -568,14 +627,16 @@ module.exports = async function (browser) {
         const chevauche = !!(t && t.width && c.right > t.left && c.left < t.right
             && c.bottom > t.top && c.top < t.bottom);
         cadre.classList.remove('editing');
-        return { pose: titrePose, haut: Math.round(c.top), gauche: Math.round(c.left),
+        return { pose: titrePose, haut: Math.round(c.top),
+                 marge: Math.round(window.innerWidth - c.right),
                  chevauche, onglets: t && { g: Math.round(t.left), d: Math.round(t.right) },
                  memoire: localStorage.getItem('auTableau_titre_pose') };
     });
-    r.egal('« remettre en haut à gauche » défait le déplacement', remise.pose, null);
-    // Sous la pastille de la classe du moment, qui occupe désormais le coin.
-    r.verifie('elle retrouve le haut du tableau, à gauche',
-        remise.haut < 70 && remise.gauche < 40, JSON.stringify(remise));
+    r.egal('« remettre en haut à droite » défait le déplacement', remise.pose, null);
+    // Le bord GAUCHE appartient à la pastille de classe et à la barre d'outils ;
+    // le coin droit est libre, et c'est là qu'une horloge de classe se trouve.
+    r.verifie('elle retrouve le haut du tableau, à droite',
+        remise.haut < 70 && remise.marge < 40, JSON.stringify(remise));
     r.verifie('sans recouvrir les onglets des plugins',
         !remise.chevauche, JSON.stringify(remise));
     r.egal('et l\'oubli est retenu', remise.memoire, null);

@@ -30010,7 +30010,13 @@ function equilibrerGrillePlugins() {
 // Un titre écrit à la main n'est JAMAIS remplacé.
 // ===================================================
 const CLE_DATE = 'board_reglages_date';
-let reglagesDate = { format: 'long', heure: false, affichee: true, horloge: 'chiffres' };
+// LA DATE ET LE CADRAN, DÈS LE PREMIER DÉMARRAGE. L'heure était éteinte par
+// défaut, et l'horloge en chiffres : il fallait la connaître, ouvrir les
+// réglages du titre et l'allumer pour l'avoir. Or un cadran à aiguilles au
+// mur est ce qu'il y a de plus banal dans une classe — et une sixième a
+// encore à apprendre à le lire. Qui n'en veut pas l'éteint d'un double-clic
+// sur la date ; son choix est retenu et prime sur celui-ci.
+let reglagesDate = { format: 'long', heure: true, affichee: true, horloge: 'aiguilles' };
 let dernierTitreDate = '';
 
 try {
@@ -30195,14 +30201,19 @@ function majPoseDuTitre() {
     if (!cadre) return;
     if (!titrePose) {
         // On rend la main à la feuille de style : la place par défaut est
-        // en haut à gauche, hors de la bande d'onglets des plugins.
-        cadre.style.left = ''; cadre.style.top = ''; cadre.style.transform = '';
+        // en haut à droite, hors de la bande d'onglets des plugins.
+        cadre.style.left = ''; cadre.style.right = '';
+        cadre.style.top = ''; cadre.style.transform = '';
         return;
     }
     // On borne à l'affichage ET à l'enregistrement (voir plus bas) : une
     // position gardée hors de l'écran reviendrait telle quelle demain.
     const l = cadre.offsetWidth || 300, h = cadre.offsetHeight || 32;
     cadre.style.transform = 'none';
+    // LE BORD DROIT DE LA FEUILLE DE STYLE LÂCHE LA MAIN. La place par défaut
+    // s'ancre à droite ; posé À GAUCHE sans relâcher ce « right », le bloc
+    // aurait ses deux bords fixés et s'étirerait sur toute la largeur.
+    cadre.style.right = 'auto';
     cadre.style.left = Math.max(4, Math.min(window.innerWidth - l - 4, titrePose.x)) + 'px';
     cadre.style.top = Math.max(4, Math.min(window.innerHeight - h - 4, titrePose.y)) + 'px';
 }
@@ -30213,7 +30224,7 @@ function replacerLeTitre() {
     retenirLaPoseDuTitre();
     majPoseDuTitre();
     ajusterLargeurDuTitre();
-    if (typeof showToast === 'function') showToast('Date remise en haut à gauche');
+    if (typeof showToast === 'function') showToast('Date remise en haut à droite');
 }
 window.replacerLeTitre = replacerLeTitre;
 
