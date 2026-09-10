@@ -23547,6 +23547,16 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
 // ==========================================
 // PLUGIN : SCRATCH BLOCKS (Générateur d'algorithmes)
 // ==========================================
+// LE PROGRAMME EST JOUÉ D'ABORD, PUIS REJOUÉ. L'interprète déroule tout le
+// script sans rien afficher, en notant un instantané de la scène par bloc,
+// puis rejoue ces instantanés à la vitesse du curseur. Une image de relecture
+// dure donc ce que dit ce curseur — 150 ms à sa position d'origine. C'est
+// l'unité dans laquelle se comptent les blocs qui DURENT.
+const SC_IMAGE_DE_RELECTURE = 150;
+// Neuf secondes de bulle à vitesse normale : au-delà, on ne fait plus que
+// gonfler la mémoire pour une attente que personne ne regarde.
+const SC_IMAGES_MAX = 60;
+
 class ScratchInterpreter {
     constructor(canvas, plugin) {
         this.canvas = canvas;
@@ -23558,7 +23568,8 @@ class ScratchInterpreter {
         this.panY = 0;
         this.zoom = 1;
 
-        this.sprite = { x: 0, y: 0, dir: 90, visible: true, say: null, sayTime: 0 };
+        this.sprite = { x: 0, y: 0, dir: 90, visible: true, say: null, sayTime: 0,
+                        costume: 'costume1', son: null };
         this.pen = { down: false, color: '#0984e3', size: 2 };
         this.vars = {};
         this.penPaths = [];
@@ -23608,14 +23619,59 @@ class ScratchInterpreter {
         this.catImg = new Image();
         this.catImg.onload = () => { this.render(); };
         this.catImg.src = this.catSVG;
+
+        // TROIS COSTUMES, ET NON UN SEUL. « Basculer sur le costume » ne
+        // faisait rien du tout : il n'y avait qu'une image, et le bloc
+        // s'exécutait dans le vide. Le même chat en trois couleurs suffit à
+        // ce que le bloc s'apprenne — c'est très exactement ce que fait
+        // Scratch avec ses costumes.
+        this.COSTUMES = ['costume1', 'costume2', 'costume3'];
+        this.costumeImgs = {};
+        const teintes = { costume1: '%23FFAB19', costume2: '%234C97FF', costume3: '%2359C059' };
+        this.COSTUMES.forEach(nom => {
+            const img = new Image();
+            img.onload = () => { this.render(); };
+            img.src = this.catSVG.split('%23FFAB19').join(teintes[nom]);
+            this.costumeImgs[nom] = img;
+        });
+    }
+
+    // Le costume demandé : son nom, son rang (« 2 »), et à défaut le suivant —
+    // un bloc qui ne fait rien apprend qu'on peut être ignoré.
+    costumeDemande(voulu) {
+        const dit = String(voulu || '').trim().toLowerCase();
+        const parNom = this.COSTUMES.find(n => n.toLowerCase() === dit);
+        if (parNom) return parNom;
+        const rang = parseInt(dit, 10);
+        if (rang >= 1 && rang <= this.COSTUMES.length) return this.COSTUMES[rang - 1];
+        const ici = this.COSTUMES.indexOf(this.sprite.costume);
+        return this.COSTUMES[(ici + 1) % this.COSTUMES.length];
+    }
+
+    // TENIR UNE IMAGE. Un bloc qui DURE — une bulle qui reste deux secondes,
+    // une attente — ne durait rien : il posait son effet et le retirait entre
+    // deux instantanés, et la relecture n'en voyait jamais la trace. On note
+    // donc autant d'images qu'il faut pour que la durée se voie.
+    async tenir(secondes) {
+        if (!this.isRecording) {
+            this.render();
+            await this.sleep(Math.max(0, secondes) * 1000);
+            return;
+        }
+        const images = Math.max(1, Math.min(SC_IMAGES_MAX,
+            Math.round(Math.max(0, secondes) * 1000 / SC_IMAGE_DE_RELECTURE)));
+        for (let k = 0; k < images; k++) this.recordState();
     }
 
     reset() {
-        this.sprite = { x: 0, y: 0, dir: 90, visible: true, say: null, sayTime: 0 };
+        this.sprite = { x: 0, y: 0, dir: 90, visible: true, say: null, sayTime: 0,
+                        costume: 'costume1', son: null };
+        this.dernierSon = null;
         this.pen = { down: false, color: '#0984e3', size: 2 };
         this.vars = {};
         this.penPaths = [];
         this.currentPath = null;
+        this.blocsInconnus = [];
         this.render();
     }
 
@@ -23639,6 +23695,14 @@ class ScratchInterpreter {
         this.penPaths = JSON.parse(JSON.stringify(state.penPaths));
         this.currentPath = state.currentPath ? JSON.parse(JSON.stringify(state.currentPath)) : null;
 
+        // LE SON SE FAIT ENTENDRE ICI, quand la relecture arrive au bloc — et
+        // une seule fois, à l'entrée dans les images qui le portent.
+        if (this.sprite.son && this.sprite.son !== this.dernierSon
+            && typeof showToast === 'function') {
+            showToast('🎵 Son joué : ' + this.sprite.son, '#0984e3', '🎵');
+        }
+        this.dernierSon = this.sprite.son || null;
+
         // Highlight active block
         if (this.plugin && this.plugin.allBlocks) {
             this.plugin.allBlocks.forEach(b => {
@@ -23661,6 +23725,7 @@ class ScratchInterpreter {
 
         this.isRecording = true;
         this.history = [];
+        this.blocsInconnus = [];
         this.stepCount = 0;
         this.isRunning = true;
         this.activeBlockId = null;
@@ -23749,13 +23814,34 @@ class ScratchInterpreter {
         return args;
     }
 
+    // Le programme est déroulé d'un trait avant d'être rejoué : une boucle sans
+    // fin doit donc s'arrêter d'elle-même, sinon la page ne revient jamais.
+    tropDePas() {
+        if (!this.isRecording) return false;
+        if (++this.stepCount <= 2000) return false;
+        this.isRunning = false;
+        return true;
+    }
+
+    // ON REND LA MAIN AU NAVIGATEUR DE TEMPS EN TEMPS. Le programme est déroulé
+    // d'un trait, et « attendre » ne dure rien pendant ce déroulé : tout se
+    // fait en microtâches, qui affament la file des tâches. Un long « répéter »
+    // figeait donc l'onglet le temps de son calcul — plus de rendu, plus de
+    // bouton Stop, plus rien. Un vrai passage par la file, tous les deux cents
+    // pas, le rend seulement lent au lieu de le rendre mort.
+    respirer() {
+        if (!this.isRecording) return Promise.resolve();
+        // ON COMPTE SES PROPRES TOURS, et non les pas exécutés : une boucle
+        // vide n'exécute rien, et c'est précisément celle qui a besoin de
+        // souffler.
+        this.tours = (this.tours || 0) + 1;
+        if ((this.tours % 200) !== 0) return Promise.resolve();
+        return new Promise(ok => setTimeout(ok, 0));
+    }
+
     async runBlock(block) {
         if (!this.isRunning) return;
-        if (this.isRecording && this.stepCount > 2000) {
-            this.isRunning = false;
-            return;
-        }
-        this.stepCount++;
+        if (this.tropDePas()) return;
         this.activeBlockId = block.id;
         this.recordState();
 
@@ -23783,16 +23869,34 @@ class ScratchInterpreter {
             this.moveSprite((Math.random() - 0.5) * 400, (Math.random() - 0.5) * 300);
         }
         else if (text === 'dire' && block.def.parts.includes('pendant')) {
+            // « LE BLOC DIRE NE FAIT RIEN DIRE AU CHAT. » La bulle était posée,
+            // puis retirée AVANT le second instantané : aucune image du film ne
+            // la portait, et le chat restait muet d'un bout à l'autre. Elle
+            // tient maintenant le temps qu'on lui a demandé.
             this.sprite.say = String(args[0]);
-            this.render();
-            await this.sleep((parseFloat(args[1]) || 1) * 1000);
+            await this.tenir(parseFloat(args[1]) || 1);
             this.sprite.say = null;
+        }
+        else if (text === 'dire') {
+            // SANS DURÉE, LA BULLE RESTE : c'est au bloc suivant de la changer,
+            // et « dire » avec un texte vide de l'effacer. C'est le second des
+            // deux blocs « dire » de Scratch, et il manquait.
+            const mot = String(args[0]);
+            this.sprite.say = mot.length ? mot : null;
+        }
+        else if (text === 'basculer sur le costume') {
+            this.sprite.costume = this.costumeDemande(args[0]);
         }
         else if (text === 'montrer') this.sprite.visible = true;
         else if (text === 'cacher') this.sprite.visible = false;
         else if (text === 'jouer le son') {
-            if (typeof showToast === 'function') showToast("🎵 Son joué : " + args[0], "#0984e3", "🎵");
-            await this.sleep(1000);
+            // LE SON SE FAIT ENTENDRE À LA RELECTURE, pas à l'enregistrement.
+            // Le message paraissait pendant que l'interprète déroulait le
+            // programme : tous les sons du script d'un coup, au démarrage,
+            // avant que la scène ait bougé d'un pixel.
+            this.sprite.son = String(args[0]);
+            await this.tenir(1);
+            this.sprite.son = null;
         }
         else if (text === 'demander') {
             const res = await demanderUneLigne(String(args[0]), 'Réponse');
@@ -23841,19 +23945,31 @@ class ScratchInterpreter {
             this.vars[args[1]] = v + (parseFloat(args[0]) || 0);
         }
         else if (text === 'attendre') {
-            await this.sleep((parseFloat(args[0]) || 0) * 1000);
+            // Une attente qui ne dure rien n'est pas une attente : à
+            // l'enregistrement, « attendre 3 secondes » passait sans laisser
+            // la moindre image, et la relecture enchaînait sans marquer le pas.
+            await this.tenir(parseFloat(args[0]) || 0);
         }
         else if (text === 'répéter') {
             const count = parseInt(args[0]) || 0;
             for (let k = 0; k < count; k++) {
                 if (!this.isRunning) break;
                 if (block.child) await this.runStack(block.child);
+                if (this.tropDePas()) break;
+                await this.respirer();
                 await this.sleep(10);
             }
         }
         else if (text === 'indéfiniment') {
+            // UNE BOUCLE VIDE FIGEAIT L'ONGLET. Le plafond de deux mille pas
+            // se comptait dans les blocs EXÉCUTÉS : « indéfiniment » sans rien
+            // dedans n'en exécute aucun, et tournait donc sans fin, sans rendu
+            // et sans reprendre la main — il ne restait qu'à fermer la page.
+            // Un tour de boucle compte maintenant pour un pas, même vide.
             while (this.isRunning) {
                 if (block.child) await this.runStack(block.child);
+                if (this.tropDePas()) break;
+                await this.respirer();
                 await this.sleep(10);
             }
         }
@@ -23868,6 +23984,14 @@ class ScratchInterpreter {
             } else {
                 if (block.child2) await this.runStack(block.child2);
             }
+        }
+        else if (block.def.type !== 'hat') {
+            // UN BLOC QUE L'INTERPRÈTE NE CONNAÎT PAS. Il n'y a rien à faire,
+            // mais il y a quelque chose à DIRE : c'est en silence que « dire »,
+            // « basculer sur le costume » et « créer un clone de » sont restés
+            // sans effet. Un bloc posé dans la palette et ignoré à l'exécution
+            // apprend qu'on peut être ignoré. On le note ; le contrôle le voit.
+            this.blocsInconnus.push(text);
         }
 
         if (this.isRecording) {
@@ -23885,8 +24009,13 @@ class ScratchInterpreter {
 
         if (text === 'ma variable') return this.vars['var'] || 0;
         if (text === 'réponse') return this.vars['réponse'] || "";
-        if (text === 'touche le') return false;
-        if (text === 'distance de') return 100;
+        // LE BORD DE LA SCÈNE SE CALCULE VRAIMENT. La scène fait 480 sur 360,
+        // le chat cinquante de côté : il touche le bord quand son centre
+        // approche de la moitié moins son rayon.
+        if (text === 'touche le bord') {
+            return Math.abs(this.sprite.x) >= 480 / 2 - 25
+                || Math.abs(this.sprite.y) >= 360 / 2 - 25;
+        }
 
         if (block.def.parts.includes('+')) return (parseFloat(args[0]) || 0) + (parseFloat(args[1]) || 0);
         if (block.def.parts.includes('-')) return (parseFloat(args[0]) || 0) - (parseFloat(args[1]) || 0);
@@ -23947,11 +24076,12 @@ class ScratchInterpreter {
             this.ctx.stroke();
         }
 
-        if (this.sprite.visible && this.catImg.complete) {
+        const habit = (this.costumeImgs && this.costumeImgs[this.sprite.costume]) || this.catImg;
+        if (this.sprite.visible && habit && habit.complete) {
             this.ctx.save();
             this.ctx.translate(480 / 2 + this.sprite.x, 360 / 2 - this.sprite.y);
             this.ctx.rotate((this.sprite.dir - 90) * Math.PI / 180);
-            this.ctx.drawImage(this.catImg, -25, -25, 50, 50);
+            this.ctx.drawImage(habit, -25, -25, 50, 50);
             this.ctx.restore();
 
             if (this.sprite.say) {
@@ -24016,7 +24146,12 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         { cat: 'motion', type: 'command', parts: ['aller à x:', { t: 'num', v: '0' }, 'y:', { t: 'num', v: '0' }] },
         { cat: 'motion', type: 'command', parts: ["s'orienter à", { t: 'num', v: '90' }] },
         { cat: 'looks', type: 'command', parts: ['dire', { t: 'num', v: 'Bonjour !' }, 'pendant', { t: 'num', v: '2' }, 'secondes'] },
-        { cat: 'looks', type: 'command', parts: ['basculer sur le costume', { t: 'num', v: 'costume1' }] },
+        // LES DEUX « DIRE » DE SCRATCH. Celui-ci n'y était pas : la bulle
+        // reste jusqu'à ce qu'un autre bloc la change, et « dire » vide
+        // l'efface. C'est celui qu'on emploie pour faire parler un chat
+        // pendant qu'il trace.
+        { cat: 'looks', type: 'command', parts: ['dire', { t: 'num', v: 'Bonjour !' }] },
+        { cat: 'looks', type: 'command', parts: ['basculer sur le costume', { t: 'num', v: 'costume2' }] },
         { cat: 'looks', type: 'command', parts: ['montrer'] },
         { cat: 'looks', type: 'command', parts: ['cacher'] },
         { cat: 'pen', type: 'command', parts: ['effacer tout'] },
@@ -24034,9 +24169,14 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
         { cat: 'control', type: 'c-block', parts: ['indéfiniment'] },
         { cat: 'control', type: 'c-block', parts: ['si', { t: 'bool', v: '' }, 'alors'] },
         { cat: 'control', type: 'e-block', parts: ['si', { t: 'bool', v: '' }, 'alors', 'sinon'] },
-        { cat: 'control', type: 'command', parts: ['créer un clone de', { t: 'num', v: 'moi-même' }] },
-        { cat: 'sensing', type: 'boolean', parts: ['touche le', { t: 'num', v: 'pointeur' }, '?'] },
-        { cat: 'sensing', type: 'reporter', parts: ['distance de', { t: 'num', v: 'pointeur' }] },
+        // TROIS BLOCS RETIRÉS, QUI NE FAISAIENT RIEN OU QUI MENTAIENT.
+        // « Créer un clone » n'avait aucun clone à créer : l'interprète ne
+        // connaît qu'un chat. « Touche le pointeur ? » répondait toujours non
+        // et « distance de » toujours cent : la scène est REJOUÉE, il n'y a
+        // pas de souris dedans. Un bloc qu'on pose et qui ne répond pas
+        // apprend qu'on peut être ignoré ; mieux vaut qu'il ne soit pas là.
+        // Il reste un capteur, et il est vrai : le bord de la scène.
+        { cat: 'sensing', type: 'boolean', parts: ['touche le bord', '?'] },
         { cat: 'sensing', type: 'command', parts: ['demander', { t: 'num', v: 'Ton nom ?' }, 'et attendre'] },
         { cat: 'sensing', type: 'reporter', parts: ['réponse'] },
         { cat: 'operators', type: 'reporter', parts: [{ t: 'num', v: '' }, '+', { t: 'num', v: '' }] },
