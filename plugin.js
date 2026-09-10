@@ -1199,6 +1199,24 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
         { value: 'num', label: 'Numération' }
     ],
 
+    // LE NOMBRE DE LIGNES. « Ce serait bien de pouvoir choisir le nombre de
+    // lignes pour le tableau de numération et celui de conversion. » Le
+    // tableau de conversion en avait trois, toujours, écrites en dur : une
+    // seule pour une conversion faite au tableau, huit pour une série
+    // d'exercices, il fallait faire avec trois. L'échelle est la même que
+    // celle du tableau de numération, pour que les deux se règlent pareil.
+    LIGNES: ['1', '2', '3', '4', '5', '6', '8', '10', '12'],
+    champLignes: function (valeur) {
+        return { type: 'select', label: 'Nombre de lignes', value: String(valeur || '3'),
+                 options: this.LIGNES.map(v => ({ value: v, label: v + (v === '1' ? ' ligne' : ' lignes') })) };
+    },
+    // Une valeur venue d'un tableau enregistré avant ce réglage, ou bricolée :
+    // on la ramène dans les bornes plutôt que de dessiner un tableau vide.
+    nombreDeLignes: function (v) {
+        const n = parseInt(v, 10);
+        return (isFinite(n) && n >= 1 && n <= 12) ? n : 3;
+    },
+
     init: function () {
         const btn = document.createElement('button'); btn.className = 'btn'; btn.dataset.mode = 'conversion'; btn.title = 'Tableau de Conversion';
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="20"/></svg>`;
@@ -1210,10 +1228,11 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
 
             openCustomPrompt("Tableau de Conversion", [
                 { type: 'select', label: "Grandeur", value: "len", options: this.magOptions },
+                this.champLignes('3'),
                 { type: 'color', label: "Couleur", value: "#0984e3" }
-            ], (res) => this.generateSVG(res[0], res[1]),
+            ], (res) => this.generateSVG(res[0], res[2], res[1]),
                 (res) => {
-                    createStampFromSVG(this.generateSVG(res[0], res[1], true), (stamp) => {
+                    createStampFromSVG(this.generateSVG(res[0], res[2], res[1], true), (stamp) => {
                         this.currentStamp = stamp; this.currentArgs = res;
                         if (typeof showToast === 'function') showToast("📌 Tamponnez le tableau !");
                     });
@@ -1226,10 +1245,13 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
         const args = imgObj.pluginData.args;
         openCustomPrompt("Modifier le Tableau", [
             { type: 'select', label: "Grandeur", value: args[0], options: this.magOptions },
+            // Un tableau posé AVANT ce réglage n'a que deux arguments : il
+            // reprend les trois lignes qu'il a toujours eues.
+            this.champLignes(args[2] === undefined ? '3' : args[2]),
             { type: 'color', label: "Couleur", value: args[1] }
-        ], (res) => this.generateSVG(res[0], res[1]),
+        ], (res) => this.generateSVG(res[0], res[2], res[1]),
             (res) => {
-                createStampFromSVG(this.generateSVG(res[0], res[1], true), (stamp) => {
+                createStampFromSVG(this.generateSVG(res[0], res[2], res[1], true), (stamp) => {
                     imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h; imgObj.cw = stamp.w; imgObj.ch = stamp.h;
                     imgObj.pluginData.args = res;
                     if (typeof draw === 'function') draw();
@@ -1238,7 +1260,8 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
             });
     },
 
-    generateSVG: function (type, color, isExport = false) {
+    generateSVG: function (type, color, lignes, isExport = false) {
+        const nLignes = this.nombreDeLignes(lignes);
         let cols = [];
         let subCols = 1; // Nombre de sous-colonnes par unité (1 par défaut)
 
@@ -1253,7 +1276,8 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
         const colW = isExport ? 90 : 45;
         const rowH = isExport ? 45 : 25;
         const w = cols.length * colW;
-        const h = rowH * 4;
+        // Une ligne d'en-tête, puis celles où l'on écrit.
+        const h = rowH * (nLignes + 1);
 
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${isExport ? w : '100%'}" height="${isExport ? h : '100%'}">`;
 
@@ -1261,8 +1285,8 @@ registerPlugin('conversionTool', 'Maths - Numérique', {
         svg += `<rect x="0" y="0" width="${w}" height="${h}" fill="#ffffff" fill-opacity="0.9" stroke="${color}" stroke-width="2"/>`;
         svg += `<rect x="0" y="0" width="${w}" height="${rowH}" fill="${color}" fill-opacity="0.15"/>`;
 
-        // Lignes horizontales
-        for (let i = 1; i <= 4; i++) {
+        // Lignes horizontales : celle de l'en-tête est plus épaisse.
+        for (let i = 1; i <= nLignes + 1; i++) {
             svg += `<line x1="0" y1="${i * rowH}" x2="${w}" y2="${i * rowH}" stroke="${color}" stroke-width="${i === 1 ? 2 : 1}"/>`;
         }
 
@@ -12249,8 +12273,12 @@ registerPlugin('cduGeneratorTool', 'Maths - Numérique', {
             type: 'select', label: 'Modèle', value: this.modeleValide(modele).cle,
             options: this.MODELES.map(m => ({ value: m.cle, label: m.nom }))
         }, {
+            // LA MÊME ÉCHELLE QUE LE TABLEAU DE CONVERSION. Elle sautait de
+            // trois à cinq puis à huit : quatre lignes, le compte d'un exercice
+            // ordinaire, n'était pas proposé.
             type: 'select', label: 'Nombre de lignes', value: String(rowsStr || '3'),
-            options: ['1', '2', '3', '5', '8', '10'].map(v => ({ value: v, label: v + (v === '1' ? ' ligne' : ' lignes') }))
+            options: ['1', '2', '3', '4', '5', '6', '8', '10', '12']
+                .map(v => ({ value: v, label: v + (v === '1' ? ' ligne' : ' lignes') }))
         }]);
     },
 

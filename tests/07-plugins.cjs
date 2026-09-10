@@ -574,6 +574,89 @@ module.exports = async function (browser) {
         numeration.nomsDecimaux, String(numeration.nomsDecimaux));
 
     // =====================================================================
+    // LE NOMBRE DE LIGNES, DANS LES DEUX TABLEAUX
+    // « Ce serait bien de pouvoir choisir le nombre de lignes pour le tableau
+    // de numération et celui de conversion. » Celui de conversion en avait
+    // TROIS, toujours, écrites en dur : une seule pour une conversion faite au
+    // tableau, huit pour une série d'exercices — il fallait faire avec trois.
+    // Celui de numération avait bien le réglage, mais son échelle sautait de
+    // trois à cinq puis à huit : quatre lignes, le compte d'un exercice
+    // ordinaire, n'était pas proposé.
+    // =====================================================================
+    const lignes = await page.evaluate(() => {
+        const conv = Object.values(PluginManager.plugins)
+            .find(x => x && typeof x.generateSVG === 'function' && x.magOptions);
+        const num = PluginManager.plugins['cduGeneratorTool'];
+        // La hauteur annoncée par le dessin lui-même, et le nombre de traits
+        // horizontaux : c'est ce qu'on voit, pas ce qu'on a demandé.
+        const mesure = (n) => {
+            const svg = conv.generateSVG('len', '#0984e3', n === undefined ? undefined : String(n), true);
+            return { haut: parseFloat((svg.match(/viewBox="0 0 [\d.]+ ([\d.]+)"/) || [])[1]),
+                     // Les HORIZONTALES seulement : la verticale du bord
+                     // gauche commence elle aussi à x=0, et se comptait avec.
+                     traits: (svg.match(/<line x1="0" y1="([\d.]+)" x2="[\d.]+" y2="\1"/g) || []).length };
+        };
+        // Les deux échelles proposées, côte à côte.
+        const echelleConv = conv.LIGNES.slice();
+        const champs = num.champsDuTableau('full', '3', null);
+        const champLignes = champs[champs.length - 1];
+        return {
+            une: mesure(1), trois: mesure(3), huit: mesure(8), douze: mesure(12),
+            // Un tableau posé AVANT ce réglage n'a que deux arguments.
+            ancien: mesure(undefined),
+            // Et une valeur qu'on ne sait pas lire ne dessine pas un tableau vide.
+            bricolee: mesure('beaucoup'),
+            echelleConv,
+            echelleNum: champLignes.options.map(o => o.value),
+            libelleNum: champLignes.label,
+            // Le champ est bien proposé à l'ouverture comme à la modification.
+            champsConv: conv.champLignes('5').label
+        };
+    });
+    // ET IL EST VRAIMENT DANS LA FENÊTRE. Écrire le champ ne suffit pas : il
+    // faut l'avoir posé dans la boîte, sans quoi le réglage existe et reste
+    // inatteignable.
+    const fenetreConv = await page.evaluate(async () => {
+        // Le bouton porte son nom dans « title », mais l'interface le range
+        // ensuite sous « data-plugin-key » : on cherche l'un ou l'autre.
+        const nom = (b) => (b.dataset.pluginKey || b.title || b.getAttribute('data-tooltip') || '');
+        const btn = [...document.querySelectorAll('#plugins-grid .btn, #custom-bars-container .btn')]
+            .find(b => /conversion/i.test(nom(b)));
+        if (!btn) return { rate: 'bouton introuvable',
+            vus: [...document.querySelectorAll('#plugins-grid .btn')].map(nom).slice(0, 8) };
+        btn.click();
+        await new Promise(r => setTimeout(r, 220));
+        const libelles = [...document.querySelectorAll('#custom-prompt-inputs label')]
+            .map(l => l.innerText.trim());
+        const boite = document.getElementById('custom-prompt-modal');
+        if (boite) { boite.style.display = 'none'; if (typeof refermerLaBoite === 'function') refermerLaBoite(); }
+        if (typeof setMode === 'function') setMode('pointer');
+        return { libelles };
+    });
+    r.verifie('et la fenêtre du tableau de conversion le propose vraiment',
+        (fenetreConv.libelles || []).some(l => /nombre de lignes/i.test(l)),
+        JSON.stringify(fenetreConv));
+    r.egal('le tableau de conversion se règle enfin en lignes',
+        { une: lignes.une.traits, trois: lignes.trois.traits, huit: lignes.huit.traits },
+        { une: 2, trois: 4, huit: 9 });
+    r.egal('et il en prend vraiment la hauteur',
+        { une: lignes.une.haut, trois: lignes.trois.haut,
+          huit: lignes.huit.haut, douze: lignes.douze.haut },
+        { une: 90, trois: 180, huit: 405, douze: 585 });
+    r.egal('un tableau posé avant ce réglage garde ses trois lignes',
+        lignes.ancien.haut, 180);
+    r.egal('et une valeur illisible ne dessine pas un tableau vide',
+        lignes.bricolee.haut, 180);
+    r.egal('les deux tableaux se règlent sur la MÊME échelle',
+        lignes.echelleNum, lignes.echelleConv);
+    r.verifie('une échelle qui n\'oublie pas quatre lignes, le compte d\'un exercice',
+        lignes.echelleConv.includes('4') && lignes.echelleConv.includes('6'),
+        JSON.stringify(lignes.echelleConv));
+    r.egal('et le réglage porte le même nom des deux côtés',
+        { num: lignes.libelleNum, conv: lignes.champsConv },
+        { num: 'Nombre de lignes', conv: 'Nombre de lignes' });
+
+    // =====================================================================
     // QUATRE CASES, ET QUATRE MODÈLES
     // On cochait les dixièmes, les centièmes et les millièmes un par un pour
     // n'en retirer presque jamais : six cases là où quatre suffisent. La
