@@ -20,8 +20,16 @@
 //    qu'on lit en passant ; la phrase — « il y a trois minutes », « rangé dans
 //    Mes tableaux » — vit dans l'infobulle, et plus complète.
 //
-// 3. LA DATE PEUT SE RANGER AU-DESSUS DU CADRAN, en personnalisation, avec un
-//    format bref dont l'année tient sur deux chiffres.
+// 3. LE COIN SE LIT DE HAUT EN BAS. « J'aime bien le système de page en haut à
+//    droite (les pages, le projecteur, le plein écran), j'aimerais bien le
+//    laisser et organiser pour que les boutons soient persistants et que
+//    l'horloge de base soit en dessous : Boutons / Date (12/05/26) /
+//    Horloges. » Trois blocs empilés dans cet ordre, des boutons qui ne s'en
+//    vont plus — grisés quand ils ne servent pas — et la date au format bref,
+//    le seul qui tienne dans cette colonne.
+//
+// 4. LA DATE PEUT SE TENIR À CÔTÉ DU CADRAN plutôt qu'au-dessus, en
+//    personnalisation, et le format s'y choisit parmi cinq.
 const { creerRapport, ouvrirApp, rechargerApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
@@ -138,7 +146,92 @@ module.exports = async function (browser) {
     await page.evaluate(() => { if (typeof toggleRightDrawer === 'function') toggleRightDrawer(); });
 
     // ------------------------------------------------------------------
-    // 3. LA DATE AU-DESSUS DU CADRAN
+    // 3. LE COIN SE LIT DE HAUT EN BAS : BOUTONS / DATE / HORLOGE
+    // ------------------------------------------------------------------
+    // TOUT EST MESURÉ AU DÉMARRAGE, avant qu'aucun réglage n'ait été touché :
+    // c'est la disposition que la classe trouve en ouvrant l'application, et
+    // elle seule. Une page, aucun document, toutes les barres en place — le
+    // cas le plus pauvre, donc celui où des boutons « persistants » se
+    // seraient effacés dans l'ancien code.
+    const coin = await page.evaluate(() => {
+        const boite = id => {
+            const e = document.getElementById(id);
+            if (!e) return null;
+            const b = e.getBoundingClientRect();
+            return { haut: Math.round(b.top), bas: Math.round(b.bottom),
+                     gauche: Math.round(b.left), droite: Math.round(b.right),
+                     vu: getComputedStyle(e).display !== 'none' && b.width > 0 };
+        };
+        return {
+            boutons: boite('barre-ecran'), pages: boite('ecran-pages'),
+            presenter: boite('btn-ecran-presenter'), plein: boite('btn-ecran-plein'),
+            date: boite('project-name-input'), cadran: boite('titre-horloge-boite'),
+            rang: (document.getElementById('ecran-page-rang').textContent || '').trim(),
+            precGrise: document.getElementById('btn-ecran-page-prec').disabled,
+            suivGrise: document.getElementById('btn-ecran-page-suiv').disabled,
+            presenterEteint: document.getElementById('btn-ecran-presenter').disabled,
+            pages_: pages.length, large: window.innerWidth
+        };
+    });
+
+    r.verifie('les trois boutons du coin sont là dès le démarrage : les pages, projeter, le plein écran',
+        coin.pages.vu && coin.presenter.vu && coin.plein.vu, JSON.stringify(coin));
+
+    // ET C'EST LE CAS LE PLUS PAUVRE QUI COMPTE : une seule page, aucun
+    // document. Ils restent, éteints. Un bouton grisé dit ce qui manque ; un
+    // bouton absent ne dit rien, et déplace ses voisins en revenant.
+    r.verifie('sur une page seule, les deux flèches sont là mais grisées',
+        coin.pages_ === 1 && coin.precGrise && coin.suivGrise, JSON.stringify(coin));
+    r.verifie('sans document à projeter, « projeter » est là mais éteint',
+        coin.presenterEteint, JSON.stringify(coin));
+    r.egal('et le rang dit où l\'on est sans attendre un premier changement de page',
+        coin.rang, '1/1');
+
+    // L'ORDRE, MESURÉ : chaque bloc commence sous le précédent. On ne regarde
+    // pas les classes CSS mais les pixels — c'est l'empilement qu'on a promis.
+    r.verifie('la date est SOUS les boutons',
+        coin.date.haut >= coin.boutons.bas - 2, JSON.stringify({ boutons: coin.boutons, date: coin.date }));
+    r.verifie('et le cadran SOUS la date',
+        coin.cadran.haut >= coin.date.bas - 2, JSON.stringify({ date: coin.date, cadran: coin.cadran }));
+    r.verifie('les trois tiennent dans le même coin droit',
+        coin.boutons.gauche > coin.large * 0.6 && coin.date.gauche > coin.large * 0.6
+        && coin.cadran.gauche > coin.large * 0.6,
+        JSON.stringify({ large: coin.large, b: coin.boutons.gauche, d: coin.date.gauche, c: coin.cadran.gauche }));
+
+    // LA DATE Y EST AU FORMAT BREF. C'est le seul qui tienne dans cette
+    // colonne sans l'élargir : « Date (12/05/26) ».
+    const dateDuCoin = await page.evaluate(() => ({
+        texte: document.getElementById('project-name-input').value,
+        format: reglagesDate.format,
+        empilee: document.getElementById('project-name-wrapper').classList.contains('date-dessus'),
+        formatsOfferts: document.querySelectorAll('#reglages-date [data-format]').length
+    }));
+    r.verifie('la date du coin est écrite en bref, et elle est bien empilée',
+        /^\d{2}\/\d{2}\/\d{2}$/.test(dateDuCoin.texte) && dateDuCoin.format === 'bref'
+        && dateDuCoin.empilee, JSON.stringify(dateDuCoin));
+    r.verifie('mais le choix du format reste entier dans les réglages',
+        dateDuCoin.formatsOfferts >= 4, JSON.stringify(dateDuCoin));
+
+    // ET LE TABLEAU NU NE LES EMPORTE PAS. C'est là qu'ils naissaient : ils
+    // paraissaient AU tableau nu et nulle part ailleurs, si bien que le coin
+    // changeait de contenu selon l'affichage.
+    const auTableauNu = await page.evaluate(() => {
+        document.body.classList.add('focus-mode');
+        if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+        const lu = id => getComputedStyle(document.getElementById(id)).display;
+        const vu = { pages: lu('ecran-pages'), presenter: lu('btn-ecran-presenter'), plein: lu('btn-ecran-plein') };
+        document.body.classList.remove('focus-mode');
+        if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+        return { nu: vu, revenu: { pages: lu('ecran-pages'), presenter: lu('btn-ecran-presenter'), plein: lu('btn-ecran-plein') } };
+    });
+    r.verifie('le tableau nu ne change rien au coin : les mêmes boutons, avant comme après',
+        auTableauNu.nu.pages !== 'none' && auTableauNu.nu.presenter !== 'none'
+        && auTableauNu.nu.plein !== 'none'
+        && auTableauNu.revenu.pages !== 'none' && auTableauNu.revenu.presenter !== 'none',
+        JSON.stringify(auTableauNu));
+
+    // ------------------------------------------------------------------
+    // 4. LA DATE À CÔTÉ DU CADRAN, POUR QUI LA PRÉFÈRE AINSI
     // ------------------------------------------------------------------
     const format = await page.evaluate(() => {
         const d = new Date(2026, 8, 17);
@@ -151,7 +244,7 @@ module.exports = async function (browser) {
     r.verifie('le bouton du format bref est dans le panneau',
         await page.evaluate(() => !!document.querySelector('#reglages-date [data-format="bref"]')), '');
 
-    // L'option ne paraît qu'avec le cadran : sans cadran, « au-dessus du
+    // L'INTERRUPTEUR ne paraît qu'avec le cadran : sans cadran, « au-dessus du
     // cadran » promettrait un geste qui n'arrive pas.
     const offerte = await page.evaluate(() => {
         const b = document.getElementById('rd-date-dessus');
@@ -161,7 +254,7 @@ module.exports = async function (browser) {
         reglagesDate.horloge = 'aiguilles'; majReglagesDate();
         return { enChiffres, enAiguilles: lu() };
     });
-    r.egal('l\'option ne s\'offre qu\'avec un cadran', offerte, { enChiffres: false, enAiguilles: true });
+    r.egal('le réglage ne s\'offre qu\'avec un cadran', offerte, { enChiffres: false, enAiguilles: true });
 
     // LA MESURE : la date est-elle AU-DESSUS du cadran, ou à côté ?
     const disposition = () => page.evaluate(() => {
@@ -183,13 +276,13 @@ module.exports = async function (browser) {
         enregistrerReglagesDate(); poserDateDansTitre(true); majAffichageDate(); majReglagesDate();
     });
     const enLigne = await disposition();
-    r.verifie('par défaut, la date se tient À CÔTÉ du cadran',
+    r.verifie('éteint, le réglage remet la date À CÔTÉ du cadran',
         enLigne.dateACote && !enLigne.dateSurLeCadran && !enLigne.classe, JSON.stringify(enLigne));
 
     await page.evaluate(() => document.getElementById('rd-date-dessus').click());
     await page.waitForTimeout(150);
     const empilee = await disposition();
-    r.verifie('l\'option la range au-dessus du cadran, sur le même axe',
+    r.verifie('et rallumé, elle remonte au-dessus du cadran, sur le même axe',
         empilee.dateSurLeCadran && empilee.memeAxe && empilee.classe, JSON.stringify(empilee));
 
     // ET CE SEUL CLIC L'A DÉJÀ ENREGISTRÉE. On le regarde ICI, avant de toucher

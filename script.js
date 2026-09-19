@@ -6845,6 +6845,12 @@ document.addEventListener('DOMContentLoaded', () => {
     majCoherenceDeLaPastille();
     updateColorIndicator();
     if (typeof majLePointDAffichage === 'function') majLePointDAffichage();
+    // LE COIN EST HABILLÉ DÈS LE DÉPART. Les pages et « Projeter » n'attendent
+    // plus un changement de page ou de sélection pour paraître : des boutons
+    // persistants qui arrivent au deuxième geste ne sont pas persistants, et
+    // c'est au premier qu'on cherche où l'on est.
+    if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+    if (typeof majBoutonPresenterDeLEcran === 'function') majBoutonPresenterDeLEcran();
 });
 // ==================================================================
 // « NE PAS RÉÉCRIRE SOUS LES DOIGTS » — MAIS SEULEMENT SOUS LES DOIGTS
@@ -15881,10 +15887,14 @@ window.supprimerLaPage = supprimerLaPage;
 function majLesPagesDeLEcran() {
     const boite = document.getElementById('ecran-pages');
     if (!boite || typeof pages === 'undefined') return;
-    const nu = document.body.classList.contains('focus-mode');
-    const utile = nu && pages.length > 1;
-    boite.style.display = utile ? 'flex' : 'none';
-    if (!utile) return;
+    // ELLES NE S'EN VONT PLUS. « J'aime bien le système de page en haut à
+    // droite, j'aimerais bien le laisser et organiser pour que les boutons
+    // soient persistants. » Elles ne paraissaient qu'au tableau nu ET à partir
+    // de deux pages : le coin changeait de contenu sous les doigts, et le
+    // geste qu'on venait d'apprendre n'était plus là au moment de le refaire.
+    // Sur une page seule, les deux flèches se grisent — le rang, lui, dit
+    // toujours où l'on est, et c'est par lui qu'on jette la page.
+    boite.style.display = 'flex';
     const rang = document.getElementById('ecran-page-rang');
     if (rang) rang.textContent = (currentPageIndex + 1) + '/' + pages.length;
     const prec = document.getElementById('btn-ecran-page-prec');
@@ -22983,7 +22993,12 @@ function majBoutonPresenterDeLEcran() {
     if (!b) return;
     const enCours = etatDuPleinEcran() > 0;
     const possible = enCours || !!documentSousLesYeux();
-    b.style.display = possible ? 'flex' : 'none';
+    // IL RESTE LÀ, MÊME SANS PAGE À PROJETER — mais grisé. Il s'effaçait, et le
+    // coin changeait de forme selon ce qu'on tenait : « j'aimerais bien que les
+    // boutons soient persistants ». Un bouton éteint dit ce qui manque ; un
+    // bouton absent ne dit rien, et déplace ses voisins en revenant.
+    b.style.display = 'flex';
+    b.disabled = !possible;
     // La barre du coin est là en permanence depuis qu'elle porte le plein
     // écran du navigateur : il n'y a plus à la faire paraître pour ce
     // bouton-ci. Seuls les deux boutons de SORTIE restent à leur condition,
@@ -35009,11 +35024,15 @@ const CLE_DATE = 'board_reglages_date';
 // mur est ce qu'il y a de plus banal dans une classe — et une sixième a
 // encore à apprendre à le lire. Qui n'en veut pas l'éteint d'un double-clic
 // sur la date ; son choix est retenu et prime sur celui-ci.
-// « dateDessus » : la date se range AU-DESSUS du cadran au lieu de se tenir à
-// côté. C'est une personnalisation, et non le mode par défaut — la ligne reste
-// ce qui prend le moins de hauteur en haut d'un tableau.
-let reglagesDate = { format: 'long', heure: true, affichee: true, horloge: 'aiguilles',
-                     dateDessus: false };
+// LE COIN SE LIT DE HAUT EN BAS : les boutons, la date, le cadran. « J'aimerais
+// bien organiser pour que les boutons soient persistants et que l'horloge de
+// base soit en dessous : Boutons / Date (12/05/26) / Horloges. » La date se
+// range donc AU-DESSUS du cadran, et au format bref — c'est le seul qui tienne
+// là sans élargir la colonne, et celui qu'on écrit au tableau quand la place
+// manque. Les quatre autres formats restent dans les réglages, et le choix
+// qu'on y fait prime sur celui-ci : il est retenu d'une séance à l'autre.
+let reglagesDate = { format: 'bref', heure: true, affichee: true, horloge: 'aiguilles',
+                     dateDessus: true };
 let dernierTitreDate = '';
 
 try {

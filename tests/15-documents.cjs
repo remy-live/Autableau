@@ -3113,8 +3113,11 @@ module.exports = async function (browser) {
         await new Promise(ok => setTimeout(ok, 300));
         return {
             texte, pages: pages.length, page: currentPageIndex,
-            // Il ne reste qu'une page : le coin des pages n'a plus lieu d'être.
+            // Le coin reste : il est persistant. Mais ses deux flèches se
+            // grisent, puisqu'il ne reste qu'une page.
             coin: getComputedStyle(document.getElementById('ecran-pages')).display,
+            flechesGrisees: document.getElementById('btn-ecran-page-prec').disabled
+                && document.getElementById('btn-ecran-page-suiv').disabled,
             // Et l'on retombe sur le document, pas dans le vide.
             pdf: images.some(o => o && o.pluginData && o.pluginData.id === 'pdfDoc'),
             nu: document.body.classList.contains('focus-mode')
@@ -3123,8 +3126,9 @@ module.exports = async function (browser) {
     r.verifie('elle demande confirmation avant de jeter',
         /Supprimer la page 2/.test(jetee.texte), JSON.stringify(jetee));
     r.egal('et la page s\'en va, sans rendre les barres à la classe',
-        { pages: jetee.pages, page: jetee.page, coin: jetee.coin, pdf: jetee.pdf, nu: jetee.nu },
-        { pages: 1, page: 0, coin: 'none', pdf: true, nu: true });
+        { pages: jetee.pages, page: jetee.page, coin: jetee.coin,
+          grisees: jetee.flechesGrisees, pdf: jetee.pdf, nu: jetee.nu },
+        { pages: 1, page: 0, coin: 'flex', grisees: true, pdf: true, nu: true });
 
     // On remet une page d'exercices pour la suite du chapitre, qui compte
     // dessus.
@@ -3143,16 +3147,18 @@ module.exports = async function (browser) {
             cadrage: cadrageDePresentation
         })), { enCours: null, avecBarres: false, cadrage: 'page' });
 
-    // ELLES NE PARAISSENT QUE LÀ OÙ ELLES SERVENT. Hors du tableau nu, le tiroir
-    // du bas et celui des morceaux portent déjà les pages, et ce coin a été
-    // désencombré exprès.
+    // ET ELLES RESTENT, LES BARRES REVENUES. Elles ne paraissaient qu'au
+    // tableau nu, pour ne pas encombrer un coin qu'on avait désencombré exprès
+    // — mais « j'aime bien le système de page en haut à droite, j'aimerais bien
+    // le laisser et organiser pour que les boutons soient persistants ». Un
+    // coin qui change de contenu selon l'affichage, c'est un geste qu'il faut
+    // réapprendre à chaque fois.
     const horsDuTableauNu = await page.evaluate(() => {
         if (document.body.classList.contains('focus-mode')) toggleFocusMode();
         majLesPagesDeLEcran();
-        const rendu = getComputedStyle(document.getElementById('ecran-pages')).display;
-        return rendu;
+        return getComputedStyle(document.getElementById('ecran-pages')).display;
     });
-    r.egal('les barres revenues, les flèches du coin s\'en vont', horsDuTableauNu, 'none');
+    r.egal('les barres revenues, les pages du coin restent', horsDuTableauNu, 'flex');
 
     // ET « PAGE↑ » RAMÈNE AU DOCUMENT, sans ouvrir le tiroir du bas.
     //

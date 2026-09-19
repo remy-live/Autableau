@@ -1948,9 +1948,12 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
 
 #barre-ecran button:hover { background: var(--accent-soft); color: var(--accent); }
 
-/* LES PAGES DU TABLEAU, AU COIN, quand le tableau nu a rangé toutes les barres.
+/* LES PAGES DU TABLEAU, AU COIN, EN PERMANENCE.
    Deux flèches et un rang, dans le même habit que leurs voisines : c'est une
-   seule pastille, et non trois boutons qui se disputeraient le coin. */
+   seule pastille, et non trois boutons qui se disputeraient le coin.
+   Le « display: none » n'est que l'habit d'avant le premier rafraîchissement —
+   « majLesPagesDeLEcran », appelée au démarrage, les allume et n'éteint plus
+   que les flèches, par « disabled », quand il n'y a pas de page où aller. */
 #ecran-pages {
     display: none;
     align-items: center;

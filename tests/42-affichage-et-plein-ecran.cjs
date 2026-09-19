@@ -306,7 +306,7 @@ module.exports = async function (browser) {
         majBarreDocument();
         await new Promise(ok => setTimeout(ok, 120));
         const b = document.getElementById('btn-ecran-presenter');
-        const lire = () => ({ vu: getComputedStyle(b).display,
+        const lire = () => ({ vu: getComputedStyle(b).display, grise: b.disabled,
                               barre: getComputedStyle(document.getElementById('barre-ecran')).opacity,
                               titre: b.getAttribute('data-tooltip'),
                               actif: b.classList.contains('actif') });
@@ -325,10 +325,17 @@ module.exports = async function (browser) {
             barreDuDocument: getComputedStyle(document.getElementById('bar-document')).opacity };
         return { sansDocument, tenuParPersonne };
     });
-    r.egal('sans document, le bouton fixe ne s\'affiche pas : il n\'y a rien à présenter',
-        fixe.sansDocument.vu, 'none');
-    r.verifie('mais dès qu\'une page est à l\'écran, il est là — même sans la tenir',
-        fixe.tenuParPersonne.vu === 'flex' && Number(fixe.tenuParPersonne.barre) > 0.9,
+    // IL RESTE LÀ, MAIS GRISÉ. « J'aimerais bien organiser pour que les boutons
+    // soient persistants. » Il s'effaçait faute de page à projeter, et le coin
+    // changeait de forme selon ce qu'on tenait : les voisins se déplaçaient
+    // sous le doigt qui les visait. Un bouton éteint dit ce qui manque ; un
+    // bouton absent ne dit rien.
+    r.egal('sans document, le bouton fixe est là mais éteint : rien à présenter',
+        { vu: fixe.sansDocument.vu, grise: fixe.sansDocument.grise },
+        { vu: 'flex', grise: true });
+    r.verifie('et dès qu\'une page est à l\'écran, il s\'allume — même sans la tenir',
+        fixe.tenuParPersonne.vu === 'flex' && fixe.tenuParPersonne.grise === false
+        && Number(fixe.tenuParPersonne.barre) > 0.9,
         JSON.stringify(fixe.tenuParPersonne));
 
     // Et il présente, puis il en sort — sans qu'on ait rien sélectionné.
