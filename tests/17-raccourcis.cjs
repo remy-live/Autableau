@@ -583,7 +583,19 @@ module.exports = async function (browser) {
         const doc = images[0];
         const avant = zoom;
         c.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, ctrlKey: true, cancelable: true, bubbles: true }));
-        await new Promise(ok => setTimeout(ok, 400));
+        // LE ZOOM S'ANIME, ON NE COMPTE DONC PAS LES MILLISECONDES. Quatre
+        // cents suffisaient sur une machine au repos ; sur un serveur chargé,
+        // l'animation n'avait pas commencé et le contrôle tombait pour une
+        // raison qui n'a rien à voir avec ce qu'il éprouve. On attend qu'il
+        // BOUGE, puis qu'il se POSE — et s'il ne bouge jamais, on sort tout de
+        // même, car c'est alors la panne que ce contrôle doit dire.
+        const pause = () => new Promise(ok => setTimeout(ok, 50));
+        for (let i = 0; i < 20 && zoom === avant; i++) await pause();
+        let dernier = zoom, immobile = 0;
+        for (let i = 0; i < 60 && immobile < 3; i++) {
+            await pause();
+            if (zoom === dernier) immobile++; else { immobile = 0; dernier = zoom; }
+        }
         const H = c.clientHeight, L = c.clientWidth;
         return {
             plusGrand: zoom > avant * 1.05,
