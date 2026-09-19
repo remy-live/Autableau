@@ -1948,9 +1948,12 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
 
 #barre-ecran button:hover { background: var(--accent-soft); color: var(--accent); }
 
-/* LES PAGES DU TABLEAU, AU COIN, quand le tableau nu a rangé toutes les barres.
+/* LES PAGES DU TABLEAU, AU COIN, EN PERMANENCE.
    Deux flèches et un rang, dans le même habit que leurs voisines : c'est une
-   seule pastille, et non trois boutons qui se disputeraient le coin. */
+   seule pastille, et non trois boutons qui se disputeraient le coin.
+   Le « display: none » n'est que l'habit d'avant le premier rafraîchissement —
+   « majLesPagesDeLEcran », appelée au démarrage, les allume et n'éteint plus
+   que les flèches, par « disabled », quand il n'y a pas de page où aller. */
 #ecran-pages {
     display: none;
     align-items: center;
@@ -1979,6 +1982,20 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
 
 #ecran-pages button:disabled { opacity: 0.3; cursor: default; }
 #ecran-pages button:not(:disabled):hover { background: var(--accent-soft) !important; color: var(--accent); }
+
+/* LE RANG EST UN BOUTON, mais il porte un nombre : il lui faut sa largeur.
+   Ses deux voisines sont des flèches de dix-huit pixels, « 10/12 » n'y tient
+   pas. Il garde l'allure d'un libellé — c'est le survol qui dit qu'on peut
+   appuyer dessus. */
+#ecran-page-rang {
+    width: auto !important;
+    min-width: 26px;
+    padding: 0 4px !important;
+    font-size: 11px !important;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
 .dark-mode #ecran-pages { background: #2d3436; color: #f1f2f6; border-color: #4a5560; }
 
 /* LA VIGNETTE DU RETOUR. Plus large que ses voisines — c'est une page, pas une

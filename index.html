@@ -794,13 +794,23 @@
              touche du doigt, et un doigt n'a pas de Page↑. Sans ces deux
              flèches, poser les exercices sur une page neuve devient un
              cul-de-sac sur l'écran même où l'on s'en sert.
-             Elles ne paraissent QUE là où rien d'autre ne mène aux pages :
-             tableau nu, et plus d'une page. Le reste du temps, ce coin
-             n'a pas trois boutons de plus. -->
+             ELLES NE S'EN VONT PLUS. Elles ne paraissaient qu'au tableau nu
+             et à partir de deux pages : le coin changeait de contenu sous les
+             doigts. « J'aimerais bien organiser pour que les boutons soient
+             persistants. » Sur une page seule, les deux flèches se grisent.
+             Le « display:none » n'est que l'habit d'avant le premier
+             rafraîchissement : « majLesPagesDeLEcran », appelée au démarrage,
+             les allume. -->
         <span id="ecran-pages" style="display:none;">
             <button id="btn-ecran-page-prec" data-tooltip="Page précédente du tableau">◀</button>
-            <!-- Vide : « majLesPagesDeLEcran » y met le rang. -->
-            <span id="ecran-page-rang"></span>
+            <!-- LE RANG EST UN BOUTON. « Il faudrait aussi pouvoir supprimer
+                 facilement une page en mode plein écran (clic sur le numéro de
+                 page 2/3 et option pour supprimer). » Une page d'exercices se
+                 jette quand la classe en a fini ; sortir du plein écran, ouvrir
+                 le tiroir du bas et viser une vignette pour cela, c'est quatre
+                 gestes devant trente élèves qui attendent.
+                 Vide : « majLesPagesDeLEcran » y met le rang. -->
+            <button id="ecran-page-rang" data-tooltip="Cette page du tableau : la supprimer"></button>
             <button id="btn-ecran-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
         </span>
         <!-- LE CHEMIN DU RETOUR, ET IL MONTRE OÙ IL MÈNE.
