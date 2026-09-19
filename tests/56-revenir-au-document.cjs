@@ -501,6 +501,83 @@ module.exports = async function (browser) {
     r.egal('plus de bouton de retour dans la barre du document',
         await page.evaluate(() => !!document.getElementById('doc-retour')), false);
 
+    // ------------------------------------------------------------------
+    // 9. SORTI SANS VISER, LE MORCEAU PART SUR SA PAGE — ET SAIT EN REVENIR
+    //
+    // « En faisant une découpe, cela s'est encore mis à côté plutôt que dans
+    // une nouvelle page. » Il tombait au milieu de l'écran, c'est-à-dire sur le
+    // document qu'on venait de découper. Un clic ne dit pas OÙ on le veut : il
+    // dit qu'on veut le voir. Il part donc sur une page de tableau à lui, en
+    // grand. Le geste qui VISE, lui, reste respecté — c'est tout le chapitre 3
+    // ci-dessus, qui pose dans la marge sans quitter le plein écran.
+    // ------------------------------------------------------------------
+    await poserLePdf(2);
+    const sansViser = await page.evaluate(async () => {
+        const doc = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        const pageAvant = currentPageIndex, pagesAvant = pages.length;
+        basculerLaDecoupe(true);
+        commencerGesteDeDecoupe({ x: doc.x + 20, y: doc.y + 20 });
+        poursuivreGesteDeDecoupe({ x: doc.x + doc.w * 0.5, y: doc.y + doc.h * 0.3 });
+        finirGesteDeDecoupe();
+        const taille = morceauxEnAttente[0].w;
+        const m = poserLeMorceau(morceauxEnAttente[0], null);   // un clic : on ne vise pas
+        await new Promise(ok => setTimeout(ok, 300));
+        return {
+            changeDePage: currentPageIndex !== pageAvant,
+            pagesEnPlus: pages.length - pagesAvant,
+            marquee: !!pages[currentPageIndex].pageDesMorceaux,
+            documentReste: !images.some(i => i.pluginData && i.pluginData.id === 'pdfDoc'),
+            agrandi: m.w > taille
+        };
+    });
+    r.egal('sorti sans viser, il ouvre une page d\'exercices et s\'y rend',
+        { page: sansViser.changeDePage, neuve: sansViser.pagesEnPlus, marquee: sansViser.marquee },
+        { page: true, neuve: 1, marquee: true });
+    r.verifie('le document reste sur la sienne, et le morceau s\'étale',
+        sansViser.documentReste === true && sansViser.agrandi === true, JSON.stringify(sansViser));
+
+    // LA VIGNETTE TRAVERSE LES PAGES. C'est ce que la page d'exercices coûtait :
+    // le document n'est plus sur la page ouverte, et « revenir » ne trouvait
+    // plus rien — la vignette s'éteignait au moment précis où elle sert.
+    await page.evaluate(() => {
+        selectedItems = [{ type: 'image', id: images.find(i => i.pluginData.id === 'morceau').id }];
+        majBarreDocument();
+    });
+    const depuisLaPage = await etat();
+    r.verifie('depuis la page des exercices, la vignette vise encore le PDF',
+        depuisLaPage.vignette === true && /^pdfDoc#\d+@2$/.test(depuisLaPage.versOu),
+        JSON.stringify(depuisLaPage));
+
+    const rentree = await page.evaluate(async () => {
+        const pageAvant = currentPageIndex;
+        await revenirAuDocumentDavant();
+        await new Promise(ok => setTimeout(ok, 400));
+        return { tourne: currentPageIndex !== pageAvant,
+                 pageDuTableau: currentPageIndex,
+                 doc: images.some(i => i.pluginData && i.pluginData.id === 'pdfDoc') };
+    });
+    r.verifie('et le retour tourne la page du tableau pour y aller',
+        rentree.tourne === true && rentree.doc === true, JSON.stringify(rentree));
+
+    // ET LA MÊME PAGE SE ROUVRE. On découpe un bout, on le pose, on revient au
+    // polycopié, on en découpe un autre : une page neuve à chaque fois aurait
+    // donné un tableau d'une page par morceau, et les exercices d'un même cours
+    // n'auraient jamais été côte à côte.
+    const second = await page.evaluate(async () => {
+        const doc = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        const pagesAvant = pages.length;
+        basculerLaDecoupe(true);
+        commencerGesteDeDecoupe({ x: doc.x + 30, y: doc.y + doc.h * 0.5 });
+        poursuivreGesteDeDecoupe({ x: doc.x + doc.w * 0.5, y: doc.y + doc.h * 0.75 });
+        finirGesteDeDecoupe();
+        poserLeMorceau(morceauxEnAttente[morceauxEnAttente.length - 1], null);
+        await new Promise(ok => setTimeout(ok, 300));
+        return { pagesEnPlus: pages.length - pagesAvant,
+                 morceaux: images.filter(i => i.pluginData && i.pluginData.id === 'morceau').length };
+    });
+    r.egal('le second morceau rejoint le premier, sans ouvrir de page de plus',
+        second, { pagesEnPlus: 0, morceaux: 2 });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
