@@ -15538,20 +15538,101 @@ function quitterLaPresentationSiOnPoseDehors(rect) {
 }
 window.onLeVoitALEcran = onLeVoitALEcran;
 
+// SORTIR UN MORCEAU SANS VISER L'ENVOIE SUR UNE PAGE D'EXERCICES.
+//
+// « En faisant une découpe, cela s'est encore mis à côté plutôt que dans une
+// nouvelle page. » Le morceau tombait au milieu de l'écran, c'est-à-dire sur le
+// document qu'on venait de découper. Un clic sur le morceau ne dit pas OÙ on le
+// veut : il dit qu'on veut le voir. Il part donc sur une page de tableau à lui,
+// en grand — là où « Tout poser » range déjà les siens.
+//
+// LE GESTE QUI VISE, LUI, EST RESPECTÉ : un morceau qu'on glisse à un endroit
+// précis reste où on le lâche, y compris dans la marge d'une page projetée.
+// C'est ce qui garde la page au milieu et l'exercice à côté — et ce qui laisse
+// le document et son morceau sur la même page, donc sur la même image rendue.
+//
+// MAIS UNE SEULE PAGE D'EXERCICES PAR DOCUMENT, et on la ROUVRE : on découpe un
+// bout, on le pose, on revient au polycopié, on en découpe un autre. En créer
+// une à chaque fois aurait donné un tableau d'une page par morceau, et les
+// exercices d'un même cours n'auraient jamais été côte à côte.
+function ouvrirLaPageDesMorceaux(morceau) {
+    if (typeof pages === 'undefined' || typeof createNewPage !== 'function'
+        || typeof loadPage !== 'function') return false;
+    // La marque porte le document d'où les exercices viennent : c'est elle qui
+    // fait retrouver leur page.
+    const marque = (morceau && (morceau.cle || (morceau.source != null ? 'src:' + morceau.source : null)))
+        || 'sans-source';
+    // ET JAMAIS LA PAGE DU DOCUMENT LUI-MÊME. Il peut être posé sur la page des
+    // exercices — on l'y a amené, ou l'on y a découpé un morceau d'un autre
+    // cours : y ranger les siens les ferait retomber dessus, ce que toute cette
+    // règle cherche précisément à éviter.
+    const portesLeDocument = (liste) => (liste || []).some(o => o && o.pluginData
+        && o.pluginData.id === 'pdfDoc' && morceau
+        && (o.pluginData.cle === morceau.cle || o.id === morceau.source));
+    const courante = pages[currentPageIndex];
+    if (courante && courante.pageDesMorceaux === marque && !portesLeDocument(images)) return false;
+    const deja = pages.findIndex((p, i) => p && p.pageDesMorceaux === marque
+        && !portesLeDocument(i === currentPageIndex ? images : p.images));
+    // ON GARDE L'ÉCRAN. La projection du document ne peut pas survivre — il
+    // reste sur sa page —, mais le plein écran et les barres effacées, si : la
+    // classe voit la page changer, elle ne voit pas reparaître d'un coup les six
+    // barres d'outils qu'on lui épargnait.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && typeof quitterLaPresentationEnGardantLEcran === 'function') {
+        quitterLaPresentationEnGardantLEcran();
+    }
+    if (deja >= 0) { loadPage(deja); return true; }
+    pages.push(createNewPage());
+    loadPage(pages.length - 1);
+    if (pages[currentPageIndex]) pages[currentPageIndex].pageDesMorceaux = marque;
+    return true;
+}
+
+// La place d'un morceau posé seul sur la page des exercices : la même que
+// « Tout poser » lui donnerait, agrandi tant que ça reste net.
+function placeDuMorceauAgrandi(m) {
+    const zone = placeLibrePourLesMorceaux();
+    const s = Math.max(0.05, Math.min(MORCEAU_AGRANDI_MAX, zone.L / m.w, zone.H / m.h));
+    return {
+        x: zone.x + Math.max(0, (zone.L - m.w * s) / 2),
+        y: zone.y + Math.max(0, (zone.H - m.h * s) / 2),
+        w: m.w * s, h: m.h * s, zone
+    };
+}
+
 // `ou` en coordonnées du tableau, ou rien pour le milieu de l'écran.
 function poserLeMorceau(m, ou) {
+    // ON NE DÉPLACE PERSONNE QUI VISE : le geste qui désigne un endroit est une
+    // réponse à « où ? », et l'on n'a pas à en décider à sa place.
+    const enGrand = !ou;
+    if (enGrand) ouvrirLaPageDesMorceaux(m);
+    const place = enGrand ? placeDuMorceauAgrandi(m) : null;
     const centre = ou || {
         x: (window.innerWidth / 2 - panX) / zoom,
         y: (window.innerHeight / 2 - panY) / zoom
     };
     const objet = {
-        id: nextId++, x: centre.x - m.w / 2, y: centre.y - m.h / 2, w: m.w, h: m.h,
+        id: nextId++,
+        x: enGrand ? place.x : centre.x - m.w / 2,
+        y: enGrand ? place.y : centre.y - m.h / 2,
+        w: enGrand ? place.w : m.w,
+        h: enGrand ? place.h : m.h,
         cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
         src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
         pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null,
                       projete: !!m.projete }
     };
-    quitterLaPresentationSiOnPoseDehors(objet);
+    // ON VA LE VOIR. Posé à côté de ce qui est déjà là, il est hors de l'écran :
+    // sans ce déplacement, rien ne bougerait et l'on croirait le geste perdu.
+    if (enGrand && place.zone.aCote) {
+        const marge = 30 / zoom;
+        panX = -(place.zone.x - marge) * zoom;
+        panY = -(place.zone.y - marge) * zoom;
+    }
+    // Le morceau qu'on a placé soi-même peut tomber hors de vue : là, il faut
+    // bien rendre l'écran pour le retrouver. Celui qui part sur sa page, lui,
+    // a déjà quitté la projection en changeant de page.
+    if (!enGrand) quitterLaPresentationSiOnPoseDehors(objet);
     images.push(objet);
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
@@ -15600,18 +15681,39 @@ function poserLeMorceau(m, ou) {
 // D'ABORD le PDF par sa clé : un morceau redécoupé dans un morceau renvoie à son
 // voisin immédiat, alors que ce qu'on veut retrouver, c'est la page qu'on
 // feuillette.
-function documentSourceDuMorceau(m) {
+// ON CHERCHE SUR TOUT LE TABLEAU, ET NON SUR LA SEULE PAGE OUVERTE. Poser un
+// morceau ouvre une page neuve : le document dont il sort reste sur la sienne,
+// et « revenir au document » ne trouvait alors plus rien — la vignette
+// s'éteignait au moment précis où elle sert. On rend donc aussi LA PAGE où il
+// est, puisqu'il faudra y aller.
+function chercherImageDansLesPages(quoi) {
+    const ici = (images || []).find(quoi);
+    if (ici) return { doc: ici, pageDuTableau: currentPageIndex };
+    if (typeof pages === 'undefined' || !Array.isArray(pages)) return null;
+    for (let i = 0; i < pages.length; i++) {
+        if (i === currentPageIndex) continue;
+        const doc = (pages[i].images || []).find(quoi);
+        if (doc) return { doc, pageDuTableau: i };
+    }
+    return null;
+}
+
+function sourceDuMorceauEtSaPage(m) {
     if (!m || !m.pluginData || m.pluginData.id !== 'morceau') return null;
     const pd = m.pluginData;
     if (pd.cle) {
-        const pdf = images.find(i => i !== m && i.pluginData
+        const pdf = chercherImageDansLesPages(i => i !== m && i.pluginData
             && i.pluginData.id === 'pdfDoc' && i.pluginData.cle === pd.cle);
         if (pdf) return pdf;
     }
     // Sinon celui dans lequel on a taillé : un scan, une photo, un autre morceau.
     if (pd.source === undefined || pd.source === null) return null;
-    const direct = getObjectById('image', pd.source);
-    return (direct && direct !== m) ? direct : null;
+    return chercherImageDansLesPages(i => i.id === pd.source && i !== m);
+}
+
+function documentSourceDuMorceau(m) {
+    const t = sourceDuMorceauEtSaPage(m);
+    return t ? t.doc : null;
 }
 
 // LA TRACE DE CE QU'ON A TENU. Le plus récent en tête, et un document n'y figure
@@ -15637,14 +15739,17 @@ function noterLeDocumentTenu(doc) {
 // Où l'on reviendrait si l'on appuyait : { doc, page, projete }, ou rien.
 function documentOuRevenir() {
     const tenu = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
-    const source = documentSourceDuMorceau(tenu);
+    const source = sourceDuMorceauEtSaPage(tenu);
     if (source) {
-        return { doc: source, page: tenu.pluginData.page || null, projete: !!tenu.pluginData.projete };
+        return { doc: source.doc, page: tenu.pluginData.page || null,
+                 projete: !!tenu.pluginData.projete, pageDuTableau: source.pageDuTableau };
     }
     for (const e of traceDesDocuments) {
         if (tenu && e.id === tenu.id) continue;
-        const doc = getObjectById('image', e.id);
-        if (doc && estUnDocumentPose(doc)) return { doc, page: e.page, projete: e.projete };
+        const t = chercherImageDansLesPages(i => i.id === e.id);
+        if (t && estUnDocumentPose(t.doc)) {
+            return { doc: t.doc, page: e.page, projete: e.projete, pageDuTableau: t.pageDuTableau };
+        }
     }
     return null;
 }
@@ -15732,7 +15837,17 @@ async function revenirAuDocumentDavant() {
         if (typeof showToast === 'function') showToast("Aucun document où revenir");
         return false;
     }
-    const { doc, page, projete } = cible;
+    const { page, projete, pageDuTableau } = cible;
+    // IL PEUT ÊTRE SUR UNE AUTRE PAGE DU TABLEAU — c'est même le cas ordinaire
+    // depuis que poser un morceau ouvre une page neuve. On y va d'abord : le
+    // reste (sélection, page du PDF, projection) ne vaut que là-bas.
+    if (pageDuTableau !== undefined && pageDuTableau !== currentPageIndex
+        && typeof loadPage === 'function') {
+        loadPage(pageDuTableau);
+        if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+    }
+    // Le document rechargé avec sa page, et non celui qu'on tenait de l'autre.
+    const doc = getObjectById('image', cible.doc.id) || cible.doc;
     // Tenir un document, c'est l'avoir en main : on repose le crayon. Dans cet
     // ordre — « setMode » vide la sélection, il ne doit pas effacer la nôtre.
     if (mode !== 'pointer') setMode('pointer');
@@ -15888,16 +16003,10 @@ function poserTousLesMorceaux() {
     // Le tiroir des morceaux n'appartient à aucune page : il traverse, et c'est
     // ce qui rend le voyage possible.
     let pageNeuve = false;
-    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
-        && typeof createNewPage === 'function' && typeof loadPage === 'function') {
-        // ON GARDE L'ÉCRAN. La projection du DOCUMENT ne peut pas survivre — il
-        // reste sur sa page —, mais le plein écran et les barres effacées, si :
-        // la classe voit la page changer, elle ne voit pas reparaître d'un coup
-        // les six barres d'outils qu'on lui épargnait.
-        quitterLaPresentationEnGardantLEcran();
-        pages.push(createNewPage());
-        loadPage(pages.length - 1);
-        pageNeuve = true;
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours) {
+        // La page des exercices de ce document-là se rouvre si elle existe
+        // déjà : c'est la même que celle où part un morceau sorti sans viser.
+        pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0]);
     } else {
         // Hors projection, rien ne change : on pose là où l'on regarde.
         quitterLaPresentationSiOnPoseDehors(null);
