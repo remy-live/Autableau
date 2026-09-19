@@ -112,8 +112,11 @@ module.exports = async function (browser) {
         // ni l'autre n'a de raison d'être là, et c'est très bien ainsi.
         // Les pages du coin sont du même bois : elles ne paraissent qu'au
         // tableau nu ET s'il y a plus d'une page. Ici il n'y en a qu'une.
+        // Leur RANG en est aussi : c'est un bouton depuis qu'on peut jeter la
+        // page en appuyant dessus, mais il vit et meurt avec ses deux flèches.
         const CONDITIONNELS = ['btn-ecran-presenter', 'btn-ecran-retour',
-                               'btn-ecran-page-prec', 'btn-ecran-page-suiv'];
+                               'btn-ecran-page-prec', 'btn-ecran-page-suiv',
+                               'ecran-page-rang'];
         return [...b.querySelectorAll('button')]
             .filter(x => !CONDITIONNELS.includes(x.id))
             .map(x => ({ id: x.id, atteignable: x.getBoundingClientRect().width > 10 }));

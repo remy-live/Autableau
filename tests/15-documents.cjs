@@ -2313,6 +2313,11 @@ module.exports = async function (browser) {
     // permet — c'est tout l'intérêt, un exercice au quart de sa page ne se lit
     // pas depuis le fond de la classe.
     const rangee = await page.evaluate(async () => {
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         // On repart d'un tiroir vide : ce qui restait du bloc précédent
         // fausserait le compte.
@@ -2325,8 +2330,10 @@ module.exports = async function (browser) {
         });
         basculerLaDecoupe(false);
         const tailleDOrigine = morceauxEnAttente.map(m => m.w);
-        const avant = images.length;
         const combien = poserTousLesMorceaux();
+        // On compte SUR LA PAGE OÙ ILS SONT ALLÉS : « Poser » les envoie sur la
+        // page des exercices, et l'on y est désormais.
+        const ajoutes = images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length;
         const poses = images.filter(o => o.pluginData && o.pluginData.id === 'morceau').slice(-3);
         if (poses.length < 3) return { manque: true };
 
@@ -2345,7 +2352,7 @@ module.exports = async function (browser) {
             x2: Math.max(...poses.map(o => o.x + o.w)), y2: Math.max(...poses.map(o => o.y + o.h))
         };
         return {
-            combien, ajoutes: images.length - avant,
+            combien, ajoutes,
             tiroirVide: morceauxEnAttente.length === 0,
             cache: document.getElementById('bande-morceaux').hidden,
             croise, dedans,
@@ -2379,11 +2386,20 @@ module.exports = async function (browser) {
     r.verifie('et la place est prise, sauf à buter sur les trois fois la taille imprimée',
         rangee.remplit > 0.9 || rangee.auPlafond, JSON.stringify(rangee));
 
-    // ILS NE TOMBENT PAS SUR LE DOCUMENT. C'est le défaut qu'on m'a signalé :
-    // « Tout poser » remplissait l'ÉCRAN, c'est-à-dire la place exacte du
-    // document qu'on venait de découper. Les morceaux se posaient dessus, et
-    // le geste avait l'air d'avoir échoué.
+    // ILS NE TOMBENT PAS SUR LE DOCUMENT — ILS NE SONT MÊME PLUS SUR SA PAGE.
+    // C'est le défaut qu'on m'a signalé deux fois : « Tout poser » remplissait
+    // l'ÉCRAN, c'est-à-dire la place exacte du document qu'on venait de
+    // découper, et les morceaux se posaient dessus. On les rangeait alors à
+    // côté, ce qui ne tenait que tant qu'on ne recoupait pas : « si je recoupe
+    // des nouveaux bouts sur le PDF, ça écrase la page des bouts précédents ».
+    // Ils vont maintenant sur la page des exercices, celle-là même où part un
+    // morceau sorti sans viser, et le document reste seul sur la sienne.
     const aCote = await page.evaluate(async () => {
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         // On repart d'un tableau qui ne contient QUE le document.
         images.length = 0; images.push(doc);
@@ -2395,28 +2411,29 @@ module.exports = async function (browser) {
             finirGesteDeDecoupe();
         });
         basculerLaDecoupe(false);
+        const pageDuDocument = currentPageIndex;
         poserTousLesMorceaux();
         const poses = images.filter(o => o.pluginData && o.pluginData.id === 'morceau');
         if (poses.length < 3) return { manque: true };
-        const chevauche = poses.some(o => o.x < doc.x + doc.w && doc.x < o.x + o.w
-            && o.y < doc.y + doc.h && doc.y < o.y + o.h);
         // ET ON LES VOIT : la vue est allée les chercher.
         const cadre = { x1: (0 - panX) / zoom, y1: (0 - panY) / zoom,
                         x2: (window.innerWidth - panX) / zoom, y2: (window.innerHeight - panY) / zoom };
         const visibles = poses.every(o => o.x >= cadre.x1 - 1 && o.y >= cadre.y1 - 1
             && o.x + o.w <= cadre.x2 + 1 && o.y + o.h <= cadre.y2 + 1);
         return {
-            chevauche, visibles,
-            aDroite: poses.every(o => o.x >= doc.x + doc.w),
-            // Le document n'a pas bougé d'un pouce.
-            docIntact: doc.x === 0 || true,
+            visibles,
+            surLeurPage: currentPageIndex !== pageDuDocument
+                && !!pages[currentPageIndex].pageDesMorceaux,
+            // Le document est resté seul sur la sienne.
+            documentSeul: (pages[pageDuDocument].images || [])
+                .every(o => !o.pluginData || o.pluginData.id !== 'morceau'),
             // Et le lot est tenu : on peut le déplacer d'un geste.
             tenus: selectedItems.length === 3
                 && selectedItems.every(it => poses.some(o => o.id === it.id))
         };
     });
-    r.verifie('les morceaux ne se posent PAS sur le document qu\'on vient de découper',
-        aCote.chevauche === false && aCote.aDroite === true, JSON.stringify(aCote));
+    r.verifie('les morceaux ne se posent PAS sur la page du document qu\'on vient de découper',
+        aCote.surLeurPage === true && aCote.documentSeul === true, JSON.stringify(aCote));
     r.verifie('et la vue va les chercher : on les voit tous',
         aCote.visibles, JSON.stringify(aCote));
     r.verifie('ils sont posés ET tenus, pour les redéplacer d\'un geste',
@@ -2426,6 +2443,11 @@ module.exports = async function (browser) {
     // COURTS — le cas ordinaire d'un polycopié — s'empilent, ils ne se rangent
     // pas en ligne. C'est ce qui les rend le plus gros.
     const empiles = await page.evaluate(async () => {
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
         basculerLaDecoupe(true);
@@ -2447,6 +2469,11 @@ module.exports = async function (browser) {
     // Mais on n'agrandit pas sans fin : un timbre-poste étiré à tout l'écran
     // n'est plus lisible, il est gros.
     const timbre = await page.evaluate(async () => {
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
         basculerLaDecoupe(true);
@@ -2944,6 +2971,11 @@ module.exports = async function (browser) {
     // traverse, et c'est ce qui rend le voyage possible.
     // =====================================================================
     const enPlein = await page.evaluate(async () => {
+        // On rend le tableau à une seule page : les blocs d'avant ont posé des
+        // exercices, et chacun a ouvert la page qui va avec. Ce contrôle-ci
+        // compte les pages, il lui faut donc un tableau neuf.
+        if (currentPageIndex !== 0) loadPage(0);
+        while (pages.length > 1) pages.pop();
         const c = document.createElement('canvas');
         c.width = 600; c.height = 800;
         const g = c.getContext('2d');
@@ -3054,6 +3086,49 @@ module.exports = async function (browser) {
     await page.evaluate(() => document.getElementById('btn-ecran-page-suiv').click());
     await page.waitForTimeout(300);
     r.egal('et le ▶ y retourne', await page.evaluate(() => currentPageIndex), 1);
+
+    // ET LE RANG JETTE LA PAGE. « Il faudrait aussi pouvoir supprimer
+    // facilement une page en mode plein écran (clic sur le numéro de page 2/3
+    // et option pour supprimer). » Une page d'exercices se jette quand la
+    // classe en a fini : sortir du plein écran, ouvrir le tiroir du bas et
+    // viser une vignette pour cela, c'est quatre gestes devant trente élèves.
+    const menuDuRang = await page.evaluate(() => {
+        document.getElementById('ecran-page-rang').click();
+        const p = document.getElementById('panneau-appui');
+        return p ? { titre: p.querySelector('.rp-titre').textContent,
+                     entrees: Array.from(p.querySelectorAll('button')).map(b => b.textContent.trim()) }
+                 : { titre: null, entrees: [] };
+    });
+    r.verifie('le rang du coin ouvre ce qu\'on peut faire de cette page',
+        /^Page 2 sur 2$/.test(menuDuRang.titre || '')
+        && menuDuRang.entrees.some(e => /Supprimer cette page/.test(e)),
+        JSON.stringify(menuDuRang));
+
+    const jetee = await page.evaluate(async () => {
+        const p = document.getElementById('panneau-appui');
+        Array.from(p.querySelectorAll('button')).find(b => /Supprimer/.test(b.textContent)).click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const texte = document.getElementById('confirm-text').innerText;
+        document.getElementById('confirm-yes-btn').click();
+        await new Promise(ok => setTimeout(ok, 300));
+        return {
+            texte, pages: pages.length, page: currentPageIndex,
+            // Il ne reste qu'une page : le coin des pages n'a plus lieu d'être.
+            coin: getComputedStyle(document.getElementById('ecran-pages')).display,
+            // Et l'on retombe sur le document, pas dans le vide.
+            pdf: images.some(o => o && o.pluginData && o.pluginData.id === 'pdfDoc'),
+            nu: document.body.classList.contains('focus-mode')
+        };
+    });
+    r.verifie('elle demande confirmation avant de jeter',
+        /Supprimer la page 2/.test(jetee.texte), JSON.stringify(jetee));
+    r.egal('et la page s\'en va, sans rendre les barres à la classe',
+        { pages: jetee.pages, page: jetee.page, coin: jetee.coin, pdf: jetee.pdf, nu: jetee.nu },
+        { pages: 1, page: 0, coin: 'none', pdf: true, nu: true });
+
+    // On remet une page d'exercices pour la suite du chapitre, qui compte
+    // dessus.
+    await page.evaluate(() => { pages.push(createNewPage()); loadPage(pages.length - 1); });
 
     // LA PROJECTION EST BIEN DÉMONTÉE, et pas seulement oubliée. Un sabotage a
     // montré que le drapeau s'éteint TOUT SEUL en changeant de page — le
@@ -3392,8 +3467,17 @@ module.exports = async function (browser) {
     // pour le document, qui n'a besoin de rien, ramenait la page à sa taille
     // modeste et rendait flou le morceau d'à côté.
     const partageDeLaPage = await page.evaluate(async () => {
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
-        const morceau = images.find(o => o.pluginData && o.pluginData.id === 'morceau');
+        // Le morceau peut vivre sur la page des exercices, le document sur la
+        // sienne : ils partagent pourtant la même page rendue, et c'est
+        // justement ce que ce contrôle éprouve.
+        const trouve = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'morceau');
+        const morceau = trouve && trouve.doc;
         if (!doc || !morceau) return { rate: true };
         const besoin = { doc: (doc.w * zoom) / doc.cw, morceau: (morceau.w * zoom) / morceau.cw };
         const avant = { cw: morceau.cw, src: morceau.src };
@@ -3427,6 +3511,11 @@ module.exports = async function (browser) {
         // très près pour mesurer sa finesse, et un zoom laissé en l'air
         // changerait la taille des morceaux qu'on découpe ici.
         zoom = 1;
+        // « Poser » envoie les exercices sur leur page : le document est resté
+        // sur la sienne, et l'on y revient avant de s'en servir — c'est le
+        // geste de l'enseignant, par la vignette de retour ou Page↑.
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
         const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         images.length = 0; images.push(doc);
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
@@ -3454,7 +3543,8 @@ module.exports = async function (browser) {
 
         poserTousLesMorceaux();
         const posee = { ici: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length,
-                        tiroir: morceauxEnAttente.length };
+                        tiroir: morceauxEnAttente.length,
+                        surLeurPage: !!pages[currentPageIndex].pageDesMorceaux };
 
         document.getElementById('bm-page-prec').click();
         const revenu = { index: currentPageIndex,
@@ -3480,14 +3570,26 @@ module.exports = async function (browser) {
         pagesDuTiroir.neuve.libelle !== pagesDuTiroir.libelleAvant
         && pagesDuTiroir.neuve.libelle.startsWith(String(pagesDuTiroir.pagesAvant + 1)),
         JSON.stringify(pagesDuTiroir));
-    r.egal('« Poser à côté » les pose sur la page où l\'on est',
-        { ici: pagesDuTiroir.posee.ici, tiroir: pagesDuTiroir.posee.tiroir }, { ici: 2, tiroir: 0 });
+    // « POSER » LES ENVOIE SUR LEUR PAGE, ET NON SUR CELLE OÙ L'ON EST. Cette
+    // page-là se choisissait à la main, par la pagination du tiroir ; elle se
+    // trouve toute seule désormais, et c'est la même d'un découpage à l'autre —
+    // « si je recoupe des nouveaux bouts sur le PDF, ça écrase la page des
+    // bouts précédents ». Qui veut choisir l'endroit glisse la vignette : c'est
+    // le geste qui vise, et lui reste maître de sa place.
+    // Ils REJOIGNENT ceux qui y sont déjà — la page de ce document-là se rouvre
+    // d'un découpage à l'autre : on en compte donc au moins les deux du tiroir.
+    r.verifie('« Poser » les envoie sur la page des exercices, tiroir vidé',
+        pagesDuTiroir.posee.surLeurPage === true && pagesDuTiroir.posee.tiroir === 0
+        && pagesDuTiroir.posee.ici >= 2, JSON.stringify(pagesDuTiroir.posee));
     r.egal('et la page d\'avant est restée ce qu\'elle était : le document, sans les morceaux',
         { morceaux: pagesDuTiroir.revenu.morceaux, doc: pagesDuTiroir.revenu.doc },
         { morceaux: 0, doc: 1 });
+    // Les deux paginations disent LA MÊME CHOSE : c'est cela qu'on éprouve, et
+    // non un rang écrit en dur — le nombre de pages dépend désormais de ce que
+    // les blocs d'avant ont posé.
     r.egal('changer de page par la pagination du bas met à jour celle du tiroir',
-        { tiroir: pagesDuTiroir.parLAutreBout.libelle, bas: pagesDuTiroir.parLAutreBout.bas },
-        { tiroir: '2/2', bas: '2/2' });
+        pagesDuTiroir.parLAutreBout.libelle, pagesDuTiroir.parLAutreBout.bas,
+        JSON.stringify(pagesDuTiroir.parLAutreBout));
 
     await page.evaluate(() => {
         basculerLaDecoupe(false);

@@ -799,8 +799,14 @@
              n'a pas trois boutons de plus. -->
         <span id="ecran-pages" style="display:none;">
             <button id="btn-ecran-page-prec" data-tooltip="Page précédente du tableau">◀</button>
-            <!-- Vide : « majLesPagesDeLEcran » y met le rang. -->
-            <span id="ecran-page-rang"></span>
+            <!-- LE RANG EST UN BOUTON. « Il faudrait aussi pouvoir supprimer
+                 facilement une page en mode plein écran (clic sur le numéro de
+                 page 2/3 et option pour supprimer). » Une page d'exercices se
+                 jette quand la classe en a fini ; sortir du plein écran, ouvrir
+                 le tiroir du bas et viser une vignette pour cela, c'est quatre
+                 gestes devant trente élèves qui attendent.
+                 Vide : « majLesPagesDeLEcran » y met le rang. -->
+            <button id="ecran-page-rang" data-tooltip="Cette page du tableau : la supprimer"></button>
             <button id="btn-ecran-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
         </span>
         <!-- LE CHEMIN DU RETOUR, ET IL MONTRE OÙ IL MÈNE.

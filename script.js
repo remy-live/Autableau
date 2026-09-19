@@ -1563,6 +1563,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     document.getElementById('btn-ecran-page-prec')?.addEventListener('click', () => tournerLaPageDuTableau(-1));
     document.getElementById('btn-ecran-page-suiv')?.addEventListener('click', () => tournerLaPageDuTableau(1));
+    // LE RANG OUVRE CE QU'ON PEUT FAIRE DE CETTE PAGE — c'est-à-dire la jeter.
+    // Une seule entrée pour l'instant : on n'ouvre pas un menu pour y mettre ce
+    // dont personne n'a parlé.
+    document.getElementById('ecran-page-rang')?.addEventListener('click', (e) => {
+        if (typeof ouvrirPanneauAppui !== 'function') return;
+        ouvrirPanneauAppui(e.currentTarget, `Page ${currentPageIndex + 1} sur ${pages.length}`, [
+            { nom: '🗑 Supprimer cette page',
+              action: () => supprimerLaPage(currentPageIndex) }
+        ]);
+    });
 
     document.getElementById('btn-voir-tout')?.addEventListener('click', () => {
         const boite = (typeof boiteDuTravail === 'function') ? boiteDuTravail() : null;
@@ -13717,9 +13727,29 @@ const PIXELS_MAX = 16e6;            // et jamais une image démesurée
 let affinageDemande = null;
 
 // Combien de pixels d'écran pour un pixel d'image ? Au-delà de 1, on étire.
-function finesseDemandee(obj) {
+// `z` : le grossissement de la page où vit l'objet. Celui du tableau ouvert par
+// défaut — mais un morceau posé sur la page des exercices se juge au sien, et
+// non à celui de la page qu'on regarde.
+function finesseDemandee(obj, z) {
     if (!obj || !obj.cw || !obj.w) return 1;
-    return (obj.w * zoom) / obj.cw;
+    return (obj.w * (z === undefined ? zoom : z)) / obj.cw;
+}
+
+// TOUTES LES IMAGES DU TABLEAU, ET LE GROSSISSEMENT DE LEUR PAGE. Le document
+// et les morceaux qu'on y a découpés partagent une seule page rendue : c'est ce
+// partage qui fait que six morceaux d'un poly ne pèsent pas six pages. Depuis
+// que les exercices ont leur propre page, ce voisinage traverse les pages du
+// tableau — les chercher sur la seule page ouverte laissait les autres sur
+// l'ancienne image, et la page finissait en mémoire DEUX fois.
+function toutesLesImagesDuTableau() {
+    const out = (images || []).map(o => ({ o, zoom }));
+    if (typeof pages !== 'undefined' && Array.isArray(pages)) {
+        pages.forEach((p, i) => {
+            if (i === currentPageIndex || !p || !p.images) return;
+            p.images.forEach(o => out.push({ o, zoom: p.zoom || 1 }));
+        });
+    }
+    return out;
 }
 
 async function affinerLaPage(obj) {
@@ -13733,8 +13763,8 @@ async function affinerLaPage(obj) {
     // rendait flous les morceaux qu'on venait d'agrandir à côté.
     const ancienSrc = obj.src;
     let besoin = finesseDemandee(obj);
-    (images || []).forEach(o => {
-        if (o.src === ancienSrc) besoin = Math.max(besoin, finesseDemandee(o));
+    toutesLesImagesDuTableau().forEach(({ o, zoom: z }) => {
+        if (o.src === ancienSrc) besoin = Math.max(besoin, finesseDemandee(o, z));
     });
 
     const numero = obj.pluginData.page;
@@ -13796,7 +13826,7 @@ async function affinerLaPage(obj) {
             }));
         }
     };
-    (images || []).forEach(o => { if (o.src === ancienSrc) suivre(o); });
+    toutesLesImagesDuTableau().forEach(({ o }) => { if (o.src === ancienSrc) suivre(o); });
     if (obj.src === ancienSrc) suivre(obj);
     // Et ceux qui attendent au tiroir : posés plus tard, ils seraient restés
     // sur une page qui n'existe plus.
@@ -15588,6 +15618,13 @@ function ouvrirLaPageDesMorceaux(morceau) {
     return true;
 }
 
+// Sommes-nous sur une page d'exercices ? C'est ce qui décide si l'on cadre sur
+// tout ce qu'elle tient après y avoir posé.
+function pageDesExercices() {
+    return !!(typeof pages !== 'undefined' && pages[currentPageIndex]
+        && pages[currentPageIndex].pageDesMorceaux);
+}
+
 // La place d'un morceau posé seul sur la page des exercices : la même que
 // « Tout poser » lui donnerait, agrandi tant que ça reste net.
 function placeDuMorceauAgrandi(m) {
@@ -15622,18 +15659,19 @@ function poserLeMorceau(m, ou) {
         pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null,
                       projete: !!m.projete }
     };
-    // ON VA LE VOIR. Posé à côté de ce qui est déjà là, il est hors de l'écran :
-    // sans ce déplacement, rien ne bougerait et l'on croirait le geste perdu.
-    if (enGrand && place.zone.aCote) {
-        const marge = 30 / zoom;
-        panX = -(place.zone.x - marge) * zoom;
-        panY = -(place.zone.y - marge) * zoom;
-    }
     // Le morceau qu'on a placé soi-même peut tomber hors de vue : là, il faut
     // bien rendre l'écran pour le retrouver. Celui qui part sur sa page, lui,
     // a déjà quitté la projection en changeant de page.
     if (!enGrand) quitterLaPresentationSiOnPoseDehors(objet);
     images.push(objet);
+    // ON VA LE VOIR — ET LES AUTRES AVEC : voir le même geste à « Poser ».
+    if (enGrand && pageDesExercices() && typeof voirToutLeTableau === 'function') {
+        voirToutLeTableau();
+    } else if (enGrand && place.zone.aCote) {
+        const marge = 30 / zoom;
+        panX = -(place.zone.x - marge) * zoom;
+        panY = -(place.zone.y - marge) * zoom;
+    }
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
     modeDocument = 'cadre';   // on vient de le poser : on le DÉPLACE
@@ -15715,6 +15753,7 @@ function documentSourceDuMorceau(m) {
     const t = sourceDuMorceauEtSaPage(m);
     return t ? t.doc : null;
 }
+window.chercherImageDansLesPages = chercherImageDansLesPages;
 
 // LA TRACE DE CE QU'ON A TENU. Le plus récent en tête, et un document n'y figure
 // qu'une fois : revenir deux fois au même endroit n'est pas deux étapes. La tête
@@ -15794,6 +15833,43 @@ function peindreLaVignette(cnv, doc, page) {
     try { c.drawImage(img, sx, sy, sw, sh, x, y, w, h); } catch (e) { return false; }
     return true;
 }
+
+// JETER UNE PAGE. Écrit une seule fois : la croix d'une vignette du tiroir des
+// diapositives s'en sert, et le rang du coin de l'écran aussi — on jette
+// surtout une page d'exercices, et c'est justement en plein écran qu'on en a
+// fini avec elle.
+function supprimerLaPage(index) {
+    if (typeof pages === 'undefined' || index < 0 || index >= pages.length) return false;
+    if (pages.length <= 1) {
+        if (typeof showToast === 'function') showToast("Impossible de supprimer la dernière page.");
+        return false;
+    }
+    openConfirmModal("Supprimer", `Supprimer la page ${index + 1} ?`, true, () => {
+        // LE TRAVAIL DE LA PAGE OUVERTE EST MIS À L'ABRI D'ABORD — on peut
+        // jeter une AUTRE page que celle qu'on regarde.
+        if (typeof syncPage === 'function') syncPage();
+        pages.splice(index, 1);
+        // Où l'on atterrit : la page d'à côté si l'on jetait la sienne, la
+        // même sinon — elle a pu glisser d'un rang.
+        let vers = currentPageIndex;
+        if (index < currentPageIndex) vers = currentPageIndex - 1;
+        else if (index === currentPageIndex) vers = Math.min(index, pages.length - 1);
+        // ET L'ON NE RÉÉCRIT PAS LA PAGE SUPPRIMÉE DANS SA VOISINE. « loadPage »
+        // commence par ranger la page courante ; après le retrait, ce rang
+        // désigne une AUTRE page, et l'on y recopiait le contenu de celle qu'on
+        // venait de jeter — le document disparaissait avec elle. Un rang de -1
+        // dit qu'il n'y a rien à ranger.
+        currentPageIndex = -1;
+        loadPage(vers);
+        if (typeof renderThumbnails === 'function') renderThumbnails();
+        if (typeof window.syncActiveThumbnail === 'function') setTimeout(window.syncActiveThumbnail, 100);
+        if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+        if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+        if (typeof saveAppLocal === 'function') saveAppLocal();
+    });
+    return true;
+}
+window.supprimerLaPage = supprimerLaPage;
 
 // LES PAGES DU TABLEAU, DANS LE COIN, ET SEULEMENT QUAND ELLES Y SERVENT.
 //
@@ -15979,38 +16055,34 @@ function placeLibrePourLesMorceaux() {
 function poserTousLesMorceaux() {
     if (!morceauxEnAttente.length) return 0;
 
-    // POSER PENDANT QU'ON PROJETTE OUVRE UNE PAGE NEUVE.
+    // « POSER » NE VISE PAS, LUI NON PLUS : PAGE D'EXERCICES.
     //
     // « J'importe un PDF, je mets en plein écran, je coupe deux morceaux que je
-    // demande de poser à côté. À ce moment je sors du plein écran. »
+    // demande de poser à côté. À ce moment je sors du plein écran. » Puis,
+    // plus tard : « Quand on découpe et qu'on pose sur le côté, ça doit faire
+    // une nouvelle page aussi, non ? »
     //
-    // On en sortait, et il le fallait : cette fonction range dans la ZONE
-    // VISIBLE, et pendant une projection le visible c'est la page — les
-    // exercices se seraient posés par-dessus le document. Les ranger dans la
-    // marge n'aurait pas mieux valu : mesurée, une A4 projetée sur un écran de
-    // 1280 laisse deux bandes de 368 pixels contre 543 pour la page, si bien
-    // que les exercices y seraient PLUS PETITS que sur l'original. Montrer un
-    // exercice moins lisible que le document dont il sort n'a pas de sens.
+    // Cette fonction rangeait dans la ZONE VISIBLE, c'est-à-dire à côté de ce
+    // qui s'y trouve déjà — le document qu'on vient de découper. Pendant une
+    // projection c'était intenable, et elle ouvrait donc une page ; hors
+    // projection elle posait à côté, et le même bouton faisait deux choses
+    // selon un état que rien ne montre.
     //
-    // Ils vont donc sur une PAGE DE TABLEAU VIERGE, où ils s'étalent sans rien
-    // à éviter — jusqu'à trois fois leur taille. On quitte bien le plein écran,
-    // mais pour montrer autre chose, et non pour rien : la page qui s'ouvre ne
-    // contient que les exercices, en grand. « Page↑ » et le « ◀ » du tiroir
-    // ramènent au document, et supprimer les exercices revient à supprimer la
-    // page — ce qui répond du même coup à « ou la possibilité de supprimer les
-    // exercices découpés ».
+    // Il n'en fait plus qu'une. Le partage est ailleurs, et il est net : ce
+    // qu'on POSE sans dire où part sur la page des exercices — un bouton
+    // « Poser » ne désigne pas plus un endroit qu'un clic sur un morceau. Seul
+    // le geste qui VISE, glisser une vignette là où on la veut, reste maître
+    // de sa place.
+    //
+    // Les ranger dans la marge d'une page projetée n'aurait de toute façon pas
+    // valu mieux : mesurée, une A4 sur un écran de 1280 laisse deux bandes de
+    // 368 pixels contre 543 pour la page, si bien que les exercices y seraient
+    // PLUS PETITS que sur l'original. Sur leur page, ils s'étalent sans rien à
+    // éviter — jusqu'à trois fois leur taille.
     //
     // Le tiroir des morceaux n'appartient à aucune page : il traverse, et c'est
     // ce qui rend le voyage possible.
-    let pageNeuve = false;
-    if (typeof presentationEnCours !== 'undefined' && presentationEnCours) {
-        // La page des exercices de ce document-là se rouvre si elle existe
-        // déjà : c'est la même que celle où part un morceau sorti sans viser.
-        pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0]);
-    } else {
-        // Hors projection, rien ne change : on pose là où l'on regarde.
-        quitterLaPresentationSiOnPoseDehors(null);
-    }
+    const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0]);
     const ecart = 16 / zoom;
     const zone = placeLibrePourLesMorceaux();
     const gauche = zone.x, haut = zone.y, L = zone.L, H = zone.H;
@@ -16047,10 +16119,14 @@ function poserTousLesMorceaux() {
     poses.forEach(o => images.push(o));
 
     morceauxEnAttente = [];
-    // ON VA LES VOIR. Ils sont ailleurs que sous les yeux : sans ce
-    // déplacement, l'écran ne changerait pas et l'on croirait qu'il ne s'est
-    // rien passé.
-    if (zone.aCote) {
+    // ON VA LES VOIR — ET LES AUTRES AVEC. « Si je recoupe des nouveaux bouts
+    // sur le PDF, ça écrase la page des bouts précédents. » Ils n'étaient pas
+    // écrasés, mais la vue sautait sur les derniers venus et laissait les
+    // premiers hors de l'écran, à gauche : on revenait sur sa page d'exercices
+    // pour n'y trouver que la moitié. On cadre donc sur TOUTE la page.
+    if (pageDesExercices() && typeof voirToutLeTableau === 'function') {
+        voirToutLeTableau();
+    } else if (zone.aCote) {
         const marge = 30 / zoom;
         panX = -(gauche - marge) * zoom;
         panY = -(haut - marge) * zoom;
@@ -27654,16 +27730,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             delBtn.onclick = (e) => {
                 e.stopPropagation();
-                if (pages.length <= 1) return showToast("Impossible de supprimer la dernière page.");
-
-                openConfirmModal("Supprimer", `Supprimer la diapositive ${index + 1} ?`, true, () => {
-                    pages.splice(index, 1);
-                    if (currentPageIndex >= pages.length) currentPageIndex = pages.length - 1;
-                    loadPage(currentPageIndex);
-                    renderThumbnails();
-                    setTimeout(window.syncActiveThumbnail, 100);
-                    if (typeof saveAppLocal === 'function') saveAppLocal();
-                });
+                supprimerLaPage(index);
             };
             box.appendChild(delBtn);
 
