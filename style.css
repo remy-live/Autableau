@@ -11314,12 +11314,17 @@ body.focus-mode #barre-ecran #btn-ecran-suite {
    boutons formaient une file où rien ne groupait rien — « je ne comprends pas
    le fonctionnement des 4 ». Il ne paraît qu'avec la famille de gauche :
    seul, il ne séparerait rien. */
-#ecran-sep {
+#ecran-sep,
+#ecran-sep-2 {
     width: 1px;
     align-self: stretch;
     margin: 4px 3px;
     background: var(--contour, rgba(0, 0, 0, 0.15));
 }
+
+/* LE SECOND, LUI, NE S'EFFACE JAMAIS : ses deux familles sont là en
+   permanence — à gauche où l'on en est dans le tableau, à droite ce qui passe
+   en grand. */
 
 body:not(.focus-mode):not(.sans-tiroirs) #barre-ecran #ecran-sep {
     display: none;
