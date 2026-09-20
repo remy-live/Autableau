@@ -2464,6 +2464,8 @@ function poserLeTiroirDesMorceaux() {
     };
     sIlGene(document.getElementById('bottom-drawer'));
     sIlGene(document.getElementById('bar-document'));
+    // La barre de style descend avec celle du document : elle compte aussi.
+    sIlGene(document.getElementById('bar-style'));
     bande.style.setProperty('--haut-du-tiroir', bas + 'px');
 }
 window.poserLeTiroirDesMorceaux = poserLeTiroirDesMorceaux;
@@ -7277,8 +7279,16 @@ function signalerLaBarreDuDocument(barre) {
 window.signalerLaBarreDuDocument = signalerLaBarreDuDocument;
 
 // LES DEUX BARRES NE SE POSENT PAS L'UNE SUR L'AUTRE. Elles visent la même
-// place — au milieu, en haut. Celle du document la garde : c'est elle qu'on
-// tient. La barre de style se range juste dessous.
+// place. Celle du document la garde : c'est elle qu'on tient. La barre de
+// style se range contre elle, DU CÔTÉ OÙ IL Y A DE LA PLACE.
+//
+// « En pleine page, quand je tape du texte, j'ai l'impression que la barre de
+// texte est tout en bas, cachée. » Elle l'était : la barre du document est
+// passée en bas en plein écran, et celle-ci se rangeait toujours DESSOUS —
+// mesuré, elle tombait quarante-deux pixels hors de l'écran, et les réglages
+// du texte avec elle. Sous la barre du document quand celle-ci est en haut,
+// au-dessus quand elle est en bas : c'est la même règle, lue dans les deux
+// sens.
 function rangerLesDeuxBarres() {
     const style = document.getElementById('bar-style');
     const doc = document.getElementById('bar-document');
@@ -7290,8 +7300,16 @@ function rangerLesDeuxBarres() {
     if (!deuxAPlat) return;
     const r = doc.getBoundingClientRect();
     if (!r.height) return;
-    style.style.bottom = 'auto';
-    style.style.top = Math.round(r.bottom + 8) + 'px';
+    if (r.top > window.innerHeight / 2) {
+        style.style.top = 'auto';
+        style.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px';
+    } else {
+        style.style.bottom = 'auto';
+        style.style.top = Math.round(r.bottom + 8) + 'px';
+    }
+    // Le tiroir à morceaux vit au même bord : il se repose au-dessus de tout
+    // cela plutôt que dessous.
+    if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
 }
 window.rangerLesDeuxBarres = rangerLesDeuxBarres;
 window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
