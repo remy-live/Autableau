@@ -27,6 +27,11 @@ const ATTENDUES = [
 // vérification à part, tout en bas : une lenteur se lit alors pour ce qu'elle
 // est, au lieu d'effacer le reste.
 const CHARGEMENTS_EXPIRES = [];
+// CE QUE LE STOCKAGE PORTAIT JUSTE APRÈS L'ÉCRITURE, avant le redémarrage. Le
+// dernier échec a montré 22 outils là où le modèle en a 5 : reste à savoir si
+// l'écriture n'a pas pris, ou si le démarrage a écrit par-dessus. Cette ligne-là
+// tranche, et on la garde sous la main pour le message d'échec.
+const ECRITURES = [];
 
 async function chargerInterface(page, id) {
     const patienter = async (quoi, fn, arg) => {
@@ -38,7 +43,15 @@ async function chargerInterface(page, id) {
             return false;
         }
     };
-    await page.evaluate((x) => { window.__avantRedemarrage = true; loadInterface(x); }, id);
+    ECRITURES.push(id + ' → ' + await page.evaluate((x) => {
+        window.__avantRedemarrage = true;
+        loadInterface(x);
+        // Le redémarrage est différé : on lit ce que l'écriture vient de poser.
+        try {
+            const t = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]');
+            return t.map(b => b.id + ':' + ((b.items || []).length)).join(',') || 'vide';
+        } catch (e) { return 'illisible'; }
+    }, id));
     if (!await patienter('le redémarrage', () => !window.__avantRedemarrage)) return;
     if (!await patienter('les outils réenregistrés',
         () => window.PluginManager && Object.keys(PluginManager.plugins).length > 50)) return;
@@ -159,7 +172,8 @@ module.exports = async function (browser) {
     });
     r.egal('« Minimale » ne pose qu\'une barre', minimale.nbBarres, 1);
     r.verifie('« Minimale » : cinq outils seulement', minimale.outils === 5,
-        JSON.stringify(minimale) + ' | attentes expirées : ' + (CHARGEMENTS_EXPIRES.join(' ; ') || 'aucune'));
+        JSON.stringify(minimale) + ' | écrit avant le redémarrage : ' + ECRITURES.join(' ; ')
+        + ' | attentes expirées : ' + (CHARGEMENTS_EXPIRES.join(' ; ') || 'aucune'));
     r.egal('la barre principale n\'est pas reconstruite', minimale.idPrincipale, 'system-toolbar-main');
     r.egal('« Minimale » : aucun favori imposé', minimale.favoris, 0);
     r.verifie('la barre est bien affichée', minimale.rendues >= 1, `${minimale.rendues} barre(s) rendue(s)`);

@@ -29863,7 +29863,13 @@ function loadInterface(id) {
         // servait à rien — le message ne survit pas au rechargement — et
         // laissait à la session le temps de réécrire les barres par-dessus.
         showToast("Interface chargée ! L'application redémarre.");
-        requestAnimationFrame(() => window.location.reload());
+        // PAS PAR UNE IMAGE D'ANIMATION. « requestAnimationFrame » ne sert rien
+        // du tout à un onglet qu'on ne regarde pas, et presque rien à une
+        // machine chargée : qui change d'onglet le temps que l'interface se
+        // charge trouvait une application qui ne redémarrait jamais — sa
+        // panoplie écrite dans le stockage, et l'ancienne encore à l'écran. Un
+        // délai zéro, lui, arrive toujours, et laisse la même image au message.
+        setTimeout(() => window.location.reload(), 0);
     }
     return true;
 }
