@@ -1076,6 +1076,20 @@ function initPages() {
 }
 
 function loadPage(index) {
+    // QUITTER LA PAGE DU DOCUMENT PROJETÉ MET LA PROJECTION EN PAUSE.
+    //
+    // « On reste dans le mode dans lequel on est. » Elle s'éteignait ici toute
+    // seule, et par le mauvais bout : le document n'étant plus sur la page,
+    // « documentPresente » remettait le drapeau à zéro — sans rendre le cadrage
+    // ni les barres, si bien que la projection SUIVANTE repartait avec les
+    // réglages de la précédente. En passant par la pause, l'aller-retour garde
+    // ce qu'il faut garder et rend ce qu'il faut rendre.
+    if (index !== currentPageIndex
+        && typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && typeof getObjectById === 'function' && getObjectById('image', presentationEnCours)
+        && typeof quitterLaPresentationEnGardantLEcran === 'function') {
+        quitterLaPresentationEnGardantLEcran();
+    }
     syncPage();
     currentPageIndex = index;
     const p = pages[index];
@@ -1121,6 +1135,10 @@ function loadPage(index) {
 
     updatePageUI(); clearSelection(); draw();
     if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
+    // « On reste dans le mode dans lequel on est » : si cette page porte le
+    // document qu'on projetait avant d'aller ranger des exercices, il repart en
+    // grand. Rien à faire dans les autres cas, et c'est le cas ordinaire.
+    if (typeof reprendreLaProjectionEnPause === 'function') reprendreLaProjectionEnPause();
 }
 
 function updatePageUI() {
@@ -1501,6 +1519,14 @@ function toggleFocusMode() {
     // fond sombre du pourtour de la page s'en va. SAUF au deuxième temps du
     // cycle du plein écran, où c'est justement ce qu'on demande : la page en
     // grand, et les barres par-dessus pour écrire dessus.
+    // ET REMETTRE LES BARRES RENONCE À LA PAUSE. On sort du tableau nu par la
+    // croix ou par le cycle : c'est dire « rends-moi tout ». Une projection
+    // mise en pause par un aller-retour aux exercices se rallumerait alors au
+    // prochain passage sur la page du document, sans que rien ne l'ait demandé.
+    if (!enFocus && typeof projectionEnPause !== 'undefined' && projectionEnPause
+        && !(typeof presentationAvecBarres !== 'undefined' && presentationAvecBarres)) {
+        projectionEnPause = null;
+    }
     if (!enFocus && typeof presentationAvecBarres !== 'undefined' && presentationAvecBarres) {
         if (typeof draw === 'function') draw();
     } else if (!enFocus && typeof presentationEnCours !== 'undefined' && presentationEnCours) {
@@ -15591,7 +15617,16 @@ window.onLeVoitALEcran = onLeVoitALEcran;
 // bout, on le pose, on revient au polycopié, on en découpe un autre. En créer
 // une à chaque fois aurait donné un tableau d'une page par morceau, et les
 // exercices d'un même cours n'auraient jamais été côte à côte.
-function ouvrirLaPageDesMorceaux(morceau) {
+//
+// SAUF QUAND ON EN DEMANDE UNE NEUVE. « Ça ne crée pas une nouvelle page, ça le
+// met sur la page 2 ; il faudrait que ce soit une option. » Une fiche se
+// construit en plusieurs découpages — c'est le cas ordinaire, et il reste celui
+// du simple appui —, mais deux séries d'exercices sans rapport dans le même
+// polycopié demandent deux pages. « forcerNeuve » ouvre alors une page de plus,
+// et c'est ELLE que les découpages suivants rejoindront : on cherche la plus
+// RÉCENTE des pages de ce document, sinon la demande n'aurait tenu qu'un tour.
+function ouvrirLaPageDesMorceaux(morceau, options) {
+    const forcerNeuve = !!(options && options.forcerNeuve);
     if (typeof pages === 'undefined' || typeof createNewPage !== 'function'
         || typeof loadPage !== 'function') return false;
     // La marque porte le document d'où les exercices viennent : c'est elle qui
@@ -15606,9 +15641,20 @@ function ouvrirLaPageDesMorceaux(morceau) {
         && o.pluginData.id === 'pdfDoc' && morceau
         && (o.pluginData.cle === morceau.cle || o.id === morceau.source));
     const courante = pages[currentPageIndex];
-    if (courante && courante.pageDesMorceaux === marque && !portesLeDocument(images)) return false;
-    const deja = pages.findIndex((p, i) => p && p.pageDesMorceaux === marque
-        && !portesLeDocument(i === currentPageIndex ? images : p.images));
+    if (!forcerNeuve && courante && courante.pageDesMorceaux === marque
+        && !portesLeDocument(images)) return false;
+    let deja = -1;
+    if (!forcerNeuve) {
+        // À REBOURS : la plus récente gagne. Quand on a demandé une page neuve,
+        // c'est sur celle-là que les bouts suivants se rangent — chercher par le
+        // début les aurait renvoyés sur la première, et la page neuve n'aurait
+        // servi qu'une fois.
+        for (let i = pages.length - 1; i >= 0; i--) {
+            const p = pages[i];
+            if (p && p.pageDesMorceaux === marque
+                && !portesLeDocument(i === currentPageIndex ? images : p.images)) { deja = i; break; }
+        }
+    }
     // ON GARDE L'ÉCRAN. La projection du document ne peut pas survivre — il
     // reste sur sa page —, mais le plein écran et les barres effacées, si : la
     // classe voit la page changer, elle ne voit pas reparaître d'un coup les six
@@ -15945,8 +15991,11 @@ async function revenirAuDocumentDavant() {
     // COMME ON L'AVAIT LAISSÉ. Projeté s'il l'était ; sinon simplement ramené
     // sous les yeux — il a pu sortir de l'écran pendant qu'on rangeait les
     // morceaux, et le sélectionner sans le montrer ne sert à rien.
-    if (projete && typeof presenterLeDocument === 'function') presenterLeDocument();
-    else if (typeof cadrerSurLObjet === 'function') cadrerSurLObjet(doc);
+    // « loadPage » a pu la rallumer lui-même, par la pause : un second appel
+    // ne projetterait pas, il basculerait le cadrage page ↔ largeur.
+    const dejaEnGrand = (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
+    if (projete && !dejaEnGrand && typeof presenterLeDocument === 'function') presenterLeDocument();
+    else if (!dejaEnGrand && typeof cadrerSurLObjet === 'function') cadrerSurLObjet(doc);
     if (typeof majBarreDocument === 'function') majBarreDocument();
     draw();
     // LE NOM ET LA PAGE SE DISENT ICI, et non sur le bouton : son infobulle ne
@@ -16062,8 +16111,11 @@ function placeLibrePourLesMorceaux() {
     return { x: pris.x + pris.l + 80 / zoom, y: pris.y, L, H, aCote: true };
 }
 
-function poserTousLesMorceaux() {
+function poserTousLesMorceaux(options) {
     if (!morceauxEnAttente.length) return 0;
+    // « Sur une page neuve » vient de l'appui long ; le simple appui, lui, range
+    // sur la page des exercices de ce document.
+    const neuveDemandee = !!(options && options.pageNeuve);
 
     // « POSER » NE VISE PAS, LUI NON PLUS : PAGE D'EXERCICES.
     //
@@ -16092,7 +16144,8 @@ function poserTousLesMorceaux() {
     //
     // Le tiroir des morceaux n'appartient à aucune page : il traverse, et c'est
     // ce qui rend le voyage possible.
-    const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0]);
+    const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0],
+        neuveDemandee ? { forcerNeuve: true } : null);
     const ecart = 16 / zoom;
     const zone = placeLibrePourLesMorceaux();
     const gauche = zone.x, haut = zone.y, L = zone.L, H = zone.H;
@@ -16120,7 +16173,14 @@ function poserTousLesMorceaux() {
                 id: nextId++, x, y: y + (hauteurs[n] - m.h * s) / 2, w: m.w * s, h: m.h * s,
                 cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
                 src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null }
+                // ET COMMENT ON LE REGARDAIT. « Quand le PDF est en mode
+                // projection et qu'on revient sur le PDF, ce serait bien qu'il
+                // soit toujours en mode projection. » Le tiroir le notait au
+                // découpage, « poser un morceau seul » le recopiait — celui-ci
+                // le laissait tomber, et la vignette de retour ramenait alors
+                // le document au tableau au lieu de le rendre en grand.
+                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null,
+                              projete: !!m.projete }
             });
             x += m.w * s + ecart;
         });
@@ -16159,7 +16219,7 @@ function poserTousLesMorceaux() {
         // Sur une page neuve, on dit COMMENT REVENIR : c'est la seule chose
         // qu'on ne devine pas quand le tableau change entièrement d'un coup.
         showToast(pageNeuve
-            ? `${combien} exercice(s) en grand sur une page neuve — Page↑ pour revenir au document`
+            ? `${combien} exercice(s) en grand sur ${neuveDemandee ? 'une page neuve' : 'leur page'} — Page↑ pour revenir au document`
             : (zone.aCote
                 ? `${combien} morceau(x) posé(s) à côté du document — les voici`
                 : `${combien} morceau(x) posé(s) sur cette page, au plus grand`));
@@ -16181,8 +16241,13 @@ function majLeBoutonPoser() {
     const occupe = (typeof boiteDuTravail === 'function') && !!boiteDuTravail();
     b.textContent = occupe ? '⇥ Poser à côté' : '⇥ Poser';
     b.setAttribute('data-tooltip', occupe
-        ? 'Poser tous les morceaux côte à côte, à côté de ce qui est déjà là — et y aller'
+        ? 'Poser tous les morceaux côte à côte sur la page des exercices de ce document'
         : 'Poser tous les morceaux côte à côte sur cette page vierge');
+    const neuve = document.getElementById('bm-ranger-neuve');
+    if (neuve) {
+        neuve.setAttribute('data-tooltip',
+            'Poser tous les morceaux sur une page de tableau neuve — les découpages suivants la rejoindront');
+    }
 }
 
 function majLaPageDuTiroir() {
@@ -16199,9 +16264,25 @@ function majLaPageDuTiroir() {
     if (suiv) suiv.disabled = currentPageIndex >= pages.length - 1;
 }
 
+// OÙ POSER : DEUX BOUTONS, ET ON VOIT LES DEUX.
+//
+// « Ça ne crée pas une nouvelle page, ça le met sur la page 2 ; il faudrait que
+// ce soit une option. » Puis, en voyant l'appui long : « soit il y a "je pose à
+// côté", et en dessous "je pose dans une nouvelle page". » Un choix caché sous
+// un appui long n'existe pas — et celui-ci se prend à chaque découpage, pas une
+// fois pour toutes.
+//
+// Le premier garde le geste de tous les jours : les bouts rejoignent la page
+// d'exercices de ce document, car une fiche se construit en plusieurs
+// découpages. Le second ouvre une page de plus, quand la série qui commence
+// n'a rien à voir avec la précédente — et c'est elle que les découpages
+// suivants rejoindront.
 function brancherLeTiroirDesMorceaux() {
     const ranger = document.getElementById('bm-ranger');
-    if (ranger) ranger.addEventListener('click', poserTousLesMorceaux);
+    // Sans la parenthèse, le clic passerait son événement pour des options.
+    if (ranger) ranger.addEventListener('click', () => poserTousLesMorceaux());
+    const neuve = document.getElementById('bm-ranger-neuve');
+    if (neuve) neuve.addEventListener('click', () => poserTousLesMorceaux({ pageNeuve: true }));
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
     const prec = document.getElementById('bm-page-prec');
@@ -16624,6 +16705,14 @@ function cadreQuiRogneCetObjet(obj) {
     const hote = (typeof getObjectById === 'function') ? getObjectById('image', obj.surObjet.id) : null;
     if (!hote || hote.angle || hote.rotation) return null;
     if (!documentEstRogne(hote)) return null;
+    // ON NE COUPE QUE CE QUI A ÉTÉ ÉCRIT SUR UNE PAGE PLUS GRANDE. Si la page
+    // montre exactement ce qu'elle montrait quand on a posé ce trait, alors ce
+    // qui dépasse dépasse parce qu'on l'a voulu : un trait tiré en travers d'un
+    // exercice, une flèche qui part dans la marge. C'est la règle des pages
+    // entières, étendue aux pages rognées APRÈS coup.
+    const vu = obj.surObjet.rogne;
+    if (vu && Math.abs(vu.cx - hote.cx) < 0.5 && Math.abs(vu.cy - hote.cy) < 0.5
+        && Math.abs(vu.cw - hote.cw) < 0.5 && Math.abs(vu.ch - hote.ch) < 0.5) return null;
     return hote;
 }
 window.cadreQuiRogneCetObjet = cadreQuiRogneCetObjet;
@@ -22103,12 +22192,37 @@ function surUneAutrePage(o) {
 window.surUneAutrePage = surUneAutrePage;
 window.noterLaPage = noterLaPage;
 
+// CE QUE L'HÔTE MONTRAIT QUAND ON A POSÉ CECI.
+//
+// « Quand je dessine à l'extérieur d'une image, je ne vois pas. » Une page
+// rognée coupe l'encre qui lui est accrochée — c'était la réponse à un autre
+// défaut : « quand je croppe et que je déplace, des bouts de ce qui était dans
+// le PDF sortent du cadre », l'encre posée sur la partie retirée s'étalant
+// autour de la page comme des bavures.
+//
+// Les deux encres sont dehors, et la géométrie seule ne les sépare pas. Ce qui
+// les sépare, c'est le MOMENT : l'une a été posée quand la page montrait plus
+// grand, l'autre en connaissance de cause, sur la page telle qu'elle est. On
+// note donc le cadrage de l'hôte à l'accroche ; il ne sert qu'à cette question.
+function marqueDAccroche(type, hote) {
+    const m = { type, id: hote.id };
+    if (type === 'image' && hote.cw !== undefined && hote.ch !== undefined) {
+        m.rogne = { cx: hote.cx, cy: hote.cy, cw: hote.cw, ch: hote.ch };
+    }
+    return m;
+}
+window.marqueDAccroche = marqueDAccroche;
+
 // Appelée quand un tracé vient d'être posé.
 function accrocherLeTrait(trait) {
     if (!encreAccrochee || !trait) return null;
     const h = hoteDuTrait(trait);
     if (!h) return null;
-    trait.surObjet = { type: h.type, id: h.id };
+    // « hoteDuTrait » rend une FICHE — type, identifiant, rang — et non l'objet :
+    // c'est lui qu'il faut pour savoir ce que la page montrait.
+    const hote = (h.type === 'image' && typeof getObjectById === 'function')
+        ? getObjectById('image', h.id) : null;
+    trait.surObjet = marqueDAccroche(h.type, hote || h);
     return h;
 }
 
@@ -22133,7 +22247,7 @@ function accrocherLePoint(pt) {
         if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
     });
     if (!choisi) return null;
-    pt.surObjet = { type: 'image', id: choisi.id };
+    pt.surObjet = marqueDAccroche('image', choisi);
     return choisi;
 }
 window.accrocherLePoint = accrocherLePoint;
@@ -22211,7 +22325,7 @@ function accrocherLeTexte(t) {
         if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
     });
     if (!choisi) return null;
-    t.surObjet = { type: 'image', id: choisi.id };
+    t.surObjet = marqueDAccroche('image', choisi);
     return choisi;
 }
 
@@ -22295,7 +22409,7 @@ function accrocherLaForme(type, o) {
     if (!milieu) return null;
     const porteur = documentPorteur(milieu.x, milieu.y);
     if (!porteur) return null;
-    if (encreAccrochee) o.surObjet = { type: 'image', id: porteur.id };
+    if (encreAccrochee) o.surObjet = marqueDAccroche('image', porteur);
     if (porteur.pluginData && porteur.pluginData.id === 'pdfDoc' && porteur.pluginData.pages > 1) {
         const marque = { id: porteur.id, page: porteur.pluginData.page };
         o.surPage = marque;
@@ -22593,6 +22707,19 @@ function documentAPresenter() {
 
 // La page présentée, s'il y en a une : son identifiant sert au fond sombre.
 let presentationEnCours = null;
+// LA PROJECTION EN PAUSE — { id, cadrage }, ou rien.
+//
+// « Quand le PDF est en mode projection et qu'on revient sur le PDF, ce serait
+// bien qu'il soit toujours en mode projection. On reste dans le mode dans
+// lequel on est. »
+//
+// Poser des exercices change de page du tableau, et une projection ne suit pas :
+// le document reste sur la sienne. Ce n'est pourtant pas la classe qui a
+// demandé d'arrêter de projeter — c'est un aller-retour. On note donc ce qu'on
+// interrompt, et la page du document le retrouve en revenant, par quelque
+// chemin qu'on y revienne : la vignette du coin, les flèches, Page↑, une
+// vignette du tiroir.
+let projectionEnPause = null;
 // Deux cadrages, comme dans un lecteur de PDF : la page entière, ou toute la
 // largeur (on défile alors verticalement). Un nouvel appui sur « D » passe de
 // l'un à l'autre.
@@ -23049,6 +23176,11 @@ window.basculerLesBarresDeLaPresentation = basculerLesBarresDeLaPresentation;
 window.etatDuPleinEcran = etatDuPleinEcran;
 
 function quitterLaPresentation() {
+    // SORTIR, C'EST SORTIR — et cela vaut aussi quand la projection est déjà en
+    // pause : une pause qui traînerait rallumerait le plein écran au prochain
+    // passage sur la page du document, contre ce qu'on vient de demander. Cette
+    // ligne est AVANT le garde-fou, qui ne regarde que la projection en cours.
+    projectionEnPause = null;
     if (!presentationEnCours) return false;
     presentationEnCours = null;
     presentationAvecBarres = false;
@@ -23084,6 +23216,16 @@ window.quitterLaPresentation = quitterLaPresentation;
 // sortie le rendra. Échap et le bouton du coin le rendent aussi, à tout moment.
 function quitterLaPresentationEnGardantLEcran() {
     if (!presentationEnCours) return false;
+    // ON GARDE AUSSI LE MODE, et non seulement l'écran : c'est une pause, pas
+    // une sortie. Le cadrage voyage avec — qui présentait « toute la largeur »
+    // ne doit pas retrouver « page entière » au retour.
+    // ON NOTE L'ÉCRAN QU'ON VOIT, et non le seul drapeau : « les outils
+    // par-dessus la page » veut dire que les barres sont là, donc qu'on n'est
+    // plus au tableau nu. Les deux vont de pair partout où l'on y touche ; c'est
+    // l'écran qui en est le témoin, et c'est lui qu'il s'agit de rendre.
+    projectionEnPause = { id: presentationEnCours, cadrage: cadrageDePresentation || 'page',
+                         barres: !!presentationAvecBarres
+                                 && !document.body.classList.contains('focus-mode') };
     presentationEnCours = null;
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
@@ -23092,6 +23234,32 @@ function quitterLaPresentationEnGardantLEcran() {
     return true;
 }
 window.quitterLaPresentationEnGardantLEcran = quitterLaPresentationEnGardantLEcran;
+
+// ON REPREND OÙ L'ON EN ÉTAIT. Appelée à chaque changement de page, elle ne
+// fait quelque chose que si la page qui arrive porte VRAIMENT le document
+// laissé en pause : tant qu'on est ailleurs, la pause attend.
+function reprendreLaProjectionEnPause() {
+    if (!projectionEnPause) return false;
+    // On projette déjà : ce n'est plus une reprise, ce serait un changement de
+    // cadrage — « presenterLeDocument » bascule page ↔ largeur au second appui.
+    if (presentationEnCours) { projectionEnPause = null; return false; }
+    const doc = (typeof getObjectById === 'function') ? getObjectById('image', projectionEnPause.id) : null;
+    if (!doc) return false;
+    const cadrage = projectionEnPause.cadrage || 'page';
+    const barres = !!projectionEnPause.barres;
+    projectionEnPause = null;
+    // Il faut le tenir pour le projeter : « documentAPresenter » part de la
+    // sélection, et « loadPage » vient de la vider.
+    selectedItems = [{ type: 'image', id: doc.id }];
+    const ouvert = !!presenterLeDocument(cadrage);
+    // ET LES OUTILS PAR-DESSUS, si c'est ainsi qu'on travaillait : « projeter »
+    // seul rend la page nue, ce qui n'est pas le mode qu'on avait.
+    if (ouvert && barres && typeof basculerLesBarresDeLaPresentation === 'function') {
+        basculerLesBarresDeLaPresentation();
+    }
+    return ouvert;
+}
+window.reprendreLaProjectionEnPause = reprendreLaProjectionEnPause;
 
 window.basculerPleinEcran = basculerPleinEcran;
 window.presenterLeDocument = presenterLeDocument;
@@ -29724,7 +29892,13 @@ function loadInterface(id) {
         // servait à rien — le message ne survit pas au rechargement — et
         // laissait à la session le temps de réécrire les barres par-dessus.
         showToast("Interface chargée ! L'application redémarre.");
-        requestAnimationFrame(() => window.location.reload());
+        // PAS PAR UNE IMAGE D'ANIMATION. « requestAnimationFrame » ne sert rien
+        // du tout à un onglet qu'on ne regarde pas, et presque rien à une
+        // machine chargée : qui change d'onglet le temps que l'interface se
+        // charge trouvait une application qui ne redémarrait jamais — sa
+        // panoplie écrite dans le stockage, et l'ancienne encore à l'écran. Un
+        // délai zéro, lui, arrive toujours, et laisse la même image au message.
+        setTimeout(() => window.location.reload(), 0);
     }
     return true;
 }

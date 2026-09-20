@@ -541,7 +541,11 @@ module.exports = async function (browser) {
                      barreDansLaPile: pile.some(x => x.id === 'bar-document' || x.id === 'quick-edit-menu') };
         };
         const doc = lu('#bar-document .barre-nom');
-        const objet = lu('#quick-edit-menu .barre-nom');
+        // CELLE DE L'OBJET N'EN A PLUS. « Pourquoi la barre écrit "l'objet" ?
+        // Ça n'a pas d'intérêt. » Les deux mots disaient laquelle des deux
+        // barres fait quoi quand elles paraissent ensemble : il suffit que
+        // l'UNE se nomme — celle du document le dit, et l'autre est l'autre.
+        const objet = document.querySelector('#quick-edit-menu .barre-nom');
 
         // DEBOUT, LE MOT S'EFFACE : couché dans une colonne de trente pixels,
         // il la ferait tripler de large pour ne rien apprendre de plus.
@@ -558,13 +562,12 @@ module.exports = async function (browser) {
         deuxBarres.partages, []);
     // NUL-SÛR : un nom absent doit se dire, pas faire tomber la suite. C'est
     // justement le cas qu'on veut voir signalé si quelqu'un retire la ligne.
-    const d = deuxBarres.doc || {}, o = deuxBarres.objet || {};
-    r.egal('et chacune porte le nom de ce qu\'elle commande',
-        [d.texte || null, o.texte || null], ['Le document', "L'objet"]);
-    r.verifie('on les voit toutes les deux', !!(d.vu && o.vu), JSON.stringify(deuxBarres));
+    const d = deuxBarres.doc || {};
+    r.egal('la barre du document porte son nom, celle de l\'objet n\'en porte plus',
+        [d.texte || null, deuxBarres.objet], ['Le document', null]);
+    r.verifie('et on le voit', !!d.vu, JSON.stringify(deuxBarres));
     r.egal('le mot ne prend pas le clic : la barre reste saisissable par là',
-        { mot: [d.dansLaPile, o.dansLaPile], barre: [d.barreDansLaPile, o.barreDansLaPile] },
-        { mot: [false, false], barre: [true, true] });
+        { mot: d.dansLaPile, barre: d.barreDansLaPile }, { mot: false, barre: true });
     r.egal('et debout, il s\'efface', deuxBarres.debout, 'none');
 
     // =====================================================================

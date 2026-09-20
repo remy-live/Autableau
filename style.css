@@ -10171,6 +10171,20 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     .bm-jeter { opacity: 0.85; }
 }
 
+/* LES DEUX POSES, EMPILÉES. La bande est couchée ; ces deux-là sont le même
+   geste à deux destinations, et se lisent donc l'un sous l'autre plutôt que
+   côte à côte, où ils passeraient pour deux commandes sans rapport. */
+.bm-poser {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.bm-poser .bm-btn {
+    padding: 4px 10px;
+    text-align: left;
+}
+
 .bm-btn {
     border: 1px solid #dfe6e9;
     background: #fff;

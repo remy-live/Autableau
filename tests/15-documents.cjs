@@ -1591,6 +1591,77 @@ module.exports = async function (browser) {
         && encreRognee.debordApres === 0,
         JSON.stringify(encreRognee));
 
+    // 1 bis. MAIS CE QU'ON ÉCRIT SUR UNE PAGE DÉJÀ ROGNÉE DÉBORDE À SON AISE.
+    //
+    // « Quand je dessine à l'extérieur d'une image, je ne vois pas — est-ce
+    // normal ? » Non : la règle d'au-dessus coupait TOUTE l'encre accrochée à
+    // une page rognée, y compris celle posée après coup, en connaissance de
+    // cause. Un trait tiré en travers d'un exercice perdait ses deux bouts.
+    //
+    // Les deux encres sont dehors, et la géométrie ne les sépare pas. Ce qui
+    // les sépare, c'est le moment : l'une a été posée quand la page montrait
+    // plus grand, l'autre sur la page telle qu'elle est. On mesure donc les
+    // deux dans la même scène, et l'on éprouve le souvenir qui les distingue.
+    const debordApresRognage = await page.evaluate(async () => {
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const carre = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">'
+            + '<rect width="400" height="400" fill="#fff"/></svg>');
+        await new Promise(res => {
+            const i = new Image();
+            i.onload = () => { imageCache[i.src] = i; res(); };
+            i.src = carre;
+        });
+        // LA PAGE EST DÉJÀ ROGNÉE quand on prend le crayon : elle ne montre
+        // que son quart haut-gauche.
+        const o = { id: nextId++, x: 300, y: 200, w: 200, h: 200, cx: 0, cy: 0, cw: 200, ch: 200,
+                    src: carre, z: globalZ++, nomFichier: 'page.png' };
+        images.push(o);
+        const rognee = documentEstRogne(o);
+        // Un trait qui part du milieu de la page et sort par la droite. Il
+        // passe par le VRAI chemin — « accrocherLeTrait » —, celui qui note ce
+        // que la page montrait.
+        // UN VRAI TRACÉ A DES POINTS TOUT DU LONG, et c'est ce que le code
+        // compte : il en faut les trois quarts sur la page pour qu'elle
+        // l'adopte. Deux points aux extrémités n'auraient rien accroché — ce
+        // n'est pas ce que fait une main qui trace.
+        const pts = [];
+        for (let i = 0; i <= 11; i++) {
+            pts.push({ x: o.x + 20 + i * ((o.w + 100) / 11), y: o.y + 100 });
+        }
+        const trait = { id: nextId++, points: pts, color: '#e74c3c', width: 5, z: globalZ++ };
+        freehands.push(trait);
+        accrocherLeTrait(trait);
+        draw();
+        const dehors = () => {
+            const x0 = Math.round((o.x + o.w) * zoom + panX) + 4;
+            const d = ctx.getImageData(x0, 0, Math.max(1, canvas.width - x0), canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 180 && d[i + 1] < 110 && d[i + 2] < 110) n++;
+            }
+            return n;
+        };
+        const debord = dehors();
+        // ET LA RÈGLE D'ORIGINE TIENT TOUJOURS : si l'on rogne ENCORE après
+        // avoir écrit, ce trait-là n'a plus été posé sur la page qu'on voit, et
+        // il se coupe comme les autres.
+        const memoire = !!(trait.surObjet && trait.surObjet.rogne);
+        o.cw = 120; o.w = 120;
+        draw();
+        const debordApres = dehors();
+        images.length = 0; freehands.length = 0; draw();
+        return { rognee, accroche: !!trait.surObjet, memoire, debord, debordApres };
+    });
+    r.verifie('le trait est bien accroché à la page, et sait ce qu\'elle montrait',
+        debordApresRognage.accroche && debordApresRognage.memoire && debordApresRognage.rognee,
+        JSON.stringify(debordApresRognage));
+    r.verifie('écrit sur une page déjà rognée, ce qui dépasse se voit : on l\'a voulu là',
+        debordApresRognage.debord > 100, JSON.stringify(debordApresRognage));
+    r.verifie('et rogner ENCORE après coup le coupe, comme la règle le veut',
+        debordApresRognage.debordApres === 0, JSON.stringify(debordApresRognage));
+
     // 2. UN POINT POSÉ SUR LA PAGE LUI APPARTIENT. L'encre, les textes et les
     // figures s'y accrochaient ; le point posé seul, non — on marquait un
     // endroit, on déplaçait le polycopié, et la croix restait sur le tableau.
@@ -3742,6 +3813,241 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => {
         images.length = 0; rectangles.length = 0; selectedItems = [];
+        setMode('pointer'); updateStyleBarContext(); draw();
+    });
+
+    // =====================================================================
+    // ON RESTE DANS LE MODE DANS LEQUEL ON EST
+    //
+    // « Quand le PDF est en mode projection et qu'on revient sur le PDF, ce
+    // serait bien qu'il soit toujours en mode projection. On reste dans le mode
+    // dans lequel on est. »
+    //
+    // Poser des exercices change de page du tableau, et une projection ne peut
+    // pas suivre : le document reste sur la sienne. Mais ce n'est pas la classe
+    // qui a demandé d'arrêter de projeter — c'est un aller-retour. La projection
+    // se met donc en PAUSE, et la page du document la retrouve en revenant.
+    //
+    // DEUX DÉFAUTS ICI, ET LE PREMIER ÉTAIT MESURABLE : le drapeau « on le
+    // projetait », noté au découpage et recopié par « poser un morceau seul »,
+    // était PERDU par « Poser » — la vignette de retour ramenait alors le
+    // document au tableau au lieu de le rendre en grand.
+    // =====================================================================
+    const laScene = async () => await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 800;
+        const g = c.getContext('2d'); g.fillStyle = '#eee'; g.fillRect(0, 0, 600, 800);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        // UN TABLEAU D'UNE SEULE PAGE, pour que les rangs se lisent sans compter
+        // ce que les blocs précédents ont laissé.
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; rectangles.length = 0; selectedItems = [];
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 600, ch: 800,
+                      src: url, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'zz', page: 1, pages: 3 } };
+        images.push(doc);
+        documentsPdf.set('zz', { pages: 3 });
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        return doc.id;
+    });
+
+    // Découper sur la page du document, quel que soit l'endroit où l'on est.
+    const couper = (combien) => page.evaluate((n) => {
+        loadPage(0);
+        const d = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        basculerLaDecoupe(true);
+        for (let i = 0; i < n; i++) {
+            const rr = { x: d.x + d.w * 0.1, y: d.y + d.h * (0.1 + i * 0.25), l: d.w * 0.4, h: d.h * 0.2 };
+            decoupeGeste = { obj: d, debut: { x: rr.x, y: rr.y }, rect: rr };
+            finirGesteDeDecoupe();
+        }
+        basculerLaDecoupe(false);
+        return morceauxEnAttente.length;
+    }, combien);
+
+    await laScene();
+    const enPause = await page.evaluate(() => {
+        // On projette « toute la largeur » : le cadrage doit voyager avec la
+        // pause, sinon on revient sur une page entière qu'on n'a pas demandée.
+        presenterLeDocument('largeur');
+        return { etat: etatDuPleinEcran(), cadrage: cadrageDePresentation, pageDuDocument: currentPageIndex };
+    });
+    r.egal('on projette le document, en largeur',
+        { etat: enPause.etat, cadrage: enPause.cadrage }, { etat: 1, cadrage: 'largeur' });
+
+    await couper(2);
+    const posee = await page.evaluate(() => {
+        const auTiroir = morceauxEnAttente.map(m => !!m.projete);
+        poserTousLesMorceaux();
+        return {
+            auTiroir,
+            // LE DRAPEAU SURVIT À LA POSE : c'est lui que la vignette de retour lit.
+            surLesPoses: images.filter(o => o.pluginData && o.pluginData.id === 'morceau')
+                               .map(o => !!o.pluginData.projete),
+            page: currentPageIndex, etat: etatDuPleinEcran(),
+            // L'écran, lui, est gardé : la classe ne voit pas reparaître les barres.
+            nu: document.body.classList.contains('focus-mode'),
+            enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause)
+        };
+    });
+    r.verifie('le tiroir sait qu\'on projetait au moment du découpage',
+        posee.auTiroir.length === 2 && posee.auTiroir.every(Boolean), JSON.stringify(posee));
+    r.verifie('et les morceaux POSÉS le savent encore — c\'est ce qui était perdu',
+        posee.surLesPoses.length === 2 && posee.surLesPoses.every(Boolean), JSON.stringify(posee));
+    r.verifie('poser range la projection sans rendre les barres, et la met en pause',
+        posee.etat === 0 && posee.nu === true && posee.enPause === true, JSON.stringify(posee));
+
+    const retour = await page.evaluate(() => {
+        loadPage(0);   // le geste des flèches du coin, ou de Page↑
+        return { etat: etatDuPleinEcran(), cadrage: cadrageDePresentation,
+                 page: currentPageIndex, enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause) };
+    });
+    r.egal('revenir sur la page du document le rend en grand, dans son cadrage',
+        { etat: retour.etat, cadrage: retour.cadrage, enPause: retour.enPause },
+        { etat: 1, cadrage: 'largeur', enPause: false });
+
+    // UNE TROISIÈME PAGE NE RALLUME RIEN, et la pause attend : ce serait
+    // projeter la page de quelqu'un d'autre.
+    await laScene();
+    await page.evaluate(() => presenterLeDocument());
+    await couper(1);
+    const ailleurs = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        pages.push(createNewPage());
+        loadPage(pages.length - 1);
+        const surLaTierce = { etat: etatDuPleinEcran(), enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause) };
+        loadPage(0);
+        return { surLaTierce, puis: etatDuPleinEcran() };
+    });
+    r.verifie('une page qui ne porte pas le document ne rallume rien, et la pause attend',
+        ailleurs.surLaTierce.etat === 0 && ailleurs.surLaTierce.enPause === true,
+        JSON.stringify(ailleurs));
+    r.egal('la page du document, elle, la reprend', ailleurs.puis, 1);
+
+    // ET LE MODE, C'EST AUSSI « LES OUTILS PAR-DESSUS LA PAGE ». Deuxième temps
+    // du plein écran : la page reste en grand et les barres reviennent, pour
+    // écrire dessus. Revenir en projetant la page NUE ne serait pas le mode
+    // qu'on avait.
+    await laScene();
+    await page.evaluate(() => {
+        presenterLeDocument();
+        basculerLesBarresDeLaPresentation();   // les outils par-dessus
+    });
+    await couper(1);
+    const avecBarres = await page.evaluate(() => {
+        const avant = { etat: etatDuPleinEcran(), nu: document.body.classList.contains('focus-mode') };
+        poserTousLesMorceaux();
+        loadPage(0);
+        return { avant, apres: { etat: etatDuPleinEcran(),
+                                 nu: document.body.classList.contains('focus-mode') } };
+    });
+    r.egal('on revient avec les outils par-dessus la page, si c\'est ainsi qu\'on travaillait',
+        avecBarres, { avant: { etat: 2, nu: false }, apres: { etat: 2, nu: false } });
+
+    // ET « TOUT REMETTRE » Y RENONCE. Sortir du tableau nu, c'est dire
+    // « rends-moi tout » : rallumer le plein écran au prochain passage sur la
+    // page du document serait le contraire de ce qu'on vient de demander.
+    await laScene();
+    await page.evaluate(() => presenterLeDocument());
+    await couper(1);
+    const croix = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        const avant = (typeof projectionEnPause !== 'undefined' && !!projectionEnPause);
+        poserLAffichage(0);
+        const apres = (typeof projectionEnPause !== 'undefined' && !!projectionEnPause);
+        loadPage(0);
+        return { avant, apres, etat: etatDuPleinEcran() };
+    });
+    r.egal('« Tout remettre » annule la reprise', croix, { avant: true, apres: false, etat: 0 });
+
+    // =====================================================================
+    // OÙ POSER : DEUX ENTRÉES, AU MOMENT DE POSER
+    //
+    // « Ça ne crée pas une nouvelle page, ça le met sur la page 2 ; il faudrait
+    // que ce soit une option. » L'appui simple garde le geste de tous les jours
+    // — une fiche d'exercices se construit en plusieurs découpages. L'appui
+    // long, ou le clic droit, ouvre le choix.
+    // =====================================================================
+    await laScene();
+    await couper(1);
+    const premier = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    await couper(1);
+    const second = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('un simple appui : les bouts suivants rejoignent la page des exercices',
+        { pages: second.pages, page: second.page, dessus: second.dessus },
+        { pages: premier.pages, page: premier.page, dessus: 2 });
+
+    // ET LE SECOND GESTE SE VOIT : deux boutons, l'un SOUS l'autre. Il avait
+    // d'abord été caché sous un appui long — « soit il y a "je pose à côté", et
+    // en dessous "je pose dans une nouvelle page" » : un choix qu'on ne voit
+    // pas n'existe pas.
+    await couper(1);   // le tiroir ne paraît qu'avec un morceau dedans
+    const deuxBoutons = await page.evaluate(() => {
+        const b = document.getElementById('bm-ranger');
+        const n = document.getElementById('bm-ranger-neuve');
+        // Le geste peut manquer tout entier : on le dit, on ne plante pas — un
+        // chapitre qui s'arrête ne rend compte de rien.
+        if (!n) return { absent: true, mots: [] };
+        const rb = b.getBoundingClientRect(), rn = n.getBoundingClientRect();
+        return {
+            vus: getComputedStyle(b).display !== 'none' && getComputedStyle(n).display !== 'none'
+                 && rb.width > 10 && rn.width > 10,
+            // EN DESSOUS, et non à côté : c'est la demande, au mot près.
+            enDessous: Math.round(rn.top) >= Math.round(rb.bottom) - 1,
+            memeColonne: Math.abs(rb.left - rn.left) < 2,
+            mots: [b.textContent.trim(), n.textContent.trim()],
+            bulle: n.getAttribute('data-tooltip') || ''
+        };
+    });
+    r.verifie('le tiroir montre les deux poses, la neuve EN DESSOUS de l\'autre',
+        deuxBoutons.vus && deuxBoutons.enDessous && deuxBoutons.memeColonne,
+        JSON.stringify(deuxBoutons));
+    r.verifie('et chacune dit où elle pose',
+        /poser/i.test(deuxBoutons.mots[0] || '') && /neuve/i.test(deuxBoutons.mots[1] || '')
+        && /neuve/i.test(deuxBoutons.bulle), JSON.stringify(deuxBoutons));
+
+    const neuve = await page.evaluate(() => {
+        const n = document.getElementById('bm-ranger-neuve');
+        if (!n) return { absent: true };
+        n.click();   // le vrai bouton, le vrai clic
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('« sur une page neuve » ouvre bien une page de plus, et n\'y met que ces bouts-là',
+        { pages: neuve.pages, page: neuve.page, dessus: neuve.dessus },
+        { pages: second.pages + 1, page: second.page + 1, dessus: 1 });
+
+    // ET C'EST DÉSORMAIS ELLE QU'ON REJOINT : chercher la page des exercices par
+    // le DÉBUT aurait renvoyé les bouts suivants sur la première, et la page
+    // neuve n'aurait servi qu'un tour.
+    await couper(1);
+    const apresLaNeuve = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('le découpage suivant rejoint la page neuve, et non la première',
+        apresLaNeuve, { pages: neuve.pages, page: neuve.page, dessus: 2 });
+
+    await page.evaluate(() => {
+        if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        images.length = 0; rectangles.length = 0; selectedItems = [];
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
         setMode('pointer'); updateStyleBarContext(); draw();
     });
 
