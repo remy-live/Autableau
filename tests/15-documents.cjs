@@ -1591,6 +1591,77 @@ module.exports = async function (browser) {
         && encreRognee.debordApres === 0,
         JSON.stringify(encreRognee));
 
+    // 1 bis. MAIS CE QU'ON ÉCRIT SUR UNE PAGE DÉJÀ ROGNÉE DÉBORDE À SON AISE.
+    //
+    // « Quand je dessine à l'extérieur d'une image, je ne vois pas — est-ce
+    // normal ? » Non : la règle d'au-dessus coupait TOUTE l'encre accrochée à
+    // une page rognée, y compris celle posée après coup, en connaissance de
+    // cause. Un trait tiré en travers d'un exercice perdait ses deux bouts.
+    //
+    // Les deux encres sont dehors, et la géométrie ne les sépare pas. Ce qui
+    // les sépare, c'est le moment : l'une a été posée quand la page montrait
+    // plus grand, l'autre sur la page telle qu'elle est. On mesure donc les
+    // deux dans la même scène, et l'on éprouve le souvenir qui les distingue.
+    const debordApresRognage = await page.evaluate(async () => {
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const carre = 'data:image/svg+xml;base64,' + btoa(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">'
+            + '<rect width="400" height="400" fill="#fff"/></svg>');
+        await new Promise(res => {
+            const i = new Image();
+            i.onload = () => { imageCache[i.src] = i; res(); };
+            i.src = carre;
+        });
+        // LA PAGE EST DÉJÀ ROGNÉE quand on prend le crayon : elle ne montre
+        // que son quart haut-gauche.
+        const o = { id: nextId++, x: 300, y: 200, w: 200, h: 200, cx: 0, cy: 0, cw: 200, ch: 200,
+                    src: carre, z: globalZ++, nomFichier: 'page.png' };
+        images.push(o);
+        const rognee = documentEstRogne(o);
+        // Un trait qui part du milieu de la page et sort par la droite. Il
+        // passe par le VRAI chemin — « accrocherLeTrait » —, celui qui note ce
+        // que la page montrait.
+        // UN VRAI TRACÉ A DES POINTS TOUT DU LONG, et c'est ce que le code
+        // compte : il en faut les trois quarts sur la page pour qu'elle
+        // l'adopte. Deux points aux extrémités n'auraient rien accroché — ce
+        // n'est pas ce que fait une main qui trace.
+        const pts = [];
+        for (let i = 0; i <= 11; i++) {
+            pts.push({ x: o.x + 20 + i * ((o.w + 100) / 11), y: o.y + 100 });
+        }
+        const trait = { id: nextId++, points: pts, color: '#e74c3c', width: 5, z: globalZ++ };
+        freehands.push(trait);
+        accrocherLeTrait(trait);
+        draw();
+        const dehors = () => {
+            const x0 = Math.round((o.x + o.w) * zoom + panX) + 4;
+            const d = ctx.getImageData(x0, 0, Math.max(1, canvas.width - x0), canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 180 && d[i + 1] < 110 && d[i + 2] < 110) n++;
+            }
+            return n;
+        };
+        const debord = dehors();
+        // ET LA RÈGLE D'ORIGINE TIENT TOUJOURS : si l'on rogne ENCORE après
+        // avoir écrit, ce trait-là n'a plus été posé sur la page qu'on voit, et
+        // il se coupe comme les autres.
+        const memoire = !!(trait.surObjet && trait.surObjet.rogne);
+        o.cw = 120; o.w = 120;
+        draw();
+        const debordApres = dehors();
+        images.length = 0; freehands.length = 0; draw();
+        return { rognee, accroche: !!trait.surObjet, memoire, debord, debordApres };
+    });
+    r.verifie('le trait est bien accroché à la page, et sait ce qu\'elle montrait',
+        debordApresRognage.accroche && debordApresRognage.memoire && debordApresRognage.rognee,
+        JSON.stringify(debordApresRognage));
+    r.verifie('écrit sur une page déjà rognée, ce qui dépasse se voit : on l\'a voulu là',
+        debordApresRognage.debord > 100, JSON.stringify(debordApresRognage));
+    r.verifie('et rogner ENCORE après coup le coupe, comme la règle le veut',
+        debordApresRognage.debordApres === 0, JSON.stringify(debordApresRognage));
+
     // 2. UN POINT POSÉ SUR LA PAGE LUI APPARTIENT. L'encre, les textes et les
     // figures s'y accrochaient ; le point posé seul, non — on marquait un
     // endroit, on déplaçait le polycopié, et la croix restait sur le tableau.
@@ -3920,36 +3991,39 @@ module.exports = async function (browser) {
         { pages: second.pages, page: second.page, dessus: second.dessus },
         { pages: premier.pages, page: premier.page, dessus: 2 });
 
-    // LE GESTE EXISTE ET IL SE VOIT : le repère en coin du bouton, et l'infobulle.
-    const menu = await page.evaluate(() => {
+    // ET LE SECOND GESTE SE VOIT : deux boutons, l'un SOUS l'autre. Il avait
+    // d'abord été caché sous un appui long — « soit il y a "je pose à côté", et
+    // en dessous "je pose dans une nouvelle page" » : un choix qu'on ne voit
+    // pas n'existe pas.
+    await couper(1);   // le tiroir ne paraît qu'avec un morceau dedans
+    const deuxBoutons = await page.evaluate(() => {
         const b = document.getElementById('bm-ranger');
+        const n = document.getElementById('bm-ranger-neuve');
         // Le geste peut manquer tout entier : on le dit, on ne plante pas — un
         // chapitre qui s'arrête ne rend compte de rien.
-        if (typeof ouvrirLeChoixDeLaPagePourPoser !== 'function') return { absent: true, entrees: [] };
-        ouvrirLeChoixDeLaPagePourPoser(b);
-        const p = document.getElementById('panneau-appui');
+        if (!n) return { absent: true, mots: [] };
+        const rb = b.getBoundingClientRect(), rn = n.getBoundingClientRect();
         return {
-            repere: b.classList.contains('a-appui-long'),
-            bulle: b.getAttribute('data-tooltip') || '',
-            titre: p ? p.querySelector('.rp-titre').textContent : null,
-            entrees: p ? Array.from(p.querySelectorAll('button')).map(x => x.textContent.trim()) : []
+            vus: getComputedStyle(b).display !== 'none' && getComputedStyle(n).display !== 'none'
+                 && rb.width > 10 && rn.width > 10,
+            // EN DESSOUS, et non à côté : c'est la demande, au mot près.
+            enDessous: Math.round(rn.top) >= Math.round(rb.bottom) - 1,
+            memeColonne: Math.abs(rb.left - rn.left) < 2,
+            mots: [b.textContent.trim(), n.textContent.trim()],
+            bulle: n.getAttribute('data-tooltip') || ''
         };
     });
-    r.verifie('le bouton « Poser » porte le repère de l\'appui long, et le dit',
-        menu.repere === true && /page neuve/i.test(menu.bulle), JSON.stringify(menu));
-    r.verifie('l\'appui long ouvre deux entrées : la page des exercices, ou une page neuve',
-        menu.entrees.length === 2 && /exercices/i.test(menu.entrees[0])
-        && /neuve/i.test(menu.entrees[1]), JSON.stringify(menu));
+    r.verifie('le tiroir montre les deux poses, la neuve EN DESSOUS de l\'autre',
+        deuxBoutons.vus && deuxBoutons.enDessous && deuxBoutons.memeColonne,
+        JSON.stringify(deuxBoutons));
+    r.verifie('et chacune dit où elle pose',
+        /poser/i.test(deuxBoutons.mots[0] || '') && /neuve/i.test(deuxBoutons.mots[1] || '')
+        && /neuve/i.test(deuxBoutons.bulle), JSON.stringify(deuxBoutons));
 
-    await couper(1);
     const neuve = await page.evaluate(() => {
-        const p = document.getElementById('panneau-appui');
-        if (p) p.remove();
-        const b = document.getElementById('bm-ranger');
-        if (typeof ouvrirLeChoixDeLaPagePourPoser !== 'function') return { absent: true };
-        ouvrirLeChoixDeLaPagePourPoser(b);
-        // La seconde entrée, par le vrai clic.
-        document.getElementById('panneau-appui').querySelectorAll('button')[1].click();
+        const n = document.getElementById('bm-ranger-neuve');
+        if (!n) return { absent: true };
+        n.click();   // le vrai bouton, le vrai clic
         return { pages: pages.length, page: currentPageIndex,
                  dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
     });

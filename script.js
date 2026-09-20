@@ -16240,10 +16240,14 @@ function majLeBoutonPoser() {
     if (!b) return;
     const occupe = (typeof boiteDuTravail === 'function') && !!boiteDuTravail();
     b.textContent = occupe ? '⇥ Poser à côté' : '⇥ Poser';
-    b.setAttribute('data-tooltip', (occupe
+    b.setAttribute('data-tooltip', occupe
         ? 'Poser tous les morceaux côte à côte sur la page des exercices de ce document'
-        : 'Poser tous les morceaux côte à côte sur cette page vierge')
-        + ' — appui long : sur une page neuve');
+        : 'Poser tous les morceaux côte à côte sur cette page vierge');
+    const neuve = document.getElementById('bm-ranger-neuve');
+    if (neuve) {
+        neuve.setAttribute('data-tooltip',
+            'Poser tous les morceaux sur une page de tableau neuve — les découpages suivants la rejoindront');
+    }
 }
 
 function majLaPageDuTiroir() {
@@ -16260,33 +16264,25 @@ function majLaPageDuTiroir() {
     if (suiv) suiv.disabled = currentPageIndex >= pages.length - 1;
 }
 
-// OÙ POSER : DEUX ENTRÉES, AU MOMENT DE POSER.
+// OÙ POSER : DEUX BOUTONS, ET ON VOIT LES DEUX.
 //
 // « Ça ne crée pas une nouvelle page, ça le met sur la page 2 ; il faudrait que
-// ce soit une option. » L'appui simple garde le geste de tous les jours — les
-// bouts rejoignent la page d'exercices de ce document, car une fiche se
-// construit en plusieurs découpages. L'appui long, ou le clic droit, ouvre le
-// choix : une page neuve, quand la série qui commence n'a rien à voir avec la
-// précédente. Rien n'est retenu d'une fois sur l'autre ; c'est un choix de ce
-// moment-là, et le petit repère en coin du bouton dit qu'il existe.
-function ouvrirLeChoixDeLaPagePourPoser(bouton) {
-    if (typeof ouvrirPanneauAppui !== 'function') return;
-    ouvrirPanneauAppui(bouton, 'Où poser les exercices', [
-        { nom: '⇥ Sur la page des exercices', actif: true,
-          action: () => poserTousLesMorceaux() },
-        { nom: '＋ Sur une page neuve',
-          action: () => poserTousLesMorceaux({ pageNeuve: true }) }
-    ]);
-}
-window.ouvrirLeChoixDeLaPagePourPoser = ouvrirLeChoixDeLaPagePourPoser;
-
+// ce soit une option. » Puis, en voyant l'appui long : « soit il y a "je pose à
+// côté", et en dessous "je pose dans une nouvelle page". » Un choix caché sous
+// un appui long n'existe pas — et celui-ci se prend à chaque découpage, pas une
+// fois pour toutes.
+//
+// Le premier garde le geste de tous les jours : les bouts rejoignent la page
+// d'exercices de ce document, car une fiche se construit en plusieurs
+// découpages. Le second ouvre une page de plus, quand la série qui commence
+// n'a rien à voir avec la précédente — et c'est elle que les découpages
+// suivants rejoindront.
 function brancherLeTiroirDesMorceaux() {
     const ranger = document.getElementById('bm-ranger');
     // Sans la parenthèse, le clic passerait son événement pour des options.
     if (ranger) ranger.addEventListener('click', () => poserTousLesMorceaux());
-    if (ranger && typeof poserAppuiLong === 'function') {
-        poserAppuiLong(ranger, (b) => ouvrirLeChoixDeLaPagePourPoser(b));
-    }
+    const neuve = document.getElementById('bm-ranger-neuve');
+    if (neuve) neuve.addEventListener('click', () => poserTousLesMorceaux({ pageNeuve: true }));
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
     const prec = document.getElementById('bm-page-prec');
@@ -16709,6 +16705,14 @@ function cadreQuiRogneCetObjet(obj) {
     const hote = (typeof getObjectById === 'function') ? getObjectById('image', obj.surObjet.id) : null;
     if (!hote || hote.angle || hote.rotation) return null;
     if (!documentEstRogne(hote)) return null;
+    // ON NE COUPE QUE CE QUI A ÉTÉ ÉCRIT SUR UNE PAGE PLUS GRANDE. Si la page
+    // montre exactement ce qu'elle montrait quand on a posé ce trait, alors ce
+    // qui dépasse dépasse parce qu'on l'a voulu : un trait tiré en travers d'un
+    // exercice, une flèche qui part dans la marge. C'est la règle des pages
+    // entières, étendue aux pages rognées APRÈS coup.
+    const vu = obj.surObjet.rogne;
+    if (vu && Math.abs(vu.cx - hote.cx) < 0.5 && Math.abs(vu.cy - hote.cy) < 0.5
+        && Math.abs(vu.cw - hote.cw) < 0.5 && Math.abs(vu.ch - hote.ch) < 0.5) return null;
     return hote;
 }
 window.cadreQuiRogneCetObjet = cadreQuiRogneCetObjet;
@@ -22188,12 +22192,37 @@ function surUneAutrePage(o) {
 window.surUneAutrePage = surUneAutrePage;
 window.noterLaPage = noterLaPage;
 
+// CE QUE L'HÔTE MONTRAIT QUAND ON A POSÉ CECI.
+//
+// « Quand je dessine à l'extérieur d'une image, je ne vois pas. » Une page
+// rognée coupe l'encre qui lui est accrochée — c'était la réponse à un autre
+// défaut : « quand je croppe et que je déplace, des bouts de ce qui était dans
+// le PDF sortent du cadre », l'encre posée sur la partie retirée s'étalant
+// autour de la page comme des bavures.
+//
+// Les deux encres sont dehors, et la géométrie seule ne les sépare pas. Ce qui
+// les sépare, c'est le MOMENT : l'une a été posée quand la page montrait plus
+// grand, l'autre en connaissance de cause, sur la page telle qu'elle est. On
+// note donc le cadrage de l'hôte à l'accroche ; il ne sert qu'à cette question.
+function marqueDAccroche(type, hote) {
+    const m = { type, id: hote.id };
+    if (type === 'image' && hote.cw !== undefined && hote.ch !== undefined) {
+        m.rogne = { cx: hote.cx, cy: hote.cy, cw: hote.cw, ch: hote.ch };
+    }
+    return m;
+}
+window.marqueDAccroche = marqueDAccroche;
+
 // Appelée quand un tracé vient d'être posé.
 function accrocherLeTrait(trait) {
     if (!encreAccrochee || !trait) return null;
     const h = hoteDuTrait(trait);
     if (!h) return null;
-    trait.surObjet = { type: h.type, id: h.id };
+    // « hoteDuTrait » rend une FICHE — type, identifiant, rang — et non l'objet :
+    // c'est lui qu'il faut pour savoir ce que la page montrait.
+    const hote = (h.type === 'image' && typeof getObjectById === 'function')
+        ? getObjectById('image', h.id) : null;
+    trait.surObjet = marqueDAccroche(h.type, hote || h);
     return h;
 }
 
@@ -22218,7 +22247,7 @@ function accrocherLePoint(pt) {
         if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
     });
     if (!choisi) return null;
-    pt.surObjet = { type: 'image', id: choisi.id };
+    pt.surObjet = marqueDAccroche('image', choisi);
     return choisi;
 }
 window.accrocherLePoint = accrocherLePoint;
@@ -22296,7 +22325,7 @@ function accrocherLeTexte(t) {
         if (!choisi || (i.z || 0) > (choisi.z || 0)) choisi = i;   // celui du dessus
     });
     if (!choisi) return null;
-    t.surObjet = { type: 'image', id: choisi.id };
+    t.surObjet = marqueDAccroche('image', choisi);
     return choisi;
 }
 
@@ -22380,7 +22409,7 @@ function accrocherLaForme(type, o) {
     if (!milieu) return null;
     const porteur = documentPorteur(milieu.x, milieu.y);
     if (!porteur) return null;
-    if (encreAccrochee) o.surObjet = { type: 'image', id: porteur.id };
+    if (encreAccrochee) o.surObjet = marqueDAccroche('image', porteur);
     if (porteur.pluginData && porteur.pluginData.id === 'pdfDoc' && porteur.pluginData.pages > 1) {
         const marque = { id: porteur.id, page: porteur.pluginData.page };
         o.surPage = marque;

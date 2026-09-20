@@ -345,8 +345,13 @@
              pour changer une seule chose, devant la classe. Rempli à la
              sélection, vide le reste du temps. -->
         <!-- Son pendant : voir la barre du document. Celle-ci agit sur l'objet
-             en tant qu'objet, quel qu'il soit. -->
-        <span class="barre-nom">L'objet</span>
+             en tant qu'objet, quel qu'il soit.
+             SANS SON NOM. « Pourquoi la barre écrit "l'objet" ? Ça n'a pas
+             d'intérêt. » Les deux mots avaient été mis pour dire laquelle des
+             deux barres fait quoi quand elles paraissent ensemble — mais il
+             suffit que l'UNE se nomme : celle du document le dit, et celle-ci
+             est l'autre. Sur un segment, où l'autre barre n'existe pas, il n'y
+             avait rien à distinguer du tout. -->
         <div id="quick-plugin-actions"></div>
         <button class="btn-quick" id="btn-quick-lock" title="Verrouiller la position et l'édition">
             <svg xmlns="http://www.w3.org/2000/svg" id="icon-quick-lock" viewBox="0 0 24 24" fill="none"
@@ -512,11 +517,19 @@
             <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
             <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
         </span>
-        <!-- Le libellé suit la page : « Poser à côté » là où il y a déjà
-             quelque chose, « Poser » sur une page vierge. Son infobulle aussi,
-             et c'est « majLeBoutonPoser » qui la pose : rien d'écrit ici, qui
-             serait effacé au chargement sans avoir jamais paru. -->
-        <button class="bm-btn" id="bm-ranger">⇥ Poser</button>
+        <!-- DEUX BOUTONS, L'UN SOUS L'AUTRE, ET ON VOIT LES DEUX.
+             « Soit il y a "je pose à côté", et en dessous "je pose dans une
+             nouvelle page". » Le second geste avait d'abord été caché sous un
+             appui long : un choix qu'on ne voit pas n'existe pas, et celui-ci
+             se prend à chaque découpage, pas une fois pour toutes.
+             Le libellé du premier suit la page — « Poser à côté » là où il y a
+             déjà quelque chose, « Poser » sur une page vierge. Son infobulle
+             aussi, et c'est « majLeBoutonPoser » qui les pose : rien d'écrit
+             ici, qui serait effacé au chargement sans avoir jamais paru. -->
+        <span class="bm-poser">
+            <button class="bm-btn" id="bm-ranger">⇥ Poser</button>
+            <button class="bm-btn" id="bm-ranger-neuve">＋ Sur une page neuve</button>
+        </span>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
 
