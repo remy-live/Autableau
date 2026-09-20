@@ -7139,6 +7139,28 @@ function placerLaBarreDuDocument() {
     barre.style.left = '50%';
     barre.style.transform = 'translateX(-50%)';
     barre.style.right = 'auto';
+    // EN PLEIN ÉCRAN, ELLE EST EN BAS. « Que la toolbar du PDF en plein écran
+    // soit par défaut en bas. » Une page projetée occupe tout l'écran : on la
+    // lit du haut vers le bas, et c'est le haut qu'on regarde en premier. La
+    // barre n'y saute plus d'un bord à l'autre pour autant — ce qui était le
+    // reproche d'avant : elle ne change de place qu'en entrant dans le plein
+    // écran ou en en sortant, jamais en montrant ou en rangeant les outils,
+    // puisque la projection, elle, ne s'arrête pas pour si peu.
+    const enPlein = (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
+    if (enPlein) {
+        barre.style.top = 'auto';
+        // Le tiroir à morceaux vit au même bord : on se pose au-dessus de lui
+        // plutôt que dessous, sinon deux meubles se recouvrent.
+        let bas = 20;
+        const morceaux = document.getElementById('bande-morceaux');
+        if (morceaux && !morceaux.hidden) {
+            const r = morceaux.getBoundingClientRect();
+            if (r.height > 4) bas = Math.max(bas, Math.round(window.innerHeight - r.top) + 12);
+        }
+        barre.style.bottom = bas + 'px';
+        signalerLaBarreDuDocument(barre);
+        return;
+    }
     barre.style.bottom = 'auto';
     const tiroirHaut = document.getElementById('bar-plugins');
     barre.style.top = (tiroirHaut && tiroirEnPlace(tiroirHaut)
@@ -23157,12 +23179,38 @@ function majBoutonPresenterDeLEcran() {
 }
 window.majBoutonPresenterDeLEcran = majBoutonPresenterDeLEcran;
 
+// RANGER LES TIROIRS SANS LES PERDRE. Ils gardent leur propre fermeture — la
+// même qu'un clic sur leur languette —, si bien qu'ils se rouvrent d'un doigt.
+function rangerLesTiroirs() {
+    const bas = document.getElementById('bottom-drawer');
+    if (bas && !bas.classList.contains('closed') && typeof toggleBottomDrawer === 'function') {
+        toggleBottomDrawer();
+    }
+    const haut = document.getElementById('bar-plugins');
+    if (haut && !haut.classList.contains('closed') && typeof togglePluginDrawer === 'function') {
+        togglePluginDrawer();
+    }
+    const droite = document.getElementById('right-drawer');
+    if (droite && droite.classList.contains('open') && typeof toggleRightDrawer === 'function') {
+        toggleRightDrawer();
+    }
+}
+window.rangerLesTiroirs = rangerLesTiroirs;
+
 function basculerLesBarresDeLaPresentation() {
     if (typeof presentationEnCours === 'undefined' || !presentationEnCours) return false;
     const avec = !presentationAvecBarres;
     presentationAvecBarres = avec;
     const enFocus = document.body.classList.contains('focus-mode');
     if (avec && enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
+    // QUE LES OUTILS, PAS LES TIROIRS. « Le bouton qui ouvre les tiroirs et les
+    // toolbars ne devrait faire apparaître que la toolbar, le tiroir étant de
+    // toute façon accessible avec la poignée. » On projette une page et l'on
+    // veut écrire dessus : ce sont les outils qu'on demande. Les tiroirs, eux,
+    // servent à préparer — et ils mangeaient le haut et le bas de la page
+    // qu'on venait de mettre en grand. Ils se ferment comme on les ferme à la
+    // main : leur languette reste, un doigt les rouvre.
+    if (avec) rangerLesTiroirs();
     if (!avec && !enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
     if (typeof majBarreDocument === 'function') majBarreDocument();
     if (typeof draw === 'function') draw();
