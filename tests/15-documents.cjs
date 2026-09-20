@@ -3745,6 +3745,238 @@ module.exports = async function (browser) {
         setMode('pointer'); updateStyleBarContext(); draw();
     });
 
+    // =====================================================================
+    // ON RESTE DANS LE MODE DANS LEQUEL ON EST
+    //
+    // « Quand le PDF est en mode projection et qu'on revient sur le PDF, ce
+    // serait bien qu'il soit toujours en mode projection. On reste dans le mode
+    // dans lequel on est. »
+    //
+    // Poser des exercices change de page du tableau, et une projection ne peut
+    // pas suivre : le document reste sur la sienne. Mais ce n'est pas la classe
+    // qui a demandé d'arrêter de projeter — c'est un aller-retour. La projection
+    // se met donc en PAUSE, et la page du document la retrouve en revenant.
+    //
+    // DEUX DÉFAUTS ICI, ET LE PREMIER ÉTAIT MESURABLE : le drapeau « on le
+    // projetait », noté au découpage et recopié par « poser un morceau seul »,
+    // était PERDU par « Poser » — la vignette de retour ramenait alors le
+    // document au tableau au lieu de le rendre en grand.
+    // =====================================================================
+    const laScene = async () => await page.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600; c.height = 800;
+        const g = c.getContext('2d'); g.fillStyle = '#eee'; g.fillRect(0, 0, 600, 800);
+        const url = c.toDataURL('image/png');
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = url; });
+        imageCache[url] = img;
+        // UN TABLEAU D'UNE SEULE PAGE, pour que les rangs se lisent sans compter
+        // ce que les blocs précédents ont laissé.
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; rectangles.length = 0; selectedItems = [];
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 600, ch: 800,
+                      src: url, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'zz', page: 1, pages: 3 } };
+        images.push(doc);
+        documentsPdf.set('zz', { pages: 3 });
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        return doc.id;
+    });
+
+    // Découper sur la page du document, quel que soit l'endroit où l'on est.
+    const couper = (combien) => page.evaluate((n) => {
+        loadPage(0);
+        const d = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        basculerLaDecoupe(true);
+        for (let i = 0; i < n; i++) {
+            const rr = { x: d.x + d.w * 0.1, y: d.y + d.h * (0.1 + i * 0.25), l: d.w * 0.4, h: d.h * 0.2 };
+            decoupeGeste = { obj: d, debut: { x: rr.x, y: rr.y }, rect: rr };
+            finirGesteDeDecoupe();
+        }
+        basculerLaDecoupe(false);
+        return morceauxEnAttente.length;
+    }, combien);
+
+    await laScene();
+    const enPause = await page.evaluate(() => {
+        // On projette « toute la largeur » : le cadrage doit voyager avec la
+        // pause, sinon on revient sur une page entière qu'on n'a pas demandée.
+        presenterLeDocument('largeur');
+        return { etat: etatDuPleinEcran(), cadrage: cadrageDePresentation, pageDuDocument: currentPageIndex };
+    });
+    r.egal('on projette le document, en largeur',
+        { etat: enPause.etat, cadrage: enPause.cadrage }, { etat: 1, cadrage: 'largeur' });
+
+    await couper(2);
+    const posee = await page.evaluate(() => {
+        const auTiroir = morceauxEnAttente.map(m => !!m.projete);
+        poserTousLesMorceaux();
+        return {
+            auTiroir,
+            // LE DRAPEAU SURVIT À LA POSE : c'est lui que la vignette de retour lit.
+            surLesPoses: images.filter(o => o.pluginData && o.pluginData.id === 'morceau')
+                               .map(o => !!o.pluginData.projete),
+            page: currentPageIndex, etat: etatDuPleinEcran(),
+            // L'écran, lui, est gardé : la classe ne voit pas reparaître les barres.
+            nu: document.body.classList.contains('focus-mode'),
+            enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause)
+        };
+    });
+    r.verifie('le tiroir sait qu\'on projetait au moment du découpage',
+        posee.auTiroir.length === 2 && posee.auTiroir.every(Boolean), JSON.stringify(posee));
+    r.verifie('et les morceaux POSÉS le savent encore — c\'est ce qui était perdu',
+        posee.surLesPoses.length === 2 && posee.surLesPoses.every(Boolean), JSON.stringify(posee));
+    r.verifie('poser range la projection sans rendre les barres, et la met en pause',
+        posee.etat === 0 && posee.nu === true && posee.enPause === true, JSON.stringify(posee));
+
+    const retour = await page.evaluate(() => {
+        loadPage(0);   // le geste des flèches du coin, ou de Page↑
+        return { etat: etatDuPleinEcran(), cadrage: cadrageDePresentation,
+                 page: currentPageIndex, enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause) };
+    });
+    r.egal('revenir sur la page du document le rend en grand, dans son cadrage',
+        { etat: retour.etat, cadrage: retour.cadrage, enPause: retour.enPause },
+        { etat: 1, cadrage: 'largeur', enPause: false });
+
+    // UNE TROISIÈME PAGE NE RALLUME RIEN, et la pause attend : ce serait
+    // projeter la page de quelqu'un d'autre.
+    await laScene();
+    await page.evaluate(() => presenterLeDocument());
+    await couper(1);
+    const ailleurs = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        pages.push(createNewPage());
+        loadPage(pages.length - 1);
+        const surLaTierce = { etat: etatDuPleinEcran(), enPause: (typeof projectionEnPause !== 'undefined' && !!projectionEnPause) };
+        loadPage(0);
+        return { surLaTierce, puis: etatDuPleinEcran() };
+    });
+    r.verifie('une page qui ne porte pas le document ne rallume rien, et la pause attend',
+        ailleurs.surLaTierce.etat === 0 && ailleurs.surLaTierce.enPause === true,
+        JSON.stringify(ailleurs));
+    r.egal('la page du document, elle, la reprend', ailleurs.puis, 1);
+
+    // ET LE MODE, C'EST AUSSI « LES OUTILS PAR-DESSUS LA PAGE ». Deuxième temps
+    // du plein écran : la page reste en grand et les barres reviennent, pour
+    // écrire dessus. Revenir en projetant la page NUE ne serait pas le mode
+    // qu'on avait.
+    await laScene();
+    await page.evaluate(() => {
+        presenterLeDocument();
+        basculerLesBarresDeLaPresentation();   // les outils par-dessus
+    });
+    await couper(1);
+    const avecBarres = await page.evaluate(() => {
+        const avant = { etat: etatDuPleinEcran(), nu: document.body.classList.contains('focus-mode') };
+        poserTousLesMorceaux();
+        loadPage(0);
+        return { avant, apres: { etat: etatDuPleinEcran(),
+                                 nu: document.body.classList.contains('focus-mode') } };
+    });
+    r.egal('on revient avec les outils par-dessus la page, si c\'est ainsi qu\'on travaillait',
+        avecBarres, { avant: { etat: 2, nu: false }, apres: { etat: 2, nu: false } });
+
+    // ET « TOUT REMETTRE » Y RENONCE. Sortir du tableau nu, c'est dire
+    // « rends-moi tout » : rallumer le plein écran au prochain passage sur la
+    // page du document serait le contraire de ce qu'on vient de demander.
+    await laScene();
+    await page.evaluate(() => presenterLeDocument());
+    await couper(1);
+    const croix = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        const avant = (typeof projectionEnPause !== 'undefined' && !!projectionEnPause);
+        poserLAffichage(0);
+        const apres = (typeof projectionEnPause !== 'undefined' && !!projectionEnPause);
+        loadPage(0);
+        return { avant, apres, etat: etatDuPleinEcran() };
+    });
+    r.egal('« Tout remettre » annule la reprise', croix, { avant: true, apres: false, etat: 0 });
+
+    // =====================================================================
+    // OÙ POSER : DEUX ENTRÉES, AU MOMENT DE POSER
+    //
+    // « Ça ne crée pas une nouvelle page, ça le met sur la page 2 ; il faudrait
+    // que ce soit une option. » L'appui simple garde le geste de tous les jours
+    // — une fiche d'exercices se construit en plusieurs découpages. L'appui
+    // long, ou le clic droit, ouvre le choix.
+    // =====================================================================
+    await laScene();
+    await couper(1);
+    const premier = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    await couper(1);
+    const second = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('un simple appui : les bouts suivants rejoignent la page des exercices',
+        { pages: second.pages, page: second.page, dessus: second.dessus },
+        { pages: premier.pages, page: premier.page, dessus: 2 });
+
+    // LE GESTE EXISTE ET IL SE VOIT : le repère en coin du bouton, et l'infobulle.
+    const menu = await page.evaluate(() => {
+        const b = document.getElementById('bm-ranger');
+        // Le geste peut manquer tout entier : on le dit, on ne plante pas — un
+        // chapitre qui s'arrête ne rend compte de rien.
+        if (typeof ouvrirLeChoixDeLaPagePourPoser !== 'function') return { absent: true, entrees: [] };
+        ouvrirLeChoixDeLaPagePourPoser(b);
+        const p = document.getElementById('panneau-appui');
+        return {
+            repere: b.classList.contains('a-appui-long'),
+            bulle: b.getAttribute('data-tooltip') || '',
+            titre: p ? p.querySelector('.rp-titre').textContent : null,
+            entrees: p ? Array.from(p.querySelectorAll('button')).map(x => x.textContent.trim()) : []
+        };
+    });
+    r.verifie('le bouton « Poser » porte le repère de l\'appui long, et le dit',
+        menu.repere === true && /page neuve/i.test(menu.bulle), JSON.stringify(menu));
+    r.verifie('l\'appui long ouvre deux entrées : la page des exercices, ou une page neuve',
+        menu.entrees.length === 2 && /exercices/i.test(menu.entrees[0])
+        && /neuve/i.test(menu.entrees[1]), JSON.stringify(menu));
+
+    await couper(1);
+    const neuve = await page.evaluate(() => {
+        const p = document.getElementById('panneau-appui');
+        if (p) p.remove();
+        const b = document.getElementById('bm-ranger');
+        if (typeof ouvrirLeChoixDeLaPagePourPoser !== 'function') return { absent: true };
+        ouvrirLeChoixDeLaPagePourPoser(b);
+        // La seconde entrée, par le vrai clic.
+        document.getElementById('panneau-appui').querySelectorAll('button')[1].click();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('« sur une page neuve » ouvre bien une page de plus, et n\'y met que ces bouts-là',
+        { pages: neuve.pages, page: neuve.page, dessus: neuve.dessus },
+        { pages: second.pages + 1, page: second.page + 1, dessus: 1 });
+
+    // ET C'EST DÉSORMAIS ELLE QU'ON REJOINT : chercher la page des exercices par
+    // le DÉBUT aurait renvoyé les bouts suivants sur la première, et la page
+    // neuve n'aurait servi qu'un tour.
+    await couper(1);
+    const apresLaNeuve = await page.evaluate(() => {
+        poserTousLesMorceaux();
+        return { pages: pages.length, page: currentPageIndex,
+                 dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
+    });
+    r.egal('le découpage suivant rejoint la page neuve, et non la première',
+        apresLaNeuve, { pages: neuve.pages, page: neuve.page, dessus: 2 });
+
+    await page.evaluate(() => {
+        if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        images.length = 0; rectangles.length = 0; selectedItems = [];
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        setMode('pointer'); updateStyleBarContext(); draw();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
