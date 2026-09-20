@@ -483,6 +483,66 @@ module.exports = async function (browser) {
         JSON.stringify(place.ferme.outils));
     r.verifie('et leur languette reste à portée, pour les rouvrir d\'un doigt',
         place.ferme.outils.languetteVue, JSON.stringify(place.ferme.outils));
+    // ET LE TIROIR À MORCEAUX NE LA FAIT PAS SAUTER. « Quand le tiroir
+    // apparaît, la toolbar remonte, c'est curieux » — deux cents pixels de saut
+    // pour avoir découpé un bout. C'est au nouveau venu de se ranger au-dessus
+    // d'elle : « il faut qu'elle reste en bas si elle l'était », et « le tiroir
+    // des pages le plus bas possible ».
+    const avecLeTiroir = await page.evaluate(async ({ px }) => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        if (presentationEnCours) quitterLaPresentation();
+        poserLAffichage(0);
+        images.length = 0; selectedItems = []; morceauxEnAttente = [];
+        panX = 0; panY = 0; zoom = 1;
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = px; });
+        imageCache[px] = img;
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 1, ch: 1,
+                      src: px, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'tir', page: 1, pages: 1 } };
+        images.push(doc);
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        presenterLeDocument();
+        await attendre(700);   // le tableau nu s'installe, tiroirs compris
+        const sousLeBord = (id) => {
+            const e = document.getElementById(id);
+            const r = e.getBoundingClientRect();
+            return Math.round(window.innerHeight - r.bottom);
+        };
+        const seul = { barre: sousLeBord('bar-document') };
+        // On pose un morceau au tiroir : c'est lui qui paraît.
+        morceauxEnAttente.push({ id: nextId++, w: 80, h: 60, cx: 0, cy: 0, cw: 1, ch: 1,
+                                 src: px, nom: 'poly.png', page: 1, cle: 'tir', source: doc.id });
+        majLeTiroirDesMorceaux();
+        // ET L'ON REPLACE LA BARRE, comme le fait le découpage lui-même : c'est
+        // par là que le saut arrivait, et un contrôle qui ne rappelle pas cette
+        // fonction ne verrait rien du tout.
+        majBarreDocument();
+        await attendre(500);
+        const bande = document.getElementById('bande-morceaux');
+        const rb = bande.getBoundingClientRect();
+        const rbarre = document.getElementById('bar-document').getBoundingClientRect();
+        const etat = {
+            seul,
+            barre: sousLeBord('bar-document'),
+            tiroirVu: !bande.hidden && rb.height > 4,
+            // AU-DESSUS D'ELLE, ET AU PLUS PRÈS : pas de trou au milieu de rien.
+            auDessus: Math.round(rb.bottom) <= Math.round(rbarre.top) + 1,
+            ecart: Math.round(rbarre.top - rb.bottom)
+        };
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        quitterLaPresentation();
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return etat;
+    }, { px: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' });
+    r.egal('le tiroir à morceaux qui paraît ne déplace pas la barre d\'un pixel',
+        { avant: avecLeTiroir.seul.barre, apres: avecLeTiroir.barre }, { avant: 20, apres: 20 });
+    r.verifie('c\'est LUI qui se range au-dessus d\'elle, au plus près',
+        avecLeTiroir.tiroirVu && avecLeTiroir.auDessus
+        && avecLeTiroir.ecart >= 0 && avecLeTiroir.ecart <= 24,
+        JSON.stringify(avecLeTiroir));
+
     r.verifie('tiroir du haut ouvert, elle se gare juste dessous',
         place.ouvert.avant > 20 && place.ouvert.avant >= place.ouvert.hauteurDuTiroir,
         JSON.stringify(place.ouvert));

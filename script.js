@@ -2432,6 +2432,42 @@ function poserLaBandeSurLeTiroir() {
 }
 window.poserLaBandeSurLeTiroir = poserLaBandeSurLeTiroir;
 
+// ---------------------------------------------------------------------------
+// LE TIROIR DES MORCEAUX, AUSSI BAS QUE POSSIBLE
+//
+// « Le tiroir des pages le plus bas possible. » Il se tenait à quatre-vingt-
+// seize pixels du bord quoi qu'il arrive — une valeur taillée pour le tiroir du
+// bas ouvert, qui le laissait flotter au milieu de rien dès que ce tiroir-là
+// était rangé, c'est-à-dire tout le temps en plein écran.
+//
+// Il se pose donc juste au-dessus de ce qui occupe VRAIMENT le bas : le tiroir
+// du bas s'il est déployé, la barre du document si elle y est. C'est lui qui
+// s'écarte, et non la barre — l'ordre inverse faisait sauter la barre de deux
+// cents pixels au premier découpage.
+// ---------------------------------------------------------------------------
+function poserLeTiroirDesMorceaux() {
+    const bande = document.getElementById('bande-morceaux');
+    if (!bande) return;
+    // Déplacé à la main : il reste où on l'a mis, et son double-clic le rend.
+    if (bande.style.top) return;
+    let bas = 12;
+    const sIlGene = (el) => {
+        if (!el || el.hidden) return;
+        const st = getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) return;
+        const r = el.getBoundingClientRect();
+        if (r.height < 4) return;
+        // Seul ce qui touche vraiment le bas compte : une barre posée en haut
+        // n'a rien à dire sur la place du bas.
+        if (r.bottom < window.innerHeight - 160) return;
+        bas = Math.max(bas, Math.round(window.innerHeight - r.top) + 10);
+    };
+    sIlGene(document.getElementById('bottom-drawer'));
+    sIlGene(document.getElementById('bar-document'));
+    bande.style.setProperty('--haut-du-tiroir', bas + 'px');
+}
+window.poserLeTiroirDesMorceaux = poserLeTiroirDesMorceaux;
+
 // Le tiroir bouge par une classe, et son mouvement dure : on suit pendant
 // toute l'animation plutôt que de mesurer une seule fois, trop tôt.
 function suivreLeTiroirDuBas() {
@@ -2440,12 +2476,15 @@ function suivreLeTiroirDuBas() {
     let jusqua = 0;
     const suivre = () => {
         poserLaBandeSurLeTiroir();
+        poserLeTiroirDesMorceaux();
         if (performance.now() < jusqua) requestAnimationFrame(suivre);
     };
     const relancer = () => { jusqua = performance.now() + 600; requestAnimationFrame(suivre); };
     new MutationObserver(relancer).observe(tiroir, { attributes: true, attributeFilter: ['class', 'style'] });
     tiroir.addEventListener('transitionend', poserLaBandeSurLeTiroir);
+    tiroir.addEventListener('transitionend', poserLeTiroirDesMorceaux);
     window.addEventListener('resize', poserLaBandeSurLeTiroir);
+    window.addEventListener('resize', poserLeTiroirDesMorceaux);
 }
 
 // ---------------------------------------------------------------------------
@@ -6864,7 +6903,46 @@ document.getElementById('btn-lier-fond-bord')?.addEventListener('click', () => l
 
 // AU DÉMARRAGE : le lien tel qu'on l'a laissé, « mes couleurs » telles qu'on
 // les a mises de côté, et la pastille d'aplomb avec l'outil du moment.
+// ==================================================================
+// QUELLE VERSION AI-JE SOUS LES YEUX ?
+//
+// « Il me faudrait vraiment un endroit pour connaître la dernière version. »
+// Un navigateur garde le fichier qu'il a déjà : on ouvre le tableau en croyant
+// avoir la correction du jour, on regarde celle d'avant-hier, et rien ne le
+// dit. Le numéro qui suit « script.js?v= » monte à chaque changement — c'est
+// lui qui force le navigateur à redemander le fichier. On le lit donc SUR LA
+// BALISE, celle-là même qu'il est allé chercher : pas de seconde source de
+// vérité qui pourrait annoncer une version qu'on n'a pas.
+// ==================================================================
+function versionDeLApplication() {
+    const balises = document.querySelectorAll('script[src]');
+    for (const b of balises) {
+        const src = b.getAttribute('src') || '';
+        if (!/(^|\/)script\.js(\?|$)/.test(src)) continue;
+        const m = /[?&]v=([^&]+)/.exec(src);
+        return m ? m[1] : '—';
+    }
+    return '—';
+}
+window.versionDeLApplication = versionDeLApplication;
+
+function poserLaVersionDansLAide() {
+    const b = document.getElementById('aide-version');
+    if (!b) return;
+    const v = versionDeLApplication();
+    b.textContent = 'Version ' + v;
+    b.addEventListener('click', () => {
+        const dire = (ok) => { if (typeof showToast === 'function') {
+            showToast(ok ? 'Version ' + v + ' copiée' : 'Version ' + v);
+        } };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText('Version ' + v).then(() => dire(true), () => dire(false));
+        } else dire(false);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    poserLaVersionDansLAide();
     const b = document.getElementById('btn-lier-fond-bord');
     if (b) b.setAttribute('aria-pressed', fondLieAuBord ? 'true' : 'false');
     majLesCouleursRecentes();
@@ -7148,16 +7226,15 @@ function placerLaBarreDuDocument() {
     // puisque la projection, elle, ne s'arrête pas pour si peu.
     const enPlein = (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
     if (enPlein) {
+        // ELLE NE BOUGE PAS D'UN POUCE. Elle commençait par s'écarter du tiroir
+        // à morceaux quand il paraissait : « quand le tiroir apparaît, la
+        // toolbar remonte, c'est curieux » — deux cents pixels de saut pour
+        // avoir découpé un bout. C'est au NOUVEAU VENU de se ranger au-dessus
+        // d'elle (voir « poserLeTiroirDesMorceaux »), et non à la barre de
+        // fuir : « il faut qu'elle reste en bas si elle l'était ».
         barre.style.top = 'auto';
-        // Le tiroir à morceaux vit au même bord : on se pose au-dessus de lui
-        // plutôt que dessous, sinon deux meubles se recouvrent.
-        let bas = 20;
-        const morceaux = document.getElementById('bande-morceaux');
-        if (morceaux && !morceaux.hidden) {
-            const r = morceaux.getBoundingClientRect();
-            if (r.height > 4) bas = Math.max(bas, Math.round(window.innerHeight - r.top) + 12);
-        }
-        barre.style.bottom = bas + 'px';
+        barre.style.bottom = '20px';
+        if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
         signalerLaBarreDuDocument(barre);
         return;
     }
@@ -15442,6 +15519,8 @@ function majLeTiroirDesMorceaux() {
     const bande = document.getElementById('bande-morceaux');
     if (!bande) return;
     bande.hidden = morceauxEnAttente.length === 0;
+    // Il vient de paraître, ou de changer de taille : il se repose au plus bas.
+    if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
     // La bande occupe le bas de l'écran ; la barre de la visite aussi.
     if (typeof placerLaBarreDeLaDemo === 'function') placerLaBarreDeLaDemo();
     const compte = document.getElementById('bm-compte');
@@ -16347,6 +16426,7 @@ function brancherLeTiroirDesMorceaux() {
         });
         poignee.addEventListener('dblclick', () => {
             bande.style.left = ''; bande.style.top = ''; bande.style.bottom = ''; bande.style.transform = '';
+            if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
         });
     }
 }

@@ -10171,6 +10171,23 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     .bm-jeter { opacity: 0.85; }
 }
 
+/* LE NUMÉRO DE VERSION, DANS L'AIDE. Discret : on ne le cherche qu'une fois,
+   le jour où l'on se demande si l'on a bien la dernière. */
+#aide-version {
+    display: block;
+    margin: -12px 0 14px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--faint, #b2bec3);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+#aide-version:hover { color: var(--accent); }
+
 /* LES DEUX POSES, EMPILÉES. La bande est couchée ; ces deux-là sont le même
    geste à deux destinations, et se lisent donc l'un sous l'autre plutôt que
    côte à côte, où ils passeraient pour deux commandes sans rapport. */

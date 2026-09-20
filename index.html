@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=165">
+    <link rel="stylesheet" href="style.css?v=166">
 </head>
 
 <body>
@@ -868,6 +868,15 @@
                 <h2 class="modal-title" style="margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" class="stroke-icon"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg> Aide Complète</h2>
                 <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">▶ Démonstration</button>
             </div>
+            <!-- QUELLE VERSION AI-JE SOUS LES YEUX ? « Il me faudrait vraiment
+                 un endroit pour connaître la dernière version. » Un navigateur
+                 garde le fichier qu'il a déjà : on croit avoir la correction du
+                 jour et l'on regarde celle d'avant-hier, sans rien pour s'en
+                 apercevoir. Ce numéro-là est celui QUI SERT VRAIMENT — il est
+                 lu sur la balise du script, celle-là même que le navigateur est
+                 allé chercher. Un clic le copie, pour me le dire. -->
+            <button id="aide-version" type="button"
+                data-tooltip="La version chargée en ce moment — cliquez pour la copier"></button>
 
             <!-- On cherche, on ne navigue pas : un seul champ filtre toute
                  l'aide à la frappe, et les rubriques défilent d'une traite,
@@ -3473,7 +3482,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=288"></script>
+    <script src="script.js?v=289"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=106"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
