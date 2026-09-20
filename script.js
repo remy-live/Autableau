@@ -28495,6 +28495,51 @@ function semerInterfacesFournies() {
     return touche;
 }
 
+// L'INTERFACE QU'ON VIENT DE DEMANDER, RELUE DANS L'ADRESSE.
+//
+// « Minimale » demande cinq outils ; on en retrouvait vingt-deux, une fois sur
+// quatre environ. Mesuré, et de bout en bout : « loadInterface » écrit bien les
+// cinq — on les relit juste avant de redémarrer —, mais la page qui s'ouvre ne
+// trouve RIEN, pas même ce que la page d'avant avait écrit une seconde plus
+// tôt. Le lot entier se perd, parfois, au moment où la navigation part. Le
+// démarrage ne voit alors plus de barre principale, repose la panoplie
+// complète, et la préparation du collègue est effacée sans un mot.
+//
+// L'adresse, elle, traverse le rechargement par construction. On y écrit QUI
+// l'on charge ; la page qui s'ouvre repose l'interface elle-même, depuis la
+// liste des interfaces — laquelle était déjà en place bien avant, et ne
+// voyage pas dans ce lot-là.
+//
+// Elle passe AVANT tout ce qui dessine les barres : « loadExplorerData » est
+// appelée au DOMContentLoaded, « renderFloatingToolbars » au « load ».
+function appliquerLInterfaceDeLAdresse() {
+    let brut = '';
+    try { brut = location.hash || ''; } catch (e) { return false; }
+    const m = /(?:^|[#&])interface=([^&]*)/.exec(brut);
+    if (!m) return false;
+    // On retire le repère AVANT d'écrire : s'il restait, un rechargement de la
+    // page reposerait l'interface par-dessus le travail de la séance.
+    try {
+        history.replaceState(null, '', location.pathname + location.search);
+    } catch (e) { try { location.hash = ''; } catch (e2) { /* tant pis */ } }
+    let id = m[1];
+    try { id = decodeURIComponent(id); } catch (e) { /* on garde tel quel */ }
+    const intf = savedInterfaces.find(i => i.id === id);
+    if (!intf || !intf.data) return false;
+    try {
+        if (intf.data.toolbars) {
+            localStorage.setItem('board_floating_toolbars', JSON.stringify(intf.data.toolbars));
+        }
+        if (intf.data.favorites) {
+            localStorage.setItem('board_favorites', JSON.stringify(intf.data.favorites));
+        }
+        if (intf.data.barStyleX) localStorage.setItem('bar_style_x', intf.data.barStyleX);
+        if (intf.data.barStyleY) localStorage.setItem('bar_style_y', intf.data.barStyleY);
+    } catch (e) { return false; }
+    return true;
+}
+window.appliquerLInterfaceDeLAdresse = appliquerLInterfaceDeLAdresse;
+
 function loadExplorerData() {
     // Interfaces in localStorage
     try {
@@ -28502,6 +28547,8 @@ function loadExplorerData() {
         if (intData) savedInterfaces = JSON.parse(intData);
     } catch (e) { }
     semerInterfacesFournies();
+    // La liste est là : on peut reposer celle qu'on vient de demander.
+    appliquerLInterfaceDeLAdresse();
 
     // Tableaux in localforage
     localforage.getItem('auTableau_tableaux_list').then(data => {
@@ -29940,6 +29987,10 @@ function loadInterface(id) {
         // servait à rien — le message ne survit pas au rechargement — et
         // laissait à la session le temps de réécrire les barres par-dessus.
         showToast("Interface chargée ! L'application redémarre.");
+        // ET L'ADRESSE PORTE LA DEMANDE, PAS SEULEMENT LE STOCKAGE. Voir
+        // « appliquerLInterfaceDeLAdresse » : le lot qu'on vient d'écrire peut
+        // ne pas survivre à la navigation, et c'est mesuré.
+        try { location.hash = 'interface=' + encodeURIComponent(id); } catch (e) { /* refusé */ }
         // PAS PAR UNE IMAGE D'ANIMATION. « requestAnimationFrame » ne sert rien
         // du tout à un onglet qu'on ne regarde pas, et presque rien à une
         // machine chargée : qui change d'onglet le temps que l'interface se

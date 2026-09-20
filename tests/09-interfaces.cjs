@@ -178,6 +178,55 @@ module.exports = async function (browser) {
     r.egal('« Minimale » : aucun favori imposé', minimale.favoris, 0);
     r.verifie('la barre est bien affichée', minimale.rendues >= 1, `${minimale.rendues} barre(s) rendue(s)`);
 
+    // =====================================================================
+    // ET ELLE ARRIVE MÊME SI LE STOCKAGE PERD CE QU'ON VIENT D'Y ÉCRIRE
+    //
+    // C'est la panne que ce chapitre voyait depuis quatre suites : cinq outils
+    // demandés, vingt-deux à l'arrivée. Tracée de bout en bout, la voici :
+    // « loadInterface » écrit bien les cinq — on les relit juste avant de
+    // redémarrer —, mais la page qui s'ouvre ne trouve RIEN, pas même ce que la
+    // page d'avant avait écrit une seconde plus tôt. Le lot entier se perd,
+    // parfois, au moment où la navigation part ; le démarrage ne voit plus de
+    // barre principale et repose la panoplie complète.
+    //
+    // ON SABOTE DONC EXACTEMENT CELA — le lot effacé entre l'écriture et le
+    // redémarrage — et l'interface doit arriver quand même : elle voyage
+    // maintenant dans l'ADRESSE, qui traverse le rechargement par construction.
+    // Sans ce chemin-là, le contrôle tombe à tous les coups au lieu d'une fois
+    // sur quatre.
+    // =====================================================================
+    const malgreLaPerte = await (async () => {
+        await page.evaluate(() => {
+            window.__avantRedemarrage = true;
+            loadInterface('iface_fournie_minimale');
+            // Le lot se perd : c'est la panne, jouée à la main.
+            localStorage.removeItem('board_floating_toolbars');
+            localStorage.removeItem('board_favorites');
+        });
+        try {
+            await page.waitForFunction(() => !window.__avantRedemarrage, { timeout: 30000 });
+        } catch (e) { return { redemarre: false }; }
+        await page.waitForFunction(() => typeof savedInterfaces !== 'undefined' && savedInterfaces.length > 0,
+            { timeout: 20000 });
+        await page.waitForTimeout(1200);
+        return await page.evaluate(() => {
+            const barres = getStoredFloatingToolbars();
+            return {
+                redemarre: true,
+                barres: barres.length,
+                outils: barres[0] ? (barres[0].items || []).length : 0,
+                // LE REPÈRE NE RESTE PAS DANS L'ADRESSE : sinon un simple
+                // rechargement reposerait l'interface par-dessus la séance.
+                adresseNette: !/interface=/.test(location.hash || '')
+            };
+        });
+    })();
+    r.egal('l\'interface arrive même si le stockage perd le lot qu\'on vient d\'y écrire',
+        { redemarre: malgreLaPerte.redemarre, barres: malgreLaPerte.barres, outils: malgreLaPerte.outils },
+        { redemarre: true, barres: 1, outils: 5 });
+    r.verifie('et le repère ne traîne pas dans l\'adresse',
+        malgreLaPerte.adresseNette === true, JSON.stringify(malgreLaPerte));
+
     // Une interface de niveau pose ses deux barres, garnies
     await chargerInterface(page, 'iface_fournie_college');
     await page.waitForTimeout(600);
