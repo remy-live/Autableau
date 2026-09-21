@@ -13434,6 +13434,10 @@ function morceauxDeLaPageProjetee(doc) {
 // document. Le voile l'épargne, la vue les embrasse tous les deux.
 // ==================================================================
 let presentationVoisine = null;
+// Ce que l'occupant mesurait AVANT d'entrer dans la place : c'est de cette
+// taille-là qu'on part pour le grandir, et non de celle qu'on vient de lui
+// donner. Sans elle, chaque recadrage le multipliait par trois.
+let tailleNaturelleDuVoisin = null;
 
 // L'écart entre les deux, en part de la largeur du principal : une gouttière
 // qui grandit avec la page, et non trois pixels perdus sur un vidéoprojecteur.
@@ -13468,17 +13472,36 @@ function objetVoisinDeLaPresentation() {
 // largeur quand on est l'un sous l'autre. Le tableau n'a qu'un zoom — deux
 // documents côte à côte sont deux objets voisins, c'est la vue qui les
 // embrasse.
-function disposerLesDeux(principal, voisin) {
+// ET L'ON NE GROSSIT PAS UN TIMBRE-POSTE À LA TAILLE D'UNE AFFICHE.
+//
+// « Quand je mets poser à côté du document, c'est disproportionné. » C'était
+// vrai, et c'est cette règle-ci qui le causait : « le voisin prend la taille
+// du principal ». Juste entre deux PAGES — c'est tout l'intérêt de la seconde
+// place — mais absurde pour un exercice de trois centimètres, qui se trouvait
+// étiré à la hauteur d'une A4, flou et énorme.
+//
+// Il s'agrandit donc comme partout ailleurs : jusqu'à trois fois, pas plus.
+// Une seconde page atteint la taille de la première sans jamais toucher ce
+// plafond ; un bout de page s'arrête avant, et la page ne se serre alors que
+// de ce qu'il occupe vraiment.
+//
+// LA TAILLE NATURELLE EST DONNÉE DE L'EXTÉRIEUR, car cette fonction ÉCRIT dans
+// le voisin : la rappeler sur son propre résultat le ferait grossir trois fois
+// à chaque passage, et le cadrage se recalcule à chaque projection.
+function disposerLesDeux(principal, voisin, naturelle) {
     const toile = document.getElementById('board');
     const L = (toile && toile.clientWidth) || window.innerWidth;
     const H = (toile && toile.clientHeight) || window.innerHeight;
     const ecart = principal.w * ECART_DE_LA_PLACE;
-    const forme = (voisin.h > 0) ? (voisin.w / voisin.h) : 1;
+    const vraie = naturelle && naturelle.w > 0 && naturelle.h > 0 ? naturelle : voisin;
+    const forme = (vraie.h > 0) ? (vraie.w / vraie.h) : 1;
 
-    const cote = { w: principal.h * forme, h: principal.h };
+    const hauteurMax = Math.min(principal.h, vraie.h * MORCEAU_AGRANDI_MAX);
+    const cote = { w: hauteurMax * forme, h: hauteurMax };
     const boiteCote = { w: principal.w + ecart + cote.w, h: principal.h };
 
-    const sous = { w: principal.w, h: (forme > 0) ? principal.w / forme : principal.h };
+    const largeurMax = Math.min(principal.w, vraie.w * MORCEAU_AGRANDI_MAX);
+    const sous = { w: largeurMax, h: (forme > 0) ? largeurMax / forme : principal.h };
     const boiteSous = { w: principal.w, h: principal.h + ecart + sous.h };
 
     const aCote = Math.min(L / boiteCote.w, H / boiteCote.h)
@@ -13494,8 +13517,11 @@ function disposerLesDeux(principal, voisin) {
         aCote,
         boite: {
             x: principal.x, y: principal.y,
-            w: aCote ? boiteCote.w : boiteSous.w,
-            h: aCote ? boiteCote.h : boiteSous.h
+            // La boîte embrasse les deux : un voisin plus court que la page ne
+            // rétrécit pas la boîte à sa taille, et un voisin plus étroit ne
+            // fait pas mentir la largeur.
+            w: aCote ? principal.w + ecart + taille.w : Math.max(principal.w, taille.w),
+            h: aCote ? Math.max(principal.h, taille.h) : principal.h + ecart + taille.h
         }
     };
 }
@@ -13503,7 +13529,7 @@ function disposerLesDeux(principal, voisin) {
 // Les deux à l'écran, et rien d'autre. La marge de 2 % les décolle des bords
 // sans les rapetisser au point qu'on les remarque.
 function cadrerSurLesDeux(principal, voisin) {
-    const d = disposerLesDeux(principal, voisin);
+    const d = disposerLesDeux(principal, voisin, tailleNaturelleDuVoisin);
     cadrerSurLObjet(d.boite, 0.98);
     return d;
 }
@@ -13544,6 +13570,7 @@ function poserACote(m) {
     images.push(objet);
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     presentationVoisine = objet.id;
+    tailleNaturelleDuVoisin = { w: m.w, h: m.h };
     cadrerSurLesDeux(doc, objet);
 
     selectedItems = [{ type: 'image', id: objet.id }];
@@ -13565,6 +13592,7 @@ function poserACote(m) {
 function libererLaPlaceACote(sansRedessiner) {
     if (!presentationVoisine) return false;
     presentationVoisine = null;
+    tailleNaturelleDuVoisin = null;
     const doc = presentationEnCours ? getObjectById('image', presentationEnCours) : null;
     if (doc) {
         if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
@@ -16032,20 +16060,20 @@ function poserLeMorceau(m, ou) {
         cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
         src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
         pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null,
-                      projete: !!m.projete }
+                      projete: !!m.projete, wNaturel: m.w, hNaturel: m.h }
     };
     // Le morceau qu'on a placé soi-même peut tomber hors de vue : là, il faut
     // bien rendre l'écran pour le retrouver. Celui qui part sur sa page, lui,
     // a déjà quitté la projection en changeant de page.
     if (!enGrand) quitterLaPresentationSiOnPoseDehors(objet);
     images.push(objet);
+    // UN SEUL MORCEAU RANGE AUSSI TOUTE LA PAGE. Sans quoi il se posait à
+    // côté des anciens, à sa propre échelle, et l'on retrouvait la
+    // disproportion que « Poser » vient de perdre.
+    if (enGrand) rangerLesMorceauxDeLaPage();
     // ON VA LE VOIR — ET LES AUTRES AVEC : voir le même geste à « Poser ».
     if (enGrand && pageDesExercices() && typeof voirToutLeTableau === 'function') {
         voirToutLeTableau();
-    } else if (enGrand && place.zone.aCote) {
-        const marge = 30 / zoom;
-        panX = -(place.zone.x - marge) * zoom;
-        panY = -(place.zone.y - marge) * zoom;
     }
     morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
     selectedItems = [{ type: 'image', id: objet.id }];
@@ -16434,6 +16462,70 @@ function placeLibrePourLesMorceaux() {
     return { x: pris.x + pris.l + 80 / zoom, y: pris.y, L, H, aCote: true };
 }
 
+// TOUT SE RANGE ENSEMBLE, ANCIENS ET NOUVEAUX.
+//
+// « Quand je mets poser à côté du document, c'est disproportionné. Je préfère
+// sur une nouvelle page, ou choisir la page où les poser — du coup, s'il y a
+// déjà des exercices, tout se range. »
+//
+// C'est la bonne règle, et l'ancienne était fautive pour une raison précise :
+// les nouveaux venus étaient rangés DANS UNE ZONE DE LA TAILLE DE L'ÉCRAN,
+// posée à droite de ce qui existait déjà, et agrandis jusqu'à trois fois SANS
+// REGARDER les anciens. Deux échelles côte à côte : forcément bancal.
+//
+// On reprend donc toute la page d'un coup. Une seule échelle pour tout le
+// monde, le meilleur partage en lignes, et le pavé centré.
+//
+// LA TAILLE NATURELLE EST RETENUE SUR CHAQUE MORCEAU, car celle qu'on lui voit
+// est déjà le résultat d'un rangement : repartir d'elle le ferait enfler d'un
+// rangement à l'autre. Les morceaux posés avant que cette mémoire n'existe
+// gardent leur taille du jour comme référence — c'est la seule qu'on ait.
+function tailleNaturelleDuMorceau(o) {
+    const d = o && o.pluginData;
+    if (d && d.wNaturel > 0 && d.hNaturel > 0) return { w: d.wNaturel, h: d.hNaturel };
+    return { w: o.w, h: o.h };
+}
+
+function rangerLesMorceauxDeLaPage() {
+    const lot = images.filter(o => o && o.pluginData && o.pluginData.id === 'morceau');
+    if (!lot.length) return 0;
+
+    const marge = 30 / zoom;
+    const gauche = (0 - panX) / zoom + marge;
+    const haut = (0 - panY) / zoom + marge;
+    const L = ((canvas.clientWidth || window.innerWidth) / zoom) - 2 * marge;
+    const H = ((canvas.clientHeight || window.innerHeight) / zoom) - 2 * marge;
+    const ecart = 16 / zoom;
+
+    const tailles = lot.map(tailleNaturelleDuMorceau);
+    const { partage, echelle } = meilleurPartage(tailles, L, H, ecart);
+    if (!partage) return 0;
+    // On agrandit tant que ça reste net : un timbre-poste étiré à toute la
+    // largeur du tableau n'est plus lisible, il est gros.
+    const s = Math.max(0.05, Math.min(echelle, MORCEAU_AGRANDI_MAX));
+
+    const hauteurs = partage.map(ligne => Math.max(...ligne.map(i => tailles[i].h)) * s);
+    const totalH = hauteurs.reduce((t, x) => t + x, 0) + ecart * (partage.length - 1);
+    let y = haut + Math.max(0, (H - totalH) / 2);
+
+    partage.forEach((ligne, n) => {
+        const largeur = ligne.reduce((t, i) => t + tailles[i].w * s, 0) + ecart * (ligne.length - 1);
+        let x = gauche + Math.max(0, (L - largeur) / 2);
+        ligne.forEach(i => {
+            const o = lot[i];
+            o.w = tailles[i].w * s;
+            o.h = tailles[i].h * s;
+            o.x = x;
+            o.y = y + (hauteurs[n] - o.h) / 2;
+            x += o.w + ecart;
+        });
+        y += hauteurs[n] + ecart;
+    });
+    return lot.length;
+}
+
+window.rangerLesMorceauxDeLaPage = rangerLesMorceauxDeLaPage;
+
 function poserTousLesMorceaux(options) {
     if (!morceauxEnAttente.length) return 0;
     // « Sur une page neuve » vient de l'appui long ; le simple appui, lui, range
@@ -16469,47 +16561,27 @@ function poserTousLesMorceaux(options) {
     // ce qui rend le voyage possible.
     const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0],
         neuveDemandee ? { forcerNeuve: true } : null);
-    const ecart = 16 / zoom;
-    const zone = placeLibrePourLesMorceaux();
-    const gauche = zone.x, haut = zone.y, L = zone.L, H = zone.H;
     const ms = morceauxEnAttente.slice();
     const combien = ms.length;
 
-    const { partage, echelle } = meilleurPartage(ms, L, H, ecart);
-    // On agrandit tant que ça reste net : un timbre-poste étiré à toute la
-    // largeur du tableau n'est plus lisible, il est gros.
-    const s = Math.max(0.05, Math.min(echelle, MORCEAU_AGRANDI_MAX));
+    // On les pose d'abord tels quels — leur place vient du rangement qui suit,
+    // et lui seul, pour que les anciens et les nouveaux la reçoivent ensemble.
+    const poses = ms.map(m => ({
+        id: nextId++, x: 0, y: 0, w: m.w, h: m.h,
+        cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
+        src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
+        // ET COMMENT ON LE REGARDAIT. « Quand le PDF est en mode projection et
+        // qu'on revient sur le PDF, ce serait bien qu'il soit toujours en mode
+        // projection. » Le tiroir le note au découpage ; le laisser tomber ici
+        // ramenait le document au tableau au lieu de le rendre en grand.
+        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page,
+                      pdfRef: m.pdfRef, cle: m.cle || null, projete: !!m.projete,
+                      wNaturel: m.w, hNaturel: m.h }
+    }));
 
-    // Le pavé fini est centré : sur un partage qui ne remplit pas tout à fait,
-    // mieux vaut du blanc des deux côtés qu'un tas collé en haut à gauche.
-    const hauteurs = partage.map(ligne => Math.max(...ligne.map(i => ms[i].h)) * s);
-    const totalH = hauteurs.reduce((t, x) => t + x, 0) + ecart * (partage.length - 1);
-    let y = haut + Math.max(0, (H - totalH) / 2);
-
-    const poses = [];
-    partage.forEach((ligne, n) => {
-        const largeur = ligne.reduce((t, i) => t + ms[i].w * s, 0) + ecart * (ligne.length - 1);
-        let x = gauche + Math.max(0, (L - largeur) / 2);
-        ligne.forEach(i => {
-            const m = ms[i];
-            poses.push({
-                id: nextId++, x, y: y + (hauteurs[n] - m.h * s) / 2, w: m.w * s, h: m.h * s,
-                cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
-                src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-                // ET COMMENT ON LE REGARDAIT. « Quand le PDF est en mode
-                // projection et qu'on revient sur le PDF, ce serait bien qu'il
-                // soit toujours en mode projection. » Le tiroir le notait au
-                // découpage, « poser un morceau seul » le recopiait — celui-ci
-                // le laissait tomber, et la vignette de retour ramenait alors
-                // le document au tableau au lieu de le rendre en grand.
-                pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page, pdfRef: m.pdfRef, cle: m.cle || null,
-                              projete: !!m.projete }
-            });
-            x += m.w * s + ecart;
-        });
-        y += hauteurs[n] + ecart;
-    });
     poses.forEach(o => images.push(o));
+    // ET TOUTE LA PAGE SE RANGE, anciens et nouveaux à la même échelle.
+    rangerLesMorceauxDeLaPage();
 
     morceauxEnAttente = [];
     // ON VA LES VOIR — ET LES AUTRES AVEC. « Si je recoupe des nouveaux bouts
@@ -16517,12 +16589,10 @@ function poserTousLesMorceaux(options) {
     // écrasés, mais la vue sautait sur les derniers venus et laissait les
     // premiers hors de l'écran, à gauche : on revenait sur sa page d'exercices
     // pour n'y trouver que la moitié. On cadre donc sur TOUTE la page.
+    // Le rangement s'est fait dans la vue courante : tout est déjà sous les
+    // yeux. Sur une page d'exercices, on s'écarte pour l'embrasser en entier.
     if (pageDesExercices() && typeof voirToutLeTableau === 'function') {
         voirToutLeTableau();
-    } else if (zone.aCote) {
-        const marge = 30 / zoom;
-        panX = -(gauche - marge) * zoom;
-        panY = -(haut - marge) * zoom;
     }
     // Posés ET tenus : le lot se déplace d'un geste si la place ne convient pas.
     selectedItems = poses.map(o => ({ type: 'image', id: o.id }));
@@ -16541,10 +16611,11 @@ function poserTousLesMorceaux(options) {
     if (typeof showToast === 'function') {
         // Sur une page neuve, on dit COMMENT REVENIR : c'est la seule chose
         // qu'on ne devine pas quand le tableau change entièrement d'un coup.
+        const total = images.filter(o => o && o.pluginData && o.pluginData.id === 'morceau').length;
         showToast(pageNeuve
             ? `${combien} exercice(s) en grand sur ${neuveDemandee ? 'une page neuve' : 'leur page'} — Page↑ pour revenir au document`
-            : (zone.aCote
-                ? `${combien} morceau(x) posé(s) à côté du document — les voici`
+            : (total > combien
+                ? `${combien} de plus : les ${total} exercices de la page se sont rangés ensemble`
                 : `${combien} morceau(x) posé(s) sur cette page, au plus grand`));
     }
     return combien;
@@ -23637,6 +23708,7 @@ function quitterLaPresentation() {
     // La seconde place n'existe que pendant la projection : hors d'elle, ce
     // qu'on y avait posé redevient un objet du tableau comme un autre.
     presentationVoisine = null;
+    tailleNaturelleDuVoisin = null;
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
     rendreLeModeDuDocument();

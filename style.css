@@ -4262,8 +4262,13 @@ body.dark-mode {
     position: fixed;
     /* Une infobulle passe par-dessus tout, fenêtres et boîtes de dialogue
        comprises : à 100000, celles du bilan (les dates d'un oubli) restaient
-       derrière la fenêtre « Mes classes ». */
-    z-index: 100100;
+       derrière la fenêtre « Mes classes ».
+       ET ELLE SUIT LES BOÎTES QUAND ELLES MONTENT. Les questions sont passées
+       à 200100 pour couvrir aussi le compositeur de barre ; à 100100
+       l'infobulle repassait dessous, et « au-dessus de tout » cessait d'être
+       vrai. Ces deux nombres se tiennent : le second doit rester le plus
+       grand de la page. */
+    z-index: 200200;
     background: #1e272e;
     color: #fff;
     padding: 6px 10px;
@@ -8916,7 +8921,9 @@ body.focus-mode #edt-bandeau { display: none; }
    il doit pouvoir sortir du cadre sans être coupé. */
 #ag-fantome {
     position: fixed;
-    z-index: 200200;
+    /* Au-dessus de sa fenêtre, mais SOUS l'infobulle : rien ne passe devant
+       elle, c'est la règle de la page. */
+    z-index: 200050;
     pointer-events: none;
     padding: 4px 10px;
     border-radius: 7px;

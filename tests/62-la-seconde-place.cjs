@@ -26,12 +26,12 @@ module.exports = async function (browser) {
     // ------------------------------------------------------------------
     const portraits = await page.evaluate(() => {
         const a = { x: 100, y: 200, w: 1000, h: 1414 };
-        const b = { x: 9000, y: 9000, w: 300, h: 424 };     // la même forme, plus petit
+        const b = { x: 9000, y: 9000, w: 500, h: 707 };     // la même forme, moitié moins
         const d = disposerLesDeux(a, b);
         return {
             aCote: d.aCote,
             memeHauteur: Math.abs(b.h - a.h) < 0.5,
-            formeGardee: Math.abs((b.w / b.h) - (300 / 424)) < 0.01,
+            formeGardee: Math.abs((b.w / b.h) - (500 / 707)) < 0.01,
             aDroite: b.x > a.x + a.w,
             memeHaut: Math.abs(b.y - a.y) < 0.5,
             boiteContientLesDeux: d.boite.x <= a.x && d.boite.y <= a.y
@@ -40,12 +40,57 @@ module.exports = async function (browser) {
         };
     });
     r.verifie('deux pages portrait se mettent côte à côte', portraits.aCote, JSON.stringify(portraits));
-    r.verifie('le voisin prend la hauteur du principal', portraits.memeHauteur, JSON.stringify(portraits));
+    r.verifie('une seconde page prend la hauteur de la première',
+        portraits.memeHauteur, JSON.stringify(portraits));
     r.verifie('sans se déformer', portraits.formeGardee, JSON.stringify(portraits));
     r.verifie('il se pose à sa droite, aligné sur le haut',
         portraits.aDroite && portraits.memeHaut, JSON.stringify(portraits));
     r.verifie('et la boîte des deux les contient tous les deux',
         portraits.boiteContientLesDeux, JSON.stringify(portraits));
+
+    // MAIS ON NE GROSSIT PAS UN TIMBRE-POSTE À LA TAILLE D'UNE AFFICHE.
+    //
+    // « Quand je mets poser à côté du document, c'est disproportionné. » La
+    // règle « le voisin prend la taille du principal » vaut entre deux pages ;
+    // pour un exercice de trois centimètres, elle l'étirait à la hauteur d'une
+    // A4 — flou et énorme. Il s'agrandit comme partout ailleurs : trois fois,
+    // pas plus.
+    const petitMorceau = await page.evaluate(() => {
+        const a = { x: 0, y: 0, w: 1000, h: 1414 };
+        const b = { x: 9000, y: 9000, w: 120, h: 80 };
+        const d = disposerLesDeux(a, b);
+        return {
+            grossissement: b.h / 80,
+            hauteurDeLaPage: a.h,
+            hauteurDuMorceau: b.h,
+            largeurDeLaBoite: d.boite.w,
+            largeurDeLaPage: a.w
+        };
+    });
+    r.verifie('un petit morceau ne dépasse pas trois fois sa taille',
+        petitMorceau.grossissement <= 3.01,
+        'grossi ' + petitMorceau.grossissement.toFixed(2) + ' fois');
+    r.verifie('il reste donc bien plus petit que la page',
+        petitMorceau.hauteurDuMorceau < petitMorceau.hauteurDeLaPage / 3,
+        JSON.stringify(petitMorceau));
+    r.verifie('et la page ne se serre que de ce qu\'il occupe',
+        petitMorceau.largeurDeLaBoite < petitMorceau.largeurDeLaPage * 1.5,
+        JSON.stringify(petitMorceau));
+
+    // ET L'ON NE L'ENFLE PAS À CHAQUE RECADRAGE. « disposerLesDeux » ÉCRIT dans
+    // le voisin : repartir de sa taille du moment le multiplierait par trois à
+    // chaque passage, et le cadrage se recalcule à chaque projection.
+    const deuxFois = await page.evaluate(() => {
+        const a = { x: 0, y: 0, w: 1000, h: 1414 };
+        const b = { x: 9000, y: 9000, w: 120, h: 80 };
+        const naturelle = { w: 120, h: 80 };
+        disposerLesDeux(a, b, naturelle);
+        const une = b.h;
+        disposerLesDeux(a, b, naturelle);
+        disposerLesDeux(a, b, naturelle);
+        return { une, trois: b.h };
+    });
+    r.egal('trois recadrages ne le font pas enfler', deuxFois.trois, deuxFois.une);
 
     // ET UN VOISIN D'UNE AUTRE FORME NE S'ÉCRASE PAS DANS LA PLACE. Deux A4
     // ont la même forme : une déformation y passerait inaperçue, et c'est
@@ -327,15 +372,24 @@ module.exports = async function (browser) {
         await new Promise(ok => setTimeout(ok, 150));
         const doc = getObjectById('image', presentationEnCours);
         const voisin = objetVoisinDeLaPresentation();
+        // ET LA PLACE RETIENT CE QU'IL MESURAIT EN ENTRANT. Le cadrage se
+        // recalcule à chaque projection ; s'il repartait de la taille qu'il
+        // vient de donner, le morceau tripler ait à chaque passage.
+        const hauteurPosee = voisin ? voisin.h : 0;
+        cadrerSurLesDeux(doc, voisin);
+        cadrerSurLesDeux(doc, voisin);
+        const hauteurApresTroisCadrages = voisin ? voisin.h : 0;
         const b = document.getElementById('bm-a-cote');
         return {
-            avant,
+            avant, hauteurPosee, hauteurApresTroisCadrages,
             tiroir: morceauxEnAttente.length,
             images: images.length,
             placePrise: !!voisin,
             projectionTenue: !!presentationEnCours,
             aDroite: !!(voisin && voisin.x > doc.x + doc.w * 0.9),
-            memeHauteur: !!(voisin && Math.abs(voisin.h - doc.h) < 1),
+            memeHaut: !!(voisin && Math.abs(voisin.y - doc.y) < 1),
+            grossissement: voisin ? voisin.h / 200 : 0,
+            plusPetitQueLaPage: !!(voisin && voisin.h < doc.h),
             tenu: selectedItems.length === 1 && voisin && selectedItems[0].id === voisin.id,
             texte: b.textContent.trim(),
             grise: b.disabled
@@ -344,8 +398,13 @@ module.exports = async function (browser) {
     r.egal('le morceau quitte le tiroir', [pose.avant.tiroir, pose.tiroir], [1, 0]);
     r.egal('et rejoint le tableau', pose.images - pose.avant.images, 1);
     r.verifie('il prend la seconde place', pose.placePrise, JSON.stringify(pose));
-    r.verifie('à droite de la page et à sa hauteur',
-        pose.aDroite && pose.memeHauteur, JSON.stringify(pose));
+    r.verifie('à droite de la page, aligné sur son haut',
+        pose.aDroite && pose.memeHaut, JSON.stringify(pose));
+    r.verifie('et sans être étiré à la hauteur d\'une page entière',
+        pose.grossissement <= 3.01 && pose.plusPetitQueLaPage,
+        JSON.stringify(pose));
+    r.egal('recadrer la projection ne le fait pas enfler',
+        pose.hauteurApresTroisCadrages, pose.hauteurPosee);
     r.verifie('SANS quitter la projection — c\'était tout le problème',
         pose.projectionTenue, JSON.stringify(pose));
     r.verifie('on le tient, pour le redéplacer d\'un geste', pose.tenu, JSON.stringify(pose));

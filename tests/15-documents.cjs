@@ -4193,6 +4193,70 @@ module.exports = async function (browser) {
     r.egal('« Sur une page neuve » en ouvre bien une de plus', neuveDepuisBlanche.ajoutee, 1);
     r.verifie('et l\'on y va', neuveDepuisBlanche.ailleurs, JSON.stringify(neuveDepuisBlanche));
 
+
+    // ==================================================================
+    // TOUT SE RANGE ENSEMBLE, ANCIENS ET NOUVEAUX
+    //
+    // « Quand je mets poser à côté du document, c'est disproportionné. […] Du
+    // coup, s'il y a déjà des exercices, tout se range. » Les nouveaux venus
+    // étaient rangés dans une zone de la taille de l'écran, posée à DROITE des
+    // anciens, et agrandis jusqu'à trois fois sans les regarder : deux
+    // échelles côte à côte.
+    // ==================================================================
+    const rangeEnsemble = await page.evaluate(async () => {
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+
+        const couper = (hauts) => {
+            basculerLaDecoupe(true);
+            hauts.forEach(([p, h]) => {
+                const r = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * p, l: doc.w * 0.3, h: doc.h * h };
+                decoupeGeste = { obj: doc, debut: { x: r.x, y: r.y }, rect: r };
+                finirGesteDeDecoupe();
+            });
+            basculerLaDecoupe(false);
+        };
+
+        // Une page neuve pour n'avoir qu'eux dessus.
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const laPage = currentPageIndex;
+
+        couper([[0.10, 0.18], [0.35, 0.18]]);
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 250));
+        const deux = images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length;
+
+        // Deux de plus, d'une AUTRE taille : sans rangement commun, ils
+        // arriveraient à leur propre échelle, à côté des premiers.
+        loadPage(surSaPage.pageDuTableau);
+        couper([[0.55, 0.30], [0.75, 0.10]]);
+        loadPage(laPage);
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 250));
+
+        const lot = images.filter(o => o.pluginData && o.pluginData.id === 'morceau');
+        // UNE SEULE ÉCHELLE POUR TOUT LE MONDE : c'est cela, « tout se range ».
+        const echelles = lot.map(o => o.w / (o.pluginData.wNaturel || o.w));
+        const ecart = Math.max(...echelles) - Math.min(...echelles);
+        // Et personne ne chevauche personne.
+        let chevauche = false;
+        lot.forEach((a, i) => lot.forEach((b, j) => {
+            if (j <= i) return;
+            if (a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1
+                && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1) chevauche = true;
+        }));
+        return { deux, total: lot.length, ecart, chevauche, echelles };
+    });
+    r.egal('les deux premiers se posent', rangeEnsemble.deux, 2);
+    r.egal('les deux suivants les rejoignent', rangeEnsemble.total, 4);
+    r.verifie('et TOUS sont rangés à la même échelle',
+        rangeEnsemble.ecart < 0.001,
+        'écarts d\'échelle : ' + JSON.stringify(rangeEnsemble.echelles.map(e => Number(e.toFixed(3)))));
+    r.egal('sans que personne ne chevauche personne', rangeEnsemble.chevauche, false);
+
     await page.evaluate(() => {
         if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
         pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
