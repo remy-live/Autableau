@@ -1853,7 +1853,6 @@ html {
    travers en s'effaçant. Chacun sort maintenant par son propre bord — celui
    du bas vers le bas, celui du haut vers le haut, celui de droite à droite —
    ce qui est à la fois juste et lisible. */
-body.focus-mode #dock,
 body.focus-mode .custom-toolbar,
 body.focus-mode .toolbar,
 body.focus-mode .drawer-toggle-v {
@@ -1861,6 +1860,17 @@ body.focus-mode .drawer-toggle-v {
     pointer-events: none !important;
     transform: scale(0.95);
 }
+
+/* LE QUAI SURVIT À L'ÉCRAN NU, et il est le seul. C'est là que la barre des
+   outils va se ranger pendant qu'on projette : une barre rangée dans un
+   tiroir invisible n'est pas rangée, elle est perdue — et l'on se retrouve
+   devant sa classe sans un crayon. Il ne paraît que s'il sert : vide, il
+   reste caché de toute façon.
+
+   Rien à écrire ici pour cela : le quai reste visible parce qu'il ne figure
+   PLUS dans la liste ci-dessus, et non parce qu'une exception le rattrape.
+   Une exception aurait doublé la règle — deux endroits pour une décision,
+   dont l'un finit toujours par mentir. */
 
 body.focus-mode .drawer {
     opacity: 0 !important;

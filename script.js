@@ -22956,6 +22956,9 @@ function presenterLeDocument(cadrageVoulu) {
     // déjà, pour que le raccourci ne le coupe pas en croyant l'allumer.
     if (!document.body.classList.contains('focus-mode')
         && typeof toggleFocusMode === 'function') toggleFocusMode();
+    // Les outils ne disparaissent pas, ils se rangent : le quai les garde à
+    // portée de doigt pendant qu'on projette.
+    rangerLesOutilsPourProjeter();
 
     if (typeof setMode === 'function') setMode('pointer');
     selectedItems = [{ type: 'image', id: doc.id }];
@@ -23000,6 +23003,53 @@ function presenterLeDocument(cadrageVoulu) {
                  : 'Document en pleine page — « D » à nouveau pour toute la largeur'));
     return true;
 }
+
+// LES OUTILS SE RANGENT AU QUAI PENDANT QU'ON PROJETTE.
+//
+// « On peut au passage minifier la toolbar de gauche en bas à gauche, et elle
+// revient une fois la sortie du PDF. »
+//
+// Projeter efface les barres : c'est ce qu'on veut devant une classe. Mais
+// « je ne comprends pas comment on revient à la toolbar » — effacée, elle
+// n'est nulle part, et rien ne dit qu'elle existe encore. Repliée au quai,
+// elle devient une pastille en bas à gauche : on la voit, on la rappelle d'un
+// doigt, et elle reprend sa place en sortant.
+//
+// ON PASSE PAR LA MÊME MÉCANIQUE QUE LE PROFESSEUR — celle qui replie une
+// barre au quai et l'en ressort. Rejouer la manœuvre à la main aurait fait un
+// second chemin, qui aurait divergé du premier au premier changement.
+//
+// ET C'EST « system-toolbar-main », PAS « bar-tools ». Celle-ci ne s'affiche
+// plus depuis que les panoplies se composent — elle est en « display: none »,
+// avec ses vingt-deux boutons que personne ne voit. Replier celle-là aurait
+// rangé un meuble déjà rangé, et laissé la vraie barre en place : le genre de
+// correctif qui passe tous les tests et ne fait rien du tout.
+let outilsRangesParLaProjection = false;
+
+function laBarreDesOutils() {
+    return document.getElementById('system-toolbar-main');
+}
+
+function rangerLesOutilsPourProjeter() {
+    const barre = laBarreDesOutils();
+    if (!barre || barre.classList.contains('minimized')) return false;
+    if (typeof minimizeFloatingToolbar !== 'function') return false;
+    minimizeFloatingToolbar(barre);
+    outilsRangesParLaProjection = true;
+    return true;
+}
+
+function rendreLesOutilsApresProjection() {
+    if (!outilsRangesParLaProjection) return false;
+    outilsRangesParLaProjection = false;
+    const barre = laBarreDesOutils();
+    if (!barre || !barre.classList.contains('minimized')) return false;
+    if (typeof restoreFloatingToolbar !== 'function') return false;
+    restoreFloatingToolbar(barre.id);
+    return true;
+}
+window.rangerLesOutilsPourProjeter = rangerLesOutilsPourProjeter;
+window.rendreLesOutilsApresProjection = rendreLesOutilsApresProjection;
 
 // Sortir de la présentation : le fond sombre s'en va avec elle.
 // Vrai si c'est la présentation qui a demandé le plein écran du navigateur.
@@ -23167,6 +23217,11 @@ function basculerLesBarresDeLaPresentation() {
     const enFocus = document.body.classList.contains('focus-mode');
     if (avec && enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
     if (!avec && !enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
+    // ET LA BARRE QUITTE LE QUAI AVEC LES AUTRES. « Montrer les outils » veut
+    // dire TOUS les outils : depuis qu'elle s'y range en projetant, la rappeler
+    // par ce bouton ne la ramenait plus — il rendait un écran sans un crayon.
+    if (avec) rendreLesOutilsApresProjection();
+    else rangerLesOutilsPourProjeter();
     if (typeof majBarreDocument === 'function') majBarreDocument();
     if (typeof draw === 'function') draw();
     if (typeof showToast === 'function') {
@@ -23197,6 +23252,10 @@ function quitterLaPresentation() {
     }
     if (document.body.classList.contains('focus-mode')
         && typeof toggleFocusMode === 'function') toggleFocusMode();
+    // Et les outils reprennent leur place — mais seulement s'ils sont partis
+    // au quai pour cette projection : qui les avait rangés lui-même les
+    // retrouve rangés.
+    rendreLesOutilsApresProjection();
     if (typeof draw === 'function') draw();
     return true;
 }

@@ -522,6 +522,139 @@ module.exports = async function (browser) {
     r.egal('et le choix est retenu d\'une séance à l\'autre', retenu, 'oui');
     await page.evaluate(() => { if (pdfDeposeEnGrand) basculerLePdfEnGrand(); });
 
+    // ==================================================================
+    // LES OUTILS SE RANGENT AU QUAI, ILS NE DISPARAISSENT PAS
+    //
+    // « On peut au passage minifier la toolbar de gauche en bas à gauche, et
+    // elle revient une fois la sortie du PDF. » Projeter effaçait la barre :
+    // effacée, elle n'est nulle part, et rien ne dit qu'elle existe encore —
+    // d'où « je ne comprends pas comment on revient à la toolbar ». Repliée au
+    // quai, elle se voit et se rappelle d'un doigt.
+    //
+    // ON MESURE CE QUI EST MONTRÉ, et non des classes : un quai rendu visible
+    // dont le contenu reste effacé par le mode Focus n'est qu'un cadre vide,
+    // et la classe « minimized » ne dirait rien de ce piège-là.
+    const auQuai = await page.evaluate(async () => {
+        const montre = (el) => {
+            if (!el || !el.getClientRects().length) return false;
+            const c = getComputedStyle(el);
+            return c.display !== 'none' && c.visibility !== 'hidden' && Number(c.opacity) > 0.5;
+        };
+        // LA VRAIE BARRE DE GAUCHE EST CELLE QU'ON COMPOSE. « bar-tools » ne
+        // s'affiche plus — vingt-deux boutons en « display: none » — et
+        // l'éprouver aurait validé un correctif qui ne fait rien.
+        const barre = document.getElementById('system-toolbar-main');
+        const quai = () => document.getElementById('dock');
+        if (presentationEnCours) quitterLaPresentation();
+        poserLAffichage(0);
+        await new Promise(ok => setTimeout(ok, 400));
+        images.length = 0;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++,
+                      nomFichier: 'poly.pdf', src: 'x' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        const avant = { barre: montre(barre), repliee: barre.classList.contains('minimized') };
+
+        presenterLeDocument();
+        await new Promise(ok => setTimeout(ok, 500));
+        const pendant = {
+            projette: etatDuPleinEcran() > 0,
+            barreMontree: montre(barre),
+            repliee: barre.classList.contains('minimized'),
+            pastilleAuQuai: montre(quai().querySelector(`.dock-item[data-target-id='${barre.id}']`)),
+            quaiMontre: montre(quai())
+        };
+
+        quitterLaPresentation();
+        await new Promise(ok => setTimeout(ok, 600));
+        const apres = { barre: montre(barre), repliee: barre.classList.contains('minimized'),
+                        quaiMontre: montre(quai()) };
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return { avant, pendant, apres };
+    });
+    r.verifie('avant de projeter, la barre des outils est là, dépliée',
+        auQuai.avant.barre && !auQuai.avant.repliee, JSON.stringify(auQuai.avant));
+    r.verifie('en projetant, elle se replie et quitte l\'écran',
+        auQuai.pendant.projette && auQuai.pendant.repliee && !auQuai.pendant.barreMontree,
+        JSON.stringify(auQuai.pendant));
+    r.verifie('et LE QUAI SE VOIT, sa pastille avec : c\'est par elle qu\'on la rappelle',
+        auQuai.pendant.quaiMontre && auQuai.pendant.pastilleAuQuai,
+        JSON.stringify(auQuai.pendant));
+    r.verifie('en sortant, elle reprend sa place, dépliée',
+        auQuai.apres.barre && !auQuai.apres.repliee, JSON.stringify(auQuai.apres));
+    r.verifie('et le quai, vidé, se referme',
+        !auQuai.apres.quaiMontre, JSON.stringify(auQuai.apres));
+
+    // « MONTRER LES OUTILS » LES SORT DU QUAI, ET LES Y REMET.
+    //
+    // Il y a deux chemins pour retrouver ses outils sur une page projetée : le
+    // bouton qui les rappelle par-dessus la page, et la pastille du quai. Le
+    // premier ne les ramenait plus depuis qu'ils s'y rangent — il rendait un
+    // écran sans un crayon. Et les renvoyer doit les y RENVOYER : à moitié
+    // rangés, on ne sait plus où les chercher d'une fois sur l'autre.
+    const rappel = await page.evaluate(async () => {
+        const montre = (el) => {
+            if (!el || !el.getClientRects().length) return false;
+            const c = getComputedStyle(el);
+            return c.display !== 'none' && c.visibility !== 'hidden' && Number(c.opacity) > 0.5;
+        };
+        const barre = document.getElementById('system-toolbar-main');
+        const pastille = () => document.querySelector(`#dock .dock-item[data-target-id='${barre.id}']`);
+        images.length = 0;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++,
+                      nomFichier: 'poly.pdf', src: 'x' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        presenterLeDocument();
+        await new Promise(ok => setTimeout(ok, 500));
+        const rangee = { barre: montre(barre), pastille: !!pastille() };
+
+        basculerLesBarresDeLaPresentation();          // on les rappelle
+        await new Promise(ok => setTimeout(ok, 500));
+        const rappelee = { barre: montre(barre), pastille: !!pastille(),
+                           projette: etatDuPleinEcran() > 0 };
+
+        basculerLesBarresDeLaPresentation();          // et on les renvoie
+        await new Promise(ok => setTimeout(ok, 500));
+        const renvoyee = { barre: montre(barre), pastille: !!pastille() };
+
+        quitterLaPresentation();
+        await new Promise(ok => setTimeout(ok, 600));
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return { rangee, rappelee, renvoyee };
+    });
+    r.verifie('en projetant, la barre est au quai', 
+        !rappel.rangee.barre && rappel.rangee.pastille, JSON.stringify(rappel.rangee));
+    r.verifie('« montrer les outils » la sort du quai, et la page reste en grand',
+        rappel.rappelee.barre && !rappel.rappelee.pastille && rappel.rappelee.projette,
+        JSON.stringify(rappel.rappelee));
+    r.verifie('et les renvoyer l\'y remet — pas à moitié',
+        !rappel.renvoyee.barre && rappel.renvoyee.pastille, JSON.stringify(rappel.renvoyee));
+
+    // QUI LES AVAIT RANGÉS LUI-MÊME LES RETROUVE RANGÉS. La projection ne rend
+    // que ce qu'elle a pris : sans cela, elle déplierait une barre que le
+    // professeur avait mise de côté pour gagner de la place.
+    const dejaRangee = await page.evaluate(async () => {
+        const barre = document.getElementById('system-toolbar-main');
+        if (!barre.classList.contains('minimized')) minimizeFloatingToolbar(barre);
+        await new Promise(ok => setTimeout(ok, 400));
+        images.length = 0;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++,
+                      nomFichier: 'poly.pdf', src: 'x' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        presenterLeDocument();
+        await new Promise(ok => setTimeout(ok, 500));
+        quitterLaPresentation();
+        await new Promise(ok => setTimeout(ok, 600));
+        const restee = barre.classList.contains('minimized');
+        if (restee) restoreFloatingToolbar(barre.id);
+        await new Promise(ok => setTimeout(ok, 400));
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return restee;
+    });
+    r.verifie('une barre déjà rangée le reste après la projection', dejaRangee, '');
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -112,12 +112,27 @@ module.exports = async function (browser) {
     r.verifie('la page se projette et le mode Focus range les barres',
         projection.ouvert && projection.focus && projection.etat === 1, JSON.stringify(projection));
 
+    // ELLE N'EST PLUS EFFACÉE, ELLE EST RANGÉE — et c'est une garantie plus
+    // forte que celle qu'on demandait ici. Une barre à opacité zéro garde sa
+    // place et ses boutons : tout le chapitre existe parce qu'ils répondaient
+    // quand même. Repliée au quai, elle n'a plus de boîte du tout, donc plus
+    // rien à cliquer par mégarde — et une pastille en bas à gauche dit où elle
+    // est passée, ce qu'une barre effacée ne disait pas.
     const effacee = await page.evaluate(() => {
         const b = document.getElementById('system-toolbar-main');
-        return { opacite: getComputedStyle(b).opacity, place: b.getBoundingClientRect().height > 0 };
+        const quai = document.getElementById('dock');
+        const pastille = quai && quai.querySelector(`.dock-item[data-target-id='${b.id}']`);
+        return {
+            place: b.getBoundingClientRect().height > 0,
+            pastille: !!(pastille && pastille.getBoundingClientRect().width > 4),
+            quaiVu: !!(quai && getComputedStyle(quai).display !== 'none'
+                       && Number(getComputedStyle(quai).opacity) > 0.5)
+        };
     });
-    r.verifie('la barre est devenue invisible mais reste posée là',
-        parseFloat(effacee.opacite) < 0.05 && effacee.place, JSON.stringify(effacee));
+    r.verifie('la barre n\'est plus là du tout : elle est rangée au quai',
+        !effacee.place, JSON.stringify(effacee));
+    r.verifie('et une pastille dit où elle est passée',
+        effacee.quaiVu && effacee.pastille, JSON.stringify(effacee));
 
     await page.mouse.click(depart.rect.x + depart.rect.w / 2, depart.rect.y + depart.rect.h / 2);
     await page.waitForTimeout(200);
