@@ -13585,12 +13585,96 @@ function poserACote(m) {
     return true;
 }
 
+// UNE PAGE MISE À CÔTÉ EST UN PASSAGER, PAS UN MEUBLE.
+//
+// Elle est entrée avec la place, elle s'en va avec elle : on ne l'a jamais
+// posée sur le tableau, on l'a montrée à côté. Un morceau venu du tiroir, lui,
+// reste — c'est le découpage de l'enseignant, il ne se volatilise pas parce
+// qu'on a refermé un plein écran.
+function congedierLaPageDuVoisinage(id) {
+    if (!id || typeof images === 'undefined') return false;
+    const n = images.findIndex(o => o && o.id === id
+        && o.pluginData && o.pluginData.pageEntiere);
+    if (n < 0) return false;
+    images.splice(n, 1);
+    if (typeof selectedItems !== 'undefined' && Array.isArray(selectedItems)) {
+        selectedItems = selectedItems.filter(s => !(s.type === 'image' && s.id === id));
+    }
+    return true;
+}
+
+// LE TEXTE À GAUCHE, LES QUESTIONS À DROITE.
+//
+// « Et si on importe deux pages PDF côte à côte ? » C'est le geste pour lequel
+// la seconde place a été mesurée : un texte page 4, ses questions page 5, et
+// une classe qui doit voir les deux en même temps. Jusqu'ici la place n'en
+// acceptait qu'un morceau découpé ; elle accueille maintenant une PAGE, celle
+// qu'on lui désigne dans le volet.
+//
+// ELLE ENTRE À L'ÉCHELLE DE LA PAGE PROJETÉE, et non à la sienne : c'est le
+// même document, rendu au même zoom. « disposerLesDeux » la porte ensuite à la
+// hauteur de sa voisine — une page entière atteint toujours cette hauteur sans
+// approcher le plafond des trois fois, puisqu'elle en part déjà.
+//
+// ON LA POSE COMME UN MORCEAU QUI SERAIT TOUTE LA PAGE, avec la clé du PDF :
+// « revenir au document » la ramène ainsi chez elle sans qu'on ait à lui
+// apprendre un second chemin.
+async function poserLaPageACote(numero) {
+    if (!presentationEnCours) return false;
+    const doc = getObjectById('image', presentationEnCours);
+    if (!doc || typeof estUnPdfFeuilletable !== 'function'
+        || !estUnPdfFeuilletable(doc)) return false;
+    const pd = doc.pluginData;
+    const total = pd.pages || 1;
+    // LES BORDS : un rang hors du document se ramène dans le document, et
+    // une page ne se met pas à côté d'elle-même — ce serait deux fois la
+    // même chose sur un écran qu'on vient de partager en deux.
+    const voulue = Math.min(Math.max(1, Math.round(numero) || 0), total);
+    if (!voulue || voulue === pd.page) return false;
+    const d = documentsPdf.get(pd.cle);
+    if (!d) return false;
+    const rendu = await rendreLaPage(d, voulue);
+    if (!rendu || !rendu.src) return false;
+    // La projection a pu être quittée pendant que la page se dessinait.
+    if (!presentationEnCours || presentationEnCours !== doc.id) return false;
+
+    const k = (doc.ch > 0) ? doc.h / doc.ch : 1;
+    const objet = {
+        id: nextId++, x: doc.x, y: doc.y,
+        w: rendu.l * k, h: rendu.h * k,
+        cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
+        src: rendu.src, fileName: (pd.nom || 'Document') + ' — page ' + voulue,
+        z: globalZ++, ratioLocked: true,
+        pluginData: { id: 'morceau', source: doc.id, nom: pd.nom, page: voulue,
+                      cle: pd.cle, projete: true, pageEntiere: true,
+                      wNaturel: rendu.l * k, hNaturel: rendu.h * k }
+    };
+    // ET LA PLACE NE S'EMPILE PAS : celle qui l'occupait s'en va. Deux pages
+    // au même endroit, c'est l'une cachée sous l'autre — et le tableau qui
+    // s'alourdit d'un calque invisible à chaque changement d'avis.
+    congedierLaPageDuVoisinage(presentationVoisine);
+    images.push(objet);
+    presentationVoisine = objet.id;
+    tailleNaturelleDuVoisin = { w: objet.w, h: objet.h };
+    cadrerSurLesDeux(doc, objet);
+    if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    if (typeof showToast === 'function') {
+        showToast('Page ' + voulue + ' à côté de la page ' + pd.page
+            + ' — « ⇔ » sur une autre vignette pour en changer');
+    }
+    return true;
+}
+window.poserLaPageACote = poserLaPageACote;
+
 // LA SYMÉTRIE : elle s'ouvre quand quelqu'un arrive, elle se referme quand il
 // part. Une règle symétrique ne s'apprend pas, elle se devine au premier
 // usage — et une place vide qui resterait ouverte se ferait oublier : on
 // projetterait petit sans savoir pourquoi.
 function libererLaPlaceACote(sansRedessiner) {
     if (!presentationVoisine) return false;
+    congedierLaPageDuVoisinage(presentationVoisine);
     presentationVoisine = null;
     tailleNaturelleDuVoisin = null;
     const doc = presentationEnCours ? getObjectById('image', presentationEnCours) : null;
@@ -13625,6 +13709,58 @@ function boitesEpargneesParLeVoile(doc) {
 }
 window.boitesEpargneesParLeVoile = boitesEpargneesParLeVoile;
 
+// CE QUI RESTE À PEINDRE, EXACTEMENT.
+//
+// Le voile se creusait en « pair-impair » : l'écran, puis la page et chaque
+// morceau épargné, le tout rempli d'un coup. Ce remplissage a un défaut de
+// principe — DEUX RECTANGLES QUI SE CHEVAUCHENT S'ANNULENT — et le voile se
+// peignait alors par-dessus ce qu'il devait montrer. Le cas n'était pas
+// théorique : deux morceaux d'une même page qui se recouvrent suffisaient.
+//
+// FONDRE LES BOÎTES QUI SE TOUCHENT NE VAUT RIEN NON PLUS, et c'est une
+// éprouvette qui l'a dit : un morceau posé dans la marge touche la page, leur
+// réunion avale la marge entière, et le voile s'y éteignait — c'est-à-dire
+// l'inverse exact du défaut qu'on venait de corriger.
+//
+// On ne fond donc rien : on découpe l'écran sur les bords des trous — quelques
+// abscisses, quelques ordonnées — et l'on peint les cases qui ne tombent dans
+// aucun trou. C'est exact quels que soient les chevauchements, et une poignée
+// de rectangles ne fait jamais qu'une centaine de cases.
+//
+// LES BORDS SONT ARRONDIS AU PIXEL pour que les cases voisines se joignent
+// sans laisser de couture : deux « fillRect » qui partagent une arête
+// fractionnaire la dessinent deux fois, et cela se voit comme un fil clair.
+function bandesDuVoile(L, H, trous) {
+    const boites = [];
+    const xs = [0, L], ys = [0, H];
+    (trous || []).forEach(t => {
+        const x1 = Math.max(0, Math.round(t.x)), x2 = Math.min(L, Math.round(t.x + t.w));
+        const y1 = Math.max(0, Math.round(t.y)), y2 = Math.min(H, Math.round(t.y + t.h));
+        if (x2 <= x1 || y2 <= y1) return;      // hors de l'écran, ou plat
+        boites.push({ x1, x2, y1, y2 });
+        xs.push(x1, x2); ys.push(y1, y2);
+    });
+    const X = [...new Set(xs)].sort((a, b) => a - b);
+    const Y = [...new Set(ys)].sort((a, b) => a - b);
+    const bandes = [];
+    for (let j = 0; j < Y.length - 1; j++) {
+        let debut = null;
+        for (let i = 0; i < X.length - 1; i++) {
+            const cx = (X[i] + X[i + 1]) / 2, cy = (Y[j] + Y[j + 1]) / 2;
+            const dansUnTrou = boites.some(o => cx > o.x1 && cx < o.x2 && cy > o.y1 && cy < o.y2);
+            // Les cases voisines d'une même rangée se recollent : moins de
+            // rectangles peints, et pas une couture de plus.
+            if (!dansUnTrou) { if (debut === null) debut = X[i]; continue; }
+            if (debut !== null) { bandes.push({ x: debut, y: Y[j], w: X[i] - debut, h: Y[j + 1] - Y[j] }); debut = null; }
+        }
+        if (debut !== null) {
+            bandes.push({ x: debut, y: Y[j], w: X[X.length - 1] - debut, h: Y[j + 1] - Y[j] });
+        }
+    }
+    return bandes;
+}
+window.bandesDuVoile = bandesDuVoile;
+
 function peindreLeFondDePresentation() {
     if (!presentationEnCours || isExportingTransparent) return;
     const doc = getObjectById('image', presentationEnCours);
@@ -13640,20 +13776,14 @@ function peindreLeFondDePresentation() {
     const epargnes = boitesEpargneesParLeVoile(doc);
     ctx.save();
     ctx.fillStyle = 'rgba(20, 22, 24, 0.94)';
-    if (epargnes.length) {
-        ctx.beginPath();
-        ctx.rect(0, 0, L, H);
-        ctx.rect(x, y, w, h);
-        epargnes.forEach(o => ctx.rect(o.x * zoom + panX, o.y * zoom + panY, o.w * zoom, o.h * zoom));
-        ctx.fill('evenodd');
-    } else {
-        // Les quatre bandes autour de la page, jamais par-dessus
-        if (y > 0) ctx.fillRect(0, 0, L, Math.min(y, H));
-        if (y + h < H) ctx.fillRect(0, Math.max(0, y + h), L, H - Math.max(0, y + h));
-        const hb = Math.max(0, Math.min(y, H)), bb = Math.max(0, Math.min(y + h, H));
-        if (x > 0) ctx.fillRect(0, hb, Math.min(x, L), bb - hb);
-        if (x + w < L) ctx.fillRect(Math.max(0, x + w), hb, L - Math.max(0, x + w), bb - hb);
-    }
+    // UN SEUL CHEMIN POUR TOUS LES CAS. Il y avait avant deux écritures — les
+    // quatre bandes autour de la page quand rien n'était épargné, le trou en
+    // « pair-impair » sinon —, et c'est la seconde qui se trompait. Le calcul
+    // des bandes rend les quatre premières quand il n'y a qu'un trou : la
+    // question ne se pose plus.
+    const trous = [{ x, y, w, h }].concat(epargnes.map(o => ({
+        x: o.x * zoom + panX, y: o.y * zoom + panY, w: o.w * zoom, h: o.h * zoom })));
+    bandesDuVoile(L, H, trous).forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
     ctx.restore();
 }
 
@@ -14710,10 +14840,25 @@ function majLeVolet() {
     if (nom) nom.textContent = (d && d.nom) || 'Document';
 
     const courante = obj.pluginData.page;
+    // LE « ⇔ » NE PARAÎT QUE QUAND IL A UN SENS : il faut une projection en
+    // cours, et que ce soit CE document-là qu'on projette — la seconde place
+    // est une pièce de l'écran projeté, pas du tableau. Cet état-ci se relit à
+    // chaque passage, avant le raccourci du rang : la projection peut
+    // commencer ou finir sans que la page change.
+    const liste = document.getElementById('dv-liste');
+    if (liste) {
+        const projeteCelui = typeof presentationEnCours !== 'undefined'
+            && !!presentationEnCours && presentationEnCours === obj.id;
+        liste.classList.toggle('avec-acote', projeteCelui);
+    }
     if (voletPageMontree === courante) return;
     voletPageMontree = courante;
     volet.querySelectorAll('.dv-page').forEach(el => {
         el.classList.toggle('courante', Number(el.dataset.page) === courante);
+        // Et l'enveloppe avec lui : une page ne se met pas à côté d'elle-même,
+        // son « ⇔ » s'efface plutôt que de ne rien faire.
+        const enveloppe = el.closest('.dv-item');
+        if (enveloppe) enveloppe.classList.toggle('courante', Number(el.dataset.page) === courante);
     });
     // La page où l'on est doit se voir, même trente vignettes plus bas
     const ici = volet.querySelector('.dv-page.courante');
@@ -14734,12 +14879,18 @@ function peuplerLeVolet() {
     if (voletTrouvailles) voletTrouvailles.forEach(t => { extraits[t.page] = t.extrait; });
 
     voletPageMontree = null;               // la liste est neuve : tout est à refaire
+    // LE « ⇔ » EST À CÔTÉ DE LA VIGNETTE, ET NON DEDANS : un bouton ne se
+    // niche pas dans un bouton — le navigateur en fait ce qu'il veut, et le
+    // clavier n'y arrive plus. L'enveloppe porte les deux.
     liste.innerHTML = pages.map(n => `
-        <button class="dv-page" data-page="${n}">
-            <span class="dv-cadre"><img alt="" data-vignette="${n}"></span>
-            <span class="dv-num">${n}</span>
-            ${extraits[n] ? `<span class="dv-extrait">${echapperTexte(extraits[n])}</span>` : ''}
-        </button>`).join('');
+        <div class="dv-item" data-item="${n}">
+            <button class="dv-page" data-page="${n}">
+                <span class="dv-cadre"><img alt="" data-vignette="${n}"></span>
+                <span class="dv-num">${n}</span>
+                ${extraits[n] ? `<span class="dv-extrait">${echapperTexte(extraits[n])}</span>` : ''}
+            </button>
+            <button class="dv-acote" data-acote="${n}" title="Mettre cette page à côté de celle qu'on projette" aria-label="Page ${n} à côté">⇔</button>
+        </div>`).join('');
     majLeVolet();
     dessinerLesVignettes(d, pages);
 }
@@ -16320,6 +16471,26 @@ async function revenirAuDocumentDavant() {
         if (typeof showToast === 'function') showToast("Aucun document où revenir");
         return false;
     }
+    // DEUX À L'ÉCRAN : LE PREMIER RETOUR EST CELUI DE LA PAGE SEULE.
+    //
+    // La vignette montre alors le document qu'on projette — c'est de lui que
+    // sort ce qui occupe la seconde place. L'y ramener ne ferait rien de
+    // visible : il est déjà là, et à côté de lui il y a toujours l'autre. Ce
+    // qu'on demande en appuyant, c'est de le retrouver SEUL. La place se
+    // libère donc, la page reprend toute sa largeur, et un second appui s'en
+    // va pour de bon vers le document d'avant.
+    if (typeof objetVoisinDeLaPresentation === 'function'
+        && objetVoisinDeLaPresentation()
+        && typeof presentationEnCours !== 'undefined'
+        && cible.doc.id === presentationEnCours) {
+        libererLaPlaceACote();
+        // La page qui occupait la place emportait la sélection avec elle : la
+        // barre du document parlerait d'un objet qui n'existe plus.
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+        if (typeof majLaVignetteDeRetour === 'function') majLaVignetteDeRetour();
+        if (typeof showToast === 'function') showToast('↩ La page seule');
+        return true;
+    }
     const { page, projete, pageDuTableau } = cible;
     // IL PEUT ÊTRE SUR UNE AUTRE PAGE DU TABLEAU — c'est même le cas ordinaire
     // depuis que poser un morceau ouvre une page neuve. On y va d'abord : le
@@ -16952,6 +17123,14 @@ function brancherLeVolet() {
     });
 
     document.getElementById('dv-liste').addEventListener('click', (e) => {
+        // LE « ⇔ » D'ABORD : il est posé sur la vignette, et l'on ne veut pas
+        // qu'aller à côté fasse d'abord tourner la page principale.
+        const aCote = e.target.closest('.dv-acote');
+        if (aCote) {
+            e.stopPropagation();
+            poserLaPageACote(Number(aCote.dataset.acote));
+            return;
+        }
         const bouton = e.target.closest('.dv-page');
         if (!bouton) return;
         allerEtSurligner(Number(bouton.dataset.page));
@@ -23707,11 +23886,15 @@ function quitterLaPresentation() {
     presentationEnCours = null;
     // La seconde place n'existe que pendant la projection : hors d'elle, ce
     // qu'on y avait posé redevient un objet du tableau comme un autre.
+    congedierLaPageDuVoisinage(presentationVoisine);
     presentationVoisine = null;
     tailleNaturelleDuVoisin = null;
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
     rendreLeModeDuDocument();
+    // Et le « ⇔ » du volet s'en va avec elle : hors projection, il n'y a plus
+    // de seconde place où envoyer une page.
+    if (typeof majLeVolet === 'function') majLeVolet();
     if (pleinEcranDeLaPresentation) {
         pleinEcranDeLaPresentation = false;
         if (document.fullscreenElement && document.exitFullscreen) {

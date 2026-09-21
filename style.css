@@ -7520,6 +7520,40 @@ body.focus-mode #edt-bandeau { display: none; }
     gap: 8px;
 }
 
+/* L'ENVELOPPE D'UNE PAGE DU VOLET : la vignette, et le « ⇔ » posé sur son
+   coin. Le « ⇔ » n'existe que pendant la projection de CE document, et jamais
+   sur la page qu'on projette déjà. */
+.dv-item { position: relative; }
+
+.dv-acote {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #334155;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#dv-liste.avec-acote .dv-item:not(.courante) .dv-acote { display: flex; }
+.dv-acote:hover { background: #e0f2fe; border-color: #7dd3fc; }
+
+.dark-mode .dv-acote {
+    background: rgba(47, 57, 65, 0.94);
+    border-color: #3d4852;
+    color: #dfe6e9;
+}
+.dark-mode .dv-acote:hover { background: #3d4852; }
+
 .dv-page {
     display: block;
     width: 100%;
