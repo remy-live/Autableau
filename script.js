@@ -30939,7 +30939,14 @@ function heureLisible(minutes) {
 }
 
 // « 1 h 25 », « 45 min » : une durée ne se dit pas comme une heure.
-function dureeLisible(minutes) {
+//
+// ELLE NE S'APPELLE PAS « dureeLisible », ET C'EST IMPORTANT : ce nom-là était
+// déjà pris, six mille lignes plus haut, par la durée d'une étape de lecture —
+// qui compte en MILLISECONDES. Les déclarations de fonction se hissent, la
+// dernière l'emporte, et le rythme de lecture s'est mis à annoncer « 233 h 20 »
+// au lieu de « 3,5 s ». La suite complète l'a vu ; le chapitre de l'emploi du
+// temps, lui, n'avait aucune raison de le voir.
+function dureeDuCours(minutes) {
     const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
     if (!h) return m + ' min';
     return h + ' h' + (m ? ' ' + String(m).padStart(2, '0') : '');
@@ -31468,7 +31475,7 @@ function suivreUnGesteDeLAgenda(e) {
         }
         montrerLApercu(c, repere);
         direLHeure(e, heureLisible(c.debut) + ' – ' + heureLisible(c.debut + c.duree)
-            + ' · ' + dureeLisible(c.duree));
+            + ' · ' + dureeDuCours(c.duree));
     }
     poserLeBlocTenu();
 }

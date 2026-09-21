@@ -766,6 +766,47 @@ module.exports = async function (browser) {
     await page.evaluate(() => poserLAffichage(0));
     await page.waitForTimeout(350);
 
+    // ==================================================================
+    // ET AUCUNE FONCTION NE PORTE DEUX FOIS LE MÊME NOM.
+    //
+    // Ce n'est pas un doublon de barre, c'en est un de code, et il se termine
+    // de la même façon : deux choses répondent au même nom, et l'on ne sait
+    // plus laquelle fait foi. C'est arrivé pour de bon. « dureeLisible » était
+    // la durée d'une étape de lecture, en MILLISECONDES ; l'emploi du temps en
+    // a déclaré une seconde, en MINUTES, six mille lignes plus bas. Les
+    // déclarations de fonction se hissent, la dernière l'emporte : le rythme de
+    // lecture s'est mis à annoncer « 233 h 20 » au lieu de « 3,5 s ».
+    //
+    // AUCUN CHAPITRE N'AVAIT DE RAISON DE LE VOIR — celui qui éprouvait
+    // l'emploi du temps passait, celui de la lecture était à l'autre bout de la
+    // suite. Un défaut qui ne se révèle que par un croisement lointain demande
+    // une garde de structure, pas une vérification de plus.
+    //
+    // ON LIT LES FICHIERS, et non la page : une fonction écrasée n'existe plus
+    // qu'en un exemplaire dans « window », ce qui est précisément ce qui la
+    // rend invisible.
+    const fs = require('fs');
+    const path = require('path');
+    const racine = path.join(__dirname, '..');
+    const doublons = {};
+    ['script.js', 'plugin.js'].forEach(nom => {
+        const source = fs.readFileSync(path.join(racine, nom), 'utf8');
+        const vus = new Map();
+        // Les déclarations de premier niveau seulement : celles qui se hissent
+        // dans la portée du fichier. Une fonction indentée vit dans la sienne.
+        const motif = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+        let m;
+        while ((m = motif.exec(source)) !== null) {
+            const ligne = source.slice(0, m.index).split('\n').length;
+            vus.set(m[1], (vus.get(m[1]) || []).concat(ligne));
+        }
+        vus.forEach((lignes, nomFn) => {
+            if (lignes.length > 1) doublons[nom + ' · ' + nomFn] = lignes;
+        });
+    });
+    r.egal('aucune fonction de premier niveau n\'est déclarée deux fois',
+        doublons, {});
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
