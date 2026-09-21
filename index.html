@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=172">
+    <link rel="stylesheet" href="style.css?v=173">
 </head>
 
 <body>
@@ -2741,6 +2741,15 @@
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
                     </button>
+                    <button class="rd-btn" onclick="ouvrirLeCahier()" title="Cahier de texte de cette séance" data-tooltip="Cahier de texte">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
+                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            <line x1="9" y1="7" x2="16" y2="7" />
+                            <line x1="9" y1="11" x2="16" y2="11" />
+                        </svg>
+                    </button>
                     <button class="rd-btn" onclick="ouvrirLAgenda()" title="Mon emploi du temps" data-tooltip="Emploi du temps">
                         <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
                             fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3494,6 +3503,54 @@
     <!-- L'AGENDA DU PROFESSEUR. Le calendrier ci-dessus regarde derrière :
          quels tableaux ont été gardés tel jour. Celui-ci dit ce qu'il y a
          cette semaine, et à quelle heure. On le remplit en déposant. -->
+    <!-- LE CAHIER DE TEXTE. Objectifs et déroulé appartiennent à la
+         préparation — ils sont les mêmes pour les quatre cinquièmes ; le
+         travail à faire appartient à chaque classe. -->
+    <div id="cdt-modal" class="modal-backdrop">
+        <div class="modal-box" id="cdt-boite">
+            <h3 class="modal-title">Cahier de texte</h3>
+            <div id="cdt-sans-seance" class="modal-text">
+                Le cahier de texte s'attache à une séance enregistrée : elle lui donne son nom,
+                sa classe et sa place parmi les reprises de la même préparation.
+                Enregistrez d'abord ce tableau dans « Mes tableaux ».
+            </div>
+            <div id="cdt-corps">
+                <div id="cdt-entete">
+                    <b id="cdt-seance"></b>
+                    <span id="cdt-classe"></span>
+                </div>
+
+                <label class="cdt-etiquette" id="cdt-partage"></label>
+                <textarea id="cdt-objectifs" rows="3" placeholder="Objectifs de la séance"></textarea>
+                <textarea id="cdt-seance-texte" rows="5" placeholder="Déroulé de la séance"></textarea>
+
+                <label class="cdt-etiquette">Travail à faire — propre à cette classe</label>
+                <textarea id="cdt-devoirs" rows="3" placeholder="Pour la prochaine fois…"></textarea>
+                <div id="cdt-echeance">
+                    <span id="cdt-quand"></span>
+                    <label>Pour le <input type="date" id="cdt-pour"></label>
+                </div>
+                <div id="cdt-reprise">
+                    <span>Reprendre le travail à faire de</span>
+                    <select id="cdt-soeurs"></select>
+                    <button type="button" id="cdt-reprendre" class="btn-action secondary">Reprendre</button>
+                </div>
+
+                <div id="cdt-copies">
+                    <button type="button" id="cdt-copier-contenu" class="btn-action primary">Copier le contenu de séance</button>
+                    <button type="button" id="cdt-copier-devoirs" class="btn-action primary">Copier le travail à faire</button>
+                </div>
+                <div class="modal-text" id="cdt-mot">
+                    Deux copies séparées : Pronote a deux champs, et découper à la main dans le
+                    presse-papiers est justement ce qu'on cherche à éviter.
+                </div>
+            </div>
+            <div class="export-actions-grid" style="display:flex; margin-top: 16px;">
+                <button onclick="fermerLeCahier()" class="btn-action secondary" style="flex:1;">Fermer</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Le bandeau du créneau : il PROPOSE la classe de l'heure, il ne
          l'impose pas. Écarté, il ne revient pas de la journée. -->
     <div id="edt-bandeau"></div>
@@ -3530,7 +3587,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=292"></script>
+    <script src="script.js?v=293"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

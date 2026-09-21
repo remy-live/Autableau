@@ -7089,6 +7089,79 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 #edt-mode-demploi { font-size: 12px; color: #95a5a6; margin-top: 10px; line-height: 1.5; }
 
+/* ===================================================
+   LE CAHIER DE TEXTE
+   =================================================== */
+#cdt-boite { max-width: 620px; width: calc(100vw - 40px); max-height: 92vh; display: flex; flex-direction: column; }
+#cdt-corps { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
+
+#cdt-entete { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+#cdt-seance { font-size: 15px; color: #2d3436; }
+
+#cdt-classe {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6c5ce7;
+    background: #f0edff;
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+
+.cdt-etiquette {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #95a5a6;
+    text-transform: uppercase;
+    margin-top: 6px;
+}
+
+#cdt-corps textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 9px 11px;
+    border: 1px solid #dfe6e9;
+    border-radius: 8px;
+    resize: vertical;
+    color: #2d3436;
+    background: #fff;
+}
+
+#cdt-echeance, #cdt-reprise {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #636e72;
+}
+
+#cdt-quand { color: #95a5a6; }
+#cdt-echeance input, #cdt-reprise select {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 7px;
+    border: 1px solid #dfe6e9;
+    border-radius: 6px;
+    background: #fff;
+    color: #2d3436;
+}
+
+#cdt-reprise { display: none; }
+#cdt-reprise .btn-action { padding: 5px 12px; font-size: 12px; }
+#cdt-copies { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+#cdt-copies .btn-action { flex: 1; min-width: 200px; }
+#cdt-mot { font-size: 11px; color: #b2bec3; margin-top: 8px; line-height: 1.5; }
+
+.dark-mode #cdt-seance { color: #dfe6e9; }
+.dark-mode #cdt-corps textarea,
+.dark-mode #cdt-echeance input,
+.dark-mode #cdt-reprise select { background: #232b32; border-color: #3d4852; color: #dfe6e9; }
+.dark-mode #cdt-classe { background: #3a3560; color: #a29bfe; }
+
 #edt-ancre {
     display: none;
     align-items: center;

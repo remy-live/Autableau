@@ -30739,6 +30739,239 @@ window.lireLAgenda = lireLAgenda;
 // écrire, ni écran de départ à ne pas recouvrir.
 document.addEventListener('DOMContentLoaded', () => { veillerSurLAgenda(); });
 
+// ============================================================
+// LE CAHIER DE TEXTE
+//
+// « J'ai objectifs, séance et devoirs, et après je le copie dans Pronote. »
+//
+// TROIS CHAMPS, MAIS PAS AU MÊME ENDROIT. Les objectifs et le déroulé
+// appartiennent à la PRÉPARATION : ils sont les mêmes pour les quatre
+// cinquièmes, et les écrire quatre fois est justement le travail que ce
+// logiciel doit épargner. Les devoirs appartiennent à CHAQUE CLASSE : la 5e A
+// n'a pas fini la même chose que la 5e B, et la date n'est pas la même.
+//
+// Le lien existait déjà : « Réinvestir la séance » écrit « seanceOrigine » sur
+// chaque reprise. Une famille de séances, une préparation, un cahier partagé —
+// et autant de travaux à faire que de classes.
+//
+// ET LA DATE VIENT DE L'EMPLOI DU TEMPS. « Pour le jeudi 8 » est un calcul
+// qu'on refait vingt fois par semaine et qu'on rate une fois sur vingt.
+// ============================================================
+const CLE_CAHIER = 'board_cahier';
+let cahier = { familles: {}, seances: {} };
+let cdtBranche = false;
+let cdtEcriture = null;
+
+function lireLeCahier() {
+    try {
+        const brut = JSON.parse(localStorage.getItem(CLE_CAHIER) || 'null');
+        if (brut && typeof brut === 'object') {
+            cahier = { familles: brut.familles || {}, seances: brut.seances || {} };
+        }
+    } catch (e) { /* stockage refusé */ }
+    return cahier;
+}
+
+function ecrireLeCahier() {
+    try { localStorage.setItem(CLE_CAHIER, JSON.stringify(cahier)); } catch (e) { /* stockage refusé */ }
+}
+
+function seanceCourante() {
+    if (typeof selectedBoardId === 'undefined' || !selectedBoardId) return null;
+    if (typeof savedTableaux === 'undefined' || !Array.isArray(savedTableaux)) return null;
+    return savedTableaux.find(t => t.id === selectedBoardId) || null;
+}
+
+function racineDeLaSeance(t) { return t ? (t.seanceOrigine || t.id) : null; }
+
+function pageDeLaFamille(racine) {
+    if (!cahier.familles[racine]) cahier.familles[racine] = { objectifs: '', seance: '' };
+    return cahier.familles[racine];
+}
+
+function pageDeLaSeance(id) {
+    if (!cahier.seances[id]) cahier.seances[id] = { devoirs: '', pour: '' };
+    return cahier.seances[id];
+}
+
+// L'entrée de l'emploi du temps qui correspond à cette séance : par la classe
+// quand elle en a une, par le nom sinon.
+function entreeDeLAgendaPour(t) {
+    if (!t) return null;
+    return agenda.entrees.find(e => (t.classeId && e.classeId === t.classeId)
+        || (!!t.classeNom && e.libelle === t.classeNom)) || null;
+}
+
+// Le prochain cours de cette classe, strictement après maintenant. On regarde
+// quinze jours : de quoi couvrir les deux semaines quand elles alternent.
+function prochainCoursDe(entree, depuis) {
+    if (!entree) return null;
+    const maintenant = depuis || new Date();
+    const minutes = maintenant.getHours() * 60 + maintenant.getMinutes();
+    for (let i = 0; i < 15; i++) {
+        const jour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() + i);
+        const numero = (jour.getDay() + 6) % 7 + 1;
+        const semaine = semaineDe(jour);
+        const duJour = agenda.creneaux
+            .filter(c => c.entreeId === entree.id && c.jour === numero
+                && (c.semaine === 'toutes' || c.semaine === semaine)
+                && (i > 0 || c.debut > minutes))
+            .sort((a, b) => a.debut - b.debut);
+        if (duJour.length) return { jour, creneau: duJour[0] };
+    }
+    return null;
+}
+
+function dateLongue(d) {
+    return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+// Les autres séances de la même préparation qui ont déjà un travail à faire :
+// « on peut copier ce qu'on a déjà écrit pour une classe ».
+function soeursAvecDevoirs(t) {
+    if (!t || typeof seancesDeLaMemeFamille !== 'function') return [];
+    return seancesDeLaMemeFamille(t.id)
+        .filter(s => s.id !== t.id && (cahier.seances[s.id] || {}).devoirs)
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+function rendreLeCahier() {
+    const t = seanceCourante();
+    const corps = document.getElementById('cdt-corps');
+    const rien = document.getElementById('cdt-sans-seance');
+    if (!corps || !rien) return;
+
+    if (!t) {
+        corps.style.display = 'none';
+        rien.style.display = 'block';
+        return;
+    }
+    corps.style.display = 'flex';
+    rien.style.display = 'none';
+
+    const racine = racineDeLaSeance(t);
+    const famille = pageDeLaFamille(racine);
+    const page = pageDeLaSeance(t.id);
+    const soeurs = typeof seancesDeLaMemeFamille === 'function' ? seancesDeLaMemeFamille(t.id) : [t];
+
+    document.getElementById('cdt-seance').innerText = t.name || 'Séance';
+    const classe = document.getElementById('cdt-classe');
+    classe.innerText = t.classeNom || 'sans classe';
+    classe.style.display = t.classeNom ? 'inline' : 'none';
+
+    const partage = document.getElementById('cdt-partage');
+    partage.innerText = soeurs.length > 1
+        ? `Objectifs et déroulé partagés avec les ${soeurs.length} séances de cette préparation`
+        : 'Objectifs et déroulé de cette séance';
+
+    document.getElementById('cdt-objectifs').value = famille.objectifs || '';
+    document.getElementById('cdt-seance-texte').value = famille.seance || '';
+    document.getElementById('cdt-devoirs').value = page.devoirs || '';
+
+    // LA DATE DU PROCHAIN COURS, prise dans l'emploi du temps.
+    const prochain = prochainCoursDe(entreeDeLAgendaPour(t));
+    const quand = document.getElementById('cdt-quand');
+    if (!page.pour && prochain) page.pour = jourIso(prochain.jour);
+    document.getElementById('cdt-pour').value = page.pour || '';
+    quand.innerText = prochain
+        ? 'Prochain cours : ' + dateLongue(prochain.jour) + ', ' + heureLisible(prochain.creneau.debut)
+        : "Aucun prochain cours dans l'emploi du temps";
+
+    const reprise = document.getElementById('cdt-reprise');
+    const avecDevoirs = soeursAvecDevoirs(t);
+    reprise.style.display = avecDevoirs.length ? 'flex' : 'none';
+    const liste = document.getElementById('cdt-soeurs');
+    liste.innerHTML = '';
+    avecDevoirs.forEach(s => {
+        const o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.classeNom || s.name || 'Séance';
+        liste.appendChild(o);
+    });
+}
+
+function enregistrerLeCahier() {
+    const t = seanceCourante();
+    if (!t) return;
+    const famille = pageDeLaFamille(racineDeLaSeance(t));
+    const page = pageDeLaSeance(t.id);
+    famille.objectifs = document.getElementById('cdt-objectifs').value;
+    famille.seance = document.getElementById('cdt-seance-texte').value;
+    page.devoirs = document.getElementById('cdt-devoirs').value;
+    page.pour = document.getElementById('cdt-pour').value;
+    ecrireLeCahier();
+}
+
+// DEUX COPIES, ET NON UNE. Pronote a deux champs — le contenu de la séance et
+// le travail à faire. Un seul bloc obligerait à découper à la main dans le
+// presse-papiers, ce qui est très exactement ce qu'on cherche à éviter.
+function texteDuContenu() {
+    const t = seanceCourante();
+    if (!t) return '';
+    const f = pageDeLaFamille(racineDeLaSeance(t));
+    const morceaux = [];
+    if ((f.objectifs || '').trim()) morceaux.push('Objectifs : ' + f.objectifs.trim());
+    if ((f.seance || '').trim()) morceaux.push(f.seance.trim());
+    return morceaux.join('\n\n');
+}
+
+async function copierPour(quoi) {
+    enregistrerLeCahier();
+    const t = seanceCourante();
+    const texte = quoi === 'devoirs'
+        ? (pageDeLaSeance(t.id).devoirs || '').trim()
+        : texteDuContenu();
+    const nom = quoi === 'devoirs' ? 'Le travail à faire' : 'Le contenu de séance';
+    if (!texte) { showToast(nom + " est vide : il n'y a rien à copier"); return; }
+    const ok = await mettreDansLePressePapiers(texte);
+    showToast(ok ? nom + ' est dans le presse-papiers — collez-le dans Pronote'
+        : 'La copie a échoué : sélectionnez le texte et copiez-le à la main');
+}
+
+function reprendreLesDevoirs() {
+    const t = seanceCourante();
+    const id = document.getElementById('cdt-soeurs').value;
+    const source = cahier.seances[id];
+    if (!t || !source || !source.devoirs) return;
+    const champ = document.getElementById('cdt-devoirs');
+    // On ajoute plutôt qu'on remplace : ce qui était écrit ne disparaît pas
+    // sous un clic, et l'on efface plus vite qu'on ne réécrit.
+    champ.value = champ.value.trim() ? champ.value.trim() + '\n' + source.devoirs : source.devoirs;
+    enregistrerLeCahier();
+    showToast('Travail à faire repris — à ajuster pour cette classe');
+}
+
+function ouvrirLeCahier() {
+    const boite = document.getElementById('cdt-modal');
+    if (!boite) return;
+    lireLeCahier();
+    lireLAgenda();
+    if (!cdtBranche) {
+        cdtBranche = true;
+        ['cdt-objectifs', 'cdt-seance-texte', 'cdt-devoirs', 'cdt-pour'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                clearTimeout(cdtEcriture);
+                cdtEcriture = setTimeout(enregistrerLeCahier, 400);
+            });
+        });
+        document.getElementById('cdt-copier-contenu').addEventListener('click', () => copierPour('contenu'));
+        document.getElementById('cdt-copier-devoirs').addEventListener('click', () => copierPour('devoirs'));
+        document.getElementById('cdt-reprendre').addEventListener('click', reprendreLesDevoirs);
+    }
+    boite.style.display = 'flex';
+    rendreLeCahier();
+}
+
+function fermerLeCahier() {
+    clearTimeout(cdtEcriture);
+    enregistrerLeCahier();
+    const boite = document.getElementById('cdt-modal');
+    if (boite) boite.style.display = 'none';
+}
+
+window.ouvrirLeCahier = ouvrirLeCahier;
+window.fermerLeCahier = fermerLeCahier;
+
 function finishInlineCreation(name) {
     if (isCompletingInline) return;
     isCompletingInline = true;
