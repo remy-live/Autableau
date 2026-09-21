@@ -377,6 +377,91 @@ module.exports = async function (browser) {
 
     await page.evaluate(() => PluginManager.plugins['analyseGrammaticaleTool'].fermer());
 
+
+    // ==========================================================
+    // LE FANTÔME DU MOT, ET LE FOND OÙ COMMENCER UN CADRE
+    //
+    // « Pour le drag and drop de l'analyse grammaticale, crée un fantôme du mot
+    // ou groupe dragué. » Et : « On ne peut pas créer de cadre. »
+    //
+    // Le second était vrai pour une raison de géométrie : le tracé part du
+    // FOND, et il n'y en avait pas — les mots remplissaient la ligne à quelques
+    // pixels près. Il fallait viser une espace entre deux mots.
+    // ==========================================================
+    const gestesVisibles = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('une fille jolie');
+        if (!P.widgetEl) P.creerFenetre(); else { P.widgetEl.style.display = 'flex'; P.peindre(); }
+        await new Promise(ok => setTimeout(ok, 150));
+        // « peindre » refait la phrase : on redemande le conteneur à chaque
+        // fois plutôt que de garder une référence qui ne pointe plus sur rien.
+        const laPhrase = () => P.widgetEl.querySelector('#ag-phrase-rendue');
+        const mot = (i) => P.widgetEl.querySelector('.ag-mot[data-i="' + i + '"]');
+        // LES GESTES SONT ÉCOUTÉS SUR LA PHRASE, et non sur la fenêtre : dans
+        // un vrai navigateur c'est la capture du pointeur qui les y ramène,
+        // mais un événement fabriqué et lancé sur « window » ne redescend
+        // jamais jusqu'à elle. On l'envoie donc là où on l'écoute.
+        const evt = (type, x, y, cible) => (cible || laPhrase()).dispatchEvent(
+            new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }));
+
+        // 1. LE FANTÔME suit le doigt et porte le mot qu'on emporte.
+        const m = mot(2).getBoundingClientRect();
+        evt('pointerdown', m.left + 5, m.top + 5, mot(2));
+        evt('pointermove', m.left + 60, m.top + 5);
+        const f = document.getElementById('ag-fantome');
+        const fantome = {
+            la: !!f,
+            texte: f ? f.textContent : '',
+            suit: f ? Math.abs(f.getBoundingClientRect().left - (m.left + 60)) < 40 : false
+        };
+        evt('pointerup', m.left + 60, m.top + 5);
+        await new Promise(ok => setTimeout(ok, 120));
+        fantome.apres = !!document.getElementById('ag-fantome');
+
+        // 2. LE FOND : il doit y avoir de la place au-dessus du premier mot
+        // pour y poser le doigt et commencer un cadre.
+        P.poserPhrase('une fille jolie');
+        P.peindre();
+        await new Promise(ok => setTimeout(ok, 120));
+        const rendue = laPhrase();
+        const base = rendue.getBoundingClientRect();
+        const premier = mot(0).getBoundingClientRect();
+        const bande = Math.round(premier.top - base.top);
+
+        // On part du coin haut-gauche du fond, on traverse les deux premiers
+        // mots, on relâche : c'est le geste décrit.
+        const depart = { x: base.left + 3, y: base.top + 3 };
+        const arrivee = { x: mot(1).getBoundingClientRect().right - 2,
+                          y: premier.bottom + 2 };
+        const surLeFond = document.elementFromPoint(Math.round(depart.x), Math.round(depart.y));
+        evt('pointerdown', depart.x, depart.y, rendue);
+        evt('pointermove', arrivee.x, arrivee.y);
+        const cadre = P.widgetEl.querySelector('#ag-cadre');
+        const trace = getComputedStyle(cadre).display !== 'none';
+        evt('pointerup', arrivee.x, arrivee.y);
+        await new Promise(ok => setTimeout(ok, 120));
+
+        return {
+            fantome, bande, trace,
+            fondAtteignable: !!(surLeFond && (surLeFond === rendue || rendue.contains(surLeFond))
+                && !surLeFond.classList.contains('ag-mot')),
+            choisi: [P.debutChoisi, P.finChoisie]
+        };
+    });
+    r.verifie('un fantôme suit le doigt pendant qu\'on emporte un mot',
+        gestesVisibles.fantome.la && gestesVisibles.fantome.suit,
+        JSON.stringify(gestesVisibles.fantome));
+    r.egal('il porte le mot qu\'on tient', gestesVisibles.fantome.texte, 'jolie');
+    r.egal('et s\'efface une fois lâché', gestesVisibles.fantome.apres, false);
+    r.verifie('il y a du fond au-dessus des mots pour commencer un cadre',
+        gestesVisibles.bande >= 10, gestesVisibles.bande + ' pixels au-dessus du premier mot');
+    r.verifie('et ce fond répond au doigt', gestesVisibles.fondAtteignable,
+        JSON.stringify(gestesVisibles));
+    r.verifie('le cadre se trace', gestesVisibles.trace, JSON.stringify(gestesVisibles));
+    r.egal('et il choisit les mots qu\'il touche', gestesVisibles.choisi, [0, 1]);
+
+    await page.evaluate(() => PluginManager.plugins['analyseGrammaticaleTool'].fermer());
+
     // ==========================================================
     // LE LECTEUR DE DICTÉE
     //
@@ -512,8 +597,22 @@ module.exports = async function (browser) {
         });
         D.majLesVoix();
         const avecVoix = { vue: getComputedStyle(alerte).display !== 'none',
+                           texte: alerte.textContent,
                            options: [...liste.options].map(o => o.value),
                            choisie: D.voixChoisie().name };
+
+        // UNE VOIX AMÉLIORÉE PASSE DEVANT LA VOIX COMPACTE, et le conseil
+        // s'efface : il n'y a plus rien à conseiller.
+        D.moteur = Object.assign({}, vrai, {
+            disponible: () => true,
+            voix: () => [{ name: 'Julie', lang: 'fr-FR' },
+                         { name: 'Amélie (Premium)', lang: 'fr-FR' },
+                         { name: 'Daniel', lang: 'en-GB' }]
+        });
+        D.majLesVoix();
+        const avecPremium = { premiere: [...liste.options].map(o => o.value)[0],
+                              choisie: D.voixChoisie().name,
+                              conseil: getComputedStyle(alerte).display !== 'none' };
 
         // Le nom d'une voix vient du système d'exploitation : il peut porter
         // n'importe quoi. Posé en HTML, un chevron y ouvrirait une balise.
@@ -528,14 +627,25 @@ module.exports = async function (browser) {
 
         D.moteur = vrai;
         D.fermer();
-        return { muette, avecVoix, tordu };
+        return { muette, avecVoix, avecPremium, tordu };
     });
     r.verifie('sans voix française, on le dit franchement',
         sansVoix.muette.vue && /voix française|lire à voix haute/i.test(sansVoix.muette.texte),
         JSON.stringify(sansVoix.muette));
     r.verifie('et la liste des voix est éteinte', sansVoix.muette.listeEteinte, '');
-    r.verifie('avec une voix française, l\'alerte s\'en va', !sansVoix.avecVoix.vue,
-        JSON.stringify(sansVoix.avecVoix));
+    // « ON NE COMPREND RIEN, LE SON EST NUL, TROP ROBOT. » La qualité ne vient
+    // pas d'ici : elle vient de la voix installée. On le dit, plutôt que de
+    // laisser croire que c'est la dictée qui lit mal.
+    r.verifie('avec une voix compacte, on dit où en trouver une meilleure',
+        sansVoix.avecVoix.vue && /améliorée|Gérer les voix/i.test(sansVoix.avecVoix.texte),
+        sansVoix.avecVoix.texte);
+    r.verifie('et l\'on précise que ce n\'est pas la dictée qui lit mal',
+        /pas la dictée/i.test(sansVoix.avecVoix.texte), sansVoix.avecVoix.texte);
+    r.egal('une voix améliorée passe devant la compacte',
+        sansVoix.avecPremium.premiere, 'Amélie (Premium)');
+    r.egal('et c\'est elle qu\'on prend d\'office',
+        sansVoix.avecPremium.choisie, 'Amélie (Premium)');
+    r.egal('le conseil s\'efface alors', sansVoix.avecPremium.conseil, false);
     r.egal('seules les voix françaises sont proposées',
         sansVoix.avecVoix.options, ['Julie']);
     r.egal('et c\'est celle-là qu\'on prend', sansVoix.avecVoix.choisie, 'Julie');

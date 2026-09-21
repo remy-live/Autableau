@@ -72,7 +72,9 @@ module.exports = async function (browser) {
             // de mauvaises raisons.
             return {
                 rubriques: [...document.querySelectorAll('.debut-groupe-titre')].map(t => t.textContent),
-                outils: [...document.querySelectorAll('.debut-outil')].map(o => o.textContent.trim()),
+                outils: [...document.querySelectorAll('.debut-outil:not(.debut-reste)')].map(o => o.textContent.trim()),
+                // Ce que le métier reçoit vraiment, et non ce que l'aperçu montre.
+                combien: outilsDuMetier(metierDeCle(cle)).length,
                 compte: document.getElementById('debut-compte').textContent,
                 composerVu: getComputedStyle(document.getElementById('debut-composer')).display !== 'none',
                 choisi: document.querySelector('.debut-metier.choisi').dataset.metier
@@ -121,9 +123,18 @@ module.exports = async function (browser) {
 
     // LE COMPTE ANNONCÉ DOIT ÊTRE LE VRAI. Un chiffre décoratif est pire que
     // pas de chiffre : on le croit.
-    r.verifie('le compte annoncé est celui de la liste',
-        parMetier.ecole.compte.includes(String(parMetier.ecole.outils.length)),
-        parMetier.ecole.compte + ' — pour ' + parMetier.ecole.outils.length + ' outils');
+    // ON NE DÉVERSE PLUS LA LISTE ENTIÈRE. « Tu fais la liste des outils, on ne
+    // comprend pas » : cinquante noms à la suite, c'est le catalogue déguisé.
+    // Chaque rubrique montre son compte et quatre noms, le reste est annoncé.
+    r.verifie('le compte annoncé est celui du métier, et il est juste',
+        parMetier.ecole.compte.includes(String(parMetier.ecole.combien)),
+        parMetier.ecole.compte + ' — pour ' + parMetier.ecole.combien + ' outils');
+    r.verifie('on en montre quelques-uns, pas tous',
+        parMetier.ecole.outils.length < parMetier.ecole.combien,
+        parMetier.ecole.outils.length + ' montrés sur ' + parMetier.ecole.combien);
+    r.verifie('chaque rubrique dit combien elle en porte',
+        parMetier.ecole.rubriques.every(t => /— \d+ outils?$/.test(t)),
+        JSON.stringify(parMetier.ecole.rubriques));
     r.verifie('et il dit aussi combien l\'application en compte',
         parMetier.ecole.compte.includes(String(parMetier.total)),
         parMetier.ecole.compte + ' — sur ' + parMetier.total);
@@ -146,14 +157,25 @@ module.exports = async function (browser) {
             coches: compo ? compo.querySelectorAll('.compo-outil input:checked').length : 0,
             attendus,
             nom: compo ? compo.querySelector('#compo-nom').value : '',
+            filtre: compo ? compo.querySelector('#compo-chercher').value : '',
+            total: compo ? compo.querySelectorAll('.compo-outil').length : 0,
+            montres: compo ? [...compo.querySelectorAll('.compo-outil')]
+                .filter(l => l.style.display !== 'none').length : 0,
             compte: compo ? compo.querySelector('#compo-compte').textContent : ''
         };
     });
     r.verifie('« Composer ma barre » ouvre le compositeur', barre.ouvert, JSON.stringify(barre));
     r.verifie('et referme la fenêtre de départ', barre.debutFerme, JSON.stringify(barre));
-    r.egal('avec les outils du métier déjà cochés', barre.coches, barre.attendus);
-    r.verifie('le compteur du compositeur les a comptés',
-        barre.compte.includes(String(barre.attendus)), barre.compte);
+    // ET IL N'EN COCHE AUCUN. « Après, tu surcharges la toolbar de base de
+    // gauche, pas ouf. » Une barre utile en porte cinq ou six, pas cinquante :
+    // c'est l'enseignant qui choisit, sur une liste déjà filtrée sur sa matière.
+    r.egal('aucun outil n\'est coché d\'office', barre.coches, 0);
+    r.verifie('le compositeur le dit', /aucun outil/i.test(barre.compte), barre.compte);
+    r.verifie('mais il s\'ouvre filtré sur la matière',
+        /musique/i.test(barre.filtre), barre.filtre);
+    r.verifie('et ce qu\'il montre est bien moins que tout le catalogue',
+        barre.montres > 0 && barre.montres < barre.total,
+        barre.montres + ' montrés sur ' + barre.total);
     r.verifie('et la barre porte déjà un nom',
         /musical|musique/i.test(barre.nom), barre.nom);
 

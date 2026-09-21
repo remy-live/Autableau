@@ -2900,6 +2900,15 @@ input[type=range]::-moz-range-thumb {
     box-sizing: border-box;
 }
 
+/* ET LA BOÎTE DE CONFIRMATION AU-DESSUS DES FENÊTRES, pour la même raison et
+   d'après la même règle : une question se pose par-dessus ce qu'elle concerne.
+   À égalité de plan, c'est le dernier venu du document qui l'emporte — et les
+   fenêtres de l'application sont écrites APRÈS elle. « Retirer cette classe ? »
+   se posait donc sous l'emploi du temps : on ne voyait qu'un voile, et plus
+   rien ne répondait. Le compositeur de barre est à 200000 ; la question doit
+   passer devant lui aussi. */
+#confirm-modal { z-index: 200100; }
+
 .modal-backdrop {
     position: fixed;
     top: 0;
@@ -7144,6 +7153,8 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     padding: 3px 9px;
 }
 
+.debut-reste { background: transparent; color: #95a5a6; font-style: italic; }
+
 .dark-mode .debut-metier { background: #232b32; border-color: #3d4852; }
 .dark-mode .debut-metier:hover { background: #2f3941; }
 .dark-mode .debut-metier.choisi { background: #3a3560; border-color: #6c5ce7; }
@@ -8883,6 +8894,12 @@ body.focus-mode #edt-bandeau { display: none; }
     font-size: 30px;
     line-height: 1.35;
     white-space: nowrap;
+    /* DE LA MARGE POUR COMMENCER UN CADRE. « On ne peut pas créer de cadre. »
+       Le tracé part du FOND, et il n'y en avait pas : les mots remplissaient
+       la ligne à quelques pixels près, si bien qu'il fallait viser une espace
+       entre deux mots pour espérer commencer. Cette bande-là est le fond où
+       l'on pose le doigt. */
+    padding: 18px 12px;
     color: var(--ink, #2d3436);
     /* La fente et le cadre se placent par rapport à elle : sans ce repère,
        ils iraient se caler sur la fenêtre et tomberaient à côté. */
@@ -8894,6 +8911,21 @@ body.focus-mode #edt-bandeau { display: none; }
 }
 
 #analyse-gram-modal #ag-crochets { display: block; overflow: visible; }
+
+/* Le mot qu'on emporte suit le doigt — posé sur la page, pas dans la phrase :
+   il doit pouvoir sortir du cadre sans être coupé. */
+#ag-fantome {
+    position: fixed;
+    z-index: 200200;
+    pointer-events: none;
+    padding: 4px 10px;
+    border-radius: 7px;
+    background: #e9e4ff;
+    color: #2d3436;
+    font-size: 20px;
+    font-weight: 600;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+}
 
 #analyse-gram-modal .ag-mot {
     cursor: pointer;
@@ -10314,6 +10346,26 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 }
 
 #classe-pastille:hover { border-color: var(--accent, #6c5ce7); color: var(--accent, #6c5ce7); }
+
+/* L'emploi du temps, juste à côté : même hauteur, même bord, mais rond et
+   sans texte — c'est un raccourci vers la grille, pas un second état de la
+   classe. */
+#classe-edt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 999px;
+    background: var(--surface, #fff);
+    color: var(--muted, #95a5a6);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+#classe-edt:hover { border-color: var(--accent, #6c5ce7); color: var(--accent, #6c5ce7); }
 
 /* UNE ICÔNE, ET LE NOM AU SURVOL.
    « Pour les classes, je préférerais qu'une icône, et quand on passe dessus on
@@ -12128,6 +12180,14 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 
 /* Le message qui dit qu'il n'y a pas de voix : il doit se lire, pas se
    deviner — c'est la seule chose qui sépare une panne d'un silence. */
+/* Un conseil n'est pas une alerte : la voix compacte marche, elle est juste
+   laide. On le dit en gris, pas en orange. */
+#dictee-modal #dic-sansvoix.dic-conseil {
+    color: var(--muted, #636e72);
+    background: rgba(99, 110, 114, 0.08);
+    border-color: rgba(99, 110, 114, 0.22);
+}
+
 #dictee-modal #dic-sansvoix {
     display: none;
     font-size: 13px;

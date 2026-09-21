@@ -8135,6 +8135,28 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
             return el.length;
         };
 
+        // LE MOT QU'ON EMPORTE SUIT LE DOIGT. Sans lui, on déplaçait à
+        // l'aveugle : le mot d'origine pâlissait sur place, la fente marquait
+        // l'arrivée, mais rien ne disait CE QU'ON TENAIT. Le même fantôme que
+        // dans l'emploi du temps, et pour la même raison.
+        const montrerLeFantome = (texte) => {
+            cacherLeFantome();
+            const f = document.createElement('div');
+            f.id = 'ag-fantome';
+            f.textContent = texte;
+            document.body.appendChild(f);
+        };
+        const bougerLeFantome = (e) => {
+            const f = document.getElementById('ag-fantome');
+            if (!f) return;
+            f.style.left = (e.clientX + 14) + 'px';
+            f.style.top = (e.clientY - 16) + 'px';
+        };
+        const cacherLeFantome = () => {
+            const f = document.getElementById('ag-fantome');
+            if (f) f.remove();
+        };
+
         const montrerLaFente = (i) => {
             const el = spans();
             if (!el.length) return;
@@ -8162,9 +8184,16 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
                 if (Math.abs(e.clientX - g.x0) <= this.SEUIL_DU_GESTE
                     && Math.abs(e.clientY - g.y0) <= this.SEUIL_DU_GESTE) return;
                 g.parti = true;
-                if (g.type === 'mot') spans()[g.i]?.classList.add('ag-emporte');
+                if (g.type === 'mot') {
+                    const el = spans()[g.i];
+                    if (el) { el.classList.add('ag-emporte'); montrerLeFantome(el.textContent); }
+                }
             }
-            if (g.type === 'mot') { montrerLaFente(fenteSous(e.clientX)); return; }
+            if (g.type === 'mot') {
+                bougerLeFantome(e);
+                montrerLaFente(fenteSous(e.clientX));
+                return;
+            }
             const base = rendue.getBoundingClientRect();
             const x1 = Math.min(g.x0, e.clientX) - base.left, x2 = Math.max(g.x0, e.clientX) - base.left;
             const y1 = Math.min(g.y0, e.clientY) - base.top, y2 = Math.max(g.y0, e.clientY) - base.top;
@@ -8175,6 +8204,7 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
         const finir = (e) => {
             if (!g) return;
             const fini = g; g = null;
+            cacherLeFantome();
             fente.style.display = 'none';
             cadre.style.display = 'none';
             rendue.querySelectorAll('.ag-emporte').forEach(el => el.classList.remove('ag-emporte'));
@@ -8192,7 +8222,8 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
         };
         rendue.addEventListener('pointerup', finir);
         rendue.addEventListener('pointercancel', () => {
-            g = null; fente.style.display = 'none'; cadre.style.display = 'none';
+            g = null; cacherLeFantome();
+            fente.style.display = 'none'; cadre.style.display = 'none';
             rendue.querySelectorAll('.ag-emporte').forEach(el => el.classList.remove('ag-emporte'));
         });
     },
@@ -35853,8 +35884,29 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         }
     },
 
+    // LA MEILLEURE D'ABORD, ET NON LA PREMIÈRE VENUE.
+    //
+    // « On ne comprend rien, le son est nul, trop robot. » La qualité ne vient
+    // pas d'ici : elle vient de la voix installée sur la machine. Mais toutes
+    // ne se valent pas, et l'on prenait la première de la liste — c'est-à-dire
+    // le plus souvent la vieille voix compacte, celle qui hache les liaisons.
+    //
+    // On les classe donc : les voix AMÉLIORÉES et PREMIUM d'abord — ce sont
+    // des enregistrements, pas une synthèse par morceaux —, puis celles du
+    // réseau (Google), puis le reste. Le choix de l'enseignant, lui, passe
+    // avant tout : c'est un classement, pas une décision à sa place.
+    rangDeLaVoix: function (v) {
+        const nom = (v && v.name) || '';
+        if (/premium|enhanced|amélior|neural|siri/i.test(nom)) return 0;
+        if (/google/i.test(nom)) return 1;
+        if (/compact|éloquence|eloquence/i.test(nom)) return 3;
+        return 2;
+    },
+
     voixFrancaises: function () {
-        return this.moteur.voix().filter(v => /^fr/i.test(v.lang || ''));
+        return this.moteur.voix()
+            .filter(v => /^fr/i.test(v.lang || ''))
+            .sort((a, b) => this.rangDeLaVoix(a) - this.rangDeLaVoix(b));
     },
 
     voixChoisie: function () {
@@ -36163,12 +36215,26 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         // dépendent de la machine : Windows et macOS en ont, un Chromebook ou
         // un Linux nu peuvent n'en avoir aucune. Une dictée lue par une voix
         // anglaise serait pire qu'une dictée muette.
+        // ET QUAND LA SEULE VOIX DISPONIBLE EST LA VOIX COMPACTE, ON LE DIT
+        // AUSSI. « On ne comprend rien, le son est nul, trop robot. » La
+        // qualité ne se joue pas ici : elle tient à la voix installée sur la
+        // machine, et la voix compacte livrée d'origine synthétise par
+        // morceaux — elle hache les liaisons, qui sont justement ce qu'un
+        // élève doit entendre. Une voix améliorée se télécharge en deux
+        // minutes et change tout. Taire cela, c'était laisser croire que le
+        // logiciel lit mal.
         if (alerte) {
-            alerte.textContent = dispo.length ? ''
-                : (this.moteur.disponible()
+            const meilleure = dispo.length ? this.rangDeLaVoix(dispo[0]) : 99;
+            const message = !dispo.length
+                ? (this.moteur.disponible()
                     ? "Aucune voix française sur cet ordinateur. Windows : Paramètres › Heure et langue › Voix. macOS : Réglages › Accessibilité › Contenu énoncé."
-                    : "Ce navigateur ne sait pas lire à voix haute.");
-            alerte.style.display = dispo.length ? 'none' : 'block';
+                    : "Ce navigateur ne sait pas lire à voix haute.")
+                : (meilleure >= 2
+                    ? "Voix robotique ? C'est la voix compacte du système, pas la dictée. Une voix améliorée se télécharge en deux minutes et change tout — macOS : Réglages › Accessibilité › Contenu énoncé › Voix système › Gérer les voix (prenez « Amélie (améliorée) » ou « Thomas »). Windows : Paramètres › Heure et langue › Voix › Ajouter des voix."
+                    : '');
+            alerte.textContent = message;
+            alerte.classList.toggle('dic-conseil', !!message && !!dispo.length);
+            alerte.style.display = message ? 'block' : 'none';
         }
     },
 

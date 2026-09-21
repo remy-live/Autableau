@@ -724,6 +724,156 @@ module.exports = async function (browser) {
     r.egal('sans préparation gardée, on retrouve l\'emploi du temps',
         sansPrep.second, 'agenda');
 
+
+    // ==================================================================
+    // UNE QUESTION SE POSE PAR-DESSUS CE QU'ELLE CONCERNE
+    //
+    // « Le bouton Ajouter est inactif. » Il ne l'était pas : le formulaire
+    // s'ouvrait DERRIÈRE l'emploi du temps, et l'on ne voyait rien bouger.
+    //
+    // MES ÉPREUVES NE POUVAIENT PAS LE VOIR. Elles appelaient la fonction et
+    // cliquaient le bouton « OK » par son identifiant — ce qui marche aussi
+    // bien sur une boîte enterrée sous une fenêtre. On regarde donc ici CE QUI
+    // EST AU-DESSUS, au point même où le doigt se poserait.
+    // ==================================================================
+    const auDessus = await page.evaluate(async () => {
+        // Qui répond au centre de cette boîte ? Si ce n'est pas elle, elle est
+        // dessous, et l'appui va ailleurs.
+        const quiRepond = (boite) => {
+            const r = boite.getBoundingClientRect();
+            const dessus = document.elementFromPoint(
+                Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+            return !!(dessus && boite.contains(dessus));
+        };
+
+        localStorage.removeItem('board_agenda');
+        lireLAgenda();
+        agenda.alterne = false; agenda.ancre = null; agenda.entrees = []; agenda.creneaux = [];
+        ecrireLAgenda();
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 150));
+
+        // 1. « + Ajouter », pour de vrai : un appui sur le bouton visible.
+        const bouton = document.getElementById('edt-ajouter');
+        const b = bouton.getBoundingClientRect();
+        const surLeBouton = document.elementFromPoint(
+            Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2));
+        const boutonAtteignable = !!(surLeBouton && bouton.contains(surLeBouton));
+        bouton.click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const formulaire = document.getElementById('custom-prompt-modal');
+        const vu = {
+            boutonAtteignable,
+            formulaireOuvert: getComputedStyle(formulaire).display !== 'none',
+            formulaireDevant: quiRepond(formulaire)
+        };
+        document.getElementById('custom-prompt-cancel').click();
+        await new Promise(ok => setTimeout(ok, 150));
+
+        // 2. La confirmation d'une suppression, elle aussi.
+        agenda.entrees = [{ id: 'e9', libelle: '6e A', classeId: null, couleur: '#eee' }];
+        agenda.creneaux = [];
+        rendreLAgenda();
+        await new Promise(ok => setTimeout(ok, 120));
+        document.querySelector('[data-oter-entree]').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const question = document.getElementById('confirm-modal');
+        vu.questionOuverte = getComputedStyle(question).display !== 'none';
+        vu.questionDevant = quiRepond(question);
+        document.getElementById('confirm-cancel-btn').click();
+        await new Promise(ok => setTimeout(ok, 150));
+        fermerLAgenda();
+        return vu;
+    });
+    r.verifie('le bouton « + Ajouter » est bien sous le doigt', auDessus.boutonAtteignable,
+        JSON.stringify(auDessus));
+    r.verifie('il ouvre le formulaire', auDessus.formulaireOuvert, JSON.stringify(auDessus));
+    r.verifie('ET LE FORMULAIRE EST DEVANT — pas enterré sous l\'emploi du temps',
+        auDessus.formulaireDevant, JSON.stringify(auDessus));
+    r.verifie('retirer une classe pose sa question', auDessus.questionOuverte,
+        JSON.stringify(auDessus));
+    r.verifie('et cette question est devant elle aussi', auDessus.questionDevant,
+        JSON.stringify(auDessus));
+
+
+    // ==================================================================
+    // TRACER UNE HEURE SANS AVOIR RIEN PRÉPARÉ
+    //
+    // « Je ne peux pas créer une heure sans classe, c'est dommage. » La grille
+    // est la première chose qu'on regarde : tracer dessus doit marcher, et
+    // c'est le nom qu'on demande ensuite — quand on voit ce qu'on nomme.
+    // ==================================================================
+    const sansRien = await page.evaluate(async () => {
+        localStorage.removeItem('board_agenda');
+        lireLAgenda();
+        agenda.alterne = false; agenda.ancre = null; agenda.entrees = []; agenda.creneaux = [];
+        agenda.derniere = null;
+        ecrireLAgenda();
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 150));
+        const paletteVide = document.querySelectorAll('.edt-entree').length;
+
+        const col = document.querySelector('.edt-jour[data-jour="1"]');
+        const r = col.getBoundingClientRect();
+        const y = (m) => r.top + (m - 7 * 60) * 0.85;
+        const evt = (type, x, yy, cible) => (cible || window).dispatchEvent(
+            new PointerEvent(type, { clientX: x, clientY: yy, bubbles: true, pointerType: 'mouse' }));
+        const x = r.left + r.width / 2;
+        evt('pointerdown', x, y(9 * 60), col);
+        evt('pointermove', x, y(10 * 60));
+        evt('pointerup', x, y(10 * 60));
+        await new Promise(ok => setTimeout(ok, 250));
+
+        const formulaire = document.getElementById('custom-prompt-modal');
+        const vu = {
+            paletteVide,
+            creneaux: document.querySelectorAll('.edt-creneau').length,
+            entrees: document.querySelectorAll('.edt-entree').length,
+            demandeLeNom: getComputedStyle(formulaire).display !== 'none'
+        };
+        const champ = document.querySelector('#custom-prompt-inputs .prompt-input');
+        vu.nomPropose = champ ? champ.value : null;
+        if (champ) { champ.value = 'CM1'; document.getElementById('custom-prompt-ok').click(); }
+        await new Promise(ok => setTimeout(ok, 250));
+        vu.surLaGrille = [...document.querySelectorAll('.edt-creneau-nom')].map(n => n.textContent);
+        vu.dansLaPalette = [...document.querySelectorAll('.edt-entree-nom')].map(n => n.textContent);
+        return vu;
+    });
+    r.egal('la palette est bien vide au départ', sansRien.paletteVide, 0);
+    r.egal('tracer sur la grille crée quand même un créneau', sansRien.creneaux, 1);
+    r.egal('et l\'entrée naît avec lui', sansRien.entrees, 1);
+    r.verifie('on demande son nom une fois le trait posé', sansRien.demandeLeNom,
+        JSON.stringify(sansRien));
+    r.egal('le formulaire propose le nom provisoire', sansRien.nomPropose, 'Cours');
+    r.egal('le nom donné se pose sur le créneau', sansRien.surLaGrille, ['CM1']);
+    r.egal('et sur l\'entrée de la palette', sansRien.dansLaPalette, ['CM1']);
+
+    // ET UN CRÉNEAU QU'ON TOUCHE SANS LE BOUGER DEMANDE À ÊTRE RENOMMÉ : on
+    // trace vite, on corrige après.
+    const renommeAuDoigt = await page.evaluate(async () => {
+        const bloc = document.querySelector('.edt-creneau');
+        const r = bloc.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + 8;
+        const evt = (type, cible) => (cible || window).dispatchEvent(
+            new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }));
+        evt('pointerdown', bloc);
+        evt('pointerup');
+        await new Promise(ok => setTimeout(ok, 250));
+        const formulaire = document.getElementById('custom-prompt-modal');
+        const ouvert = getComputedStyle(formulaire).display !== 'none';
+        const champ = document.querySelector('#custom-prompt-inputs .prompt-input');
+        const valeur = champ ? champ.value : null;
+        if (champ) { champ.value = 'CM2'; document.getElementById('custom-prompt-ok').click(); }
+        await new Promise(ok => setTimeout(ok, 250));
+        const apres = [...document.querySelectorAll('.edt-creneau-nom')].map(n => n.textContent);
+        fermerLAgenda();
+        return { ouvert, valeur, apres };
+    });
+    r.verifie('appuyer sur un créneau sans le bouger rouvre son nom',
+        renommeAuDoigt.ouvert, JSON.stringify(renommeAuDoigt));
+    r.egal('avec le nom d\'aujourd\'hui dedans', renommeAuDoigt.valeur, 'CM1');
+    r.egal('et le renommer suit sur la grille', renommeAuDoigt.apres, ['CM2']);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

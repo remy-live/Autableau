@@ -22353,6 +22353,14 @@ function ouvrirLeCompositeurDeBarre(barreId, depart) {
         }
     });
 
+    // QUI ARRIVE DE « JE DÉBUTE » ARRIVE FILTRÉ SUR SA MATIÈRE : le
+    // compositeur montre quatre-vingt-dix outils, et c'est justement ce qu'on
+    // essaie de lui épargner. Le champ de recherche est là, rempli et visible :
+    // il n'a qu'à l'effacer pour voir tout le reste.
+    if (depart && depart.chercher) {
+        const c = boite.querySelector('#compo-chercher');
+        if (c) { c.value = depart.chercher; c.dispatchEvent(new Event('input')); }
+    }
     setTimeout(() => { const c = boite.querySelector('#compo-chercher'); if (c) c.focus(); }, 60);
     return fond;
 }
@@ -30812,6 +30820,28 @@ function colonneSousLeDoigt(x, y) {
     return el ? el.closest('.edt-jour') : null;
 }
 
+// ON PEUT TRACER UNE HEURE SANS AVOIR RIEN PRÉPARÉ.
+//
+// « Je ne peux pas créer une heure sans classe, c'est dommage. » C'était vrai,
+// et c'était l'ordre des choses à l'envers : on demandait de remplir une
+// palette avant d'avoir vu la grille. La grille est pourtant la première
+// chose qu'on regarde, et tracer dessus est le geste naturel.
+//
+// On trace donc toujours : s'il n'y a rien dans la palette, une entrée naît
+// avec le créneau, et l'on demande son nom UNE FOIS LE TRAIT POSÉ — quand on
+// voit ce qu'on est en train de nommer.
+function entreeParDefaut() {
+    const derniere = entreeDeLAgenda(agenda.derniere);
+    if (derniere) return { entree: derniere, neuve: false };
+    if (agenda.entrees.length) return { entree: agenda.entrees[0], neuve: false };
+    const entree = {
+        id: nouvelIdEdt('edt'), libelle: 'Cours', classeId: null, classeNom: null,
+        couleur: EDT_COULEURS[0]
+    };
+    agenda.entrees.push(entree);
+    return { entree, neuve: true };
+}
+
 function poserUnCreneau(jour, debut, entree) {
     const c = {
         id: nouvelIdEdt('cr'), jour, debut,
@@ -30858,12 +30888,15 @@ function commencerUnGesteDeLAgenda(e) {
         return;
     }
 
-    // Sur le fond d'une colonne : on trace, avec la dernière entrée servie.
+    // Sur le fond d'une colonne : on trace. Avec la dernière entrée servie, ou
+    // avec une entrée neuve s'il n'y en a aucune — la palette se remplit alors
+    // toute seule, au lieu d'être un péage avant la grille.
     const fond = e.target.closest('.edt-jour');
-    if (fond && agenda.entrees.length) {
-        const derniere = entreeDeLAgenda(agenda.derniere) || agenda.entrees[0];
-        const c = poserUnCreneau(Number(fond.dataset.jour), minutesSousLeDoigt(fond, e.clientY), derniere);
-        edtGeste = { type: 'allonger', c };
+    if (fond) {
+        const { entree, neuve } = entreeParDefaut();
+        const c = poserUnCreneau(Number(fond.dataset.jour), minutesSousLeDoigt(fond, e.clientY), entree);
+        edtGeste = { type: 'allonger', c, nommer: neuve };
+        if (neuve) rendreLaPaletteDeLAgenda();
         rendreLaGrilleDeLAgenda();
         e.preventDefault();
     }
@@ -30874,6 +30907,7 @@ function suivreUnGesteDeLAgenda(e) {
     if (edtGeste.type === 'poser') { bougerLeFantomeDeLAgenda(e); return; }
 
     const c = edtGeste.c;
+    edtGeste.bouge = true;
     if (edtGeste.type === 'deplacer') {
         const col = colonneSousLeDoigt(e.clientX, e.clientY);
         if (col) c.jour = Number(col.dataset.jour);
@@ -30901,9 +30935,15 @@ function finirUnGesteDeLAgenda(e) {
     } else {
         agenda.derniere = edtGeste.c.entreeId;
     }
+    // UN CRÉNEAU QU'ON TOUCHE SANS LE BOUGER DEMANDE À ÊTRE NOMMÉ. C'est la
+    // porte de sortie : on trace vite, on corrige après, et l'on n'est jamais
+    // coincé avec le nom que la grille a choisi pour aller plus vite.
+    const aNommer = (edtGeste.nommer || (edtGeste.type === 'deplacer' && !edtGeste.bouge))
+        ? edtGeste.c.entreeId : null;
     edtGeste = null;
     ecrireLAgenda();
     rendreLaGrilleDeLAgenda();
+    if (aNommer) reglerUneEntree(aNommer);
 }
 
 function montrerLeFantomeDeLAgenda(e, entree) {
@@ -31483,6 +31523,9 @@ window.fermerLeCahier = fermerLeCahier;
 // partout, et le tirage au sort ne connaît pas les disciplines.
 const DEBUT_COMMUNES = ['Écrire et tracer', 'Outils Profs', 'Jeux', 'Détente'];
 
+// Combien de noms on montre par rubrique avant de dire « et N autres ».
+const DEBUT_APERCU = 4;
+
 const DEBUT_METIERS = [
     { cle: 'ecole', nom: 'Professeur des écoles', mot: 'Du CP au CM2, toutes les matières',
       rubriques: ['Français', 'Maths - Numérique', 'Maths - Géométrie', 'Exercices'] },
@@ -31556,22 +31599,36 @@ function rendreLesOutilsDuMetier() {
         parRubrique.get(o.categorie).push(o);
     });
 
+    // ON MONTRE QUELQUES NOMS, PAS TOUTE LA LISTE.
+    //
+    // « Tu fais la liste des outils, on ne comprend pas. » Cinquante noms à la
+    // suite, c'est le catalogue déguisé : on ne sait pas lesquels regarder, et
+    // un nom seul ne dit pas ce que l'outil fait. On donne donc la RUBRIQUE,
+    // son compte, et quatre noms pour s'en faire une idée — le reste s'ouvre
+    // dans le tiroir des outils, où chacun a son dessin et son infobulle.
     parRubrique.forEach((liste, rubrique) => {
         const groupe = document.createElement('div');
         groupe.className = 'debut-groupe';
-        // Rubriques et noms viennent des plugins : ils se posent en TEXTE.
         const titre = document.createElement('div');
         titre.className = 'debut-groupe-titre';
-        titre.textContent = rubrique;
+        // Rubriques et noms viennent des plugins : ils se posent en TEXTE.
+        titre.textContent = rubrique + ' — ' + liste.length
+            + (liste.length > 1 ? ' outils' : ' outil');
         groupe.appendChild(titre);
         const grille = document.createElement('div');
         grille.className = 'debut-grille';
-        liste.forEach(o => {
+        liste.slice(0, DEBUT_APERCU).forEach(o => {
             const puce = document.createElement('span');
             puce.className = 'debut-outil';
             puce.textContent = o.nom;
             grille.appendChild(puce);
         });
+        if (liste.length > DEBUT_APERCU) {
+            const reste = document.createElement('span');
+            reste.className = 'debut-outil debut-reste';
+            reste.textContent = 'et ' + (liste.length - DEBUT_APERCU) + ' autres';
+            grille.appendChild(reste);
+        }
         groupe.appendChild(grille);
         zone.appendChild(groupe);
     });
@@ -31584,12 +31641,19 @@ function choisirUnMetier(cle) {
     rendreLesOutilsDuMetier();
 }
 
+// ON N'EN COCHE AUCUN.
+//
+// « Et après tu surcharges la toolbar de base de gauche, pas ouf. » C'était
+// juste : cocher d'office les cinquante outils d'un métier fabrique une barre
+// que personne ne peut lire, et l'inverse exact de ce qu'un débutant demande.
+// Une barre utile en porte cinq ou six. Le compositeur s'ouvre donc filtré sur
+// la matière — on ne voit que ce qui sert — et vide : c'est l'enseignant qui
+// choisit les siens, et il en choisira peu.
 function composerLaBarreDuMetier() {
     const metier = metierDeCle(debutMetier);
     if (!metier) return;
-    const items = outilsDuMetier(metier).map(o => o.id);
     fermerJeDebute();
-    ouvrirLeCompositeurDeBarre(null, { items, nom: metier.nom });
+    ouvrirLeCompositeurDeBarre(null, { nom: metier.nom, chercher: metier.rubriques[0] || '' });
 }
 
 function ouvrirJeDebute() {
