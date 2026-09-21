@@ -645,6 +645,85 @@ module.exports = async function (browser) {
         /Aucune séance/.test(prudent.dit), prudent.dit);
     r.verifie('et le tableau reste comme il est', prudent.tableauIntact, JSON.stringify(prudent));
 
+
+    // ------------------------------------------------------------------
+    // REFAIRE LA PRÉPARATION AVEC LA CLASSE QUI ARRIVE
+    //
+    // Le geste du mardi matin : on a fait Thalès avec la 3e A hier, on l'a
+    // gardé comme préparation, et la 5e B arrive. Le mécanisme existait ;
+    // l'emploi du temps sait maintenant quelle classe arrive.
+    // ------------------------------------------------------------------
+    const poser = async (creneauId, entree, tableaux) => await page.evaluate(
+        ([id, e, tbx]) => {
+            const d = new Date();
+            savedTableaux.length = 0;
+            tbx.forEach(t => savedTableaux.push(t));
+            agenda.alterne = false;
+            agenda.entrees = [e];
+            agenda.creneaux = [{ id, jour: (d.getDay() + 6) % 7 + 1,
+                                 debut: d.getHours() * 60 + d.getMinutes() - 5, duree: 55,
+                                 semaine: 'toutes', entreeId: e.id, libelle: e.libelle }];
+            battementDeLAgenda();
+            return new Promise(ok => setTimeout(() => {
+                const r = document.getElementById('edt-refaire');
+                ok({
+                    second: r ? 'refaire' : (document.getElementById('edt-voir-agenda') ? 'agenda' : 'rien'),
+                    texte: r ? r.innerText.trim() : ''
+                });
+            }, 100));
+        }, [creneauId, entree, tableaux]);
+
+    const laPrep = { id: 'tb_prep', name: 'Thalès — 3e A', type: 'file', classeId: 'cl3',
+                     classeNom: '3e A', timestamp: 5000, aPreparation: true };
+    const cinqB = { id: 'e5b', libelle: '5e B', classeId: 'cl5', couleur: '#eee' };
+
+    // Une préparation plus ancienne traîne aussi : c'est la PLUS RÉCENTE qu'on
+    // refait, celle qu'on est en train de faire tourner dans ses classes.
+    const vieillePrep = { id: 'tb_vieille', name: 'Pythagore — 4e C', type: 'file',
+                          classeId: 'cl4', classeNom: '4e C', timestamp: 900, aPreparation: true };
+
+    const offerte = await poser('cr_prep1', cinqB, [vieillePrep, laPrep]);
+    r.egal('le second bouton propose de refaire la préparation', offerte.second, 'refaire');
+    r.verifie('et il la nomme, sans le nom de l\'autre classe',
+        /Thalès/.test(offerte.texte) && !/3e A/.test(offerte.texte), offerte.texte);
+    r.verifie('c\'est la plus récente qu\'on propose',
+        !/Pythagore/.test(offerte.texte), offerte.texte);
+
+    const fait = await page.evaluate(async () => {
+        const vraiRefaire = window.reinvestirLaSeance, vraiOuvrir = window.promptLoadBoard;
+        let demande = null, ouvert = null;
+        window.reinvestirLaSeance = async (id, classeId, nomClasse) => {
+            demande = { id, classeId, nomClasse };
+            return { id: 'tb_neuve' };
+        };
+        window.promptLoadBoard = (id) => { ouvert = id; };
+        document.getElementById('edt-refaire').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const bandeau = getComputedStyle(document.getElementById('edt-bandeau')).display !== 'none';
+        window.reinvestirLaSeance = vraiRefaire;
+        window.promptLoadBoard = vraiOuvrir;
+        return { demande, ouvert, bandeau };
+    });
+    r.egal('elle est refaite pour la classe du créneau', fait.demande,
+        { id: 'tb_prep', classeId: 'cl5', nomClasse: '5e B' });
+    r.egal('et la séance neuve s\'ouvre par la porte prudente', fait.ouvert, 'tb_neuve');
+    r.egal('le bandeau s\'écarte', fait.bandeau, false);
+
+    // DÉJÀ FAITE AVEC CETTE CLASSE, ON NE LA REPROPOSE PAS : ce serait la
+    // refaire deux fois.
+    const dejaFaite = await poser('cr_prep2', cinqB, [laPrep,
+        { id: 'tb_dedans', name: 'Thalès — 5e B', type: 'file', classeId: 'cl5',
+          classeNom: '5e B', timestamp: 6000, aPreparation: true, seanceOrigine: 'tb_prep' }]);
+    r.egal('une préparation déjà faite avec cette classe ne se repropose pas',
+        dejaFaite.second, 'agenda');
+
+    // SANS PRÉPARATION GARDÉE, RIEN À REFAIRE : le second bouton redevient la
+    // porte de l'emploi du temps.
+    const sansPrep = await poser('cr_prep3', cinqB, [
+        { id: 'tb_nue', name: 'Cours du lundi', type: 'file', timestamp: 7000 }]);
+    r.egal('sans préparation gardée, on retrouve l\'emploi du temps',
+        sansPrep.second, 'agenda');
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

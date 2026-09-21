@@ -30617,20 +30617,68 @@ function derniereSeanceDe(entree) {
     return siennes.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
 }
 
+// LA PRÉPARATION QU'ON N'A PAS ENCORE FAITE AVEC CETTE CLASSE-LÀ. C'est le
+// geste du mardi matin : on a fait Thalès avec la 5e A hier, on le garde comme
+// préparation, et la 5e B arrive. Le mécanisme existe depuis longtemps —
+// « Refaire avec une autre classe » — mais il fallait y penser, ouvrir la
+// liste, retrouver la séance et choisir la classe. L'emploi du temps sait déjà
+// quelle classe arrive : il ne reste qu'à le proposer.
+//
+// Une famille déjà faite avec cette classe ne se propose plus : ce serait la
+// refaire deux fois.
+function preparationPourCeCreneau(entree) {
+    if (!entree || typeof savedTableaux === 'undefined' || !Array.isArray(savedTableaux)) return null;
+    const faites = new Set();
+    savedTableaux.forEach(t => {
+        const sienne = entree.classeId ? t.classeId === entree.classeId : t.classeNom === entree.libelle;
+        if (sienne) faites.add(t.seanceOrigine || t.id);
+    });
+    return savedTableaux
+        .filter(t => t.type !== 'folder' && t.aPreparation === true
+            && !faites.has(t.seanceOrigine || t.id))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
+}
+
+// « Thalès — 5e A » se propose comme « Thalès » : le nom de l'autre classe n'a
+// rien à faire dans une offre destinée à celle-ci.
+function titreDeLaPreparation(t) {
+    return String((t && t.name) || 'Séance').replace(/\s+—\s+.*$/, '');
+}
+
+async function refaireLaPreparation(c, prep) {
+    const entree = entreeDeLAgenda(c.entreeId);
+    ecarterLeBandeau();
+    if (!entree || !prep || typeof reinvestirLaSeance !== 'function') return;
+    const neuve = await reinvestirLaSeance(prep.id, entree.classeId || null, entree.libelle);
+    // Elle est créée, mais pas ouverte : on passe par la porte qui propose
+    // d'abord d'enregistrer ce qui est au tableau.
+    if (neuve) promptLoadBoard(neuve.id);
+}
+
 function annoncerLeCreneau(c) {
     const b = document.getElementById('edt-bandeau');
     if (!b) return;
     const semaine = agenda.alterne ? ' · semaine ' + semaineDe(new Date()) : '';
+    // TROIS COMMANDES, PAS QUATRE. Le second bouton dit ce qu'il fera : refaire
+    // la préparation du moment quand il y en a une à refaire avec cette classe,
+    // et sinon ouvrir l'emploi du temps. Celui-ci reste à portée dans le tiroir
+    // de droite ; un bandeau qui enfle cesse d'être discret.
+    const prep = preparationPourCeCreneau(entreeDeLAgenda(c.entreeId));
     b.innerHTML = `
         <span class="edt-bandeau-quand">${EDT_JOURS[c.jour - 1]} ${heureLisible(c.debut)}${semaine}</span>
         <span class="edt-bandeau-quoi">${echapperTexte(c.libelle)}</span>
         <button type="button" class="btn-action primary" id="edt-ouvrir-seance">Ouvrir la dernière séance</button>
-        <button type="button" class="btn-action secondary" id="edt-voir-agenda">Emploi du temps</button>
+        ${prep
+            ? `<button type="button" class="btn-action secondary" id="edt-refaire">Refaire « ${echapperTexte(titreDeLaPreparation(prep))} »</button>`
+            : '<button type="button" class="btn-action secondary" id="edt-voir-agenda">Emploi du temps</button>'}
         <button type="button" id="edt-bandeau-fermer" title="Pas maintenant">×</button>`;
     b.classList.add('edt-bandeau-la');
     edtCreneauMontre = c;
     document.getElementById('edt-ouvrir-seance').addEventListener('click', () => ouvrirLaSeanceDe(c));
-    document.getElementById('edt-voir-agenda').addEventListener('click', () => { ecarterLeBandeau(); ouvrirLAgenda(); });
+    const refaire = document.getElementById('edt-refaire');
+    if (refaire) refaire.addEventListener('click', () => refaireLaPreparation(c, prep));
+    const agendaBtn = document.getElementById('edt-voir-agenda');
+    if (agendaBtn) agendaBtn.addEventListener('click', () => { ecarterLeBandeau(); ouvrirLAgenda(); });
     document.getElementById('edt-bandeau-fermer').addEventListener('click', ecarterLeBandeau);
 }
 
