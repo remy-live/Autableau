@@ -470,6 +470,93 @@ module.exports = async function (browser) {
         coin[1].find(b => b.id === 'btn-ecran-suite').nom);
 
     // ------------------------------------------------------------------
+    // 6 bis. PERSONNE NE POUSSE PERSONNE
+    //
+    // « J'ai peur que ça manque de cohérence, ce que j'ai fait avec les boutons
+    // en haut à droite. » Mesuré : « projeter » et le plein écran ne bougeaient
+    // jamais, mais la VIGNETTE DE RETOUR s'insérait entre le rang des pages et
+    // « projeter » — trente-sept pixels de décalage pour le rang. On visait le
+    // « 1/2 », il avait glissé.
+    //
+    // La barre est calée contre le coin et grandit vers la GAUCHE : tout ce qui
+    // va et vient doit donc arriver par la gauche. La vignette est passée avant
+    // le rang, et plus rien ne pousse personne.
+    //
+    // ET LE SECOND TRAIT GROUPE CE QUI RESTE : à gauche où l'on en est dans le
+    // tableau, à droite ce qui passe en grand. Le premier ne paraît qu'avec la
+    // famille de l'affichage ; sans celui-ci, le coin montrait quatre boutons
+    // en file où rien ne groupait rien.
+    // ------------------------------------------------------------------
+    const personneNePousse = await page.evaluate(async (px) => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        poserLAffichage(0);
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        images.length = 0; selectedItems = []; traceDesDocuments = [];
+        panX = 0; panY = 0; zoom = 1;
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = px; });
+        imageCache[px] = img;
+        const doc = { id: nextId++, x: 60, y: 40, w: 300, h: 400, cx: 0, cy: 0, cw: 1, ch: 1,
+                      src: px, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'coin', page: 1, pages: 3 } };
+        images.push(doc);
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+        await attendre(300);
+        const ou = (id) => {
+            const e = document.getElementById(id);
+            // Un élément qui manque tout entier se DIT : un chapitre qui
+            // s'arrête ne rend compte de rien.
+            if (!e) return { vu: false, x: null, absent: true };
+            const r = e.getBoundingClientRect();
+            // Un trait fait UN pixel de large : on regarde sa hauteur pour
+            // savoir s'il est là, sinon on le déclarerait absent à tort.
+            return { vu: getComputedStyle(e).display !== 'none' && r.width >= 1 && r.height > 2,
+                     x: Math.round(r.x) };
+        };
+        const lot = () => ({ pages: ou('ecran-pages'), presenter: ou('btn-ecran-presenter'),
+                             plein: ou('btn-ecran-plein'), retour: ou('btn-ecran-retour'),
+                             trait: ou('ecran-sep-2') });
+        const seul = lot();
+
+        // Une seconde page : on y va, et la vignette de retour paraît.
+        pages.push(createNewPage());
+        loadPage(pages.length - 1);
+        if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+        if (typeof majLaVignetteDeRetour === 'function') majLaVignetteDeRetour();
+        await attendre(400);
+        const avecRetour = lot();
+
+        // Et le tableau nu, où la croix arrive elle aussi par la gauche.
+        loadPage(0);
+        poserLAffichage(2);
+        await attendre(500);
+        const auTableauNu = lot();
+        poserLAffichage(0);
+        pages.length = 0; pages.push(createNewPage()); currentPageIndex = 0;
+        images.length = 0; selectedItems = []; majBarreDocument();
+        await attendre(200);
+        return { seul, avecRetour, auTableauNu };
+    }, PIXEL);
+
+    r.verifie('la vignette de retour paraît bien, et à GAUCHE du rang des pages',
+        personneNePousse.avecRetour.retour.vu
+        && personneNePousse.avecRetour.retour.x < personneNePousse.avecRetour.pages.x,
+        JSON.stringify(personneNePousse.avecRetour));
+    r.egal('et les trois permanents ne bougent pas d\'un pixel quand elle arrive',
+        [personneNePousse.avecRetour.pages.x - personneNePousse.seul.pages.x,
+         personneNePousse.avecRetour.presenter.x - personneNePousse.seul.presenter.x,
+         personneNePousse.avecRetour.plein.x - personneNePousse.seul.plein.x], [0, 0, 0]);
+    r.egal('ni quand le tableau nu ramène la croix',
+        [personneNePousse.auTableauNu.pages.x - personneNePousse.seul.pages.x,
+         personneNePousse.auTableauNu.presenter.x - personneNePousse.seul.presenter.x,
+         personneNePousse.auTableauNu.plein.x - personneNePousse.seul.plein.x], [0, 0, 0]);
+    r.verifie('le second trait est là en permanence, entre les pages et « projeter »',
+        [personneNePousse.seul, personneNePousse.avecRetour, personneNePousse.auTableauNu]
+            .every(e => e.trait.vu && e.trait.x > e.pages.x && e.trait.x < e.presenter.x),
+        JSON.stringify(personneNePousse));
+
+    // ------------------------------------------------------------------
     // 7. UN APPUI DE TROP SUR LE PLEIN ÉCRAN NE COMPTE PAS
     //
     // « Quand je clique sur le plein écran plusieurs fois, d'un coup je passe à

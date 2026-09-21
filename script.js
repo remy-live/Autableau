@@ -2432,6 +2432,44 @@ function poserLaBandeSurLeTiroir() {
 }
 window.poserLaBandeSurLeTiroir = poserLaBandeSurLeTiroir;
 
+// ---------------------------------------------------------------------------
+// LE TIROIR DES MORCEAUX, AUSSI BAS QUE POSSIBLE
+//
+// « Le tiroir des pages le plus bas possible. » Il se tenait à quatre-vingt-
+// seize pixels du bord quoi qu'il arrive — une valeur taillée pour le tiroir du
+// bas ouvert, qui le laissait flotter au milieu de rien dès que ce tiroir-là
+// était rangé, c'est-à-dire tout le temps en plein écran.
+//
+// Il se pose donc juste au-dessus de ce qui occupe VRAIMENT le bas : le tiroir
+// du bas s'il est déployé, la barre du document si elle y est. C'est lui qui
+// s'écarte, et non la barre — l'ordre inverse faisait sauter la barre de deux
+// cents pixels au premier découpage.
+// ---------------------------------------------------------------------------
+function poserLeTiroirDesMorceaux() {
+    const bande = document.getElementById('bande-morceaux');
+    if (!bande) return;
+    // Déplacé à la main : il reste où on l'a mis, et son double-clic le rend.
+    if (bande.style.top) return;
+    let bas = 12;
+    const sIlGene = (el) => {
+        if (!el || el.hidden) return;
+        const st = getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) return;
+        const r = el.getBoundingClientRect();
+        if (r.height < 4) return;
+        // Seul ce qui touche vraiment le bas compte : une barre posée en haut
+        // n'a rien à dire sur la place du bas.
+        if (r.bottom < window.innerHeight - 160) return;
+        bas = Math.max(bas, Math.round(window.innerHeight - r.top) + 10);
+    };
+    sIlGene(document.getElementById('bottom-drawer'));
+    sIlGene(document.getElementById('bar-document'));
+    // La barre de style descend avec celle du document : elle compte aussi.
+    sIlGene(document.getElementById('bar-style'));
+    bande.style.setProperty('--haut-du-tiroir', bas + 'px');
+}
+window.poserLeTiroirDesMorceaux = poserLeTiroirDesMorceaux;
+
 // Le tiroir bouge par une classe, et son mouvement dure : on suit pendant
 // toute l'animation plutôt que de mesurer une seule fois, trop tôt.
 function suivreLeTiroirDuBas() {
@@ -2440,12 +2478,15 @@ function suivreLeTiroirDuBas() {
     let jusqua = 0;
     const suivre = () => {
         poserLaBandeSurLeTiroir();
+        poserLeTiroirDesMorceaux();
         if (performance.now() < jusqua) requestAnimationFrame(suivre);
     };
     const relancer = () => { jusqua = performance.now() + 600; requestAnimationFrame(suivre); };
     new MutationObserver(relancer).observe(tiroir, { attributes: true, attributeFilter: ['class', 'style'] });
     tiroir.addEventListener('transitionend', poserLaBandeSurLeTiroir);
+    tiroir.addEventListener('transitionend', poserLeTiroirDesMorceaux);
     window.addEventListener('resize', poserLaBandeSurLeTiroir);
+    window.addEventListener('resize', poserLeTiroirDesMorceaux);
 }
 
 // ---------------------------------------------------------------------------
@@ -6864,7 +6905,46 @@ document.getElementById('btn-lier-fond-bord')?.addEventListener('click', () => l
 
 // AU DÉMARRAGE : le lien tel qu'on l'a laissé, « mes couleurs » telles qu'on
 // les a mises de côté, et la pastille d'aplomb avec l'outil du moment.
+// ==================================================================
+// QUELLE VERSION AI-JE SOUS LES YEUX ?
+//
+// « Il me faudrait vraiment un endroit pour connaître la dernière version. »
+// Un navigateur garde le fichier qu'il a déjà : on ouvre le tableau en croyant
+// avoir la correction du jour, on regarde celle d'avant-hier, et rien ne le
+// dit. Le numéro qui suit « script.js?v= » monte à chaque changement — c'est
+// lui qui force le navigateur à redemander le fichier. On le lit donc SUR LA
+// BALISE, celle-là même qu'il est allé chercher : pas de seconde source de
+// vérité qui pourrait annoncer une version qu'on n'a pas.
+// ==================================================================
+function versionDeLApplication() {
+    const balises = document.querySelectorAll('script[src]');
+    for (const b of balises) {
+        const src = b.getAttribute('src') || '';
+        if (!/(^|\/)script\.js(\?|$)/.test(src)) continue;
+        const m = /[?&]v=([^&]+)/.exec(src);
+        return m ? m[1] : '—';
+    }
+    return '—';
+}
+window.versionDeLApplication = versionDeLApplication;
+
+function poserLaVersionDansLAide() {
+    const b = document.getElementById('aide-version');
+    if (!b) return;
+    const v = versionDeLApplication();
+    b.textContent = 'Version ' + v;
+    b.addEventListener('click', () => {
+        const dire = (ok) => { if (typeof showToast === 'function') {
+            showToast(ok ? 'Version ' + v + ' copiée' : 'Version ' + v);
+        } };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText('Version ' + v).then(() => dire(true), () => dire(false));
+        } else dire(false);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    poserLaVersionDansLAide();
     const b = document.getElementById('btn-lier-fond-bord');
     if (b) b.setAttribute('aria-pressed', fondLieAuBord ? 'true' : 'false');
     majLesCouleursRecentes();
@@ -7139,6 +7219,27 @@ function placerLaBarreDuDocument() {
     barre.style.left = '50%';
     barre.style.transform = 'translateX(-50%)';
     barre.style.right = 'auto';
+    // EN PLEIN ÉCRAN, ELLE EST EN BAS. « Que la toolbar du PDF en plein écran
+    // soit par défaut en bas. » Une page projetée occupe tout l'écran : on la
+    // lit du haut vers le bas, et c'est le haut qu'on regarde en premier. La
+    // barre n'y saute plus d'un bord à l'autre pour autant — ce qui était le
+    // reproche d'avant : elle ne change de place qu'en entrant dans le plein
+    // écran ou en en sortant, jamais en montrant ou en rangeant les outils,
+    // puisque la projection, elle, ne s'arrête pas pour si peu.
+    const enPlein = (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
+    if (enPlein) {
+        // ELLE NE BOUGE PAS D'UN POUCE. Elle commençait par s'écarter du tiroir
+        // à morceaux quand il paraissait : « quand le tiroir apparaît, la
+        // toolbar remonte, c'est curieux » — deux cents pixels de saut pour
+        // avoir découpé un bout. C'est au NOUVEAU VENU de se ranger au-dessus
+        // d'elle (voir « poserLeTiroirDesMorceaux »), et non à la barre de
+        // fuir : « il faut qu'elle reste en bas si elle l'était ».
+        barre.style.top = 'auto';
+        barre.style.bottom = '20px';
+        if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
+        signalerLaBarreDuDocument(barre);
+        return;
+    }
     barre.style.bottom = 'auto';
     const tiroirHaut = document.getElementById('bar-plugins');
     barre.style.top = (tiroirHaut && tiroirEnPlace(tiroirHaut)
@@ -7178,8 +7279,16 @@ function signalerLaBarreDuDocument(barre) {
 window.signalerLaBarreDuDocument = signalerLaBarreDuDocument;
 
 // LES DEUX BARRES NE SE POSENT PAS L'UNE SUR L'AUTRE. Elles visent la même
-// place — au milieu, en haut. Celle du document la garde : c'est elle qu'on
-// tient. La barre de style se range juste dessous.
+// place. Celle du document la garde : c'est elle qu'on tient. La barre de
+// style se range contre elle, DU CÔTÉ OÙ IL Y A DE LA PLACE.
+//
+// « En pleine page, quand je tape du texte, j'ai l'impression que la barre de
+// texte est tout en bas, cachée. » Elle l'était : la barre du document est
+// passée en bas en plein écran, et celle-ci se rangeait toujours DESSOUS —
+// mesuré, elle tombait quarante-deux pixels hors de l'écran, et les réglages
+// du texte avec elle. Sous la barre du document quand celle-ci est en haut,
+// au-dessus quand elle est en bas : c'est la même règle, lue dans les deux
+// sens.
 function rangerLesDeuxBarres() {
     const style = document.getElementById('bar-style');
     const doc = document.getElementById('bar-document');
@@ -7191,8 +7300,16 @@ function rangerLesDeuxBarres() {
     if (!deuxAPlat) return;
     const r = doc.getBoundingClientRect();
     if (!r.height) return;
-    style.style.bottom = 'auto';
-    style.style.top = Math.round(r.bottom + 8) + 'px';
+    if (r.top > window.innerHeight / 2) {
+        style.style.top = 'auto';
+        style.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px';
+    } else {
+        style.style.bottom = 'auto';
+        style.style.top = Math.round(r.bottom + 8) + 'px';
+    }
+    // Le tiroir à morceaux vit au même bord : il se repose au-dessus de tout
+    // cela plutôt que dessous.
+    if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
 }
 window.rangerLesDeuxBarres = rangerLesDeuxBarres;
 window.basculerLOrientationDeLaBarre = basculerLOrientationDeLaBarre;
@@ -15606,6 +15723,8 @@ function majLeTiroirDesMorceaux() {
     const bande = document.getElementById('bande-morceaux');
     if (!bande) return;
     bande.hidden = morceauxEnAttente.length === 0;
+    // Il vient de paraître, ou de changer de taille : il se repose au plus bas.
+    if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
     // La bande occupe le bas de l'écran ; la barre de la visite aussi.
     if (typeof placerLaBarreDeLaDemo === 'function') placerLaBarreDeLaDemo();
     const compte = document.getElementById('bm-compte');
@@ -16556,6 +16675,7 @@ function brancherLeTiroirDesMorceaux() {
         });
         poignee.addEventListener('dblclick', () => {
             bande.style.left = ''; bande.style.top = ''; bande.style.bottom = ''; bande.style.transform = '';
+            if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
         });
     }
 }
@@ -23449,12 +23569,38 @@ function majBoutonPresenterDeLEcran() {
 }
 window.majBoutonPresenterDeLEcran = majBoutonPresenterDeLEcran;
 
+// RANGER LES TIROIRS SANS LES PERDRE. Ils gardent leur propre fermeture — la
+// même qu'un clic sur leur languette —, si bien qu'ils se rouvrent d'un doigt.
+function rangerLesTiroirs() {
+    const bas = document.getElementById('bottom-drawer');
+    if (bas && !bas.classList.contains('closed') && typeof toggleBottomDrawer === 'function') {
+        toggleBottomDrawer();
+    }
+    const haut = document.getElementById('bar-plugins');
+    if (haut && !haut.classList.contains('closed') && typeof togglePluginDrawer === 'function') {
+        togglePluginDrawer();
+    }
+    const droite = document.getElementById('right-drawer');
+    if (droite && droite.classList.contains('open') && typeof toggleRightDrawer === 'function') {
+        toggleRightDrawer();
+    }
+}
+window.rangerLesTiroirs = rangerLesTiroirs;
+
 function basculerLesBarresDeLaPresentation() {
     if (typeof presentationEnCours === 'undefined' || !presentationEnCours) return false;
     const avec = !presentationAvecBarres;
     presentationAvecBarres = avec;
     const enFocus = document.body.classList.contains('focus-mode');
     if (avec && enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
+    // QUE LES OUTILS, PAS LES TIROIRS. « Le bouton qui ouvre les tiroirs et les
+    // toolbars ne devrait faire apparaître que la toolbar, le tiroir étant de
+    // toute façon accessible avec la poignée. » On projette une page et l'on
+    // veut écrire dessus : ce sont les outils qu'on demande. Les tiroirs, eux,
+    // servent à préparer — et ils mangeaient le haut et le bas de la page
+    // qu'on venait de mettre en grand. Ils se ferment comme on les ferme à la
+    // main : leur languette reste, un doigt les rouvre.
+    if (avec) rangerLesTiroirs();
     if (!avec && !enFocus && typeof toggleFocusMode === 'function') toggleFocusMode();
     // ET LA BARRE QUITTE LE QUAI AVEC LES AUTRES. « Montrer les outils » veut
     // dire TOUS les outils : depuis qu'elle s'y range en projetant, la rappeler
@@ -28751,6 +28897,51 @@ function semerInterfacesFournies() {
     return touche;
 }
 
+// L'INTERFACE QU'ON VIENT DE DEMANDER, RELUE DANS L'ADRESSE.
+//
+// « Minimale » demande cinq outils ; on en retrouvait vingt-deux, une fois sur
+// quatre environ. Mesuré, et de bout en bout : « loadInterface » écrit bien les
+// cinq — on les relit juste avant de redémarrer —, mais la page qui s'ouvre ne
+// trouve RIEN, pas même ce que la page d'avant avait écrit une seconde plus
+// tôt. Le lot entier se perd, parfois, au moment où la navigation part. Le
+// démarrage ne voit alors plus de barre principale, repose la panoplie
+// complète, et la préparation du collègue est effacée sans un mot.
+//
+// L'adresse, elle, traverse le rechargement par construction. On y écrit QUI
+// l'on charge ; la page qui s'ouvre repose l'interface elle-même, depuis la
+// liste des interfaces — laquelle était déjà en place bien avant, et ne
+// voyage pas dans ce lot-là.
+//
+// Elle passe AVANT tout ce qui dessine les barres : « loadExplorerData » est
+// appelée au DOMContentLoaded, « renderFloatingToolbars » au « load ».
+function appliquerLInterfaceDeLAdresse() {
+    let brut = '';
+    try { brut = location.hash || ''; } catch (e) { return false; }
+    const m = /(?:^|[#&])interface=([^&]*)/.exec(brut);
+    if (!m) return false;
+    // On retire le repère AVANT d'écrire : s'il restait, un rechargement de la
+    // page reposerait l'interface par-dessus le travail de la séance.
+    try {
+        history.replaceState(null, '', location.pathname + location.search);
+    } catch (e) { try { location.hash = ''; } catch (e2) { /* tant pis */ } }
+    let id = m[1];
+    try { id = decodeURIComponent(id); } catch (e) { /* on garde tel quel */ }
+    const intf = savedInterfaces.find(i => i.id === id);
+    if (!intf || !intf.data) return false;
+    try {
+        if (intf.data.toolbars) {
+            localStorage.setItem('board_floating_toolbars', JSON.stringify(intf.data.toolbars));
+        }
+        if (intf.data.favorites) {
+            localStorage.setItem('board_favorites', JSON.stringify(intf.data.favorites));
+        }
+        if (intf.data.barStyleX) localStorage.setItem('bar_style_x', intf.data.barStyleX);
+        if (intf.data.barStyleY) localStorage.setItem('bar_style_y', intf.data.barStyleY);
+    } catch (e) { return false; }
+    return true;
+}
+window.appliquerLInterfaceDeLAdresse = appliquerLInterfaceDeLAdresse;
+
 function loadExplorerData() {
     // Interfaces in localStorage
     try {
@@ -28758,6 +28949,8 @@ function loadExplorerData() {
         if (intData) savedInterfaces = JSON.parse(intData);
     } catch (e) { }
     semerInterfacesFournies();
+    // La liste est là : on peut reposer celle qu'on vient de demander.
+    appliquerLInterfaceDeLAdresse();
 
     // Tableaux in localforage
     localforage.getItem('auTableau_tableaux_list').then(data => {
@@ -30196,6 +30389,10 @@ function loadInterface(id) {
         // servait à rien — le message ne survit pas au rechargement — et
         // laissait à la session le temps de réécrire les barres par-dessus.
         showToast("Interface chargée ! L'application redémarre.");
+        // ET L'ADRESSE PORTE LA DEMANDE, PAS SEULEMENT LE STOCKAGE. Voir
+        // « appliquerLInterfaceDeLAdresse » : le lot qu'on vient d'écrire peut
+        // ne pas survivre à la navigation, et c'est mesuré.
+        try { location.hash = 'interface=' + encodeURIComponent(id); } catch (e) { /* refusé */ }
         // PAS PAR UNE IMAGE D'ANIMATION. « requestAnimationFrame » ne sert rien
         // du tout à un onglet qu'on ne regarde pas, et presque rien à une
         // machine chargée : qui change d'onglet le temps que l'interface se

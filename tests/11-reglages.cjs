@@ -858,6 +858,51 @@ module.exports = async function (browser) {
         m.style.display = 'none';
         return etat;
     });
+    // =====================================================================
+    // QUELLE VERSION AI-JE SOUS LES YEUX ?
+    //
+    // « Il me faudrait vraiment un endroit pour connaître la dernière
+    // version. » Un navigateur garde le fichier qu'il a déjà : on ouvre le
+    // tableau en croyant avoir la correction du jour, on regarde celle
+    // d'avant-hier, et rien ne le dit.
+    //
+    // LE NUMÉRO LU EST CELUI QUI SERT. Il est pris sur la balise du script,
+    // celle-là même que le navigateur est allé chercher — une constante écrite
+    // à côté annoncerait un jour une version qu'on n'a pas. Le contrôle compare
+    // donc les deux : ce que l'Aide affiche, et ce que la page a chargé.
+    // =====================================================================
+    const laVersion = await page.evaluate(async () => {
+        const m = document.getElementById('help-modal');
+        m.style.display = 'flex';
+        await new Promise(ok => setTimeout(ok, 120));
+        const b = document.getElementById('aide-version');
+        const r = b ? b.getBoundingClientRect() : null;
+        // Ce que la page a VRAIMENT chargé, relu à la source.
+        let surLaBalise = null;
+        document.querySelectorAll('script[src]').forEach(sc => {
+            const src = sc.getAttribute('src') || '';
+            if (!/(^|\/)script\.js(\?|$)/.test(src)) return;
+            const mm = /[?&]v=([^&]+)/.exec(src);
+            if (mm) surLaBalise = mm[1];
+        });
+        const etat = {
+            present: !!b,
+            vu: !!b && getComputedStyle(b).display !== 'none' && !!r && r.width > 10,
+            texte: b ? b.textContent.trim() : null,
+            bulle: b ? (b.getAttribute('data-tooltip') || '') : '',
+            surLaBalise
+        };
+        m.style.display = 'none';
+        return etat;
+    });
+    r.verifie('l\'Aide dit quelle version on a sous les yeux',
+        laVersion.vu && /^Version .+/.test(laVersion.texte || ''), JSON.stringify(laVersion));
+    r.verifie('et c\'est le numéro que la page a VRAIMENT chargé, lu sur la balise',
+        !!laVersion.surLaBalise && laVersion.texte === 'Version ' + laVersion.surLaBalise,
+        JSON.stringify(laVersion));
+    r.verifie('son infobulle dit ce qu\'il est et ce qu\'un clic en fait',
+        /version/i.test(laVersion.bulle) && /copie/i.test(laVersion.bulle), laVersion.bulle);
+
     r.verifie('la démonstration reste offerte dans l\'Aide',
         dansLAide.demo && /démonstration/i.test(dansLAide.demoDit || ''), JSON.stringify(dansLAide));
     r.verifie('et les astuces aussi',

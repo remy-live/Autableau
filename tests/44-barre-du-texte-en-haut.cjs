@@ -448,6 +448,84 @@ module.exports = async function (browser) {
     });
     r.egal('rien ne traîne plus au bord droit, à mi-hauteur', bordDroit, []);
 
+    // =====================================================================
+    // EN PLEIN ÉCRAN, LA BARRE DES RÉGLAGES NE TOMBE PAS SOUS L'ÉCRAN
+    //
+    // « En pleine page, quand je tape du texte, j'ai l'impression que la barre
+    // de texte est tout en bas, cachée. » Elle l'était, et mesurée : quarante-
+    // deux pixels hors de l'écran. La barre du document est passée en bas en
+    // plein écran — c'est sa place, on la voulait là —, et celle des réglages
+    // se rangeait TOUJOURS dessous, donc dans le vide.
+    //
+    // La règle se lit maintenant dans les deux sens : sous la barre du document
+    // quand elle est en haut, au-dessus quand elle est en bas.
+    // =====================================================================
+    const enPleinePage = await page.evaluate(async (px) => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        if (typeof presentationEnCours !== 'undefined' && presentationEnCours) quitterLaPresentation();
+        poserLAffichage(0);
+        images.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const img = new Image();
+        await new Promise(ok => { img.onload = ok; img.src = px; });
+        imageCache[px] = img;
+        const doc = { id: nextId++, x: 0, y: 0, w: 300, h: 400, cx: 0, cy: 0, cw: 1, ch: 1,
+                      src: px, fileName: 'poly.png', z: globalZ++,
+                      pluginData: { id: 'pdfDoc', cle: 'plein', page: 1, pages: 2 } };
+        images.push(doc);
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument();
+
+        const mesure = () => {
+            const m = (id) => {
+                const e = document.getElementById(id);
+                const r = e.getBoundingClientRect();
+                return { vu: getComputedStyle(e).display !== 'none' && r.height > 4,
+                         haut: Math.round(r.top), bas: Math.round(r.bottom),
+                         dansLEcran: r.bottom <= window.innerHeight + 1 && r.top >= -1 };
+            };
+            return { doc: m('bar-document'), style: m('bar-style') };
+        };
+
+        // a) Sur le tableau : la barre du document est en haut, les réglages
+        //    se rangent dessous — la règle d'origine, qu'on ne casse pas.
+        setMode('text');
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        if (typeof rangerLesDeuxBarres === 'function') rangerLesDeuxBarres();
+        await attendre(350);
+        const surLeTableau = mesure();
+
+        // b) En plein écran : elle est en bas, les réglages passent au-dessus.
+        presenterLeDocument();
+        await attendre(700);
+        setMode('text');
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        if (typeof rangerLesDeuxBarres === 'function') rangerLesDeuxBarres();
+        await attendre(350);
+        const enPlein = mesure();
+
+        quitterLaPresentation();
+        setMode('pointer');
+        images.length = 0; selectedItems = []; majBarreDocument();
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        await attendre(200);
+        return { surLeTableau, enPlein, ecran: window.innerHeight };
+    }, 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+
+    r.verifie('sur le tableau, les réglages se rangent SOUS la barre du document',
+        enPleinePage.surLeTableau.style.vu
+        && enPleinePage.surLeTableau.style.haut >= enPleinePage.surLeTableau.doc.bas
+        && enPleinePage.surLeTableau.style.dansLEcran,
+        JSON.stringify(enPleinePage.surLeTableau));
+    r.verifie('en plein écran, la barre du document est en bas',
+        enPleinePage.enPlein.doc.bas > enPleinePage.ecran * 0.75,
+        JSON.stringify(enPleinePage.enPlein));
+    r.verifie('et les réglages passent AU-DESSUS d\'elle, entièrement dans l\'écran',
+        enPleinePage.enPlein.style.vu
+        && enPleinePage.enPlein.style.bas <= enPleinePage.enPlein.doc.haut
+        && enPleinePage.enPlein.style.dansLEcran,
+        JSON.stringify(enPleinePage.enPlein));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

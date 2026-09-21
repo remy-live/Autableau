@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=174">
+    <link rel="stylesheet" href="style.css?v=175">
 </head>
 
 <body>
@@ -806,6 +806,29 @@
              pixels rien ne les séparait. Celui-ci projette LA PAGE — une page
              sur un écran ; les quatre coins restent au geste qui agrandit
              vraiment la fenêtre. -->
+        <!-- LE CHEMIN DU RETOUR, ET IL MONTRE OÙ IL MÈNE.
+             IL EST À GAUCHE DU RANG DES PAGES, et ce n'est pas un détail : la
+             barre est calée contre le coin et grandit vers la gauche. Posé à
+             droite du rang, il poussait les pages de trente-sept pixels en
+             paraissant — on visait le « 1/2 », il avait glissé. À gauche, il
+             n'écarte plus personne.
+             « On pourrait mettre aussi une petite vignette à côté du plein
+             écran pour revenir au document d'avant. »
+             Il avait d'abord été posé dans la barre du document — et c'était
+             l'erreur que son voisin « Projeter » avait déjà faite : cette
+             barre paraît et disparaît avec la sélection, donc elle n'est plus
+             là au moment précis où l'on veut revenir, quand on vient de ranger
+             ses morceaux et qu'on ne tient plus rien. Ici, il ne bouge pas.
+             Il ne paraît que s'il y a où revenir, et il ne dit pas le nom du
+             document : il le MONTRE. Une vignette n'a pas besoin d'infobulle
+             pour dire où elle va, mais elle en porte une quand même — les
+             icônes muettes sont des rébus, et celle-ci reste une image de
+             quelques pixels. Sa touche vient de « RACCOURCIS_PARTOUT », pas
+             d'ici : une seule vérité par raccourci. -->
+        <button id="btn-ecran-retour" style="display:none;"
+            data-tooltip="Revenir au document d'avant, là où on l'a laissé">
+            <canvas id="vignette-retour" width="60" height="44"></canvas>
+        </button>
         <!-- LES PAGES DU TABLEAU, QUAND IL N'Y A PLUS DE BARRE.
              « Quand aucune barre d'outils, si j'ai bien compris, juste les
              touches des pages ; c'est bien ça ? Tu veux le mettre où ? »
@@ -832,24 +855,13 @@
             <button id="ecran-page-rang" data-tooltip="Cette page du tableau : la supprimer"></button>
             <button id="btn-ecran-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
         </span>
-        <!-- LE CHEMIN DU RETOUR, ET IL MONTRE OÙ IL MÈNE.
-             « On pourrait mettre aussi une petite vignette à côté du plein
-             écran pour revenir au document d'avant. »
-             Il avait d'abord été posé dans la barre du document — et c'était
-             l'erreur que son voisin « Projeter » avait déjà faite : cette
-             barre paraît et disparaît avec la sélection, donc elle n'est plus
-             là au moment précis où l'on veut revenir, quand on vient de ranger
-             ses morceaux et qu'on ne tient plus rien. Ici, il ne bouge pas.
-             Il ne paraît que s'il y a où revenir, et il ne dit pas le nom du
-             document : il le MONTRE. Une vignette n'a pas besoin d'infobulle
-             pour dire où elle va, mais elle en porte une quand même — les
-             icônes muettes sont des rébus, et celle-ci reste une image de
-             quelques pixels. Sa touche vient de « RACCOURCIS_PARTOUT », pas
-             d'ici : une seule vérité par raccourci. -->
-        <button id="btn-ecran-retour" style="display:none;"
-            data-tooltip="Revenir au document d'avant, là où on l'a laissé">
-            <canvas id="vignette-retour" width="60" height="44"></canvas>
-        </button>
+        <!-- LE SECOND TRAIT, LUI, EST TOUJOURS LÀ. Le premier ne paraît qu'avec
+             la famille de l'affichage, qui ne vient qu'au tableau nu ; depuis
+             que les pages restent, le coin montrait quatre boutons en file où
+             rien ne groupait rien — le reproche d'origine, « je ne comprends
+             pas le fonctionnement des 4 ». À gauche : OÙ J'EN SUIS dans le
+             tableau. À droite : CE QUI PASSE EN GRAND. -->
+        <span id="ecran-sep-2"></span>
         <!-- Son nom vient de « majBoutonPresenterDeLEcran », pour la même raison. -->
         <button id="btn-ecran-presenter">
             <!-- Vide : c'est « ICONES_PLEIN_ECRAN » qui le remplit, et qui
@@ -877,6 +889,15 @@
                     <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">▶ Démonstration</button>
                 </div>
             </div>
+            <!-- QUELLE VERSION AI-JE SOUS LES YEUX ? « Il me faudrait vraiment
+                 un endroit pour connaître la dernière version. » Un navigateur
+                 garde le fichier qu'il a déjà : on croit avoir la correction du
+                 jour et l'on regarde celle d'avant-hier, sans rien pour s'en
+                 apercevoir. Ce numéro-là est celui QUI SERT VRAIMENT — il est
+                 lu sur la balise du script, celle-là même que le navigateur est
+                 allé chercher. Un clic le copie, pour me le dire. -->
+            <button id="aide-version" type="button"
+                data-tooltip="La version chargée en ce moment — cliquez pour la copier"></button>
 
             <!-- On cherche, on ne navigue pas : un seul champ filtre toute
                  l'aide à la frappe, et les rubriques défilent d'une traite,
@@ -3616,7 +3637,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=298"></script>
+    <script src="script.js?v=299"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
