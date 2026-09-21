@@ -259,6 +259,181 @@ module.exports = async function (browser) {
     r.egal('quitter la projection la libère', sortie.apres.place, null);
     r.egal('et il n\'y a plus de projection non plus', sortie.apres.projection, null);
 
+
+    // ==================================================================
+    // LE BOUTON « À CÔTÉ »
+    //
+    // Visible, dans la rangée du tiroir, à côté des deux autres — « évite les
+    // appuis longs et courts ». Un seul bouton, deux états, et il dit toujours
+    // ce qu'il fera. Grisé, il garde la raison dans son infobulle : un bouton
+    // qui s'en va ne s'explique pas.
+    // ==================================================================
+    const UN_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    const leBouton = await page.evaluate(() => {
+        const b = document.getElementById('bm-a-cote');
+        return {
+            la: !!b,
+            dansLaRangee: !!(b && b.closest('.bm-poser')),
+            voisins: b ? [...b.closest('.bm-poser').querySelectorAll('button')].map(x => x.id) : []
+        };
+    });
+    r.verifie('« À côté » a son bouton', leBouton.la, JSON.stringify(leBouton));
+    r.egal('dans la même rangée que les deux autres', leBouton.voisins,
+        ['bm-ranger', 'bm-ranger-neuve', 'bm-a-cote']);
+
+    const etats = await page.evaluate(async (pixel) => {
+        images.length = 0;
+        morceauxEnAttente = [];
+        presentationEnCours = null;
+        presentationVoisine = null;
+        majLeTiroirDesMorceaux();
+        const b = document.getElementById('bm-a-cote');
+        const lire = () => ({ texte: b.textContent.trim(), grise: b.disabled,
+                              pourquoi: b.getAttribute('data-tooltip') });
+
+        const sansProjection = lire();
+
+        const doc = { id: 801, x: 0, y: 0, w: 1000, h: 1414, src: pixel,
+                      fileName: 'poly.pdf', pluginData: { id: 'pdfDoc', cle: 'poly' } };
+        images.push(doc);
+        presentationEnCours = doc.id;
+        // On projette en pleine largeur, le cadrage par défaut.
+        cadrageDePresentation = 'largeur';
+        majLeTiroirDesMorceaux();
+        const tiroirVide = lire();
+
+        morceauxEnAttente = [{ id: 1, src: pixel, nom: 'poly.pdf', page: 1,
+                               cx: 0, cy: 0, cw: 300, ch: 200, w: 300, h: 200,
+                               source: doc.id, cle: 'poly' }];
+        majLeTiroirDesMorceaux();
+        const pret = lire();
+        return { sansProjection, tiroirVide, pret };
+    }, UN_PIXEL);
+    r.verifie('sans projection, il est grisé', etats.sansProjection.grise,
+        JSON.stringify(etats.sansProjection));
+    r.verifie('et il dit que « à côté » est une place de l\'écran projeté',
+        /projet/i.test(etats.sansProjection.pourquoi), etats.sansProjection.pourquoi);
+    r.verifie('avec une projection mais rien à poser, il est grisé aussi',
+        etats.tiroirVide.grise, JSON.stringify(etats.tiroirVide));
+    r.verifie('et il dit qu\'il faut d\'abord découper',
+        /découp/i.test(etats.tiroirVide.pourquoi), etats.tiroirVide.pourquoi);
+    r.verifie('un morceau au tiroir le réveille', !etats.pret.grise, JSON.stringify(etats.pret));
+    r.egal('et il propose de poser à côté', etats.pret.texte, '⇔ À côté');
+
+    const pose = await page.evaluate(async () => {
+        const avant = { tiroir: morceauxEnAttente.length, images: images.length };
+        document.getElementById('bm-a-cote').click();
+        await new Promise(ok => setTimeout(ok, 150));
+        const doc = getObjectById('image', presentationEnCours);
+        const voisin = objetVoisinDeLaPresentation();
+        const b = document.getElementById('bm-a-cote');
+        return {
+            avant,
+            tiroir: morceauxEnAttente.length,
+            images: images.length,
+            placePrise: !!voisin,
+            projectionTenue: !!presentationEnCours,
+            aDroite: !!(voisin && voisin.x > doc.x + doc.w * 0.9),
+            memeHauteur: !!(voisin && Math.abs(voisin.h - doc.h) < 1),
+            tenu: selectedItems.length === 1 && voisin && selectedItems[0].id === voisin.id,
+            texte: b.textContent.trim(),
+            grise: b.disabled
+        };
+    });
+    r.egal('le morceau quitte le tiroir', [pose.avant.tiroir, pose.tiroir], [1, 0]);
+    r.egal('et rejoint le tableau', pose.images - pose.avant.images, 1);
+    r.verifie('il prend la seconde place', pose.placePrise, JSON.stringify(pose));
+    r.verifie('à droite de la page et à sa hauteur',
+        pose.aDroite && pose.memeHauteur, JSON.stringify(pose));
+    r.verifie('SANS quitter la projection — c\'était tout le problème',
+        pose.projectionTenue, JSON.stringify(pose));
+    r.verifie('on le tient, pour le redéplacer d\'un geste', pose.tenu, JSON.stringify(pose));
+    r.egal('et le bouton propose maintenant de le ranger',
+        [pose.texte, pose.grise], ['⇔ Ranger celui d\'à côté', false]);
+
+    // LA SYMÉTRIE : la place s'ouvre quand quelqu'un arrive, elle se referme
+    // quand il part. La page reprend alors toute la largeur, d'elle-même.
+    const rangee = await page.evaluate(async () => {
+        const doc = getObjectById('image', presentationEnCours);
+        const toile = document.getElementById('board');
+        const serre = zoom;
+        const combien = images.length;
+        document.getElementById('bm-a-cote').click();
+        await new Promise(ok => setTimeout(ok, 150));
+        return {
+            place: presentationVoisine,
+            serre, apres: zoom,
+            pleineLargeur: toile.clientWidth / doc.w,
+            restees: images.length === combien,
+            texte: document.getElementById('bm-a-cote').textContent.trim(),
+            grise: document.getElementById('bm-a-cote').disabled
+        };
+    });
+    r.egal('« Ranger » libère la place', rangee.place, null);
+    r.verifie('la page reprend toute la largeur d\'elle-même',
+        Math.abs(rangee.apres - rangee.pleineLargeur) < 0.01,
+        `${rangee.apres.toFixed(3)} au lieu de ${rangee.pleineLargeur.toFixed(3)} (serré : ${rangee.serre.toFixed(3)})`);
+    r.verifie('elle était bien plus serrée avant', rangee.serre < rangee.apres,
+        JSON.stringify(rangee));
+    r.verifie('le morceau, lui, reste sur le tableau', rangee.restees, JSON.stringify(rangee));
+    r.egal('et le bouton redevient grisé — il n\'y a plus rien à poser',
+        [rangee.texte, rangee.grise], ['⇔ À côté', true]);
+
+    // ET SI SON OCCUPANT DISPARAÎT SANS PRÉVENIR — effacé, emporté par un
+    // retour en arrière —, la place se referme au prochain dessin plutôt que
+    // de laisser un trou dans le voile devant une classe.
+    const disparu = await page.evaluate(async () => {
+        const doc = getObjectById('image', presentationEnCours);
+        const fantome = { id: 850, x: doc.x + doc.w, y: doc.y, w: 300, h: 200,
+                          pluginData: { id: 'morceau', cle: 'poly', source: doc.id } };
+        images.push(fantome);
+        presentationVoisine = fantome.id;
+        cadrerSurLesDeux(doc, fantome);
+        const serre = zoom;
+
+        images = images.filter(o => o.id !== fantome.id);
+        draw();
+        await new Promise(ok => setTimeout(ok, 100));
+        const toile = document.getElementById('board');
+        return { place: presentationVoisine, serre, apres: zoom,
+                 pleineLargeur: toile.clientWidth / doc.w };
+    });
+    r.egal('un occupant effacé libère la place', disparu.place, null);
+    r.verifie('et la page reprend sa largeur sans qu\'on demande rien',
+        Math.abs(disparu.apres - disparu.pleineLargeur) < 0.01,
+        `${disparu.apres.toFixed(3)} au lieu de ${disparu.pleineLargeur.toFixed(3)}`);
+
+    // ELLE REPREND LE CADRAGE QU'ELLE AVAIT, et non « la pleine largeur »
+    // écrite en dur : qui projetait la page entière la retrouve entière.
+    const rendueEntiere = await page.evaluate(async () => {
+        const doc = getObjectById('image', presentationEnCours);
+        const toile = document.getElementById('board');
+        cadrageDePresentation = 'page';
+        const voisin = { id: 860, x: doc.x + doc.w, y: doc.y, w: 300, h: 200,
+                         pluginData: { id: 'morceau', cle: 'poly', source: doc.id } };
+        images.push(voisin);
+        presentationVoisine = voisin.id;
+        cadrerSurLesDeux(doc, voisin);
+        libererLaPlaceACote();
+        await new Promise(ok => setTimeout(ok, 100));
+        return { apres: zoom,
+                 pageEntiere: Math.min(toile.clientWidth / doc.w, toile.clientHeight / doc.h),
+                 pleineLargeur: toile.clientWidth / doc.w };
+    });
+    r.verifie('qui projetait la page entière la retrouve entière',
+        Math.abs(rendueEntiere.apres - rendueEntiere.pageEntiere) < 0.01,
+        `${rendueEntiere.apres.toFixed(3)} au lieu de ${rendueEntiere.pageEntiere.toFixed(3)}`);
+    r.verifie('et ce n\'est pas la pleine largeur',
+        Math.abs(rendueEntiere.apres - rendueEntiere.pleineLargeur) > 0.1,
+        JSON.stringify(rendueEntiere));
+
+    await page.evaluate(() => {
+        presentationEnCours = null; presentationVoisine = null;
+        images.length = 0; morceauxEnAttente = []; selectedItems = [];
+        majLeTiroirDesMorceaux();
+    });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

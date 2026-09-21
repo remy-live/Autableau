@@ -529,6 +529,12 @@
         <span class="bm-poser">
             <button class="bm-btn" id="bm-ranger">⇥ Poser</button>
             <button class="bm-btn" id="bm-ranger-neuve">＋ Sur une page neuve</button>
+            <!-- ET LA SECONDE PLACE, quand on projette : le morceau se pose à
+                 côté de la page, qui se serre pour lui faire de la place, et
+                 l'on ne quitte pas le plein écran. Le libellé bascule entre
+                 « À côté » et « Ranger celui d'à côté » — c'est
+                 « majLeBoutonACote » qui le pose. -->
+            <button class="bm-btn" id="bm-a-cote">⇔ À côté</button>
         </span>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
@@ -3610,7 +3616,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=297"></script>
+    <script src="script.js?v=298"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -11935,6 +11935,10 @@ function dessinerLesLasers(ctx, lw) {
 window.dessinerLesLasers = dessinerLesLasers;
 
 function draw() {
+    // La place à côté se referme d'elle-même si son occupant a disparu. Ici
+    // parce que tous les chemins passent par là, et avant qu'un seul pixel ne
+    // soit posé : le cadrage qui change n'aura pas coupé une image en deux.
+    if (typeof veillerSurLaPlaceACote === 'function') veillerSurLaPlaceACote();
     // LE CHEMIN COURT : on écrit, et le reste du tableau n'a pas bougé.
     if (calqueUtilisable()) {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -13396,6 +13400,78 @@ window.cadrerSurLesDeux = cadrerSurLesDeux;
 // peindrait alors le voile PAR-DESSUS ce qu'on voulait montrer, ce qui est
 // très exactement l'inverse. Un morceau qui occupe déjà la seconde place est
 // donc dans la liste, et il y reste seul.
+// POSER DANS LA SECONDE PLACE, SANS QUITTER LE PLEIN ÉCRAN.
+//
+// C'était tout le problème : « quand on pose à côté, il est difficile de
+// revenir sur la vue du PDF ou globale ». Le morceau partait sur une autre
+// page, ou hors de l'écran, et la projection se refermait derrière lui. Ici,
+// il prend la place qui l'attend : la page se serre, les deux se voient, et
+// l'on n'a rien quitté.
+function poserACote(m) {
+    if (!presentationEnCours || !m) return false;
+    const doc = getObjectById('image', presentationEnCours);
+    if (!doc) return false;
+
+    const objet = {
+        id: nextId++,
+        // LA PLACE EXACTE EST DÉCIDÉE JUSTE APRÈS par « disposerLesDeux » :
+        // ce qui compte ici, c'est la FORME du morceau — w et h —, car c'est
+        // elle qui dit s'il ira à droite ou dessous. Le poser d'abord à droite
+        // n'était qu'une écriture sans effet, et un sabotage l'a montrée.
+        x: doc.x, y: doc.y, w: m.w, h: m.h,
+        cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
+        src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
+        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page,
+                      pdfRef: m.pdfRef, cle: m.cle || null, projete: !!m.projete }
+    };
+    images.push(objet);
+    morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
+    presentationVoisine = objet.id;
+    cadrerSurLesDeux(doc, objet);
+
+    selectedItems = [{ type: 'image', id: objet.id }];
+    modeDocument = 'cadre';
+    if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
+    if (typeof majBarreDocument === 'function') majBarreDocument();
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    if (typeof showToast === 'function') {
+        showToast('Posé à côté — la page se serre pour lui faire de la place');
+    }
+    return true;
+}
+
+// LA SYMÉTRIE : elle s'ouvre quand quelqu'un arrive, elle se referme quand il
+// part. Une règle symétrique ne s'apprend pas, elle se devine au premier
+// usage — et une place vide qui resterait ouverte se ferait oublier : on
+// projetterait petit sans savoir pourquoi.
+function libererLaPlaceACote(sansRedessiner) {
+    if (!presentationVoisine) return false;
+    presentationVoisine = null;
+    const doc = presentationEnCours ? getObjectById('image', presentationEnCours) : null;
+    if (doc) {
+        if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
+        else cadrerSurLObjet(doc, 1);
+    }
+    if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
+    if (!sansRedessiner && typeof draw === 'function') draw();
+    return true;
+}
+
+// Son occupant a pu disparaître autrement qu'en s'en allant : effacé, emporté
+// par un retour en arrière, laissé sur une autre page. On le regarde au moment
+// de peindre — c'est le seul endroit que tous les chemins traversent — et le
+// coût est nul quand la place est libre.
+function veillerSurLaPlaceACote() {
+    if (!presentationVoisine || !presentationEnCours) return;
+    if (typeof getObjectById !== 'function') return;
+    if (getObjectById('image', presentationVoisine)) return;
+    libererLaPlaceACote(true);
+}
+
+window.poserACote = poserACote;
+window.libererLaPlaceACote = libererLaPlaceACote;
+
 function boitesEpargneesParLeVoile(doc) {
     const liste = morceauxDeLaPageProjetee(doc);
     const voisin = objetVoisinDeLaPresentation();
@@ -16378,8 +16454,30 @@ function majLeBoutonPoser() {
     }
 }
 
+// LE BOUTON DIT CE QU'IL FERA, et il le dit tout le temps : « À côté » quand
+// la place est libre, « Ranger celui d'à côté » quand elle est prise. Un seul
+// bouton, deux états, aucun geste chronométré — « évite les appuis longs et
+// courts ». Grisé, il garde la raison dans son infobulle plutôt que de
+// disparaître : un bouton qui s'en va ne s'explique pas.
+function majLeBoutonACote() {
+    const b = document.getElementById('bm-a-cote');
+    if (!b) return;
+    const projette = typeof presentationEnCours !== 'undefined' && !!presentationEnCours;
+    const occupee = projette && !!objetVoisinDeLaPresentation();
+    const aPoser = typeof morceauxEnAttente !== 'undefined' && morceauxEnAttente.length > 0;
+
+    b.textContent = occupee ? '⇔ Ranger celui d\'à côté' : '⇔ À côté';
+    b.disabled = !projette || (!occupee && !aPoser);
+    b.setAttribute('data-tooltip',
+        !projette ? 'Projetez d\'abord un document : « à côté » est une place de l\'écran projeté'
+            : occupee ? 'Retirer ce qui est à côté — la page reprend toute la largeur'
+                : !aPoser ? 'Découpez d\'abord un morceau : il ira se poser à côté de la page'
+                    : 'Poser le morceau à côté de la page, sans quitter le plein écran');
+}
+
 function majLaPageDuTiroir() {
     majLeBoutonPoser();
+    majLeBoutonACote();
     // Les deux endroits qui comptent les pages se rafraîchissent ensemble : le
     // tiroir, et le coin de l'écran quand il n'y a plus de barre.
     if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
@@ -16411,6 +16509,11 @@ function brancherLeTiroirDesMorceaux() {
     if (ranger) ranger.addEventListener('click', () => poserTousLesMorceaux());
     const neuve = document.getElementById('bm-ranger-neuve');
     if (neuve) neuve.addEventListener('click', () => poserTousLesMorceaux({ pageNeuve: true }));
+    const aCote = document.getElementById('bm-a-cote');
+    if (aCote) aCote.addEventListener('click', () => {
+        if (objetVoisinDeLaPresentation()) { libererLaPlaceACote(); return; }
+        if (morceauxEnAttente.length) poserACote(morceauxEnAttente[0]);
+    });
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
     const prec = document.getElementById('bm-page-prec');
