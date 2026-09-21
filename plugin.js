@@ -35837,31 +35837,119 @@ registerPlugin('pythonTool', 'Informatique', {
 // toucher au reste. C'est aussi ce qui rend tout le reste éprouvable sur une
 // machine muette.
 // ==============================================================================
+
+// ==========================================================================
+// LE LECTEUR DE DICTÉE — UNE LECTURE DICTÉE COMME LE FERAIT UN PROFESSEUR
+//
+// « On ne comprend rien, le son est nul, trop robot. » Puis : « il faut une
+// lecture dictée comme le ferait un professeur. »
+//
+// La première plainte tenait pour une part à la voix du système — on classe
+// désormais les voix et l'on conseille d'en installer une améliorée. Mais
+// l'autre part ne tenait pas à la voix : elle tenait à la LECTURE.
+//
+// CE QUI SÉPARE UNE LECTURE D'UNE DICTÉE, EN TROIS POINTS :
+//
+//   1. UN PROFESSEUR NOMME LA PONCTUATION. Aucune voix de synthèse ne rend
+//      une virgule de façon audible pour un enfant qui écrit, et AUCUNE ne
+//      rend un guillemet, un deux-points ou un tiret de dialogue. Or la
+//      ponctuation est notée sur la copie. On la dit donc en toutes lettres,
+//      dans une énonciation SÉPARÉE, après un blanc — « virgule » n'est pas
+//      la phrase, c'est une consigne.
+//
+//   2. UN PROFESSEUR ATTEND QU'ON ÉCRIVE. Le réglage d'avant — « pause, 4
+//      secondes, plafond 15 » — ne peut exprimer aucune dictée réelle : il en
+//      faut cinquante à soixante-dix, et proportionnelles à ce qu'il y a à
+//      écrire. Le même blanc après « il dit » et après « emmitouflés dans
+//      leurs écharpes » n'est pas un réglage, c'est une erreur. On compte
+//      donc en SIGNES, et l'on divise par la cadence d'écriture du niveau.
+//
+//   3. UN PROFESSEUR NE PARLE PAS PAR-DESSUS LUI-MÊME. L'ancien enchaînement
+//      n'avait aucun jeton reliant un rappel « fini de parler » à la lecture
+//      qui l'avait créé : presser « Dictée » pendant qu'on lisait laissait
+//      DEUX chaînes piloter le même rang en parallèle, et les groupes se
+//      doublaient ou se sautaient. C'est sans doute une bonne part du « on ne
+//      comprend rien », et ce n'était pas la voix.
+//
+// ET LA FENÊTRE EST POSÉE SUR LE TABLEAU : afficher le texte pendant la
+// séance, c'est le donner à recopier. Il est masqué par défaut.
+// ==========================================================================
+
+// LES NIVEAUX DE CLASSE. Un appui règle tout : personne ne veut déplacer
+// quatre curseurs au milieu d'un cours.
+//
+// LA CADENCE VIENT DE LA VITESSE D'ÉCRITURE MANUSCRITE, qui est la seule
+// donnée solide : un élève de CP trace environ deux mots et demi par minute
+// en copie surveillée, un lycéen douze. « secondesParMot » en est l'inverse.
+//
+// « signesParMot » N'EST PAS DÉCORATIF, et c'est un piège qu'on a failli
+// laisser : le temps se calcule sur les SIGNES du groupe, divisés par la
+// longueur moyenne d'un mot À CE NIVEAU. Prendre 5,5 partout — la moyenne du
+// collège — rendait « le chat dort » plus court de quinze pour cent au CP et
+// la ligne de lycée plus longue de dix-sept : le produit « mots × secondes »
+// était juste dans la table et faux à l'exécution. Avec la bonne longueur
+// moyenne, le cycle nominal d'un groupe plein retombe sur le produit, et
+// l'éprouvette peut enfin vérifier la fonction plutôt que la table.
+const DIC_NIVEAUX = [
+    { cle: 'cp',    nom: 'CP',        vitesse: 0.85, longueur: 3,  repetitions: 3, secondesParMot: 24,  signesParMot: 4.6, ponctuation: 'tout' },
+    { cle: 'ce1',   nom: 'CE1',       vitesse: 0.85, longueur: 4,  repetitions: 3, secondesParMot: 17,  signesParMot: 4.8, ponctuation: 'tout' },
+    { cle: 'ce2',   nom: 'CE2',       vitesse: 0.87, longueur: 5,  repetitions: 2, secondesParMot: 13,  signesParMot: 5.0, ponctuation: 'tout' },
+    { cle: 'cm',    nom: 'CM1-CM2',   vitesse: 0.88, longueur: 6,  repetitions: 2, secondesParMot: 10,  signesParMot: 5.2, ponctuation: 'essentiel' },
+    { cle: 'sixcinq', nom: '6e-5e',   vitesse: 0.90, longueur: 8,  repetitions: 2, secondesParMot: 7.5, signesParMot: 5.5, ponctuation: 'essentiel' },
+    { cle: 'quatretrois', nom: '4e-3e', vitesse: 0.92, longueur: 9, repetitions: 2, secondesParMot: 6.3, signesParMot: 5.8, ponctuation: 'essentiel' },
+    { cle: 'lycee', nom: 'Lycée',     vitesse: 0.95, longueur: 11, repetitions: 1, secondesParMot: 5,   signesParMot: 6.3, ponctuation: 'essentiel' }
+];
+
+// LES ABRÉVIATIONS NE FINISSENT PAS UNE PHRASE. « M. Dupont arrive » donnait
+// trois groupes dont un « M. » tout seul, et la voix disait « èm » puis
+// s'arrêtait. Ce n'est pas une dictée, c'est un hoquet.
+const DIC_ABREVIATIONS = ['M', 'MM', 'Mme', 'Mmes', 'Mlle', 'Mlles', 'Dr', 'St', 'Ste',
+    'etc', 'cf', 'p', 'av', 'apr', 'J -C', 'J.-C', 'n°', 'ch', 'vol', 'fig'];
+
 registerPlugin('lecteurDicteeTool', 'Français', {
     widgetEl: null,
     texte: '',
-    groupes: [],
+    groupes: [],           // [{ texte, avant: [], apres: [] }]
     rang: 0,
     phase: 'arret',        // arret | ensemble | dictee | relecture
     enPause: false,
     minuteur: null,
     restantes: 0,          // répétitions restantes du groupe en cours
+    // LE JETON DE SÉRIE. Chaque lancement, arrêt, saut ou reprise en
+    // incrémente un ; tout rappel « fini de parler » qui revient avec un
+    // jeton périmé est JETÉ. Sans lui, deux chaînes pilotaient le même rang.
+    serie: 0,
+    attente: 0,            // l'échéance du minuteur en cours, pour la pause
+    resteEnPause: 0,
+    enonceEnCours: null,   // on garde l'énonciation : sans quoi le ramasse-miettes l'emporte
 
     TEXTE_EXEMPLE: "Le vent d'automne emportait les dernières feuilles, "
         + "et les enfants, emmitouflés dans leurs écharpes, couraient vers l'école.",
 
     reglages: {
-        vitesse: 0.9,      // 0.5 à 1.2 : on dicte plus lentement qu'on ne parle
-        longueur: 7,       // mots par groupe de souffle, au plus
-        pause: 4,          // secondes entre deux groupes
-        repetitions: 2,    // fois que chaque groupe est dit
-        voix: ''           // nom de la voix choisie ; vide = la première française
+        niveau: 'cm',
+        vitesse: 0.88,         // 0,80 à 1,00 : plus lent, les voix compactes étirent les voyelles
+        longueur: 6,           // mots par groupe de souffle, au plus
+        repetitions: 2,        // fois que chaque groupe est dit
+        secondesParMot: 10,    // ce que met l'élève à écrire un mot
+        signesParMot: 5.2,     // et combien de signes fait un mot à ce niveau
+        ponctuation: 'essentiel',  // rien | essentiel | tout
+        marche: 'minuteur',    // minuteur | main
+        masque: true,          // le texte est caché : la fenêtre est sur le tableau
+        voix: ''
     },
 
     CLE_REGLAGES: 'board_dictee_reglages',
 
+    // Le blanc avant une consigne : « virgule » ne doit pas se coller à la fin
+    // de la phrase, sinon on l'entend comme un mot du texte.
+    BLANC_AVANT_CONSIGNE: 0.4,
+    // Et celui entre deux lectures du même groupe. Six dixièmes sonnaient
+    // comme un bégaiement ; un professeur laisse respirer.
+    BLANC_ENTRE_LECTURES: 1.8,
+    ECRITURE_MINIMUM: 4,
+
     // ---- LE MOTEUR ----
-    // Tout ce qui parle passe par là, et rien d'autre.
     moteur: {
         disponible: function () { return typeof window.speechSynthesis !== 'undefined'; },
         voix: function () {
@@ -35871,12 +35959,25 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         dire: function (texte, opts, quandFini) {
             if (!this.disponible()) { quandFini(); return; }
             const u = new SpeechSynthesisUtterance(texte);
-            u.lang = 'fr-FR';
+            // LA LANGUE SUIT LA VOIX. Poser « fr-FR » sur une voix anglaise
+            // ne la rend pas française : cela donne du charabia accentué.
+            u.lang = (opts.voix && opts.voix.lang) || 'fr-FR';
             u.rate = opts.vitesse;
             if (opts.voix) u.voice = opts.voix;
             u.onend = quandFini;
-            u.onerror = quandFini;
-            try { window.speechSynthesis.speak(u); } catch (e) { quandFini(); }
+            // ON NE CONFOND PAS « FINI » ET « CASSÉ ». L'ancien code donnait
+            // le même rappel aux deux : quand la voix échouait — une voix de
+            // réseau hors ligne, par exemple —, la dictée défilait EN SILENCE
+            // jusqu'au bout, pastilles allumées, sans un mot d'explication.
+            u.onerror = (ev) => {
+                const raison = (ev && ev.error) || '';
+                // Une annulation n'est pas une panne : c'est nous qui l'avons
+                // demandée en pressant « Arrêter » ou « Redites ».
+                if (raison === 'canceled' || raison === 'interrupted') return;
+                quandFini({ panne: raison || 'inconnue' });
+            };
+            try { window.speechSynthesis.speak(u); } catch (e) { quandFini({ panne: 'refus' }); }
+            return u;
         },
         taire: function () {
             if (!this.disponible()) return;
@@ -35886,15 +35987,11 @@ registerPlugin('lecteurDicteeTool', 'Français', {
 
     // LA MEILLEURE D'ABORD, ET NON LA PREMIÈRE VENUE.
     //
-    // « On ne comprend rien, le son est nul, trop robot. » La qualité ne vient
-    // pas d'ici : elle vient de la voix installée sur la machine. Mais toutes
-    // ne se valent pas, et l'on prenait la première de la liste — c'est-à-dire
-    // le plus souvent la vieille voix compacte, celle qui hache les liaisons.
-    //
-    // On les classe donc : les voix AMÉLIORÉES et PREMIUM d'abord — ce sont
-    // des enregistrements, pas une synthèse par morceaux —, puis celles du
-    // réseau (Google), puis le reste. Le choix de l'enseignant, lui, passe
-    // avant tout : c'est un classement, pas une décision à sa place.
+    // La qualité ne vient pas d'ici : elle vient de la voix installée sur la
+    // machine. Mais toutes ne se valent pas, et l'on prenait la première de la
+    // liste — c'est-à-dire le plus souvent la vieille voix compacte, celle qui
+    // hache les liaisons. On les classe : améliorées et premium d'abord, puis
+    // le réseau, puis le reste, la compacte en dernier.
     rangDeLaVoix: function (v) {
         const nom = (v && v.name) || '';
         if (/premium|enhanced|amélior|neural|siri/i.test(nom)) return 0;
@@ -35915,6 +36012,35 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         return dispo.find(v => v.name === this.reglages.voix) || dispo[0];
     },
 
+    // ==================================================================
+    // LA PONCTUATION DITE EN TOUTES LETTRES
+    //
+    // Trois positions, et le découpage n'est pas celui qu'on croit. « Tout /
+    // les points / rien » coupe au mauvais endroit : la virgule est le SEUL
+    // signe que l'intonation porte à peu près, tandis que les guillemets et
+    // les deux-points ne s'entendent JAMAIS. L'essentiel, c'est donc ce que
+    // la prosodie ne porte pas ; « Tout » ajoute la virgule.
+    // ==================================================================
+    SIGNES: [
+        { signe: '.', dit: 'point.', rang: 'essentiel' },
+        { signe: '!', dit: 'point d’exclamation', rang: 'essentiel' },
+        { signe: '?', dit: 'point d’interrogation', rang: 'essentiel' },
+        { signe: '…', dit: 'points de suspension', rang: 'essentiel' },
+        // EN DEUX MOTS. « Point-virgule » avec son trait d'union est ignoré
+        // par certaines voix, qui collent alors les deux parties.
+        { signe: ';', dit: 'point virgule', rang: 'essentiel' },
+        { signe: ':', dit: 'deux points', rang: 'essentiel' },
+        { signe: ',', dit: 'virgule', rang: 'tout' }
+    ],
+
+    // La position choisie accepte-t-elle ce rang ?
+    annonce: function (rang) {
+        const p = this.reglages.ponctuation;
+        if (p === 'rien') return false;
+        if (p === 'tout') return true;
+        return rang === 'essentiel';
+    },
+
     // ---- LE DÉCOUPAGE EN GROUPES DE SOUFFLE ----
     //
     // On coupe d'abord où la langue coupe : à la ponctuation, qui est
@@ -35925,13 +36051,69 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     //
     // LA PONCTUATION RESTE COLLÉE au groupe qu'elle termine : c'est elle qu'on
     // dicte, et une voix ne marque la virgule que si elle la voit.
-    decouperEnGroupes: function (texte, longueur) {
-        const max = Math.max(2, Number(longueur) || 7);
-        const morceaux = String(texte || '')
-            .replace(/\s+/g, ' ')
-            .split(/(?<=[.!?;:,…])\s+/)
-            .map(t => t.trim())
-            .filter(Boolean);
+    //
+    // TROIS PIÈGES, TROUVÉS EN SONDANT LE DÉCOUPAGE D'AVANT :
+    //   « M. Dupont arrive. »      donnait ['M.', 'Dupont arrive.']
+    //   « « Viens ! » dit-il. »    donnait ['« Viens !', '» dit-il.']
+    //   « Le chat.\nLe chien. »    perdait le retour à la ligne
+    // Le premier fait dire « èm » toute seule, le deuxième commence un groupe
+    // par un guillemet fermant, et le troisième interdit d'annoncer « à la
+    // ligne » — que tout professeur dit.
+    analyserLeTexte: function (texte, longueur) {
+        const max = Math.max(2, Number(longueur) || 6);
+        // Les trois points du traitement de texte valent les points de
+        // suspension : sans cela la voix dit « point point point ».
+        const propre = String(texte || '').replace(/\.\.\./g, '…').replace(/[ \t ]+/g, ' ');
+        const lignes = propre.split('\n');
+
+        const sortie = [];
+        let marqueEnAttente = null;
+        let premiereLigne = true;
+
+        lignes.forEach((ligne) => {
+            const contenu = ligne.trim();
+            if (!contenu) {
+                // Une ligne vide sépare deux paragraphes ; deux lignes vides
+                // n'en séparent pas quatre.
+                if (!premiereLigne) marqueEnAttente = 'paragraphe';
+                return;
+            }
+            if (!premiereLigne && !marqueEnAttente) marqueEnAttente = 'ligne';
+            premiereLigne = false;
+
+            this.couperUneLigne(contenu, max).forEach((t, i) => {
+                sortie.push({ texte: t, marque: i === 0 ? marqueEnAttente : null });
+                if (i === 0) marqueEnAttente = null;
+            });
+        });
+
+        return sortie.map((g, i) => this.garnirLeGroupe(g, i === sortie.length - 1));
+    },
+
+    couperUneLigne: function (ligne, max) {
+        const morceaux = [];
+        let depuis = 0;
+        for (let i = 0; i < ligne.length; i++) {
+            if ('.!?;:,…'.indexOf(ligne[i]) < 0) continue;
+            if (!this.coupeIci(ligne, i)) continue;
+            // LE GUILLEMET FERMANT APPARTIENT AU GROUPE QU'IL FERME, et la
+            // typographie française met une espace devant lui : « Viens ! »
+            // donnait ['« Viens !', '» dit-il.'] — un groupe qui COMMENCE par
+            // un guillemet fermant, que la voix ne dit pas et que l'élève ne
+            // peut pas deviner. On enjambe donc l'espace pour aller le chercher.
+            let fin = i + 1;
+            while (fin < ligne.length) {
+                let j = fin;
+                if (' \u00a0\u202f'.indexOf(ligne[j]) >= 0) j++;
+                if (j < ligne.length && `»)”"`.indexOf(ligne[j]) >= 0) { fin = j + 1; continue; }
+                break;
+            }
+            const bout = ligne.slice(depuis, fin).trim();
+            if (bout) morceaux.push(bout);
+            depuis = fin;
+        }
+        const reste = ligne.slice(depuis).trim();
+        if (reste) morceaux.push(reste);
 
         const groupes = [];
         morceaux.forEach(m => {
@@ -35955,15 +36137,144 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         return groupes;
     },
 
+    // COUPE-T-ON À CE SIGNE ?
+    //
+    // UN SIGNE DOIT ÊTRE SUIVI D'UNE ESPACE, et c'est cette seule règle qui
+    // protège « 3,14 mètres » : la virgule y est suivie d'un chiffre, donc
+    // elle ne coupe pas. On avait d'abord écrit en plus une garde « pas entre
+    // deux chiffres » — un sabotage l'a retirée sans qu'aucune vérification
+    // bronche, ce qui est la définition du code mort. Elle est partie.
+    //
+    // Reste le point d'abréviation, que rien d'autre ne couvre : « M. Dupont »
+    // a bien une espace après le point.
+    coupeIci: function (ligne, i) {
+        const signe = ligne[i];
+        const apres = ligne[i + 1] || '';
+        if (signe === '.' && this.finitUneAbreviation(ligne, i)) return false;
+        // Un signe en fin de ligne coupe toujours ; ailleurs il lui faut une
+        // espace après, sinon on coupe au milieu d'un mot — ou d'un nombre.
+        if (apres && apres !== ' ' && '»)”" '.indexOf(apres) < 0) return false;
+        return true;
+    },
+
+    finitUneAbreviation: function (ligne, i) {
+        const debut = ligne.slice(0, i);
+        const mot = (debut.match(/[\wÀ-ÿ°.-]+$/) || [''])[0];
+        return DIC_ABREVIATIONS.some(a => a.toLowerCase() === mot.toLowerCase());
+    },
+
+    // CE QUE LA VOIX DIRA AUTOUR DU GROUPE : les consignes d'avant — « à la
+    // ligne », « ouvrez les guillemets » — et le nom du signe qui le termine.
+    garnirLeGroupe: function (g, dernier) {
+        const t = g.texte;
+        const avant = [];
+        if (g.marque === 'paragraphe') {
+            avant.push({ dit: 'nouveau paragraphe : vous sautez une ligne et vous faites un alinéa', rang: 'essentiel', sup: 5 });
+        } else if (g.marque === 'ligne') {
+            avant.push({ dit: 'à la ligne', rang: 'essentiel', sup: 4 });
+        }
+        if (/^[«"“]/.test(t)) avant.push({ dit: 'ouvrez les guillemets', rang: 'essentiel' });
+        // Le tiret de dialogue est une consigne de MISE EN PAGE : il n'a de
+        // sens que dit AVANT la réplique, jamais après.
+        if (/^[—–-]\s/.test(t)) avant.push({ dit: 'tiret', rang: 'essentiel' });
+
+        const apres = [];
+        const fin = t.replace(/[»"”)\s]+$/, '');
+        const dernierSigne = fin.slice(-1);
+        const trouve = this.SIGNES.find(s => s.signe === dernierSigne);
+        if (trouve) {
+            // LE POINT FINAL SE DIT UNE FOIS, À LA TOUTE FIN : c'est le signal
+            // que l'élève attend pour poser son stylo.
+            apres.push({ dit: (dernier && trouve.signe === '.') ? 'point final.' : trouve.dit,
+                         rang: trouve.rang });
+        }
+        if (/[»”]\s*$/.test(t)) apres.push({ dit: 'fermez les guillemets', rang: 'essentiel' });
+        if (/\)\s*$/.test(t)) apres.push({ dit: 'fermez la parenthèse', rang: 'essentiel' });
+
+        return { texte: t, marque: g.marque || null, avant, apres };
+    },
+
+    // L'ancienne signature est gardée : elle rend les textes seuls, et c'est
+    // par elle que le découpage s'éprouve.
+    decouperEnGroupes: function (texte, longueur) {
+        return this.analyserLeTexte(texte, longueur).map(g => g.texte);
+    },
+
+    poserLeTexte: function (texte) {
+        this.texte = String(texte || '');
+        this.groupes = this.analyserLeTexte(this.texte, this.reglages.longueur);
+        this.rang = 0;
+        return this.groupes;
+    },
+
+    // ==================================================================
+    // LE TEMPS D'ÉCRITURE
+    //
+    // Il se calcule sur les SIGNES du groupe — « il » et « extraordinaire »
+    // ne s'écrivent pas dans le même temps —, divisés par la longueur moyenne
+    // d'un mot à ce niveau, puis multipliés par la cadence d'écriture.
+    //
+    // LE PLAFOND EST RELATIF, et c'est une faute qu'on a failli commettre :
+    // un plafond absolu de quatre-vingt-dix secondes mordait précisément là
+    // où le temps long est justifié — un CE1 en début de dictée. On plafonne
+    // donc à deux fois le cycle nominal du niveau, qui suit le niveau.
+    //
+    // ON RETRANCHE CE QU'A DURÉ LA PAROLE, car l'élève écrit déjà pendant
+    // qu'on lit la seconde fois. Les CONSIGNES, elles, ne se retranchent
+    // jamais : « virgule » n'est pas du temps d'écriture.
+    cycleDuGroupe: function (texte) {
+        const signes = String(texte || '').length;
+        const parMot = Math.max(1, Number(this.reglages.signesParMot) || 5.2);
+        const cycle = (signes / parMot) * Math.max(0, Number(this.reglages.secondesParMot) || 0);
+        const nominal = Math.max(1, this.reglages.longueur) * Math.max(0, this.reglages.secondesParMot);
+        return Math.min(cycle, 2 * nominal);
+    },
+
+    tempsDEcriture: function (texte, parole, supplement) {
+        const cycle = this.cycleDuGroupe(texte) + (Number(supplement) || 0);
+        return Math.max(this.ECRITURE_MINIMUM, cycle - (Number(parole) || 0));
+    },
+
+    // Ce que la dictée entière prendra, pour qu'on le sache AVANT de la
+    // lancer et non au milieu de l'heure.
+    dureeEstimee: function () {
+        return this.groupes.reduce((t, g) => t + this.cycleDuGroupe(g.texte)
+            * Math.max(1, this.reglages.repetitions), 0);
+    },
+
+    // LES VITESSES SE DÉRIVENT DU RÉGLAGE, elles ne s'ajoutent pas à lui.
+    // La première lecture est pour le SENS : elle va au débit naturel. La
+    // dictée est plus lente. La relecture est entre les deux.
+    // Et tout reste dans [0,80 ; 1,00] : au-dessous, les voix compactes
+    // étirent les voyelles et l'on comprend MOINS, pas mieux — l'ancienne
+    // plage 0,5-1,2 invitait très exactement au geste dont on se plaint.
+    vitesseDuTemps: function (phase) {
+        const base = Math.max(0.8, Math.min(1, Number(this.reglages.vitesse) || 0.88));
+        if (phase === 'ensemble') return Math.min(1, base + 0.07);
+        if (phase === 'relecture') return Math.min(1, base + 0.03);
+        return base;
+    },
+
+    // La métalangue se dit un peu moins vite que le texte : ce n'est pas la
+    // phrase, c'est une consigne, et on ne l'écrit pas.
+    vitesseDeLaConsigne: function (phase) {
+        return Math.max(0.8, this.vitesseDuTemps(phase) - 0.06);
+    },
+
     lireLesReglages: function () {
         try {
             const brut = localStorage.getItem(this.CLE_REGLAGES);
             if (!brut) return;
             const lus = JSON.parse(brut);
-            ['vitesse', 'longueur', 'pause', 'repetitions'].forEach(c => {
+            ['vitesse', 'longueur', 'repetitions', 'secondesParMot', 'signesParMot'].forEach(c => {
                 if (typeof lus[c] === 'number' && isFinite(lus[c])) this.reglages[c] = lus[c];
             });
-            if (typeof lus.voix === 'string') this.reglages.voix = lus.voix;
+            ['voix', 'niveau'].forEach(c => { if (typeof lus[c] === 'string') this.reglages[c] = lus[c]; });
+            if (['rien', 'essentiel', 'tout'].indexOf(lus.ponctuation) >= 0) this.reglages.ponctuation = lus.ponctuation;
+            if (['minuteur', 'main'].indexOf(lus.marche) >= 0) this.reglages.marche = lus.marche;
+            // LE MASQUE NE SE RELIT PAS D'UNE SÉANCE À L'AUTRE. On peut
+            // l'avoir levé hier pour corriger ; le lever d'office aujourd'hui
+            // donnerait la dictée à recopier avant qu'on s'en aperçoive.
         } catch (e) { /* stockage refusé ou illisible : les valeurs d'usine */ }
     },
 
@@ -35972,13 +36283,93 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         catch (e) { /* stockage refusé */ }
     },
 
+    niveauDeCle: function (cle) { return DIC_NIVEAUX.find(n => n.cle === cle) || null; },
+
+    choisirLeNiveau: function (cle) {
+        const n = this.niveauDeCle(cle);
+        if (!n) return false;
+        this.reglages.niveau = n.cle;
+        ['vitesse', 'longueur', 'repetitions', 'secondesParMot', 'signesParMot', 'ponctuation']
+            .forEach(c => { this.reglages[c] = n[c]; });
+        this.ecrireLesReglages();
+        this.poserLeTexte(this.texte);
+        this.majLesReglages();
+        this.majEcran();
+        return true;
+    },
+
+    // ==================================================================
+    // DIRE : UNE FILE D'ÉNONCIATIONS, ET UN JETON
+    // ==================================================================
+    // Chaque passage sur un groupe est une FILE : les consignes d'avant, le
+    // texte, les consignes d'après. On la déroule une énonciation à la fois —
+    // une voix à qui l'on donne trois cents mots d'un coup se fait couper au
+    // bout d'une quinzaine de secondes par le navigateur, et l'on perd la fin
+    // sans rien voir.
+    fileDuGroupe: function (g) {
+        const file = [];
+        const vTexte = this.vitesseDuTemps(this.phase);
+        const vDit = this.vitesseDeLaConsigne(this.phase);
+        (g.avant || []).forEach(a => {
+            if (this.annonce(a.rang)) file.push({ texte: a.dit, vitesse: vDit, consigne: true });
+        });
+        file.push({ texte: g.texte, vitesse: vTexte });
+        (g.apres || []).forEach(a => {
+            if (this.annonce(a.rang)) file.push({ texte: a.dit, vitesse: vDit, consigne: true, blanc: this.BLANC_AVANT_CONSIGNE });
+        });
+        return file;
+    },
+
+    // Le supplément de temps que valent les consignes de mise en page : on
+    // repositionne sa main, on saute une ligne.
+    supplementDuGroupe: function (g) {
+        return (g.avant || []).reduce((t, a) => t + (this.annonce(a.rang) ? (a.sup || 0) : 0), 0);
+    },
+
+    direLaFile: function (file, quandFini) {
+        const serie = this.serie;
+        let i = 0;
+        const suite = (ennui) => {
+            if (serie !== this.serie) return;      // une autre lecture a pris la main
+            if (ennui && ennui.panne) { this.signalerLaPanne(ennui.panne); return; }
+            if (i >= file.length) { quandFini(); return; }
+            const pas = file[i++];
+            const parler = () => {
+                if (serie !== this.serie) return;
+                this.enonceEnCours = this.moteur.dire(pas.texte,
+                    { vitesse: pas.vitesse, voix: this.voixChoisie() }, suite);
+            };
+            if (pas.blanc) this.attendrePuis(parler, pas.blanc);
+            else parler();
+        };
+        suite();
+    },
+
+    signalerLaPanne: function (raison) {
+        this.phase = 'arret';
+        clearTimeout(this.minuteur); this.minuteur = null;
+        const alerte = this.widgetEl && this.widgetEl.querySelector('#dic-sansvoix');
+        if (alerte) {
+            alerte.textContent = 'La voix s’est interrompue (' + raison
+                + '). Si elle vient du réseau, choisissez une voix installée sur la machine.';
+            alerte.classList.remove('dic-conseil');
+            alerte.style.display = 'block';
+        }
+        this.majEcran();
+    },
+
     // ---- LES TROIS TEMPS ----
     //
     // « Ensemble » et « relecture » disent le texte d'un trait — c'est ce
     // qu'on fait en classe, et l'élève n'écrit pas encore. « Dictée » égrène
     // les groupes, répète chacun, et attend entre deux.
+    //
+    // ET LA LECTURE D'ENSEMBLE N'ANNONCE RIEN : elle est là pour le sens.
+    // Dire « virgule » pendant qu'on écoute l'histoire la hacherait.
     lancer: function (phase) {
         if (!this.groupes.length) return false;
+        // (« arreter » vient d'incrémenter la série : une seconde fois ici
+        // ne protégeait rien de plus, et un sabotage l'a montré.)
         this.arreter();
         this.phase = phase;
         this.enPause = false;
@@ -35989,28 +36380,44 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         return true;
     },
 
-    // Le texte entier se dit groupe par groupe lui aussi : une voix à qui l'on
-    // donne trois cents mots d'un coup se fait couper au bout d'une quinzaine
-    // de secondes par le navigateur, et l'on perd la fin sans rien voir.
     direLeGroupe: function () {
         if (this.phase === 'arret' || this.enPause) return;
-        const texte = this.groupes[this.rang];
-        if (texte === undefined) { this.finir(); return; }
-        this.moteur.dire(texte,
-            { vitesse: this.reglages.vitesse, voix: this.voixChoisie() },
-            () => this.groupeDit());
+        const g = this.groupes[this.rang];
+        if (g === undefined) { this.finir(); return; }
+        const depart = this.maintenant();
+        // La lecture d'ensemble ne porte aucune consigne : seul le texte.
+        const file = (this.phase === 'ensemble')
+            ? [{ texte: g.texte, vitesse: this.vitesseDuTemps(this.phase) }]
+            : this.fileDuGroupe(g);
+        this.direLaFile(file, () => this.groupeDit(this.maintenant() - depart));
     },
 
-    groupeDit: function () {
+    maintenant: function () {
+        return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    },
+
+    groupeDit: function (millisecondes) {
         if (this.phase === 'arret' || this.enPause) return;
         if (this.phase !== 'dictee') { this.avancer(0); return; }
         this.restantes--;
-        if (this.restantes > 0) { this.attendrePuis(() => this.direLeGroupe(), 0.6); return; }
-        this.attendrePuis(() => this.avancer(Math.max(1, this.reglages.repetitions)),
-                          this.reglages.pause);
+        if (this.restantes > 0) {
+            this.attendrePuis(() => this.direLeGroupe(), this.BLANC_ENTRE_LECTURES);
+            return;
+        }
+        const g = this.groupes[this.rang] || { texte: '' };
+        const attente = this.tempsDEcriture(g.texte, (millisecondes || 0) / 1000,
+            this.supplementDuGroupe(g));
+        this.attenteAffichee = attente;
+        this.majEcran();
+        // EN MARCHE « À LA MAIN », ON S'ARRÊTE ICI : le professeur seul voit
+        // les cahiers, et c'est lui qui dit quand on passe à la suite. Le
+        // temps calculé reste affiché — il dit ce qu'il FAUDRAIT attendre.
+        if (this.reglages.marche === 'main') { this.enAttenteDeLaMain = true; return; }
+        this.attendrePuis(() => this.avancer(Math.max(1, this.reglages.repetitions)), attente);
     },
 
     avancer: function (repetitions) {
+        this.enAttenteDeLaMain = false;
         this.rang++;
         if (this.rang >= this.groupes.length) { this.finir(); return; }
         this.restantes = repetitions || 1;
@@ -36018,23 +36425,42 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         this.direLeGroupe();
     },
 
+    // LE BOUTON « SUIVANT » : c'est la télécommande du professeur. Il marche
+    // aussi quand le minuteur tourne — on n'attend pas qu'il finisse si toute
+    // la classe a posé son stylo.
+    suivant: function () {
+        if (this.phase === 'arret') return false;
+        clearTimeout(this.minuteur); this.minuteur = null;
+        this.serie++;
+        this.moteur.taire();
+        this.enPause = false;
+        this.avancer(this.phase === 'dictee' ? Math.max(1, this.reglages.repetitions) : 1);
+        return true;
+    },
+
     attendrePuis: function (quoi, secondes) {
         clearTimeout(this.minuteur);
-        this.minuteur = setTimeout(quoi, Math.max(0, Number(secondes) || 0) * 1000);
+        const ms = Math.max(0, Number(secondes) || 0) * 1000;
+        this.attente = this.maintenant() + ms;
+        this.minuteur = setTimeout(quoi, ms);
+        this.aReprendre = quoi;
     },
 
     finir: function () {
         this.phase = 'arret';
         this.enPause = false;
+        this.enAttenteDeLaMain = false;
         clearTimeout(this.minuteur); this.minuteur = null;
         this.majEcran();
     },
 
     arreter: function () {
         clearTimeout(this.minuteur); this.minuteur = null;
+        this.serie++;
         this.moteur.taire();
         this.phase = 'arret';
         this.enPause = false;
+        this.enAttenteDeLaMain = false;
         this.majEcran();
     },
 
@@ -36044,8 +36470,10 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     redire: function () {
         if (!this.groupes.length) return false;
         clearTimeout(this.minuteur); this.minuteur = null;
+        this.serie++;
         this.moteur.taire();
         this.enPause = false;
+        this.enAttenteDeLaMain = false;
         if (this.phase === 'arret') this.phase = 'dictee';
         this.restantes = (this.phase === 'dictee') ? Math.max(1, this.reglages.repetitions) : 1;
         this.direLeGroupe();
@@ -36061,13 +36489,23 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         return this.redire();
     },
 
+    // LA PAUSE GARDE CE QU'IL RESTAIT À ATTENDRE. L'ancienne reprenait en
+    // REDISANT le groupe : on perdait le temps d'écriture déjà écoulé, et la
+    // classe réentendait une phrase qu'elle venait d'écrire.
     basculerLaPause: function () {
         if (this.phase === 'arret') return false;
         this.enPause = !this.enPause;
         if (this.enPause) {
+            this.resteEnPause = Math.max(0, this.attente - this.maintenant());
             clearTimeout(this.minuteur); this.minuteur = null;
+            this.serie++;
             this.moteur.taire();
+        } else if (this.resteEnPause > 0 && this.aReprendre) {
+            const quoi = this.aReprendre;
+            this.attendrePuis(quoi, this.resteEnPause / 1000);
+            this.resteEnPause = 0;
         } else {
+            this.serie++;
             this.direLeGroupe();
         }
         this.majEcran();
@@ -36092,26 +36530,27 @@ registerPlugin('lecteurDicteeTool', 'Français', {
 
     ouvrir: function () {
         this.lireLesReglages();
+        this.reglages.masque = true;
         if (!this.texte) this.texte = this.TEXTE_EXEMPLE;
         if (!this.widgetEl) this.creerFenetre();
         else this.widgetEl.style.display = 'flex';
         this.redecouper();
         this.majLesVoix();
+        this.majLesReglages();
         this.majEcran();
     },
 
     redecouper: function () {
         const champ = this.widgetEl && this.widgetEl.querySelector('#dic-texte');
         if (champ) this.texte = champ.value;
-        this.groupes = this.decouperEnGroupes(this.texte, this.reglages.longueur);
-        this.rang = 0;
+        this.poserLeTexte(this.texte);
     },
 
     creerFenetre: function () {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'dictee-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:9vh; left:50%; margin-left:-330px; width:660px;"
-            + " max-width:92vw; max-height:86vh; background:var(--surface,#fdfdfd); border-radius:12px;"
+        this.widgetEl.style.cssText = "position:fixed; top:8vh; left:50%; margin-left:-350px; width:700px;"
+            + " max-width:94vw; max-height:88vh; background:var(--surface,#fdfdfd); border-radius:12px;"
             + " box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column;"
             + " overflow:hidden; border:1px solid var(--border,#bdc3c7);";
         this.widgetEl.innerHTML = `
@@ -36120,20 +36559,42 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                 <button id="dic-fermer" class="btn-action secondary" title="Fermer">✕</button>
             </div>
             <div id="dic-corps">
-                <textarea id="dic-texte" rows="4" placeholder="Collez ou tapez le texte de la dictée…"></textarea>
-                <div id="dic-sansvoix"></div>
+                <div class="dic-texte-zone">
+                    <textarea id="dic-texte" rows="4" placeholder="Collez ou tapez le texte de la dictée…"></textarea>
+                    <div id="dic-resume" class="dic-resume"></div>
+                    <button type="button" id="dic-masque" class="btn-action secondary" aria-pressed="true">👁 Afficher le texte</button>
+                </div>
+                <div id="dic-sansvoix" role="status"></div>
+                <div class="dic-niveaux" id="dic-niveaux"></div>
                 <div class="dic-reglages">
                     <label>Voix <select id="dic-voix"></select></label>
-                    <label>Vitesse <input type="range" id="dic-vitesse" min="0.5" max="1.2" step="0.05"><span id="dic-vitesse-lue"></span></label>
-                    <label>Groupes <input type="range" id="dic-longueur" min="3" max="14" step="1"><span id="dic-longueur-lue"></span></label>
-                    <label>Pause <input type="range" id="dic-pause" min="0" max="15" step="1"><span id="dic-pause-lue"></span></label>
+                    <label>Vitesse <input type="range" id="dic-vitesse" min="0.8" max="1" step="0.01"><span id="dic-vitesse-lue"></span></label>
+                    <label>Groupes <input type="range" id="dic-longueur" min="2" max="14" step="1"><span id="dic-longueur-lue"></span></label>
                     <label>Répétitions <input type="range" id="dic-repetitions" min="1" max="3" step="1"><span id="dic-repetitions-lue"></span></label>
+                    <label>On écrit <input type="range" id="dic-secondesParMot" min="4" max="26" step="0.5"><span id="dic-secondesParMot-lue"></span></label>
+                </div>
+                <div class="dic-choix">
+                    <span class="dic-choix-titre">Ponctuation dite</span>
+                    <div class="dic-boutons" id="dic-ponctuation">
+                        <button type="button" data-ponctuation="rien">Rien</button>
+                        <button type="button" data-ponctuation="essentiel">L'essentiel</button>
+                        <button type="button" data-ponctuation="tout">Tout, virgules comprises</button>
+                    </div>
+                </div>
+                <div class="dic-choix">
+                    <span class="dic-choix-titre">On passe au groupe suivant</span>
+                    <div class="dic-boutons" id="dic-marche">
+                        <button type="button" data-marche="minuteur">Tout seul, au bout du temps d'écriture</button>
+                        <button type="button" data-marche="main">Quand j'appuie</button>
+                    </div>
                 </div>
                 <div class="dic-temps">
                     <button id="dic-ensemble" class="btn-action secondary">1. Lecture d'ensemble</button>
                     <button id="dic-dictee" class="btn-action primary">2. Dictée</button>
                     <button id="dic-relecture" class="btn-action secondary">3. Relecture</button>
                 </div>
+                <div id="dic-ou" class="dic-ou"></div>
+                <button id="dic-suivant" class="btn-action primary dic-suivant">Groupe suivant ⏵</button>
                 <div class="dic-commandes">
                     <button id="dic-prec" class="btn-action secondary" title="Groupe précédent">◀</button>
                     <button id="dic-redire" class="btn-action secondary">↺ Redites</button>
@@ -36152,8 +36613,9 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         q('#dic-texte').value = this.texte;
         q('#dic-texte').addEventListener('input', () => { this.redecouper(); this.majEcran(); });
         q('#dic-fermer').onclick = () => this.fermer();
+        q('#dic-masque').onclick = () => this.basculerLeMasque();
 
-        const curseur = (id, cle, format) => {
+        const curseur = (id, cle, format, ensuite) => {
             const c = q('#dic-' + id), lu = q('#dic-' + id + '-lue');
             c.value = this.reglages[cle];
             if (lu) lu.textContent = format(this.reglages[cle]);
@@ -36161,18 +36623,39 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                 this.reglages[cle] = Number(c.value);
                 if (lu) lu.textContent = format(this.reglages[cle]);
                 this.ecrireLesReglages();
-                if (cle === 'longueur') { this.redecouper(); }
+                if (ensuite) ensuite();
                 this.majEcran();
             });
         };
         curseur('vitesse', 'vitesse', (v) => v.toFixed(2).replace('.', ','));
-        curseur('longueur', 'longueur', (v) => v + ' mots');
-        curseur('pause', 'pause', (v) => v + ' s');
-        curseur('repetitions', 'repetitions', (v) => v + (v > 1 ? ' fois' : ' fois'));
+        curseur('longueur', 'longueur', (v) => v + ' mots', () => this.redecouper());
+        curseur('repetitions', 'repetitions', (v) => v + ' fois');
+        curseur('secondesParMot', 'secondesParMot', (v) => 'un mot en ' + String(v).replace('.', ',') + ' s');
 
         q('#dic-voix').addEventListener('change', (e) => {
             this.reglages.voix = e.target.value;
             this.ecrireLesReglages();
+        });
+
+        q('#dic-niveaux').addEventListener('click', (e) => {
+            const b = e.target.closest('[data-niveau]');
+            if (b) this.choisirLeNiveau(b.dataset.niveau);
+        });
+        q('#dic-ponctuation').addEventListener('click', (e) => {
+            const b = e.target.closest('[data-ponctuation]');
+            if (!b) return;
+            this.reglages.ponctuation = b.dataset.ponctuation;
+            this.ecrireLesReglages();
+            this.majLesReglages();
+            this.majEcran();
+        });
+        q('#dic-marche').addEventListener('click', (e) => {
+            const b = e.target.closest('[data-marche]');
+            if (!b) return;
+            this.reglages.marche = b.dataset.marche;
+            this.ecrireLesReglages();
+            this.majLesReglages();
+            this.majEcran();
         });
 
         q('#dic-ensemble').onclick = () => { this.redecouper(); this.lancer('ensemble'); };
@@ -36180,9 +36663,29 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         q('#dic-relecture').onclick = () => { this.redecouper(); this.lancer('relecture'); };
         q('#dic-redire').onclick = () => this.redire();
         q('#dic-prec').onclick = () => this.allerAuGroupe(this.rang - 1);
-        q('#dic-suiv').onclick = () => this.allerAuGroupe(this.rang + 1);
+        q('#dic-suiv').onclick = () => this.suivant();
+        q('#dic-suivant').onclick = () => this.suivant();
         q('#dic-pause-btn').onclick = () => this.basculerLaPause();
         q('#dic-stop').onclick = () => this.arreter();
+
+        // LA TÉLÉCOMMANDE. Espace et les flèches : ce sont les touches d'une
+        // télécommande de diaporama à quinze euros, celle qui permet de
+        // piloter depuis le fond de la classe. On ne les vole pas au champ de
+        // saisie — on y tape le texte de la dictée.
+        this.auClavier = (e) => {
+            if (!this.widgetEl || this.widgetEl.style.display === 'none') return;
+            const dans = document.activeElement;
+            if (dans && (dans.tagName === 'TEXTAREA' || dans.tagName === 'INPUT'
+                || dans.tagName === 'SELECT')) return;
+            if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'PageDown') {
+                e.preventDefault(); this.suivant();
+            } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+                e.preventDefault(); this.redire();
+            } else if (e.key === 'Escape' && this.phase !== 'arret') {
+                e.preventDefault(); this.arreter();
+            }
+        };
+        document.addEventListener('keydown', this.auClavier);
 
         // Les voix arrivent en différé au premier appel : le navigateur les
         // charge, puis prévient. Sans cette écoute, la liste restait vide pour
@@ -36190,6 +36693,19 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         if (this.moteur.disponible() && typeof window.speechSynthesis.addEventListener === 'function') {
             window.speechSynthesis.addEventListener('voiceschanged', () => this.majLesVoix());
         }
+    },
+
+    // LE MASQUE : LA FENÊTRE EST POSÉE SUR LE TABLEAU.
+    //
+    // Le champ montrait la dictée entière en permanence, et la liste des
+    // groupes la répétait en dessous : quand l'enseignant projette, la classe
+    // recopie le texte qu'elle est censée écrire. Le masque est donc l'état
+    // de départ, et il se relève d'un bouton VISIBLE — pour corriger, une
+    // fois les copies ramassées.
+    basculerLeMasque: function () {
+        this.reglages.masque = !this.reglages.masque;
+        this.majEcran();
+        return this.reglages.masque;
     },
 
     majLesVoix: function () {
@@ -36216,13 +36732,8 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         // un Linux nu peuvent n'en avoir aucune. Une dictée lue par une voix
         // anglaise serait pire qu'une dictée muette.
         // ET QUAND LA SEULE VOIX DISPONIBLE EST LA VOIX COMPACTE, ON LE DIT
-        // AUSSI. « On ne comprend rien, le son est nul, trop robot. » La
-        // qualité ne se joue pas ici : elle tient à la voix installée sur la
-        // machine, et la voix compacte livrée d'origine synthétise par
-        // morceaux — elle hache les liaisons, qui sont justement ce qu'un
-        // élève doit entendre. Une voix améliorée se télécharge en deux
-        // minutes et change tout. Taire cela, c'était laisser croire que le
-        // logiciel lit mal.
+        // AUSSI : elle synthétise par morceaux, elle hache les liaisons, qui
+        // sont justement ce qu'un élève doit entendre.
         if (alerte) {
             const meilleure = dispo.length ? this.rangDeLaVoix(dispo[0]) : 99;
             const message = !dispo.length
@@ -36238,27 +36749,118 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         }
     },
 
-    majEcran: function () {
+    majLesReglages: function () {
         if (!this.widgetEl) return;
-        const zone = this.widgetEl.querySelector('#dic-groupes');
-        if (zone) {
-            zone.innerHTML = this.groupes.map((g, i) =>
-                `<span class="dic-groupe${i === this.rang && this.phase !== 'arret' ? ' encours' : ''}" data-i="${i}">${
-                    g.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('');
-            zone.querySelectorAll('.dic-groupe').forEach(el => {
-                el.onclick = () => this.allerAuGroupe(Number(el.dataset.i));
+        const q = (s) => this.widgetEl.querySelector(s);
+        const zone = q('#dic-niveaux');
+        if (zone && !zone.children.length) {
+            const titre = document.createElement('span');
+            titre.className = 'dic-choix-titre';
+            titre.textContent = 'Niveau';
+            zone.appendChild(titre);
+            DIC_NIVEAUX.forEach(n => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.dataset.niveau = n.cle;
+                b.textContent = n.nom;
+                zone.appendChild(b);
             });
         }
-        const p = this.widgetEl.querySelector('#dic-pause-btn');
+        if (zone) {
+            zone.querySelectorAll('[data-niveau]').forEach(b =>
+                b.classList.toggle('actif', b.dataset.niveau === this.reglages.niveau));
+        }
+        const p = q('#dic-ponctuation');
+        if (p) p.querySelectorAll('[data-ponctuation]').forEach(b =>
+            b.classList.toggle('actif', b.dataset.ponctuation === this.reglages.ponctuation));
+        const m = q('#dic-marche');
+        if (m) m.querySelectorAll('[data-marche]').forEach(b =>
+            b.classList.toggle('actif', b.dataset.marche === this.reglages.marche));
+        ['vitesse', 'longueur', 'repetitions', 'secondesParMot'].forEach(cle => {
+            const c = q('#dic-' + cle);
+            if (c) c.value = this.reglages[cle];
+        });
+        const lu = (id, v) => { const el = q('#dic-' + id + '-lue'); if (el) el.textContent = v; };
+        lu('vitesse', this.reglages.vitesse.toFixed(2).replace('.', ','));
+        lu('longueur', this.reglages.longueur + ' mots');
+        lu('repetitions', this.reglages.repetitions + ' fois');
+        lu('secondesParMot', 'un mot en ' + String(this.reglages.secondesParMot).replace('.', ',') + ' s');
+    },
+
+    minutesLisibles: function (secondes) {
+        const m = Math.round(secondes / 60);
+        if (m < 1) return 'moins d’une minute';
+        return 'environ ' + m + ' minute' + (m > 1 ? 's' : '');
+    },
+
+    majEcran: function () {
+        if (!this.widgetEl) return;
+        const q = (s) => this.widgetEl.querySelector(s);
+        const masque = !!this.reglages.masque;
+
+        const champ = q('#dic-texte');
+        if (champ) champ.style.display = masque ? 'none' : 'block';
+        const bouton = q('#dic-masque');
+        if (bouton) {
+            bouton.textContent = masque ? '👁 Afficher le texte' : '🙈 Masquer le texte';
+            bouton.setAttribute('aria-pressed', masque ? 'true' : 'false');
+        }
+        const resume = q('#dic-resume');
+        if (resume) {
+            resume.style.display = masque ? 'block' : 'none';
+            const mots = this.texte.split(/\s+/).filter(Boolean).length;
+            resume.textContent = mots + ' mot' + (mots > 1 ? 's' : '') + ' · '
+                + this.groupes.length + ' groupe' + (this.groupes.length > 1 ? 's' : '')
+                + ' · ' + this.minutesLisibles(this.dureeEstimee());
+        }
+
+        // LE REPÈRE EN GROS CHIFFRES remplace la liste quand le texte est
+        // masqué : le professeur doit savoir où il en est sans lire la dictée.
+        const ou = q('#dic-ou');
+        if (ou) {
+            if (this.phase === 'arret') ou.textContent = '';
+            else {
+                ou.textContent = 'groupe ' + (this.rang + 1) + ' sur ' + this.groupes.length
+                    + (this.enAttenteDeLaMain ? ' — on écrit' : '');
+            }
+        }
+
+        const zone = q('#dic-groupes');
+        if (zone) {
+            zone.innerHTML = '';
+            this.groupes.forEach((g, i) => {
+                const el = document.createElement('span');
+                el.className = 'dic-groupe' + (i === this.rang && this.phase !== 'arret' ? ' encours' : '')
+                    + (masque ? ' dic-pastille' : '');
+                el.dataset.i = String(i);
+                el.setAttribute('role', 'button');
+                el.tabIndex = 0;
+                // MASQUÉ, ON NE MONTRE QUE LE NUMÉRO. Afficher les groupes en
+                // toutes lettres revenait à afficher la dictée.
+                el.textContent = masque ? String(i + 1) : g.texte;
+                el.onclick = () => this.allerAuGroupe(i);
+                el.onkeydown = (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.allerAuGroupe(i); }
+                };
+                zone.appendChild(el);
+            });
+        }
+
+        const p = q('#dic-pause-btn');
         if (p) p.textContent = this.enPause ? '▶ Reprendre' : '⏸ Pause';
+        const suivant = q('#dic-suivant');
+        if (suivant) {
+            suivant.style.display = (this.phase !== 'arret') ? 'block' : 'none';
+        }
         ['ensemble', 'dictee', 'relecture'].forEach(t => {
-            const b = this.widgetEl.querySelector('#dic-' + t);
+            const b = q('#dic-' + t);
             if (b) b.classList.toggle('actif', this.phase === t);
         });
     },
 
     fermer: function () {
         this.arreter();
+        if (this.auClavier) document.removeEventListener('keydown', this.auClavier);
         if (this.widgetEl) { this.widgetEl.remove(); this.widgetEl = null; }
         if (typeof setMode === 'function' && typeof mode !== 'undefined' && mode === 'dictee') setMode('pointer');
         document.querySelectorAll('#plugins-grid .btn[data-mode="dictee"]').forEach(b => b.classList.remove('active'));

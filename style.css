@@ -12301,6 +12301,81 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
     padding: 8px 10px;
 }
 
+/* LE TEXTE MASQUÉ. La fenêtre est posée sur le tableau : afficher la dictée
+   pendant la séance, c'est la donner à recopier. Le résumé prend sa place — on
+   sait ce qu'on tient sans que la classe le lise. */
+#dictee-modal .dic-texte-zone { display: flex; flex-direction: column; gap: 8px; }
+
+#dictee-modal .dic-resume {
+    font-size: 13px;
+    color: var(--muted, #636e72);
+    background: rgba(108, 92, 231, 0.07);
+    border: 1px dashed rgba(108, 92, 231, 0.30);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+#dictee-modal #dic-masque { align-self: flex-start; }
+
+/* LES NIVEAUX ET LES CHOIX. Des boutons visibles, jamais un appui long : le
+   choix se prend en voyant ce qu'on choisit. */
+#dictee-modal .dic-niveaux,
+#dictee-modal .dic-boutons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+#dictee-modal .dic-choix { display: flex; flex-direction: column; gap: 5px; }
+
+#dictee-modal .dic-choix-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #b2bec3;
+}
+
+#dictee-modal .dic-niveaux button,
+#dictee-modal .dic-boutons button {
+    border: 1px solid var(--border, #dfe6e9);
+    background: transparent;
+    border-radius: 7px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ink, #2d3436);
+    cursor: pointer;
+}
+
+#dictee-modal .dic-niveaux button.actif,
+#dictee-modal .dic-boutons button.actif {
+    background: #6c5ce7;
+    border-color: #6c5ce7;
+    color: #fff;
+}
+
+/* OÙ L'ON EN EST, EN GROS. Masqué, c'est le seul repère : il doit se lire du
+   fond de la classe, et sans lire la dictée. */
+#dictee-modal .dic-ou {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ink, #2d3436);
+    text-align: center;
+    min-height: 26px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* LA TÉLÉCOMMANDE. Un doigt sur un tableau de classe, pas une souris : la
+   cible fait soixante pixels de haut. */
+#dictee-modal .dic-suivant {
+    display: none;
+    width: 100%;
+    min-height: 60px;
+    font-size: 17px;
+}
+
 #dictee-modal .dic-reglages {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -12352,6 +12427,19 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 }
 
 #dictee-modal .dic-groupe:hover { background: rgba(108, 92, 231, 0.18); }
+
+/* La pastille numérotée, quand le texte est masqué : elle dit où l'on va sans
+   dire ce qu'on y lira. */
+#dictee-modal .dic-groupe.dic-pastille {
+    min-width: 26px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.dark-mode #dictee-modal .dic-resume { background: rgba(108, 92, 231, 0.16); color: #dfe6e9; }
+.dark-mode #dictee-modal .dic-niveaux button,
+.dark-mode #dictee-modal .dic-boutons button { color: #dfe6e9; border-color: #3d4852; }
+.dark-mode #dictee-modal .dic-ou { color: #dfe6e9; }
 
 #dictee-modal .dic-groupe.encours {
     background: #6c5ce7;

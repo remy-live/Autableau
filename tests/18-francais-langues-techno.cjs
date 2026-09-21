@@ -461,17 +461,17 @@ module.exports = async function (browser) {
     r.egal('et il choisit les mots qu\'il touche', gestesVisibles.choisi, [0, 1]);
 
     await page.evaluate(() => PluginManager.plugins['analyseGrammaticaleTool'].fermer());
-
     // ==========================================================
-    // LE LECTEUR DE DICTÉE
+    // LE LECTEUR DE DICTÉE — UNE LECTURE DICTÉE COMME LE FERAIT UN PROFESSEUR
     //
-    // « Tu penses que tu pourrais faire un lecteur de dictée avec plusieurs
-    // paramètres pour permettre une première lecture, lire par groupe, etc. ? »
+    // « On ne comprend rien, le son est nul, trop robot. » Puis : « il faut
+    // une lecture dictée comme le ferait un professeur. »
     //
     // CETTE MACHINE N'A AUCUNE VOIX — l'API est là, la liste est vide. C'est
     // justement ce qui oblige à tout faire passer par un moteur qu'on peut
-    // remplacer : le découpage, l'enchaînement, les répétitions et les pauses
-    // s'éprouvent ici, et le son se juge sur la machine du professeur.
+    // remplacer : le découpage, les annonces, l'enchaînement, les répétitions
+    // et le temps d'écriture s'éprouvent ici, et le son se juge sur la machine
+    // du professeur.
     // ==========================================================
     const decoupe = await page.evaluate(() => {
         const D = PluginManager.plugins['lecteurDicteeTool'];
@@ -484,7 +484,13 @@ module.exports = async function (browser) {
             longueur: D.decouperEnGroupes(
                 'un deux trois quatre cinq six sept huit neuf dix onze douze treize', 4),
             vide: D.decouperEnGroupes('   ', 7),
-            espaces: D.decouperEnGroupes('  Le   chat\n\ndort.  ', 12)
+            espaces: D.decouperEnGroupes('  Le   chat dort.  ', 12),
+            // LES TROIS PIÈGES TROUVÉS EN SONDANT LE DÉCOUPAGE D'AVANT.
+            abreviation: D.decouperEnGroupes('M. Dupont arrive. Il part.', 12),
+            decimale: D.decouperEnGroupes('Il mesure 3,14 mètres.', 12),
+            guillemets: D.decouperEnGroupes('« Viens ! » dit-il.', 12),
+            suspension: D.decouperEnGroupes('Il attendait... puis partit.', 12),
+            lignes: D.decouperEnGroupes('Le chat dort.\nLe chien aboie.', 12)
         };
     });
     r.egal('on coupe à la ponctuation, et elle reste collée au groupe',
@@ -496,12 +502,185 @@ module.exports = async function (browser) {
         decoupe.longueur,
         ['un deux trois quatre', 'cinq six sept', 'huit neuf dix', 'onze douze treize']);
     r.egal('un texte vide ne donne aucun groupe', decoupe.vide, []);
-    r.egal('les espaces et les retours à la ligne ne font pas de groupes fantômes',
+    r.egal('les espaces en trop ne font pas de groupes fantômes',
         decoupe.espaces, ['Le chat dort.']);
+    // « M. Dupont arrive » donnait ['M.', 'Dupont arrive.'] : la voix disait
+    // « èm », toute seule, et s'arrêtait. Ce n'est pas une dictée, c'est un
+    // hoquet.
+    r.egal('une abréviation ne finit pas une phrase',
+        decoupe.abreviation, ['M. Dupont arrive.', 'Il part.']);
+    r.egal('et une virgule entre deux chiffres est un nombre, pas une pause',
+        decoupe.decimale, ['Il mesure 3,14 mètres.']);
+    // Le guillemet fermant commençait le groupe suivant : la voix ne le dit
+    // pas, et l'élève ne peut pas le deviner.
+    r.egal('le guillemet fermant reste avec ce qu\'il ferme',
+        decoupe.guillemets, ['« Viens ! »', 'dit-il.']);
+    r.egal('les trois points valent les points de suspension',
+        decoupe.suspension, ['Il attendait…', 'puis partit.']);
+    r.egal('un retour à la ligne sépare deux groupes',
+        decoupe.lignes, ['Le chat dort.', 'Le chien aboie.']);
 
-    // L'ENCHAÎNEMENT, AVEC UN MOTEUR QU'ON REMPLACE. On note ce qui est dit et
-    // l'on rend la main aussitôt : ce qu'on éprouve, c'est l'ordre des
-    // groupes, les répétitions et les pauses, pas la voix.
+    // ----------------------------------------------------------
+    // LA PONCTUATION DITE EN TOUTES LETTRES
+    //
+    // C'est la cause principale du « on ne comprend rien » : aucune voix de
+    // synthèse ne marque une virgule de façon audible pour un enfant qui
+    // écrit, et AUCUNE ne rend un guillemet ou un deux-points. Or la
+    // ponctuation est notée sur la copie.
+    // ----------------------------------------------------------
+    const annonces = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const lire = (texte, position) => {
+            D.reglages.ponctuation = position;
+            return D.analyserLeTexte(texte, 12).map(g => ({
+                texte: g.texte,
+                avant: g.avant.filter(a => D.annonce(a.rang)).map(a => a.dit),
+                apres: g.apres.filter(a => D.annonce(a.rang)).map(a => a.dit)
+            }));
+        };
+        const phrase = '« Viens ! » dit-il.\nLe chien, lui, dort : il rêve.';
+        return {
+            tout: lire(phrase, 'tout'),
+            essentiel: lire(phrase, 'essentiel'),
+            rien: lire(phrase, 'rien'),
+            paragraphe: lire('Premier.\n\nSecond.', 'essentiel'),
+            // L'ABRÉVIATION ET LA DÉCIMALE NE S'ANNONCENT PAS NON PLUS : le
+            // découpage les protège, l'annonce doit les protéger aussi.
+            pieges: lire('M. Dupont a 3,14 euros.', 'tout')
+        };
+    });
+    const dits = (liste) => liste.map(g => g.avant.concat(g.apres)).flat();
+    r.egal('les guillemets s\'ouvrent avant et se ferment après',
+        annonces.essentiel[0], { texte: '« Viens ! »',
+            avant: ['ouvrez les guillemets'],
+            apres: ['point d’exclamation', 'fermez les guillemets'] });
+    r.verifie('« virgule » se dit en position « Tout »',
+        dits(annonces.tout).includes('virgule'), JSON.stringify(dits(annonces.tout)));
+    r.verifie('et pas en position « L\'essentiel » — l\'intonation la porte à peu près',
+        !dits(annonces.essentiel).includes('virgule'), JSON.stringify(dits(annonces.essentiel)));
+    r.verifie('« deux points » se dit dès « L\'essentiel » — aucune voix ne le rend',
+        dits(annonces.essentiel).includes('deux points'), JSON.stringify(dits(annonces.essentiel)));
+    r.egal('en position « Rien », la voix ne dit plus que le texte',
+        dits(annonces.rien), []);
+    r.verifie('« à la ligne » s\'annonce avant le groupe, jamais après',
+        annonces.essentiel.some(g => g.avant.includes('à la ligne'))
+        && !annonces.essentiel.some(g => g.apres.includes('à la ligne')),
+        JSON.stringify(annonces.essentiel));
+    r.verifie('une ligne vide annonce un nouveau paragraphe',
+        dits(annonces.paragraphe).some(d => /nouveau paragraphe/.test(d)),
+        JSON.stringify(dits(annonces.paragraphe)));
+    // LE POINT FINAL SE DIT UNE FOIS, À LA TOUTE FIN : c'est le signal que
+    // l'élève attend pour poser son stylo.
+    r.egal('le dernier point est le point final',
+        annonces.essentiel[annonces.essentiel.length - 1].apres, ['point final.']);
+    r.verifie('et les points d\'avant sont de simples points',
+        annonces.essentiel.slice(0, -1).every(g => !g.apres.includes('point final.')),
+        JSON.stringify(annonces.essentiel.map(g => g.apres)));
+    r.egal('le point d\'une abréviation ne s\'annonce pas, ni la virgule d\'un nombre',
+        dits(annonces.pieges), ['point final.']);
+
+    // ----------------------------------------------------------
+    // LE TEMPS D'ÉCRITURE
+    //
+    // « Pause : 4 secondes, plafond 15 » ne pouvait exprimer aucune dictée
+    // réelle : il en faut cinquante à soixante-dix, et proportionnelles à ce
+    // qu'il y a à écrire. Le même blanc après « il dit » et après
+    // « emmitouflés dans leurs écharpes » n'est pas un réglage, c'est une
+    // erreur.
+    // ----------------------------------------------------------
+    const ecriture = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.choisirLeNiveau('cm');
+        const court = D.cycleDuGroupe('il dit');
+        const long = D.cycleDuGroupe('emmitouflés dans leurs écharpes');
+        const nominal = D.reglages.longueur * D.reglages.secondesParMot;
+        // LE CYCLE NOMINAL EST CELUI DE LA TABLE : un groupe plein, au niveau
+        // choisi, doit retomber sur « mots × secondes par mot ». C'est ce que
+        // la table promet, et la fonction doit le tenir — pas la table.
+        const parNiveau = DIC_NIVEAUX.map(n => {
+            D.choisirLeNiveau(n.cle);
+            // Un groupe plein, écrit à la longueur moyenne d'un mot du niveau.
+            const plein = 'a'.repeat(Math.round(n.longueur * n.signesParMot));
+            return { niveau: n.cle, promis: n.longueur * n.secondesParMot,
+                     rendu: Math.round(D.cycleDuGroupe(plein)) };
+        });
+        D.choisirLeNiveau('cm');
+        // LE PLAFOND EST RELATIF au niveau, et non une constante : un plafond
+        // absolu mordait là où le temps long est justifié.
+        const enorme = D.cycleDuGroupe('a'.repeat(5000));
+        // ON RETRANCHE LA PAROLE, jamais les consignes.
+        const avecParole = D.tempsDEcriture('emmitouflés dans leurs écharpes', 8);
+        const sansParole = D.tempsDEcriture('emmitouflés dans leurs écharpes', 0);
+        const plancher = D.tempsDEcriture('a', 900);
+        return { court, long, nominal, parNiveau, enorme, avecParole, sansParole,
+                 plancher, minimum: D.ECRITURE_MINIMUM };
+    });
+    r.verifie('un groupe long demande plus de temps qu\'un groupe court',
+        ecriture.long > ecriture.court + 10,
+        `${ecriture.court.toFixed(1)} s contre ${ecriture.long.toFixed(1)} s`);
+    r.verifie('et le temps d\'un groupe plein est celui du niveau',
+        Math.abs(ecriture.long - ecriture.nominal) < ecriture.nominal * 0.25,
+        `${ecriture.long.toFixed(1)} s pour un nominal de ${ecriture.nominal}`);
+    // LA TABLE PROMET « mots × secondes par mot » : la fonction doit le tenir.
+    // On a failli laisser passer l'inverse — une longueur moyenne de mot prise
+    // au collège pour tous les niveaux rendait le CP quinze pour cent trop
+    // court et le lycée dix-sept pour cent trop long, sans qu'aucune
+    // vérification puisse le voir.
+    r.verifie('à chaque niveau, un groupe plein tient la promesse de la table',
+        ecriture.parNiveau.every(n => Math.abs(n.rendu - n.promis) <= 2),
+        JSON.stringify(ecriture.parNiveau));
+    r.verifie('le cycle reste entre cinquante et soixante-quinze secondes partout',
+        ecriture.parNiveau.every(n => n.promis >= 50 && n.promis <= 75),
+        JSON.stringify(ecriture.parNiveau.map(n => n.promis)));
+    r.verifie('un groupe démesuré est plafonné à deux cycles du niveau',
+        Math.abs(ecriture.enorme - 2 * ecriture.nominal) < 0.5,
+        `${ecriture.enorme.toFixed(1)} s pour un nominal de ${ecriture.nominal}`);
+    r.verifie('ce qu\'a duré la parole est retranché : l\'élève écrit déjà pendant qu\'on lit',
+        Math.abs(ecriture.sansParole - ecriture.avecParole - 8) < 0.01,
+        `${ecriture.sansParole.toFixed(1)} contre ${ecriture.avecParole.toFixed(1)}`);
+    r.egal('et l\'on ne descend jamais sous le plancher',
+        ecriture.plancher, ecriture.minimum);
+
+    // LES NIVEAUX : UN APPUI RÈGLE TOUT. Personne ne veut déplacer quatre
+    // curseurs au milieu d'un cours.
+    const niveaux = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.choisirLeNiveau('lycee');
+        const lycee = Object.assign({}, D.reglages);
+        D.choisirLeNiveau('cp');
+        const cp = Object.assign({}, D.reglages);
+        const inconnu = D.choisirLeNiveau('maternelle');
+        D.choisirLeNiveau('cm');
+        return {
+            cp, lycee, inconnu,
+            // La table doit être monotone : un petit écrit moins vite, reçoit
+            // des groupes plus courts et plus de répétitions.
+            cadences: DIC_NIVEAUX.map(n => n.secondesParMot),
+            longueurs: DIC_NIVEAUX.map(n => n.longueur)
+        };
+    });
+    r.verifie('un niveau pose la vitesse, la longueur, les répétitions et la cadence',
+        niveaux.cp.vitesse === 0.85 && niveaux.cp.longueur === 3
+        && niveaux.cp.repetitions === 3 && niveaux.cp.secondesParMot === 24,
+        JSON.stringify(niveaux.cp));
+    r.verifie('le CP écrit plus lentement que le lycée',
+        niveaux.cp.secondesParMot > niveaux.lycee.secondesParMot * 3,
+        `${niveaux.cp.secondesParMot} contre ${niveaux.lycee.secondesParMot}`);
+    r.verifie('et reçoit des groupes plus courts',
+        niveaux.cp.longueur < niveaux.lycee.longueur, JSON.stringify(niveaux));
+    r.egal('au primaire, la virgule se dit', niveaux.cp.ponctuation, 'tout');
+    r.egal('au lycée, non', niveaux.lycee.ponctuation, 'essentiel');
+    r.verifie('la cadence décroît du CP au lycée',
+        niveaux.cadences.every((v, i) => i === 0 || v < niveaux.cadences[i - 1]),
+        JSON.stringify(niveaux.cadences));
+    r.verifie('et la longueur des groupes croît',
+        niveaux.longueurs.every((v, i) => i === 0 || v > niveaux.longueurs[i - 1]),
+        JSON.stringify(niveaux.longueurs));
+    r.egal('un niveau inconnu ne casse rien', niveaux.inconnu, false);
+
+    // ----------------------------------------------------------
+    // L'ENCHAÎNEMENT, AVEC UN MOTEUR QU'ON REMPLACE
+    // ----------------------------------------------------------
     const enchaine = await page.evaluate(async () => {
         const D = PluginManager.plugins['lecteurDicteeTool'];
         const vrai = D.moteur;
@@ -509,17 +688,20 @@ module.exports = async function (browser) {
         D.moteur = {
             disponible: () => true,
             voix: () => [],
-            dire: (texte, opts, fini) => { dits.push(texte); setTimeout(fini, 0); },
+            dire: (texte, opts, fini) => { dits.push(texte); setTimeout(fini, 0); return {}; },
             taire: () => { /* on ne note que ce qui est DIT */ }
         };
-        D.texte = 'Un deux. Trois quatre. Cinq six.';
-        D.reglages.longueur = 12; D.reglages.pause = 0; D.reglages.repetitions = 2;
-        D.groupes = D.decouperEnGroupes(D.texte, D.reglages.longueur);
+        D.reglages.longueur = 12; D.reglages.repetitions = 2;
+        D.reglages.secondesParMot = 0; D.reglages.ponctuation = 'tout';
+        D.reglages.marche = 'minuteur';
+        // CE QU'ON ÉPROUVE ICI, C'EST L'ORDRE, pas les durées — elles ont leur
+        // propre section. On met donc les blancs à zéro : sans cela le
+        // chapitre attendrait le vrai temps d'écriture d'une classe.
+        D.ECRITURE_MINIMUM = 0; D.BLANC_ENTRE_LECTURES = 0; D.BLANC_AVANT_CONSIGNE = 0;
+        D.poserLeTexte('Un deux. Trois quatre.');
 
         D.lancer('dictee');
-        // Six lectures séparées par les six dixièmes de seconde qui tiennent
-        // deux répétitions à distance : on laisse la suite se dérouler.
-        await new Promise(ok => setTimeout(ok, 4500));
+        await new Promise(ok => setTimeout(ok, 800));
         const enDictee = dits.slice();
 
         dits.length = 0;
@@ -527,15 +709,79 @@ module.exports = async function (browser) {
         await new Promise(ok => setTimeout(ok, 500));
         const enEnsemble = dits.slice();
 
+        D.ECRITURE_MINIMUM = 4; D.BLANC_ENTRE_LECTURES = 1.8; D.BLANC_AVANT_CONSIGNE = 0.4;
         D.moteur = vrai;
         return { enDictee, enEnsemble, phase: D.phase };
     });
-    r.egal('la dictée dit chaque groupe deux fois, dans l\'ordre',
+    // LA DICTÉE DIT LE GROUPE, PUIS SON SIGNE, ET RECOMMENCE : c'est ce qu'on
+    // entend en classe. Le nom du signe part dans une énonciation SÉPARÉE —
+    // « virgule » n'est pas la phrase, c'est une consigne.
+    r.egal('la dictée dit chaque groupe deux fois, avec sa ponctuation',
         enchaine.enDictee,
-        ['Un deux.', 'Un deux.', 'Trois quatre.', 'Trois quatre.', 'Cinq six.', 'Cinq six.']);
-    r.egal('la lecture d\'ensemble ne répète rien',
-        enchaine.enEnsemble, ['Un deux.', 'Trois quatre.', 'Cinq six.']);
+        ['Un deux.', 'point.', 'Un deux.', 'point.',
+         'Trois quatre.', 'point final.', 'Trois quatre.', 'point final.']);
+    // ET LA LECTURE D'ENSEMBLE N'ANNONCE RIEN : elle est là pour le sens.
+    // Dire « virgule » pendant qu'on écoute l'histoire la hacherait.
+    r.egal('la lecture d\'ensemble ne répète rien et n\'annonce rien',
+        enchaine.enEnsemble, ['Un deux.', 'Trois quatre.']);
     r.egal('et l\'on s\'arrête au bout', enchaine.phase, 'arret');
+
+    // LE JETON DE SÉRIE. Presser « Dictée » pendant qu'on lit laissait DEUX
+    // chaînes piloter le même rang : les groupes se doublaient ou se
+    // sautaient. C'est sans doute une bonne part du « on ne comprend rien »,
+    // et ce n'était pas la voix.
+    const jeton = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        let finirLeDernier = null;
+        D.moteur = {
+            disponible: () => true, voix: () => [],
+            dire: (t, o, fini) => { dits.push(t); finirLeDernier = fini; return {}; },
+            taire: () => { /* la vraie annulation ne rappelle pas ici */ }
+        };
+        D.reglages.longueur = 12; D.reglages.repetitions = 1;
+        D.reglages.secondesParMot = 0; D.reglages.ponctuation = 'rien';
+        // LE RAPPEL PÉRIMÉ NE FAIT PAS DE DÉGÂT TOUT DE SUITE : il arme le
+        // temps d'écriture, et c'est au bout de celui-ci que la seconde chaîne
+        // se met à piloter le rang. Sans ce zéro, l'éprouvette regardait avant
+        // que le mal soit fait, et elle passait sur du code cassé — le
+        // sabotage l'a montré.
+        D.ECRITURE_MINIMUM = 0;
+        D.poserLeTexte('Un. Deux. Trois.');
+
+        D.lancer('dictee');                 // dit « Un. », attend la fin
+        const finPerimee = finirLeDernier;  // le rappel de CETTE lecture
+        D.lancer('dictee');                 // on repart : la série change
+        dits.length = 0;
+        finPerimee();                       // le rappel périmé revient
+        await new Promise(ok => setTimeout(ok, 120));
+        const apresLeRappelPerime = dits.slice();
+        const rang = D.rang;
+
+        // ET « REDITES » DOIT PROTÉGER AUTANT QUE « DICTÉE ». C'est même le
+        // geste le plus courant : un élève lève le doigt pendant qu'on lit, on
+        // appuie, et l'ancienne lecture revenait piloter le rang par derrière.
+        D.lancer('dictee');
+        const finAvantRedites = finirLeDernier;
+        D.redire();
+        dits.length = 0;
+        finAvantRedites();
+        await new Promise(ok => setTimeout(ok, 120));
+        const apresRedites = { dits: dits.slice(), rang: D.rang };
+
+        D.ECRITURE_MINIMUM = 4;
+        D.arreter();
+        D.moteur = vrai;
+        return { apresLeRappelPerime, rang, serie: D.serie, apresRedites };
+    });
+    r.egal('un rappel périmé ne fait plus avancer la dictée',
+        jeton.apresLeRappelPerime, []);
+    r.egal('et le rang reste où la lecture en cours l\'a laissé', jeton.rang, 0);
+    r.verifie('la série a bien changé', jeton.serie >= 2, String(jeton.serie));
+    r.egal('« Redites » protège autant : le rappel d\'avant ne dit plus rien',
+        jeton.apresRedites.dits, []);
+    r.egal('et ne fait pas avancer le rang', jeton.apresRedites.rang, 0);
 
     // « REDITES » RECOMMENCE LE GROUPE, ses répétitions comprises : c'est le
     // geste de l'élève qui n'a pas entendu, et il ne doit pas le priver de la
@@ -545,11 +791,12 @@ module.exports = async function (browser) {
         const vrai = D.moteur;
         const dits = [];
         D.moteur = { disponible: () => true, voix: () => [],
-                     dire: (t, o, fini) => { dits.push(t); D.__fini = fini; },
+                     dire: (t, o, fini) => { dits.push(t); D.__fini = fini; return {}; },
                      taire: () => {} };
-        D.texte = 'Un deux. Trois quatre. Cinq six.';
-        D.reglages.longueur = 12; D.reglages.pause = 0; D.reglages.repetitions = 2;
-        D.groupes = D.decouperEnGroupes(D.texte, D.reglages.longueur);
+        D.reglages.longueur = 12; D.reglages.repetitions = 2;
+        D.reglages.secondesParMot = 0; D.reglages.ponctuation = 'rien';
+        D.reglages.marche = 'minuteur';
+        D.poserLeTexte('Un deux. Trois quatre. Cinq six.');
         D.lancer('dictee');                 // dit « Un deux. », attend la fin
         const auDepart = { rang: D.rang, restantes: D.restantes };
 
@@ -561,12 +808,18 @@ module.exports = async function (browser) {
         D.allerAuGroupe(2);
         const apresSaut = { dits: dits.slice(), rang: D.rang };
 
+        D.allerAuGroupe(0);
+        dits.length = 0;
+        D.suivant();
+        const apresSuivant = { dits: dits.slice(), rang: D.rang };
+
         const enPause = D.basculerLaPause();
         const reprise = D.basculerLaPause();
 
         D.arreter();
         D.moteur = vrai;
-        return { auDepart, apresRedites, apresSaut, enPause, reprise, phaseFinale: D.phase };
+        return { auDepart, apresRedites, apresSaut, apresSuivant, enPause, reprise,
+                 phaseFinale: D.phase };
     });
     r.egal('la dictée part sur le premier groupe, avec ses deux lectures',
         commandes.auDepart, { rang: 0, restantes: 2 });
@@ -574,10 +827,201 @@ module.exports = async function (browser) {
     r.egal('et lui rend ses deux lectures', commandes.apresRedites.restantes, 2);
     r.egal('on saute au groupe qu\'on désigne', commandes.apresSaut.dits, ['Cinq six.']);
     r.egal('et le rang suit', commandes.apresSaut.rang, 2);
+    // LA TÉLÉCOMMANDE : « Suivant » passe au groupe d'après sans attendre le
+    // minuteur — si toute la classe a posé son stylo, on n'attend pas.
+    r.egal('« Suivant » passe au groupe d\'après', commandes.apresSuivant.rang, 1);
+    r.egal('et le dit aussitôt', commandes.apresSuivant.dits, ['Trois quatre.']);
     r.egal('la pause s\'allume et s\'éteint', [commandes.enPause, commandes.reprise], [true, false]);
     r.egal('arrêter rend la main', commandes.phaseFinale, 'arret');
 
+    // LES VITESSES SE DÉRIVENT DU TEMPS, elles ne s'ajoutent pas au réglage.
+    // La première lecture est pour le SENS : elle va au débit naturel. La
+    // dictée est plus lente. Et tout reste entre 0,80 et 1,00 — au-dessous,
+    // les voix compactes étirent les voyelles et l'on comprend MOINS, pas
+    // mieux : l'ancienne plage 0,5-1,2 invitait très exactement au geste dont
+    // on se plaint.
+    const debits = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        D.moteur = { disponible: () => true, voix: () => [],
+                     dire: (t, o, fini) => { dits.push({ t, v: o.vitesse }); setTimeout(fini, 0); return {}; },
+                     taire: () => {} };
+        D.reglages.longueur = 12; D.reglages.repetitions = 1;
+        D.reglages.ponctuation = 'essentiel'; D.reglages.vitesse = 0.88;
+        D.poserLeTexte('Un deux.');
+        const lire = async (phase) => {
+            dits.length = 0;
+            D.lancer(phase);
+            // Le nom du signe part APRÈS un blanc — « virgule » ne doit pas se
+            // coller à la fin de la phrase. On attend donc plus que ce blanc.
+            await new Promise(ok => setTimeout(ok, 700));
+            D.arreter();
+            return dits.slice();
+        };
+        const ensemble = await lire('ensemble');
+        const dictee = await lire('dictee');
+        const relecture = await lire('relecture');
+        // Et la plage : même poussé hors des bornes, le réglage s'y ramène.
+        D.reglages.vitesse = 0.4;
+        const trop_lent = D.vitesseDuTemps('dictee');
+        D.reglages.vitesse = 1.9;
+        const trop_vite = D.vitesseDuTemps('ensemble');
+        D.reglages.vitesse = 0.88;
+        D.moteur = vrai;
+        return { ensemble, dictee, relecture, trop_lent, trop_vite };
+    });
+    const vTexte = (liste) => (liste.find(x => /Un deux/.test(x.t)) || {}).v;
+    const vConsigne = (liste) => (liste.find(x => /point/.test(x.t)) || {}).v;
+    r.verifie('la lecture d\'ensemble va au débit naturel, la dictée plus lentement',
+        vTexte(debits.ensemble) > vTexte(debits.dictee),
+        `${vTexte(debits.ensemble)} contre ${vTexte(debits.dictee)}`);
+    r.verifie('et la relecture est entre les deux',
+        vTexte(debits.relecture) > vTexte(debits.dictee)
+        && vTexte(debits.relecture) <= vTexte(debits.ensemble),
+        `${vTexte(debits.dictee)} · ${vTexte(debits.relecture)} · ${vTexte(debits.ensemble)}`);
+    // « VIRGULE » N'EST PAS LA PHRASE, c'est une consigne : elle se dit un peu
+    // moins vite, et l'on ne l'écrit pas.
+    r.verifie('la consigne se dit moins vite que le texte',
+        vConsigne(debits.dictee) < vTexte(debits.dictee),
+        `${vConsigne(debits.dictee)} contre ${vTexte(debits.dictee)}`);
+    r.verifie('aucun débit ne sort des bornes',
+        [].concat(debits.ensemble, debits.dictee, debits.relecture)
+            .every(x => x.v >= 0.8 && x.v <= 1),
+        JSON.stringify([].concat(debits.ensemble, debits.dictee, debits.relecture)));
+    r.egal('un réglage trop lent se ramène à 0,80', debits.trop_lent, 0.8);
+    r.egal('et un réglage trop rapide à 1,00', debits.trop_vite, 1);
+
+    // LA PAUSE GARDE CE QU'IL RESTAIT À ATTENDRE. L'ancienne reprenait en
+    // REDISANT le groupe : on perdait le temps d'écriture déjà écoulé, et la
+    // classe réentendait une phrase qu'elle venait d'écrire.
+    const pause = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        D.moteur = { disponible: () => true, voix: () => [],
+                     dire: (t, o, fini) => { dits.push(t); setTimeout(fini, 0); return {}; },
+                     taire: () => {} };
+        D.reglages.longueur = 12; D.reglages.repetitions = 1;
+        D.reglages.ponctuation = 'rien'; D.reglages.marche = 'minuteur';
+        D.ECRITURE_MINIMUM = 6;
+        D.reglages.secondesParMot = 0;
+        D.poserLeTexte('Un deux. Trois quatre.');
+        D.lancer('dictee');
+        await new Promise(ok => setTimeout(ok, 300));   // le groupe est dit, on attend
+        dits.length = 0;
+        D.basculerLaPause();
+        const enPause = { reste: D.resteEnPause, dits: dits.slice() };
+        await new Promise(ok => setTimeout(ok, 400));
+        const pendant = dits.slice();                   // rien ne doit sortir
+        D.basculerLaPause();
+        await new Promise(ok => setTimeout(ok, 200));
+        const apres = { dits: dits.slice(), rang: D.rang };
+        D.ECRITURE_MINIMUM = 4;
+        D.arreter();
+        D.moteur = vrai;
+        return { enPause, pendant, apres };
+    });
+    r.verifie('la pause retient ce qu\'il restait à attendre',
+        pause.enPause.reste > 4000 && pause.enPause.reste <= 6000,
+        String(Math.round(pause.enPause.reste)) + ' ms');
+    r.egal('rien ne se dit pendant la pause', pause.pendant, []);
+    // ELLE NE REDIT PAS LE GROUPE : on reprend le temps d'écriture là où il
+    // en était, on ne recommence pas la phrase que la classe vient d'écrire.
+    r.egal('et reprendre ne redit pas le groupe', pause.apres.dits, []);
+    r.egal('on est toujours sur le même groupe', pause.apres.rang, 0);
+
+    // LA MARCHE « QUAND J'APPUIE ». Le professeur seul voit les cahiers :
+    // c'est lui qui dit quand on passe à la suite.
+    const aLaMain = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        D.moteur = { disponible: () => true, voix: () => [],
+                     dire: (t, o, fini) => { dits.push(t); setTimeout(fini, 0); return {}; },
+                     taire: () => {} };
+        D.reglages.longueur = 12; D.reglages.repetitions = 1;
+        D.reglages.secondesParMot = 0; D.reglages.ponctuation = 'rien';
+        D.reglages.marche = 'main';
+        D.poserLeTexte('Un. Deux.');
+        D.lancer('dictee');
+        await new Promise(ok => setTimeout(ok, 400));
+        const apresAttente = { dits: dits.slice(), rang: D.rang, attend: !!D.enAttenteDeLaMain };
+        dits.length = 0;
+        D.suivant();
+        await new Promise(ok => setTimeout(ok, 200));
+        const apresAppui = { dits: dits.slice(), rang: D.rang };
+        D.arreter();
+        D.reglages.marche = 'minuteur';
+        D.moteur = vrai;
+        return { apresAttente, apresAppui };
+    });
+    r.egal('à la main, la dictée s\'arrête après le groupe et attend',
+        aLaMain.apresAttente, { dits: ['Un.'], rang: 0, attend: true });
+    r.egal('et c\'est l\'appui qui la relance', aLaMain.apresAppui, { dits: ['Deux.'], rang: 1 });
+
+    // ----------------------------------------------------------
+    // LE TEXTE MASQUÉ
+    //
+    // La fenêtre est POSÉE SUR LE TABLEAU : afficher la dictée pendant la
+    // séance, c'est la donner à recopier.
+    // ----------------------------------------------------------
+    const masque = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.texte = '';
+        D.ouvrir();
+        await new Promise(ok => setTimeout(ok, 150));
+        const q = (s) => D.widgetEl.querySelector(s);
+        const mots = D.texte.split(/\s+/).filter(Boolean);
+        const lisible = () => (q('#dic-groupes').textContent || '')
+            + ' ' + (getComputedStyle(q('#dic-texte')).display === 'none' ? '' : q('#dic-texte').value);
+        const auDepart = {
+            masque: D.reglages.masque,
+            champCache: getComputedStyle(q('#dic-texte')).display === 'none',
+            pastilles: q('#dic-groupes').querySelectorAll('.dic-pastille').length,
+            groupes: D.groupes.length,
+            resume: q('#dic-resume').textContent,
+            rendu: lisible()
+        };
+        D.basculerLeMasque();
+        const leve = { masque: D.reglages.masque, rendu: lisible(),
+                       champVu: getComputedStyle(q('#dic-texte')).display !== 'none' };
+        D.basculerLeMasque();
+        // ET LE MASQUE SURVIT À UN REDESSIN : majEcran est appelée à chaque
+        // groupe, elle ne doit pas rendre le texte en chemin.
+        D.majEcran();
+        const apresRedessin = { rendu: lisible(),
+                                pastilles: q('#dic-groupes').querySelectorAll('.dic-pastille').length };
+        const bouton = q('#dic-masque').textContent;
+        D.fermer();
+        return { auDepart, leve, apresRedessin, mots, bouton };
+    });
+    r.verifie('le texte d\'exemple a de quoi se trahir',
+        masque.mots.length >= 8, String(masque.mots.length));
+    r.egal('la fenêtre s\'ouvre texte masqué', masque.auDepart.masque, true);
+    r.verifie('le champ est caché', masque.auDepart.champCache, JSON.stringify(masque.auDepart));
+    r.egal('et les groupes ne sont que des numéros',
+        masque.auDepart.pastilles, masque.auDepart.groupes);
+    r.verifie('aucun mot de la dictée ne se lit',
+        !masque.mots.some(m => m.length > 3 && masque.auDepart.rendu.includes(m)),
+        masque.auDepart.rendu.slice(0, 120));
+    r.verifie('le résumé dit ce qu\'on tient sans le montrer',
+        /mots? · \d+ groupes? · /.test(masque.auDepart.resume), masque.auDepart.resume);
+    r.verifie('et il annonce combien de temps la dictée prendra',
+        /minute|moins d/.test(masque.auDepart.resume), masque.auDepart.resume);
+    r.verifie('le bouton dit ce qu\'il fera', /afficher/i.test(masque.bouton), masque.bouton);
+    r.verifie('levé, le texte se lit',
+        masque.leve.champVu && masque.mots.some(m => masque.leve.rendu.includes(m)),
+        masque.leve.rendu.slice(0, 120));
+    r.verifie('remis, il se recache — et un redessin ne le trahit pas',
+        !masque.mots.some(m => m.length > 3 && masque.apresRedessin.rendu.includes(m)),
+        masque.apresRedessin.rendu.slice(0, 120));
+    r.egal('les pastilles reviennent avec lui',
+        masque.apresRedessin.pastilles, masque.auDepart.groupes);
+
     // SANS VOIX FRANÇAISE, ON LE DIT. Lire une dictée avec l'accent anglais
+    // serait pire que de ne rien lire — et un silence sans explication passe
+    // pour une panne de l'application.
     // serait pire que de ne rien lire — et un silence sans explication passe
     // pour une panne de l'application.
     const sansVoix = await page.evaluate(async () => {
@@ -655,16 +1099,29 @@ module.exports = async function (browser) {
     r.egal('sans qu\'aucune balise ne s\'y ouvre', sansVoix.tordu.balises, 0);
 
     // Les réglages se retiennent d'une séance à l'autre : on ne refait pas les
-    // quatre curseurs à chaque dictée.
+    // curseurs à chaque dictée, ni le niveau de classe.
     const retenus = await page.evaluate(() => {
         const D = PluginManager.plugins['lecteurDicteeTool'];
-        D.reglages.pause = 9; D.reglages.repetitions = 3; D.reglages.longueur = 5;
+        D.reglages.secondesParMot = 9; D.reglages.repetitions = 3; D.reglages.longueur = 5;
+        D.reglages.ponctuation = 'tout'; D.reglages.niveau = 'ce1'; D.reglages.marche = 'main';
+        // LE MASQUE, LUI, NE SE RETIENT PAS. On peut l'avoir levé hier pour
+        // corriger ; le lever d'office aujourd'hui donnerait la dictée à
+        // recopier avant qu'on s'en aperçoive.
+        D.reglages.masque = false;
         D.ecrireLesReglages();
-        D.reglages.pause = 0; D.reglages.repetitions = 1; D.reglages.longueur = 7;
+        D.reglages.secondesParMot = 0; D.reglages.repetitions = 1; D.reglages.longueur = 7;
+        D.reglages.ponctuation = 'rien'; D.reglages.niveau = 'cm'; D.reglages.marche = 'minuteur';
+        D.reglages.masque = true;
         D.lireLesReglages();
-        return [D.reglages.pause, D.reglages.repetitions, D.reglages.longueur];
+        return { curseurs: [D.reglages.secondesParMot, D.reglages.repetitions, D.reglages.longueur],
+                 ponctuation: D.reglages.ponctuation, niveau: D.reglages.niveau,
+                 marche: D.reglages.marche, masque: D.reglages.masque };
     });
-    r.egal('les réglages se retiennent', retenus, [9, 3, 5]);
+    r.egal('les curseurs se retiennent', retenus.curseurs, [9, 3, 5]);
+    r.egal('la position de la ponctuation aussi', retenus.ponctuation, 'tout');
+    r.egal('et le niveau de classe', retenus.niveau, 'ce1');
+    r.egal('et la façon de passer au groupe suivant', retenus.marche, 'main');
+    r.egal('mais le masque revient toujours, lui', retenus.masque, true);
 
     // ==========================================================
     // CONJUGUEUR
