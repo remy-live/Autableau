@@ -22931,16 +22931,19 @@ function presenterLeDocument(cadrageVoulu) {
         return false;
     }
 
-    // Déjà en présentation sur cette page : le second appui change de
-    // cadrage. Page entière ↔ toute la largeur, comme dans un lecteur de PDF.
-    // Une page A4 sur un écran 16/9 laisse forcément du vide sur les côtés —
-    // c'est de la géométrie. Qui veut vraiment tout l'écran prend la largeur
-    // et défile.
+    // ON OUVRE SUR TOUTE LA LARGEUR. « La pleine largeur est la largeur par
+    // défaut. » On projetait d'abord la page entière — et sur un écran 16/9,
+    // une A4 laisse forcément deux bandes blanches sur les côtés, c'est de la
+    // géométrie. Il fallait donc un second appui, chaque fois, pour arriver où
+    // l'on allait de toute façon : un cycle caché qu'on subissait avant de
+    // l'apprendre. La page entière reste à un appui de là, pour qui veut voir
+    // l'exercice en entier d'un coup d'œil.
+    //
     // Un appelant peut demander son cadrage — c'est le cas du PDF qu'on ouvre
     // d'emblée en grand : on veut toute la largeur, pas la bascule habituelle.
     const dejaLa = presentationEnCours === doc.id;
     cadrageDePresentation = cadrageVoulu ? cadrageVoulu
-        : (dejaLa ? (cadrageDePresentation === 'page' ? 'largeur' : 'page') : 'page');
+        : (dejaLa ? (cadrageDePresentation === 'page' ? 'largeur' : 'page') : 'largeur');
     presentationEnCours = doc.id;
 
     // CE QUE LA PRÉSENTATION OUVRE, ELLE LE REFERME. Le plein écran du

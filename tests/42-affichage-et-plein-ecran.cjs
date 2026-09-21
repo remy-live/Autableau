@@ -372,6 +372,11 @@ module.exports = async function (browser) {
 
     // DEUX PAGES À L'ÉCRAN : on ne devine pas laquelle projeter.
     const deuxPages = await page.evaluate(async () => {
+        // ON REMET LA VUE À PLAT AVANT DE COMPTER. La projection d'avant laisse
+        // son cadrage — en pleine largeur, une seule page tient à l'écran, et
+        // la règle « à deux pages, on ne devine pas » n'était plus éprouvée du
+        // tout : on mesurait un tableau où il n'y en avait qu'une.
+        panX = 0; panY = 0; zoom = 1;
         images.push({ id: nextId++, x: 600, y: 40, w: 400, h: 500, z: globalZ++,
                       nomFichier: 'autre.pdf', src: 'y' });
         selectedItems = []; docEnAnnotation = null;
@@ -384,10 +389,18 @@ module.exports = async function (browser) {
         await new Promise(ok => setTimeout(ok, 200));
         const message = [...document.querySelectorAll('#toast-container *')]
             .map(t => t.textContent).join(' ');
+        // Combien en voit-on VRAIMENT : c'est la prémisse de la règle, et
+        // sans elle l'épreuve peut passer pour de bonnes raisons.
+        const aLEcran = images.filter(o => {
+            const x = o.x * zoom + panX, y = o.y * zoom + panY;
+            return x < window.innerWidth && y < window.innerHeight
+                && x + o.w * zoom > 0 && y + o.h * zoom > 0;
+        }).length;
         // On laisse le tableau comme on l'a trouvé.
         images.length = 0; selectedItems = []; majBarreDocument();
-        return { vu, fait, etat: etatDuPleinEcran(), message };
+        return { vu, fait, etat: etatDuPleinEcran(), message, aLEcran };
     });
+    r.egal('les deux pages sont bien à l\'écran', deuxPages.aLEcran, 2);
     r.egal('à deux pages visibles, on ne devine pas : rien n\'est projeté',
         { fait: deuxPages.fait, etat: deuxPages.etat }, { fait: false, etat: 0 });
     r.verifie('et l\'on demande laquelle',

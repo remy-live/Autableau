@@ -3331,10 +3331,21 @@ module.exports = async function (browser) {
         basculerLaDecoupe(false);
         presenterLeDocument();
         const avant = !!presentationEnCours;
-        // Lâché au milieu de la page.
-        poserLeMorceau(m, { x: doc.x + doc.w / 2, y: doc.y + doc.h / 2 });
-        return { avant, apres: !!presentationEnCours };
+        // LÂCHÉ AU MILIEU DE CE QU'ON VOIT, et non au milieu de la page. En
+        // pleine largeur — le cadrage par défaut —, la page déborde en hauteur
+        // et son centre logique tombe SOUS l'écran : l'y lâcher, c'est poser
+        // dehors, et la règle a bien raison de rendre le tableau. Ce qu'on
+        // éprouve ici, c'est l'autre moitié de la règle.
+        const ecran = document.getElementById('board');
+        const cible = { x: (ecran.clientWidth / 2 - panX) / zoom,
+                        y: (ecran.clientHeight / 2 - panY) / zoom };
+        const surLaPageVue = cible.x > doc.x && cible.x < doc.x + doc.w
+                          && cible.y > doc.y && cible.y < doc.y + doc.h;
+        poserLeMorceau(m, cible);
+        return { avant, apres: !!presentationEnCours, surLaPageVue };
     });
+    r.verifie('le point visé est bien sur la page, et à l\'écran',
+        surLaPage.surLaPageVue, JSON.stringify(surLaPage));
     r.egal('un morceau lâché sur la page projetée ne coupe pas la présentation',
         { avant: surLaPage.avant, apres: surLaPage.apres }, { avant: true, apres: true });
 

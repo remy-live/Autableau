@@ -471,11 +471,14 @@ module.exports = async function (browser) {
             focus: document.body.classList.contains('focus-mode'),
             choisi: selectedItems.length === 1 && selectedItems[0].id === doc.id,
             rogneApres: documentEstRogne(doc),
+            cadrage: cadrageDePresentation,
             // Le cadre a repris les proportions de la page
             proportions: Math.abs(doc.h / doc.w - 1131 / 1600) < 0.001,
-            // Le document doit tenir dans l'écran, et le remplir vraiment
-            tientDedans: doc.w * zoom <= c.clientWidth + 1 && doc.h * zoom <= c.clientHeight + 1,
-            remplit: Math.max(doc.w * zoom / c.clientWidth, doc.h * zoom / c.clientHeight) > 0.999,
+            // ON OUVRE SUR TOUTE LA LARGEUR : la page va d'un bord à l'autre,
+            // et déborde donc en hauteur — c'est tout l'objet du cadrage.
+            remplitLargeur: Math.abs(doc.w * zoom - c.clientWidth) < 1.5,
+            gauche: Math.round(doc.x * zoom + panX),
+            debordeEnHauteur: doc.h * zoom > c.clientHeight + 1,
             centre: Math.abs((doc.x + doc.w / 2) * zoom + panX - c.clientWidth / 2) < 2
         };
     });
@@ -487,13 +490,37 @@ module.exports = async function (browser) {
     r.verifie('la présentation montre la page ENTIÈRE, bords compris',
         !presentation.rogneApres, JSON.stringify(presentation));
     r.verifie('et le cadre reprend les proportions de la page', presentation.proportions);
-    r.verifie('il tient dans l\'écran', presentation.tientDedans);
-    r.verifie('et le remplit jusqu\'aux bords', presentation.remplit, JSON.stringify(presentation));
+    // LA PLEINE LARGEUR EST LE DÉFAUT. Sur un écran 16/9, une A4 en page
+    // entière laisse deux bandes blanches sur les côtés : il fallait un second
+    // appui, chaque fois, pour arriver où l'on allait de toute façon.
+    r.egal('on ouvre sur toute la largeur', presentation.cadrage, 'largeur');
+    r.verifie('la page va d\'un bord à l\'autre',
+        presentation.remplitLargeur && Math.abs(presentation.gauche) < 1.5,
+        JSON.stringify(presentation));
+    r.verifie('et déborde donc en hauteur : il y a de quoi descendre',
+        presentation.debordeEnHauteur, JSON.stringify(presentation));
     r.verifie('centré', presentation.centre);
+
+    // UN SECOND « D » DONNE LA PAGE ENTIÈRE — celle qu'on veut pour embrasser
+    // l'exercice d'un coup d'œil. Elle reste à un appui de là.
+    const pageEntiere = await page.evaluate(() => {
+        presenterLeDocument();
+        const c = document.getElementById('board');
+        const doc = images[0];
+        return {
+            cadrage: cadrageDePresentation,
+            tientDedans: doc.w * zoom <= c.clientWidth + 1 && doc.h * zoom <= c.clientHeight + 1,
+            remplit: Math.max(doc.w * zoom / c.clientWidth, doc.h * zoom / c.clientHeight) > 0.999
+        };
+    });
+    r.egal('un second « D » donne la page entière', pageEntiere.cadrage, 'page');
+    r.verifie('elle tient alors dans l\'écran', pageEntiere.tientDedans, JSON.stringify(pageEntiere));
+    r.verifie('et le remplit jusqu\'aux bords', pageEntiere.remplit, JSON.stringify(pageEntiere));
 
     // Le pourtour de la page est peint sombre : une page A4 sur un écran 16/9
     // laisse forcément du vide sur les côtés, autant que ce vide se lise comme
-    // un fond et non comme deux bandes blanches restées là.
+    // un fond et non comme deux bandes blanches restées là. On le mesure EN
+    // PAGE ENTIÈRE : en pleine largeur, il n'y a plus de côtés à peindre.
     const fond = await page.evaluate(() => {
         draw();
         const g = document.getElementById('board').getContext('2d');
@@ -506,29 +533,16 @@ module.exports = async function (browser) {
     });
     r.verifie('la présentation est en cours', fond.enCours);
     r.verifie('le pourtour de la page est sombre',
-        fond.fond !== undefined || fond.bord.every(v => v < 60), JSON.stringify(fond.bord));
+        fond.bord.every(v => v < 60), JSON.stringify(fond.bord));
     r.verifie('et la page, elle, n\'est pas assombrie',
         fond.dedans.some(v => v > 150), JSON.stringify(fond.dedans));
 
-    // Un second « D » prend toute la largeur, un troisième revient à la page
-    const largeur = await page.evaluate(() => {
-        const c = document.getElementById('board');
+    // Et un troisième appui rend la pleine largeur : la bascule tourne.
+    const retour = await page.evaluate(() => {
         presenterLeDocument();
-        const doc = images[0];
-        const enLargeur = { cadrage: cadrageDePresentation,
-                            remplitLargeur: Math.abs(doc.w * zoom - c.clientWidth) < 1.5,
-                            gauche: Math.round(doc.x * zoom + panX) };
-        presenterLeDocument();
-        const revenu = { cadrage: cadrageDePresentation,
-                         tientEnHauteur: doc.h * zoom <= c.clientHeight + 1 };
-        return { enLargeur, revenu };
+        return cadrageDePresentation;
     });
-    r.egal('un second « D » passe en pleine largeur', largeur.enLargeur.cadrage, 'largeur');
-    r.verifie('la page remplit alors l\'écran d\'un bord à l\'autre',
-        largeur.enLargeur.remplitLargeur && Math.abs(largeur.enLargeur.gauche) < 1.5,
-        JSON.stringify(largeur.enLargeur));
-    r.egal('un troisième revient à la page entière', largeur.revenu.cadrage, 'page');
-    r.verifie('qui tient à nouveau en hauteur', largeur.revenu.tientEnHauteur);
+    r.egal('un troisième « D » revient à la pleine largeur', retour, 'largeur');
 
     // ---------------------------------------------------------------
     // DESCENDRE DANS LA PAGE PRÉSENTÉE
@@ -690,7 +704,16 @@ module.exports = async function (browser) {
         const doc = images[0];
         doc.pluginData.page = 1;
         setMode('pointer');
+        // ON SE DONNE DE QUOI DESCENDRE, sans dépendre de ce que les blocs
+        // d'avant ont laissé. On s'approche comme pour lire un détail : la
+        // page passe bien au-dessous du bord de l'écran, et les cent cinquante
+        // pixels qu'on tire ne viennent buter sur rien. Sans ce soin, le
+        // glissement se trouvait bridé par le bas de la page et l'on mesurait
+        // une butée en croyant mesurer une main.
+        if (cadrageDePresentation !== 'largeur') presenterLeDocument();
+        zoom = zoom * 2;
         cadrerLeBordDeLaPage(doc, true);
+        const mou = Math.round(doc.h * zoom - c.clientHeight);
         const avant = panY;
         const options = (x, y) => ({ pointerId: 1, pointerType: 'mouse', isPrimary: true,
                                      clientX: x, clientY: y, buttons: 1, bubbles: true, cancelable: true });
@@ -698,9 +721,11 @@ module.exports = async function (browser) {
         const prise = isPanningView;
         c.dispatchEvent(new PointerEvent('pointermove', options(400, 250)));
         c.dispatchEvent(new PointerEvent('pointerup', options(400, 250)));
-        return { prise, descendu: avant - panY, cadrageIntact: doc.cy === 0 || true };
+        return { prise, mou, descendu: avant - panY, cadrageIntact: doc.cy === 0 || true };
     });
     r.verifie('glisser prend la page comme une main', glisse.prise, JSON.stringify(glisse));
+    r.verifie('il y avait bien de quoi descendre — sinon on mesure une butée',
+        glisse.mou > 200, JSON.stringify(glisse));
     r.verifie('et la fait descendre de ce qu\'on a tiré',
         Math.abs(glisse.descendu - 150) < 2, JSON.stringify(glisse));
 
@@ -969,7 +994,7 @@ module.exports = async function (browser) {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
         return { mode: modeDocument, focus: document.body.classList.contains('focus-mode') };
     });
-    r.egal('« D » met le document en pleine page', parLaTouche.mode, 'page');
+    r.egal('« D » projette le document, et l\'on peut naviguer dedans', parLaTouche.mode, 'page');
     r.verifie('et efface l\'interface', parLaTouche.focus);
 
     // Sans document, on le dit plutôt que de ne rien faire

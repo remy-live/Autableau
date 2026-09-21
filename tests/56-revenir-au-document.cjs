@@ -237,6 +237,12 @@ module.exports = async function (browser) {
         // autres résultats avec lui, et l'on ne sait plus lequel se plaignait.
         if (!d) return { projette: false, clarteDuMorceau: -1, clarteDuVoile: -1,
                          pourquoi: 'la projection était déjà refermée' };
+        // LA MARGE N'EXISTE QU'EN PAGE ENTIÈRE. En pleine largeur — le cadrage
+        // par défaut désormais —, la page va d'un bord à l'autre de l'écran :
+        // il n'y a tout simplement plus de côté où poser, et la question ne se
+        // pose pas. On se met donc dans le cadrage où elle se pose.
+        if (cadrageDePresentation !== 'page') presenterLeDocument();
+        await new Promise(ok => setTimeout(ok, 300));
         basculerLaDecoupe(true);
         commencerGesteDeDecoupe({ x: d.x + 20, y: d.y + 20 });
         poursuivreGesteDeDecoupe({ x: d.x + d.w * 0.5, y: d.y + d.h * 0.25 });
@@ -252,10 +258,14 @@ module.exports = async function (browser) {
         const sy = Math.round(panY + (m.y + m.h / 2) * zoom);
         const p = ctx.getImageData(sx, sy, 1, 1).data;
         const v = ctx.getImageData(4, 4, 1, 1).data;
-        return { projette: !!presentationEnCours,
+        return { projette: !!presentationEnCours, cadrage: cadrageDePresentation,
+                 // La prémisse : il y a bien une marge à gauche de la page.
+                 marge: Math.round(panX + d.x * zoom),
                  clarteDuMorceau: Math.round((p[0] + p[1] + p[2]) / 3),
                  clarteDuVoile: Math.round((v[0] + v[1] + v[2]) / 3) };
     });
+    r.verifie('il y a bien une marge à gauche de la page',
+        dansLaMarge.marge > 80, JSON.stringify(dansLaMarge));
     r.verifie('posé dans la marge, on reste en plein écran',
         dansLaMarge.projette === true, JSON.stringify(dansLaMarge));
     r.verifie('et le morceau s\'y voit : le voile l\'épargne',
