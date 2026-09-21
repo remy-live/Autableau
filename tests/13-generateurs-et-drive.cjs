@@ -1200,6 +1200,249 @@ module.exports = async function (browser) {
     r.egal('la bande se referme', oté.bande, 'none');
     r.egal('et l\'étoile de la barre s\'éteint', oté.etoile, '☆');
 
+    // ==========================================================
+    // LES TROIS POINTS, ET L'APERÇU AU SURVOL
+    //
+    // « Dans le navigateur où il y a Google Drive et autre, rajoute trois
+    // points à droite du fichier, juste pour le télécharger, sans passer par
+    // Google Drive ni le faire transiter par Au Tableau. En laissant la souris
+    // dessus, on peut avoir un aperçu. »
+    // ==========================================================
+    const UN_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    await pageWeb.evaluate(async (pixel) => {
+        window.__pris = [];
+        window.__apercus = [];
+        window.__telecharges = [];
+        window.__importes = 0;
+
+        // On remplace le champ d'import par un jumeau sans écouteur : ce qui
+        // part « dans le tableau » se compte au lieu de s'y poser vraiment.
+        const entree = document.getElementById('pdf-loader');
+        entree.replaceWith(entree.cloneNode(true));
+        document.getElementById('pdf-loader')
+            .addEventListener('change', () => { window.__importes++; });
+
+        // Un téléchargement réel ouvrirait une fenêtre du système : on note le
+        // lien que l'explorateur fabrique, et on l'arrête là.
+        const vraiClic = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () {
+            if (this.download) { window.__telecharges.push(this.download); return; }
+            return vraiClic.call(this);
+        };
+
+        Explorateur.enregistrer({
+            cle: 'nuage-essai', nom: 'Nuage d\'essai', icone: '🧪', dispo: () => true,
+            racine: () => ({ id: '/', nom: 'Nuage' }),
+            lister: async () => [
+                { id: 'd', nom: 'Dossier', dossier: true },
+                { id: 'p', nom: 'chapitre.pdf', dossier: false, type: 'application/pdf', taille: 2048, date: Date.parse('2026-01-05') },
+                { id: 'i', nom: 'schema.png', dossier: false, type: 'image/png', taille: 4096 },
+                { id: 'x', nom: 'Formulaire', dossier: false, type: 'application/vnd.google-apps.form' }
+            ],
+            telecharger: async (f) => {
+                window.__pris.push(f.nom);
+                return new File(['abc'], f.nom, { type: f.type });
+            },
+            apercu: async (f, grand) => {
+                window.__apercus.push({ nom: f.nom, grand: !!grand });
+                return pixel;
+            }
+        });
+        Explorateur.etat.vue = 'liste';
+        await Explorateur.ouvrir('nuage-essai');
+        await new Promise(ok => setTimeout(ok, 350));
+    }, UN_PIXEL);
+
+    const points = await pageWeb.evaluate(() => {
+        const lignes = Array.from(document.querySelectorAll('#explorateur .exp-ligne'));
+        const par = (nom) => lignes.find(l => l.innerText.includes(nom));
+        return {
+            fichiers: lignes.length,
+            surLePdf: par('chapitre.pdf').querySelectorAll('.exp-plus').length,
+            surLImage: par('schema.png').querySelectorAll('.exp-plus').length,
+            surLeDossier: par('Dossier').querySelectorAll('.exp-plus').length,
+            surLIntraitable: par('Formulaire').querySelectorAll('.exp-plus').length,
+            menusOuverts: document.querySelectorAll('.exp-menu').length
+        };
+    });
+    r.egal('la source d\'essai montre ses quatre entrées', points.fichiers, 4);
+    r.egal('un fichier porte ses trois points', points.surLePdf, 1);
+    r.egal('une image aussi', points.surLImage, 1);
+    r.egal('un dossier n\'en a pas', points.surLeDossier, 0);
+    r.egal('ni un fichier qu\'on ne sait pas prendre', points.surLIntraitable, 0);
+    r.egal('et rien n\'est ouvert tant qu\'on n\'a pas appuyé', points.menusOuverts, 0);
+
+    const menu = await pageWeb.evaluate(async () => {
+        const ligne = Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes('chapitre.pdf'));
+        ligne.querySelector('.exp-plus').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        const m = document.querySelector('.exp-menu');
+        const boite = m.getBoundingClientRect();
+        return {
+            ouvert: !!m,
+            entrees: Array.from(m.querySelectorAll('.exp-menu-ligne')).map(b => b.innerText.trim()),
+            dansLEcran: boite.left >= 0 && boite.right <= window.innerWidth
+                && boite.top >= 0 && boite.bottom <= window.innerHeight,
+            fenetreEncoreLa: getComputedStyle(document.getElementById('explorateur')).display !== 'none',
+            importes: window.__importes
+        };
+    });
+    r.verifie('les trois points ouvrent un menu', menu.ouvert, JSON.stringify(menu));
+    r.verifie('qui propose d\'enregistrer sur l\'ordinateur',
+        /Enregistrer sur l'ordinateur/.test(menu.entrees.join(' | ')), menu.entrees.join(' | '));
+    r.verifie('et d\'ouvrir dans le tableau',
+        /Ouvrir dans le tableau/.test(menu.entrees.join(' | ')), menu.entrees.join(' | '));
+    r.verifie('le menu tient dans l\'écran', menu.dansLEcran, JSON.stringify(menu));
+    r.verifie('appuyer sur les points n\'ouvre pas le fichier',
+        menu.fenetreEncoreLa && menu.importes === 0, JSON.stringify(menu));
+
+    const ailleurs = await pageWeb.evaluate(async () => {
+        document.getElementById('exp-chemin').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        const apresClic = document.querySelectorAll('.exp-menu').length;
+        Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes('chapitre.pdf')).querySelector('.exp-plus').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        const rouvert = document.querySelectorAll('.exp-menu').length;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(ok => setTimeout(ok, 60));
+        return { apresClic, rouvert, apresEchap: document.querySelectorAll('.exp-menu').length };
+    });
+    r.egal('un appui à côté referme le menu', ailleurs.apresClic, 0);
+    r.egal('on peut le rouvrir', ailleurs.rouvert, 1);
+    r.egal('et la touche d\'échappement le referme aussi', ailleurs.apresEchap, 0);
+
+    // LE CHEMIN COURT : le fichier descend de la source et part dans les
+    // téléchargements. Il ne devient pas une page du tableau.
+    const enregistre = await pageWeb.evaluate(async () => {
+        Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes('chapitre.pdf')).querySelector('.exp-plus').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        document.querySelector('.exp-menu-ligne[data-quoi="enregistrer"]').click();
+        await new Promise(ok => setTimeout(ok, 220));
+        return {
+            pris: window.__pris.slice(),
+            telecharges: window.__telecharges.slice(),
+            importes: window.__importes,
+            menus: document.querySelectorAll('.exp-menu').length,
+            fenetreEncoreLa: getComputedStyle(document.getElementById('explorateur')).display !== 'none'
+        };
+    });
+    r.egal('« Enregistrer » demande le fichier à la source', enregistre.pris, ['chapitre.pdf']);
+    r.egal('et le rend au navigateur sous son nom', enregistre.telecharges, ['chapitre.pdf']);
+    r.egal('sans le faire transiter par le tableau', enregistre.importes, 0);
+    r.egal('le menu se referme', enregistre.menus, 0);
+    r.verifie('et la fenêtre reste ouverte pour la suite', enregistre.fenetreEncoreLa,
+        JSON.stringify(enregistre));
+
+    const auTableau = await pageWeb.evaluate(async () => {
+        Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes('schema.png')).querySelector('.exp-plus').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        document.querySelector('.exp-menu-ligne[data-quoi="ouvrir"]').click();
+        await new Promise(ok => setTimeout(ok, 260));
+        return { importes: window.__importes, pris: window.__pris.slice() };
+    });
+    r.egal('« Ouvrir dans le tableau » y pose bien le fichier', auTableau.importes, 1);
+    r.egal('en le demandant lui aussi à la source', auTableau.pris,
+        ['chapitre.pdf', 'schema.png']);
+
+    // SUR SES PROPRES FICHIERS, PAS DE TROIS POINTS : les télécharger n'en
+    // ferait qu'un doublon là où ils sont déjà.
+    const chezSoi = await pageWeb.evaluate(async () => {
+        Explorateur.enregistrer({
+            cle: 'faux-ordi', nom: 'Faux ordinateur', icone: '💻', dispo: () => true, local: true,
+            racine: () => ({ id: '/', nom: 'Ici' }),
+            lister: async () => [{ id: 'a', nom: 'note.txt', dossier: false, type: 'text/plain', taille: 12 }],
+            telecharger: async () => new File([''], 'note.txt')
+        });
+        await Explorateur.ouvrir('faux-ordi');
+        await new Promise(ok => setTimeout(ok, 350));
+        return {
+            lignes: document.querySelectorAll('#explorateur .exp-ligne').length,
+            points: document.querySelectorAll('#explorateur .exp-plus').length
+        };
+    });
+    r.egal('une source locale montre ses fichiers', chezSoi.lignes, 1);
+    r.egal('mais sans trois points', chezSoi.points, 0);
+
+    // L'APERÇU AU SURVOL
+    const survol = await pageWeb.evaluate(async () => {
+        await Explorateur.ouvrir('nuage-essai');
+        await new Promise(ok => setTimeout(ok, 350));
+        window.__apercus.length = 0;
+
+        const ligne = (nom) => Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes(nom));
+        const poser = (el) => el.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+        const oter = (el) => el.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+
+        const image = ligne('schema.png');
+        // Un aperçu qui surgit dès qu'on effleure la liste saute au visage à
+        // chaque mouvement : il faut s'arrêter pour l'obtenir.
+        poser(image);
+        await new Promise(ok => setTimeout(ok, 150));
+        const toutDeSuite = document.querySelectorAll('.exp-apercu').length;
+        await new Promise(ok => setTimeout(ok, 700));
+        const carte = document.querySelector('.exp-apercu');
+        const boite = carte.getBoundingClientRect();
+        const vu = {
+            toutDeSuite,
+            texte: carte.innerText.replace(/\s+/g, ' ').trim(),
+            images: carte.querySelectorAll('img').length,
+            dansLEcran: boite.left >= 0 && boite.right <= window.innerWidth
+                && boite.top >= 0 && boite.bottom <= window.innerHeight,
+            demandes: window.__apercus.slice()
+        };
+        oter(image);
+        vu.apresDepart = document.querySelectorAll('.exp-apercu').length;
+
+        // Deux fois la même ligne : une seule demande à la source.
+        poser(image);
+        await new Promise(ok => setTimeout(ok, 700));
+        vu.demandesApresDeuxPassages = window.__apercus.length;
+        oter(image);
+
+        // Un dossier n'a pas d'aperçu.
+        const dossier = ligne('Dossier');
+        poser(dossier);
+        await new Promise(ok => setTimeout(ok, 700));
+        vu.surUnDossier = document.querySelectorAll('.exp-apercu').length;
+        oter(dossier);
+        return vu;
+    });
+    r.egal('la souris qui ne fait que passer n\'ouvre rien', survol.toutDeSuite, 0);
+    r.verifie('la souris posée ouvre une carte qui nomme le fichier',
+        /schema\.png/.test(survol.texte), survol.texte);
+    r.verifie('avec sa nature, son poids et sa date',
+        /Image/.test(survol.texte) && /4 Ko/.test(survol.texte), survol.texte);
+    r.egal('l\'image y est demandée en grand', survol.demandes, [{ nom: 'schema.png', grand: true }]);
+    r.egal('et elle s\'y affiche', survol.images, 1);
+    r.verifie('la carte tient dans l\'écran', survol.dansLEcran, JSON.stringify(survol));
+    r.egal('quitter la ligne la referme', survol.apresDepart, 0);
+    r.egal('repasser dessus ne retélécharge pas l\'image', survol.demandesApresDeuxPassages, 1);
+    r.egal('un dossier n\'ouvre aucune carte', survol.surUnDossier, 0);
+
+    const range = await pageWeb.evaluate(async () => {
+        const ligne = Array.from(document.querySelectorAll('#explorateur .exp-ligne'))
+            .find(l => l.innerText.includes('schema.png'));
+        ligne.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+        await new Promise(ok => setTimeout(ok, 700));
+        const avant = document.querySelectorAll('.exp-apercu').length;
+        ligne.querySelector('.exp-plus').click();
+        await new Promise(ok => setTimeout(ok, 60));
+        const pendantLeMenu = document.querySelectorAll('.exp-apercu').length;
+        Explorateur.fermer();
+        await new Promise(ok => setTimeout(ok, 60));
+        return { avant, pendantLeMenu,
+            apresFermeture: document.querySelectorAll('.exp-apercu, .exp-menu').length };
+    });
+    r.egal('la carte est bien là avant qu\'on touche aux points', range.avant, 1);
+    r.egal('ouvrir le menu l\'efface', range.pendantLeMenu, 0);
+    r.egal('et fermer la fenêtre n\'oublie rien derrière elle', range.apresFermeture, 0);
+
     r.verifie('aucune erreur JS en ligne', errsWeb.length === 0, errsWeb.join(' | '));
     await ctxWeb.close();
     serveur.close();

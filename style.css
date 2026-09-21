@@ -6850,7 +6850,10 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .exp-detail {
     display: grid;
-    grid-template-columns: 34px minmax(0, 1fr) 92px 74px 74px;
+    /* Six colonnes : la dernière n'est large que des trois points, qui doivent
+       tomber les uns sous les autres — sinon les dates se décalent de ligne
+       en ligne selon que le fichier se télécharge ou non. */
+    grid-template-columns: 34px minmax(0, 1fr) 92px 74px 74px 26px;
     align-items: center;
     gap: 8px;
     padding: 7px 14px;
@@ -6887,6 +6890,112 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .dark-mode .exp-detail { border-color: #2f3941; }
 .dark-mode .exp-detail:hover { background: #2f3941; }
 .dark-mode .exp-detail-entete, .dark-mode .exp-detail-entete:hover { background: #232b32; }
+
+/* ===================================================
+   LES TROIS POINTS, ET LA CARTE DE SURVOL
+   Prendre un fichier du nuage sans le poser sur le tableau, et voir ce
+   qu'il contient sans l'ouvrir.
+   =================================================== */
+.exp-plus {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #b2bec3;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    /* Discret tant qu'on ne le cherche pas, franc dès qu'on passe dessus :
+       la liste reste une liste de fichiers, pas une liste de boutons. */
+    opacity: 0.35;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.exp-ligne:hover .exp-plus,
+.exp-detail:hover .exp-plus,
+.exp-carte:hover .exp-plus { opacity: 1; }
+.exp-plus:hover { background: #ece8ff; color: #6c5ce7; opacity: 1; }
+.exp-plus:focus-visible { opacity: 1; outline: 2px solid #6c5ce7; outline-offset: 1px; }
+
+/* Sur une carte, les points se posent dans le coin, par-dessus la vignette. */
+.exp-carte { position: relative; }
+.exp-carte .exp-plus {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: rgba(255, 255, 255, 0.86);
+}
+
+.exp-menu {
+    position: fixed;
+    z-index: 100030;
+    background: #fff;
+    border: 1px solid #dfe6e9;
+    border-radius: 9px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 224px;
+}
+
+.exp-menu-ligne {
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #2d3436;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.exp-menu-ligne:hover { background: #f5f3ff; }
+
+.exp-apercu {
+    position: fixed;
+    z-index: 100020;
+    /* Elle n'est là que pour être vue : la souris la traverse, sinon elle
+       s'interposerait entre le doigt et la ligne qu'on survole. */
+    pointer-events: none;
+    background: #fff;
+    border: 1px solid #dfe6e9;
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+    padding: 10px;
+    width: 250px;
+    font-family: sans-serif;
+}
+
+.exp-apercu .exp-apercu-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 54px;
+    margin-bottom: 8px;
+}
+
+.exp-apercu .exp-apercu-image.exp-apercu-vrai {
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.exp-apercu .exp-apercu-image img { max-width: 100%; max-height: 230px; display: block; }
+.exp-apercu .exp-vignette { font-size: 40px; width: auto; }
+.exp-apercu .exp-nom { white-space: normal; word-break: break-word; }
+
+.dark-mode .exp-menu, .dark-mode .exp-apercu { background: #1e272e; border-color: #3d4852; }
+.dark-mode .exp-menu-ligne { color: #dfe6e9; }
+.dark-mode .exp-menu-ligne:hover { background: #2f3941; }
+.dark-mode .exp-apercu .exp-apercu-image.exp-apercu-vrai { background: #232b32; }
+.dark-mode .exp-plus:hover { background: #3a3560; color: #a29bfe; }
+.dark-mode .exp-carte .exp-plus { background: rgba(35, 43, 50, 0.86); }
 
 /* ===================================================
    LA BARRE DU DOCUMENT (PDF posé sur le tableau)

@@ -20,7 +20,14 @@ const fs = require('fs');
 const path = require('path');
 const { creerRapport } = require('./harness.cjs');
 
-const SOURCES = ['script.js', 'plugin.js'];
+// Les sources du nuage en font partie de plein droit : l'explorateur affiche
+// des noms de fichiers et de dossiers qu'il n'a pas écrits — ils viennent du
+// Drive, de la Dropbox ou du serveur d'un collègue.
+const SOURCES = [
+    'script.js', 'plugin.js',
+    'lib/cloud/explorateur.js', 'lib/cloud/drive.js',
+    'lib/cloud/dropbox.js', 'lib/cloud/nextcloud.js'
+];
 
 // Les champs qui portent, quelque part, du texte venu du dehors.
 const CHAMPS = /\.(name|nom|libelle|titre|memo|fileName|label|nomClasse|classeNom)\b/;
