@@ -21800,14 +21800,17 @@ function placeLaPlusProche(tb) {
     return meilleure;
 }
 
-function ouvrirLeCompositeurDeBarre(barreId) {
+// « depart » : un jeu d'outils déjà cochés et un nom proposé, pour qui arrive
+// de « Je débute » avec la panoplie de son métier en main plutôt qu'une page
+// blanche et quatre-vingt-dix cases.
+function ouvrirLeCompositeurDeBarre(barreId, depart) {
     // LE MENU QUI L'A OUVERT SE REFERME. « Composer une barre » vit désormais
     // dans le menu des réglages : laissé ouvert, il resterait posé derrière la
     // fenêtre du compositeur, et se retrouverait là au retour.
     document.getElementById('reglages-barre')?.classList.remove('visible');
     const barres = getStoredFloatingToolbars();
     const existante = barreId ? barres.find(t => t.id === barreId) : null;
-    const dejaLa = new Set((existante && existante.items) || []);
+    const dejaLa = new Set((existante && existante.items) || (depart && depart.items) || []);
     const catalogue = catalogueDesOutils();
 
     const fond = document.createElement('div');
@@ -21875,7 +21878,7 @@ function ouvrirLeCompositeurDeBarre(barreId) {
         place.appendChild(opt);
     });
 
-    nom.value = (existante && existante.name) || '';
+    nom.value = (existante && existante.name) || (depart && depart.nom) || '';
     place.value = existante ? placeLaPlusProche(existante) : 'haut-gauche';
     cols.value = String((existante && existante.cols) || 2);
     repliee.checked = !!(existante && existante.minimized);
@@ -30971,6 +30974,171 @@ function fermerLeCahier() {
 
 window.ouvrirLeCahier = ouvrirLeCahier;
 window.fermerLeCahier = fermerLeCahier;
+
+// ============================================================
+// « JE DÉBUTE » : UNE ENTRÉE PAR LE MÉTIER, ET NON PAR LE CATALOGUE
+//
+// « Ce qui serait top, c'est dans l'aide proposer un "je débute". On dit qu'on
+// est prof de telle ou telle matière, ou prof des écoles, et il nous montre ce
+// qui est disponible comme plugin. »
+//
+// Quatre-vingt-dix outils rangés en douze rubriques, c'est un catalogue de
+// vente par correspondance : on ne sait pas par où commencer, et l'on referme
+// la fenêtre. On demande donc une seule chose — ce qu'on enseigne — et l'on ne
+// montre que ce qui sert, avec de quoi en faire une barre d'un geste.
+//
+// LA LISTE DES OUTILS N'EST PAS RECOPIÉE ICI : elle est lue dans le catalogue,
+// qui est lui-même lu dans la page. Un outil ajouté demain paraît tout seul.
+// Ce qui est écrit ci-dessous, ce sont les MÉTIERS et les rubriques qu'ils
+// réclament — et une épreuve vérifie les deux sens : aucune rubrique du
+// catalogue oubliée par tout le monde, aucune rubrique réclamée ici qui
+// n'existe plus là-bas. Deux listes côte à côte finissent toujours par
+// diverger ; celle-ci ne le peut pas en silence.
+// ============================================================
+// Ce que tout le monde a, quelle que soit la matière : on écrit et l'on trace
+// partout, et le tirage au sort ne connaît pas les disciplines.
+const DEBUT_COMMUNES = ['Écrire et tracer', 'Outils Profs', 'Jeux', 'Détente'];
+
+const DEBUT_METIERS = [
+    { cle: 'ecole', nom: 'Professeur des écoles', mot: 'Du CP au CM2, toutes les matières',
+      rubriques: ['Français', 'Maths - Numérique', 'Maths - Géométrie', 'Exercices'] },
+    { cle: 'maths', nom: 'Mathématiques', mot: 'Numération, algèbre, géométrie',
+      rubriques: ['Maths - Numérique', 'Maths - Algèbre', 'Maths - Géométrie', 'Exercices'] },
+    { cle: 'lettres', nom: 'Français, lettres', mot: 'Grammaire, conjugaison, dictée',
+      rubriques: ['Français', 'Exercices'] },
+    { cle: 'sciences', nom: 'Physique-chimie, SVT', mot: 'Circuits, molécules, mesures',
+      rubriques: ['Physique-Chimie'] },
+    { cle: 'hg', nom: 'Histoire-géographie', mot: 'Frises et cartes',
+      rubriques: ['Histoire-Géographie'] },
+    { cle: 'musique', nom: 'Éducation musicale', mot: 'Portée, piano, métronome',
+      rubriques: ['Musique'] },
+    { cle: 'techno', nom: 'Technologie, informatique', mot: 'Python, algorithmique',
+      rubriques: ['Informatique'] },
+    { cle: 'autre', nom: 'Autre chose', mot: 'Langues, EPS, arts — les outils communs',
+      rubriques: [] }
+];
+
+let debutMetier = null;
+
+function metierDeCle(cle) { return DEBUT_METIERS.find(m => m.cle === cle) || null; }
+
+function outilsDuMetier(metier) {
+    const voulues = new Set(DEBUT_COMMUNES.concat((metier && metier.rubriques) || []));
+    return catalogueDesOutils().filter(o => voulues.has(o.categorie));
+}
+
+function rendreLesMetiers() {
+    const zone = document.getElementById('debut-metiers');
+    if (!zone) return;
+    zone.innerHTML = '';
+    DEBUT_METIERS.forEach(m => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'debut-metier' + (debutMetier === m.cle ? ' choisi' : '');
+        b.dataset.metier = m.cle;
+        const nom = document.createElement('span');
+        nom.className = 'debut-metier-nom';
+        nom.textContent = m.nom;
+        const mot = document.createElement('span');
+        mot.className = 'debut-metier-mot';
+        mot.textContent = m.mot;
+        b.append(nom, mot);
+        b.addEventListener('click', () => choisirUnMetier(m.cle));
+        zone.appendChild(b);
+    });
+}
+
+function rendreLesOutilsDuMetier() {
+    const zone = document.getElementById('debut-resultat');
+    const composer = document.getElementById('debut-composer');
+    if (!zone || !composer) return;
+    zone.innerHTML = '';
+    const metier = metierDeCle(debutMetier);
+    if (!metier) { composer.style.display = 'none'; return; }
+    composer.style.display = 'inline-flex';
+
+    const outils = outilsDuMetier(metier);
+    const total = catalogueDesOutils().length;
+
+    const compte = document.createElement('div');
+    compte.id = 'debut-compte';
+    compte.className = 'debut-compte';
+    compte.textContent = `${outils.length} outils pour vous, sur les ${total} que compte l'application.`;
+    zone.appendChild(compte);
+
+    const parRubrique = new Map();
+    outils.forEach(o => {
+        if (!parRubrique.has(o.categorie)) parRubrique.set(o.categorie, []);
+        parRubrique.get(o.categorie).push(o);
+    });
+
+    parRubrique.forEach((liste, rubrique) => {
+        const groupe = document.createElement('div');
+        groupe.className = 'debut-groupe';
+        // Rubriques et noms viennent des plugins : ils se posent en TEXTE.
+        const titre = document.createElement('div');
+        titre.className = 'debut-groupe-titre';
+        titre.textContent = rubrique;
+        groupe.appendChild(titre);
+        const grille = document.createElement('div');
+        grille.className = 'debut-grille';
+        liste.forEach(o => {
+            const puce = document.createElement('span');
+            puce.className = 'debut-outil';
+            puce.textContent = o.nom;
+            grille.appendChild(puce);
+        });
+        groupe.appendChild(grille);
+        zone.appendChild(groupe);
+    });
+}
+
+function choisirUnMetier(cle) {
+    debutMetier = cle;
+    try { localStorage.setItem('board_metier', cle); } catch (e) { /* stockage refusé */ }
+    rendreLesMetiers();
+    rendreLesOutilsDuMetier();
+}
+
+function composerLaBarreDuMetier() {
+    const metier = metierDeCle(debutMetier);
+    if (!metier) return;
+    const items = outilsDuMetier(metier).map(o => o.id);
+    fermerJeDebute();
+    ouvrirLeCompositeurDeBarre(null, { items, nom: metier.nom });
+}
+
+function ouvrirJeDebute() {
+    const boite = document.getElementById('debut-modal');
+    if (!boite) return;
+    if (!debutMetier) {
+        try { debutMetier = localStorage.getItem('board_metier') || null; } catch (e) { debutMetier = null; }
+        if (debutMetier && !metierDeCle(debutMetier)) debutMetier = null;
+    }
+    // L'aide se referme : deux fenêtres l'une sur l'autre, on ne sait plus
+    // laquelle répond.
+    const aide = document.getElementById('help-modal');
+    if (aide) aide.style.display = 'none';
+    boite.style.display = 'flex';
+    rendreLesMetiers();
+    rendreLesOutilsDuMetier();
+}
+
+function fermerJeDebute() {
+    const boite = document.getElementById('debut-modal');
+    if (boite) boite.style.display = 'none';
+}
+
+window.ouvrirJeDebute = ouvrirJeDebute;
+window.fermerJeDebute = fermerJeDebute;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('btn-je-debute');
+    if (b) b.addEventListener('click', ouvrirJeDebute);
+    const c = document.getElementById('debut-composer');
+    if (c) c.addEventListener('click', composerLaBarreDuMetier);
+});
+
 
 function finishInlineCreation(name) {
     if (isCompletingInline) return;

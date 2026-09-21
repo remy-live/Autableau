@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=173">
+    <link rel="stylesheet" href="style.css?v=174">
 </head>
 
 <body>
@@ -866,7 +866,10 @@
         <div class="modal-box help-content" style="max-height: 80vh; overflow-y: auto; max-width: 600px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 class="modal-title" style="margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" class="stroke-icon"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg> Aide Complète</h2>
-                <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">▶ Démonstration</button>
+                <div style="display:flex; gap:8px;">
+                    <button id="btn-je-debute" class="btn-action secondary" style="font-size: 13px; padding: 6px 12px;">✦ Je débute</button>
+                    <button id="btn-start-tour" class="btn-action primary" style="font-size: 13px; padding: 6px 12px;">▶ Démonstration</button>
+                </div>
             </div>
 
             <!-- On cherche, on ne navigue pas : un seul champ filtre toute
@@ -3503,6 +3506,26 @@
     <!-- L'AGENDA DU PROFESSEUR. Le calendrier ci-dessus regarde derrière :
          quels tableaux ont été gardés tel jour. Celui-ci dit ce qu'il y a
          cette semaine, et à quelle heure. On le remplit en déposant. -->
+    <!-- « JE DÉBUTE ». Quatre-vingt-dix outils en douze rubriques, c'est un
+         catalogue de vente par correspondance. On demande une seule chose —
+         ce qu'on enseigne — et l'on ne montre que ce qui sert. -->
+    <div id="debut-modal" class="modal-backdrop">
+        <div class="modal-box" id="debut-boite">
+            <h3 class="modal-title">Je débute</h3>
+            <p class="modal-text" id="debut-question">
+                Qu'enseignez-vous ? On ne montrera que ce qui vous sert — le reste attendra
+                que vous en ayez besoin.
+            </p>
+            <div id="debut-metiers"></div>
+            <div id="debut-resultat"></div>
+            <div class="export-actions-grid" style="display:flex; gap:10px; margin-top: 16px;">
+                <button type="button" id="debut-composer" class="btn-action primary" style="flex:2; display:none;">
+                    Composer ma barre avec ces outils</button>
+                <button type="button" onclick="fermerJeDebute()" class="btn-action secondary" style="flex:1;">Fermer</button>
+            </div>
+        </div>
+    </div>
+
     <!-- LE CAHIER DE TEXTE. Objectifs et déroulé appartiennent à la
          préparation — ils sont les mêmes pour les quatre cinquièmes ; le
          travail à faire appartient à chaque classe. -->
@@ -3587,7 +3610,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=293"></script>
+    <script src="script.js?v=294"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

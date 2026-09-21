@@ -7090,6 +7090,67 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 #edt-mode-demploi { font-size: 12px; color: #95a5a6; margin-top: 10px; line-height: 1.5; }
 
 /* ===================================================
+   « JE DÉBUTE » : LES MÉTIERS, PUIS CE QUI SERT
+   =================================================== */
+#debut-boite { max-width: 660px; width: calc(100vw - 40px); max-height: 90vh; display: flex; flex-direction: column; }
+
+#debut-metiers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.debut-metier {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+    text-align: left;
+    padding: 9px 12px;
+    border: 1px solid #dfe6e9;
+    border-radius: 9px;
+    background: #fff;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.debut-metier:hover { border-color: #b8adff; background: #faf9ff; }
+.debut-metier.choisi { border-color: #6c5ce7; background: #f0edff; }
+.debut-metier-nom { font-size: 13px; font-weight: 700; color: #2d3436; }
+.debut-metier-mot { font-size: 11px; color: #95a5a6; line-height: 1.4; }
+
+#debut-resultat { overflow: auto; min-height: 0; }
+.debut-compte { font-size: 12px; color: #636e72; margin-bottom: 10px; }
+.debut-groupe { margin-bottom: 12px; }
+
+.debut-groupe-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #b2bec3;
+    margin-bottom: 5px;
+}
+
+.debut-grille { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.debut-outil {
+    font-size: 12px;
+    color: #2d3436;
+    background: #f1f2f6;
+    border-radius: 6px;
+    padding: 3px 9px;
+}
+
+.dark-mode .debut-metier { background: #232b32; border-color: #3d4852; }
+.dark-mode .debut-metier:hover { background: #2f3941; }
+.dark-mode .debut-metier.choisi { background: #3a3560; border-color: #6c5ce7; }
+.dark-mode .debut-metier-nom { color: #dfe6e9; }
+.dark-mode .debut-outil { background: #2f3941; color: #dfe6e9; }
+
+/* ===================================================
    LE CAHIER DE TEXTE
    =================================================== */
 #cdt-boite { max-width: 620px; width: calc(100vw - 40px); max-height: 92vh; display: flex; flex-direction: column; }
