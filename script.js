@@ -22543,7 +22543,12 @@ function ouvrirLeCompositeurDeBarre(barreId, depart) {
     boite.querySelector('#compo-chercher').addEventListener('input', (e) => {
         const q = normalizePluginSearchText(e.target.value.trim());
         liste.querySelectorAll('.compo-outil').forEach(l => {
-            l.style.display = (!q || l.dataset.cherche.includes(q)) ? '' : 'none';
+            // CE QU'ON A DÉJÀ COCHÉ RESTE VISIBLE, quel que soit le filtre.
+            // Sans cela, un outil coché hors de la matière disparaissait et
+            // le compte annonçait six là où l'on en voyait quatre : on ne
+            // pouvait plus ni le voir ni le décocher.
+            const coche = l.querySelector('input') && l.querySelector('input').checked;
+            l.style.display = (coche || !q || l.dataset.cherche.includes(q)) ? '' : 'none';
         });
         // Une rubrique dont plus rien ne reste n'a plus de titre à montrer.
         liste.querySelectorAll('.compo-groupe').forEach(g => {
@@ -31800,6 +31805,73 @@ const DEBUT_METIERS = [
       rubriques: [] }
 ];
 
+// LES SIX ESSENTIELS, CHOISIS UN PAR UN.
+//
+// « Tu fais la liste des outils, on ne comprend pas. » Montrer une rubrique,
+// son compte et les quatre premiers noms qu'elle contient, c'était encore le
+// catalogue — simplement découpé en parts. Personne ne commence par « les
+// quatre premiers outils de la rubrique Maths – Numérique » : on commence par
+// ceux dont on se sert le lundi matin.
+//
+// SIX, ET PAS DOUZE. Une barre utile en porte cinq ou six ; au-delà on ne la
+// lit plus, et c'est très exactement le « tu surcharges la toolbar » qu'on
+// cherche à éviter. Six tient sur deux colonnes de trois, sous les yeux.
+//
+// L'ORDRE EST CELUI DE LA JOURNÉE, pas celui du catalogue : ce qui sert à
+// écrire d'abord, ce qui sert à montrer ensuite, ce qui sert à tenir la classe
+// à la fin.
+//
+// ET L'ON SORT DE SA MATIÈRE QUAND IL LE FAUT. Le thermomètre est rangé dans
+// les maths et sert en physique tous les jours ; le tirage au sort n'appartient
+// à personne. Les rubriques sont un filtre grossier, utile pour ne pas montrer
+// quatre-vingt-dix outils d'un coup — ce choix-ci est fin, il n'a pas à s'y
+// tenir.
+//
+// CES CLÉS NE SONT PAS DES NOMS : le nom et le dessin de chaque outil sont lus
+// dans le catalogue, qui est lui-même lu dans la page. Une épreuve vérifie que
+// chaque clé écrite ici existe là-bas — deux listes côte à côte finissent
+// toujours par diverger, celle-ci ne le peut pas en silence.
+// LES CLÉS SONT CELLES DU CATALOGUE, C'EST-À-DIRE LES NOMS FRANÇAIS. Ce n'est
+// pas un choix d'écriture : c'est l'identité qu'emploient déjà les favoris et
+// les barres flottantes, et s'en écarter ici aurait fait deux nommages pour
+// une même chose. On les a d'abord écrites en clés de plugin — « pianoTool » —
+// et RIEN NE S'EST CASSÉ : la liste des six revenait simplement vide, et le
+// compositeur s'ouvrait sans rien de coché, exactement comme avant. C'est
+// pourquoi l'épreuve ci-dessous ne se contente pas de compter : elle exige que
+// chaque clé soit retrouvée.
+const DEBUT_ESSENTIELS = {
+    ecole: ['Lignes d\'écriture', 'Matériel Base 10', 'Horloge Pédagogique',
+            'Fraction Visuelle', 'Tirage au sort & Groupes', 'Signalisation'],
+    maths: ['Repère Cartésien', 'Traceur de Fonctions', 'Tampon Instruments',
+            'Formules Mathématiques', 'Tableau Signes & Variations',
+            'Figures Géométriques'],
+    lettres: ['Analyse grammaticale', 'Conjugueur', 'Lecteur de dictée',
+              'Lignes d\'écriture', 'Le Mot le Plus Long',
+              'Tirage au sort & Groupes'],
+    sciences: ['Circuits Électriques', 'Verrerie', 'Molécules 2D',
+               'Thermomètre', 'Tableur Interactif', 'Graphique Statistique'],
+    hg: ['Frise Historique', 'Atelier cartes', 'Tableau',
+         'Fenêtre web : GeoGebra, Python…', 'QR Code', 'Tirage au sort & Groupes'],
+    musique: ['Portée Musicale', 'Piano Virtuel', 'Métronome Pro',
+              'Accordeur Pro', 'Sonomètre de Classe', 'Tirage au sort & Groupes'],
+    techno: ['Python : écrire et exécuter un programme', 'Algorithmes (Scratch)',
+             'Tableur Interactif', 'Fenêtre web : GeoGebra, Python…', 'QR Code',
+             'Tirage au sort & Groupes'],
+    autre: ['Tirage au sort & Groupes', 'Signalisation', 'Sonomètre de Classe',
+            'Points de classe', 'Calendrier & Affichages', 'QR Code']
+};
+
+// Les six d'un métier, tels que le catalogue les connaît — nom et dessin
+// compris. Une clé qui n'existerait plus est simplement passée : mieux vaut
+// cinq outils qu'une fenêtre qui se casse devant quelqu'un qui débute.
+function essentielsDuMetier(metier) {
+    const clefs = (metier && DEBUT_ESSENTIELS[metier.cle]) || [];
+    const catalogue = catalogueDesOutils();
+    return clefs.map(c => catalogue.find(o => o.id === c)).filter(Boolean);
+}
+window.DEBUT_ESSENTIELS = DEBUT_ESSENTIELS;
+window.essentielsDuMetier = essentielsDuMetier;
+
 let debutMetier = null;
 
 function metierDeCle(cle) { return DEBUT_METIERS.find(m => m.cle === cle) || null; }
@@ -31833,19 +31905,63 @@ function rendreLesMetiers() {
 function rendreLesOutilsDuMetier() {
     const zone = document.getElementById('debut-resultat');
     const composer = document.getElementById('debut-composer');
+    const creer = document.getElementById('debut-creer');
     if (!zone || !composer) return;
     zone.innerHTML = '';
     const metier = metierDeCle(debutMetier);
-    if (!metier) { composer.style.display = 'none'; return; }
+    if (!metier) {
+        composer.style.display = 'none';
+        if (creer) creer.style.display = 'none';
+        return;
+    }
     composer.style.display = 'inline-flex';
+    if (creer) creer.style.display = 'inline-flex';
 
     const outils = outilsDuMetier(metier);
     const total = catalogueDesOutils().length;
 
+    // LES SIX D'ABORD, ET AVEC LEUR DESSIN. C'est la réponse à « on ne
+    // comprend pas » : un nom seul ne dit rien, le dessin qu'on retrouvera
+    // dans le tiroir, si. Le reste — les rubriques et leurs comptes — vient
+    // après, pour ceux qui veulent voir l'étendue.
+    const six = essentielsDuMetier(metier);
+    if (six.length) {
+        const bloc = document.createElement('div');
+        bloc.className = 'debut-six';
+        bloc.id = 'debut-six';
+        const titre = document.createElement('div');
+        titre.className = 'debut-six-titre';
+        titre.textContent = 'Pour commencer, ces ' + six.length + ' outils';
+        const mot = document.createElement('div');
+        mot.className = 'debut-six-mot';
+        mot.textContent = 'Dans l\u2019ordre o\u00f9 l\u2019on s\u2019en sert. Le bouton ci-dessous en fait une barre \u00e0 vous.';
+        bloc.append(titre, mot);
+        const grille = document.createElement('div');
+        grille.className = 'debut-six-grille';
+        six.forEach(o => {
+            const carte = document.createElement('div');
+            carte.className = 'debut-six-outil';
+            carte.dataset.outil = o.id;
+            const dessin = document.createElement('span');
+            dessin.className = 'debut-six-icone';
+            // Le dessin vient du bouton du tiroir : c'est le MÊME qu'on
+            // retrouvera là-bas, et c'est tout l'intérêt de le montrer ici.
+            if (/^\s*<svg/i.test(o.icone || '')) dessin.innerHTML = o.icone;
+            else dessin.textContent = (o.icone || '').slice(0, 2);
+            const nom = document.createElement('span');
+            nom.className = 'debut-six-nom';
+            nom.textContent = o.nom;
+            carte.append(dessin, nom);
+            grille.appendChild(carte);
+        });
+        bloc.appendChild(grille);
+        zone.appendChild(bloc);
+    }
+
     const compte = document.createElement('div');
     compte.id = 'debut-compte';
     compte.className = 'debut-compte';
-    compte.textContent = `${outils.length} outils pour vous, sur les ${total} que compte l'application.`;
+    compte.textContent = `Et ${outils.length} outils en tout pour vous, sur les ${total} que compte l'application.`;
     zone.appendChild(compte);
 
     const parRubrique = new Map();
@@ -31896,20 +32012,73 @@ function choisirUnMetier(cle) {
     rendreLesOutilsDuMetier();
 }
 
-// ON N'EN COCHE AUCUN.
+// LE BOUTON FAIT LA BARRE. IL N'OUVRE PLUS UN CATALOGUE.
 //
-// « Et après tu surcharges la toolbar de base de gauche, pas ouf. » C'était
-// juste : cocher d'office les cinquante outils d'un métier fabrique une barre
-// que personne ne peut lire, et l'inverse exact de ce qu'un débutant demande.
-// Une barre utile en porte cinq ou six. Le compositeur s'ouvre donc filtré sur
-// la matière — on ne voit que ce qui sert — et vide : c'est l'enseignant qui
-// choisit les siens, et il en choisira peu.
+// « Et après tu surcharges la toolbar de base de gauche, pas ouf. » Cocher
+// d'office les cinquante outils d'un métier fabriquait une barre illisible.
+// Mais ouvrir un compositeur vide de quatre-vingt-dix cases n'était guère
+// mieux pour quelqu'un qui débute : on lui rendait la question qu'il venait
+// de poser.
+//
+// Un seul appui pose donc une vraie barre, avec les six, à droite au milieu —
+// loin de la barre d'écriture, et non par-dessus. Elle se déplace, se replie
+// et se modifie comme toutes les autres : rien n'est figé, et l'on a quelque
+// chose sous les yeux dans la seconde.
+//
+// « CHOISIR MOI-MÊME » RESTE, juste à côté, et ouvre le compositeur AVEC LES
+// SIX DÉJÀ COCHÉS : on part de quelque chose plutôt que de rien, on enlève ce
+// qu'on ne veut pas. Deux boutons visibles, aucun appui long — « évite les
+// appuis longs et courts ».
+function creerLaBarreDuMetier() {
+    const metier = metierDeCle(debutMetier);
+    if (!metier) return false;
+    const six = essentielsDuMetier(metier);
+    if (!six.length) return false;
+    const items = six.map(o => o.id);
+    const t = tailleSupposeeDeLaBarre(items.length, 2);
+    const ou = PLACES_DE_BARRE['droite'];
+    const pos = ou.ou(t.l, t.h);
+    const toutes = getStoredFloatingToolbars();
+    // ON N'EN FAIT PAS DEUX. Qui revient sur « Je débute » et appuie à nouveau
+    // ne doit pas se retrouver avec deux barres identiques l'une sur l'autre :
+    // celle de ce métier se retrouve par son nom et se remplace.
+    const ancienne = toutes.find(x => x && x.name === metier.nom);
+    if (ancienne) {
+        ancienne.items = items;
+        ancienne.cols = 2;
+        ancienne.minimized = false;
+        ancienne.x = pos.x; ancienne.y = pos.y;
+    } else {
+        toutes.push({
+            id: 'floating-' + Date.now(),
+            name: metier.nom,
+            x: pos.x, y: pos.y,
+            titlePalette: 'default', palette: 'default', borderPalette: 'default',
+            iconSize: '1', cols: 2, minimized: false,
+            items
+        });
+    }
+    saveStoredFloatingToolbars(toutes);
+    renderFloatingToolbars();
+    fermerJeDebute();
+    if (typeof showToast === 'function') {
+        showToast('\ud83e\uddf0 ' + metier.nom + ' \u2014 ' + items.length
+            + ' outils, \u00e0 droite. Attrapez son titre pour la d\u00e9placer.');
+    }
+    return true;
+}
+
 function composerLaBarreDuMetier() {
     const metier = metierDeCle(debutMetier);
     if (!metier) return;
     fermerJeDebute();
-    ouvrirLeCompositeurDeBarre(null, { nom: metier.nom, chercher: metier.rubriques[0] || '' });
+    ouvrirLeCompositeurDeBarre(null, {
+        nom: metier.nom,
+        items: essentielsDuMetier(metier).map(o => o.id),
+        chercher: metier.rubriques[0] || ''
+    });
 }
+window.creerLaBarreDuMetier = creerLaBarreDuMetier;
 
 function ouvrirJeDebute() {
     const boite = document.getElementById('debut-modal');
@@ -31940,6 +32109,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (b) b.addEventListener('click', ouvrirJeDebute);
     const c = document.getElementById('debut-composer');
     if (c) c.addEventListener('click', composerLaBarreDuMetier);
+    const cr = document.getElementById('debut-creer');
+    if (cr) cr.addEventListener('click', creerLaBarreDuMetier);
 });
 
 

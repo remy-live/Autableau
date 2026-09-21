@@ -166,11 +166,13 @@ module.exports = async function (browser) {
     });
     r.verifie('« Composer ma barre » ouvre le compositeur', barre.ouvert, JSON.stringify(barre));
     r.verifie('et referme la fenêtre de départ', barre.debutFerme, JSON.stringify(barre));
-    // ET IL N'EN COCHE AUCUN. « Après, tu surcharges la toolbar de base de
-    // gauche, pas ouf. » Une barre utile en porte cinq ou six, pas cinquante :
-    // c'est l'enseignant qui choisit, sur une liste déjà filtrée sur sa matière.
-    r.egal('aucun outil n\'est coché d\'office', barre.coches, 0);
-    r.verifie('le compositeur le dit', /aucun outil/i.test(barre.compte), barre.compte);
+    // ET IL EN COCHE SIX, PAS CINQUANTE. « Après, tu surcharges la toolbar de
+    // base de gauche, pas ouf. » Cocher les cinquante outils d'un métier
+    // faisait une barre illisible ; n'en cocher aucun rendait à un débutant la
+    // question qu'il venait de poser. Les six essentiels sont le milieu : on
+    // part de quelque chose, on enlève ce qu'on ne veut pas.
+    r.egal('les six essentiels sont cochés, et eux seuls', barre.coches, 6);
+    r.verifie('le compositeur le dit', /6 outils/i.test(barre.compte), barre.compte);
     r.verifie('mais il s\'ouvre filtré sur la matière',
         /musique/i.test(barre.filtre), barre.filtre);
     r.verifie('et ce qu\'il montre est bien moins que tout le catalogue',
@@ -204,6 +206,180 @@ module.exports = async function (browser) {
         listes.fantomes, []);
     r.verifie('les métiers sont assez nombreux pour que la question ait un sens',
         listes.metiers >= 6, String(listes.metiers));
+
+    // ==================================================================
+    // LES SIX ESSENTIELS
+    //
+    // « Tu fais la liste des outils, on ne comprend pas. » La rubrique, son
+    // compte et les quatre premiers noms qu'elle contient : c'était encore le
+    // catalogue, simplement découpé en parts. Six outils NOMMÉS par métier, et
+    // dans l'ordre où l'on s'en sert.
+    //
+    // LA GARDE EST QU'ILS SOIENT RETROUVÉS, et non qu'il y en ait six. Ils ont
+    // d'abord été écrits en clés de plugin — « pianoTool » — alors que le
+    // catalogue s'identifie par les noms français : la liste revenait vide,
+    // le compositeur s'ouvrait sans rien de coché, et TOUT LE CHAPITRE PASSAIT
+    // comme avant. Un défaut qui ne casse rien est celui qu'il faut nommer.
+    // ==================================================================
+    const six = await page.evaluate(() => {
+        const catalogue = catalogueDesOutils();
+        const ids = new Set(catalogue.map(o => o.id));
+        const introuvables = {};
+        const comptes = {};
+        Object.keys(DEBUT_ESSENTIELS).forEach(cle => {
+            const liste = DEBUT_ESSENTIELS[cle];
+            comptes[cle] = liste.length;
+            const perdus = liste.filter(x => !ids.has(x));
+            if (perdus.length) introuvables[cle] = perdus;
+        });
+        return {
+            introuvables, comptes,
+            metiers: Object.keys(DEBUT_ESSENTIELS).sort(),
+            attendus: DEBUT_METIERS.map(m => m.cle).sort(),
+            // Ce que la fonction rend vraiment, et non ce que la table promet.
+            rendus: DEBUT_METIERS.map(m => essentielsDuMetier(m).length),
+            // Deux fois le même outil dans une barre de six, c'est une place
+            // perdue sur six.
+            doublons: Object.keys(DEBUT_ESSENTIELS)
+                .filter(c => new Set(DEBUT_ESSENTIELS[c]).size !== DEBUT_ESSENTIELS[c].length)
+        };
+    });
+    r.egal('chaque outil essentiel existe bel et bien dans le catalogue',
+        six.introuvables, {});
+    r.egal('chaque métier a les siens', six.metiers, six.attendus);
+    r.verifie('ils sont six partout',
+        Object.keys(six.comptes).every(c => six.comptes[c] === 6), JSON.stringify(six.comptes));
+    r.verifie('et six sont vraiment rendus, pas cinq ni zéro',
+        six.rendus.every(n => n === 6), JSON.stringify(six.rendus));
+    r.egal('aucun n\'est nommé deux fois', six.doublons, []);
+
+    // ON LES VOIT, AVEC LEUR DESSIN. Un nom seul ne dit rien ; le dessin, lui,
+    // est celui qu'on retrouvera dans le tiroir des outils.
+    const vus = await page.evaluate(async () => {
+        ouvrirJeDebute();
+        document.querySelector('.debut-metier[data-metier="lettres"]').click();
+        await new Promise(ok => setTimeout(ok, 150));
+        const cartes = [...document.querySelectorAll('.debut-six-outil')];
+        const bloc = document.getElementById('debut-six');
+        const resultat = document.getElementById('debut-resultat');
+        return {
+            combien: cartes.length,
+            noms: cartes.map(c => c.querySelector('.debut-six-nom').textContent),
+            avecDessin: cartes.filter(c => c.querySelector('.debut-six-icone svg')).length,
+            // Ils passent AVANT les rubriques : c'est par eux qu'on commence.
+            avantLesRubriques: !!bloc && [...resultat.children].indexOf(bloc) === 0,
+            creerVu: getComputedStyle(document.getElementById('debut-creer')).display !== 'none',
+            creerTexte: document.getElementById('debut-creer').textContent.trim(),
+            composerTexte: document.getElementById('debut-composer').textContent.trim()
+        };
+    });
+    r.egal('les six paraissent', vus.combien, 6);
+    r.verifie('le conjugueur est du nombre, pour le professeur de lettres',
+        vus.noms.some(n => /[Cc]onjug/.test(n)), JSON.stringify(vus.noms));
+    r.verifie('et la dictée aussi',
+        vus.noms.some(n => /dict/i.test(n)), JSON.stringify(vus.noms));
+    r.egal('chacun montre son dessin', vus.avecDessin, 6);
+    r.verifie('ils passent avant les rubriques', vus.avantLesRubriques, JSON.stringify(vus));
+    r.verifie('le bouton qui fait la barre est là', vus.creerVu, JSON.stringify(vus));
+    r.verifie('et il dit qu\'il la crée', /cr[ée]er/i.test(vus.creerTexte), vus.creerTexte);
+    r.verifie('l\'autre laisse choisir soi-même', /choisir/i.test(vus.composerTexte),
+        vus.composerTexte);
+
+    // UN APPUI, UNE BARRE. On ne rend pas un compositeur de quatre-vingt-dix
+    // cases à quelqu'un qui vient de demander par où commencer.
+    const faite = await page.evaluate(async () => {
+        localStorage.removeItem('board_floating_toolbars');
+        renderFloatingToolbars();
+        document.querySelector('.debut-metier[data-metier="musique"]').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        // La barre principale du tableau existe toujours, et se refait toute
+        // seule : on compte donc CE QUI S'AJOUTE, et l'on cherche la sienne
+        // par son nom plutôt que par son rang.
+        const avant = getStoredFloatingToolbars().length;
+        const fait = creerLaBarreDuMetier();
+        await new Promise(ok => setTimeout(ok, 200));
+        const barres = getStoredFloatingToolbars();
+        const mienne = barres.find(b => /musi/i.test(b.name || ''));
+        return {
+            fait, avant, combien: barres.length, laTrouve: !!mienne,
+            nom: mienne ? mienne.name : '',
+            outils: mienne ? mienne.items.length : 0,
+            colonnes: mienne ? mienne.cols : 0,
+            repliee: mienne ? !!mienne.minimized : null,
+            aDroite: mienne ? mienne.x > window.innerWidth / 2 : null,
+            dessinee: mienne ? document.querySelectorAll('#custom-bars-container .custom-toolbar[data-toolbar-id="' + mienne.id + '"]').length : 0,
+            debutFerme: getComputedStyle(document.getElementById('debut-modal')).display === 'none'
+        };
+    });
+    r.verifie('un appui pose la barre', faite.fait === true, JSON.stringify(faite));
+    r.verifie('on la retrouve à son nom', faite.laTrouve, JSON.stringify(faite));
+    r.egal('une barre de plus, pas deux', faite.combien, faite.avant + 1);
+    r.egal('elle porte les six', faite.outils, 6);
+    r.verifie('elle porte le nom du métier', /musi/i.test(faite.nom), faite.nom);
+    r.egal('sur deux colonnes, pour qu\'on la lise d\'un coup d\'œil', faite.colonnes, 2);
+    r.verifie('elle n\'arrive pas repliée', faite.repliee === false, JSON.stringify(faite));
+    r.verifie('et à droite, loin de la barre d\'écriture', faite.aDroite, JSON.stringify(faite));
+    r.verifie('elle est vraiment dessinée', faite.dessinee >= 1, JSON.stringify(faite));
+    r.verifie('et la fenêtre se referme', faite.debutFerme, JSON.stringify(faite));
+
+    // ON N'EN FAIT PAS DEUX. Revenir et appuyer à nouveau remplace la sienne
+    // plutôt que d'en empiler une seconde, identique, par-dessus.
+    const deuxFois = await page.evaluate(async () => {
+        ouvrirJeDebute();
+        document.querySelector('.debut-metier[data-metier="musique"]').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        creerLaBarreDuMetier();
+        await new Promise(ok => setTimeout(ok, 150));
+        const deMetier = () => getStoredFloatingToolbars()
+            .filter(b => DEBUT_METIERS.some(m => m.nom === b.name));
+        const apresMeme = deMetier().length;
+        ouvrirJeDebute();
+        document.querySelector('.debut-metier[data-metier="lettres"]').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        creerLaBarreDuMetier();
+        await new Promise(ok => setTimeout(ok, 150));
+        return { apresMeme, apresAutre: deMetier().length,
+                 noms: deMetier().map(b => b.name) };
+    });
+    r.egal('appuyer deux fois pour le même métier ne fait qu\'une barre', deuxFois.apresMeme, 1);
+    r.egal('mais un autre métier a la sienne', deuxFois.apresAutre, 2);
+
+    // « CHOISIR MOI-MÊME » PART DES SIX, et non de rien.
+    const aLaMain = await page.evaluate(async () => {
+        ouvrirJeDebute();
+        document.querySelector('.debut-metier[data-metier="musique"]').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        document.getElementById('debut-composer').click();
+        await new Promise(ok => setTimeout(ok, 250));
+        const compo = document.getElementById('compositeur-de-barre');
+        const coches = compo ? [...compo.querySelectorAll('.compo-outil input:checked')] : [];
+        return {
+            ouvert: !!compo,
+            coches: coches.length,
+            // ET CE QU'ON A COCHÉ NE SE CACHE PAS DERRIÈRE LE FILTRE : deux
+            // des six sont hors de la matière, et le filtre les effaçait — on
+            // lisait « 6 outils » en n'en voyant que quatre.
+            cochesVisibles: coches.filter(i => {
+                const l = i.closest('.compo-outil');
+                return l && l.style.display !== 'none';
+            }).length,
+            filtre: compo ? compo.querySelector('#compo-chercher').value : '',
+            compte: compo ? compo.querySelector('#compo-compte').textContent : ''
+        };
+    });
+    r.verifie('« Choisir moi-même » ouvre bien le compositeur', aLaMain.ouvert, JSON.stringify(aLaMain));
+    r.egal('les six y sont déjà cochés', aLaMain.coches, 6);
+    r.egal('et tous les six se voient, malgré le filtre', aLaMain.cochesVisibles, 6);
+    r.verifie('qui reste posé sur la matière', /musi/i.test(aLaMain.filtre), aLaMain.filtre);
+    r.verifie('et le compte annoncé est celui-là', /6/.test(aLaMain.compte), aLaMain.compte);
+
+    await page.evaluate(() => {
+        const c = document.getElementById('compositeur-de-barre');
+        if (c) c.querySelector('#compo-annuler').click();
+        localStorage.removeItem('board_floating_toolbars');
+        renderFloatingToolbars();
+        fermerJeDebute();
+    });
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

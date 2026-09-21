@@ -7136,6 +7136,67 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .debut-metier-mot { font-size: 11px; color: #95a5a6; line-height: 1.4; }
 
 #debut-resultat { overflow: auto; min-height: 0; }
+/* LES SIX ESSENTIELS. Ils passent AVANT les rubriques et ils ont leur dessin :
+   un nom seul ne dit rien, le dessin qu'on retrouvera dans le tiroir, si. */
+.debut-six {
+    margin: 2px 0 14px;
+    padding: 12px;
+    border: 1px solid var(--contour, rgba(0, 0, 0, 0.10));
+    border-radius: 10px;
+    background: rgba(116, 185, 255, 0.10);
+}
+
+.debut-six-titre { font-size: 13px; font-weight: 700; color: #2d3436; }
+.debut-six-mot { font-size: 11px; color: #636e72; margin: 2px 0 10px; }
+
+/* Deux colonnes de trois : six tient sous les yeux sans qu'on fasse défiler. */
+.debut-six-grille {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.debut-six-outil {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.debut-six-icone {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    color: #0984e3;
+}
+
+.debut-six-icone svg { width: 20px; height: 20px; }
+
+/* Un nom d'outil peut être long : il va à la ligne plutôt que de déborder. */
+.debut-six-nom {
+    min-width: 0;
+    font-size: 12px;
+    color: #2d3436;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.dark-mode .debut-six { background: rgba(9, 132, 227, 0.16); }
+.dark-mode .debut-six-titre, .dark-mode .debut-six-nom { color: #dfe6e9; }
+.dark-mode .debut-six-mot { color: #b2bec3; }
+.dark-mode .debut-six-outil { background: #2f3941; border-color: #3d4852; }
+
+@media (max-width: 520px) {
+    .debut-six-grille { grid-template-columns: minmax(0, 1fr); }
+}
+
 .debut-compte { font-size: 12px; color: #636e72; margin-bottom: 10px; }
 .debut-groupe { margin-bottom: 12px; }
 
