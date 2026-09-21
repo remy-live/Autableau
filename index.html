@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=181">
+    <link rel="stylesheet" href="style.css?v=182">
 </head>
 
 <body>
@@ -3639,6 +3639,25 @@
                 <button type="button" id="edt-recopier" class="btn-action secondary">Recopier sur l'autre semaine</button>
                 <label class="edt-option"><input type="checkbox" id="edt-alterne"> Semaines A et B</label>
                 <label class="edt-option"><input type="checkbox" id="edt-samedi"> Samedi</label>
+                <!-- LA JOURNÉE ET LE ZOOM, TOUJOURS VISIBLES. La grille allait
+                     de 7 h à 19 h pour tout le monde : un professeur des
+                     écoles y voyait cinq heures de vide, et ses cours
+                     faisaient quarante-six pixels de haut. -->
+                <span class="edt-reglage" id="edt-journee">
+                    <span class="edt-reglage-titre">Ma journée</span>
+                    <button type="button" class="edt-pas" data-journee="debut" data-sens="-1" aria-label="Commencer une heure plus tôt">−</button>
+                    <b id="edt-journee-lue">8 h – 18 h</b>
+                    <button type="button" class="edt-pas" data-journee="debut" data-sens="1" aria-label="Commencer une heure plus tard">+</button>
+                    <span class="edt-reglage-sep">·</span>
+                    <button type="button" class="edt-pas" data-journee="fin" data-sens="-1" aria-label="Finir une heure plus tôt">−</button>
+                    <button type="button" class="edt-pas" data-journee="fin" data-sens="1" aria-label="Finir une heure plus tard">+</button>
+                </span>
+                <span class="edt-reglage" id="edt-zoom">
+                    <span class="edt-reglage-titre">Hauteur</span>
+                    <button type="button" class="edt-pas" data-zoom="-1" aria-label="Des cours plus courts">−</button>
+                    <b id="edt-zoom-lu">100 %</b>
+                    <button type="button" class="edt-pas" data-zoom="1" aria-label="Des cours plus hauts">+</button>
+                </span>
                 <span id="edt-ancre"></span>
             </div>
             <div id="edt-corps">
@@ -3646,10 +3665,11 @@
                 <div id="edt-grille"></div>
             </div>
             <div id="edt-mode-demploi" class="modal-text">
-                <b>Tracez directement sur la grille</b> pour créer une heure — on vous demandera
-                son nom. Ou prenez une classe à gauche et déposez-la. Ensuite : glissez le créneau
-                pour le déplacer, tirez son bord du bas pour l'allonger, appuyez dessus pour le
-                renommer, « × » pour le retirer.
+                <b>Tracez directement sur la grille</b> pour créer une heure. Ou prenez une classe
+                à gauche et déposez-la — un aperçu vous montre où elle tombera. Ensuite : glissez le
+                créneau pour le déplacer, tirez sa barre du haut ou du bas pour changer son début ou
+                sa fin, « ⋯ » pour saisir l'horaire exact au clavier, « × » pour le retirer.
+                <b>Échap</b> annule le geste en cours.
             </div>
             <div class="export-actions-grid" style="display:flex; margin-top: 16px;">
                 <button onclick="fermerLAgenda()" class="btn-action secondary" style="flex:1;">Fermer</button>
@@ -3662,7 +3682,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=303"></script>
+    <script src="script.js?v=304"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=110"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

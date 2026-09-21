@@ -7043,10 +7043,63 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .edt-colonne:last-child .edt-jour { border-right: 1px solid #f1f2f6; }
-.edt-ligne { position: absolute; left: 0; right: 0; height: 1px; background: #f1f2f6; }
+.edt-ligne { position: absolute; left: 0; right: 0; height: 1px; background: #e8eaed; }
+/* On se repère à l'heure, on se cale à la demie : elle se voit moins. */
+.edt-ligne.edt-demie { background: #f4f5f7; }
+
+/* LA COLONNE VISÉE S'ALLUME. Au doigt, la main cache ce qu'elle touche : il
+   faut que le JOUR se voie, et pas seulement l'endroit. */
+.edt-jour.edt-vise { background: #f6f4ff; }
+.edt-jour.edt-vise + .edt-titre, .edt-colonne:has(.edt-vise) .edt-titre {
+    color: #6c5ce7;
+    font-weight: 700;
+}
+
+/* ==================================================================
+   L'ÉCHELLE LOCALE DE LA COLONNE, à lire d'un bloc — c'est le défaut du
+   jour, on ne le refait pas :
+     .edt-ligne  auto  le fond
+     .edt-trace    1   d'où le bloc est parti
+     .edt-apercu   2   au-dessus de la trace, SOUS les créneaux : sinon il
+                       masquerait le voisin contre lequel on cale
+     .edt-creneau  3
+     .edt-en-main  5   au-dessus de tout le reste de sa colonne
+   ================================================================== */
+.edt-trace {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    border: 2px dashed #b2bec3;
+    border-radius: 6px;
+    background: rgba(178, 190, 195, 0.10);
+    pointer-events: none;
+}
+
+/* L'APERÇU : le vrai fantôme. Il est DANS la colonne, à la place et à la
+   taille exactes du créneau à venir — on voit où ça tombe, ce qui est la
+   seule chose qu'on cherche à savoir en glissant. Étant un enfant de la
+   colonne, il n'a aucun z-index global à disputer à la fenêtre. */
+.edt-apercu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    box-sizing: border-box;
+    border: 2px dashed #6c5ce7;
+    border-radius: 6px;
+    padding: 3px 5px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow: hidden;
+    opacity: 0.85;
+    pointer-events: none;
+}
 
 .edt-creneau {
     position: absolute;
+    z-index: 3;
     box-sizing: border-box;
     border-radius: 6px;
     border: 1px solid rgba(0, 0, 0, 0.07);
@@ -7054,52 +7107,144 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     overflow: hidden;
     cursor: grab;
     font-size: 11px;
-    color: #2d3436;
+    /* Le doigt fait glisser le créneau, il ne fait pas défiler la page. */
+    touch-action: none;
 }
 
-.edt-creneau.edt-en-main { opacity: 0.75; cursor: grabbing; }
+/* LE BLOC TENU SE DISTINGUE. Il s'effaçait à 75 % — au doigt, on ne voyait
+   plus ce qu'on déplaçait. Il se soulève au contraire, et il passe au-dessus
+   de toute sa colonne. */
+.edt-creneau.edt-en-main {
+    z-index: 5;
+    cursor: grabbing;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    outline: 2px solid #6c5ce7;
+    outline-offset: -1px;
+}
 .edt-creneau-nom { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .edt-creneau-heure { display: block; font-size: 10px; opacity: 0.6; }
 
-.edt-oter {
+/* LES BOUTONS DU CRÉNEAU NE SE SURVOLENT PLUS. Au doigt, le survol n'existe
+   pas : un bouton qui ne paraît qu'au survol ne paraît JAMAIS sur un tableau
+   de classe. Ils sont là, discrets mais présents. */
+.edt-oter, .edt-regler {
     position: absolute;
     top: 1px;
-    right: 1px;
-    width: 17px;
-    height: 17px;
+    z-index: 2;
+    width: 19px;
+    height: 19px;
     border: none;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.72);
     color: #636e72;
     font-size: 12px;
     line-height: 1;
+    padding: 0;
     cursor: pointer;
-    opacity: 0;
+    touch-action: none;
 }
 
-.edt-creneau:hover .edt-oter { opacity: 1; }
+.edt-oter { right: 1px; }
+.edt-regler { right: 22px; font-size: 14px; }
+.edt-oter:hover, .edt-regler:hover { background: #ffffff; color: #2d3436; }
 
-/* Le bord du bas s'attrape pour allonger le cours. */
+/* DEUX BARRES, EN HAUT ET EN BAS, ET ON LES VOIT. On ne pouvait allonger que
+   par le bas — donc jamais avancer le début d'un cours sans le déplacer
+   entier — et rien ne disait où attraper. */
 .edt-poignee {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 0;
-    height: 7px;
+    z-index: 1;
+    height: 12px;
     cursor: ns-resize;
+    touch-action: none;
 }
 
+.edt-poignee-haut { top: 0; }
+.edt-poignee-bas { bottom: 0; }
+
+.edt-poignee::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: 26px;
+    margin-left: -13px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(45, 52, 54, 0.22);
+}
+
+.edt-poignee-haut::after { top: 2px; }
+.edt-poignee-bas::after { bottom: 2px; }
+
+/* LA PASTILLE D'HEURE. Elle était à 100040, sous la fenêtre de l'emploi du
+   temps qui est une « modal-backdrop » à 100050 : dix unités, et l'on ne
+   voyait jamais rien — « le drag and drop est invisible, on ne voit pas les
+   fantômes ». Elle monte à 200060, JUSTE AU-DESSUS du fantôme de l'analyse
+   grammaticale (200050) et non à égalité avec lui : une égalité de z-index a
+   déjà produit un bug ici, et l'on n'y revient pas. En dessous restent les
+   questions (200100) et l'infobulle (200200), qui doit rester la plus haute.
+   Elle se pose quarante-quatre pixels AU-DESSUS du doigt : la seule zone
+   qu'une main ne couvre jamais. */
 #edt-fantome {
     position: fixed;
-    z-index: 100040;
+    z-index: 200060;
+    transform: translateX(-50%);
     pointer-events: none;
-    padding: 5px 9px;
+    padding: 7px 11px;
     border-radius: 7px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
-    color: #2d3436;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    white-space: nowrap;
+    background: #1e272e;
+    color: #ffffff;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.32);
 }
+
+#edt-fantome.edt-refus { background: #c0392b; }
+
+/* LES RÉGLAGES DE L'EN-TÊTE : des boutons, jamais un menu enfoui. */
+.edt-reglage {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted, #636e72);
+}
+
+.edt-reglage-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #b2bec3;
+    margin-right: 2px;
+}
+
+.edt-reglage-sep { color: #dfe6e9; }
+.edt-reglage b { color: var(--ink, #2d3436); font-variant-numeric: tabular-nums; }
+
+.edt-pas {
+    min-width: 26px;
+    height: 26px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.edt-pas:hover { background: #f1f2f6; }
+
+.dark-mode .edt-ligne { background: #333c44; }
+.dark-mode .edt-ligne.edt-demie { background: #2c343b; }
+.dark-mode .edt-jour.edt-vise { background: #2d2a44; }
+.dark-mode .edt-pas { color: #dfe6e9; border-color: #3d4852; }
+.dark-mode .edt-pas:hover { background: #3d4852; }
 
 #edt-mode-demploi { font-size: 12px; color: #95a5a6; margin-top: 10px; line-height: 1.5; }
 

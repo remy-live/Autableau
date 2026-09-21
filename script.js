@@ -20136,7 +20136,16 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             colorWrap.style.display = 'flex'; colorWrap.style.gap = '10px'; colorWrap.style.alignItems = 'center';
             colorWrap.style.padding = '4px 0';
 
-            const colors = ['#2d3436', '#0984e3', '#d63031', '#00b894', '#e17055', '#6c5ce7'];
+            // LE NUANCIER PEUT ÊTRE DONNÉ PAR L'APPELANT. Celui d'origine
+            // proposait six couleurs dont la première était exactement
+            // l'encre du texte — on choisissait « noir sur noir » sans le
+            // savoir — et aucune n'était une couleur de la grille. Qui a ses
+            // propres teintes les passe, et la roue vers le sélecteur du
+            // système s'efface : une fenêtre étrangère par-dessus le tableau,
+            // au milieu d'un cours, n'est pas un geste.
+            const propres = Array.isArray(field.couleurs) && field.couleurs.length;
+            const colors = propres ? field.couleurs
+                : ['#2d3436', '#0984e3', '#d63031', '#00b894', '#e17055', '#6c5ce7'];
             const wheelBtn = document.createElement('div');
 
             const renderSwatches = () => {
@@ -20182,6 +20191,11 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
                 }
             });
 
+            if (propres) {
+                wheelBtn.style.display = 'none';
+                colorWrap.style.flexWrap = 'wrap';
+                colorWrap.style.maxWidth = '100%';
+            }
             colorWrap.appendChild(wheelBtn); colorWrap.appendChild(inp);
             renderSwatches();
             wrap.appendChild(lbl); wrap.appendChild(colorWrap);
@@ -30810,23 +30824,83 @@ function showCalendarResults(dateStr, saves) {
 // l'enseignant qui l'a dit une fois pour toutes.
 // ============================================================
 const CLE_AGENDA = 'board_agenda';
-const EDT_DEBUT = 7 * 60;               // la grille ouvre à 7 h
-const EDT_FIN = 19 * 60;                // et ferme à 19 h
-const EDT_PAS = 5;                      // on se cale sur cinq minutes
-const EDT_MINIMUM = 25;                 // un créneau plus court que ça n'existe pas
+
+// LA GRILLE N'EST PLUS LA MÊME POUR TOUT LE MONDE.
+//
+// Elle allait de 7 h à 19 h, pour tout le monde, à 0,85 pixel la minute. Un
+// professeur des écoles y voyait cinq heures de vide, et ses cours faisaient
+// quarante-six pixels de haut. On règle donc les bornes — et l'arithmétique
+// est tout l'argument : 7 h – 19 h à 0,85 fait 612 pixels ; 8 h – 18 h à 1,0
+// en fait 600, soit DOUZE DE MOINS, pour des blocs dix-huit pour cent plus
+// hauts. C'est le seul réglage qui grossit les cours sans grandir la fenêtre.
+const EDT_JOUR_DEBUT = 8 * 60;
+const EDT_JOUR_FIN = 18 * 60;
+const EDT_PAS = 5;                      // le pas des sonneries réelles
+// VINGT-CINQ MINUTES EXCLUAIENT L'ÉCOLE PRIMAIRE : un rituel de quinze
+// minutes, un atelier de maternelle de vingt, une récréation, rien de tout
+// cela n'était traçable.
+const EDT_MINIMUM = 10;
 const EDT_DUREE_PAR_DEFAUT = 55;
-const EDT_PX = 0.85;                    // un pixel et des poussières par minute
+const EDT_PX_DEFAUT = 1;
+const EDT_ZOOMS = [0.85, 1, 1.4, 1.9];
 // Dimanche ne paraît pas dans la grille — on n'y pose rien — mais il doit
 // porter son nom : le bandeau regarde l'heure sept jours sur sept, et « undefined »
 // un dimanche soir serait une drôle de façon de saluer.
 const EDT_JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 const EDT_JOURS_OUVRES = 5;
-// Des couleurs assez pâles pour qu'un nom de classe reste lisible dessus.
-const EDT_COULEURS = ['#dfe4ff', '#d9f2e6', '#ffe6d5', '#f3ddf7', '#d9eefb', '#fdf0c8', '#e7e2d6', '#ffd9de'];
 
-let agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [] };
+// SEIZE COULEURS, EN DEUX LIGNES : une teinte par matière ou par niveau, une
+// intensité par classe. Huit pâles et huit soutenues de la même famille.
+//
+// « Il faudrait pouvoir mettre des couleurs. » On en avait déjà une — mais
+// enfouie dans une fenêtre de réglage, derrière un nuancier de six couleurs
+// qui n'étaient pas celles de la grille (la première était l'encre elle-même,
+// #2d3436, noir sur noir) et une roue qui ouvrait le sélecteur du système.
+// Devant une classe, ce n'est pas un geste.
+//
+// LA LIGNE PÂLE EST INCHANGÉE : un emploi du temps déjà saisi ne change pas
+// de couleur parce qu'on améliore la palette.
+const EDT_COULEURS = ['#dfe4ff', '#d9f2e6', '#ffe6d5', '#f3ddf7', '#d9eefb', '#fdf0c8', '#e7e2d6', '#ffd9de'];
+// LA LIGNE SOUTENUE MONTE EN CLARTÉ D'UN BOUT À L'AUTRE, et ce n'est pas de
+// l'esthétique : construite à clarté constante, elle donnait huit cases
+// d'exactement le même gris, indistinguables pour un enseignant deutéranomal —
+// huit pour cent des hommes, qui ne séparent pas le bleu du violet mais
+// séparent parfaitement le clair du sombre. L'escalier se lit en noir et blanc.
+//
+// IL SAUTE LE MILIEU, ET C'EST UN CALCUL, pas un hasard : entre 0,18 et 0,32
+// de clarté relative, AUCUNE encre ne tient le contraste — le blanc devient
+// trop faible avant que le noir ne devienne assez fort. Les quatre premières
+// s'écrivent donc en blanc, les quatre dernières en encre sombre, et la pire
+// des huit reste à 4,65 contre 1, au-dessus du minimum lisible.
+const EDT_COULEURS_SOUTENUES = ['#293eae', '#186842', '#9e5625', '#b937d0', '#57a6d8', '#cca630', '#d3b05b', '#ecadb5'];
+
+// L'ENCRE SUIT LE FOND. Une couleur venue d'un vieil enregistrement peut être
+// sombre : on écrivait alors noir sur noir. Le seuil est celui où le contraste
+// avec l'encre du dépôt tombe sous le minimum lisible.
+function edtLuminance(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+    if (!m) return 1;
+    const v = parseInt(m[1], 16);
+    const canal = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return 0.2126 * canal((v >> 16) & 255) + 0.7152 * canal((v >> 8) & 255) + 0.0722 * canal(v & 255);
+}
+
+function encreSur(fond) { return edtLuminance(fond) < 0.33 ? '#ffffff' : '#2d3436'; }
+
+let agenda = {
+    alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
+    debut: EDT_JOUR_DEBUT, fin: EDT_JOUR_FIN, px: EDT_PX_DEFAUT,
+    dureeDefaut: EDT_DUREE_PAR_DEFAUT
+};
 let edtSemaineVue = 'A';
 let edtGeste = null;
+
+function edtDebut() { return Number.isFinite(agenda.debut) ? agenda.debut : EDT_JOUR_DEBUT; }
+function edtFin() { return Number.isFinite(agenda.fin) ? agenda.fin : EDT_JOUR_FIN; }
+function edtPx() { return (Number.isFinite(agenda.px) && agenda.px > 0) ? agenda.px : EDT_PX_DEFAUT; }
+function edtDureeDefaut() {
+    return Number.isFinite(agenda.dureeDefaut) ? agenda.dureeDefaut : EDT_DUREE_PAR_DEFAUT;
+}
 
 function lireLAgenda() {
     try {
@@ -30837,6 +30911,16 @@ function lireLAgenda() {
             if (!Array.isArray(agenda.creneaux)) agenda.creneaux = [];
         }
     } catch (e) { /* stockage refusé */ }
+    // UN EMPLOI DU TEMPS DÉJÀ SAISI NE SORT PAS DE LA GRILLE EN SILENCE. Les
+    // bornes n'existaient pas hier : un agenda enregistré n'en a pas, et il
+    // prendrait 8 h – 18 h. Un cours du matin à 7 h 30 disparaîtrait sans un
+    // mot. On élargit donc pour contenir ce qu'on trouve — jamais l'inverse.
+    agenda.creneaux.forEach(c => {
+        if (!Number.isFinite(c.debut)) return;
+        if (c.debut < edtDebut()) agenda.debut = Math.floor(c.debut / 60) * 60;
+        const fin = c.debut + (c.duree || 0);
+        if (fin > edtFin()) agenda.fin = Math.ceil(fin / 60) * 60;
+    });
     return agenda;
 }
 
@@ -30851,6 +30935,13 @@ function nouvelIdEdt(prefixe) {
 // « 8 h », « 10 h 05 » : l'heure comme on l'écrit en français, et non 08:00.
 function heureLisible(minutes) {
     const h = Math.floor(minutes / 60), m = minutes % 60;
+    return h + ' h' + (m ? ' ' + String(m).padStart(2, '0') : '');
+}
+
+// « 1 h 25 », « 45 min » : une durée ne se dit pas comme une heure.
+function dureeLisible(minutes) {
+    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
+    if (!h) return m + ' min';
     return h + ' h' + (m ? ' ' + String(m).padStart(2, '0') : '');
 }
 
@@ -30875,9 +30966,10 @@ function rendreLaPaletteDeLAgenda() {
         b.className = 'edt-entree';
         b.dataset.id = e.id;
         b.style.background = e.couleur;
+        b.style.color = encreSur(e.couleur);
         b.innerHTML = `<span class="edt-entree-nom">${echapperTexte(e.libelle)}</span>
-            <button class="edt-entree-btn" data-regler="${echapperTexte(e.id)}" title="Renommer, colorer, rattacher à une classe">✎</button>
-            <button class="edt-entree-btn" data-oter-entree="${echapperTexte(e.id)}" title="Retirer de la palette">×</button>`;
+            <button class="edt-entree-btn" data-regler="${echapperTexte(e.id)}" title="Renommer, colorer, rattacher à une classe" aria-label="Régler ${echapperTexte(e.libelle)}">✎</button>
+            <button class="edt-entree-btn" data-oter-entree="${echapperTexte(e.id)}" title="Retirer de la palette" aria-label="Retirer ${echapperTexte(e.libelle)}">×</button>`;
         zone.appendChild(b);
     });
 
@@ -30911,7 +31003,11 @@ async function reglerUneEntree(id) {
         [
             { label: 'Nom', type: 'text', value: e ? e.libelle : '', placeholder: '5e B, ou Français' },
             { label: 'Classe rattachée', type: 'select', value: e && e.classeId ? e.classeId : '', options },
-            { label: 'Couleur', type: 'color', value: couleur }
+            // SEIZE PASTILLES, ET PAS DE ROUE. La roue ouvrait le sélecteur de
+            // couleur du système d'exploitation : une fenêtre étrangère par
+            // -dessus le tableau, au milieu d'un cours.
+            { label: 'Couleur', type: 'color', value: couleur,
+              couleurs: EDT_COULEURS.concat(EDT_COULEURS_SOUTENUES) }
         ],
         null,
         (valeurs) => {
@@ -30923,9 +31019,16 @@ async function reglerUneEntree(id) {
                 e.libelle = nom; e.classeId = classeId;
                 e.classeNom = classe ? classe.name : null;
                 e.couleur = valeurs[2];
-                // Les créneaux portent le nom pour l'afficher sans rien
-                // chercher : renommer l'entrée doit les suivre.
-                agenda.creneaux.forEach(c => { if (c.entreeId === e.id) c.libelle = nom; });
+                // LES CRÉNEAUX SUIVENT, LE NOM ET LA COULEUR. Ils portent les
+                // deux pour s'afficher sans rien chercher — mais seule la
+                // première suivait : on changeait la couleur d'une classe, et
+                // ses douze créneaux gardaient l'ancienne. La couleur d'une
+                // classe appartient à la classe.
+                agenda.creneaux.forEach(c => {
+                    if (c.entreeId !== e.id) return;
+                    c.libelle = nom;
+                    c.couleur = e.couleur;
+                });
             } else {
                 agenda.entrees.push({
                     id: nouvelIdEdt('edt'), libelle: nom, classeId,
@@ -30970,37 +31073,45 @@ function repartirLesChevauchements(liste) {
     return place;
 }
 
+// LES DEUX BOUTONS NE SE SURVOLENT PLUS : au doigt, le survol n'existe pas, et
+// un bouton qui ne paraît qu'au survol ne paraît jamais sur un tableau de
+// classe. Et DEUX POIGNÉES, en haut et en bas : on ne pouvait allonger que par
+// le bas, donc jamais avancer le début d'un cours sans le déplacer entier.
 function dessinerUnCreneau(c, place) {
     const d = document.createElement('div');
     const p = place.get(c.id) || { rang: 0, total: 1 };
     d.className = 'edt-creneau';
     d.dataset.id = c.id;
-    d.style.top = ((c.debut - EDT_DEBUT) * EDT_PX) + 'px';
-    d.style.height = (c.duree * EDT_PX) + 'px';
+    d.style.top = ((c.debut - edtDebut()) * edtPx()) + 'px';
+    d.style.height = (c.duree * edtPx()) + 'px';
     d.style.left = (p.rang * 100 / p.total) + '%';
     d.style.width = (100 / p.total) + '%';
     d.style.background = c.couleur || '#dfe4ff';
+    d.style.color = encreSur(c.couleur || '#dfe4ff');
+    const titre = echapperTexte(c.libelle);
     d.innerHTML = `
-        <span class="edt-creneau-nom">${echapperTexte(c.libelle)}</span>
+        <span class="edt-poignee edt-poignee-haut" data-bord="haut" aria-hidden="true"></span>
+        <span class="edt-creneau-nom">${titre}</span>
         <span class="edt-creneau-heure">${heureLisible(c.debut)} – ${heureLisible(c.debut + c.duree)}</span>
-        <button class="edt-oter" title="Retirer ce créneau">×</button>
-        <span class="edt-poignee"></span>`;
+        <button class="edt-regler" title="Changer l'horaire, la classe" aria-label="Régler ${titre}">⋯</button>
+        <button class="edt-oter" title="Retirer ce créneau" aria-label="Retirer ${titre}">×</button>
+        <span class="edt-poignee edt-poignee-bas" data-bord="bas" aria-hidden="true"></span>`;
     return d;
 }
 
 function rendreLaGrilleDeLAgenda() {
     const cadre = document.getElementById('edt-grille');
     if (!cadre) return;
-    const hauteur = (EDT_FIN - EDT_DEBUT) * EDT_PX;
+    const hauteur = (edtFin() - edtDebut()) * edtPx();
     cadre.innerHTML = '';
 
     const heures = document.createElement('div');
     heures.className = 'edt-heures';
     heures.style.height = hauteur + 'px';
-    for (let m = EDT_DEBUT; m <= EDT_FIN; m += 60) {
+    for (let m = edtDebut(); m <= edtFin(); m += 60) {
         const t = document.createElement('div');
         t.className = 'edt-heure';
-        t.style.top = ((m - EDT_DEBUT) * EDT_PX) + 'px';
+        t.style.top = ((m - edtDebut()) * edtPx()) + 'px';
         t.innerText = heureLisible(m);
         heures.appendChild(t);
     }
@@ -31017,10 +31128,12 @@ function rendreLaGrilleDeLAgenda() {
         fond.className = 'edt-jour';
         fond.dataset.jour = String(jour);
         fond.style.height = hauteur + 'px';
-        for (let m = EDT_DEBUT + 60; m < EDT_FIN; m += 60) {
+        for (let m = edtDebut() + 30; m < edtFin(); m += 30) {
             const l = document.createElement('div');
-            l.className = 'edt-ligne';
-            l.style.top = ((m - EDT_DEBUT) * EDT_PX) + 'px';
+            // La demie se voit moins que l'heure : on se repère à l'heure, on
+            // se cale à la demie.
+            l.className = (m % 60) ? 'edt-ligne edt-demie' : 'edt-ligne';
+            l.style.top = ((m - edtDebut()) * edtPx()) + 'px';
             fond.appendChild(l);
         }
         const duJour = visibles.filter(c => c.jour === jour);
@@ -31047,6 +31160,11 @@ function majLesReglagesDeLAgenda() {
     }
     if (copier) copier.style.display = agenda.alterne ? 'inline-flex' : 'none';
 
+    const journee = document.getElementById('edt-journee-lue');
+    if (journee) journee.textContent = heureLisible(edtDebut()) + ' – ' + heureLisible(edtFin());
+    const zoom = document.getElementById('edt-zoom-lu');
+    if (zoom) zoom.textContent = Math.round(edtPx() * 100) + ' %';
+
     const ancre = document.getElementById('edt-ancre');
     if (ancre) {
         if (!agenda.alterne) { ancre.style.display = 'none'; ancre.innerHTML = ''; }
@@ -31067,12 +31185,49 @@ function rendreLAgenda() {
 }
 
 // ------------------------------------------------------------
+// LES BORNES DE LA JOURNÉE, ET LE ZOOM
+// ------------------------------------------------------------
+// UN RÉGLAGE D'AFFICHAGE NE DÉTRUIT PAS DE DONNÉES. Si des cours tombaient
+// hors des nouvelles bornes, on les rognerait, ou on les cacherait : les deux
+// sont pires que de refuser. On refuse, et l'on NOMME le coupable — un créneau
+// qu'on déplace sans le dire est un créneau qu'on croit à sa place.
+function reglerLaJournee(debut, fin) {
+    const d = Math.max(0, Math.min(23 * 60, Math.round(debut / 60) * 60));
+    const f = Math.max(0, Math.min(24 * 60, Math.round(fin / 60) * 60));
+    if (f - d < 60) return false;
+    const dehors = agenda.creneaux.find(c => c.debut < d || c.debut + c.duree > f);
+    if (dehors) {
+        if (typeof prevenir === 'function') {
+            prevenir('La journée ne peut pas se refermer là',
+                'Le ' + (EDT_JOURS[dehors.jour - 1] || '').toLowerCase() + ' à '
+                + heureLisible(dehors.debut) + ', « ' + dehors.libelle
+                + ' » tomberait hors de la grille. Déplacez-le d’abord.');
+        }
+        return false;
+    }
+    agenda.debut = d; agenda.fin = f;
+    ecrireLAgenda();
+    rendreLAgenda();
+    return true;
+}
+
+function reglerLeZoom(sens) {
+    const i = EDT_ZOOMS.indexOf(edtPx());
+    const vise = Math.max(0, Math.min(EDT_ZOOMS.length - 1, (i < 0 ? 1 : i) + sens));
+    if (EDT_ZOOMS[vise] === edtPx()) return false;
+    agenda.px = EDT_ZOOMS[vise];
+    ecrireLAgenda();
+    rendreLAgenda();
+    return true;
+}
+
+// ------------------------------------------------------------
 // LES GESTES : poser, déplacer, allonger
 // ------------------------------------------------------------
 function minutesSousLeDoigt(colonne, y) {
     const r = colonne.getBoundingClientRect();
-    const brut = EDT_DEBUT + Math.round((y - r.top) / EDT_PX / EDT_PAS) * EDT_PAS;
-    return Math.max(EDT_DEBUT, Math.min(EDT_FIN - EDT_MINIMUM, brut));
+    const brut = edtDebut() + Math.round((y - r.top) / edtPx() / EDT_PAS) * EDT_PAS;
+    return Math.max(edtDebut(), Math.min(edtFin() - EDT_MINIMUM, brut));
 }
 
 function colonneSousLeDoigt(x, y) {
@@ -31086,10 +31241,6 @@ function colonneSousLeDoigt(x, y) {
 // et c'était l'ordre des choses à l'envers : on demandait de remplir une
 // palette avant d'avoir vu la grille. La grille est pourtant la première
 // chose qu'on regarde, et tracer dessus est le geste naturel.
-//
-// On trace donc toujours : s'il n'y a rien dans la palette, une entrée naît
-// avec le créneau, et l'on demande son nom UNE FOIS LE TRAIT POSÉ — quand on
-// voit ce qu'on est en train de nommer.
 function entreeParDefaut() {
     const derniere = entreeDeLAgenda(agenda.derniere);
     if (derniere) return { entree: derniere, neuve: false };
@@ -31105,7 +31256,7 @@ function entreeParDefaut() {
 function poserUnCreneau(jour, debut, entree) {
     const c = {
         id: nouvelIdEdt('cr'), jour, debut,
-        duree: Math.min(EDT_DUREE_PAR_DEFAUT, EDT_FIN - debut),
+        duree: Math.min(edtDureeDefaut(), edtFin() - debut),
         semaine: agenda.alterne ? edtSemaineVue : 'toutes',
         entreeId: entree.id, libelle: entree.libelle, couleur: entree.couleur
     };
@@ -31119,17 +31270,78 @@ function retirerUnCreneau(id) {
     rendreLaGrilleDeLAgenda();
 }
 
+// ==================================================================
+// CE QU'ON VOIT PENDANT QU'ON GLISSE
+//
+// « Le drag and drop est invisible, on ne voit pas les fantômes. » Deux causes,
+// et la première n'était pas celle qu'on croyait.
+//
+// LA GRILLE SE DÉMOLISSAIT SOUS LE DOIGT. « rendreLaGrilleDeLAgenda » vide son
+// cadre par innerHTML puis reconstruit tout, et le suivi du geste l'appelait à
+// CHAQUE mouvement du pointeur. Or le navigateur pose une capture IMPLICITE du
+// pointeur tactile sur l'élément qu'on a touché : le détruire lâche la capture
+// et déclenche « pointercancel », lui-même branché sur la fin du geste. Au
+// doigt, le geste se terminait donc TOUT SEUL au premier millimètre. On ne
+// reconstruit plus rien pendant le geste : on écrit deux styles sur le bloc
+// qu'on tient, et c'est tout.
+//
+// LE FANTÔME ÉTAIT PEINT DERRIÈRE LA FENÊTRE. Il était à 100040, la fenêtre de
+// l'emploi du temps est une « modal-backdrop » à 100050 : dix unités, et l'on
+// ne voyait jamais rien. Mais remonter ce nombre aurait été la mauvaise
+// réponse — l'étiquette était posée sous la pulpe du doigt, et elle ne disait
+// ni le jour, ni l'heure, ni la durée. Il y a donc maintenant DEUX choses :
+//
+//   L'APERÇU, dessiné DANS la colonne visée, à la place et à la taille exactes
+//   du créneau à venir. Étant un enfant de la colonne, il partage l'empilement
+//   des créneaux : il n'y a plus de z-index à arbitrer, le défaut disparaît
+//   par construction au lieu d'être corrigé par un nombre qu'on recassera.
+//
+//   LA PASTILLE D'HEURE, elle, flotte au-dessus de tout — 200060, juste
+//   au-dessus du fantôme de l'analyse grammaticale à 200050, et bien en
+//   dessous des questions à 200100 et de l'infobulle à 200200. Elle se pose
+//   quarante-quatre pixels AU-DESSUS du doigt, là où la main ne passe jamais.
+//
+// L'ÉCHELLE LOCALE DE LA COLONNE, qui se lit d'un bloc :
+//   .edt-ligne        auto — le fond
+//   .edt-trace          1  — d'où le bloc est parti
+//   .edt-apercu         2  — au-dessus de la trace, SOUS les créneaux, sinon
+//                            il masquerait le voisin contre lequel on cale
+//   .edt-creneau        3
+//   .edt-creneau.edt-en-main  5 — au-dessus de tout le reste de sa colonne
+const EDT_SEUIL_DE_GESTE = 8;   // pixels : en deçà, c'est un appui, pas un glissé
+
 function commencerUnGesteDeLAgenda(e) {
-    // Les trois boutons — régler, retirer l'entrée, retirer le créneau — sont
-    // des boutons : ils agissent à l'appui relâché, pas à l'appui. On se
+    // Les boutons — régler, retirer l'entrée, régler le créneau, le retirer —
+    // sont des boutons : ils agissent à l'appui relâché, pas à l'appui. On se
     // contente ici de ne pas partir en glissade sous eux.
-    if (e.target.closest('[data-regler], [data-oter-entree], .edt-oter')) return;
+    if (e.target.closest('[data-regler], [data-oter-entree], .edt-oter, .edt-regler')) return;
+    // UN SEUL GESTE À LA FOIS, et le bouton gauche seulement : deux doigts sur
+    // la grille pilotaient deux gestes qui s'écrasaient l'un l'autre.
+    //
+    // ON NE REGARDE PAS « isPrimary » pour cela, et c'est une éprouvette qui
+    // l'a imposé : un PointerEvent construit à la main naît avec isPrimary à
+    // FAUX, si bien qu'une garde écrite dessus refusait tous les gestes du
+    // chapitre — et n'aurait donc jamais pu être éprouvée. « Un geste est déjà
+    // en cours » dit la même chose, et se vérifie.
+    if (edtGeste) return;
+    if (e.pointerType === 'mouse' && e.button !== undefined && e.button !== 0) return;
+
+    const corps = document.getElementById('edt-corps');
+    const prendreLePointeur = () => {
+        // LA CAPTURE SE POSE SUR UN ÉLÉMENT QUI SURVIT AU GESTE. La poser sur
+        // le bloc lui-même ne servirait à rien : c'est justement lui qu'on
+        // redessine.
+        try { if (corps && corps.setPointerCapture) corps.setPointerCapture(e.pointerId); }
+        catch (err) { /* le navigateur refuse : on garde les écoutes de fenêtre */ }
+    };
 
     const entree = e.target.closest('.edt-entree');
     if (entree) {
         const source = entreeDeLAgenda(entree.dataset.id);
         if (!source) return;
-        edtGeste = { type: 'poser', entree: source };
+        edtGeste = { type: 'poser', entree: source, pointerId: e.pointerId,
+                     depart: { x: e.clientX, y: e.clientY } };
+        prendreLePointeur();
         montrerLeFantomeDeLAgenda(e, source);
         e.preventDefault();
         return;
@@ -31140,10 +31352,17 @@ function commencerUnGesteDeLAgenda(e) {
         const c = creneauDeLAgenda(bloc.dataset.id);
         if (!c) return;
         const r = bloc.getBoundingClientRect();
-        edtGeste = e.target.closest('.edt-poignee')
-            ? { type: 'allonger', c }
+        const poignee = e.target.closest('.edt-poignee');
+        edtGeste = poignee
+            ? { type: 'allonger', c, bord: poignee.dataset.bord || 'bas' }
             : { type: 'deplacer', c, prise: e.clientY - r.top };
+        edtGeste.pointerId = e.pointerId;
+        edtGeste.depart = { x: e.clientX, y: e.clientY };
+        edtGeste.bloc = bloc;
+        // D'OÙ IL VIENT, pour pouvoir le remettre — et pour le voir.
+        edtGeste.avant = { jour: c.jour, debut: c.debut, duree: c.duree };
         bloc.classList.add('edt-en-main');
+        prendreLePointeur();
         e.preventDefault();
         return;
     }
@@ -31155,78 +31374,351 @@ function commencerUnGesteDeLAgenda(e) {
     if (fond) {
         const { entree, neuve } = entreeParDefaut();
         const c = poserUnCreneau(Number(fond.dataset.jour), minutesSousLeDoigt(fond, e.clientY), entree);
-        edtGeste = { type: 'allonger', c, nommer: neuve };
+        edtGeste = { type: 'allonger', c, bord: 'bas', nommer: neuve, pointerId: e.pointerId,
+                     depart: { x: e.clientX, y: e.clientY },
+                     avant: { jour: c.jour, debut: c.debut, duree: c.duree } };
+        prendreLePointeur();
         if (neuve) rendreLaPaletteDeLAgenda();
         rendreLaGrilleDeLAgenda();
+        edtGeste.bloc = document.querySelector('.edt-creneau[data-id="' + c.id + '"]');
+        if (edtGeste.bloc) edtGeste.bloc.classList.add('edt-en-main');
+        montrerLApercu(c, edtGeste.bloc && edtGeste.bloc.closest('.edt-jour'));
         e.preventDefault();
     }
 }
 
+// ON DÉPLACE LE BLOC, ON NE REFAIT PAS LA GRILLE. Deux styles suffisent : sa
+// hauteur et sa position. Sa largeur, elle, est GELÉE à toute la colonne
+// pendant le geste — sinon il rétrécissait de moitié et sautait de côté dès
+// qu'il effleurait un voisin, parce que le partage des chevauchements se
+// rejouait sous le doigt.
+function poserLeBlocTenu() {
+    const g = edtGeste;
+    if (!g || !g.bloc || !g.c) return;
+    g.bloc.style.top = ((g.c.debut - edtDebut()) * edtPx()) + 'px';
+    g.bloc.style.height = (g.c.duree * edtPx()) + 'px';
+    g.bloc.style.left = '0%';
+    g.bloc.style.width = '100%';
+    const heure = g.bloc.querySelector('.edt-creneau-heure');
+    if (heure) heure.textContent = heureLisible(g.c.debut) + ' – ' + heureLisible(g.c.debut + g.c.duree);
+}
+
 function suivreUnGesteDeLAgenda(e) {
     if (!edtGeste) return;
-    if (edtGeste.type === 'poser') { bougerLeFantomeDeLAgenda(e); return; }
+    if (edtGeste.pointerId !== undefined && e.pointerId !== undefined
+        && e.pointerId !== edtGeste.pointerId) return;
+
+    // LE SEUIL : quatre pixels et quart suffisaient à décaler un cours de cinq
+    // minutes au moindre tremblement de la main. En deçà de huit, c'est un
+    // appui — et un appui ouvre la fiche, il ne déplace rien.
+    if (!edtGeste.bouge && edtGeste.depart) {
+        const dx = e.clientX - edtGeste.depart.x, dy = e.clientY - edtGeste.depart.y;
+        if (Math.hypot(dx, dy) < EDT_SEUIL_DE_GESTE) {
+            if (edtGeste.type === 'poser') bougerLeFantomeDeLAgenda(e);
+            return;
+        }
+        edtGeste.bouge = true;
+        if (edtGeste.type !== 'poser') marquerLaTrace(edtGeste);
+    }
+
+    if (edtGeste.type === 'poser') {
+        bougerLeFantomeDeLAgenda(e);
+        const col = colonneSousLeDoigt(e.clientX, e.clientY);
+        viserLaColonne(col);
+        if (col) {
+            const debut = minutesSousLeDoigt(col, e.clientY);
+            montrerLApercu({ debut, duree: Math.min(edtDureeDefaut(), edtFin() - debut),
+                             libelle: edtGeste.entree.libelle, couleur: edtGeste.entree.couleur }, col);
+            direLHeure(e, EDT_JOURS[Number(col.dataset.jour) - 1] + ' · '
+                + heureLisible(debut) + ' – ' + heureLisible(debut + Math.min(edtDureeDefaut(), edtFin() - debut)));
+        } else {
+            cacherLApercu();
+            direLHeure(e, 'Relâchez sur un jour', true);
+        }
+        return;
+    }
 
     const c = edtGeste.c;
-    edtGeste.bouge = true;
     if (edtGeste.type === 'deplacer') {
         const col = colonneSousLeDoigt(e.clientX, e.clientY);
         if (col) c.jour = Number(col.dataset.jour);
-        const repere = col || document.querySelector('.edt-jour');
+        const repere = col || document.querySelector('.edt-jour[data-jour="' + c.jour + '"]')
+            || document.querySelector('.edt-jour');
         if (!repere) return;
-        c.debut = Math.min(minutesSousLeDoigt(repere, e.clientY - edtGeste.prise), EDT_FIN - c.duree);
+        c.debut = Math.min(minutesSousLeDoigt(repere, e.clientY - edtGeste.prise), edtFin() - c.duree);
+        viserLaColonne(col);
+        // LE BLOC CHANGE DE COLONNE SANS QUE LA GRILLE SE REFASSE : on le
+        // déménage, il emporte son style avec lui.
+        if (col && edtGeste.bloc && edtGeste.bloc.parentElement !== col) col.appendChild(edtGeste.bloc);
+        montrerLApercu(c, col || (edtGeste.bloc && edtGeste.bloc.parentElement));
+        direLHeure(e, EDT_JOURS[c.jour - 1] + ' · ' + heureLisible(c.debut)
+            + ' – ' + heureLisible(c.debut + c.duree));
     } else {
         const repere = document.querySelector('.edt-jour[data-jour="' + c.jour + '"]');
         if (!repere) return;
-        const fin = minutesSousLeDoigt(repere, e.clientY);
-        c.duree = Math.max(EDT_MINIMUM, Math.min(fin - c.debut, EDT_FIN - c.debut));
+        const minute = minutesSousLeDoigt(repere, e.clientY);
+        if (edtGeste.bord === 'haut') {
+            // PAR LE HAUT : la fin ne bouge pas, le début avance ou recule.
+            const fin = edtGeste.avant.debut + edtGeste.avant.duree;
+            const debut = Math.min(minute, fin - EDT_MINIMUM);
+            c.debut = Math.max(edtDebut(), debut);
+            c.duree = fin - c.debut;
+        } else {
+            c.duree = Math.max(EDT_MINIMUM, Math.min(minute - c.debut, edtFin() - c.debut));
+        }
+        montrerLApercu(c, repere);
+        direLHeure(e, heureLisible(c.debut) + ' – ' + heureLisible(c.debut + c.duree)
+            + ' · ' + dureeLisible(c.duree));
     }
-    rendreLaGrilleDeLAgenda();
+    poserLeBlocTenu();
 }
 
 function finirUnGesteDeLAgenda(e) {
     if (!edtGeste) return;
+    if (edtGeste.pointerId !== undefined && e && e.pointerId !== undefined
+        && e.pointerId !== edtGeste.pointerId) return;
+    const corps = document.getElementById('edt-corps');
+    try {
+        if (corps && corps.releasePointerCapture && edtGeste.pointerId !== undefined
+            && corps.hasPointerCapture && corps.hasPointerCapture(edtGeste.pointerId)) {
+            corps.releasePointerCapture(edtGeste.pointerId);
+        }
+    } catch (err) { /* déjà relâchée */ }
+
     if (edtGeste.type === 'poser') {
-        const col = colonneSousLeDoigt(e.clientX, e.clientY);
+        const col = e ? colonneSousLeDoigt(e.clientX, e.clientY) : null;
         // Déposé à côté de la grille, c'est un simple appui : on retient
         // l'entrée pour le prochain tracé, et rien de plus.
         if (col) poserUnCreneau(Number(col.dataset.jour), minutesSousLeDoigt(col, e.clientY), edtGeste.entree);
         agenda.derniere = edtGeste.entree.id;
-        cacherLeFantomeDeLAgenda();
     } else {
         agenda.derniere = edtGeste.c.entreeId;
+        // LA DURÉE S'APPREND. Le professeur de lycée tire un bloc d'une heure
+        // cinquante, et les suivants naissent à une heure cinquante ; celui
+        // d'école trace trente minutes, et les suivantes font trente minutes.
+        if (edtGeste.type === 'allonger' && edtGeste.bouge) agenda.dureeDefaut = edtGeste.c.duree;
     }
-    // UN CRÉNEAU QU'ON TOUCHE SANS LE BOUGER DEMANDE À ÊTRE NOMMÉ. C'est la
-    // porte de sortie : on trace vite, on corrige après, et l'on n'est jamais
-    // coincé avec le nom que la grille a choisi pour aller plus vite.
-    const aNommer = (edtGeste.nommer || (edtGeste.type === 'deplacer' && !edtGeste.bouge))
-        ? edtGeste.c.entreeId : null;
+    cacherLeFantomeDeLAgenda();
+    cacherLApercu();
+    viserLaColonne(null);
+    effacerLaTrace();
+    // DEUX PORTES DE SORTIE, ET ELLES NE MÈNENT PAS AU MÊME ENDROIT.
+    //
+    // Un créneau qu'on vient de TRACER alors que la palette était vide a reçu
+    // un nom provisoire : c'est la CLASSE qu'il faut nommer, et le nom se
+    // posera sur tous ses créneaux à venir.
+    //
+    // Un créneau qu'on TOUCHE sans le bouger, lui, existe déjà et porte un
+    // nom : ce qu'on veut corriger, c'est son horaire — « modifier les
+    // horaires » —, et cela se fait au chiffre, pas en visant un bord.
+    const aNommer = edtGeste.nommer ? edtGeste.c.entreeId : null;
+    const aRegler = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge)
+        ? edtGeste.c.id : null;
     edtGeste = null;
     ecrireLAgenda();
     rendreLaGrilleDeLAgenda();
     if (aNommer) reglerUneEntree(aNommer);
+    else if (aRegler) reglerUnCreneau(aRegler);
 }
 
+// ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé par erreur
+// n'avait aucune sortie : lâcher valait accepter.
+function renoncerAuGesteDeLAgenda() {
+    if (!edtGeste) return false;
+    if (edtGeste.type === 'poser') {
+        cacherLeFantomeDeLAgenda(); cacherLApercu(); viserLaColonne(null);
+        edtGeste = null;
+        return true;
+    }
+    const g = edtGeste;
+    edtGeste = null;
+    if (g.nommer) {
+        // Il venait de naître sous le doigt : il repart avec le geste.
+        agenda.creneaux = agenda.creneaux.filter(x => x.id !== g.c.id);
+    } else if (g.avant) {
+        g.c.jour = g.avant.jour; g.c.debut = g.avant.debut; g.c.duree = g.avant.duree;
+    }
+    cacherLeFantomeDeLAgenda(); cacherLApercu(); viserLaColonne(null); effacerLaTrace();
+    ecrireLAgenda();
+    rendreLaGrilleDeLAgenda();
+    return true;
+}
+
+// L'APERÇU : un rectangle en pointillé, de la couleur de la classe, à la place
+// et à la taille exactes du créneau à venir. On voit OÙ ÇA TOMBE, ce qui est
+// la seule chose qu'on cherche à savoir en glissant.
+function montrerLApercu(c, colonne) {
+    if (!colonne) { cacherLApercu(); return null; }
+    let a = document.getElementById('edt-apercu');
+    if (!a) {
+        a = document.createElement('div');
+        a.id = 'edt-apercu';
+        a.className = 'edt-apercu';
+    }
+    if (a.parentElement !== colonne) colonne.appendChild(a);
+    a.style.top = ((c.debut - edtDebut()) * edtPx()) + 'px';
+    a.style.height = Math.max(2, c.duree * edtPx()) + 'px';
+    a.style.borderColor = teinteSoutenue(c.couleur);
+    a.style.background = c.couleur;
+    a.textContent = (c.duree * edtPx() >= 26)
+        ? c.libelle + ' · ' + heureLisible(c.debut) + ' – ' + heureLisible(c.debut + c.duree)
+        : '';
+    a.style.color = encreSur(c.couleur);
+    return a;
+}
+
+function cacherLApercu() {
+    const a = document.getElementById('edt-apercu');
+    if (a) a.remove();
+}
+
+// La teinte soutenue de la même famille, pour le contour de l'aperçu. Une
+// couleur qui n'appartient à aucune famille — venue d'un vieil enregistrement
+// — se contourne d'elle-même : mieux vaut un contour discret qu'une erreur.
+function teinteSoutenue(couleur) {
+    const i = EDT_COULEURS.indexOf(String(couleur || '').toLowerCase());
+    if (i >= 0) return EDT_COULEURS_SOUTENUES[i];
+    return couleur || '#6c5ce7';
+}
+
+function viserLaColonne(colonne) {
+    document.querySelectorAll('.edt-jour.edt-vise').forEach(el => el.classList.remove('edt-vise'));
+    if (colonne) colonne.classList.add('edt-vise');
+}
+
+// LA TRACE : d'où le bloc est parti. Sans elle, on ne sait plus ce qu'on est en
+// train de changer — surtout au doigt, qui cache ce qu'il touche.
+function marquerLaTrace(g) {
+    effacerLaTrace();
+    if (!g.avant) return;
+    const col = document.querySelector('.edt-jour[data-jour="' + g.avant.jour + '"]');
+    if (!col) return;
+    const t = document.createElement('div');
+    t.id = 'edt-trace';
+    t.className = 'edt-trace';
+    t.style.top = ((g.avant.debut - edtDebut()) * edtPx()) + 'px';
+    t.style.height = (g.avant.duree * edtPx()) + 'px';
+    col.appendChild(t);
+}
+
+function effacerLaTrace() {
+    const t = document.getElementById('edt-trace');
+    if (t) t.remove();
+}
+
+// LA PASTILLE D'HEURE, quarante-quatre pixels au-dessus du doigt : c'est la
+// seule zone qu'une main ne couvre jamais.
 function montrerLeFantomeDeLAgenda(e, entree) {
     cacherLeFantomeDeLAgenda();
     const f = document.createElement('div');
     f.id = 'edt-fantome';
-    f.innerText = entree.libelle;
-    f.style.background = entree.couleur;
+    f.textContent = entree ? entree.libelle : '';
     document.body.appendChild(f);
+    bougerLeFantomeDeLAgenda(e);
+}
+
+function direLHeure(e, texte, refus) {
+    let f = document.getElementById('edt-fantome');
+    if (!f) {
+        f = document.createElement('div');
+        f.id = 'edt-fantome';
+        document.body.appendChild(f);
+    }
+    f.textContent = texte;
+    f.classList.toggle('edt-refus', !!refus);
     bougerLeFantomeDeLAgenda(e);
 }
 
 function bougerLeFantomeDeLAgenda(e) {
     const f = document.getElementById('edt-fantome');
-    if (!f) return;
-    f.style.left = (e.clientX + 12) + 'px';
-    f.style.top = (e.clientY - 14) + 'px';
+    if (!f || !e) return;
+    const haut = e.clientY - 44;
+    f.style.left = e.clientX + 'px';
+    f.style.top = (haut < 8 ? e.clientY + 44 : haut) + 'px';
 }
 
 function cacherLeFantomeDeLAgenda() {
     const f = document.getElementById('edt-fantome');
     if (f) f.remove();
 }
+
+// ==================================================================
+// LA FICHE DU CRÉNEAU : LES HORAIRES AU CHIFFRE
+//
+// « Modifier les horaires. » On ne pouvait le faire qu'à la main, en visant un
+// bord — c'est-à-dire par tranches de cinq minutes et jamais exactement. Un
+// cours va de 8 h 05 à 9 h 00 : cela se dit, cela ne se vise pas.
+//
+// ET SON JUMEAU DE L'AUTRE SEMAINE. En alternance, allumer les semaines A et B
+// fabrique deux créneaux distincts : corriger l'horaire dans la semaine
+// regardée laissait l'autre à l'ancienne heure, et l'on ne s'en apercevait
+// qu'une semaine plus tard. On propose de corriger les deux.
+// ==================================================================
+function minutesDepuisTexte(texte, defaut) {
+    const m = /^\s*(\d{1,2})\s*(?:h|:|\s)?\s*(\d{1,2})?\s*$/i.exec(String(texte || ''));
+    if (!m) return defaut;
+    const h = Number(m[1]), min = m[2] === undefined ? 0 : Number(m[2]);
+    if (!(h >= 0 && h <= 23) || !(min >= 0 && min <= 59)) return defaut;
+    return h * 60 + min;
+}
+
+function jumeauDuCreneau(c) {
+    if (!agenda.alterne || !c || c.semaine === 'toutes') return null;
+    return agenda.creneaux.find(x => x !== c && x.entreeId === c.entreeId
+        && x.jour === c.jour && x.semaine !== c.semaine
+        && Math.abs(x.debut - c.debut) < 1 && Math.abs(x.duree - c.duree) < 1) || null;
+}
+
+function reglerUnCreneau(id) {
+    const c = creneauDeLAgenda(id);
+    if (!c) return;
+    const jumeau = jumeauDuCreneau(c);
+    const champs = [
+        { label: 'Commence à', type: 'text', value: heureLisible(c.debut), placeholder: '8 h 05' },
+        { label: 'Finit à', type: 'text', value: heureLisible(c.debut + c.duree), placeholder: '9 h' },
+        { label: 'Classe ou matière', type: 'select', value: c.entreeId,
+          options: agenda.entrees.map(e => ({ value: e.id, label: e.libelle })) },
+        { label: 'Jour', type: 'select', value: String(c.jour),
+          options: EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES)
+              .map((n, i) => ({ value: String(i + 1), label: n })) }
+    ];
+    if (jumeau) {
+        champs.push({ label: 'Corriger aussi son jumeau de la semaine '
+            + (jumeau.semaine || 'B'), type: 'checkbox', value: true });
+    }
+
+    openCustomPrompt('Le créneau de ' + heureLisible(c.debut), champs, null, (v) => {
+        const debut = minutesDepuisTexte(v[0], c.debut);
+        const fin = minutesDepuisTexte(v[1], c.debut + c.duree);
+        const duree = Math.max(EDT_MINIMUM, fin - debut);
+        // ON NE POSE PAS UN COURS HORS DE LA GRILLE : la fiche accepte des
+        // chiffres, elle ne doit pas accepter n'importe lesquels.
+        if (debut < edtDebut() || debut + duree > edtFin()) {
+            if (typeof prevenir === 'function') {
+                prevenir('Hors de la journée',
+                    'La grille va de ' + heureLisible(edtDebut()) + ' à ' + heureLisible(edtFin())
+                    + '. Élargissez-la d’abord, ou choisissez un autre horaire.');
+            }
+            return;
+        }
+        const entree = entreeDeLAgenda(v[2]) || entreeDeLAgenda(c.entreeId);
+        const jour = Math.max(1, Math.min(EDT_JOURS.length, Number(v[3]) || c.jour));
+        const appliquer = (x) => {
+            x.debut = debut; x.duree = duree; x.jour = jour;
+            if (entree) { x.entreeId = entree.id; x.libelle = entree.libelle; x.couleur = entree.couleur; }
+        };
+        appliquer(c);
+        if (jumeau && v[4]) appliquer(jumeau);
+        agenda.dureeDefaut = duree;
+        ecrireLAgenda();
+        rendreLaGrilleDeLAgenda();
+    }, () => { /* renoncé */ });
+}
+window.reglerUnCreneau = reglerUnCreneau;
+window.reglerLaJournee = reglerLaJournee;
+window.reglerLeZoom = reglerLeZoom;
+window.renoncerAuGesteDeLAgenda = renoncerAuGesteDeLAgenda;
+window.encreSur = encreSur;
 
 // ------------------------------------------------------------
 // LES SEMAINES A ET B
@@ -31483,8 +31975,26 @@ function ouvrirLAgenda() {
             const oterEntree = e.target.closest('[data-oter-entree]');
             if (oterEntree) { retirerUneEntree(oterEntree.dataset.oterEntree); return; }
             const oter = e.target.closest('.edt-oter');
-            if (oter) retirerUnCreneau(oter.closest('.edt-creneau').dataset.id);
+            if (oter) { retirerUnCreneau(oter.closest('.edt-creneau').dataset.id); return; }
+            const fiche = e.target.closest('.edt-regler');
+            if (fiche) { reglerUnCreneau(fiche.closest('.edt-creneau').dataset.id); return; }
+            const journee = e.target.closest('[data-journee]');
+            if (journee) {
+                const sens = Number(journee.dataset.sens) * 60;
+                if (journee.dataset.journee === 'debut') reglerLaJournee(edtDebut() + sens, edtFin());
+                else reglerLaJournee(edtDebut(), edtFin() + sens);
+                return;
+            }
+            const zoom = e.target.closest('[data-zoom]');
+            if (zoom) reglerLeZoom(Number(zoom.dataset.zoom));
         });
+        // ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé
+        // par erreur n'avait aucune sortie : lâcher valait accepter.
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || !edtGeste) return;
+            e.preventDefault(); e.stopPropagation();
+            renoncerAuGesteDeLAgenda();
+        }, true);
         document.getElementById('edt-alterne').addEventListener('change', (e) => basculerLAlternance(e.target.checked));
         document.getElementById('edt-samedi').addEventListener('change', (e) => {
             agenda.samedi = e.target.checked;
