@@ -13294,6 +13294,116 @@ function morceauxDeLaPageProjetee(doc) {
         && ((cle && o.pluginData.cle === cle) || o.pluginData.source === doc.id));
 }
 
+// ==================================================================
+// LA SECONDE PLACE
+//
+// « Quand on pose à côté, il est difficile de revenir sur la vue du PDF ou
+// globale. » La marge où l'on posait un morceau n'a jamais été une pièce de
+// l'application : c'était le vide laissé par une A4 sur un écran 16/9, et la
+// pleine largeur par défaut l'a refermé.
+//
+// MESURÉ, CE VIDE VALAIT UNE SECONDE PAGE. Sur 1280 × 720, une A4 cadrée sur
+// sa hauteur occupe 509 pixels de large : il en reste 771. Les deux bandes
+// blanches n'étaient pas une marge, c'était la place d'une seconde page — et
+// deux pages côte à côte ne coûtent donc rien en taille, chacune reste aussi
+// grande qu'une page projetée seule.
+//
+// On en fait une PLACE, qui existe pour de bon et qui accueille ce qu'on lui
+// donne : un morceau découpé, une autre page du même document, un autre
+// document. Le voile l'épargne, la vue les embrasse tous les deux.
+// ==================================================================
+let presentationVoisine = null;
+
+// L'écart entre les deux, en part de la largeur du principal : une gouttière
+// qui grandit avec la page, et non trois pixels perdus sur un vidéoprojecteur.
+const ECART_DE_LA_PLACE = 0.04;
+
+function objetVoisinDeLaPresentation() {
+    if (!presentationVoisine) return null;
+    const o = (typeof getObjectById === 'function') ? getObjectById('image', presentationVoisine) : null;
+    // Il a pu être effacé : la place se libère d'elle-même plutôt que de
+    // garder un trou dans le voile devant une classe.
+    if (!o) { presentationVoisine = null; return null; }
+    return o;
+}
+
+// LA DISPOSITION EST UN CALCUL, PAS UN RÉGLAGE.
+//
+// On essaie les deux — côte à côte, et l'un au-dessus de l'autre — et l'on
+// garde celle qui rend les deux documents LES PLUS GRANDS. Personne n'a envie
+// de régler cela dans un menu au milieu d'un cours, et la disposition qui
+// montre le plus grand est de toute façon celle qu'on voulait.
+//
+// ET LE RÉSULTAT DÉMENT L'INTUITION, ce pour quoi il vaut mieux le calculer
+// que l'écrire : deux A4 EN PAYSAGE tiennent encore côte à côte. Le point de
+// bascule est la forme de l'écran lui-même — tant qu'un document est moins
+// large que lui, deux exemplaires côte à côte restent plus grands qu'empilés,
+// parce que l'empilement rend la paire plus haute que l'écran avant de la
+// rendre plus large. L'empilement ne l'emporte donc que pour un panorama,
+// plus large que l'écran qui le montre.
+//
+// LE VOISIN PREND LA TAILLE DU PRINCIPAL, et non celle où il traînait : « à
+// côté » veut dire à la même hauteur quand on est côte à côte, à la même
+// largeur quand on est l'un sous l'autre. Le tableau n'a qu'un zoom — deux
+// documents côte à côte sont deux objets voisins, c'est la vue qui les
+// embrasse.
+function disposerLesDeux(principal, voisin) {
+    const toile = document.getElementById('board');
+    const L = (toile && toile.clientWidth) || window.innerWidth;
+    const H = (toile && toile.clientHeight) || window.innerHeight;
+    const ecart = principal.w * ECART_DE_LA_PLACE;
+    const forme = (voisin.h > 0) ? (voisin.w / voisin.h) : 1;
+
+    const cote = { w: principal.h * forme, h: principal.h };
+    const boiteCote = { w: principal.w + ecart + cote.w, h: principal.h };
+
+    const sous = { w: principal.w, h: (forme > 0) ? principal.w / forme : principal.h };
+    const boiteSous = { w: principal.w, h: principal.h + ecart + sous.h };
+
+    const aCote = Math.min(L / boiteCote.w, H / boiteCote.h)
+        >= Math.min(L / boiteSous.w, H / boiteSous.h);
+
+    const taille = aCote ? cote : sous;
+    voisin.w = taille.w;
+    voisin.h = taille.h;
+    voisin.x = aCote ? principal.x + principal.w + ecart : principal.x;
+    voisin.y = aCote ? principal.y : principal.y + principal.h + ecart;
+
+    return {
+        aCote,
+        boite: {
+            x: principal.x, y: principal.y,
+            w: aCote ? boiteCote.w : boiteSous.w,
+            h: aCote ? boiteCote.h : boiteSous.h
+        }
+    };
+}
+
+// Les deux à l'écran, et rien d'autre. La marge de 2 % les décolle des bords
+// sans les rapetisser au point qu'on les remarque.
+function cadrerSurLesDeux(principal, voisin) {
+    const d = disposerLesDeux(principal, voisin);
+    cadrerSurLObjet(d.boite, 0.98);
+    return d;
+}
+
+window.disposerLesDeux = disposerLesDeux;
+window.cadrerSurLesDeux = cadrerSurLesDeux;
+
+// CE QUE LE VOILE ÉPARGNE : la page projetée, les morceaux qu'on en a tirés,
+// et l'occupant de la seconde place. UNE SEULE FOIS CHACUN — le chemin se
+// remplit en « pair-impair », et un rectangle posé deux fois s'annule : on
+// peindrait alors le voile PAR-DESSUS ce qu'on voulait montrer, ce qui est
+// très exactement l'inverse. Un morceau qui occupe déjà la seconde place est
+// donc dans la liste, et il y reste seul.
+function boitesEpargneesParLeVoile(doc) {
+    const liste = morceauxDeLaPageProjetee(doc);
+    const voisin = objetVoisinDeLaPresentation();
+    if (voisin && voisin !== doc && liste.indexOf(voisin) < 0) liste.push(voisin);
+    return liste;
+}
+window.boitesEpargneesParLeVoile = boitesEpargneesParLeVoile;
+
 function peindreLeFondDePresentation() {
     if (!presentationEnCours || isExportingTransparent) return;
     const doc = getObjectById('image', presentationEnCours);
@@ -13306,7 +13416,7 @@ function peindreLeFondDePresentation() {
     // des morceaux à épargner : un seul chemin, la page et les morceaux
     // soustraits, rempli en « pair-impair ». Sans morceau, on garde les quatre
     // bandes — c'est le cas courant, et il ne coûte pas un chemin.
-    const epargnes = morceauxDeLaPageProjetee(doc);
+    const epargnes = boitesEpargneesParLeVoile(doc);
     ctx.save();
     ctx.fillStyle = 'rgba(20, 22, 24, 0.94)';
     if (epargnes.length) {
@@ -23011,7 +23121,12 @@ function presenterLeDocument(cadrageVoulu) {
     // Marge 1 : la page touche les bords. Les 4 % qu'on laisse ailleurs se
     // voyaient comme deux bandes blanches — « pas tout à fait plein écran ».
     const cadrer = () => {
-        if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
+        // DEUX CHOSES À L'ÉCRAN, UN SEUL CADRAGE. Quand la seconde place est
+        // prise, le cadrage « pleine largeur » n'a plus de sens : la page
+        // partage l'écran, et c'est la boîte des deux qu'on embrasse.
+        const voisin = objetVoisinDeLaPresentation();
+        if (voisin && voisin !== doc) cadrerSurLesDeux(doc, voisin);
+        else if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
         else cadrerSurLObjet(doc, 1);
         if (typeof draw === 'function') draw();
     };
@@ -23262,6 +23377,9 @@ function quitterLaPresentation() {
     projectionEnPause = null;
     if (!presentationEnCours) return false;
     presentationEnCours = null;
+    // La seconde place n'existe que pendant la projection : hors d'elle, ce
+    // qu'on y avait posé redevient un objet du tableau comme un autre.
+    presentationVoisine = null;
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
     rendreLeModeDuDocument();
