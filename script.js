@@ -30080,6 +30080,505 @@ function showCalendarResults(dateStr, saves) {
     });
 }
 
+// ============================================================
+// L'AGENDA DU PROFESSEUR — L'EMPLOI DU TEMPS DE LA SEMAINE
+//
+// Le calendrier ci-dessus regarde DERRIÈRE : quels tableaux ont été gardés tel
+// jour. Celui-ci regarde l'heure qu'il est. Le logiciel sait déjà rattacher un
+// tableau à une classe, garder une préparation et la réinvestir avec une autre
+// classe — ce qui lui manquait, c'est de savoir que mardi, à 10 h 05, c'est la
+// 5e B.
+//
+// ON SAISIT EN DÉPOSANT. Vingt-cinq créneaux tapés dans un formulaire,
+// personne ne le fait deux fois : on prend une classe dans la colonne de
+// gauche, on la dépose sur la grille, on la déplace, on tire son bord pour
+// l'allonger. L'heure et la durée se lisent sur la grille, elles ne se
+// saisissent pas.
+//
+// UN SEUL MODÈLE POUR LE COLLÈGE ET POUR L'ÉCOLE. Au collège, une entrée de la
+// palette est une classe — « 5e B » — et elle pointe sur une vraie classe avec
+// ses élèves. À l'école, c'est une matière — « Questionner le monde » — et elle
+// ne pointe que sur elle-même, la classe étant toujours la même. Le logiciel ne
+// devine ni l'une ni l'autre : il ouvre ce que le créneau désigne, et c'est
+// l'enseignant qui l'a dit une fois pour toutes.
+// ============================================================
+const CLE_AGENDA = 'board_agenda';
+const EDT_DEBUT = 7 * 60;               // la grille ouvre à 7 h
+const EDT_FIN = 19 * 60;                // et ferme à 19 h
+const EDT_PAS = 5;                      // on se cale sur cinq minutes
+const EDT_MINIMUM = 25;                 // un créneau plus court que ça n'existe pas
+const EDT_DUREE_PAR_DEFAUT = 55;
+const EDT_PX = 0.85;                    // un pixel et des poussières par minute
+const EDT_JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+// Des couleurs assez pâles pour qu'un nom de classe reste lisible dessus.
+const EDT_COULEURS = ['#dfe4ff', '#d9f2e6', '#ffe6d5', '#f3ddf7', '#d9eefb', '#fdf0c8', '#e7e2d6', '#ffd9de'];
+
+let agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [] };
+let edtSemaineVue = 'A';
+let edtGeste = null;
+
+function lireLAgenda() {
+    try {
+        const brut = JSON.parse(localStorage.getItem(CLE_AGENDA) || 'null');
+        if (brut && typeof brut === 'object') {
+            agenda = Object.assign(agenda, brut);
+            if (!Array.isArray(agenda.entrees)) agenda.entrees = [];
+            if (!Array.isArray(agenda.creneaux)) agenda.creneaux = [];
+        }
+    } catch (e) { /* stockage refusé */ }
+    return agenda;
+}
+
+function ecrireLAgenda() {
+    try { localStorage.setItem(CLE_AGENDA, JSON.stringify(agenda)); } catch (e) { /* stockage refusé */ }
+}
+
+function nouvelIdEdt(prefixe) {
+    return prefixe + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+// « 8 h », « 10 h 05 » : l'heure comme on l'écrit en français, et non 08:00.
+function heureLisible(minutes) {
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    return h + ' h' + (m ? ' ' + String(m).padStart(2, '0') : '');
+}
+
+function entreeDeLAgenda(id) { return agenda.entrees.find(e => e.id === id) || null; }
+function creneauDeLAgenda(id) { return agenda.creneaux.find(c => c.id === id) || null; }
+
+// Ce qui est à l'écran : la semaine regardée quand on alterne, tout sinon.
+function creneauxVisibles() {
+    return agenda.creneaux.filter(c => !agenda.alterne || c.semaine === edtSemaineVue);
+}
+
+// ------------------------------------------------------------
+// LA PALETTE : ce qu'on dépose sur la grille
+// ------------------------------------------------------------
+function rendreLaPaletteDeLAgenda() {
+    const zone = document.getElementById('edt-palette');
+    if (!zone) return;
+    zone.innerHTML = '<div class="edt-palette-titre">MES CLASSES</div>';
+
+    agenda.entrees.forEach(e => {
+        const b = document.createElement('div');
+        b.className = 'edt-entree';
+        b.dataset.id = e.id;
+        b.style.background = e.couleur;
+        b.innerHTML = `<span class="edt-entree-nom">${echapperTexte(e.libelle)}</span>
+            <button class="edt-entree-btn" data-regler="${echapperTexte(e.id)}" title="Renommer, colorer, rattacher à une classe">✎</button>
+            <button class="edt-entree-btn" data-oter-entree="${echapperTexte(e.id)}" title="Retirer de la palette">×</button>`;
+        zone.appendChild(b);
+    });
+
+    const plus = document.createElement('button');
+    plus.id = 'edt-ajouter';
+    plus.className = 'btn-action secondary';
+    plus.innerText = '+ Ajouter';
+    zone.appendChild(plus);
+
+    if (!agenda.entrees.length) {
+        const mot = document.createElement('div');
+        mot.className = 'edt-palette-mot';
+        mot.innerText = "Ajoutez vos classes — ou vos matières, si vous avez la même classe toute la journée. Ensuite, déposez-les sur la grille.";
+        zone.appendChild(mot);
+    }
+}
+
+// Une entrée peut être rattachée à une classe déjà saisie : c'est ce lien qui
+// permettra d'ouvrir le dernier tableau de cette classe, et de retrouver ses
+// élèves. Une matière d'école ne se rattache à rien, et c'est très bien.
+async function reglerUneEntree(id) {
+    const e = id ? entreeDeLAgenda(id) : null;
+    let classes = [];
+    try { classes = (typeof ClassesStore !== 'undefined') ? await ClassesStore.loadAll() : []; } catch (err) { classes = []; }
+
+    const options = [{ value: '', label: '— aucune —' }]
+        .concat(classes.map(c => ({ value: c.id, label: c.name })));
+    const couleur = e ? e.couleur : EDT_COULEURS[agenda.entrees.length % EDT_COULEURS.length];
+
+    openCustomPrompt(e ? 'Régler « ' + e.libelle + ' »' : 'Ajouter une classe ou une matière',
+        [
+            { label: 'Nom', type: 'text', value: e ? e.libelle : '', placeholder: '5e B, ou Français' },
+            { label: 'Classe rattachée', type: 'select', value: e && e.classeId ? e.classeId : '', options },
+            { label: 'Couleur', type: 'color', value: couleur }
+        ],
+        null,
+        (valeurs) => {
+            const nom = (valeurs[0] || '').trim();
+            if (!nom) return;
+            const classeId = valeurs[1] || null;
+            const classe = classes.find(c => c.id === classeId);
+            if (e) {
+                e.libelle = nom; e.classeId = classeId;
+                e.classeNom = classe ? classe.name : null;
+                e.couleur = valeurs[2];
+                // Les créneaux portent le nom pour l'afficher sans rien
+                // chercher : renommer l'entrée doit les suivre.
+                agenda.creneaux.forEach(c => { if (c.entreeId === e.id) c.libelle = nom; });
+            } else {
+                agenda.entrees.push({
+                    id: nouvelIdEdt('edt'), libelle: nom, classeId,
+                    classeNom: classe ? classe.name : null, couleur: valeurs[2]
+                });
+            }
+            ecrireLAgenda();
+            rendreLAgenda();
+        },
+        () => { /* renoncé */ });
+}
+
+async function retirerUneEntree(id) {
+    const e = entreeDeLAgenda(id);
+    if (!e) return;
+    const poses = agenda.creneaux.filter(c => c.entreeId === id).length;
+    const ok = await demanderConfirmation('Retirer « ' + e.libelle + ' » ?',
+        poses ? `Ses ${poses} créneau${poses > 1 ? 'x' : ''} de la semaine partiront avec elle.`
+            : "Elle n'est posée nulle part.");
+    if (!ok) return;
+    agenda.entrees = agenda.entrees.filter(x => x.id !== id);
+    agenda.creneaux = agenda.creneaux.filter(c => c.entreeId !== id);
+    ecrireLAgenda();
+    rendreLAgenda();
+}
+
+// ------------------------------------------------------------
+// LA GRILLE
+// ------------------------------------------------------------
+// Deux créneaux qui se chevauchent se partagent la largeur. Un emploi du temps
+// n'en a pas — mais une saisie en cours, si, et un créneau caché dessous est un
+// créneau qu'on ne peut plus attraper.
+function repartirLesChevauchements(liste) {
+    const tries = liste.slice().sort((a, b) => a.debut - b.debut);
+    const groupes = [];
+    tries.forEach(c => {
+        const g = groupes.find(g => g.some(x => x.debut < c.debut + c.duree && c.debut < x.debut + x.duree));
+        if (g) g.push(c); else groupes.push([c]);
+    });
+    const place = new Map();
+    groupes.forEach(g => g.forEach((c, i) => place.set(c.id, { rang: i, total: g.length })));
+    return place;
+}
+
+function dessinerUnCreneau(c, place) {
+    const d = document.createElement('div');
+    const p = place.get(c.id) || { rang: 0, total: 1 };
+    d.className = 'edt-creneau';
+    d.dataset.id = c.id;
+    d.style.top = ((c.debut - EDT_DEBUT) * EDT_PX) + 'px';
+    d.style.height = (c.duree * EDT_PX) + 'px';
+    d.style.left = (p.rang * 100 / p.total) + '%';
+    d.style.width = (100 / p.total) + '%';
+    d.style.background = c.couleur || '#dfe4ff';
+    d.innerHTML = `
+        <span class="edt-creneau-nom">${echapperTexte(c.libelle)}</span>
+        <span class="edt-creneau-heure">${heureLisible(c.debut)} – ${heureLisible(c.debut + c.duree)}</span>
+        <button class="edt-oter" title="Retirer ce créneau">×</button>
+        <span class="edt-poignee"></span>`;
+    return d;
+}
+
+function rendreLaGrilleDeLAgenda() {
+    const cadre = document.getElementById('edt-grille');
+    if (!cadre) return;
+    const hauteur = (EDT_FIN - EDT_DEBUT) * EDT_PX;
+    cadre.innerHTML = '';
+
+    const heures = document.createElement('div');
+    heures.className = 'edt-heures';
+    heures.style.height = hauteur + 'px';
+    for (let m = EDT_DEBUT; m <= EDT_FIN; m += 60) {
+        const t = document.createElement('div');
+        t.className = 'edt-heure';
+        t.style.top = ((m - EDT_DEBUT) * EDT_PX) + 'px';
+        t.innerText = heureLisible(m);
+        heures.appendChild(t);
+    }
+    cadre.appendChild(heures);
+
+    const visibles = creneauxVisibles();
+    EDT_JOURS.slice(0, agenda.samedi ? 6 : 5).forEach((nom, i) => {
+        const jour = i + 1;
+        const col = document.createElement('div');
+        col.className = 'edt-colonne';
+        col.innerHTML = `<div class="edt-titre">${nom}</div>`;
+
+        const fond = document.createElement('div');
+        fond.className = 'edt-jour';
+        fond.dataset.jour = String(jour);
+        fond.style.height = hauteur + 'px';
+        for (let m = EDT_DEBUT + 60; m < EDT_FIN; m += 60) {
+            const l = document.createElement('div');
+            l.className = 'edt-ligne';
+            l.style.top = ((m - EDT_DEBUT) * EDT_PX) + 'px';
+            fond.appendChild(l);
+        }
+        const duJour = visibles.filter(c => c.jour === jour);
+        const place = repartirLesChevauchements(duJour);
+        duJour.forEach(c => fond.appendChild(dessinerUnCreneau(c, place)));
+
+        col.appendChild(fond);
+        cadre.appendChild(col);
+    });
+}
+
+function majLesReglagesDeLAgenda() {
+    const alterne = document.getElementById('edt-alterne');
+    const samedi = document.getElementById('edt-samedi');
+    const semaines = document.getElementById('edt-semaines');
+    const copier = document.getElementById('edt-recopier');
+    if (alterne) alterne.checked = !!agenda.alterne;
+    if (samedi) samedi.checked = !!agenda.samedi;
+    if (semaines) {
+        semaines.style.display = agenda.alterne ? 'flex' : 'none';
+        semaines.querySelectorAll('button').forEach(b => {
+            b.classList.toggle('actif', b.dataset.semaine === edtSemaineVue);
+        });
+    }
+    if (copier) copier.style.display = agenda.alterne ? 'inline-flex' : 'none';
+}
+
+function rendreLAgenda() {
+    rendreLaPaletteDeLAgenda();
+    rendreLaGrilleDeLAgenda();
+    majLesReglagesDeLAgenda();
+}
+
+// ------------------------------------------------------------
+// LES GESTES : poser, déplacer, allonger
+// ------------------------------------------------------------
+function minutesSousLeDoigt(colonne, y) {
+    const r = colonne.getBoundingClientRect();
+    const brut = EDT_DEBUT + Math.round((y - r.top) / EDT_PX / EDT_PAS) * EDT_PAS;
+    return Math.max(EDT_DEBUT, Math.min(EDT_FIN - EDT_MINIMUM, brut));
+}
+
+function colonneSousLeDoigt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el ? el.closest('.edt-jour') : null;
+}
+
+function poserUnCreneau(jour, debut, entree) {
+    const c = {
+        id: nouvelIdEdt('cr'), jour, debut,
+        duree: Math.min(EDT_DUREE_PAR_DEFAUT, EDT_FIN - debut),
+        semaine: agenda.alterne ? edtSemaineVue : 'toutes',
+        entreeId: entree.id, libelle: entree.libelle, couleur: entree.couleur
+    };
+    agenda.creneaux.push(c);
+    return c;
+}
+
+function retirerUnCreneau(id) {
+    agenda.creneaux = agenda.creneaux.filter(c => c.id !== id);
+    ecrireLAgenda();
+    rendreLaGrilleDeLAgenda();
+}
+
+function commencerUnGesteDeLAgenda(e) {
+    // Les trois boutons — régler, retirer l'entrée, retirer le créneau — sont
+    // des boutons : ils agissent à l'appui relâché, pas à l'appui. On se
+    // contente ici de ne pas partir en glissade sous eux.
+    if (e.target.closest('[data-regler], [data-oter-entree], .edt-oter')) return;
+
+    const entree = e.target.closest('.edt-entree');
+    if (entree) {
+        const source = entreeDeLAgenda(entree.dataset.id);
+        if (!source) return;
+        edtGeste = { type: 'poser', entree: source };
+        montrerLeFantomeDeLAgenda(e, source);
+        e.preventDefault();
+        return;
+    }
+
+    const bloc = e.target.closest('.edt-creneau');
+    if (bloc) {
+        const c = creneauDeLAgenda(bloc.dataset.id);
+        if (!c) return;
+        const r = bloc.getBoundingClientRect();
+        edtGeste = e.target.closest('.edt-poignee')
+            ? { type: 'allonger', c }
+            : { type: 'deplacer', c, prise: e.clientY - r.top };
+        bloc.classList.add('edt-en-main');
+        e.preventDefault();
+        return;
+    }
+
+    // Sur le fond d'une colonne : on trace, avec la dernière entrée servie.
+    const fond = e.target.closest('.edt-jour');
+    if (fond && agenda.entrees.length) {
+        const derniere = entreeDeLAgenda(agenda.derniere) || agenda.entrees[0];
+        const c = poserUnCreneau(Number(fond.dataset.jour), minutesSousLeDoigt(fond, e.clientY), derniere);
+        edtGeste = { type: 'allonger', c };
+        rendreLaGrilleDeLAgenda();
+        e.preventDefault();
+    }
+}
+
+function suivreUnGesteDeLAgenda(e) {
+    if (!edtGeste) return;
+    if (edtGeste.type === 'poser') { bougerLeFantomeDeLAgenda(e); return; }
+
+    const c = edtGeste.c;
+    if (edtGeste.type === 'deplacer') {
+        const col = colonneSousLeDoigt(e.clientX, e.clientY);
+        if (col) c.jour = Number(col.dataset.jour);
+        const repere = col || document.querySelector('.edt-jour');
+        if (!repere) return;
+        c.debut = Math.min(minutesSousLeDoigt(repere, e.clientY - edtGeste.prise), EDT_FIN - c.duree);
+    } else {
+        const repere = document.querySelector('.edt-jour[data-jour="' + c.jour + '"]');
+        if (!repere) return;
+        const fin = minutesSousLeDoigt(repere, e.clientY);
+        c.duree = Math.max(EDT_MINIMUM, Math.min(fin - c.debut, EDT_FIN - c.debut));
+    }
+    rendreLaGrilleDeLAgenda();
+}
+
+function finirUnGesteDeLAgenda(e) {
+    if (!edtGeste) return;
+    if (edtGeste.type === 'poser') {
+        const col = colonneSousLeDoigt(e.clientX, e.clientY);
+        // Déposé à côté de la grille, c'est un simple appui : on retient
+        // l'entrée pour le prochain tracé, et rien de plus.
+        if (col) poserUnCreneau(Number(col.dataset.jour), minutesSousLeDoigt(col, e.clientY), edtGeste.entree);
+        agenda.derniere = edtGeste.entree.id;
+        cacherLeFantomeDeLAgenda();
+    } else {
+        agenda.derniere = edtGeste.c.entreeId;
+    }
+    edtGeste = null;
+    ecrireLAgenda();
+    rendreLaGrilleDeLAgenda();
+}
+
+function montrerLeFantomeDeLAgenda(e, entree) {
+    cacherLeFantomeDeLAgenda();
+    const f = document.createElement('div');
+    f.id = 'edt-fantome';
+    f.innerText = entree.libelle;
+    f.style.background = entree.couleur;
+    document.body.appendChild(f);
+    bougerLeFantomeDeLAgenda(e);
+}
+
+function bougerLeFantomeDeLAgenda(e) {
+    const f = document.getElementById('edt-fantome');
+    if (!f) return;
+    f.style.left = (e.clientX + 12) + 'px';
+    f.style.top = (e.clientY - 14) + 'px';
+}
+
+function cacherLeFantomeDeLAgenda() {
+    const f = document.getElementById('edt-fantome');
+    if (f) f.remove();
+}
+
+// ------------------------------------------------------------
+// LES SEMAINES A ET B
+// ------------------------------------------------------------
+// ALLUMER L'ALTERNANCE NE DOIT RIEN COÛTER : l'emploi du temps déjà saisi
+// devient celui des deux semaines, et l'on ne corrige ensuite que les trois
+// cases qui diffèrent. L'éteindre, en revanche, perd la semaine B : on le
+// demande.
+async function basculerLAlternance(actif) {
+    if (actif === !!agenda.alterne) return;
+    if (actif) {
+        const doubles = [];
+        agenda.creneaux.forEach(c => {
+            c.semaine = 'A';
+            doubles.push(Object.assign({}, c, { id: nouvelIdEdt('cr'), semaine: 'B' }));
+        });
+        agenda.creneaux = agenda.creneaux.concat(doubles);
+        agenda.alterne = true;
+        edtSemaineVue = 'A';
+    } else {
+        const enB = agenda.creneaux.filter(c => c.semaine === 'B').length;
+        if (enB) {
+            const ok = await demanderConfirmation('Revenir à une seule semaine ?',
+                `Les ${enB} créneaux propres à la semaine B seront perdus ; ceux de la semaine A deviennent ceux de chaque semaine.`);
+            if (!ok) { majLesReglagesDeLAgenda(); return; }
+        }
+        agenda.creneaux = agenda.creneaux.filter(c => c.semaine !== 'B');
+        agenda.creneaux.forEach(c => { c.semaine = 'toutes'; });
+        agenda.alterne = false;
+    }
+    ecrireLAgenda();
+    rendreLAgenda();
+}
+
+async function recopierLaSemaine() {
+    if (!agenda.alterne) return;
+    const vers = edtSemaineVue === 'A' ? 'B' : 'A';
+    const source = agenda.creneaux.filter(c => c.semaine === edtSemaineVue);
+    const remplaces = agenda.creneaux.filter(c => c.semaine === vers).length;
+    if (!source.length) { showToast('La semaine ' + edtSemaineVue + ' est vide'); return; }
+    if (remplaces) {
+        const ok = await demanderConfirmation('La semaine ' + vers + ' comme la ' + edtSemaineVue + ' ?',
+            `Ses ${remplaces} créneaux actuels seront remplacés.`);
+        if (!ok) return;
+    }
+    agenda.creneaux = agenda.creneaux.filter(c => c.semaine !== vers)
+        .concat(source.map(c => Object.assign({}, c, { id: nouvelIdEdt('cr'), semaine: vers })));
+    ecrireLAgenda();
+    rendreLAgenda();
+    showToast('La semaine ' + vers + ' reprend la semaine ' + edtSemaineVue);
+}
+
+// ------------------------------------------------------------
+// LA FENÊTRE
+// ------------------------------------------------------------
+let edtBranche = false;
+
+function ouvrirLAgenda() {
+    const boite = document.getElementById('edt-modal');
+    if (!boite) return;
+    lireLAgenda();
+    if (!edtBranche) {
+        edtBranche = true;
+        const corps = document.getElementById('edt-corps');
+        corps.addEventListener('pointerdown', commencerUnGesteDeLAgenda);
+        window.addEventListener('pointermove', suivreUnGesteDeLAgenda);
+        window.addEventListener('pointerup', finirUnGesteDeLAgenda);
+        window.addEventListener('pointercancel', finirUnGesteDeLAgenda);
+        corps.addEventListener('click', (e) => {
+            if (e.target.closest('#edt-ajouter')) { reglerUneEntree(null); return; }
+            const regler = e.target.closest('[data-regler]');
+            if (regler) { reglerUneEntree(regler.dataset.regler); return; }
+            const oterEntree = e.target.closest('[data-oter-entree]');
+            if (oterEntree) { retirerUneEntree(oterEntree.dataset.oterEntree); return; }
+            const oter = e.target.closest('.edt-oter');
+            if (oter) retirerUnCreneau(oter.closest('.edt-creneau').dataset.id);
+        });
+        document.getElementById('edt-alterne').addEventListener('change', (e) => basculerLAlternance(e.target.checked));
+        document.getElementById('edt-samedi').addEventListener('change', (e) => {
+            agenda.samedi = e.target.checked;
+            ecrireLAgenda();
+            rendreLaGrilleDeLAgenda();
+        });
+        document.getElementById('edt-recopier').addEventListener('click', recopierLaSemaine);
+        document.getElementById('edt-semaines').querySelectorAll('button').forEach(b => {
+            b.addEventListener('click', () => {
+                edtSemaineVue = b.dataset.semaine;
+                rendreLaGrilleDeLAgenda();
+                majLesReglagesDeLAgenda();
+            });
+        });
+    }
+    boite.style.display = 'flex';
+    rendreLAgenda();
+}
+
+function fermerLAgenda() {
+    const boite = document.getElementById('edt-modal');
+    if (boite) boite.style.display = 'none';
+    cacherLeFantomeDeLAgenda();
+    edtGeste = null;
+}
+
+window.ouvrirLAgenda = ouvrirLAgenda;
+window.fermerLAgenda = fermerLAgenda;
+window.lireLAgenda = lireLAgenda;
+
 function finishInlineCreation(name) {
     if (isCompletingInline) return;
     isCompletingInline = true;

@@ -6892,6 +6892,211 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 .dark-mode .exp-detail-entete, .dark-mode .exp-detail-entete:hover { background: #232b32; }
 
 /* ===================================================
+   L'AGENDA DU PROFESSEUR — L'EMPLOI DU TEMPS
+   Une grille de la semaine où l'on dépose ses classes.
+   =================================================== */
+#edt-boite {
+    max-width: 1040px;
+    width: calc(100vw - 40px);
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+#edt-tete {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+#edt-semaines { display: flex; gap: 0; }
+
+.edt-semaine {
+    border: 1px solid #dfe6e9;
+    background: #fff;
+    color: #636e72;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+
+.edt-semaine:first-child { border-radius: 7px 0 0 7px; }
+.edt-semaine:last-child { border-radius: 0 7px 7px 0; border-left: none; }
+.edt-semaine.actif { background: #6c5ce7; border-color: #6c5ce7; color: #fff; }
+
+.edt-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #636e72;
+    cursor: pointer;
+}
+
+#edt-corps {
+    display: flex;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    /* On glisse là-dedans : le navigateur n'a pas à y voir un défilement. */
+    touch-action: none;
+    user-select: none;
+}
+
+#edt-palette {
+    width: 168px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: sticky;
+    left: 0;
+}
+
+.edt-palette-titre {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: #b2bec3;
+    margin-bottom: 2px;
+}
+
+.edt-palette-mot { font-size: 11px; color: #95a5a6; line-height: 1.5; margin-top: 6px; }
+
+.edt-entree {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2d3436;
+    cursor: grab;
+}
+
+.edt-entree-nom { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.edt-entree-btn {
+    border: none;
+    background: rgba(255, 255, 255, 0.55);
+    border-radius: 5px;
+    width: 20px;
+    height: 20px;
+    line-height: 1;
+    font-size: 12px;
+    color: #636e72;
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0.45;
+}
+
+.edt-entree:hover .edt-entree-btn { opacity: 1; }
+
+#edt-grille { display: flex; flex: 1; min-width: 560px; }
+
+.edt-heures { position: relative; width: 52px; flex-shrink: 0; margin-top: 26px; }
+
+.edt-heure {
+    position: absolute;
+    right: 8px;
+    transform: translateY(-50%);
+    font-size: 10px;
+    color: #b2bec3;
+    white-space: nowrap;
+}
+
+.edt-colonne { flex: 1; min-width: 92px; display: flex; flex-direction: column; }
+
+.edt-titre {
+    height: 26px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #636e72;
+    text-align: center;
+    line-height: 26px;
+}
+
+.edt-jour {
+    position: relative;
+    border-left: 1px solid #f1f2f6;
+    background: #fcfcfd;
+}
+
+.edt-colonne:last-child .edt-jour { border-right: 1px solid #f1f2f6; }
+.edt-ligne { position: absolute; left: 0; right: 0; height: 1px; background: #f1f2f6; }
+
+.edt-creneau {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    padding: 3px 5px;
+    overflow: hidden;
+    cursor: grab;
+    font-size: 11px;
+    color: #2d3436;
+}
+
+.edt-creneau.edt-en-main { opacity: 0.75; cursor: grabbing; }
+.edt-creneau-nom { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edt-creneau-heure { display: block; font-size: 10px; opacity: 0.6; }
+
+.edt-oter {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 17px;
+    height: 17px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.6);
+    color: #636e72;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+}
+
+.edt-creneau:hover .edt-oter { opacity: 1; }
+
+/* Le bord du bas s'attrape pour allonger le cours. */
+.edt-poignee {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 7px;
+    cursor: ns-resize;
+}
+
+#edt-fantome {
+    position: fixed;
+    z-index: 100040;
+    pointer-events: none;
+    padding: 5px 9px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2d3436;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+#edt-mode-demploi { font-size: 12px; color: #95a5a6; margin-top: 10px; line-height: 1.5; }
+
+.dark-mode .edt-semaine { background: #232b32; border-color: #3d4852; color: #b2bec3; }
+.dark-mode .edt-semaine.actif { background: #6c5ce7; border-color: #6c5ce7; color: #fff; }
+.dark-mode .edt-jour { background: #232b32; border-color: #2f3941; }
+.dark-mode .edt-ligne { background: #2f3941; }
+.dark-mode .edt-colonne:last-child .edt-jour { border-right-color: #2f3941; }
+.dark-mode .edt-titre, .dark-mode .edt-option { color: #b2bec3; }
+
+/* ===================================================
    LES TROIS POINTS, ET LA CARTE DE SURVOL
    Prendre un fichier du nuage sans le poser sur le tableau, et voir ce
    qu'il contient sans l'ouvrir.

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=170">
+    <link rel="stylesheet" href="style.css?v=171">
 </head>
 
 <body>
@@ -2741,6 +2741,15 @@
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
                     </button>
+                    <button class="rd-btn" onclick="ouvrirLAgenda()" title="Mon emploi du temps" data-tooltip="Emploi du temps">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
+                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="17" rx="2" ry="2" />
+                            <line x1="3" y1="9" x2="21" y2="9" />
+                            <line x1="9" y1="9" x2="9" y2="21" />
+                            <line x1="15" y1="9" x2="15" y2="21" />
+                        </svg>
+                    </button>
                     <button class="rd-btn" onclick="openCalendarModal()" title="Calendrier Historique" data-tooltip="Historique">
                         <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
                             fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3482,12 +3491,41 @@
         </div>
     </div>
 
+    <!-- L'AGENDA DU PROFESSEUR. Le calendrier ci-dessus regarde derrière :
+         quels tableaux ont été gardés tel jour. Celui-ci dit ce qu'il y a
+         cette semaine, et à quelle heure. On le remplit en déposant. -->
+    <div id="edt-modal" class="modal-backdrop">
+        <div class="modal-box" id="edt-boite">
+            <h3 class="modal-title">Mon emploi du temps</h3>
+            <div id="edt-tete">
+                <div id="edt-semaines">
+                    <button type="button" class="edt-semaine" data-semaine="A">Semaine A</button>
+                    <button type="button" class="edt-semaine" data-semaine="B">Semaine B</button>
+                </div>
+                <button type="button" id="edt-recopier" class="btn-action secondary">Recopier sur l'autre semaine</button>
+                <label class="edt-option"><input type="checkbox" id="edt-alterne"> Semaines A et B</label>
+                <label class="edt-option"><input type="checkbox" id="edt-samedi"> Samedi</label>
+            </div>
+            <div id="edt-corps">
+                <div id="edt-palette"></div>
+                <div id="edt-grille"></div>
+            </div>
+            <div id="edt-mode-demploi" class="modal-text">
+                Prenez une classe à gauche et déposez-la sur la grille. Ensuite : glissez le créneau
+                pour le déplacer, tirez son bord du bas pour l'allonger, « × » pour le retirer.
+            </div>
+            <div class="export-actions-grid" style="display:flex; margin-top: 16px;">
+                <button onclick="fermerLAgenda()" class="btn-action secondary" style="flex:1;">Fermer</button>
+            </div>
+        </div>
+    </div>
+
     <script src="./lib/d3/d3.v7.min.js?v=1"></script>
     <script src="./lib/maps/maps.js?v=1"></script>
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=290"></script>
+    <script src="script.js?v=291"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
