@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=171">
+    <link rel="stylesheet" href="style.css?v=172">
 </head>
 
 <body>
@@ -3494,6 +3494,10 @@
     <!-- L'AGENDA DU PROFESSEUR. Le calendrier ci-dessus regarde derrière :
          quels tableaux ont été gardés tel jour. Celui-ci dit ce qu'il y a
          cette semaine, et à quelle heure. On le remplit en déposant. -->
+    <!-- Le bandeau du créneau : il PROPOSE la classe de l'heure, il ne
+         l'impose pas. Écarté, il ne revient pas de la journée. -->
+    <div id="edt-bandeau"></div>
+
     <div id="edt-modal" class="modal-backdrop">
         <div class="modal-box" id="edt-boite">
             <h3 class="modal-title">Mon emploi du temps</h3>
@@ -3505,6 +3509,7 @@
                 <button type="button" id="edt-recopier" class="btn-action secondary">Recopier sur l'autre semaine</button>
                 <label class="edt-option"><input type="checkbox" id="edt-alterne"> Semaines A et B</label>
                 <label class="edt-option"><input type="checkbox" id="edt-samedi"> Samedi</label>
+                <span id="edt-ancre"></span>
             </div>
             <div id="edt-corps">
                 <div id="edt-palette"></div>
@@ -3525,7 +3530,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=291"></script>
+    <script src="script.js?v=292"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=108"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

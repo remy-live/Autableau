@@ -51,7 +51,11 @@ async function ouvrirApp(browser, options = {}) {
     const context = await browser.newContext({
         viewport: options.viewport || { width: 1280, height: 800 },
         hasTouch: !!options.tactile,
-        deviceScaleFactor: options.deviceScaleFactor || 1
+        deviceScaleFactor: options.deviceScaleFactor || 1,
+        // Cette machine vit en temps universel, où l'heure ne change jamais.
+        // Une suite qui a besoin des heures d'été et d'hiver — le compte des
+        // semaines A et B en dépend — demande un vrai fuseau.
+        ...(options.fuseau ? { timezoneId: options.fuseau } : {})
     });
     const page = await context.newPage();
     // L'astuce du jour s'ouvre 2,5 s après le chargement et intercepte les

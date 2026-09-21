@@ -30109,7 +30109,11 @@ const EDT_PAS = 5;                      // on se cale sur cinq minutes
 const EDT_MINIMUM = 25;                 // un créneau plus court que ça n'existe pas
 const EDT_DUREE_PAR_DEFAUT = 55;
 const EDT_PX = 0.85;                    // un pixel et des poussières par minute
-const EDT_JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+// Dimanche ne paraît pas dans la grille — on n'y pose rien — mais il doit
+// porter son nom : le bandeau regarde l'heure sept jours sur sept, et « undefined »
+// un dimanche soir serait une drôle de façon de saluer.
+const EDT_JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+const EDT_JOURS_OUVRES = 5;
 // Des couleurs assez pâles pour qu'un nom de classe reste lisible dessus.
 const EDT_COULEURS = ['#dfe4ff', '#d9f2e6', '#ffe6d5', '#f3ddf7', '#d9eefb', '#fdf0c8', '#e7e2d6', '#ffd9de'];
 
@@ -30296,7 +30300,7 @@ function rendreLaGrilleDeLAgenda() {
     cadre.appendChild(heures);
 
     const visibles = creneauxVisibles();
-    EDT_JOURS.slice(0, agenda.samedi ? 6 : 5).forEach((nom, i) => {
+    EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES).forEach((nom, i) => {
         const jour = i + 1;
         const col = document.createElement('div');
         col.className = 'edt-colonne';
@@ -30335,6 +30339,18 @@ function majLesReglagesDeLAgenda() {
         });
     }
     if (copier) copier.style.display = agenda.alterne ? 'inline-flex' : 'none';
+
+    const ancre = document.getElementById('edt-ancre');
+    if (ancre) {
+        if (!agenda.alterne) { ancre.style.display = 'none'; ancre.innerHTML = ''; }
+        else {
+            const ici = semaineDe(new Date());
+            const autre = ici === 'A' ? 'B' : 'A';
+            ancre.style.display = 'inline-flex';
+            ancre.innerHTML = `Cette semaine-ci : <b>semaine ${ici}</b>`
+                + `<button type="button" id="edt-recaler" data-lettre="${autre}">non, c'est une ${autre}</button>`;
+        }
+    }
 }
 
 function rendreLAgenda() {
@@ -30490,6 +30506,8 @@ async function basculerLAlternance(actif) {
         });
         agenda.creneaux = agenda.creneaux.concat(doubles);
         agenda.alterne = true;
+        // Cette semaine-ci est une A, jusqu'à ce qu'on dise le contraire.
+        if (!agenda.ancre) ancrerLaSemaine('A');
         edtSemaineVue = 'A';
     } else {
         const enB = agenda.creneaux.filter(c => c.semaine === 'B').length;
@@ -30525,6 +30543,137 @@ async function recopierLaSemaine() {
 }
 
 // ------------------------------------------------------------
+// LA SEMAINE A OU B : UNE ANCRE, ET UNE CORRECTION EN UN GESTE
+//
+// Pas de calcul savant sur les vacances : chaque établissement fait autrement,
+// et l'on se tromperait une année sur deux. On dit une fois quelle semaine on
+// est, on compte les semaines à partir de là, et LA LETTRE EST ÉCRITE — avec,
+// à côté, de quoi dire « non, c'est une B ». Une erreur qui se corrige en un
+// geste et ne revient plus vaut mieux qu'un calcul qui a l'air sûr.
+// ------------------------------------------------------------
+function lundiDe(date) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));       // lundi = 0
+    return d;
+}
+
+function jourIso(date) {
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0')
+        + '-' + String(date.getDate()).padStart(2, '0');
+}
+
+function semaineDe(date) {
+    if (!agenda.alterne) return 'toutes';
+    if (!agenda.ancre) return 'A';
+    const depart = lundiDe(new Date(agenda.ancre.lundi + 'T12:00:00'));
+    // L'HEURE D'ÉTÉ FAIT DES SEMAINES DE 167 HEURES. Sans arrondi, une semaine
+    // sur deux basculerait au printemps et l'on se présenterait devant la
+    // mauvaise classe un lundi de mars.
+    const semaines = Math.round((lundiDe(date) - depart) / (7 * 24 * 3600 * 1000));
+    const paire = (((semaines % 2) + 2) % 2) === 0;
+    return paire ? agenda.ancre.lettre : (agenda.ancre.lettre === 'A' ? 'B' : 'A');
+}
+
+function ancrerLaSemaine(lettre, date) {
+    agenda.ancre = { lundi: jourIso(lundiDe(date || new Date())), lettre };
+    ecrireLAgenda();
+}
+
+// ------------------------------------------------------------
+// LE BANDEAU DU CRÉNEAU : PROPOSER, JAMAIS IMPOSER
+//
+// C'est la première fois que le logiciel regarde l'heure, et il doit le faire
+// timidement : on remplace un collègue, la séance est décalée par une sortie,
+// l'horloge de la salle 214 est fausse de trois jours. Un tableau qui se
+// remplacerait tout seul pendant qu'on écrit dessus serait la seule faute
+// qu'on ne pardonne pas. On propose donc, dans un bandeau qu'on peut ignorer,
+// et qui ne revient pas de la journée une fois écarté.
+// ------------------------------------------------------------
+const EDT_AVANCE = 10;              // on prévient dix minutes avant la sonnerie
+const bandeauxEcartes = {};
+let edtVeille = null;
+let edtCreneauMontre = null;
+
+function creneauMaintenant(quand) {
+    const d = quand || new Date();
+    const jour = (d.getDay() + 6) % 7 + 1;
+    const minutes = d.getHours() * 60 + d.getMinutes();
+    const semaine = semaineDe(d);
+    return agenda.creneaux.find(c => c.jour === jour
+        && (c.semaine === 'toutes' || c.semaine === semaine)
+        && minutes >= c.debut - EDT_AVANCE && minutes < c.debut + c.duree) || null;
+}
+
+// La dernière séance faite avec cette classe : c'est là qu'on reprend. Le
+// tableau porte déjà sa classe — « Réinvestir la séance » l'y a écrite — et
+// c'est ce lien-là qu'on suit, plutôt que de deviner sur un nom.
+function derniereSeanceDe(entree) {
+    if (!entree || typeof savedTableaux === 'undefined' || !Array.isArray(savedTableaux)) return null;
+    const siennes = savedTableaux.filter(t => t.type !== 'folder'
+        && (entree.classeId ? t.classeId === entree.classeId : t.classeNom === entree.libelle));
+    return siennes.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
+}
+
+function annoncerLeCreneau(c) {
+    const b = document.getElementById('edt-bandeau');
+    if (!b) return;
+    const semaine = agenda.alterne ? ' · semaine ' + semaineDe(new Date()) : '';
+    b.innerHTML = `
+        <span class="edt-bandeau-quand">${EDT_JOURS[c.jour - 1]} ${heureLisible(c.debut)}${semaine}</span>
+        <span class="edt-bandeau-quoi">${echapperTexte(c.libelle)}</span>
+        <button type="button" class="btn-action primary" id="edt-ouvrir-seance">Ouvrir la dernière séance</button>
+        <button type="button" class="btn-action secondary" id="edt-voir-agenda">Emploi du temps</button>
+        <button type="button" id="edt-bandeau-fermer" title="Pas maintenant">×</button>`;
+    b.classList.add('edt-bandeau-la');
+    edtCreneauMontre = c;
+    document.getElementById('edt-ouvrir-seance').addEventListener('click', () => ouvrirLaSeanceDe(c));
+    document.getElementById('edt-voir-agenda').addEventListener('click', () => { ecarterLeBandeau(); ouvrirLAgenda(); });
+    document.getElementById('edt-bandeau-fermer').addEventListener('click', ecarterLeBandeau);
+}
+
+function ecarterLeBandeau() {
+    const b = document.getElementById('edt-bandeau');
+    if (b) { b.classList.remove('edt-bandeau-la'); b.innerHTML = ''; }
+    // Écarté, il ne revient pas de la journée : on a dit non une fois.
+    if (edtCreneauMontre) bandeauxEcartes[edtCreneauMontre.id] = jourIso(new Date());
+    edtCreneauMontre = null;
+}
+
+function ouvrirLaSeanceDe(c) {
+    const entree = entreeDeLAgenda(c.entreeId);
+    const seance = derniereSeanceDe(entree);
+    ecarterLeBandeau();
+    if (!seance) {
+        showToast('Aucune séance gardée pour « ' + c.libelle + ' » — le tableau reste comme il est');
+        return;
+    }
+    // On passe par la porte habituelle : elle propose d'enregistrer ce qui est
+    // au tableau avant d'en ouvrir un autre. Une proposition du logiciel n'a
+    // pas le droit d'effacer le travail de quelqu'un.
+    promptLoadBoard(seance.id);
+}
+
+function battementDeLAgenda() {
+    if (!agenda.creneaux.length) return;
+    const modal = document.getElementById('edt-modal');
+    if (modal && getComputedStyle(modal).display !== 'none') return;
+    if (typeof unEcranDeDepartEstLa === 'function' && unEcranDeDepartEstLa()) return;
+
+    const c = creneauMaintenant();
+    if (!c) { if (edtCreneauMontre) ecarterLeBandeau(); return; }
+    if (edtCreneauMontre && edtCreneauMontre.id === c.id) return;
+    if (bandeauxEcartes[c.id] === jourIso(new Date())) return;
+    annoncerLeCreneau(c);
+}
+
+function veillerSurLAgenda() {
+    lireLAgenda();
+    battementDeLAgenda();
+    if (edtVeille) clearInterval(edtVeille);
+    edtVeille = setInterval(battementDeLAgenda, 60000);
+}
+
+// ------------------------------------------------------------
 // LA FENÊTRE
 // ------------------------------------------------------------
 let edtBranche = false;
@@ -30556,6 +30705,13 @@ function ouvrirLAgenda() {
             rendreLaGrilleDeLAgenda();
         });
         document.getElementById('edt-recopier').addEventListener('click', recopierLaSemaine);
+        document.getElementById('edt-tete').addEventListener('click', (e) => {
+            const recaler = e.target.closest('#edt-recaler');
+            if (!recaler) return;
+            ancrerLaSemaine(recaler.dataset.lettre);
+            majLesReglagesDeLAgenda();
+            showToast('Cette semaine est une semaine ' + recaler.dataset.lettre);
+        });
         document.getElementById('edt-semaines').querySelectorAll('button').forEach(b => {
             b.addEventListener('click', () => {
                 edtSemaineVue = b.dataset.semaine;
@@ -30578,6 +30734,10 @@ function fermerLAgenda() {
 window.ouvrirLAgenda = ouvrirLAgenda;
 window.fermerLAgenda = fermerLAgenda;
 window.lireLAgenda = lireLAgenda;
+
+// La veille ne part qu'une fois la page posée : avant, il n'y a ni bandeau où
+// écrire, ni écran de départ à ne pas recouvrir.
+document.addEventListener('DOMContentLoaded', () => { veillerSurLAgenda(); });
 
 function finishInlineCreation(name) {
     if (isCompletingInline) return;

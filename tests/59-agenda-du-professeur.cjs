@@ -401,6 +401,250 @@ module.exports = async function (browser) {
     r.egal('la palette se vide', otee.entrees, 0);
     r.egal('et la grille avec elle', otee.creneaux, 0);
 
+    // ------------------------------------------------------------------
+    // LA SEMAINE A OU B : UNE ANCRE, ET UNE CORRECTION EN UN GESTE
+    // ------------------------------------------------------------------
+    const ancre = await page.evaluate(async () => {
+        localStorage.removeItem('board_agenda');
+        lireLAgenda();
+        agenda.alterne = false; agenda.ancre = null; agenda.entrees = []; agenda.creneaux = [];
+        await basculerLAlternance(true);
+        const dit = document.getElementById('edt-ancre');
+        const vu = {
+            posee: JSON.parse(localStorage.getItem('board_agenda') || '{}').ancre,
+            texte: dit.innerText.replace(/\s+/g, ' ').trim(),
+            montree: getComputedStyle(dit).display !== 'none',
+            ici: semaineDe(new Date())
+        };
+        document.getElementById('edt-recaler').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        vu.apres = semaineDe(new Date());
+        vu.texteApres = dit.innerText.replace(/\s+/g, ' ').trim();
+        return vu;
+    });
+    r.verifie('allumer l\'alternance pose l\'ancre sur cette semaine-ci',
+        ancre.posee && ancre.posee.lettre === 'A' && /^\d{4}-\d{2}-\d{2}$/.test(ancre.posee.lundi),
+        JSON.stringify(ancre.posee));
+    r.verifie('et la lettre de la semaine est écrite', ancre.montree
+        && /Cette semaine-ci : semaine A/.test(ancre.texte), ancre.texte);
+    r.egal('on est donc en semaine A', ancre.ici, 'A');
+    r.verifie('un bouton permet de dire le contraire',
+        /non, c'est une B/.test(ancre.texte), ancre.texte);
+    r.egal('et la correction prend tout de suite', ancre.apres, 'B');
+    r.verifie('l\'offre s\'inverse alors',
+        /semaine B/.test(ancre.texteApres) && /une A/.test(ancre.texteApres), ancre.texteApres);
+
+    // LE COMPTE DES SEMAINES DOIT TENIR AU PRINTEMPS. La semaine du changement
+    // d'heure ne dure que 167 heures : sans arrondi, elle basculerait, et l'on
+    // se présenterait devant la mauvaise classe un lundi de mars.
+    //
+    // CETTE MACHINE VIT EN TEMPS UNIVERSEL, où l'heure ne change jamais : le
+    // défaut y serait invisible. On ouvre donc une page à l'heure de Paris,
+    // juste pour cette vérification-là — sans quoi elle ne vérifie rien.
+    const paris = await ouvrirApp(browser, { fuseau: 'Europe/Paris' });
+    const alternance = await paris.page.evaluate(() => {
+        agenda.alterne = true;
+        agenda.ancre = { lundi: '2026-03-09', lettre: 'A' };
+        const le = (j) => semaineDe(new Date('2026-03-' + j + 'T10:00:00'));
+        return {
+            suite: ['09', '16', '23', '30'].map(le),
+            avant: semaineDe(new Date('2026-03-02T10:00:00')),
+            memeSemaine: ['09', '13', '15'].map(le),
+            // Après le dernier dimanche de mars, Paris est à UTC+2.
+            decalage: new Date('2026-03-30T10:00:00').getTimezoneOffset()
+        };
+    });
+    r.egal('les semaines alternent une à une', alternance.suite, ['A', 'B', 'A', 'B']);
+    r.egal('et le changement d\'heure ne les décale pas', alternance.suite[3], 'B');
+    r.egal('la semaine d\'avant l\'ancre est l\'autre', alternance.avant, 'B');
+    r.egal('tous les jours d\'une semaine portent sa lettre', alternance.memeSemaine, ['A', 'A', 'A']);
+    r.verifie('et la page d\'épreuve était bien à l\'heure de Paris',
+        alternance.decalage === -120, 'décalage en mars : ' + alternance.decalage);
+    await paris.context.close();
+
+    // ------------------------------------------------------------------
+    // LE BANDEAU DU CRÉNEAU : PROPOSER, JAMAIS IMPOSER
+    // ------------------------------------------------------------------
+    const bandeau = await page.evaluate(async () => {
+        fermerLAgenda();
+        const d = new Date();
+        const jour = (d.getDay() + 6) % 7 + 1;
+        const minutes = d.getHours() * 60 + d.getMinutes();
+        agenda.alterne = false;
+        agenda.entrees = [{ id: 'e1', libelle: '3e A', classeId: null, classeNom: null, couleur: '#dfe4ff' }];
+        agenda.creneaux = [{ id: 'c1', jour, debut: minutes - 10, duree: 55,
+                             semaine: 'toutes', entreeId: 'e1', libelle: '3e A', couleur: '#dfe4ff' }];
+        ecrireLAgenda();
+
+        const b = document.getElementById('edt-bandeau');
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 80));
+        const vu = {
+            la: getComputedStyle(b).display !== 'none',
+            texte: b.innerText.replace(/\s+/g, ' ').trim(),
+            boutons: [...b.querySelectorAll('button')].map(x => x.id),
+            // Le jour attendu, calculé ici : un décalage d'un cran annoncerait
+            // le cours de la veille, et c'est très exactement l'erreur à ne pas
+            // faire devant une classe.
+            jourAttendu: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'][(d.getDay() + 6) % 7],
+            heureAttendue: (Math.floor((minutes - 10) / 60)) + ' h'
+        };
+
+        // Écarté, il ne revient pas de la journée.
+        document.getElementById('edt-bandeau-fermer').click();
+        vu.apresLaCroix = getComputedStyle(b).display !== 'none';
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 60));
+        vu.revenu = getComputedStyle(b).display !== 'none';
+        return vu;
+    });
+    r.verifie('le bandeau paraît quand l\'heure du créneau vient', bandeau.la, JSON.stringify(bandeau));
+    r.verifie('il nomme la classe', /3e A/.test(bandeau.texte), bandeau.texte);
+    r.verifie('et dit le bon jour', bandeau.texte.includes(bandeau.jourAttendu),
+        bandeau.texte + ' — attendu ' + bandeau.jourAttendu);
+    r.verifie('et la bonne heure', bandeau.texte.includes(bandeau.heureAttendue),
+        bandeau.texte + ' — attendu ' + bandeau.heureAttendue);
+    r.egal('il propose, il n\'impose pas', bandeau.boutons,
+        ['edt-ouvrir-seance', 'edt-voir-agenda', 'edt-bandeau-fermer']);
+    r.egal('la croix l\'écarte', bandeau.apresLaCroix, false);
+    r.egal('et il ne revient pas de la journée', bandeau.revenu, false);
+
+    // DIX MINUTES D'AVANCE, PAS UNE HEURE. On arrive avant la sonnerie ; on ne
+    // veut pas qu'on nous parle du cours de l'après-midi.
+    const avance = await page.evaluate(() => {
+        agenda.alterne = false;
+        agenda.creneaux = [{ id: 'c2', jour: 3, debut: 10 * 60, duree: 55,
+                             semaine: 'toutes', entreeId: 'e1', libelle: '3e A' }];
+        // Mercredi 4 mars 2026.
+        const mercredi = (h, m) => new Date(2026, 2, 4, h, m);
+        return {
+            avant: !!creneauMaintenant(mercredi(9, 45)),
+            juste: !!creneauMaintenant(mercredi(9, 52)),
+            pendant: !!creneauMaintenant(mercredi(10, 30)),
+            apres: !!creneauMaintenant(mercredi(11, 0)),
+            autreJour: !!creneauMaintenant(new Date(2026, 2, 5, 10, 30))
+        };
+    });
+    r.egal('un quart d\'heure avant, on ne dit rien encore', avance.avant, false);
+    r.egal('dix minutes avant, on prévient', avance.juste, true);
+    r.egal('pendant le cours, le bandeau vaut toujours', avance.pendant, true);
+    r.egal('une fois le cours fini, plus rien', avance.apres, false);
+    r.egal('et le créneau ne déborde pas sur le lendemain', avance.autreJour, false);
+
+    // Une semaine B ne doit pas annoncer les créneaux de la A.
+    const parSemaine = await page.evaluate(() => {
+        agenda.alterne = true;
+        agenda.ancre = { lundi: '2026-03-02', lettre: 'A' };
+        agenda.creneaux = [{ id: 'c3', jour: 3, debut: 10 * 60, duree: 55,
+                             semaine: 'A', entreeId: 'e1', libelle: '3e A' }];
+        return {
+            enA: !!creneauMaintenant(new Date(2026, 2, 4, 10, 30)),
+            enB: !!creneauMaintenant(new Date(2026, 2, 11, 10, 30))
+        };
+    });
+    r.egal('un créneau de semaine A s\'annonce en semaine A', parSemaine.enA, true);
+    r.egal('et se tait en semaine B', parSemaine.enB, false);
+
+    // ON NE PARLE PAS PAR-DESSUS L'EMPLOI DU TEMPS OUVERT : on y est déjà.
+    const discret = await page.evaluate(async () => {
+        const d = new Date();
+        agenda.alterne = false;
+        agenda.creneaux = [{ id: 'c4', jour: (d.getDay() + 6) % 7 + 1,
+                             debut: d.getHours() * 60 + d.getMinutes() - 5, duree: 55,
+                             semaine: 'toutes', entreeId: 'e1', libelle: '3e A' }];
+        // L'ouverture relit le disque : ce qu'on a posé en mémoire doit y être.
+        ecrireLAgenda();
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 120));
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 60));
+        const pendant = getComputedStyle(document.getElementById('edt-bandeau')).display !== 'none';
+        fermerLAgenda();
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 60));
+        const apres = getComputedStyle(document.getElementById('edt-bandeau')).display !== 'none';
+        return { pendant, apres };
+    });
+    r.egal('le bandeau se tait tant que l\'emploi du temps est ouvert', discret.pendant, false);
+    r.egal('et reprend la parole une fois refermé', discret.apres, true);
+
+    // ------------------------------------------------------------------
+    // « OUVRIR LA DERNIÈRE SÉANCE »
+    // ------------------------------------------------------------------
+    // Le tableau porte déjà sa classe : c'est ce lien qu'on suit, et c'est la
+    // plus récente qu'on rouvre.
+    const laquelle = await page.evaluate(() => {
+        savedTableaux.push(
+            { id: 'tb_vieux', name: 'Thalès — 3e A', type: 'file', classeId: 'cl3', timestamp: 1000 },
+            { id: 'tb_recent', name: 'Pythagore — 3e A', type: 'file', classeId: 'cl3', timestamp: 9000 },
+            { id: 'tb_autre', name: 'Fractions — 5e B', type: 'file', classeId: 'cl5', timestamp: 9999 });
+        return {
+            parClasse: (derniereSeanceDe({ id: 'e1', libelle: '3e A', classeId: 'cl3' }) || {}).id,
+            parNom: (derniereSeanceDe({ id: 'e2', libelle: '5e B', classeId: null }) || {}).id,
+            aucune: derniereSeanceDe({ id: 'e3', libelle: 'Arts plastiques', classeId: null }),
+            sansEntree: derniereSeanceDe(null)
+        };
+    });
+    r.egal('on rouvre la plus récente séance de cette classe', laquelle.parClasse, 'tb_recent');
+    r.egal('une entrée sans classe se rabat sur le nom', laquelle.parNom, undefined);
+    r.egal('et une matière sans séance n\'en invente pas', laquelle.aucune, null);
+    r.egal('ni une entrée qui n\'existe pas', laquelle.sansEntree, null);
+
+    // ET ON PASSE PAR LA PORTE PRUDENTE. « promptLoadBoard » propose d'abord
+    // d'enregistrer ce qui est au tableau ; « loadBoard » l'écraserait. Une
+    // proposition du logiciel n'a pas le droit d'emporter le travail de
+    // quelqu'un — c'est là toute la différence entre proposer et imposer.
+    const parLaBonnePorte = await page.evaluate(async () => {
+        const d = new Date();
+        const vraiPrudent = window.promptLoadBoard, vraiBrutal = window.loadBoard;
+        let prudent = null, brutal = null;
+        window.promptLoadBoard = (id) => { prudent = id; };
+        window.loadBoard = (id) => { brutal = id; };
+
+        agenda.entrees = [{ id: 'e3a', libelle: '3e A', classeId: 'cl3', couleur: '#eee' }];
+        agenda.creneaux = [{ id: 'c6', jour: (d.getDay() + 6) % 7 + 1,
+                             debut: d.getHours() * 60 + d.getMinutes() - 5, duree: 55,
+                             semaine: 'toutes', entreeId: 'e3a', libelle: '3e A' }];
+        agenda.alterne = false;
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 80));
+        document.getElementById('edt-ouvrir-seance').click();
+        await new Promise(ok => setTimeout(ok, 150));
+
+        window.promptLoadBoard = vraiPrudent;
+        window.loadBoard = vraiBrutal;
+        return { prudent, brutal };
+    });
+    r.egal('« Ouvrir la dernière séance » ouvre bien la bonne', parLaBonnePorte.prudent, 'tb_recent');
+    r.egal('en passant par la porte qui propose d\'enregistrer d\'abord',
+        parLaBonnePorte.brutal, null);
+
+    // RIEN NE S'EFFACE SANS QU'ON DEMANDE. Une proposition du logiciel n'a pas
+    // le droit d'emporter ce qui est au tableau.
+    const prudent = await page.evaluate(async () => {
+        const d = new Date();
+        agenda.entrees = [{ id: 'eX', libelle: 'Arts plastiques', classeId: null, couleur: '#eee' }];
+        agenda.creneaux = [{ id: 'c5', jour: (d.getDay() + 6) % 7 + 1,
+                             debut: d.getHours() * 60 + d.getMinutes() - 5, duree: 55,
+                             semaine: 'toutes', entreeId: 'eX', libelle: 'Arts plastiques' }];
+        agenda.alterne = false;
+        battementDeLAgenda();
+        await new Promise(ok => setTimeout(ok, 80));
+        const avant = currentBoardName;
+        document.getElementById('edt-ouvrir-seance').click();
+        await new Promise(ok => setTimeout(ok, 250));
+        return {
+            bandeau: getComputedStyle(document.getElementById('edt-bandeau')).display !== 'none',
+            tableauIntact: currentBoardName === avant,
+            // Le dernier mot dit, et non le premier : les pastilles s'empilent.
+            dit: ([...document.querySelectorAll('#toast-container .toast')].pop() || {}).innerText || ''
+        };
+    });
+    r.egal('sans séance gardée, le bandeau s\'écarte quand même', prudent.bandeau, false);
+    r.verifie('on le dit plutôt que de faire semblant',
+        /Aucune séance/.test(prudent.dit), prudent.dit);
+    r.verifie('et le tableau reste comme il est', prudent.tableauIntact, JSON.stringify(prudent));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

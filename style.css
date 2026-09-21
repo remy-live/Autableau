@@ -7089,6 +7089,68 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 #edt-mode-demploi { font-size: 12px; color: #95a5a6; margin-top: 10px; line-height: 1.5; }
 
+#edt-ancre {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #636e72;
+}
+
+#edt-recaler {
+    border: 1px solid #dfe6e9;
+    background: #fff;
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-family: inherit;
+    font-size: 11px;
+    color: #6c5ce7;
+    cursor: pointer;
+}
+
+/* Le bandeau du créneau. Il se pose en haut, au milieu, au-dessus du tableau
+   mais sous les fenêtres : il propose, il n'interrompt pas. */
+#edt-bandeau {
+    display: none;
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9500;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px 8px 16px;
+    background: #fff;
+    border: 1px solid #dfe6e9;
+    border-radius: 999px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    font-family: sans-serif;
+    max-width: calc(100vw - 32px);
+}
+
+#edt-bandeau.edt-bandeau-la { display: flex; }
+.edt-bandeau-quand { font-size: 11px; color: #95a5a6; white-space: nowrap; }
+.edt-bandeau-quoi { font-size: 15px; font-weight: 700; color: #2d3436; white-space: nowrap; }
+#edt-bandeau .btn-action { padding: 6px 13px; font-size: 12px; white-space: nowrap; }
+
+#edt-bandeau-fermer {
+    border: none;
+    background: transparent;
+    color: #b2bec3;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 6px;
+}
+
+/* Le bandeau s'efface avec le reste quand on projette : à ce moment-là, la
+   page est la seule chose qui compte. */
+body.focus-mode #edt-bandeau { display: none; }
+
+.dark-mode #edt-bandeau { background: #1e272e; border-color: #3d4852; }
+.dark-mode .edt-bandeau-quoi { color: #dfe6e9; }
+.dark-mode #edt-recaler { background: #232b32; border-color: #3d4852; color: #a29bfe; }
+
 .dark-mode .edt-semaine { background: #232b32; border-color: #3d4852; color: #b2bec3; }
 .dark-mode .edt-semaine.actif { background: #6c5ce7; border-color: #6c5ce7; color: #fff; }
 .dark-mode .edt-jour { background: #232b32; border-color: #2f3941; }
