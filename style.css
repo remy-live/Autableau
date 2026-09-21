@@ -8374,6 +8374,13 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
     line-height: 1.35;
     white-space: nowrap;
     color: var(--ink, #2d3436);
+    /* La fente et le cadre se placent par rapport à elle : sans ce repère,
+       ils iraient se caler sur la fenêtre et tomberaient à côté. */
+    position: relative;
+    /* On y glisse et on y trace : la sélection du navigateur n'a rien à faire
+       là, elle surlignerait les mots par-dessus notre propre choix. */
+    user-select: none;
+    touch-action: none;
 }
 
 #analyse-gram-modal #ag-crochets { display: block; overflow: visible; }
@@ -8395,6 +8402,36 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    « petit » se collaient dans le SVG. */
 #analyse-gram-modal .ag-mot { margin-right: 0.28em; }
 #analyse-gram-modal .ag-mot:last-child { margin-right: 0; }
+
+/* Le mot qu'on emporte s'allège : on voit ce qu'on tient. */
+#analyse-gram-modal .ag-mot.ag-emporte {
+    opacity: 0.35;
+    background: rgba(108, 92, 231, 0.2);
+}
+
+/* La fente où le mot se posera, et le cadre qu'on trace sur le fond. Tous
+   deux sont posés DANS la phrase rendue, qui leur sert de repère — et hors
+   du flux, pour ne pas décaler les mots qu'on est en train de mesurer. */
+#analyse-gram-modal #ag-fente,
+#analyse-gram-modal #ag-cadre {
+    position: absolute;
+    display: none;
+    pointer-events: none;
+}
+
+#analyse-gram-modal #ag-fente {
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #6c5ce7;
+    border-radius: 1px;
+}
+
+#analyse-gram-modal #ag-cadre {
+    border: 1.5px dashed #6c5ce7;
+    background: rgba(108, 92, 231, 0.10);
+    border-radius: 4px;
+}
 
 #analyse-gram-modal .ag-vide {
     color: var(--muted, #636e72);

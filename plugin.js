@@ -7870,10 +7870,15 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
     },
 
     poserPhrase: function (texte) {
+        // UNE PHRASE NEUVE REPART DE ZÉRO. Défaire jusqu'à retomber sur la
+        // phrase d'avant ferait reparaître un texte qu'on croyait remplacé —
+        // et des étiquettes posées sur des mots qui ne sont plus là.
+        this.pile = [];
         this.phrase = texte;
         this.decouperEnMots();
         this.analyses = [];
         this.debutChoisi = this.finChoisie = null;
+        this.majBoutonAnnuler();
     },
 
     // Chaque analyse descend au premier étage libre sous la phrase : deux
@@ -7905,6 +7910,7 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
             <div id="ag-entete">
                 <div class="ag-titre">📝 Analyse grammaticale</div>
                 <div class="ag-cmd">
+                    <button id="ag-annuler" class="btn-action secondary" title="Défaire le dernier geste" disabled>↶ Annuler</button>
                     <button id="ag-vider" class="btn-action secondary" title="Retirer toutes les étiquettes">↩ Tout retirer</button>
                     <button id="ag-poser" class="btn-action primary">✅ Poser au tableau</button>
                     <button id="ag-fermer" class="btn-action secondary ag-fermer" title="Fermer">✕</button>
@@ -7936,7 +7942,11 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
         q('#ag-phrase').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { this.poserPhrase(q('#ag-phrase').value); this.peindre(); }
         });
+        q('#ag-annuler').onclick = () => this.annuler();
         q('#ag-vider').onclick = () => {
+            // Tout retirer se défait comme le reste : c'est le geste qu'on
+            // regrette le plus, et celui qui coûte le plus cher à refaire.
+            this.memoriser();
             this.analyses = [];
             this.debutChoisi = this.finChoisie = null;
             this.peindre();
@@ -7969,11 +7979,56 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
 
         this.peindre();
         this.majBoutonPoser();
+        this.majBoutonAnnuler();
     },
 
     majBoutonPoser: function () {
         const b = this.widgetEl && this.widgetEl.querySelector('#ag-poser');
         if (b) b.textContent = this.editingImage ? '💾 Mettre à jour' : '✅ Poser au tableau';
+    },
+
+    // ==============================================================
+    // ANNULER
+    //
+    // On étiquette devant la classe, et l'on se trompe devant la classe : un
+    // groupe pris d'un mot trop loin, un mot déplacé au mauvais endroit. Sans
+    // retour en arrière, il fallait tout retirer et recommencer — ce qui punit
+    // l'erreur au lieu de la corriger.
+    //
+    // ON GARDE L'ÉTAT ENTIER, ET NON LE GESTE INVERSE. Les mots, leurs rangs et
+    // les étiquettes se tiennent : déplacer un mot peut retirer un groupe,
+    // qu'aucun « geste inverse » ne saurait rendre. Une photo d'avant est plus
+    // sûre qu'une recette pour défaire.
+    pile: [],
+    PILE_MAX: 40,
+
+    memoriser: function () {
+        this.pile.push({
+            phrase: this.phrase,
+            mots: this.mots.map(m => ({ texte: m.texte })),
+            analyses: JSON.parse(JSON.stringify(this.analyses))
+        });
+        if (this.pile.length > this.PILE_MAX) this.pile.shift();
+        this.majBoutonAnnuler();
+    },
+
+    annuler: function () {
+        const avant = this.pile.pop();
+        if (!avant) return false;
+        this.phrase = avant.phrase;
+        this.mots = avant.mots;
+        this.analyses = avant.analyses;
+        this.debutChoisi = this.finChoisie = null;
+        const champ = this.widgetEl && this.widgetEl.querySelector('#ag-phrase');
+        if (champ) champ.value = this.phrase;
+        this.peindre();
+        this.majBoutonAnnuler();
+        return true;
+    },
+
+    majBoutonAnnuler: function () {
+        const b = this.widgetEl && this.widgetEl.querySelector('#ag-annuler');
+        if (b) b.disabled = !this.pile.length;
     },
 
     selectionValide: function () {
@@ -7999,6 +8054,7 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
 
     etiqueter: function (libelle, couleur) {
         if (!this.selectionValide()) return this.rappelDeLaConsigne();
+        this.memoriser();
         const de = Math.min(this.debutChoisi, this.finChoisie);
         const a = Math.max(this.debutChoisi, this.finChoisie);
         // Deux fois la même fonction sur les mêmes mots : c'est un changement
@@ -8010,6 +8066,7 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
     },
 
     retirer: function (index) {
+        this.memoriser();
         this.analyses.splice(index, 1);
         this.peindre();
     },
@@ -8030,16 +8087,160 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
 
         scene.innerHTML = `<div id="ag-phrase-rendue">${this.mots.map((m, i) =>
             `<span class="ag-mot${de !== null && i >= de && i <= a ? ' choisi' : ''}" data-i="${i}">${
-                m.texte.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('')}</div>
+                m.texte.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('')}<i id="ag-fente"></i><i id="ag-cadre"></i></div>
             <svg id="ag-crochets" xmlns="http://www.w3.org/2000/svg"></svg>`;
 
         scene.querySelectorAll('.ag-mot').forEach(el => {
             el.onclick = () => this.cliquerMot(Number(el.dataset.i));
         });
+        this.brancherLesGestes();
 
         this.mesurerLesMots();
         this.dessinerLesCrochets();
         this.majConsigne();
+    },
+
+    // ==============================================================
+    // DÉPLACER UN MOT, ET CHOISIR AU CADRE
+    //
+    // « Ce serait cool de pouvoir déplacer le mot : du genre "une fille jolie"
+    // en "une jolie fille". On pourrait rendre les mots déplaçables, mais
+    // aussi sélectionnables en traçant un cadre autour. »
+    //
+    // Deux gestes, et ce qui les sépare est l'endroit où le doigt se pose :
+    // sur un MOT, on le déplace ; sur le FOND, on trace un cadre et tout ce
+    // qu'il touche entre dans la sélection. Le clic simple garde son rôle —
+    // on ne déplace qu'après avoir bougé de quelques pixels, sinon le moindre
+    // tremblement volerait le clic.
+    // ==============================================================
+    SEUIL_DU_GESTE: 5,
+
+    brancherLesGestes: function () {
+        const rendue = this.widgetEl && this.widgetEl.querySelector('#ag-phrase-rendue');
+        if (!rendue) return;
+        const fente = rendue.querySelector('#ag-fente');
+        const cadre = rendue.querySelector('#ag-cadre');
+        const spans = () => [...rendue.querySelectorAll('.ag-mot')];
+        let g = null;
+
+        // Où le mot se posera : la première fente dont le milieu est à droite
+        // du doigt. On compte en fentes et non en mots — il y en a une de plus,
+        // celle d'après le dernier mot.
+        const fenteSous = (x) => {
+            const el = spans();
+            for (let i = 0; i < el.length; i++) {
+                const r = el[i].getBoundingClientRect();
+                if (x < r.left + r.width / 2) return i;
+            }
+            return el.length;
+        };
+
+        const montrerLaFente = (i) => {
+            const el = spans();
+            if (!el.length) return;
+            const base = rendue.getBoundingClientRect();
+            const r = (i >= el.length ? el[el.length - 1] : el[i]).getBoundingClientRect();
+            fente.style.left = Math.round((i >= el.length ? r.right : r.left) - base.left - 1) + 'px';
+            fente.style.display = 'block';
+        };
+
+        rendue.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            const mot = e.target.closest ? e.target.closest('.ag-mot') : null;
+            g = { type: mot ? 'mot' : 'cadre', i: mot ? Number(mot.dataset.i) : -1,
+                  x0: e.clientX, y0: e.clientY, parti: false };
+            // La capture garde le geste quand le doigt sort de la phrase. Elle
+            // peut échouer — un pointeur déjà relâché, par exemple — et ce
+            // n'est pas une raison pour perdre le geste : sans ce filet, le
+            // gestionnaire s'arrêtait là et rien ne se déplaçait plus.
+            try { rendue.setPointerCapture(e.pointerId); } catch (err) { /* pas de pointeur à capturer */ }
+        });
+
+        rendue.addEventListener('pointermove', (e) => {
+            if (!g) return;
+            if (!g.parti) {
+                if (Math.abs(e.clientX - g.x0) <= this.SEUIL_DU_GESTE
+                    && Math.abs(e.clientY - g.y0) <= this.SEUIL_DU_GESTE) return;
+                g.parti = true;
+                if (g.type === 'mot') spans()[g.i]?.classList.add('ag-emporte');
+            }
+            if (g.type === 'mot') { montrerLaFente(fenteSous(e.clientX)); return; }
+            const base = rendue.getBoundingClientRect();
+            const x1 = Math.min(g.x0, e.clientX) - base.left, x2 = Math.max(g.x0, e.clientX) - base.left;
+            const y1 = Math.min(g.y0, e.clientY) - base.top, y2 = Math.max(g.y0, e.clientY) - base.top;
+            cadre.style.cssText = `display:block; left:${Math.round(x1)}px; top:${Math.round(y1)}px;`
+                + `width:${Math.round(x2 - x1)}px; height:${Math.round(y2 - y1)}px;`;
+        });
+
+        const finir = (e) => {
+            if (!g) return;
+            const fini = g; g = null;
+            fente.style.display = 'none';
+            cadre.style.display = 'none';
+            rendue.querySelectorAll('.ag-emporte').forEach(el => el.classList.remove('ag-emporte'));
+            if (!fini.parti) return;                       // c'était un clic : il a déjà agi
+            if (fini.type === 'mot') { this.deplacerLeMot(fini.i, fenteSous(e.clientX)); return; }
+            const touches = spans().map((el, i) => ({ el, i })).filter(({ el }) => {
+                const r = el.getBoundingClientRect();
+                return r.right >= Math.min(fini.x0, e.clientX) && r.left <= Math.max(fini.x0, e.clientX)
+                    && r.bottom >= Math.min(fini.y0, e.clientY) && r.top <= Math.max(fini.y0, e.clientY);
+            }).map(({ i }) => i);
+            if (!touches.length) return;
+            this.debutChoisi = touches[0];
+            this.finChoisie = touches[touches.length - 1];
+            this.peindre();
+        };
+        rendue.addEventListener('pointerup', finir);
+        rendue.addEventListener('pointercancel', () => {
+            g = null; fente.style.display = 'none'; cadre.style.display = 'none';
+            rendue.querySelectorAll('.ag-emporte').forEach(el => el.classList.remove('ag-emporte'));
+        });
+    },
+
+    // LES CROCHETS SUIVENT LES MOTS, PAS LEURS RANGS. Une étiquette désigne des
+    // mots par leur numéro ; déplacer un mot renumérote tout. On retient donc
+    // les mots eux-mêmes, et l'on recale les bornes après coup.
+    //
+    // ET UN GROUPE QU'ON COUPE EN DEUX S'EN VA. Faire entrer un mot étranger au
+    // milieu d'un groupe le rend discontinu — or une étiquette ne sait pas dire
+    // « ces deux mots-là, mais pas celui du milieu ». On le retire, ET ON LE
+    // DIT : détruire une analyse en silence serait pire que de la refuser.
+    deplacerLeMot: function (de, versLaFente) {
+        if (de < 0 || de >= this.mots.length) return false;
+        let vers = versLaFente > de ? versLaFente - 1 : versLaFente;
+        vers = Math.max(0, Math.min(this.mots.length - 1, vers));
+        if (vers === de) return false;
+
+        this.memoriser();
+        const retenues = this.analyses.map(a => ({ a, mots: this.mots.slice(a.de, a.a + 1) }));
+        const [m] = this.mots.splice(de, 1);
+        this.mots.splice(vers, 0, m);
+
+        const gardees = [];
+        retenues.forEach(({ a, mots }) => {
+            const rangs = mots.map(x => this.mots.indexOf(x)).sort((p, q) => p - q);
+            const dUnSeulTenant = rangs.every((r, k) => k === 0 || r === rangs[k - 1] + 1);
+            if (!dUnSeulTenant) return;
+            a.de = rangs[0]; a.a = rangs[rangs.length - 1];
+            gardees.push(a);
+        });
+        const perdues = this.analyses.length - gardees.length;
+        this.analyses = gardees;
+
+        // La phrase suit ses mots : c'est elle qu'on réenregistre et qu'on
+        // redécoupe, et le champ de saisie ne doit pas dire autre chose.
+        this.phrase = this.mots.map(x => x.texte).join(' ');
+        const champ = this.widgetEl && this.widgetEl.querySelector('#ag-phrase');
+        if (champ) champ.value = this.phrase;
+
+        this.debutChoisi = this.finChoisie = null;
+        this.peindre();
+        if (perdues && typeof showToast === 'function') {
+            showToast(perdues > 1
+                ? `${perdues} groupes retirés : leurs mots ne se suivent plus`
+                : 'Un groupe retiré : ses mots ne se suivent plus');
+        }
+        return true;
     },
 
     mesurerLesMots: function () {

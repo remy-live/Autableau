@@ -146,11 +146,236 @@ module.exports = async function (browser) {
     r.verifie('et le bouton propose de mettre à jour',
         /Mettre à jour/.test(reedition.bouton), reedition.bouton);
 
+    // ==========================================================
+    // DÉPLACER UN MOT, ET CHOISIR AU CADRE
+    //
+    // « Ce serait cool de pouvoir déplacer le mot : du genre "une fille jolie"
+    // en "une jolie fille". On pourrait rendre les mots déplaçables, mais aussi
+    // sélectionnables en traçant un cadre autour. »
+    // ==========================================================
+    const motEmporte = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('une fille jolie');
+        if (!P.widgetEl) P.creerFenetre(); else { P.widgetEl.style.display = 'flex'; P.peindre(); }
+        await new Promise(ok => setTimeout(ok, 120));
+        const rendue = P.widgetEl.querySelector('#ag-phrase-rendue');
+        const mots = () => [...rendue.querySelectorAll('.ag-mot')];
+        const milieu = (el) => { const r = el.getBoundingClientRect();
+                                 return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+        // LE DOIGT SE POSE SUR LE MOT, pas sur le conteneur : c'est « e.target »
+        // qui dit lequel des deux gestes on fait, et le dispatcher ailleurs
+        // ferait toujours croire à un cadre.
+        const env = (t, x, y, cible) => (cible || rendue).dispatchEvent(new PointerEvent(t,
+            { pointerId: 2, clientX: x, clientY: y, button: 0, bubbles: true, isPrimary: true }));
+
+        // On emporte « jolie » et on le lâche devant « fille ».
+        const surJolie = mots()[2];
+        const jolie = milieu(surJolie);
+        const fille = mots()[1].getBoundingClientRect();
+        env('pointerdown', jolie.x, jolie.y, surJolie);
+        env('pointermove', jolie.x - 30, jolie.y);
+        const emporte = !!rendue.querySelector('.ag-emporte');
+        const fenteVue = getComputedStyle(rendue.querySelector('#ag-fente')).display !== 'none';
+        env('pointermove', fille.left + 2, jolie.y);
+        env('pointerup', fille.left + 2, jolie.y);
+        await new Promise(ok => setTimeout(ok, 120));
+        return { emporte, fenteVue,
+                 ordre: P.mots.map(m => m.texte),
+                 phrase: P.phrase,
+                 champ: P.widgetEl.querySelector('#ag-phrase').value };
+    });
+    r.verifie('le mot qu\'on emporte se marque', motEmporte.emporte, JSON.stringify(motEmporte));
+    r.verifie('et la fente montre où il se posera', motEmporte.fenteVue, JSON.stringify(motEmporte));
+    r.egal('« une fille jolie » devient « une jolie fille »',
+        motEmporte.ordre, ['une', 'jolie', 'fille']);
+    r.egal('la phrase suit ses mots', motEmporte.phrase, 'une jolie fille');
+    r.egal('et le champ de saisie dit la même chose', motEmporte.champ, 'une jolie fille');
+
+    // UN CLIC RESTE UN CLIC. Sans seuil, le moindre tremblement du doigt
+    // volerait le geste qui choisit le premier mot du groupe.
+    const clicIntact = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.debutChoisi = P.finChoisie = null;
+        const rendue = P.widgetEl.querySelector('#ag-phrase-rendue');
+        const el = rendue.querySelectorAll('.ag-mot')[1];
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const env = (t, dx, cible) => (cible || rendue).dispatchEvent(new PointerEvent(t,
+            { pointerId: 3, clientX: x + dx, clientY: y, button: 0, bubbles: true, isPrimary: true }));
+        env('pointerdown', 0, el);
+        env('pointermove', 3);          // trois pixels : un doigt qui tremble
+        // RIEN NE DOIT S'ÊTRE ARMÉ : ni le mot qui s'allège, ni la fente qui
+        // montre où il irait. C'est là que le seuil se voit — le déplacement,
+        // lui, retomberait de toute façon sur la même fente.
+        const arme = { emporte: !!rendue.querySelector('.ag-emporte'),
+                       fente: getComputedStyle(rendue.querySelector('#ag-fente')).display !== 'none' };
+        env('pointerup', 3);
+        el.click();
+        await new Promise(ok => setTimeout(ok, 80));
+        return { ordre: P.mots.map(m => m.texte), choisi: P.debutChoisi, arme };
+    });
+    r.egal('trois pixels de tremblement ne déplacent rien',
+        clicIntact.ordre, ['une', 'jolie', 'fille']);
+    r.verifie('et n\'arment même pas le geste : ni mot allégé, ni fente',
+        !clicIntact.arme.emporte && !clicIntact.arme.fente, JSON.stringify(clicIntact.arme));
+    r.egal('et le clic choisit toujours le mot', clicIntact.choisi, 1);
+
+    // VERS LA DROITE, LA FENTE SE DÉCALE D'UN CRAN. Retirer le mot de sa place
+    // fait glisser d'un rang tout ce qui le suivait : sans cette soustraction,
+    // il se posait une case trop loin — et le défaut ne se voit QUE dans ce
+    // sens-là, ce que le déplacement vers la gauche ne dit pas.
+    const versLaDroite = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('une jolie fille');
+        P.peindre();
+        await new Promise(ok => setTimeout(ok, 80));
+        P.deplacerLeMot(0, 2);          // « une » se pose après « jolie »
+        return P.mots.map(m => m.texte);
+    });
+    r.egal('« une » passe bien après « jolie », et pas une case plus loin',
+        versLaDroite, ['jolie', 'une', 'fille']);
+
+    // LE CADRE CHOISIT CE QU'IL TOUCHE, au lieu de demander le premier mot
+    // puis le dernier — ce qui suppose de savoir d'avance où le groupe s'arrête.
+    const auCadre = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.debutChoisi = P.finChoisie = null;
+        P.peindre();
+        await new Promise(ok => setTimeout(ok, 80));
+        const rendue = P.widgetEl.querySelector('#ag-phrase-rendue');
+        const mots = [...rendue.querySelectorAll('.ag-mot')];
+        const base = rendue.getBoundingClientRect();
+        const a = mots[1].getBoundingClientRect(), b = mots[2].getBoundingClientRect();
+        const env = (t, x, y) => rendue.dispatchEvent(new PointerEvent(t,
+            { pointerId: 4, clientX: x, clientY: y, button: 0, bubbles: true, isPrimary: true }));
+        // On part du fond, sous les mots, et l'on remonte en travers des deux
+        // derniers : c'est le geste qu'on ferait au doigt.
+        env('pointerdown', a.left - 4, base.bottom - 2);
+        env('pointermove', b.right - 2, base.top + 2);
+        const cadreVu = getComputedStyle(rendue.querySelector('#ag-cadre')).display !== 'none';
+        env('pointerup', b.right - 2, base.top + 2);
+        await new Promise(ok => setTimeout(ok, 80));
+        return { cadreVu, de: P.debutChoisi, a: P.finChoisie };
+    });
+    r.verifie('le cadre se dessine pendant qu\'on le trace', auCadre.cadreVu, JSON.stringify(auCadre));
+    r.egal('et il choisit tous les mots qu\'il touche', [auCadre.de, auCadre.a], [1, 2]);
+
+    // UN GROUPE COUPÉ EN DEUX S'EN VA, ET ON LE DIT. Une étiquette ne sait pas
+    // dire « ces deux mots-là, mais pas celui du milieu » : la garder en la
+    // recalant sur min..max lui ferait avaler un mot qu'on ne lui a pas donné.
+    const groupeCoupe = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('le chat noir dort');
+        P.peindre();
+        await new Promise(ok => setTimeout(ok, 80));
+        P.debutChoisi = 0; P.finChoisie = 1;
+        P.etiqueter('Sujet', '#0984e3');          // « le chat »
+        P.debutChoisi = 3; P.finChoisie = 3;
+        P.etiqueter('Verbe', '#d63031');          // « dort », groupeIntact
+        const avant = P.analyses.length;
+        let dit = null;
+        const vrai = window.showToast; window.showToast = (m) => { dit = m; };
+        // « dort » vient se glisser entre « le » et « chat ».
+        P.deplacerLeMot(3, 1);
+        window.showToast = vrai;
+        return { avant, apres: P.analyses.length,
+                 restant: P.analyses.map(a => a.libelle),
+                 bornes: P.analyses.map(a => [a.de, a.a]),
+                 ordre: P.mots.map(m => m.texte), dit };
+    });
+    r.egal('on part de deux groupes', groupeCoupe.avant, 2);
+    r.egal('le mot s\'est bien glissé au milieu',
+        groupeCoupe.ordre, ['le', 'dort', 'chat', 'noir']);
+    r.egal('le groupe coupé en deux s\'en va, l\'autre reste',
+        groupeCoupe.restant, ['Verbe']);
+    r.egal('et celui qui reste est recalé sur son nouveau rang',
+        groupeCoupe.bornes, [[1, 1]]);
+    r.verifie('on le dit, au lieu de détruire en silence',
+        /groupe retiré/i.test(groupeCoupe.dit || ''), String(groupeCoupe.dit));
+
+    // ET UN GROUPE QUI SE SUIT ENCORE SUIT SON MOT, sans rien perdre.
+    const groupeIntact = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('une fille jolie dort');
+        P.peindre();
+        await new Promise(ok => setTimeout(ok, 80));
+        P.debutChoisi = 0; P.finChoisie = 2;
+        P.etiqueter('Sujet', '#0984e3');          // tout le groupe nominal
+        P.deplacerLeMot(2, 1);                    // « jolie » devant « fille »
+        return { ordre: P.mots.map(m => m.texte),
+                 analyses: P.analyses.length, bornes: P.analyses.map(a => [a.de, a.a]) };
+    });
+    r.egal('déplacer un mot DANS son groupe ne casse rien',
+        groupeIntact.ordre, ['une', 'jolie', 'fille', 'dort']);
+    r.egal('le groupe est toujours là', groupeIntact.analyses, 1);
+    r.egal('et il couvre toujours les mêmes trois mots', groupeIntact.bornes, [[0, 2]]);
+
     await page.evaluate(() => {
         PluginManager.plugins['analyseGrammaticaleTool'].fermer();
         images.length = 0;
     });
 
+
+    // ==========================================================
+    // ANNULER
+    //
+    // « Et aussi pour l'analyse grammaticale un undo. » On étiquette devant la
+    // classe, et l'on se trompe devant la classe : sans retour en arrière, il
+    // fallait tout retirer et recommencer.
+    // ==========================================================
+    const annulation = await page.evaluate(async () => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.poserPhrase('le chat noir dort');
+        if (!P.widgetEl) P.creerFenetre(); else { P.widgetEl.style.display = 'flex'; P.peindre(); }
+        await new Promise(ok => setTimeout(ok, 100));
+        const bouton = () => P.widgetEl.querySelector('#ag-annuler');
+        const auDepart = bouton().disabled;
+
+        P.debutChoisi = 0; P.finChoisie = 2;
+        P.etiqueter('Sujet', '#0984e3');
+        const apresEtiquette = { analyses: P.analyses.length, eteint: bouton().disabled };
+
+        P.annuler();
+        const defait = { analyses: P.analyses.length, eteint: bouton().disabled };
+
+        // Un déplacement se défait aussi, MOTS ET GROUPES ENSEMBLE : c'est ce
+        // qu'aucun « geste inverse » ne saurait rendre, puisque le déplacement
+        // peut avoir retiré un groupe en chemin.
+        P.debutChoisi = 0; P.finChoisie = 1;
+        P.etiqueter('Sujet', '#0984e3');            // « le chat »
+        P.deplacerLeMot(3, 1);                      // « dort » se glisse au milieu
+        const casse = { ordre: P.mots.map(m => m.texte), analyses: P.analyses.length };
+        P.annuler();
+        const rendu = { ordre: P.mots.map(m => m.texte), analyses: P.analyses.length,
+                        bornes: P.analyses.map(a => [a.de, a.a]) };
+
+        // « Tout retirer » se défait comme le reste.
+        P.widgetEl.querySelector('#ag-vider').click();
+        const vide = P.analyses.length;
+        P.annuler();
+        const revenu = P.analyses.length;
+
+        // Et une phrase neuve remet la pile à zéro : on ne défait pas vers un
+        // texte qu'on croyait remplacé.
+        P.poserPhrase('une autre phrase');
+        const apresPhraseNeuve = { pile: P.pile.length, eteint: bouton().disabled };
+        return { auDepart, apresEtiquette, defait, casse, rendu, vide, revenu, apresPhraseNeuve };
+    });
+    r.verifie('au départ, il n\'y a rien à défaire', annulation.auDepart, '');
+    r.egal('poser une étiquette allume le bouton',
+        annulation.apresEtiquette, { analyses: 1, eteint: false });
+    r.egal('et l\'annuler la retire, le bouton s\'éteint',
+        annulation.defait, { analyses: 0, eteint: true });
+    r.egal('un déplacement casse le groupe coupé en deux',
+        annulation.casse, { ordre: ['le', 'dort', 'chat', 'noir'], analyses: 0 });
+    r.egal('l\'annuler rend les mots ET le groupe perdu en chemin',
+        annulation.rendu,
+        { ordre: ['le', 'chat', 'noir', 'dort'], analyses: 1, bornes: [[0, 1]] });
+    r.egal('« Tout retirer » vide, et se défait aussi', [annulation.vide, annulation.revenu], [0, 1]);
+    r.egal('une phrase neuve repart sans passé',
+        annulation.apresPhraseNeuve, { pile: 0, eteint: true });
+
+    await page.evaluate(() => PluginManager.plugins['analyseGrammaticaleTool'].fermer());
 
     // ==========================================================
     // CONJUGUEUR
