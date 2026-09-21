@@ -217,23 +217,58 @@ module.exports = async function (browser) {
     });
     r.verifie('le panneau de la barre s\'ouvre', panneau.visible);
     r.verifie('et tient dans l\'écran', panneau.dansEcran, JSON.stringify(panneau));
-    r.verifie('il propose les trois formats d\'icônes plus la date et les astuces', panneau.choix >= 6, `${panneau.choix} choix`);
+    r.verifie('il propose les réglages de l\'apparence, la date et les astuces', panneau.choix >= 6, `${panneau.choix} choix`);
 
-    for (const [format, classe] of [['couleur', 'libelles-couleur'], ['oui', 'libelles-outils'], ['non', null]]) {
-        const applique = await page.evaluate((f) => {
-            document.querySelector(`#reglages-barre [data-libelles="${f}"]`).click();
-            return {
-                outils: document.body.classList.contains('libelles-outils'),
-                couleur: document.body.classList.contains('libelles-couleur'),
-                memoire: localStorage.getItem('board_libelles')
-            };
-        }, format);
-        const attendu = format === 'non' ? !applique.outils
-            : format === 'oui' ? (applique.outils && !applique.couleur)
-            : (applique.outils && applique.couleur);
-        r.verifie(`format « ${format} » appliqué depuis le panneau`, attendu && applique.memoire === format,
-            JSON.stringify(applique));
-    }
+    // UN SEUL INTERRUPTEUR POUR LES NOMS. Trois entrées répondaient à une
+    // question à deux réponses, plus une variante — « Noms et couleurs ». Elle
+    // reste dans le code, et qui l'avait choisie la garde ; elle ne s'offre
+    // simplement plus, ni dans le menu, ni au tour de la pastille du bas.
+    const interrupteur = await page.evaluate(() => {
+        const b = document.getElementById('rp-libelles');
+        const lire = () => ({
+            outils: document.body.classList.contains('libelles-outils'),
+            couleur: document.body.classList.contains('libelles-couleur'),
+            memoire: localStorage.getItem('board_libelles'),
+            allume: b.classList.contains('actif')
+        });
+        choisirFormatIcones('non'); majReglagesBarre();
+        const eteint = lire();
+        b.click();
+        const allume = lire();
+        b.click();
+        const reEteint = lire();
+        // Celle qu'on n'offre plus reste comprise : l'interrupteur la reconnaît.
+        choisirFormatIcones('couleur'); majReglagesBarre();
+        const gardee = lire();
+        // Et la pastille du bas répond à la même question, sans y retomber.
+        // ON REPART D'« ÉTEINT » : depuis « noms et couleurs », l'ancien tour
+        // des trois états donnait justement « non » puis « oui » — les deux
+        // réglages auraient paru d'accord sans l'être.
+        choisirFormatIcones('non');
+        basculerLibelles();
+        const apresLaPastille = localStorage.getItem('board_libelles');
+        basculerLibelles();
+        const etRetour = localStorage.getItem('board_libelles');
+        choisirFormatIcones('non'); majReglagesBarre();
+        return { eteint, allume, reEteint, gardee, apresLaPastille, etRetour,
+                 anciensBoutons: document.querySelectorAll('#reglages-barre [data-libelles]').length };
+    });
+    r.egal('les trois entrées ont laissé place à un seul interrupteur',
+        interrupteur.anciensBoutons, 0);
+    r.verifie('éteint, le nom ne s\'écrit pas',
+        !interrupteur.eteint.outils && !interrupteur.eteint.allume, JSON.stringify(interrupteur.eteint));
+    r.egal('un appui écrit le nom des outils',
+        { outils: interrupteur.allume.outils, couleur: interrupteur.allume.couleur,
+          memoire: interrupteur.allume.memoire, allume: interrupteur.allume.allume },
+        { outils: true, couleur: false, memoire: 'oui', allume: true });
+    r.egal('et le suivant les retire',
+        { outils: interrupteur.reEteint.outils, memoire: interrupteur.reEteint.memoire },
+        { outils: false, memoire: 'non' });
+    r.verifie('« noms et couleurs » reste comprise, et allume l\'interrupteur',
+        interrupteur.gardee.outils && interrupteur.gardee.couleur && interrupteur.gardee.allume,
+        JSON.stringify(interrupteur.gardee));
+    r.egal('la pastille du bas ne retombe plus sur la variante retirée',
+        [interrupteur.apresLaPastille, interrupteur.etRetour], ['oui', 'non']);
 
     // La date et l'horloge sont deux choses distinctes : le cadre ne disparaît
     // que lorsqu'il ne reste RIEN à montrer.
@@ -778,25 +813,33 @@ module.exports = async function (browser) {
     const grand = await mesurerLeMenu(1280, 800);
     const moyen = await mesurerLeMenu(900, 600);
     const petit = await mesurerLeMenu(800, 500);
+    // ET UN ÉCRAN OÙ IL NE TIENT VRAIMENT PLUS. Le menu a fondu en perdant
+    // trois entrées : à cinq cents pixels de haut il tient désormais, et
+    // l'éprouver là ne prouverait plus rien du défilement. On descend donc
+    // jusqu'à ce qu'il déborde pour de bon — le mécanisme reste, et servira au
+    // prochain réglage qu'on ajoutera.
+    const minuscule = await mesurerLeMenu(800, 380);
 
     r.verifie('sur un grand écran, le menu tient et ne défile pas',
         grand.deborde < 0 && !grand.defile && grand.derniereAtteignable, JSON.stringify(grand));
-    // QUATRE CENT QUATRE-VINGT-SIX, ET NON CINQ CENT TRENTE-HUIT. La rubrique
-    // « Découvrir » portait trois entrées dont DEUX EXISTAIENT DÉJÀ DANS
-    // L'AIDE : elles allongeaient un menu qui débordait de l'écran sans rien
-    // offrir de neuf. Le chiffre est écrit ici pour qu'on s'aperçoive du jour
-    // où le menu se remet à grandir — il a repris vingt-neuf pixels pour
-    // « Projeter le PDF à l'ouverture », et ce n'est pas rien : c'est une
-    // entrée de plus à lire avant de trouver la sienne.
-    r.egal('et il fait la hauteur qu\'on lui connaît', grand.hauteur, 486);
+    // TROIS CENT QUARANTE-HUIT, ET NON CINQ CENT TRENTE-HUIT. Le chiffre est
+    // écrit ici pour qu'on s'aperçoive du jour où le menu se remet à grandir.
+    // Il a perdu cent trente-huit pixels d'un coup : les trois formats d'icônes
+    // sont devenus un interrupteur, la couleur du contour a rejoint la ligne du
+    // trait qu'elle colore, et « Repérer les zones à remplir » est parti là où
+    // il sert — sur la barre du document.
+    r.egal('et il fait la hauteur qu\'on lui connaît', grand.hauteur, 348);
     r.verifie('sur un écran de six cents, il tient désormais sans défiler',
         moyen.deborde < 0 && !moyen.defile, JSON.stringify(moyen));
     r.verifie('sur un écran court, il ne dépasse plus le bord bas',
         petit.deborde < 0, JSON.stringify(petit));
-    r.verifie('il se fait alors défiler, et la dernière entrée s\'atteint',
-        petit.defile && petit.derniereAtteignable, JSON.stringify(petit));
+    r.verifie('sur un écran court, il tient maintenant sans même défiler',
+        !petit.defile && petit.derniereAtteignable, JSON.stringify(petit));
+    r.verifie('et là où il déborde pour de bon, il se fait défiler et la dernière entrée s\'atteint',
+        minuscule.deborde < 0 && minuscule.defile && minuscule.derniereAtteignable,
+        JSON.stringify(minuscule));
     r.egal('et le menu offre partout les mêmes choix',
-        [grand.nChoix, moyen.nChoix, petit.nChoix], [12, 12, 12]);
+        [grand.nChoix, moyen.nChoix, petit.nChoix, minuscule.nChoix], [9, 9, 9, 9]);
 
     // ON N'A RIEN PERDU : les deux entrées retirées du menu vivaient DÉJÀ dans
     // l'Aide. C'est ce qui autorisait à les retirer — et c'est donc cela qu'il

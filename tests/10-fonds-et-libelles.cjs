@@ -161,7 +161,11 @@ module.exports = async function (browser) {
         avecCouleur.m.couleur && avecCouleur.m.fondBouton !== parDefaut.m.fondBouton,
         `${avecCouleur.m.fondBouton} contre ${parDefaut.m.fondBouton}`);
 
-    // La pastille « Libellés » : trois états, et le réglage se retient
+    // LA PASTILLE « LIBELLÉS » : DEUX ÉTATS, et le réglage se retient. Elle
+    // faisait le tour de trois — un appui de trop ramenait « Noms et
+    // couleurs », la variante qu'on n'offre plus. Elle répond désormais à la
+    // même question que l'interrupteur des réglages, et de la même façon :
+    // écrit-on le nom des outils, oui ou non.
     const ctxP = await browser.newContext({ viewport: { width: 1280, height: 850 } });
     const pageP = await ctxP.newPage();
     const errsP = [];
@@ -189,12 +193,11 @@ module.exports = async function (browser) {
     r.verifie('un clic : les noms apparaissent', un.actif && !un.couleur && un.pastille, JSON.stringify(un));
     await cliquer();
     const deux = await etat();
-    r.verifie('deux clics : les couleurs de rubrique aussi', deux.actif && deux.couleur, JSON.stringify(deux));
-    await cliquer();
-    const trois = await etat();
-    r.verifie('trois clics : retour à l\'affichage d\'origine', !trois.actif && !trois.couleur, JSON.stringify(trois));
+    r.verifie('deux clics : les noms s\'en vont', !deux.actif && !deux.pastille, JSON.stringify(deux));
+    r.verifie('et l\'on ne retombe jamais sur les couleurs de rubrique',
+        !un.couleur && !deux.couleur, JSON.stringify({ un, deux }));
 
-    await cliquer();
+    await cliquer();                 // on repart avec les noms, et l'on recharge
     await pageP.reload();
     await pageP.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
     await pageP.waitForTimeout(600);

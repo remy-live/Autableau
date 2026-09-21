@@ -35163,9 +35163,13 @@ function equilibrerGrillePlugins() {
     if (document.body) poser();
     else document.addEventListener('DOMContentLoaded', poser);
 
-    // La pastille « Libellés » de la barre du bas fait le tour des trois états
+    // La pastille « Libellés » de la barre du bas répond à la même question que
+    // l'interrupteur des réglages, et doit donc répondre PAREIL : écrit-on le
+    // nom des outils, oui ou non. Elle faisait le tour des trois états, si bien
+    // qu'on retombait sur « Noms et couleurs » — celle qu'on a cessé d'offrir —
+    // par un simple appui de trop.
     window.basculerLibelles = function () {
-        window.choisirFormatIcones(ETATS[(ETATS.indexOf(valeur) + 1) % ETATS.length], true);
+        window.choisirFormatIcones(valeur === 'non' ? 'oui' : 'non', true);
     };
 
     // Le panneau de réglages de la barre choisit directement un format
@@ -35830,17 +35834,16 @@ function majReglagesBarre() {
     const popup = document.getElementById('reglages-barre');
     if (!popup) return;
     const format = (typeof formatIcones === 'function') ? formatIcones() : 'non';
-    popup.querySelectorAll('[data-libelles]').forEach(b => {
-        b.classList.toggle('actif', b.dataset.libelles === format);
-    });
+    // « Noms et couleurs » compte comme « avec les noms » : elle ne s'offre plus,
+    // mais qui l'avait choisie doit voir son interrupteur allumé.
+    const bLibelles = document.getElementById('rp-libelles');
+    if (bLibelles) bLibelles.classList.toggle('actif', format !== 'non');
     const bDate = document.getElementById('rp-date');
     if (bDate) bDate.classList.toggle('actif', reglagesDate.affichee);
     const bAstuces = document.getElementById('rp-astuces');
     if (bAstuces) bAstuces.classList.toggle('actif', astucesActivees());
     const bEncre = document.getElementById('rp-encre-accrochee');
     if (bEncre) bEncre.classList.toggle('actif', encreAccrochee);
-    const bZones = document.getElementById('rp-zones');
-    if (bZones) bZones.classList.toggle('actif', zonesActives);
     const bPdfGrand = document.getElementById('rp-pdf-en-grand');
     if (bPdfGrand) bPdfGrand.classList.toggle('actif', pdfDeposeEnGrand);
     const bTiroirs = document.getElementById('rp-tiroirs-auto');
@@ -36195,10 +36198,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const popup = document.getElementById('reglages-barre');
     if (!popup) return;
 
-    popup.querySelectorAll('[data-libelles]').forEach(b => {
-        b.addEventListener('click', () => {
-            if (typeof choisirFormatIcones === 'function') choisirFormatIcones(b.dataset.libelles, true);
-        });
+    const bLibelles = document.getElementById('rp-libelles');
+    if (bLibelles) bLibelles.addEventListener('click', () => {
+        if (typeof choisirFormatIcones !== 'function' || typeof formatIcones !== 'function') return;
+        choisirFormatIcones(formatIcones() === 'non' ? 'oui' : 'non', true);
     });
 
     const bDate = document.getElementById('rp-date');
@@ -36250,18 +36253,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const bZones = document.getElementById('rp-zones');
-    if (bZones) bZones.addEventListener('click', () => {
-        const actif = basculerLesZones();
-        majReglagesBarre();
-        // Le même réglage est offert aux deux endroits : ils doivent
-        // s'accorder, sinon l'un paraît ne pas avoir compris l'autre.
-        if (typeof majBarreDocument === 'function') majBarreDocument();
-        if (typeof showToast === 'function') {
-            showToast(actif ? 'Zones à remplir repérées : prenez l\'outil Texte'
-                            : 'Zones à remplir : repérage éteint');
-        }
-    });
+    // Le repérage des zones à remplir ne se règle plus ici : il ne parle que
+    // des polycopiés, et la barre du document le porte déjà — sous les yeux de
+    // qui tient le PDF, et nulle part ailleurs.
 
     const bPdfGrand = document.getElementById('rp-pdf-en-grand');
     if (bPdfGrand) bPdfGrand.addEventListener('click', () => {

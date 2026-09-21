@@ -642,6 +642,37 @@ module.exports = async function (browser) {
         rendreCache: getComputedStyle(document.getElementById('rp-contour-rendre')).display === 'none'
     })));
 
+    // ELLE SE CHOISIT LÀ OÙ LE TRAIT S'ALLUME. La couleur occupait une ligne à
+    // elle, sous « Contours francs », et répétait le mot que la ligne du dessus
+    // venait de dire. On MESURE qu'elle est montrée, et sur la même ligne : un
+    // champ qu'on peut lire et écrire depuis le code mais que personne ne voit
+    // passerait pour un réglage en état de marche.
+    const ouEstLaCase = await page.evaluate(async () => {
+        // ON OUVRE LE MENU POUR LE REGARDER : fermé, tout ce qu'il contient est
+        // « display:none », et l'on mesurerait un réglage que personne ne voit.
+        const ouvrir = document.getElementById('btn-reglages-barre');
+        const menu = document.getElementById('reglages-barre');
+        if (!menu.classList.contains('visible')) ouvrir.click();
+        await new Promise(ok => setTimeout(ok, 250));
+        const champ = document.getElementById('rp-contour-couleur');
+        const bouton = document.getElementById('rp-contours');
+        const c = champ.getBoundingClientRect(), b = bouton.getBoundingClientRect();
+        const vu = {
+            type: champ.type,
+            montree: !!champ.getClientRects().length,
+            surLaMemeLigne: Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) <= 2,
+            aDroite: c.left >= b.right - 1,
+            ancienneLigne: document.querySelectorAll('#reglages-barre .rp-couleur').length
+        };
+        menu.classList.remove('visible');      // on laisse le menu comme on l'a trouvé
+        return vu;
+    });
+    r.egal('la couleur du contour est une vraie case de couleur, et on la voit',
+        { type: ouEstLaCase.type, montree: ouEstLaCase.montree }, { type: 'color', montree: true });
+    r.verifie('elle est posée sur la ligne de « Contours francs », à sa droite',
+        ouEstLaCase.surLaMemeLigne && ouEstLaCase.aDroite, JSON.stringify(ouEstLaCase));
+    r.egal('et la ligne « Couleur des contours » a disparu', ouEstLaCase.ancienneLigne, 0);
+
     await page.evaluate(() => {
         const champ = document.getElementById('rp-contour-couleur');
         champ.value = '#0984e3';

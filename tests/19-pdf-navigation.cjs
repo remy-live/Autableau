@@ -925,8 +925,10 @@ module.exports = async function (browser) {
         const dansLaBarre = !!(b2 && b2.closest('#bar-document'));
         const visible = !!(b2 && b2.getClientRects().length);
         b2.click();
+        // Le panneau général ne le porte plus : le réglage ne parle que des
+        // polycopiés, et il vit désormais où le polycopié se tient.
         const apres = { actif: zonesActives, allume: b2.classList.contains('actif'),
-                        accord: document.getElementById('rp-zones').classList.contains('actif') };
+                        seul: !document.getElementById('rp-zones') };
         b2.click();
         return { dansLaBarre, visible, apres, eteint: !zonesActives };
     });
@@ -934,8 +936,8 @@ module.exports = async function (browser) {
         bouton.dansLaBarre && bouton.visible, JSON.stringify(bouton));
     r.verifie('il allume le repérage et s\'allume avec',
         bouton.apres.actif && bouton.apres.allume, JSON.stringify(bouton.apres));
-    r.verifie('et le panneau général dit la même chose',
-        bouton.apres.accord, JSON.stringify(bouton.apres));
+    r.verifie('et le panneau général ne le propose plus en double',
+        bouton.apres.seul, JSON.stringify(bouton.apres));
     r.verifie('un second clic l\'éteint', bouton.eteint, JSON.stringify(bouton));
 
     // Sur une image ordinaire, il n'a rien à chercher : il ne se propose pas.

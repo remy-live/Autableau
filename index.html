@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=165">
+    <link rel="stylesheet" href="style.css?v=166">
 </head>
 
 <body>
@@ -2276,30 +2276,44 @@
                      tient en trois familles, plus ce qui sert à découvrir. -->
                 <div id="reglages-barre" class="reglages-popup">
                     <div class="rp-titre">Apparence</div>
-                    <button class="rp-choix" data-libelles="non">Icônes seules</button>
-                    <button class="rp-choix" data-libelles="oui">Icônes et noms</button>
-                    <button class="rp-choix" data-libelles="couleur">Noms et couleurs</button>
-                    <button class="rp-choix" id="rp-contours"
-                        title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
-                    <!-- LE TRAIT EST NOIR PARCE QUE C'EST LA COULEUR CHOISIE,
-                         et non parce qu'il est écrit en dur : qui la veut
-                         bleue, ou assortie à son école, la change ici — les
-                         barres, les fenêtres, les tiroirs et les fenêtres des
-                         outils la suivent toutes. -->
-                    <label class="rp-couleur" id="rp-contour-boite"
-                        title="La couleur du trait autour des barres et des fenêtres">
-                        <input type="color" id="rp-contour-couleur" value="#000000">
-                        <span>Couleur des contours</span>
+                    <!-- UN SEUL INTERRUPTEUR POUR LES NOMS. Trois entrées
+                         répondaient à une seule question — écrit-on le nom des
+                         outils ? — dont une variante, « Noms et couleurs ».
+                         Elle reste dans le code, et qui l'avait choisie la
+                         garde ; elle ne s'offre simplement plus : c'était deux
+                         lignes de plus à lire pour une nuance que personne ne
+                         cherchait. -->
+                    <button class="rp-choix" id="rp-libelles"
+                        title="Écrire le nom sous chaque outil, en plus de son icône">Nom des outils</button>
+                    <!-- LA COULEUR SE CHOISIT LÀ OÙ LE TRAIT S'ALLUME. Elle
+                         occupait une ligne à elle, sous « Contours francs », et
+                         répétait le mot « contours » que la ligne du dessus
+                         venait de dire. Une pastille au bout de la ligne suffit :
+                         le trait est noir parce que c'est la couleur choisie, et
+                         non parce qu'il est écrit en dur — qui le veut bleu, ou
+                         assorti à son école, le change ici, et les barres, les
+                         fenêtres et les tiroirs suivent tous. -->
+                    <div class="rp-ligne" id="rp-contour-boite">
+                        <button class="rp-choix" id="rp-contours"
+                            title="Un trait franc autour des barres et des fenêtres : elles se détachent d'un document blanc projeté en grand, au lieu d'y disparaître">Contours francs</button>
                         <button type="button" class="rp-rendre" id="rp-contour-rendre"
-                            style="display:none;">Noir</button>
-                    </label>
+                            style="display:none;" title="Rendre au trait sa couleur noire">Noir</button>
+                        <label class="rp-pastille"
+                            title="La couleur du trait autour des barres et des fenêtres">
+                            <input type="color" id="rp-contour-couleur" value="#000000">
+                        </label>
+                    </div>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
                     <div class="rp-titre">Sur le tableau</div>
                     <button class="rp-choix" id="rp-encre-accrochee"
                         title="Un trait posé sur un texte ou une image le suit quand on le déplace">Encre accrochée à l'objet</button>
-                    <button class="rp-choix" id="rp-zones"
-                        title="Sur un PDF vectoriel, repérer les lignes et les cases à remplir : l'outil Texte les éclaire, et le clic y pose le bloc à la bonne taille">Repérer les zones à remplir</button>
+                    <!-- PLUS DE « REPÉRER LES ZONES À REMPLIR » ICI. Le réglage
+                         ne parle que des polycopiés, et la barre du document le
+                         porte déjà, sous les yeux de qui tient le PDF. Ici, il
+                         allongeait un menu qu'on parcourt pour autre chose, et
+                         proposait d'allumer un repérage sur un tableau où il n'y
+                         a rien à repérer. -->
                     <!-- LE POLYCOPIÉ DÉPOSÉ PART EN GRAND. On dépose le PDF,
                          puis on le met en plein écran pour la classe : deux
                          gestes qui n'en font qu'un pour qui enchaîne toujours
@@ -2328,7 +2342,7 @@
                          menu comptait déjà plus de titres que de choix ; on ne
                          lui en rend pas un. -->
                     <button class="rp-choix" id="btn-composer-barre" type="button"
-                        onclick="ouvrirLeCompositeurDeBarre()">Composer une barre d'outils…</button>
+                        onclick="ouvrirLeCompositeurDeBarre()">Composer une barre</button>
                     <!-- L'ASTUCE DU DÉMARRAGE EST UN ENCOMBREMENT, elle aussi :
                          c'est ce que l'application s'autorise à mettre devant
                          vous sans qu'on le lui demande, comme un tiroir qui se
@@ -3473,7 +3487,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=288"></script>
+    <script src="script.js?v=289"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=106"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

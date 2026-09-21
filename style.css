@@ -9322,17 +9322,29 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     .se-signale { animation: none; outline-color: rgba(108, 92, 231, 0.9); }
 }
 
-/* La couleur du contour se choisit : une pastille dans l'apparence. */
-.rp-couleur {
+/* UNE LIGNE DU MENU QUI PORTE DEUX CHOSES : le réglage, et ce qui le précise.
+   La couleur du contour occupait une ligne à elle, sous « Contours francs », et
+   répétait le mot que la ligne du dessus venait de dire. */
+.rp-ligne {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    font-size: 13px;
-    color: inherit;
+    gap: 4px;
 }
 
-.rp-couleur input[type="color"] {
+.rp-ligne .rp-choix {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.rp-pastille {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 0 8px 0 2px;
+    cursor: pointer;
+}
+
+.rp-pastille input[type="color"] {
     width: 30px;
     height: 24px;
     padding: 0;
@@ -9343,8 +9355,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     flex: 0 0 auto;
 }
 
-.rp-couleur .rp-rendre {
-    margin-left: auto;
+.rp-ligne .rp-rendre {
     border: none;
     background: none;
     color: #6c5ce7;
@@ -9353,9 +9364,10 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 6px;
+    flex: 0 0 auto;
 }
 
-.rp-couleur .rp-rendre:hover { background: rgba(108, 92, 231, 0.12); }
+.rp-ligne .rp-rendre:hover { background: rgba(108, 92, 231, 0.12); }
 
 .dv-curseur { cursor: default; }
 .dv-curseur input[type="range"] {
