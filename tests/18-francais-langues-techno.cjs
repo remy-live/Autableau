@@ -378,6 +378,185 @@ module.exports = async function (browser) {
     await page.evaluate(() => PluginManager.plugins['analyseGrammaticaleTool'].fermer());
 
     // ==========================================================
+    // LE LECTEUR DE DICTÉE
+    //
+    // « Tu penses que tu pourrais faire un lecteur de dictée avec plusieurs
+    // paramètres pour permettre une première lecture, lire par groupe, etc. ? »
+    //
+    // CETTE MACHINE N'A AUCUNE VOIX — l'API est là, la liste est vide. C'est
+    // justement ce qui oblige à tout faire passer par un moteur qu'on peut
+    // remplacer : le découpage, l'enchaînement, les répétitions et les pauses
+    // s'éprouvent ici, et le son se juge sur la machine du professeur.
+    // ==========================================================
+    const decoupe = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        return {
+            ponctuation: D.decouperEnGroupes(
+                "Le chat dort. Le chien, lui, aboie très fort !", 12),
+            // TREIZE MOTS PAR QUATRE : c'est là que les deux façons de couper
+            // se séparent. En tranches pleines : 4-4-4-1, et l'élève reçoit un
+            // mot tout seul à la fin. En parts égales : 4-3-3-3.
+            longueur: D.decouperEnGroupes(
+                'un deux trois quatre cinq six sept huit neuf dix onze douze treize', 4),
+            vide: D.decouperEnGroupes('   ', 7),
+            espaces: D.decouperEnGroupes('  Le   chat\n\ndort.  ', 12)
+        };
+    });
+    r.egal('on coupe à la ponctuation, et elle reste collée au groupe',
+        decoupe.ponctuation, ['Le chat dort.', 'Le chien,', 'lui,', 'aboie très fort !']);
+    // DOUZE MOTS EN PARTS ÉGALES, et non deux tranches de quatre plus un reste
+    // d'un seul mot : on dicte « quatre quatre quatre », pas « 4 4 4 » puis un
+    // orphelin qui arrive tout seul.
+    r.egal('ce qui reste trop long est partagé en parts égales',
+        decoupe.longueur,
+        ['un deux trois quatre', 'cinq six sept', 'huit neuf dix', 'onze douze treize']);
+    r.egal('un texte vide ne donne aucun groupe', decoupe.vide, []);
+    r.egal('les espaces et les retours à la ligne ne font pas de groupes fantômes',
+        decoupe.espaces, ['Le chat dort.']);
+
+    // L'ENCHAÎNEMENT, AVEC UN MOTEUR QU'ON REMPLACE. On note ce qui est dit et
+    // l'on rend la main aussitôt : ce qu'on éprouve, c'est l'ordre des
+    // groupes, les répétitions et les pauses, pas la voix.
+    const enchaine = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        D.moteur = {
+            disponible: () => true,
+            voix: () => [],
+            dire: (texte, opts, fini) => { dits.push(texte); setTimeout(fini, 0); },
+            taire: () => { /* on ne note que ce qui est DIT */ }
+        };
+        D.texte = 'Un deux. Trois quatre. Cinq six.';
+        D.reglages.longueur = 12; D.reglages.pause = 0; D.reglages.repetitions = 2;
+        D.groupes = D.decouperEnGroupes(D.texte, D.reglages.longueur);
+
+        D.lancer('dictee');
+        // Six lectures séparées par les six dixièmes de seconde qui tiennent
+        // deux répétitions à distance : on laisse la suite se dérouler.
+        await new Promise(ok => setTimeout(ok, 4500));
+        const enDictee = dits.slice();
+
+        dits.length = 0;
+        D.lancer('ensemble');
+        await new Promise(ok => setTimeout(ok, 500));
+        const enEnsemble = dits.slice();
+
+        D.moteur = vrai;
+        return { enDictee, enEnsemble, phase: D.phase };
+    });
+    r.egal('la dictée dit chaque groupe deux fois, dans l\'ordre',
+        enchaine.enDictee,
+        ['Un deux.', 'Un deux.', 'Trois quatre.', 'Trois quatre.', 'Cinq six.', 'Cinq six.']);
+    r.egal('la lecture d\'ensemble ne répète rien',
+        enchaine.enEnsemble, ['Un deux.', 'Trois quatre.', 'Cinq six.']);
+    r.egal('et l\'on s\'arrête au bout', enchaine.phase, 'arret');
+
+    // « REDITES » RECOMMENCE LE GROUPE, ses répétitions comprises : c'est le
+    // geste de l'élève qui n'a pas entendu, et il ne doit pas le priver de la
+    // seconde lecture qu'auront les autres.
+    const commandes = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        const vrai = D.moteur;
+        const dits = [];
+        D.moteur = { disponible: () => true, voix: () => [],
+                     dire: (t, o, fini) => { dits.push(t); D.__fini = fini; },
+                     taire: () => {} };
+        D.texte = 'Un deux. Trois quatre. Cinq six.';
+        D.reglages.longueur = 12; D.reglages.pause = 0; D.reglages.repetitions = 2;
+        D.groupes = D.decouperEnGroupes(D.texte, D.reglages.longueur);
+        D.lancer('dictee');                 // dit « Un deux. », attend la fin
+        const auDepart = { rang: D.rang, restantes: D.restantes };
+
+        dits.length = 0;
+        D.redire();
+        const apresRedites = { dits: dits.slice(), restantes: D.restantes };
+
+        dits.length = 0;
+        D.allerAuGroupe(2);
+        const apresSaut = { dits: dits.slice(), rang: D.rang };
+
+        const enPause = D.basculerLaPause();
+        const reprise = D.basculerLaPause();
+
+        D.arreter();
+        D.moteur = vrai;
+        return { auDepart, apresRedites, apresSaut, enPause, reprise, phaseFinale: D.phase };
+    });
+    r.egal('la dictée part sur le premier groupe, avec ses deux lectures',
+        commandes.auDepart, { rang: 0, restantes: 2 });
+    r.egal('« Redites » redit le groupe en cours', commandes.apresRedites.dits, ['Un deux.']);
+    r.egal('et lui rend ses deux lectures', commandes.apresRedites.restantes, 2);
+    r.egal('on saute au groupe qu\'on désigne', commandes.apresSaut.dits, ['Cinq six.']);
+    r.egal('et le rang suit', commandes.apresSaut.rang, 2);
+    r.egal('la pause s\'allume et s\'éteint', [commandes.enPause, commandes.reprise], [true, false]);
+    r.egal('arrêter rend la main', commandes.phaseFinale, 'arret');
+
+    // SANS VOIX FRANÇAISE, ON LE DIT. Lire une dictée avec l'accent anglais
+    // serait pire que de ne rien lire — et un silence sans explication passe
+    // pour une panne de l'application.
+    const sansVoix = await page.evaluate(async () => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.ouvrir();
+        await new Promise(ok => setTimeout(ok, 150));
+        const alerte = D.widgetEl.querySelector('#dic-sansvoix');
+        const liste = D.widgetEl.querySelector('#dic-voix');
+        const muette = { texte: alerte.textContent, vue: getComputedStyle(alerte).display !== 'none',
+                         listeEteinte: liste.disabled };
+
+        // Et avec une voix française, l'alerte s'en va et la voix se propose.
+        const vrai = D.moteur;
+        D.moteur = Object.assign({}, vrai, {
+            disponible: () => true,
+            voix: () => [{ name: 'Julie', lang: 'fr-FR' }, { name: 'Daniel', lang: 'en-GB' }]
+        });
+        D.majLesVoix();
+        const avecVoix = { vue: getComputedStyle(alerte).display !== 'none',
+                           options: [...liste.options].map(o => o.value),
+                           choisie: D.voixChoisie().name };
+
+        // Le nom d'une voix vient du système d'exploitation : il peut porter
+        // n'importe quoi. Posé en HTML, un chevron y ouvrirait une balise.
+        D.moteur = Object.assign({}, vrai, {
+            disponible: () => true,
+            voix: () => [{ name: 'Voix « <b>Ré</b> » "grave"', lang: 'fr-FR' }]
+        });
+        D.majLesVoix();
+        const tordu = { etiquette: liste.options[0].textContent,
+                        valeur: liste.options[0].value,
+                        balises: liste.querySelectorAll('b').length };
+
+        D.moteur = vrai;
+        D.fermer();
+        return { muette, avecVoix, tordu };
+    });
+    r.verifie('sans voix française, on le dit franchement',
+        sansVoix.muette.vue && /voix française|lire à voix haute/i.test(sansVoix.muette.texte),
+        JSON.stringify(sansVoix.muette));
+    r.verifie('et la liste des voix est éteinte', sansVoix.muette.listeEteinte, '');
+    r.verifie('avec une voix française, l\'alerte s\'en va', !sansVoix.avecVoix.vue,
+        JSON.stringify(sansVoix.avecVoix));
+    r.egal('seules les voix françaises sont proposées',
+        sansVoix.avecVoix.options, ['Julie']);
+    r.egal('et c\'est celle-là qu\'on prend', sansVoix.avecVoix.choisie, 'Julie');
+    r.egal('un nom de voix biscornu s\'affiche tel quel',
+        sansVoix.tordu.etiquette, 'Voix « <b>Ré</b> » "grave"');
+    r.egal('et sa valeur reste entière', sansVoix.tordu.valeur, 'Voix « <b>Ré</b> » "grave"');
+    r.egal('sans qu\'aucune balise ne s\'y ouvre', sansVoix.tordu.balises, 0);
+
+    // Les réglages se retiennent d'une séance à l'autre : on ne refait pas les
+    // quatre curseurs à chaque dictée.
+    const retenus = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.reglages.pause = 9; D.reglages.repetitions = 3; D.reglages.longueur = 5;
+        D.ecrireLesReglages();
+        D.reglages.pause = 0; D.reglages.repetitions = 1; D.reglages.longueur = 7;
+        D.lireLesReglages();
+        return [D.reglages.pause, D.reglages.repetitions, D.reglages.longueur];
+    });
+    r.egal('les réglages se retiennent', retenus, [9, 3, 5]);
+
+    // ==========================================================
     // CONJUGUEUR
     // Chaque forme ci-dessous a été vérifiée à la main. Une table fausse
     // au tableau vaut moins que pas de table du tout : ce test est la
