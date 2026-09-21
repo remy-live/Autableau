@@ -15643,6 +15643,24 @@ function ouvrirLaPageDesMorceaux(morceau, options) {
     const courante = pages[currentPageIndex];
     if (!forcerNeuve && courante && courante.pageDesMorceaux === marque
         && !portesLeDocument(images)) return false;
+
+    // LA PAGE BLANCHE OÙ L'ON SE TROUVE EST DÉJÀ UNE RÉPONSE À « OÙ ? ».
+    //
+    // « Si on crée une nouvelle page et que l'on met Poser, cela se pose là. »
+    // C'est juste : on vient d'appuyer sur le « ＋ » du tiroir, exprès pour y
+    // poser. Aller chercher ailleurs la page d'exercices du document
+    // téléportait loin de l'endroit qu'on venait de préparer.
+    //
+    // Elle devient alors la page d'exercices de ce document, et les bouts
+    // suivants la rejoindront — sans quoi la règle n'aurait tenu qu'un tour.
+    // Aucun risque de la déclencher par mégarde : juste après un découpage on
+    // est sur la page du polycopié, qui n'est pas vide.
+    if (!forcerNeuve && courante && !courante.pageDesMorceaux
+        && typeof boiteDuTravail === 'function' && !boiteDuTravail()) {
+        courante.pageDesMorceaux = marque;
+        return false;
+    }
+
     let deja = -1;
     if (!forcerNeuve) {
         // À REBOURS : la plus récente gagne. Quand on a demandé une page neuve,

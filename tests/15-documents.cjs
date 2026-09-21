@@ -3619,6 +3619,7 @@ module.exports = async function (browser) {
         const libelleAvant = document.getElementById('bm-page').textContent;
 
         document.getElementById('bm-page-plus').click();
+        const indexBlanche = currentPageIndex;
         const neuve = {
             pages: pages.length - pagesAvant,
             derniere: currentPageIndex === pages.length - 1,
@@ -3632,7 +3633,20 @@ module.exports = async function (browser) {
         poserTousLesMorceaux();
         const posee = { ici: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length,
                         tiroir: morceauxEnAttente.length,
+                        surPlace: currentPageIndex === indexBlanche,
                         surLeurPage: !!pages[currentPageIndex].pageDesMorceaux };
+
+        // LA PAGE DU DOCUMENT N'A PAS BOUGÉ. C'est la vraie garantie, et elle
+        // se lit sur la page du document elle-même plutôt que sur « celle
+        // d'avant » : le rang des pages dépend de ce que les blocs précédents
+        // ont posé, et une vérification qui s'appuie dessus mesure le décor.
+        const ouEstLeDoc = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        const chezLeDocument = ouEstLeDoc.pageDuTableau === currentPageIndex
+            ? images : (pages[ouEstLeDoc.pageDuTableau].images || []);
+        const pageDuDocument = {
+            doc: chezLeDocument.filter(o => o.pluginData && o.pluginData.id === 'pdfDoc').length,
+            morceaux: chezLeDocument.filter(o => o.pluginData && o.pluginData.id === 'morceau').length
+        };
 
         document.getElementById('bm-page-prec').click();
         const revenu = { index: currentPageIndex,
@@ -3645,7 +3659,7 @@ module.exports = async function (browser) {
         const parLAutreBout = { index: currentPageIndex,
                                 libelle: document.getElementById('bm-page').textContent,
                                 bas: document.getElementById('page-indicator').innerText };
-        return { pagesAvant, surLaUne, libelleAvant, neuve, posee, revenu, parLAutreBout };
+        return { pagesAvant, surLaUne, libelleAvant, neuve, posee, pageDuDocument, revenu, parLAutreBout };
     });
     r.egal('＋ ouvre une page vierge et s\'y rend',
         { pages: pagesDuTiroir.neuve.pages, derniere: pagesDuTiroir.neuve.derniere,
@@ -3658,20 +3672,26 @@ module.exports = async function (browser) {
         pagesDuTiroir.neuve.libelle !== pagesDuTiroir.libelleAvant
         && pagesDuTiroir.neuve.libelle.startsWith(String(pagesDuTiroir.pagesAvant + 1)),
         JSON.stringify(pagesDuTiroir));
-    // « POSER » LES ENVOIE SUR LEUR PAGE, ET NON SUR CELLE OÙ L'ON EST. Cette
-    // page-là se choisissait à la main, par la pagination du tiroir ; elle se
-    // trouve toute seule désormais, et c'est la même d'un découpage à l'autre —
-    // « si je recoupe des nouveaux bouts sur le PDF, ça écrase la page des
-    // bouts précédents ». Qui veut choisir l'endroit glisse la vignette : c'est
-    // le geste qui vise, et lui reste maître de sa place.
-    // Ils REJOIGNENT ceux qui y sont déjà — la page de ce document-là se rouvre
-    // d'un découpage à l'autre : on en compte donc au moins les deux du tiroir.
-    r.verifie('« Poser » les envoie sur la page des exercices, tiroir vidé',
-        pagesDuTiroir.posee.surLeurPage === true && pagesDuTiroir.posee.tiroir === 0
-        && pagesDuTiroir.posee.ici >= 2, JSON.stringify(pagesDuTiroir.posee));
-    r.egal('et la page d\'avant est restée ce qu\'elle était : le document, sans les morceaux',
-        { morceaux: pagesDuTiroir.revenu.morceaux, doc: pagesDuTiroir.revenu.doc },
-        { morceaux: 0, doc: 1 });
+    // « POSER » N'ATTERRIT JAMAIS SUR LA PAGE DU DOCUMENT — c'était la
+    // demande d'origine : « en faisant une découpe, cela s'est encore mis à
+    // côté plutôt que dans une nouvelle page ». Les bouts partent sur la page
+    // d'exercices de ce document, qui se retrouve toute seule d'un découpage à
+    // l'autre : « si je recoupe des nouveaux bouts sur le PDF, ça écrase la
+    // page des bouts précédents ».
+    //
+    // MAIS UNE PAGE BLANCHE OÙ L'ON SE TROUVE EST DÉJÀ UNE RÉPONSE À « OÙ ? ».
+    // « Si on crée une nouvelle page et que l'on met Poser, cela se pose là. »
+    // On vient d'appuyer sur le « ＋ » exprès pour cela ; partir chercher
+    // ailleurs téléporterait loin de l'endroit qu'on venait de préparer. Les
+    // deux règles ne se contredisent pas : la page du document n'est jamais
+    // vide, elle porte le document.
+    r.verifie('« Poser » les envoie sur la page blanche où l\'on est, tiroir vidé',
+        pagesDuTiroir.posee.surPlace === true && pagesDuTiroir.posee.tiroir === 0
+        && pagesDuTiroir.posee.ici === 2, JSON.stringify(pagesDuTiroir.posee));
+    r.verifie('et cette page devient la page d\'exercices du document',
+        pagesDuTiroir.posee.surLeurPage === true, JSON.stringify(pagesDuTiroir.posee));
+    r.egal('la page du document, elle, n\'a pas bougé',
+        pagesDuTiroir.pageDuDocument, { doc: 1, morceaux: 0 });
     // Les deux paginations disent LA MÊME CHOSE : c'est cela qu'on éprouve, et
     // non un rang écrit en dur — le nombre de pages dépend désormais de ce que
     // les blocs d'avant ont posé.
@@ -4053,6 +4073,125 @@ module.exports = async function (browser) {
     });
     r.egal('le découpage suivant rejoint la page neuve, et non la première',
         apresLaNeuve, { pages: neuve.pages, page: neuve.page, dessus: 2 });
+
+
+    // ==================================================================
+    // LA PAGE BLANCHE OÙ L'ON SE TROUVE EST DÉJÀ UNE RÉPONSE À « OÙ ? »
+    //
+    // « Si on crée une nouvelle page et que l'on met Poser, cela se pose là. »
+    // On appuie sur le « ＋ » du tiroir exprès pour y poser : partir chercher
+    // ailleurs la page d'exercices du document, c'est téléporter l'enseignant
+    // loin de l'endroit qu'il venait de préparer.
+    // ==================================================================
+    const surLaPageBlanche = await page.evaluate(async () => {
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        const r1 = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.1, l: doc.w * 0.3, h: doc.h * 0.2 };
+        decoupeGeste = { obj: doc, debut: { x: r1.x, y: r1.y }, rect: r1 };
+        finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+
+        // Le « ＋ » du tiroir : une page vierge, et l'on y reste.
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const blanche = currentPageIndex;
+        const etaitVide = !boiteDuTravail();
+
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const restee = currentPageIndex === blanche;
+        const posesIci = images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length;
+
+        // ET ELLE DEVIENT LA PAGE D'EXERCICES DE CE DOCUMENT : le bout suivant
+        // la rejoint, sans quoi la règle n'aurait tenu qu'un tour.
+        loadPage(surSaPage ? surSaPage.pageDuTableau : 0);
+        const doc2 = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        basculerLaDecoupe(true);
+        const r2 = { x: doc2.x + doc2.w * 0.1, y: doc2.y + doc2.h * 0.5, l: doc2.w * 0.3, h: doc2.h * 0.2 };
+        decoupeGeste = { obj: doc2, debut: { x: r2.x, y: r2.y }, rect: r2 };
+        finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 200));
+
+        return {
+            etaitVide, restee, posesIci,
+            revenu: currentPageIndex === blanche,
+            enTout: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length,
+            pagesEnTout: pages.length
+        };
+    });
+    r.verifie('la page ouverte par le « ＋ » est bien vide', surLaPageBlanche.etaitVide,
+        JSON.stringify(surLaPageBlanche));
+    r.verifie('« Poser » y pose, sans emmener ailleurs', surLaPageBlanche.restee,
+        JSON.stringify(surLaPageBlanche));
+    r.egal('le morceau est bien là', surLaPageBlanche.posesIci, 1);
+    r.verifie('et le bout suivant l\'y rejoint', surLaPageBlanche.revenu,
+        JSON.stringify(surLaPageBlanche));
+    r.egal('les deux y sont, et aucune page de plus n\'a été fabriquée',
+        surLaPageBlanche.enTout, 2);
+
+    // MAIS UNE PAGE VIDE QUI APPARTIENT DÉJÀ À UN AUTRE DOCUMENT N'EST PAS
+    // LIBRE. On l'a peut-être vidée pour la refaire ; y ranger les bouts d'un
+    // autre cours la lui volerait, et ses propres bouts la rejoindraient
+    // ensuite sans qu'on comprenne pourquoi.
+    const pasVolee = await page.evaluate(async () => {
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        const r1 = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.2, l: doc.w * 0.3, h: doc.h * 0.15 };
+        decoupeGeste = { obj: doc, debut: { x: r1.x, y: r1.y }, rect: r1 };
+        finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+
+        // Une page vide, mais qui porte déjà le nom d'un autre cours.
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const occupee = currentPageIndex;
+        pages[occupee].pageDesMorceaux = 'src:un-autre-cours';
+
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        return {
+            partieAilleurs: currentPageIndex !== occupee,
+            marqueIntacte: pages[occupee].pageDesMorceaux,
+            riendedans: (pages[occupee].images || [])
+                .filter(o => o.pluginData && o.pluginData.id === 'morceau').length
+        };
+    });
+    r.verifie('une page vide qui est déjà celle d\'un autre cours n\'est pas prise',
+        pasVolee.partieAilleurs, JSON.stringify(pasVolee));
+    r.egal('elle garde son nom', pasVolee.marqueIntacte, 'src:un-autre-cours');
+    r.egal('et rien n\'y est tombé', pasVolee.riendedans, 0);
+
+    // ET LES DEUX BOUTONS RESTENT DEUX BOUTONS. « Sur une page neuve » doit
+    // ouvrir une page même quand celle où l'on est est blanche — sinon les
+    // deux font la même chose, et l'un des deux ment.
+    const neuveDepuisBlanche = await page.evaluate(async () => {
+        const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
+        const doc = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        basculerLaDecoupe(true);
+        const r1 = { x: doc.x + doc.w * 0.1, y: doc.y + doc.h * 0.3, l: doc.w * 0.3, h: doc.h * 0.15 };
+        decoupeGeste = { obj: doc, debut: { x: r1.x, y: r1.y }, rect: r1 };
+        finirGesteDeDecoupe();
+        basculerLaDecoupe(false);
+
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const blanche = currentPageIndex, avant = pages.length;
+        document.getElementById('bm-ranger-neuve').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        return { ajoutee: pages.length - avant, ailleurs: currentPageIndex !== blanche };
+    });
+    r.egal('« Sur une page neuve » en ouvre bien une de plus', neuveDepuisBlanche.ajoutee, 1);
+    r.verifie('et l\'on y va', neuveDepuisBlanche.ailleurs, JSON.stringify(neuveDepuisBlanche));
 
     await page.evaluate(() => {
         if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
