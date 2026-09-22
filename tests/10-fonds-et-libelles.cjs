@@ -179,10 +179,14 @@ module.exports = async function (browser) {
         actif: document.body.classList.contains('libelles-outils'),
         couleur: document.body.classList.contains('libelles-couleur'),
         memoire: localStorage.getItem('board_libelles'),
-        pastille: document.getElementById('btn-libelles').classList.contains('active')
+        // L'INTERRUPTEUR A QUITTÉ LE TIROIR POUR LES RÉGLAGES. « Libellés »
+        // était une pastille écrite en toutes lettres dans le tiroir du bas —
+        // et elle commandait la grille du HAUT. « Nom des outils » dit la même
+        // chose là où vivent les réglages.
+        pastille: document.getElementById('rp-libelles').classList.contains('actif')
     }));
     const cliquer = async () => {
-        await pageP.evaluate(() => document.getElementById('btn-libelles').click());
+        await pageP.evaluate(() => document.getElementById('rp-libelles').click());
         await pageP.waitForTimeout(250);
     };
 
@@ -283,9 +287,14 @@ module.exports = async function (browser) {
     r.verifie('le quadrillage aussi', barre.grilleDessine && barre.grille === '1,0', JSON.stringify(barre));
     r.verifie('« Ranger l\'espace » et « Mes tableaux » sont montés en icônes',
         barre.rangerEnIcone && barre.tableauxEnIcone, JSON.stringify(barre));
-    r.egal('il ne reste en bas que les trois interrupteurs',
-        barre.pastillesRestantes, ['btn-focus', 'btn-libelles', 'btn-nuit']);
-    r.egal('chacun porte son témoin', barre.temoins, 3);
+    // LA TROISIÈME LIGNE DU TIROIR EST PARTIE. Les trois pastilles étaient les
+    // seules à porter du texte au milieu d'icônes, et elles occupaient à elles
+    // seules une ligne entière qu'elles ne remplissaient qu'au tiers. Chacune
+    // avait son survivant : le bouton du coin pour l'affichage, « Nom des
+    // outils » et « Tableau sombre » dans les réglages.
+    r.egal('il ne reste plus d\'interrupteur écrit dans le tiroir',
+        barre.pastillesRestantes, []);
+    r.egal('ni de témoin', barre.temoins, 0);
 
     const vivant = await pageP.evaluate(() => {
         const curseur = document.getElementById('zoom-slider');
@@ -387,36 +396,42 @@ module.exports = async function (browser) {
     await pageP.evaluate(() => { zoom = 1; panX = 0; panY = 0; majCurseurZoom(); draw(); });
     r.egal('celle du quadrillage aussi, à la française', vivant.grille, '2,5');
 
-    // LE TÉMOIN DE L'AFFICHAGE FAIT LE TOUR. Ce n'est plus un interrupteur à
-    // deux positions : « un bouton pour juste remettre les toolbar puis
-    // toolbar + tiroir + rien ». Il reste allumé tant qu'on a rangé quelque
-    // chose, et ne s'éteint qu'en revenant à « Tout ».
-    const interrupteurs = await pageP.evaluate(() => {
-        const lu = (id) => document.getElementById(id).classList.contains('allume');
-        const mot = () => document.getElementById('btn-focus-mot').textContent;
-        const avant = { focus: lu('btn-focus'), nuit: lu('btn-nuit'), mot: mot() };
-        document.getElementById('btn-focus').click();
-        document.getElementById('btn-nuit').click();
-        const apres = { focus: lu('btn-focus'), nuit: lu('btn-nuit'), mot: mot() };
-        document.getElementById('btn-focus').click();
-        const auBout = { focus: lu('btn-focus'), mot: mot() };
-        document.getElementById('btn-focus').click();
-        document.getElementById('btn-nuit').click();
-        return { avant, apres, auBout, mot: mot(),
-                 eteints: !lu('btn-focus') && !lu('btn-nuit') };
+    // LE CYCLE DE L'AFFICHAGE SE MÈNE DEPUIS LE COIN, et le tableau sombre
+    // depuis les réglages. « Un bouton pour juste remettre les toolbar puis
+    // toolbar + tiroir + rien » : le cycle est le même, il a seulement changé
+    // de porte — la pastille du tiroir commandait l'état qui refermait le
+    // tiroir où elle vivait, et ne pouvait donc jamais servir à revenir.
+    const interrupteurs = await pageP.evaluate(async () => {
+        const coin = document.getElementById('btn-ecran-suite');
+        const mot = () => coin.getAttribute('data-tooltip');
+        const nuit = () => document.body.classList.contains('dark-mode');
+        const suite = [mot()];
+        for (let i = 0; i < 3; i++) {
+            coin.click();
+            await new Promise(ok => setTimeout(ok, 420));
+            suite.push(mot());
+        }
+        const avantNuit = nuit();
+        document.getElementById('rp-nuit').click();
+        await new Promise(ok => setTimeout(ok, 250));
+        const apresNuit = nuit();
+        const allume = document.getElementById('rp-nuit').classList.contains('actif');
+        document.getElementById('rp-nuit').click();
+        await new Promise(ok => setTimeout(ok, 250));
+        return { suite, avantNuit, apresNuit, allume, rendu: nuit() };
     });
-    r.egal('au départ les témoins sont éteints, et tout est montré',
-        { focus: interrupteurs.avant.focus, nuit: interrupteurs.avant.nuit,
-          mot: interrupteurs.avant.mot },
-        { focus: false, nuit: false, mot: 'Tout' });
-    r.egal('un appui range les tiroirs, et le témoin s\'allume',
-        { focus: interrupteurs.apres.focus, nuit: interrupteurs.apres.nuit,
-          mot: interrupteurs.apres.mot },
-        { focus: true, nuit: true, mot: 'Barres' });
-    r.egal('le suivant efface tout, et le témoin reste allumé',
-        interrupteurs.auBout, { focus: true, mot: 'Focus' });
-    r.verifie('et le troisième remet tout : les deux témoins s\'éteignent',
-        interrupteurs.eteints && interrupteurs.mot === 'Tout', JSON.stringify(interrupteurs));
+    r.egal('le bouton du coin fait le tour des trois états, et dit où l\'on est',
+        interrupteurs.suite, [
+            'Tout est là — un appui range les tiroirs',
+            'Les tiroirs sont rangés — un appui efface tout',
+            'Le tableau nu — un appui remet tout',
+            'Tout est là — un appui range les tiroirs'
+        ]);
+    r.egal('« Tableau sombre » des réglages allume et éteint le mode nuit',
+        { avant: interrupteurs.avantNuit, apres: interrupteurs.apresNuit, rendu: interrupteurs.rendu },
+        { avant: false, apres: true, rendu: false });
+    r.verifie('et son interrupteur s\'allume avec lui', interrupteurs.allume,
+        JSON.stringify(interrupteurs));
 
     await ctxP.close();
 

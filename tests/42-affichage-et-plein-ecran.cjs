@@ -47,7 +47,12 @@ module.exports = async function (browser) {
     // existe toujours, et ce sont ses boutons qui vont et viennent.
     const ecran = async () => ({
         etat: await page.evaluate(() => etatDeLAffichage()),
-        mot: await page.evaluate(() => document.getElementById('btn-focus-mot').textContent),
+        // LE MOT SE LIT SUR LE BOUTON DU COIN. La pastille « Focus » du tiroir
+        // du bas le portait ; elle est partie avec la troisième ligne du
+        // tiroir, et pour cause : elle commandait un état qui refermait le
+        // tiroir où elle vivait — on ne pouvait jamais s'en servir pour
+        // revenir. Le coin, lui, reste à tous les états.
+        mot: await page.evaluate(() => document.getElementById('btn-ecran-suite').getAttribute('data-tooltip')),
         outils: await vu('.custom-toolbar'),
         tiroirBas: await vu('#bottom-drawer'),
         tiroirHaut: await vu('#bar-plugins'),
@@ -60,43 +65,55 @@ module.exports = async function (browser) {
     // =================================================================
     r.egal('au départ, tout est là et le coin ne porte que le plein écran',
         await ecran(),
-        { etat: 0, mot: 'Tout', outils: true, tiroirBas: true, tiroirHaut: true, sortie: false, coin: true });
+        { etat: 0, mot: 'Tout est là — un appui range les tiroirs', outils: true, tiroirBas: true, tiroirHaut: true, sortie: false, coin: true });
 
     await page.evaluate(() => cyclerLAffichage());
     await page.waitForTimeout(450);
     r.egal('un appui range les tiroirs et GARDE les outils',
         await ecran(),
-        { etat: 1, mot: 'Barres', outils: true, tiroirBas: false, tiroirHaut: false, sortie: true, coin: true });
+        { etat: 1, mot: 'Les tiroirs sont rangés — un appui efface tout', outils: true, tiroirBas: false, tiroirHaut: false, sortie: true, coin: true });
 
     await page.evaluate(() => cyclerLAffichage());
     await page.waitForTimeout(450);
     r.egal('le suivant ne laisse que le tableau',
         await ecran(),
-        { etat: 2, mot: 'Focus', outils: false, tiroirBas: false, tiroirHaut: false, sortie: true, coin: true });
+        { etat: 2, mot: 'Le tableau nu — un appui remet tout', outils: false, tiroirBas: false, tiroirHaut: false, sortie: true, coin: true });
 
     await page.evaluate(() => cyclerLAffichage());
     await page.waitForTimeout(450);
     r.egal('et le troisième remet tout',
         await ecran(),
-        { etat: 0, mot: 'Tout', outils: true, tiroirBas: true, tiroirHaut: true, sortie: false, coin: true });
+        { etat: 0, mot: 'Tout est là — un appui range les tiroirs', outils: true, tiroirBas: true, tiroirHaut: true, sortie: false, coin: true });
 
-    // La pastille du tiroir du bas mène le cycle, et s'allume dès qu'on a
-    // quitté « tout ».
-    const pastille = await page.evaluate(() => {
-        const b = document.getElementById('btn-focus');
-        const lu = () => ({ mot: document.getElementById('btn-focus-mot').textContent,
-                            allume: b.classList.contains('allume') });
+    // LE BOUTON DU COIN MÈNE LE CYCLE, ET IL EST LÀ AUX TROIS ÉTATS.
+    //
+    // Il se cachait à l'état « tout est là », parce que la pastille « Focus »
+    // du tiroir du bas portait le cycle sur l'écran ordinaire. Cette pastille
+    // est partie : elle commandait l'état qui refermait le tiroir où elle
+    // vivait, et l'on ne pouvait donc jamais s'en servir pour revenir. Si le
+    // coin s'était caché à son tour, il ne resterait plus aucun chemin vers le
+    // cycle sans le clavier.
+    const leCoin = await page.evaluate(async () => {
+        const b = document.getElementById('btn-ecran-suite');
+        const lu = () => ({ mot: b.getAttribute('data-tooltip'),
+                            vu: getComputedStyle(b).display !== 'none' });
         const suite = [lu()];
-        for (let i = 0; i < 3; i++) { b.click(); suite.push(lu()); }
+        for (let i = 0; i < 3; i++) {
+            b.click();
+            await new Promise(ok => setTimeout(ok, 420));
+            suite.push(lu());
+        }
         return suite;
     });
-    r.egal('la pastille dit où l\'on est, et s\'allume hors de « tout »',
-        pastille, [
-            { mot: 'Tout', allume: false },
-            { mot: 'Barres', allume: true },
-            { mot: 'Focus', allume: true },
-            { mot: 'Tout', allume: false }
+    r.egal('le bouton du coin dit où l\'on est, et le dit aux trois états',
+        leCoin.map(x => x.mot), [
+            'Tout est là — un appui range les tiroirs',
+            'Les tiroirs sont rangés — un appui efface tout',
+            'Le tableau nu — un appui remet tout',
+            'Tout est là — un appui range les tiroirs'
         ]);
+    r.egal('et il se voit à « tout est là », d\'où la pastille est partie',
+        leCoin[0].vu, true);
 
     // =================================================================
     // 2. L'AFFICHAGE RÉDUIT N'EST PLUS UN CUL-DE-SAC
@@ -187,28 +204,30 @@ module.exports = async function (browser) {
     r.egal('le bouton du coin fait avancer le cycle',
         await page.evaluate(() => etatDeLAffichage()), 0);
 
-    // DEUX BOUTONS POUR LE MÊME CYCLE — ET C'EST VOULU. La pastille « Focus »
-    // vit dans le tiroir du bas, avec les autres interrupteurs ; le bouton du
-    // coin reste sous la main quand, justement, les tiroirs sont rangés. Ce
-    // qu'on ne veut pas, c'est qu'ils ne disent pas la même chose : deux mots
-    // pour un geste, et le professeur croit à deux gestes.
-    const deuxVoix = await page.evaluate(async () => {
-        const p = document.getElementById('btn-focus');
+    // UN SEUL BOUTON POUR LE CYCLE, ET C'EST MIEUX. Ils étaient deux : la
+    // pastille « Focus » du tiroir du bas et le bouton du coin, complémentaires
+    // parce que chacun se cachait là où l'autre paraissait. Mais la pastille
+    // commandait l'état qui refermait le tiroir où elle vivait : elle ne
+    // pouvait servir qu'à PARTIR, jamais à revenir. Le coin fait les deux, à
+    // tous les états, et dit toujours où l'on est plutôt que de réciter le
+    // cycle.
+    const uneSeuleVoix = await page.evaluate(async () => {
         const c = document.getElementById('btn-ecran-suite');
-        const lire = () => ({ pastille: p.getAttribute('title'), coin: c.getAttribute('data-tooltip') });
-        poserLAffichage(0); await new Promise(ok => setTimeout(ok, 250));
+        const lire = () => ({ mot: c.getAttribute('data-tooltip'),
+                              vu: getComputedStyle(c).display !== 'none' });
+        poserLAffichage(0); await new Promise(ok => setTimeout(ok, 300));
         const tout = lire();
-        poserLAffichage(1); await new Promise(ok => setTimeout(ok, 250));
+        poserLAffichage(1); await new Promise(ok => setTimeout(ok, 300));
         const ranges = lire();
-        poserLAffichage(0); await new Promise(ok => setTimeout(ok, 250));
-        return { tout, ranges };
+        poserLAffichage(0); await new Promise(ok => setTimeout(ok, 300));
+        return { tout, ranges, pastilleRestee: !!document.getElementById('btn-focus') };
     });
-    r.egal('la pastille « Focus » et le bouton du coin disent où l\'on en est, du même mot',
-        [deuxVoix.tout.pastille, deuxVoix.ranges.pastille],
-        [deuxVoix.tout.coin, deuxVoix.ranges.coin]);
-    r.verifie('et ce mot suit l\'état : il dit où l\'on EST, non le cycle par cœur',
-        !!deuxVoix.tout.pastille && !!deuxVoix.ranges.pastille
-        && deuxVoix.tout.pastille !== deuxVoix.ranges.pastille, JSON.stringify(deuxVoix));
+    r.egal('la pastille « Focus » a quitté le tiroir', uneSeuleVoix.pastilleRestee, false);
+    r.verifie('le bouton du coin se voit aux deux états',
+        uneSeuleVoix.tout.vu && uneSeuleVoix.ranges.vu, JSON.stringify(uneSeuleVoix));
+    r.verifie('et son mot suit l\'état : il dit où l\'on EST, non le cycle par cœur',
+        !!uneSeuleVoix.tout.mot && !!uneSeuleVoix.ranges.mot
+        && uneSeuleVoix.tout.mot !== uneSeuleVoix.ranges.mot, JSON.stringify(uneSeuleVoix));
 
     await page.evaluate(() => poserLAffichage(2));
     await page.waitForTimeout(450);

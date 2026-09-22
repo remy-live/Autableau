@@ -822,13 +822,17 @@ module.exports = async function (browser) {
 
     r.verifie('sur un grand écran, le menu tient et ne défile pas',
         grand.deborde < 0 && !grand.defile && grand.derniereAtteignable, JSON.stringify(grand));
-    // TROIS CENT QUARANTE-HUIT, ET NON CINQ CENT TRENTE-HUIT. Le chiffre est
-    // écrit ici pour qu'on s'aperçoive du jour où le menu se remet à grandir.
-    // Il a perdu cent trente-huit pixels d'un coup : les trois formats d'icônes
-    // sont devenus un interrupteur, la couleur du contour a rejoint la ligne du
-    // trait qu'elle colore, et « Repérer les zones à remplir » est parti là où
-    // il sert — sur la barre du document.
-    r.egal('et il fait la hauteur qu\'on lui connaît', grand.hauteur, 348);
+    // TROIS CENT SOIXANTE-DIX-SEPT, ET NON CINQ CENT TRENTE-HUIT. Le chiffre
+    // est écrit ici pour qu'on s'aperçoive du jour où le menu se remet à
+    // grandir. Il avait perdu cent trente-huit pixels d'un coup : les trois
+    // formats d'icônes sont devenus un interrupteur, la couleur du contour a
+    // rejoint la ligne du trait qu'elle colore, et « Repérer les zones à
+    // remplir » est parti là où il sert — sur la barre du document.
+    // IL EN REPREND VINGT-NEUF, ET C'EST VOULU : « Tableau sombre » arrive du
+    // tiroir du bas, où il était une pastille écrite en toutes lettres au
+    // milieu de gestes qu'on refait vingt fois par heure. Une ligne ici contre
+    // une ligne entière là-bas — le compte est bon.
+    r.egal('et il fait la hauteur qu\'on lui connaît', grand.hauteur, 377);
     r.verifie('sur un écran de six cents, il tient désormais sans défiler',
         moyen.deborde < 0 && !moyen.defile, JSON.stringify(moyen));
     r.verifie('sur un écran court, il ne dépasse plus le bord bas',
@@ -839,7 +843,7 @@ module.exports = async function (browser) {
         minuscule.deborde < 0 && minuscule.defile && minuscule.derniereAtteignable,
         JSON.stringify(minuscule));
     r.egal('et le menu offre partout les mêmes choix',
-        [grand.nChoix, moyen.nChoix, petit.nChoix, minuscule.nChoix], [9, 9, 9, 9]);
+        [grand.nChoix, moyen.nChoix, petit.nChoix, minuscule.nChoix], [10, 10, 10, 10]);
 
     // ON N'A RIEN PERDU : les deux entrées retirées du menu vivaient DÉJÀ dans
     // l'Aide. C'est ce qui autorisait à les retirer — et c'est donc cela qu'il

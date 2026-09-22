@@ -12326,7 +12326,13 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
    réduit : les montrer sur l'écran ordinaire, c'est trois boutons
    de plus pour rien.
    =========================================================== */
-body:not(.focus-mode):not(.sans-tiroirs) #barre-ecran #btn-ecran-suite,
+/* LE CYCLE, LUI, RESTE — À TOUS LES ÉTATS. Il partageait ce sort avec la
+   croix, du temps où la pastille « Focus » du tiroir du bas portait le cycle
+   sur l'écran ordinaire. Cette pastille est partie : elle commandait un état
+   qui refermait le tiroir où elle vivait, et l'on ne pouvait donc jamais s'en
+   servir pour revenir. Si le bouton du coin se cachait à son tour ici, il ne
+   resterait plus aucun chemin vers le cycle sans le clavier. La croix, elle,
+   ne sert qu'à SORTIR d'un affichage réduit : elle n'a rien à faire ici. */
 body:not(.focus-mode):not(.sans-tiroirs) #barre-ecran #exit-focus-cross {
     display: none;
 }

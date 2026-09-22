@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=188">
+    <link rel="stylesheet" href="style.css?v=189">
 </head>
 
 <body>
@@ -2343,6 +2343,13 @@
                          cherchait. -->
                     <button class="rp-choix" id="rp-libelles"
                         title="Écrire le nom sous chaque outil, en plus de son icône">Nom des outils</button>
+                    <!-- LE TABLEAU SOMBRE ARRIVE DU TIROIR DU BAS. Il y était une
+                         pastille écrite en toutes lettres, au milieu de gestes
+                         qu'on refait vingt fois par heure — alors qu'on choisit
+                         son fond une fois et qu'on l'oublie. Sa place est ici,
+                         auprès du nom des outils : deux réglages d'apparence. -->
+                    <button class="rp-choix" id="rp-nuit"
+                        title="Tableau sombre, craie claire">Tableau sombre</button>
                     <!-- LA COULEUR SE CHOISIT LÀ OÙ LE TRAIT S'ALLUME. Elle
                          occupait une ligne à elle, sous « Contours francs », et
                          répétait le mot « contours » que la ligne du dessus
@@ -2476,11 +2483,12 @@
                     <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Ouvrir un tableau (.prof)</button>
                 </div>
             </div>
-                    <button class="btn" id="btn-explorateur" data-tooltip="Ouvrir un fichier (ordinateur ou nuage)"><svg
-                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H3Z" />
-                        <path d="M3 10h18l-1.6 8.2A2 2 0 0 1 17.4 20H6.6a2 2 0 0 1-2-1.8Z" />
-                    </svg></button>
+                    <!-- « OUVRIR UN FICHIER » VIVAIT ICI ET DANS LE MENU IMPORTER,
+                         mot pour mot, et les deux appelaient le même « ouvrir() »
+                         (lib/cloud/explorateur.js). Le menu le garde ; la rangée
+                         le rend. Un tiroir n'a pas à proposer deux fois la même
+                         porte. -->
+
                     <div class="popup-wrapper">
                 <button class="btn" id="btn-export-menu" data-tooltip="Exporter">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
@@ -2563,12 +2571,14 @@
                     <rect x="3" y="14" width="7" height="7" rx="1" />
                     <rect x="14" y="14" width="7" height="7" rx="1" />
                 </svg></button>
-                    <button class="btn" id="btn-global-lock" data-tooltip="Verrouiller / Déverrouiller">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-            </button>
+                    <!-- LE VERROU « GLOBAL » N'A JAMAIS ÉTÉ GLOBAL : il faisait
+                         « selectedItems.forEach », exactement comme le cadenas du
+                         menu flottant de la sélection. Or on ouvre le tiroir du bas
+                         justement quand on ne tient rien — il ne savait alors
+                         qu'afficher « Sélectionnez d'abord un objet ». Le cadenas
+                         du menu flottant, lui, paraît quand il a de quoi
+                         verrouiller. -->
+
                     </div>
                 </div>
                 <div style="flex:1"></div>
@@ -2769,11 +2779,23 @@
                      le cycle. Un texte écrit là serait effacé avant d'avoir
                      jamais paru — une seconde vérité qui ne sert qu'à mentir à
                      qui relit la page. -->
-                <button class="category-pill interrupteur" onclick="handleWorkspaceFocus()" id="btn-focus"><i class="temoin"></i><span id="btn-focus-mot">Focus</span></button>
-                <button class="category-pill interrupteur" onclick="basculerLibelles()" id="btn-libelles"
-                    title="Afficher le nom des outils sous leur icône"><i class="temoin"></i>Libellés</button>
-                <button class="category-pill interrupteur" onclick="handleWorkspaceDarkMode()" id="btn-nuit"
-                    title="Tableau sombre, craie claire"><i class="temoin"></i>Mode Nuit</button>
+                <!-- LES TROIS PASTILLES SONT PARTIES, ET AVEC ELLES LA
+                     TROISIÈME LIGNE DU TIROIR.
+                     « Le tiroir du bas, c'est quelque chose quand même, il y a
+                     beaucoup. » Ces trois-là étaient les seules à porter du
+                     texte au milieu d'icônes, et elles occupaient à elles
+                     seules une ligne entière qu'elles ne remplissaient qu'au
+                     tiers.
+                     · « Focus » : le bouton du coin fait le même cycle, dit le
+                       même mot, et lui reste atteignable quand les tiroirs sont
+                       rangés — ce que la pastille, logée DANS le tiroir, ne
+                       pouvait pas faire. Elle commandait un état qui la faisait
+                       disparaître : un cul-de-sac.
+                     · « Libellés » : « Nom des outils » dit déjà cela dans les
+                       réglages, et c'est la grille du HAUT qu'il commande.
+                     · « Mode Nuit » : rejoint les réglages, sous « Tableau
+                       sombre ». Un fond se choisit une fois par an. -->
+
             </div>
         </div>
     </div>
@@ -3711,7 +3733,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=311"></script>
+    <script src="script.js?v=312"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=113"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

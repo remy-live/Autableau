@@ -102,16 +102,12 @@ function majPastilleZoom(valeur) {
 function majPastilleGrille(valeur) {
     ecrirePastille('grille-valeur', (valeur === undefined ? gridWeight : valeur).toFixed(1).replace('.', ','));
 }
-function allumerInterrupteur(id, actif) {
-    const b = document.getElementById(id);
-    if (b) b.classList.toggle('allume', !!actif);
-}
-function majInterrupteursBarre() {
-    allumerInterrupteur('btn-focus', typeof etatDeLAffichage === 'function'
-        ? etatDeLAffichage() > 0 : document.body.classList.contains('focus-mode'));
-    allumerInterrupteur('btn-nuit', isDarkMode);
-    // « Libellés » a trois états : c'est choisirFormatIcones qui l'allume.
-}
+// LES TROIS PASTILLES ONT QUITTÉ LE TIROIR — le coin dit l'affichage, les
+// réglages disent le nom des outils et le tableau sombre. La fonction reste,
+// vide et appelée de plusieurs endroits : la vider était plus sûr que de
+// traquer ses appelants, et le prochain interrupteur de barre retrouvera sa
+// place toute faite.
+function majInterrupteursBarre() { }
 
 let isLoupeActive = false;
 let isCropMode = false;
@@ -7655,18 +7651,6 @@ function updateStyleBarContext() {
         document.getElementById('btn-arrow-end').innerHTML = getArrowIcon(activeStyle.arrowEnd, false);
         document.getElementById('btn-arrow-end').classList.toggle('active', activeStyle.arrowEnd > 0 || hasAnyArrowEnd);
 
-        // Synchro du bouton Global Lock (Barre du bas)
-        const btnGlobalLock = document.getElementById('btn-global-lock');
-        if (btnGlobalLock) {
-            const svg = btnGlobalLock.querySelector('svg');
-            if (isAllLocked) {
-                btnGlobalLock.classList.add('active');
-                if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`;
-            } else {
-                btnGlobalLock.classList.remove('active');
-                if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`;
-            }
-        }
 
         // Synchro du bouton Minimize Post-it
         const btnMinimizePostit = document.getElementById('btn-minimize-postit');
@@ -7693,12 +7677,6 @@ function updateStyleBarContext() {
         document.getElementById('btn-arrow-end').innerHTML = getArrowIcon(activeStyle.arrowEnd, false);
         document.getElementById('btn-arrow-end').classList.toggle('active', activeStyle.arrowEnd > 0);
 
-        const btnGlobalLock = document.getElementById('btn-global-lock');
-        if (btnGlobalLock) {
-            const svg = btnGlobalLock.querySelector('svg');
-            btnGlobalLock.classList.remove('active');
-            if (svg) svg.innerHTML = `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`;
-        }
     }
 
     syncStampStyleControls();
@@ -7880,17 +7858,11 @@ function pushStyleToObject() {
     }); saveState(); draw();
 }
 
-document.getElementById('btn-global-lock')?.addEventListener('click', () => {
-    if (selectedItems.length === 0) {
-        showToast("Sélectionnez d'abord un objet à cadenasser/décadenasser");
-        return;
-    }
-    const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
-    const newState = !isAllLocked;
-    selectedItems.forEach(i => { const o = getObjectById(i.type, i.id); if (o) o.locked = newState; });
-    updateStyleBarContext(); saveState(); draw();
-    showToast(newState ? "Sélection verrouillée" : "Sélection déverrouillée");
-});
+// LE VERROU « GLOBAL » EST PARTI AVEC SON BOUTON. Il n'a jamais été global :
+// « selectedItems.forEach », exactement comme le cadenas du menu flottant, qui
+// lui paraît quand il a de quoi verrouiller. Dans le tiroir du bas, ouvert
+// justement quand on ne tient rien, il ne savait qu'afficher « Sélectionnez
+// d'abord un objet ».
 
 // Le cadenas a quitté la barre fixe pour le menu flottant, avec les autres
 // actions. Son écouteur est parti avec lui.
@@ -24358,7 +24330,16 @@ const LIEUX_DE_COMMANDE = [
     { sel: '#plugin-tabs',         nom: 'Catégories',        boutons: '.btn' },
     { sel: '#bottom-drawer',       nom: 'Barre du bas',      boutons: '.btn, .menu-item, .category-pill' },
     { sel: '#bar-style',           nom: 'Styles',            boutons: '.btn' },
-    { sel: '#right-drawer',        nom: 'Explorateur',       boutons: '.rd-btn, .drawer-tab, .trash-btn' }
+    { sel: '#right-drawer',        nom: 'Explorateur',       boutons: '.rd-btn, .drawer-tab, .trash-btn' },
+    // LES TROIS ENDROITS OÙ L'ON DÉMÉNAGE. Le tiroir du bas se désencombre :
+    // ses commandes partent au coin de l'écran, dans les réglages, ou sur
+    // l'objet lui-même. Ces trois-là n'étaient pas récoltés — une commande
+    // déménagée sortait donc SILENCIEUSEMENT de la recherche, et le test des
+    // raccourcis ne l'aurait pas vu : il n'exige qu'un total supérieur à 150,
+    // que les plugins atteignent à eux seuls.
+    { sel: '#barre-ecran',         nom: 'Coin de l\'écran',   boutons: 'button[data-tooltip], button[title]' },
+    { sel: '#reglages-barre',      nom: 'Réglages',          boutons: '.rp-choix' },
+    { sel: '#quick-edit-menu',     nom: 'Sur l\'objet',       boutons: '.btn-quick' }
 ];
 
 // Une barre flottante est une COPIE d'une barre existante : ses boutons
@@ -39057,6 +39038,8 @@ function majReglagesBarre() {
     // mais qui l'avait choisie doit voir son interrupteur allumé.
     const bLibelles = document.getElementById('rp-libelles');
     if (bLibelles) bLibelles.classList.toggle('actif', format !== 'non');
+    const bNuit = document.getElementById('rp-nuit');
+    if (bNuit) bNuit.classList.toggle('actif', typeof isDarkMode !== 'undefined' && !!isDarkMode);
     const bDate = document.getElementById('rp-date');
     if (bDate) bDate.classList.toggle('actif', reglagesDate.affichee);
     const bAstuces = document.getElementById('rp-astuces');
@@ -39430,6 +39413,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (bLibelles) bLibelles.addEventListener('click', () => {
         if (typeof choisirFormatIcones !== 'function' || typeof formatIcones !== 'function') return;
         choisirFormatIcones(formatIcones() === 'non' ? 'oui' : 'non', true);
+    });
+
+    // LE TABLEAU SOMBRE, VENU DU TIROIR DU BAS. Il y était une pastille écrite
+    // en toutes lettres, au milieu de gestes qu'on refait vingt fois par heure.
+    const bNuit = document.getElementById('rp-nuit');
+    if (bNuit) bNuit.addEventListener('click', () => {
+        if (typeof handleWorkspaceDarkMode === 'function') handleWorkspaceDarkMode();
+        if (typeof majReglagesBarre === 'function') majReglagesBarre();
     });
 
     const bDate = document.getElementById('rp-date');
