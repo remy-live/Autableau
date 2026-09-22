@@ -8041,9 +8041,44 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
         }
     },
 
+    // L'ÉTIQUETTE LA PLUS SERRÉE qui couvre ce mot : c'est celle qu'on vise.
+    // Trois groupes peuvent se superposer sur le même mot — « Le chat » sujet
+    // DANS « Le chat dort » proposition —, et l'on retire toujours le plus
+    // petit, parce que c'est le dernier posé et celui qu'on voit.
+    etiquetteLaPlusSerree: function (i) {
+        let trouve = -1, large = Infinity;
+        this.analyses.forEach((a, n) => {
+            if (i < a.de || i > a.a) return;
+            const l = a.a - a.de;
+            if (l < large) { large = l; trouve = n; }
+        });
+        return trouve;
+    },
+
     // Un clic pose le début du groupe, le suivant sa fin. Recliquer le même
     // mot annule : on se ravise souvent devant la classe.
+    //
+    // ET UN MOT DÉJÀ ÉTIQUETÉ REND SON ÉTIQUETTE. « Il faudrait pouvoir aussi
+    // enlever : si on a mis Sujet, en cliquant dessus ça peut l'enlever. » Le
+    // crochet sous la phrase le faisait déjà, mais personne ne devine qu'un
+    // trait de deux pixels se clique. Le mot, lui, se voit.
+    //
+    // SEULEMENT QUAND AUCUNE SÉLECTION N'EST COMMENCÉE : au milieu d'un geste,
+    // le clic finit ce qu'on a commencé. Et pour coiffer des mots déjà
+    // étiquetés d'un groupe plus large, on trace un cadre autour — ce geste-là
+    // ne regarde pas les étiquettes.
     cliquerMot: function (i) {
+        if (this.debutChoisi === null) {
+            const n = this.etiquetteLaPlusSerree(i);
+            if (n >= 0) {
+                const nom = this.analyses[n].libelle;
+                this.retirer(n);
+                if (typeof showToast === 'function') {
+                    showToast(`« ${nom} » retiré — ↶ Annuler le remet`);
+                }
+                return;
+            }
+        }
         if (this.debutChoisi === null) { this.debutChoisi = i; this.finChoisie = i; }
         else if (this.finChoisie !== null && this.debutChoisi === i && this.finChoisie === i) {
             this.debutChoisi = this.finChoisie = null;
@@ -8090,9 +8125,9 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
                 m.texte.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`).join('')}<i id="ag-fente"></i><i id="ag-cadre"></i></div>
             <svg id="ag-crochets" xmlns="http://www.w3.org/2000/svg"></svg>`;
 
-        scene.querySelectorAll('.ag-mot').forEach(el => {
-            el.onclick = () => this.cliquerMot(Number(el.dataset.i));
-        });
+        // PAS DE « onclick » SUR LES MOTS : la capture du pointeur le rendait
+        // muet, et deux chemins pour un même geste, c'est un jour où ils se
+        // déclenchent tous les deux. Le relâchement s'en charge, lui seul.
         this.brancherLesGestes();
 
         this.mesurerLesMots();
@@ -8208,7 +8243,24 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
             fente.style.display = 'none';
             cadre.style.display = 'none';
             rendue.querySelectorAll('.ag-emporte').forEach(el => el.classList.remove('ag-emporte'));
-            if (!fini.parti) return;                       // c'était un clic : il a déjà agi
+            // LE CLIC AGIT ICI, ET NON PLUS SUR LE MOT.
+            //
+            // « Le clic simple sur un mot ne fonctionne plus. » C'est exact, et
+            // c'est le déplacement des mots qui l'a cassé : « setPointerCapture »,
+            // posé sur la phrase pour que le geste survive à un doigt qui sort,
+            // REDIRIGE VERS L'ÉLÉMENT CAPTEUR le « click » qui suit. Le
+            // gestionnaire posé sur chaque mot n'était donc plus jamais appelé,
+            // et la ligne qui vivait ici prétendait le contraire : « c'était un
+            // clic, il a déjà agi ». Il n'avait jamais agi — le commentaire
+            // décrivait une intention, pas le code.
+            //
+            // Un seul chemin désormais : c'est le RELÂCHEMENT qui décide, et la
+            // distance parcourue qui dit s'il faut choisir ou déplacer. Aucune
+            // durée n'entre en jeu.
+            if (!fini.parti) {
+                if (fini.type === 'mot') this.cliquerMot(fini.i);
+                return;
+            }
             if (fini.type === 'mot') { this.deplacerLeMot(fini.i, fenteSous(e.clientX)); return; }
             const touches = spans().map((el, i) => ({ el, i })).filter(({ el }) => {
                 const r = el.getBoundingClientRect();
@@ -8357,7 +8409,8 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
             z.textContent = `« ${groupe} » — choisissez sa fonction ci-dessous.`;
         }
         if (this.analyses.length) {
-            z.textContent += ' Cliquez un crochet pour le retirer.';
+            z.textContent += ' Cliquez un mot étiqueté — ou son crochet — pour retirer son étiquette ;'
+                + ' tracez un cadre autour de plusieurs mots pour en coiffer un groupe déjà étiqueté.';
         }
     },
 

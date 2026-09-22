@@ -75,36 +75,117 @@ module.exports = async function (browser) {
     r.verifie('l\'espace entre deux mots reste hors de leur boîte mesurée',
         alignement.ecarts.every(e => e >= 4), JSON.stringify(alignement.ecarts));
 
-    // Les gestes : deux clics désignent un groupe, un troisième se ravise
-    const gestes = await page.evaluate(() => {
+    // ==========================================================
+    // LES GESTES, AVEC UNE VRAIE SOURIS
+    //
+    // « Le clic simple sur un mot ne fonctionne plus. » C'était vrai, et ce
+    // test-ci passait pourtant au vert : il appelait « .click() » SUR le mot,
+    // c'est-à-dire le gestionnaire posé dessus. Or le déplacement des mots pose
+    // « setPointerCapture » sur la phrase, et une capture de pointeur REDIRIGE
+    // VERS L'ÉLÉMENT CAPTEUR le « click » qui suit : le gestionnaire du mot
+    // n'était plus jamais appelé par une vraie main. Le test éprouvait un
+    // chemin que personne n'emprunte.
+    //
+    // On clique donc à la souris, qui vise — et c'est le relâchement qui agit.
+    // ==========================================================
+    const viser = (i) => page.evaluate((n) => {
         const P = PluginManager.plugins['analyseGrammaticaleTool'];
-        P.analyses = []; P.debutChoisi = P.finChoisie = null;
-        P.peindre();
-        const mot = (i) => P.widgetEl.querySelector(`.ag-mot[data-i="${i}"]`);
-        mot(2).click();
-        const unSeul = { de: P.debutChoisi, a: P.finChoisie,
-                         peints: P.widgetEl.querySelectorAll('.ag-mot.choisi').length };
-        mot(5).click();
-        const etendu = P.widgetEl.querySelectorAll('.ag-mot.choisi').length;
-        // On étiquette, la sélection se relâche
-        P.etiqueter('COD', '#00b894');
-        const apres = { sel: P.debutChoisi, n: P.analyses.length,
-                        peints: P.widgetEl.querySelectorAll('.ag-mot.choisi').length };
-        // Le crochet se retire d'un clic
-        P.widgetEl.querySelector('.ag-trait').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        const retire = P.analyses.length;
-        // Reclic sur le même mot : on se ravise
-        mot(1).click(); mot(1).click();
-        return { unSeul, etendu, apres, retire, apresRavis: P.debutChoisi };
+        const el = P.widgetEl.querySelector(`.ag-mot[data-i="${n}"]`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    }, i);
+    const cliquerLeMot = async (i) => {
+        const p = await viser(i);
+        if (!p) return false;
+        await page.mouse.move(p.x, p.y);
+        await page.mouse.down();
+        await page.mouse.up();
+        await page.waitForTimeout(90);
+        return true;
+    };
+    const lire = () => page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        return { de: P.debutChoisi, a: P.finChoisie,
+                 peints: P.widgetEl.querySelectorAll('.ag-mot.choisi').length,
+                 analyses: P.analyses.length };
     });
-    r.egal('un premier clic désigne un mot', [gestes.unSeul.de, gestes.unSeul.a], [2, 2]);
-    r.egal('et le peint', gestes.unSeul.peints, 1);
-    r.egal('le second clic étend le groupe', gestes.etendu, 4);
-    r.egal('étiqueter pose l\'analyse', gestes.apres.n, 1);
+
+    await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.analyses = []; P.debutChoisi = P.finChoisie = null; P.pile = [];
+        P.peindre();
+    });
+    const vise = await cliquerLeMot(2);
+    r.verifie('les mots de la phrase sont là où on les voit', vise, 'mot 2 introuvable');
+    const unSeul = await lire();
+    r.egal('un vrai clic désigne un mot', [unSeul.de, unSeul.a], [2, 2]);
+    r.egal('et le peint', unSeul.peints, 1);
+    await cliquerLeMot(5);
+    const etendu = await lire();
+    r.egal('le second clic étend le groupe', etendu.peints, 4);
+
+    const apres = await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.etiqueter('COD', '#00b894');
+        return { sel: P.debutChoisi, n: P.analyses.length,
+                 peints: P.widgetEl.querySelectorAll('.ag-mot.choisi').length };
+    });
+    r.egal('étiqueter pose l\'analyse', apres.n, 1);
     r.verifie('et relâche la sélection',
-        gestes.apres.sel === null && gestes.apres.peints === 0, JSON.stringify(gestes.apres));
-    r.egal('un clic sur le crochet le retire', gestes.retire, 0);
-    r.verifie('recliquer le même mot annule la sélection', gestes.apresRavis === null);
+        apres.sel === null && apres.peints === 0, JSON.stringify(apres));
+
+    // ET UN MOT ÉTIQUETÉ REND SON ÉTIQUETTE. « Il faudrait pouvoir aussi
+    // enlever : si on a mis Sujet, en cliquant dessus ça peut l'enlever. » Le
+    // crochet le faisait déjà — un trait de deux pixels que personne ne devine.
+    await cliquerLeMot(3);
+    const rendu = await lire();
+    r.egal('cliquer un mot étiqueté retire son étiquette', rendu.analyses, 0);
+    r.verifie('sans commencer une sélection au passage',
+        rendu.de === null && rendu.peints === 0, JSON.stringify(rendu));
+    const annulable = await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.annuler();
+        return P.analyses.length;
+    });
+    r.egal('et « Annuler » la remet', annulable, 1);
+
+    // LA PLUS SERRÉE D'ABORD : trois groupes peuvent couvrir le même mot, on
+    // retire le plus petit — le dernier posé, celui qu'on voit.
+    const serree = await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.analyses = []; P.pile = []; P.debutChoisi = P.finChoisie = null;
+        P.debutChoisi = 0; P.finChoisie = 5; P.etiqueter('Sujet', '#0984e3');
+        P.debutChoisi = 3; P.finChoisie = 5; P.etiqueter('Complément du nom', '#e17055');
+        return { avant: P.analyses.map(a => a.libelle), vise: P.etiquetteLaPlusSerree(4) };
+    });
+    await cliquerLeMot(4);
+    const reste = await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        return P.analyses.map(a => a.libelle);
+    });
+    r.egal('sous deux étiquettes, c\'est la plus serrée qui part',
+        reste, ['Sujet']);
+
+    // ET LE CROCHET RESTE CLIQUABLE : deux chemins pour retirer, c'est bien —
+    // celui qu'on devine et celui qu'on trouve.
+    const parLeCrochet = await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.widgetEl.querySelector('.ag-trait').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        return P.analyses.length;
+    });
+    r.egal('un clic sur le crochet le retire aussi', parLeCrochet, 0);
+
+    // RECLIQUER LE MÊME MOT ANNULE LA SÉLECTION — on se ravise devant la classe.
+    await page.evaluate(() => {
+        const P = PluginManager.plugins['analyseGrammaticaleTool'];
+        P.analyses = []; P.pile = []; P.debutChoisi = P.finChoisie = null; P.peindre();
+    });
+    await cliquerLeMot(1);
+    await cliquerLeMot(1);
+    const ravise = await lire();
+    r.verifie('recliquer le même mot annule la sélection',
+        ravise.de === null, JSON.stringify(ravise));
 
     // Deux fois la même fonction sur les mêmes mots : on change d'avis
     const doublon = await page.evaluate(() => {
