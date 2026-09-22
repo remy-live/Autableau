@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Essayer une voix Piper</title>
+<!--
+    POURQUOI CETTE PAGE EXISTE, ET POURQUOI ELLE EST SÉPARÉE DE L'APPLICATION.
+
+    « J'aimerais bien tester quand même une voix non synthétique. »
+
+    La machine où ce code a été écrit ne peut pas atteindre Hugging Face, où
+    vivent les voix. Rien de ce qui suit n'a donc pu être éprouvé de bout en
+    bout : le phonémiseur, oui — il a bien rendu « le- siɡˈonj ʁəvjˈɛnt o
+    pʁɛ̃tˈɑ̃ » sur une vraie phrase française ; le moteur d'inférence, oui ;
+    mais aucune voix réelle n'a jamais parlé ici.
+
+    Cette page fait donc le chemin entier, chez vous, sans rien installer et
+    sans toucher à « Au Tableau ! ». Si la voix vous plaît, on l'intègre. Si
+    elle ne vous plaît pas, on aura perdu dix minutes au lieu de trois jours.
+
+    ELLE NE DEVINE AUCUNE ADRESSE. Les chemins des voix, elle va les LIRE dans
+    le catalogue publié par le projet Piper, au lieu de les supposer — une URL
+    supposée qui tombe à faux ferait croire que le montage ne marche pas.
+
+    CE QU'ELLE TÉLÉCHARGE, ET D'OÙ :
+      · le phonémiseur (eSpeak-ng compilé), depuis un miroir de npm — 18 Mo ;
+      · le moteur ONNX, depuis cdnjs — environ 10 Mo ;
+      · la voix choisie, depuis Hugging Face — 20 à 65 Mo selon la qualité.
+    Rien n'est envoyé : ce sont des téléchargements, dans un sens seulement.
+
+    LA LICENCE. Le phonémiseur est sous GPL-3. C'est VOTRE navigateur qui va
+    le chercher chez ses auteurs ; ce dépôt n'en redistribue aucun octet, et
+    c'est la raison d'être de ce montage. Voir docs/voix-piper.md.
+
+    Pour essayer avec des fichiers à soi, ou depuis un serveur local :
+      essai-voix-piper.html?phonemiseur=<base>&ort=<base>&voix=<url>&config=<url>
+-->
+<style>
+    :root {
+        --encre: #2d3436;
+        --gris: #636e72;
+        --trait: #dfe6e9;
+        --fond: #fbfbfa;
+        --carte: #ffffff;
+        --accent: #6c5ce7;
+        --bien: #00875a;
+        --mal: #c0392b;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --encre: #dfe6e9; --gris: #9aa5a8; --trait: #3d4852;
+            --fond: #1e262b; --carte: #252e34; --accent: #a29bfe;
+            --bien: #55efc4; --mal: #ff7675;
+        }
+    }
+    :root[data-theme="dark"] {
+        --encre: #dfe6e9; --gris: #9aa5a8; --trait: #3d4852;
+        --fond: #1e262b; --carte: #252e34; --accent: #a29bfe;
+        --bien: #55efc4; --mal: #ff7675;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; background: var(--fond); color: var(--encre);
+        font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Nunito, sans-serif;
+        padding: 24px 16px 64px;
+    }
+    main { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 26px; margin: 0 0 6px; text-wrap: balance; }
+    .sous { color: var(--gris); margin: 0 0 24px; }
+    .carte {
+        background: var(--carte); border: 1px solid var(--trait);
+        border-radius: 12px; padding: 18px; margin-bottom: 16px;
+    }
+    .carte h2 {
+        font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+        color: var(--gris); margin: 0 0 12px; font-weight: 700;
+    }
+    label { display: block; font-size: 13px; color: var(--gris); margin-bottom: 4px; }
+    select, textarea, input {
+        width: 100%; padding: 9px 10px; font: inherit; font-size: 14px;
+        color: var(--encre); background: var(--fond);
+        border: 1px solid var(--trait); border-radius: 8px;
+    }
+    textarea { resize: vertical; min-height: 72px; }
+    button {
+        font: inherit; font-weight: 600; padding: 11px 18px; border-radius: 9px;
+        border: 1px solid var(--accent); background: var(--accent); color: #fff;
+        cursor: pointer;
+    }
+    button.secondaire { background: transparent; color: var(--encre); border-color: var(--trait); }
+    button[disabled] { opacity: .5; cursor: default; }
+    .rangee { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+    .journal {
+        font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap; word-break: break-word;
+        max-height: 300px; overflow: auto; margin: 0;
+    }
+    .journal .ok { color: var(--bien); }
+    .journal .ko { color: var(--mal); }
+    .journal .faible { color: var(--gris); }
+    .mesures { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .mesure { border: 1px solid var(--trait); border-radius: 9px; padding: 10px 12px; }
+    .mesure .val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .mesure .quoi { font-size: 11px; color: var(--gris); text-transform: uppercase; letter-spacing: .5px; }
+    .phonemes { font-size: 18px; line-height: 1.7; word-break: break-word; }
+    audio { width: 100%; margin-top: 12px; }
+    .note { font-size: 13px; color: var(--gris); }
+    code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
+</style>
+</head>
+<body>
+<main>
+    <h1>Essayer une voix Piper</h1>
+    <p class="sous">Tout se passe dans ce navigateur. Rien n'est envoyé nulle part — on télécharge, on parle, c'est fini.</p>
+
+    <div class="carte">
+        <h2>1. La voix</h2>
+        <label for="voix">Voix française, lue dans le catalogue du projet Piper</label>
+        <select id="voix"><option>Chargement du catalogue…</option></select>
+        <p class="note" id="voix-note" style="margin: 8px 0 0;"></p>
+        <div class="rangee">
+            <button class="secondaire" id="recharger">Relire le catalogue</button>
+        </div>
+    </div>
+
+    <div class="carte">
+        <h2>2. Le texte</h2>
+        <label for="texte">Ce qu'elle doit dire</label>
+        <textarea id="texte">Les cigognes reviennent au printemps. Quatre-vingt-dix élèves écoutaient, attentifs, pendant que le vent d'automne emportait les dernières feuilles.</textarea>
+        <div class="rangee">
+            <button id="parler" disabled>Télécharger et lire</button>
+            <span class="note" id="etat"></span>
+        </div>
+        <audio id="son" controls hidden></audio>
+    </div>
+
+    <div class="carte" id="carte-mesures" hidden>
+        <h2>3. Ce que ça a coûté</h2>
+        <div class="mesures" id="mesures"></div>
+        <p class="note" style="margin: 14px 0 0;">
+            C'est ce tableau qui décide : un téléchargement d'une fois, puis un
+            délai avant chaque phrase. En classe, le second compte plus que le premier.
+        </p>
+    </div>
+
+    <div class="carte" id="carte-phonemes" hidden>
+        <h2>Ce que le phonémiseur a compris</h2>
+        <div class="phonemes" id="phonemes"></div>
+    </div>
+
+    <div class="carte">
+        <h2>Journal</h2>
+        <pre class="journal" id="journal"></pre>
+    </div>
+</main>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * D'OÙ VIENNENT LES MORCEAUX
+ * Chacun est réglable par un paramètre d'adresse : une école derrière
+ * un filtrage pourra en servir une copie, et c'est ainsi qu'on éprouve
+ * cette page sans réseau.
+ * ------------------------------------------------------------------ */
+const P = new URLSearchParams(location.search);
+const SOURCES = {
+    phonemiseur: P.get('phonemiseur') || 'https://unpkg.com/piper-wasm@0.1.4/build/',
+    ort:         P.get('ort')         || 'https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.17.1/',
+    hf:          P.get('hf')          || 'https://huggingface.co/rhasspy/piper-voices/resolve/main/'
+};
+
+const journal = document.getElementById('journal');
+const dire = (texte, classe) => {
+    const l = document.createElement('div');
+    if (classe) l.className = classe;
+    l.textContent = texte;
+    journal.appendChild(l);
+    journal.scrollTop = journal.scrollHeight;
+};
+const mo = (o) => (o / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+const ms = (t) => t < 1000 ? Math.round(t) + ' ms' : (t / 1000).toFixed(1).replace('.', ',') + ' s';
+
+/* Un téléchargement qui DIT OÙ IL EN EST : un fichier de soixante mégaoctets
+   sans jauge, c'est une page qu'on croit plantée et qu'on referme. */
+async function telecharger(url, quoi) {
+    const t0 = performance.now();
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(quoi + ' : ' + r.status + ' ' + r.statusText + ' — ' + url);
+    const total = Number(r.headers.get('content-length')) || 0;
+    const morceaux = [];
+    let recu = 0, dernier = 0;
+    const lecteur = r.body && r.body.getReader ? r.body.getReader() : null;
+    if (lecteur) {
+        for (;;) {
+            const { done, value } = await lecteur.read();
+            if (done) break;
+            morceaux.push(value); recu += value.length;
+            if (performance.now() - dernier > 400) {
+                dernier = performance.now();
+                etat(quoi + ' — ' + mo(recu) + (total ? ' / ' + mo(total) : ''));
+            }
+        }
+    } else {
+        const b = new Uint8Array(await r.arrayBuffer());
+        morceaux.push(b); recu = b.length;
+    }
+    const octets = new Uint8Array(recu);
+    let p = 0;
+    for (const m of morceaux) { octets.set(m, p); p += m.length; }
+    dire('✓ ' + quoi + ' — ' + mo(recu) + ' en ' + ms(performance.now() - t0), 'ok');
+    return { octets, duree: performance.now() - t0 };
+}
+
+const etat = (t) => { document.getElementById('etat').textContent = t; };
+
+/* ------------------------------------------------------------------ *
+ * LE CATALOGUE : ON LIT, ON NE DEVINE PAS
+ * « voices.json » est publié par le projet lui-même et porte, pour chaque
+ * voix, ses fichiers et leurs tailles. Une adresse supposée qui tombe à
+ * faux ferait croire que le montage ne marche pas.
+ * ------------------------------------------------------------------ */
+let CATALOGUE = [];
+async function lireLeCatalogue() {
+    const liste = document.getElementById('voix');
+    const note = document.getElementById('voix-note');
+    liste.innerHTML = '<option>Lecture du catalogue…</option>';
+    note.textContent = '';
+    try {
+        const r = await fetch(SOURCES.hf + 'voices.json');
+        if (!r.ok) throw new Error('catalogue : ' + r.status + ' ' + r.statusText);
+        const brut = await r.json();
+        CATALOGUE = Object.keys(brut).map(cle => brut[cle])
+            .filter(v => /^fr/i.test(v.language && (v.language.code || v.language.family) || ''))
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        if (!CATALOGUE.length) throw new Error('aucune voix française dans le catalogue');
+        liste.innerHTML = '';
+        CATALOGUE.forEach((v, i) => {
+            const o = document.createElement('option');
+            o.value = String(i);
+            const poids = Object.keys(v.files || {})
+                .filter(f => /\.onnx$/.test(f))
+                .reduce((t, f) => t + (v.files[f].size_bytes || 0), 0);
+            o.textContent = v.name + ' — ' + v.quality + (poids ? ' (' + mo(poids) + ')' : '');
+            liste.appendChild(o);
+        });
+        note.textContent = CATALOGUE.length + (CATALOGUE.length > 1
+                ? ' voix françaises au catalogue.' : ' voix française au catalogue.')
+            + ' La qualité « medium » est plus lourde et plus lente que « low », et s\'entend.';
+        dire('✓ catalogue lu : ' + CATALOGUE.length + ' voix françaises', 'ok');
+        document.getElementById('parler').disabled = false;
+    } catch (e) {
+        liste.innerHTML = '<option>catalogue illisible</option>';
+        note.textContent = 'Le catalogue n\'a pas pu être lu. Si vous êtes derrière un filtrage '
+            + 'd\'établissement, c\'est probablement lui.';
+        dire('✗ ' + e.message, 'ko');
+        dire('   (adresse essayée : ' + SOURCES.hf + 'voices.json)', 'faible');
+    }
+}
+
+/* ------------------------------------------------------------------ *
+ * LE PHONÉMISEUR
+ * Il prend « Les cigognes » et rend des identifiants de phonèmes. Sans lui,
+ * pas de français : c'est lui qui sait les liaisons et les nombres.
+ * ATTENTION à la langue : « fr » fonctionne, « fr-fr » lève une exception.
+ * ------------------------------------------------------------------ */
+let phonemiseurPret = null;
+async function chargerLePhonemiseur() {
+    if (phonemiseurPret) return phonemiseurPret;
+    const js   = await telecharger(SOURCES.phonemiseur + 'piper_phonemize.js', 'phonémiseur (code)');
+    const wasm = await telecharger(SOURCES.phonemiseur + 'piper_phonemize.wasm', 'phonémiseur (moteur)');
+    const data = await telecharger(SOURCES.phonemiseur + 'piper_phonemize.data', 'phonémiseur (langues)');
+    const url = (o, type) => URL.createObjectURL(new Blob([o.octets], { type }));
+    const uWasm = url(wasm, 'application/wasm');
+    const uData = url(data, 'application/octet-stream');
+    await new Promise((ok, rate) => {
+        const s = document.createElement('script');
+        s.src = url(js, 'text/javascript');
+        s.onload = ok; s.onerror = () => rate(new Error('le code du phonémiseur n\'a pas pu être exécuté'));
+        document.head.appendChild(s);
+    });
+    phonemiseurPret = { uWasm, uData, octets: js.octets.length + wasm.octets.length + data.octets.length };
+    return phonemiseurPret;
+}
+
+async function phonemiser(texte, langue) {
+    const { uWasm, uData } = await chargerLePhonemiseur();
+    const sorties = [];
+    let module;
+    try {
+        module = await createPiperPhonemize({
+            noInitialRun: true,
+            print: (d) => sorties.push(d),
+            printErr: (m) => dire('   [phonémiseur] ' + m, 'faible'),
+            locateFile: (u) => u.endsWith('.wasm') ? uWasm : u.endsWith('.data') ? uData : u
+        });
+        module.callMain(['-l', langue, '--input', JSON.stringify([{ text: texte }]),
+                         '--espeak_data', '/espeak-ng-data']);
+    } catch (e) {
+        // Emscripten lève quand le programme se termine : ce n'est une panne
+        // que si rien n'est sorti.
+        if (!sorties.length) throw new Error('le phonémiseur a refusé la langue « ' + langue + ' »');
+    }
+    const lignes = sorties.map(o => { try { return JSON.parse(o); } catch (e) { return null; } }).filter(Boolean);
+    if (!lignes.length) throw new Error('le phonémiseur n\'a rien rendu');
+    return {
+        ids: lignes.flatMap(l => l.phoneme_ids || []),
+        phonemes: lignes.flatMap(l => l.phonemes || [])
+    };
+}
+
+/* ------------------------------------------------------------------ *
+ * LE MOTEUR
+ * ------------------------------------------------------------------ */
+let ortPret = false;
+async function chargerLeMoteur() {
+    if (ortPret) return;
+    await new Promise((ok, rate) => {
+        const s = document.createElement('script');
+        s.src = SOURCES.ort + 'ort.min.js';
+        s.onload = ok;
+        s.onerror = () => rate(new Error('le moteur ONNX n\'a pas pu être chargé depuis ' + SOURCES.ort));
+        document.head.appendChild(s);
+    });
+    ort.env.wasm.wasmPaths = SOURCES.ort;
+    ort.env.wasm.numThreads = Math.min(4, navigator.hardwareConcurrency || 1);
+    dire('✓ moteur ONNX chargé', 'ok');
+    ortPret = true;
+}
+
+/* Des échantillons vers un fichier que le navigateur sait jouer. */
+function versWav(pcm, frequence) {
+    const vue = new DataView(new ArrayBuffer(pcm.length * 2 + 44));
+    vue.setUint32(0, 0x46464952, true);                       // « RIFF »
+    vue.setUint32(4, vue.buffer.byteLength - 8, true);
+    vue.setUint32(8, 0x45564157, true);                       // « WAVE »
+    vue.setUint32(12, 0x20746d66, true);                      // « fmt  »
+    vue.setUint32(16, 16, true); vue.setUint16(20, 1, true); vue.setUint16(22, 1, true);
+    vue.setUint32(24, frequence, true); vue.setUint32(28, frequence * 2, true);
+    vue.setUint16(32, 2, true); vue.setUint16(34, 16, true);
+    vue.setUint32(36, 0x61746164, true);                      // « data »
+    vue.setUint32(40, pcm.length * 2, true);
+    let p = 44;
+    for (let i = 0; i < pcm.length; i++) {
+        const v = Math.max(-1, Math.min(1, pcm[i]));
+        vue.setInt16(p, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+        p += 2;
+    }
+    return new Blob([vue.buffer], { type: 'audio/wav' });
+}
+
+/* ------------------------------------------------------------------ *
+ * LE CHEMIN ENTIER
+ * ------------------------------------------------------------------ */
+const session = {};      // une voix chargée reste chargée
+const mesures = {};
+
+async function parler() {
+    const bouton = document.getElementById('parler');
+    bouton.disabled = true;
+    document.getElementById('son').hidden = true;
+    const t0 = performance.now();
+    try {
+        const v = CATALOGUE[Number(document.getElementById('voix').value)];
+        if (!v) throw new Error('aucune voix choisie');
+        const texte = document.getElementById('texte').value.trim();
+        if (!texte) throw new Error('il n\'y a rien à dire');
+        dire('— ' + v.name + ' (' + v.quality + ') —');
+
+        const fichiers = Object.keys(v.files || {});
+        const cheminOnnx = fichiers.find(f => /\.onnx$/.test(f));
+        const cheminJson = fichiers.find(f => /\.onnx\.json$/.test(f));
+        if (!cheminOnnx || !cheminJson) throw new Error('le catalogue ne donne pas les deux fichiers de cette voix');
+
+        etat('lecture de la fiche technique…');
+        const fiche = await (await fetch(SOURCES.hf + cheminJson)).json();
+        const frequence = fiche.audio && fiche.audio.sample_rate || 22050;
+        // « fr-fr » lève une exception là où « fr » passe : on garde ce que dit
+        // la fiche, mais on se replie sur la famille si elle refuse.
+        const langue = (fiche.espeak && fiche.espeak.voice) || 'fr';
+
+        await chargerLeMoteur();
+        etat('phonèmes…');
+        const tPhon = performance.now();
+        let phon;
+        try { phon = await phonemiser(texte, langue); }
+        catch (e) {
+            dire('   la langue « ' + langue + ' » a été refusée, on essaie « ' + langue.split('-')[0] + ' »', 'faible');
+            phon = await phonemiser(texte, langue.split('-')[0]);
+        }
+        mesures['Phonèmes'] = ms(performance.now() - tPhon);
+        document.getElementById('carte-phonemes').hidden = false;
+        document.getElementById('phonemes').textContent = phon.phonemes.join('');
+        dire('✓ ' + phon.ids.length + ' identifiants de phonèmes', 'ok');
+
+        if (!session[cheminOnnx]) {
+            const modele = await telecharger(SOURCES.hf + cheminOnnx, 'la voix');
+            mesures['La voix pèse'] = mo(modele.octets.length);
+            etat('ouverture de la voix…');
+            const tOuv = performance.now();
+            session[cheminOnnx] = await ort.InferenceSession.create(modele.octets);
+            mesures['Ouverture'] = ms(performance.now() - tOuv);
+            dire('✓ voix ouverte', 'ok');
+        }
+
+        etat('synthèse…');
+        const tSyn = performance.now();
+        const inf = fiche.inference || {};
+        const entrees = {
+            input: new ort.Tensor('int64', BigInt64Array.from(phon.ids.map(BigInt)), [1, phon.ids.length]),
+            input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(phon.ids.length)])),
+            scales: new ort.Tensor('float32', Float32Array.from([
+                inf.noise_scale ?? 0.667, inf.length_scale ?? 1, inf.noise_w ?? 0.8]))
+        };
+        if (fiche.speaker_id_map && Object.keys(fiche.speaker_id_map).length) {
+            entrees.sid = new ort.Tensor('int64', BigInt64Array.from([0n]));
+        }
+        const sortie = await session[cheminOnnx].run(entrees);
+        const pcm = sortie[Object.keys(sortie)[0]].data;
+        mesures['Synthèse'] = ms(performance.now() - tSyn);
+        mesures['Durée dite'] = (pcm.length / frequence).toFixed(1).replace('.', ',') + ' s';
+        mesures['Du clic au son'] = ms(performance.now() - t0);
+
+        const son = document.getElementById('son');
+        son.src = URL.createObjectURL(versWav(pcm, frequence));
+        son.hidden = false;
+        son.play().catch(() => dire('   (le navigateur attend un geste pour jouer le son)', 'faible'));
+        dire('✓ ' + (pcm.length / frequence).toFixed(1) + ' s de parole en ' + ms(performance.now() - tSyn), 'ok');
+        etat('');
+
+        const tableau = document.getElementById('mesures');
+        tableau.innerHTML = '';
+        Object.keys(mesures).forEach(k => {
+            const d = document.createElement('div');
+            d.className = 'mesure';
+            d.innerHTML = '<div class="val"></div><div class="quoi"></div>';
+            d.querySelector('.val').textContent = mesures[k];
+            d.querySelector('.quoi').textContent = k;
+            tableau.appendChild(d);
+        });
+        document.getElementById('carte-mesures').hidden = false;
+    } catch (e) {
+        dire('✗ ' + e.message, 'ko');
+        etat('');
+    } finally {
+        bouton.disabled = false;
+    }
+}
+
+document.getElementById('parler').addEventListener('click', parler);
+document.getElementById('recharger').addEventListener('click', lireLeCatalogue);
+dire('phonémiseur : ' + SOURCES.phonemiseur, 'faible');
+dire('moteur ONNX : ' + SOURCES.ort, 'faible');
+dire('voix        : ' + SOURCES.hf, 'faible');
+lireLeCatalogue();
+</script>
+</body>
+</html>
