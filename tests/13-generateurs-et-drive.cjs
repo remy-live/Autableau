@@ -1199,88 +1199,6 @@ module.exports = async function (browser) {
     r.egal('qui porte son nom', modales.nom, 'Mon emploi du temps');
     r.verifie('et son titre maison est adopté, pas doublé', modales.titreCache, JSON.stringify(modales));
 
-    // ------------------------------------------------------------------
-    // AUCUNE FENÊTRE NE DIT SON NOM DEUX FOIS — ÉPROUVÉ SUR TOUTES
-    //
-    // « Je ne trouve pas cela cohérent en modale : on a le titre de la modale,
-    // en dessous les classes et le bouton de fermeture, ça n'a pas de sens. Et
-    // ce n'est pas la seule d'ailleurs. »
-    //
-    // La vérification d'au-dessus ne regardait qu'UNE modale, et celle-là
-    // marchait. Le défaut vivait chez les autres : « Mes classes » écrivait son
-    // nom deux fois et offrait deux croix, les quatre Studios avaient au
-    // contraire une barre SANS NOM au-dessus de leur nom en gras. On ouvre donc
-    // tout ce qui sait s'ouvrir, et l'on regarde CE QUI SE VOIT — un titre
-    // caché reste dans « textContent », et l'on croirait au doublon qu'on vient
-    // d'ôter.
-    // ------------------------------------------------------------------
-    const toutes = await page.evaluate(async () => {
-        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
-        const b = document.getElementById('btn-classes-menu');
-        if (b) { b.click(); await attendre(400); }
-        for (const id of Object.keys(PluginManager.plugins)) {
-            const p = PluginManager.plugins[id];
-            for (const verbe of ['ouvrir', 'open', 'ouvrirFenetre', 'afficher', 'show']) {
-                if (p && typeof p[verbe] === 'function' && p[verbe].length === 0) {
-                    try { p[verbe](); await attendre(80); } catch (e) { /* cet outil ne s'ouvre pas seul */ }
-                    break;
-                }
-            }
-        }
-        await attendre(500);
-
-        const vu = (n) => {
-            if (!n || n.nodeType !== 1 || !n.getClientRects().length) return false;
-            for (let x = n; x && x.nodeType === 1; x = x.parentElement) {
-                const c = getComputedStyle(x);
-                if (c.display === 'none' || c.visibility === 'hidden' || parseFloat(c.opacity) < 0.05) return false;
-            }
-            return true;
-        };
-        const texteVu = (racine) => {
-            if (!vu(racine)) return '';
-            let out = '';
-            const m = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT, {
-                acceptNode: (n) => vu(n.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
-            });
-            while (m.nextNode()) out += ' ' + m.currentNode.nodeValue;
-            return out.replace(/\s+/g, ' ').trim();
-        };
-        // Les emoji des titres ne comptent pas : « 👥 Mes classes » et « Mes
-        // classes » sont le même nom écrit deux fois.
-        const norme = (t) => (t || '').replace(/[\s ]+/g, ' ')
-            .replace(/[\p{Extended_Pictographic}←-⇿☀-➿️]/gu, '')
-            .replace(/\s+/g, ' ').trim().toLowerCase();
-
-        const examinees = [], doublons = [], sansNom = [], deuxCroix = [];
-        document.querySelectorAll('[data-equipee="1"]').forEach(f => {
-            if (!vu(f)) return;
-            const tete = f.querySelector(':scope > .fen-tete');
-            if (!tete) return;
-            const nom = norme((f.querySelector('.fen-nom') || {}).textContent);
-            const quoi = f.id || (f.className || '').slice(0, 30);
-            examinees.push(quoi);
-            if (!nom) { sansNom.push(quoi); return; }
-            const corps = [...f.children].find(n => n !== tete && !n.classList.contains('fen-outils'));
-            if (corps && norme(texteVu(corps)).startsWith(nom)) doublons.push(quoi + ' : ' + nom);
-            // ET UNE SEULE FAÇON DE FERMER. Deux croix, c'est deux gestes pour
-            // le même effet, et l'on ne sait pas lequel fait foi.
-            const croix = [...f.querySelectorAll('button, .close, [role="button"]')]
-                .filter(x => !tete.contains(x) && vu(x))
-                .filter(x => /^[×✕✖⨯xX]$/.test((x.textContent || '').trim())
-                          || /\b(close|fermer)\b/i.test((x.className || '') + ' ' + (x.id || '')
-                              + ' ' + (x.title || '') + ' ' + (x.getAttribute('aria-label') || '')));
-            if (croix.length && tete.querySelector('.fen-fermer')) deuxCroix.push(quoi);
-        });
-        return { examinees, doublons, sansNom, deuxCroix };
-    });
-    // SANS CE GARDE-FOU, la vérification passerait en n'examinant rien : c'est
-    // exactement ce qui fait qu'un test vert ne prouve rien.
-    r.verifie('assez de fenêtres ouvertes pour que la vérification ait un sens',
-        toutes.examinees.length >= 4, toutes.examinees.join(', '));
-    r.egal('aucune fenêtre n\'écrit son nom deux fois', toutes.doublons, []);
-    r.egal('aucune barre de titre ne reste sans nom', toutes.sansNom, []);
-    r.egal('aucune fenêtre n\'offre deux croix pour fermer', toutes.deuxCroix, []);
     r.egal('le nom s\'aligne comme partout ailleurs', modales.aligne, 'left');
     r.verifie('une QUESTION garde sa forme : on y répond, on ne la manipule pas',
         modales.questionSansBarre, JSON.stringify(modales));
@@ -1326,6 +1244,123 @@ module.exports = async function (browser) {
     r.verifie('un jeu déjà plein écran non plus', !tri.tout, JSON.stringify(tri));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
+    // ------------------------------------------------------------------
+    // AUCUNE FENÊTRE NE DIT SON NOM DEUX FOIS — ÉPROUVÉ SUR TOUTES
+    //
+    // « Je ne trouve pas cela cohérent en modale : on a le titre de la modale,
+    // en dessous les classes et le bouton de fermeture, ça n'a pas de sens. Et
+    // ce n'est pas la seule d'ailleurs. »
+    //
+    // La vérification d'au-dessus ne regardait qu'UNE modale, et celle-là
+    // marchait. Le défaut vivait chez les autres : « Mes classes » écrivait son
+    // nom deux fois et offrait deux croix, les quatre Studios avaient au
+    // contraire une barre SANS NOM au-dessus de leur nom en gras. On ouvre donc
+    // tout ce qui sait s'ouvrir, et l'on regarde CE QUI SE VOIT — un titre
+    // caché reste dans « textContent », et l'on croirait au doublon qu'on vient
+    // d'ôter.
+    // ------------------------------------------------------------------
+    const toutes = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const b = document.getElementById('btn-classes-menu');
+        if (b) { b.click(); await attendre(400); }
+        // ET TOUTES LES MODALES ÉCRITES DANS LA PAGE, pas seulement celles qui
+        // s'ouvrent d'un appel sans argument. « Tu as homogénéisé toutes les
+        // modales ? » — la première version n'en voyait que six : celles-là
+        // seules savaient s'ouvrir toutes seules. On force donc les autres à
+        // paraître, on les équipe, et on les remet comme on les a trouvées.
+        const rendues = [];
+        for (const v of [...document.querySelectorAll('[id$="-modal"], .modal-backdrop')]) {
+            if (typeof MODALES_SANS_BARRE !== 'undefined' && MODALES_SANS_BARRE.includes(v.id)) continue;
+            if (getComputedStyle(v).display !== 'none') continue;
+            rendues.push([v, v.style.display]);
+            v.style.display = 'flex';
+        }
+        if (rendues.length) {
+            await attendre(250);
+            if (typeof equiperLesModales === 'function') equiperLesModales(document.body);
+            await attendre(250);
+        }
+        for (const id of Object.keys(PluginManager.plugins)) {
+            const p = PluginManager.plugins[id];
+            for (const verbe of ['ouvrir', 'open', 'ouvrirFenetre', 'afficher', 'show']) {
+                if (p && typeof p[verbe] === 'function' && p[verbe].length === 0) {
+                    try { p[verbe](); await attendre(80); } catch (e) { /* cet outil ne s'ouvre pas seul */ }
+                    break;
+                }
+            }
+        }
+        await attendre(500);
+
+        const vu = (n) => {
+            if (!n || n.nodeType !== 1 || !n.getClientRects().length) return false;
+            for (let x = n; x && x.nodeType === 1; x = x.parentElement) {
+                const c = getComputedStyle(x);
+                if (c.display === 'none' || c.visibility === 'hidden' || parseFloat(c.opacity) < 0.05) return false;
+            }
+            return true;
+        };
+        const texteVu = (racine) => {
+            if (!vu(racine)) return '';
+            let out = '';
+            const m = document.createTreeWalker(racine, NodeFilter.SHOW_TEXT, {
+                acceptNode: (n) => vu(n.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+            });
+            while (m.nextNode()) out += ' ' + m.currentNode.nodeValue;
+            return out.replace(/\s+/g, ' ').trim();
+        };
+        // Les emoji des titres ne comptent pas : « 👥 Mes classes » et « Mes
+        // classes » sont le même nom écrit deux fois.
+        const norme = (t) => (t || '').replace(/[\s ]+/g, ' ')
+            .replace(/[\p{Extended_Pictographic}←-⇿☀-➿️]/gu, '')
+            .replace(/\s+/g, ' ').trim().toLowerCase();
+
+        const examinees = [], doublons = [], sansNom = [], deuxCroix = [], sansBarre = [];
+        // CE QUI EST PARU SANS RECEVOIR DE BARRE se compte aussi : une modale
+        // qu'on n'équipe pas est une modale qu'on n'a pas homogénéisée, et
+        // l'ignorer ferait passer la vérification pour plus large qu'elle n'est.
+        document.querySelectorAll('[id$="-modal"], .modal-backdrop').forEach(v => {
+            if (typeof MODALES_SANS_BARRE !== 'undefined' && MODALES_SANS_BARRE.includes(v.id)) return;
+            if (getComputedStyle(v).display === 'none') return;
+            if (v.querySelector('.fen-tete')) return;
+            const boite = typeof boiteDeLaModale === 'function' ? boiteDeLaModale(v) : null;
+            if (boite) sansBarre.push((v.id || '(sans id)')
+                + ' [' + getComputedStyle(v).display
+                + ', boîte ' + boite.tagName.toLowerCase() + '.' + (boite.className || '').slice(0, 20)
+                + ', équipée=' + (boite.dataset.equipee || 'non') + ']');
+        });
+        document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+            if (!vu(f)) return;
+            const tete = f.querySelector(':scope > .fen-tete');
+            if (!tete) return;
+            const nom = norme((f.querySelector('.fen-nom') || {}).textContent);
+            const quoi = f.id || (f.className || '').slice(0, 30);
+            examinees.push(quoi);
+            if (!nom) { sansNom.push(quoi); return; }
+            const corps = [...f.children].find(n => n !== tete && !n.classList.contains('fen-outils'));
+            if (corps && norme(texteVu(corps)).startsWith(nom)) doublons.push(quoi + ' : ' + nom);
+            // ET UNE SEULE FAÇON DE FERMER. Deux croix, c'est deux gestes pour
+            // le même effet, et l'on ne sait pas lequel fait foi.
+            const croix = [...f.querySelectorAll('button, .close, [role="button"]')]
+                .filter(x => !tete.contains(x) && vu(x))
+                .filter(x => /^[×✕✖⨯xX]$/.test((x.textContent || '').trim())
+                          || /\b(close|fermer)\b/i.test((x.className || '') + ' ' + (x.id || '')
+                              + ' ' + (x.title || '') + ' ' + (x.getAttribute('aria-label') || '')));
+            if (croix.length && tete.querySelector('.fen-fermer')) deuxCroix.push(quoi);
+        });
+        // ON REMET LES MODALES COMME ON LES A TROUVÉES : les laisser ouvertes
+        // ferait tomber la suite d'après, qui cliquerait dans le vide.
+        rendues.forEach(([v, avant]) => { v.style.display = avant; });
+        return { examinees, doublons, sansNom, deuxCroix, sansBarre };
+    });
+    // SANS CE GARDE-FOU, la vérification passerait en n'examinant rien : c'est
+    // exactement ce qui fait qu'un test vert ne prouve rien.
+    r.verifie('assez de fenêtres ouvertes pour que la vérification ait un sens',
+        toutes.examinees.length >= 4, toutes.examinees.join(', '));
+    r.egal('aucune fenêtre n\'écrit son nom deux fois', toutes.doublons, []);
+    r.egal('aucune barre de titre ne reste sans nom', toutes.sansNom, []);
+    r.egal('aucune fenêtre n\'offre deux croix pour fermer', toutes.deuxCroix, []);
+    r.egal('aucune modale de la page ne reste sans barre de titre', toutes.sansBarre, []);
+
     await context.close();
 
     // --- DRIVE EN LIGNE ---
@@ -1801,6 +1836,7 @@ module.exports = async function (browser) {
     r.egal('la carte est bien là avant qu\'on touche aux points', range.avant, 1);
     r.egal('ouvrir le menu l\'efface', range.pendantLeMenu, 0);
     r.egal('et fermer la fenêtre n\'oublie rien derrière elle', range.apresFermeture, 0);
+
 
     r.verifie('aucune erreur JS en ligne', errsWeb.length === 0, errsWeb.join(' | '));
     await ctxWeb.close();
