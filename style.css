@@ -8775,6 +8775,15 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .fen-tete-adoptee { display: none !important; }
 
+/* CE QUE LA BARRE DE TITRE A REPRIS NE SE DIT PLUS DEUX FOIS.
+   « On a le titre de la modale, en dessous les classes et le bouton de
+   fermeture, ça n'a pas de sens. » Quand le bandeau de la fenêtre porte
+   aussi de vraies commandes, il reste — mais son titre et sa croix, eux,
+   s'effacent : la barre les dit déjà. Cachée, la croix répond encore : c'est
+   elle que la barre appelle, parce qu'elle seule sait ce que fermer veut
+   dire pour cet outil. */
+.fen-repris { display: none !important; }
+
 .fen-fermer {
     flex: none;
     width: 22px;

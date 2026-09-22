@@ -19903,32 +19903,128 @@ window.equiperLesModales = equiperLesModales;
 // tm-header, std-header, spr-header, sc-header, rl-header, pyt-header,
 // atelier-tete, pw-titre. Poser la barre commune par-dessus donnait DEUX
 // titres l'un sous l'autre, presque les mêmes mots : « Lecture de dictée »,
-// puis « 🎧 Lecteur de dictée ». La barre commune reprend donc son nom et sa
-// croix, et le bandeau maison s'efface.
+// puis « 🎧 Lecteur de dictée ».
 //
-// ON NE PREND QUE CE QUI EST UN TITRE. Un bandeau qui porte trois commandes
-// est une barre d'outils, pas un en-tête : on le laisse où il est, et la
-// fenêtre garde simplement la barre au-dessus.
+// LA PREMIÈRE RÈGLE ÉTAIT TROP ÉTROITE, ET ON L'A VU À L'USAGE :
+// « Je ne trouve pas cela cohérent en modale : on a le titre de la modale, en
+// dessous les classes et le bouton de fermeture, ça n'a pas de sens. Et ce
+// n'est pas la seule d'ailleurs. »
+//
+// Elle disait : « un bandeau qui porte plus d'une commande est une barre
+// d'outils, on n'y touche pas ». Or « Mes classes » a un bandeau qui porte À
+// LA FOIS son titre, sa croix, et deux commandes — Sauvegarder, Restaurer. Il
+// était donc laissé entier, et l'on avait deux fois « Mes classes » et deux
+// façons de fermer. Les quatre Studios, eux, ont leur nom en gras dans une
+// barre d'outils : rien n'était repris, et la barre commune restait SANS NOM
+// au-dessus d'une fenêtre qui affichait le sien.
+//
+// La règle est donc : on ne juge plus le bandeau entier, ON Y PREND CE QUI
+// FAIT DOUBLON — son titre et sa croix — et l'on rend le reste. S'il ne reste
+// rien, le bandeau s'efface tout entier, comme avant.
+const SELECTEUR_DE_TITRE = 'h1, h2, h3, h4, b, strong, legend,'
+    + ' [class*="titre"], [class*="title"], [class*="header"], [class*="tete"]';
+
+// Un champ CACHÉ ne fait pas d'un bandeau un formulaire : « Restaurer » ouvre
+// un « input type=file » en display:none, et c'est le cas le plus répandu.
+function champVisibleDans(n) {
+    return [...n.querySelectorAll('input, select, textarea, canvas, table')]
+        .some(c => c.getClientRects().length > 0);
+}
+
+function texteSimple(n) {
+    return ((n && n.textContent) || '').replace(/\s+/g, ' ').trim();
+}
+
+// LE TITRE DANS LE BANDEAU, et le plus grand morceau qui ne porte que lui.
+// Le nom des Studios est un « <b> » posé à côté de son icône, dans un groupe :
+// n'effacer que le « <b> » laisserait l'icône seule au bord de la fenêtre.
+function titreDuBandeau(bandeau) {
+    const candidats = [...bandeau.querySelectorAll(SELECTEUR_DE_TITRE)].filter(n => {
+        if (n.querySelector('button, .close, [role="button"]')) return false;
+        if (n.matches('button, .close, [role="button"]')) return false;
+        const t = texteSimple(n);
+        return t && t.length <= 40;
+    });
+    // LE BANDEAU EST PARFOIS LE TITRE LUI-MÊME, et non sa boîte : « <h3
+    // class="modal-title">Mon emploi du temps</h3> » n'a aucun descendant à
+    // trouver. C'est le cas le plus simple, et c'était celui que la première
+    // version savait faire — ne pas le rattraper ici l'aurait cassé.
+    if (!candidats.length) {
+        const copie = bandeau.cloneNode(true);
+        copie.querySelectorAll('button, .close, [role="button"]').forEach(n => n.remove());
+        const nu = texteSimple(copie);
+        if (!nu || nu.length > 40 || champVisibleDans(bandeau)) return null;
+        return { texte: nu, enveloppe: bandeau, cestLeBandeau: true };
+    }
+    let titre = candidats[0];
+    const nom = texteSimple(titre);
+    // On remonte tant que le parent ne dit rien de plus que le titre.
+    let haut = titre;
+    while (haut.parentElement && haut.parentElement !== bandeau
+           && bandeau.contains(haut.parentElement)
+           && texteSimple(haut.parentElement) === nom
+           && !haut.parentElement.querySelector('button, .close, [role="button"]')
+           && !champVisibleDans(haut.parentElement)) {
+        haut = haut.parentElement;
+    }
+    return { texte: nom, enveloppe: haut };
+}
+
+// LA CROIX, désignée par ce qu'elle dit d'elle-même plutôt que par sa place :
+// « Fermer », « close », ou le seul signe qu'on met sur une croix.
+function croixDuBandeau(bandeau) {
+    const boutons = [...bandeau.querySelectorAll('button, .close, [role="button"]')];
+    return boutons.find(b => {
+        const dit = (b.className || '') + ' ' + (b.id || '') + ' '
+            + (b.title || '') + ' ' + (b.getAttribute('aria-label') || '');
+        if (/\b(close|fermer)\b/i.test(dit)) return true;
+        return /^[×✕✖⨯xX]$/.test(texteSimple(b));
+    }) || null;
+}
+
+// Un « <style> » n'est pas un bandeau. Plusieurs outils posent leur feuille de
+// style en premier enfant de leur fenêtre — « Questions Flash Pro » le fait —
+// et l'on prenait cette feuille pour l'en-tête : la fenêtre restait alors sans
+// nom, sous une barre vide. Ces balises-là ne dessinent rien, on passe.
+const BALISES_SANS_DESSIN = /^(style|script|template|link|meta|noscript)$/i;
+
 function enTeteMaison(el, saBarre) {
-    const premier = [...el.children].find(n => n !== saBarre && n.nodeType === 1);
+    const premier = [...el.children].find(n => n !== saBarre && n.nodeType === 1
+        && !BALISES_SANS_DESSIN.test(n.tagName));
     if (!premier) return null;
-    // ON NE SE FIE PAS AU NOM DE CLASSE : celui de la dictée n'en a aucun. Ce
-    // qui fait un en-tête, c'est la place et la forme — premier de la fenêtre,
-    // une ligne de texte court, une commande au plus, et rien à remplir.
-    const texte = (premier.textContent || '').trim().replace(/\s+/g, ' ');
-    if (!texte || texte.length > 40) return null;
-    const boutons = premier.querySelectorAll('button, .close, [role="button"]');
-    if (boutons.length > 1) return null;                 // c'est une barre d'outils
-    if (premier.querySelector('input, select, textarea, canvas, table')) return null;
     const h = premier.getBoundingClientRect().height;
     if (h > 64) return null;                             // un bloc de contenu, pas un bandeau
-    // LE NOM, C'EST L'EN-TÊTE MOINS SES COMMANDES. Retirer « la dernière croix »
-    // laissait celle d'avant quand le titre en portait déjà une : on enlève les
-    // boutons eux-mêmes, sur une copie, plutôt que de deviner des symboles.
-    const copie = premier.cloneNode(true);
-    copie.querySelectorAll('button, .close, [role="button"]').forEach(n => n.remove());
-    const nom = (copie.textContent || '').trim().replace(/\s+/g, ' ');
-    return { el: premier, texte: nom || texte, fermer: boutons[0] || null };
+    const titre = titreDuBandeau(premier);
+    const fermer = croixDuBandeau(premier);
+    if (!titre && !fermer) return null;                  // rien à reprendre : ce n'est pas un en-tête
+    // CE QUI RESTE quand on a repris le titre et la croix. S'il ne reste rien,
+    // le bandeau n'a plus de raison de paraître.
+    const reste = [...premier.querySelectorAll('button, .close, [role="button"]')]
+        .filter(b => b !== fermer && !(titre && titre.enveloppe.contains(b)))
+        .filter(b => b.getClientRects().length > 0).length
+        + (champVisibleDans(premier) ? 1 : 0);
+    return {
+        el: premier,
+        texte: (titre && titre.texte) || '',
+        titre: titre && titre.enveloppe,
+        cestLeBandeau: !!(titre && titre.cestLeBandeau),
+        fermer,
+        reste
+    };
+}
+
+// QUAND LE TITRE N'EST QU'UN TEXTE POSÉ DANS LE BANDEAU, on ne peut pas
+// l'effacer sans effacer les commandes qui l'entourent : il n'a pas d'élément
+// à lui. On lui en donne un — les nœuds de texte du bandeau passent dans une
+// enveloppe, qui seule disparaît.
+function envelopperLeTexteDuBandeau(bandeau) {
+    const aEmballer = [...bandeau.childNodes]
+        .filter(n => n.nodeType === 3 && (n.nodeValue || '').trim());
+    if (!aEmballer.length) return null;
+    const enveloppe = document.createElement('span');
+    bandeau.insertBefore(enveloppe, aEmballer[0]);
+    aEmballer.forEach(n => enveloppe.appendChild(n));
+    return enveloppe;
 }
 
 // LA FENÊTRE QU'ON TOUCHE PASSE DEVANT.
@@ -20016,10 +20112,23 @@ function equiperVraiment(el, cle, options) {
     el.insertBefore(tete, el.firstChild);
     el.classList.add('fen-titree');
     if (maison) {
-        maison.el.classList.add('fen-tete-adoptee');
+        // LE BANDEAU NE S'EFFACE ENTIER QUE S'IL NE PORTAIT QUE ÇA. Sinon on
+        // n'ôte que ce que la barre redit — le titre et la croix — et ses
+        // commandes restent à leur place : « Sauvegarder » et « Restaurer »
+        // appartiennent à la fenêtre, pas à sa barre de titre.
+        if (maison.reste === 0) maison.el.classList.add('fen-tete-adoptee');
+        else {
+            // Si le titre EST le bandeau, l'effacer emporterait ses commandes :
+            // on n'emballe alors que son texte.
+            const aEffacer = maison.cestLeBandeau
+                ? envelopperLeTexteDuBandeau(maison.el)
+                : maison.titre;
+            if (aEffacer) aEffacer.classList.add('fen-repris');
+            if (maison.fermer) maison.fermer.classList.add('fen-repris');
+        }
         // La croix de la barre commande CELLE de la fenêtre : c'est elle qui
         // sait ce que fermer veut dire pour cet outil — arrêter une lecture,
-        // rendre un micro, prévenir un plugin.
+        // rendre un micro, prévenir un plugin. Cachée, elle répond encore.
         const croix = tete.querySelector('.fen-fermer');
         if (croix && maison.fermer) croix.addEventListener('click', (e) => {
             e.stopPropagation();
