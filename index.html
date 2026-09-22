@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=190">
+    <link rel="stylesheet" href="style.css?v=191">
 </head>
 
 <body>
@@ -2666,23 +2666,17 @@
                      endroit depuis un tiroir qu'il fallait ouvrir. -->
             </div>
                     <div class="tool-group" data-groupe="papier">
-                <button class="btn" id="btn-cycle" data-tooltip="Fonds"><svg xmlns="http://www.w3.org/2000/svg"
+                <button class="btn" id="btn-cycle" data-tooltip="Choisir le papier…"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path
                             d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" />
                     </svg></button>
-                <div class="popup-wrapper">
-                <button class="btn btn-valeur" id="btn-grid-toggle" data-tooltip="Épaisseur du quadrillage">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                        <path d="M9 4v16M15 4v16M4 9h16M4 15h16" />
-                    </svg>
-                    <span class="pastille-valeur" id="grille-valeur">1,0</span>
-                </button>
-                <div class="popup-content popup-slider" id="popup-grid">
-                    <span style="font-size: 12px; margin-right: 5px;">📏</span>
-                    <input type="range" id="grid-weight-slider" min="0.5" max="3" step="0.1" value="1">
-                </div>
-            </div>
+                <!-- L'ÉPAISSEUR DU QUADRILLAGE EST DANS LE PANNEAU DU PAPIER.
+                     Elle occupait ici un bouton à pastille et un curseur, pour
+                     une propriété de la feuille qu'on règle une fois — et elle
+                     était séparée du fond qu'elle quadrille et du pas des axes
+                     qu'elle porte. Les trois sont maintenant au même endroit :
+                     « Choisir le papier… ». -->
                 <button class="btn" id="btn-axes" data-tooltip="Axes"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24" class="stroke-icon">
                         <line x1="12" y1="3" x2="12" y2="21" />
@@ -2706,22 +2700,20 @@
                             <line x1="17" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="2" />
                         </g>
                     </svg></button>
-                <span id="aimant-sources" style="display:none; align-items:center; gap:2px; margin-left:2px;">
-                    <button class="btn aimant-source" id="btn-aimant-grille" data-tooltip="S'aimanter sur le quadrillage"><svg
-                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                            <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
-                        </svg></button>
-                    <button class="btn aimant-source" id="btn-aimant-outils" data-tooltip="S'aimanter sur les outils de géométrie"><svg
-                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                            <path d="M4 20 L20 4" />
-                            <path d="M4 20 L4 9 L15 20 Z" />
-                        </svg></button>
-                    <button class="btn aimant-source" id="btn-aimant-points" data-tooltip="S'accrocher aux points, aux intersections et aux figures — actif même sans l'aimant"><svg
-                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                            <path d="M4 12h16M12 4v16" />
-                            <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
-                        </svg></button>
-                </span>
+                <!-- LES TROIS SOURCES DE L'AIMANT SONT DANS SON PANNEAU.
+                     Elles paraissaient et disparaissaient dans la rangée selon
+                     que l'aimant était allumé, ce qui faisait CHANGER SA
+                     LARGEUR SOUS LES DOIGTS : tout ce qui était à droite
+                     glissait à chaque appui sur A. Et leur panneau ne s'ouvrait
+                     qu'en maintenant le doigt — le geste chronométré qu'on
+                     retire partout. Un bouton, donc, qui dit ce qu'il ouvre. -->
+                <button class="btn" id="btn-aimant-reglages"
+                    data-tooltip="Réglages de l'aimant : sur quoi s'accrocher…"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <path d="M4 12h6M14 12h6" />
+                        <circle cx="12" cy="12" r="2.6" />
+                        <path d="M12 4v3M12 17v3" />
+                    </svg></button>
             </div>
                     </div>
                 </div>
@@ -3733,9 +3725,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=312"></script>
+    <script src="script.js?v=313"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=113"></script>
+    <script src="plugin.js?v=114"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=7"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

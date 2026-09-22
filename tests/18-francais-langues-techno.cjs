@@ -1462,6 +1462,69 @@ const FORMES_DE_REFERENCE = [
         tampon.refus && tampon.pasDeFormeInventee);
     r.verifie('le mode « masquées » remplace la terminaison par des points', tampon.masque);
 
+    // ==================================================================
+    // LA DICTÉE SE REPLIE
+    //
+    // « Tu peux mettre les paramètres en caché/déroulé (une flèche pour voir
+    // les paramètres), fais quelque chose d'un peu plus compact. » Le niveau
+    // règle déjà les quatre curseurs, la ponctuation et la marche : ce qui se
+    // replie ne sert qu'à s'en écarter. Reste à vue ce qu'on touche à chaque
+    // dictée — le texte, le niveau, les trois temps, le groupe suivant.
+    // ==================================================================
+    const pliage = await page.evaluate(async () => {
+        const P = PluginManager.plugins['lecteurDicteeTool'];
+        if (!P.widgetEl) { P.init(); P.ouvrir(); }
+        await new Promise(r2 => setTimeout(r2, 400));
+        const q = (sel) => P.widgetEl.querySelector(sel);
+        const vu = (sel) => { const e = q(sel); return !!e && getComputedStyle(e).display !== 'none'; };
+        const haut = () => Math.round(P.widgetEl.getBoundingClientRect().height);
+
+        // On part replié, quoi qu'ait retenu le navigateur.
+        P.plierLesReglages(false);
+        await new Promise(r2 => setTimeout(r2, 150));
+        const replie = {
+            hauteur: haut(),
+            fins: vu('#dic-fins'),
+            // Ce qui reste à vue : le texte, le niveau, les trois temps.
+            texte: vu('.dic-texte-zone'), niveaux: vu('#dic-niveaux'), temps: vu('.dic-temps'),
+            fleche: q('.dic-fleche').textContent,
+            annonce: q('#dic-plier').getAttribute('aria-expanded')
+        };
+        q('#dic-plier').click();
+        await new Promise(r2 => setTimeout(r2, 200));
+        const deplie = {
+            hauteur: haut(), fins: vu('#dic-fins'),
+            voix: vu('.dic-voix-zone'), curseurs: vu('.dic-reglages'),
+            fleche: q('.dic-fleche').textContent,
+            annonce: q('#dic-plier').getAttribute('aria-expanded'),
+            // ET LA FLÈCHE SE SOUVIENT : on ne redéplie pas tous les matins.
+            memoire: (JSON.parse(localStorage.getItem(P.CLE_REGLAGES) || '{}')).finsOuverts
+        };
+        q('#dic-plier').click();
+        await new Promise(r2 => setTimeout(r2, 150));
+        return { replie, deplie, rendu: haut() };
+    });
+    r.egal('replié, les réglages fins sont rangés', pliage.replie.fins, false);
+    r.verifie('mais le texte, le niveau et les trois temps restent à vue',
+        pliage.replie.texte && pliage.replie.niveaux && pliage.replie.temps,
+        JSON.stringify(pliage.replie));
+    r.verifie('la flèche dit qu\'il y a quelque chose dessous',
+        pliage.replie.fleche === '▸' && pliage.replie.annonce === 'false',
+        JSON.stringify(pliage.replie));
+    r.verifie('un clic déplie la voix et les curseurs',
+        pliage.deplie.fins && pliage.deplie.voix && pliage.deplie.curseurs,
+        JSON.stringify(pliage.deplie));
+    r.verifie('et la flèche se retourne',
+        pliage.deplie.fleche === '▾' && pliage.deplie.annonce === 'true',
+        JSON.stringify(pliage.deplie));
+    r.egal('la position de la flèche est retenue', pliage.deplie.memoire, true);
+    r.verifie('et la fenêtre est plus courte repliée qu\'étendue',
+        pliage.deplie.hauteur > pliage.replie.hauteur + 100,
+        `${pliage.replie.hauteur} contre ${pliage.deplie.hauteur}`);
+    r.verifie('replier la raccourcit de nouveau',
+        Math.abs(pliage.rendu - pliage.replie.hauteur) < 8,
+        `${pliage.replie.hauteur} → ${pliage.rendu}`);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

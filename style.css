@@ -6576,20 +6576,10 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .panneau-appui { max-height: 70vh; overflow-y: auto; z-index: 17000; }
 
-/* Les trois sources de l'aimant, dans la barre du bas : elles n'apparaissent
-   que quand l'aimant est allumé, plus petites que les outils voisins pour
-   qu'on les lise comme un réglage et non comme trois outils de plus. */
-.btn.aimant-source {
-    width: 30px;
-    height: 30px;
-    padding: 5px;
-    border-radius: 8px;
-}
+/* Les trois sources de l'aimant ont quitté la rangée pour son panneau : elles
+   y paraissaient et disparaissaient selon que l'aimant était allumé, et la
+   rangée changeait donc de largeur sous les doigts à chaque appui sur A. */
 
-.btn.aimant-source.active {
-    background: var(--accent-soft, #eae6ff);
-    color: var(--accent, #6c5ce7);
-}
 
 /* ===================================================
    L'EXPLORATEUR DE FICHIERS
@@ -12709,6 +12699,47 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
    une grille de cent quatre-vingt-dix pixels, étiquette, curseur et valeur sur
    la MÊME ligne : « On écrit ▭▭▭ un mot en 10 s » n'y tenait pas et se cassait
    en trois morceaux qui ne se rapportaient plus à rien. */
+/* LES RÉGLAGES FINS, REPLIÉS DERRIÈRE UNE FLÈCHE.
+   « Mets les paramètres en caché/déroulé (une flèche pour voir les
+   paramètres), fais quelque chose d'un peu plus compact. » Le niveau règle
+   déjà les quatre curseurs, la ponctuation et la marche : ce qui se replie ici
+   ne sert qu'à s'en écarter. La fenêtre garde à vue ce qu'on touche à chaque
+   dictée, et la flèche se souvient de sa position. */
+#dictee-modal .dic-plier {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px;
+    margin: 2px 0;
+    border: 1px solid var(--contour, #dfe6e9);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted, #636e72);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+#dictee-modal .dic-plier:hover,
+#dictee-modal .dic-plier:focus-visible {
+    background: var(--accent-soft, rgba(108, 92, 231, 0.08));
+    color: var(--accent, #6c5ce7);
+}
+
+#dictee-modal .dic-fleche {
+    display: inline-block;
+    width: 12px;
+    font-size: 11px;
+    line-height: 1;
+}
+
+#dictee-modal .dic-fins { display: none; }
+#dictee-modal .dic-fins.ouvert { display: block; }
+
 #dictee-modal .dic-voix-zone {
     display: flex;
     flex-direction: column;

@@ -36438,6 +36438,10 @@ registerPlugin('lecteurDicteeTool', 'Français', {
             ['voix', 'niveau'].forEach(c => { if (typeof lus[c] === 'string') this.reglages[c] = lus[c]; });
             if (['rien', 'essentiel', 'tout'].indexOf(lus.ponctuation) >= 0) this.reglages.ponctuation = lus.ponctuation;
             if (['minuteur', 'main'].indexOf(lus.marche) >= 0) this.reglages.marche = lus.marche;
+            // LA FLÈCHE SE SOUVIENT. Qui déplie ses réglages fins les déplie
+            // pour de bon : les lui replier à chaque ouverture, c'est lui faire
+            // recommencer le même geste tous les matins.
+            if (typeof lus.finsOuverts === 'boolean') this.reglages.finsOuverts = lus.finsOuverts;
             // LE MASQUE NE SE RELIT PAS D'UNE SÉANCE À L'AUTRE. On peut
             // l'avoir levé hier pour corriger ; le lever d'office aujourd'hui
             // donnerait la dictée à recopier avant qu'on s'en aperçoive.
@@ -36715,7 +36719,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     creerFenetre: function () {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'dictee-modal';
-        this.widgetEl.style.cssText = "position:fixed; top:8vh; left:50%; margin-left:-350px; width:700px;"
+        this.widgetEl.style.cssText = "position:fixed; top:8vh; left:50%; margin-left:-280px; width:560px;"
             + " max-width:94vw; max-height:88vh; background:var(--surface,#fdfdfd); border-radius:12px;"
             + " box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column;"
             + " overflow:hidden; border:1px solid var(--border,#bdc3c7);";
@@ -36726,7 +36730,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
             </div>
             <div id="dic-corps">
                 <div class="dic-texte-zone">
-                    <textarea id="dic-texte" rows="4" placeholder="Collez ou tapez le texte de la dictée…"></textarea>
+                    <textarea id="dic-texte" rows="3" placeholder="Collez ou tapez le texte de la dictée…"></textarea>
                     <div id="dic-resume" class="dic-resume"></div>
                     <button type="button" id="dic-masque" class="btn-action secondary" aria-pressed="true">👁 Afficher le texte</button>
                 </div>
@@ -36739,6 +36743,18 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                      « On écrit ▭▭▭ un mot en 10 s » n'y tenait pas et se
                      cassait en trois morceaux qui ne se rapportaient plus à
                      rien. -->
+                <!-- LES RÉGLAGES FINS SE REPLIENT. « Tu peux mettre les
+                     paramètres en caché/déroulé (une flèche pour voir les
+                     paramètres), fais quelque chose d'un peu plus compact. »
+                     Le niveau au-dessus règle déjà les quatre curseurs, la
+                     ponctuation et la marche : ce qui suit ne sert qu'à s'en
+                     écarter. La fenêtre garde donc à vue ce qu'on touche à
+                     chaque dictée — le texte, le niveau, les trois temps, le
+                     groupe suivant — et range le reste derrière une flèche qui
+                     se souvient de sa position. -->
+                <button type="button" id="dic-plier" class="dic-plier" aria-expanded="false">
+                    <span class="dic-fleche">▸</span> Réglages fins</button>
+                <div id="dic-fins" class="dic-fins">
                 <div class="dic-voix-zone">
                     <label class="dic-etiquette" for="dic-voix">Voix</label>
                     <select id="dic-voix"></select>
@@ -36789,6 +36805,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                         <button type="button" data-marche="main">Quand j'appuie</button>
                     </div>
                 </div>
+                </div><!-- /#dic-fins -->
                 <div class="dic-temps">
                     <button id="dic-ensemble" class="btn-action secondary">1. Lecture d'ensemble</button>
                     <button id="dic-dictee" class="btn-action primary">2. Dictée</button>
@@ -36837,6 +36854,24 @@ registerPlugin('lecteurDicteeTool', 'Français', {
             this.reglages.voix = e.target.value;
             this.ecrireLesReglages();
         });
+
+        // LA FLÈCHE DES RÉGLAGES FINS
+        const plier = (ouvert) => {
+            this.reglages.finsOuverts = !!ouvert;
+            const zone = q('#dic-fins'), bouton = q('#dic-plier');
+            if (zone) zone.classList.toggle('ouvert', !!ouvert);
+            if (bouton) {
+                bouton.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
+                const fleche = bouton.querySelector('.dic-fleche');
+                if (fleche) fleche.textContent = ouvert ? '▾' : '▸';
+            }
+        };
+        this.plierLesReglages = plier;
+        q('#dic-plier').addEventListener('click', () => {
+            plier(!this.reglages.finsOuverts);
+            this.ecrireLesReglages();
+        });
+        plier(!!this.reglages.finsOuverts);
 
         q('#dic-niveaux').addEventListener('click', (e) => {
             const b = e.target.closest('[data-niveau]');

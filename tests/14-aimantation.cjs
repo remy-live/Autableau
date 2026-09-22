@@ -7,61 +7,44 @@ module.exports = async function (browser) {
     const { context, page, erreurs } = await ouvrirApp(browser);
     await page.waitForFunction(() => typeof positionAimantee === 'function', { timeout: 20000 });
 
-    // --- LES TROIS SOURCES SONT DANS LA BARRE ---
-    const bande = await page.evaluate(() => {
-        const b = document.getElementById('aimant-sources');
-        const cache = b ? getComputedStyle(b).display === 'none' : null;
-        document.getElementById('btn-magnet').click();
-        const visible = getComputedStyle(b).display !== 'none';
-        const actifs = b.querySelectorAll('.aimant-source.active').length;
-        const dansEcran = (() => {
-            const r = b.getBoundingClientRect();
-            return r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1;
-        })();
-        return { cache, visible, actifs, dansEcran, magnet: magnetMode };
-    });
-    r.verifie('aimant éteint : la barre reste simple', bande.cache === true, JSON.stringify(bande));
-    r.verifie('aimant allumé : les trois sources apparaissent dans la barre',
-        bande.visible && bande.actifs === 3, JSON.stringify(bande));
-    r.verifie('et elles tiennent dans l\'écran', bande.dansEcran, JSON.stringify(bande));
+    // --- LES TROIS SOURCES SONT DANS LE PANNEAU DE L'AIMANT ---
+    //
+    // Elles vivaient dans la rangée du tiroir, et n'y paraissaient que quand
+    // l'aimant était allumé : la rangée CHANGEAIT DE LARGEUR SOUS LES DOIGTS à
+    // chaque appui sur A, et tout ce qui était à droite glissait. Et leur
+    // panneau ne s'ouvrait qu'en maintenant le doigt — le geste chronométré
+    // qu'on retire partout. Un bouton dit maintenant ce qu'il ouvre.
+    const laRangee = await page.evaluate(() => ({
+        bandeRestee: !!document.getElementById('aimant-sources'),
+        boutonDesReglages: !!document.getElementById('btn-aimant-reglages'),
+        bascule: !!document.getElementById('btn-magnet'),
+        appuiMaintenu: !!document.getElementById('btn-magnet').dataset.appuiLong
+    }));
+    r.egal('les trois sources ont quitté la rangée', laRangee.bandeRestee, false);
+    r.verifie('un bouton ouvre leurs réglages, et la bascule reste',
+        laRangee.boutonDesReglages && laRangee.bascule, JSON.stringify(laRangee));
+    r.egal('et l\'aimant n\'a plus d\'appui maintenu', laRangee.appuiMaintenu, false);
 
+    // LA BASCULE, ELLE, NE CHANGE PAS : la touche A se tape sans regarder.
     const bascule = await page.evaluate(() => {
-        document.getElementById('btn-aimant-grille').click();
-        const apres = {
-            grille: aimant.grille,
-            marque: document.getElementById('btn-aimant-grille').classList.contains('active'),
-            memoire: localStorage.getItem('board_aimant')
-        };
-        document.getElementById('btn-aimant-grille').click();
-        return apres;
+        const avant = magnetMode;
+        document.getElementById('btn-magnet').click();
+        const apres = magnetMode;
+        document.getElementById('btn-magnet').click();
+        return { avant, apres, rendu: magnetMode };
     });
-    r.egal('un clic éteint le quadrillage', bascule.grille, false);
-    r.verifie('le bouton ne se marque plus', !bascule.marque);
-    r.verifie('et le réglage est mémorisé', /"grille":false/.test(bascule.memoire || ''), bascule.memoire);
+    r.egal('un clic sur l\'aimant l\'allume et l\'éteint',
+        [bascule.avant, bascule.apres, bascule.rendu], [false, true, false]);
 
-    const derniere = await page.evaluate(() => {
-        ['btn-aimant-grille', 'btn-aimant-outils', 'btn-aimant-points'].forEach(id => document.getElementById(id).click());
-        const etat = { magnet: magnetMode, sources: Object.assign({}, aimant) };
-        // on remet tout en route pour la suite
-        aimant.grille = aimant.outils = aimant.intersections = true;
-        magnetMode = false;
-        majBoutonsAimant();
-        return etat;
-    });
-    r.verifie('éteindre la dernière source éteint l\'aimant', derniere.magnet === false, JSON.stringify(derniere));
-    r.verifie('sans laisser un aimant qui n\'attire rien',
-        derniere.sources.grille || derniere.sources.outils || derniere.sources.intersections, JSON.stringify(derniere));
-
-    // --- LE SOUS-MENU DE L'AIMANT (toujours là, pour la tablette) ---
+    // --- LE PANNEAU S'OUVRE AU CLIC, ET NON PLUS EN MAINTENANT LE DOIGT ---
+    // « Évite les appuis longs et courts, aucun geste distingué par sa DURÉE. »
+    // On clique donc à la souris, en une fois, comme le professeur.
     const boite = await page.evaluate(() => {
-        const b = document.getElementById('btn-magnet').getBoundingClientRect();
-        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        const b = document.getElementById('btn-aimant-reglages').getBoundingClientRect();
+        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
     });
-    await page.mouse.move(boite.x, boite.y);
-    await page.mouse.down();
-    await page.waitForTimeout(700);
-    await page.mouse.up();
-    await page.waitForTimeout(200);
+    await page.mouse.click(boite.x, boite.y);
+    await page.waitForTimeout(250);
 
     const panneau = await page.evaluate(() => {
         const p = document.getElementById('panneau-appui');
@@ -74,7 +57,8 @@ module.exports = async function (browser) {
             dansEcran: b.left >= 0 && b.top >= 0 && b.right <= window.innerWidth + 1 && b.bottom <= window.innerHeight + 1
         };
     });
-    r.verifie('un appui long sur l\'aimant ouvre ses réglages', !!panneau && panneau.titre === 'aimant', JSON.stringify(panneau));
+    r.verifie('un CLIC sur le bouton des réglages ouvre le panneau de l\'aimant',
+        !!panneau && panneau.titre === 'aimant', JSON.stringify(panneau));
     r.verifie('il propose les trois sources', !!panneau && panneau.choix.length === 3, panneau && panneau.choix.join(' · '));
     r.verifie('le quadrillage, les outils et les intersections',
         !!panneau && /quadrillage/i.test(panneau.choix[0]) && /outils/i.test(panneau.choix[1]) && /intersection/i.test(panneau.choix[2]),

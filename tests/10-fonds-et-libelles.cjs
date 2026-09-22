@@ -273,9 +273,12 @@ module.exports = async function (browser) {
     // --- LA BARRE DU BAS : DES ICÔNES, DES PASTILLES, DES TÉMOINS ---
     const barre = await pageP.evaluate(() => ({
         zoom: (document.getElementById('zoom-valeur') || {}).innerText,
-        grille: (document.getElementById('grille-valeur') || {}).innerText,
+
         zoomDessine: !!document.querySelector('#btn-zoom-toggle svg'),
-        grilleDessine: !!document.querySelector('#btn-grid-toggle svg'),
+        // LE QUADRILLAGE A QUITTÉ LA RANGÉE pour le panneau du papier :
+        // l'épaisseur est une propriété de la feuille, et elle vit désormais
+        // auprès du fond qu'elle quadrille et du pas des axes qu'elle porte.
+        grilleRestee: !!document.getElementById('btn-grid-toggle'),
         rangerEnIcone: !!document.querySelector('#btn-ranger svg'),
         tableauxEnIcone: !!document.querySelector('#btn-tableaux svg'),
         pastillesRestantes: Array.from(document.querySelectorAll('#categories-bottom .category-pill'))
@@ -284,7 +287,8 @@ module.exports = async function (browser) {
     }));
     r.verifie('le zoom garde son dessin et porte sa valeur',
         barre.zoomDessine && barre.zoom === '100%', JSON.stringify(barre));
-    r.verifie('le quadrillage aussi', barre.grilleDessine && barre.grille === '1,0', JSON.stringify(barre));
+    r.egal('le quadrillage, lui, a quitté la rangée pour le panneau du papier',
+        barre.grilleRestee, false);
     r.verifie('« Ranger l\'espace » et « Mes tableaux » sont montés en icônes',
         barre.rangerEnIcone && barre.tableauxEnIcone, JSON.stringify(barre));
     // LA TROISIÈME LIGNE DU TIROIR EST PARTIE. Les trois pastilles étaient les
@@ -302,13 +306,7 @@ module.exports = async function (browser) {
         // grossissement. On demande donc le cran qui vaut 140 %.
         curseur.value = String(positionDuCurseur(1.4));
         curseur.dispatchEvent(new Event('input', { bubbles: true }));
-        const g = document.getElementById('grid-weight-slider');
-        g.value = '2.5';
-        g.dispatchEvent(new Event('input', { bubbles: true }));
-        return {
-            zoom: document.getElementById('zoom-valeur').innerText,
-            grille: document.getElementById('grille-valeur').innerText
-        };
+        return { zoom: document.getElementById('zoom-valeur').innerText };
     });
     r.egal('la pastille du zoom suit le curseur', vivant.zoom, '140%');
 
@@ -394,7 +392,28 @@ module.exports = async function (browser) {
     r.egal('le curseur suit le mouvement', glisse.curseur, glisse.attendu);
 
     await pageP.evaluate(() => { zoom = 1; panX = 0; panY = 0; majCurseurZoom(); draw(); });
-    r.egal('celle du quadrillage aussi, à la française', vivant.grille, '2,5');
+    // L'ÉPAISSEUR DU QUADRILLAGE SE RÈGLE DANS LE PANNEAU DU PAPIER, en
+    // valeurs nommées plutôt qu'au curseur : c'est une propriété de la feuille,
+    // et elle se choisit auprès du fond qu'elle quadrille.
+    const parLePanneau = await pageP.evaluate(async () => {
+        document.getElementById('btn-cycle').click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const p = document.getElementById('panneau-appui');
+        if (!p) return { absent: true };
+        const titres = [...p.querySelectorAll('.rp-titre')].map(t => t.textContent);
+        const deux = [...p.querySelectorAll('.rp-choix')].find(b => b.textContent === '2');
+        if (deux) deux.click();
+        await new Promise(ok => setTimeout(ok, 200));
+        const lu = { absent: false, titres, epaisseur: gridWeight };
+        document.getElementById('panneau-appui')?.remove();
+        return lu;
+    });
+    r.verifie('le panneau du papier réunit le fond, sa teinte, le quadrillage et le pas',
+        !parLePanneau.absent
+        && parLePanneau.titres.some(t => /quadrillage/i.test(t))
+        && parLePanneau.titres.some(t => /case vaut/i.test(t)),
+        JSON.stringify(parLePanneau.titres));
+    r.egal('et l\'épaisseur s\'y choisit', parLePanneau.epaisseur, 2);
 
     // LE CYCLE DE L'AFFICHAGE SE MÈNE DEPUIS LE COIN, et le tableau sombre
     // depuis les réglages. « Un bouton pour juste remettre les toolbar puis

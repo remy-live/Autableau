@@ -5159,7 +5159,7 @@ const RACCOURCIS_GESTES = [
     { touche: 'L', bouton: 'btn-loupe', nom: 'Loupe' },
     { touche: 'A', bouton: 'btn-magnet', nom: 'Aimant' },
     { touche: 'X', bouton: 'btn-axes', nom: 'Axes' },
-    { touche: 'F', bouton: 'btn-cycle', nom: 'Fond suivant' },
+    { touche: 'F', bouton: 'btn-cycle', nom: 'Choisir le papier' },
     { touche: 'R', bouton: 'btn-rideau', nom: 'Rideau' },
     { touche: 'E', bouton: 'btn-spot', nom: 'Projecteur (éclairer une zone)' },
     // Pas de bouton derrière celui-ci : c'est une manœuvre, pas un réglage.
@@ -11742,7 +11742,11 @@ document.getElementById('zoom-num')?.addEventListener('input', (e) => {
         canvas.width / 2, canvas.height / 2);
 });
 
-document.getElementById('grid-weight-slider').addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); majPastilleGrille(); draw(); });
+// LE CURSEUR DU QUADRILLAGE A QUITTÉ LA RANGÉE pour le panneau du papier :
+// l'épaisseur est une propriété de la feuille, et elle vit désormais auprès du
+// fond qu'elle quadrille. L'accès reste gardé, au cas où une barre personnelle
+// en porterait une copie.
+document.getElementById('grid-weight-slider')?.addEventListener('input', (e) => { gridWeight = parseFloat(e.target.value); majPastilleGrille(); draw(); });
 // L'aimant dit sur quoi il attire : sans ça, on ne devine ni ce qu'il fait,
 // ni qu'un appui long permet de le régler.
 function resumeAimant() {
@@ -11763,13 +11767,17 @@ const SOURCES_AIMANT = [
     ['intersections', 'btn-aimant-points']
 ];
 
+// LES TROIS SOURCES ONT QUITTÉ LA RANGÉE POUR LE PANNEAU DE L'AIMANT : elles
+// y paraissaient et disparaissaient selon que l'aimant était allumé, et la
+// rangée changeait donc de largeur sous les doigts à chaque appui sur A. Leur
+// état se lit maintenant dans le panneau, qui le relit à chaque ouverture.
+// La boucle reste, gardée : une barre personnelle peut porter une copie de ces
+// boutons, et elle doit s'allumer comme l'original.
 function majBoutonsAimant() {
     btnMagnet.classList.toggle('active', magnetMode);
-    const bande = document.getElementById('aimant-sources');
-    if (bande) bande.style.display = magnetMode ? 'inline-flex' : 'none';
     SOURCES_AIMANT.forEach(([cle, id]) => {
-        const b = document.getElementById(id);
-        if (b) b.classList.toggle('active', !!aimant[cle]);
+        document.querySelectorAll('#' + id + ', [data-drag-source-tool-id="' + id + '"]')
+            .forEach(b => b.classList.toggle('active', !!aimant[cle]));
     });
 }
 window.majBoutonsAimant = majBoutonsAimant;
@@ -11805,11 +11813,9 @@ SOURCES_AIMANT.forEach(([cle, id]) => {
         draw();
     });
 });
-document.getElementById('btn-cycle').onclick = () => {
-    currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
-    if (typeof cadrerSurLaFeuille === 'function') cadrerSurLaFeuille();
-    draw();
-};
+// LE FOND NE DÉFILE PLUS : « ouvrirLePapier » prend ce clic et ouvre le
+// panneau qui NOMME les huit papiers. Sept clics à l'aveugle pour revenir au
+// seyès, c'était le défaut, pas la fonction.
 const btnAxes = document.getElementById('btn-axes'); btnAxes.onclick = () => {
     const avant = showAxes;
     showAxes = (showAxes + 1) % 3;
@@ -27297,8 +27303,9 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const btnClasses = document.getElementById('btn-classes-menu');
-    if (btnClasses) btnClasses.addEventListener('click', () => openClassManagerModal());
+    // LE BOUTON DES CLASSES OUVRE SON PANNEAU, et « Gérer mes classes » en est
+    // la première entrée. L'écouteur qui menait droit au gestionnaire vivait
+    // ici ; l'y laisser aurait ouvert les deux à la fois.
 
     // ✅ "Plugin virtuel" : permet au double-clic natif sur une image (canvas.addEventListener('dblclick', ...))
     // de rouvrir l'éditeur de plan de classe quand l'image tamponnée porte pluginData.id === 'seatingPlan'.
@@ -38111,32 +38118,65 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Fonds : choisir directement, au lieu de faire défiler huit fonds
-    poserAppuiLong(document.getElementById('btn-cycle'), (bouton) => {
+    // ==================================================================
+    // LE PAPIER SE CHOISIT, IL NE SE FAIT PLUS DÉFILER
+    //
+    // Règle du jour : AUCUN RÉGLAGE NE DOIT DÉPENDRE D'UN GESTE CHRONOMÉTRÉ.
+    // « Évite les appuis longs et courts, aucun geste distingué par sa DURÉE. »
+    // Ce panneau-ci ne s'ouvrait qu'en maintenant le doigt un demi-seconde sur
+    // le bouton, et le seul indice était un triangle de 5 px à 35 %
+    // d'opacité. Il s'ouvre maintenant au CLIC.
+    //
+    // ET LE CYCLE ÉTAIT LE DÉFAUT, PAS LA FONCTION. Huit fonds défilaient à
+    // l'aveugle : revenir au seyès depuis le millimétré demandait sept clics
+    // devant une classe, sans qu'aucun mot ne dise jamais où l'on en était.
+    // Le panneau les NOMME. La touche F l'ouvre au lieu de faire défiler —
+    // c'est la seule habitude que ce chantier casse, et elle est cassée
+    // exprès.
+    //
+    // IL RÉUNIT CE QUI TIENT À LA MÊME FEUILLE : le fond, sa teinte,
+    // l'épaisseur du quadrillage — qui occupait un bouton à pastille et un
+    // curseur dans le tiroir — et ce que vaut une case, qui dormait sous
+    // l'appui maintenu des axes. Trois propriétés d'un même papier, au même
+    // endroit.
+    //
+    // LE PANNEAU RESTE OUVERT entre deux choix : on règle un papier en
+    // plusieurs gestes, et se faire refermer à chacun obligerait à rouvrir
+    // quatre fois.
+    const ouvrirLePapier = (bouton) => {
         const entrees = backgrounds.map((nom, i) => ({
             nom: NOMS_FONDS[nom] || nom,
             actif: i === currentBgIndex,
-            action: () => { currentBgIndex = i; cadrerSurLaFeuille(); draw(); }
+            action: () => {
+                currentBgIndex = i;
+                if (typeof cadrerSurLaFeuille === 'function') cadrerSurLaFeuille();
+                draw();
+                setTimeout(() => ouvrirLePapier(bouton), 0);
+            }
         }));
+
         entrees.push({ separateur: 'Couleur du papier' });
         TEINTES_PAPIER.forEach(t => entrees.push({
             nom: t.nom,
             actif: bgColors.default === t.valeur,
-            action: () => { bgColors.default = t.valeur; draw(); }
-        }));
-        ouvrirPanneauAppui(bouton, 'Fond du tableau', entrees);
-    });
-
-    // Axes : les trois états, puis ce que vaut une case
-    poserAppuiLong(document.getElementById('btn-axes'), (bouton) => {
-        const etats = ['Aucun axe', 'Axes discrets', 'Axes marqués et gradués'];
-        const entrees = etats.map((nom, i) => ({
-            nom, actif: showAxes === i,
             action: () => {
-                showAxes = i;
-                const b = document.getElementById('btn-axes');
-                b.classList.remove('active', 'active-1', 'active-2');
-                if (showAxes > 0) b.classList.add('active', `active-${showAxes}`);
+                bgColors.default = t.valeur;
                 draw();
+                setTimeout(() => ouvrirLePapier(bouton), 0);
+            }
+        }));
+
+        entrees.push({ separateur: 'Épaisseur du quadrillage' });
+        [0.5, 1, 1.5, 2, 3].forEach(e => entrees.push({
+            nom: String(e).replace('.', ','),
+            actif: Math.abs(gridWeight - e) < 1e-9,
+            action: () => {
+                gridWeight = e;
+                if (typeof majPastilleGrille === 'function') majPastilleGrille();
+                const curseur = document.getElementById('grid-weight-slider');
+                if (curseur) curseur.value = e;
+                draw();
+                setTimeout(() => ouvrirLePapier(bouton), 0);
             }
         }));
 
@@ -38147,17 +38187,28 @@ document.addEventListener('DOMContentLoaded', () => {
             action: () => {
                 pasAxes = pas;
                 try { localStorage.setItem('board_pas_axes', String(pas)); } catch (e) { /* stockage refusé */ }
-                if (showAxes !== 2) {          // le pas ne se voit qu'en axes gradués
+                // Le pas ne se voit qu'en axes gradués : on les allume plutôt
+                // que de laisser le choix sans effet visible.
+                if (showAxes !== 2) {
                     showAxes = 2;
                     const b = document.getElementById('btn-axes');
-                    b.classList.add('active', 'active-2');
+                    if (b) b.classList.add('active', 'active-2');
                 }
                 draw();
+                setTimeout(() => ouvrirLePapier(bouton), 0);
             }
         }));
 
-        ouvrirPanneauAppui(bouton, 'Axes', entrees);
-    });
+        ouvrirPanneauAppui(bouton, 'Le papier du tableau', entrees);
+    };
+    window.ouvrirLePapier = ouvrirLePapier;
+    document.getElementById('btn-cycle').onclick = function () { ouvrirLePapier(this); };
+
+    // LES AXES GARDENT LEUR CYCLE, et perdent leur appui maintenu. Trois états
+    // NOMMÉS qu'on parcourt d'un clic — rien, discrets, gradués —, ce n'est pas
+    // le défaut des huit fonds : on voit le résultat à chaque appui, et la
+    // touche X ne change pas de sens. Ce qui se cachait sous l'appui, « une
+    // case vaut », a rejoint le papier, dont c'est une propriété.
 
     // Aimant : trois sources qu'on allume séparément. Le panneau reste ouvert
     // le temps de les régler.
@@ -38178,10 +38229,27 @@ document.addEventListener('DOMContentLoaded', () => {
             { nom: 'Les points et les intersections', actif: aimant.intersections, action: () => bascule('intersections') }
         ]);
     };
-    poserAppuiLong(document.getElementById('btn-magnet'), ouvrirPanneauAimant);
+    // L'AIMANT GARDE SA BASCULE, SES RÉGLAGES PRENNENT LEUR PROPRE PORTE.
+    //
+    // Le panneau ne s'ouvrait qu'en maintenant le doigt : c'est le geste
+    // chronométré qu'on retire partout. Mais transformer la bascule elle-même
+    // en panneau coûterait la touche A, qu'on tape sans regarder en traçant.
+    // Un second bouton, donc — et il remplace les trois pastilles de sources
+    // qui apparaissaient et disparaissaient dans la rangée selon que l'aimant
+    // était allumé, FAISANT CHANGER SA LARGEUR SOUS LES DOIGTS : tout ce qui
+    // était à droite glissait à chaque appui sur A.
+    const btnReglagesAimant = document.getElementById('btn-aimant-reglages');
+    if (btnReglagesAimant) {
+        btnReglagesAimant.addEventListener('click', function () { ouvrirPanneauAimant(this); });
+    }
 
     // Classes : les outils qui s'appuient sur la liste des élèves
-    poserAppuiLong(document.getElementById('btn-classes-menu'), (bouton) => {
+    // LES OUTILS DE CLASSE S'OUVRENT AU CLIC. Le bouton menait droit au
+    // gestionnaire de classes, et le panneau des cinq outils qui s'appuient sur
+    // la liste des élèves dormait sous l'appui maintenu — c'est-à-dire nulle
+    // part. On retourne les deux : le panneau au clic, « Gérer mes classes » en
+    // tête de ce panneau.
+    const ouvrirLesClasses = (bouton) => {
         const outils = ['Points de classe', 'Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
         const entrees = [{
             nom: 'Gérer mes classes',
@@ -38192,7 +38260,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (source) entrees.push({ nom, action: () => source.click() });
         });
         ouvrirPanneauAppui(bouton, 'Mes classes', entrees);
-    });
+    };
+    const btnClassesMenu = document.getElementById('btn-classes-menu');
+    if (btnClassesMenu) btnClassesMenu.onclick = function () { ouvrirLesClasses(this); };
 });
 
 // ===================================================
