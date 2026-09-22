@@ -35994,161 +35994,6 @@ registerPlugin('lecteurDicteeTool', 'Français', {
 
     CLE_REGLAGES: 'board_dictee_reglages',
 
-    // ==================================================================
-    // LA VOIX INSTALLÉE DANS LE NAVIGATEUR
-    // ==================================================================
-    //
-    // La qualité de la lecture ne dépend pas de nous : elle dépend de la voix
-    // que porte la machine. Sur un ordinateur d'école, c'est souvent la
-    // vieille voix compacte, celle qui hache les liaisons — « on ne comprend
-    // rien ». Il existe des voix françaises libres, bien meilleures, qui
-    // tiennent dans deux fichiers et tournent hors ligne (Piper).
-    //
-    // CE QUI EST ICI, ET CE QUI N'Y EST PAS. Ici : ranger une voix dans le
-    // navigateur, la reconnaître, la proposer en tête de liste, la retirer,
-    // et REPLIER PROPREMENT sur la voix du système quand le synthétiseur
-    // n'est pas là. Pas ici : le synthétiseur lui-même. Tant qu'il manque,
-    // choisir cette voix ne rend pas la dictée muette — elle le dit et
-    // continue avec la voix du navigateur. La marche à suivre pour le
-    // brancher est écrite dans « docs/voix-piper.md ».
-    //
-    // ET LA PAGE NE TÉLÉCHARGE RIEN. C'est l'enseignant qui désigne les deux
-    // fichiers, une fois. Depuis « file:// », une page ne peut de toute façon
-    // pas aller chercher quoi que ce soit ; et dans une salle de classe, une
-    // application qui se met à tirer soixante mégaoctets au premier usage est
-    // une application qui ne marche pas.
-    CLE_VOIX_LOCALE: 'auTableau_dictee_voix_locale',
-
-    // La fiche lue au dernier examen du stockage : « null » tant qu'on n'a
-    // rien trouvé. On ne garde pas le modèle en mémoire vive — il pèse des
-    // dizaines de mégaoctets —, seulement de quoi le nommer et le retrouver.
-    voixLocale: null,
-
-    // CE QU'UNE FICHE DOIT PORTER POUR ÊTRE UNE VOIX. Un fichier tronqué par
-    // une coupure de réseau est le cas le plus probable, et il ne se voit pas
-    // au nom : on regarde ce qu'il y a dedans.
-    ficheDeVoixValable: function (fiche) {
-        if (!fiche || typeof fiche !== 'object') return 'fiche vide';
-        if (typeof fiche.nom !== 'string' || !fiche.nom.trim()) return 'voix sans nom';
-        if (!fiche.modele || typeof fiche.modele.byteLength !== 'number'
-            || fiche.modele.byteLength < 100000) return 'modèle absent ou tronqué';
-        const c = fiche.config;
-        if (!c || typeof c !== 'object') return 'fiche technique absente';
-        const echantillonnage = c.sample_rate || (c.audio && c.audio.sample_rate);
-        if (!echantillonnage) return 'fiche technique sans fréquence d’échantillonnage';
-        return '';
-    },
-
-    // Le stockage est asynchrone : IndexedDB, par « localforage », comme tout
-    // ce que l'application garde de lourd. « localStorage » ne conviendrait
-    // pas — il ne tient que du texte, et quelques mégaoctets.
-    rangerLaVoixLocale: function (fiche) {
-        const ennui = this.ficheDeVoixValable(fiche);
-        if (ennui) return Promise.reject(new Error(ennui));
-        if (typeof localforage === 'undefined') return Promise.reject(new Error('stockage indisponible'));
-        const rangee = {
-            nom: fiche.nom.trim(),
-            langue: fiche.langue || 'fr-FR',
-            config: fiche.config,
-            modele: fiche.modele,
-            octets: fiche.modele.byteLength,
-            posee: Date.now()
-        };
-        return localforage.setItem(this.CLE_VOIX_LOCALE, rangee).then(() => {
-            this.voixLocale = rangee;
-            this.majLesVoix();
-            return rangee;
-        });
-    },
-
-    lireLaVoixLocale: function () {
-        if (typeof localforage === 'undefined') { this.voixLocale = null; return Promise.resolve(null); }
-        return localforage.getItem(this.CLE_VOIX_LOCALE).then((fiche) => {
-            // UNE FICHE ABÎMÉE VAUT UNE ABSENCE. Elle paraîtrait dans la liste,
-            // et l'on choisirait une voix qui ne peut pas parler.
-            this.voixLocale = (fiche && !this.ficheDeVoixValable(fiche)) ? fiche : null;
-            this.majLesVoix();
-            return this.voixLocale;
-        }).catch(() => { this.voixLocale = null; return null; });
-    },
-
-    retirerLaVoixLocale: function () {
-        const finir = () => {
-            this.voixLocale = null;
-            // Si c'était elle qu'on avait choisie, le réglage ne désigne plus
-            // rien : on le vide, sans quoi « voixChoisie » chercherait un nom
-            // absent à chaque ouverture.
-            if (this.reglages.voix && !this.voixFrancaises().some(v => v.name === this.reglages.voix)) {
-                this.reglages.voix = '';
-                this.ecrireLesReglages();
-            }
-            this.majLesVoix();
-        };
-        if (typeof localforage === 'undefined') { finir(); return Promise.resolve(); }
-        return localforage.removeItem(this.CLE_VOIX_LOCALE).then(finir).catch(finir);
-    },
-
-    // La voix telle que la liste la voit. Ce n'est pas une
-    // « SpeechSynthesisVoice » : c'est une fiche qui lui ressemble assez pour
-    // traverser « voixFrancaises », « voixChoisie » et le « select » sans que
-    // rien d'autre ait à savoir d'où elle vient.
-    voixLocalePourLaListe: function () {
-        if (!this.voixLocale) return null;
-        return { name: this.voixLocale.nom, lang: this.voixLocale.langue || 'fr-FR', locale: true };
-    },
-
-    // DEUX FICHIERS DÉSIGNÉS À LA MAIN. On accepte qu'ils arrivent dans
-    // n'importe quel ordre, et l'on dit ce qui manque plutôt que d'échouer en
-    // silence : c'est un geste qu'on ne fait qu'une fois, donc un geste qu'on
-    // ne sait pas refaire.
-    installerDepuisLesFichiers: function (fichiers) {
-        const dit = (m) => { this.majLaVoixLocale(m); return Promise.resolve(null); };
-        const liste = (fichiers || []);
-        const modele = liste.find(f => /\.onnx$/i.test(f.name));
-        const fiche = liste.find(f => /\.json$/i.test(f.name));
-        if (!modele || !fiche) {
-            return dit('Il en faut deux : le modèle « .onnx » et sa fiche « .onnx.json ». '
-                + 'Choisissez-les ensemble.');
-        }
-        this.majLaVoixLocale('Lecture des fichiers…');
-        return Promise.all([modele.arrayBuffer(), fiche.text()]).then(([octets, texte]) => {
-            let config;
-            try { config = JSON.parse(texte); }
-            catch (e) { return dit('La fiche « ' + fiche.name + ' » n’est pas du JSON lisible.'); }
-            // Le nom vient de la fiche quand elle en porte un, du fichier
-            // sinon : « fr_FR-siwis-medium.onnx » dit déjà de quelle voix il
-            // s'agit, et c'est ce nom-là que l'enseignant reconnaîtra.
-            const nom = (config.dataset || modele.name.replace(/\.onnx$/i, '')).toString();
-            const langue = (config.language && (config.language.code || config.language.name)) || 'fr-FR';
-            return this.rangerLaVoixLocale({
-                nom, langue: String(langue).replace('_', '-'), config, modele: octets
-            }).then(() => {
-                this.majLaVoixLocale('');
-                return this.voixLocale;
-            }).catch((e) => dit('Ce fichier ne fait pas une voix : ' + e.message + '.'));
-        }).catch(() => dit('Les fichiers n’ont pas pu être lus.'));
-    },
-
-    // CE QUE LA ZONE RACONTE. Sans elle, « Retirer » et « Installer » seraient
-    // deux boutons dont rien ne dit s'ils ont fait quelque chose.
-    majLaVoixLocale: function (message) {
-        if (!this.widgetEl) return;
-        const etat = this.widgetEl.querySelector('#dic-voix-locale-etat');
-        const retirer = this.widgetEl.querySelector('#dic-voix-retirer');
-        if (retirer) retirer.disabled = !this.voixLocale;
-        if (!etat) return;
-        if (message) { etat.textContent = message; return; }
-        if (!this.voixLocale) {
-            etat.textContent = 'Aucune. La dictée lit avec les voix de l’ordinateur. '
-                + 'Une voix installée parle mieux et fonctionne sans réseau.';
-            return;
-        }
-        const mo = (this.voixLocale.octets / 1048576).toFixed(1).replace('.', ',');
-        etat.textContent = '« ' + this.voixLocale.nom + ' » — ' + mo + ' Mo, rangée dans ce navigateur.'
-            + (this.moteurLocal.disponible() ? '' : ' Son synthétiseur n’est pas là : la dictée lira'
-                + ' avec une voix de l’ordinateur.');
-    },
-
     // Le blanc avant une consigne : « virgule » ne doit pas se coller à la fin
     // de la phrase, sinon on l'entend comme un mot du texte.
     BLANC_AVANT_CONSIGNE: 0.4,
@@ -36193,46 +36038,6 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         }
     },
 
-    // ---- LE MOTEUR DE LA VOIX INSTALLÉE ----
-    //
-    // Les quatre mêmes méthodes que le moteur du navigateur : c'est toute la
-    // frontière. Le synthétiseur, lui, s'annonce sur « window.VoixInstallee »
-    // — quand il n'est pas là, « dire » ne se tait pas : il le DIT, et la
-    // dictée repart sur la voix du navigateur. Une dictée qui défile en
-    // silence, pastilles allumées, passe pour une panne de l'application.
-    moteurLocal: {
-        disponible: function () {
-            const s = window.VoixInstallee;
-            return !!(s && typeof s.dire === 'function');
-        },
-        dire: function (texte, opts, quandFini) {
-            if (!this.disponible()) { quandFini({ panne: 'voix-installee-absente' }); return null; }
-            try { return window.VoixInstallee.dire(texte, opts, quandFini); }
-            catch (e) { quandFini({ panne: 'voix-installee-refus' }); return null; }
-        },
-        taire: function () {
-            const s = window.VoixInstallee;
-            if (s && typeof s.taire === 'function') { try { s.taire(); } catch (e) { /* rien à taire */ } }
-        }
-    },
-
-    // QUI PARLE, POUR CETTE ÉNONCIATION-LÀ. Le reste de la dictée — la
-    // découpe en groupes, la ponctuation dite en toutes lettres, les
-    // relectures, le minuteur — ne sait pas quelle voix parle, et n'a pas à
-    // le savoir.
-    moteurDeLaVoix: function (voix) {
-        return (voix && voix.locale) ? this.moteurLocal : this.moteur;
-    },
-
-    // ON FAIT TAIRE LES DEUX, TOUJOURS. « Arrêter » doit arrêter ce qui parle,
-    // et l'on vient peut-être de changer de voix en cours de lecture : ne
-    // taire que le moteur courant laisserait l'autre finir sa phrase par
-    // dessus la suivante.
-    taireToutesLesVoix: function () {
-        this.moteur.taire();
-        this.moteurLocal.taire();
-    },
-
     // LA MEILLEURE D'ABORD, ET NON LA PREMIÈRE VENUE.
     //
     // La qualité ne vient pas d'ici : elle vient de la voix installée sur la
@@ -36252,9 +36057,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     },
 
     voixFrancaises: function () {
-        const locale = this.voixLocalePourLaListe();
-        return (locale ? [locale] : [])
-            .concat(this.moteur.voix())
+        return this.moteur.voix()
             .filter(v => /^fr/i.test(v.lang || ''))
             .sort((a, b) => this.rangDeLaVoix(a) - this.rangDeLaVoix(b));
     },
@@ -36701,19 +36504,13 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         let i = 0;
         const suite = (ennui) => {
             if (serie !== this.serie) return;      // une autre lecture a pris la main
-            if (ennui && ennui.panne) {
-                // Un repli change la voix et redit ce qui n'a pas été dit :
-                // l'élève n'a pas entendu ce groupe, il ne faut pas le sauter.
-                if (this.signalerLaPanne(ennui.panne) === 'repli') { i = Math.max(0, i - 1); suite(); }
-                return;
-            }
+            if (ennui && ennui.panne) { this.signalerLaPanne(ennui.panne); return; }
             if (i >= file.length) { quandFini(); return; }
             const pas = file[i++];
             const parler = () => {
                 if (serie !== this.serie) return;
-                const voix = this.voixChoisie();
-                this.enonceEnCours = this.moteurDeLaVoix(voix).dire(pas.texte,
-                    { vitesse: pas.vitesse, voix: voix }, suite);
+                this.enonceEnCours = this.moteur.dire(pas.texte,
+                    { vitesse: pas.vitesse, voix: this.voixChoisie() }, suite);
             };
             if (pas.blanc) this.attendrePuis(parler, pas.blanc);
             else parler();
@@ -36722,44 +36519,16 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     },
 
     signalerLaPanne: function (raison) {
-        // LA VOIX INSTALLÉE SANS SON SYNTHÉTISEUR NE COÛTE PAS LA DICTÉE.
-        // C'est la seule panne dont on sache d'avance quoi faire : reprendre
-        // la voix du navigateur et repartir. Arrêter la lecture parce qu'un
-        // fichier manque, au milieu d'une dictée, devant une classe qui écrit,
-        // serait le pire moment pour l'apprendre.
-        const alerte = this.widgetEl && this.widgetEl.querySelector('#dic-sansvoix');
-        const dire = (texte) => {
-            if (!alerte) return;
-            alerte.textContent = texte;
-            alerte.classList.remove('dic-conseil');
-            alerte.style.display = 'block';
-        };
-        if (/^voix-installee/.test(String(raison)) && this.voixLocale) {
-            const autre = this.voixFrancaises().find(v => !v.locale);
-            this.reglages.voix = autre ? autre.name : '';
-            this.ecrireLesReglages();
-            this.majLesVoix();
-            if (autre) {
-                dire('La voix installée n’a pas pu parler : ce navigateur n’a pas son '
-                    + 'synthétiseur. La dictée continue avec « ' + autre.name + ' ».');
-                this.majEcran();
-                // On rend « repli » : la file reprendra à la MÊME énonciation.
-                // Elle n'a pas été dite — c'est le moteur qui l'a refusée.
-                return 'repli';
-            }
-            dire('La voix installée n’a pas pu parler, et cet ordinateur n’a aucune '
-                + 'voix française à lui substituer.');
-            this.phase = 'arret';
-            clearTimeout(this.minuteur); this.minuteur = null;
-            this.majEcran();
-            return '';
-        }
         this.phase = 'arret';
         clearTimeout(this.minuteur); this.minuteur = null;
-        dire('La voix s’est interrompue (' + raison
-            + '). Si elle vient du réseau, choisissez une voix installée sur la machine.');
+        const alerte = this.widgetEl && this.widgetEl.querySelector('#dic-sansvoix');
+        if (alerte) {
+            alerte.textContent = 'La voix s’est interrompue (' + raison
+                + '). Si elle vient du réseau, choisissez une voix installée sur la machine.';
+            alerte.classList.remove('dic-conseil');
+            alerte.style.display = 'block';
+        }
         this.majEcran();
-        return '';
     },
 
     // ---- LES TROIS TEMPS ----
@@ -36836,7 +36605,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         if (this.phase === 'arret') return false;
         clearTimeout(this.minuteur); this.minuteur = null;
         this.serie++;
-        this.taireToutesLesVoix();
+        this.moteur.taire();
         this.enPause = false;
         this.avancer(this.phase === 'dictee' ? Math.max(1, this.reglages.repetitions) : 1);
         return true;
@@ -36861,7 +36630,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
     arreter: function () {
         clearTimeout(this.minuteur); this.minuteur = null;
         this.serie++;
-        this.taireToutesLesVoix();
+        this.moteur.taire();
         this.phase = 'arret';
         this.enPause = false;
         this.enAttenteDeLaMain = false;
@@ -36875,7 +36644,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         if (!this.groupes.length) return false;
         clearTimeout(this.minuteur); this.minuteur = null;
         this.serie++;
-        this.taireToutesLesVoix();
+        this.moteur.taire();
         this.enPause = false;
         this.enAttenteDeLaMain = false;
         if (this.phase === 'arret') this.phase = 'dictee';
@@ -36903,7 +36672,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
             this.resteEnPause = Math.max(0, this.attente - this.maintenant());
             clearTimeout(this.minuteur); this.minuteur = null;
             this.serie++;
-            this.taireToutesLesVoix();
+            this.moteur.taire();
         } else if (this.resteEnPause > 0 && this.aReprendre) {
             const quoi = this.aReprendre;
             this.attendrePuis(quoi, this.resteEnPause / 1000);
@@ -36942,10 +36711,6 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         this.majLesVoix();
         this.majLesReglages();
         this.majEcran();
-        // LA VOIX INSTALLÉE SE CHERCHE À L'OUVERTURE, pas au premier mot d'une
-        // dictée commencée : le stockage répond en différé, et la liste des
-        // voix se remplira d'elle-même quand il aura répondu.
-        this.lireLaVoixLocale().then(() => this.majLaVoixLocale(''));
     },
 
     redecouper: function () {
@@ -36997,18 +36762,6 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                     <label class="dic-etiquette" for="dic-voix">Voix</label>
                     <select id="dic-voix"></select>
                     <div id="dic-voix-mot" class="dic-voix-mot"></div>
-                </div>
-                <!-- LA VOIX INSTALLÉE. Deux fichiers désignés à la main, une
-                     fois : la page ne télécharge rien (voir « docs/voix-piper.md »). -->
-                <div class="dic-choix" id="dic-voix-locale">
-                    <span class="dic-choix-titre">Voix installée dans ce navigateur</span>
-                    <div id="dic-voix-locale-etat" class="dic-voix-mot"></div>
-                    <div class="dic-boutons">
-                        <button type="button" id="dic-voix-poser">Installer une voix…</button>
-                        <button type="button" id="dic-voix-retirer">Retirer</button>
-                    </div>
-                    <input type="file" id="dic-voix-fichiers" accept=".onnx,.json" multiple
-                        style="display:none;">
                 </div>
                 <div class="dic-reglages">
                     <label class="dic-reglage">
@@ -37103,19 +36856,6 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         q('#dic-voix').addEventListener('change', (e) => {
             this.reglages.voix = e.target.value;
             this.ecrireLesReglages();
-        });
-
-        // LE BOUTON OUVRE LE SÉLECTEUR DE FICHIERS, et c'est le champ caché
-        // qui fait le travail : un « input » de fichier ne se déguise pas en
-        // bouton, il se commande.
-        q('#dic-voix-poser').addEventListener('click', () => q('#dic-voix-fichiers').click());
-        q('#dic-voix-retirer').addEventListener('click', () => {
-            this.retirerLaVoixLocale().then(() => this.majLaVoixLocale('Voix retirée.'));
-        });
-        q('#dic-voix-fichiers').addEventListener('change', (e) => {
-            const fichiers = [...(e.target.files || [])];
-            e.target.value = '';
-            this.installerDepuisLesFichiers(fichiers);
         });
 
         // LA FLÈCHE DES RÉGLAGES FINS
