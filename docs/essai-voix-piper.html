@@ -309,6 +309,50 @@ async function phonemiser(texte, langue) {
 }
 
 /* ------------------------------------------------------------------ *
+ * CHAQUE VOIX A SA PROPRE TABLE DE PHONÈMES
+ *
+ * Première tentative, et première panne, sur une vraie voix :
+ *     Gather '/enc_p/emb/Gather' : idx=141 doit être dans [-130,129]
+ *
+ * J'avais donné au modèle les identifiants que rend le phonémiseur. Or ceux-là
+ * sont les siens : la voix « gilles » n'a que cent trente entrées dans sa
+ * table, et l'identifiant 141 désigne une case qui n'existe pas chez elle.
+ *
+ * On passe donc par les PHONÈMES — « ʁ », « ɛ̃ », « t » — et on les traduit
+ * avec la table que porte la fiche technique de la voix. C'est la seule
+ * traduction qui vaille : elle change d'une voix à l'autre.
+ *
+ * LA FORME DE LA SUITE N'EST PAS DEVINÉE : elle a été relevée sur la sortie
+ * du phonémiseur lui-même. Pour « Le chat. », huit phonèmes, il rend
+ *     1, 0, 24, 0, 59, 0, 9, 0, 3, 0, 96, 0, 120, 0, 14, 0, 10, 0, 2
+ * c'est-à-dire début, blanc, puis chaque phonème suivi d'un blanc, puis fin —
+ * soit 2n+3 valeurs pour n phonèmes. C'est ce que l'on refait ici, en
+ * traduisant dans la table de la voix au lieu de celle du phonémiseur.
+ * ------------------------------------------------------------------ */
+function identifiantsPourCetteVoix(phonemes, fiche) {
+    const carte = fiche.phoneme_id_map || {};
+    if (!Object.keys(carte).length) return null;   // pas de table : on gardera ceux du phonémiseur
+    // La table donne une LISTE par phonème — presque toujours d'un seul
+    // élément, mais pas toujours : on les prend tous, comme Piper.
+    const idsDe = (p) => (carte[p] && carte[p].length) ? carte[p] : null;
+    const BLANC = idsDe('_'), DEBUT = idsDe('^'), FIN = idsDe('$');
+    const ids = [];
+    const inconnus = [];
+    if (DEBUT) ids.push(...DEBUT);
+    if (BLANC) ids.push(...BLANC);
+    phonemes.forEach(p => {
+        const v = idsDe(p);
+        // UN PHONÈME QUE LA VOIX NE CONNAÎT PAS SE TAIT, il ne casse pas la
+        // lecture : mieux vaut un son manquant qu'une phrase entière perdue.
+        if (!v) { inconnus.push(p); return; }
+        ids.push(...v);
+        if (BLANC) ids.push(...BLANC);
+    });
+    if (FIN) ids.push(...FIN);
+    return { ids, inconnus, taille: Object.keys(carte).length };
+}
+
+/* ------------------------------------------------------------------ *
  * LE MOTEUR
  * ------------------------------------------------------------------ */
 let ortPret = false;
@@ -390,7 +434,34 @@ async function parler() {
         mesures['Phonèmes'] = ms(performance.now() - tPhon);
         document.getElementById('carte-phonemes').hidden = false;
         document.getElementById('phonemes').textContent = phon.phonemes.join('');
-        dire('✓ ' + phon.ids.length + ' identifiants de phonèmes', 'ok');
+
+        // LA TRADUCTION DANS LA TABLE DE CETTE VOIX-LÀ. Voir plus haut : sans
+        // elle, on donne à la voix des numéros qui ne sont pas les siens.
+        const traduits = identifiantsPourCetteVoix(phon.phonemes, fiche);
+        const ids = traduits ? traduits.ids : phon.ids;
+        if (traduits) {
+            dire('✓ ' + phon.phonemes.length + ' phonèmes → ' + ids.length
+                + ' identifiants, dans la table de cette voix (' + traduits.taille + ' entrées)', 'ok');
+            if (traduits.inconnus.length) {
+                const uniques = [...new Set(traduits.inconnus)];
+                const part = traduits.inconnus.length / Math.max(1, phon.phonemes.length);
+                dire('   ' + uniques.length + ' phonème(s) inconnus de cette voix, passés : '
+                    + uniques.slice(0, 12).join(' '), 'faible');
+                // UNE VOIX QUI IGNORE UN PHONÈME SUR VINGT NE DIRA PAS DU
+                // FRANÇAIS. Les nasales — « ɛ̃ », « ɑ̃ » — s'écrivent avec un
+                // signe séparé : une table qui ne le porte pas mange « un »,
+                // « en », « on », et l'on croira que la voix est mauvaise
+                // alors qu'elle est mal nourrie.
+                if (part > 0.05) {
+                    dire('   ⚠ plus de 5 % des phonèmes manquent à cette voix : ce qu\'elle dira '
+                        + 'sera amputé. Essayez-en une autre avant de la juger.', 'ko');
+                }
+            }
+        } else {
+            dire('✓ ' + ids.length + ' identifiants (cette voix ne publie pas de table)', 'ok');
+        }
+        const trop = ids.filter(i => i < 0);
+        if (trop.length) throw new Error('la table de cette voix donne des numéros négatifs');
 
         if (!session[cheminOnnx]) {
             const modele = await telecharger(SOURCES.hf + cheminOnnx, 'la voix');
@@ -406,8 +477,8 @@ async function parler() {
         const tSyn = performance.now();
         const inf = fiche.inference || {};
         const entrees = {
-            input: new ort.Tensor('int64', BigInt64Array.from(phon.ids.map(BigInt)), [1, phon.ids.length]),
-            input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(phon.ids.length)])),
+            input: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
+            input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)])),
             scales: new ort.Tensor('float32', Float32Array.from([
                 inf.noise_scale ?? 0.667, inf.length_scale ?? 1, inf.noise_w ?? 0.8]))
         };
