@@ -128,6 +128,17 @@
         <h2>2. Le texte</h2>
         <label for="texte">Ce qu'elle doit dire</label>
         <textarea id="texte">Les cigognes reviennent au printemps. Quatre-vingt-dix élèves écoutaient, attentifs, pendant que le vent d'automne emportait les dernières feuilles.</textarea>
+        <!-- LE DÉBIT EST CE QUI FAIT LE PLUS POUR L'IMPRESSION DE MÉCANIQUE.
+             « Je trouve cela encore hyper mécanique. » Une voix qui débite sans
+             respirer sonne comme une machine ; la même, ralentie d'un quart,
+             sonne comme quelqu'un qui dicte. Le réglage existe dans le modèle
+             (« length_scale ») et ne coûte rien à essayer. -->
+        <label for="debit" style="margin-top: 14px;">Débit — <span id="debit-lu">celui du modèle</span></label>
+        <input type="range" id="debit" min="0.7" max="1.8" step="0.05" value="0">
+        <p class="note" style="margin: 6px 0 0;">
+            Vers la droite, elle parle plus lentement. Une dictée se lit lentement :
+            c'est souvent là que se joue « mécanique » ou « pas mécanique ».
+        </p>
         <div class="rangee">
             <button id="parler" disabled>Télécharger et lire</button>
             <span class="note" id="etat"></span>
@@ -219,6 +230,22 @@ const etat = (t) => { document.getElementById('etat').textContent = t; };
  * voix, ses fichiers et leurs tailles. Une adresse supposée qui tombe à
  * faux ferait croire que le montage ne marche pas.
  * ------------------------------------------------------------------ */
+/* « C'EST CANADIEN, TA VOIX. »
+   Elle l'était : « gilles » vient d'un corpus lu par un narrateur canadien, et
+   rien dans la liste ne le laissait deviner. On lit donc le pays dans le code
+   de langue — fr_FR, fr_CA, fr_BE, fr_CH — et l'on met la France en tête, sans
+   écarter les autres : un accent, c'est un choix, pas une erreur. Et le
+   catalogue ne dit pas tout : « siwis » est un corpus suisse sous un code
+   fr_FR. Le pays affiché est donc un indice, pas une garantie — la seule
+   preuve reste l'oreille. */
+const PAYS_DE_LA_LANGUE = { fr_FR: '🇫🇷', fr_CA: '🇨🇦', fr_BE: '🇧🇪', fr_CH: '🇨🇭' };
+function codeDeLaVoix(v) {
+    return ((v.language && v.language.code) || '').replace('-', '_');
+}
+function paysDeLaVoix(v) {
+    return PAYS_DE_LA_LANGUE[codeDeLaVoix(v)] || '🏳️';
+}
+
 let CATALOGUE = [];
 async function lireLeCatalogue() {
     const liste = document.getElementById('voix');
@@ -231,7 +258,16 @@ async function lireLeCatalogue() {
         const brut = await r.json();
         CATALOGUE = Object.keys(brut).map(cle => brut[cle])
             .filter(v => /^fr/i.test(v.language && (v.language.code || v.language.family) || ''))
-            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            // LA FRANCE D'ABORD, ET LE PALIER « MEDIUM » AVANT « LOW ».
+            // « C'est canadien, ta voix » puis « je trouve cela encore hyper
+            // mécanique » : les deux fois, c'est le premier de la liste qui
+            // avait été essayé. Le premier de la liste doit donc être le
+            // meilleur candidat, pas le premier par ordre alphabétique.
+            .sort((a, b) => {
+                const rang = (v) => (codeDeLaVoix(v) === 'fr_FR' ? 0 : 10)
+                    + ({ high: 0, medium: 1, low: 2, x_low: 3 }[v.quality] ?? 2);
+                return rang(a) - rang(b) || (a.name || '').localeCompare(b.name || '');
+            });
         if (!CATALOGUE.length) throw new Error('aucune voix française dans le catalogue');
         liste.innerHTML = '';
         CATALOGUE.forEach((v, i) => {
@@ -240,7 +276,8 @@ async function lireLeCatalogue() {
             const poids = Object.keys(v.files || {})
                 .filter(f => /\.onnx$/.test(f))
                 .reduce((t, f) => t + (v.files[f].size_bytes || 0), 0);
-            o.textContent = v.name + ' — ' + v.quality + (poids ? ' (' + mo(poids) + ')' : '');
+            o.textContent = paysDeLaVoix(v) + ' ' + v.name + ' — ' + v.quality
+                + (poids ? ' (' + mo(poids) + ')' : '');
             liste.appendChild(o);
         });
         note.textContent = CATALOGUE.length + (CATALOGUE.length > 1
@@ -398,6 +435,19 @@ function versWav(pcm, frequence) {
 const session = {};      // une voix chargée reste chargée
 const mesures = {};
 
+/* Le curseur à zéro veut dire « ce que le modèle propose » : on ne remplace
+   pas un réglage par un autre tant que personne n'a demandé à le changer. */
+function debitChoisi(inf) {
+    const c = Number(document.getElementById('debit').value);
+    return c > 0 ? c : (inf.length_scale ?? 1);
+}
+document.getElementById('debit').addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    document.getElementById('debit-lu').textContent = v > 0
+        ? '×' + v.toFixed(2).replace('.', ',') + (v > 1 ? ' (plus lent)' : ' (plus rapide)')
+        : 'celui du modèle';
+});
+
 async function parler() {
     const bouton = document.getElementById('parler');
     bouton.disabled = true;
@@ -453,8 +503,11 @@ async function parler() {
                 // « en », « on », et l'on croira que la voix est mauvaise
                 // alors qu'elle est mal nourrie.
                 if (part > 0.05) {
-                    dire('   ⚠ plus de 5 % des phonèmes manquent à cette voix : ce qu\'elle dira '
-                        + 'sera amputé. Essayez-en une autre avant de la juger.', 'ko');
+                    dire('   ⚠ ' + Math.round(part * 100) + ' % des phonèmes manquent à cette voix : '
+                        + 'ce qu\'elle dira sera amputé, et sonnera forcément mécanique. '
+                        + 'Ce n\'est pas la voix qu\'il faut juger, c\'est sa table. '
+                        + 'Essayez-en une autre.', 'ko');
+                    etat('⚠ cette voix ne connaît pas ' + Math.round(part * 100) + ' % des sons du texte');
                 }
             }
         } else {
@@ -480,7 +533,7 @@ async function parler() {
             input: new ort.Tensor('int64', BigInt64Array.from(ids.map(BigInt)), [1, ids.length]),
             input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)])),
             scales: new ort.Tensor('float32', Float32Array.from([
-                inf.noise_scale ?? 0.667, inf.length_scale ?? 1, inf.noise_w ?? 0.8]))
+                inf.noise_scale ?? 0.667, debitChoisi(inf), inf.noise_w ?? 0.8]))
         };
         if (fiche.speaker_id_map && Object.keys(fiche.speaker_id_map).length) {
             entrees.sid = new ort.Tensor('int64', BigInt64Array.from([0n]));
