@@ -19819,6 +19819,63 @@ function nomDeLaFenetre(cle, el) {
     return (t && t.length <= 40) ? t : '';
 }
 
+// LES MODALES À VOILE ENTRENT DANS LE MÊME RANG
+//
+// « Fais une barre de titre commune et z-index pour TOUTES les modales. »
+// Elles formaient une troisième famille : une boîte centrée sur un fond
+// sombre, chacune avec son bandeau — celui de Python est noir, celui du
+// tableur gris, celui des pixels encore autre chose. Elles ne passaient pas
+// par l'équipement des fenêtres parce qu'elles ne sont pas posées « fixed » :
+// ce sont des enfants d'un voile qui, lui, couvre l'écran.
+//
+// CE QU'ON RÉPOND N'EST PAS CE QU'ON MANIPULE. Une question de confirmation,
+// une ligne à saisir, une astuce : on y répond et elle s'en va. Lui poser une
+// barre de titre, une croix et un déplacement, c'est habiller de commandes ce
+// qui n'a qu'un oui et un non. Celles-là gardent leur forme centrée.
+const MODALES_SANS_BARRE = ['confirm-modal', 'custom-prompt-modal', 'astuce-modal', 'demo-invite'];
+const MOD_Z_BAS = 100050;
+const MOD_Z_HAUT = 100090;
+
+function voileDeModale(el) {
+    if (!el || el.nodeType !== 1) return null;
+    const v = el.closest('.modal-backdrop, .compo-fond, [id$="-backdrop"]');
+    return v || null;
+}
+
+function boiteDeLaModale(voile) {
+    if (!voile) return null;
+    for (const n of voile.children) {
+        if (n.nodeType !== 1) continue;
+        const s2 = getComputedStyle(n);
+        if (s2.display === 'none' || s2.visibility === 'hidden') continue;
+        const r = n.getBoundingClientRect();
+        if (r.width < 150 || r.height < 70) continue;
+        // Le voile couvre l'écran ; sa boîte, non.
+        if (r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2) continue;
+        return n;
+    }
+    return null;
+}
+
+function equiperLesModales(racine) {
+    const dans = (racine && racine.nodeType === 1) ? racine : document.body;
+    const voiles = [];
+    if (dans.matches && dans.matches('.modal-backdrop, .compo-fond, [id$="-backdrop"]')) voiles.push(dans);
+    if (dans.querySelectorAll) voiles.push(...dans.querySelectorAll('.modal-backdrop, .compo-fond, [id$="-backdrop"]'));
+    let posees = 0;
+    voiles.forEach(voile => {
+        if (MODALES_SANS_BARRE.includes(voile.id)) return;
+        if (getComputedStyle(voile).display === 'none') return;
+        const boite = boiteDeLaModale(voile);
+        if (!boite || boite.dataset.equipee) return;
+        boite.dataset.modaleVoile = '1';
+        equiperFenetre(boite, voile.id || '', { toujours: true });
+        posees++;
+    });
+    return posees;
+}
+window.equiperLesModales = equiperLesModales;
+
 // L'EN-TÊTE MAISON EST ADOPTÉ, PAS DOUBLÉ.
 //
 // Neuf outils s'étaient écrit leur propre bandeau de titre — tu-header,
@@ -19875,6 +19932,24 @@ function fenetresEquipees() {
 
 function passerDevant(el) {
     if (!el) return;
+    // UNE MODALE MONTE PAR SON VOILE. Sa boîte vit DANS le voile : lui donner
+    // un étage plus haut ne la ferait pas passer devant la modale d'à côté,
+    // qui est dans un autre voile. C'est le voile qui porte l'étage, et la
+    // bande des modales est au-dessus des fenêtres — une modale couvre un
+    // outil — et au-dessous des questions, qu'on doit toujours pouvoir lire.
+    if (el.dataset && el.dataset.modaleVoile) {
+        const voile = voileDeModale(el);
+        if (!voile) return;
+        const voiles = [...document.querySelectorAll('.modal-backdrop, .compo-fond, [id$="-backdrop"]')]
+            .filter(v => v !== voile && !MODALES_SANS_BARRE.includes(v.id)
+                      && getComputedStyle(v).display !== 'none');
+        voiles
+            .sort((a, b) => (parseInt(a.style.zIndex, 10) || MOD_Z_BAS)
+                          - (parseInt(b.style.zIndex, 10) || MOD_Z_BAS))
+            .forEach((v, i) => { v.style.zIndex = String(Math.min(MOD_Z_HAUT - 1, MOD_Z_BAS + i)); });
+        voile.style.zIndex = String(MOD_Z_HAUT);
+        return;
+    }
     const autres = fenetresEquipees().filter(f => f !== el);
     // On les renumérote au lieu d'empiler toujours plus haut : sans quoi la
     // bande finirait par déborder sur les modales, et la question de
@@ -19967,7 +20042,9 @@ function equiperVraiment(el, cle, options) {
 
     // ON LA TOUCHE, ELLE PASSE DEVANT. Le déplacement n'est pas le seul moment
     // où l'on veut voir une fenêtre en entier : écrire dedans aussi.
-    el.style.zIndex = String(FEN_Z_BAS);
+    // La boîte d'une modale garde l'étage que son voile lui donne : c'est le
+    // voile qui monte, pas elle.
+    if (!(el.dataset && el.dataset.modaleVoile)) el.style.zIndex = String(FEN_Z_BAS);
     el.addEventListener('pointerdown', () => passerDevant(el), true);
 
     const bouton = tete.querySelector('.fen-plein');
@@ -39102,9 +39179,10 @@ function surveillerLesFenetresDOutils() {
             lot.addedNodes.forEach(n => {
                 if (!n || n.nodeType !== 1) return;
                 const posees = poserLeContourDesFenetres(n);
+                equiperLesModales(n);
                 // Une fenêtre posée cachée puis montrée n'avait, à l'instant
                 // de sa pose, ni taille ni fond : on repasse une fois.
-                if (!posees) setTimeout(() => poserLeContourDesFenetres(n), 260);
+                if (!posees) setTimeout(() => { poserLeContourDesFenetres(n); equiperLesModales(n); }, 260);
             });
         });
     });
@@ -39126,7 +39204,8 @@ function surveillerLesFenetresDOutils() {
             if (!c || c.nodeType !== 1) return;
             // On se garde du serpent qui se mord la queue : poser le trait
             // change une classe, ce qui rappellerait l'observateur.
-            if (lot.attributeName === 'class' && c.classList.contains('contour-fenetre')) return;
+            if (lot.attributeName === 'class'
+                && (c.classList.contains('contour-fenetre') || c.classList.contains('fen-titree'))) return;
             aVoir.add(c);
         });
         if (attente) return;
@@ -39134,7 +39213,14 @@ function surveillerLesFenetresDOutils() {
             attente = null;
             const lot = [...aVoir];
             aVoir.clear();
-            lot.forEach(el => { if (el.isConnected) poserLeContourDesFenetres(el); });
+            lot.forEach(el => {
+                if (!el.isConnected) return;
+                poserLeContourDesFenetres(el);
+                // LA MOITIÉ DES MODALES DORT DÉJÀ DANS LA PAGE : l'outil ne
+                // fait que la montrer. Aucun nœud n'est ajouté, et c'est
+                // pourtant l'instant où elle a enfin une taille à mesurer.
+                equiperLesModales(el);
+            });
         }, 120);
     });
     oeil.observe(document.body, { attributes: true, subtree: true,

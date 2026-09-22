@@ -1150,6 +1150,58 @@ module.exports = async function (browser) {
         apresLeBouton.plein || (apresLeBouton.x === apresLaBarre.x && apresLeBouton.y === apresLaBarre.y),
         JSON.stringify(apresLeBouton));
 
+    // ==================================================================
+    // LES MODALES À VOILE ENTRENT DANS LE MÊME RANG
+    //
+    // « Fais une barre de titre commune et z-index pour TOUTES les modales. »
+    // Elles formaient une troisième famille : une boîte centrée sur un fond
+    // sombre, chacune avec son bandeau. Elles échappaient à l'équipement parce
+    // qu'elles ne sont pas posées « fixed » — ce sont les enfants d'un voile.
+    //
+    // CE QU'ON RÉPOND N'EST PAS CE QU'ON MANIPULE : une question de
+    // confirmation garde sa forme centrée, sans barre ni croix ni déplacement.
+    const modales = await page.evaluate(async () => {
+        const v = document.getElementById('edt-modal');
+        v.style.display = 'flex';
+        await new Promise(r2 => setTimeout(r2, 300));
+        equiperLesModales(document.body);
+        await new Promise(r2 => setTimeout(r2, 300));
+        const boite = v.querySelector('.modal-box');
+        const lu = {
+            barre: !!boite.querySelector('.fen-tete'),
+            nom: (boite.querySelector('.fen-nom') || {}).textContent,
+            // Le titre que la modale s'était écrit est adopté, pas doublé.
+            titreCache: [...boite.querySelectorAll('.modal-title')]
+                .every(t => getComputedStyle(t).display === 'none'),
+            // ET LE MÊME ALIGNEMENT QUE PARTOUT : les anciennes modales
+            // centrent tout leur contenu, la barre ne s'y laisse pas prendre.
+            aligne: getComputedStyle(boite.querySelector('.fen-nom')).textAlign
+        };
+        // La question, elle, garde sa forme : on y répond, on ne la manipule pas.
+        const q = document.getElementById('confirm-modal');
+        q.style.display = 'flex';
+        await new Promise(r2 => setTimeout(r2, 200));
+        equiperLesModales(document.body);
+        await new Promise(r2 => setTimeout(r2, 300));
+        lu.questionSansBarre = !q.querySelector('.fen-tete');
+        // ET ELLE RESTE AU-DESSUS : une modale ne doit jamais couvrir ce qu'on
+        // lui demande de lire.
+        passerDevant(boite);
+        lu.zModale = parseInt(v.style.zIndex, 10);
+        lu.zQuestion = parseInt(getComputedStyle(q).zIndex, 10);
+        q.style.display = 'none';
+        v.style.display = 'none';
+        return lu;
+    });
+    r.verifie('une modale à voile reçoit la barre commune', modales.barre, JSON.stringify(modales));
+    r.egal('qui porte son nom', modales.nom, 'Mon emploi du temps');
+    r.verifie('et son titre maison est adopté, pas doublé', modales.titreCache, JSON.stringify(modales));
+    r.egal('le nom s\'aligne comme partout ailleurs', modales.aligne, 'left');
+    r.verifie('une QUESTION garde sa forme : on y répond, on ne la manipule pas',
+        modales.questionSansBarre, JSON.stringify(modales));
+    r.verifie('et la question reste au-dessus des modales',
+        modales.zQuestion > modales.zModale, JSON.stringify(modales));
+
     // CELLE QU'ON TOUCHE PASSE DEVANT.
     // « Quand on drague des fenêtres, la fenêtre draguée doit avoir un z-index
     // plus important. » Les outils s'étaient donné des étages allant de 9 000 à

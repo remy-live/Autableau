@@ -8743,6 +8743,10 @@ body.focus-mode #edt-bandeau { display: none; }
 .fen-nom {
     flex: 1;
     min-width: 0;
+    /* Les anciennes modales centrent tout leur contenu : sans cette ligne, le
+       titre d'une modale se centrait et celui d'une fenêtre restait à gauche —
+       deux alignements pour une même barre. */
+    text-align: left;
     font-size: 14px;
     font-weight: 700;
     color: #2d3436;
