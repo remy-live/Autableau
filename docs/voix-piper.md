@@ -1,10 +1,15 @@
 # Installer une vraie voix française pour la dictée (Piper)
 
-**À qui s'adresse cette page.** À qui reprend le code avec une machine
-connectée. Elle décrit, pas à pas, comment brancher Piper sur la dictée d'« Au
-Tableau ! ». Elle a été écrite dans un environnement **sans accès réseau** :
-tout ce qui n'a pas pu être vérifié est marqué **[à vérifier]**. Ne recopiez
-pas une URL d'ici sans l'ouvrir d'abord dans un navigateur.
+**À qui s'adresse cette page.** À qui reprend le code pour brancher Piper sur
+la dictée d'« Au Tableau ! ». Elle décrit ce qui est déjà fait, ce qui manque,
+et dans quel ordre s'y prendre.
+
+**Ce qui a été mesuré, et ce qui ne l'a pas été.** Le registre npm et PyPI
+étaient joignables ; `huggingface.co`, `cdnjs` et `jsdelivr` ne l'étaient pas.
+Les tailles, les licences et la marche à suivre pour `file://` sont donc des
+relevés, pas des souvenirs. En revanche **aucune vraie voix n'a pu être
+essayée** — elles vivent sur Hugging Face — et tout ce qui les concerne reste
+marqué **[à vérifier]**. Ne recopiez pas une URL d'ici sans l'ouvrir d'abord.
 
 ---
 
@@ -44,12 +49,16 @@ Il ne manque donc que **le synthétiseur lui-même**, et de quoi le nourrir.
 ## 2. La décision qui commande tout : la page ne télécharge rien
 
 « Au Tableau ! » s'ouvre aussi bien depuis `file://` qu'en ligne, et doit
-fonctionner dans une salle sans réseau. Deux faits mesurés dans ce dépôt :
+fonctionner dans une salle sans réseau. Trois faits mesurés dans ce dépôt :
 
 - depuis `file://`, **`fetch()` échoue** (Chrome refuse les requêtes vers
-  `file:`) : une page qui irait chercher son modèle au premier usage ne
-  marcherait pas pour la moitié des utilisateurs ;
-- IndexedDB et WebAssembly, eux, **fonctionnent** depuis `file://`.
+  `file:`, l'origine y vaut « null ») : une page qui irait chercher son modèle
+  au premier usage ne marcherait pas pour la moitié des utilisateurs ;
+- IndexedDB, les *workers* par `blob:` et WebAssembly, eux, **fonctionnent**
+  depuis `file://` ;
+- **ONNX Runtime Web tourne depuis `file://`** — voir le § 4, où la manière
+  est écrite. Ce n'est pas une conjecture : un modèle minuscule y a bien été
+  exécuté, `1, 2, 3` en entrée, `1, 4, 9` en sortie.
 
 D'où le choix retenu : **l'enseignant télécharge les deux fichiers lui-même**
 (une fois, chez lui) et les **désigne** avec un `<input type="file">`. La page
@@ -99,24 +108,62 @@ Piper, en dehors du navigateur, s'appuie sur deux morceaux :
    en WebAssembly, qui transforme « Les cigognes » en phonèmes. Sans lui, pas
    de français correct : c'est lui qui sait les liaisons et les nombres.
 
-Des portages tout faits existent sur npm (autour du nom `piper-tts-web`)
-**[à vérifier : nom exact du paquet, licence, état de maintenance]**. Comptez
-**10 à 20 Mo** de WebAssembly pour le moteur, en plus du modèle **[à
-vérifier]**.
+### Ce qui existe, relevé sur le registre npm
 
-**Ces fichiers-là doivent être servis depuis le dépôt**, dans `lib/piper/`,
-comme `lib/pdfjs/` ou `lib/mathlive/` : pas de CDN. Un CDN casse le hors
-ligne, casse `file://`, et fait dépendre une salle de classe d'un domaine
-tiers. C'est la règle déjà suivie par toutes les bibliothèques du projet.
+| Paquet | Version | Licence | Ce que c'est |
+|---|---|---|---|
+| `onnxruntime-web` | 1.30.0 | MIT | le moteur d'inférence |
+| `piper-wasm` | 0.1.4 | MIT | Piper porté en WebAssembly |
+| `@diffusionstudio/vits-web` | 1.0.3 | MIT | modèles VITS dans le navigateur |
+| `@mintplex-labs/piper-tts-web` | 1.0.5 | MIT | dérivé du précédent |
+| `phonemize` | 2.0.1 | MIT | phonémiseur à règles, JavaScript pur |
+| `espeak-ng` | 1.0.2 | **GPL-3.0-or-later** | eSpeak-NG compilé |
 
-> Contrainte à mesurer avant de s'engager : `onnxruntime-web` charge son
-> `.wasm` par `fetch` relatif. Depuis `file://`, cela **échouera** comme le
-> reste. Il faudra sans doute l'inliner en `data:` URI, ou fournir le binaire
-> par `WebAssembly.instantiate` à partir d'un `ArrayBuffer` lu autrement.
-> **C'est le point dur du portage : traitez-le en premier, avant même de
-> brancher la voix.** S'il ne se résout pas, Piper reste possible en ligne
-> seulement, et il faut alors le dire clairement à l'utilisateur plutôt que de
-> lui offrir un bouton qui ne marche que chez certains.
+**Tailles relevées** pour `onnxruntime-web` : 32 Mo d'archive, 139 Mo une fois
+ouverte, mais il ne faut que trois fichiers — `ort.wasm.bundle.min.mjs`
+(72 Ko) et `ort-wasm-simd-threaded.wasm` (**14 Mo**). Soit **19 Mo** si l'on
+doit inliner le binaire en base64 pour `file://`.
+
+> ### ⚠️ LA LICENCE EST L'OBSTACLE, PAS LA TECHNIQUE
+>
+> Piper est MIT, ses portages aussi — mais le phonémiseur français, c'est
+> **eSpeak-NG, sous GPL-3.0-or-later**. Or ce dépôt est sous **PolyForm
+> Noncommercial**, qui n'est pas compatible avec la GPL : y embarquer du code
+> GPL imposerait des obligations que la licence du projet ne peut pas tenir.
+> Et la GPL suit le binaire — un `piper-phonemize` déclaré MIT qui embarque
+> eSpeak-NG compilé ne change rien à l'affaire.
+>
+> **À trancher avant d'écrire une ligne**, par quelqu'un qui décide de la
+> licence du projet. Trois issues possibles : un phonémiseur non GPL (comme
+> `phonemize`, MIT — mais un G2P à règles sur du français, il faut l'entendre
+> avant d'y croire) ; le phonémiseur servi à part, jamais redistribué ici ;
+> ou bien l'on renonce.
+
+**Le reste doit être servi depuis le dépôt**, dans `lib/piper/`, comme
+`lib/pdfjs/` ou `lib/mathlive/` : pas de CDN. Un CDN casse le hors ligne,
+casse `file://`, et fait dépendre une salle de classe d'un domaine tiers.
+
+### Et `file://` : c'est réglé, voici comment
+
+Le point dur annoncé plus haut a été mesuré, et il se franchit. Trois choses
+échouent depuis `file://`, et chacune a son remède :
+
+1. `fetch('…​.wasm')` est **refusé** (origine « null ») → on ne va pas
+   chercher le binaire, on le **donne** : `env.wasm.wasmBinary = <ArrayBuffer>`.
+2. Le build ordinaire charge sa colle par `import()` dynamique, qui se
+   résout contre `about:blank` et **échoue** → on prend le build
+   **`ort.wasm.bundle.min.mjs`**, qui porte sa colle en lui.
+3. Ce build est un module ES, et un `<script type="module" src="…">` local
+   est refusé → on **inline** son source dans la page, et l'on remplace sa
+   ligne `export{…}` par une pose sur `window`.
+
+Un piège de plus, qui coûte une demi-heure : **les scripts « module »
+s'exécutent après les scripts classiques**. Le code qui se sert du moteur doit
+donc être un module lui aussi, sans quoi il lit `window.ORT` avant que le
+premier ait tourné — et l'on croit à un échec de chargement.
+
+Éprouvé ainsi : session ouverte, `1, 2, 3` en entrée, `1, 4, 9` en sortie,
+depuis une page `file://`, sans serveur.
 
 ---
 
@@ -184,13 +231,13 @@ au-dessus du moteur et ne sait pas quelle voix parle.
 
 ## 6. La marche à suivre, dans l'ordre
 
-1. **Régler le point dur d'abord** (§ 4) : faire dire « bonjour » à
-   `onnxruntime-web` depuis une page ouverte en `file://`, dans une page
-   d'essai isolée, sans rien du projet. Si cela ne marche pas, s'arrêter là et
-   décider : en ligne seulement, ou pas du tout.
+1. **Trancher la licence d'abord** (§ 4) : c'est le seul obstacle qui ne se
+   résout pas en écrivant du code. Tant qu'il tient, le reste est du travail
+   perdu.
 2. **Poser les fichiers** dans `lib/piper/`, avec leur licence dans
    `NOTICE.md`, et les charger depuis `index.html` comme les autres
-   bibliothèques — avec leur `?v=` de cache.
+   bibliothèques — avec leur `?v=` de cache. La manière de les charger en
+   `file://` est au § 4 ; elle est éprouvée.
 3. **Écrire `window.VoixInstallee`** (§ 5) : `dire` et `taire`, rien de plus.
    Il n'y a aucune bifurcation à ajouter dans la dictée — elle est déjà là.
 4. **Le bouton d'installation existe déjà** dans les réglages fins : il attend
