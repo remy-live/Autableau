@@ -315,17 +315,37 @@ module.exports = async function (browser) {
     // ==================================================================
     const UN_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
+    // IL N'EST PLUS DANS LA MÊME RANGÉE QUE LES DEUX AUTRES, ET C'EST LE POINT.
+    //
+    // « Je ne comprends pas ce que font les 3 boutons, je ne saisis pas la
+    // différence. » Les deux premiers vident le TIROIR sur une PAGE DU
+    // TABLEAU et ne diffèrent que par la page ; celui-ci ne touche pas au
+    // tableau, il montre UN morceau à côté du document qu'on PROJETTE. Les
+    // aligner tous les trois disait le contraire de ce qu'ils font.
     const leBouton = await page.evaluate(() => {
         const b = document.getElementById('bm-a-cote');
+        const groupe = b ? b.closest('.bm-groupe') : null;
+        const poser = document.querySelector('.bm-poser');
+        const titre = groupe ? groupe.querySelector('.bm-groupe-titre') : null;
         return {
             la: !!b,
-            dansLaRangee: !!(b && b.closest('.bm-poser')),
-            voisins: b ? [...b.closest('.bm-poser').querySelectorAll('button')].map(x => x.id) : []
+            // Il vit dans son propre groupe, sous son propre titre…
+            sonGroupe: !!groupe,
+            titre: titre ? titre.textContent.trim() : '',
+            seul: groupe ? groupe.querySelectorAll('button').length : 0,
+            // …et pas dans la rangée des deux qui posent sur une page.
+            avecLesPoseurs: !!(b && b.closest('.bm-poser')),
+            poseurs: poser ? [...poser.querySelectorAll('button')].map(x => x.id) : []
         };
     });
-    r.verifie('« À côté » a son bouton', leBouton.la, JSON.stringify(leBouton));
-    r.egal('dans la même rangée que les deux autres', leBouton.voisins,
-        ['bm-ranger', 'bm-ranger-neuve', 'bm-a-cote']);
+    r.verifie('« à côté » a son bouton', leBouton.la, JSON.stringify(leBouton));
+    r.egal('les deux qui posent sur une page sont ensemble', leBouton.poseurs,
+        ['bm-ranger', 'bm-ranger-neuve']);
+    r.egal('celui-ci n\'est pas avec eux', leBouton.avecLesPoseurs, false);
+    r.verifie('il a son propre groupe', leBouton.sonGroupe && leBouton.seul === 1,
+        JSON.stringify(leBouton));
+    r.verifie('sous un titre qui dit de quoi il parle',
+        /projection/i.test(leBouton.titre), leBouton.titre);
 
     const etats = await page.evaluate(async (pixel) => {
         images.length = 0;
@@ -364,7 +384,7 @@ module.exports = async function (browser) {
     r.verifie('et il dit qu\'il faut d\'abord découper',
         /découp/i.test(etats.tiroirVide.pourquoi), etats.tiroirVide.pourquoi);
     r.verifie('un morceau au tiroir le réveille', !etats.pret.grise, JSON.stringify(etats.pret));
-    r.egal('et il propose de poser à côté', etats.pret.texte, '⇔ À côté');
+    r.egal('et il propose de poser à côté', etats.pret.texte, '⇔ Montrer un morceau à côté du document');
 
     const pose = await page.evaluate(async () => {
         const avant = { tiroir: morceauxEnAttente.length, images: images.length };
@@ -409,7 +429,7 @@ module.exports = async function (browser) {
         pose.projectionTenue, JSON.stringify(pose));
     r.verifie('on le tient, pour le redéplacer d\'un geste', pose.tenu, JSON.stringify(pose));
     r.egal('et le bouton propose maintenant de le ranger',
-        [pose.texte, pose.grise], ['⇔ Ranger celui d\'à côté', false]);
+        [pose.texte, pose.grise], ['⇔ Retirer ce qui est à côté', false]);
 
     // LA SYMÉTRIE : la place s'ouvre quand quelqu'un arrive, elle se referme
     // quand il part. La page reprend alors toute la largeur, d'elle-même.
@@ -437,7 +457,7 @@ module.exports = async function (browser) {
         JSON.stringify(rangee));
     r.verifie('le morceau, lui, reste sur le tableau', rangee.restees, JSON.stringify(rangee));
     r.egal('et le bouton redevient grisé — il n\'y a plus rien à poser',
-        [rangee.texte, rangee.grise], ['⇔ À côté', true]);
+        [rangee.texte, rangee.grise], ['⇔ Montrer un morceau à côté du document', true]);
 
     // ET SI SON OCCUPANT DISPARAÎT SANS PRÉVENIR — effacé, emporté par un
     // retour en arrière —, la place se referme au prochain dessin plutôt que

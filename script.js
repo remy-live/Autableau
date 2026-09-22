@@ -30974,6 +30974,10 @@ const EDT_MINIMUM = 10;
 const EDT_DUREE_PAR_DEFAUT = 55;
 const EDT_PX_DEFAUT = 1;
 const EDT_ZOOMS = [0.85, 1, 1.4, 1.9];
+// L'AIMANT DES SONNERIES : à moins de ce nombre de minutes d'une heure de
+// sonnerie, on s'y colle. Douze, c'est assez pour rattraper une main qui
+// tremble et trop peu pour voler un créneau qu'on veut vraiment décaler.
+const EDT_AIMANT = 12;
 // Dimanche ne paraît pas dans la grille — on n'y pose rien — mais il doit
 // porter son nom : le bandeau regarde l'heure sept jours sur sept, et « undefined »
 // un dimanche soir serait une drôle de façon de saluer.
@@ -31032,6 +31036,92 @@ function edtPx() { return (Number.isFinite(agenda.px) && agenda.px > 0) ? agenda
 function edtDureeDefaut() {
     return Number.isFinite(agenda.dureeDefaut) ? agenda.dureeDefaut : EDT_DUREE_PAR_DEFAUT;
 }
+
+// ==================================================================
+// LES SONNERIES : SES PROPRES HAUTEURS DANS LA COLONNE DE GAUCHE
+//
+// « Pourrait-on ajouter des hauteurs à gauche, et que ça s'aligne, ou que ça
+// s'aimante ? »
+//
+// UN EMPLOI DU TEMPS NE SUIT PAS UN PAS DE CINQ MINUTES, IL SUIT LES
+// SONNERIES DE L'ÉTABLISSEMENT. Les heures rondes que la grille traçait — 8 h,
+// 9 h, 10 h — ne sont celles de personne : au collège on sonne à 8 h, 8 h 55,
+// 9 h 50 ; à l'école on a récréation à 10 h 15. On visait donc une ligne qui
+// ne voulait rien dire, et l'on recalait à la main des créneaux qui tombaient
+// tous à cinq minutes près du bon endroit.
+//
+// L'enseignant écrit ses heures une fois, en septembre. Elles deviennent les
+// lignes fortes de la grille, elles portent leur étiquette à gauche, et tout
+// ce qu'on glisse s'y aimante.
+function edtSonneries() {
+    const brut = Array.isArray(agenda.sonneries) ? agenda.sonneries : [];
+    return brut
+        .map(m => Math.round(Number(m)))
+        .filter(m => Number.isFinite(m) && m >= 0 && m <= 24 * 60)
+        .filter((m, i, t) => t.indexOf(m) === i)
+        .sort((a, b) => a - b);
+}
+
+// « 8h55 » : la forme compacte, celle qu'on tape. « heureLisible » écrit
+// « 8 h 55 » avec ses espaces — très bien à l'écran, illisible pour la
+// relecture, car les espaces sont justement ce qui sépare deux heures.
+function heureCompacte(minutes) {
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    return h + 'h' + (m ? String(m).padStart(2, '0') : '');
+}
+
+// « 8h 8h55 9h50 » : on accepte ce qu'on écrit vraiment, séparé comme on veut.
+function lireDesHeures(texte) {
+    return String(texte || '')
+        // TOUT CE QUI N'EST NI UN CHIFFRE NI UNE MARQUE D'HEURE SÉPARE. On
+        // avait gardé la virgule et le point DANS le jeton : « 9h50, » ne se
+        // relisait plus, et l'heure disparaissait sans un mot.
+        .split(/[^0-9hH:]+/)
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(t => minutesDepuisTexte(t, null))
+        .filter(m => m !== null);
+}
+
+// LA MINUTE LA PLUS PROCHE D'UNE SONNERIE, si elle est assez proche. Sinon le
+// pas ordinaire — on doit pouvoir poser un créneau où l'on veut, l'aimant
+// aide, il ne décide pas.
+function aimanterSurUneSonnerie(minute) {
+    const heures = edtSonneries();
+    if (!heures.length) return minute;
+    let vise = null, ecart = EDT_AIMANT + 1;
+    heures.forEach(h => {
+        const d = Math.abs(h - minute);
+        if (d < ecart) { ecart = d; vise = h; }
+    });
+    return (vise !== null && ecart <= EDT_AIMANT) ? vise : minute;
+}
+
+async function reglerLesSonneries() {
+    const heures = edtSonneries();
+    openCustomPrompt('Mes heures de sonnerie',
+        [{ label: 'Les heures, dans l’ordre', type: 'text',
+           value: heures.map(heureCompacte).join(' '),
+           placeholder: '8h 8h55 9h50 10h55 11h50 13h30 14h25 15h20' }],
+        null,
+        (v) => {
+            const lues = lireDesHeures(v[0]);
+            agenda.sonneries = lues;
+            ecrireLAgenda();
+            rendreLAgenda();
+            if (typeof showToast === 'function') {
+                showToast(lues.length
+                    ? lues.length + ' heures de sonnerie — les créneaux s’y aimantent'
+                    : 'Plus de sonneries : la grille revient aux heures rondes');
+            }
+        },
+        () => { /* renoncé */ });
+}
+window.heureCompacte = heureCompacte;
+window.edtSonneries = edtSonneries;
+window.lireDesHeures = lireDesHeures;
+window.aimanterSurUneSonnerie = aimanterSurUneSonnerie;
+window.reglerLesSonneries = reglerLesSonneries;
 
 function lireLAgenda() {
     try {
@@ -31101,7 +31191,7 @@ function rendreLaPaletteDeLAgenda() {
 
     agenda.entrees.forEach(e => {
         const b = document.createElement('div');
-        b.className = 'edt-entree';
+        b.className = 'edt-entree' + (agenda.tampon === e.id ? ' edt-arme' : '');
         b.dataset.id = e.id;
         b.style.background = e.couleur;
         b.style.color = encreSur(e.couleur);
@@ -31243,15 +31333,29 @@ function rendreLaGrilleDeLAgenda() {
     const hauteur = (edtFin() - edtDebut()) * edtPx();
     cadre.innerHTML = '';
 
+    // LES HAUTEURS DE GAUCHE SONT CELLES DE L'ÉTABLISSEMENT, quand il y en a.
+    // Les heures rondes ne sont celles de personne.
+    const sonneries = edtSonneries().filter(m => m >= edtDebut() && m <= edtFin());
+    const marques = sonneries.length ? sonneries : [];
     const heures = document.createElement('div');
     heures.className = 'edt-heures';
     heures.style.height = hauteur + 'px';
-    for (let m = edtDebut(); m <= edtFin(); m += 60) {
-        const t = document.createElement('div');
-        t.className = 'edt-heure';
-        t.style.top = ((m - edtDebut()) * edtPx()) + 'px';
-        t.innerText = heureLisible(m);
-        heures.appendChild(t);
+    if (!marques.length) {
+        for (let m = edtDebut(); m <= edtFin(); m += 60) {
+            const t = document.createElement('div');
+            t.className = 'edt-heure';
+            t.style.top = ((m - edtDebut()) * edtPx()) + 'px';
+            t.innerText = heureLisible(m);
+            heures.appendChild(t);
+        }
+    } else {
+        marques.forEach(m => {
+            const t = document.createElement('div');
+            t.className = 'edt-heure edt-sonnerie-heure';
+            t.style.top = ((m - edtDebut()) * edtPx()) + 'px';
+            t.innerText = heureLisible(m);
+            heures.appendChild(t);
+        });
     }
     cadre.appendChild(heures);
 
@@ -31266,13 +31370,24 @@ function rendreLaGrilleDeLAgenda() {
         fond.className = 'edt-jour';
         fond.dataset.jour = String(jour);
         fond.style.height = hauteur + 'px';
-        for (let m = edtDebut() + 30; m < edtFin(); m += 30) {
-            const l = document.createElement('div');
-            // La demie se voit moins que l'heure : on se repère à l'heure, on
-            // se cale à la demie.
-            l.className = (m % 60) ? 'edt-ligne edt-demie' : 'edt-ligne';
-            l.style.top = ((m - edtDebut()) * edtPx()) + 'px';
-            fond.appendChild(l);
+        if (marques.length) {
+            // Une ligne par sonnerie, et rien d'autre : c'est là qu'on cale.
+            marques.forEach(m => {
+                if (m <= edtDebut() || m >= edtFin()) return;
+                const l = document.createElement('div');
+                l.className = 'edt-ligne edt-sonnerie';
+                l.style.top = ((m - edtDebut()) * edtPx()) + 'px';
+                fond.appendChild(l);
+            });
+        } else {
+            for (let m = edtDebut() + 30; m < edtFin(); m += 30) {
+                const l = document.createElement('div');
+                // La demie se voit moins que l'heure : on se repère à l'heure,
+                // on se cale à la demie.
+                l.className = (m % 60) ? 'edt-ligne edt-demie' : 'edt-ligne';
+                l.style.top = ((m - edtDebut()) * edtPx()) + 'px';
+                fond.appendChild(l);
+            }
         }
         const duJour = visibles.filter(c => c.jour === jour);
         const place = repartirLesChevauchements(duJour);
@@ -31297,6 +31412,28 @@ function majLesReglagesDeLAgenda() {
         });
     }
     if (copier) copier.style.display = agenda.alterne ? 'inline-flex' : 'none';
+
+    const tampon = document.getElementById('edt-tampon');
+    if (tampon) {
+        const arme = tamponArme();
+        tampon.style.display = arme ? 'inline-flex' : 'none';
+        if (arme) {
+            tampon.innerHTML = '';
+            const mot = document.createElement('b');
+            mot.textContent = 'Tampon : ' + arme.libelle;
+            const fin = document.createElement('button');
+            fin.type = 'button';
+            fin.id = 'edt-tampon-fin';
+            fin.textContent = 'ranger';
+            fin.addEventListener('click', () => armerLeTampon(arme.id));
+            tampon.append(mot, fin);
+        }
+    }
+    const sonne = document.getElementById('edt-sonneries-lu');
+    if (sonne) {
+        const n = edtSonneries().length;
+        sonne.textContent = n ? n + ' heures' : 'heures rondes';
+    }
 
     const journee = document.getElementById('edt-journee-lue');
     if (journee) journee.textContent = heureLisible(edtDebut()) + ' – ' + heureLisible(edtFin());
@@ -31349,6 +31486,137 @@ function reglerLaJournee(debut, fin) {
     return true;
 }
 
+// ==================================================================
+// L'EMPLOI DU TEMPS SUR PAPIER
+//
+// « Un export en PDF. » On l'affiche dans la salle des profs, on le colle
+// dans son agenda, on l'envoie au remplaçant. On ne photographie pas un écran
+// pour cela.
+//
+// ON LE REDESSINE, ON NE PHOTOGRAPHIE PAS LA FENÊTRE : la grille à l'écran est
+// faite pour le doigt — boutons, poignées, colonne de palette — et rien de
+// tout cela n'a sa place sur une feuille. La feuille veut des traits nets, des
+// heures lisibles et les noms en grand.
+function dessinerLAgendaSurUneToile(echelle) {
+    const k = echelle || 2;
+    const jours = EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES);
+    const gouttiere = 62, entete = 34, marge = 18;
+    const parJour = 150;
+    const minutes = Math.max(60, edtFin() - edtDebut());
+    const parMinute = 0.95;
+    const L = marge * 2 + gouttiere + jours.length * parJour;
+    const H = marge * 2 + entete + minutes * parMinute + 26;
+
+    const c = document.createElement('canvas');
+    c.width = Math.round(L * k);
+    c.height = Math.round(H * k);
+    const g = c.getContext('2d');
+    g.scale(k, k);
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, L, H);
+
+    const hautGrille = marge + 26 + entete;
+    const yDe = (m) => hautGrille + (m - edtDebut()) * parMinute;
+
+    g.fillStyle = '#2d3436';
+    g.font = 'bold 15px system-ui, sans-serif';
+    g.textBaseline = 'alphabetic';
+    const titre = 'Mon emploi du temps'
+        + (agenda.alterne ? ' — semaine ' + edtSemaineVue : '');
+    g.fillText(titre, marge, marge + 15);
+
+    // Les heures de gauche : les sonneries si on en a, les heures rondes sinon.
+    const sonneries = edtSonneries().filter(m => m >= edtDebut() && m <= edtFin());
+    const marques = sonneries.length ? sonneries
+        : Array.from({ length: Math.floor((edtFin() - edtDebut()) / 60) + 1 },
+                     (_, i) => edtDebut() + i * 60);
+
+    g.strokeStyle = '#dfe6e9';
+    g.lineWidth = 1;
+    marques.forEach(m => {
+        const y = Math.round(yDe(m)) + 0.5;
+        g.beginPath();
+        g.moveTo(marge + gouttiere, y);
+        g.lineTo(L - marge, y);
+        g.stroke();
+        g.fillStyle = '#636e72';
+        g.font = '11px system-ui, sans-serif';
+        g.fillText(heureLisible(m), marge, y + 4);
+    });
+
+    // Les jours, et leurs colonnes.
+    jours.forEach((nom, i) => {
+        const x = marge + gouttiere + i * parJour;
+        g.fillStyle = '#2d3436';
+        g.font = 'bold 12px system-ui, sans-serif';
+        g.fillText(nom, x + 6, hautGrille - 10);
+        g.strokeStyle = '#dfe6e9';
+        g.beginPath();
+        g.moveTo(Math.round(x) + 0.5, hautGrille);
+        g.lineTo(Math.round(x) + 0.5, yDe(edtFin()));
+        g.stroke();
+    });
+    g.beginPath();
+    g.moveTo(Math.round(L - marge) + 0.5, hautGrille);
+    g.lineTo(Math.round(L - marge) + 0.5, yDe(edtFin()));
+    g.stroke();
+
+    // Les cours.
+    creneauxVisibles().forEach(c2 => {
+        const i = c2.jour - 1;
+        if (i < 0 || i >= jours.length) return;
+        const x = marge + gouttiere + i * parJour + 2;
+        const y = yDe(c2.debut);
+        const h = Math.max(12, c2.duree * parMinute) - 2;
+        const w = parJour - 4;
+        g.fillStyle = c2.couleur || '#dfe4ff';
+        g.fillRect(x, y, w, h);
+        g.strokeStyle = 'rgba(0,0,0,0.10)';
+        g.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, w, h);
+        g.fillStyle = encreSur(c2.couleur || '#dfe4ff');
+        g.font = 'bold 12px system-ui, sans-serif';
+        g.save();
+        g.beginPath(); g.rect(x, y, w, h); g.clip();
+        g.fillText(c2.libelle || '', x + 5, y + 15);
+        if (h >= 28) {
+            g.font = '10px system-ui, sans-serif';
+            g.globalAlpha = 0.75;
+            g.fillText(heureLisible(c2.debut) + ' – ' + heureLisible(c2.debut + c2.duree), x + 5, y + 28);
+            g.globalAlpha = 1;
+        }
+        g.restore();
+    });
+
+    return c;
+}
+window.dessinerLAgendaSurUneToile = dessinerLAgendaSurUneToile;
+
+function exporterLAgendaEnPdf() {
+    if (!agenda.creneaux.length) {
+        if (typeof showToast === 'function') showToast('Posez d’abord un cours : la feuille serait vide.');
+        return false;
+    }
+    const toile = dessinerLAgendaSurUneToile(2);
+    const moteur = window.jspdf && window.jspdf.jsPDF;
+    if (!moteur) {
+        if (typeof showToast === 'function') showToast('Moteur PDF non chargé.');
+        return false;
+    }
+    try {
+        const l = toile.width / 2, h = toile.height / 2;
+        const pdf = new moteur({ orientation: l > h ? 'landscape' : 'portrait',
+                                 unit: 'px', format: [l, h] });
+        pdf.addImage(toile.toDataURL('image/png'), 'PNG', 0, 0, l, h);
+        pdf.save('Emploi_du_temps' + (agenda.alterne ? '_semaine_' + edtSemaineVue : '') + '.pdf');
+        if (typeof showToast === 'function') showToast('📄 Emploi du temps exporté');
+        return true;
+    } catch (err) {
+        if (typeof showToast === 'function') showToast('L’export a échoué.');
+        return false;
+    }
+}
+window.exporterLAgendaEnPdf = exporterLAgendaEnPdf;
+
 function reglerLeZoom(sens) {
     const i = EDT_ZOOMS.indexOf(edtPx());
     const vise = Math.max(0, Math.min(EDT_ZOOMS.length - 1, (i < 0 ? 1 : i) + sens));
@@ -31364,8 +31632,13 @@ function reglerLeZoom(sens) {
 // ------------------------------------------------------------
 function minutesSousLeDoigt(colonne, y) {
     const r = colonne.getBoundingClientRect();
-    const brut = edtDebut() + Math.round((y - r.top) / edtPx() / EDT_PAS) * EDT_PAS;
-    return Math.max(edtDebut(), Math.min(edtFin() - EDT_MINIMUM, brut));
+    const exact = edtDebut() + (y - r.top) / edtPx();
+    // L'AIMANT D'ABORD, LE PAS ENSUITE. On se colle à la sonnerie quand elle
+    // est proche ; sinon on retombe sur les cinq minutes ordinaires.
+    const aimante = aimanterSurUneSonnerie(exact);
+    const brut = (aimante !== exact) ? aimante
+        : edtDebut() + Math.round((exact - edtDebut()) / EDT_PAS) * EDT_PAS;
+    return Math.max(edtDebut(), Math.min(edtFin() - EDT_MINIMUM, Math.round(brut)));
 }
 
 function colonneSousLeDoigt(x, y) {
@@ -31379,7 +31652,41 @@ function colonneSousLeDoigt(x, y) {
 // et c'était l'ordre des choses à l'envers : on demandait de remplir une
 // palette avant d'avoir vu la grille. La grille est pourtant la première
 // chose qu'on regarde, et tracer dessus est le geste naturel.
+// ==================================================================
+// LE TAMPON : UNE CLASSE ARMÉE, ET L'ON TAMPONNE
+//
+// « On pourrait avoir le mode tampon. » En septembre on pose dix-huit
+// créneaux, et six d'entre eux sont la même classe. Glisser la vignette
+// dix-huit fois depuis la palette est un travail de copiste.
+//
+// On appuie donc sur une classe pour l'ARMER — un appui, pas un glissé, et
+// c'est une distance qui les sépare, jamais une durée. Tant qu'elle est armée,
+// chaque appui sur la grille pose un créneau de cette classe, à la durée
+// apprise, sans plus rien demander. Un second appui sur la classe désarme.
+function tamponArme() {
+    return agenda.tampon ? entreeDeLAgenda(agenda.tampon) : null;
+}
+
+function armerLeTampon(id) {
+    const e = entreeDeLAgenda(id);
+    if (!e) return false;
+    const meme = agenda.tampon === id;
+    agenda.tampon = meme ? null : id;
+    if (!meme) agenda.derniere = id;
+    ecrireLAgenda();
+    rendreLAgenda();
+    if (typeof showToast === 'function') {
+        showToast(meme ? 'Tampon rangé'
+            : 'Tampon « ' + e.libelle + ' » — appuyez sur la grille pour poser une heure');
+    }
+    return !meme;
+}
+window.tamponArme = tamponArme;
+window.armerLeTampon = armerLeTampon;
+
 function entreeParDefaut() {
+    const tampon = tamponArme();
+    if (tampon) return { entree: tampon, neuve: false };
     const derniere = entreeDeLAgenda(agenda.derniere);
     if (derniere) return { entree: derniere, neuve: false };
     if (agenda.entrees.length) return { entree: agenda.entrees[0], neuve: false };
@@ -31625,6 +31932,15 @@ function finirUnGesteDeLAgenda(e) {
 
     if (edtGeste.type === 'poser') {
         const col = e ? colonneSousLeDoigt(e.clientX, e.clientY) : null;
+        // UN APPUI SUR LA CLASSE L'ARME, un glissé la dépose. Ce sont deux
+        // gestes que la DISTANCE sépare, jamais la durée.
+        if (!edtGeste.bouge && !col) {
+            const id = edtGeste.entree.id;
+            edtGeste = null;
+            cacherLeFantomeDeLAgenda(); cacherLApercu(); viserLaColonne(null);
+            armerLeTampon(id);
+            return;
+        }
         // Déposé à côté de la grille, c'est un simple appui : on retient
         // l'entrée pour le prochain tracé, et rien de plus.
         if (col) poserUnCreneau(Number(col.dataset.jour), minutesSousLeDoigt(col, e.clientY), edtGeste.entree);
@@ -31649,8 +31965,12 @@ function finirUnGesteDeLAgenda(e) {
     // Un créneau qu'on TOUCHE sans le bouger, lui, existe déjà et porte un
     // nom : ce qu'on veut corriger, c'est son horaire — « modifier les
     // horaires » —, et cela se fait au chiffre, pas en visant un bord.
+    // (Pas de garde sur le tampon ici : « nommer » n'est vrai que lorsque la
+    // palette était VIDE et qu'une entrée est née sous le doigt — or un tampon
+    // armé EST une entrée. Un sabotage a montré que la garde ne servait rien.)
     const aNommer = edtGeste.nommer ? edtGeste.c.entreeId : null;
-    const aRegler = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge)
+    const aRegler = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge
+                     && !tamponArme())
         ? edtGeste.c.id : null;
     edtGeste = null;
     ecrireLAgenda();
@@ -32124,7 +32444,9 @@ function ouvrirLAgenda() {
                 return;
             }
             const zoom = e.target.closest('[data-zoom]');
-            if (zoom) reglerLeZoom(Number(zoom.dataset.zoom));
+            if (zoom) { reglerLeZoom(Number(zoom.dataset.zoom)); return; }
+            if (e.target.closest('#edt-sonneries')) { reglerLesSonneries(); return; }
+            if (e.target.closest('#edt-pdf')) exporterLAgendaEnPdf();
         });
         // ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé
         // par erreur n'avait aucune sortie : lâcher valait accepter.

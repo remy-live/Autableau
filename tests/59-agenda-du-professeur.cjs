@@ -1355,6 +1355,238 @@ module.exports = async function (browser) {
     r.egal('la durée se retient', apprise.retenue, 90);
     r.egal('et le cours suivant naît à la même durée', apprise.neuve, 90);
 
+    // ==================================================================
+    // LES SONNERIES : SES PROPRES HAUTEURS, ET L'AIMANT
+    //
+    // « Pourrait-on ajouter des hauteurs à gauche, et que ça s'aligne, ou que
+    // ça s'aimante ? » Un emploi du temps ne suit pas un pas de cinq minutes,
+    // il suit les sonneries de l'établissement : les heures rondes que la
+    // grille traçait — 8 h, 9 h, 10 h — ne sont celles de personne.
+    // ==================================================================
+    const sonneries = await page.evaluate(async () => {
+        localStorage.removeItem('board_agenda');
+        agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
+                   debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55, sonneries: [] };
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 120));
+        const sansRien = {
+            lignes: document.querySelectorAll('.edt-jour[data-jour="1"] .edt-ligne.edt-sonnerie').length,
+            heures: [...document.querySelectorAll('.edt-heure')].map(x => x.textContent)
+        };
+        // ON LES ÉCRIT COMME ON LES TAPE, séparées comme on veut.
+        const lues = lireDesHeures('8h 8h55  9h50, 10h55');
+        agenda.sonneries = lireDesHeures('8h 8h55 9h50 10h55 11h50 13h30 14h25 15h20');
+        rendreLAgenda();
+        const avec = {
+            lignes: document.querySelectorAll('.edt-jour[data-jour="1"] .edt-ligne.edt-sonnerie').length,
+            demies: document.querySelectorAll('.edt-jour[data-jour="1"] .edt-ligne.edt-demie').length,
+            heures: [...document.querySelectorAll('.edt-heure')].map(x => x.textContent),
+            grasses: document.querySelectorAll('.edt-heure.edt-sonnerie-heure').length
+        };
+        // L'AIMANT : proche d'une sonnerie, on s'y colle ; loin, on garde le
+        // pas de cinq minutes. Il aide, il ne décide pas.
+        const proche = aimanterSurUneSonnerie(8 * 60 + 58);
+        const justeAuBord = aimanterSurUneSonnerie(8 * 60 + 55 + 12);
+        const loin = aimanterSurUneSonnerie(8 * 60 + 55 + 13);
+        const auMilieu = aimanterSurUneSonnerie(12 * 60 + 30);
+        // Et sous le doigt, dans la vraie grille.
+        const col = document.querySelector('.edt-jour[data-jour="1"]');
+        const rc = col.getBoundingClientRect();
+        const sousLeDoigt = (m) => minutesSousLeDoigt(col, rc.top + (m - edtDebut()) * edtPx());
+        const colle = sousLeDoigt(9 * 60 + 47);
+        const libre = sousLeDoigt(12 * 60 + 32);
+        // LA RELECTURE PASSE PAR LA VRAIE FICHE, et non par un appel qu'on
+        // écrirait soi-même : c'est le champ rempli qu'on doit pouvoir relire.
+        // « heureLisible » écrit « 8 h 55 » AVEC SES ESPACES, et les espaces
+        // sont justement ce qui sépare deux heures — le champ se serait relu
+        // « 8, h, 55 ».
+        reglerLesSonneries();
+        await new Promise(ok => setTimeout(ok, 200));
+        const champ = document.querySelector('#custom-prompt-inputs .prompt-input');
+        const ecritDansLaFiche = champ ? champ.value : '';
+        const allerRetour = lireDesHeures(ecritDansLaFiche);
+        const annuler = document.getElementById('custom-prompt-cancel');
+        if (annuler) annuler.click();
+        await new Promise(ok => setTimeout(ok, 150));
+        // Et l'on peut les retirer.
+        agenda.sonneries = lireDesHeures('');
+        rendreLAgenda();
+        const sansPlus = document.querySelectorAll('.edt-jour[data-jour="1"] .edt-ligne.edt-sonnerie').length;
+        agenda.sonneries = lireDesHeures('8h 8h55 9h50 10h55 11h50 13h30 14h25 15h20');
+        rendreLAgenda();
+        return { sansRien, lues, avec, proche, justeAuBord, loin, auMilieu,
+                 colle, libre, allerRetour, ecritDansLaFiche, sansPlus,
+                 attendu: edtSonneries() };
+    });
+    r.egal('sans sonneries, la grille garde ses heures rondes', sonneries.sansRien.lignes, 0);
+    r.egal('on écrit les heures comme on les tape, séparées comme on veut',
+        sonneries.lues, [8 * 60, 8 * 60 + 55, 9 * 60 + 50, 10 * 60 + 55]);
+    r.egal('chaque sonnerie donne sa ligne', sonneries.avec.lignes, 7);
+    r.egal('et les demies s\'en vont : c\'est là qu\'on cale maintenant',
+        sonneries.avec.demies, 0);
+    r.egal('la colonne de gauche porte les heures de l\'établissement',
+        sonneries.avec.heures, ['8 h', '8 h 55', '9 h 50', '10 h 55', '11 h 50',
+                                '13 h 30', '14 h 25', '15 h 20']);
+    r.egal('et elles se lisent comme des repères', sonneries.avec.grasses, 8);
+    r.egal('à trois minutes d\'une sonnerie, on s\'y colle', sonneries.proche, 8 * 60 + 55);
+    r.egal('à douze aussi, tout juste', sonneries.justeAuBord, 8 * 60 + 55);
+    r.egal('à treize, non : l\'aimant aide, il ne décide pas',
+        sonneries.loin, 8 * 60 + 55 + 13);
+    r.egal('et au milieu de nulle part, il ne fait rien', sonneries.auMilieu, 12 * 60 + 30);
+    r.egal('sous le doigt, le créneau se colle à la sonnerie', sonneries.colle, 9 * 60 + 50);
+    r.egal('et loin d\'elles, il garde le pas de cinq minutes', sonneries.libre, 12 * 60 + 30);
+    r.egal('ce qu\'on relit dans la fiche est ce qu\'on avait écrit',
+        sonneries.allerRetour, sonneries.attendu);
+    r.egal('on peut les retirer et retrouver les heures rondes', sonneries.sansPlus, 0);
+
+    // ==================================================================
+    // LE TAMPON : UNE CLASSE ARMÉE, ET L'ON TAMPONNE
+    //
+    // « On pourrait avoir le mode tampon. » En septembre on pose dix-huit
+    // créneaux, dont six de la même classe : glisser la vignette dix-huit fois
+    // est un travail de copiste.
+    // ==================================================================
+    const tampon = await page.evaluate(async () => {
+        agenda.entrees.push({ id: 'et', libelle: '4e A', classeId: null, classeNom: null,
+                              couleur: '#d9f2e6' });
+        // Une SECONDE classe, pour que « la dernière servie » et « le tampon »
+        // puissent enfin se contredire : sans elle, les deux désignent la même
+        // et la ligne du tampon n'est éprouvée par rien.
+        agenda.entrees.push({ id: 'ea', libelle: '6e D', classeId: null, classeNom: null,
+                              couleur: '#ffe6d5' });
+        agenda.tampon = null;
+        rendreLAgenda();
+        const puce = document.querySelector('.edt-entree[data-id="et"]');
+        const rp = puce.getBoundingClientRect();
+        const evt = (type, p, cible) => (cible || window).dispatchEvent(
+            new PointerEvent(type, { clientX: p.x, clientY: p.y, bubbles: true, pointerType: 'mouse' }));
+        const surLaPuce = { x: rp.left + 12, y: rp.top + rp.height / 2 };
+        // UN APPUI L'ARME. Un glissé la dépose — c'est la DISTANCE qui les
+        // sépare, jamais la durée.
+        evt('pointerdown', surLaPuce, puce);
+        evt('pointerup', surLaPuce);
+        await new Promise(ok => setTimeout(ok, 150));
+        const puceArmee = document.querySelector('.edt-entree[data-id="et"].edt-arme');
+        const arme = {
+            id: agenda.tampon,
+            // « PORTE LA CLASSE » NE SUFFIT PAS : on veut que ça se VOIE.
+            marquee: !!puceArmee && parseFloat(getComputedStyle(puceArmee).outlineWidth) > 0,
+            bandeau: (document.getElementById('edt-tampon').textContent || '').trim(),
+            bandeauVu: getComputedStyle(document.getElementById('edt-tampon')).display !== 'none'
+        };
+        // Et chaque appui sur la grille pose une heure de cette classe, sans
+        // rien demander.
+        const avant = agenda.creneaux.length;
+        // ON RELIT LA COLONNE À CHAQUE COUP : poser un créneau refait la
+        // grille, et la référence d'avant désigne alors un nœud détaché dont
+        // le rectangle vaut zéro — on tamponnerait tout au même endroit.
+        const tamponner = (m) => {
+            const col = document.querySelector('.edt-jour[data-jour="3"]');
+            const rc = col.getBoundingClientRect();
+            const p = { x: rc.left + rc.width / 2, y: rc.top + (m - edtDebut()) * edtPx() };
+            evt('pointerdown', p, col);
+            evt('pointerup', p);
+        };
+        tamponner(8 * 60);
+        // ET LE TAMPON L'EMPORTE SUR LA DERNIÈRE CLASSE SERVIE. Entre deux
+        // coups, on dépose une AUTRE classe à la main : sans cela, « la
+        // dernière servie » suffirait à expliquer le résultat, et la ligne du
+        // tampon ne serait éprouvée par rien.
+        const autre = document.querySelector('.edt-entree[data-id="ea"]');
+        if (autre) {
+            const ra = autre.getBoundingClientRect();
+            const colA = document.querySelector('.edt-jour[data-jour="5"]');
+            const rA = colA.getBoundingClientRect();
+            const arrivee = { x: rA.left + rA.width / 2, y: rA.top + 100 };
+            evt('pointerdown', { x: ra.left + 12, y: ra.top + ra.height / 2 }, autre);
+            evt('pointermove', arrivee);
+            evt('pointerup', arrivee);
+            await new Promise(ok => setTimeout(ok, 150));
+        }
+        const derniereServie = agenda.derniere;
+        tamponner(9 * 60 + 50);
+        await new Promise(ok => setTimeout(ok, 250));
+        const poses = agenda.creneaux.filter(c => c.jour === 3);
+        const fiche = getComputedStyle(document.getElementById('custom-prompt-modal')).display !== 'none';
+        const annuler = document.getElementById('custom-prompt-cancel');
+        if (annuler) annuler.click();
+        await new Promise(ok => setTimeout(ok, 120));
+        // Un second appui sur la classe range le tampon.
+        evt('pointerdown', surLaPuce, document.querySelector('.edt-entree[data-id="et"]'));
+        evt('pointerup', surLaPuce);
+        await new Promise(ok => setTimeout(ok, 150));
+        const range = { id: agenda.tampon,
+                        bandeauVu: getComputedStyle(document.getElementById('edt-tampon')).display !== 'none' };
+        return { arme, range, avant, derniereServie, combien: poses.length,
+                 libelles: poses.map(c => c.libelle),
+                 heures: poses.map(c => c.debut).sort((x, y) => x - y),
+                 ficheOuverte: fiche };
+    });
+    r.egal('un appui sur une classe l\'arme en tampon', tampon.arme.id, 'et');
+    r.verifie('elle se voit armée dans la palette', tampon.arme.marquee, JSON.stringify(tampon.arme));
+    r.verifie('et l\'en-tête dit laquelle',
+        tampon.arme.bandeauVu && /4e A/.test(tampon.arme.bandeau), JSON.stringify(tampon.arme));
+    r.egal('chaque appui sur la grille pose une heure', tampon.combien, 2);
+    r.egal('de la classe armée', tampon.libelles, ['4e A', '4e A']);
+    r.verifie('même après avoir déposé une autre classe entre-temps',
+        tampon.derniereServie && tampon.derniereServie !== 'et',
+        String(tampon.derniereServie));
+    // ET LES HEURES S'AIMANTENT : on tamponne sur les sonneries.
+    r.egal('aux heures de sonnerie', tampon.heures, [8 * 60, 9 * 60 + 50]);
+    // SANS RIEN DEMANDER : la classe est déjà choisie, la fiche n'a pas à
+    // s'ouvrir à chaque coup de tampon.
+    r.egal('sans demander le nom à chaque fois', tampon.ficheOuverte, false);
+    r.egal('un second appui range le tampon', tampon.range.id, null);
+    r.egal('et le bandeau s\'en va', tampon.range.bandeauVu, false);
+
+    // ==================================================================
+    // L'EMPLOI DU TEMPS SUR PAPIER
+    //
+    // « Un export en PDF. » On l'affiche en salle des profs, on l'envoie au
+    // remplaçant. On ne photographie pas un écran pour cela — et l'on ne
+    // photographie pas non plus la fenêtre : ce qui est à l'écran est fait
+    // pour le doigt, et n'a rien à faire sur une feuille.
+    // ==================================================================
+    const papier = await page.evaluate(async () => {
+        const bouton = document.getElementById('edt-pdf');
+        const vu = bouton ? getComputedStyle(bouton).display !== 'none' : false;
+        const toile = dessinerLAgendaSurUneToile(2);
+        const g = toile.getContext('2d');
+        // On regarde la feuille elle-même : un fond blanc, et de la couleur là
+        // où un cours est posé.
+        const coin = g.getImageData(4, 4, 1, 1).data;
+        // Le premier cours du jeudi, s'il y en a un — sinon on en pose un.
+        const c = agenda.creneaux.find(x => x.jour === 3) || agenda.creneaux[0];
+        const jours = EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES);
+        const x = (18 + 62 + (c.jour - 1) * 150 + 40) * 2;
+        const y = (18 + 26 + 34 + (c.debut - edtDebut()) * 0.95 + 10) * 2;
+        const dessus = g.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+        // Et sans aucun cours, on refuse plutôt que de sortir une feuille vide.
+        const garde = agenda.creneaux.slice();
+        agenda.creneaux = [];
+        const refus = exporterLAgendaEnPdf();
+        agenda.creneaux = garde;
+        return {
+            vu, largeur: toile.width, hauteur: toile.height,
+            coinBlanc: coin[0] > 250 && coin[1] > 250 && coin[2] > 250,
+            colore: !(dessus[0] > 250 && dessus[1] > 250 && dessus[2] > 250),
+            refus, jours: jours.length
+        };
+    });
+    r.verifie('le bouton d\'export est là', papier.vu, String(papier.vu));
+    r.verifie('la feuille est plus large que haute : un emploi du temps est un paysage',
+        papier.largeur > papier.hauteur, papier.largeur + '×' + papier.hauteur);
+    r.verifie('elle a un fond blanc — on l\'imprime', papier.coinBlanc, String(papier.coinBlanc));
+    r.verifie('et les cours y sont peints', papier.colore, String(papier.colore));
+    r.egal('sans aucun cours, on refuse plutôt que de sortir une feuille vide',
+        papier.refus, false);
+
+    await page.evaluate(() => {
+        agenda.tampon = null; agenda.sonneries = [];
+        localStorage.removeItem('board_agenda');
+        fermerLAgenda();
+    });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

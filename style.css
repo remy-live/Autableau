@@ -7239,6 +7239,46 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .edt-pas:hover { background: #f1f2f6; }
+.edt-pas-large { min-width: auto; padding: 0 10px; font-size: 12px; }
+.edt-pas-large b { font-variant-numeric: tabular-nums; }
+
+/* LE TAMPON ARMÉ SE VOIT, et de deux façons : la classe est cerclée dans la
+   palette, et l'en-tête dit laquelle. Un mode dans lequel on est sans le
+   savoir est un mode qui surprend. */
+.edt-tampon {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px 3px 10px;
+    border-radius: 999px;
+    background: rgba(108, 92, 231, 0.12);
+    color: #6c5ce7;
+    font-size: 12px;
+}
+
+.edt-tampon button {
+    border: none;
+    border-radius: 999px;
+    background: #6c5ce7;
+    color: #fff;
+    font: inherit;
+    font-size: 11px;
+    padding: 3px 9px;
+    cursor: pointer;
+}
+
+.edt-entree.edt-arme {
+    outline: 2px solid #6c5ce7;
+    outline-offset: 2px;
+}
+
+/* LA LIGNE D'UNE SONNERIE se voit mieux qu'une demie : c'est là qu'on cale. */
+.edt-ligne.edt-sonnerie { background: #cfd6dd; }
+.edt-heure.edt-sonnerie-heure { font-weight: 700; color: #2d3436; }
+
+.dark-mode .edt-ligne.edt-sonnerie { background: #46515a; }
+.dark-mode .edt-heure.edt-sonnerie-heure { color: #dfe6e9; }
+.dark-mode .edt-tampon { background: rgba(108, 92, 231, 0.24); color: #cdc6ff; }
 
 .dark-mode .edt-ligne { background: #333c44; }
 .dark-mode .edt-ligne.edt-demie { background: #2c343b; }

@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=184">
+    <link rel="stylesheet" href="style.css?v=185">
 </head>
 
 <body>
@@ -3669,6 +3669,16 @@
                     <b id="edt-zoom-lu">100 %</b>
                     <button type="button" class="edt-pas" data-zoom="1" aria-label="Des cours plus hauts">+</button>
                 </span>
+                <!-- LES SONNERIES : un emploi du temps ne suit pas un pas de
+                     cinq minutes, il suit les heures de l'établissement. -->
+                <span class="edt-reglage">
+                    <span class="edt-reglage-titre">Sonneries</span>
+                    <button type="button" id="edt-sonneries" class="edt-pas edt-pas-large">
+                        <b id="edt-sonneries-lu">heures rondes</b> ✎</button>
+                </span>
+                <button type="button" id="edt-pdf" class="edt-pas edt-pas-large"
+                    aria-label="Exporter l'emploi du temps en PDF">📄 PDF</button>
+                <span id="edt-tampon" class="edt-tampon"></span>
                 <span id="edt-ancre"></span>
             </div>
             <div id="edt-corps">
@@ -3677,10 +3687,12 @@
             </div>
             <div id="edt-mode-demploi" class="modal-text">
                 <b>Tracez directement sur la grille</b> pour créer une heure. Ou prenez une classe
-                à gauche et déposez-la — un aperçu vous montre où elle tombera. Ensuite : glissez le
-                créneau pour le déplacer, tirez sa barre du haut ou du bas pour changer son début ou
-                sa fin, « ⋯ » pour saisir l'horaire exact au clavier, « × » pour le retirer.
-                <b>Échap</b> annule le geste en cours.
+                à gauche et déposez-la — un aperçu vous montre où elle tombera. <b>Appuyez</b> sur une
+                classe sans la glisser : elle devient un tampon, et chaque appui sur la grille pose
+                une heure de cette classe. Ensuite : glissez le créneau pour le déplacer, tirez sa
+                barre du haut ou du bas pour changer son début ou sa fin, « ⋯ » pour saisir l'horaire
+                exact au clavier, « × » pour le retirer. <b>Échap</b> annule le geste en cours.
+                Donnez vos <b>heures de sonnerie</b> et tout s'y aimantera.
             </div>
             <div class="export-actions-grid" style="display:flex; margin-top: 16px;">
                 <button onclick="fermerLAgenda()" class="btn-action secondary" style="flex:1;">Fermer</button>
@@ -3693,7 +3705,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=305"></script>
+    <script src="script.js?v=306"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=111"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
