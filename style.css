@@ -2141,6 +2141,7 @@ body.sans-tiroirs #donate-float-btn {
     display: none;
 }
 
+
 /* Le ✕ vit dans un second « group-document », tout au bout de la barre : il
    ferme LE DOCUMENT, il n'avait rien à faire derrière un texte sélectionné. */
 
@@ -6557,22 +6558,9 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
    Le JS le décale si le bord droit de l'écran approche. */
 #reglages-date { top: calc(100% + 10px); left: 0; right: auto; }
 
-/* Un bouton qui cache des réglages porte un petit coin : sans repère,
-   personne ne devine qu'il faut garder le doigt appuyé. */
-.btn.a-appui-long { position: relative; }
-
-.btn.a-appui-long::before {
-    content: '';
-    position: absolute;
-    right: 3px;
-    bottom: 3px;
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-bottom: 5px solid currentColor;
-    opacity: 0.35;
-    pointer-events: none;
-}
+/* LE REPÈRE DE L'APPUI MAINTENU A DISPARU AVEC LUI : un triangle de 5 px à
+   35 % d'opacité dans le coin d'un bouton, c'était tout ce qui annonçait cinq
+   panneaux entiers. Chacun a maintenant sa porte visible. */
 
 .panneau-appui { max-height: 70vh; overflow-y: auto; z-index: 17000; }
 

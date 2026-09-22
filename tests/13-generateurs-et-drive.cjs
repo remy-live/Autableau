@@ -102,20 +102,22 @@ module.exports = async function (browser) {
         colonnesCopie >= 15 && colonnesCopie <= 25, `${colonnesCopie} traits verticaux sur 600 px`);
     r.verifie('le cahier, lui, reste réglé Seyès', colonnesSeyes <= 2, `${colonnesSeyes} traits verticaux`);
 
-    // --- LE PAS DES GRADUATIONS ---
-    const ouvrirAxes = async () => {
+    // --- LE PAS DES GRADUATIONS, DANS LE PANNEAU DU PAPIER ---
+    //
+    // Il dormait sous l'appui maintenu des axes — le geste chronométré qu'on
+    // retire partout. Or « une case vaut » est une propriété de la FEUILLE, au
+    // même titre que le fond et l'épaisseur du quadrillage : les trois sont
+    // maintenant dans « Choisir le papier… », qui s'ouvre au CLIC.
+    const ouvrirLePapier = async () => {
         const b = await page.evaluate(() => {
-            const el = document.getElementById('btn-axes').getBoundingClientRect();
-            return { x: el.x + el.width / 2, y: el.y + el.height / 2 };
+            const el = document.getElementById('btn-cycle').getBoundingClientRect();
+            return { x: Math.round(el.x + el.width / 2), y: Math.round(el.y + el.height / 2) };
         });
-        await page.mouse.move(b.x, b.y);
-        await page.mouse.down();
-        await page.waitForTimeout(700);
-        await page.mouse.up();
-        await page.waitForTimeout(200);
+        await page.mouse.click(b.x, b.y);
+        await page.waitForTimeout(250);
     };
 
-    await ouvrirAxes();
+    await ouvrirLePapier();
     const choix = await page.evaluate(() =>
         Array.from(document.querySelectorAll('#panneau-appui .rp-choix')).map(c => c.innerText.trim()));
     ['0,1', '1', '10'].forEach(pas =>

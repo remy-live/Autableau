@@ -7867,6 +7867,12 @@ function pushStyleToObject() {
 // Le cadenas a quitté la barre fixe pour le menu flottant, avec les autres
 // actions. Son écouteur est parti avec lui.
 
+// LE BOUT DU SURLIGNEUR AVAIT DÉJÀ SON BOUTON dans la barre de style, auprès
+// de la couleur et de l'épaisseur — c'est-à-dire exactement là où il doit
+// être. L'appui maintenu sur l'icône de l'outil n'était qu'un SECOND chemin
+// vers le même choix, et c'est ce second chemin qui est parti. J'avais commencé
+// par en ajouter un troisième, faute d'avoir regardé : deux boutons portaient
+// alors le même identifiant, et le clic n'atteignait que le premier.
 document.getElementById('btn-arrow-start').addEventListener('click', () => {
     activeStyle.arrowStart = (activeStyle.arrowStart + 1) % 4;
     document.getElementById('btn-arrow-start').innerHTML = getArrowIcon(activeStyle.arrowStart, true);
@@ -21619,11 +21625,9 @@ function clonePluginButton(sourceBtn, toolId) {
     const toucheSource = sourceBtn.getAttribute('data-raccourci');
     if (toucheSource) clone.setAttribute('data-raccourci', toucheSource);
     clone.addEventListener('click', () => sourceBtn.click());
-    // Les réglages cachés derrière un appui long suivent la copie
-    if (sourceBtn.actionAppuiLong && typeof poserAppuiLong === 'function') {
-        delete clone.dataset.appuiLong;
-        poserAppuiLong(clone, () => sourceBtn.actionAppuiLong(clone));
-    }
+    // PLUS DE RÉGLAGE CACHÉ DERRIÈRE UN APPUI MAINTENU, donc plus rien à
+    // relayer ici : une copie de bouton commande le même clic que l'original,
+    // et les réglages ont tous une porte visible.
     bindPluginDragGhost(clone, toolId);
     return clone;
 }
@@ -27303,9 +27307,14 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // LE BOUTON DES CLASSES OUVRE SON PANNEAU, et « Gérer mes classes » en est
-    // la première entrée. L'écouteur qui menait droit au gestionnaire vivait
-    // ici ; l'y laisser aurait ouvert les deux à la fois.
+    // LE BOUTON DES CLASSES OUVRE LES CLASSES, comme son nom le dit. J'avais
+    // voulu lui faire ouvrir le panneau des cinq outils qui s'appuient sur la
+    // liste des élèves : c'était ajouter un geste à l'action la plus courante,
+    // pour une commodité que ces cinq outils n'attendent pas — ils vivent déjà
+    // dans la grille des plugins, et la recherche les trouve. Seul l'appui
+    // maintenu devait partir, et il est parti.
+    const btnClasses = document.getElementById('btn-classes-menu');
+    if (btnClasses) btnClasses.addEventListener('click', () => openClassManagerModal());
 
     // ✅ "Plugin virtuel" : permet au double-clic natif sur une image (canvas.addEventListener('dblclick', ...))
     // de rouvrir l'éditeur de plan de classe quand l'image tamponnée porte pluginData.id === 'seatingPlan'.
@@ -37893,65 +37902,15 @@ function cadrerSurLaFeuille() {
     majPastilleZoom();
 }
 
-// ===================================================
-// APPUI LONG SUR UN BOUTON
-// Certains boutons cachent des réglages : on garde le doigt appuyé une demi-
-// seconde pour les ouvrir. Un geste invisible ne sert à personne : chaque
-// bouton concerné reçoit un petit repère en coin (voir « .a-appui-long »).
-// ===================================================
-const DUREE_APPUI_LONG = 500;
 
-function poserAppuiLong(bouton, action) {
-    if (!bouton || bouton.dataset.appuiLong === 'oui') return;
-    bouton.dataset.appuiLong = 'oui';
-    bouton.classList.add('a-appui-long');
-    // Mémorisée pour que les copies du bouton (barres flottantes, interfaces)
-    // gardent leur appui long : sans ça, l'outil déplacé perdait ses réglages.
-    bouton.actionAppuiLong = action;
+// L'APPUI MAINTENU N'EXISTE PLUS. « Évite les appuis longs et courts, aucun
+// geste distingué par sa DURÉE. » Un « setTimeout » de quelques centaines de
+// millisecondes ouvrait cinq panneaux entiers — le papier, les axes, l'aimant,
+// les classes, le bout du surligneur —, et le seul indice en était un triangle
+// de 5 px à 35 % d'opacité dans le coin du bouton. Chacun a désormais sa porte
+// visible : un bouton qui dit ce qu'il ouvre, ou une entrée dans les réglages.
+// « ouvrirPanneauAppui » reste : c'est le panneau lui-même, et il sert toujours.
 
-    let minuteur = null;
-    let declenche = false;
-    let depart = null;
-
-    const arreter = () => { clearTimeout(minuteur); minuteur = null; depart = null; };
-
-    bouton.addEventListener('pointerdown', (e) => {
-        declenche = false;
-        arreter();
-        depart = { x: e.clientX, y: e.clientY };
-        minuteur = setTimeout(() => {
-            declenche = true;
-            // Tenir sans bouger règle l'outil : le déplacement qu'on n'a pas
-            // fait n'a plus à attendre son tour.
-            if (typeof desarmerLeGlisserDOutil === 'function') desarmerLeGlisserDOutil();
-            action(bouton, e);
-        }, DUREE_APPUI_LONG);
-    });
-
-    // ON ABANDONNE SUR UN DÉPLACEMENT, ET NON SUR UN « LEAVE ». Le survol se
-    // perd pour mille raisons qui n'ont rien à voir avec le doigt — une
-    // vignette qui passe dessous, un bouton qui se cache. C'est la main qui
-    // dit si l'on tient encore.
-    window.addEventListener('pointermove', (e) => {
-        if (!depart) return;
-        if (Math.abs(e.clientX - depart.x) > SEUIL_DE_DEPART_DOUTIL
-            || Math.abs(e.clientY - depart.y) > SEUIL_DE_DEPART_DOUTIL) arreter();
-    });
-
-    ['pointerup', 'pointercancel'].forEach(ev => bouton.addEventListener(ev, arreter));
-    window.addEventListener('pointerup', arreter);
-
-    // Un appui long ne doit pas déclencher AUSSI l'action courte du bouton
-    bouton.addEventListener('click', (e) => {
-        if (declenche) { e.preventDefault(); e.stopImmediatePropagation(); declenche = false; }
-    }, true);
-
-    // Le clic droit ouvre le même panneau : c'est le réflexe sur ordinateur
-    bouton.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        action(bouton, e);
-    });
-}
 
 // Un panneau flottant partagé par tous les appuis longs
 function ouvrirPanneauAppui(bouton, titre, entrees) {
@@ -38104,18 +38063,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Les barres flottantes recopient les boutons : on repasse quand c'est fait
     window.addEventListener('load', () => setTimeout(poserRaccourcisSurLesBoutons, 800));
 
-    // Surligneur : rond comme un feutre, ou carré comme un biseau. Le réglage
-    // n'a de place nulle part ailleurs — il tient à l'outil, et à lui seul.
-    document.querySelectorAll('[data-mode="highlighter"]').forEach(bouton => {
-        poserAppuiLong(bouton, (b) => {
-            ouvrirPanneauAppui(b, 'Bout du surligneur', [
-                { nom: 'Rond', actif: boutDuSurligneur === 'rond',
-                  action: () => changerLeBoutDuSurligneur('rond') },
-                { nom: 'Carré', actif: boutDuSurligneur === 'carre',
-                  action: () => changerLeBoutDuSurligneur('carre') }
-            ]);
-        });
-    });
+    // LE BOUT DU SURLIGNEUR EST DANS LES RÉGLAGES. Il ne s'atteignait qu'en
+    // tenant le doigt sur l'icône de l'outil — le dernier geste chronométré de
+    // l'application. On choisit la forme de son surligneur une fois, pas vingt
+    // fois par heure : sa place est auprès des autres préférences.
 
     // Fonds : choisir directement, au lieu de faire défiler huit fonds
     // ==================================================================
@@ -38244,25 +38195,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Classes : les outils qui s'appuient sur la liste des élèves
-    // LES OUTILS DE CLASSE S'OUVRENT AU CLIC. Le bouton menait droit au
-    // gestionnaire de classes, et le panneau des cinq outils qui s'appuient sur
-    // la liste des élèves dormait sous l'appui maintenu — c'est-à-dire nulle
-    // part. On retourne les deux : le panneau au clic, « Gérer mes classes » en
-    // tête de ce panneau.
-    const ouvrirLesClasses = (bouton) => {
-        const outils = ['Points de classe', 'Tirage au sort & Groupes', 'Le Défi du Prof', 'Popcorn', 'Questions Flash'];
-        const entrees = [{
-            nom: 'Gérer mes classes',
-            action: () => { if (typeof openClassManagerModal === 'function') openClassManagerModal(); }
-        }, { separateur: 'Outils qui utilisent les classes' }];
-        outils.forEach(nom => {
-            const source = (typeof getPluginSourceButton === 'function') ? getPluginSourceButton(nom) : null;
-            if (source) entrees.push({ nom, action: () => source.click() });
-        });
-        ouvrirPanneauAppui(bouton, 'Mes classes', entrees);
-    };
-    const btnClassesMenu = document.getElementById('btn-classes-menu');
-    if (btnClassesMenu) btnClassesMenu.onclick = function () { ouvrirLesClasses(this); };
+    // LE PANNEAU DES CINQ OUTILS DE CLASSE EST PARTI AVEC L'APPUI MAINTENU qui
+    // l'ouvrait. Il regroupait Points de classe, Tirage au sort, Le Défi du
+    // Prof, Popcorn et Questions Flash — tous déjà dans la grille des plugins,
+    // et tous trouvés par la recherche. Une commodité cachée derrière un geste
+    // chronométré n'est pas une commodité.
 });
 
 // ===================================================
@@ -39492,6 +39429,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof handleWorkspaceDarkMode === 'function') handleWorkspaceDarkMode();
         if (typeof majReglagesBarre === 'function') majReglagesBarre();
     });
+
 
     const bDate = document.getElementById('rp-date');
     if (bDate) bDate.addEventListener('click', () => {

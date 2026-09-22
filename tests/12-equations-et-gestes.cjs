@@ -103,25 +103,31 @@ module.exports = async function (browser) {
             `${gen[type].deuxMembres}/60`);
     });
 
-    // --- APPUI LONG ---
-    for (const [id, titre] of [['btn-cycle', 'Fond du tableau'], ['btn-axes', 'Axes'],
-                               ['btn-classes-menu', 'Mes classes'], ['btn-surligneur', 'Bout du surligneur']]) {
-        const marque = await page.evaluate((x) => {
-            const b = document.getElementById(x);
-            return b ? b.dataset.appuiLong === 'oui' && b.classList.contains('a-appui-long') : false;
-        }, id);
-        r.verifie(`« ${titre} » : le bouton porte son repère d'appui long`, marque, id);
+    // --- LES PANNEAUX S'OUVRENT AU CLIC, PLUS EN MAINTENANT LE DOIGT ---
+    //
+    // RÈGLE DU PROJET : aucun geste distingué par sa DURÉE. Ce chapitre
+    // éprouvait exactement le contraire — quatre boutons dont les réglages ne
+    // s'atteignaient qu'en tenant le doigt un demi-seconde, avec pour seul
+    // indice un triangle de 5 px à 35 % d'opacité. Il éprouve maintenant qu'il
+    // n'en reste aucun, et que les panneaux s'ouvrent d'un clic franc.
+    const plusDAppui = await page.evaluate(() =>
+        ['btn-cycle', 'btn-axes', 'btn-magnet', 'btn-classes-menu']
+            .filter(id => {
+                const b = document.getElementById(id);
+                return b && (b.dataset.appuiLong === 'oui' || b.classList.contains('a-appui-long'));
+            }));
+    r.egal('aucun bouton du tiroir ne cache plus ses réglages sous un appui maintenu',
+        plusDAppui, []);
 
+    // LE PAPIER : un clic, et les huit fonds sont NOMMÉS.
+    for (const [id, titre, mini] of [['btn-cycle', 'Le papier du tableau', 8],
+                                     ['btn-aimant-reglages', 'Aimant', 3]]) {
         const boite = await page.evaluate((x) => {
-            const b = document.getElementById(x);
-            const r = b.getBoundingClientRect();
-            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            const b = document.getElementById(x).getBoundingClientRect();
+            return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
         }, id);
-        await page.mouse.move(boite.x, boite.y);
-        await page.mouse.down();
-        await page.waitForTimeout(700);
-        await page.mouse.up();
-        await page.waitForTimeout(200);
+        await page.mouse.click(boite.x, boite.y);
+        await page.waitForTimeout(250);
 
         const panneau = await page.evaluate(() => {
             const p = document.getElementById('panneau-appui');
@@ -130,74 +136,91 @@ module.exports = async function (browser) {
             return {
                 titre: p.querySelector('.rp-titre').innerText,
                 choix: p.querySelectorAll('.rp-choix').length,
-                dansEcran: b.left >= 0 && b.top >= 0 && b.right <= window.innerWidth + 1 && b.bottom <= window.innerHeight + 1
+                sections: [...p.querySelectorAll('.rp-titre')].map(t => t.innerText),
+                dansEcran: b.left >= -1 && b.top >= -1
+                    && b.right <= window.innerWidth + 1 && b.bottom <= window.innerHeight + 1
             };
         });
-        r.verifie(`« ${titre} » : l'appui long ouvre son panneau`,
-            !!panneau && panneau.titre.toLowerCase() === titre.toLowerCase(),   // la feuille de style met en capitales
+        r.verifie(`« ${titre} » : un clic ouvre son panneau`,
+            !!panneau && panneau.titre.toLowerCase() === titre.toLowerCase(),
             JSON.stringify(panneau));
-        r.verifie(`« ${titre} » : le panneau tient dans l'écran`, !!panneau && panneau.dansEcran, JSON.stringify(panneau));
-        r.verifie(`« ${titre} » : il propose des choix`, !!panneau && panneau.choix >= 2, JSON.stringify(panneau));
+        r.verifie(`« ${titre} » : le panneau tient dans l'écran`,
+            !!panneau && panneau.dansEcran, JSON.stringify(panneau));
+        r.verifie(`« ${titre} » : il propose ses choix, nommés`,
+            !!panneau && panneau.choix >= mini, JSON.stringify(panneau));
 
         await page.mouse.click(5, 400);
         await page.waitForTimeout(200);
     }
 
-    // Un appui long sur « Fonds » ne doit PAS faire défiler le fond au passage
-    const sansEffet = await page.evaluate(() => currentBgIndex);
+    // LE BOUT DU SURLIGNEUR VIT AVEC SON OUTIL. Il ne s'atteignait qu'en tenant
+    // le doigt sur l'icône du surligneur — le dernier geste chronométré de
+    // l'application. Sa place n'était pas non plus dans les réglages généraux,
+    // qu'il faisait déborder : c'est un réglage d'OUTIL, comme la couleur et
+    // l'épaisseur voisines, et il ne paraît donc qu'avec le surligneur.
+    const leBout = await page.evaluate(async () => {
+        const b = document.getElementById('btn-bout-surligneur');
+        if (!b) return { absent: true };
+        // ON MESURE CE QUI SE VOIT, pas le « display » du bouton : c'est son
+        // GROUPE qui se retire selon l'outil en main, et un enfant de boîte
+        // masquée garde son propre « display: flex ».
+        const vu = () => b.getClientRects().length > 0;
+        setMode('freehand');
+        await new Promise(ok => setTimeout(ok, 220));
+        const auCrayon = vu();
+        setMode('highlighter');
+        await new Promise(ok => setTimeout(ok, 220));
+        const auSurligneur = vu();
+        const avant = boutDuSurligneur;
+        b.click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const apres = boutDuSurligneur;
+        const dit = b.title;
+        b.click();
+        await new Promise(ok => setTimeout(ok, 120));
+        setMode('pointer');
+        return { absent: false, auCrayon, auSurligneur, avant, apres, rendu: boutDuSurligneur, dit };
+    });
+    r.egal('le bout du surligneur ne paraît qu\'avec le surligneur',
+        { crayon: leBout.auCrayon, surligneur: leBout.auSurligneur },
+        { crayon: false, surligneur: true });
+    r.egal('un clic passe du rond au carré, et revient',
+        [leBout.avant, leBout.apres, leBout.rendu], ['rond', 'carre', 'rond']);
+
+    // ET LE PAPIER RÉUNIT CE QUI TIENT À LA MÊME FEUILLE : le fond, sa teinte,
+    // l'épaisseur du quadrillage et ce que vaut une case. Les deux derniers
+    // vivaient ailleurs — un bouton à pastille dans la rangée, et l'appui
+    // maintenu des axes.
     const boiteFond = await page.evaluate(() => {
         const b = document.getElementById('btn-cycle').getBoundingClientRect();
-        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
     });
-    await page.mouse.move(boiteFond.x, boiteFond.y);
-    await page.mouse.down();
-    await page.waitForTimeout(700);
-    await page.mouse.up();
+    await page.mouse.click(boiteFond.x, boiteFond.y);
     await page.waitForTimeout(250);
-    r.egal('un appui long ne déclenche pas l\'action courte', await page.evaluate(() => currentBgIndex), sansEffet);
+    const reuni = await page.evaluate(() => {
+        const p = document.getElementById('panneau-appui');
+        if (!p) return null;
+        const sections = [...p.querySelectorAll('.rp-titre')].map(t => t.innerText.toLowerCase());
+        const avant = currentBgIndex;
+        // Le panneau RESTE OUVERT entre deux choix : on règle un papier en
+        // plusieurs gestes, et se faire refermer à chacun obligerait à rouvrir.
+        const seyes = [...p.querySelectorAll('.rp-choix')].find(b => /seyès/i.test(b.innerText));
+        if (seyes) seyes.click();
+        return { sections, avant, apres: currentBgIndex };
+    });
+    await page.waitForTimeout(250);
+    const resteOuvert = await page.evaluate(() => !!document.getElementById('panneau-appui'));
+    r.verifie('le panneau du papier réunit le fond, la teinte, le quadrillage et le pas',
+        !!reuni && reuni.sections.some(t => /quadrillage/.test(t))
+        && reuni.sections.some(t => /case vaut/.test(t))
+        && reuni.sections.some(t => /couleur du papier/.test(t)),
+        JSON.stringify(reuni && reuni.sections));
+    r.verifie('choisir un fond le change vraiment', !!reuni && reuni.apres !== reuni.avant,
+        JSON.stringify(reuni));
+    r.verifie('et le panneau reste ouvert pour le réglage suivant', resteOuvert, '');
     await page.mouse.click(5, 400);
     await page.waitForTimeout(200);
 
-    // ON ABANDONNE SUR UN DÉPLACEMENT, ET NON SUR UN « LEAVE ». Le survol se
-    // perd pour mille raisons qui n'ont rien à voir avec le doigt : c'est
-    // ainsi que le fantôme d'un outil, en passant sous le curseur, tuait
-    // l'appui long des icônes d'outils. C'est la main qui dit si l'on tient.
-    const malgreLeLeave = await page.evaluate(async () => {
-        const vieux = document.getElementById('panneau-appui'); if (vieux) vieux.remove();
-        const b = document.getElementById('btn-cycle');
-        const r = b.getBoundingClientRect();
-        const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
-        const env = (t, cx, cy, cible) => (cible || window).dispatchEvent(new PointerEvent(t,
-            { pointerId: 9, clientX: cx, clientY: cy, bubbles: true, isPrimary: true, button: 0 }));
-        env('pointerdown', x, y, b);
-        b.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 9, clientX: x, clientY: y, bubbles: false }));
-        await new Promise(ok => setTimeout(ok, 700));
-        const ouvert = !!document.getElementById('panneau-appui');
-        env('pointerup', x, y, b);
-        const p = document.getElementById('panneau-appui'); if (p) p.remove();
-        return ouvert;
-    });
-    r.verifie('le survol perdu n\'abandonne pas l\'appui long', malgreLeLeave, '');
-
-    const partiEnRoute = await page.evaluate(async () => {
-        const vieux = document.getElementById('panneau-appui'); if (vieux) vieux.remove();
-        const b = document.getElementById('btn-cycle');
-        const r = b.getBoundingClientRect();
-        const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
-        const env = (t, cx, cy, cible) => (cible || window).dispatchEvent(new PointerEvent(t,
-            { pointerId: 9, clientX: cx, clientY: cy, bubbles: true, isPrimary: true, button: 0 }));
-        env('pointerdown', x, y, b);
-        await new Promise(ok => setTimeout(ok, 120));
-        env('pointermove', x + 50, y + 30);      // la main est partie ailleurs
-        await new Promise(ok => setTimeout(ok, 600));
-        const ouvert = !!document.getElementById('panneau-appui');
-        env('pointerup', x + 50, y + 30, b);
-        const p = document.getElementById('panneau-appui'); if (p) p.remove();
-        return ouvert;
-    });
-    r.verifie('mais la main qui s\'en va, si', !partiEnRoute, '');
-    await page.mouse.click(5, 400);
-    await page.waitForTimeout(200);
 
     // --- CADRAGE SUR LA FEUILLE ---
     const cadrage = await page.evaluate(() => {

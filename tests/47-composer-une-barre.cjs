@@ -559,34 +559,42 @@ module.exports = async function (browser) {
     r.verifie('c\'est le vrai déplacement qui le sort, et l\'outil part avec',
         geste.glisse.tenu && geste.glisse.fantome, JSON.stringify(geste.glisse));
 
-    // ET SUR UNE ICÔNE QUI CACHE UN RÉGLAGE, c'est le réglage qui gagne : on a
-    // tenu sans bouger, on ne voulait pas déplacer l'outil. Le déplacement
-    // armé est donc rendu, et un mouvement tardif n'emporte plus rien.
-    const arbitrage = await page.evaluate(async () => {
+    // ET PLUS AUCUNE ICÔNE NE CACHE DE RÉGLAGE SOUS UN APPUI MAINTENU.
+    //
+    // « Évite les appuis longs et courts, aucun geste distingué par sa DURÉE. »
+    // Il fallait arbitrer entre deux gestes qui commençaient pareil : tenir
+    // sans bouger ouvrait un réglage, tenir puis bouger emportait l'outil. Cet
+    // arbitrage n'a plus lieu d'être — le surligneur règle son bout dans la
+    // barre de style, auprès de sa couleur et de son épaisseur, et la
+    // machinerie de l'appui maintenu est partie avec.
+    const plusDArbitrage = await page.evaluate(async () => {
         const b = document.getElementById('btn-surligneur');
         const r = b.getBoundingClientRect();
         const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
         const env = (type, cx, cy, cible) => (cible || window).dispatchEvent(new PointerEvent(type,
             { pointerId: 8, clientX: cx, clientY: cy, bubbles: true, isPrimary: true, button: 0 }));
         draggedPluginTool = null; hideDragGhost();
-        const vieux = document.getElementById('panneau-appui'); if (vieux) vieux.remove();
+        document.getElementById('panneau-appui')?.remove();
 
         env('pointerdown', x, y, b);
         await new Promise(ok => setTimeout(ok, 700));
         const panneau = !!document.getElementById('panneau-appui');
-        const desarme = !outilArme;
+        // Tenir puis partir emporte l'outil, comme sur n'importe quelle icône :
+        // il n'y a plus qu'un seul geste à cet endroit.
         env('pointermove', x + 80, y + 20);
         await new Promise(ok => setTimeout(ok, 60));
-        const apres = !!draggedPluginTool;
+        const emporte = !!draggedPluginTool;
         env('pointerup', x + 80, y + 20, b);
-        const p = document.getElementById('panneau-appui'); if (p) p.remove();
         draggedPluginTool = null; hideDragGhost(); outilArme = null;
-        return { panneau, desarme, apres };
+        return { panneau, emporte,
+                 machinerie: typeof window.poserAppuiLong,
+                 repere: b.classList.contains('a-appui-long') };
     });
-    r.verifie('sur une icône à réglage, tenir sans bouger ouvre le réglage',
-        arbitrage.panneau, JSON.stringify(arbitrage));
-    r.verifie('et rend le déplacement qu\'on n\'a pas demandé',
-        arbitrage.desarme && !arbitrage.apres, JSON.stringify(arbitrage));
+    r.egal('tenir une icône n\'ouvre plus aucun réglage', plusDArbitrage.panneau, false);
+    r.egal('et l\'icône ne porte plus de repère d\'appui maintenu', plusDArbitrage.repere, false);
+    r.egal('la machinerie elle-même a disparu', plusDArbitrage.machinerie, 'undefined');
+    r.verifie('tenir puis partir emporte l\'outil, comme partout ailleurs',
+        plusDArbitrage.emporte, JSON.stringify(plusDArbitrage));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
