@@ -1581,6 +1581,85 @@ module.exports = async function (browser) {
     r.egal('sans aucun cours, on refuse plutôt que de sortir une feuille vide',
         papier.refus, false);
 
+    // ==================================================================
+    // LES COMMANDES DE L'EN-TÊTE RÉPONDENT AU DOIGT
+    //
+    // « On ne peut pas cliquer sur heures rondes, et donc éditer les
+    // horaires. » Exact, et aucun test ne s'en plaignait : ils appelaient
+    // « reglerLesSonneries() » directement, c'est-à-dire le code, jamais le
+    // bouton. Il y avait DEUX gestionnaires de clic — l'un sur la grille,
+    // l'autre sur l'en-tête, qui ne traitait que le recalage de semaine — et
+    // cinq commandes de l'en-tête étaient branchées dans celui de la GRILLE,
+    // qui ne les voit jamais : sonneries, PDF, tampon, les ± de la journée et
+    // le zoom.
+    //
+    // ON CLIQUE DONC À LA SOURIS, qui vise. C'est la seule façon d'éprouver
+    // qu'un bouton est branché là où il vit.
+    // ==================================================================
+    const cliquerVraiment = async (sel) => {
+        const ou = await page.evaluate((s2) => {
+            const e = document.querySelector(s2);
+            if (!e) return null;
+            const r = e.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return null;
+            const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
+            const dessus = document.elementFromPoint(x, y);
+            return { x, y, couvert: dessus && !e.contains(dessus) && dessus !== e
+                ? ((dessus.id || dessus.className || dessus.tagName) + '') : null };
+        }, sel);
+        if (!ou) return { fait: false, pourquoi: 'sans taille ou absent' };
+        if (ou.couvert) return { fait: false, pourquoi: 'couvert par ' + ou.couvert };
+        await page.mouse.click(ou.x, ou.y);
+        await page.waitForTimeout(280);
+        return { fait: true };
+    };
+
+    await page.evaluate(() => { fermerLAgenda(); ouvrirLAgenda(); });
+    await page.waitForTimeout(400);
+
+    const surLesSonneries = await cliquerVraiment('#edt-sonneries');
+    const saisie = await page.evaluate(() => {
+        const m = document.getElementById('custom-prompt-modal');
+        const ouverte = !!(m && getComputedStyle(m).display !== 'none');
+        if (ouverte) { const b = m.querySelector('button'); if (b) b.click(); }
+        return ouverte;
+    });
+    r.verifie('« heures rondes » se clique vraiment',
+        surLesSonneries.fait, surLesSonneries.pourquoi || '');
+    r.verifie('et ouvre la saisie des horaires', saisie, 'aucune fenêtre de saisie');
+
+    await page.waitForTimeout(250);
+    const finAvant = await page.evaluate(() => edtFin());
+    const surLaJournee = await cliquerVraiment('[data-journee="fin"][data-sens="1"]');
+    const finApres = await page.evaluate(() => edtFin());
+    r.verifie('le « + » de la journée se clique vraiment',
+        surLaJournee.fait, surLaJournee.pourquoi || '');
+    r.egal('et allonge la journée d\'une heure', finApres - finAvant, 60);
+
+    const zoomAvant = await page.evaluate(() => edtPx());
+    const surLeZoom = await cliquerVraiment('[data-zoom="1"]');
+    const zoomApres = await page.evaluate(() => edtPx());
+    r.verifie('le zoom de la grille se clique vraiment',
+        surLeZoom.fait, surLeZoom.pourquoi || '');
+    r.verifie('et grandit la grille', zoomApres > zoomAvant, `${zoomAvant} → ${zoomApres}`);
+
+    // ET LE RECALAGE DE SEMAINE, qui vivait dans l'autre gestionnaire, répond
+    // toujours : réunir les deux ne doit rien perdre.
+    const recalage = await page.evaluate(async () => {
+        agenda.alterne = true;
+        majLesReglagesDeLAgenda();
+        await new Promise(r2 => setTimeout(r2, 120));
+        const b = document.querySelector('#edt-recaler');
+        return b ? { la: true, lettre: b.dataset.lettre } : { la: false };
+    });
+    if (recalage.la) {
+        const surLeRecalage = await cliquerVraiment('#edt-recaler');
+        r.verifie('le recalage de semaine répond encore',
+            surLeRecalage.fait, surLeRecalage.pourquoi || '');
+    } else {
+        r.verifie('le recalage de semaine répond encore', true, 'bouton absent de cet état');
+    }
+
     await page.evaluate(() => {
         agenda.tampon = null; agenda.sonneries = [];
         localStorage.removeItem('board_agenda');

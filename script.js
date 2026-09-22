@@ -32566,7 +32566,21 @@ function ouvrirLAgenda() {
         window.addEventListener('pointermove', suivreUnGesteDeLAgenda);
         window.addEventListener('pointerup', finirUnGesteDeLAgenda);
         window.addEventListener('pointercancel', finirUnGesteDeLAgenda);
-        corps.addEventListener('click', (e) => {
+        // UN SEUL GESTIONNAIRE, POSÉ SUR TOUTE LA FENÊTRE.
+        //
+        // « On ne peut pas cliquer sur heures rondes, et donc éditer les
+        // horaires. » Exact : il y avait DEUX gestionnaires, l'un sur la
+        // grille (#edt-corps), l'autre sur l'en-tête (#edt-tete) — et le
+        // second ne traitait que le recalage de semaine. Or cinq commandes
+        // vivent dans l'en-tête : les sonneries, le PDF, le tampon, les ± de
+        // la journée et le zoom. Toutes étaient branchées dans le gestionnaire
+        // de la GRILLE, qui ne les voit jamais. Cinq boutons muets, et aucun
+        // test ne s'en plaignait : ils appelaient les fonctions directement.
+        //
+        // Toutes les branches passent par « closest » : un seul gestionnaire
+        // posé sur la fenêtre entière les sert toutes, et il n'y a plus de
+        // frontière invisible à connaître pour ajouter un bouton.
+        boite.addEventListener('click', (e) => {
             if (e.target.closest('#edt-ajouter')) { reglerUneEntree(null); return; }
             const regler = e.target.closest('[data-regler]');
             if (regler) { reglerUneEntree(regler.dataset.regler); return; }
@@ -32586,7 +32600,13 @@ function ouvrirLAgenda() {
             const zoom = e.target.closest('[data-zoom]');
             if (zoom) { reglerLeZoom(Number(zoom.dataset.zoom)); return; }
             if (e.target.closest('#edt-sonneries')) { reglerLesSonneries(); return; }
-            if (e.target.closest('#edt-pdf')) exporterLAgendaEnPdf();
+            if (e.target.closest('#edt-pdf')) { exporterLAgendaEnPdf(); return; }
+            const recaler = e.target.closest('#edt-recaler');
+            if (recaler) {
+                ancrerLaSemaine(recaler.dataset.lettre);
+                majLesReglagesDeLAgenda();
+                showToast('Cette semaine est une semaine ' + recaler.dataset.lettre);
+            }
         });
         // ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé
         // par erreur n'avait aucune sortie : lâcher valait accepter.
@@ -32602,13 +32622,6 @@ function ouvrirLAgenda() {
             rendreLaGrilleDeLAgenda();
         });
         document.getElementById('edt-recopier').addEventListener('click', recopierLaSemaine);
-        document.getElementById('edt-tete').addEventListener('click', (e) => {
-            const recaler = e.target.closest('#edt-recaler');
-            if (!recaler) return;
-            ancrerLaSemaine(recaler.dataset.lettre);
-            majLesReglagesDeLAgenda();
-            showToast('Cette semaine est une semaine ' + recaler.dataset.lettre);
-        });
         document.getElementById('edt-semaines').querySelectorAll('button').forEach(b => {
             b.addEventListener('click', () => {
                 edtSemaineVue = b.dataset.semaine;

@@ -95,6 +95,16 @@ module.exports = async function (browser) {
     // il tombait — une mesure qui vaut zéro n'est pas une mesure.
     const viser = async (i) => {
         try {
+            // D'ABORD, QUE LA FENÊTRE SOIT ÉQUIPÉE. Elle reçoit sa barre de
+            // titre après deux images, et cette barre DESCEND le contenu de
+            // 34 px. Mesurer avant, cliquer après : on tape 34 px trop haut.
+            // Seul, l'équipement arrivait avant le test ; dans la suite
+            // complète, sous la charge, il arrivait au milieu.
+            await page.waitForFunction(() => {
+                const P = PluginManager.plugins['analyseGrammaticaleTool'];
+                return !!(P.widgetEl && P.widgetEl.dataset.equipee
+                    && P.widgetEl.querySelector('.fen-tete'));
+            }, null, { timeout: 5000 });
             await page.waitForFunction((n) => {
                 const P = PluginManager.plugins['analyseGrammaticaleTool'];
                 const el = P.widgetEl && P.widgetEl.querySelector(`.ag-mot[data-i="${n}"]`);
