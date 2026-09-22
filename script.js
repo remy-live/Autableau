@@ -20286,7 +20286,7 @@ function equiperVraiment(el, cle, options) {
         || nomDeLaFenetre(cle, el);
     tete.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
         + `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
-        + `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
+        + `<button type="button" class="fen-plein" title="Agrandir la fenêtre">${ICONE_PLEIN}</button>`
         + ((maison && maison.fermer) ? `<button type="button" class="fen-fermer" title="Fermer">✕</button>` : '');
     el.insertBefore(tete, el.firstChild);
     el.classList.add('fen-titree');
@@ -20416,14 +20416,21 @@ function equiperVraiment(el, cle, options) {
         });
     }
 
-    // --- Plein écran ---
+    // --- AGRANDIR LA FENÊTRE, ET NON « PLEIN ÉCRAN » ---
+    //
+    // Ce bouton étire la fenêtre aux bords de l'écran. Il ne met PAS le
+    // navigateur en plein écran — c'est « btn-ecran-plein », au coin, qui le
+    // fait. Les deux ont porté le même nom le temps d'une suite, et le
+    // chapitre 53 l'a vu : « Je crois qu'il y a plusieurs plein écran. »
+    // Deux gestes différents ne peuvent pas s'appeler pareil, surtout quand
+    // l'un des deux fait sortir de l'application.
     let avantPlein = null;
     const basculerPlein = () => {
         if (avantPlein) {
             Object.assign(el.style, avantPlein);
             avantPlein = null;
             bouton.innerHTML = ICONE_PLEIN;
-            bouton.title = 'Plein écran';
+            bouton.title = 'Agrandir la fenêtre';
             el.classList.remove('fen-pleine');
         } else {
             const s = el.style;
@@ -20442,7 +20449,7 @@ function equiperVraiment(el, cle, options) {
             el.style.width = (window.innerWidth - 16) + 'px';
             el.style.height = (window.innerHeight - 16) + 'px';
             bouton.innerHTML = ICONE_REDUIT;
-            bouton.title = 'Quitter le plein écran';
+            bouton.title = 'Rendre à la fenêtre sa taille';
             el.classList.add('fen-pleine');
         }
         if (typeof draw === 'function' && el.querySelector('canvas')) {
