@@ -36117,24 +36117,137 @@ registerPlugin('lecteurDicteeTool', 'Français', {
 
         const groupes = [];
         morceaux.forEach(m => {
-            const mots = m.split(' ').filter(Boolean);
-            if (mots.length <= max) { groupes.push(m); return; }
-            // TROP LONG : ON PARTAGE EN PARTS AUSSI ÉGALES QUE POSSIBLE, et
-            // non en tranches pleines suivies d'un reste. Treize mots par
-            // quatre donneraient 4-4-4-1 : l'élève entend trois groupes
-            // normaux, puis un mot seul qui arrive sans raison. On préfère
-            // 4-3-3-3, et l'on ne dépasse jamais la longueur demandée.
-            const parts = Math.ceil(mots.length / max);
+            this.couperAuxCharnieres(m.split(' ').filter(Boolean), max)
+                .forEach(part => groupes.push(part.join(' ')));
+        });
+        return groupes;
+    },
+
+    // ==================================================================
+    // ON NE DICTE PAS PAR TRANCHES DE QUATRE MOTS, MAIS PAR MORCEAUX DE PHRASE
+    //
+    // « Quand on lit une dictée, on ne lit pas par groupe de 3 ou 4 mots mais
+    // plutôt par parties de phrases. »
+    //
+    // C'est exact, et le découpage d'avant faisait tout le contraire : une fois
+    // la ponctuation passée, il partageait ce qui restait en PARTS ÉGALES, au
+    // mot près, sans regarder la langue. « Le vent d'automne emportait les
+    // dernières feuilles » devenait « Le vent d'automne emportait les » puis
+    // « dernières feuilles » : on coupait entre un déterminant et son nom, ce
+    // qu'aucun professeur ne fait — et ce qu'aucun élève ne peut écrire, parce
+    // qu'il ne sait pas encore ce qui vient.
+    //
+    // ON COUPE DONC AUX CHARNIÈRES DE LA PHRASE : devant une conjonction,
+    // devant une préposition, devant un relatif, devant un déterminant qui
+    // ouvre un nouveau groupe. Et l'on ne coupe JAMAIS après un mot qui appelle
+    // la suite — un déterminant, une préposition, un pronom sujet, un
+    // auxiliaire, une négation, une élision.
+    //
+    // LA LONGUEUR DEVIENT UNE CIBLE, ET NON UN PLAFOND. Un groupe de sens fait
+    // cinq mots ou neuf ; l'imposer à six exactement, c'est revenir à couper au
+    // mot près. On vise, et la charnière décide.
+
+    // Ce qui OUVRE un morceau de phrase, du plus fort au plus faible.
+    CHARNIERES: [
+        { poids: 3, mots: ['mais', 'ou', 'et', 'donc', 'or', 'ni', 'car', 'puis', 'ensuite',
+                           'alors', 'enfin', 'cependant', 'pourtant', 'toutefois'] },
+        { poids: 3, mots: ['que', 'qui', 'dont', 'où', 'quand', 'lorsque', 'comme', 'si',
+                           'parce', 'puisque', 'quoique', 'tandis', 'afin', 'pour'] },
+        { poids: 2, mots: ['à', 'au', 'aux', 'de', 'du', 'des', 'dans', 'sur', 'sous', 'par',
+                           'avec', 'sans', 'vers', 'chez', 'entre', 'depuis', 'pendant',
+                           'après', 'avant', 'contre', 'selon', 'malgré', 'parmi', 'derrière',
+                           'devant', 'jusqu', 'dès', 'envers'] },
+        { poids: 1, mots: ['le', 'la', 'les', 'un', 'une', 'mon', 'ma', 'mes', 'ton', 'ta',
+                           'tes', 'son', 'sa', 'ses', 'notre', 'nos', 'votre', 'vos', 'leur',
+                           'leurs', 'ce', 'cet', 'cette', 'ces', 'quelques', 'plusieurs',
+                           'chaque', 'tout', 'tous', 'toute', 'toutes'] }
+    ],
+
+    // Ce qui APPELLE la suite : on ne coupe jamais juste après.
+    RETIENT: ['le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'au', 'aux', 'à',
+              'mon', 'ma', 'mes', 'ton', 'ta', 'tes', 'son', 'sa', 'ses', 'notre', 'nos',
+              'votre', 'vos', 'leur', 'leurs', 'ce', 'cet', 'cette', 'ces',
+              'dans', 'sur', 'sous', 'par', 'pour', 'avec', 'sans', 'vers', 'chez', 'entre',
+              'depuis', 'pendant', 'après', 'avant', 'contre', 'selon', 'malgré', 'parmi',
+              'je', 'tu', 'il', 'elle', 'on', 'nous', 'vous', 'ils', 'elles', 'se', 'me', 'te',
+              'ne', 'plus', 'très', 'si', 'bien', 'tout', 'tous',
+              'ai', 'as', 'a', 'avons', 'avez', 'ont', 'avais', 'avait', 'avaient',
+              'suis', 'es', 'est', 'sommes', 'êtes', 'sont', 'étais', 'était', 'étaient',
+              'sera', 'serai', 'seront', 'serait', 'aura', 'auront', 'aurait',
+              'et', 'ou', 'mais', 'que', 'qui', 'dont', 'où', 'car', 'ni'],
+
+    motNu: function (mot) {
+        return String(mot || '')
+            .toLowerCase()
+            .replace(/^[«»"“”(\[]+/, '')
+            .replace(/[.,;:!?…»"”)\]]+$/, '');
+    },
+
+    // Un mot élidé — « l' », « d' », « qu' » — tient à celui qui suit comme un
+    // déterminant tient à son nom.
+    finitParUneElision: function (mot) {
+        return /['’]$/.test(String(mot || ''));
+    },
+
+    poidsDeLaCharniere: function (mot) {
+        const nu = this.motNu(mot);
+        if (!nu) return 0;
+        const sansElision = nu.replace(/['’]$/, '');
+        for (const rang of this.CHARNIERES) {
+            if (rang.mots.indexOf(nu) >= 0 || rang.mots.indexOf(sansElision) >= 0) return rang.poids;
+        }
+        return 0;
+    },
+
+    // Peut-on couper JUSTE AVANT le mot de rang i ?
+    coupureAutorisee: function (mots, i) {
+        if (i <= 0 || i >= mots.length) return false;
+        const avant = this.motNu(mots[i - 1]);
+        if (this.finitParUneElision(mots[i - 1])) return false;
+        return this.RETIENT.indexOf(avant) < 0;
+    },
+
+    // ON COUPE OÙ LA PHRASE RESPIRE, le plus près possible de la cible. Le
+    // poids de la charnière compte davantage que la distance : mieux vaut un
+    // groupe de quatre mots qui commence par « et » qu'un groupe de six qui
+    // commence au milieu d'un nom.
+    meilleureCoupure: function (mots, cible) {
+        let vise = -1, mieux = -Infinity;
+        for (let i = 2; i <= mots.length - 2; i++) {
+            if (!this.coupureAutorisee(mots, i)) continue;
+            const poids = this.poidsDeLaCharniere(mots[i]);
+            if (!poids) continue;
+            const note = poids * 2 - Math.abs(i - cible);
+            if (note > mieux) { mieux = note; vise = i; }
+        }
+        return vise;
+    },
+
+    couperAuxCharnieres: function (mots, cible) {
+        const vise = Math.max(2, Number(cible) || 6);
+        // UN GROUPE DE SENS PEUT DÉPASSER LA CIBLE. On ne coupe que si le
+        // morceau est vraiment trop long : à un mot ou deux près, on le dit
+        // d'un souffle, comme en classe.
+        if (mots.length <= Math.ceil(vise * 1.4)) return [mots];
+        const i = this.meilleureCoupure(mots, vise);
+        if (i < 0) {
+            // AUCUNE CHARNIÈRE : on retombe sur les parts égales, et non sur
+            // des tranches pleines suivies d'un reste — treize mots par quatre
+            // donneraient 4-4-4-1, et l'élève reçoit un mot tout seul à la fin.
+            const parts = Math.ceil(mots.length / vise);
             const base = Math.floor(mots.length / parts);
             const plusLongues = mots.length % parts;
+            const out = [];
             let k = 0;
             for (let p = 0; p < parts; p++) {
                 const taille = base + (p < plusLongues ? 1 : 0);
-                groupes.push(mots.slice(k, k + taille).join(' '));
+                out.push(mots.slice(k, k + taille));
                 k += taille;
             }
-        });
-        return groupes;
+            return out;
+        }
+        return this.couperAuxCharnieres(mots.slice(0, i), vise)
+            .concat(this.couperAuxCharnieres(mots.slice(i), vise));
     },
 
     // COUPE-T-ON À CE SIGNE ?

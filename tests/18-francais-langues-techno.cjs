@@ -520,6 +520,90 @@ module.exports = async function (browser) {
     r.egal('un retour à la ligne sépare deux groupes',
         decoupe.lignes, ['Le chat dort.', 'Le chien aboie.']);
 
+    // ==================================================================
+    // ON NE DICTE PAS PAR TRANCHES DE QUATRE MOTS,
+    // MAIS PAR MORCEAUX DE PHRASE
+    //
+    // « Quand on lit une dictée, on ne lit pas par groupe de 3 ou 4 mots mais
+    // plutôt par parties de phrases. »
+    //
+    // C'est exact, et le découpage d'avant faisait tout le contraire : une
+    // fois la ponctuation passée, il partageait ce qui restait en PARTS
+    // ÉGALES, au mot près, sans regarder la langue. « Le vent d'automne
+    // emportait les dernières feuilles » devenait « … emportait les » puis
+    // « dernières feuilles » : on coupait entre un déterminant et son nom, ce
+    // qu'aucun professeur ne fait — et ce qu'aucun élève ne peut écrire,
+    // puisqu'il ne sait pas encore ce qui vient.
+    // ==================================================================
+    const phrase = await page.evaluate(() => {
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        return {
+            ecole: D.decouperEnGroupes(
+                'Les élèves de sixième ont rangé leurs affaires dans le couloir '
+                + 'avant de partir en récréation.', 6),
+            relatif: D.decouperEnGroupes(
+                'Il regarda longuement la petite maison qui se tenait au bout du chemin '
+                + 'et poussa la porte.', 6),
+            exemple: D.decouperEnGroupes(D.TEXTE_EXEMPLE, 6),
+            // Sans la moindre charnière, on retombe sur les parts égales.
+            sansCharniere: D.decouperEnGroupes(
+                'un deux trois quatre cinq six sept huit neuf dix onze douze treize', 4),
+            // Et l'on éprouve la règle elle-même, mot à mot.
+            apresUnDeterminant: D.coupureAutorisee(['les', 'dernières', 'feuilles'], 1),
+            apresUnePreposition: D.coupureAutorisee(['dans', 'leurs', 'écharpes'], 1),
+            apresUnPronom: D.coupureAutorisee(['il', 'regarda', 'la'], 1),
+            apresUnAuxiliaire: D.coupureAutorisee(['ont', 'rangé', 'leurs'], 1),
+            apresUneElision: D.coupureAutorisee(["l'", 'école', 'ferme'], 1),
+            apresUnNom: D.coupureAutorisee(['feuilles', 'et', 'les'], 1),
+            devantUneConjonction: D.poidsDeLaCharniere('et'),
+            devantUnRelatif: D.poidsDeLaCharniere('qui'),
+            devantUnePreposition: D.poidsDeLaCharniere('dans'),
+            devantUnDeterminant: D.poidsDeLaCharniere('les'),
+            devantUnNom: D.poidsDeLaCharniere('feuilles')
+        };
+    });
+    // LA RÈGLE, MOT À MOT : on ne coupe jamais après ce qui appelle la suite.
+    r.egal('on ne coupe pas entre un déterminant et son nom', phrase.apresUnDeterminant, false);
+    r.egal('ni après une préposition', phrase.apresUnePreposition, false);
+    r.egal('ni entre un pronom sujet et son verbe', phrase.apresUnPronom, false);
+    r.egal('ni entre l\'auxiliaire et le participe', phrase.apresUnAuxiliaire, false);
+    r.egal('ni après une élision', phrase.apresUneElision, false);
+    r.egal('mais après un nom, oui', phrase.apresUnNom, true);
+    // ET L'ON COUPE DEVANT CE QUI OUVRE UN MORCEAU DE PHRASE, du plus fort au
+    // plus faible : conjonction, relatif, préposition, déterminant.
+    r.verifie('une conjonction ouvre un morceau de phrase, un nom non',
+        phrase.devantUneConjonction > 0 && phrase.devantUnNom === 0,
+        JSON.stringify(phrase));
+    r.verifie('et le relatif pèse plus lourd que le déterminant',
+        phrase.devantUnRelatif > phrase.devantUnePreposition
+        && phrase.devantUnePreposition > phrase.devantUnDeterminant,
+        [phrase.devantUnRelatif, phrase.devantUnePreposition, phrase.devantUnDeterminant].join(' > '));
+
+    // CE QUE CELA DONNE SUR DE VRAIES PHRASES.
+    r.egal('la phrase se coupe là où elle respire', phrase.ecole,
+        ['Les élèves de sixième ont rangé', 'leurs affaires dans le couloir',
+         'avant de partir en récréation.']);
+    r.egal('le relatif ouvre son propre morceau', phrase.relatif,
+        ['Il regarda longuement la petite maison', 'qui se tenait au bout du chemin',
+         'et poussa la porte.']);
+    r.egal('et le texte d\'exemple aussi', phrase.exemple,
+        ["Le vent d'automne emportait les dernières feuilles,", 'et les enfants,',
+         'emmitouflés dans leurs écharpes,', "couraient vers l'école."]);
+    // AUCUN GROUPE NE COMMENCE PAR UN MOT QUI APPELLE CE QUI PRÉCÈDE.
+    r.verifie('aucun groupe ne commence au milieu d\'un groupe de mots',
+        [].concat(phrase.ecole, phrase.relatif, phrase.exemple)
+            .every((g, i, t) => i === 0 || !/^(dernières|écharpes|couloir|récréation|maison|chemin|porte)\b/.test(g)),
+        JSON.stringify([].concat(phrase.ecole, phrase.relatif, phrase.exemple)));
+    // SANS LA MOINDRE CHARNIÈRE, on retombe sur les parts égales — et non sur
+    // des tranches pleines suivies d'un reste d'un seul mot.
+    r.egal('sans charnière, on partage en parts égales', phrase.sansCharniere,
+        ['un deux trois quatre', 'cinq six sept', 'huit neuf dix', 'onze douze treize']);
+    // ET LA LONGUEUR EST UNE CIBLE, PAS UN PLAFOND : un groupe de sens fait
+    // cinq mots ou neuf, et l'imposer à six exactement, c'est revenir à
+    // couper au mot près.
+    r.verifie('un morceau de phrase peut dépasser la cible d\'un mot ou deux',
+        phrase.exemple[0].split(' ').length > 6, phrase.exemple[0]);
+
     // ----------------------------------------------------------
     // LA PONCTUATION DITE EN TOUTES LETTRES
     //
