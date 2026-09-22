@@ -4073,6 +4073,69 @@ module.exports = async function (browser) {
         { pages: second.pages, page: second.page, dessus: second.dessus },
         { pages: premier.pages, page: premier.page, dessus: 2 });
 
+    // =====================================================================
+    // LA DÉCOUPE DIT OÙ VA LE MORCEAU
+    //
+    // « Je ne comprends pas la découpe. » Deux textes mentaient, et c'étaient
+    // les deux premiers qu'on lit : l'infobulle du bouton et le message qui
+    // arme les ciseaux promettaient tous deux « il se pose à côté ». C'était
+    // vrai d'une version d'avant, où le bout se posait aussitôt sur le
+    // tableau. On traçait donc un rectangle en guettant le côté du document,
+    // où rien n'arrivait, pendant que le morceau descendait dans un tiroir à
+    // l'autre bout de l'écran. Le bouton voisin, « Repérer », disait pourtant
+    // « au tiroir » : deux boutons qui font la même chose annonçaient deux
+    // destinations.
+    //
+    // LA RÈGLE : tout ce que la découpe écrit nomme le TIROIR, et rien ne
+    // promet le côté du document.
+    // =====================================================================
+    const motsDeLaDecoupe = await page.evaluate(() => {
+        const dits = [];
+        const vrai = window.showToast;
+        window.showToast = (m) => { dits.push(String(m)); };
+        loadPage(0);
+        const d = images.find(o => o.pluginData && o.pluginData.id === 'pdfDoc');
+        basculerLaDecoupe(true);
+        const armement = dits[dits.length - 1] || '';
+        const rr = { x: d.x + d.w * 0.1, y: d.y + d.h * 0.6, l: d.w * 0.3, h: d.h * 0.1 };
+        decoupeGeste = { obj: d, debut: { x: rr.x, y: rr.y }, rect: rr };
+        finirGesteDeDecoupe();
+        const pose = dits[dits.length - 1] || '';
+        basculerLaDecoupe(false);
+        window.showToast = vrai;
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        const bouton = document.getElementById('doc-decouper');
+        return {
+            bulle: bouton.getAttribute('data-tooltip') || '',
+            armement, pose,
+            // ET LE REPÉRAGE NE CITE PAS UN BOUTON QUI N'EXISTE PLUS. Il
+            // renvoyait à « Poser à côté », disparu depuis deux refontes : le
+            // nom qu'il cite doit se lire sur un vrai bouton du tiroir.
+            cite: (function () {
+                const src = String(repererLesExercices).match(/blocs repérés[^`]*«\s*([^»]+?)\s*»/);
+                return src ? src[1] : null;
+            })()
+        };
+    });
+    const nommeLeTiroir = (t) => /tiroir/i.test(t) && !/à côté/i.test(t);
+    r.verifie('l\'infobulle du bouton dit où part le morceau',
+        nommeLeTiroir(motsDeLaDecoupe.bulle), motsDeLaDecoupe.bulle);
+    r.verifie('et comment reposer les ciseaux, qui restent pris',
+        /Échap/i.test(motsDeLaDecoupe.bulle) && /restent/i.test(motsDeLaDecoupe.bulle),
+        motsDeLaDecoupe.bulle);
+    r.verifie('le message qui arme les ciseaux le dit aussi',
+        nommeLeTiroir(motsDeLaDecoupe.armement), motsDeLaDecoupe.armement);
+    r.verifie('et celui qui suit le découpage',
+        nommeLeTiroir(motsDeLaDecoupe.pose), motsDeLaDecoupe.pose);
+    const citeUnVraiBouton = await page.evaluate((nom) => {
+        if (!nom) return { nom, trouve: false };
+        const boutons = [...document.querySelectorAll('#bande-morceaux button')]
+            .map(b => b.textContent.trim());
+        return { nom, trouve: boutons.some(t => t.includes(nom)), boutons };
+    }, motsDeLaDecoupe.cite);
+    r.verifie('le repérage renvoie à un bouton qui existe vraiment',
+        citeUnVraiBouton.trouve, JSON.stringify(citeUnVraiBouton));
+
     // ET LE SECOND GESTE RESTE, EN DEUX TEMPS QUI SE VOIENT : le « ＋ » de la
     // pagination ouvre une page vierge, « Tout poser » y vide le tiroir. Le
     // bouton « Tout poser sur une page neuve » ne faisait rien d'autre — il

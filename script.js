@@ -15508,7 +15508,10 @@ function zonesRetouchables(obj) {
 // On pose souvent deux exercices côte à côte, pris dans le même poly. Il
 // fallait dupliquer le document, rogner chaque copie, aligner à l'œil : trois
 // gestes par morceau, et chaque copie traînait le document entier derrière
-// elle. On trace ici un rectangle sur la page, et le morceau se pose à côté.
+// elle. On trace ici un rectangle sur la page, et le morceau part dans le
+// TIROIR — découper et placer sont deux gestes, qui n'ont pas à se faire en
+// même temps. Ce qui se disait encore « il se pose à côté » dans l'infobulle
+// et dans le premier message datait d'avant le tiroir.
 //
 // UN MORCEAU N'EST PAS UNE NOUVELLE IMAGE. Il montre la MÊME page, avec un
 // cadrage différent — les images se partagent leur source à l'enregistrement,
@@ -15529,7 +15532,12 @@ function basculerLaDecoupe(force) {
     if (typeof majBarreDocument === 'function') majBarreDocument();
     draw();
     if (typeof showToast === 'function') {
-        showToast(veut ? '✂ Tracez un rectangle sur le document : le morceau se pose à côté'
+        // CE MESSAGE EST LE PREMIER QU'ON LIT EN DÉCOUPANT, et il promettait
+        // « le morceau se pose à côté » — vrai d'une version d'avant, fausse
+        // depuis que le tiroir existe. On guettait donc le côté du document,
+        // où rien n'arrivait. Il dit maintenant où le bout descend, et
+        // comment reposer les ciseaux, qui restent pris.
+        showToast(veut ? '✂ Tracez un rectangle sur la page : le morceau ira dans le tiroir, en bas — Échap pour reposer les ciseaux'
                        : 'Découpage terminé');
     }
     return decoupeActive;
@@ -15849,7 +15857,7 @@ function repererLesExercices() {
                           : 'Rien à repérer sur cette page');
         return 0;
     }
-    showToast(`⌁ ${pris} blocs repérés — au tiroir. Jetez ce qui n'en est pas, puis « Poser à côté »`
+    showToast(`⌁ ${pris} blocs repérés — au tiroir. Jetez ce qui n'en est pas, puis « Tout poser »`
         + (ecartes ? ` (${ecartes} déjà jeté(s), écarté(s))` : ''));
     return pris;
 }
