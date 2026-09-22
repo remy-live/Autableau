@@ -88,16 +88,36 @@ module.exports = async function (browser) {
     //
     // On clique donc à la souris, qui vise — et c'est le relâchement qui agit.
     // ==========================================================
-    const viser = (i) => page.evaluate((n) => {
-        const P = PluginManager.plugins['analyseGrammaticaleTool'];
-        const el = P.widgetEl.querySelector(`.ag-mot[data-i="${n}"]`);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
-    }, i);
+    // ON ATTEND QUE LE MOT AIT UNE VRAIE BOÎTE. La fenêtre s'équipe en deux
+    // images (barre de titre, hauteur rendue au contenu) : mesurée trop tôt,
+    // elle rend des zéros, on clique dans le coin de l'écran, et le geste se
+    // perd. Seul, ce chapitre passait ; dans la suite complète, sous la charge,
+    // il tombait — une mesure qui vaut zéro n'est pas une mesure.
+    const viser = async (i) => {
+        try {
+            await page.waitForFunction((n) => {
+                const P = PluginManager.plugins['analyseGrammaticaleTool'];
+                const el = P.widgetEl && P.widgetEl.querySelector(`.ag-mot[data-i="${n}"]`);
+                if (!el) return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 2 && r.height > 2 && r.top > 0 && r.left > 0;
+            }, i, { timeout: 5000 });
+        } catch (e) { return null; }
+        return page.evaluate((n) => {
+            const P = PluginManager.plugins['analyseGrammaticaleTool'];
+            const el = P.widgetEl.querySelector(`.ag-mot[data-i="${n}"]`);
+            const r = el.getBoundingClientRect();
+            const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
+            // ET QUE RIEN NE LE COUVRE : une vraie souris s'arrête sur ce
+            // qu'elle rencontre, et le dire vaut mieux que de le subir.
+            const dessus = document.elementFromPoint(x, y);
+            return { x, y, couvert: dessus && !dessus.closest('.ag-mot')
+                ? (dessus.className || dessus.tagName) + '' : null };
+        }, i);
+    };
     const cliquerLeMot = async (i) => {
         const p = await viser(i);
-        if (!p) return false;
+        if (!p || p.couvert) return p ? 'couvert par ' + p.couvert : false;
         await page.mouse.move(p.x, p.y);
         await page.mouse.down();
         await page.mouse.up();
@@ -117,7 +137,7 @@ module.exports = async function (browser) {
         P.peindre();
     });
     const vise = await cliquerLeMot(2);
-    r.verifie('les mots de la phrase sont là où on les voit', vise, 'mot 2 introuvable');
+    r.egal('les mots de la phrase sont là où on les voit, et rien ne les couvre', vise, true);
     const unSeul = await lire();
     r.egal('un vrai clic désigne un mot', [unSeul.de, unSeul.a], [2, 2]);
     r.egal('et le peint', unSeul.peints, 1);
