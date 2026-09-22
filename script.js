@@ -1262,29 +1262,30 @@ function handleWorkspaceArrange() {
         barStyle.removeAttribute('data-dragged');
         localStorage.removeItem('bar_style_x');
         localStorage.removeItem('bar_style_y');
-        // La remise à plat de l'interface oublie aussi la place choisie à la main
+        // La remise à plat de l'interface oublie aussi la place choisie à la
+        // main pour la barre du DOCUMENT — et la replace aussitôt, sans quoi
+        // l'oubli ne se verrait qu'au prochain changement de page.
         if (typeof barreStylePosee !== 'undefined') {
             barreStylePosee = null;
             if (typeof retenirLaBarreStyle === 'function') retenirLaBarreStyle();
+            if (typeof placerLaBarreDuDocument === 'function') placerLaBarreDuDocument();
         }
-        barStyle.style.left = '50%';
-        barStyle.style.top = '20px';
-        barStyle.style.right = 'auto';
-        barStyle.style.bottom = 'auto';
-        barStyle.style.transform = 'translateX(-50%)';
+        // ET C'EST LA RÈGLE DE PLACEMENT QUI REPLACE, PAS NOUS. Écrite ici une
+        // seconde fois, elle posait la barre à 20 px du haut — dans le tiroir
+        // des plugins, dont elle couvrait tous les outils.
+        if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
+        if (typeof rangerLesDeuxBarres === 'function') rangerLesDeuxBarres();
     }
 
-    const barTools = document.getElementById('bar-tools');
-    if (barTools) {
-        barTools.removeAttribute('data-dragged');
-        localStorage.removeItem('bar_tools_x');
-        localStorage.removeItem('bar_tools_y');
-        barTools.style.left = '12px';
-        barTools.style.top = '50%';
-        barTools.style.right = 'auto';
-        barTools.style.bottom = 'auto';
-        barTools.style.transform = 'translateY(-50%)';
-    }
+    // « BAR-TOOLS » NE SE RANGE PLUS : IL NE SE VOIT PAS.
+    // On le replaçait au bord gauche, à mi-hauteur, et l'on effaçait deux
+    // clés de position. Or « #bar-tools » est « display: none » depuis que
+    // les barres sont composées : c'est un GABARIT, zéro par zéro, qui ne
+    // sert qu'à fournir ses vingt-deux outils au catalogue. La barre de
+    // gauche qu'on voit, c'est « system-toolbar-main », et « arrangeToolbars »
+    // la remet en place quelques lignes plus haut. Quant aux clés
+    // « bar_tools_x » et « bar_tools_y », personne ne les écrivait : on
+    // effaçait ce qui n'existait pas.
 
     if (typeof htmlPostits !== 'undefined' && htmlPostits.length > 0) {
         let startX = -panX / zoom + 50 / zoom;
@@ -7496,6 +7497,64 @@ function curseurDuSurligneur() {
     return `url('data:image/svg+xml;utf8,${encodeURIComponent(svg)}') ${Math.round(c)} ${Math.round(c)}, crosshair`;
 }
 
+// ===================================================
+// OÙ LA BARRE DE STYLE SE POSE — UNE SEULE RÈGLE
+//
+// Elle était écrite DEUX FOIS : ici, et dans « Ranger l'espace », qui la
+// collait à 20 px du haut sans se demander si le tiroir des plugins était
+// ouvert. Or il l'est presque toujours, et il descend jusqu'à 87 px : ranger
+// l'espace posait donc la barre EN PLEIN DEDANS, recouvrant ses outils — 54
+// pixels de superposition, mesurés, et les trois outils du tiroir devenus
+// inatteignables. Le bouton qui remet de l'ordre était celui qui le défaisait.
+//
+// Une règle écrite à deux endroits est une règle qui diverge. Celle-ci ne
+// s'écrit plus qu'ici ; « Ranger l'espace » l'appelle.
+//
+// ELLE NE TOUCHE PAS À LA VISIBILITÉ : on la replace, on ne la montre pas.
+// C'est « updateStyleBarContext » qui décide si elle paraît.
+// ===================================================
+function placerLaBarreStyle() {
+    const barStyle = document.getElementById('bar-style');
+    if (!barStyle) return;
+    // EN HAUT d'ordinaire : le bas est la zone où l'on écrit, et une barre
+    // posée là recevait les traits à la place du tableau. EN BAS en plein
+    // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
+    // les barres du bas se sont effacées — la place est libre.
+    const enFocus = document.body.classList.contains('focus-mode');
+    // ELLE REVIENT TOUJOURS À SA PLACE. Son contenu change à chaque sélection ;
+    // une barre dont le contenu change ET qui bouge ne se retrouve plus. C'est
+    // la barre du DOCUMENT qui se déplace et se met debout.
+    if (barreStyleDebout) {
+        // DEBOUT AU BORD DROIT : le gauche appartient à la barre des outils.
+        // Et si la barre du document y est déjà debout, celle-ci se range à
+        // sa gauche — deux colonnes au même endroit se recouvriraient.
+        const doc = document.getElementById('bar-document');
+        const docDebout = doc && doc.classList.contains('vertical')
+            && doc.classList.contains('visible');
+        barStyle.removeAttribute('data-dragged');
+        barStyle.style.left = 'auto';
+        barStyle.style.bottom = 'auto';
+        barStyle.style.top = '50%';
+        barStyle.style.transform = 'translateY(-50%)';
+        barStyle.style.right = (docDebout ? (doc.offsetWidth || 60) + 30 : 20) + 'px';
+        return;
+    }
+    barStyle.removeAttribute('data-dragged');
+    barStyle.style.left = '50%';
+    barStyle.style.transform = 'translateX(-50%)';
+    barStyle.style.right = 'auto';
+    if (enFocus) {
+        barStyle.style.top = 'auto';
+        barStyle.style.bottom = '16px';
+        return;
+    }
+    const tiroirHaut = document.getElementById('bar-plugins');
+    const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
+    barStyle.style.bottom = 'auto';
+    barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
+}
+window.placerLaBarreStyle = placerLaBarreStyle;
+
 function updateStyleBarContext() {
     // LA BARRE DE STYLE NE PARLE PLUS DU DOCUMENT. Les deux avaient fusionné,
     // et choisir le crayon pendant qu'on tenait un polycopié y déversait tous
@@ -7533,38 +7592,7 @@ function updateStyleBarContext() {
     // posée là recevait les traits à la place du tableau. EN BAS en plein
     // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
     // les barres du bas se sont effacées — la place est libre.
-    const enFocus = document.body.classList.contains('focus-mode');
-    // ELLE REVIENT TOUJOURS À SA PLACE. Son contenu change à chaque sélection ;
-    // une barre dont le contenu change ET qui bouge ne se retrouve plus. C'est
-    // la barre du DOCUMENT qui se déplace et se met debout.
-    if (barreStyleDebout) {
-        // DEBOUT AU BORD DROIT : le gauche appartient à la barre des outils.
-        // Et si la barre du document y est déjà debout, celle-ci se range à
-        // sa gauche — deux colonnes au même endroit se recouvriraient.
-        const doc = document.getElementById('bar-document');
-        const docDebout = doc && doc.classList.contains('vertical')
-            && doc.classList.contains('visible');
-        barStyle.removeAttribute('data-dragged');
-        barStyle.style.left = 'auto';
-        barStyle.style.bottom = 'auto';
-        barStyle.style.top = '50%';
-        barStyle.style.transform = 'translateY(-50%)';
-        barStyle.style.right = (docDebout ? (doc.offsetWidth || 60) + 30 : 20) + 'px';
-    } else {
-        barStyle.removeAttribute('data-dragged');
-        barStyle.style.left = '50%';
-        barStyle.style.transform = 'translateX(-50%)';
-        barStyle.style.right = 'auto';
-        if (enFocus) {
-            barStyle.style.top = 'auto';
-            barStyle.style.bottom = '16px';
-        } else {
-            const tiroirHaut = document.getElementById('bar-plugins');
-            const ouvert = tiroirHaut && !tiroirHaut.classList.contains('closed');
-            barStyle.style.bottom = 'auto';
-            barStyle.style.top = (ouvert ? (tiroirHaut.offsetHeight || 130) + 12 : 20) + 'px';
-        }
-    }
+    placerLaBarreStyle();
 
     // Les deux boutons disent où leur barre ira : cela dépend du plein écran,
     // qui change sans qu'on touche à l'orientation.

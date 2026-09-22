@@ -820,6 +820,85 @@ module.exports = async function (browser) {
     r.egal('aucune fonction de premier niveau n\'est déclarée deux fois',
         doublons, {});
 
+    // ------------------------------------------------------------------
+    // ET LA PLACE DE LA BARRE NE S'ÉCRIT PAS DEUX FOIS NON PLUS
+    //
+    // « Regarde le "ranger l'espace" avec une barre de style. » Le bouton qui
+    // remet de l'ordre posait la barre à 20 px du haut — une valeur écrite en
+    // dur, qui ignorait le tiroir des plugins. Or celui-ci descend jusqu'à
+    // 87 px : la barre atterrissait EN PLEIN DEDANS, 54 pixels de
+    // superposition, et les outils du tiroir ne répondaient plus. La règle de
+    // placement était écrite à deux endroits ; elle ne l'est plus qu'à un.
+    // ------------------------------------------------------------------
+    const placeDeLaBarre = async (quand) => await page.evaluate((q) => {
+        const boite = (id) => {
+            const e = document.getElementById(id);
+            if (!e) return null;
+            const s = getComputedStyle(e);
+            const r = e.getBoundingClientRect();
+            return { haut: Math.round(r.y), bas: Math.round(r.bottom),
+                     gauche: Math.round(r.x), droite: Math.round(r.right),
+                     vue: s.display !== 'none' && parseFloat(s.opacity) > 0.05 };
+        };
+        const bs = boite('bar-style'), bp = boite('bar-plugins');
+        // LE RECOUVREMENT SE MESURE, il ne se déduit pas d'un « top » : c'est
+        // ce que l'œil voit, et c'est ce qui rend un bouton inatteignable.
+        const chevauchement = (bs && bp && bs.vue && bp.vue
+            && bs.haut < bp.bas && bp.haut < bs.bas
+            && bs.gauche < bp.droite && bp.gauche < bs.droite)
+            ? Math.round(Math.min(bs.bas, bp.bas) - Math.max(bs.haut, bp.haut)) : 0;
+        // ET LES OUTILS DU TIROIR RÉPONDENT-ILS ENCORE À LEUR CENTRE ?
+        const boutons = [...document.querySelectorAll('#plugins-grid .btn')]
+            .filter(b => b.getBoundingClientRect().width > 0);
+        const couverts = boutons.filter(b => {
+            const c = b.getBoundingClientRect();
+            const d = document.elementFromPoint(c.x + c.width / 2, c.y + c.height / 2);
+            return !(d && (d === b || b.contains(d)));
+        }).map(b => b.id || b.dataset.pluginKey || b.title);
+        return { quand: q, barre: bs, tiroirHaut: bp, chevauchement,
+                 couverts, combien: boutons.length,
+                 barreVue: document.getElementById('bar-style').classList.contains('visible') };
+    }, quand);
+
+    // On trace un rectangle à la souris, puis on le prend PAR SON BORD : un
+    // rectangle n'est pas plein, et cliquer au milieu ne le saisit pas.
+    await page.evaluate(() => { if (typeof setMode === 'function') setMode('rectangle'); });
+    await page.mouse.move(300, 350); await page.mouse.down();
+    await page.mouse.move(560, 500, { steps: 8 }); await page.mouse.up();
+    await page.waitForTimeout(200);
+    await page.evaluate(() => setMode('pointer'));
+    await page.mouse.click(300, 425);
+    await page.waitForTimeout(400);
+    const avantRangement = await placeDeLaBarre('un objet sélectionné');
+    r.verifie('un objet pris, la barre de style paraît',
+        avantRangement.barreVue && avantRangement.barre.vue, JSON.stringify(avantRangement.barre));
+    r.egal('et elle se pose SOUS le tiroir des plugins, sans le mordre',
+        avantRangement.chevauchement, 0, JSON.stringify(avantRangement));
+
+    const ouRanger = await page.evaluate(() => {
+        const bas = document.getElementById('bottom-drawer');
+        if (bas.classList.contains('collapsed')) bas.querySelector('.drawer-toggle').click();
+        const b = document.getElementById('btn-ranger');
+        b.scrollIntoView({ block: 'center' });
+        const c = b.getBoundingClientRect();
+        const centre = { x: Math.round(c.x + c.width / 2), y: Math.round(c.y + c.height / 2) };
+        const d = document.elementFromPoint(centre.x, centre.y);
+        return Object.assign(centre, { decouvert: d === b || b.contains(d) });
+    });
+    r.verifie('« Ranger l\'espace » est cliquable là où on le voit',
+        ouRanger.decouvert, JSON.stringify(ouRanger));
+    await page.mouse.click(ouRanger.x, ouRanger.y);
+    await page.waitForTimeout(600);
+    const apresRangement = await placeDeLaBarre('après « Ranger l’espace »');
+
+    r.egal('ranger l\'espace ne jette pas la barre dans le tiroir des plugins',
+        apresRangement.chevauchement, 0, JSON.stringify(apresRangement));
+    r.egal('et les outils du tiroir du haut répondent toujours',
+        apresRangement.couverts, [], apresRangement.combien + ' outils visibles');
+    r.egal('la barre n\'a pas bougé : elle était déjà à sa place',
+        apresRangement.barre.haut, avantRangement.barre.haut,
+        JSON.stringify({ avant: avantRangement.barre, apres: apresRangement.barre }));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
