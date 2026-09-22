@@ -835,13 +835,16 @@ module.exports = async function (browser) {
             outils: !!box.querySelector(':scope > .fen-outils'),
             plein: !!box.querySelector('.fen-plein'),
             poignee: !!box.querySelector('.fen-poignee'),
+            bouger: !!box.querySelector('.fen-bouger'),
             place: getComputedStyle(box).position !== 'static'
         };
     });
     r.verifie('« Mes classes » reçoit les commandes de fenêtre', equipement.outils, JSON.stringify(equipement));
     r.verifie('le plein écran', equipement.plein);
     r.verifie('et la poignée pour ajuster', equipement.poignee);
+    r.verifie('et celle pour déplacer', equipement.bouger, JSON.stringify(equipement));
     r.verifie('posées dans un repère qui les tient au coin', equipement.place);
+
 
     const pleinEcran = await page.evaluate(async () => {
         const box = document.querySelector('#class-manager-modal .modal-box');
@@ -942,6 +945,65 @@ module.exports = async function (browser) {
     r.verifie('la fenêtre rouvre à la taille de la dernière fois',
         Math.abs(reouverture.obtenu.w - reouverture.vise.w) < 2
         && Math.abs(reouverture.obtenu.h - reouverture.vise.h) < 2, JSON.stringify(reouverture));
+
+    // ==================================================================
+    // UNE FENÊTRE ÉQUIPÉE SE DÉPLACE
+    //
+    // « La fenêtre n'est pas déplaçable. Est-ce que toutes les fenêtres des
+    // modales sont déplaçables ? » Non : chaque outil réécrivait son propre
+    // déplacement sur son propre en-tête, et celles qui ne l'avaient pas écrit
+    // restaient clouées au milieu de l'écran — devant une classe, une fenêtre
+    // clouée cache justement ce qu'on veut montrer. Le déplacement rejoint
+    // donc l'équipement commun : une décision, un endroit.
+    // ==================================================================
+    const deplacee = await page.evaluate(async () => {
+        // La fenêtre a pu être refermée par les épreuves d'avant : on la
+        // rouvre plutôt que de dépendre de leur ordre.
+        if (!document.querySelector('#class-manager-modal .modal-box')) {
+            await openClassManagerModal(null, 'eleves');
+            await new Promise(r2 => setTimeout(r2, 500));
+        }
+        const box = document.querySelector('#class-manager-modal .modal-box');
+        const h = box.querySelector('.fen-bouger');
+        // ON PART D'UNE PLACE CONNUE, ET D'UNE TAILLE QUI LAISSE DE LA PLACE.
+        // Un double-clic sur la poignée recentre la fenêtre ; et une fenêtre
+        // aussi haute que l'écran se fait arrêter par la borne du haut dès le
+        // premier pixel, si bien que le déplacement mesuré était tronqué.
+        box.style.boxSizing = 'border-box';
+        box.style.width = '420px';
+        box.style.height = '300px';
+        box.style.maxHeight = 'none';
+        h.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        await new Promise(r2 => setTimeout(r2, 80));
+        const avant = box.getBoundingClientRect();
+        const g = h.getBoundingClientRect();
+        h.setPointerCapture = () => { };
+        const ev = (t, x, y) => h.dispatchEvent(new PointerEvent(t, {
+            bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 3
+        }));
+        ev('pointerdown', g.left + 8, g.top + 8);
+        ev('pointermove', g.left + 8 - 120, g.top + 8 - 60);
+        ev('pointerup', g.left + 8 - 120, g.top + 8 - 60);
+        await new Promise(r2 => setTimeout(r2, 120));
+        const apres = box.getBoundingClientRect();
+        // ET ON NE LA PERD PAS HORS DE L'ÉCRAN : poussée loin à gauche, il doit
+        // rester de quoi la rattraper.
+        ev('pointerdown', apres.left + 20, apres.top + 20);
+        ev('pointermove', -4000, -4000);
+        ev('pointerup', -4000, -4000);
+        await new Promise(r2 => setTimeout(r2, 120));
+        const loin = box.getBoundingClientRect();
+        return {
+            dx: Math.round(apres.left - avant.left), dy: Math.round(apres.top - avant.top),
+            memeTaille: Math.abs(apres.width - avant.width) < 2,
+            rattrapable: loin.right > 20 && loin.bottom > 20
+        };
+    });
+    r.verifie('la prendre par sa poignée la déplace',
+        Math.abs(deplacee.dx + 120) < 3 && Math.abs(deplacee.dy + 60) < 3,
+        JSON.stringify(deplacee));
+    r.verifie('sans la redimensionner au passage', deplacee.memeTaille, JSON.stringify(deplacee));
+    r.verifie('et jamais assez loin pour la perdre', deplacee.rattrapable, JSON.stringify(deplacee));
 
     // Un bandeau de télécommande n'est pas une fenêtre : on ne l'encombre pas.
     const tri = await page.evaluate(async () => {

@@ -3349,35 +3349,102 @@ module.exports = async function (browser) {
     r.egal('un morceau lâché sur la page projetée ne coupe pas la présentation',
         { avant: surLaPage.avant, apres: surLaPage.apres }, { avant: true, apres: true });
 
-    // LE BOUTON DIT OÙ ÇA VA. « Poser à côté » ment sur une page vierge.
+    // ==================================================================
+    // LES TROIS BOUTONS DISENT DE QUOI ILS PARLENT
+    //
+    // « Je ne comprends pas ce que font les 3 boutons, je ne saisis pas la
+    // différence. » Ils s'appelaient « Poser à côté », « Sur une page neuve »
+    // et « À côté » : les deux premiers vident le TIROIR sur une PAGE DU
+    // TABLEAU et ne diffèrent que par la page ; le troisième ne touche pas au
+    // tableau, il montre UN morceau à côté du document qu'on PROJETTE. Et les
+    // deux libellés les plus éloignés étaient ceux qui se ressemblaient le
+    // plus, à un mot près.
+    //
+    // LE LIBELLÉ NE BASCULE PLUS : un bouton qui change de nom sous les yeux
+    // se relit à chaque fois. C'est une ligne en dessous qui dit ce qui va se
+    // passer — combien de morceaux, sur quelle page, et ce qui s'y trouve
+    // déjà.
+    // ==================================================================
     const libelle = await page.evaluate(() => {
         quitterLaPresentation();
         const b = document.getElementById('bm-ranger');
+        const neuve = document.getElementById('bm-ranger-neuve');
+        const aCote = document.getElementById('bm-a-cote');
+        const mot = document.getElementById('bm-explique');
         images.length = 0; texts.length = 0; freehands.length = 0;
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
-        const surPageVierge = b.textContent.trim();
+        const vide = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
+        morceauxEnAttente.push({ id: 1, nom: 'poly', w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, src: 'x' },
+                               { id: 2, nom: 'poly', w: 10, h: 10, cx: 0, cy: 0, cw: 10, ch: 10, src: 'x' });
+        majLeTiroirDesMorceaux();
+        const surPageVierge = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
         images.push({ id: nextId++, x: 0, y: 0, w: 100, h: 100, src: 'x', z: globalZ++ });
         majLeTiroirDesMorceaux();
-        const surPageOccupee = b.textContent.trim();
-        // Et il suit un changement de page, sans qu'on touche au tiroir.
+        const surPageOccupee = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
+        // Et la phrase suit un changement de page, sans qu'on touche au tiroir.
         const combienDePages = pages.length;
         pages.push(createNewPage());
         loadPage(pages.length - 1);
-        const apresPageNeuve = b.textContent.trim();
+        const apresPageNeuve = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
+        // Les trois libellés, et les groupes sous lesquels ils vivent.
+        const trois = [b, neuve, aCote].map(x => x.textContent.trim());
+        const titres = [...document.querySelectorAll('#bande-morceaux .bm-groupe-titre')]
+            .map(x => x.textContent.trim());
+        const groupes = [b, neuve, aCote].map(x => {
+            const g = x.closest('.bm-groupe');
+            const t = g && g.querySelector('.bm-groupe-titre');
+            return t ? t.textContent.trim() : '';
+        });
+        const infobulles = [b, neuve, aCote].map(x => x.getAttribute('data-tooltip') || '');
         // On rend les pages telles qu'on les a trouvées : ce qui suit compte
         // les siennes.
         loadPage(0);
         pages.length = combienDePages;
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
         updatePageUI();
-        return { surPageVierge, surPageOccupee, apresPageNeuve, pagesRendues: pages.length === combienDePages };
+        return { vide, surPageVierge, surPageOccupee, apresPageNeuve, trois, titres,
+                 groupes, infobulles, pagesRendues: pages.length === combienDePages };
     });
-    r.egal('sur une page vierge, le bouton dit simplement « Poser »',
-        libelle.surPageVierge, '⇥ Poser');
-    r.egal('là où il y a déjà quelque chose, il dit « Poser à côté »',
-        libelle.surPageOccupee, '⇥ Poser à côté');
-    r.egal('et il suit le changement de page tout seul',
-        { libelle: libelle.apresPageNeuve, rendues: libelle.pagesRendues },
-        { libelle: '⇥ Poser', rendues: true });
+    // AUCUN DES TROIS NE SE CONFOND AVEC UN AUTRE. C'est la plainte, et c'est
+    // la garde : « Poser à côté » et « À côté » ne tenaient qu'à un mot.
+    r.egal('les trois boutons portent trois noms distincts',
+        new Set(libelle.trois).size, 3);
+    r.verifie('et aucun n\'est contenu dans un autre',
+        libelle.trois.every((a, i) => libelle.trois.every((b2, j) =>
+            i === j || !b2.toLowerCase().includes(a.toLowerCase().replace(/^[^a-zà-ÿ]+/i, '')))),
+        JSON.stringify(libelle.trois));
+    r.verifie('chacun dit s\'il parle d\'une page du tableau ou du document projeté',
+        /page/i.test(libelle.trois[0]) && /page/i.test(libelle.trois[1])
+        && /document/i.test(libelle.trois[2]), JSON.stringify(libelle.trois));
+    r.egal('les deux premiers vivent sous le même titre',
+        libelle.groupes[0], libelle.groupes[1]);
+    r.verifie('et le troisième sous un autre',
+        libelle.groupes[2] && libelle.groupes[2] !== libelle.groupes[0],
+        JSON.stringify(libelle.groupes));
+    r.verifie('le premier titre parle du tableau', /tableau/i.test(libelle.groupes[0]),
+        libelle.groupes[0]);
+    r.verifie('le second de la projection', /projection/i.test(libelle.groupes[2]),
+        libelle.groupes[2]);
+    r.verifie('et les trois infobulles diffèrent',
+        new Set(libelle.infobulles).size === 3 && libelle.infobulles.every(x => x.length > 10),
+        JSON.stringify(libelle.infobulles));
+
+    // LE LIBELLÉ NE BOUGE PLUS ; LA PHRASE, SI.
+    r.egal('le bouton garde son nom, page vierge ou non',
+        [libelle.surPageVierge.libelle, libelle.surPageOccupee.libelle, libelle.apresPageNeuve.libelle],
+        [libelle.trois[0], libelle.trois[0], libelle.trois[0]]);
+    r.verifie('le tiroir vide le dit', /vide/i.test(libelle.vide.phrase), libelle.vide.phrase);
+    r.verifie('sinon la phrase compte les morceaux et nomme la page',
+        /2 morceaux/.test(libelle.surPageVierge.phrase)
+        && /page \d+\/\d+/.test(libelle.surPageVierge.phrase),
+        libelle.surPageVierge.phrase);
+    r.verifie('elle dit que la page est vide quand elle l\'est',
+        /vide/i.test(libelle.surPageVierge.phrase), libelle.surPageVierge.phrase);
+    r.verifie('et qu\'on rangera tout ensemble quand elle ne l\'est pas',
+        /ensemble/i.test(libelle.surPageOccupee.phrase), libelle.surPageOccupee.phrase);
+    r.verifie('elle suit le changement de page toute seule',
+        /vide/i.test(libelle.apresPageNeuve.phrase) && libelle.pagesRendues,
+        JSON.stringify(libelle.apresPageNeuve));
 
     // =====================================================================
     // CE QU'ON A JETÉ NE REVIENT PAS

@@ -16800,19 +16800,39 @@ function poserTousLesMorceaux(options) {
 // rien à côté de quoi se ranger, on pose, c'est tout. Le libellé suit donc la
 // page où l'on est — c'est le seul moyen qu'il reste vrai après un changement
 // de page.
+// LE LIBELLÉ NE BASCULE PLUS, LA PHRASE EN DESSOUS DIT TOUT.
+//
+// Il disait « Poser » ou « Poser à côté » selon que la page portait déjà
+// quelque chose. Deux choses en sortaient mal : le bouton changeait de nom
+// sous les yeux — on le relit à chaque fois —, et « Poser à côté » se
+// confondait mot pour mot avec « À côté », qui fait tout autre chose.
+//
+// Le bouton garde donc son nom, et une ligne dit ce qui va se passer :
+// combien de morceaux, sur quelle page, et ce qui s'y trouve déjà.
 function majLeBoutonPoser() {
     const b = document.getElementById('bm-ranger');
     if (!b) return;
     const occupe = (typeof boiteDuTravail === 'function') && !!boiteDuTravail();
-    b.textContent = occupe ? '⇥ Poser à côté' : '⇥ Poser';
     b.setAttribute('data-tooltip', occupe
-        ? 'Poser tous les morceaux côte à côte sur la page des exercices de ce document'
-        : 'Poser tous les morceaux côte à côte sur cette page vierge');
+        ? 'Vider le tiroir sur la page où vous êtes — ce qui s’y trouve déjà se range avec'
+        : 'Vider le tiroir sur la page où vous êtes, qui est vide');
     const neuve = document.getElementById('bm-ranger-neuve');
     if (neuve) {
         neuve.setAttribute('data-tooltip',
-            'Poser tous les morceaux sur une page de tableau neuve — les découpages suivants la rejoindront');
+            'Vider le tiroir sur une page de tableau neuve — les découpages suivants la rejoindront');
     }
+    const mot = document.getElementById('bm-explique');
+    if (!mot) return;
+    const combien = (typeof morceauxEnAttente !== 'undefined') ? morceauxEnAttente.length : 0;
+    const page = (typeof currentPageIndex !== 'undefined' && typeof pages !== 'undefined')
+        ? (currentPageIndex + 1) + '/' + pages.length : '';
+    if (!combien) {
+        mot.textContent = 'Le tiroir est vide : découpez d’abord un morceau dans un document.';
+        return;
+    }
+    mot.textContent = combien + ' morceau' + (combien > 1 ? 'x' : '')
+        + ' ira' + (combien > 1 ? 'ont' : '') + ' sur la page ' + page
+        + (occupe ? ', et tout s’y rangera ensemble.' : ', qui est vide.');
 }
 
 // LE BOUTON DIT CE QU'IL FERA, et il le dit tout le temps : « À côté » quand
@@ -16827,13 +16847,18 @@ function majLeBoutonACote() {
     const occupee = projette && !!objetVoisinDeLaPresentation();
     const aPoser = typeof morceauxEnAttente !== 'undefined' && morceauxEnAttente.length > 0;
 
-    b.textContent = occupee ? '⇔ Ranger celui d\'à côté' : '⇔ À côté';
+    // ET IL DIT DE QUOI IL PARLE. « À côté » ne disait pas à côté de QUOI, et
+    // se confondait avec « Poser à côté », qui vide le tiroir sur une page du
+    // tableau. Celui-ci ne touche pas au tableau : il montre UN morceau à côté
+    // du document PROJETÉ, et l'on reste en plein écran.
+    b.textContent = occupee ? '⇔ Retirer ce qui est à côté'
+                            : '⇔ Montrer un morceau à côté du document';
     b.disabled = !projette || (!occupee && !aPoser);
     b.setAttribute('data-tooltip',
-        !projette ? 'Projetez d\'abord un document : « à côté » est une place de l\'écran projeté'
-            : occupee ? 'Retirer ce qui est à côté — la page reprend toute la largeur'
-                : !aPoser ? 'Découpez d\'abord un morceau : il ira se poser à côté de la page'
-                    : 'Poser le morceau à côté de la page, sans quitter le plein écran');
+        !projette ? 'Projetez d\'abord un document : cette place n\'existe que sur l\'écran projeté'
+            : occupee ? 'Retirer ce qui est à côté — le document reprend toute la largeur'
+                : !aPoser ? 'Découpez d\'abord un morceau : il ira se montrer à côté du document'
+                    : 'Montrer le premier morceau du tiroir à côté du document, sans quitter le plein écran');
 }
 
 function majLaPageDuTiroir() {
@@ -19855,7 +19880,25 @@ function equiperVraiment(el, cle, options) {
 
     const outils = document.createElement('div');
     outils.className = 'fen-outils';
-    outils.innerHTML = `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
+    // UNE POIGNÉE POUR DÉPLACER, ET ELLE EST ICI POUR TOUT LE MONDE.
+    //
+    // « La fenêtre n'est pas déplaçable. Est-ce que toutes les fenêtres des
+    // modales sont déplaçables ? » Non : chaque outil réécrivait son propre
+    // déplacement sur son propre en-tête — les points de classe, le lecteur,
+    // le tiroir des morceaux — et celles qui ne l'avaient pas écrit restaient
+    // clouées au milieu de l'écran. Devant une classe, une fenêtre clouée
+    // cache justement ce qu'on veut montrer.
+    //
+    // L'équipement commun porte déjà le plein écran et le redimensionnement :
+    // le déplacement le rejoint. Une décision, un endroit, et toutes les
+    // fenêtres équipées en héritent d'un coup.
+    //
+    // ON NE DEVINE PAS L'EN-TÊTE. Les fenêtres n'ont pas de barre de titre
+    // commune — certaines n'en ont pas du tout — et attraper « le haut » aurait
+    // volé le geste à un bouton une fois sur trois. Une poignée dessinée, à
+    // côté des deux autres commandes, se voit et ne se dispute avec rien.
+    outils.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
+        + `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
         + (saPoignee ? '' : `<div class="fen-poignee" title="Ajuster la taille"></div>`);
     el.appendChild(outils);
 
@@ -19869,6 +19912,60 @@ function equiperVraiment(el, cle, options) {
 
     const bouton = outils.querySelector('.fen-plein');
     const poignee = outils.querySelector('.fen-poignee');
+    const bouger = outils.querySelector('.fen-bouger');
+
+    // --- Déplacement ---
+    // La fenêtre peut être centrée par une marge négative ou par un
+    // « transform » : les deux se battraient avec le « left » qu'on va poser.
+    // On lit donc sa place à l'écran UNE FOIS, on la fige, et l'on n'a plus
+    // affaire qu'à deux nombres.
+    const figerLaPlace = () => {
+        const b = el.getBoundingClientRect();
+        if (getComputedStyle(el).position !== 'fixed') el.style.position = 'fixed';
+        el.style.margin = '0';
+        el.style.right = 'auto';
+        el.style.bottom = 'auto';
+        el.style.transform = 'none';
+        el.style.left = Math.round(b.left) + 'px';
+        el.style.top = Math.round(b.top) + 'px';
+        return b;
+    };
+    if (bouger) {
+        let prise = null;
+        bouger.style.touchAction = 'none';
+        bouger.addEventListener('pointerdown', (e) => {
+            const b = figerLaPlace();
+            prise = { x: e.clientX - b.left, y: e.clientY - b.top, id: e.pointerId };
+            try { bouger.setPointerCapture(e.pointerId); } catch (err) { /* le navigateur refuse */ }
+            bouger.classList.add('en-main');
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        bouger.addEventListener('pointermove', (e) => {
+            if (!prise || e.pointerId !== prise.id) return;
+            const b = el.getBoundingClientRect();
+            // ON NE LA PERD PAS HORS DE L'ÉCRAN : il reste toujours de quoi la
+            // rattraper, même poussée dans un coin.
+            const marge = 40;
+            el.style.left = Math.max(marge - b.width, Math.min(window.innerWidth - marge, e.clientX - prise.x)) + 'px';
+            el.style.top = Math.max(0, Math.min(window.innerHeight - marge, e.clientY - prise.y)) + 'px';
+        });
+        const lacher = (e) => {
+            if (!prise || (e && e.pointerId !== prise.id)) return;
+            prise = null;
+            bouger.classList.remove('en-main');
+        };
+        bouger.addEventListener('pointerup', lacher);
+        bouger.addEventListener('pointercancel', lacher);
+        // Double-clic sur la poignée : la fenêtre revient au milieu, comme
+        // partout ailleurs dans l'application.
+        bouger.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            const b = el.getBoundingClientRect();
+            el.style.left = Math.max(8, Math.round((window.innerWidth - b.width) / 2)) + 'px';
+            el.style.top = Math.max(8, Math.round((window.innerHeight - b.height) / 2)) + 'px';
+        });
+    }
 
     // --- Plein écran ---
     let avantPlein = null;
@@ -21517,7 +21614,13 @@ function rangerDansLeDock(cle, titre, icone, auClic) {
         item = document.createElement('div');
         item.className = 'dock-item';
         item.dataset.fenetre = cle;
-        item.addEventListener('click', () => { retirerDuDock(cle); if (auClic) auClic(); });
+        item.addEventListener('click', () => {
+            retirerDuDock(cle);
+            // MÊME SORT POUR UNE FENÊTRE RANGÉE LÀ : l'écran nu l'effacerait
+            // tout autant, et l'on aurait cliqué pour rien.
+            sortirDeLEcranNuPourLesOutils();
+            if (auClic) auClic();
+        });
         dock.appendChild(item);
     }
     item.title = titre || 'Rouvrir';
@@ -21578,6 +21681,33 @@ function dockFloatingToolbar(bar) {
     updateFloatingDockPositions();
 }
 
+// SORTIR UNE BARRE DU QUAI PENDANT QU'ON PROJETTE DOIT LA MONTRER.
+//
+// « Quand on clique sur la toolbar en bas à gauche, elle n'apparaît pas. »
+// C'était exact, et la cause tenait en une ligne de feuille de style :
+// l'écran nu efface TOUTES les barres — « body.focus-mode .custom-toolbar {
+// opacity: 0 !important } » — et le quai est le seul meuble qui y survive,
+// exprès, pour que la barre rangée par la projection reste retrouvable.
+//
+// On dépliait donc dans le vide : la vignette quittait le quai, la barre
+// reprenait son « display », et rien ne paraissait — ni visible, ni
+// cliquable. Le geste détruisait le seul chemin de retour.
+//
+// Aller la chercher au quai, c'est demander les outils : on quitte donc
+// l'écran nu comme le fait déjà le bouton « les outils par-dessus la page »,
+// et l'on ferme les tiroirs comme lui — ce sont les outils qu'on veut, pas le
+// meuble qui mange le haut et le bas de la page qu'on vient de projeter.
+function sortirDeLEcranNuPourLesOutils() {
+    if (!document.body.classList.contains('focus-mode')) return false;
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours) {
+        presentationAvecBarres = true;
+        if (typeof rangerLesTiroirs === 'function') rangerLesTiroirs();
+    }
+    if (typeof toggleFocusMode === 'function') toggleFocusMode();
+    return true;
+}
+window.sortirDeLEcranNuPourLesOutils = sortirDeLEcranNuPourLesOutils;
+
 function restoreFloatingToolbar(barId) {
     const bar = document.getElementById(barId);
     if (!bar) return;
@@ -21588,6 +21718,7 @@ function restoreFloatingToolbar(barId) {
     if (item) item.remove();
     updateFloatingDockPositions();
     persistFloatingToolbar(bar);
+    sortirDeLEcranNuPourLesOutils();
 }
 
 function minimizeFloatingToolbar(bar) {

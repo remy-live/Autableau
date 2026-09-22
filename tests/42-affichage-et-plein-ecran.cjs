@@ -725,6 +725,86 @@ module.exports = async function (browser) {
     r.verifie('et les renvoyer l\'y remet — pas à moitié',
         !rappel.renvoyee.barre && rappel.renvoyee.pastille, JSON.stringify(rappel.renvoyee));
 
+    // ==================================================================
+    // ET ON PEUT ALLER LA CHERCHER AU QUAI SOI-MÊME
+    //
+    // « Quand on clique sur la toolbar en bas à gauche, elle n'apparaît pas. »
+    // C'était exact, et la cause tenait en une ligne de feuille de style :
+    // l'écran nu efface TOUTES les barres — « opacity: 0 !important » — et le
+    // quai est le seul meuble qui y survive, exprès. On dépliait donc dans le
+    // vide : la pastille quittait le quai, la barre reprenait son « display »,
+    // et rien ne paraissait. Le geste détruisait le seul chemin de retour.
+    //
+    // L'ÉPROUVETTE REGARDE CE QUE L'ŒIL VOIT, et non ce que le document
+    // contient : une barre à « display: flex » et à « opacity: 0 » est
+    // présente et invisible, ce qui est tout le défaut.
+    // ==================================================================
+    const sortiDuQuai = await page.evaluate(async () => {
+        const montre = (el) => {
+            if (!el || !el.getClientRects().length) return false;
+            const c = getComputedStyle(el);
+            return c.display !== 'none' && c.visibility !== 'hidden' && Number(c.opacity) > 0.5;
+        };
+        const barre = document.getElementById('system-toolbar-main');
+        const pastille = () => document.querySelector(`#dock .dock-item[data-target-id='${barre.id}']`);
+        images.length = 0;
+        images.push({ id: nextId++, x: 40, y: 40, w: 500, h: 620, z: globalZ++,
+                      nomFichier: 'poly.pdf', src: 'x' });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument();
+        presenterLeDocument();
+        await new Promise(ok => setTimeout(ok, 500));
+        const avant = { barre: montre(barre), pastille: !!pastille(),
+                        ecranNu: document.body.classList.contains('focus-mode') };
+        // On rouvre le tiroir du bas : il doit se refermer tout seul.
+        // QUE LES OUTILS, PAS LES TIROIRS — c'est la règle du bouton « montrer
+        // les outils », et aller chercher la barre au quai demande la même
+        // chose. Les tiroirs servent à préparer, et ils mangeraient le haut et
+        // le bas de la page qu'on vient de mettre en grand.
+        const bas = document.getElementById('bottom-drawer');
+        if (bas && bas.classList.contains('closed') && typeof toggleBottomDrawer === 'function') {
+            toggleBottomDrawer();
+        }
+        await new Promise(ok => setTimeout(ok, 200));
+        const tiroirOuvert = bas && !bas.classList.contains('closed');
+        // On clique la pastille, comme on le ferait du doigt.
+        const p = pastille();
+        if (p) p.click();
+        await new Promise(ok => setTimeout(ok, 500));
+        const b = barre.getBoundingClientRect();
+        const sous = document.elementFromPoint(
+            Math.round(b.left + b.width / 2), Math.round(b.top + 12));
+        const apres = {
+            barre: montre(barre), pastille: !!pastille(),
+            opacite: Number(getComputedStyle(barre).opacity),
+            // ET ELLE RÉPOND AU DOIGT : « pointer-events: none » la laisserait
+            // visible et inerte, ce qui n'est pas mieux.
+            repond: !!(sous && (sous === barre || barre.contains(sous))),
+            projette: etatDuPleinEcran() > 0,
+            ecranNu: document.body.classList.contains('focus-mode'),
+            tiroirRange: !!(bas && bas.classList.contains('closed'))
+        };
+        quitterLaPresentation();
+        await new Promise(ok => setTimeout(ok, 600));
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return { avant, apres, tiroirOuvert };
+    });
+    r.verifie('en projetant, la barre est au quai et l\'écran est nu',
+        !sortiDuQuai.avant.barre && sortiDuQuai.avant.pastille && sortiDuQuai.avant.ecranNu,
+        JSON.stringify(sortiDuQuai.avant));
+    r.verifie('appuyer sur la pastille la fait VRAIMENT paraître',
+        sortiDuQuai.apres.barre && sortiDuQuai.apres.opacite > 0.5, JSON.stringify(sortiDuQuai.apres));
+    r.verifie('et elle répond au doigt', sortiDuQuai.apres.repond, JSON.stringify(sortiDuQuai.apres));
+    r.egal('la pastille a quitté le quai', sortiDuQuai.apres.pastille, false);
+    r.verifie('on projette toujours, et l\'écran nu s\'est levé pour les outils',
+        sortiDuQuai.apres.projette && !sortiDuQuai.apres.ecranNu, JSON.stringify(sortiDuQuai.apres));
+    r.verifie('le tiroir du bas était bien ouvert avant', sortiDuQuai.tiroirOuvert,
+        String(sortiDuQuai.tiroirOuvert));
+    // QUE LES OUTILS, PAS LES TIROIRS : ils mangeraient le haut et le bas de la
+    // page qu'on vient de mettre en grand.
+    r.verifie('et il s\'est rangé : on demandait les outils, pas le meuble',
+        sortiDuQuai.apres.tiroirRange, JSON.stringify(sortiDuQuai.apres));
+
     // QUI LES AVAIT RANGÉS LUI-MÊME LES RETROUVE RANGÉS. La projection ne rend
     // que ce qu'elle a pris : sans cela, elle déplierait une barre que le
     // professeur avait mise de côté pour gagner de la place.

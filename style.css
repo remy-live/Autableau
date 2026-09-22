@@ -8646,6 +8646,31 @@ body.focus-mode #edt-bandeau { display: none; }
 }
 
 /* Les deux traits obliques du coin : le dessin universel du « tirez ici » */
+/* LA POIGNÉE QUI DÉPLACE. Elle vit à côté du plein écran et du
+   redimensionnement : une fenêtre équipée se déplace, se redimensionne et
+   s'agrandit, et ces trois commandes se trouvent au même endroit. */
+.fen-bouger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: rgba(127, 140, 141, 0.14);
+    color: var(--muted, #636e72);
+    font-size: 13px;
+    line-height: 1;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.fen-bouger:hover { background: rgba(9, 132, 227, 0.16); color: var(--accent, #0984e3); }
+.fen-bouger.en-main { cursor: grabbing; background: rgba(9, 132, 227, 0.26); }
+
+/* En plein écran, il n'y a plus de place où la déplacer. */
+.fen-pleine .fen-bouger { display: none; }
+
 .fen-poignee {
     width: 16px;
     height: 16px;
@@ -11059,6 +11084,43 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 /* LES DEUX POSES, EMPILÉES. La bande est couchée ; ces deux-là sont le même
    geste à deux destinations, et se lisent donc l'un sous l'autre plutôt que
    côte à côte, où ils passeraient pour deux commandes sans rapport. */
+/* DEUX GROUPES, DEUX TITRES. Les trois boutons se ressemblaient et ne
+   parlaient pas de la même chose : les deux premiers vident le tiroir sur une
+   PAGE DU TABLEAU, le troisième montre un morceau à côté du document qu'on
+   PROJETTE. Un trait les sépare, et chacun dit de quoi il parle. */
+.bm-groupe {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.bm-groupe-projection {
+    padding-left: 10px;
+    border-left: 1px solid #dfe6e9;
+}
+
+.bm-groupe-titre {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #b2bec3;
+}
+
+/* La phrase qui dit ce qui va se passer : combien de morceaux, sur quelle
+   page, et ce qui s'y trouve déjà. C'est ce que le libellé qui basculait
+   essayait de dire sans y arriver. */
+.bm-explique {
+    font-size: 10px;
+    line-height: 1.3;
+    color: #636e72;
+    max-width: 240px;
+}
+
+.dark-mode .bm-groupe-projection { border-left-color: #3d4852; }
+.dark-mode .bm-explique { color: #b2bec3; }
+
 .bm-poser {
     display: flex;
     flex-direction: column;
@@ -12409,9 +12471,12 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 #dictee-modal #dic-corps {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 14px 16px 16px;
+    gap: 16px;
+    padding: 16px 18px 20px;
     overflow: auto;
+    /* La poignée de déplacement et le plein écran vivent en bas à droite :
+       on leur laisse la place plutôt que de leur faire recouvrir un bouton. */
+    padding-bottom: 34px;
 }
 
 #dictee-modal #dic-texte {
@@ -12521,29 +12586,71 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
     font-size: 17px;
 }
 
-#dictee-modal .dic-reglages {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 8px 14px;
+/* L'ÉTIQUETTE AU-DESSUS, LA VALEUR À DROITE, UN RÉGLAGE PAR LIGNE.
+   « Pour moi cette interface est illisible. » Les cinq réglages tenaient sur
+   une grille de cent quatre-vingt-dix pixels, étiquette, curseur et valeur sur
+   la MÊME ligne : « On écrit ▭▭▭ un mot en 10 s » n'y tenait pas et se cassait
+   en trois morceaux qui ne se rapportaient plus à rien. */
+#dictee-modal .dic-voix-zone {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-#dictee-modal .dic-reglages label {
+#dictee-modal .dic-voix-zone select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border, #dfe6e9);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    background: var(--surface, #fff);
+    color: var(--ink, #2d3436);
+}
+
+#dictee-modal .dic-voix-mot { font-size: 11px; color: var(--muted, #636e72); }
+
+#dictee-modal .dic-etiquette {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #b2bec3;
+}
+
+#dictee-modal .dic-reglages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px 18px;
+}
+
+#dictee-modal .dic-reglage {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+#dictee-modal .dic-ligne {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted, #636e72);
+    gap: 10px;
+    min-width: 0;
 }
 
 #dictee-modal .dic-reglages input[type="range"] { flex: 1 1 auto; min-width: 0; }
-#dictee-modal .dic-reglages select { flex: 1 1 auto; min-width: 0; }
 
-#dictee-modal .dic-reglages span {
+#dictee-modal .dic-ligne > span {
+    flex: 0 0 auto;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
-    min-width: 52px;
+    white-space: nowrap;
+    min-width: 76px;
     text-align: right;
     color: var(--ink, #2d3436);
 }
+
+.dark-mode #dictee-modal .dic-voix-zone select { background: #2f3941; color: #dfe6e9; border-color: #3d4852; }
 
 #dictee-modal .dic-temps,
 #dictee-modal .dic-commandes {

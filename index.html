@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=182">
+    <link rel="stylesheet" href="style.css?v=184">
 </head>
 
 <body>
@@ -517,24 +517,35 @@
             <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
             <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
         </span>
-        <!-- DEUX BOUTONS, L'UN SOUS L'AUTRE, ET ON VOIT LES DEUX.
-             « Soit il y a "je pose à côté", et en dessous "je pose dans une
-             nouvelle page". » Le second geste avait d'abord été caché sous un
-             appui long : un choix qu'on ne voit pas n'existe pas, et celui-ci
-             se prend à chaque découpage, pas une fois pour toutes.
-             Le libellé du premier suit la page — « Poser à côté » là où il y a
-             déjà quelque chose, « Poser » sur une page vierge. Son infobulle
-             aussi, et c'est « majLeBoutonPoser » qui les pose : rien d'écrit
-             ici, qui serait effacé au chargement sans avoir jamais paru. -->
-        <span class="bm-poser">
-            <button class="bm-btn" id="bm-ranger">⇥ Poser</button>
-            <button class="bm-btn" id="bm-ranger-neuve">＋ Sur une page neuve</button>
-            <!-- ET LA SECONDE PLACE, quand on projette : le morceau se pose à
-                 côté de la page, qui se serre pour lui faire de la place, et
-                 l'on ne quitte pas le plein écran. Le libellé bascule entre
-                 « À côté » et « Ranger celui d'à côté » — c'est
-                 « majLeBoutonACote » qui le pose. -->
-            <button class="bm-btn" id="bm-a-cote">⇔ À côté</button>
+        <!-- TROIS BOUTONS QUI NE PARLAIENT PAS DE LA MÊME CHOSE, ET QUI SE
+             RESSEMBLAIENT.
+             « Je ne comprends pas ce que font les 3 boutons, je ne saisis pas
+             la différence. » « Poser à côté » et « À côté » : deux libellés à
+             un mot près, pour deux gestes qui n'ont rien à voir. Les deux
+             premiers vident le TIROIR sur une PAGE DU TABLEAU, et ne diffèrent
+             que par la page. Le troisième ne touche pas au tableau : il montre
+             UN morceau à côté du document qu'on PROJETTE, sans quitter le
+             plein écran.
+             On les sépare donc en deux groupes, chacun sous son titre, et
+             chaque bouton dit son objet en toutes lettres. Une ligne sous les
+             deux premiers annonce ce qui va se passer — combien de morceaux,
+             sur quelle page, et ce qui s'y trouve déjà : c'est ce que le
+             libellé qui basculait essayait de dire sans y arriver. -->
+        <span class="bm-groupe">
+            <span class="bm-groupe-titre">Vider le tiroir sur une page du tableau</span>
+            <span class="bm-poser">
+                <button class="bm-btn" id="bm-ranger">⇥ Tout poser sur cette page</button>
+                <button class="bm-btn" id="bm-ranger-neuve">＋ Tout poser sur une page neuve</button>
+            </span>
+            <span class="bm-explique" id="bm-explique"></span>
+        </span>
+        <span class="bm-groupe bm-groupe-projection">
+            <span class="bm-groupe-titre">Pendant la projection</span>
+            <!-- LA SECONDE PLACE : le morceau se pose à côté de la page, qui se
+                 serre pour lui faire de la place, et l'on ne quitte pas le
+                 plein écran. Le libellé bascule entre « Montrer… » et
+                 « Retirer… » — c'est « majLeBoutonACote » qui le pose. -->
+            <button class="bm-btn" id="bm-a-cote">⇔ Montrer un morceau à côté du document</button>
         </span>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
@@ -3682,9 +3693,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=304"></script>
+    <script src="script.js?v=305"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=110"></script>
+    <script src="plugin.js?v=111"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=7"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

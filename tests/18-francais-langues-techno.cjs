@@ -1055,6 +1055,8 @@ module.exports = async function (browser) {
         });
         D.majLesVoix();
         const avecPremium = { premiere: [...liste.options].map(o => o.value)[0],
+                              etiquettePremiere: liste.options[0].textContent,
+                              mot: D.widgetEl.querySelector('#dic-voix-mot').textContent,
                               choisie: D.voixChoisie().name,
                               conseil: getComputedStyle(alerte).display !== 'none' };
 
@@ -1067,7 +1069,8 @@ module.exports = async function (browser) {
         D.majLesVoix();
         const tordu = { etiquette: liste.options[0].textContent,
                         valeur: liste.options[0].value,
-                        balises: liste.querySelectorAll('b').length };
+                        balises: liste.querySelectorAll('b').length,
+                        mot: D.widgetEl.querySelector('#dic-voix-mot').textContent };
 
         D.moteur = vrai;
         D.fermer();
@@ -1093,8 +1096,20 @@ module.exports = async function (browser) {
     r.egal('seules les voix françaises sont proposées',
         sansVoix.avecVoix.options, ['Julie']);
     r.egal('et c\'est celle-là qu\'on prend', sansVoix.avecVoix.choisie, 'Julie');
-    r.egal('un nom de voix biscornu s\'affiche tel quel',
-        sansVoix.tordu.etiquette, 'Voix « <b>Ré</b> » "grave"');
+    // LE NOM, PUIS CE QUE LA VOIX VAUT. « On n'a pas la proposition des autres
+    // voix » : la liste ne montrait que des noms, et l'on ne choisit pas entre
+    // des noms qu'on ne connaît pas.
+    r.verifie('un nom de voix biscornu s\'affiche tel quel',
+        sansVoix.tordu.etiquette.startsWith('Voix « <b>Ré</b> » "grave"'),
+        sansVoix.tordu.etiquette);
+    r.verifie('et chaque voix dit ce qu\'elle vaut',
+        / — (améliorée|du réseau|compacte|du système)$/.test(sansVoix.tordu.etiquette),
+        sansVoix.tordu.etiquette);
+    r.verifie('la meilleure est nommée « améliorée »',
+        / — améliorée$/.test(sansVoix.avecPremium.etiquettePremiere || ''),
+        sansVoix.avecPremium.etiquettePremiere);
+    r.verifie('et l\'on dit combien il y en a',
+        /voix françaises/.test(sansVoix.avecPremium.mot), sansVoix.avecPremium.mot);
     r.egal('et sa valeur reste entière', sansVoix.tordu.valeur, 'Voix « <b>Ré</b> » "grave"');
     r.egal('sans qu\'aucune balise ne s\'y ouvre', sansVoix.tordu.balises, 0);
 

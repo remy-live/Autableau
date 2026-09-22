@@ -36566,12 +36566,47 @@ registerPlugin('lecteurDicteeTool', 'Français', {
                 </div>
                 <div id="dic-sansvoix" role="status"></div>
                 <div class="dic-niveaux" id="dic-niveaux"></div>
+                <!-- L'ÉTIQUETTE AU-DESSUS, LA VALEUR À DROITE, UN RÉGLAGE PAR
+                     LIGNE. « Pour moi cette interface est illisible. » Les cinq
+                     réglages étaient sur une grille de cent quatre-vingt-dix
+                     pixels, étiquette, curseur et valeur sur la MÊME ligne :
+                     « On écrit ▭▭▭ un mot en 10 s » n'y tenait pas et se
+                     cassait en trois morceaux qui ne se rapportaient plus à
+                     rien. -->
+                <div class="dic-voix-zone">
+                    <label class="dic-etiquette" for="dic-voix">Voix</label>
+                    <select id="dic-voix"></select>
+                    <div id="dic-voix-mot" class="dic-voix-mot"></div>
+                </div>
                 <div class="dic-reglages">
-                    <label>Voix <select id="dic-voix"></select></label>
-                    <label>Vitesse <input type="range" id="dic-vitesse" min="0.8" max="1" step="0.01"><span id="dic-vitesse-lue"></span></label>
-                    <label>Groupes <input type="range" id="dic-longueur" min="2" max="14" step="1"><span id="dic-longueur-lue"></span></label>
-                    <label>Répétitions <input type="range" id="dic-repetitions" min="1" max="3" step="1"><span id="dic-repetitions-lue"></span></label>
-                    <label>On écrit <input type="range" id="dic-secondesParMot" min="4" max="26" step="0.5"><span id="dic-secondesParMot-lue"></span></label>
+                    <label class="dic-reglage">
+                        <span class="dic-etiquette">Vitesse de lecture</span>
+                        <span class="dic-ligne">
+                            <input type="range" id="dic-vitesse" min="0.8" max="1" step="0.01">
+                            <span id="dic-vitesse-lue"></span>
+                        </span>
+                    </label>
+                    <label class="dic-reglage">
+                        <span class="dic-etiquette">Longueur des groupes</span>
+                        <span class="dic-ligne">
+                            <input type="range" id="dic-longueur" min="2" max="14" step="1">
+                            <span id="dic-longueur-lue"></span>
+                        </span>
+                    </label>
+                    <label class="dic-reglage">
+                        <span class="dic-etiquette">Lectures par groupe</span>
+                        <span class="dic-ligne">
+                            <input type="range" id="dic-repetitions" min="1" max="3" step="1">
+                            <span id="dic-repetitions-lue"></span>
+                        </span>
+                    </label>
+                    <label class="dic-reglage">
+                        <span class="dic-etiquette">Temps d'écriture</span>
+                        <span class="dic-ligne">
+                            <input type="range" id="dic-secondesParMot" min="4" max="26" step="0.5">
+                            <span id="dic-secondesParMot-lue"></span>
+                        </span>
+                    </label>
                 </div>
                 <div class="dic-choix">
                     <span class="dic-choix-titre">Ponctuation dite</span>
@@ -36629,8 +36664,8 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         };
         curseur('vitesse', 'vitesse', (v) => v.toFixed(2).replace('.', ','));
         curseur('longueur', 'longueur', (v) => v + ' mots', () => this.redecouper());
-        curseur('repetitions', 'repetitions', (v) => v + ' fois');
-        curseur('secondesParMot', 'secondesParMot', (v) => 'un mot en ' + String(v).replace('.', ',') + ' s');
+        curseur('repetitions', 'repetitions', (v) => v + ' fois');   // « 2 fois » : deux lectures du même groupe
+        curseur('secondesParMot', 'secondesParMot', (v) => String(v).replace('.', ',') + ' s / mot');
 
         q('#dic-voix').addEventListener('change', (e) => {
             this.reglages.voix = e.target.value;
@@ -36708,6 +36743,20 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         return this.reglages.masque;
     },
 
+    // CE QUE VAUT UNE VOIX, DIT EN TOUTES LETTRES.
+    //
+    // « On n'a pas la proposition des autres voix. » La liste ne montrait que
+    // des noms — « Amélie », « Thomas » — et rien ne disait qu'il y en avait
+    // trois, ni laquelle valait mieux. On ne choisit pas entre des noms qu'on
+    // ne connaît pas : on prend le premier et l'on trouve que ça sonne mal.
+    motDeLaVoix: function (v) {
+        const r = this.rangDeLaVoix(v);
+        if (r === 0) return 'améliorée';
+        if (r === 1) return 'du réseau';
+        if (r === 3) return 'compacte';
+        return 'du système';
+    },
+
     majLesVoix: function () {
         if (!this.widgetEl) return;
         const liste = this.widgetEl.querySelector('#dic-voix');
@@ -36720,12 +36769,23 @@ registerPlugin('lecteurDicteeTool', 'Français', {
             dispo.forEach(v => {
                 const o = document.createElement('option');
                 o.value = v.name;
-                o.textContent = v.name;
+                // LE NOM, PUIS CE QUE LA VOIX VAUT. C'est la seule chose qui
+                // permette de choisir, et elle ne se devine pas au nom.
+                o.textContent = v.name + ' — ' + this.motDeLaVoix(v);
                 liste.appendChild(o);
             });
             const choisie = this.voixChoisie();
             if (choisie) liste.value = choisie.name;
             liste.disabled = !dispo.length;
+        }
+        // ET L'ON DIT COMBIEN IL Y EN A. Une liste déroulante fermée ne montre
+        // qu'une ligne : rien ne disait s'il y avait une voix ou douze.
+        const mot = this.widgetEl.querySelector('#dic-voix-mot');
+        if (mot) {
+            mot.textContent = !dispo.length ? ''
+                : (dispo.length === 1
+                    ? 'Une seule voix française sur cet ordinateur.'
+                    : dispo.length + ' voix françaises — la meilleure est proposée en premier.');
         }
         // ON LE DIT PLUTÔT QUE DE LIRE AVEC L'ACCENT ANGLAIS. Les voix
         // dépendent de la machine : Windows et macOS en ont, un Chromebook ou
@@ -36784,7 +36844,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         lu('vitesse', this.reglages.vitesse.toFixed(2).replace('.', ','));
         lu('longueur', this.reglages.longueur + ' mots');
         lu('repetitions', this.reglages.repetitions + ' fois');
-        lu('secondesParMot', 'un mot en ' + String(this.reglages.secondesParMot).replace('.', ',') + ' s');
+        lu('secondesParMot', String(this.reglages.secondesParMot).replace('.', ',') + ' s / mot');
     },
 
     minutesLisibles: function (secondes) {
