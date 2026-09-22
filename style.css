@@ -12370,9 +12370,13 @@ body.focus-mode #barre-ecran #btn-ecran-suite {
    permanence — à gauche où l'on en est dans le tableau, à droite ce qui passe
    en grand. */
 
-body:not(.focus-mode):not(.sans-tiroirs) #barre-ecran #ecran-sep {
-    display: none;
-}
+/* ET LE PREMIER TRAIT RESTE LUI AUSSI, DEPUIS QUE LE CYCLE RESTE. Il ne
+   s'effaçait que parce qu'il n'avait rien à séparer sur l'écran ordinaire :
+   la famille de l'affichage y était vide. Elle ne l'est plus — le cycle a
+   repris la place de la pastille « Focus » du tiroir du bas —, et deux
+   familles qui se touchent sans rien entre elles se lisent comme une seule.
+   La croix, elle, ne paraît toujours qu'aux états réduits : elle n'a de sens
+   que pour en sortir. */
 
 #barre-ecran button.actif { color: var(--accent); border-color: var(--accent); }
 

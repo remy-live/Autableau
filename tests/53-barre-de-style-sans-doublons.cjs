@@ -435,9 +435,18 @@ module.exports = async function (browser) {
     const place = (etat, id) => (coin[etat].find(b => b.id === id) || {}).x;
     const vu = (etat, id) => (coin[etat].find(b => b.id === id) || {}).vu;
 
-    r.egal('sur l\'écran ordinaire, le coin ne porte que les deux « en grand »',
+    // LE CYCLE A REJOINT LES DEUX PERMANENTS. Il ne paraissait qu'aux états
+    // réduits, parce que la pastille « Focus » du tiroir du bas le portait sur
+    // l'écran ordinaire. Cette pastille est partie — elle commandait l'état
+    // qui refermait le tiroir où elle vivait, et ne pouvait donc jamais servir
+    // à revenir. Sans ce changement, il ne resterait plus aucun chemin vers le
+    // cycle sans le clavier. La croix, elle, reste réservée aux états réduits :
+    // elle n'a de sens que pour en SORTIR.
+    r.egal('sur l\'écran ordinaire, le coin porte le cycle et les deux « en grand »',
         coin[0].filter(b => b.vu).map(b => b.id),
-        ['btn-ecran-presenter', 'btn-ecran-plein']);
+        ['btn-ecran-suite', 'ecran-sep', 'btn-ecran-presenter', 'btn-ecran-plein']);
+    r.egal('mais pas la croix : elle ne sert qu\'à sortir d\'un affichage réduit',
+        vu(0, 'exit-focus-cross'), false);
     r.verifie('en affichage réduit, les deux de l\'affichage arrivent avec leur trait',
         vu(1, 'btn-ecran-suite') && vu(1, 'exit-focus-cross') && vu(1, 'ecran-sep'),
         JSON.stringify(coin[1].map(b => b.id + ':' + b.vu)));
@@ -452,8 +461,12 @@ module.exports = async function (browser) {
     r.egal('les deux familles se suivent, le trait entre elles',
         ordre, ['btn-ecran-suite', 'exit-focus-cross', 'ecran-sep',
                 'btn-ecran-presenter', 'btn-ecran-plein']);
-    r.verifie('et le trait ne paraît pas quand il n\'aurait rien à séparer',
-        !vu(0, 'ecran-sep'), String(vu(0, 'ecran-sep')));
+    // ET LE TRAIT RESTE, PARCE QU'IL A DE NOUVEAU DEUX FAMILLES À SÉPARER :
+    // l'affichage à gauche, ce qui passe en grand à droite. Il s'effaçait du
+    // temps où la famille de gauche était vide sur l'écran ordinaire.
+    r.verifie('et le trait sépare les deux familles, à tous les états',
+        vu(0, 'ecran-sep') && vu(1, 'ecran-sep'),
+        `${vu(0, 'ecran-sep')} / ${vu(1, 'ecran-sep')}`);
 
     // LE BOUTON DIT OÙ L'ON EST, ET CE QUE L'APPUI SUIVANT FERA.
     r.verifie('en « barres seules », il dit où l\'on est et ce qui suit',
