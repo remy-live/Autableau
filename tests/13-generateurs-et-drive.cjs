@@ -1024,6 +1024,166 @@ module.exports = async function (browser) {
         [bandeau, fenetre, tout].forEach(d => d.remove());
         return lu;
     });
+    // ==================================================================
+    // UNE SEULE FORME, ET UNE BARRE DE TITRE EN HAUT
+    //
+    // « Les modales des plugins ne sont pas cohérentes dans le style (barre de
+    // titre et autre) par rapport à nos anciennes modales. » Et : « lecture de
+    // dictée ne bouge toujours pas ». Les deux n'en font qu'une : la fenêtre se
+    // déplaçait, mais par une poignée de 22 px logée dans le coin BAS-DROITE —
+    // sur la dictée, haute de 786 px, à 768 px du haut. On cherche une barre de
+    // titre, parce que toutes les fenêtres du monde en ont une.
+    // ==================================================================
+    const laBarre = await page.evaluate(async () => {
+        const f = document.createElement('div');
+        f.style.cssText = 'position:fixed; left:120px; top:120px; width:420px; height:300px; background:#fff;';
+        f.innerHTML = '<div>Mon outil <button type="button" class="sa-croix">✕</button></div>'
+            + '<div class="corps">du contenu</div>';
+        document.body.appendChild(f);
+        let fermee = 0;
+        f.querySelector('.sa-croix').addEventListener('click', () => { fermee++; });
+        equiperFenetre(f, null, { toujours: true });
+        await new Promise(r2 => setTimeout(r2, 300));
+        const tete = f.querySelector('.fen-tete');
+        if (!tete) { f.remove(); return { absente: true }; }
+        const rf = f.getBoundingClientRect(), rt = tete.getBoundingClientRect();
+        const lu = {
+            absente: false,
+            // EN HAUT, et large comme la fenêtre : pas un carré dans un coin.
+            enHaut: Math.abs(rt.top - rf.top) < 2,
+            large: rt.width > rf.width - 4,
+            nom: (f.querySelector('.fen-nom') || {}).textContent,
+            // L'EN-TÊTE MAISON EST ADOPTÉ, PAS DOUBLÉ : un seul titre.
+            maisonCachee: getComputedStyle(f.children[1]).display === 'none',
+            // Et sa croix est commandée par celle de la barre.
+            croix: !!f.querySelector('.fen-fermer')
+        };
+        if (lu.croix) f.querySelector('.fen-fermer').click();
+        lu.fermeeParLaBarre = fermee;
+        f.remove();
+        return lu;
+    });
+    r.verifie('la fenêtre porte une barre de titre', !laBarre.absente, JSON.stringify(laBarre));
+    r.verifie('en haut, et large comme elle',
+        laBarre.enHaut && laBarre.large, JSON.stringify(laBarre));
+    r.egal('qui porte son nom', laBarre.nom, 'Mon outil');
+    r.verifie('l\'en-tête que l\'outil s\'était écrit est adopté, pas doublé',
+        laBarre.maisonCachee, JSON.stringify(laBarre));
+    r.egal('et la croix de la barre commande la sienne',
+        { croix: laBarre.croix, fermee: laBarre.fermeeParLaBarre }, { croix: true, fermee: 1 });
+
+    // ON LA PREND N'IMPORTE OÙ SUR LA BARRE, pas sur un carré de 22 px.
+    //
+    // AVEC UNE VRAIE SOURIS, ET NON DES ÉVÉNEMENTS FABRIQUÉS : un
+    // « dispatchEvent » sur la barre atteint ce qui écoute SUR la barre, même
+    // si le vrai écouteur est sur un carré de 22 px qu'on n'aurait jamais
+    // touché. Le premier test écrit ici passait avec la poignée d'autrefois —
+    // il ne prouvait rien. Une souris, elle, vise.
+    const laPose = await page.evaluate(async () => {
+        // ON DÉGAGE LA SCÈNE. Les épreuves d'avant laissent des fenêtres
+        // ouvertes — les classes, l'explorateur —, et elles couvrent l'écran :
+        // une vraie souris s'y arrête, là où un événement fabriqué passait au
+        // travers sans rien remarquer. C'est tout l'intérêt de la vraie souris,
+        // et c'est pour ça qu'on range la scène au lieu de la contourner.
+        window.__caches = [...document.body.children].filter(n => {
+            const s2 = getComputedStyle(n);
+            return s2.position === 'fixed' && s2.display !== 'none';
+        });
+        window.__caches.forEach(n => { n.style.display = 'none'; });
+        document.getElementById('fen-essai')?.remove();
+        const f = document.createElement('div');
+        f.id = 'fen-essai';
+        f.style.cssText = 'position:fixed; left:200px; top:200px; width:420px; height:300px; background:#fff;';
+        f.innerHTML = '<div class="corps" style="height:200px">du contenu</div>';
+        document.body.appendChild(f);
+        equiperFenetre(f, null, { toujours: true });
+        await new Promise(r2 => setTimeout(r2, 300));
+        const t = f.querySelector('.fen-tete');
+        if (!t) return { absente: true };
+        const rt = t.getBoundingClientRect(), rf = f.getBoundingClientRect();
+        const mx = Math.round(rt.left + rt.width / 2), my = Math.round(rt.top + rt.height / 2);
+        const dessus = document.elementFromPoint(mx, my);
+        return { absente: false,
+                 milieu: { x: mx, y: my },
+                 quiEstDessus: dessus ? (dessus.className || dessus.tagName) + '' : null,
+                 zBarre: getComputedStyle(f).zIndex,
+                 avant: { x: Math.round(rf.left), y: Math.round(rf.top) } };
+    });
+    r.verifie('la fenêtre d\'essai porte bien sa barre', !laPose.absente, JSON.stringify(laPose));
+    await page.mouse.move(laPose.milieu.x, laPose.milieu.y);
+    await page.mouse.down();
+    await page.mouse.move(laPose.milieu.x - 90, laPose.milieu.y + 70, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apresLaBarre = await page.evaluate(() => {
+        const r = document.getElementById('fen-essai').getBoundingClientRect();
+        return { x: Math.round(r.left), y: Math.round(r.top) };
+    });
+    r.verifie('on la déplace en la prenant au MILIEU de sa barre',
+        Math.abs((apresLaBarre.x - laPose.avant.x) + 90) < 4
+        && Math.abs((apresLaBarre.y - laPose.avant.y) - 70) < 4,
+        `${laPose.avant.x},${laPose.avant.y} → ${apresLaBarre.x},${apresLaBarre.y}`);
+
+    // ET LE PLEIN ÉCRAN GARDE SON CLIC : la barre ne le lui vole pas.
+    const surLeBouton = await page.evaluate(() => {
+        const b = document.getElementById('fen-essai').querySelector('.fen-plein');
+        const r = b.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    });
+    await page.mouse.move(surLeBouton.x, surLeBouton.y);
+    await page.mouse.down();
+    await page.mouse.move(surLeBouton.x - 60, surLeBouton.y + 40, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const apresLeBouton = await page.evaluate(() => {
+        const f = document.getElementById('fen-essai');
+        const r = f.getBoundingClientRect();
+        const plein = f.classList.contains('fen-pleine');
+        f.remove();
+        // On rend la scène telle qu'on l'a trouvée : la suite du chapitre
+        // compte sur l'explorateur ouvert.
+        (window.__caches || []).forEach(n => { n.style.display = ''; });
+        window.__caches = null;
+        return { x: Math.round(r.left), y: Math.round(r.top), plein };
+    });
+    r.verifie('tirer depuis le bouton du plein écran ne déplace pas la fenêtre',
+        apresLeBouton.plein || (apresLeBouton.x === apresLaBarre.x && apresLeBouton.y === apresLaBarre.y),
+        JSON.stringify(apresLeBouton));
+
+    // CELLE QU'ON TOUCHE PASSE DEVANT.
+    // « Quand on drague des fenêtres, la fenêtre draguée doit avoir un z-index
+    // plus important. » Les outils s'étaient donné des étages allant de 9 000 à
+    // 2 147 483 647 : aucune règle ne pouvait s'appliquer entre eux, et une
+    // fenêtre d'outil passait par-dessus une QUESTION de confirmation.
+    const pile = await page.evaluate(async () => {
+        const faire = (g) => {
+            const d = document.createElement('div');
+            d.style.cssText = `position:fixed; left:${g}px; top:150px; width:300px; height:220px; background:#fff; z-index:999999;`;
+            document.body.appendChild(d);
+            return d;
+        };
+        const a = faire(100), b2 = faire(200);
+        equiperFenetre(a, null, { toujours: true });
+        equiperFenetre(b2, null, { toujours: true });
+        await new Promise(r2 => setTimeout(r2, 300));
+        const z = (el) => parseInt(el.style.zIndex, 10);
+        passerDevant(a);
+        const aDevant = { a: z(a), b: z(b2) };
+        passerDevant(b2);
+        const bDevant = { a: z(a), b: z(b2) };
+        // La bande reste SOUS les modales : une question doit couvrir un outil.
+        const fond = getComputedStyle(document.documentElement);
+        const lu = { aDevant, bDevant, plafond: Math.max(z(a), z(b2)) };
+        a.remove(); b2.remove();
+        return lu;
+    });
+    r.verifie('la fenêtre qu\'on touche passe devant l\'autre',
+        pile.aDevant.a > pile.aDevant.b, JSON.stringify(pile));
+    r.verifie('et l\'autre reprend le dessus quand c\'est son tour',
+        pile.bDevant.b > pile.bDevant.a, JSON.stringify(pile));
+    r.verifie('sans jamais monter au-dessus des modales (100050)',
+        pile.plafond < 100050, JSON.stringify(pile));
+
     r.verifie('une vraie fenêtre reçoit les commandes', tri.fenetre, JSON.stringify(tri));
     r.verifie('un bandeau de télécommande, non', !tri.bandeau, JSON.stringify(tri));
     r.verifie('un jeu déjà plein écran non plus', !tri.tout, JSON.stringify(tri));

@@ -8685,6 +8685,98 @@ body.focus-mode #edt-bandeau { display: none; }
     color: var(--accent, #0984e3);
 }
 
+/* ==================================================================
+   UNE SEULE FORME POUR TOUTES LES FENÊTRES
+   « Les modales des plugins ne sont pas cohérentes dans le style (barre de
+   titre et autre) par rapport à nos anciennes modales. Et surtout je veux une
+   cohérence sur la forme des modales. »
+   Chaque outil écrivait sa boîte à la main, dans son « cssText » : neuf noms
+   d'en-tête différents — tu-header, tm-header, std-header, spr-header,
+   sc-header, rl-header, pyt-header, atelier-tete, pw-titre —, des coins de 8 à
+   12 px, des ombres de quatre profondeurs, et des z-index allant de 9 000 à
+   2 147 483 647. Le détecteur de fenêtres existait déjà pour le trait : il
+   porte maintenant TOUTE la forme, reprise de « .modal-box » et de
+   « .live-modal-header », que vous connaissez depuis toujours.
+   « !important » n'est pas un caprice ici : ces valeurs sont écrites EN LIGNE
+   dans le style des fenêtres, et rien d'autre ne les bat.
+   ================================================================== */
+.contour-fenetre {
+    border-radius: var(--arrondi) !important;
+    box-shadow: var(--contour-ombre), 0 15px 35px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* LA BARRE DE TITRE, EN HAUT, COMME PARTOUT AILLEURS.
+   La poignée de déplacement vivait dans le coin BAS-DROITE : sur la fenêtre de
+   dictée, haute de 786 px, elle tombait à 768 px du haut, contre le coin de
+   redimensionnement. « Lecture de dictée ne bouge toujours pas » — elle
+   bougeait, mais personne ne va chercher là ce que toutes les fenêtres du
+   monde mettent en haut. La barre entière déplace ; le ⠿ n'est plus là que
+   pour le dire. */
+.fen-tete {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 34px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px 0 8px;
+    background: #f1f2f6;
+    border-bottom: 1px solid #dfe6e9;
+    border-radius: inherit;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    z-index: 7;
+}
+
+.fen-tete.en-main { cursor: grabbing; }
+
+/* La place que la barre occupe est rendue au contenu. Les fenêtres posent leur
+   « padding » en ligne : seul « !important » passe devant. */
+.fen-titree { padding-top: 34px !important; }
+
+.fen-nom {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #2d3436;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fen-tete-adoptee { display: none !important; }
+
+.fen-fermer {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(214, 48, 49, 0.12);
+    color: #d63031;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.fen-fermer:hover, .fen-fermer:focus-visible { opacity: 1; background: rgba(214, 48, 49, 0.22); }
+
+.fen-tete .fen-bouger { flex: none; }
+.fen-tete .fen-plein { flex: none; opacity: 0.65; }
+
+.dark-mode .fen-tete { background: #2f3640; border-bottom-color: #3d4852; }
+.dark-mode .fen-nom { color: #dfe6e9; }
+
 /* Les deux traits obliques du coin : le dessin universel du « tirez ici » */
 /* LA POIGNÉE QUI DÉPLACE. Elle vit à côté du plein écran et du
    redimensionnement : une fenêtre équipée se déplace, se redimensionne et

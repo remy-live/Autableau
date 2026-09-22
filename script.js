@@ -19795,6 +19795,100 @@ function equiperFenetre(el, cle, options) {
     }));
 }
 
+// LE NOM QUE PORTE LA BARRE DE TITRE.
+//
+// Trois fenêtres sont équipées par leur nom ; les autres arrivent par
+// « ramenerFenetreDansLecran » et peuvent poser le leur dans
+// « data-fenetre-titre ». À défaut, on le lit dans la fenêtre elle-même : la
+// plupart écrivent déjà leur titre en tête, sous l'un des neuf noms de classe
+// que chaque outil s'est inventés. Mieux vaut le reprendre que d'en inventer
+// un dixième — et une barre sans nom reste une barre qui déplace.
+const NOMS_DE_FENETRE = {
+    'dictee': 'Lecture de dictée',
+    'analyse-gram': 'Analyse grammaticale',
+    'class-manager': 'Mes classes'
+};
+
+function nomDeLaFenetre(cle, el) {
+    if (cle && NOMS_DE_FENETRE[cle]) return NOMS_DE_FENETRE[cle];
+    if (!el) return '';
+    // Le titre que la fenêtre s'est écrit elle-même, s'il tient en une ligne.
+    const tete = el.querySelector('h1, h2, h3, [class*="titre"], [class*="header"], [class*="tete"]');
+    if (!tete) return '';
+    const t = (tete.textContent || '').trim().replace(/\s+/g, ' ');
+    return (t && t.length <= 40) ? t : '';
+}
+
+// L'EN-TÊTE MAISON EST ADOPTÉ, PAS DOUBLÉ.
+//
+// Neuf outils s'étaient écrit leur propre bandeau de titre — tu-header,
+// tm-header, std-header, spr-header, sc-header, rl-header, pyt-header,
+// atelier-tete, pw-titre. Poser la barre commune par-dessus donnait DEUX
+// titres l'un sous l'autre, presque les mêmes mots : « Lecture de dictée »,
+// puis « 🎧 Lecteur de dictée ». La barre commune reprend donc son nom et sa
+// croix, et le bandeau maison s'efface.
+//
+// ON NE PREND QUE CE QUI EST UN TITRE. Un bandeau qui porte trois commandes
+// est une barre d'outils, pas un en-tête : on le laisse où il est, et la
+// fenêtre garde simplement la barre au-dessus.
+function enTeteMaison(el, saBarre) {
+    const premier = [...el.children].find(n => n !== saBarre && n.nodeType === 1);
+    if (!premier) return null;
+    // ON NE SE FIE PAS AU NOM DE CLASSE : celui de la dictée n'en a aucun. Ce
+    // qui fait un en-tête, c'est la place et la forme — premier de la fenêtre,
+    // une ligne de texte court, une commande au plus, et rien à remplir.
+    const texte = (premier.textContent || '').trim().replace(/\s+/g, ' ');
+    if (!texte || texte.length > 40) return null;
+    const boutons = premier.querySelectorAll('button, .close, [role="button"]');
+    if (boutons.length > 1) return null;                 // c'est une barre d'outils
+    if (premier.querySelector('input, select, textarea, canvas, table')) return null;
+    const h = premier.getBoundingClientRect().height;
+    if (h > 64) return null;                             // un bloc de contenu, pas un bandeau
+    // LE NOM, C'EST L'EN-TÊTE MOINS SES COMMANDES. Retirer « la dernière croix »
+    // laissait celle d'avant quand le titre en portait déjà une : on enlève les
+    // boutons eux-mêmes, sur une copie, plutôt que de deviner des symboles.
+    const copie = premier.cloneNode(true);
+    copie.querySelectorAll('button, .close, [role="button"]').forEach(n => n.remove());
+    const nom = (copie.textContent || '').trim().replace(/\s+/g, ' ');
+    return { el: premier, texte: nom || texte, fermer: boutons[0] || null };
+}
+
+// LA FENÊTRE QU'ON TOUCHE PASSE DEVANT.
+//
+// « Quand on drague des fenêtres, la fenêtre draguée doit avoir un z-index
+// plus important. » Le déplacement n'y touchait pas : une fenêtre tirée
+// par-dessus une autre restait derrière, et l'on tirait dans le vide.
+//
+// LES OUTILS S'ÉTAIENT DONNÉ DES ÉTAGES ABSURDES — 9 000, 99 999, 999 999,
+// 9 999 999, jusqu'à 2 147 483 647 —, si bien qu'aucune règle ne pouvait
+// s'appliquer entre eux, et qu'une simple fenêtre d'outil passait par-dessus
+// une QUESTION de confirmation. On les ramène dans une bande à elles, sous les
+// modales (100050) comme le veut l'échelle, et l'on ne fait plus que les
+// classer les unes par rapport aux autres.
+const FEN_Z_BAS = 100010;
+const FEN_Z_HAUT = 100045;
+
+function fenetresEquipees() {
+    return [...document.querySelectorAll('[data-equipee="1"]')]
+        .filter(f => f.isConnected);
+}
+
+function passerDevant(el) {
+    if (!el) return;
+    const autres = fenetresEquipees().filter(f => f !== el);
+    // On les renumérote au lieu d'empiler toujours plus haut : sans quoi la
+    // bande finirait par déborder sur les modales, et la question de
+    // confirmation repasserait dessous.
+    autres
+        .sort((a, b) => (parseInt(a.style.zIndex, 10) || FEN_Z_BAS)
+                      - (parseInt(b.style.zIndex, 10) || FEN_Z_BAS))
+        .forEach((f, i) => {
+            f.style.zIndex = String(Math.min(FEN_Z_HAUT - 1, FEN_Z_BAS + i));
+        });
+    el.style.zIndex = String(FEN_Z_HAUT);
+}
+window.passerDevant = passerDevant;
+
 function equiperVraiment(el, cle, options) {
     el.dataset.equipee = '1';
     cle = cle || el.id || el.dataset.fenetreCle || '';
@@ -19802,6 +19896,40 @@ function equiperVraiment(el, cle, options) {
     const saPoignee = !!(options && options.saPropreP) || el.dataset.fenetrePoignee === 'propre';
 
     if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+
+    // LA BARRE DE TITRE, EN HAUT, COMME LES ANCIENNES MODALES.
+    //
+    // « Les modales des plugins ne sont pas cohérentes dans le style (barre de
+    // titre et autre) par rapport à nos anciennes modales. » Et : « lecture de
+    // dictée ne bouge toujours pas ». Les deux n'en font qu'une : la fenêtre se
+    // déplaçait bel et bien, mais par une poignée logée dans le coin
+    // BAS-DROITE — sur la dictée, haute de 786 px, à 768 px du haut, contre le
+    // coin de redimensionnement. On cherche une barre de titre, parce que
+    // toutes les fenêtres du monde en ont une.
+    const tete = document.createElement('div');
+    tete.className = 'fen-tete';
+    const maison = enTeteMaison(el, tete);
+    const nom = (options && options.titre)
+        || el.dataset.fenetreTitre
+        || (maison && maison.texte)
+        || nomDeLaFenetre(cle, el);
+    tete.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
+        + `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
+        + `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
+        + ((maison && maison.fermer) ? `<button type="button" class="fen-fermer" title="Fermer">✕</button>` : '');
+    el.insertBefore(tete, el.firstChild);
+    el.classList.add('fen-titree');
+    if (maison) {
+        maison.el.classList.add('fen-tete-adoptee');
+        // La croix de la barre commande CELLE de la fenêtre : c'est elle qui
+        // sait ce que fermer veut dire pour cet outil — arrêter une lecture,
+        // rendre un micro, prévenir un plugin.
+        const croix = tete.querySelector('.fen-fermer');
+        if (croix && maison.fermer) croix.addEventListener('click', (e) => {
+            e.stopPropagation();
+            maison.fermer.click();
+        });
+    }
 
     const outils = document.createElement('div');
     outils.className = 'fen-outils';
@@ -19822,9 +19950,8 @@ function equiperVraiment(el, cle, options) {
     // commune — certaines n'en ont pas du tout — et attraper « le haut » aurait
     // volé le geste à un bouton une fois sur trois. Une poignée dessinée, à
     // côté des deux autres commandes, se voit et ne se dispute avec rien.
-    outils.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
-        + `<button type="button" class="fen-plein" title="Plein écran">${ICONE_PLEIN}</button>`
-        + (saPoignee ? '' : `<div class="fen-poignee" title="Ajuster la taille"></div>`);
+    // Au coin, il ne reste que ce qui s'y attrape vraiment : la taille.
+    outils.innerHTML = (saPoignee ? '' : `<div class="fen-poignee" title="Ajuster la taille"></div>`);
     el.appendChild(outils);
 
     // Beaucoup d'outils réécrivent tout leur contenu à chaque rafraîchissement :
@@ -19832,12 +19959,20 @@ function equiperVraiment(el, cle, options) {
     if (typeof MutationObserver === 'function') {
         new MutationObserver(() => {
             if (!el.contains(outils)) el.appendChild(outils);
+            // La barre aussi : beaucoup d'outils réécrivent tout leur contenu,
+            // et elle repartait avec — la fenêtre redevenait clouée.
+            if (!el.contains(tete)) el.insertBefore(tete, el.firstChild);
         }).observe(el, { childList: true });
     }
 
-    const bouton = outils.querySelector('.fen-plein');
+    // ON LA TOUCHE, ELLE PASSE DEVANT. Le déplacement n'est pas le seul moment
+    // où l'on veut voir une fenêtre en entier : écrire dedans aussi.
+    el.style.zIndex = String(FEN_Z_BAS);
+    el.addEventListener('pointerdown', () => passerDevant(el), true);
+
+    const bouton = tete.querySelector('.fen-plein');
     const poignee = outils.querySelector('.fen-poignee');
-    const bouger = outils.querySelector('.fen-bouger');
+    const bouger = tete;          // la barre entière déplace, pas un carré de 22 px
 
     // --- Déplacement ---
     // La fenêtre peut être centrée par une marge négative ou par un
@@ -19859,6 +19994,9 @@ function equiperVraiment(el, cle, options) {
         let prise = null;
         bouger.style.touchAction = 'none';
         bouger.addEventListener('pointerdown', (e) => {
+            // La barre porte deux commandes : on ne leur vole pas leur clic.
+            if (e.target.closest('button')) return;
+            passerDevant(el);
             const b = figerLaPlace();
             prise = { x: e.clientX - b.left, y: e.clientY - b.top, id: e.pointerId };
             try { bouger.setPointerCapture(e.pointerId); } catch (err) { /* le navigateur refuse */ }
