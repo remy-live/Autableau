@@ -969,6 +969,24 @@ module.exports = async function (browser) {
 
     // ON N'ÉCRIT PAS N'IMPORTE QUOI. Un horaire hors de la journée est refusé
     // plutôt que posé là où on ne le retrouverait pas.
+    //
+    // ET L'ON REMET LA JOURNÉE D'APLOMB D'ABORD — sans quoi CE CHAPITRE
+    // ÉCHOUE TOUS LES SOIRS. Le bandeau, plus haut, plante un créneau à
+    // « maintenant moins dix minutes » : c'est la seule façon d'éprouver
+    // qu'il paraît quand l'heure vient. Passé dix-sept heures, ce créneau
+    // finit après dix-huit heures, et la grille s'élargit d'elle-même pour le
+    // contenir — jusqu'à minuit si la suite tourne à vingt-deux heures.
+    // Vingt-trois heures devient alors un horaire parfaitement valable, et ce
+    // test-ci reproche à l'application de ne pas l'avoir refusé.
+    //
+    // Une suite qui passe le matin et tombe le soir ne dit rien de juste sur
+    // le code : elle dit l'heure. On rétablit donc explicitement les bornes
+    // que ce test suppose.
+    await page.evaluate(() => {
+        agenda.debut = 8 * 60; agenda.fin = 18 * 60;
+        ecrireLAgenda();
+        if (typeof dessinerLAgenda === 'function') dessinerLAgenda();
+    });
     const refus = await page.evaluate(async () => {
         const bloc = document.querySelector('.edt-creneau');
         const r = bloc.getBoundingClientRect();
@@ -990,7 +1008,7 @@ module.exports = async function (browser) {
         if (ok) ok.click();
         await new Promise(ok2 => setTimeout(ok2, 150));
         fermerLAgenda();
-        return { debut: (m.creneaux || [])[0].debut, prevenu };
+        return { debut: (m.creneaux || [])[0].debut, prevenu, journee: edtDebut() + '→' + edtFin() };
     });
     r.egal('un horaire hors de la journée ne se pose pas', refus.debut, 10 * 60 + 15);
     r.verifie('et on le dit', refus.prevenu, JSON.stringify(refus));
