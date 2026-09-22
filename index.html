@@ -2579,33 +2579,29 @@
                          du menu flottant, lui, paraît quand il a de quoi
                          verrouiller. -->
 
+                    <!-- LA CAPSULE DE PAGINATION EST PARTIE AU COIN DE L'ÉCRAN.
+                         Elle disait la même chose que lui — « ‹ 2/3 › » — un
+                         étage plus bas, et le coin, lui, reste visible à tous
+                         les états depuis qu'on l'a demandé. C'était en outre le
+                         seul endroit du tiroir où les boutons n'avaient pas la
+                         taille des autres : 30 px dans une capsule grise,
+                         rejetée à l'extrême droite par un écarteur.
+                         « Nouvelle page » et le trieur de diapositives — qui
+                         s'ouvrait en cliquant le « 1/1 », sans que rien ne le
+                         dise — sont maintenant des entrées NOMMÉES du panneau
+                         qu'ouvre le rang de la page, au coin.
+                         Seul « Rejouer » restait sans famille : il rejoint la
+                         rangée, à la taille de ses voisins. -->
+                    <!-- REJOUER CE QUI S'EST PASSÉ. L'historique garde déjà les
+                         états successifs du tableau : les repasser dans l'ordre,
+                         c'est refaire la construction devant la classe. -->
+                    <button class="btn" id="btn-lecture"
+                        data-tooltip="Rejouer ce qui a été fait au tableau depuis l'ouverture"><svg
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                            <path d="M8 5.5v13l11-6.5-11-6.5z" />
+                        </svg></button>
                     </div>
                 </div>
-                <div style="flex:1"></div>
-                <div class="page-controls">
-                <button class="btn" id="btn-prev-page" data-tooltip="Page précédente"><svg xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24">
-                        <path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z" />
-                    </svg></button>
-                <span id="page-indicator">1/1</span>
-                <button class="btn" id="btn-next-page" data-tooltip="Page suivante"><svg xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24">
-                        <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
-                    </svg></button>
-                <div class="divider-small"></div>
-                <!-- REJOUER CE QUI S'EST PASSÉ. L'historique garde déjà les
-                     états successifs du tableau : les repasser dans l'ordre,
-                     c'est refaire la construction devant la classe. -->
-                <button class="btn" id="btn-lecture"
-                    data-tooltip="Rejouer ce qui a été fait au tableau depuis l'ouverture"><svg
-                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M8 5.5v13l11-6.5-11-6.5z" />
-                    </svg></button>
-                <button class="btn" id="btn-add-page" data-tooltip="Nouvelle page"><svg xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24">
-                        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-                    </svg></button>
-            </div>
             </div>
         <div class="tool-pool bottom-workspace-row">
                 <div class="tiroir-groupe">
@@ -3725,7 +3721,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=314"></script>
+    <script src="script.js?v=315"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=114"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

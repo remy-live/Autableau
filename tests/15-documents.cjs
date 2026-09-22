@@ -3284,10 +3284,14 @@ module.exports = async function (browser) {
     // LA TOUCHE SE DIT SUR LE BOUTON, comme toutes les autres : une table, trois
     // consommateurs — l'infobulle, l'aide, et rien à tenir à jour deux fois.
     const surLesBoutons = await page.evaluate(() => ({
-        prec: (document.getElementById('btn-prev-page') || {}).getAttribute
-            ? document.getElementById('btn-prev-page').getAttribute('data-raccourci') : null,
-        suiv: (document.getElementById('btn-next-page') || {}).getAttribute
-            ? document.getElementById('btn-next-page').getAttribute('data-raccourci') : null,
+        // LA PAGINATION DU TABLEAU N'EST PLUS QU'AU COIN. La capsule du tiroir
+        // du bas disait la même chose un étage plus bas, et « Page précédente »
+        // y désignait la page du TABLEAU quand le même mot, dans la barre du
+        // document, désigne la page du DOCUMENT.
+        prec: (document.getElementById('btn-ecran-page-prec') || {}).getAttribute
+            ? document.getElementById('btn-ecran-page-prec').getAttribute('data-raccourci') : null,
+        suiv: (document.getElementById('btn-ecran-page-suiv') || {}).getAttribute
+            ? document.getElementById('btn-ecran-page-suiv').getAttribute('data-raccourci') : null,
         tiroir: (document.getElementById('bm-page-prec') || {}).getAttribute
             ? document.getElementById('bm-page-prec').getAttribute('data-raccourci') : null
     }));
@@ -3706,10 +3710,10 @@ module.exports = async function (browser) {
                          libelle: document.getElementById('bm-page').textContent };
         // ET PAR L'AUTRE BOUT : la pagination du tiroir du bas change la page
         // elle aussi, celle du tiroir à morceaux ne doit pas mentir.
-        document.getElementById('btn-next-page').click();
+        document.getElementById('btn-ecran-page-suiv').click();
         const parLAutreBout = { index: currentPageIndex,
                                 libelle: document.getElementById('bm-page').textContent,
-                                bas: document.getElementById('page-indicator').innerText };
+                                bas: document.getElementById('ecran-page-rang').textContent };
         return { pagesAvant, surLaUne, libelleAvant, neuve, posee, pageDuDocument, revenu, parLAutreBout };
     });
     r.egal('＋ ouvre une page vierge et s\'y rend',

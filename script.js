@@ -1137,20 +1137,21 @@ function loadPage(index) {
     if (typeof reprendreLaProjectionEnPause === 'function') reprendreLaProjectionEnPause();
 }
 
+// LA PAGINATION DU TABLEAU N'EST PLUS QU'À UN ENDROIT : LE COIN.
+//
+// Elle vivait en trois exemplaires à l'écran — la capsule du tiroir du bas, le
+// coin haut-droit, et le tiroir des morceaux — et le mot « Page précédente »
+// désignait en plus, dans la barre du document, la page du DOCUMENT : la même
+// phrase pour deux gestes. Le coin est resté visible à tous les états depuis
+// que le professeur l'a demandé ; la capsule, elle, ne paraissait qu'un état
+// sur cinq, et c'était le seul endroit du tiroir où les boutons n'avaient pas
+// la taille des autres.
 function updatePageUI() {
-    document.getElementById('page-indicator').innerText = (currentPageIndex + 1) + '/' + pages.length;
     // Le tiroir à morceaux porte la même pagination : elle ne doit pas mentir
     // quand on change de page par l'autre bout.
     if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
-    document.getElementById('btn-prev-page').style.opacity = currentPageIndex === 0 ? 0.3 : 1;
-    document.getElementById('btn-prev-page').style.pointerEvents = currentPageIndex === 0 ? 'none' : 'auto';
-    document.getElementById('btn-next-page').style.opacity = currentPageIndex === pages.length - 1 ? 0.3 : 1;
-    document.getElementById('btn-next-page').style.pointerEvents = currentPageIndex === pages.length - 1 ? 'none' : 'auto';
+    if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
 }
-
-document.getElementById('btn-prev-page').addEventListener('click', () => { if (currentPageIndex > 0) loadPage(currentPageIndex - 1); });
-document.getElementById('btn-next-page').addEventListener('click', () => { if (currentPageIndex < pages.length - 1) loadPage(currentPageIndex + 1); });
-document.getElementById('btn-add-page').addEventListener('click', () => { pages.push(createNewPage()); loadPage(pages.length - 1); });
 
 // --- MODALES ET INITIALISATION ---
 function openDonationModal() { document.getElementById('donationModal').style.display = 'flex'; }
@@ -1246,8 +1247,7 @@ function clearBoardAndPages() {
     pages = [];
     currentPageIndex = 0;
     if (typeof saveCurrentPage === 'function') saveCurrentPage();
-    const pageIndicator = document.getElementById('page-indicator');
-    if (pageIndicator) pageIndicator.innerText = '1/1';
+    if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
     if (typeof closeAllPopups === 'function') closeAllPopups();
     clearSelection();
     draw();
@@ -1585,15 +1585,24 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     document.getElementById('btn-ecran-page-prec')?.addEventListener('click', () => tournerLaPageDuTableau(-1));
     document.getElementById('btn-ecran-page-suiv')?.addEventListener('click', () => tournerLaPageDuTableau(1));
-    // LE RANG OUVRE CE QU'ON PEUT FAIRE DE CETTE PAGE — c'est-à-dire la jeter.
-    // Une seule entrée pour l'instant : on n'ouvre pas un menu pour y mettre ce
-    // dont personne n'a parlé.
+    // LE RANG OUVRE CE QU'ON PEUT FAIRE DE CETTE PAGE. Il n'en portait qu'une,
+    // la jeter ; les deux autres arrivent de la capsule du tiroir du bas, qui
+    // disait la même pagination un étage plus bas — « Nouvelle page » et le
+    // trieur de diapositives, qui s'ouvrait en cliquant le « 1/1 » sans que
+    // rien ne le dise.
     document.getElementById('ecran-page-rang')?.addEventListener('click', (e) => {
         if (typeof ouvrirPanneauAppui !== 'function') return;
-        ouvrirPanneauAppui(e.currentTarget, `Page ${currentPageIndex + 1} sur ${pages.length}`, [
-            { nom: '🗑 Supprimer cette page',
-              action: () => supprimerLaPage(currentPageIndex) }
-        ]);
+        const entrees = [
+            { nom: '＋ Nouvelle page',
+              action: () => { pages.push(createNewPage()); loadPage(pages.length - 1); } }
+        ];
+        if (typeof window.ouvrirLeTrieur === 'function') {
+            entrees.push({ nom: '⊞ Trier les pages…', action: () => window.ouvrirLeTrieur() });
+        }
+        entrees.push({ separateur: 'Cette page' });
+        entrees.push({ nom: '🗑 Supprimer cette page',
+                       action: () => supprimerLaPage(currentPageIndex) });
+        ouvrirPanneauAppui(e.currentTarget, `Page ${currentPageIndex + 1} sur ${pages.length}`, entrees);
     });
 
     document.getElementById('btn-voir-tout')?.addEventListener('click', () => {
@@ -5195,9 +5204,9 @@ const RACCOURCIS_PARTOUT = [
     // touche que si l'on ne tient pas de document : celui qu'on tient, et celui
     // qu'on projette, tournent leurs propres pages d'abord.
     { touche: 'Page↑', nom: 'Page précédente du tableau',
-      bouton: ['btn-prev-page', 'bm-page-prec'] },
+      bouton: ['btn-ecran-page-prec', 'bm-page-prec'] },
     { touche: 'Page↓', nom: 'Page suivante du tableau',
-      bouton: ['btn-next-page', 'bm-page-suiv'] }
+      bouton: ['btn-ecran-page-suiv', 'bm-page-suiv'] }
 ];
 
 // Les combinaisons : elles passent PARTOUT, y compris pendant qu'on écrit —
@@ -28753,39 +28762,31 @@ document.addEventListener('DOMContentLoaded', () => {
         window.isSaveStateThumbHooked = true;
     }
 
-    // 4. Rendre le texte "1/4" cliquable pour ouvrir le tiroir
-    const indicator = document.getElementById('page-indicator');
-    if (indicator) {
-        indicator.style.cursor = 'pointer';
-        indicator.title = "Ouvrir le trieur de diapositives";
-        indicator.style.padding = '4px 10px';
-        indicator.style.borderRadius = '6px';
-        indicator.style.transition = 'background 0.2s';
+    // 4. LE TRIEUR S'OUVRE PAR SON NOM, et non plus en cliquant un « 1/4 » dont
+    //    rien ne disait qu'il était cliquable. Il est maintenant une entrée du
+    //    panneau qu'ouvre le rang de la page, au coin de l'écran : « ⊞ Trier
+    //    les pages… ». Un geste caché derrière un chiffre n'existe pas.
+    window.ouvrirLeTrieur = function (force) {
+        isDrawerOpen = (force === undefined) ? !isDrawerOpen : !!force;
 
-        indicator.onmouseenter = () => indicator.style.background = (typeof isDarkMode !== 'undefined' && isDarkMode) ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
-        indicator.onmouseleave = () => indicator.style.background = 'transparent';
+        if (typeof isDarkMode !== 'undefined' && isDarkMode) {
+            drawer.style.background = '#2d3436'; drawer.style.borderColor = '#636e72';
+        } else {
+            drawer.style.background = '#ffffff'; drawer.style.borderColor = '#dfe6e9';
+        }
 
-        indicator.addEventListener('click', () => {
-            isDrawerOpen = !isDrawerOpen;
-
-            if (typeof isDarkMode !== 'undefined' && isDarkMode) {
-                drawer.style.background = '#2d3436'; drawer.style.borderColor = '#636e72';
-            } else {
-                drawer.style.background = '#ffffff'; drawer.style.borderColor = '#dfe6e9';
-            }
-
-            if (isDrawerOpen) {
-                // On s'assure que la miniature actuelle est à jour avant d'ouvrir
-                setTimeout(() => {
-                    window.syncActiveThumbnail();
-                    renderThumbnails();
-                    drawer.style.left = '0px';
-                }, 50);
-            } else {
-                drawer.style.left = '-190px';
-            }
-        });
-    }
+        if (isDrawerOpen) {
+            // On s'assure que la miniature actuelle est à jour avant d'ouvrir
+            setTimeout(() => {
+                window.syncActiveThumbnail();
+                renderThumbnails();
+                drawer.style.left = '0px';
+            }, 50);
+        } else {
+            drawer.style.left = '-190px';
+        }
+        return isDrawerOpen;
+    };
 
     // Tirer une vignette pour changer l'ordre des pages. Le repère bleu montre
     // où la page atterrira ; relâcher hors du tiroir annule.
@@ -28960,34 +28961,28 @@ document.addEventListener('DOMContentLoaded', () => {
         drawer.appendChild(addBtn);
     }
 
-    // 6. Remplacement des boutons Précédent/Suivant
-    const prevBtn = document.getElementById('btn-prev-page');
-    const nextBtn = document.getElementById('btn-next-page');
-
-    if (prevBtn) {
-        const newPrev = prevBtn.cloneNode(true);
-        prevBtn.parentNode.replaceChild(newPrev, prevBtn);
-        newPrev.addEventListener('click', () => {
-            if (currentPageIndex > 0) {
+    // 6. LA VIGNETTE SE PREND AU CHANGEMENT DE PAGE, d'où qu'il vienne.
+    //
+    // Le trieur REMPLAÇAIT les deux boutons de la capsule du tiroir du bas par
+    // des copies qui photographiaient la page au passage. Cette capsule est
+    // partie — elle disait la même pagination que le coin, un étage plus bas,
+    // et c'était le seul endroit du tiroir où les boutons n'avaient pas la
+    // taille des autres. Remplacer les boutons du coin referait la même faute :
+    // une copie qui hérite des écouteurs d'un autre est un piège pour qui
+    // relira. On écoute donc le CHANGEMENT DE PAGE lui-même, quel que soit le
+    // bouton, la touche ou le tiroir qui l'a demandé.
+    const ancienLoadPage = window.loadPage;
+    if (typeof ancienLoadPage === 'function' && !window.__trieurSuitLesPages) {
+        window.__trieurSuitLesPages = true;
+        window.loadPage = function (n) {
+            if (pages[currentPageIndex]) {
                 pages[currentPageIndex].thumbnail = capturePageThumb();
-                loadPage(currentPageIndex - 1);
-                if (isDrawerOpen) renderThumbnails();
-                setTimeout(window.syncActiveThumbnail, 100);
             }
-        });
-    }
-
-    if (nextBtn) {
-        const newNext = nextBtn.cloneNode(true);
-        nextBtn.parentNode.replaceChild(newNext, nextBtn);
-        newNext.addEventListener('click', () => {
-            if (currentPageIndex < pages.length - 1) {
-                pages[currentPageIndex].thumbnail = capturePageThumb();
-                loadPage(currentPageIndex + 1);
-                if (isDrawerOpen) renderThumbnails();
-                setTimeout(window.syncActiveThumbnail, 100);
-            }
-        });
+            const sortie = ancienLoadPage.apply(this, arguments);
+            if (isDrawerOpen) renderThumbnails();
+            setTimeout(window.syncActiveThumbnail, 100);
+            return sortie;
+        };
     }
 
     // 7. Auto-fermeture

@@ -102,13 +102,16 @@ module.exports = async function (browser) {
     await page.evaluate(() => {
         freehands.push({ id: nextId++, points: [{ x: 0, y: 0 }, { x: 10, y: 10 }], color: '#000', width: 3, z: globalZ++ });
         saveState(); draw();
-        document.getElementById('btn-add-page').click();
+        // « Nouvelle page » est une entrée du panneau qu'ouvre le rang, au coin
+        // de l'écran : la capsule du tiroir du bas disait la même pagination un
+        // étage plus bas, et ses boutons n'avaient pas la taille des autres.
+        pages.push(createNewPage()); loadPage(pages.length - 1);
     });
     await page.waitForTimeout(450);
     const p1 = await page.evaluate(() => ({ n: pages.length, dessins: freehands.length }));
     r.egal('nouvelle page ajoutée', p1.n, p0.n + 1);
     r.egal('la nouvelle page est vierge', p1.dessins, 0);
-    await page.evaluate(() => document.getElementById('btn-prev-page').click());
+    await page.evaluate(() => document.getElementById('btn-ecran-page-prec').click());
     await page.waitForTimeout(450);
     r.egal('la page précédente retrouve son contenu', await page.evaluate(() => freehands.length), 1);
 

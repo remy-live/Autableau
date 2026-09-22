@@ -488,11 +488,69 @@ module.exports = async function (browser) {
         pages.push(vide()); pages.push(vide());
         pages.forEach((p, i) => { p.repere = 'page' + (i + 1); });
         currentPageIndex = 0;
-        document.getElementById('page-indicator').click();      // ouvre le trieur
+        // LE TRIEUR S'OUVRE PAR SON NOM. Il s'ouvrait en cliquant le « 1/4 »
+        // de la capsule du tiroir du bas, sans que rien ne dise qu'un chiffre
+        // fût cliquable. C'est une entrée nommée du panneau qu'ouvre le rang
+        // de la page, au coin : « ⊞ Trier les pages… ».
+        ouvrirLeTrieur(true);
         await new Promise(r => setTimeout(r, 500));
         const d = document.getElementById('thumbnail-drawer');
         return { ouvert: !!d, boites: d ? d.querySelectorAll('[data-index]').length : 0 };
     });
+    // LA VIGNETTE SE PREND AU CHANGEMENT DE PAGE, D'OÙ QU'IL VIENNE.
+    //
+    // Le trieur REMPLAÇAIT les deux boutons de la capsule du tiroir du bas par
+    // des copies qui photographiaient la page au passage. Cette capsule est
+    // partie au coin de l'écran ; refaire le remplacement sur les boutons du
+    // coin aurait refait la même faute — une copie qui hérite des écouteurs
+    // d'un autre. On écoute le changement de page lui-même : la touche, le
+    // bouton du coin, le tiroir des morceaux et le trieur passent tous par là.
+    const vignettePrise = await page.evaluate(async () => {
+        // On dessine sur la page courante, puis on la quitte par le CLAVIER —
+        // le chemin qu'aucun remplacement de bouton n'aurait couvert.
+        freehands.push({ id: nextId++, points: [{ x: 40, y: 40 }, { x: 300, y: 300 }],
+                         color: '#000', width: 8, z: globalZ++ });
+        draw();
+        await new Promise(r2 => setTimeout(r2, 150));
+        const depart = currentPageIndex;
+        pages[depart].thumbnail = null;
+        loadPage(depart === 0 ? 1 : 0);
+        await new Promise(r2 => setTimeout(r2, 350));
+        const v = pages[depart].thumbnail;
+        loadPage(depart);
+        await new Promise(r2 => setTimeout(r2, 250));
+        return { prise: typeof v === 'string' && v.startsWith('data:image'), taille: v ? v.length : 0 };
+    });
+    r.verifie('la page quittée laisse sa vignette au trieur',
+        vignettePrise.prise && vignettePrise.taille > 200, JSON.stringify(vignettePrise));
+
+    // ET IL S'OUVRE PAR SON NOM, depuis le panneau du rang, au coin de l'écran.
+    // Il ne s'ouvrait qu'en cliquant le « 1/4 » de la capsule du tiroir du bas :
+    // un geste caché derrière un chiffre n'existe pas.
+    const parLeCoin = await page.evaluate(async () => {
+        ouvrirLeTrieur(false);
+        await new Promise(r2 => setTimeout(r2, 250));
+        document.getElementById('panneau-appui')?.remove();
+        document.getElementById('ecran-page-rang').click();
+        await new Promise(r2 => setTimeout(r2, 250));
+        const p = document.getElementById('panneau-appui');
+        const entrees = p ? [...p.querySelectorAll('.rp-choix')].map(b => b.textContent) : [];
+        const trier = p ? [...p.querySelectorAll('.rp-choix')].find(b => /trier/i.test(b.textContent)) : null;
+        if (trier) trier.click();
+        await new Promise(r2 => setTimeout(r2, 400));
+        const d = document.getElementById('thumbnail-drawer');
+        const ouvert = !!d && Math.round(d.getBoundingClientRect().left) > -50;
+        ouvrirLeTrieur(false);
+        return { entrees, ouvert };
+    });
+    r.verifie('le panneau du rang porte les trois actions de la page',
+        parLeCoin.entrees.some(t => /nouvelle page/i.test(t))
+        && parLeCoin.entrees.some(t => /trier/i.test(t))
+        && parLeCoin.entrees.some(t => /supprimer/i.test(t)),
+        JSON.stringify(parLeCoin.entrees));
+    r.verifie('et « Trier les pages… » ouvre vraiment le trieur',
+        parLeCoin.ouvert, JSON.stringify(parLeCoin));
+
     r.verifie('le trieur de diapositives s\'ouvre', vignettes.ouvert);
     r.egal('une vignette par page', vignettes.boites, 3);
 
