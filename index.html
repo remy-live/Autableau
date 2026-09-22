@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=192">
+    <link rel="stylesheet" href="style.css?v=193">
 </head>
 
 <body>
@@ -2453,6 +2453,7 @@
                 <polyline points="6 9 12 15 18 9" />
             </svg>
         </div>
+        <div class="tiroir-corps">
         <div class="bottom-workspace-rows" id="workspace-tools-row">
             <!-- Les champs de fichier, invisibles : ce sont eux que les boutons
                  « Importer » et « Ouvrir » déclenchent. -->
@@ -2542,12 +2543,9 @@
                             </svg></span> <span id="lib-dossier-securite">Sauvegarde automatique…</span></button>
                 </div>
             </div>
-                    <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="3" y="4" width="14" height="16" rx="2" />
-                    <path d="M7 8h6M7 12h6M7 16h4" stroke-linecap="round" />
-                    <path d="M20 7v13a1 1 0 0 1-1 1h-2" />
-                </svg></button>
+                    <!-- « MES TABLEAUX » EST PARTI DANS LE BLOC DE DROITE, avec
+                         les classes : c'est le classeur de l'année, pas un
+                         geste sur la feuille en cours. -->
                     <button class="btn danger" id="btn-trash-now" data-tooltip="Tout effacer"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
                     <path d="M3 6h18" />
@@ -2600,12 +2598,72 @@
                             xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                             <path d="M8 5.5v13l11-6.5-11-6.5z" />
                         </svg></button>
+                    <!-- LE PAPIER MONTE D'UNE RANGÉE.
+                         « Il fait très inéquitable, le tiroir » — et c'était
+                         vrai : sept boutons en haut qui s'arrêtaient au tiers
+                         de la largeur, treize en bas qui la prenaient toute.
+                         Les deux rangées de gauche font maintenant huit et
+                         sept, et chacune a un sens : en haut LA FEUILLE — ce
+                         qu'on y fait entrer, ce qu'on en sort, de quoi elle
+                         est faite ; en bas COMMENT ON POSE ET COMMENT ON
+                         REGARDE. Ce qui sert à tenir la classe est parti dans
+                         le bloc de droite. -->
+                    <div class="tool-group" data-groupe="papier">
+                <button class="btn" id="btn-cycle" data-tooltip="Choisir le papier…"><svg xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24">
+                        <path
+                            d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" />
+                    </svg></button>
+                <!-- L'ÉPAISSEUR DU QUADRILLAGE EST DANS LE PANNEAU DU PAPIER.
+                     Elle occupait ici un bouton à pastille et un curseur, pour
+                     une propriété de la feuille qu'on règle une fois — et elle
+                     était séparée du fond qu'elle quadrille et du pas des axes
+                     qu'elle porte. Les trois sont maintenant au même endroit :
+                     « Choisir le papier… ». -->
+                <button class="btn" id="btn-axes" data-tooltip="Axes"><svg xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24" class="stroke-icon">
+                        <line x1="12" y1="3" x2="12" y2="21" />
+                        <line x1="3" y1="12" x2="21" y2="12" />
+                        <path d="M18 9l3 3-3 3M15 6l-3-3-3 3" />
+                    </svg></button>
+            </div>
                     </div>
                 </div>
             </div>
         <div class="tool-pool bottom-workspace-row">
                 <div class="tiroir-groupe">
                     <div class="tiroir-boutons">
+                    <div class="tool-group" data-groupe="aimant">
+                <button class="btn" id="btn-magnet" data-tooltip="Aimant"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <g stroke-opacity="0.3">
+                            <path d="M8 3v18M16 3v18M3 8h18M3 16h18" />
+                        </g>
+                        <g transform="translate(13, 13) scale(0.45)">
+                            <rect x="3" y="5" width="4" height="4" fill="#ef5350" stroke="none" />
+                            <rect x="17" y="5" width="4" height="4" fill="#42a5f5" stroke="none" />
+                            <path d="M3 14v-9h4v9a5 5 0 0 0 10 0v-9h4v9a9 9 0 0 1-18 0Z" stroke="currentColor"
+                                fill="none" stroke-width="2" />
+                            <line x1="3" y1="9" x2="7" y2="9" stroke="currentColor" stroke-width="2" />
+                            <line x1="17" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="2" />
+                        </g>
+                    </svg></button>
+                <!-- LES TROIS SOURCES DE L'AIMANT SONT DANS SON PANNEAU.
+                     Elles paraissaient et disparaissaient dans la rangée selon
+                     que l'aimant était allumé, ce qui faisait CHANGER SA
+                     LARGEUR SOUS LES DOIGTS : tout ce qui était à droite
+                     glissait à chaque appui sur A. Et leur panneau ne s'ouvrait
+                     qu'en maintenant le doigt — le geste chronométré qu'on
+                     retire partout. Un bouton, donc, qui dit ce qu'il ouvre. -->
+                <button class="btn" id="btn-aimant-reglages"
+                    data-tooltip="Réglages de l'aimant : sur quoi s'accrocher…"><svg
+                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                        <path d="M4 12h6M14 12h6" />
+                        <circle cx="12" cy="12" r="2.6" />
+                        <path d="M12 4v3M12 17v3" />
+                    </svg></button>
+            </div>
                     <div class="tool-group" data-groupe="voir">
                 <div class="popup-wrapper">
                 <button class="btn btn-valeur" id="btn-zoom-toggle" data-tooltip="Zoom">
@@ -2661,62 +2719,28 @@
                      haut droit, toujours visible : ce bouton-ci menait au même
                      endroit depuis un tiroir qu'il fallait ouvrir. -->
             </div>
-                    <div class="tool-group" data-groupe="papier">
-                <button class="btn" id="btn-cycle" data-tooltip="Choisir le papier…"><svg xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24">
-                        <path
-                            d="M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z" />
-                    </svg></button>
-                <!-- L'ÉPAISSEUR DU QUADRILLAGE EST DANS LE PANNEAU DU PAPIER.
-                     Elle occupait ici un bouton à pastille et un curseur, pour
-                     une propriété de la feuille qu'on règle une fois — et elle
-                     était séparée du fond qu'elle quadrille et du pas des axes
-                     qu'elle porte. Les trois sont maintenant au même endroit :
-                     « Choisir le papier… ». -->
-                <button class="btn" id="btn-axes" data-tooltip="Axes"><svg xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24" class="stroke-icon">
-                        <line x1="12" y1="3" x2="12" y2="21" />
-                        <line x1="3" y1="12" x2="21" y2="12" />
-                        <path d="M18 9l3 3-3 3M15 6l-3-3-3 3" />
-                    </svg></button>
-            </div>
-                    <div class="tool-group" data-groupe="aimant">
-                <button class="btn" id="btn-magnet" data-tooltip="Aimant"><svg
-                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <g stroke-opacity="0.3">
-                            <path d="M8 3v18M16 3v18M3 8h18M3 16h18" />
-                        </g>
-                        <g transform="translate(13, 13) scale(0.45)">
-                            <rect x="3" y="5" width="4" height="4" fill="#ef5350" stroke="none" />
-                            <rect x="17" y="5" width="4" height="4" fill="#42a5f5" stroke="none" />
-                            <path d="M3 14v-9h4v9a5 5 0 0 0 10 0v-9h4v9a9 9 0 0 1-18 0Z" stroke="currentColor"
-                                fill="none" stroke-width="2" />
-                            <line x1="3" y1="9" x2="7" y2="9" stroke="currentColor" stroke-width="2" />
-                            <line x1="17" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="2" />
-                        </g>
-                    </svg></button>
-                <!-- LES TROIS SOURCES DE L'AIMANT SONT DANS SON PANNEAU.
-                     Elles paraissaient et disparaissaient dans la rangée selon
-                     que l'aimant était allumé, ce qui faisait CHANGER SA
-                     LARGEUR SOUS LES DOIGTS : tout ce qui était à droite
-                     glissait à chaque appui sur A. Et leur panneau ne s'ouvrait
-                     qu'en maintenant le doigt — le geste chronométré qu'on
-                     retire partout. Un bouton, donc, qui dit ce qu'il ouvre. -->
-                <button class="btn" id="btn-aimant-reglages"
-                    data-tooltip="Réglages de l'aimant : sur quoi s'accrocher…"><svg
-                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                        <path d="M4 12h6M14 12h6" />
-                        <circle cx="12" cy="12" r="2.6" />
-                        <path d="M12 4v3M12 17v3" />
-                    </svg></button>
-            </div>
+                    <button class="btn" id="btn-help" data-tooltip="Raccourcis clavier"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
                     </div>
                 </div>
-                <div class="tiroir-groupe">
-                    <div class="tiroir-boutons">
+            </div>
+        </div>
+        <!-- LE BLOC DE LA CLASSE, DEUX RANGS SUR TROIS, TOUT À DROITE.
+             « Ou sinon tu mets un bloc de 2 × 3 bien à droite pour les
+             classes, les classeurs et autre. » Ces six-là ne servent pas à
+             faire la feuille : ils servent à tenir l'heure de cours. Mêlés aux
+             deux rangées, ils les faisaient déborder l'une et pas l'autre ;
+             à part, ils donnent au tiroir un bord droit net et laissent
+             quinze boutons se répartir huit et sept à gauche.
+             Les deux rangs de gauche et ce bloc ont la même hauteur : le bloc
+             se lit comme une colonne, pas comme une troisième rangée. -->
+        <div class="tiroir-bloc" id="tiroir-classe" data-groupe="classe">
                     <button class="btn" id="btn-classes-menu" data-tooltip="Mes classes"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></button>
-                    <div class="tool-group" data-groupe="classe">
+                    <button class="btn" id="btn-tableaux" data-tooltip="Mes tableaux" onclick="toggleRightDrawer()"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="3" y="4" width="14" height="16" rx="2" />
+                    <path d="M7 8h6M7 12h6M7 16h4" stroke-linecap="round" />
+                    <path d="M20 7v13a1 1 0 0 1-1 1h-2" />
+                </svg></button>
                 <button class="btn" id="btn-rideau" data-tooltip="Rideau (masquer / révéler)"><svg
                         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
                         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -2728,8 +2752,6 @@
                         <circle cx="12" cy="12" r="5" />
                         <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
                     </svg></button>
-            </div>
-                    <div class="tool-group" data-groupe="mesure">
                 <button class="btn" id="btn-toggle-time" data-tooltip="Horloge & Chrono">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon" fill="none"
                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2753,11 +2775,7 @@
                         <line x1="12" y1="18" x2="12" y2="18" />
                         <line x1="16" y1="18" x2="16" y2="18" />
                     </svg></button>
-            </div>
-                    <button class="btn" id="btn-help" data-tooltip="Raccourcis clavier"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
-                    </div>
-                </div>
-            </div>
+        </div>
         </div>
         <div class="drawer-header" style="justify-content: center; width: 100%;">
             <div class="tool-categories" id="categories-bottom" style="justify-content: center;">
@@ -3721,9 +3739,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=315"></script>
+    <script src="script.js?v=316"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=114"></script>
+    <script src="plugin.js?v=115"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=7"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

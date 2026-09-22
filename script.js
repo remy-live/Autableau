@@ -37651,7 +37651,11 @@ function debugRemoveElements() {
 setTimeout(() => {
     const hasSeenWelcome = localStorage.getItem('auTableau_welcome_v2');
     if (!hasSeenWelcome) {
-        showToast("💡 Consultez l'aide (?) en bas à droite !");
+        // ON NOMME LE TIROIR, PAS UN COIN. Le « ? » a changé de place quand le
+        // tiroir s'est réorganisé, et il était de toute façon caché tant que le
+        // tiroir est replié : envoyer quelqu'un regarder « en bas à droite »,
+        // c'était l'envoyer vers un endroit vide.
+        showToast("💡 L'aide (?) vous attend dans le tiroir du bas.");
         localStorage.setItem('auTableau_welcome_v2', 'true');
     }
 }, 1000);

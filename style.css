@@ -238,11 +238,51 @@ html {
     width: 100%;
 }
 
+/* LE CORPS DU TIROIR : les rangées à gauche, le bloc de la classe à droite.
+   « Ou sinon tu mets un bloc de 2 × 3 bien à droite. »
+   Les deux enfants prennent la même hauteur — c'est l'étirement par défaut
+   d'une boîte flexible, et l'écrire ne changerait rien : on ne le réécrit
+   donc pas. C'est lui qui donne au bloc la hauteur des deux rangées ; le
+   bloc, lui, aligne ses deux rangs sur elles à la marge près (voir plus
+   bas). */
+.tiroir-corps {
+    display: flex;
+    gap: 4px;
+    width: 100%;
+}
+
 .bottom-workspace-rows {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    width: 100%;
+    /* « min-width: 0 » : sans lui, une rangée trop large pousserait le bloc
+       hors du tiroir au lieu de passer à la ligne — la largeur minimale par
+       défaut d'un élément flexible est celle de son contenu. */
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* LE BLOC DE LA CLASSE : trois de large, deux de haut, contre le bord droit.
+   Une grille, et non une rangée qui se replie : on veut exactement trois
+   colonnes, quelle que soit la largeur de la fenêtre, pour que le bloc garde
+   la même forme et que l'œil le retrouve au même endroit. */
+.tiroir-bloc {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    align-content: start;
+    /* LES DEUX RANGS TOMBENT SUR LES DEUX RANGÉES, AU PIXEL. Les rangées de
+       gauche portent 2 px de marge haute et 4 px d'écart : leurs boutons
+       commencent donc à 2 px et à 48 px. On recopie ici la même arithmétique
+       — 2 px de marge, 6 px entre les rangs — plutôt que de centrer le bloc
+       à peu près. Un bloc décalé de deux pixels sur trois rangées voisines,
+       c'est ce qui donne l'impression que le tiroir « flotte ». */
+    padding-top: 2px;
+    row-gap: 6px;
+    column-gap: 4px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
 }
 
 .bottom-workspace-row {

@@ -119,6 +119,91 @@ module.exports = async function (browser) {
     r.egal('aucun bouton du tiroir ne cache plus ses réglages sous un appui maintenu',
         plusDAppui, []);
 
+    // --- LA FORME DU TIROIR : DEUX RANGÉES ÉQUILIBRÉES, UN BLOC À DROITE ---
+    //
+    // « Il fait très inéquitable, le tiroir » : sept boutons en haut qui
+    // s'arrêtaient au tiers de la largeur, treize en bas qui la prenaient
+    // toute. Puis : « Ou sinon tu mets un bloc de 2 × 3 bien à droite pour les
+    // classes, les classeurs et autre. »
+    // ON MESURE CE QUI SE VOIT — des rectangles rendus, pas des règles CSS.
+    // Une grille posée en style ne prouve rien : « grid-template-columns »
+    // peut dire trois colonnes pendant que le bloc en rend six sur une ligne,
+    // si un parent l'étire.
+    const tiroir = await page.evaluate(() => {
+        const bas = document.getElementById('bottom-drawer');
+        if (bas.classList.contains('collapsed')) bas.querySelector('.drawer-toggle').click();
+        const corps = document.querySelector('.tiroir-corps');
+        const bloc = document.getElementById('tiroir-classe');
+        const rangees = [...document.querySelectorAll('#workspace-tools-row .bottom-workspace-row')]
+            .map(rg => [...rg.querySelectorAll('button.btn')].map(b => b.id || b.dataset.mode));
+        const boutonsDuBloc = [...bloc.querySelectorAll('button.btn')];
+        // Les colonnes et les rangs SE COMPTENT sur les positions rendues :
+        // autant d'abscisses distinctes que de colonnes, autant d'ordonnées
+        // que de rangs.
+        const abscisses = new Set(), ordonnees = new Set();
+        boutonsDuBloc.forEach(b => {
+            const c = b.getBoundingClientRect();
+            abscisses.add(Math.round(c.left)); ordonnees.add(Math.round(c.top));
+        });
+        const cb = bloc.getBoundingClientRect();
+        const cc = corps.getBoundingClientRect();
+        const crg = document.getElementById('workspace-tools-row').getBoundingClientRect();
+        // ET CHAQUE BOUTON DU BLOC RÉPOND VRAIMENT À SON CENTRE : une grille
+        // peut chevaucher son voisin sans que rien ne le dise.
+        const couverts = boutonsDuBloc.filter(b => {
+            const c = b.getBoundingClientRect();
+            const dessus = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+            return !(dessus && (dessus === b || b.contains(dessus)));
+        }).map(b => b.id);
+        return {
+            ids: boutonsDuBloc.map(b => b.id),
+            colonnes: abscisses.size, rangs: ordonnees.size,
+            rangees, nb: rangees.map(rg => rg.length),
+            // « bien à droite » : le bord droit du bloc et celui du corps du
+            // tiroir se touchent, à la marge du dernier bouton près.
+            ecartADroite: Math.round(cc.right - cb.right),
+            // « LE BLOC SE LIT COMME UNE COLONNE » : ses deux rangs de boutons
+            // s'alignent sur les deux rangées de gauche. On mesure LES BOUTONS,
+            // pas la boîte : étirée par le « stretch » du corps, la boîte ferait
+            // la bonne hauteur même avec ses six outils sur une seule ligne.
+            ecartHaut: Math.round(Math.min(...boutonsDuBloc.map(b => b.getBoundingClientRect().top))
+                - Math.min(...[...document.querySelectorAll('#workspace-tools-row .bottom-workspace-row button.btn')]
+                    .map(b => b.getBoundingClientRect().top))),
+            ecartBas: Math.round(Math.max(...boutonsDuBloc.map(b => b.getBoundingClientRect().bottom))
+                - Math.max(...[...document.querySelectorAll('#workspace-tools-row .bottom-workspace-row button.btn')]
+                    .map(b => b.getBoundingClientRect().bottom))),
+            couverts,
+            // LE TEXTE PARASITE. Un « </div » amputé avait laissé deux
+            // chevrons « > > » au milieu de la seconde rangée, rendus en toutes
+            // lettres : le HTML avale la balise de fermeture et recrache ce
+            // qui suit. Aucune vérification ne l'avait vu.
+            texte: (corps.innerText || '').replace(/\s+/g, ' ').trim()
+        };
+    });
+    r.egal('le bloc de droite tient six outils',
+        tiroir.ids,
+        ['btn-classes-menu', 'btn-tableaux', 'btn-rideau', 'btn-spot',
+         'btn-toggle-time', 'btn-toggle-calc']);
+    r.egal('rendus en trois colonnes sur deux rangs',
+        { colonnes: tiroir.colonnes, rangs: tiroir.rangs }, { colonnes: 3, rangs: 2 });
+    r.verifie('le bloc est collé au bord droit du tiroir',
+        tiroir.ecartADroite >= 0 && tiroir.ecartADroite <= 8, 'écart : ' + tiroir.ecartADroite + ' px');
+    // AU PIXEL, et non « à peu près » : la tolérance d'un pixel ne couvre que
+    // l'arrondi. Deux pixels de décalage se voient sur trois rangées voisines,
+    // et c'est exactement le genre d'écart qu'une tolérance large laisse
+    // passer pendant des mois.
+    r.verifie('et ses deux rangs s\'alignent sur les deux rangées de gauche',
+        Math.abs(tiroir.ecartHaut) <= 1 && Math.abs(tiroir.ecartBas) <= 1,
+        'haut : ' + tiroir.ecartHaut + ' px, bas : ' + tiroir.ecartBas + ' px');
+    r.egal('chaque outil du bloc répond à son centre', tiroir.couverts, []);
+    r.egal('les deux rangées de gauche se partagent le reste à un bouton près',
+        tiroir.nb.length === 2 && Math.abs(tiroir.nb[0] - tiroir.nb[1]) <= 1,
+        true, JSON.stringify(tiroir.nb) + ' — ' + JSON.stringify(tiroir.rangees));
+    // Le seul texte du tiroir est la pastille du zoom : tout le reste est
+    // icône. Un chevron égaré s'y verrait aussitôt.
+    r.verifie('aucun caractère égaré ne traîne entre les icônes',
+        /^\d+%$/.test(tiroir.texte), JSON.stringify(tiroir.texte.slice(0, 80)));
+
     // LE PAPIER : un clic, et les huit fonds sont NOMMÉS.
     for (const [id, titre, mini] of [['btn-cycle', 'Le papier du tableau', 8],
                                      ['btn-aimant-reglages', 'Aimant', 3]]) {
