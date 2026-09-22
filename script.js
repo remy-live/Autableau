@@ -19789,8 +19789,7 @@ function meriteDesCommandes(el) {
 // à l'affichage avant de juger — et si l'on a décliné, un prochain appel
 // pourra reconsidérer, car une fenêtre grandit parfois avec son contenu.
 function equiperFenetre(el, cle, options) {
-    if (!el || el.dataset.equipee || el.dataset.fenAttente) return;
-    el.dataset.fenAttente = '1';
+    if (!el || el.dataset.equipee) return;
 
     const juger = () => {
         delete el.dataset.fenAttente;
@@ -19800,11 +19799,27 @@ function equiperFenetre(el, cle, options) {
         return true;
     };
 
+    // UNE ATTENTE NE DOIT PAS DEVENIR UN OUBLI.
+    //
+    // La fenêtre qu'on équipe avant qu'elle ait une taille attend un
+    // « ResizeObserver ». Mais une boîte bâtie DANS un voile déjà caché ne
+    // dessine aucune boîte du tout : le navigateur n'a alors rien à observer,
+    // et le réveil peut ne jamais venir. L'atelier des formules restait ainsi
+    // « en attente » pour toujours — c'est-à-dire sans barre de titre, et
+    // aucun appel suivant ne pouvait le rattraper puisque l'attente elle-même
+    // faisait barrage. On reconsidère donc dès qu'elle a enfin une largeur.
+    if (el.dataset.fenAttente) {
+        if (el.getBoundingClientRect().width) juger();
+        return;
+    }
+    el.dataset.fenAttente = '1';
+
     requestAnimationFrame(() => requestAnimationFrame(() => {
         // Certaines fenêtres sont bâties repliées et ne s'ouvrent que plus
         // tard : on attend qu'elles occupent enfin une place pour juger.
         if (!el.getBoundingClientRect().width && typeof ResizeObserver === 'function') {
             const veille = new ResizeObserver(() => {
+                if (el.dataset.equipee) { veille.disconnect(); return; }
                 if (!el.getBoundingClientRect().width) return;
                 veille.disconnect();
                 juger();
@@ -19857,10 +19872,47 @@ const MODALES_SANS_BARRE = ['confirm-modal', 'custom-prompt-modal', 'astuce-moda
 const MOD_Z_BAS = 100050;
 const MOD_Z_HAUT = 100090;
 
+const VOILES_NOMMES = '.modal-backdrop, .compo-fond, [id$="-backdrop"], [data-voile-modale="1"]';
+
 function voileDeModale(el) {
     if (!el || el.nodeType !== 1) return null;
-    const v = el.closest('.modal-backdrop, .compo-fond, [id$="-backdrop"]');
-    return v || null;
+    const v = el.closest(VOILES_NOMMES);
+    if (v) return v;
+    // ET CELUI QU'AUCUN NOM NE DÉSIGNE ENCORE : on remonte jusqu'à ce qu'on
+    // reconnaisse un voile à ce qu'il fait.
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (ressembleAUnVoile(p)) return p;
+    }
+    return null;
+}
+
+// UN VOILE SE RECONNAÎT À CE QU'IL FAIT, PAS À SON NOM DE CLASSE.
+//
+// « Il n'y a pas que 12 modales, il y a tous les plugins… il faut être
+// cohérent avec tout ! » Six boîtes échappaient encore au rang commun, et pas
+// une ne portait « modal-backdrop » : le recadrage des pixels, leur coloriage
+// magique, l'éditeur de tableaux de signes, l'atelier des frises, celui des
+// cartes et la Fabrique à Flèches s'étaient appelés « -modal »,
+// « atelier-fond », « live-modal-backdrop ». Allonger la liste des noms ne
+// rattrapera jamais le prochain outil écrit. Un voile, lui, fait toujours la
+// même chose : il couvre l'écran, il le teinte, et il tient une boîte au
+// milieu — et ces trois choses-là se mesurent.
+function ressembleAUnVoile(el) {
+    if (!el || el.nodeType !== 1 || !el.isConnected) return false;
+    // ON MESURE AVANT DE LIRE LE STYLE : cette question est posée à chaque
+    // remuement de la page, et pour presque tous les éléments la réponse tient
+    // en une ligne — ils ne couvrent pas l'écran.
+    const r = el.getBoundingClientRect();
+    if (r.width < window.innerWidth - 2 || r.height < window.innerHeight - 2) return false;
+    if (el.closest('#board, .toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    if (s.position !== 'fixed' && s.position !== 'absolute') return false;
+    // Un calque transparent n'est pas un voile : les pastilles et les barres
+    // composées vivent dans des boîtes qui couvrent l'écran sans rien teinter.
+    const fond = s.backgroundColor || '';
+    if (!fond || fond === 'transparent' || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(fond)) return false;
+    return !!boiteDeLaModale(el);
 }
 
 function boiteDeLaModale(voile) {
@@ -19881,18 +19933,47 @@ function boiteDeLaModale(voile) {
 function equiperLesModales(racine) {
     const dans = (racine && racine.nodeType === 1) ? racine : document.body;
     const voiles = [];
-    if (dans.matches && dans.matches('.modal-backdrop, .compo-fond, [id$="-backdrop"]')) voiles.push(dans);
-    if (dans.querySelectorAll) voiles.push(...dans.querySelectorAll('.modal-backdrop, .compo-fond, [id$="-backdrop"]'));
+    const ajouter = (n) => { if (n && n.nodeType === 1 && !voiles.includes(n)) voiles.push(n); };
+    if (dans.matches && dans.matches(VOILES_NOMMES)) ajouter(dans);
+    if (dans.querySelectorAll) dans.querySelectorAll(VOILES_NOMMES).forEach(ajouter);
+    // LES VOILES SANS NOM. On ne les cherche qu'à la racine de la page et sur
+    // ce qu'on nous tend : tous, sans exception, sont posés en enfants du
+    // « body », et mesurer chaque élément du document coûterait cher pour rien.
+    if (dans.nodeType === 1 && ressembleAUnVoile(dans)) ajouter(dans);
+    if (dans === document.body) [...dans.children].forEach(n => {
+        if (ressembleAUnVoile(n)) ajouter(n);
+    });
     let posees = 0;
     voiles.forEach(voile => {
         if (MODALES_SANS_BARRE.includes(voile.id)) return;
         if (getComputedStyle(voile).display === 'none') return;
         const boite = boiteDeLaModale(voile);
         if (!boite || boite.dataset.equipee) return;
+        voile.dataset.voileModale = '1';
         boite.dataset.modaleVoile = '1';
         equiperFenetre(boite, voile.id || '', { toujours: true });
         posees++;
     });
+    // ET LES FENÊTRES QUI FLOTTENT SANS VOILE.
+    //
+    // « Tu as homogénéisé toutes les modales ? » — deux d'entre elles n'en
+    // sont pas : le constructeur de graphiques et celui des tableaux de
+    // proportionnalité sont des « <div> » posés à même la page, chacun avec sa
+    // poignée et son bandeau. Aucun voile ne les porte, elles n'arrivent pas
+    // par « ramenerFenetreDansLecran », et personne ne les équipait donc. On
+    // les reconnaît à la même mesure que le trait des fenêtres : ce qui a la
+    // forme d'une fenêtre en reçoit la barre.
+    const flottantes = [];
+    const peutEtreUneFenetre = (n) => {
+        if (!n || n.nodeType !== 1) return;
+        if (MODALES_SANS_BARRE.includes(n.id)) return;
+        if (n.dataset.equipee) return;
+        if (voileDeModale(n)) return;                // celle-là monte par son voile
+        if (laFormeDUneFenetre(n)) flottantes.push(n);
+    };
+    peutEtreUneFenetre(dans);
+    if (dans === document.body) [...dans.children].forEach(peutEtreUneFenetre);
+    flottantes.forEach(f => { equiperFenetre(f, f.id || ''); posees++; });
     return posees;
 }
 window.equiperLesModales = equiperLesModales;
@@ -19935,25 +20016,68 @@ function texteSimple(n) {
     return ((n && n.textContent) || '').replace(/\s+/g, ' ').trim();
 }
 
+// LE SEUL SIGNE QU'ON MET SUR UNE CROIX — et que l'on efface d'un titre.
+const SIGNE_DE_CROIX = /^[×✕✖⨯xX❌]️?$/;
+
+// LA LONGUEUR AU-DELÀ DE LAQUELLE CE N'EST PLUS UN TITRE MAIS UNE PHRASE.
+// Elle valait quarante, et « Éditeur de Tableaux (Signes & Variations) » en
+// fait quarante et un : cette fenêtre-là restait donc sans nom, pour un signe.
+// Un titre de cinquante signes tient encore dans une barre ; un paragraphe,
+// non — et la règle d'en dessous (un titre OUVRE son bandeau) écarte déjà ce
+// qui n'en est pas un.
+const TITRE_MAX = 52;
+
+// CE QUI SE DIT TITRE, et qu'on croit donc sur parole où qu'il soit posé :
+// une balise de titre, ou un nom de classe qui l'annonce. « Questions Flash
+// Pro » est un « pw-titre » précédé de la marque « AtoutMath » — il n'ouvre
+// pas son bandeau, et c'est pourtant bien le titre.
+function ditQuIlEstUnTitre(n) {
+    return n.matches('h1, h2, h3, h4, legend, [class*="titre"], [class*="title"]');
+}
+
 // LE TITRE DANS LE BANDEAU, et le plus grand morceau qui ne porte que lui.
 // Le nom des Studios est un « <b> » posé à côté de son icône, dans un groupe :
 // n'effacer que le « <b> » laisserait l'icône seule au bord de la fenêtre.
-function titreDuBandeau(bandeau) {
-    const candidats = [...bandeau.querySelectorAll(SELECTEUR_DE_TITRE)].filter(n => {
-        if (n.querySelector('button, .close, [role="button"]')) return false;
+//
+// UN TITRE QUI NE DIT PAS SON NOM DOIT OUVRIR SON BANDEAU. L'éditeur de
+// tableaux de signes s'appelait « inf » : le premier « <b> » que le sélecteur
+// trouvait était celui de l'astuce « Tapez inf pour écrire ∞ », perdu au
+// milieu du bandeau. Un mot en gras au milieu d'une phrase n'est pas un titre ;
+// ce par quoi le bandeau commence, oui.
+function titreDuBandeau(bandeau, fermer) {
+    const entier = texteSimple(bandeau);
+    const recevable = (n) => {
         if (n.matches('button, .close, [role="button"]')) return false;
+        if (n.querySelector('button, .close, [role="button"]')) return false;
+        if (fermer && (n === fermer || n.contains(fermer))) return false;
+        if (champVisibleDans(n)) return false;
         const t = texteSimple(n);
-        return t && t.length <= 40;
-    });
+        if (!t || t.length > TITRE_MAX) return false;
+        // Trois signes au moins pour le titre qu'on ne reconnaît qu'à sa
+        // place : une icône seule ouvre aussi son bandeau, et ne nomme rien.
+        return ditQuIlEstUnTitre(n) || (t.length >= 3 && entier.startsWith(t));
+    };
+    let candidats = [...bandeau.querySelectorAll(SELECTEUR_DE_TITRE)].filter(recevable);
+    // ET LE TITRE QUI N'EST QU'UN BLOC SANS NOM NI BALISE. Celui de l'éditeur
+    // de tableaux est un « <div> » nu, posé en tête de son bandeau : aucun
+    // sélecteur ne le désigne, et la fenêtre restait sans nom. On regarde donc
+    // aussi, à défaut, ce dont le bandeau est fait.
+    if (!candidats.length) candidats = [...bandeau.children].filter(n => n.nodeType === 1
+        && !BALISES_SANS_DESSIN.test(n.tagName) && recevable(n));
     // LE BANDEAU EST PARFOIS LE TITRE LUI-MÊME, et non sa boîte : « <h3
     // class="modal-title">Mon emploi du temps</h3> » n'a aucun descendant à
     // trouver. C'est le cas le plus simple, et c'était celui que la première
     // version savait faire — ne pas le rattraper ici l'aurait cassé.
     if (!candidats.length) {
         const copie = bandeau.cloneNode(true);
-        copie.querySelectorAll('button, .close, [role="button"]').forEach(n => n.remove());
+        copie.querySelectorAll('button, .close, [role="button"], [onclick]').forEach(n => {
+            // La croix qui n'est pas un bouton part elle aussi : sans quoi le
+            // « Kit Monnaie » s'appelait « Kit Monnaie ✕ ».
+            if (n.matches('button, .close, [role="button"]')
+                || SIGNE_DE_CROIX.test(texteSimple(n))) n.remove();
+        });
         const nu = texteSimple(copie);
-        if (!nu || nu.length > 40 || champVisibleDans(bandeau)) return null;
+        if (!nu || nu.length > TITRE_MAX || champVisibleDans(bandeau)) return null;
         return { texte: nu, enveloppe: bandeau, cestLeBandeau: true };
     }
     let titre = candidats[0];
@@ -19972,14 +20096,25 @@ function titreDuBandeau(bandeau) {
 
 // LA CROIX, désignée par ce qu'elle dit d'elle-même plutôt que par sa place :
 // « Fermer », « close », ou le seul signe qu'on met sur une croix.
+//
+// ET UNE CROIX N'EST PAS TOUJOURS UN BOUTON. « Kit Monnaie » ferme par un
+// « <span onclick> » : ni bouton, ni « close », ni « role=button ». On ne la
+// reconnaissait donc pas — et comme le bandeau ne gardait alors plus rien à
+// lui, il s'effaçait TOUT ENTIER, emportant la seule façon de fermer la
+// fenêtre. On regarde aussi ce qui se clique sans être un bouton, à la
+// condition que ce ne soit qu'une croix et rien d'autre.
 function croixDuBandeau(bandeau) {
     const boutons = [...bandeau.querySelectorAll('button, .close, [role="button"]')];
-    return boutons.find(b => {
+    const dite = boutons.find(b => {
         const dit = (b.className || '') + ' ' + (b.id || '') + ' '
             + (b.title || '') + ' ' + (b.getAttribute('aria-label') || '');
         if (/\b(close|fermer)\b/i.test(dit)) return true;
-        return /^[×✕✖⨯xX]$/.test(texteSimple(b));
-    }) || null;
+        return SIGNE_DE_CROIX.test(texteSimple(b));
+    });
+    if (dite) return dite;
+    return [...bandeau.querySelectorAll('[onclick]')]
+        .find(n => !n.matches('button, .close, [role="button"]')
+                && SIGNE_DE_CROIX.test(texteSimple(n))) || null;
 }
 
 // Un « <style> » n'est pas un bandeau. Plusieurs outils posent leur feuille de
@@ -19988,21 +20123,65 @@ function croixDuBandeau(bandeau) {
 // nom, sous une barre vide. Ces balises-là ne dessinent rien, on passe.
 const BALISES_SANS_DESSIN = /^(style|script|template|link|meta|noscript)$/i;
 
+// CE QU'UN BANDEAU DIT DE PLUS QUE SON TITRE ET SA CROIX.
+//
+// Un bandeau ne porte pas toujours qu'un titre et des boutons : l'éditeur de
+// tableaux de signes y loge une astuce — « Tapez inf pour écrire ∞ ». Comme
+// on n'y comptait que les boutons et les champs, ce bandeau-là passait pour
+// n'avoir rien gardé, s'effaçait tout entier, et le conseil disparaissait avec
+// lui. On ne regarde que ce qui SE VOIT : les boutons cachés d'un jeu qui n'a
+// pas commencé ne sont pas du texte à sauver.
+function texteVisibleHors(bandeau, titre, fermer) {
+    let out = '';
+    const m = document.createTreeWalker(bandeau, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => {
+            const p = n.parentElement;
+            if (!p || !p.getClientRects().length) return NodeFilter.FILTER_REJECT;
+            if (titre && titre.contains(p)) return NodeFilter.FILTER_REJECT;
+            if (fermer && (fermer === p || fermer.contains(p))) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    });
+    while (m.nextNode()) out += m.currentNode.nodeValue;
+    return out.replace(/\s+/g, ' ').trim();
+}
+
+function premierDessin(el, saBarre) {
+    return [...el.children].find(n => n !== saBarre && n.nodeType === 1
+        && !BALISES_SANS_DESSIN.test(n.tagName)) || null;
+}
+
 function enTeteMaison(el, saBarre) {
-    const premier = [...el.children].find(n => n !== saBarre && n.nodeType === 1
-        && !BALISES_SANS_DESSIN.test(n.tagName));
+    let premier = premierDessin(el, saBarre);
     if (!premier) return null;
-    const h = premier.getBoundingClientRect().height;
-    if (h > 64) return null;                             // un bloc de contenu, pas un bandeau
-    const titre = titreDuBandeau(premier);
+    // CERTAINES FENÊTRES ENVELOPPENT TOUT DANS UN CADRE. « Cartes à jouer »,
+    // « Arbre de probabilités », « Le Défi du Prof » posent d'abord une boîte
+    // qui tient À LA FOIS leur bandeau et leur corps : mesurée, elle fait
+    // toute la hauteur de la fenêtre, et l'on en concluait qu'il n'y avait pas
+    // d'en-tête. Leur nom se retrouvait alors deux fois — une fois dans la
+    // barre, une fois dans le bandeau resté visible. On descend donc d'un cran
+    // tant que ce qu'on regarde est un cadre, et l'on ne retient au bout que
+    // ce qui barre la fenêtre sur toute sa largeur : un en-tête traverse, un
+    // bloc de contenu non.
+    const large = el.getBoundingClientRect().width * 0.8;
+    for (let garde = 0; garde < 3 && premier.getBoundingClientRect().height > 64; garde++) {
+        const dedans = premierDessin(premier, null);
+        if (!dedans) return null;
+        premier = dedans;
+        if (premier.getBoundingClientRect().height <= 64
+            && premier.getBoundingClientRect().width < large) return null;
+    }
+    if (premier.getBoundingClientRect().height > 64) return null;   // un bloc de contenu, pas un bandeau
     const fermer = croixDuBandeau(premier);
+    const titre = titreDuBandeau(premier, fermer);
     if (!titre && !fermer) return null;                  // rien à reprendre : ce n'est pas un en-tête
     // CE QUI RESTE quand on a repris le titre et la croix. S'il ne reste rien,
     // le bandeau n'a plus de raison de paraître.
     const reste = [...premier.querySelectorAll('button, .close, [role="button"]')]
         .filter(b => b !== fermer && !(titre && titre.enveloppe.contains(b)))
         .filter(b => b.getClientRects().length > 0).length
-        + (champVisibleDans(premier) ? 1 : 0);
+        + (champVisibleDans(premier) ? 1 : 0)
+        + (texteVisibleHors(premier, titre && titre.enveloppe, fermer) ? 1 : 0);
     return {
         el: premier,
         texte: (titre && titre.texte) || '',
@@ -26493,7 +26672,16 @@ async function openClassManagerModal(classeVoulue, vueVoulue) {
     // la classe entière tient en deux ou trois colonnes, noms complets.
     // La fenêtre, elle, reprend les clics : c'est le fond qui les laisse
     // passer, pas elle.
-    box.style.cssText = 'background: var(--surface); border-radius: 12px; padding: 20px; width: 980px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover); pointer-events: auto;';
+    // ET ELLE EST OPAQUE, COMME TOUTES LES AUTRES.
+    // « Mais pourquoi as-tu mis des modales transparentes pour les classes ? »
+    // Elle prenait « --surface », c'est-à-dire du blanc à 92 % : le voile noir
+    // ayant été retiré au-dessus, la barre d'outils du tableau se voyait au
+    // travers et brouillait les noms des élèves. Les deux décisions se
+    // tenaient séparément ; ensemble, elles donnaient une fenêtre qu'on lit
+    // mal. On garde la première — on veut voir son cours autour — et l'on
+    // abandonne la seconde : la boîte est une « modal-box », elle prend le
+    // fond des « modal-box », avec sa règle de mode nuit déjà écrite.
+    box.style.cssText = 'border-radius: 12px; padding: 20px; width: 980px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column; box-shadow: var(--shadow-hover); pointer-events: auto;';
 
     modal.appendChild(box);
     document.body.appendChild(modal);
@@ -39266,9 +39454,13 @@ window.reglerLaCouleurDuContour = reglerLaCouleurDuContour;
 // tableau, assez grande pour se lire, avec un fond à elle et des coins
 // arrondis — et qui n'a pas déjà son propre trait.
 // ==================================================================
-function estUneFenetreDOutil(el) {
+// LA FORME D'UNE FENÊTRE, sans se demander si elle a déjà son trait. La barre
+// de titre commune a besoin de la MÊME mesure que le trait — « il faut être
+// cohérent avec tout » —, mais elle arrive après lui : la fenêtre porte alors
+// déjà « contour-fenetre », et elle se serait fait refuser pour cette seule
+// raison. On sépare donc ce qu'on mesure de ce qu'on a déjà fait.
+function laFormeDUneFenetre(el) {
     if (!el || el.nodeType !== 1 || !el.isConnected) return false;
-    if (el.classList.contains('contour-fenetre')) return false;
     // Les meubles du tableau ont déjà le leur, et la visite a le sien.
     if (el.closest('#board, .toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
     const s = getComputedStyle(el);
@@ -39282,6 +39474,12 @@ function estUneFenetreDOutil(el) {
     if (!fond || fond === 'transparent' || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(fond)) return false;
     if (parseFloat(s.borderRadius) < 4) return false;
     return true;
+}
+
+function estUneFenetreDOutil(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.classList.contains('contour-fenetre')) return false;
+    return laFormeDUneFenetre(el);
 }
 
 // Celle qui a déjà un trait le garde — on n'en change QUE la couleur, pour ne

@@ -5327,6 +5327,10 @@ registerPlugin('metronomeTool', 'Musique', {
 
         const widget = document.createElement('div');
         widget.id = 'metro-widget';
+        // ELLE N'ÉCRIT SON NOM NULLE PART : la fenêtre commence par ses diodes,
+        // et la barre commune n'avait donc rien à reprendre — elle restait
+        // vide au-dessus d'un métronome anonyme. On le lui dit.
+        widget.dataset.fenetreTitre = 'Métronome Pro';
         document.body.appendChild(widget);
         if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(widget);
 
@@ -7904,7 +7908,7 @@ registerPlugin('analyseGrammaticaleTool', 'Français', {
         // Pas de « transform: translateX(-50%) » pour centrer : les commandes de
         // fenêtre (déplacer, agrandir, plein écran) raisonnent en left/top, et
         // le décalage du transform les faisait sortir de l'écran.
-        this.widgetEl.style.cssText = "position:fixed; top:9vh; left:5vw; width:900px; max-width:90vw; max-height:86vh; background:var(--surface,#fdfdfd); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--border,#bdc3c7);";
+        this.widgetEl.style.cssText = "position:fixed; top:9vh; left:5vw; width:900px; max-width:90vw; max-height:86vh; background:var(--surface-pleine,#ffffff); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--border,#bdc3c7);";
 
         this.widgetEl.innerHTML = `
             <div id="ag-entete">
@@ -25981,6 +25985,10 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'scratch-plugin-wrap';
+        // SON BANDEAU EST UNE BARRE D'OUTILS, pas un titre : « Studio » y est
+        // posé entre deux listes déroulantes, au milieu de huit commandes. La
+        // barre commune n'y trouvait aucun nom à reprendre et restait vide.
+        this.widgetEl.dataset.fenetreTitre = 'Algorithmes (Scratch)';
         this.widgetEl.style.cssText = `position:fixed; max-width:96vw; max-height:94vh; top:5vh; left:calc(50% - 480px); width:960px; height:85vh; background:#fff; border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,0.2); z-index:100000; display:flex; flex-direction:column; overflow:hidden; font-family:'Roboto', sans-serif; border:1px solid #dfe6e9;`;
 
         const style = document.createElement('style');
@@ -36723,7 +36731,7 @@ registerPlugin('lecteurDicteeTool', 'Français', {
         this.widgetEl = document.createElement('div');
         this.widgetEl.id = 'dictee-modal';
         this.widgetEl.style.cssText = "position:fixed; top:8vh; left:50%; margin-left:-280px; width:560px;"
-            + " max-width:94vw; max-height:88vh; background:var(--surface,#fdfdfd); border-radius:12px;"
+            + " max-width:94vw; max-height:88vh; background:var(--surface-pleine,#ffffff); border-radius:12px;"
             + " box-shadow:0 20px 60px rgba(0,0,0,0.4); z-index:99999; display:flex; flex-direction:column;"
             + " overflow:hidden; border:1px solid var(--border,#bdc3c7);";
         this.widgetEl.innerHTML = `

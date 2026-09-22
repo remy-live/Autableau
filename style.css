@@ -16,6 +16,14 @@
 :root {
     --bg: #f5f6fa;
     --surface: rgba(255, 255, 255, 0.92);
+    /* LE MÊME FOND, MAIS OPAQUE. « Mais pourquoi as-tu mis des modales
+       transparentes pour les classes ? » Trois fenêtres — Mes classes, la
+       dictée, l'analyse grammaticale — prenaient « --surface », c'est-à-dire
+       du blanc à 92 %. Posées SANS voile derrière elles, elles laissaient lire
+       le tableau au travers du texte. La translucidité a un sens pour ce qui
+       flotte au-dessus d'un contenu qu'on veut continuer de voir ; elle n'en a
+       aucun pour une fenêtre où l'on travaille. */
+    --surface-pleine: #ffffff;
     --border: #dfe6e9;
     --shadow: 0 8px 24px rgba(0, 0, 0, .08);
     --shadow-hover: 0 12px 32px rgba(0, 0, 0, .15);
@@ -60,6 +68,7 @@
 body.dark-mode {
     --bg: #1e1e24;
     --surface: rgba(40, 42, 54, 0.92);
+    --surface-pleine: #282a36;
     --border: #44475a;
     --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     --shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.6);

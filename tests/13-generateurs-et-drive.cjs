@@ -1258,38 +1258,18 @@ module.exports = async function (browser) {
     // tout ce qui sait s'ouvrir, et l'on regarde CE QUI SE VOIT — un titre
     // caché reste dans « textContent », et l'on croirait au doublon qu'on vient
     // d'ôter.
+    //
+    // ET PAS SEULEMENT LES MODALES À VOILE. « Il n'y a pas que 12 modales, il y
+    // a tous les plugins…, il faut être cohérent avec tout ! » Cinq fenêtres
+    // n'étaient équipées par rien : ce sont des « div » posés à même la page,
+    // chacun avec sa propre poignée — aucun voile ne les portait, et celles-là
+    // n'entraient donc dans aucun relevé. On ouvre maintenant CHAQUE outil de
+    // la grille, l'un après l'autre, on regarde ce qui paraît, puis on referme
+    // avant de passer au suivant : ouvertes toutes ensemble, elles se
+    // recouvriraient et les derniers appuis tomberaient dans la fenêtre d'avant.
     // ------------------------------------------------------------------
     const toutes = await page.evaluate(async () => {
         const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
-        const b = document.getElementById('btn-classes-menu');
-        if (b) { b.click(); await attendre(400); }
-        // ET TOUTES LES MODALES ÉCRITES DANS LA PAGE, pas seulement celles qui
-        // s'ouvrent d'un appel sans argument. « Tu as homogénéisé toutes les
-        // modales ? » — la première version n'en voyait que six : celles-là
-        // seules savaient s'ouvrir toutes seules. On force donc les autres à
-        // paraître, on les équipe, et on les remet comme on les a trouvées.
-        const rendues = [];
-        for (const v of [...document.querySelectorAll('[id$="-modal"], .modal-backdrop')]) {
-            if (typeof MODALES_SANS_BARRE !== 'undefined' && MODALES_SANS_BARRE.includes(v.id)) continue;
-            if (getComputedStyle(v).display !== 'none') continue;
-            rendues.push([v, v.style.display]);
-            v.style.display = 'flex';
-        }
-        if (rendues.length) {
-            await attendre(250);
-            if (typeof equiperLesModales === 'function') equiperLesModales(document.body);
-            await attendre(250);
-        }
-        for (const id of Object.keys(PluginManager.plugins)) {
-            const p = PluginManager.plugins[id];
-            for (const verbe of ['ouvrir', 'open', 'ouvrirFenetre', 'afficher', 'show']) {
-                if (p && typeof p[verbe] === 'function' && p[verbe].length === 0) {
-                    try { p[verbe](); await attendre(80); } catch (e) { /* cet outil ne s'ouvre pas seul */ }
-                    break;
-                }
-            }
-        }
-        await attendre(500);
 
         const vu = (n) => {
             if (!n || n.nodeType !== 1 || !n.getClientRects().length) return false;
@@ -1313,53 +1293,301 @@ module.exports = async function (browser) {
         const norme = (t) => (t || '').replace(/[\s ]+/g, ' ')
             .replace(/[\p{Extended_Pictographic}←-⇿☀-➿️]/gu, '')
             .replace(/\s+/g, ' ').trim().toLowerCase();
+        const sansBarreDeclaree = (id) => typeof MODALES_SANS_BARRE !== 'undefined'
+            && MODALES_SANS_BARRE.includes(id);
+        // LES MEUBLES DU TABLEAU NE SONT PAS DES FENÊTRES : la grille des
+        // outils, le tiroir des vignettes, le calque des pastilles et celui des
+        // barres composées se posent par-dessus la page sans rien encadrer.
+        const MEUBLES = ['plugins-grid', 'thumbnail-drawer', 'custom-bars-container',
+                         'html-postits-container', 'demo-barre', 'demo-liste'];
 
         const examinees = [], doublons = [], sansNom = [], deuxCroix = [], sansBarre = [];
-        // CE QUI EST PARU SANS RECEVOIR DE BARRE se compte aussi : une modale
-        // qu'on n'équipe pas est une modale qu'on n'a pas homogénéisée, et
-        // l'ignorer ferait passer la vérification pour plus large qu'elle n'est.
-        document.querySelectorAll('[id$="-modal"], .modal-backdrop').forEach(v => {
-            if (typeof MODALES_SANS_BARRE !== 'undefined' && MODALES_SANS_BARRE.includes(v.id)) return;
-            if (getComputedStyle(v).display === 'none') return;
-            if (v.querySelector('.fen-tete')) return;
-            const boite = typeof boiteDeLaModale === 'function' ? boiteDeLaModale(v) : null;
-            if (boite) sansBarre.push((v.id || '(sans id)')
-                + ' [' + getComputedStyle(v).display
-                + ', boîte ' + boite.tagName.toLowerCase() + '.' + (boite.className || '').slice(0, 20)
-                + ', équipée=' + (boite.dataset.equipee || 'non') + ']');
-        });
-        document.querySelectorAll('[data-equipee="1"]').forEach(f => {
-            if (!vu(f)) return;
-            const tete = f.querySelector(':scope > .fen-tete');
-            if (!tete) return;
-            const nom = norme((f.querySelector('.fen-nom') || {}).textContent);
-            const quoi = f.id || (f.className || '').slice(0, 30);
-            examinees.push(quoi);
-            if (!nom) { sansNom.push(quoi); return; }
-            const corps = [...f.children].find(n => n !== tete && !n.classList.contains('fen-outils'));
-            if (corps && norme(texteVu(corps)).startsWith(nom)) doublons.push(quoi + ' : ' + nom);
-            // ET UNE SEULE FAÇON DE FERMER. Deux croix, c'est deux gestes pour
-            // le même effet, et l'on ne sait pas lequel fait foi.
-            const croix = [...f.querySelectorAll('button, .close, [role="button"]')]
-                .filter(x => !tete.contains(x) && vu(x))
-                .filter(x => /^[×✕✖⨯xX]$/.test((x.textContent || '').trim())
-                          || /\b(close|fermer)\b/i.test((x.className || '') + ' ' + (x.id || '')
-                              + ' ' + (x.title || '') + ' ' + (x.getAttribute('aria-label') || '')));
-            if (croix.length && tete.querySelector('.fen-fermer')) deuxCroix.push(quoi);
-        });
-        // ON REMET LES MODALES COMME ON LES A TROUVÉES : les laisser ouvertes
-        // ferait tomber la suite d'après, qui cliquerait dans le vide.
+        const croixPerdues = [], perdus = [], translucides = [];
+        const dejaVues = new Set();
+
+        // CE QUI PARAÎT SANS BARRE se compte aussi : une fenêtre qu'on n'équipe
+        // pas est une fenêtre qu'on n'a pas homogénéisée, et l'ignorer ferait
+        // passer la vérification pour plus large qu'elle n'est. On la mesure
+        // ici sans rien demander au tableau : une boîte posée par-dessus la
+        // page, assez grande pour être une fenêtre et non une télécommande,
+        // avec un fond à elle — voile compris, dont on regarde alors la boîte.
+        const releverCeQuiNaPasDeBarre = () => {
+            document.querySelectorAll('body > *').forEach(el => {
+                if (!vu(el) || MEUBLES.includes(el.id)) return;
+                if (el.closest('#board, .toolbar, .drawer')) return;
+                const s = getComputedStyle(el);
+                if (s.position !== 'fixed' && s.position !== 'absolute') return;
+                const r = el.getBoundingClientRect();
+                let boite = el;
+                if (r.width >= innerWidth - 2 && r.height >= innerHeight - 2) {
+                    boite = [...el.children].find(n => {
+                        if (n.nodeType !== 1 || !vu(n)) return false;
+                        const b = n.getBoundingClientRect();
+                        return b.width >= 150 && b.height >= 110
+                            && !(b.width >= innerWidth - 2 && b.height >= innerHeight - 2);
+                    });
+                    if (!boite) return;
+                }
+                if (sansBarreDeclaree(el.id) || sansBarreDeclaree(boite.id)) return;
+                const b = boite.getBoundingClientRect();
+                // Un bandeau de télécommande n'est pas une fenêtre : rien à y
+                // agrandir, rien à y nommer.
+                if (b.width < 150 || b.height < 110) return;
+                const fond = getComputedStyle(boite).backgroundColor || '';
+                if (!fond || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(fond)) return;
+                if (boite.querySelector(':scope > .fen-tete')) return;
+                // CE QU'IL FAUT POUR TRANCHER EN CAS D'ÉCHEC : une boîte sans
+                // identifiant ne se reconnaît qu'à ce qu'elle écrit.
+                const quoi = (boite.id || el.id || '(sans id)')
+                    + ' [' + Math.round(b.width) + 'x' + Math.round(b.height)
+                    + ', équipée=' + (boite.dataset.equipee || 'non')
+                    + ', attente=' + (boite.dataset.fenAttente || 'non')
+                    + ', « ' + texteVu(boite).slice(0, 40) + ' »]';
+                if (!sansBarre.includes(quoi)) sansBarre.push(quoi);
+            });
+        };
+
+        const releverLesFenetresEquipees = () => {
+            document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+                if (!vu(f)) return;
+                const tete = f.querySelector(':scope > .fen-tete');
+                if (!tete) return;
+                // DEUX BOÎTES SANS NOM NE SONT PAS LA MÊME FENÊTRE.
+                //
+                // Cette clé sert à ne pas réexaminer deux fois la même fenêtre.
+                // Or la boîte d'une modale n'a souvent ni identifiant ni
+                // classe à elle : le recadrage des pixels, leur coloriage, les
+                // tableaux de signes et l'éditeur de formules se retrouvaient
+                // tous sous la même clé — celle des classes que l'ÉQUIPEMENT
+                // vient de leur poser, « fen-titree » —, et une seule des
+                // quatre était regardée. La vérification se croyait alors plus
+                // large qu'elle n'était. On écarte donc ce que l'équipement a
+                // ajouté, et l'on nomme à défaut la boîte par son voile.
+                // Son voile la nomme mieux que ses classes : une douzaine de
+                // modales partagent la même « modal-box », et elles se
+                // retrouvaient elles aussi toutes sous une seule clé.
+                const sesClasses = (f.className || '').toString()
+                    .replace(/\b(fen|contour)-\S*/g, '').replace(/\s+/g, ' ').trim();
+                const quoi = f.id
+                    || ((f.parentElement && f.parentElement.id)
+                        ? f.parentElement.id + ' > sa boîte' : '')
+                    || sesClasses.slice(0, 30)
+                    || ('sans nom : « ' + texteVu(f).slice(0, 25) + ' »');
+                if (dejaVues.has(quoi)) return;
+                dejaVues.add(quoi);
+                const nom = norme((f.querySelector('.fen-nom') || {}).textContent);
+                examinees.push(quoi);
+                // ET ELLE EST OPAQUE. « Mais pourquoi as-tu mis des modales
+                // transparentes pour les classes ? » — « Mes classes » prenait
+                // « --surface », du blanc à 92 %, et la barre d'outils du
+                // tableau se lisait au travers des noms d'élèves. Une fenêtre
+                // posée SANS voile doit porter un fond à elle : sinon c'est le
+                // tableau qu'on lit, et l'on croit l'application cassée.
+                if (!f.closest('.modal-backdrop, .compo-fond, [id$="-backdrop"]')
+                    && !(f.dataset && f.dataset.modaleVoile)) {
+                    const fond = getComputedStyle(f).backgroundColor;
+                    const m = fond.match(/[\d.]+/g);
+                    const alpha = (m && m.length > 3) ? Number(m[3]) : (fond === 'transparent' ? 0 : 1);
+                    if (alpha < 0.95) translucides.push(quoi + ' : ' + fond);
+                }
+                if (!nom) { sansNom.push(quoi); return; }
+                // TOUT LE CORPS, ET PAS SON PREMIER ENFANT. Plusieurs outils
+                // posent leur feuille de style en tête de leur fenêtre : on
+                // prenait cette feuille pour le corps, on n'y lisait rien — car
+                // elle ne se voit pas — et le doublon qui suivait passait au
+                // travers. « Cartes à jouer » écrivait ainsi son nom deux fois
+                // sous le nez d'une vérification qui disait le contraire.
+                const corps = [...f.children]
+                    .filter(n => n !== tete && !n.classList.contains('fen-outils'))
+                    .map(texteVu).join(' ');
+                if (norme(corps).startsWith(nom)) doublons.push(quoi + ' : ' + nom);
+                // ET UNE SEULE FAÇON DE FERMER. Deux croix, c'est deux gestes
+                // pour le même effet, et l'on ne sait pas lequel fait foi.
+                //
+                // La croix qu'on cherche est celle de la FENÊTRE, et une croix
+                // ne ferme pas toujours une fenêtre. L'atelier des frises en
+                // offre neuf dans son corps, une par période à RETIRER ; le
+                // traceur de fonctions en met une à côté de chaque courbe, et
+                // elle dit « Supprimer ». Aucune ne ferme quoi que ce soit. On
+                // ne retient donc que celles de la bande du haut — là où vit
+                // une barre de titre — qui ne se réclament d'aucun autre
+                // office.
+                const hautDeLaFenetre = f.getBoundingClientRect().top + 64;
+                const cequelleDit = (x) => (x.className || '') + ' ' + (x.id || '')
+                    + ' ' + (x.title || '') + ' ' + (x.getAttribute('aria-label') || '');
+                const croix = [...f.querySelectorAll('button, .close, [role="button"]')]
+                    .filter(x => !tete.contains(x) && vu(x))
+                    .filter(x => x.getBoundingClientRect().top < hautDeLaFenetre)
+                    .filter(x => !/\b(supprimer|retirer|effacer|delete|remove)\b/i.test(cequelleDit(x)))
+                    .filter(x => /^[×✕✖⨯❌xX]️?$/.test((x.textContent || '').trim())
+                              || /\b(close|fermer)\b/i.test(cequelleDit(x)));
+                if (croix.length && tete.querySelector('.fen-fermer')) deuxCroix.push(quoi);
+                // ET LA CROIX NE SE PERD PAS EN CHEMIN. Le bandeau maison
+                // s'efface quand la barre a tout repris ; s'il portait la
+                // seule façon de fermer et que la barre n'en offre pas, on
+                // vient de supprimer le bouton « fermer » de la fenêtre.
+                // « Kit Monnaie » fermait par un « span », que rien ne
+                // reconnaissait comme une croix : son bandeau disparaissait
+                // avec elle.
+                const dansLeCache = [...f.querySelectorAll('.fen-tete-adoptee, .fen-repris')]
+                    .some(c => [...c.querySelectorAll('button, .close, [role="button"], [onclick]')]
+                        .some(x => /^[×✕✖⨯❌xX]️?$/.test((x.textContent || '').trim())
+                                || /\b(close|fermer)\b/i.test((x.className || '') + ' ' + (x.id || '')
+                                    + ' ' + (x.title || '') + ' ' + (x.getAttribute('aria-label') || ''))));
+                if (dansLeCache && !tete.querySelector('.fen-fermer')) croixPerdues.push(quoi);
+                // ET UN BANDEAU NE S'EFFACE ENTIER QUE S'IL NE DISAIT RIEN DE
+                // PLUS QUE LA BARRE. Sinon, prendre son titre revient à jeter
+                // ce qu'il disait d'autre : l'éditeur de tableaux de signes
+                // portait dans le sien l'astuce « Tapez inf pour écrire ∞ ».
+                [...f.querySelectorAll('.fen-tete-adoptee')].forEach(c => {
+                    // La croix, elle, a bien le droit de disparaître : c'est
+                    // celle de la barre qui la remplace, et elle répond encore.
+                    const dit = norme(c.textContent)
+                        .replace(/[×✕✖⨯❌]/g, '').trim();
+                    if (dit && dit !== nom) {
+                        perdus.push(quoi + ' : « ' + dit.slice(0, 50) + ' » pour « ' + nom + ' »');
+                    }
+                });
+            });
+        };
+
+        // ON LAISSE SA CHANCE À CE QUI ARRIVE EN RETARD. La barre ne se pose
+        // pas au moment où la fenêtre paraît : l'œil qui la déclenche attend
+        // d'abord un dixième de seconde que la poussière retombe, et
+        // l'équipement lui-même laisse passer deux images avant de juger. Un
+        // sixième de seconde après l'appui, la lecture de dictée et l'éditeur
+        // de formules n'avaient donc pas encore la leur — et l'on aurait crié
+        // à la fenêtre oubliée pour une course perdue de cent millisecondes.
+        // On ne redonne ce délai QUE si quelque chose paraît manquer : le test
+        // ne paie alors la lenteur que dans le cas où elle sert à quelque chose.
+        const examinerLesFenetres = async () => {
+            releverLesFenetresEquipees();
+            const avant = sansBarre.slice();
+            releverCeQuiNaPasDeBarre();
+            if (sansBarre.length === avant.length) return;
+            sansBarre.length = 0;
+            sansBarre.push(...avant);
+            await attendre(340);
+            releverLesFenetresEquipees();
+            releverCeQuiNaPasDeBarre();
+        };
+
+        // TOUT CE QUI SE REFERME, pour que l'appui suivant ne tombe pas dans la
+        // fenêtre d'avant.
+        const toutRefermer = () => {
+            document.querySelectorAll('body > *').forEach(el => {
+                if (!vu(el) || MEUBLES.includes(el.id)) return;
+                if (el.closest('#board, .toolbar, .drawer')) return;
+                const s = getComputedStyle(el);
+                if (s.position !== 'fixed' && s.position !== 'absolute') return;
+                if (el.getBoundingClientRect().width < 150) return;
+                el.style.display = 'none';
+            });
+        };
+
+        const b = document.getElementById('btn-classes-menu');
+        if (b) { b.click(); await attendre(400); }
+        // ET TOUTES LES MODALES ÉCRITES DANS LA PAGE, pas seulement celles qui
+        // s'ouvrent d'un appel sans argument. « Tu as homogénéisé toutes les
+        // modales ? » — la première version n'en voyait que six : celles-là
+        // seules savaient s'ouvrir toutes seules. On force donc les autres à
+        // paraître, on les équipe, et on les remet comme on les a trouvées.
+        const rendues = [];
+        for (const v of [...document.querySelectorAll('[id$="-modal"], [id$="-backdrop"], .modal-backdrop')]) {
+            if (sansBarreDeclaree(v.id)) continue;
+            if (getComputedStyle(v).display !== 'none') continue;
+            rendues.push([v, v.style.display]);
+            v.style.display = 'flex';
+        }
+        if (rendues.length) {
+            await attendre(250);
+            if (typeof equiperLesModales === 'function') equiperLesModales(document.body);
+            await attendre(300);
+        }
+        for (const id of Object.keys(PluginManager.plugins)) {
+            const p = PluginManager.plugins[id];
+            for (const verbe of ['ouvrir', 'open', 'ouvrirFenetre', 'afficher', 'show']) {
+                if (p && typeof p[verbe] === 'function' && p[verbe].length === 0) {
+                    try { p[verbe](); await attendre(80); } catch (e) { /* cet outil ne s'ouvre pas seul */ }
+                    break;
+                }
+            }
+        }
+        await attendre(500);
+        await examinerLesFenetres();
+        // ON REMET LES MODALES COMME ON LES A TROUVÉES.
         rendues.forEach(([v, avant]) => { v.style.display = avant; });
-        return { examinees, doublons, sansNom, deuxCroix, sansBarre };
+
+        // PUIS CHAQUE OUTIL DE LA GRILLE, L'UN APRÈS L'AUTRE. C'est le seul
+        // moyen d'atteindre les fenêtres flottantes : elles ne s'ouvrent pas
+        // d'un appel sans argument, elles s'ouvrent quand on appuie.
+        toutRefermer();
+        const grille = document.getElementById('plugins-grid');
+        if (grille) grille.style.display = 'grid';
+        const boutons = [...document.querySelectorAll('#plugins-grid .btn')];
+        for (const bouton of boutons) {
+            try { bouton.click(); } catch (e) { /* cet outil refuse de s'ouvrir */ }
+            await attendre(160);
+            await examinerLesFenetres();
+            toutRefermer();
+        }
+        return { examinees, doublons, sansNom, deuxCroix, sansBarre, croixPerdues, perdus, translucides, outils: boutons.length };
     });
     // SANS CE GARDE-FOU, la vérification passerait en n'examinant rien : c'est
-    // exactement ce qui fait qu'un test vert ne prouve rien.
+    // exactement ce qui fait qu'un test vert ne prouve rien. Et le second
+    // compte les OUTILS eux-mêmes : si la grille se vidait, on n'ouvrirait plus
+    // une seule fenêtre flottante sans que rien ne vienne le dire.
     r.verifie('assez de fenêtres ouvertes pour que la vérification ait un sens',
-        toutes.examinees.length >= 4, toutes.examinees.join(', '));
+        toutes.examinees.length >= 45, toutes.examinees.length + ' : ' + toutes.examinees.join(', '));
+    r.verifie('et tous les outils de la grille ont été ouverts',
+        toutes.outils >= 80, String(toutes.outils));
     r.egal('aucune fenêtre n\'écrit son nom deux fois', toutes.doublons, []);
     r.egal('aucune barre de titre ne reste sans nom', toutes.sansNom, []);
     r.egal('aucune fenêtre n\'offre deux croix pour fermer', toutes.deuxCroix, []);
-    r.egal('aucune modale de la page ne reste sans barre de titre', toutes.sansBarre, []);
+    r.egal('aucune fenêtre de la page ne reste sans barre de titre', toutes.sansBarre, []);
+    r.egal('aucune fenêtre sans voile n\'est translucide', toutes.translucides, []);
+    r.egal('aucune fenêtre ne perd sa seule croix en adoptant son bandeau', toutes.croixPerdues, []);
+    r.egal('et un bandeau adopté ne disait rien de plus que la barre', toutes.perdus, []);
+
+    // LE TITRE N'EST PAS LE PREMIER MOT EN GRAS.
+    //
+    // « Éditeur de Tableaux (Signes & Variations) » partage son bandeau avec
+    // une astuce — « Tapez inf pour écrire ∞ » —, et c'est le « b » de cette
+    // astuce que le sélecteur trouvait en premier : la fenêtre s'appelait
+    // « inf ». Le bandeau, n'ayant alors apparemment plus rien à garder,
+    // s'effaçait tout entier, et le conseil s'en allait avec lui.
+    //
+    // ON L'ÉPROUVE SUR UN BANDEAU BÂTI POUR L'OCCASION, parce qu'une fois la
+    // barre posée, plus rien ne dit OÙ elle a pris son nom : le relevé
+    // d'au-dessus verrait « inf » dans la barre et « inf » effacé dans le
+    // bandeau, et les trouverait parfaitement d'accord.
+    const bandeau = await page.evaluate(async () => {
+        const f = document.createElement('div');
+        // AUSSI LARGE QUE LA VRAIE — 850 px : plus étroit, le titre passe à la
+        // ligne, le bandeau dépasse la hauteur d'un en-tête et l'on
+        // n'éprouverait plus la règle qu'on croit éprouver.
+        f.style.cssText = 'position:fixed; left:120px; top:180px; width:850px; height:300px;'
+            + ' background:#fff; border-radius:8px;';
+        f.innerHTML = '<div style="display:flex; align-items:center; gap:10px; padding:8px;">'
+            + '<div style="font-size:1.4rem; font-weight:800;">Éditeur de Tableaux (Signes &amp; Variations)</div>'
+            + '<div style="font-size:.85rem;">Astuce: Tapez <b>inf</b> pour écrire <b>∞</b></div>'
+            + '</div><div style="height:200px;">le corps de la fenêtre</div>';
+        document.body.appendChild(f);
+        equiperFenetre(f, null, { toujours: true });
+        await new Promise(ok => setTimeout(ok, 350));
+        const tete = f.querySelector(':scope > .fen-tete');
+        const gras = f.querySelector('b');
+        const lu = {
+            nom: tete ? (tete.querySelector('.fen-nom').textContent || '').trim() : '(pas de barre)',
+            astuceVisible: !!gras && gras.getClientRects().length > 0
+        };
+        f.remove();
+        return lu;
+    });
+    r.egal('le nom de la barre est le titre, pas le mot en gras de l\'astuce',
+        bandeau.nom, 'Éditeur de Tableaux (Signes & Variations)');
+    r.verifie('et l\'astuce que le bandeau portait en plus reste lisible',
+        bandeau.astuceVisible, JSON.stringify(bandeau));
 
     await context.close();
 
