@@ -31,7 +31,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=185">
+    <link rel="stylesheet" href="style.css?v=186">
 </head>
 
 <body>
@@ -517,35 +517,29 @@
             <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
             <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
         </span>
-        <!-- TROIS BOUTONS QUI NE PARLAIENT PAS DE LA MÊME CHOSE, ET QUI SE
-             RESSEMBLAIENT.
-             « Je ne comprends pas ce que font les 3 boutons, je ne saisis pas
-             la différence. » « Poser à côté » et « À côté » : deux libellés à
-             un mot près, pour deux gestes qui n'ont rien à voir. Les deux
-             premiers vident le TIROIR sur une PAGE DU TABLEAU, et ne diffèrent
-             que par la page. Le troisième ne touche pas au tableau : il montre
-             UN morceau à côté du document qu'on PROJETTE, sans quitter le
-             plein écran.
-             On les sépare donc en deux groupes, chacun sous son titre, et
-             chaque bouton dit son objet en toutes lettres. Une ligne sous les
-             deux premiers annonce ce qui va se passer — combien de morceaux,
-             sur quelle page, et ce qui s'y trouve déjà : c'est ce que le
-             libellé qui basculait essayait de dire sans y arriver. -->
+        <!-- UN SEUL BOUTON QUI POSE.
+             « J'aime pas les trois boutons poser, je suis perdu. » Ils étaient
+             trois à commencer par le même verbe. Les séparer en groupes titrés
+             n'avait pas suffi : il restait trois choses à lire avant d'oser
+             cliquer, là où le tiroir n'a qu'un geste à proposer.
+             « TOUT POSER SUR UNE PAGE NEUVE » N'ÉTAIT QUE LE « ＋ » D'À CÔTÉ,
+             suivi de « Tout poser ». Ce ＋ est juste au-dessus, il ouvre une
+             page vierge, et la page vierge où l'on se trouve devient d'elle-même
+             la page des exercices de ce document. Les deux gestes restent, le
+             bouton qui les confondait s'en va — et avec lui le second « ＋ »,
+             qui voulait dire tout autre chose que le premier.
+             ET « MONTRER UN MORCEAU À CÔTÉ DU DOCUMENT » EST PARTI. « Je ne
+             comprends pas ce qu'il fait, je l'enlèverai. » Il prenait LE
+             PREMIER morceau du tiroir, sans qu'on voie lequel : un bouton qui
+             choisit à votre place ne peut pas dire ce qu'il va faire. La place
+             d'à côté reste là où elle se comprend — le « ⇔ » d'une vignette de
+             page, dans le volet, qui met CETTE page-là à côté de celle qu'on
+             projette : on désigne, donc on sait.
+             La ligne qui suit annonce ce qui va se passer : combien de
+             morceaux, sur quelle page, et ce qui s'y trouve déjà. -->
         <span class="bm-groupe">
-            <span class="bm-groupe-titre">Vider le tiroir sur une page du tableau</span>
-            <span class="bm-poser">
-                <button class="bm-btn" id="bm-ranger">⇥ Tout poser sur cette page</button>
-                <button class="bm-btn" id="bm-ranger-neuve">＋ Tout poser sur une page neuve</button>
-            </span>
+            <button class="bm-btn" id="bm-ranger">⇥ Tout poser sur cette page</button>
             <span class="bm-explique" id="bm-explique"></span>
-        </span>
-        <span class="bm-groupe bm-groupe-projection">
-            <span class="bm-groupe-titre">Pendant la projection</span>
-            <!-- LA SECONDE PLACE : le morceau se pose à côté de la page, qui se
-                 serre pour lui faire de la place, et l'on ne quitte pas le
-                 plein écran. Le libellé bascule entre « Montrer… » et
-                 « Retirer… » — c'est « majLeBoutonACote » qui le pose. -->
-            <button class="bm-btn" id="bm-a-cote">⇔ Montrer un morceau à côté du document</button>
         </span>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
     </div>
@@ -1423,9 +1417,11 @@
                             à l'endroit voulu du tableau (un simple clic la pose au milieu de l'écran) ;
                             ou bien le bouton du tiroir les range tous d'un coup, <b>à droite du
                             document</b> — jamais dessus — et <b>la vue va les chercher</b> : on voit
-                            aussitôt le résultat. Il dit où ça va : <b>⇥ Poser à côté</b> là où il y a
-                            déjà quelque chose, <b>⇥ Poser</b> sur une page vierge — et il suit le
-                            changement de page tout seul. Ils sont alors <b>agrandis autant que la place le
+                            aussitôt le résultat. Il n'y en a <b>qu'un</b>, <b>⇥ Tout poser sur cette
+                            page</b>, et la ligne sous lui annonce ce qui va se passer : combien de
+                            morceaux, sur quelle page, et si elle est déjà occupée. Pour les mettre sur
+                            une page neuve, le <b>＋</b> juste au-dessus en ouvre une vierge — et c'est
+                            elle que les découpages suivants rejoindront. Ils sont alors <b>agrandis autant que la place le
                             permet</b>, tous du même facteur, parce qu'un exercice au quart de sa page ne
                             se lit pas depuis le fond de la classe ; la disposition est choisie pour cela
                             — trois bandes larges s'empilent, trois exercices étroits se rangent côte à
@@ -3705,7 +3701,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=306"></script>
+    <script src="script.js?v=307"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=112"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

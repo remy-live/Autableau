@@ -13543,47 +13543,13 @@ window.cadrerSurLesDeux = cadrerSurLesDeux;
 // peindrait alors le voile PAR-DESSUS ce qu'on voulait montrer, ce qui est
 // très exactement l'inverse. Un morceau qui occupe déjà la seconde place est
 // donc dans la liste, et il y reste seul.
-// POSER DANS LA SECONDE PLACE, SANS QUITTER LE PLEIN ÉCRAN.
+// LE MORCEAU NE VA PLUS SE METTRE À CÔTÉ TOUT SEUL.
 //
-// C'était tout le problème : « quand on pose à côté, il est difficile de
-// revenir sur la vue du PDF ou globale ». Le morceau partait sur une autre
-// page, ou hors de l'écran, et la projection se refermait derrière lui. Ici,
-// il prend la place qui l'attend : la page se serre, les deux se voient, et
-// l'on n'a rien quitté.
-function poserACote(m) {
-    if (!presentationEnCours || !m) return false;
-    const doc = getObjectById('image', presentationEnCours);
-    if (!doc) return false;
-
-    const objet = {
-        id: nextId++,
-        // LA PLACE EXACTE EST DÉCIDÉE JUSTE APRÈS par « disposerLesDeux » :
-        // ce qui compte ici, c'est la FORME du morceau — w et h —, car c'est
-        // elle qui dit s'il ira à droite ou dessous. Le poser d'abord à droite
-        // n'était qu'une écriture sans effet, et un sabotage l'a montrée.
-        x: doc.x, y: doc.y, w: m.w, h: m.h,
-        cx: m.cx, cy: m.cy, cw: m.cw, ch: m.ch,
-        src: m.src, fileName: m.nom + ' — morceau', z: globalZ++, ratioLocked: true,
-        pluginData: { id: 'morceau', source: m.source, nom: m.nom, page: m.page,
-                      pdfRef: m.pdfRef, cle: m.cle || null, projete: !!m.projete }
-    };
-    images.push(objet);
-    morceauxEnAttente = morceauxEnAttente.filter(x => x.id !== m.id);
-    presentationVoisine = objet.id;
-    tailleNaturelleDuVoisin = { w: m.w, h: m.h };
-    cadrerSurLesDeux(doc, objet);
-
-    selectedItems = [{ type: 'image', id: objet.id }];
-    modeDocument = 'cadre';
-    if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
-    if (typeof majBarreDocument === 'function') majBarreDocument();
-    if (typeof saveState === 'function') saveState();
-    if (typeof draw === 'function') draw();
-    if (typeof showToast === 'function') {
-        showToast('Posé à côté — la page se serre pour lui faire de la place');
-    }
-    return true;
-}
+// « Montrer un morceau à côté du document : je ne comprends pas ce qu'il fait,
+// je l'enlèverai. » Le bouton prenait LE PREMIER morceau du tiroir sans qu'on
+// voie lequel ; « poserACote » n'avait pas d'autre appelant, et une fonction
+// que plus rien n'atteint est un piège pour qui relira. La seconde place, elle,
+// reste entière : « poserLaPageACote » l'occupe avec une page qu'on DÉSIGNE.
 
 // UNE PAGE MISE À CÔTÉ EST UN PASSAGER, PAS UN MEUBLE.
 //
@@ -13698,7 +13664,6 @@ function veillerSurLaPlaceACote() {
     libererLaPlaceACote(true);
 }
 
-window.poserACote = poserACote;
 window.libererLaPlaceACote = libererLaPlaceACote;
 
 function boitesEpargneesParLeVoile(doc) {
@@ -16102,15 +16067,12 @@ window.onLeVoitALEcran = onLeVoitALEcran;
 // une à chaque fois aurait donné un tableau d'une page par morceau, et les
 // exercices d'un même cours n'auraient jamais été côte à côte.
 //
-// SAUF QUAND ON EN DEMANDE UNE NEUVE. « Ça ne crée pas une nouvelle page, ça le
-// met sur la page 2 ; il faudrait que ce soit une option. » Une fiche se
-// construit en plusieurs découpages — c'est le cas ordinaire, et il reste celui
-// du simple appui —, mais deux séries d'exercices sans rapport dans le même
-// polycopié demandent deux pages. « forcerNeuve » ouvre alors une page de plus,
-// et c'est ELLE que les découpages suivants rejoindront : on cherche la plus
-// RÉCENTE des pages de ce document, sinon la demande n'aurait tenu qu'un tour.
-function ouvrirLaPageDesMorceaux(morceau, options) {
-    const forcerNeuve = !!(options && options.forcerNeuve);
+// ET QUAND ON EN VEUT UNE NEUVE, ON LE DIT AVANT : le « ＋ » du tiroir ouvre
+// une page vierge, et la règle ci-dessous en fait la page des exercices de ce
+// document. Un second bouton « Tout poser sur une page neuve » refaisait ces
+// deux gestes en un seul, avec un « ＋ » qui ne voulait pas dire la même chose
+// que celui d'à côté — « j'aime pas les trois boutons poser, je suis perdu ».
+function ouvrirLaPageDesMorceaux(morceau) {
     if (typeof pages === 'undefined' || typeof createNewPage !== 'function'
         || typeof loadPage !== 'function') return false;
     // La marque porte le document d'où les exercices viennent : c'est elle qui
@@ -16125,7 +16087,7 @@ function ouvrirLaPageDesMorceaux(morceau, options) {
         && o.pluginData.id === 'pdfDoc' && morceau
         && (o.pluginData.cle === morceau.cle || o.id === morceau.source));
     const courante = pages[currentPageIndex];
-    if (!forcerNeuve && courante && courante.pageDesMorceaux === marque
+    if (courante && courante.pageDesMorceaux === marque
         && !portesLeDocument(images)) return false;
 
     // LA PAGE BLANCHE OÙ L'ON SE TROUVE EST DÉJÀ UNE RÉPONSE À « OÙ ? ».
@@ -16139,23 +16101,21 @@ function ouvrirLaPageDesMorceaux(morceau, options) {
     // suivants la rejoindront — sans quoi la règle n'aurait tenu qu'un tour.
     // Aucun risque de la déclencher par mégarde : juste après un découpage on
     // est sur la page du polycopié, qui n'est pas vide.
-    if (!forcerNeuve && courante && !courante.pageDesMorceaux
+    if (courante && !courante.pageDesMorceaux
         && typeof boiteDuTravail === 'function' && !boiteDuTravail()) {
         courante.pageDesMorceaux = marque;
         return false;
     }
 
+    // À REBOURS : LA PLUS RÉCENTE GAGNE. On ouvre une page vierge au « ＋ »,
+    // elle devient la page des exercices de ce document, et c'est sur elle que
+    // les bouts suivants se rangent — chercher par le début les aurait renvoyés
+    // sur la première, et la page neuve n'aurait servi qu'une fois.
     let deja = -1;
-    if (!forcerNeuve) {
-        // À REBOURS : la plus récente gagne. Quand on a demandé une page neuve,
-        // c'est sur celle-là que les bouts suivants se rangent — chercher par le
-        // début les aurait renvoyés sur la première, et la page neuve n'aurait
-        // servi qu'une fois.
-        for (let i = pages.length - 1; i >= 0; i--) {
-            const p = pages[i];
-            if (p && p.pageDesMorceaux === marque
-                && !portesLeDocument(i === currentPageIndex ? images : p.images)) { deja = i; break; }
-        }
+    for (let i = pages.length - 1; i >= 0; i--) {
+        const p = pages[i];
+        if (p && p.pageDesMorceaux === marque
+            && !portesLeDocument(i === currentPageIndex ? images : p.images)) { deja = i; break; }
     }
     // ON GARDE L'ÉCRAN. La projection du document ne peut pas survivre — il
     // reste sur sa page —, mais le plein écran et les barres effacées, si : la
@@ -16697,11 +16657,8 @@ function rangerLesMorceauxDeLaPage() {
 
 window.rangerLesMorceauxDeLaPage = rangerLesMorceauxDeLaPage;
 
-function poserTousLesMorceaux(options) {
+function poserTousLesMorceaux() {
     if (!morceauxEnAttente.length) return 0;
-    // « Sur une page neuve » vient de l'appui long ; le simple appui, lui, range
-    // sur la page des exercices de ce document.
-    const neuveDemandee = !!(options && options.pageNeuve);
 
     // « POSER » NE VISE PAS, LUI NON PLUS : PAGE D'EXERCICES.
     //
@@ -16730,8 +16687,7 @@ function poserTousLesMorceaux(options) {
     //
     // Le tiroir des morceaux n'appartient à aucune page : il traverse, et c'est
     // ce qui rend le voyage possible.
-    const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0],
-        neuveDemandee ? { forcerNeuve: true } : null);
+    const pageNeuve = ouvrirLaPageDesMorceaux(morceauxEnAttente[0]);
     const ms = morceauxEnAttente.slice();
     const combien = ms.length;
 
@@ -16784,7 +16740,7 @@ function poserTousLesMorceaux(options) {
         // qu'on ne devine pas quand le tableau change entièrement d'un coup.
         const total = images.filter(o => o && o.pluginData && o.pluginData.id === 'morceau').length;
         showToast(pageNeuve
-            ? `${combien} exercice(s) en grand sur ${neuveDemandee ? 'une page neuve' : 'leur page'} — Page↑ pour revenir au document`
+            ? `${combien} exercice(s) en grand sur leur page — Page↑ pour revenir au document`
             : (total > combien
                 ? `${combien} de plus : les ${total} exercices de la page se sont rangés ensemble`
                 : `${combien} morceau(x) posé(s) sur cette page, au plus grand`));
@@ -16816,11 +16772,6 @@ function majLeBoutonPoser() {
     b.setAttribute('data-tooltip', occupe
         ? 'Vider le tiroir sur la page où vous êtes — ce qui s’y trouve déjà se range avec'
         : 'Vider le tiroir sur la page où vous êtes, qui est vide');
-    const neuve = document.getElementById('bm-ranger-neuve');
-    if (neuve) {
-        neuve.setAttribute('data-tooltip',
-            'Vider le tiroir sur une page de tableau neuve — les découpages suivants la rejoindront');
-    }
     const mot = document.getElementById('bm-explique');
     if (!mot) return;
     const combien = (typeof morceauxEnAttente !== 'undefined') ? morceauxEnAttente.length : 0;
@@ -16835,35 +16786,8 @@ function majLeBoutonPoser() {
         + (occupe ? ', et tout s’y rangera ensemble.' : ', qui est vide.');
 }
 
-// LE BOUTON DIT CE QU'IL FERA, et il le dit tout le temps : « À côté » quand
-// la place est libre, « Ranger celui d'à côté » quand elle est prise. Un seul
-// bouton, deux états, aucun geste chronométré — « évite les appuis longs et
-// courts ». Grisé, il garde la raison dans son infobulle plutôt que de
-// disparaître : un bouton qui s'en va ne s'explique pas.
-function majLeBoutonACote() {
-    const b = document.getElementById('bm-a-cote');
-    if (!b) return;
-    const projette = typeof presentationEnCours !== 'undefined' && !!presentationEnCours;
-    const occupee = projette && !!objetVoisinDeLaPresentation();
-    const aPoser = typeof morceauxEnAttente !== 'undefined' && morceauxEnAttente.length > 0;
-
-    // ET IL DIT DE QUOI IL PARLE. « À côté » ne disait pas à côté de QUOI, et
-    // se confondait avec « Poser à côté », qui vide le tiroir sur une page du
-    // tableau. Celui-ci ne touche pas au tableau : il montre UN morceau à côté
-    // du document PROJETÉ, et l'on reste en plein écran.
-    b.textContent = occupee ? '⇔ Retirer ce qui est à côté'
-                            : '⇔ Montrer un morceau à côté du document';
-    b.disabled = !projette || (!occupee && !aPoser);
-    b.setAttribute('data-tooltip',
-        !projette ? 'Projetez d\'abord un document : cette place n\'existe que sur l\'écran projeté'
-            : occupee ? 'Retirer ce qui est à côté — le document reprend toute la largeur'
-                : !aPoser ? 'Découpez d\'abord un morceau : il ira se montrer à côté du document'
-                    : 'Montrer le premier morceau du tiroir à côté du document, sans quitter le plein écran');
-}
-
 function majLaPageDuTiroir() {
     majLeBoutonPoser();
-    majLeBoutonACote();
     // Les deux endroits qui comptent les pages se rafraîchissent ensemble : le
     // tiroir, et le coin de l'écran quand il n'y a plus de barre.
     if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
@@ -16893,13 +16817,6 @@ function brancherLeTiroirDesMorceaux() {
     const ranger = document.getElementById('bm-ranger');
     // Sans la parenthèse, le clic passerait son événement pour des options.
     if (ranger) ranger.addEventListener('click', () => poserTousLesMorceaux());
-    const neuve = document.getElementById('bm-ranger-neuve');
-    if (neuve) neuve.addEventListener('click', () => poserTousLesMorceaux({ pageNeuve: true }));
-    const aCote = document.getElementById('bm-a-cote');
-    if (aCote) aCote.addEventListener('click', () => {
-        if (objetVoisinDeLaPresentation()) { libererLaPlaceACote(); return; }
-        if (morceauxEnAttente.length) poserACote(morceauxEnAttente[0]);
-    });
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
     const prec = document.getElementById('bm-page-prec');

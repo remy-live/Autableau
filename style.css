@@ -11121,31 +11121,15 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 #aide-version:hover { color: var(--accent); }
 
-/* LES DEUX POSES, EMPILÉES. La bande est couchée ; ces deux-là sont le même
-   geste à deux destinations, et se lisent donc l'un sous l'autre plutôt que
-   côte à côte, où ils passeraient pour deux commandes sans rapport. */
-/* DEUX GROUPES, DEUX TITRES. Les trois boutons se ressemblaient et ne
-   parlaient pas de la même chose : les deux premiers vident le tiroir sur une
-   PAGE DU TABLEAU, le troisième montre un morceau à côté du document qu'on
-   PROJETTE. Un trait les sépare, et chacun dit de quoi il parle. */
+/* LE BOUTON ET SA PHRASE, L'UN SOUS L'AUTRE. Ils étaient trois à commencer par
+   le même verbe, rangés en deux groupes titrés — et cela ne suffisait pas :
+   « j'aime pas les trois boutons poser, je suis perdu ». Il n'en reste qu'un,
+   qui n'a donc plus ni titre de groupe ni voisin dont se distinguer. */
 .bm-groupe {
     display: flex;
     flex-direction: column;
     gap: 3px;
     min-width: 0;
-}
-
-.bm-groupe-projection {
-    padding-left: 10px;
-    border-left: 1px solid #dfe6e9;
-}
-
-.bm-groupe-titre {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    color: #b2bec3;
 }
 
 /* La phrase qui dit ce qui va se passer : combien de morceaux, sur quelle
@@ -11158,19 +11142,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     max-width: 240px;
 }
 
-.dark-mode .bm-groupe-projection { border-left-color: #3d4852; }
 .dark-mode .bm-explique { color: #b2bec3; }
-
-.bm-poser {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.bm-poser .bm-btn {
-    padding: 4px 10px;
-    text-align: left;
-}
 
 .bm-btn {
     border: 1px solid #dfe6e9;

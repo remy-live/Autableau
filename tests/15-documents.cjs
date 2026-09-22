@@ -3368,8 +3368,6 @@ module.exports = async function (browser) {
     const libelle = await page.evaluate(() => {
         quitterLaPresentation();
         const b = document.getElementById('bm-ranger');
-        const neuve = document.getElementById('bm-ranger-neuve');
-        const aCote = document.getElementById('bm-a-cote');
         const mot = document.getElementById('bm-explique');
         images.length = 0; texts.length = 0; freehands.length = 0;
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
@@ -3386,53 +3384,39 @@ module.exports = async function (browser) {
         pages.push(createNewPage());
         loadPage(pages.length - 1);
         const apresPageNeuve = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
-        // Les trois libellés, et les groupes sous lesquels ils vivent.
-        const trois = [b, neuve, aCote].map(x => x.textContent.trim());
+        // IL N'EN RESTE QU'UN. « J'aime pas les trois boutons poser, je suis
+        // perdu. » Les deux autres sont partis : « sur une page neuve »
+        // n'était que le « ＋ » d'à côté suivi de celui-ci, et « à côté »
+        // prenait le premier morceau du tiroir sans qu'on voie lequel.
+        const poseurs = [...document.querySelectorAll('#bande-morceaux button')]
+            .filter(x => /poser/i.test(x.textContent)).map(x => x.id);
         const titres = [...document.querySelectorAll('#bande-morceaux .bm-groupe-titre')]
             .map(x => x.textContent.trim());
-        const groupes = [b, neuve, aCote].map(x => {
-            const g = x.closest('.bm-groupe');
-            const t = g && g.querySelector('.bm-groupe-titre');
-            return t ? t.textContent.trim() : '';
-        });
-        const infobulles = [b, neuve, aCote].map(x => x.getAttribute('data-tooltip') || '');
         // On rend les pages telles qu'on les a trouvées : ce qui suit compte
         // les siennes.
         loadPage(0);
         pages.length = combienDePages;
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
         updatePageUI();
-        return { vide, surPageVierge, surPageOccupee, apresPageNeuve, trois, titres,
-                 groupes, infobulles, pagesRendues: pages.length === combienDePages };
+        return { vide, surPageVierge, surPageOccupee, apresPageNeuve, poseurs, titres,
+                 infobulle: b.getAttribute('data-tooltip') || '',
+                 pagesRendues: pages.length === combienDePages };
     });
-    // AUCUN DES TROIS NE SE CONFOND AVEC UN AUTRE. C'est la plainte, et c'est
-    // la garde : « Poser à côté » et « À côté » ne tenaient qu'à un mot.
-    r.egal('les trois boutons portent trois noms distincts',
-        new Set(libelle.trois).size, 3);
-    r.verifie('et aucun n\'est contenu dans un autre',
-        libelle.trois.every((a, i) => libelle.trois.every((b2, j) =>
-            i === j || !b2.toLowerCase().includes(a.toLowerCase().replace(/^[^a-zà-ÿ]+/i, '')))),
-        JSON.stringify(libelle.trois));
-    r.verifie('chacun dit s\'il parle d\'une page du tableau ou du document projeté',
-        /page/i.test(libelle.trois[0]) && /page/i.test(libelle.trois[1])
-        && /document/i.test(libelle.trois[2]), JSON.stringify(libelle.trois));
-    r.egal('les deux premiers vivent sous le même titre',
-        libelle.groupes[0], libelle.groupes[1]);
-    r.verifie('et le troisième sous un autre',
-        libelle.groupes[2] && libelle.groupes[2] !== libelle.groupes[0],
-        JSON.stringify(libelle.groupes));
-    r.verifie('le premier titre parle du tableau', /tableau/i.test(libelle.groupes[0]),
-        libelle.groupes[0]);
-    r.verifie('le second de la projection', /projection/i.test(libelle.groupes[2]),
-        libelle.groupes[2]);
-    r.verifie('et les trois infobulles diffèrent',
-        new Set(libelle.infobulles).size === 3 && libelle.infobulles.every(x => x.length > 10),
-        JSON.stringify(libelle.infobulles));
+    // IL N'Y A PLUS QU'UN BOUTON QUI POSE. C'est la plainte, et c'est la garde :
+    // trois boutons commençant par le même verbe, « je suis perdu ».
+    r.egal('un seul bouton pose', libelle.poseurs, ['bm-ranger']);
+    r.verifie('il dit sur quelle page', /page/i.test(libelle.surPageVierge.libelle),
+        libelle.surPageVierge.libelle);
+    r.verifie('et son infobulle explique ce qui arrivera à ce qui s\'y trouve déjà',
+        libelle.infobulle.length > 10, libelle.infobulle);
+    r.egal('plus de titres de groupe : il n\'y a plus deux familles à distinguer',
+        libelle.titres, []);
 
     // LE LIBELLÉ NE BOUGE PLUS ; LA PHRASE, SI.
     r.egal('le bouton garde son nom, page vierge ou non',
         [libelle.surPageVierge.libelle, libelle.surPageOccupee.libelle, libelle.apresPageNeuve.libelle],
-        [libelle.trois[0], libelle.trois[0], libelle.trois[0]]);
+        [libelle.surPageVierge.libelle, libelle.surPageVierge.libelle,
+         libelle.surPageVierge.libelle]);
     r.verifie('le tiroir vide le dit', /vide/i.test(libelle.vide.phrase), libelle.vide.phrase);
     r.verifie('sinon la phrase compte les morceaux et nomme la page',
         /2 morceaux/.test(libelle.surPageVierge.phrase)
@@ -4089,43 +4073,22 @@ module.exports = async function (browser) {
         { pages: second.pages, page: second.page, dessus: second.dessus },
         { pages: premier.pages, page: premier.page, dessus: 2 });
 
-    // ET LE SECOND GESTE SE VOIT : deux boutons, l'un SOUS l'autre. Il avait
-    // d'abord été caché sous un appui long — « soit il y a "je pose à côté", et
-    // en dessous "je pose dans une nouvelle page" » : un choix qu'on ne voit
-    // pas n'existe pas.
+    // ET LE SECOND GESTE RESTE, EN DEUX TEMPS QUI SE VOIENT : le « ＋ » de la
+    // pagination ouvre une page vierge, « Tout poser » y vide le tiroir. Le
+    // bouton « Tout poser sur une page neuve » ne faisait rien d'autre — il
+    // portait seulement un second « ＋ », à deux centimètres du premier, qui
+    // ne voulait pas dire la même chose. « J'aime pas les trois boutons
+    // poser, je suis perdu. »
     await couper(1);   // le tiroir ne paraît qu'avec un morceau dedans
-    const deuxBoutons = await page.evaluate(() => {
-        const b = document.getElementById('bm-ranger');
-        const n = document.getElementById('bm-ranger-neuve');
-        // Le geste peut manquer tout entier : on le dit, on ne plante pas — un
-        // chapitre qui s'arrête ne rend compte de rien.
-        if (!n) return { absent: true, mots: [] };
-        const rb = b.getBoundingClientRect(), rn = n.getBoundingClientRect();
-        return {
-            vus: getComputedStyle(b).display !== 'none' && getComputedStyle(n).display !== 'none'
-                 && rb.width > 10 && rn.width > 10,
-            // EN DESSOUS, et non à côté : c'est la demande, au mot près.
-            enDessous: Math.round(rn.top) >= Math.round(rb.bottom) - 1,
-            memeColonne: Math.abs(rb.left - rn.left) < 2,
-            mots: [b.textContent.trim(), n.textContent.trim()],
-            bulle: n.getAttribute('data-tooltip') || ''
-        };
-    });
-    r.verifie('le tiroir montre les deux poses, la neuve EN DESSOUS de l\'autre',
-        deuxBoutons.vus && deuxBoutons.enDessous && deuxBoutons.memeColonne,
-        JSON.stringify(deuxBoutons));
-    r.verifie('et chacune dit où elle pose',
-        /poser/i.test(deuxBoutons.mots[0] || '') && /neuve/i.test(deuxBoutons.mots[1] || '')
-        && /neuve/i.test(deuxBoutons.bulle), JSON.stringify(deuxBoutons));
-
-    const neuve = await page.evaluate(() => {
-        const n = document.getElementById('bm-ranger-neuve');
-        if (!n) return { absent: true };
-        n.click();   // le vrai bouton, le vrai clic
+    const neuve = await page.evaluate(async () => {
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        document.getElementById('bm-ranger').click();
+        await new Promise(ok => setTimeout(ok, 200));
         return { pages: pages.length, page: currentPageIndex,
                  dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
     });
-    r.egal('« sur une page neuve » ouvre bien une page de plus, et n\'y met que ces bouts-là',
+    r.egal('le « ＋ » puis « Tout poser » ouvrent une page de plus, et n\'y mettent que ces bouts-là',
         { pages: neuve.pages, page: neuve.page, dessus: neuve.dessus },
         { pages: second.pages + 1, page: second.page + 1, dessus: 1 });
 
@@ -4236,9 +4199,10 @@ module.exports = async function (browser) {
     r.egal('elle garde son nom', pasVolee.marqueIntacte, 'src:un-autre-cours');
     r.egal('et rien n\'y est tombé', pasVolee.riendedans, 0);
 
-    // ET LES DEUX BOUTONS RESTENT DEUX BOUTONS. « Sur une page neuve » doit
-    // ouvrir une page même quand celle où l'on est est blanche — sinon les
-    // deux font la même chose, et l'un des deux ment.
+    // ET LE « ＋ » OUVRE UNE PAGE MÊME QUAND CELLE OÙ L'ON EST EST BLANCHE.
+    // C'est lui, maintenant, le geste « une page neuve » : s'il rendait la
+    // page blanche où l'on se trouve déjà, la seconde série d'exercices
+    // tomberait sur la première.
     const neuveDepuisBlanche = await page.evaluate(async () => {
         const surSaPage = chercherImageDansLesPages(o => o.pluginData && o.pluginData.id === 'pdfDoc');
         if (surSaPage && surSaPage.pageDuTableau !== currentPageIndex) loadPage(surSaPage.pageDuTableau);
@@ -4253,12 +4217,23 @@ module.exports = async function (browser) {
         document.getElementById('bm-page-plus').click();
         await new Promise(ok => setTimeout(ok, 120));
         const blanche = currentPageIndex, avant = pages.length;
-        document.getElementById('bm-ranger-neuve').click();
+        document.getElementById('bm-page-plus').click();
+        await new Promise(ok => setTimeout(ok, 120));
+        const ajoutee = pages.length - avant, ailleurs = currentPageIndex !== blanche;
+
+        document.getElementById('bm-ranger').click();
         await new Promise(ok => setTimeout(ok, 200));
-        return { ajoutee: pages.length - avant, ailleurs: currentPageIndex !== blanche };
+        return { ajoutee, ailleurs,
+                 poseIci: currentPageIndex !== blanche,
+                 riendansLaPremiere: (pages[blanche].images || [])
+                     .filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
     });
-    r.egal('« Sur une page neuve » en ouvre bien une de plus', neuveDepuisBlanche.ajoutee, 1);
+    r.egal('depuis une page blanche, le « ＋ » en ouvre bien une de plus',
+        neuveDepuisBlanche.ajoutee, 1);
     r.verifie('et l\'on y va', neuveDepuisBlanche.ailleurs, JSON.stringify(neuveDepuisBlanche));
+    r.verifie('« Tout poser » pose sur celle-là, pas sur la blanche d\'avant',
+        neuveDepuisBlanche.poseIci && neuveDepuisBlanche.riendansLaPremiere === 0,
+        JSON.stringify(neuveDepuisBlanche));
 
 
     // ==================================================================

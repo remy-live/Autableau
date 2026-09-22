@@ -306,158 +306,123 @@ module.exports = async function (browser) {
 
 
     // ==================================================================
-    // LE BOUTON « À CÔTÉ »
+    // LE TIROIR N'A PLUS QU'UN BOUTON QUI POSE
     //
-    // Visible, dans la rangée du tiroir, à côté des deux autres — « évite les
-    // appuis longs et courts ». Un seul bouton, deux états, et il dit toujours
-    // ce qu'il fera. Grisé, il garde la raison dans son infobulle : un bouton
-    // qui s'en va ne s'explique pas.
+    // « J'aime pas les trois boutons poser, je suis perdu. » Ils étaient trois
+    // à commencer par le même verbe. Les séparer en deux groupes titrés
+    // n'avait pas suffi : il restait trois choses à lire avant d'oser cliquer.
+    //
+    //   — « Tout poser sur une page neuve » n'était que le « ＋ » de la
+    //     pagination, juste au-dessus, suivi de « Tout poser » — avec un « ＋ »
+    //     qui ne voulait pas dire la même chose que son voisin ;
+    //   — « Montrer un morceau à côté du document » prenait LE PREMIER morceau
+    //     du tiroir sans qu'on voie lequel : « je ne comprends pas ce qu'il
+    //     fait, je l'enlèverai ».
+    //
+    // LA SECONDE PLACE, ELLE, RESTE ENTIÈRE — c'est tout l'objet de ce
+    // chapitre, et la suite le vérifie. Elle s'occupe désormais par le « ⇔ »
+    // d'une vignette de page, dans le volet, qui met CETTE page-là à côté de
+    // celle qu'on projette : on désigne, donc on sait.
     // ==================================================================
     const UN_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-    // IL N'EST PLUS DANS LA MÊME RANGÉE QUE LES DEUX AUTRES, ET C'EST LE POINT.
-    //
-    // « Je ne comprends pas ce que font les 3 boutons, je ne saisis pas la
-    // différence. » Les deux premiers vident le TIROIR sur une PAGE DU
-    // TABLEAU et ne diffèrent que par la page ; celui-ci ne touche pas au
-    // tableau, il montre UN morceau à côté du document qu'on PROJETTE. Les
-    // aligner tous les trois disait le contraire de ce qu'ils font.
-    const leBouton = await page.evaluate(() => {
-        const b = document.getElementById('bm-a-cote');
-        const groupe = b ? b.closest('.bm-groupe') : null;
-        const poser = document.querySelector('.bm-poser');
-        const titre = groupe ? groupe.querySelector('.bm-groupe-titre') : null;
+    const tiroir = await page.evaluate(() => {
+        const bande = document.getElementById('bande-morceaux');
+        const boutons = [...bande.querySelectorAll('button')].map(b => b.id);
         return {
-            la: !!b,
-            // Il vit dans son propre groupe, sous son propre titre…
-            sonGroupe: !!groupe,
-            titre: titre ? titre.textContent.trim() : '',
-            seul: groupe ? groupe.querySelectorAll('button').length : 0,
-            // …et pas dans la rangée des deux qui posent sur une page.
-            avecLesPoseurs: !!(b && b.closest('.bm-poser')),
-            poseurs: poser ? [...poser.querySelectorAll('button')].map(x => x.id) : []
+            boutons,
+            // Un seul bouton porte le verbe « poser ».
+            poseurs: [...bande.querySelectorAll('button')]
+                .filter(b => /poser/i.test(b.textContent)).map(b => b.id),
+            libelle: (document.getElementById('bm-ranger') || {}).textContent,
+            // Et il n'y a plus qu'un « ＋ » : celui de la pagination, qui ouvre
+            // une page vierge. Deux « ＋ » côte à côte pour deux gestes
+            // différents, c'est la confusion elle-même.
+            plus: [...bande.querySelectorAll('button')]
+                .filter(b => b.textContent.includes('＋')).map(b => b.id),
+            // Les groupes titrés n'ont plus lieu d'être : il n'y a plus deux
+            // familles de boutons à distinguer.
+            titres: bande.querySelectorAll('.bm-groupe-titre').length,
+            // ET LA FONCTION EST PARTIE AVEC LE BOUTON : une fonction que plus
+            // rien n'atteint est un piège pour qui relira.
+            fonctionRestee: typeof window.poserACote,
+            // La seconde place, elle, a gardé toutes ses pièces.
+            place: ['libererLaPlaceACote', 'cadrerSurLesDeux', 'disposerLesDeux',
+                    'objetVoisinDeLaPresentation', 'poserLaPageACote']
+                .filter(n => typeof window[n] !== 'function')
         };
     });
-    r.verifie('« à côté » a son bouton', leBouton.la, JSON.stringify(leBouton));
-    r.egal('les deux qui posent sur une page sont ensemble', leBouton.poseurs,
-        ['bm-ranger', 'bm-ranger-neuve']);
-    r.egal('celui-ci n\'est pas avec eux', leBouton.avecLesPoseurs, false);
-    r.verifie('il a son propre groupe', leBouton.sonGroupe && leBouton.seul === 1,
-        JSON.stringify(leBouton));
-    r.verifie('sous un titre qui dit de quoi il parle',
-        /projection/i.test(leBouton.titre), leBouton.titre);
+    r.egal('un seul bouton pose, et il dit sur quoi',
+        { poseurs: tiroir.poseurs, libelle: tiroir.libelle },
+        { poseurs: ['bm-ranger'], libelle: '⇥ Tout poser sur cette page' });
+    r.egal('« à côté » et « page neuve » ont quitté le tiroir',
+        tiroir.boutons.filter(id => id === 'bm-a-cote' || id === 'bm-ranger-neuve'), []);
+    r.egal('il ne reste qu\'un « ＋ » : celui qui ouvre une page vierge',
+        tiroir.plus, ['bm-page-plus']);
+    r.egal('et plus de titres de groupe : il n\'y a plus deux familles',
+        tiroir.titres, 0);
+    r.egal('la fonction du bouton retiré ne traîne pas derrière lui',
+        tiroir.fonctionRestee, 'undefined');
+    r.egal('mais la seconde place garde toutes ses pièces', tiroir.place, []);
 
-    const etats = await page.evaluate(async (pixel) => {
+    // ------------------------------------------------------------------
+    // ET LA PLACE TIENT SA MESURE, quelle que soit la main qui l'occupe.
+    // Le cadrage se recalcule à chaque projection ; s'il repartait de la
+    // taille qu'il vient de donner, l'occupant triplerait à chaque passage.
+    // ------------------------------------------------------------------
+    const laPlace = await page.evaluate((pixel) => {
         images.length = 0;
         morceauxEnAttente = [];
-        presentationEnCours = null;
         presentationVoisine = null;
-        majLeTiroirDesMorceaux();
-        const b = document.getElementById('bm-a-cote');
-        const lire = () => ({ texte: b.textContent.trim(), grise: b.disabled,
-                              pourquoi: b.getAttribute('data-tooltip') });
-
-        const sansProjection = lire();
-
         const doc = { id: 801, x: 0, y: 0, w: 1000, h: 1414, src: pixel,
                       fileName: 'poly.pdf', pluginData: { id: 'pdfDoc', cle: 'poly' } };
         images.push(doc);
         presentationEnCours = doc.id;
-        // On projette en pleine largeur, le cadrage par défaut.
         cadrageDePresentation = 'largeur';
-        majLeTiroirDesMorceaux();
-        const tiroirVide = lire();
 
-        morceauxEnAttente = [{ id: 1, src: pixel, nom: 'poly.pdf', page: 1,
-                               cx: 0, cy: 0, cw: 300, ch: 200, w: 300, h: 200,
-                               source: doc.id, cle: 'poly' }];
-        majLeTiroirDesMorceaux();
-        const pret = lire();
-        return { sansProjection, tiroirVide, pret };
-    }, UN_PIXEL);
-    r.verifie('sans projection, il est grisé', etats.sansProjection.grise,
-        JSON.stringify(etats.sansProjection));
-    r.verifie('et il dit que « à côté » est une place de l\'écran projeté',
-        /projet/i.test(etats.sansProjection.pourquoi), etats.sansProjection.pourquoi);
-    r.verifie('avec une projection mais rien à poser, il est grisé aussi',
-        etats.tiroirVide.grise, JSON.stringify(etats.tiroirVide));
-    r.verifie('et il dit qu\'il faut d\'abord découper',
-        /découp/i.test(etats.tiroirVide.pourquoi), etats.tiroirVide.pourquoi);
-    r.verifie('un morceau au tiroir le réveille', !etats.pret.grise, JSON.stringify(etats.pret));
-    r.egal('et il propose de poser à côté', etats.pret.texte, '⇔ Montrer un morceau à côté du document');
-
-    const pose = await page.evaluate(async () => {
-        const avant = { tiroir: morceauxEnAttente.length, images: images.length };
-        document.getElementById('bm-a-cote').click();
-        await new Promise(ok => setTimeout(ok, 150));
-        const doc = getObjectById('image', presentationEnCours);
-        const voisin = objetVoisinDeLaPresentation();
-        // ET LA PLACE RETIENT CE QU'IL MESURAIT EN ENTRANT. Le cadrage se
-        // recalcule à chaque projection ; s'il repartait de la taille qu'il
-        // vient de donner, le morceau tripler ait à chaque passage.
-        const hauteurPosee = voisin ? voisin.h : 0;
+        const voisin = { id: 840, x: doc.x + doc.w, y: doc.y, w: 300, h: 200,
+                         src: pixel, ratioLocked: true,
+                         pluginData: { id: 'morceau', cle: 'poly', source: doc.id } };
+        images.push(voisin);
+        presentationVoisine = voisin.id;
+        // CE QU'IL MESURAIT EN ENTRANT. C'est ce que note le geste qui occupe
+        // la place ; sans cette note, le recadrage repart de la taille qu'il
+        // vient de donner, et l'occupant triple à chaque passage.
+        tailleNaturelleDuVoisin = { w: voisin.w, h: voisin.h };
+        cadrerSurLesDeux(doc, voisin);
+        const posee = voisin.h;
         cadrerSurLesDeux(doc, voisin);
         cadrerSurLesDeux(doc, voisin);
-        const hauteurApresTroisCadrages = voisin ? voisin.h : 0;
-        const b = document.getElementById('bm-a-cote');
-        return {
-            avant, hauteurPosee, hauteurApresTroisCadrages,
-            tiroir: morceauxEnAttente.length,
-            images: images.length,
-            placePrise: !!voisin,
-            projectionTenue: !!presentationEnCours,
-            aDroite: !!(voisin && voisin.x > doc.x + doc.w * 0.9),
-            memeHaut: !!(voisin && Math.abs(voisin.y - doc.y) < 1),
-            grossissement: voisin ? voisin.h / 200 : 0,
-            plusPetitQueLaPage: !!(voisin && voisin.h < doc.h),
-            tenu: selectedItems.length === 1 && voisin && selectedItems[0].id === voisin.id,
-            texte: b.textContent.trim(),
-            grise: b.disabled
-        };
-    });
-    r.egal('le morceau quitte le tiroir', [pose.avant.tiroir, pose.tiroir], [1, 0]);
-    r.egal('et rejoint le tableau', pose.images - pose.avant.images, 1);
-    r.verifie('il prend la seconde place', pose.placePrise, JSON.stringify(pose));
-    r.verifie('à droite de la page, aligné sur son haut',
-        pose.aDroite && pose.memeHaut, JSON.stringify(pose));
-    r.verifie('et sans être étiré à la hauteur d\'une page entière',
-        pose.grossissement <= 3.01 && pose.plusPetitQueLaPage,
-        JSON.stringify(pose));
-    r.egal('recadrer la projection ne le fait pas enfler',
-        pose.hauteurApresTroisCadrages, pose.hauteurPosee);
-    r.verifie('SANS quitter la projection — c\'était tout le problème',
-        pose.projectionTenue, JSON.stringify(pose));
-    r.verifie('on le tient, pour le redéplacer d\'un geste', pose.tenu, JSON.stringify(pose));
-    r.egal('et le bouton propose maintenant de le ranger',
-        [pose.texte, pose.grise], ['⇔ Retirer ce qui est à côté', false]);
+        const apresTrois = voisin.h;
 
-    // LA SYMÉTRIE : la place s'ouvre quand quelqu'un arrive, elle se referme
-    // quand il part. La page reprend alors toute la largeur, d'elle-même.
-    const rangee = await page.evaluate(async () => {
-        const doc = getObjectById('image', presentationEnCours);
         const toile = document.getElementById('board');
         const serre = zoom;
-        const combien = images.length;
-        document.getElementById('bm-a-cote').click();
-        await new Promise(ok => setTimeout(ok, 150));
+        libererLaPlaceACote();
         return {
+            posee, apresTrois,
+            aDroite: voisin.x > doc.x + doc.w * 0.9,
+            memeHaut: Math.abs(voisin.y - doc.y) < 1,
+            grossissement: voisin.h / 200,
+            plusPetitQueLaPage: voisin.h < doc.h,
             place: presentationVoisine,
             serre, apres: zoom,
             pleineLargeur: toile.clientWidth / doc.w,
-            restees: images.length === combien,
-            texte: document.getElementById('bm-a-cote').textContent.trim(),
-            grise: document.getElementById('bm-a-cote').disabled
+            projectionTenue: !!presentationEnCours
         };
-    });
-    r.egal('« Ranger » libère la place', rangee.place, null);
-    r.verifie('la page reprend toute la largeur d\'elle-même',
-        Math.abs(rangee.apres - rangee.pleineLargeur) < 0.01,
-        `${rangee.apres.toFixed(3)} au lieu de ${rangee.pleineLargeur.toFixed(3)} (serré : ${rangee.serre.toFixed(3)})`);
-    r.verifie('elle était bien plus serrée avant', rangee.serre < rangee.apres,
-        JSON.stringify(rangee));
-    r.verifie('le morceau, lui, reste sur le tableau', rangee.restees, JSON.stringify(rangee));
-    r.egal('et le bouton redevient grisé — il n\'y a plus rien à poser',
-        [rangee.texte, rangee.grise], ['⇔ Montrer un morceau à côté du document', true]);
+    }, UN_PIXEL);
+    r.verifie('l\'occupant se pose à droite de la page, aligné sur son haut',
+        laPlace.aDroite && laPlace.memeHaut, JSON.stringify(laPlace));
+    r.verifie('sans être étiré à la hauteur d\'une page entière',
+        laPlace.grossissement <= 3.01 && laPlace.plusPetitQueLaPage, JSON.stringify(laPlace));
+    r.egal('recadrer la projection ne le fait pas enfler', laPlace.apresTrois, laPlace.posee);
+    r.egal('libérer la place la rend vide', laPlace.place, null);
+    r.verifie('et la page reprend toute la largeur d\'elle-même',
+        Math.abs(laPlace.apres - laPlace.pleineLargeur) < 0.01,
+        `${laPlace.apres.toFixed(3)} au lieu de ${laPlace.pleineLargeur.toFixed(3)} (serré : ${laPlace.serre.toFixed(3)})`);
+    r.verifie('elle était bien plus serrée avant', laPlace.serre < laPlace.apres,
+        JSON.stringify(laPlace));
+    r.verifie('SANS quitter la projection — c\'était tout le problème',
+        laPlace.projectionTenue, JSON.stringify(laPlace));
 
     // ET SI SON OCCUPANT DISPARAÎT SANS PRÉVENIR — effacé, emporté par un
     // retour en arrière —, la place se referme au prochain dessin plutôt que
