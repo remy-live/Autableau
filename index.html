@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=201 »,
-         « script.js?v=330 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=202 »,
+         « script.js?v=332 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=201">
+    <link rel="stylesheet" href="style.css?v=202">
 </head>
 
 <body>
@@ -3065,6 +3065,25 @@
                 </svg></button>
         </div>
 
+        <!-- ET L'OPACITÉ AVEC ELLE, POUR LA MÊME RAISON, DIX-HUIT MOIS PLUS
+             TARD. « J'ai l'impression qu'il manque le slider d'opacité sur
+             la plupart des outils (polygone entre autres). » Il ne manquait
+             pas : il était rangé dans la pastille de couleur — c'est-à-dire
+             introuvable, exactement ce qui était arrivé à l'épaisseur et
+             qui a valu à celle-ci de remonter ici. Un réglage qu'il faut
+             aller chercher derrière un bouton n'existe pas.
+             Il ne paraît que lorsqu'on tient quelque chose : un curseur
+             qui n'agirait sur personne n'allongerait la barre pour rien. -->
+        <div class="slider-container" id="stamp-opacity-box" title="Opacité de la sélection"
+             style="display:none;">
+            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14"
+                    height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+                </svg></div><input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1"
+                aria-label="Opacité de la sélection">
+        </div>
+
         <!-- LE BOUT DU SURLIGNEUR, LÀ OÙ ON RÈGLE SON ÉPAISSEUR. Il se choisit
              aussi par un appui long sur l'icône de l'outil — mais un geste ne
              se devine pas, et celui-là partage l'icône avec le déplacement de
@@ -3471,6 +3490,15 @@
              ne paraît que lorsqu'on peint le fond. -->
         <button class="no-fill-btn" id="btn-no-fill" type="button" style="display:none;"
                 title="Un contour sans fond">Sans fond</button>
+        <!-- LE CLIGNOTANT. « Dans le couleur, on pourrait rajouter une option
+             clignotante ? » — pour que l'œil de la classe aille là et pas
+             ailleurs. Il vit à côté de « Sans fond » parce que c'est le même
+             genre de chose : pas une couleur, un interrupteur sur l'apparence.
+             Il ne paraît que lorsqu'on tient quelque chose à faire battre.
+             Le battement est un FONDU d'une seconde, jamais un éclat : voir
+             « CE QUI CLIGNOTE » dans script.js, qui dit pourquoi. -->
+        <button class="no-fill-btn" id="btn-clignote" type="button" style="display:none;"
+                title="Faire battre la sélection pour attirer l'œil">✨ Clignoter</button>
         <!-- LES DERNIÈRES COULEURS CHOISIES À LA MAIN. Le sélecteur du système
              ne garde rien : la teinte qu'on avait mise au point pour la carte
              de géographie était à refaire à chaque séance. Les huit dernières
@@ -3487,18 +3515,8 @@
                 value="1" aria-label="Opacité"><input type="number" id="opacity-num" class="slider-num" min="0"
                 max="100" step="5" value="100" title="Opacité, en pour cent"
                 aria-label="Opacité en pour cent"><span class="opacity-pc">%</span></div>
-        <!-- L'ÉPAISSEUR ET L'OPACITÉ DU TAMPON DESCENDENT ICI. Deux curseurs
-             posés à même la barre la faisaient longue de moitié, pour deux
-             réglages qu'on touche une fois par séance. La pastille de couleur
-             les portait déjà en partie — l'opacité y était — alors tout ce qui
-             touche à l'apparence se règle maintenant au même endroit. -->
-        <div class="slider-container" id="stamp-opacity-box" title="Opacité du tampon" style="display:none;">
-            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"
-                    fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-                </svg></div><input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1">
-        </div>
+        <!-- L'opacité, elle, est REMONTÉE dans la barre : voir son commentaire
+             là-haut, à côté de l'épaisseur, dont elle répète l'histoire. -->
     </div>
 
     <div id="export-popover">
@@ -3759,7 +3777,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=330"></script>
+    <script src="script.js?v=332"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

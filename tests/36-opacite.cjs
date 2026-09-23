@@ -172,9 +172,22 @@ module.exports = async function (browser) {
     // « Fond » — deux réglages pour une seule idée. « opacity » est devenu le
     // facteur de l'objet, quel qu'il soit.
     // ---------------------------------------------------------------
+    // « DANS LA BARRE » SE MESURE, ET PAS PAR UN « display ». Ma première
+    // version lisait « getComputedStyle(box).display » — qui disait « flex »
+    // alors que la boîte vivait DANS LA PASTILLE, fermée, et sur un texte
+    // qu'elle était haute de zéro pixel, écrasée par un groupe masqué. Un
+    // réglage qu'on ne voit pas n'existe pas : on exige donc une boîte qui a
+    // une hauteur, qui tient dans la barre, et la pastille CLOSE.
     const surLaBarre = () => page.evaluate(() => {
         const b = document.getElementById('stamp-opacity-box');
-        return b ? getComputedStyle(b).display : '?';
+        if (!b) return 'absent';
+        const r = b.getBoundingClientRect();
+        const barre = document.getElementById('bar-style').getBoundingClientRect();
+        if (getComputedStyle(b).display === 'none') return 'caché';
+        if (document.getElementById('color-popover').classList.contains('visible')) return 'derrière la pastille';
+        if (!(r.width > 10 && r.height >= 16)) return 'écrasé (' + Math.round(r.height) + ' px)';
+        if (!(r.left >= barre.left - 1 && r.right <= barre.right + 1)) return 'hors de la barre';
+        return 'sous la main';
     });
     const tirerLeCurseurDeLaBarre = (v) => page.evaluate((val) => {
         const c = document.getElementById('stamp-opacity');
@@ -197,9 +210,26 @@ module.exports = async function (browser) {
         return po.id;
     });
 
+    // ON REFERME LA PASTILLE : c'est précisément ce qu'on veut ne plus avoir à
+    // ouvrir. Les sections précédentes l'ont laissée ouverte — sans ce
+    // rangement, l'épreuve croirait tenir sa promesse alors qu'elle mesurerait
+    // le curseur À TRAVERS le tiroir qu'on cherche à supprimer.
+    const fermerLaPastille = () => page.evaluate(() => {
+        const p = document.getElementById('color-popover');
+        p.classList.remove('visible');
+        // On EFFACE le style en ligne au lieu d'y écrire « none » : c'est la
+        // classe « visible » qui commande, et un « display » posé à la main
+        // gagnerait ensuite contre elle — la pastille refuserait de se
+        // rouvrir, et l'épreuve accuserait le bouton.
+        p.style.display = '';
+    });
+    await fermerLaPastille();
+    await page.waitForTimeout(200);
+
     const idPoly = await poserUnPolygone();
     await page.waitForTimeout(250);
-    r.egal('un polygone tenu, le curseur d\'opacité est DANS la barre', await surLaBarre(), 'flex');
+    r.egal('un polygone tenu, le curseur d\'opacité est sous la main, sans ouvrir la pastille',
+        await surLaBarre(), 'sous la main');
 
     await tirerLeCurseurDeLaBarre(0.4);
     await page.waitForTimeout(250);
@@ -229,7 +259,7 @@ module.exports = async function (browser) {
         return f.id;
     });
     await page.waitForTimeout(250);
-    r.egal('un trait à main levée l\'a aussi', await surLaBarre(), 'flex');
+    r.egal('un trait à main levée l\'a aussi', await surLaBarre(), 'sous la main');
     await tirerLeCurseurDeLaBarre(0.55);
     await page.waitForTimeout(250);
     r.egal('et il s\'estompe',
@@ -245,7 +275,7 @@ module.exports = async function (browser) {
         return t.id;
     });
     await page.waitForTimeout(250);
-    r.egal('un bloc de texte l\'a aussi', await surLaBarre(), 'flex');
+    r.egal('un bloc de texte l\'a aussi', await surLaBarre(), 'sous la main');
     await tirerLeCurseurDeLaBarre(0.3);
     await page.waitForTimeout(250);
     r.egal('et il s\'estompe également',
@@ -272,7 +302,7 @@ module.exports = async function (browser) {
     // n'agirait sur personne.
     await page.evaluate(() => { selectedItems = []; updateStyleBarContext(); syncStyleWithSelection(); });
     await page.waitForTimeout(250);
-    r.egal('rien de tenu, le curseur s\'efface', await surLaBarre(), 'none');
+    r.egal('rien de tenu, le curseur s\'efface', await surLaBarre(), 'caché');
 
     // ---------------------------------------------------------------
     // 7. ET SURTOUT : ÇA SE VOIT.
@@ -334,6 +364,125 @@ module.exports = async function (browser) {
     });
     r.egal('le voile est rendu au suivant : l\'objet d\'après garde sa couleur pleine',
         voisin.derriereLeTranslucide, voisin.toutSeul);
+
+    // ---------------------------------------------------------------
+    // 8. LE CLIGNOTANT
+    //
+    // « Dans le couleur, on pourrait rajouter une option clignotante ? »
+    // Clignoter, c'est faire battre l'opacité : le réglage était déjà à
+    // moitié écrit. Ce que cette section tient, c'est surtout ce qu'on ne
+    // voit pas en regardant l'écran — que ça ne coûte rien quand rien ne bat,
+    // que ça ne part pas en stroboscope, et qu'un export n'attrape jamais
+    // l'objet au creux de son fondu.
+    // ---------------------------------------------------------------
+    const poserUnTraitEpais = () => page.evaluate(() => {
+        images.length = 0; polygons.length = 0; texts.length = 0;
+        points.length = 0; freehands.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        const f = { id: nextId++, points: [{ x: 60, y: 200 }, { x: 460, y: 200 }],
+                    color: '#000000', width: 24, z: globalZ++ };
+        freehands.push(f);
+        selectedItems = [{ type: 'freehand', id: f.id }];
+        updateStyleBarContext(); syncStyleWithSelection();
+        return f.id;
+    });
+    const idBattant = await poserUnTraitEpais();
+    await page.waitForTimeout(250);
+    // L'interrupteur vit DANS la pastille de couleur — « dans le couleur, on
+    // pourrait rajouter une option clignotante ? ». On la rouvre donc, après
+    // l'avoir fermée plus haut pour éprouver le curseur d'opacité.
+    await ouvrirLaPastille();
+    await page.waitForTimeout(300);
+
+    r.egal('un interrupteur « clignoter » paraît dès qu\'on tient quelque chose',
+        await page.evaluate(() => {
+            const b = document.getElementById('btn-clignote');
+            return b ? { affiche: getComputedStyle(b).display !== 'none',
+                         dit: b.textContent.trim() } : 'absent';
+        }), { affiche: true, dit: '✨ Clignoter' });
+
+    // RIEN NE TOURNE TANT QUE RIEN NE BAT. C'est la promesse qui permet à
+    // l'application de rester légère sur les machines des salles de classe :
+    // elle redessine à la demande, elle n'a pas de boucle permanente.
+    r.egal('et rien ne tourne encore en arrière-plan',
+        await page.evaluate(() => quelqueChoseClignote()), false);
+
+    await page.click('#btn-clignote');
+    await page.waitForTimeout(150);
+    r.egal('appuyer le met à battre, et le bouton le dit',
+        await page.evaluate((id) => {
+            const b = document.getElementById('btn-clignote');
+            return { bat: !!(freehands.find(f => f.id === id) || {}).clignote,
+                     dit: b.textContent.trim(), allume: b.classList.contains('actif') };
+        }, idBattant), { bat: true, dit: '✨ Arrêter', allume: true });
+
+    // ÇA SE VOIT VRAIMENT : on échantillonne le même pixel pendant plus d'une
+    // période. Lire « clignote: true » ne prouverait que l'interrupteur.
+    const bat = await page.evaluate(async () => {
+        const lire = () => ctx.getImageData(
+            Math.round(260 * (canvas.width / canvas.clientWidth)),
+            Math.round(200 * (canvas.height / canvas.clientHeight)), 1, 1).data[0];
+        const pris = [];
+        for (let i = 0; i < 16; i++) { await new Promise(k => setTimeout(k, 80)); pris.push(lire()); }
+        return { min: Math.min(...pris), max: Math.max(...pris), combien: pris.length };
+    });
+    r.verifie('le trait bat réellement à l\'écran, sans qu\'on touche à rien',
+        bat.max - bat.min > 60, JSON.stringify(bat));
+    // ET IL NE DISPARAÎT JAMAIS TOUT À FAIT. Un objet qui s'efface pour de bon
+    // se cherche du regard ; ce qu'on veut, c'est une respiration.
+    r.verifie('mais il ne s\'éteint jamais complètement : c\'est un fondu, pas un éclat',
+        bat.max < 250, JSON.stringify(bat));
+
+    // UN EXPORT NE PREND JAMAIS L'OBJET AU CREUX DE SON FONDU. Sinon l'on
+    // distribuerait aux élèves une flèche à moitié effacée, au hasard de
+    // l'instant où l'on a appuyé.
+    const exporte = await page.evaluate(() => {
+        enTrainDExporter = true;
+        const lire = () => { draw(); return ctx.getImageData(
+            Math.round(260 * (canvas.width / canvas.clientWidth)),
+            Math.round(200 * (canvas.height / canvas.clientHeight)), 1, 1).data[0]; };
+        const pris = [lire(), lire(), lire()];
+        enTrainDExporter = false;
+        return pris;
+    });
+    r.egal('pendant un export, il est rendu à pleine encre, à chaque fois',
+        exporte, [0, 0, 0]);
+
+    await page.click('#btn-clignote');
+    await page.waitForTimeout(400);
+    r.egal('on l\'arrête du même bouton',
+        await page.evaluate((id) => ({
+            bat: !!(freehands.find(f => f.id === id) || {}).clignote,
+            dit: document.getElementById('btn-clignote').textContent.trim(),
+            enCours: quelqueChoseClignote()
+        }), idBattant), { bat: false, dit: '✨ Clignoter', enCours: false });
+
+    // ET LA BOUCLE S'ARRÊTE POUR DE BON : le pixel ne bouge plus.
+    const apresLArret = await page.evaluate(async () => {
+        const lire = () => ctx.getImageData(
+            Math.round(260 * (canvas.width / canvas.clientWidth)),
+            Math.round(200 * (canvas.height / canvas.clientHeight)), 1, 1).data[0];
+        const pris = [];
+        for (let i = 0; i < 8; i++) { await new Promise(k => setTimeout(k, 90)); pris.push(lire()); }
+        return { min: Math.min(...pris), max: Math.max(...pris) };
+    });
+    r.egal('et le trait redevient immobile', apresLArret.max - apresLArret.min, 0);
+
+    // ET LA BOUCLE EST VRAIMENT ARRÊTÉE, pas seulement invisible. Sabotée,
+    // une boucle qui tourne pour rien redessine la MÊME image : les pixels
+    // n'en disent rien, et la vérification ci-dessus passait. On regarde donc
+    // la boucle elle-même. C'est toute la promesse — « ça ne coûte rien quand
+    // rien ne clignote » — et une salle de classe tourne sur de vieilles
+    // machines : une boucle oubliée, c'est le ventilateur qui part pour
+    // l'heure entière.
+    r.egal('et plus aucune image n\'est demandée en arrière-plan',
+        await page.evaluate(() => battementEnCours), 0);
+
+    // RIEN DE TENU, RIEN À FAIRE BATTRE : l'interrupteur s'efface.
+    await page.evaluate(() => { selectedItems = []; updateStyleBarContext(); syncStyleWithSelection(); });
+    await page.waitForTimeout(200);
+    r.egal('sans sélection, l\'interrupteur s\'efface',
+        await page.evaluate(() => getComputedStyle(document.getElementById('btn-clignote')).display), 'none');
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

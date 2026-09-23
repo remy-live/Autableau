@@ -5,6 +5,12 @@ let currentPageIndex = -1;
 let zoom = 1; let panX = window.innerWidth / 2; let panY = window.innerHeight / 2;
 let showAxes = 0; let magnetMode = false;
 let isExportingTransparent = false;
+// CE QU'ON EXPORTE NE CLIGNOTE PAS. « isExportingTransparent » ne vaut que
+// pour les exports SANS FOND : un PNG ordinaire passe par le même « draw »
+// avec ce drapeau à faux, et attraperait donc l'objet au creux de son fondu —
+// on distribuerait aux élèves une flèche à moitié effacée, au hasard de
+// l'instant où l'on a appuyé. Celui-ci couvre TOUS les exports.
+let enTrainDExporter = false;
 let gridWeight = 1;
 let hasShownResizeHelp = false;
 
@@ -1070,6 +1076,99 @@ function initPages() {
     pages = [createNewPage()];
     loadPage(0);
 }
+
+// ==============================================================================
+// CE QUI CLIGNOTE
+//
+// « Dans le couleur, on pourrait rajouter une option clignotante ? » — pour
+// que l'œil de la classe aille là et pas ailleurs : la flèche qui montre
+// l'erreur, le mot qu'on cherche, la consigne qu'on répète pour la troisième
+// fois.
+//
+// DEUX PRÉCAUTIONS, QUI DÉCIDENT DE TOUT :
+//
+// 1. CE N'EST PAS UN INTERRUPTEUR, C'EST UNE RESPIRATION. Un clignotement dur
+//    — allumé, éteint, allumé — est agressif devant trente élèves, et surtout
+//    un scintillement rapide est un risque réel pour un enfant photosensible.
+//    La recommandation d'accessibilité est claire : pas plus de trois éclats
+//    par seconde. On bat donc UNE fois par seconde environ, en fondu (une
+//    sinusoïde, sans aucun saut), entre l'opacité choisie et 15 % de
+//    celle-ci. Ça se remarque sans agresser. Et si le système de l'enseignant
+//    demande moins d'animations, on ne bat pas du tout.
+//
+// 2. ÇA NE DOIT RIEN COÛTER QUAND RIEN NE CLIGNOTE. L'application redessine à
+//    la demande, elle n'a pas de boucle permanente — et c'est ce qui lui
+//    permet de tourner sur les vieux portables des salles de classe. La
+//    boucle ne démarre donc que s'il existe au moins un objet qui bat, et
+//    elle s'arrête d'elle-même dès qu'il n'y en a plus. Elle redessine vingt
+//    fois par seconde et non soixante : à ce rythme le fondu est déjà lisse,
+//    et l'on épargne les deux tiers du travail.
+// ==============================================================================
+const CLIGNOTE_PERIODE = 1100;   // ms : un battement par seconde, à peu près
+const CLIGNOTE_PLANCHER = 0.15;  // ce qu'il reste de visible au creux du fondu
+const CLIGNOTE_PAS = 50;         // ms entre deux images : vingt par seconde
+
+function moinsDAnimations() {
+    try {
+        return typeof matchMedia === 'function'
+            && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) { return false; }
+}
+
+function facteurDeClignotement() {
+    if (moinsDAnimations()) return 1;
+    const t = (performance.now() % CLIGNOTE_PERIODE) / CLIGNOTE_PERIODE;
+    // Une cosinusoïde ramenée entre 0 et 1 : elle passe par ses extrêmes sans
+    // les heurter. C'est ce qui sépare une respiration d'un stroboscope.
+    const onde = (1 - Math.cos(t * 2 * Math.PI)) / 2;
+    return CLIGNOTE_PLANCHER + (1 - CLIGNOTE_PLANCHER) * onde;
+}
+window.facteurDeClignotement = facteurDeClignotement;
+
+// Toutes les familles d'objets, celles de la page ouverte seulement : ce qui
+// bat sur une page qu'on ne regarde pas n'a personne à alerter.
+function quelqueChoseClignote() {
+    const familles = [points, segments, circles, rectangles, texts,
+                      freehands, curves, polygons, images, arcs];
+    return familles.some(f => Array.isArray(f) && f.some(o => o && o.clignote));
+}
+window.quelqueChoseClignote = quelqueChoseClignote;
+
+let battementEnCours = 0;
+let dernierBattement = 0;
+
+function battreLesClignotants(t) {
+    battementEnCours = 0;
+    // Pendant un export, la page est redimensionnée et repeinte à la main :
+    // une image de plus par-dessus la sienne n'aurait aucun sens.
+    if (isExportingTransparent || enTrainDExporter
+        || !quelqueChoseClignote() || moinsDAnimations()) return;
+    if (t - dernierBattement >= CLIGNOTE_PAS) { dernierBattement = t; draw(); }
+    battementEnCours = requestAnimationFrame(battreLesClignotants);
+}
+
+// Appelée depuis « draw » : c'est le seul endroit par où passent TOUS les
+// chemins — l'interrupteur, le chargement d'une page, un « annuler », un
+// collage. Réveiller la boucle ailleurs, c'est en oublier un.
+function reveillerLeClignotement() {
+    if (battementEnCours || isExportingTransparent || enTrainDExporter) return;
+    if (!quelqueChoseClignote() || moinsDAnimations()) return;
+    battementEnCours = requestAnimationFrame(battreLesClignotants);
+}
+window.reveillerLeClignotement = reveillerLeClignotement;
+
+// L'interrupteur : il bascule ce qu'on tient, et il dit ce qu'il a fait.
+function basculerLeClignotement(force) {
+    const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
+        .map(i => getObjectById(i.type, i.id)).filter(Boolean);
+    if (!tenus.length) return null;
+    const veut = (force === undefined) ? !tenus.every(o => o.clignote) : !!force;
+    tenus.forEach(o => { if (veut) o.clignote = true; else delete o.clignote; });
+    if (typeof saveState === 'function') saveState();
+    draw();
+    return veut;
+}
+window.basculerLeClignotement = basculerLeClignotement;
 
 // AJOUTER UNE PAGE, PAR UN SEUL CHEMIN.
 //
@@ -4592,6 +4691,7 @@ document.getElementById('btn-cancel-export').addEventListener('click', () => {
 
 // --- 3. Fonction de Capture Améliorée (Qualité) ---
 async function performCapture(action) {
+    enTrainDExporter = true;
     const keepBg = document.getElementById('export-bg').checked;
 
     // Gestion de la Qualité (si le menu n'existe pas, on met 2 par défaut)
@@ -4636,7 +4736,7 @@ async function performCapture(action) {
         }, 500);
         showToast("Fichier SVG exporté !");
 
-        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
+        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false; enTrainDExporter = false;
         cropRect = null; exportPopover.classList.remove('visible');
         syncStyleWithSelection(); draw();
         return;
@@ -4668,7 +4768,7 @@ async function performCapture(action) {
             canvas.width = oldW; canvas.height = oldH;
             panX = oldPanX; panY = oldPanY; zoom = oldZoom;
             
-            selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
+            selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false; enTrainDExporter = false;
             cropRect = null; exportPopover.classList.remove('visible');
             syncStyleWithSelection(); draw();
         }
@@ -4823,7 +4923,7 @@ async function performCapture(action) {
             }
         }
 
-        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false;
+        selectedItems = oldSel; showAxes = oldAxes; isExportingTransparent = false; enTrainDExporter = false;
         isCropMode = false; cropRect = null; exportPopover.classList.remove('visible');
         syncStyleWithSelection(); draw();
     }, 100);
@@ -7109,6 +7209,32 @@ document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
+document.getElementById('btn-clignote')?.addEventListener('click', () => {
+    const bat = basculerLeClignotement();
+    if (bat === null) { if (typeof showToast === 'function') showToast('Choisissez d\'abord ce qui doit clignoter'); return; }
+    majLeBoutonClignoter();
+    if (typeof showToast === 'function') {
+        showToast(bat ? '✨ Ça bat — un fondu par seconde, pour attirer l\'œil'
+                      : 'Le clignotement est arrêté');
+    }
+});
+
+// Le bouton dit l'état de ce qu'on tient, et disparaît quand on ne tient rien :
+// un interrupteur qui n'allume rien ne devrait pas être là pour être appuyé.
+function majLeBoutonClignoter() {
+    const b = document.getElementById('btn-clignote');
+    if (!b) return;
+    const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
+        .map(i => getObjectById(i.type, i.id)).filter(Boolean);
+    b.style.display = tenus.length ? '' : 'none';
+    const bat = tenus.length && tenus.every(o => o.clignote);
+    b.classList.toggle('actif', !!bat);
+    b.textContent = bat ? '✨ Arrêter' : '✨ Clignoter';
+    b.title = bat ? 'Arrêter le battement de la sélection'
+                  : 'Faire battre la sélection pour attirer l\'œil';
+}
+window.majLeBoutonClignoter = majLeBoutonClignoter;
+
 // LA BARRE DU DOCUMENT SE DÉPLACE, ET S'EN SOUVIENT.
 // Elle peut tomber en travers de ce qu'on montre — une page en plein écran,
 // par exemple. On la prend par sa poignée ; un double-clic dessus la remet à
@@ -7839,6 +7965,9 @@ function syncStampStyleControls() {
     // de sens. C'est ici qu'on repasse, car c'est ici qu'on repasse déjà pour
     // tout le reste de la barre de style.
     if (typeof majCoherenceDeLaPastille === 'function') majCoherenceDeLaPastille();
+    // Le clignotant suit la sélection, lui aussi : c'est ici qu'on repasse à
+    // chaque changement, et donc ici qu'il doit se mettre à jour.
+    if (typeof majLeBoutonClignoter === 'function') majLeBoutonClignoter();
 
     const colorBtn = document.getElementById('btn-color-popover');
     const widthBox = document.getElementById('line-width')?.closest('.slider-container');
@@ -12363,7 +12492,16 @@ function draw() {
             // et le poser deux fois l'élèverait au carré.
             const alphaObjet = (obj.opacity === undefined || item.type === 'image')
                 ? 1 : Math.max(0, Math.min(1, obj.opacity));
-            if (alphaObjet < 1) ctx.globalAlpha = alphaObjet;
+            // ET LE CLIGNOTANT PAR-DESSUS. « Dans le couleur, on pourrait
+            // rajouter une option clignotante ? » Clignoter, c'est faire
+            // battre cette opacité-là : le réglage était donc déjà à moitié
+            // écrit. Un objet qui bat se multiplie avec l'opacité qu'on lui a
+            // donnée — un trait déjà estompé bat plus discrètement, ce qui est
+            // ce qu'on veut.
+            const battement = (obj.clignote && !isExportingTransparent && !enTrainDExporter)
+                ? facteurDeClignotement() : 1;
+            const voile = alphaObjet * battement;
+            if (voile < 1) ctx.globalAlpha = voile;
 
             const isSel = isSelected(item.type, obj.id);
             const isHov = hoveredObj && hoveredObj.type === item.type && hoveredObj.id === obj.id;
@@ -13211,7 +13349,7 @@ function draw() {
             ctx.shadowBlur = 0;
             // On rend le voile au suivant : sans cela, un objet translucide
             // décolorerait tout ce qui se dessine après lui.
-            if (alphaObjet < 1) ctx.globalAlpha = 1;
+            if (voile < 1) ctx.globalAlpha = 1;
             if (cadreHote) ctx.restore();
         });
 
@@ -13534,6 +13672,12 @@ function draw() {
         // LE CACHE ACCROCHÉ SUIT LA PAGE. C'est le seul endroit qui sache que
         // la vue vient de changer — déplacement, zoom, changement de page.
         if (typeof replacerLeRideau === 'function') replacerLeRideau();
+        // ET LE BATTEMENT REPART, S'IL Y A DE QUOI BATTRE. C'est le seul
+        // endroit par où passent tous les chemins — l'interrupteur, un
+        // « annuler », un changement de page, un collage, un fichier rouvert.
+        // La fonction ne fait rien si rien ne clignote : c'est ce qui permet
+        // de l'appeler à chaque image sans rien coûter.
+        if (typeof reveillerLeClignotement === 'function') reveillerLeClignotement();
     } // Fin du bloc finally
 } // Fin de la fonction draw()
 
