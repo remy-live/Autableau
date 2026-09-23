@@ -20,6 +20,18 @@
     border-radius: 4px;
 }
 
+/* SAUF LÀ OÙ L'ON ÉCRIT AU TABLEAU. « wysiwyg-text » n'est pas un champ de
+   formulaire : c'est le texte lui-même, posé sur le tableau à l'endroit où on
+   le tape. Un anneau violet autour en ferait une boîte de saisie, alors qu'on
+   veut voir de l'encre — et le curseur dit déjà où l'on en est.
+   Mesuré : l'anneau agrandissait de sept pixels en largeur et onze en hauteur
+   la trace laissée à l'écran, assez pour que le texte paraisse sauter entre
+   la saisie et le rendu. */
+#wysiwyg-text:focus-visible,
+#wysiwyg-text:focus {
+    outline: none !important;
+}
+
 /* SUR UN FOND SOMBRE, le violet ne se détache pas : les bandeaux d'outils, les
    fenêtres en mode nuit et les barres noires des Studios prennent un contour
    clair. */

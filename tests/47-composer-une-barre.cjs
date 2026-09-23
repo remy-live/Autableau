@@ -445,8 +445,15 @@ module.exports = async function (browser) {
         coin.vu !== 'none', coin.vu);
     r.verifie('vraiment collé au coin : moins de six pixels des deux bords',
         coin.haut <= 6 && coin.duBord <= 6, JSON.stringify(coin));
-    r.verifie('et tout petit — vingt-six pixels de côté au plus',
-        coin.cote <= 26 && coin.hauteur <= 26, JSON.stringify(coin));
+    // DISCRET, MAIS VISABLE AU DOIGT. Ce bouton faisait vingt-six pixels, et
+    // cette épreuve gardait qu'il reste petit — un coin n'est pas une barre
+    // d'outils. Mesuré depuis : vingt-six pixels est SOUS le seuil du doigt,
+    // et c'est précisément le coin qu'on vise debout, devant une classe, sur
+    // un tableau interactif. Il passe à trente-deux, ce qui reste une icône
+    // parmi les plus petites de l'écran — et l'on garde la borne haute, qui
+    // est ce que cette épreuve défendait vraiment : qu'il n'enfle pas.
+    r.verifie('et petit — trente-deux pixels de côté au plus',
+        coin.cote <= 32 && coin.hauteur <= 32, JSON.stringify(coin));
     r.egal('sans passer par-dessus l\'horloge', coin.surLHorloge, false);
 
     // ==================================================================
