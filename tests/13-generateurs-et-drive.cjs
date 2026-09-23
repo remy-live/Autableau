@@ -1302,7 +1302,7 @@ module.exports = async function (browser) {
                          'html-postits-container', 'demo-barre', 'demo-liste'];
 
         const examinees = [], doublons = [], sansNom = [], deuxCroix = [], sansBarre = [];
-        const croixPerdues = [], perdus = [], translucides = [];
+        const croixPerdues = [], perdus = [], translucides = [], bandeauxSombres = [], sansCroix = [];
         const dejaVues = new Set();
 
         // CE QUI PARAÎT SANS BARRE se compte aussi : une fenêtre qu'on n'équipe
@@ -1377,6 +1377,28 @@ module.exports = async function (browser) {
                 dejaVues.add(quoi);
                 const nom = norme((f.querySelector('.fen-nom') || {}).textContent);
                 examinees.push(quoi);
+                // UN BANDEAU GARDÉ NE FAIT PLUS SECONDE BARRE DE TITRE. Les
+                // quatre Studios écrivaient le leur en noir : sous la barre
+                // claire, on lisait deux en-têtes empilés. Un fond nettement
+                // plus sombre que celui de la barre trahit l'ancien défaut.
+                // UNE CROIX DANS CHAQUE BARRE. Huit fenêtres n'en avaient
+                // aucune et se fermaient par « Annuler » : sur une fenêtre où
+                // l'on cherche comment sortir, devant une classe, on perd le
+                // fil du cours.
+                if (!f.querySelector(':scope > .fen-tete .fen-fermer')) sansCroix.push(quoi);
+                const barre = f.querySelector(':scope > .fen-tete');
+                const bandeau = f.querySelector(':scope > .fen-bandeau');
+                if (barre && bandeau && vu(bandeau)) {
+                    const clarte = (c) => { const m = (c || '').match(/[\d.]+/g);
+                        if (!m || m.length < 3) return null;
+                        if (m.length > 3 && Number(m[3]) < 0.5) return null;
+                        return (Number(m[0]) * 0.299 + Number(m[1]) * 0.587 + Number(m[2]) * 0.114) / 255; };
+                    const cb = clarte(getComputedStyle(bandeau).backgroundColor);
+                    const ct = clarte(getComputedStyle(barre).backgroundColor);
+                    if (cb !== null && ct !== null && ct - cb > 0.25) {
+                        bandeauxSombres.push(quoi + ' : bandeau ' + cb.toFixed(2) + ' contre barre ' + ct.toFixed(2));
+                    }
+                }
                 // ET ELLE EST OPAQUE. « Mais pourquoi as-tu mis des modales
                 // transparentes pour les classes ? » — « Mes classes » prenait
                 // « --surface », du blanc à 92 %, et la barre d'outils du
@@ -1531,7 +1553,8 @@ module.exports = async function (browser) {
             await examinerLesFenetres();
             toutRefermer();
         }
-        return { examinees, doublons, sansNom, deuxCroix, sansBarre, croixPerdues, perdus, translucides, outils: boutons.length };
+        return { examinees, doublons, sansNom, deuxCroix, sansBarre, croixPerdues, perdus, translucides,
+                 bandeauxSombres, sansCroix, outils: boutons.length };
     });
     // SANS CE GARDE-FOU, la vérification passerait en n'examinant rien : c'est
     // exactement ce qui fait qu'un test vert ne prouve rien. Et le second
@@ -1546,6 +1569,8 @@ module.exports = async function (browser) {
     r.egal('aucune fenêtre n\'offre deux croix pour fermer', toutes.deuxCroix, []);
     r.egal('aucune fenêtre de la page ne reste sans barre de titre', toutes.sansBarre, []);
     r.egal('aucune fenêtre sans voile n\'est translucide', toutes.translucides, []);
+    r.egal('aucun bandeau gardé ne fait une seconde barre de titre', toutes.bandeauxSombres, []);
+    r.egal('chaque barre de titre porte une croix', toutes.sansCroix, []);
     r.egal('aucune fenêtre ne perd sa seule croix en adoptant son bandeau', toutes.croixPerdues, []);
     r.egal('et un bandeau adopté ne disait rien de plus que la barre', toutes.perdus, []);
 
@@ -1588,6 +1613,53 @@ module.exports = async function (browser) {
         bandeau.nom, 'Éditeur de Tableaux (Signes & Variations)');
     r.verifie('et l\'astuce que le bandeau portait en plus reste lisible',
         bandeau.astuceVisible, JSON.stringify(bandeau));
+
+
+    // ET CETTE CROIX FERME VRAIMENT. Qu'elle existe ne prouve rien : les huit
+    // fenêtres qui n'en avaient pas n'ont aucune croix maison à commander, et
+    // la leur fait donc le geste le plus littéral — la fenêtre s'en va. On
+    // l'éprouve au clic de souris, sur un point dont on a vérifié qu'il n'est
+    // recouvert par rien.
+    const fermeture = await page.evaluate(async () => {
+        const a = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const g = document.getElementById('plugins-grid');
+        if (g) g.style.display = 'grid';
+        const b = [...document.querySelectorAll('#plugins-grid .btn')]
+            .find(x => /mol/i.test((x.dataset.pluginKey || '') + ' ' + (x.title || '')
+                + ' ' + (x.getAttribute('data-tooltip') || '')));
+        if (!b) return { absent: 'aucun bouton de Studio dans la grille' };
+        b.click();
+        await a(1600);
+        const v = document.getElementById('mol-modal');
+        if (!v || getComputedStyle(v).display === 'none') return { absent: 'le Studio ne s\'est pas ouvert' };
+        const croix = v.querySelector('.fen-tete .fen-fermer');
+        if (!croix) return { absent: 'pas de croix dans sa barre' };
+        const r = croix.getBoundingClientRect();
+        const centre = { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        const dessus = document.elementFromPoint(centre.x, centre.y);
+        return Object.assign(centre, { decouvert: dessus === croix || croix.contains(dessus) });
+    });
+    r.verifie('la croix d\'une fenêtre qui n\'en avait pas est cliquable là où on la voit',
+        !fermeture.absent && fermeture.decouvert, JSON.stringify(fermeture));
+    if (!fermeture.absent) {
+        await page.mouse.click(fermeture.x, fermeture.y);
+        await page.waitForTimeout(400);
+    }
+    // ON MESURE CE QUI SE VOIT, ET NON LE « display » DE LA FENÊTRE. Celle-ci
+    // vit dans un voile : c'est le VOILE qu'on masque, et la fenêtre garde son
+    // « display: flex » tout en étant devenue invisible. Regarder le mauvais
+    // des deux fait croire que la croix ne ferme pas.
+    const partie = await page.evaluate(() => {
+        const v = document.getElementById('mol-modal');
+        if (!v) return true;
+        if (!v.getClientRects().length) return true;
+        for (let x = v; x && x.nodeType === 1; x = x.parentElement) {
+            const c = getComputedStyle(x);
+            if (c.display === 'none' || c.visibility === 'hidden' || parseFloat(c.opacity) < 0.05) return true;
+        }
+        return false;
+    });
+    r.verifie('et un clic dessus fait vraiment partir la fenêtre', partie, '');
 
     await context.close();
 

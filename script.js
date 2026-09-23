@@ -19868,6 +19868,20 @@ function nomDeLaFenetre(cle, el) {
 // une ligne à saisir, une astuce : on y répond et elle s'en va. Lui poser une
 // barre de titre, une croix et un déplacement, c'est habiller de commandes ce
 // qui n'a qu'un oui et un non. Celles-là gardent leur forme centrée.
+//
+// ET « CUSTOM-PROMPT-MODAL » RESTE DEHORS POUR UNE SECONDE RAISON, QUI PÈSE
+// PLUS LOURD QUE LA PREMIÈRE. C'est la boîte de saisie d'une quarantaine de
+// générateurs, et elle vit à l'étage 200 100 — AU-DESSUS de toutes les
+// fenêtres, avec les questions. C'est voulu : on l'ouvre par-dessus ce qu'on
+// était en train de faire, et l'on doit pouvoir la lire quoi qu'il y ait
+// dessous. L'équipement commun, lui, range les fenêtres entre 100 010 et
+// 100 045. Lui donner la barre, ce serait la faire REDESCENDRE derrière la
+// fenêtre qu'elle interrompt — gagner une barre de titre et perdre la
+// question.
+//
+// C'est donc la plus grosse exception qui reste à « toute fenêtre porte la
+// même barre », et elle est délibérée. La lever demanderait de sortir son
+// étage de la bande commune, pas de changer cette liste.
 const MODALES_SANS_BARRE = ['confirm-modal', 'custom-prompt-modal', 'astuce-modal', 'demo-invite'];
 const MOD_Z_BAS = 100050;
 const MOD_Z_HAUT = 100090;
@@ -20287,7 +20301,7 @@ function equiperVraiment(el, cle, options) {
     tete.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
         + `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
         + `<button type="button" class="fen-plein" title="Agrandir la fenêtre">${ICONE_PLEIN}</button>`
-        + ((maison && maison.fermer) ? `<button type="button" class="fen-fermer" title="Fermer">✕</button>` : '');
+        + `<button type="button" class="fen-fermer" title="Fermer">✕</button>`;
     el.insertBefore(tete, el.firstChild);
     el.classList.add('fen-titree');
     if (maison) {
@@ -20304,6 +20318,11 @@ function equiperVraiment(el, cle, options) {
                 : maison.titre;
             if (aEffacer) aEffacer.classList.add('fen-repris');
             if (maison.fermer) maison.fermer.classList.add('fen-repris');
+            // ET IL CESSE DE RESSEMBLER À UNE BARRE DE TITRE. Son nom parti,
+            // ce qui reste est une rangée d'outils : il doit en avoir l'air.
+            // Les quatre Studios portaient un bandeau noir qui faisait, sous
+            // la barre claire, comme un second en-tête.
+            maison.el.classList.add('fen-bandeau');
         }
         // La croix de la barre commande CELLE de la fenêtre : c'est elle qui
         // sait ce que fermer veut dire pour cet outil — arrêter une lecture,
@@ -20312,6 +20331,33 @@ function equiperVraiment(el, cle, options) {
         if (croix && maison.fermer) croix.addEventListener('click', (e) => {
             e.stopPropagation();
             maison.fermer.click();
+        });
+    }
+
+    // ET UNE CROIX PARTOUT, MÊME SANS CROIX MAISON À COMMANDER.
+    //
+    // Huit fenêtres n'en avaient aucune : les quatre Studios, le graphique
+    // statistique, le découpage de pixels, sa grille de coloriage, le tableau
+    // de signes. Elles se ferment par « Annuler » — ce qui se défend, mais
+    // toutes leurs voisines portent une croix, et l'on ne devine pas laquelle
+    // en a une. Une fenêtre sur laquelle on cherche comment sortir est une
+    // fenêtre qui fait peur devant une classe.
+    //
+    // Faute de savoir ce que fermer veut dire pour cet outil, on fait le geste
+    // le plus littéral : la fenêtre s'en va. C'est exactement ce que fait son
+    // « Annuler » — aucune de ces huit-là n'a de travail à ranger derrière
+    // elle. Celles qui ont quelque chose à ranger ont leur propre croix, et
+    // c'est ELLE qu'on appelle : ce repli ne les concerne pas.
+    if (!(maison && maison.fermer)) {
+        const croixSeule = tete.querySelector('.fen-fermer');
+        if (croixSeule) croixSeule.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // ON CHERCHE LE VOILE DANS TOUS LES CAS. Cacher la boîte d'une
+            // modale sans cacher son voile laisse l'écran teinté et bloqué,
+            // sur un fond où il n'y a plus rien à lire : la fenêtre a l'air
+            // d'avoir disparu, mais l'application reste prise.
+            const voile = (typeof voileDeModale === 'function') ? voileDeModale(el) : null;
+            (voile || el).style.display = 'none';
         });
     }
 

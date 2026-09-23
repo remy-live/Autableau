@@ -8842,6 +8842,23 @@ body.focus-mode #edt-bandeau { display: none; }
    dire pour cet outil. */
 .fen-repris { display: none !important; }
 
+/* UN BANDEAU GARDÉ EST UNE RANGÉE D'OUTILS, PAS UN SECOND EN-TÊTE.
+   « Le 1 pour la cohérence et les bandeaux. »
+   Quand la fenêtre garde son bandeau — parce qu'il porte de vraies commandes —
+   son titre et sa croix sont déjà repris par la barre. Ce qui reste ne doit
+   plus en avoir l'allure : les quatre Studios écrivaient le leur en NOIR, si
+   bien qu'on lisait deux barres de titre empilées, une claire et une sombre.
+   Il prend donc la couleur de la fenêtre, avec un simple filet pour le
+   séparer de ce qu'il commande.
+   Le « !important » bat les styles écrits EN LIGNE dans le HTML des outils,
+   que rien d'autre ne peut atteindre. */
+.fen-bandeau {
+    background: transparent !important;
+    color: var(--ink) !important;
+    border-bottom: 1px solid var(--border) !important;
+    box-shadow: none !important;
+}
+
 .fen-fermer {
     flex: none;
     width: 22px;
