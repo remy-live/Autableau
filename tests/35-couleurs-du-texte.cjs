@@ -215,6 +215,93 @@ module.exports = async function (browser) {
     r.verifie('ce qui est écrit garde sa couleur',
         /127,\s*29,\s*156|#7f1d9c|172|26,\s*188,\s*156/i.test(texteIntact), texteIntact.slice(0, 160));
 
+    // ==========================================================
+    // LE NUANCIER DU SYSTÈME S'OUVRE OÙ L'ON A CLIQUÉ
+    //
+    // « Le multicolore est sur la gauche. » Il l'était, et à l'autre bout de
+    // l'écran : le champ de couleur était caché par « display: none », et la
+    // roulette lui relayait un « click ». Or un champ sans display n'a PAS DE
+    // BOÎTE — le navigateur n'a donc aucun endroit où accrocher son nuancier,
+    // et le pose à l'origine de la fenêtre. On choisissait une teinte en haut
+    // à gauche pour un texte écrit au milieu.
+    //
+    // On ne peut pas mesurer le nuancier lui-même : il appartient au système,
+    // pas à la page. On mesure donc CE QUI LE PLACE — la boîte du champ.
+    // ==========================================================
+    const roue = await page.evaluate(() => {
+        const champ = document.getElementById('text-color-picker');
+        if (!champ) return 'champ absent';
+        const pastille = document.getElementById('text-custom-color');
+        if (!pastille) return 'roulette absente';
+        const rc = champ.getBoundingClientRect();
+        const rp = pastille.getBoundingClientRect();
+        return {
+            dansLaRoulette: pastille.contains(champ),
+            display: getComputedStyle(champ).display,
+            boite: [Math.round(rc.width), Math.round(rc.height)],
+            // Son centre doit tomber sur la pastille : c'est là que le
+            // navigateur accrochera son nuancier.
+            surLaPastille: rc.x + rc.width / 2 >= rp.left - 1
+                        && rc.x + rc.width / 2 <= rp.right + 1
+                        && rc.y + rc.height / 2 >= rp.top - 1
+                        && rc.y + rc.height / 2 <= rp.bottom + 1,
+            // Et surtout PAS dans le coin de la fenêtre.
+            loinDuCoin: rc.x + rc.width > 40 || rc.y + rc.height > 40
+        };
+    });
+    r.verifie('le champ de couleur vit DANS la roulette, et non caché ailleurs',
+        roue && roue.dansLaRoulette === true, JSON.stringify(roue));
+    r.verifie('il a une vraie boîte : sans elle, le nuancier se pose dans le coin',
+        roue && roue.boite[0] > 0 && roue.boite[1] > 0, JSON.stringify(roue));
+    r.verifie('et cette boîte est sur la pastille, loin du coin haut-gauche',
+        roue && roue.surLaPastille && roue.loinDuCoin, JSON.stringify(roue));
+
+    // ==========================================================
+    // LE CLIGNOTANT EST DANS CETTE PALETTE AUSSI
+    //
+    // « Pour le texte, il n'y a pas de couleurs clignotantes. » Cette
+    // palette-ci lit ses pastilles dans celle des outils — pour qu'elles ne
+    // divergent jamais — mais elle ne recopiait que les COULEURS, pas les
+    // interrupteurs posés à côté. On cherchait donc le clignotant dans la
+    // seule palette qu'on ait sous les yeux en écrivant, et il n'y était pas.
+    // ==========================================================
+    const idTexte = await page.evaluate(() => {
+        const t = { id: nextId++, x: 120, y: 520, text: 'Consigne', content: 'Consigne',
+                    color: '#e74c3c', fontSize: 28, z: globalZ++ };
+        texts.push(t);
+        selectedItems = [{ type: 'text', id: t.id }];
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        if (typeof syncStyleWithSelection === 'function') syncStyleWithSelection();
+        return t.id;
+    });
+    await page.waitForTimeout(250);
+    r.egal('la palette du texte porte son interrupteur de clignotement',
+        await page.evaluate(() => {
+            const b = document.getElementById('text-clignote');
+            return b ? { present: true, dit: b.textContent.trim(),
+                         dansLaPalette: !!b.closest('#text-quick-colors') } : { present: false };
+        }), { present: true, dit: '✨ Clignoter', dansLaPalette: true });
+
+    // On appuie SANS SUPPOSER qu'il est là : sabotée, cette épreuve plantait
+    // au lieu d'échouer, et le chapitre entier perdait ses vingt-quatre autres
+    // vérifications. Un échec doit rester lisible.
+    await page.evaluate(() => {
+        const b = document.getElementById('text-clignote');
+        if (b) b.click();
+    });
+    await page.waitForTimeout(200);
+    r.egal('appuyer fait battre CE texte, et le bouton le dit',
+        await page.evaluate((id) => ({
+            bat: !!(texts.find(t => t.id === id) || {}).clignote,
+            dit: (document.getElementById('text-clignote') || {}).textContent
+                 ? document.getElementById('text-clignote').textContent.trim() : '(bouton absent)'
+        }), idTexte), { bat: true, dit: '✨ Arrêter' });
+
+    await page.evaluate(() => { const b = document.getElementById('text-clignote'); if (b) b.click(); });
+    await page.waitForTimeout(200);
+    r.egal('et le rappuyer l\'arrête',
+        await page.evaluate((id) => !!(texts.find(t => t.id === id) || {}).clignote, idTexte), false);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

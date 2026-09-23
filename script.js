@@ -7182,6 +7182,29 @@ document.getElementById('opacity-slider').addEventListener('change', (e) => {
 function reglerLOpaciteDeLaSelection(v, definitif) {
     const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
         .map(i => getObjectById(i.type, i.id)).filter(Boolean);
+    // SAUF QU'ON TIENT PEUT-ÊTRE UN DOCUMENT. En annotant une page, le mode
+    // est « crayon » — un outil de tracé, donc — et la règle ci-dessous a
+    // d'abord volé le curseur à la page qu'on annotait : on réglait l'encre à
+    // venir au lieu de la transparence du polycopié. La page l'emporte, parce
+    // que c'est elle qu'on tient : c'est « applyPluginStampOpacity », plus
+    // bas, qui sait la trouver.
+    const documentTenu = (typeof documentAnnoteEnCours === 'function')
+        && !!documentAnnoteEnCours();
+
+    // RIEN DE TENU, MAIS UN OUTIL EN MAIN : on règle ce qu'on VA tracer. C'est
+    // « activeStyle », le même réglage que porte la pastille — on n'en invente
+    // pas un second, qui divergerait du premier au premier aller-retour.
+    if (!tenus.length && !documentTenu && unOutilDeTraceEnMain()) {
+        activeStyle.strokeOpacity = v;
+        const jumeau = document.getElementById('opacity-slider');
+        if (jumeau && popoverTarget === 'stroke' && !curseurEnMain(jumeau)) {
+            jumeau.value = v;
+            if (typeof afficherLOpacite === 'function') afficherLOpacite(v);
+        }
+        if (typeof updateColorIndicator === 'function') updateColorIndicator();
+        draw();
+        return true;
+    }
     if (!tenus.length) return false;
     tenus.forEach(o => { o.opacity = v; });
     draw();
@@ -7968,6 +7991,7 @@ function syncStampStyleControls() {
     // Le clignotant suit la sélection, lui aussi : c'est ici qu'on repasse à
     // chaque changement, et donc ici qu'il doit se mettre à jour.
     if (typeof majLeBoutonClignoter === 'function') majLeBoutonClignoter();
+    if (typeof majLeClignotantDuTexte === 'function') majLeClignotantDuTexte();
 
     const colorBtn = document.getElementById('btn-color-popover');
     const widthBox = document.getElementById('line-width')?.closest('.slider-container');
@@ -7991,10 +8015,19 @@ function syncStampStyleControls() {
         if (stampOpacityBox) {
             const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
                 .map(i => getObjectById(i.type, i.id)).filter(Boolean);
-            stampOpacityBox.style.display = tenus.length ? 'flex' : 'none';
-            stampOpacityBox.title = 'Opacité de la sélection';
+            // Même réserve qu'au curseur lui-même : en annotant une page,
+            // c'est ELLE qu'on règle, et le libellé ne doit pas promettre
+            // autre chose.
+            const surUnDocument = (typeof documentAnnoteEnCours === 'function')
+                && !!documentAnnoteEnCours();
+            const outil = !tenus.length && !surUnDocument && unOutilDeTraceEnMain();
+            stampOpacityBox.style.display = (tenus.length || outil) ? 'flex' : 'none';
+            stampOpacityBox.title = outil ? 'Opacité de ce que vous allez tracer'
+                                          : 'Opacité de la sélection';
             const input = document.getElementById('stamp-opacity');
-            const op = tenus.length && tenus[0].opacity !== undefined ? tenus[0].opacity : 1;
+            const op = tenus.length
+                ? (tenus[0].opacity !== undefined ? tenus[0].opacity : 1)
+                : (activeStyle.strokeOpacity === undefined ? 1 : activeStyle.strokeOpacity);
             if (input && !curseurEnMain(input)) input.value = op;
         }
         if (opacityBox) {
@@ -8585,6 +8618,15 @@ function updateCursor() {
         else if (hn === 'T' || hn === 'B') canvas.classList.add('cursor-ns-resize'); else canvas.classList.add('cursor-ew-resize'); return;
     }
     if (mode === 'eraser') canvas.classList.add('cursor-eraser');
+    // LE GESTE S'ANNONCE AVANT DE SE FAIRE. Le blanc efface sur le tableau nu :
+    // le curseur doit le dire pendant qu'on survole, pas une fois le trait
+    // parti. Sur un document, il redevient un crayon — et c'est bien un cache
+    // qu'on s'apprête à poser.
+    else if ((mode === 'freehand' || mode === 'highlighter')
+             && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos
+             && leBlancEffaceIci(mouseLogicalPos)) {
+        canvas.classList.add('cursor-eraser');
+    }
     else if (mode === 'text') {
         if (hoveredObj && hoveredObj.type === 'text') {
             canvas.style.cursor = 'grab';
@@ -9892,6 +9934,20 @@ function formeDuPoint(obj) {
 
 function isSelected(type, id) { return selectedItems.some(item => item.type === type && item.id === id); }
 
+// UN OUTIL EN MAIN, C'EST DÉJÀ QUELQUE CHOSE À RÉGLER.
+// « On n'a pas l'opacité pour le marqueur. » Le curseur ne paraissait que sur
+// une SÉLECTION — donc jamais quand on tient un outil, et l'on ne pouvait pas
+// choisir la transparence AVANT de tracer. C'est pourtant l'ordre naturel, et
+// pour un marqueur l'opacité n'est pas un ornement : c'est ce qui fait qu'on
+// lit le texte à travers.
+const OUTILS_DE_TRACE = ['point', 'segment', 'droite', 'demi-droite', 'circle',
+                         'rectangle', 'text', 'freehand', 'highlighter', 'curve',
+                         'polygon', 'postit'];
+function unOutilDeTraceEnMain() {
+    return typeof mode !== 'undefined' && OUTILS_DE_TRACE.includes(mode);
+}
+window.unOutilDeTraceEnMain = unOutilDeTraceEnMain;
+
 // L'objet cliqué fait-il DÉJÀ partie de ce qui est sélectionné, autrement que
 // par lui-même ? Un point posé sur un segment sélectionné, ou un membre d'un
 // groupe dont un autre membre est pris : cliquer dessus réduisait la sélection
@@ -10392,6 +10448,59 @@ function autoWrapWhileTyping() {
 // ligne. Sans colonne, un bloc fait exactement la largeur de son texte : le
 // bouton semblait mort. On lui donne donc un cadre, ajustable ensuite avec les
 // poignées latérales.
+// ==============================================================================
+// LE BLANC EFFACE LÀ OÙ IL NE SE VERRAIT PAS
+//
+// « Quand on dessine en blanc, en fait on ne voit rien, je me serais bien servi
+// du blanc comme couleur de gomme. » Puis, aussitôt : « oui mais le blanc sur
+// un PDF noir doit faire du blanc. »
+//
+// Les deux phrases disent ensemble la règle, et ce n'est pas le mode sombre qui
+// la porte — c'est CE QU'IL Y A DESSOUS. Sur un document, le blanc est un
+// cache : on masque un mot, on cache une réponse, et sur un PDF noir c'est même
+// la seule encre qui se lise. Sur le tableau NU, il n'y a rien à masquer et le
+// blanc ne se voit pas : le seul usage qui reste est d'effacer, et c'est celui
+// qu'on donne.
+//
+// LA DÉCISION SE PREND AU PREMIER CONTACT, et vaut pour tout le geste. Un trait
+// qui changerait de nature en passant le bord d'une page serait impossible à
+// prévoir — on veut savoir ce qu'on fait avant de l'avoir fait, pas après.
+// C'est aussi pourquoi le curseur prend la forme de la gomme AVANT qu'on
+// appuie : le geste s'annonce.
+//
+// LE MODE SOMBRE NE CHANGE RIEN ICI : sur fond sombre, le tableau lui-même
+// compte comme quelque chose sur quoi le blanc se voit.
+// ==============================================================================
+function estDuBlanc(c) {
+    if (!c) return false;
+    const t = String(c).trim().toLowerCase().replace(/\s+/g, '');
+    return t === '#fff' || t === '#ffffff' || t === 'white'
+        || t === 'rgb(255,255,255)' || t === '#ffffffff';
+}
+window.estDuBlanc = estDuBlanc;
+
+function leBlancEffaceIci(pos) {
+    if (!estDuBlanc(activeStyle.strokeColor)) return false;
+    // Sur fond sombre, le blanc EST l'encre : il n'efface jamais.
+    if (typeof isDarkMode !== 'undefined' && isDarkMode) return false;
+    // Un document dessous : c'est un cache, pas une gomme.
+    if (typeof imageSousLePoint === 'function' && pos && imageSousLePoint(pos)) return false;
+    return true;
+}
+window.leBlancEffaceIci = leBlancEffaceIci;
+
+// Ce que la gomme emporte sous un point donné, avec les mêmes égards que la
+// gomme d'origine : elle ne touche pas à ce qui est verrouillé.
+let gommeBlancheEnCours = false;
+function effacerSousLePoint(pos) {
+    const vise = findObjectAt(pos.x, pos.y);
+    if (!vise || vise.type === 'handle') return false;
+    const obj = getObjectById(vise.type, vise.id);
+    if (!obj || obj.locked) return false;
+    deleteObject(vise.type, vise.id);
+    return true;
+}
+
 function donnerUnCadreAuBloc(alignMode) {
     if (alignMode === 'left') return;
     const t = editingTextId ? getObjectById('text', editingTextId) : null;
@@ -10609,12 +10718,20 @@ canvas.addEventListener('pointerdown', (e) => {
         updateCursor(); draw(); return;
     }
 
+
     if (mode === 'eraser') {
         if (clickedObj && clickedObj.type !== 'handle') {
             const obj = getObjectById(clickedObj.type, clickedObj.id);
             if (obj && obj.locked) { showToast("Cet objet est verrouillé"); return; }
             deleteObject(clickedObj.type, clickedObj.id); clearSelection(); saveState(); draw();
         }
+        return;
+    }
+
+    if ((mode === 'freehand' || mode === 'highlighter') && leBlancEffaceIci(actionPos)) {
+        gommeBlancheEnCours = true;
+        if (effacerSousLePoint(actionPos)) { clearSelection(); saveState(); }
+        draw();
         return;
     }
 
@@ -11204,7 +11321,7 @@ canvas.addEventListener('pointermove', (e) => {
         const traitPose = poserLeTraitEnCours();
         const gesteEnCours = traitPose || isDraggingObjs || isSelectingBox || isDrawingEllipse
             || isPanningView || !!draggedHandle || !!boiteTexte;
-        libererLeCalque(); isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; isDrawingEllipse = false; boiteEllipse = null; boiteTexte = null; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] };
+        libererLeCalque(); gommeBlancheEnCours = false; isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; isDrawingEllipse = false; boiteEllipse = null; boiteTexte = null; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] };
         // Un geste interrompu laissait à l'écran ce qu'il affichait — cadre de
         // sélection, guides, poignées — jusqu'au prochain repeint. On repeint
         // SEULEMENT dans ce cas : le stylet survole le tableau en permanence, et
@@ -11252,6 +11369,15 @@ canvas.addEventListener('pointermove', (e) => {
         const mainLevee = isDrawingFreehand || mode === 'freehand' || mode === 'highlighter';
         smartPos = positionAimantee(rawPos, mainLevee
             ? { sansGrille: true, sansIntersection: true, sansFigure: true } : {});
+    }
+
+    // ON BALAIE, COMME AVEC UNE VRAIE GOMME. La gomme d'origine ne prend que ce
+    // qu'on touche d'un clic ; mais ici l'on DESSINE, et un geste qui traverse
+    // trois traits doit les emporter tous les trois.
+    if (gommeBlancheEnCours) {
+        if (activePointers.size && effacerSousLePoint(rawPos)) { clearSelection(); saveState(); }
+        requestAnimationFrame(draw);
+        return;
     }
 
     if (isDrawingFreehand && currentFreehand) {
@@ -11643,6 +11769,12 @@ function poserLeTraitEnCours() {
 }
 
 function handlePointerUp(e) {
+    // ON REPOSE LA GOMME BLANCHE ICI, EN PREMIER ET SANS CONDITION. Elle ne se
+    // rabaissait que dans le filet de sécurité du survol, qui ne passe pas
+    // pour un geste ordinaire : le drapeau restait donc levé après le
+    // relâcher, et le clic SUIVANT effaçait ce qu'il touchait sans qu'on ait
+    // rien demandé. Un état qui arme une suppression se désarme au plus tôt.
+    gommeBlancheEnCours = false;
     // LE LIEN S'OUVRE AU RELÂCHER, et seulement si l'on n'a pas glissé : sinon
     // déplacer un bloc qui porte une adresse ouvrirait un onglet à chaque fois.
     if (lienPresse && e.type === 'pointerup') {
@@ -12301,6 +12433,101 @@ function dessinerLesLasers(ctx, lw) {
 }
 window.dessinerLesLasers = dessinerLesLasers;
 
+// ==============================================================================
+// CE QUI EST PRIS SE VOIT, ET SE VOIT PAREIL PARTOUT
+//
+// « Comment je sais que le gribouillis et la ligne sont sélectionnés ? Faut-il
+// les mettre en surbrillance ou un cadre autour ? »
+//
+// La question dit le défaut. Un trait pris ne portait qu'un HALO — une ombre
+// portée violette de dix pixels, floue par construction. Autour d'un trait fin
+// et rouge, ça ne se lit pas comme « cet objet est pris » : ça se lit comme une
+// bavure, ou comme un trait mal imprimé. Pendant ce temps, le bloc de texte à
+// côté recevait un cadre net avec ses poignées. Le même tableau parlait donc
+// deux langues, et l'on devait deviner laquelle voulait dire « sélectionné ».
+//
+// Le commentaire du halo l'avouait déjà à demi-mot : sur un texte il « bave
+// autour de chaque lettre », alors « ce bloc-là se signale par un cadre ». Ce
+// qui valait pour le texte vaut pour tout le reste.
+//
+// LE HALO RESTE, MAIS POUR LE SURVOL. C'est un bon signal de « tu es sur le
+// point de toucher ça » — flou, discret, passager. La SÉLECTION, elle, est un
+// état : elle mérite un trait franc. Chaque objet pris reçoit donc son cadre
+// pointillé, un par objet, pour qu'on voie aussi COMBIEN on en tient.
+//
+// Trois familles n'en reçoivent pas, et c'est voulu : le TEXTE et l'IMAGE ont
+// déjà le leur, avec des poignées ; un POINT est plus petit que le cadre qui
+// l'entourerait — on l'encadrerait pour le cacher.
+// ==============================================================================
+const TYPES_DEJA_ENCADRES = ['text', 'image', 'point'];
+
+function boiteDUnObjet(type, o) {
+    // Les listes de points peuvent être longues de plusieurs milliers pour un
+    // gribouillis : on les parcourt, on ne les étale pas en arguments.
+    const etendue = (lire, n) => {
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity, vus = 0;
+        for (let i = 0; i < n; i++) {
+            const p = lire(i);
+            if (!p) continue;
+            if (p.x < x1) x1 = p.x; if (p.x > x2) x2 = p.x;
+            if (p.y < y1) y1 = p.y; if (p.y > y2) y2 = p.y;
+            vus++;
+        }
+        return vus ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : null;
+    };
+    const parIds = (ids) => etendue(i => getObjectById('point', ids[i]), ids.length);
+
+    if (type === 'freehand' || type === 'highlighter') {
+        const ps = o.points || [];
+        return etendue(i => ps[i], ps.length);
+    }
+    if (type === 'segment' || type === 'rectangle') return parIds([o.p1_id, o.p2_id]);
+    if (type === 'polygon' || type === 'curve') return parIds(o.points || []);
+    if (type === 'arc') {
+        if (!(o.radius >= 0)) return null;
+        return { x: o.cx - o.radius, y: o.cy - o.radius, w: o.radius * 2, h: o.radius * 2 };
+    }
+    if (type === 'circle') {
+        const g = (typeof geometrieDuCercle === 'function') ? geometrieDuCercle(o) : null;
+        if (!g) return null;
+        return { x: g.cx - g.rx, y: g.cy - g.ry, w: g.rx * 2, h: g.ry * 2 };
+    }
+    return null;
+}
+window.boiteDUnObjet = boiteDUnObjet;
+
+function dessinerLesCadresDeSelection(ctx, lw) {
+    // Un cadre de sélection n'est pas du dessin : il n'a rien à faire dans ce
+    // qu'on exporte ni dans ce qu'on distribue.
+    if (isExportingTransparent || enTrainDExporter) return;
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return;
+    ctx.save();
+    // À PLEINE ENCRE, TOUJOURS : le cadre désigne un objet, il ne fait pas
+    // partie de lui. Un trait mis à dix pour cent garderait sinon un cadre à
+    // dix pour cent — invisible, sur l'objet même qu'on vient de choisir.
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([6 * lw, 4 * lw]);
+    ctx.lineWidth = 1.5 * lw;
+    ctx.strokeStyle = '#6c5ce7';
+    ctx.shadowBlur = 0;
+    selectedItems.forEach(it => {
+        if (TYPES_DEJA_ENCADRES.includes(it.type)) return;
+        const o = getObjectById(it.type, it.id);
+        if (!o) return;
+        const b = boiteDUnObjet(it.type, o);
+        if (!b) return;
+        // Le cadre respire : collé au tracé, il se confond avec lui — surtout
+        // sur un rectangle, où il doublerait exactement les côtés.
+        const m = 7 * lw;
+        // Un trait parfaitement droit a une boîte plate : sans cette hauteur
+        // minimale, son cadre serait une seconde ligne posée sur la première.
+        const l = Math.max(b.w, 2 * lw), h = Math.max(b.h, 2 * lw);
+        ctx.strokeRect(b.x - m, b.y - m, l + 2 * m, h + 2 * m);
+    });
+    ctx.restore();
+}
+window.dessinerLesCadresDeSelection = dessinerLesCadresDeSelection;
+
 function draw() {
     // La place à côté se referme d'elle-même si son occupant a disparu. Ici
     // parce que tous les chemins passent par là, et avant qu'un seul pixel ne
@@ -12661,6 +12888,13 @@ function draw() {
 
                 // 4. Dessiner le cadre de sélection et les poignées
                 if (isSel && !isExportingTransparent) {
+                    // LE CADRE N'EST PAS DU DESSIN. « Attention, l'opacité ne
+                    // doit pas concerner le cadre de sélection. » Il pâlissait
+                    // avec l'objet : sur un texte estompé, ses poignées
+                    // devenaient invisibles — on ne pouvait plus attraper ce
+                    // qu'on venait justement de rendre discret. Le voile
+                    // appartient au trait, pas à ce qui le désigne.
+                    ctx.globalAlpha = 1;
                     // ROGNER SE VOIT. Le mode existait sans le moindre signe à
                     // l'écran : mêmes poignées, même cadre, et des gestes qui
                     // ne faisaient pas ce qu'on attendait. On montre donc ce
@@ -12791,6 +13025,7 @@ function draw() {
                     // redimensionne. Le cercle par points garde les siens.
                     if (g.libre && isSel && !isExportingTransparent && !obj.locked
                         && selectedItems.length === 1 && selectedItems[0].type === 'circle') {
+                    ctx.globalAlpha = 1;
                         const b = boiteDeLEllipse(obj);
                         if (b) dessinerLesPoigneesDuRectangle(ctx, b, lw);
                     }
@@ -12816,6 +13051,7 @@ function draw() {
                     // Sélectionné seul, il montre de quoi le reprendre.
                     if (isSel && !isExportingTransparent && !obj.locked
                         && selectedItems.length === 1 && selectedItems[0].type === 'rectangle') {
+                    ctx.globalAlpha = 1;
                         const b = rectangleDeformable(obj);
                         if (b) dessinerLesPoigneesDuRectangle(ctx, b, lw);
                     }
@@ -13130,6 +13366,7 @@ function draw() {
                     // ==========================================
 
                     if (!isExportingTransparent && !obj.locked && isSel) {
+                    ctx.globalAlpha = 1;
 
                         ctx.beginPath();
                         ctx.arc(locTailX, locTailY, 6 * lw, 0, Math.PI * 2);
@@ -13289,6 +13526,7 @@ function draw() {
                 // où les autres objets prennent un halo.
                 if (isHov && !isSel && !isExportingTransparent && !obj.isBubble
                     && obj.id !== editingTextId && !obj.isMinimized) {
+                    ctx.globalAlpha = 1;
                     ctx.save();
                     ctx.strokeStyle = sc; ctx.lineWidth = lw * 1.5;
                     ctx.setLineDash([6 * lw, 4 * lw]);
@@ -13299,6 +13537,7 @@ function draw() {
                 // resterait figé sur les dimensions d'avant, à côté du texte
                 // qu'on est en train de taper. On ne le dessine donc pas.
                 if (isSel && !isExportingTransparent && obj.id !== editingTextId) {
+                    ctx.globalAlpha = 1;
                     ctx.strokeStyle = "#6c5ce7"; ctx.lineWidth = lw * 2;
                     if (!obj.isBubble) ctx.strokeRect(startX, obj.y, w, h);
                     if (!obj.locked) {
@@ -13352,6 +13591,11 @@ function draw() {
             if (voile < 1) ctx.globalAlpha = 1;
             if (cadreHote) ctx.restore();
         });
+
+        // ET CE QUI EST PRIS REÇOIT SON CADRE, une fois tout le reste posé :
+        // un cadre dessiné au fil de la liste passerait sous les objets
+        // suivants, et désignerait mal ce qu'il désigne.
+        dessinerLesCadresDeSelection(ctx, lw);
 
         // --- POINT FANTÔME DE L'AIMANT ---
         // Il montre où le clic va tomber : sur un carreau, contre un outil, ou
@@ -18969,12 +19213,41 @@ if (textToolbar) {
 // tenue à un seul endroit, dans index.html — la roulette ferme la grille comme
 // ailleurs, et ce qu'on y choisit entre dans la même mémoire.
 // ==================================================================
+// LE BLOC DONT PARLE LA BARRE DE TEXTE : celui qu'on est en train d'écrire,
+// ou, la saisie refermée, celui qu'on tient. Les deux états existent — on
+// règle un texte pendant qu'on le tape, et on y revient ensuite.
+function texteEnCoursOuTenu() {
+    if (editingTextId) {
+        const t = getObjectById('text', editingTextId);
+        if (t) return t;
+    }
+    const pris = (typeof selectedItems !== 'undefined' ? selectedItems : [])
+        .filter(i => i.type === 'text');
+    if (pris.length === 1) return getObjectById('text', pris[0].id);
+    return null;
+}
+window.texteEnCoursOuTenu = texteEnCoursOuTenu;
+
+function majLeClignotantDuTexte() {
+    const b = document.getElementById('text-clignote');
+    if (!b) return;
+    const bloc = texteEnCoursOuTenu();
+    b.style.display = bloc ? '' : 'none';
+    const bat = !!(bloc && bloc.clignote);
+    b.classList.toggle('actif', bat);
+    b.textContent = bat ? '✨ Arrêter' : '✨ Clignoter';
+    b.title = bat ? 'Arrêter le battement de ce texte'
+                  : 'Faire battre ce texte pour attirer l\'œil';
+}
+window.majLeClignotantDuTexte = majLeClignotantDuTexte;
+
 function poserLaCouleurDuTexte(c, options) {
     if (!c) return;
     appliquerCouleurTexte(c);
     activeStyle.strokeColor = c;      // et la suite de la frappe la garde
     if (options && options.retenir && typeof retenirUneCouleur === 'function') retenirUneCouleur(c);
     majLesPastillesDuTexte(c);
+    majLeClignotantDuTexte();
     const pastille = document.getElementById('tt-color-dot');
     if (pastille) pastille.style.background = c;
 }
@@ -19038,7 +19311,6 @@ window.majLesCouleursRecentesDuTexte = majLesCouleursRecentesDuTexte;
 function construireLesCouleursDuTexte(textToolbar) {
     const textColorPicker = document.getElementById('text-color-picker');
     if (!textColorPicker || document.getElementById('text-quick-colors')) return;
-    textColorPicker.style.display = 'none';   // la pipette du système reste en coulisse
 
     const boite = document.createElement('div');
     boite.id = 'text-quick-colors';
@@ -19064,8 +19336,47 @@ function construireLesCouleursDuTexte(textToolbar) {
     roue.className = 'custom-color-btn';
     roue.id = 'text-custom-color';
     roue.title = 'Personnalisée';
-    roue.addEventListener('click', (e) => { e.stopPropagation(); textColorPicker.click(); });
+    // LE NUANCIER DU SYSTÈME S'OUVRE OÙ L'ON A CLIQUÉ, PAS DANS LE COIN.
+    //
+    // « Le multicolore est sur la gauche. » Il l'était, et à l'autre bout de
+    // l'écran : le champ de couleur était caché par « display: none », et la
+    // roulette lui envoyait un « click ». Or un champ sans display n'a PAS DE
+    // BOÎTE — le navigateur n'a donc aucun endroit où accrocher son nuancier,
+    // et le pose à l'origine de la fenêtre. On choisissait une teinte en haut
+    // à gauche pour un texte écrit au milieu.
+    //
+    // La palette des outils ne s'est jamais trompée là-dessus : elle LOGE son
+    // champ dans la roulette, invisible mais à sa place (« .custom-color-btn
+    // input », dans la feuille de style, l'étale sur toute la pastille). Le
+    // champ reçoit alors le clic lui-même, et le nuancier s'ouvre sous le
+    // doigt. On fait pareil, et le « click » relayé disparaît avec le reste.
+    roue.appendChild(textColorPicker);
     grille.appendChild(roue);
+
+    // LE CLIGNOTANT EST LÀ AUSSI. « Pour le texte, il n'y a pas de couleurs
+    // clignotantes. » Cette palette-ci lit ses pastilles dans celle des outils
+    // — c'est écrit plus haut, pour qu'elles ne divergent jamais — mais elle
+    // ne recopiait que les COULEURS, pas les interrupteurs posés à côté. On
+    // cherchait donc le clignotant dans la seule palette qu'on ait sous les
+    // yeux en écrivant, et il n'y était pas.
+    const battre = document.createElement('button');
+    battre.type = 'button';
+    battre.className = 'no-fill-btn';
+    battre.id = 'text-clignote';
+    battre.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const bloc = texteEnCoursOuTenu();
+        if (!bloc) { if (typeof showToast === 'function') showToast('Choisissez d\'abord le texte qui doit clignoter'); return; }
+        if (bloc.clignote) delete bloc.clignote; else bloc.clignote = true;
+        majLeClignotantDuTexte();
+        if (typeof saveState === 'function') saveState();
+        draw();
+        if (typeof showToast === 'function') {
+            showToast(bloc.clignote ? '✨ Ce texte bat — un fondu par seconde'
+                                    : 'Le clignotement est arrêté');
+        }
+    });
+    boite.appendChild(battre);
 
     // Une teinte cherchée à la roulette se garde : c'est tout l'objet de
     // « mes couleurs », et elle ne s'y rangeait pas quand on écrivait.
@@ -19087,6 +19398,7 @@ function construireLesCouleursDuTexte(textToolbar) {
     const panneauCouleur = document.querySelector('#text-toolbar .tt-panel[data-panel="color"]');
     (panneauCouleur || textToolbar).appendChild(boite);
     majLesCouleursRecentesDuTexte();
+    majLeClignotantDuTexte();
 }
 
 // ===================================================

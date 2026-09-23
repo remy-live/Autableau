@@ -484,6 +484,108 @@ module.exports = async function (browser) {
     r.egal('sans sélection, l\'interrupteur s\'efface',
         await page.evaluate(() => getComputedStyle(document.getElementById('btn-clignote')).display), 'none');
 
+    // ---------------------------------------------------------------
+    // 9. L'OPACITÉ DE CE QU'ON VA TRACER
+    //
+    // « On n'a pas l'opacité pour le marqueur. » Le curseur ne paraissait que
+    // sur une SÉLECTION — donc jamais quand on tient un outil, et l'on ne
+    // pouvait pas choisir la transparence AVANT de tracer. C'est pourtant
+    // l'ordre naturel, et pour un marqueur l'opacité n'est pas un ornement :
+    // c'est ce qui fait qu'on lit le texte à travers.
+    // ---------------------------------------------------------------
+    await fermerLaPastille();
+    await page.evaluate(() => {
+        selectedItems = []; setMode('highlighter');
+        updateStyleBarContext(); syncStyleWithSelection();
+    });
+    await page.waitForTimeout(250);
+    r.egal('marqueur en main, sans rien de sélectionné, le curseur est là',
+        await surLaBarre(), 'sous la main');
+    r.verifie('et il annonce qu\'il règle ce qu\'on VA tracer',
+        await page.evaluate(() => /tracer/i.test(document.getElementById('stamp-opacity-box').title || '')),
+        await page.evaluate(() => document.getElementById('stamp-opacity-box').title));
+
+    await tirerLeCurseurDeLaBarre(0.35);
+    await page.waitForTimeout(250);
+    r.egal('le tirer règle l\'encre à venir',
+        await page.evaluate(() => activeStyle.strokeOpacity), 0.35);
+
+    // ET LE TRAIT SUIVANT LA PORTE VRAIMENT. Régler un réglage que le tracé
+    // n'écoute pas, c'est ce qu'on vient de corriger : on trace pour de bon.
+    const traceApres = await page.evaluate(async () => {
+        freehands.length = 0; panX = 0; panY = 0; zoom = 1;
+        const b = document.getElementById('board').getBoundingClientRect();
+        return { x: Math.round(b.left + 300), y: Math.round(b.top + 300) };
+    });
+    await page.mouse.move(traceApres.x, traceApres.y);
+    await page.mouse.down();
+    await page.mouse.move(traceApres.x + 120, traceApres.y + 30, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(350);
+    r.egal('le trait qui suit naît avec cette transparence-là',
+        await page.evaluate(() => (freehands[0] || {}).strokeOpacity !== undefined
+            ? freehands[0].strokeOpacity : activeStyle.strokeOpacity), 0.35);
+
+    // ---------------------------------------------------------------
+    // 10. CE QUI EST PRIS SE VOIT — ET SON CADRE NE PÂLIT PAS
+    //
+    // « Comment je sais que le gribouillis et la ligne sont sélectionnés ?
+    // Faut-il les mettre en surbrillance ou un cadre autour ? » Un trait pris
+    // ne portait qu'un halo flou ; le bloc de texte à côté avait un cadre net.
+    // Le même tableau parlait deux langues.
+    //
+    // Puis : « Attention, l'opacité ne doit pas concerner le cadre de
+    // sélection. » Le cadre pâlissait avec l'objet — sur un texte estompé, ses
+    // poignées devenaient invisibles, et l'on ne pouvait plus attraper ce
+    // qu'on venait justement de rendre discret.
+    // ---------------------------------------------------------------
+    const cadre = await page.evaluate(() => {
+        panX = 0; panY = 0; zoom = 1;
+        freehands.length = 0; texts.length = 0; images.length = 0; points.length = 0;
+        selectedItems = []; setMode('pointer');
+        const f = { id: nextId++, points: [{ x: 200, y: 200 }, { x: 400, y: 260 }, { x: 300, y: 320 }],
+                    color: '#e74c3c', width: 3, z: globalZ++, opacity: 0.1 };
+        freehands.push(f);
+        const lire = (x, y) => { const d = ctx.getImageData(
+            Math.round(x * (canvas.width / canvas.clientWidth)),
+            Math.round(y * (canvas.height / canvas.clientHeight)), 1, 1).data; return [d[0], d[1], d[2]]; };
+        // Le bord haut du cadre attendu : la boîte va de 200 à 400, plus 7 px
+        // de respiration, donc y = 193.
+        const balayer = () => { const v = []; for (let x = 195; x <= 405; x += 2) v.push(lire(x, 193)); return v; };
+        const violets = (v) => v.filter(c => c[2] > c[0] + 20).length;
+        selectedItems = []; draw();
+        const sans = violets(balayer());
+        selectedItems = [{ type: 'freehand', id: f.id }]; draw();
+        const avec = violets(balayer());
+        return { sans, avec, boite: boiteDUnObjet('freehand', f) };
+    });
+    r.egal('un gribouillis non pris n\'a aucun cadre', cadre.sans, 0);
+    r.verifie('pris, il en reçoit un, tracé sur toute sa boîte',
+        cadre.avec > 20, JSON.stringify(cadre));
+    r.egal('et la boîte épouse vraiment le tracé', cadre.boite,
+        { x: 200, y: 200, w: 200, h: 120 });
+
+    // LE CADRE RESTE À PLEINE ENCRE, MÊME SUR UN OBJET À DIX POUR CENT.
+    const cadreDuTexte = await page.evaluate(() => {
+        texts.length = 0; freehands.length = 0; selectedItems = [];
+        const t = { id: nextId++, x: 300, y: 400, text: 'abc', content: 'abc',
+                    color: '#e74c3c', fontSize: 40, z: globalZ++, opacity: 0.1 };
+        texts.push(t);
+        selectedItems = [{ type: 'text', id: t.id }];
+        draw();
+        const lire = (x, y) => { const d = ctx.getImageData(
+            Math.round(x * (canvas.width / canvas.clientWidth)),
+            Math.round(y * (canvas.height / canvas.clientHeight)), 1, 1).data; return [d[0], d[1], d[2]]; };
+        const b = boiteDuTexte(t);
+        const v = [];
+        for (let x = Math.round(b.x); x < Math.round(b.x + b.w); x += 2) v.push(lire(x, Math.round(b.y)));
+        return v.reduce((a, c) => (c[0] + c[1] + c[2] < a[0] + a[1] + a[2] ? c : a), [255, 255, 255]);
+    });
+    // #6c5ce7 vaut [108, 92, 231]. On tolère un pixel d'anticrénelage.
+    r.verifie('le cadre d\'un texte à dix pour cent reste à pleine encre',
+        Math.abs(cadreDuTexte[0] - 108) <= 6 && Math.abs(cadreDuTexte[1] - 92) <= 6
+        && Math.abs(cadreDuTexte[2] - 231) <= 6, JSON.stringify(cadreDuTexte));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

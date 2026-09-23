@@ -2658,14 +2658,15 @@ body.cercle-libre .ico-cercle-libre {
    dire « pas de couleur », ce qui n'a rien à voir. On la retire, et le bouton
    dit lui-même s'il est allumé — sans quoi on ne saurait pas, en le regardant,
    si ce qu'on tient bat déjà. */
-#btn-clignote::before { content: none; }
-#btn-clignote.actif {
+#btn-clignote::before, #text-clignote::before { content: none; }
+#btn-clignote.actif, #text-clignote.actif {
     background: #6c5ce7;
     border-color: #6c5ce7;
     color: #fff;
 }
-#btn-clignote.actif:hover { background: #5b4bd6; color: #fff; }
-.dark-mode #btn-clignote.actif { background: #a29bfe; color: #1e272e; }
+#btn-clignote.actif:hover, #text-clignote.actif:hover { background: #5b4bd6; color: #fff; }
+.dark-mode #btn-clignote.actif,
+.dark-mode #text-clignote.actif { background: #a29bfe; color: #1e272e; }
 
 .opacity-container {
     display: flex;

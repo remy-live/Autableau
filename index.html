@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=202 »,
-         « script.js?v=332 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=203 »,
+         « script.js?v=339 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=202">
+    <link rel="stylesheet" href="style.css?v=203">
 </head>
 
 <body>
@@ -259,7 +259,12 @@
         </div>
 
         <div class="tt-panel" data-panel="color">
-            <input type="color" id="text-color-picker" title="Couleur" style="display:none;">
+            <!-- LE CHAMP RESTE VISIBLE POUR LE NAVIGATEUR. « Le multicolore est sur la
+                 gauche » : caché par un « display: none », il n'avait plus de boîte,
+                 et le navigateur posait son nuancier à l'origine de la fenêtre. Il
+                 est déplacé DANS la roulette par « construireLesCouleursDuTexte »,
+                 où la feuille de style l'étale, transparent, sur toute la pastille. -->
+            <input type="color" id="text-color-picker" title="Couleur">
         </div>
     </div>
     </div>
@@ -3777,7 +3782,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=332"></script>
+    <script src="script.js?v=339"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
