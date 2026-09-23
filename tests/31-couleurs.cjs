@@ -481,6 +481,160 @@ module.exports = async function (browser) {
     r.verifie('et s\'il sert aussi à autre chose, il se remontre',
         coins.avecSegment > 0, JSON.stringify(coins));
 
+    // ==========================================================
+    // LA PALETTE SUIT SON BOUTON
+    //
+    // « J'ai eu un souci avec le marqueur sur un PDF en plein écran : j'ai
+    // choisi la couleur, j'ai dessiné, puis lorsque j'ai voulu changer la
+    // couleur, impossible d'avoir la palette affichée. »
+    //
+    // Elle s'affichait pourtant — à SEPT CENTS PIXELS de l'endroit où l'on
+    // venait d'appuyer. La feuille de style la clouait en « top: 75px;
+    // left: 50% », sans aucun lien avec le bouton qui l'ouvre : cela marchait
+    // par hasard, tant que la barre de style restait en haut. Or la barre
+    // bouge — en projection elle descend au bas de l'écran, et l'enseignant
+    // peut aussi la déplacer où il veut. La palette s'ouvrait alors par-dessus
+    // la page projetée, loin du doigt, et l'on en concluait très
+    // raisonnablement qu'elle ne s'ouvrait pas.
+    //
+    // ON NE MESURE DONC PAS « EST-ELLE VISIBLE » — elle l'a toujours été —
+    // MAIS LA DISTANCE À SON BOUTON.
+    // ==========================================================
+    // ON REMET LA SCÈNE À ZÉRO. Le reste du chapitre laisse des fenêtres et
+    // des sélections derrière lui, et le premier clic tombait alors sur
+    // quelque chose posé par-dessus la barre. Une épreuve qui plante n'accuse
+    // pas le bon coupable.
+    await page.evaluate(() => {
+        if (typeof closeAllPopups === 'function') closeAllPopups();
+        document.querySelectorAll('.modal-backdrop').forEach(m => {
+            if (m.id) m.style.display = 'none';
+        });
+        selectedItems = [];
+        points.length = 0; segments.length = 0; circles.length = 0; rectangles.length = 0;
+        texts.length = 0; freehands.length = 0; curves.length = 0; polygons.length = 0;
+        images.length = 0; arcs.length = 0;
+        const p = document.getElementById('color-popover');
+        p.classList.remove('visible');
+        p.style.top = ''; p.style.left = ''; p.style.transform = '';
+        setMode('pointer');
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        draw();
+    });
+    await page.waitForTimeout(400);
+
+    const ouvrirLaPastilleVraiment = async () => {
+        await page.evaluate(() => {
+            const p = document.getElementById('color-popover');
+            p.classList.remove('visible');
+            p.style.top = ''; p.style.left = ''; p.style.transform = '';
+        });
+        // On dit CE QUI empêche le clic, plutôt que de laisser un délai de
+        // trente secondes accuser la palette.
+        const obstacle = await page.evaluate(() => {
+            const btn = document.getElementById('btn-color-popover');
+            const b = btn.getBoundingClientRect();
+            const ou = ' [bouton ' + JSON.stringify([Math.round(b.x), Math.round(b.y),
+                Math.round(b.width), Math.round(b.height)]) + ', écran '
+                + window.innerWidth + '×' + window.innerHeight + ', barre '
+                + JSON.stringify((() => { const r = document.getElementById('bar-style').getBoundingClientRect();
+                    return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]; })()) + ']';
+            if (!(b.width > 2)) return 'le bouton n\'a pas de boîte' + ou;
+            const d = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+            if (!d) return 'le bouton est hors de l\'écran' + ou;
+            if (d === btn || btn.contains(d)) return null;
+            return d.tagName + '#' + (d.id || '') + '.' + String(d.className).slice(0, 50);
+        });
+        if (obstacle) throw new Error('clic impossible sur la pastille : ' + obstacle);
+        await page.click('#btn-color-popover');
+        await page.waitForTimeout(250);
+        return page.evaluate(() => {
+            const pop = document.getElementById('color-popover');
+            const btn = document.getElementById('btn-color-popover');
+            const p = pop.getBoundingClientRect(), b = btn.getBoundingClientRect();
+            return {
+                ouverte: pop.classList.contains('visible') && p.width > 10,
+                // L'écart VERTICAL entre le bord le plus proche de la palette
+                // et le bouton : c'est lui qui disait sept cents pixels.
+                ecart: Math.round(p.top >= b.bottom ? p.top - b.bottom
+                     : p.bottom <= b.top ? b.top - p.bottom : 0),
+                // Et elle reste centrée sur le bouton, à vue d'œil.
+                decalage: Math.round(Math.abs((p.left + p.width / 2) - (b.left + b.width / 2))),
+                dansLEcran: p.left >= 0 && p.top >= 0
+                         && p.right <= window.innerWidth && p.bottom <= window.innerHeight,
+                bouton: [Math.round(b.x), Math.round(b.y)],
+                palette: [Math.round(p.x), Math.round(p.y)]
+            };
+        });
+    };
+
+    // ON PLACE LA BARRE NOUS-MÊMES, AUX TROIS ENDROITS QU'ON VEUT ÉPROUVER.
+    // La laisser se placer toute seule faisait dépendre l'épreuve de l'état
+    // qu'avait laissé le reste du chapitre — et elle est tombée une fois sur
+    // une barre à moitié hors de l'écran, pour une raison sans aucun rapport
+    // avec ce qu'elle mesure.
+    const poserLaBarre = (gauche, haut) => page.evaluate(([g, h]) => {
+        const barre = document.getElementById('bar-style');
+        barre.setAttribute('data-dragged', '1');
+        barre.style.transform = 'none';
+        barre.style.right = 'auto';
+        barre.style.bottom = 'auto';
+        barre.style.left = g + 'px';
+        barre.style.top = h + 'px';
+    }, [gauche, haut]);
+
+    // 1. EN HAUT, sa place ordinaire.
+    await page.evaluate(() => setMode('freehand'));
+    await page.waitForTimeout(250);
+    await poserLaBarre(400, 20);
+    const enHaut = await ouvrirLaPastilleVraiment();
+    r.verifie('la palette s\'ouvre contre son bouton', enHaut.ouverte && enHaut.ecart <= 40,
+        JSON.stringify(enHaut));
+    r.verifie('et centrée sur lui', enHaut.decalage <= 30, JSON.stringify(enHaut));
+
+    // 2. EN BAS — ce qui arrive en projection, où la barre descend, et ce que
+    //    l'enseignant fait aussi à la main puisque sa place est retenue.
+    //    C'EST LE CAS SIGNALÉ : bouton à y=781, palette à y=75.
+    await poserLaBarre(400, 780);
+    const enBas = await ouvrirLaPastilleVraiment();
+    r.verifie('barre descendue en bas, la palette la suit au lieu de rester en haut',
+        enBas.ouverte && enBas.ecart <= 40, JSON.stringify(enBas));
+    r.verifie('elle reste centrée sur le bouton', enBas.decalage <= 30, JSON.stringify(enBas));
+    // SANS PLACE DESSOUS, ELLE PASSE DESSUS — jamais hors de l'écran.
+    r.verifie('et elle tient entièrement dans l\'écran', enBas.dansLEcran,
+        JSON.stringify(enBas));
+
+    // 3. COLLÉE AU BORD GAUCHE : la palette est plus large que le bouton, la
+    //    centrer dessus la ferait déborder.
+    await poserLaBarre(0, 300);
+    const auBord = await ouvrirLaPastilleVraiment();
+    r.verifie('collée au bord gauche, la palette rentre quand même dans l\'écran',
+        auBord.ouverte && auBord.dansLEcran, JSON.stringify(auBord));
+
+    // 4. UNE FENÊTRE COURTE, OÙ LA PALETTE NE TIENT NI DESSUS NI DESSOUS.
+    //
+    // C'est le seul cas où le rabattement vertical sert vraiment : partout
+    // ailleurs, « dessous sinon dessus » suffit. Un sabotage l'a montré — le
+    // retirer ne faisait rien tomber, parce que mes trois premiers cas ne le
+    // mettaient jamais à l'épreuve. Une fenêtre de quatre cents pixels de haut
+    // n'a rien d'absurde : un navigateur qu'on n'a pas agrandi, un écran
+    // partagé en deux.
+    await page.setViewportSize({ width: 1000, height: 400 });
+    await page.waitForTimeout(250);
+    await poserLaBarre(400, 180);
+    const courte = await ouvrirLaPastilleVraiment();
+    r.verifie('dans une fenêtre courte, la palette tient quand même à l\'écran',
+        courte.ouverte && courte.dansLEcran, JSON.stringify(courte));
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.waitForTimeout(250);
+
+    await page.evaluate(() => {
+        const barre = document.getElementById('bar-style');
+        barre.removeAttribute('data-dragged');
+        barre.style.left = ''; barre.style.top = ''; barre.style.transform = '';
+        document.getElementById('color-popover').classList.remove('visible');
+        if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

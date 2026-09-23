@@ -7243,7 +7243,60 @@ function updateColorIndicator() {
     colorIndicator.style.background = activeStyle.isFilled
         ? hexToRgba(activeStyle.fillColor, activeStyle.fillOpacity) : 'transparent';
 }
-btnColorPopover.addEventListener('click', (e) => { colorPopover.classList.toggle('visible'); e.stopPropagation(); });
+// ==============================================================================
+// LA PALETTE SUIT SON BOUTON
+//
+// « J'ai eu un souci avec le marqueur sur un PDF en plein écran : j'ai choisi
+// la couleur, j'ai dessiné, puis lorsque j'ai voulu changer la couleur,
+// impossible d'avoir la palette affichée. »
+//
+// Elle s'affichait pourtant — à SEPT CENTS PIXELS de l'endroit où l'on venait
+// d'appuyer. La feuille de style la clouait en « top: 75px; left: 50% », en
+// haut au centre de la fenêtre, sans aucun lien avec le bouton qui l'ouvre.
+// Cela marchait par hasard, tant que la barre de style restait en haut.
+//
+// Or la barre BOUGE : en projection elle descend au bas de l'écran — relevé,
+// le bouton à y=781 et la palette à y=75 —, et l'enseignant peut aussi la
+// déplacer où il veut, sa place étant gardée d'une séance à l'autre. Dans ces
+// deux cas la palette s'ouvrait par-dessus la page projetée, loin du doigt,
+// et l'on concluait très raisonnablement qu'elle ne s'ouvrait pas.
+//
+// Elle se place donc À CHAQUE OUVERTURE, sous son bouton s'il y a la place,
+// au-dessus sinon — et jamais hors de l'écran.
+// ==============================================================================
+function placerLaPalette() {
+    const pop = document.getElementById('color-popover');
+    const btn = document.getElementById('btn-color-popover');
+    if (!pop || !btn || !pop.classList.contains('visible')) return;
+    const b = btn.getBoundingClientRect();
+    // Bouton sans boîte — barre repliée, écran de démarrage : on ne calcule
+    // rien à partir de rien, la place de la feuille de style fait l'affaire.
+    if (!(b.width > 2 && b.height > 2)) return;
+    // Le « translateX(-50%) » de la feuille de style décalerait tout ce qu'on
+    // vient de calculer d'une demi-largeur.
+    pop.style.transform = 'none';
+    const p = pop.getBoundingClientRect();
+    const MARGE = 8;
+    let haut = b.bottom + MARGE;
+    if (haut + p.height > window.innerHeight - MARGE) haut = b.top - p.height - MARGE;
+    haut = Math.max(MARGE, Math.min(haut, window.innerHeight - p.height - MARGE));
+    let gauche = b.left + b.width / 2 - p.width / 2;
+    gauche = Math.max(MARGE, Math.min(gauche, window.innerWidth - p.width - MARGE));
+    pop.style.top = Math.round(haut) + 'px';
+    pop.style.left = Math.round(gauche) + 'px';
+}
+window.placerLaPalette = placerLaPalette;
+
+btnColorPopover.addEventListener('click', (e) => {
+    colorPopover.classList.toggle('visible');
+    placerLaPalette();
+    e.stopPropagation();
+});
+
+// La barre se déplace à la main, et l'écran change de taille — un vidéo-
+// projecteur qu'on branche en cours de séance suffit. Une palette ouverte
+// doit suivre, sans quoi elle se retrouve à l'endroit d'avant.
+window.addEventListener('resize', placerLaPalette);
 colorPopover.addEventListener('mousedown', (e) => e.stopPropagation());
 colorPopover.addEventListener('pointerdown', (e) => e.stopPropagation());
 colorPopover.addEventListener('click', (e) => e.stopPropagation());
