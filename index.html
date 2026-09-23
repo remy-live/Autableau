@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=203 »,
-         « script.js?v=341 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=346 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -3726,6 +3726,24 @@
                     Deux copies séparées : Pronote a deux champs, et découper à la main dans le
                     presse-papiers est justement ce qu'on cherche à éviter.
                 </div>
+                <!-- LE TABLEAU LUI-MÊME, DANS UN LIEN. « Intégrer le replay de
+                     la séance dans le cahier de texte Pronote. » Pronote n'a
+                     pas d'interface d'écriture ouverte : aucun logiciel tiers
+                     ne peut y écrire. Ce qu'on peut faire, c'est fabriquer ce
+                     qu'on y colle — et c'est déjà ce que font les deux boutons
+                     du dessus. Celui-ci fabrique l'adresse qui rouvre le
+                     tableau, et le rejoue au rythme où il a été écrit.
+                     Il vit là, et pas dans l'export, parce que c'est ici qu'on
+                     prépare ce qu'on va coller. -->
+                <div id="cdt-copies" style="margin-top:8px;">
+                    <button type="button" id="cdt-lien-replay" class="btn-action secondary">🔗 Copier le lien du replay</button>
+                    <button type="button" id="cdt-lien-tableau" class="btn-action secondary">🔗 Copier le lien du tableau</button>
+                </div>
+                <div class="modal-text" id="cdt-mot-lien">
+                    Le lien porte le tableau lui-même : il s'ouvre sans compte et sans rien installer.
+                    Les images ne tiennent pas dans une adresse — un document reste joignable s'il est
+                    déposé dans votre nuage.
+                </div>
             </div>
             <div class="export-actions-grid" style="display:flex; margin-top: 16px;">
                 <button onclick="fermerLeCahier()" class="btn-action secondary" style="flex:1;">Fermer</button>
@@ -3803,7 +3821,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=341"></script>
+    <script src="script.js?v=346"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

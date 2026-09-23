@@ -1028,7 +1028,7 @@ function createNewPage() {
 
 function syncPage() {
     if (currentPageIndex === -1 || !pages[currentPageIndex]) return;
-    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, film: filmPas, panX, panY, zoom, origineFeuille, origineAxes };
+    pages[currentPageIndex] = { ...pages[currentPageIndex], points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, history, historyIndex, film: filmPas, rythme: filmTemps, panX, panY, zoom, origineFeuille, origineAxes };
     partagerLaVueDuDocument(currentPageIndex);
 }
 
@@ -1216,6 +1216,9 @@ function loadPage(index) {
     freehands = p.freehands || []; curves = p.curves || []; polygons = p.polygons || []; images = p.images || []; arcs = p.arcs || []; htmlPostits = p.htmlPostits || [];
     history = p.history || []; historyIndex = p.historyIndex !== undefined ? p.historyIndex : -1;
     filmPas = Array.isArray(p.film) ? p.film : [];
+    // Un tableau d'avant la temporisation n'a pas de rythme : tableau vide, et
+    // le lecteur retombe sur la cadence constante.
+    filmTemps = (Array.isArray(p.rythme) && p.rythme.length === filmPas.length) ? p.rythme : [];
     filmDernierEtat = null;
     // Un tableau qui revient du disque n'a que son film : l'historique s'en
     // redéroule, et l'annulation comme le lecteur retrouvent leurs cent étapes.
@@ -1878,7 +1881,37 @@ function montrerLePremierEcran() {
 }
 window.montrerLePremierEcran = montrerLePremierEcran;
 
+// UN LIEN L'EMPORTE SUR TOUT LE RESTE.
+//
+// Si l'adresse porte un tableau, c'est CE tableau qu'on est venu voir : on ne
+// propose ni la reprise de la séance d'hier, ni le premier écran, ni la
+// démonstration. Trois portes devant ce qu'on a demandé, ce serait trois
+// portes de trop.
+//
+// MAIS ON N'ÉCRASE PAS LE TRAVAIL DE CELUI QUI OUVRE. Un enseignant qui colle
+// un lien dans l'onglet où il préparait son cours perdrait sa préparation. Le
+// tableau partagé arrive donc sur une PAGE NEUVE dès qu'il y a déjà quelque
+// chose — le tiroir des pages existe pour ça — et sur la page courante quand
+// le tableau est vide, c'est-à-dire chez l'élève qui clique depuis Pronote.
+async function ouvrirLeLienDuDemarrage() {
+    if (!lienDansLAdresse()) return false;
+    if (typeof initPages === 'function' && (!pages || !pages.length)) initPages();
+    const occupe = [points, segments, circles, rectangles, texts,
+                    freehands, curves, polygons, images, arcs]
+        .some(f => Array.isArray(f) && f.length);
+    if (occupe && typeof ajouterUnePageVierge === 'function') ajouterUnePageVierge();
+    const ok = await ouvrirDepuisLeLien();
+    if (ok && typeof showToast === 'function') {
+        showToast(filmPas && filmPas.length > 1
+            ? '🔗 Tableau reçu — appuyez sur « Rejouer » pour le voir se construire'
+            : '🔗 Tableau reçu');
+    }
+    return ok;
+}
+window.ouvrirLeLienDuDemarrage = ouvrirLeLienDuDemarrage;
+
 window.addEventListener('load', () => {
+    if (lienDansLAdresse()) { ouvrirLeLienDuDemarrage(); return; }
     // On essaie de charger la sauvegarde locale de manière asynchrone
     localforage.getItem(AUTO_SAVE_KEY).then((saved) => {
         if (saved) {
@@ -2245,6 +2278,28 @@ const FILM_FAMILLES = ['points', 'segments', 'circles', 'rectangles', 'texts',
     'freehands', 'curves', 'polygons', 'images', 'arcs', 'htmlPostits'];
 
 let filmPas = [];             // parallèle à `history` : chaque case dit ce qui a changé
+
+// ==============================================================================
+// LE FILM GARDE AUSSI SON RYTHME
+//
+// « Il faut une temporisation aussi si on veut rejouer. »
+//
+// Le lecteur avançait à cadence CONSTANTE : chaque étape durait le même temps,
+// qu'elle ait été un trait vif ou une pause de deux minutes pendant qu'on
+// expliquait. Rejouer une construction donnait donc un défilé régulier qui ne
+// ressemblait à rien de ce qui s'était passé — et l'on ne pouvait pas s'en
+// servir pour montrer à la classe COMMENT la figure était née.
+//
+// On note donc l'instant de chaque étape. Le lecteur s'en sert pour respecter
+// les écarts réels, entre deux bornes : au-dessous d'un seuil on ne verrait
+// rien passer, au-dessus on regarderait un tableau immobile en attendant que
+// la pause du professeur s'écoule. Un tableau enregistré AVANT que ce tableau
+// d'instants existe n'en a pas : il repart alors à la cadence constante, qui
+// reste le repli.
+// ==============================================================================
+let filmTemps = [];           // parallèle à `filmPas` : quand chaque étape a eu lieu
+const RYTHME_MINI = 60;       // ms : au-dessous, l'étape passe inaperçue
+const RYTHME_MAXI = 2500;     // ms : au-dessus, on regarde un tableau figé
 let filmDernierEtat = null;   // la dernière case, déjà relue : évite un JSON.parse par geste
 
 // Ce qui sépare deux états. `precedent` à null donne l'étape entière : c'est
@@ -2303,6 +2358,12 @@ function recalerLeDebutDuFilm() {
 // mieux que de perdre l'ordre des gestes.
 function refaireLeFilm() {
     filmPas = [];
+    // LES INSTANTS NE SE RECONSTRUISENT PAS. L'historique dit CE QUI a changé,
+    // jamais QUAND : refaire le film depuis lui, c'est perdre le rythme. On le
+    // jette donc franchement plutôt que d'inventer des écarts — le lecteur
+    // repassera à la cadence constante, qui est honnête, là où des instants
+    // fabriqués mentiraient sur ce qui s'est passé devant la classe.
+    filmTemps = [];
     filmDernierEtat = null;
     let prec = null;
     for (const e of history) {
@@ -2390,6 +2451,30 @@ function delaiDeLecture() {
     const v = Math.max(LECTURE_MIN, Math.min(LECTURE_MAX, lectureVitesse || 1));
     return Math.round(LECTURE_REFERENCE / v);
 }
+
+// LE TEMPS QU'IL FAUT AVANT DE MONTRER L'ÉTAPE `i`.
+//
+// C'est l'écart RÉEL avec l'étape d'avant, ramené entre deux bornes, puis
+// divisé par la vitesse demandée — le curseur de vitesse garde donc tout son
+// sens : il accélère ou ralentit le rythme d'origine au lieu de l'écraser.
+//
+// LES DEUX BORNES DISENT CHACUNE UN DÉFAUT QU'ON A VU. Sans plancher, une
+// rafale de points posés en dix millisecondes passe sans qu'on voie rien — on
+// veut MONTRER la construction, pas la faire clignoter. Sans plafond, la pause
+// de deux minutes pendant laquelle on répondait à un élève se rejoue
+// intégralement, et la classe regarde un tableau immobile.
+//
+// Faute d'instants — un tableau d'avant, ou un film refait depuis
+// l'historique —, on retombe sur la cadence constante.
+function delaiAvantLEtape(i) {
+    const v = Math.max(LECTURE_MIN, Math.min(LECTURE_MAX, lectureVitesse || 1));
+    if (!Array.isArray(filmTemps) || filmTemps.length !== history.length) return delaiDeLecture();
+    const a = filmTemps[i - 1], b = filmTemps[i];
+    if (!isFinite(a) || !isFinite(b)) return delaiDeLecture();
+    const vrai = Math.max(RYTHME_MINI, Math.min(RYTHME_MAXI, b - a));
+    return Math.max(16, Math.round(vrai / v));
+}
+window.delaiAvantLEtape = delaiAvantLEtape;
 
 // « ×0,2 » se lit mal quand on cherche un rythme ; « 3,5 s » se lit tout seul.
 function dureeLisible(ms) {
@@ -2748,14 +2833,16 @@ function avancerLaLecture() {
             lectureMinuteur = setTimeout(() => {
                 if (!lectureEnMarche) return;
                 poserEtapeDeLecture(0);
-                lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
+                lectureMinuteur = setTimeout(avancerLaLecture, delaiAvantLEtape(1));
             }, Math.min(2000, delaiDeLecture() * 2));
             return;
         }
         arreterLaLecture(); return;
     }
     poserEtapeDeLecture(lectureIndex + 1);
-    lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
+    // Le délai est celui de l'étape SUIVANTE : c'est le temps qui s'est
+    // écoulé, en vrai, entre celle qu'on vient de poser et celle d'après.
+    lectureMinuteur = setTimeout(avancerLaLecture, delaiAvantLEtape(lectureIndex + 1));
 }
 
 function lireOuPause() {
@@ -2765,7 +2852,7 @@ function lireOuPause() {
     if (lectureIndex >= history.length - 1) poserEtapeDeLecture(0);
     lectureEnMarche = true;
     majBandeDeLecture();
-    lectureMinuteur = setTimeout(avancerLaLecture, delaiDeLecture());
+    lectureMinuteur = setTimeout(avancerLaLecture, delaiAvantLEtape(lectureIndex + 1));
     return true;
 }
 window.lireOuPause = lireOuPause;
@@ -2904,9 +2991,306 @@ function trimHistory() {
         historyIndex--;
         coupe++;
     }
-    if (coupe) { filmPas.splice(0, coupe); recalerLeDebutDuFilm(); }
+    if (coupe) { filmPas.splice(0, coupe); filmTemps.splice(0, coupe); recalerLeDebutDuFilm(); }
     if (historyIndex < 0) historyIndex = 0;
 }
+
+// ==============================================================================
+// UN TABLEAU DANS UN LIEN
+//
+// « On pourrait stocker un tableau dans une URL, dans quelle limite ? Je
+// présume que c'est mort pour les images. » Mesuré : oui pour tout le reste,
+// non pour les images, et de très loin.
+//
+// CE QUI TIENT, EN CARACTÈRES D'URL, UNE FOIS COMPRESSÉ :
+//   — une figure de géométrie nommée ............................    372
+//   — douze lignes de texte .....................................    500
+//   — dix traits manuscrits .....................................  2 204
+//   — quarante traits ...........................................  8 048
+//   — cent vingt traits, un tableau bien rempli .................. 27 720
+//   — une petite image 200×150 embarquée .........................  4 568
+//   — une page A4 de PDF rendue à 150 dpi ....................... 417 248
+//
+// LES IMAGES SONT MORTES, ET SANS ASTUCE POSSIBLE : un PNG est déjà compressé,
+// le repasser au « deflate » ne gagne qu'un tiers là où le reste gagne neuf
+// fois, et la base64 rajoute encore un tiers par-dessus. Une seule page de
+// polycopié pèse vingt fois le praticable. On ne les embarque donc PAS — mais
+// une image qui vit déjà à une adresse (les connecteurs Drive, Dropbox et
+// Nextcloud en posent) voyage par sa RÉFÉRENCE, quelques dizaines de
+// caractères. Un tableau annoté par-dessus un document reste donc partageable,
+// à condition que le document soit joignable.
+//
+// POURQUOI LE FRAGMENT ET NON LA QUERY. Ce qui suit le « # » n'est JAMAIS
+// envoyé au serveur : toutes les limites d'en-tête HTTP — quatre à huit kilos
+// selon les serveurs — tombent d'un coup. Restent les limites de ce qui
+// transporte le lien, et elles seules :
+//   — ~1 500 caractères : un QR code encore lisible du fond de la classe ;
+//   — ~2 000 : sûr partout, courriel, messagerie, champ Pronote ;
+//   — ~8 000 : confortable dans tous les navigateurs ;
+//   — au-delà, ça marche encore mais se coupe dès qu'un autre logiciel s'en
+//     mêle. On prévient plutôt que de laisser fabriquer un lien mort.
+//
+// PAS DE BIBLIOTHÈQUE POUR COMPRESSER. « CompressionStream » est native depuis
+// Safari 16.4, et chaque dépendance ajoutée est une ligne de plus à tenir dans
+// NOTICE.md. Sans elle, on écrit le lien SANS compression : il est plus long,
+// il marche quand même, et l'on ne perd que sur la taille.
+// ==============================================================================
+
+const LIEN_VERSION = 1;
+const LIEN_SUR = 2000;        // caractères : sûr partout
+const LIEN_CONFORTABLE = 8000;
+const LIEN_LIMITE = 32000;    // au-delà, on refuse plutôt que de mentir
+
+// --- LES TRACÉS, LÀ OÙ TOUT SE JOUE ---------------------------------------
+//
+// Un point de tracé s'écrit aujourd'hui « {"x":312.4,"y":158.7,"p":0.5} » :
+// une quarantaine de caractères, pour une main qui avance de deux ou trois
+// pixels. On garde les ÉCARTS entre points successifs, arrondis au pixel —
+// de tout petits nombres, qui se répètent, et que la compression adore. Mesuré
+// sur de l'écriture bruitée : quarante traits passent de 49 872 caractères
+// d'URL à 8 048.
+//
+// CE QU'ON PERD, ET POURQUOI ÇA NE SE VOIT PAS : l'arrondi au pixel est
+// au-dessous de ce que l'œil distingue sur un vidéoprojecteur, et la pression
+// du stylet n'est pas relue au replay — elle ne sert qu'à l'épaisseur du trait
+// au moment où on l'écrit.
+function compacterUnTrait(t) {
+    const pts = t.points || [];
+    const d = [];
+    let px = 0, py = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const x = Math.round(pts[i].x), y = Math.round(pts[i].y);
+        d.push(x - px, y - py);
+        px = x; py = y;
+    }
+    const compact = { ...t, d };
+    delete compact.points;
+    return compact;
+}
+
+function deployerUnTrait(t) {
+    if (!t || !Array.isArray(t.d)) return t;
+    const pts = [];
+    let x = 0, y = 0;
+    for (let i = 0; i + 1 < t.d.length; i += 2) {
+        x += t.d[i]; y += t.d[i + 1];
+        pts.push({ x, y, p: 0.5 });
+    }
+    const plein = { ...t, points: pts };
+    delete plein.d;
+    return plein;
+}
+
+// Le film porte lui aussi des tracés, dans chacune de ses étapes : les y
+// laisser entiers aurait rendu la compression des tracés à peu près inutile,
+// puisque c'est le film qui pèse le plus lourd.
+function compacterLesTraits(arbre, sens) {
+    const passer = (liste) => (liste || []).map(sens === 'compacter' ? compacterUnTrait : deployerUnTrait);
+    if (Array.isArray(arbre)) return passer(arbre);
+    if (arbre && typeof arbre === 'object' && Array.isArray(arbre['+'])) {
+        return { '+': passer(arbre['+']) };
+    }
+    return arbre;
+}
+
+// --- CE QU'ON MET DANS LE LIEN --------------------------------------------
+
+// UNE IMAGE EMBARQUÉE NE PASSE PAS, ET ON LE DIT. La laisser tomber en silence
+// donnerait un lien qui s'ouvre sur un tableau amputé, sans que personne ne
+// sache pourquoi : on compte ce qu'on a retiré, et l'appelant l'annonce.
+function imagesQuiPassent(liste) {
+    const gardees = [], retirees = [];
+    (liste || []).forEach(o => {
+        if (o && typeof o.src === 'string' && /^https?:\/\//i.test(o.src)) gardees.push(o);
+        else retirees.push(o);
+    });
+    return { gardees, retirees: retirees.length };
+}
+
+function chargeDuLien(options) {
+    const avecLeFilm = !!(options && options.avecLeFilm);
+    const img = imagesQuiPassent(images);
+    const charge = {
+        v: LIEN_VERSION,
+        points, segments, circles, rectangles, texts,
+        freehands: compacterLesTraits(freehands, 'compacter'),
+        curves, polygons, arcs,
+        images: img.gardees,
+        htmlPostits: (typeof htmlPostits !== 'undefined' ? htmlPostits : []),
+        vue: [Math.round(panX), Math.round(panY), +(zoom || 1).toFixed(3)]
+    };
+    if (avecLeFilm && Array.isArray(filmPas) && filmPas.length > 1) {
+        charge.film = filmPas.map(pas => {
+            const copie = { ...pas };
+            if (copie.freehands !== undefined) copie.freehands = compacterLesTraits(copie.freehands, 'compacter');
+            if (copie.images !== undefined) {
+                const f = compacterLesImagesDuFilm(copie.images);
+                if (f === null) delete copie.images; else copie.images = f;
+            }
+            return copie;
+        });
+        // LE RYTHME PART AVEC LE FILM, ET EN ÉCARTS. Des horodatages absolus
+        // pèsent treize chiffres chacun et ne veulent rien dire chez celui qui
+        // reçoit le lien ; les écarts pèsent deux ou trois chiffres et disent
+        // exactement ce dont le lecteur a besoin.
+        if (Array.isArray(filmTemps) && filmTemps.length === filmPas.length) {
+            charge.rythme = filmTemps.map((t, i) => i === 0 ? 0 : Math.max(0, t - filmTemps[i - 1]));
+        }
+    }
+    charge.imagesRetirees = img.retirees;
+    return charge;
+}
+
+// Les images du film subissent la même règle que celles du tableau.
+function compacterLesImagesDuFilm(bloc) {
+    if (Array.isArray(bloc)) return imagesQuiPassent(bloc).gardees;
+    if (bloc && typeof bloc === 'object' && Array.isArray(bloc['+'])) {
+        const g = imagesQuiPassent(bloc['+']).gardees;
+        return g.length ? { '+': g } : null;
+    }
+    return bloc;
+}
+
+// --- LE CODAGE -------------------------------------------------------------
+
+function enBase64Url(octets) {
+    let s = '';
+    for (let i = 0; i < octets.length; i++) s += String.fromCharCode(octets[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function depuisBase64Url(txt) {
+    const s = atob(String(txt).replace(/-/g, '+').replace(/_/g, '/'));
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+}
+
+async function comprimer(texte) {
+    const octets = new TextEncoder().encode(texte);
+    if (typeof CompressionStream !== 'function') return { marque: '0', octets };
+    try {
+        const cs = new CompressionStream('deflate-raw');
+        const w = cs.writable.getWriter();
+        // ON RAMASSE LES PROMESSES DU FLUX. « write » et « close » en rendent
+        // une chacune ; les laisser tomber envoie leur rejet dans le vide, et
+        // le navigateur le remonte en erreur de page — une erreur que le
+        // « try » ci-autour ne voit jamais passer, puisqu'elle n'est levée
+        // nulle part dans son fil. C'est le côté LECTURE qui nous informe.
+        w.write(octets).catch(() => {});
+        w.close().catch(() => {});
+        const buf = await new Response(cs.readable).arrayBuffer();
+        return { marque: '1', octets: new Uint8Array(buf) };
+    } catch (e) {
+        // Un navigateur qui annonce la compression sans la faire : on écrit
+        // quand même, en plus long. Un lien long vaut mieux qu'aucun lien.
+        return { marque: '0', octets };
+    }
+}
+
+async function decomprimer(marque, octets) {
+    if (marque !== '1') return new TextDecoder().decode(octets);
+    const ds = new DecompressionStream('deflate-raw');
+    const w = ds.writable.getWriter();
+    // Même précaution qu'à la compression, et elle compte davantage ici : un
+    // lien tronqué en chemin par un logiciel qui l'a relayé fait échouer la
+    // décompression, et c'est le cas ORDINAIRE qu'on doit savoir rattraper.
+    w.write(octets).catch(() => {});
+    w.close().catch(() => {});
+    const buf = await new Response(ds.readable).arrayBuffer();
+    return new TextDecoder().decode(buf);
+}
+
+// --- FABRIQUER ET LIRE -----------------------------------------------------
+
+function adresseDeBase() {
+    // On coupe au « # » : sans cela, refaire un lien depuis un tableau qu'on a
+    // soi-même ouvert par un lien empilerait les fragments.
+    return String(location.href).split('#')[0];
+}
+
+async function fabriquerLeLien(options) {
+    const charge = chargeDuLien(options);
+    const retirees = charge.imagesRetirees;
+    delete charge.imagesRetirees;
+    const { marque, octets } = await comprimer(JSON.stringify(charge));
+    const lien = adresseDeBase() + '#t' + marque + '=' + enBase64Url(octets);
+    return {
+        lien,
+        taille: lien.length,
+        imagesRetirees: retirees,
+        avecLeFilm: !!charge.film,
+        etapes: charge.film ? charge.film.length : 0,
+        // Ce que l'appelant doit savoir pour décider, plutôt qu'un simple
+        // « trop long » qui ne dit pas de combien ni pour quel usage.
+        verdict: lien.length <= LIEN_SUR ? 'sûr partout'
+               : lien.length <= LIEN_CONFORTABLE ? 'bon pour un lien, trop long pour un QR code'
+               : lien.length <= LIEN_LIMITE ? 'long : il peut être coupé en chemin'
+               : 'trop long'
+    };
+}
+window.fabriquerLeLien = fabriquerLeLien;
+
+function lienDansLAdresse(href) {
+    const m = /#t([01])=([A-Za-z0-9_-]+)/.exec(String(href || location.href));
+    return m ? { marque: m[1], data: m[2] } : null;
+}
+
+async function ouvrirDepuisLeLien(href) {
+    const trouve = lienDansLAdresse(href);
+    if (!trouve) return false;
+    let charge;
+    try {
+        charge = JSON.parse(await decomprimer(trouve.marque, depuisBase64Url(trouve.data)));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('Ce lien de tableau est illisible');
+        return false;
+    }
+    if (!charge || charge.v !== LIEN_VERSION) {
+        if (typeof showToast === 'function') showToast('Ce lien vient d\'une autre version d\'Au Tableau !');
+        return false;
+    }
+    points = charge.points || [];
+    segments = charge.segments || [];
+    circles = charge.circles || [];
+    rectangles = charge.rectangles || [];
+    texts = charge.texts || [];
+    freehands = compacterLesTraits(charge.freehands, 'deployer');
+    curves = charge.curves || [];
+    polygons = charge.polygons || [];
+    arcs = charge.arcs || [];
+    images = charge.images || [];
+    if (typeof htmlPostits !== 'undefined') htmlPostits = charge.htmlPostits || [];
+    if (Array.isArray(charge.vue)) { panX = charge.vue[0]; panY = charge.vue[1]; zoom = charge.vue[2] || 1; }
+
+    // LE FILM REVIENT, ET SON RYTHME AVEC. Sans lui, le lien ne porte que
+    // l'état final — ce qui est déjà utile, mais ce n'est pas ce qu'on promet
+    // quand on écrit « lien du replay ».
+    if (Array.isArray(charge.film) && charge.film.length) {
+        filmPas = charge.film.map(pas => {
+            const copie = { ...pas };
+            if (copie.freehands !== undefined) copie.freehands = compacterLesTraits(copie.freehands, 'deployer');
+            return copie;
+        });
+        history = deroulerLeFilm(filmPas);
+        historyIndex = history.length - 1;
+        // Les écarts redeviennent des instants : le lecteur ne connaît que
+        // ceux-là, et il les relit toujours par différence.
+        if (Array.isArray(charge.rythme) && charge.rythme.length === filmPas.length) {
+            let t = Date.now() - charge.rythme.reduce((a, b) => a + b, 0);
+            filmTemps = charge.rythme.map(d => { t += d; return t; });
+        } else filmTemps = [];
+    } else {
+        filmPas = []; filmTemps = []; history = []; historyIndex = -1;
+        if (typeof saveState === 'function') saveState();
+    }
+
+    if (typeof imagesRetirees !== 'undefined') { /* rien : l'émetteur a déjà prévenu */ }
+    if (typeof syncPage === 'function') syncPage();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+window.ouvrirDepuisLeLien = ouvrirDepuisLeLien;
 
 function saveState() {
     // CEINTURE ET BRETELLES. Le tableau est deja fige pendant la lecture, mais
@@ -2917,6 +3301,7 @@ function saveState() {
     if (historyIndex < history.length - 1) {
         history = history.slice(0, historyIndex + 1);
         filmPas = filmPas.slice(0, historyIndex + 1);
+        filmTemps = filmTemps.slice(0, historyIndex + 1);
         filmDernierEtat = null;   // la dernière case a changé : on la relira
     }
     const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits });
@@ -2938,6 +3323,7 @@ function saveState() {
             if (!precedent && history.length) { try { precedent = JSON.parse(history[history.length - 1]); } catch (e) { precedent = null; } }
         }
         filmPas.push(etapeDuFilm(precedent, etatDetache));
+        filmTemps.push(Date.now());
         filmDernierEtat = etatDetache;
     }
     history.push(state); historyIndex++;
@@ -34032,6 +34418,39 @@ function texteDuContenu() {
     return morceaux.join('\n\n');
 }
 
+// LE LIEN, ET CE QU'IL FAUT EN SAVOIR AVANT DE LE COLLER.
+//
+// On annonce sa longueur en clair. Un lien de trois mille caractères se colle
+// très bien dans Pronote et passe mal dans un QR code ; un lien de quarante
+// mille se fait couper en chemin par le premier logiciel qui le relaie, et
+// l'on ne s'en aperçoit que devant la classe. Mieux vaut le savoir au moment
+// où on le fabrique.
+async function copierLeLien(avecLeFilm) {
+    const r = await fabriquerLeLien({ avecLeFilm });
+    if (r.taille > 32000) {
+        showToast('Ce tableau est trop chargé pour tenir dans un lien ('
+            + Math.round(r.taille / 1000) + ' 000 caractères) — enregistrez-le plutôt dans votre nuage');
+        return null;
+    }
+    const ok = await mettreDansLePressePapiers(r.lien);
+    if (!ok) { showToast('La copie a échoué : le lien est trop long pour le presse-papiers'); return null; }
+    const morceaux = [];
+    morceaux.push(avecLeFilm && r.etapes > 1
+        ? 'Lien du replay copié (' + r.etapes + ' étapes)'
+        : 'Lien du tableau copié');
+    morceaux.push(r.taille + ' caractères, ' + r.verdict);
+    if (r.imagesRetirees) {
+        // ON NE LAISSE PAS PARTIR UN LIEN AMPUTÉ EN SILENCE. Celui qui l'ouvre
+        // verrait un tableau incomplet sans pouvoir deviner pourquoi.
+        morceaux.push(r.imagesRetirees > 1
+            ? r.imagesRetirees + ' images n\'y tiennent pas et sont restées'
+            : 'une image n\'y tient pas et est restée');
+    }
+    showToast(morceaux.join(' — '));
+    return r;
+}
+window.copierLeLien = copierLeLien;
+
 async function copierPour(quoi) {
     enregistrerLeCahier();
     const t = seanceCourante();
@@ -34073,6 +34492,8 @@ function ouvrirLeCahier() {
         });
         document.getElementById('cdt-copier-contenu').addEventListener('click', () => copierPour('contenu'));
         document.getElementById('cdt-copier-devoirs').addEventListener('click', () => copierPour('devoirs'));
+        document.getElementById('cdt-lien-replay')?.addEventListener('click', () => copierLeLien(true));
+        document.getElementById('cdt-lien-tableau')?.addEventListener('click', () => copierLeLien(false));
         document.getElementById('cdt-reprendre').addEventListener('click', reprendreLesDevoirs);
     }
     boite.style.display = 'flex';
