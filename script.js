@@ -5326,8 +5326,38 @@ let selectedScope = 'page';
 function updateExportButtonLabel() {
     const btn = document.getElementById('btn-do-export');
     if (!btn) return;
+    // « Exporter la page » devant un lien serait faux deux fois : rien n'est
+    // exporté, et ce n'est pas une page mais le tableau qui part.
+    if (selectedFormat === 'lien') { btn.innerText = 'Copier le lien'; return; }
     btn.innerText = selectedScope === 'all' ? 'Exporter TOUTES les pages' : 'Exporter la page';
 }
+
+// LA LONGUEUR SE LIT AVANT DE COPIER, pas après. Un lien de trois mille
+// caractères se colle très bien dans Pronote et passe mal dans un QR code ;
+// un lien de quarante mille se fait couper en chemin par le premier logiciel
+// qui le relaie, et l'on ne s'en aperçoit que devant la classe.
+async function annoncerLaTailleDuLien() {
+    const ligne = document.getElementById('export-lien-taille');
+    if (!ligne || typeof fabriquerLeLien !== 'function') return;
+    const film = document.getElementById('export-lien-film');
+    ligne.textContent = 'Mesure…';
+    try {
+        const r = await fabriquerLeLien({ avecLeFilm: !film || film.checked });
+        const bouts = [r.taille.toLocaleString('fr-FR') + ' caractères — ' + r.verdict];
+        if (r.imagesRetirees) {
+            bouts.push(r.imagesRetirees > 1
+                ? r.imagesRetirees + ' images n\'y tiennent pas'
+                : 'une image n\'y tient pas');
+        }
+        ligne.textContent = bouts.join(' · ');
+    } catch (e) { ligne.textContent = ''; }
+}
+window.annoncerLaTailleDuLien = annoncerLaTailleDuLien;
+
+document.getElementById('export-lien-film')?.addEventListener('change', () => {
+    updateExportButtonLabel();
+    annoncerLaTailleDuLien();
+});
 
 // Action A : Bouton "Recadrer une zone"
 if (btnCapture) {
@@ -5379,6 +5409,19 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         const scopeContainer = document.getElementById('export-scope-container');
         const supportsMultiPage = (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector');
 
+        // UN LIEN N'EST PAS UN FICHIER, et il ne partage aucun réglage avec
+        // les quatre autres : ni qualité d'image, ni fond à garder, ni portée.
+        // Les laisser à l'écran, ce serait promettre des choses qui
+        // n'arriveront pas — et l'on chercherait ensuite pourquoi la case
+        // « garder le fond » n'a rien changé.
+        const unLien = (selectedFormat === 'lien');
+        const reglagesDuLien = document.getElementById('settings-lien');
+        if (reglagesDuLien) reglagesDuLien.style.display = unLien ? 'block' : 'none';
+        const boiteFond = document.getElementById('export-bg');
+        const ligneFond = boiteFond ? boiteFond.closest('label') : null;
+        if (ligneFond) ligneFond.style.display = unLien ? 'none' : 'flex';
+        if (unLien) annoncerLaTailleDuLien();
+
         if (scopeContainer) scopeContainer.style.display = supportsMultiPage ? 'block' : 'none';
         if (!supportsMultiPage) {
             selectedScope = 'page';
@@ -5400,6 +5443,9 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         } else if (selectedFormat === 'pdf-vector') {
             desc.innerText = "PDF Vect. : PDF vectoriel pur. Attention: les plugins complexes ne seront pas visibles.";
             settings.style.display = 'none'; // Pas besoin de qualité x2 pour du vectoriel
+        } else if (selectedFormat === 'lien') {
+            desc.innerText = "Lien : le tableau lui-même dans une adresse. Il s'ouvre sans compte et sans rien installer — et se rejoue. Les images ne tiennent pas dans une adresse.";
+            settings.style.display = 'none';
         }
     });
 });
@@ -5429,6 +5475,15 @@ const btnDoExport = document.getElementById('btn-do-export');
 if (btnDoExport) {
     btnDoExport.addEventListener('click', () => {
         if (!selectedFormat) return showToast("Veuillez choisir un format !");
+        if (selectedFormat === 'lien') {
+            const film = document.getElementById('export-lien-film');
+            copierLeLien(!film || film.checked).then(r => {
+                // On ne referme la fenêtre que si le lien est vraiment parti :
+                // refermer sur un échec laisserait croire que c'est fait.
+                if (r && exportPopover) exportPopover.classList.remove('visible');
+            });
+            return;
+        }
         if (selectedScope === 'all' && (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector')) {
             exportAllPagesPdf();
         } else {
@@ -25680,9 +25735,21 @@ function majBoutonPresenterDeLEcran() {
     // plusieurs plein écran ». Celui-ci projette LA PAGE.
     // SANS LA TOUCHE DANS LE TEXTE, comme ses voisines : elle est posée dans
     // « data-raccourci » au démarrage, et l'infobulle la montre à part.
+    // ET QUAND IL NE PEUT RIEN FAIRE, IL LE DIT.
+    //
+    // « Quand il n'y a pas d'image ou de PDF, projeter la page en grand ne
+    // fait rien. » C'était vrai, et deux fois trompeur : le bouton ÉTAIT bien
+    // désactivé, mais rien ne le montrait — la barre du coin n'avait pas de
+    // style d'éteint, contrairement aux flèches de pages qui l'ont — et son
+    // infobulle promettait quand même « Projeter la page en grand ». On
+    // appuyait donc sur un bouton d'aplomb, qui annonçait un geste, et il ne
+    // se passait rien. Un bouton éteint doit dire CE QUI MANQUE, sans quoi il
+    // ne vaut pas mieux qu'un bouton absent.
     b.setAttribute('data-tooltip', enCours
         ? 'Rendre la page au tableau'
-        : 'Projeter la page en grand');
+        : possible
+            ? 'Projeter la page en grand'
+            : 'Rien à projeter : ouvrez d\'abord un document ou une image');
     // Et son icône dit lequel des deux gestes il fera. ON N'ÉCRIT QUE SI ÇA
     // CHANGE, et ce n'est pas de la coquetterie : cette fonction ne repasse pas
     // seulement à chaque changement de sélection, elle repasse à CHAQUE IMAGE

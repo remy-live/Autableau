@@ -336,6 +336,90 @@ module.exports = async function (browser) {
                  surLaPageNeuve: ['Le segment [AB]'], surLaPremiere: ['ma préparation'] });
 
     await eleve.close();
+
+    // ==========================================================
+    // 10. LE LIEN EST AUSSI UN FORMAT D'EXPORT
+    //
+    // « Il faudrait aussi le lien dans les fonctions d'exporter, non ? » Oui :
+    // c'est là qu'on vient chercher « comment je sors ça d'ici », et un lien
+    // est une sortie comme une autre — la seule, même, qui se rouvre en
+    // tableau vivant au lieu d'une image morte.
+    //
+    // MAIS IL NE PARTAGE AUCUN RÉGLAGE AVEC LES QUATRE AUTRES : ni qualité
+    // d'image, ni fond à garder, ni portée. Les laisser à l'écran, ce serait
+    // promettre des choses qui n'arriveront pas — et l'on chercherait ensuite
+    // pourquoi « garder le fond » n'a rien changé.
+    // ==========================================================
+    await vider();
+    await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(k => setTimeout(k, ms));
+        const a = { id: nextId++, x: 100, y: 100 }, b = { id: nextId++, x: 280, y: 100 };
+        points.push(a, b);
+        segments.push({ id: nextId++, p1_id: a.id, p2_id: b.id, color: '#e74c3c', width: 3, z: globalZ++ });
+        saveState(); await attendre(120);
+        texts.push({ id: nextId++, x: 60, y: 200, text: 'Le segment', content: 'Le segment',
+                     color: '#000', fontSize: 24, z: globalZ++ });
+        saveState();
+        document.getElementById('export-popover').classList.add('visible');
+    });
+    await page.click('.btn-format-choice[data-format="lien"]');
+    await page.waitForTimeout(700);
+
+    const surLeLien = await page.evaluate(() => {
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return e ? getComputedStyle(e).display : '(absent)';
+        };
+        const ligneFond = document.getElementById('export-bg').closest('label');
+        return {
+            reglagesDuLien: vu('settings-lien'),
+            qualite: vu('settings-png-pdf'),
+            fond: getComputedStyle(ligneFond).display,
+            portee: vu('export-scope-container'),
+            bouton: document.getElementById('btn-do-export').innerText,
+            taille: document.getElementById('export-lien-taille').textContent,
+            description: document.getElementById('format-description').innerText
+        };
+    });
+    r.egal('choisir « Lien » efface les réglages qui ne le concernent pas',
+        { qualite: surLeLien.qualite, fond: surLeLien.fond, portee: surLeLien.portee },
+        { qualite: 'none', fond: 'none', portee: 'none' });
+    r.egal('et montre les siens', surLeLien.reglagesDuLien, 'block');
+    // « EXPORTER LA PAGE » SERAIT FAUX DEUX FOIS : rien n'est exporté, et ce
+    // n'est pas une page mais le tableau qui part.
+    r.egal('le bouton dit ce qu\'il va faire', surLeLien.bouton.trim(), 'Copier le lien');
+    r.verifie('la longueur s\'annonce AVANT de copier, avec son verdict',
+        /\d/.test(surLeLien.taille) && /caractères/.test(surLeLien.taille),
+        surLeLien.taille);
+    r.verifie('et la description prévient pour les images',
+        /image/i.test(surLeLien.description), surLeLien.description);
+
+    // REVENIR À UN FORMAT DE FICHIER REND TOUT CE QU'ON AVAIT EFFACÉ.
+    await page.click('.btn-format-choice[data-format="png"]');
+    await page.waitForTimeout(400);
+    r.egal('revenir au PNG rend les réglages de fichier',
+        await page.evaluate(() => {
+            const ligneFond = document.getElementById('export-bg').closest('label');
+            return {
+                reglagesDuLien: getComputedStyle(document.getElementById('settings-lien')).display,
+                qualite: getComputedStyle(document.getElementById('settings-png-pdf')).display,
+                fond: getComputedStyle(ligneFond).display,
+                bouton: document.getElementById('btn-do-export').innerText.trim()
+            };
+        }),
+        { reglagesDuLien: 'none', qualite: 'block', fond: 'flex', bouton: 'Exporter la page' });
+
+    // DÉCOCHER LE REPLAY RACCOURCIT VRAIMENT LE LIEN. La case doit agir, pas
+    // seulement exister.
+    const sansReplay = await page.evaluate(async () => {
+        const avec = await fabriquerLeLien({ avecLeFilm: true });
+        const sans = await fabriquerLeLien({ avecLeFilm: false });
+        return { avec: avec.taille, sans: sans.taille, etapes: avec.etapes };
+    });
+    r.verifie('décocher le replay donne un lien plus court',
+        sansReplay.sans < sansReplay.avec, JSON.stringify(sansReplay));
+    await page.evaluate(() => document.getElementById('export-popover').classList.remove('visible'));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

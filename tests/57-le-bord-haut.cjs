@@ -184,6 +184,54 @@ module.exports = async function (browser) {
         coin.pages_ === 1 && coin.precGrise && coin.suivGrise, JSON.stringify(coin));
     r.verifie('sans document à projeter, « projeter » est là mais éteint',
         coin.presenterEteint, JSON.stringify(coin));
+
+    // ET « ÉTEINT » DOIT SE VOIR, pas seulement se lire dans une propriété.
+    //
+    // « Quand il n'y a pas d'image ou de PDF, projeter la page en grand ne
+    // fait rien. » Le bouton ÉTAIT désactivé — la vérification ci-dessus
+    // passait — mais il gardait son opacité pleine, son curseur en main, et
+    // une infobulle qui promettait « Projeter la page en grand ». On appuyait
+    // donc sur un bouton d'aplomb, qui annonçait un geste, et rien n'arrivait.
+    // Éprouver « disabled » ne prouvait que la donnée ; ce qui compte est ce
+    // que l'enseignant a sous les yeux.
+    const eteint = await page.evaluate(() => {
+        const b = document.getElementById('btn-ecran-presenter');
+        const cs = getComputedStyle(b);
+        return { opacite: parseFloat(cs.opacity), curseur: cs.cursor,
+                 infobulle: b.getAttribute('data-tooltip') || '' };
+    });
+    r.verifie('et cela SE VOIT : il pâlit et son curseur n\'est plus une main',
+        eteint.opacite <= 0.5 && eteint.curseur !== 'pointer', JSON.stringify(eteint));
+    r.verifie('son infobulle dit ce qui manque, au lieu de promettre',
+        /rien à projeter/i.test(eteint.infobulle) && /document|image/i.test(eteint.infobulle),
+        eteint.infobulle);
+
+    // AVEC UNE PAGE À PROJETER, IL SE RALLUME ET REPROMET.
+    const rallume = await page.evaluate(async () => {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200">'
+                  + '<rect width="300" height="200" fill="#eeeeee"/></svg>';
+        const src = 'data:image/svg+xml;base64,' + btoa(svg);
+        await new Promise(ok => { const i = new Image(); i.onload = () => { imageCache[src] = i; ok(); }; i.src = src; });
+        const o = { id: nextId++, x: 100, y: 100, w: 300, h: 200, cx: 0, cy: 0,
+                    cw: 300, ch: 200, src, z: globalZ++, fileName: 'page.svg' };
+        images.push(o);
+        selectedItems = [{ type: 'image', id: o.id }];
+        majBarreDocument(); majBoutonPresenterDeLEcran(); draw();
+        await new Promise(k => setTimeout(k, 200));
+        const b = document.getElementById('btn-ecran-presenter');
+        const cs = getComputedStyle(b);
+        return { eteint: b.disabled, opacite: parseFloat(cs.opacity), curseur: cs.cursor,
+                 infobulle: b.getAttribute('data-tooltip') || '' };
+    });
+    r.egal('une page à projeter le rallume, en toutes lettres',
+        { eteint: rallume.eteint, opacite: rallume.opacite, curseur: rallume.curseur },
+        { eteint: false, opacite: 1, curseur: 'pointer' });
+    r.verifie('et il repromet le geste', /projeter la page/i.test(rallume.infobulle),
+        rallume.infobulle);
+    await page.evaluate(() => {
+        images.length = 0; selectedItems = [];
+        majBarreDocument(); majBoutonPresenterDeLEcran(); draw();
+    });
     r.egal('et le rang dit où l\'on est sans attendre un premier changement de page',
         coin.rang, '1/1');
 

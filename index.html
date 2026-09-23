@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=203 »,
-         « script.js?v=346 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=204 »,
+         « script.js?v=348 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=203">
+    <link rel="stylesheet" href="style.css?v=204">
 </head>
 
 <body>
@@ -3566,6 +3566,31 @@
                 style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 13px; transition: all 0.2s; color:#2d3436;">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M9 15.5l1.5-1.5 2.5 2.5 3-3"></path></svg>
                 PDF Vect.</button>
+            <!-- LE CINQUIÈME N'EST PAS UN FICHIER. « Il faudrait aussi le lien
+                 dans les fonctions d'exporter, non ? » Oui : c'est ici qu'on
+                 vient chercher « comment je sors ça d'ici », et un lien est
+                 une sortie comme une autre — la seule, même, qui se rouvre en
+                 tableau vivant au lieu d'une image morte.
+                 Il ne partage RIEN des réglages voisins : pas de qualité
+                 d'image, pas de fond à garder, pas de portée. On les efface
+                 donc quand il est choisi, plutôt que de les laisser promettre
+                 des choses qui n'arriveront pas. -->
+            <button class="btn-format-choice" data-format="lien"
+                style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 13px; transition: all 0.2s; color:#2d3436;">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                Lien</button>
+        </div>
+        <!-- CE QUE LE LIEN CONTIENT SE CHOISIT ICI, et nulle part ailleurs :
+             le replay coûte à peine plus cher que l'état final — douze pour
+             cent, mesuré — mais c'est un choix, et il doit se voir. -->
+        <div id="settings-lien" style="display:none; margin-bottom:15px;">
+            <label class="export-option"
+                style="font-size: 13px; display:flex; align-items:center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="export-lien-film" checked style="width: 16px; height: 16px;">
+                Emporter le replay, pour que le tableau se reconstruise
+            </label>
+            <p id="export-lien-taille"
+                style="font-size:12px; color:#636e72; margin:8px 0 0 0;"></p>
         </div>
 
         <div id="export-settings-container" style="border-top: 1px solid #eee; padding-top: 15px;">
@@ -3821,7 +3846,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=346"></script>
+    <script src="script.js?v=348"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

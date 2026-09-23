@@ -740,8 +740,19 @@ module.exports = async function (browser) {
         apresBascule.avant.affichage && apresBascule.apres.affichage
         && apresBascule.avant.affichage !== apresBascule.apres.affichage,
         JSON.stringify(apresBascule));
-    r.verifie('et celui de la projection dit ce qu\'il fera',
-        /Projeter la page/.test(apresBascule.avant.projeter || ''),
+    // ET CELUI DE LA PROJECTION DIT CE QU'IL FERA — OU CE QUI MANQUE.
+    //
+    // Il exigeait « Projeter la page », et c'était juste tant que le bouton
+    // promettait la même chose dans tous les cas. Or « quand il n'y a pas
+    // d'image ou de PDF, projeter la page en grand ne fait rien » : le bouton
+    // est alors éteint, et son infobulle dit désormais ce qui manque au lieu
+    // d'annoncer un geste qui n'arrivera pas. Ce chapitre-ci n'a pas de
+    // document — c'est donc le second texte qu'il doit lire. Ce qu'il défend
+    // reste le même : une infobulle qui INFORME, et qui parle bien de
+    // projeter la page.
+    r.verifie('et celui de la projection dit ce qu\'il fera, ou ce qui manque pour le faire',
+        /Projeter la page/.test(apresBascule.avant.projeter || '')
+        || /Rien à projeter/i.test(apresBascule.avant.projeter || ''),
         String(apresBascule.avant.projeter));
 
     r.verifie('celle du plein écran montre sa touche',

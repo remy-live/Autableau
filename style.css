@@ -2062,7 +2062,15 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
     height: 14px;
 }
 
-#barre-ecran button:hover { background: var(--accent-soft); color: var(--accent); }
+/* UN BOUTON ÉTEINT DOIT SE VOIR ÉTEINT. « Quand il n'y a pas d'image ou de
+   PDF, projeter la page en grand ne fait rien » : il était bien désactivé,
+   mais gardait son opacité pleine et son curseur en main — d'aplomb, donc, et
+   promettant un geste qu'il ne ferait pas. Les flèches de pages, juste à
+   côté, avaient cette règle depuis toujours ; elle vivait sous
+   « #ecran-pages », et ne couvrait donc pas les boutons posés directement
+   dans la barre. */
+#barre-ecran button:disabled { opacity: 0.3; cursor: default; }
+#barre-ecran button:not(:disabled):hover { background: var(--accent-soft); color: var(--accent); }
 
 /* LES PAGES DU TABLEAU, AU COIN, EN PERMANENCE.
    Deux flèches et un rang, dans le même habit que leurs voisines : c'est une
