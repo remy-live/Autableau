@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=201 »,
-         « script.js?v=329 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=330 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -887,6 +887,14 @@
                  Vide : « majLesPagesDeLEcran » y met le rang. -->
             <button id="ecran-page-rang" data-tooltip="Cette page du tableau : la supprimer"></button>
             <button id="btn-ecran-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
+            <!-- LE « ＋ » SE VOIT. « Pour les pages en haut à droite j'aimerais
+                 bien un petit + au niveau des pages. » Ajouter une page était
+                 caché dans le menu du rang : il fallait savoir que le « 1/2 »
+                 s'ouvre, et ce qu'on y trouve. Or c'est le geste qu'on fait le
+                 plus souvent des trois — on tourne, on ajoute, et on ne
+                 supprime qu'une fois sur vingt. Il sort donc du tiroir, à côté
+                 des flèches qu'il prolonge. -->
+            <button id="btn-ecran-page-plus" data-tooltip="Ajouter une page vierge au tableau">＋</button>
         </span>
         <!-- LE SECOND TRAIT, LUI, EST TOUJOURS LÀ. Le premier ne paraît qu'avec
              la famille de l'affichage, qui ne vient qu'au tableau nu ; depuis
@@ -3751,7 +3759,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=329"></script>
+    <script src="script.js?v=330"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

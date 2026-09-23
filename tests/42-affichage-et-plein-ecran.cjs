@@ -131,9 +131,12 @@ module.exports = async function (browser) {
         // tableau nu ET s'il y a plus d'une page. Ici il n'y en a qu'une.
         // Leur RANG en est aussi : c'est un bouton depuis qu'on peut jeter la
         // page en appuyant dessus, mais il vit et meurt avec ses deux flèches.
+        // Et le « ＋ » depuis qu'ajouter une page ne se cache plus dans le
+        // menu du rang — « j'aimerais bien un petit + au niveau des pages » :
+        // il est du même groupe, il suit le même sort.
         const CONDITIONNELS = ['btn-ecran-presenter', 'btn-ecran-retour',
                                'btn-ecran-page-prec', 'btn-ecran-page-suiv',
-                               'ecran-page-rang'];
+                               'ecran-page-rang', 'btn-ecran-page-plus'];
         return [...b.querySelectorAll('button')]
             .filter(x => !CONDITIONNELS.includes(x.id))
             .map(x => ({ id: x.id, atteignable: x.getBoundingClientRect().width > 10 }));

@@ -1071,6 +1071,29 @@ function initPages() {
     loadPage(0);
 }
 
+// AJOUTER UNE PAGE, PAR UN SEUL CHEMIN.
+//
+// Trois endroits faisaient « pages.push(createNewPage()) » à la main : le
+// menu du rang, le « ＋ » du tiroir des morceaux, et maintenant celui du coin.
+// Tous avaient le même angle mort — si la liste était vide, la page qu'ils
+// ajoutaient était la PREMIÈRE, et le tableau qu'on avait sous les yeux
+// disparaissait avec elle sans être rangé nulle part. On range donc d'abord
+// ce qui est à l'écran, et on ajoute ensuite : quel que soit l'état de départ,
+// appuyer sur « ＋ » donne toujours une page de plus.
+function ajouterUnePageVierge() {
+    if (!pages.length) {
+        pages = [createNewPage()];
+        currentPageIndex = 0;
+        syncPage();                  // le tableau courant DEVIENT la page 1
+    }
+    pages.push(createNewPage());
+    loadPage(pages.length - 1);
+    if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+    if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+    return pages.length;
+}
+window.ajouterUnePageVierge = ajouterUnePageVierge;
+
 function loadPage(index) {
     // QUITTER LA PAGE DU DOCUMENT PROJETÉ MET LA PROJECTION EN PAUSE.
     //
@@ -1241,12 +1264,22 @@ function demanderUneLigne(titre, label, valeur = '', placeholder = '') {
 window.demanderConfirmation = demanderConfirmation;
 window.prevenir = prevenir;
 window.demanderUneLigne = demanderUneLigne;
+// UN TABLEAU NEUF A UNE PAGE, PAS ZÉRO.
+//
+// « Si on n'a pas de page et qu'on clique sur nouvelle page, on reste à une
+// page. » On vidait bien « pages », puis l'on confiait le soin de le
+// repeupler à « saveCurrentPage » — une fonction qui N'EXISTE NULLE PART. Le
+// « typeof … === 'function' » avalait l'absence sans un mot, et l'on repartait
+// avec une liste vide : le coin annonçait « 1/0 », et le premier « Nouvelle
+// page » ne faisait que rendre la page qui aurait dû être là depuis le début.
+// D'où l'impression, juste, de ne pas avancer.
+//
+// « initPages » fait exactement ce qu'il faut, et il existe, lui : une page
+// vierge, chargée.
 function clearBoardAndPages() {
     images = []; polygons = []; curves = []; circles = []; arcs = [];
     rectangles = []; segments = []; freehands = []; points = []; texts = [];
-    pages = [];
-    currentPageIndex = 0;
-    if (typeof saveCurrentPage === 'function') saveCurrentPage();
+    initPages();
     if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
     if (typeof closeAllPopups === 'function') closeAllPopups();
     clearSelection();
@@ -1586,6 +1619,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     document.getElementById('btn-ecran-page-prec')?.addEventListener('click', () => tournerLaPageDuTableau(-1));
     document.getElementById('btn-ecran-page-suiv')?.addEventListener('click', () => tournerLaPageDuTableau(1));
+    document.getElementById('btn-ecran-page-plus')?.addEventListener('click', () => {
+        const combien = ajouterUnePageVierge();
+        if (typeof showToast === 'function') showToast(`Page ${currentPageIndex + 1} sur ${combien} — vierge`);
+    });
     // LE RANG OUVRE CE QU'ON PEUT FAIRE DE CETTE PAGE. Il n'en portait qu'une,
     // la jeter ; les deux autres arrivent de la capsule du tiroir du bas, qui
     // disait la même pagination un étage plus bas — « Nouvelle page » et le
@@ -1594,8 +1631,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ecran-page-rang')?.addEventListener('click', (e) => {
         if (typeof ouvrirPanneauAppui !== 'function') return;
         const entrees = [
-            { nom: '＋ Nouvelle page',
-              action: () => { pages.push(createNewPage()); loadPage(pages.length - 1); } }
+            { nom: '＋ Nouvelle page', action: () => ajouterUnePageVierge() }
         ];
         if (typeof window.ouvrirLeTrieur === 'function') {
             entrees.push({ nom: '⊞ Trier les pages…', action: () => window.ouvrirLeTrieur() });
@@ -4081,6 +4117,15 @@ function generateSVGString(rect, keepBg) {
 
     displayList.forEach(item => {
         const obj = item.obj;
+        // L'OPACITÉ DE L'OBJET S'EXPORTE AUSSI. Elle s'applique au tableau par
+        // un seul « globalAlpha », posé dans la liste d'affichage ; ici, chaque
+        // type écrit ses propres balises, et il y en a trop pour leur ajouter
+        // un attribut une à une. On note donc où en est le texte SVG avant
+        // l'objet, et l'on enveloppe après coup ce qu'il vient d'y écrire — ce
+        // qui vaut pour tous les types, y compris ceux qu'on ajoutera.
+        const alphaObjet = (obj.opacity === undefined) ? 1
+            : Math.max(0, Math.min(1, obj.opacity));
+        const avantCetObjet = svg.length;
         const color = obj.strokeColor || obj.color || (isDarkMode ? '#fff' : '#000');
         const w = obj.width || 3;
         const dash = getDash(obj.dash, w);
@@ -4399,6 +4444,10 @@ function generateSVGString(rect, keepBg) {
                     if (transformAttr !== "") svg += `</g>`;
                 }
             }
+        }
+        if (alphaObjet < 1 && svg.length > avantCetObjet) {
+            svg = svg.slice(0, avantCetObjet)
+                + `<g opacity="${alphaObjet}">` + svg.slice(avantCetObjet) + `</g>`;
         }
     });
 
@@ -7026,14 +7075,37 @@ document.getElementById('opacity-slider').addEventListener('change', (e) => {
     if (selectionIsOnlyImages()) applyPluginStampOpacity(parseFloat(e.target.value), true);
 });
 // Curseur d'opacité de la barre de style (visible dès qu'un tampon est sélectionné)
+// L'OPACITÉ DE CE QU'ON TIENT, QUOI QUE CE SOIT.
+// Un tampon a son chemin à lui — il repeint son image et doit s'enregistrer
+// sans bloquer le curseur. Tout le reste porte simplement « obj.opacity », que
+// la liste d'affichage applique en un seul endroit.
+function reglerLOpaciteDeLaSelection(v, definitif) {
+    const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
+        .map(i => getObjectById(i.type, i.id)).filter(Boolean);
+    if (!tenus.length) return false;
+    tenus.forEach(o => { o.opacity = v; });
+    draw();
+    if (definitif && typeof saveState === 'function') saveState();
+    return true;
+}
+window.reglerLOpaciteDeLaSelection = reglerLOpaciteDeLaSelection;
+
 document.getElementById('stamp-opacity')?.addEventListener('input', (e) => {
-    applyPluginStampOpacityLive(parseFloat(e.target.value));
+    const v = parseFloat(e.target.value);
     const twin = document.getElementById('opacity-slider');
-    if (twin) { twin.value = e.target.value; afficherLOpacite(parseFloat(e.target.value)); }
+    if (twin) { twin.value = e.target.value; afficherLOpacite(v); }
+    // ON NE TIENT PAS TOUJOURS QUELQUE CHOSE. Pendant qu'on ANNOTE un
+    // document, la sélection est vide et la barre règle la page retenue :
+    // c'est « applyPluginStampOpacity » qui sait la trouver. On ne lui prend
+    // donc le geste que si l'on tient vraiment autre chose qu'un tampon.
+    if (!selectionIsOnlyImages() && reglerLOpaciteDeLaSelection(v, false)) return;
+    applyPluginStampOpacityLive(v);
 });
 document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
+    const v = parseFloat(e.target.value);
+    if (!selectionIsOnlyImages() && reglerLOpaciteDeLaSelection(v, true)) return;
     stampOpacityPending = null; stampOpacityBusy = false;
-    applyPluginStampOpacity(parseFloat(e.target.value), true);
+    applyPluginStampOpacity(v, true);
 });
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
@@ -7729,9 +7801,13 @@ function updateStyleBarContext() {
 }
 
 
-// Un texte n'a ni épaisseur de trait ni opacité de remplissage, et sa couleur
+// Un texte n'a ni épaisseur de trait ni opacité de REMPLISSAGE, et sa couleur
 // se règle dans la barre d'édition. On n'affiche donc pas ces contrôles ici :
 // ils n'agissaient sur rien et encombraient la barre.
+//
+// L'opacité de l'OBJET, elle, lui va très bien — un énoncé qu'on estompe
+// derrière une correction, c'est un usage —, et depuis qu'elle existe pour
+// tout le monde, le curseur de la barre reste.
 function syncTextStyleControls() {
     const colorBtn = document.getElementById('btn-color-popover');
     const widthBox = document.getElementById('line-width')?.closest('.slider-container');
@@ -7743,7 +7819,14 @@ function syncTextStyleControls() {
 
     if (colorBtn) colorBtn.style.display = 'none';
     if (widthBox) widthBox.style.display = 'none';
-    if (stampOpacityBox) stampOpacityBox.style.display = 'none';
+    if (stampOpacityBox) {
+        stampOpacityBox.style.display = 'flex';
+        stampOpacityBox.title = 'Opacité de la sélection';
+        const input = document.getElementById('stamp-opacity');
+        const t = getObjectById('text', selectedItems[0].id);
+        const op = (t && t.opacity !== undefined) ? t.opacity : 1;
+        if (input && !curseurEnMain(input)) input.value = op;
+    }
     if (quickColors) quickColors.style.display = 'none';
     document.getElementById('color-popover')?.classList.remove('visible');
 }
@@ -7767,7 +7850,24 @@ function syncStampStyleControls() {
     if (!selectionIsOnlyImages()) {
         colorBtn.style.display = '';
         widthBox.style.display = '';
-        if (stampOpacityBox) stampOpacityBox.style.display = 'none';
+        // L'OPACITÉ N'EST PLUS RÉSERVÉE AUX TAMPONS.
+        //
+        // « Il manque le slider d'opacité sur la plupart des outils (polygone
+        // entre autres). » Le curseur de la barre ne paraissait que sur une
+        // sélection d'images ; pour tout le reste, il fallait ouvrir le
+        // popover de couleur et choisir entre « Contour » et « Fond » — deux
+        // réglages, deux gestes, pour une seule idée : rendre la chose
+        // translucide. Il paraît maintenant dès qu'on tient QUELQUE CHOSE, et
+        // il règle l'objet entier.
+        if (stampOpacityBox) {
+            const tenus = (typeof selectedItems !== 'undefined' ? selectedItems : [])
+                .map(i => getObjectById(i.type, i.id)).filter(Boolean);
+            stampOpacityBox.style.display = tenus.length ? 'flex' : 'none';
+            stampOpacityBox.title = 'Opacité de la sélection';
+            const input = document.getElementById('stamp-opacity');
+            const op = tenus.length && tenus[0].opacity !== undefined ? tenus[0].opacity : 1;
+            if (input && !curseurEnMain(input)) input.value = op;
+        }
         if (opacityBox) {
             opacityBox.style.display = '';
             opacityBox.firstChild.textContent = 'Opacité : ';
@@ -12243,6 +12343,28 @@ function draw() {
                 ctx.rect(cadreHote.x, cadreHote.y, cadreHote.w, cadreHote.h);
                 ctx.clip();
             }
+            // L'OPACITÉ DE L'OBJET, POUR TOUT LE MONDE.
+            //
+            // « J'ai l'impression qu'il manque le slider d'opacité sur la
+            // plupart des outils (polygone entre autres). » Il manquait pour
+            // de bon : seul un TAMPON avait son « obj.opacity ». Un polygone
+            // n'avait que deux réglages séparés, « strokeOpacity » et
+            // « fillOpacity », enterrés dans le popover de couleur — il fallait
+            // l'ouvrir, choisir le bon onglet, et régler deux fois pour rendre
+            // une forme transparente.
+            //
+            // « opacity » devient donc le facteur de L'OBJET, quel qu'il soit,
+            // et il se pose ici, une seule fois, pour toute la liste
+            // d'affichage. Les deux réglages fins ne disparaissent pas : ils se
+            // multiplient avec lui, si bien qu'un polygone au contour plein et
+            // au fond léger garde son allure en devenant translucide.
+            //
+            // Les images sont à part : elles appliquent déjà le leur, plus bas,
+            // et le poser deux fois l'élèverait au carré.
+            const alphaObjet = (obj.opacity === undefined || item.type === 'image')
+                ? 1 : Math.max(0, Math.min(1, obj.opacity));
+            if (alphaObjet < 1) ctx.globalAlpha = alphaObjet;
+
             const isSel = isSelected(item.type, obj.id);
             const isHov = hoveredObj && hoveredObj.type === item.type && hoveredObj.id === obj.id;
             const sc = isSel ? "#6c5ce7" : (isHov ? (mode === 'eraser' ? "#d63031" : (isDarkMode ? "#dfe6e9" : "#b2bec3")) : null);
@@ -13087,6 +13209,9 @@ function draw() {
                 ctx.restore();
             }
             ctx.shadowBlur = 0;
+            // On rend le voile au suivant : sans cela, un objet translucide
+            // décolorerait tout ce qui se dessine après lui.
+            if (alphaObjet < 1) ctx.globalAlpha = 1;
             if (cadreHote) ctx.restore();
         });
 
@@ -16858,9 +16983,7 @@ function brancherLeTiroirDesMorceaux() {
     });
     const plus = document.getElementById('bm-page-plus');
     if (plus) plus.addEventListener('click', () => {
-        pages.push(createNewPage());
-        loadPage(pages.length - 1);
-        majLaPageDuTiroir();
+        ajouterUnePageVierge();
         if (typeof showToast === 'function') showToast('Page vierge — vos morceaux vous ont suivi');
     });
     majLaPageDuTiroir();

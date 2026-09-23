@@ -323,6 +323,72 @@ module.exports = async function (browser) {
     });
     r.egal('et elle se défait', defaite, false);
 
+    // ==========================================================
+    // LE « ＋ » DES PAGES, ET LA PAGE QU'ON N'AVAIT PAS
+    //
+    // « Pour les pages en haut à droite j'aimerais bien un petit + au niveau
+    // des pages (en fait si on n'a pas de page et qu'on clique sur nouvelle
+    // page, on reste à une page). »
+    //
+    // Deux choses en une phrase. Ajouter une page était caché dans le menu du
+    // rang — il fallait savoir que le « 1/2 » s'ouvre. Et « Nouveau document »
+    // laissait la liste VIDE : il confiait le soin de la repeupler à
+    // « saveCurrentPage », une fonction qui n'existe nulle part, dont
+    // l'absence était avalée par un « typeof … === 'function' ». Le coin
+    // annonçait alors « 1/0 », et le premier « Nouvelle page » ne faisait que
+    // rendre la page qui aurait dû être là depuis le début.
+    // ==========================================================
+    const plusDuCoin = await page.evaluate(() => {
+        const b = document.getElementById('btn-ecran-page-plus');
+        if (!b) return null;
+        const r = b.getBoundingClientRect();
+        const pages_ = document.getElementById('ecran-pages').getBoundingClientRect();
+        return { vu: getComputedStyle(b).display !== 'none' && r.width > 0,
+                 l: Math.round(r.width), h: Math.round(r.height),
+                 dansLeGroupe: r.left >= pages_.left - 1 && r.right <= pages_.right + 1,
+                 apresLaFleche: r.left >= document.getElementById('btn-ecran-page-suiv').getBoundingClientRect().right - 1,
+                 infobulle: b.getAttribute('data-tooltip') || '' };
+    });
+    r.verifie('le coin porte un « ＋ » visible, à côté des flèches',
+        plusDuCoin && plusDuCoin.vu && plusDuCoin.dansLeGroupe && plusDuCoin.apresLaFleche,
+        JSON.stringify(plusDuCoin));
+    // La même cible au doigt que ses voisins : un tableau de classe se touche.
+    r.verifie('et il se vise au doigt comme ses voisins',
+        plusDuCoin && plusDuCoin.l >= 32 && plusDuCoin.h >= 32, JSON.stringify(plusDuCoin));
+    r.verifie('son infobulle dit ce qu\'il fait',
+        plusDuCoin && /ajouter/i.test(plusDuCoin.infobulle) && /page/i.test(plusDuCoin.infobulle),
+        plusDuCoin && plusDuCoin.infobulle);
+
+    // UN TABLEAU NEUF A UNE PAGE, PAS ZÉRO.
+    await page.evaluate(() => clearBoardAndPages());
+    await page.waitForTimeout(300);
+    r.egal('après « Nouveau document », le tableau a UNE page et le dit',
+        await page.evaluate(() => ({ combien: pages.length,
+            rang: (document.getElementById('ecran-page-rang').textContent || '').trim() })),
+        { combien: 1, rang: '1/1' });
+
+    await page.click('#btn-ecran-page-plus');
+    await page.waitForTimeout(350);
+    r.egal('et le « ＋ » en ouvre alors une DEUXIÈME, où il nous emmène',
+        await page.evaluate(() => ({ combien: pages.length, ou: currentPageIndex,
+            rang: (document.getElementById('ecran-page-rang').textContent || '').trim() })),
+        { combien: 2, ou: 1, rang: '2/2' });
+
+    // ET LE TABLEAU QU'ON AVAIT SOUS LES YEUX NE TOMBE PAS DANS LE TROU. Si la
+    // liste est vide alors qu'on a dessiné, la page ajoutée était la PREMIÈRE :
+    // le travail en cours partait avec elle, sans être rangé nulle part.
+    const sauve = await page.evaluate(() => {
+        pages = []; currentPageIndex = 0;
+        freehands.length = 0;
+        freehands.push({ id: nextId++, points: [{ x: 10, y: 10 }, { x: 60, y: 60 }],
+                         color: '#000', width: 3, z: globalZ++ });
+        const combien = ajouterUnePageVierge();
+        return { combien, surLaPremiere: pages[0] && pages[0].freehands ? pages[0].freehands.length : -1,
+                 surLaNeuve: freehands.length };
+    });
+    r.egal('liste vide et un trait au tableau : le trait devient la page 1, la neuve est vierge',
+        sauve, { combien: 2, surLaPremiere: 1, surLaNeuve: 0 });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

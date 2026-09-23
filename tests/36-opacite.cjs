@@ -162,6 +162,179 @@ module.exports = async function (browser) {
         { curseur: surLeTampon.curseur, nombre: surLeTampon.nombre }, { curseur: 0.35, nombre: '35' });
     r.verifie('et le libellé le dit', /tampon/i.test(surLeTampon.libelle), surLeTampon.libelle);
 
+    // ---------------------------------------------------------------
+    // 6. IL NE SERT PLUS QU'AUX TAMPONS
+    //
+    // « J'ai l'impression qu'il manque le slider d'opacité sur la plupart des
+    // outils (polygone entre autres). » Il manquait pour de bon : le curseur
+    // de la BARRE ne paraissait que sur une sélection d'images, et pour tout
+    // le reste il fallait ouvrir la pastille puis choisir entre « Contour » et
+    // « Fond » — deux réglages pour une seule idée. « opacity » est devenu le
+    // facteur de l'objet, quel qu'il soit.
+    // ---------------------------------------------------------------
+    const surLaBarre = () => page.evaluate(() => {
+        const b = document.getElementById('stamp-opacity-box');
+        return b ? getComputedStyle(b).display : '?';
+    });
+    const tirerLeCurseurDeLaBarre = (v) => page.evaluate((val) => {
+        const c = document.getElementById('stamp-opacity');
+        c.value = String(val);
+        c.dispatchEvent(new Event('input', { bubbles: true }));
+        c.dispatchEvent(new Event('change', { bubbles: true }));
+    }, v);
+
+    const poserUnPolygone = () => page.evaluate(() => {
+        images.length = 0; polygons.length = 0; texts.length = 0; points.length = 0;
+        setMode('pointer');
+        const a = { id: nextId++, x: 100, y: 100 }, b = { id: nextId++, x: 200, y: 100 },
+              c = { id: nextId++, x: 150, y: 200 };
+        points.push(a, b, c);
+        const po = { id: nextId++, points: [a.id, b.id, c.id], color: '#e74c3c', width: 3,
+                     isFilled: true, fillColor: '#e74c3c', fillOpacity: 0.2, isClosed: true, z: globalZ++ };
+        polygons.push(po);
+        selectedItems = [{ type: 'polygon', id: po.id }];
+        updateStyleBarContext(); syncStyleWithSelection();
+        return po.id;
+    });
+
+    const idPoly = await poserUnPolygone();
+    await page.waitForTimeout(250);
+    r.egal('un polygone tenu, le curseur d\'opacité est DANS la barre', await surLaBarre(), 'flex');
+
+    await tirerLeCurseurDeLaBarre(0.4);
+    await page.waitForTimeout(250);
+    r.egal('le tirer rend le polygone translucide',
+        await page.evaluate((id) => (polygons.find(p => p.id === id) || {}).opacity, idPoly), 0.4);
+
+    // Le réglage fin du fond n'a pas disparu : il se multiplie avec celui de
+    // l'objet, si bien qu'un contour plein sur un fond léger garde son allure.
+    r.egal('et les deux réglages fins sont intacts',
+        await page.evaluate((id) => { const p = polygons.find(x => x.id === id) || {};
+            return { fond: p.fillOpacity, rempli: p.isFilled }; }, idPoly),
+        { fond: 0.2, rempli: true });
+
+    // CE QU'ON EXPORTE EST CE QU'ON VOIT. Sans cela, un polygone estompé au
+    // tableau revenait opaque dans le SVG distribué aux élèves.
+    r.verifie('l\'export SVG emporte l\'opacité de l\'objet',
+        await page.evaluate(() => /<g opacity="0\.4">/.test(generateSVGString({ x: 0, y: 0, w: 400, h: 400 }, false))));
+
+    // UN TRAIT À MAIN LEVÉE N'A NI FOND NI CONTOUR À RÉGLER : sans opacité
+    // d'objet, il n'en avait aucune. C'est pourtant l'outil qu'on prend le plus.
+    const idTrait = await page.evaluate(() => {
+        const f = { id: nextId++, points: [{ x: 300, y: 300 }, { x: 380, y: 360 }],
+                    color: '#000', width: 4, z: globalZ++ };
+        freehands.push(f);
+        selectedItems = [{ type: 'freehand', id: f.id }];
+        updateStyleBarContext(); syncStyleWithSelection();
+        return f.id;
+    });
+    await page.waitForTimeout(250);
+    r.egal('un trait à main levée l\'a aussi', await surLaBarre(), 'flex');
+    await tirerLeCurseurDeLaBarre(0.55);
+    await page.waitForTimeout(250);
+    r.egal('et il s\'estompe',
+        await page.evaluate((id) => (freehands.find(f => f.id === id) || {}).opacity, idTrait), 0.55);
+
+    // UN TEXTE AUSSI : un énoncé qu'on estompe derrière sa correction.
+    const idTexte = await page.evaluate(() => {
+        const t = { id: nextId++, x: 50, y: 420, text: 'Bonjour', content: 'Bonjour',
+                    color: '#000', fontSize: 20, z: globalZ++ };
+        texts.push(t);
+        selectedItems = [{ type: 'text', id: t.id }];
+        updateStyleBarContext(); syncStyleWithSelection();
+        return t.id;
+    });
+    await page.waitForTimeout(250);
+    r.egal('un bloc de texte l\'a aussi', await surLaBarre(), 'flex');
+    await tirerLeCurseurDeLaBarre(0.3);
+    await page.waitForTimeout(250);
+    r.egal('et il s\'estompe également',
+        await page.evaluate((id) => (texts.find(t => t.id === id) || {}).opacity, idTexte), 0.3);
+
+    // PENDANT QU'ON TIRE, ET PAS SEULEMENT APRÈS. Un curseur qui n'agit qu'au
+    // lâcher se règle à l'aveugle : on vise une transparence qu'on ne voit
+    // qu'une fois le doigt levé. Les épreuves ci-dessus envoyaient « input »
+    // ET « change », si bien que le second couvrait le premier — sabotée, la
+    // conduite en direct passait inaperçue. Ici, « input » tout seul.
+    await page.evaluate((id) => {
+        const t = texts.find(x => x.id === id); if (t) delete t.opacity;
+        selectedItems = [{ type: 'text', id }];
+        updateStyleBarContext(); syncStyleWithSelection();
+        const c = document.getElementById('stamp-opacity');
+        c.value = '0.65';
+        c.dispatchEvent(new Event('input', { bubbles: true }));   // SANS « change »
+    }, idTexte);
+    await page.waitForTimeout(250);
+    r.egal('le seul « input » suffit : l\'objet pâlit pendant qu\'on tire',
+        await page.evaluate((id) => (texts.find(t => t.id === id) || {}).opacity, idTexte), 0.65);
+
+    // MAIS PAS QUAND ON NE TIENT RIEN : la barre ne montre pas un réglage qui
+    // n'agirait sur personne.
+    await page.evaluate(() => { selectedItems = []; updateStyleBarContext(); syncStyleWithSelection(); });
+    await page.waitForTimeout(250);
+    r.egal('rien de tenu, le curseur s\'efface', await surLaBarre(), 'none');
+
+    // ---------------------------------------------------------------
+    // 7. ET SURTOUT : ÇA SE VOIT.
+    //
+    // Les épreuves ci-dessus lisent « obj.opacity ». Ranger un nombre dans un
+    // objet ne prouve rien : ce qu'on promet, c'est que l'ENCRE pâlit. On lit
+    // donc le pixel peint, une fois plein et une fois estompé.
+    // ---------------------------------------------------------------
+    const pixels = await page.evaluate(() => {
+        images.length = 0; polygons.length = 0; texts.length = 0;
+        points.length = 0; freehands.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        // Un trait épais et bien noir, droit sous un point qu'on sait viser.
+        const trait = { id: nextId++, points: [{ x: 60, y: 200 }, { x: 460, y: 200 }],
+                        color: '#000000', width: 24, z: globalZ++ };
+        freehands.push(trait);
+        const lire = () => {
+            draw();
+            const d = ctx.getImageData(Math.round(260 * (canvas.width / canvas.clientWidth)),
+                                       Math.round(200 * (canvas.height / canvas.clientHeight)), 1, 1).data;
+            return [d[0], d[1], d[2]];
+        };
+        const fond = (() => { freehands.length = 0; const f = lire(); freehands.push(trait); return f; })();
+        const plein = lire();
+        trait.opacity = 0.35;
+        const estompe = lire();
+        // Distance au fond : pleine, elle est grande ; estompée, elle fond.
+        const ecart = (c) => Math.abs(c[0] - fond[0]) + Math.abs(c[1] - fond[1]) + Math.abs(c[2] - fond[2]);
+        return { fond, plein, estompe, ecartPlein: ecart(plein), ecartEstompe: ecart(estompe) };
+    });
+    r.verifie('le trait plein couvre vraiment le fond',
+        pixels.ecartPlein > 120, JSON.stringify(pixels));
+    r.verifie('et l\'opacité de l\'objet le fait PÂLIR à l\'écran, pas seulement dans ses données',
+        pixels.ecartEstompe < pixels.ecartPlein * 0.6 && pixels.ecartEstompe > 5,
+        JSON.stringify(pixels));
+
+    // UN OBJET TRANSLUCIDE NE DÉTEINT PAS SUR SES VOISINS : le voile se rend
+    // au suivant, sans quoi tout ce qui se dessine après lui pâlirait.
+    const voisin = await page.evaluate(() => {
+        // Le translucide D'ABORD (z plus bas), l'opaque ENSUITE : c'est
+        // l'ordre où un voile oublié déteindrait.
+        freehands.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        freehands.push({ id: nextId++, points: [{ x: 60, y: 140 }, { x: 460, y: 140 }],
+                         color: '#000000', width: 24, z: 1, opacity: 0.2 });
+        const apres = { id: nextId++, points: [{ x: 60, y: 300 }, { x: 460, y: 300 }],
+                        color: '#000000', width: 24, z: 2 };
+        freehands.push(apres);
+        const lire = (y) => {
+            draw();
+            const d = ctx.getImageData(Math.round(260 * (canvas.width / canvas.clientWidth)),
+                                       Math.round(y * (canvas.height / canvas.clientHeight)), 1, 1).data;
+            return [d[0], d[1], d[2]];
+        };
+        const dessine = lire(300);
+        freehands.splice(0, 1);                 // le translucide s'en va
+        const seul = lire(300);
+        return { derriereLeTranslucide: dessine, toutSeul: seul };
+    });
+    r.egal('le voile est rendu au suivant : l\'objet d\'après garde sa couleur pleine',
+        voisin.derriereLeTranslucide, voisin.toutSeul);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
