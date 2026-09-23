@@ -848,6 +848,42 @@ module.exports = async function (browser) {
     });
     r.verifie('une barre déjà rangée le reste après la projection', dejaRangee, '');
 
+
+    // ------------------------------------------------------------------
+    // AU COIN, ON VISE AVEC UN DOIGT
+    //
+    // Mesuré : six commandes de dix-huit à vingt-six pixels — les plus petites
+    // de toute l'application, et ce sont celles qu'on vise DEBOUT, devant une
+    // classe, de biais, sur un tableau interactif. Les flèches de page
+    // faisaient dix-huit sur vingt-deux.
+    // Trente-deux pixels est le seuil couramment retenu pour une cible au
+    // doigt. Le dessin n'a pas grossi : c'est la surface qui répond qui
+    // manquait, pas l'icône.
+    // ------------------------------------------------------------------
+    const auDoigt = await page.evaluate(() => {
+        const vu = (n) => {
+            if (!n.getClientRects().length) return false;
+            for (let x = n; x && x.nodeType === 1; x = x.parentElement) {
+                const c = getComputedStyle(x);
+                if (c.display === 'none' || c.visibility === 'hidden' || parseFloat(c.opacity) < 0.05) return false;
+            }
+            return true;
+        };
+        const coin = document.getElementById('barre-ecran');
+        if (!coin) return { absent: true };
+        const petites = [...coin.querySelectorAll('button')].filter(vu).map(b => {
+            const r = b.getBoundingClientRect();
+            return { quoi: b.id || (b.getAttribute('data-tooltip') || '').slice(0, 20),
+                     l: Math.round(r.width), h: Math.round(r.height) };
+        }).filter(c => c.l < 32 || c.h < 32);
+        const combien = [...coin.querySelectorAll('button')].filter(vu).length;
+        return { petites, combien };
+    });
+    r.verifie('assez de commandes au coin pour que la mesure ait un sens',
+        !auDoigt.absent && auDoigt.combien >= 4, JSON.stringify(auDoigt));
+    r.egal('aucune commande du coin n\'est trop petite pour un doigt',
+        auDoigt.petites, []);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

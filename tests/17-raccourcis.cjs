@@ -1253,6 +1253,44 @@ module.exports = async function (browser) {
         && pastilles.plafond.age < 6000 && pastilles.plafond.compte !== '×9',
         JSON.stringify(pastilles.plafond));
 
+
+    // ------------------------------------------------------------------
+    // AU CLAVIER, ON VOIT OÙ L'ON EST
+    //
+    // Vingt-cinq appuis sur Tab depuis le démarrage : DIX-NEUF arrêts
+    // n'affichaient rien. On tabulait à l'aveugle sur toute la barre d'outils.
+    // La feuille de style portait vingt-six « outline: none » contre six
+    // remplacements — vingt suppressions sèches.
+    //
+    // DEUX PIÈGES DE MESURE, tous deux rencontrés ici :
+    // · « focus() » en JavaScript ne déclenche PAS « :focus-visible ». Il faut
+    //   presser Tab pour de vrai, sans quoi la mesure dit le contraire du vrai.
+    // · les boutons portent « transition: all 0.2s » : lire le contour aussitôt
+    //   après l'appui, c'est le lire à zéro, au début de son animation. On
+    //   attend qu'elle finisse.
+    // ------------------------------------------------------------------
+    await page.evaluate(() => document.body.focus());
+    const marques = [];
+    for (let i = 0; i < 25; i++) {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(260);
+        const vu = await page.evaluate(() => {
+            const a = document.activeElement;
+            if (!a || a === document.body) return null;
+            const s = getComputedStyle(a);
+            const large = parseFloat(s.outlineWidth) || 0;
+            return {
+                quoi: a.id || (a.className || '').toString().slice(0, 24) || a.tagName,
+                marque: (s.outlineStyle !== 'none' && large >= 2)
+                        || (s.boxShadow && s.boxShadow !== 'none')
+            };
+        });
+        if (vu) marques.push(vu);
+    }
+    r.verifie('la tabulation atteint assez de commandes pour que ceci ait un sens',
+        marques.length >= 20, String(marques.length));
+    r.egal('chaque arrêt du clavier se voit', marques.filter(m => !m.marque).map(m => m.quoi), []);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

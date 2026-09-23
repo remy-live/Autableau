@@ -1,4 +1,35 @@
 /* ==========================================================================
+   AU CLAVIER, ON DOIT VOIR OÙ L'ON EST
+   Vingt-cinq appuis sur Tab depuis le démarrage : dix-neuf arrêts n'affichaient
+   RIEN — ni contour, ni ombre. On tabulait à l'aveugle sur toute la barre
+   d'outils, le crayon, le surligneur, annuler, refaire, les plugins.
+   La cause tenait en deux chiffres : vingt-six règles « outline: none » dans
+   cette feuille, contre six qui posaient un remplacement. Vingt supprimaient
+   la marque sans rien mettre à la place — le geste d'un développeur qui
+   trouve le contour du navigateur laid, et l'enlève sans se demander à qui il
+   servait.
+   Il sert à l'enseignant qui projette et garde les mains sur le clavier, à
+   l'élève qu'on envoie au tableau, à qui a une souris qui lâche.
+   « :focus-visible » ne paraît QU'AU CLAVIER : la souris ne voit rien changer,
+   et c'est pourquoi une seule règle suffit ici plutôt que vingt corrections.
+   Le « !important » n'est pas un caprice : il faut battre les vingt-six.
+   ========================================================================== */
+:focus-visible {
+    outline: 3px solid var(--accent, #6c5ce7) !important;
+    outline-offset: 2px !important;
+    border-radius: 4px;
+}
+
+/* SUR UN FOND SOMBRE, le violet ne se détache pas : les bandeaux d'outils, les
+   fenêtres en mode nuit et les barres noires des Studios prennent un contour
+   clair. */
+.dark-mode :focus-visible,
+[style*="background:#1f2937"] :focus-visible,
+.pw :focus-visible {
+    outline-color: #ffffff !important;
+}
+
+/* ==========================================================================
    NUNITO
    Elle est dans le dépôt depuis le début, mais n'avait jamais été déclarée :
    les post-its demandaient « Kalam, Caveat, Comic Sans » puis « cursive », et
@@ -205,12 +236,18 @@ html {
     padding-bottom: 2px;
 }
 
+/* LE SEUL TEXTE DE L'APPLICATION QUI NE SE LISAIT PAS.
+   Mesuré : onze pixels, et un contraste de 1,8 contre son fond là où il en
+   faut 4,5 — le pire de toute l'interface, et de loin. Il cumulait les deux
+   défauts, petit ET pâle, sur le mot qui NOMME le tiroir : « Explorateur ».
+   On passe à douze pixels et à la teinte des textes secondaires, qui elle
+   tient ses 4,5. Rien d'autre ne bouge : ce reste un intertitre discret. */
 .drawer-title {
     font-weight: 700;
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--faint);
+    color: var(--muted);
 }
 
 .tool-categories {
@@ -1985,9 +2022,17 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
     pointer-events: auto;
 }
 
+/* TRENTE-DEUX PIXELS, PARCE QU'UN DOIGT N'EST PAS UNE SOURIS.
+   Mesuré au coin : six commandes de dix-huit à vingt-six pixels, les plus
+   petites de toute l'application — et ce sont celles qu'on vise DEBOUT,
+   devant une classe, de biais, sur un tableau interactif. Le seuil
+   couramment retenu pour une cible au doigt est trente-deux.
+   Le dessin, lui, ne grossit pas : c'est la surface qui répond qui manquait,
+   pas l'icône. Le coin s'élargit d'une trentaine de pixels, ce qu'il peut
+   se permettre — il est seul sur sa ligne. */
 #barre-ecran button {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
     border-radius: 7px;
     background: var(--surface);
     border: 1px solid var(--contour);
@@ -2028,9 +2073,12 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
     font-variant-numeric: tabular-nums;
 }
 
+/* LES FLÈCHES DE PAGE ÉTAIENT LES PLUS PETITES DE TOUTES : dix-huit sur
+   vingt-deux. On tourne les pages devant la classe, souvent au doigt, et
+   souvent vite. */
 #ecran-pages button {
-    width: 18px !important;
-    height: 22px !important;
+    width: 32px !important;
+    height: 32px !important;
     border: none !important;
     background: transparent !important;
     box-shadow: none !important;
@@ -2048,7 +2096,8 @@ body.focus-mode #right-drawer { transform: translateX(100%) !important; }
    appuyer dessus. */
 #ecran-page-rang {
     width: auto !important;
-    min-width: 26px;
+    min-width: 34px;
+    height: 32px !important;
     padding: 0 4px !important;
     font-size: 11px !important;
     font-weight: 600;
