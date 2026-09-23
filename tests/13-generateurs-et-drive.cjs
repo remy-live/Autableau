@@ -837,14 +837,15 @@ module.exports = async function (browser) {
             outils: !!box.querySelector(':scope > .fen-outils'),
             plein: !!box.querySelector('.fen-plein'),
             poignee: !!box.querySelector('.fen-poignee'),
-            bouger: !!box.querySelector('.fen-bouger'),
             place: getComputedStyle(box).position !== 'static'
         };
     });
     r.verifie('« Mes classes » reçoit les commandes de fenêtre', equipement.outils, JSON.stringify(equipement));
     r.verifie('le plein écran', equipement.plein);
     r.verifie('et la poignée pour ajuster', equipement.poignee);
-    r.verifie('et celle pour déplacer', equipement.bouger, JSON.stringify(equipement));
+    // LA BARRE ENTIÈRE DÉPLACE, et il n'y a plus de poignée dessinée pour
+    // l'annoncer : « on a déjà la barre de titre ». C'est le déplacement
+    // lui-même qu'on éprouve, plus bas, à la souris.
     r.verifie('posées dans un repère qui les tient au coin', equipement.place);
 
 
@@ -966,7 +967,8 @@ module.exports = async function (browser) {
             await new Promise(r2 => setTimeout(r2, 500));
         }
         const box = document.querySelector('#class-manager-modal .modal-box');
-        const h = box.querySelector('.fen-bouger');
+        // ON PREND LA BARRE, pas une poignée : c'est elle qui déplace.
+        const h = box.querySelector('.fen-tete');
         // ON PART D'UNE PLACE CONNUE, ET D'UNE TAILLE QUI LAISSE DE LA PLACE.
         // Un double-clic sur la poignée recentre la fenêtre ; et une fenêtre
         // aussi haute que l'écran se fait arrêter par la borne du haut dès le
@@ -1660,6 +1662,55 @@ module.exports = async function (browser) {
         return false;
     });
     r.verifie('et un clic dessus fait vraiment partir la fenêtre', partie, '');
+
+
+    // ------------------------------------------------------------------
+    // UNE MODALE PASSE AU-DESSUS DES FENÊTRES, MÊME TOUCHÉES
+    //
+    // « Tu n'as pas géré les z-index. Une modale passe au-dessus des autres
+    // fenêtres, non ? » Elle le devrait, et elle ne le faisait pas : relevé,
+    // le voile de Molécule Studio vivait à l'étage 10 000 quand les fenêtres
+    // d'outils vivent entre 100 010 et 100 045. Une modale s'ouvrait donc SOUS
+    // la dictée — et l'étage donné à sa boîte n'y changeait rien, une boîte ne
+    // sortant pas du contexte d'empilement de son voile.
+    // ------------------------------------------------------------------
+    const etages = await page.evaluate(async () => {
+        const a = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const D = PluginManager.plugins['lecteurDicteeTool'];
+        D.ouvrir(); await a(500);
+        const v = document.getElementById('mol-backdrop');
+        if (!v) return { absent: 'pas de voile à éprouver' };
+        // ON REPART D'UNE MODALE NEUVE. Plus haut dans ce chapitre, tout a été
+        // ouvert puis refermé : le voile garde alors l'étage qu'on lui a donné,
+        // et la vérification passerait sans rien prouver — c'est ce qu'un
+        // sabotage a montré. On lui rend son étage d'origine et on le fait
+        // équiper comme au premier jour.
+        v.style.zIndex = '';
+        const boite = v.querySelector('[data-equipee="1"]');
+        if (boite) { delete boite.dataset.equipee; delete boite.dataset.modaleVoile; }
+        delete v.dataset.voileModale;
+        v.style.display = 'flex';
+        equiperLesModales(document.body);
+        await a(400);
+        const etage = (n) => { const s = getComputedStyle(n);
+            return s.zIndex === 'auto' ? 0 : Number(s.zIndex); };
+        // ON TOUCHE LA FENÊTRE : c'est le moment où elle réclame le dessus.
+        const dic = document.getElementById('dictee-modal');
+        dic.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+        await a(250);
+        const fenetres = [...document.querySelectorAll('[data-equipee="1"]')]
+            .filter(n => n.getClientRects().length && !n.closest('[data-voile-modale]'))
+            .map(n => ({ quoi: n.id || (n.className || '').toString().slice(0, 20), z: etage(n) }));
+        const lu = { voile: etage(v), fenetres,
+                     plusHaute: fenetres.reduce((m, f) => Math.max(m, f.z), 0) };
+        v.style.display = 'none';
+        D.fermer();
+        return lu;
+    });
+    r.verifie('il y a bien une fenêtre ouverte sous la modale',
+        !etages.absent && etages.fenetres.length >= 1, JSON.stringify(etages));
+    r.verifie('le voile d\'une modale reste au-dessus de toutes les fenêtres',
+        !etages.absent && etages.voile > etages.plusHaute, JSON.stringify(etages));
 
     await context.close();
 

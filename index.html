@@ -3,6 +3,18 @@
 
 <head>
     <meta charset="UTF-8">
+    <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
+         « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
+         des heures, mais le navigateur servait une page d'avant. Tout le
+         dépôt est protégé par des numéros de version — « style.css?v=201 »,
+         « script.js?v=329 » — et ces numéros sont écrits DANS CETTE PAGE.
+         Gardée en cache, elle réclame les anciens fichiers : le mécanisme
+         entier ne sert alors à rien, et l'on croit un correctif absent quand
+         il est simplement pas encore reçu. La page se revalide donc à chaque
+         ouverture ; ce qu'elle nomme, lui, se garde tant que son numéro ne
+         bouge pas. -->
+    <meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Au Tableau</title>
 
@@ -31,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=200">
+    <link rel="stylesheet" href="style.css?v=201">
 </head>
 
 <body>
@@ -3739,7 +3751,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=327"></script>
+    <script src="script.js?v=329"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

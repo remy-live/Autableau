@@ -19965,6 +19965,24 @@ function equiperLesModales(racine) {
         if (!boite || boite.dataset.equipee) return;
         voile.dataset.voileModale = '1';
         boite.dataset.modaleVoile = '1';
+        // ET LE VOILE MONTE DANS LA BANDE DES MODALES.
+        //
+        // « Tu n'as pas géré les z-index. Une modale passe au-dessus des
+        // autres fenêtres, non ? » Elle le devrait, et elle ne le faisait pas :
+        // relevé, le voile de Molécule Studio vivait à l'étage 10 000, quand
+        // les fenêtres d'outils vivent entre 100 010 et 100 045. Une modale
+        // s'ouvrait donc SOUS la dictée, et l'étage qu'on donnait à sa boîte
+        // n'y changeait rien — une boîte ne sort pas du contexte
+        // d'empilement de son voile.
+        //
+        // Chaque outil s'était choisi son chiffre : 9 000, 10 000, 99 999…
+        // Aucun ne pouvait se comparer aux autres. On les ramène dans la
+        // bande prévue, au-dessus des fenêtres et au-dessous des questions.
+        const etageActuel = parseInt(voile.style.zIndex, 10)
+            || parseInt(getComputedStyle(voile).zIndex, 10) || 0;
+        if (etageActuel < MOD_Z_BAS || etageActuel > MOD_Z_HAUT) {
+            voile.style.zIndex = String(MOD_Z_BAS);
+        }
         equiperFenetre(boite, voile.id || '', { toujours: true });
         posees++;
     });
@@ -20298,8 +20316,13 @@ function equiperVraiment(el, cle, options) {
         || el.dataset.fenetreTitre
         || (maison && maison.texte)
         || nomDeLaFenetre(cle, el);
-    tete.innerHTML = `<div class="fen-bouger" title="Déplacer la fenêtre" aria-label="Déplacer la fenêtre">⠿</div>`
-        + `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
+    // PAS DE POIGNÉE DESSINÉE. « Ne mets pas les six points pour le
+    // déplacement des fenêtres, on a déjà la barre de titre. » Elle avait été
+    // posée quand rien ne déplaçait les fenêtres ; depuis, c'est la BARRE
+    // ENTIÈRE qui déplace — « bouger = tete », quelques lignes plus bas. Le
+    // carré de vingt-deux pixels ne faisait donc qu'annoncer un geste qui
+    // marche partout ailleurs sur la barre, et prendre la place du nom.
+    tete.innerHTML = `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
         + `<button type="button" class="fen-plein" title="Agrandir la fenêtre">${ICONE_PLEIN}</button>`
         + `<button type="button" class="fen-fermer" title="Fermer">✕</button>`;
     el.insertBefore(tete, el.firstChild);

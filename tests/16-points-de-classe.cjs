@@ -619,6 +619,23 @@ module.exports = async function (browser) {
     r.verifie('le tampon écrit le nom sur plusieurs lignes', surLeTampon.length >= 2, JSON.stringify(surLeTampon));
     r.verifie('sans le tronquer', !surLeTampon.join(' ').includes('…'), JSON.stringify(surLeTampon));
 
+    // ON REFERME LE PLAN AVANT DE PASSER À AUTRE CHOSE.
+    // Il restait ouvert jusqu'à la fin du chapitre — mille cinq cents lignes
+    // plus loin, on cliquait encore les onglets de « Mes classes » À TRAVERS
+    // LUI. Cela ne marchait que parce que son voile vivait à un étage plus bas
+    // que les fenêtres : une modale ouverte DOIT couvrir ce qu'il y a dessous,
+    // et le jour où elle s'est mise à le faire, tout le reste du chapitre est
+    // tombé d'un coup. Ce n'était pas l'application qui avait tort ; c'était
+    // l'épreuve qui oubliait de ranger derrière elle.
+    await page.evaluate(() => {
+        const fermer = document.getElementById('sp-close');
+        if (fermer) fermer.click();
+    });
+    await page.waitForTimeout(200);
+    r.egal('le plan de classe est refermé derrière nous',
+        await page.evaluate(() => [...document.querySelectorAll('.modal-backdrop')]
+            .filter(m => getComputedStyle(m).display !== 'none' && m.querySelector('.sp-canvas')).length), 0);
+
     // --- L'AVATAR EST OPTIONNEL ---
     const sansMonstre = await page.evaluate(() => {
         const e = { id: 'stu_3', name: 'Ana Belle' };
