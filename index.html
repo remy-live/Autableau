@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=203 »,
-         « script.js?v=339 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=341 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -3358,6 +3358,27 @@
                 <circle cx="6" cy="18" r="2.4" />
                 <path d="M8.1 7.3L20 17M8.1 16.7L20 7" />
             </svg><span>Découper</span></button>
+        <!-- LA FORME DES CISEAUX. « Un appui long sur les ciseaux pour des
+             découpes différentes ? cercle, main levée. » Les découpes, oui —
+             l'appui long, non : « évite les appuis longs et courts, aucun
+             geste distingué par sa durée ». Le bout du surligneur, deux
+             boutons plus loin dans la barre de style, a tranché la même
+             question de la même façon, et son commentaire le dit : « un geste
+             ne se devine pas ». Ce bouton-ci cycle entre les trois formes et
+             montre celle qui est en cours ; son dessin est rempli par
+             « majLaFormeDeDecoupe ». -->
+        <button class="doc-btn" id="doc-decoupe-forme"
+            data-tooltip="Forme des ciseaux : rectangle — le morceau reste un cadrage sur la page, net à tout grossissement. Appuyez pour changer.">
+            <!-- IL N'EST JAMAIS VIDE, MÊME AVANT LE PREMIER RAFRAÎCHISSEMENT.
+                 La barre du document interdit les boutons muets, et l'épreuve
+                 le vérifie : un bouton qu'on remplit « plus tard » est un
+                 bouton vide pendant tout le temps où l'on ne l'a pas rempli.
+                 « majLaFormeDeDecoupe » remplace ce dessin par celui de la
+                 forme en cours. -->
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                stroke-width="1.8" stroke-linejoin="round">
+                <rect x="4" y="6" width="16" height="12" rx="1" stroke-dasharray="3 2.4" />
+            </svg><span>Rectangle</span></button>
         <!-- REPÉRER TOUT SEUL. Viser trois rectangles à la main sur un
              polycopié, c'est trois fois viser. Ce qui sépare deux exercices se
              voit — une bande de page restée blanche : on la cherche, et tous
@@ -3782,7 +3803,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=339"></script>
+    <script src="script.js?v=341"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

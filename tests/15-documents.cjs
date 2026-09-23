@@ -4374,6 +4374,159 @@ module.exports = async function (browser) {
         setMode('pointer'); updateStyleBarContext(); draw();
     });
 
+    // ==========================================================
+    // TROIS FORMES DE CISEAUX
+    //
+    // « Un appui long sur les ciseaux pour des découpes différentes ? cercle,
+    // main levée. » Les découpes, oui — l'appui long, non : « évite les appuis
+    // longs et courts, aucun geste distingué par sa durée ». Le bout du
+    // surligneur avait déjà tranché la même question de la même façon, et son
+    // commentaire le dit : « un geste ne se devine pas ». Les formes reçoivent
+    // donc un bouton, qui montre celle qui est en cours.
+    // ==========================================================
+    await page.evaluate(async () => {
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; selectedItems = []; morceauxEnAttente = [];
+        // Une figure bien bleue : on pourra lire au pixel ce qui a été gardé
+        // et ce qui a été jeté.
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">'
+                  + '<rect width="400" height="300" fill="#2d6cdf"/></svg>';
+        const src = 'data:image/svg+xml;base64,' + btoa(svg);
+        await new Promise(ok => { const i = new Image(); i.onload = () => { imageCache[src] = i; ok(); }; i.src = src; });
+        // ELLE PORTE UNE CLÉ DE DOCUMENT. Sans cela, l'épreuve du détourage
+        // qui « ne prétend plus partager la page rendue » ne prouverait rien :
+        // sabotée, elle recopierait une clé absente, et null vaudrait null.
+        const o = { id: nextId++, x: 100, y: 100, w: 400, h: 300,
+                    cx: 0, cy: 0, cw: 400, ch: 300, src, z: globalZ++, fileName: 'figure.svg',
+                    pluginData: { id: 'pdfDoc', nom: 'figure', page: 3,
+                                  cle: 'cle-d-epreuve', pdfRef: 'ref-d-epreuve' } };
+        images.push(o);
+        selectedItems = [{ type: 'image', id: o.id }];
+        majBarreDocument(); draw();
+    });
+    await page.waitForTimeout(300);
+
+    r.egal('un bouton de forme paraît à côté des ciseaux, et montre la forme en cours',
+        await page.evaluate(() => {
+            const b = document.getElementById('doc-decoupe-forme');
+            return b ? { vu: getComputedStyle(b).display !== 'none', dit: b.textContent.trim() }
+                     : { vu: false, dit: '(absent)' };
+        }), { vu: true, dit: 'Rectangle' });
+
+    // IL CYCLE, IL N'ÉCOUTE PAS LA DURÉE D'UN APPUI.
+    r.egal('il cycle entre les trois formes et revient à la première',
+        await page.evaluate(() => {
+            const b = document.getElementById('doc-decoupe-forme');
+            if (!b) return 'bouton absent';
+            const v = [];
+            for (let i = 0; i < 4; i++) { v.push(formeDeDecoupe); b.click(); }
+            return v;
+        }), ['rectangle', 'ellipse', 'libre', 'rectangle']);
+
+    // --- L'OVALE DÉTOURE VRAIMENT ---
+    const ovale = await page.evaluate(async () => {
+        morceauxEnAttente = [];
+        poserLaFormeDeDecoupe('ellipse');
+        basculerLaDecoupe(true);
+        commencerGesteDeDecoupe({ x: 150, y: 150 });
+        poursuivreGesteDeDecoupe({ x: 350, y: 300 });
+        const m = finirGesteDeDecoupe();
+        await new Promise(k => setTimeout(k, 450));
+        if (!m) return 'rien';
+        // On relit les pixels du morceau : le centre doit être bleu, les
+        // quatre coins transparents. C'est CELA, détourer — le reste n'est
+        // qu'un drapeau dans un objet.
+        const img = imageCache[m.src];
+        const c = document.createElement('canvas');
+        c.width = m.cw; c.height = m.ch;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const lu = (x, y) => Array.from(g.getImageData(x, y, 1, 1).data);
+        return {
+            centre: lu(Math.round(m.cw / 2), Math.round(m.ch / 2)),
+            coin: lu(2, 2),
+            coinOppose: lu(m.cw - 3, m.ch - 3),
+            detoure: m.detoure, cle: m.cle, pdfRef: m.pdfRef,
+            png: m.src.startsWith('data:image/png')
+        };
+    });
+    r.verifie('l\'ovale garde le centre de la figure',
+        ovale !== 'rien' && ovale.centre[3] === 255 && ovale.centre[2] > 150,
+        JSON.stringify(ovale));
+    r.verifie('et JETTE les quatre coins : le fond y est transparent',
+        ovale !== 'rien' && ovale.coin[3] === 0 && ovale.coinOppose[3] === 0,
+        JSON.stringify(ovale));
+    // UN MORCEAU DÉTOURÉ N'EST PLUS UNE FENÊTRE SUR LA PAGE. Lui laisser la
+    // clé du document serait pire que de l'en priver : « affiner » remplacerait
+    // sa silhouette par la page entière.
+    r.egal('il ne prétend plus partager la page rendue',
+        ovale === 'rien' ? 'rien' : { cle: ovale.cle, pdfRef: ovale.pdfRef, png: ovale.png },
+        { cle: null, pdfRef: null, png: true });
+
+    // --- LA MAIN LEVÉE SE REFERME TOUTE SEULE ---
+    // Personne ne revient exactement à son point de départ : sans fermeture,
+    // le chemin resterait ouvert et la découpe laisserait une entaille.
+    const libre = await page.evaluate(async () => {
+        morceauxEnAttente = [];
+        poserLaFormeDeDecoupe('libre');
+        basculerLaDecoupe(true);
+        commencerGesteDeDecoupe({ x: 150, y: 150 });
+        [[300, 160], [330, 260], [180, 280], [150, 200]]
+            .forEach(([x, y]) => poursuivreGesteDeDecoupe({ x, y }));
+        const m = finirGesteDeDecoupe();
+        await new Promise(k => setTimeout(k, 450));
+        if (!m) return 'rien';
+        const img = imageCache[m.src];
+        const c = document.createElement('canvas');
+        c.width = m.cw; c.height = m.ch;
+        c.getContext('2d').drawImage(img, 0, 0);
+        const g = c.getContext('2d');
+        const lu = (x, y) => Array.from(g.getImageData(x, y, 1, 1).data);
+        return { detoure: m.detoure, centre: lu(Math.round(m.cw / 2), Math.round(m.ch / 2)),
+                 coinBas: lu(m.cw - 3, 2), dansLeTiroir: morceauxEnAttente.length };
+    });
+    r.egal('une découpe à main levée arrive au tiroir comme les autres',
+        libre === 'rien' ? 'rien' : { detoure: libre.detoure, dansLeTiroir: libre.dansLeTiroir },
+        { detoure: 'libre', dansLeTiroir: 1 });
+    r.verifie('elle garde l\'intérieur de la silhouette',
+        libre !== 'rien' && libre.centre[3] === 255, JSON.stringify(libre));
+    r.verifie('et laisse hors d\'elle un fond transparent : le chemin s\'est bien refermé',
+        libre !== 'rien' && libre.coinBas[3] === 0, JSON.stringify(libre));
+
+    // --- LE RECTANGLE, LUI, RESTE UNE FENÊTRE ---
+    // C'est ce qui fait que six bouts d'un poly ne pèsent pas six pages : on
+    // ne doit pas l'avoir perdu en ajoutant les deux autres formes.
+    const fenetre = await page.evaluate(async () => {
+        morceauxEnAttente = [];
+        poserLaFormeDeDecoupe('rectangle');
+        basculerLaDecoupe(true);
+        commencerGesteDeDecoupe({ x: 150, y: 150 });
+        poursuivreGesteDeDecoupe({ x: 350, y: 300 });
+        const m = finirGesteDeDecoupe();
+        await new Promise(k => setTimeout(k, 300));
+        if (!m) return 'rien';
+        return { partageLeFichier: m.src === images[0].src, detoure: m.detoure || null,
+                 cle: m.cle, pdfRef: m.pdfRef };
+    });
+    r.egal('un morceau rectangulaire partage toujours le fichier ET la clé de sa page',
+        fenetre, { partageLeFichier: true, detoure: null,
+                   cle: 'cle-d-epreuve', pdfRef: 'ref-d-epreuve' });
+
+    // La forme se garde d'une séance à l'autre : un réglage qu'on doit reposer
+    // à chaque fois n'est pas un réglage.
+    r.egal('et la forme choisie est retenue',
+        await page.evaluate(() => {
+            poserLaFormeDeDecoupe('libre');
+            return localStorage.getItem('AuTableau_forme_decoupe');
+        }), 'libre');
+
+    await page.evaluate(() => {
+        poserLaFormeDeDecoupe('rectangle');
+        basculerLaDecoupe(false);
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        images.length = 0; selectedItems = []; draw();
+    });
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

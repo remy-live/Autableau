@@ -16056,6 +16056,55 @@ function zonesRetouchables(obj) {
 let decoupeActive = false;
 let decoupeGeste = null;
 
+// ==============================================================================
+// TROIS FORMES DE CISEAUX
+//
+// « Un appui long sur les ciseaux pour des découpes différentes ? cercle, main
+// levée. » Les découpes, oui — l'appui long, non : « évite les appuis longs et
+// courts, aucun geste distingué par sa durée ». Le code le dit déjà ailleurs,
+// à propos du bout du surligneur : « il se choisit aussi par un appui long sur
+// l'icône de l'outil — mais un geste ne se devine pas », et c'est pourquoi ce
+// bout-là a reçu un bouton à lui. Les formes en reçoivent un aussi, qui montre
+// celle qui est en cours.
+//
+// CE QUI SÉPARE LE RECTANGLE DES DEUX AUTRES, ET QUI N'EST PAS UN DÉTAIL :
+// un morceau rectangulaire n'est pas une image, c'est une FENÊTRE sur la page
+// — un cadrage. C'est ce qui fait que six bouts d'un poly ne pèsent pas six
+// pages, et qu'un bout agrandi se redemande net au PDF. Une découpe ronde ou
+// à main levée ne peut pas être une fenêtre : il faut peindre la silhouette,
+// donc fabriquer une VRAIE image, qui pèse son poids et ne se raffine plus.
+// On ne choisit donc pas la forme par goût : le rectangle reste le bon outil
+// pour débiter un polycopié, les deux autres servent à détourer une figure.
+// ==============================================================================
+const FORMES_DE_DECOUPE = ['rectangle', 'ellipse', 'libre'];
+const NOMS_DES_FORMES = {
+    rectangle: 'Découper au rectangle',
+    ellipse: 'Découper à l\'ovale',
+    libre: 'Découper à main levée'
+};
+let formeDeDecoupe = 'rectangle';
+// On la relit au chargement, comme le bout du surligneur : un réglage qu'on
+// doit reposer à chaque séance n'est pas un réglage.
+try {
+    const memoire = localStorage.getItem('AuTableau_forme_decoupe');
+    if (FORMES_DE_DECOUPE.includes(memoire)) formeDeDecoupe = memoire;
+} catch (e) { /* stockage refusé */ }
+
+function poserLaFormeDeDecoupe(f) {
+    if (!FORMES_DE_DECOUPE.includes(f)) return formeDeDecoupe;
+    formeDeDecoupe = f;
+    try { localStorage.setItem('AuTableau_forme_decoupe', f); } catch (e) { /* refusé */ }
+    if (typeof majLaFormeDeDecoupe === 'function') majLaFormeDeDecoupe();
+    return formeDeDecoupe;
+}
+window.poserLaFormeDeDecoupe = poserLaFormeDeDecoupe;
+
+function formeDeDecoupeSuivante() {
+    const i = FORMES_DE_DECOUPE.indexOf(formeDeDecoupe);
+    return poserLaFormeDeDecoupe(FORMES_DE_DECOUPE[(i + 1) % FORMES_DE_DECOUPE.length]);
+}
+window.formeDeDecoupeSuivante = formeDeDecoupeSuivante;
+
 function basculerLaDecoupe(force) {
     const veut = (force === undefined) ? !decoupeActive : !!force;
     // Les deux se disputeraient le même geste sur le même document.
@@ -16099,6 +16148,23 @@ function commencerGesteDeDecoupe(pos) {
 function poursuivreGesteDeDecoupe(pos) {
     const g = decoupeGeste;
     if (!g) return;
+    // À MAIN LEVÉE, C'EST LE CHEMIN QUI COMPTE — mais on garde aussi sa boîte,
+    // parce que c'est elle qui dit si le geste vaut un morceau.
+    if (formeDeDecoupe === 'libre') {
+        if (!g.chemin) g.chemin = [{ x: g.debut.x, y: g.debut.y }];
+        const dernier = g.chemin[g.chemin.length - 1];
+        if (Math.hypot(pos.x - dernier.x, pos.y - dernier.y) > 2 / zoom) {
+            g.chemin.push({ x: pos.x, y: pos.y });
+        }
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        g.chemin.forEach(pt => {
+            if (pt.x < x1) x1 = pt.x; if (pt.x > x2) x2 = pt.x;
+            if (pt.y < y1) y1 = pt.y; if (pt.y > y2) y2 = pt.y;
+        });
+        g.rect = { x: x1, y: y1, l: x2 - x1, h: y2 - y1 };
+        draw();
+        return;
+    }
     g.rect = {
         x: Math.min(g.debut.x, pos.x), y: Math.min(g.debut.y, pos.y),
         l: Math.abs(pos.x - g.debut.x), h: Math.abs(pos.y - g.debut.y)
@@ -16113,8 +16179,114 @@ function finirGesteDeDecoupe() {
     // Un simple clic n'est pas un rectangle : sans ce garde-fou, chaque clic à
     // côté poserait un morceau grand comme rien.
     if (g.rect.l * zoom < 14 || g.rect.h * zoom < 14) { draw(); return null; }
-    return prendreUnMorceau(g.obj, g.rect);
+    if (formeDeDecoupe === 'rectangle') return prendreUnMorceau(g.obj, g.rect);
+    return prendreUnMorceauDetoure(g.obj, g.rect, formeDeDecoupe, g.chemin);
 }
+
+// ==============================================================================
+// DÉTOURER : UN MORCEAU QUI N'EST PLUS UNE FENÊTRE
+//
+// Le morceau rectangulaire est un CADRAGE sur la page : il partage son fichier,
+// et c'est ce partage qui fait que six bouts d'un poly ne pèsent pas six pages.
+// Une silhouette ne peut pas se dire ainsi — un cadrage n'a que quatre côtés.
+// On peint donc la forme dans une image à part, avec le fond transparent
+// autour. Le morceau pèse alors son poids, et il ne se redemandera plus net au
+// PDF : c'est le prix de la forme, et il vaut d'être dit plutôt que subi. Le
+// rectangle reste donc le bon outil pour débiter un polycopié ; ceux-ci
+// servent à détourer une figure, une photo, un schéma.
+// ==============================================================================
+function prendreUnMorceauDetoure(source, r, forme, chemin) {
+    const img = imageCache[source.src];
+    if (!img || !source.cw || !source.ch) {
+        if (typeof showToast === 'function') showToast('Ce document ne se découpe pas');
+        return null;
+    }
+    const NW = img.naturalWidth || source.cw, NH = img.naturalHeight || source.ch;
+    const kx = source.w / source.cw, ky = source.h / source.ch;
+    if (!kx || !ky) return null;
+
+    // Le tableau vers les pixels de la page : la même conversion que pour le
+    // rectangle, écrite une fois et réutilisée par le chemin.
+    const versLaPage = (pt) => ({
+        x: (pt.x - source.x) / kx + source.cx,
+        y: (pt.y - source.y) / ky + source.cy
+    });
+    const coin = versLaPage({ x: r.x, y: r.y });
+    const cx = Math.max(0, Math.min(NW - 1, coin.x));
+    const cy = Math.max(0, Math.min(NH - 1, coin.y));
+    const cw = Math.max(1, Math.min(NW - cx, r.l / kx));
+    const ch = Math.max(1, Math.min(NH - cy, r.h / ky));
+    if (cw < 4 || ch < 4) return null;
+
+    // UNE BORNE, PARCE QU'UN SCAN PEUT ÊTRE ÉNORME. Un A4 rendu à forte finesse
+    // dépasse les quatre mille pixels de côté ; au-delà, la mémoire du
+    // navigateur d'une vieille machine de classe ne suit plus.
+    const MAX = 3000;
+    const reduction = Math.min(1, MAX / Math.max(cw, ch));
+    const toile = document.createElement('canvas');
+    toile.width = Math.max(1, Math.round(cw * reduction));
+    toile.height = Math.max(1, Math.round(ch * reduction));
+    const g = toile.getContext('2d');
+    g.save();
+    g.beginPath();
+    if (forme === 'ellipse') {
+        g.ellipse(toile.width / 2, toile.height / 2,
+                  toile.width / 2, toile.height / 2, 0, 0, Math.PI * 2);
+    } else {
+        const pts = (chemin || []).map(versLaPage);
+        if (pts.length < 3) { g.restore(); return null; }
+        pts.forEach((pt, i) => {
+            const X = (pt.x - cx) * reduction, Y = (pt.y - cy) * reduction;
+            if (i === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
+        });
+        // PAS DE « closePath » ICI : « clip » referme le chemin de lui-même.
+        // Je l'avais écrit, avec un commentaire qui prétendait qu'il évitait
+        // une entaille — le sabotage a montré que le retirer ne changeait
+        // RIEN. Du code mort qui se donne pour une précaution est pire que
+        // pas de code : il fait croire qu'un risque est couvert. La fermeture
+        // qui compte est celle du TRACÉ à l'écran, dans « dessinerLaDecoupe »,
+        // où le contour est bel et bien dessiné.
+    }
+    g.clip();
+    g.drawImage(img, -cx * reduction, -cy * reduction, NW * reduction, NH * reduction);
+    g.restore();
+
+    let src;
+    try { src = toile.toDataURL('image/png'); }
+    catch (e) { if (typeof showToast === 'function') showToast('Ce document ne se découpe pas'); return null; }
+
+    const pd = source.pluginData || {};
+    const morceau = {
+        id: nextId++, w: cw * kx, h: ch * ky,
+        cx: 0, cy: 0, cw: toile.width, ch: toile.height,
+        src,
+        nom: pd.nom || source.fileName || 'Document',
+        page: pd.page || 1,
+        // NI CLÉ NI RÉFÉRENCE : ce morceau ne partage plus la page rendue, et
+        // le lui laisser croire serait pire que de l'en priver — « affiner »
+        // remplacerait sa silhouette par la page entière.
+        pdfRef: null,
+        cle: null,
+        source: source.id,
+        detoure: forme,
+        projete: (typeof presentationEnCours !== 'undefined' && presentationEnCours === source.id)
+    };
+    // L'image doit être connue avant le premier dessin, sinon la vignette du
+    // tiroir se peint sur du vide.
+    const chargee = new Image();
+    chargee.onload = () => { imageCache[src] = chargee; majLeTiroirDesMorceaux(); draw(); };
+    chargee.src = src;
+    imageCache[src] = chargee;
+
+    morceauxEnAttente.push(morceau);
+    majLeTiroirDesMorceaux();
+    draw();
+    if (typeof showToast === 'function') {
+        showToast('✂ Morceau détouré, rangé dans le tiroir — glissez-le où vous le voulez');
+    }
+    return morceau;
+}
+window.prendreUnMorceauDetoure = prendreUnMorceauDetoure;
 
 // `silencieux` : le repérage en prend une douzaine d'un coup, il annonce le
 // total lui-même plutôt que douze fois la même chose.
@@ -16182,12 +16354,25 @@ function dessinerLaDecoupe(ctx) {
         ctx.strokeRect(g.obj.x, g.obj.y, g.obj.w, g.obj.h);
     }
     if (g && g.rect && g.rect.l > 0 && g.rect.h > 0) {
+        // CE QU'ON VOIT EST CE QU'ON COUPERA. Montrer un rectangle pendant
+        // qu'on détoure à main levée, ce serait promettre une chose et en
+        // livrer une autre : la silhouette se dessine telle quelle.
         ctx.fillStyle = 'rgba(108,92,231,0.14)';
-        ctx.fillRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
         ctx.strokeStyle = '#6c5ce7';
         ctx.lineWidth = 2 * lw;
         ctx.setLineDash([7 * lw, 5 * lw]);
-        ctx.strokeRect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
+        ctx.beginPath();
+        if (formeDeDecoupe === 'ellipse') {
+            ctx.ellipse(g.rect.x + g.rect.l / 2, g.rect.y + g.rect.h / 2,
+                        g.rect.l / 2, g.rect.h / 2, 0, 0, Math.PI * 2);
+        } else if (formeDeDecoupe === 'libre' && g.chemin && g.chemin.length > 1) {
+            g.chemin.forEach((pt, i) => { if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y); });
+            ctx.closePath();
+        } else {
+            ctx.rect(g.rect.x, g.rect.y, g.rect.l, g.rect.h);
+        }
+        ctx.fill();
+        ctx.stroke();
     }
     ctx.restore();
 }
@@ -18047,6 +18232,35 @@ function estUnPdfFeuilletable(obj) {
 // elle, revient toujours à sa place — son contenu change à chaque sélection,
 // et une barre dont le contenu change ET qui bouge ne se retrouve plus.
 
+// LES TROIS DESSINS DES CISEAUX. Chacun montre la forme qu'il coupe : le
+// bouton ne porte pas un nom mais une silhouette, parce que c'est une
+// silhouette qu'on choisit.
+const DESSINS_DES_FORMES = {
+    rectangle: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="1"'
+        + ' stroke-dasharray="3 2.4"/></svg>',
+    ellipse: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.8"><ellipse cx="12" cy="12" rx="8" ry="6" stroke-dasharray="3 2.4"/></svg>',
+    libre: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 2.4">'
+        + '<path d="M7 17c-3-2-3-7 0-9 3-2 8-2 10 1 2 3 0 8-4 9-3 .7-5 0-6-1z"/></svg>'
+};
+
+function majLaFormeDeDecoupe() {
+    const bouton = document.getElementById('doc-decoupe-forme');
+    if (!bouton) return;
+    bouton.innerHTML = (DESSINS_DES_FORMES[formeDeDecoupe] || '')
+        + '<span>' + (formeDeDecoupe === 'rectangle' ? 'Rectangle'
+                    : formeDeDecoupe === 'ellipse' ? 'Ovale' : 'Main levée') + '</span>';
+    // L'INFOBULLE DIT AUSSI CE QU'ON PERD. Un morceau rectangulaire est une
+    // fenêtre sur la page : il ne pèse rien et se redemande net. Détouré, il
+    // devient une vraie image. Mieux vaut le lire avant que le découvrir.
+    bouton.setAttribute('data-tooltip', formeDeDecoupe === 'rectangle'
+        ? 'Forme des ciseaux : rectangle — le morceau reste un cadrage sur la page, net à tout grossissement. Appuyez pour changer.'
+        : NOMS_DES_FORMES[formeDeDecoupe] + ' — le morceau devient une image à part, à sa taille du moment. Appuyez pour changer.');
+}
+window.majLaFormeDeDecoupe = majLaFormeDeDecoupe;
+
 function majBarreDocument() {
     const barre = document.getElementById('bar-document');
     if (!barre) return;
@@ -18168,6 +18382,13 @@ function majBarreDocument() {
     if (bDecouper) {
         bDecouper.style.display = obj && obj.src ? 'inline-flex' : 'none';
         bDecouper.classList.toggle('actif', decoupeActive);
+    }
+    // La forme suit les ciseaux : elle n'a pas de sens sans eux.
+    const bForme = document.getElementById('doc-decoupe-forme');
+    if (bForme) {
+        bForme.style.display = obj && obj.src ? 'inline-flex' : 'none';
+        bForme.classList.toggle('actif', decoupeActive && formeDeDecoupe !== 'rectangle');
+        majLaFormeDeDecoupe();
     }
     // Repérer tout seul : même règle que les ciseaux — tout ce qui est une
     // image posée, y compris un morceau qu'on redécoupe. MAIS PAS EN PLEIN
@@ -18425,6 +18646,20 @@ function brancherBarreDocument() {
         const bouton = b('doc-decouper');
         if (!bouton) return;
         bouton.addEventListener('click', () => { basculerLaDecoupe(); });
+    })();
+
+    // LA FORME DES CISEAUX : un bouton qui cycle, et qui montre où il en est.
+    (function () {
+        const bouton = b('doc-decoupe-forme');
+        if (!bouton) return;
+        bouton.addEventListener('click', () => {
+            const f = formeDeDecoupeSuivante();
+            if (typeof showToast === 'function') showToast('✂ ' + NOMS_DES_FORMES[f]);
+            // Changer de forme arme les ciseaux : on ne choisit pas une forme
+            // pour ne pas s'en servir.
+            if (!decoupeActive) basculerLaDecoupe(true);
+            draw();
+        });
     })();
 
     // ⌁ Repérer : la page est lue, ses blocs partent au tiroir.
