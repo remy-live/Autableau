@@ -32961,6 +32961,49 @@ let edtSemaineVue = 'A';
 let edtGeste = null;
 
 // ==============================================================================
+// DEUX GESTES, DEUX ONGLETS
+//
+// « Je pense qu'il faut bien distinguer la création de l'EDT et le remplissage
+// car là clairement ça se parasite. Peut-être deux onglets. »
+//
+// C'était vrai, et cela se voyait à tout : la même fenêtre portait la palette
+// des classes, le mode d'emploi du tracé, sept réglages — la journée, la
+// hauteur, les sonneries, le samedi, les semaines A et B, la recopie, l'import
+// —, ET la semaine datée où l'on vient écrire ce qu'on a fait. Le geste du
+// soir se frayait un chemin au milieu des outils de la rentrée.
+//
+// Les deux gestes n'ont ni la même fréquence ni le même moment : on bâtit son
+// emploi du temps trois fois en septembre, on remplit son cahier deux cents
+// fois dans l'année. C'est « Ma semaine » qui s'ouvre, donc — sauf quand il
+// n'y a rien à remplir, et l'on tombe alors sur « Construire », qui est ce
+// qu'il reste à faire.
+// ==============================================================================
+let edtOnglet = 'semaine';
+
+function onConstruitLEdt() { return edtOnglet === 'construire'; }
+
+function choisirLOngletDeLEdt(quel, garder) {
+    edtOnglet = (quel === 'construire') ? 'construire' : 'semaine';
+    if (garder !== false) { agenda.onglet = edtOnglet; ecrireLAgenda(); }
+    fermerLeMotDuCours();
+    majLOngletDeLEdt();
+    rendreLAgenda();
+}
+window.choisirLOngletDeLEdt = choisirLOngletDeLEdt;
+
+function majLOngletDeLEdt() {
+    const boite = document.getElementById('edt-boite');
+    if (boite) {
+        boite.classList.toggle('edt-mode-construire', onConstruitLEdt());
+        boite.classList.toggle('edt-mode-semaine', !onConstruitLEdt());
+    }
+    document.querySelectorAll('#edt-onglets .edt-onglet').forEach(b => {
+        b.classList.toggle('actif', b.dataset.onglet === edtOnglet);
+        b.setAttribute('aria-selected', b.dataset.onglet === edtOnglet ? 'true' : 'false');
+    });
+}
+
+// ==============================================================================
 // LA GRILLE DEVIENT UN CALENDRIER
 //
 // « J'aurais plutôt vu une petite popup à côté du jour, penses-tu qu'autre
@@ -33010,6 +33053,12 @@ window.revenirACetteSemaine = revenirACetteSemaine;
 
 // « lundi 22/09 » : le jour et sa date, dans la largeur d'une colonne.
 function titreDeLaColonne(nom, jour) {
+    // EN « CONSTRUIRE », LA SEMAINE N'A PAS DE DATE, ET C'EST EXACT : on y
+    // bâtit une semaine TYPE, celle qui se répète toute l'année. Lui coller
+    // « Lundi 21/09 » laissait croire qu'on ne réglait que ce lundi-là — le
+    // parasitage même dont il s'agit ici. La date revient dans « Ma semaine »,
+    // où elle est justement ce qui compte.
+    if (onConstruitLEdt()) return nom;
     const d = dateDeLaColonne(jour);
     return nom + ' <span class="edt-date">' + String(d.getDate()).padStart(2, '0')
         + '/' + String(d.getMonth() + 1).padStart(2, '0') + '</span>';
@@ -33770,19 +33819,84 @@ function repartirLesChevauchements(liste) {
 // écrit deviendrait orphelin d'un coup. Elle porte la date, l'heure et le nom
 // de la classe — ce qui ne change pas quand on réimporte la même semaine.
 // ==============================================================================
+// CE QUI RATTACHE UN MOT DU CAHIER À SON HEURE DE COURS.
+//
+// « Est-ce que les classes qu'on crée sont bien reliées aux heures de cours ? »
+// Elles le sont — par « creneau.entreeId » —, mais le cahier, lui, ne l'était
+// pas : sa clé était « date | heure | NOM ÉCRIT DE LA CLASSE ». Les trois
+// morceaux étaient fragiles, et le troisième surtout :
+//
+//   — renommer « 6e C » en « 6ème C » perdait tout ce qu'on avait écrit ;
+//   — fusionner deux classes le perdait aussi, puisque la fusion renomme ;
+//   — avancer un cours de 8 h 05 à 8 h le perdait une troisième fois.
+//
+// Rien ne le disait : le texte ne revenait simplement plus, et l'on croyait
+// avoir mal enregistré. Pire, chaque lecture d'une clé absente en CRÉAIT une
+// vide, si bien que le cahier se remplissait de fantômes.
+//
+// La clé tient désormais à l'identité du créneau, qui ne change ni au
+// renommage, ni à la fusion, ni au déplacement d'horaire. Reste la date, parce
+// qu'un même créneau revient toutes les semaines et que chaque semaine a son
+// mot.
 function cleDuMot(date, creneau) {
-    return jourIso(date) + '|' + creneau.debut + '|' + (creneau.libelle || '');
+    if (!creneau) return '';
+    // Le créneau d'avant les identifiants — il n'y en a plus, mais un cahier
+    // enregistré peut en contenir : on retombe sur l'ancienne forme.
+    if (!creneau.id) return jourIso(date) + '|' + creneau.debut + '|' + (creneau.libelle || '');
+    return jourIso(date) + '|' + creneau.id;
 }
+
+// ET L'ON REPREND CE QUI ÉTAIT DÉJÀ ÉCRIT SOUS L'ANCIENNE CLÉ.
+//
+// Personne ne doit perdre son cahier parce qu'on a changé d'avis sur la façon
+// de le ranger. On retrouve, pour chaque vieille clé, le créneau qui lui
+// correspond — même jour de la semaine, même heure de début, même nom — et
+// l'on réécrit la clé à son identité.
+function reprendreLesVieuxMots() {
+    const m = (cahier && cahier.jours) || null;
+    if (!m || !agenda || !Array.isArray(agenda.creneaux)) return 0;
+    let repris = 0;
+    Object.keys(m).forEach(cle => {
+        const p = cle.split('|');
+        if (p.length < 3) return;                     // déjà à la forme nouvelle
+        const jour = p[0], debut = Number(p[1]), nom = p.slice(2).join('|');
+        const d = new Date(jour + 'T12:00:00');
+        if (isNaN(d.getTime())) return;
+        // getDay() rend 0 pour dimanche ; la grille compte lundi = 1.
+        const numeroDuJour = d.getDay() === 0 ? 7 : d.getDay();
+        const c = agenda.creneaux.find(x => x.jour === numeroDuJour
+            && x.debut === debut && (x.libelle || '') === nom);
+        if (!c || !c.id) return;
+        const neuve = jour + '|' + c.id;
+        // On n'écrase jamais un mot déjà écrit à la forme nouvelle.
+        if (m[neuve] && ((m[neuve].fait || '').trim() || (m[neuve].devoirs || '').trim())) {
+            delete m[cle];
+            return;
+        }
+        m[neuve] = m[cle];
+        delete m[cle];
+        repris++;
+    });
+    return repris;
+}
+window.reprendreLesVieuxMots = reprendreLesVieuxMots;
 
 function motsDuCahier() {
     if (!cahier.jours || typeof cahier.jours !== 'object') cahier.jours = {};
     return cahier.jours;
 }
 
-function motDuCours(date, creneau) {
+// LIRE NE DOIT PAS ÉCRIRE. La lecture créait la case vide au passage, si bien
+// que promener les yeux sur une semaine y déposait autant de mots vides qu'il
+// y a d'heures — et le cahier enflait de fantômes. On ne pose la case que
+// lorsqu'on ouvre le mot pour y écrire.
+function motDuCours(date, creneau, pourEcrire) {
     const m = motsDuCahier();
     const cle = cleDuMot(date, creneau);
-    if (!m[cle]) m[cle] = { fait: '', devoirs: '', tableauId: null };
+    if (!m[cle]) {
+        if (!pourEcrire) return { fait: '', devoirs: '', tableauId: null };
+        m[cle] = { fait: '', devoirs: '', tableauId: null };
+    }
     return m[cle];
 }
 
@@ -33854,7 +33968,7 @@ function boiteDuMotDuCours() {
 
     const ecrire = () => {
         if (!motOuvert) return;
-        const m = motDuCours(motOuvert.date, motOuvert.creneau);
+        const m = motDuCours(motOuvert.date, motOuvert.creneau, true);
         m.fait = document.getElementById('emc-fait').value;
         m.devoirs = document.getElementById('emc-devoirs').value;
         const t = tableauDuCours(motOuvert.date, motOuvert.creneau);
@@ -34033,8 +34147,11 @@ function rendreLaGrilleDeLAgenda() {
         col.className = 'edt-colonne';
         // AUJOURD'HUI SE VOIT : sans cela, on cherche sa colonne des yeux, et
         // l'on remplit le cahier du mauvais jour.
+        // En « Construire », la semaine est une semaine TYPE : elle n'a pas
+        // de dates, et « aujourd'hui » n'y désigne rien.
         const dateDuJour = dateDeLaColonne(jour);
-        const cEstAujourdhui = jourIso(dateDuJour) === jourIso(new Date());
+        const cEstAujourdhui = !onConstruitLEdt()
+            && jourIso(dateDuJour) === jourIso(new Date());
         if (cEstAujourdhui) col.classList.add('edt-aujourdhui');
         col.innerHTML = `<div class="edt-titre">${titreDeLaColonne(nom, jour)}</div>`;
 
@@ -34453,6 +34570,21 @@ function commencerUnGesteDeLAgenda(e) {
     if (edtGeste) return;
     if (e.pointerType === 'mouse' && e.button !== undefined && e.button !== 0) return;
 
+    // EN « MA SEMAINE », LA GRILLE NE SE TRACE PAS, ELLE SE LIT.
+    //
+    // « Il faut bien distinguer la création de l'EDT et le remplissage. » On
+    // ne déplace pas un cours, on ne l'allonge pas, on n'en trace pas un
+    // nouveau d'un trait de doigt mal placé : on appuie sur une heure pour
+    // écrire ce qu'on y a fait. C'est tout ce que cet onglet permet, et c'est
+    // ce qui le rend sûr un soir de fatigue.
+    if (!onConstruitLEdt()) {
+        const ou = e.target.closest('.edt-creneau');
+        if (!ou) return;
+        const c = creneauDeLAgenda(ou.dataset.id);
+        if (c) { ouvrirLeMotDuCours(c, ou); e.preventDefault(); }
+        return;
+    }
+
     const corps = document.getElementById('edt-corps');
     const prendreLePointeur = () => {
         // LA CAPTURE SE POSE SUR UN ÉLÉMENT QUI SURVIT AU GESTE. La poser sur
@@ -34651,27 +34783,23 @@ function finirUnGesteDeLAgenda(e) {
     // palette était VIDE et qu'une entrée est née sous le doigt — or un tampon
     // armé EST une entrée. Un sabotage a montré que la garde ne servait rien.)
     const aNommer = edtGeste.nommer ? edtGeste.c.entreeId : null;
-    // UN APPUI SUR UNE CASE OUVRE LE CAHIER DE TEXTE, ET NON PLUS SA FICHE
-    // D'HORAIRE.
+    // ON N'ARRIVE ICI QU'EN « CONSTRUIRE » : l'autre onglet ne commence
+    // aucun geste. L'appui nu y retrouve donc son sens d'origine — la fiche
+    // d'horaire, qu'on écrit au chiffre plutôt qu'en visant un bord.
     //
-    // La fiche reste, sur le « ⋯ » qui était déjà là. Ce qui change, c'est
-    // lequel des deux gestes mérite l'appui nu : on règle ses horaires trois
-    // fois en septembre, on remplit son cahier deux cents fois dans l'année.
-    // Le geste le plus court va au geste le plus fréquent.
-    const aEcrire = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge
+    // C'est l'onglet qui a réglé la question. Le cahier de texte avait pris
+    // l'appui parce qu'il le méritait : on remplit deux cents fois par an ce
+    // qu'on règle trois fois en septembre. Mais les deux gestes vivaient dans
+    // la même fenêtre, et il fallait bien que l'un cède à l'autre. Séparés, ils
+    // ont chacun l'appui nu, chacun chez soi.
+    const aRegler = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge
                      && !tamponArme())
-        ? { c: edtGeste.c, bloc: edtGeste.bloc } : null;
+        ? edtGeste.c.id : null;
     edtGeste = null;
     ecrireLAgenda();
     rendreLaGrilleDeLAgenda();
     if (aNommer) { reglerUneEntree(aNommer); return; }
-    if (aEcrire) {
-        // La grille vient d'être repeinte : le bloc qu'on tenait n'existe
-        // plus. On retrouve le sien pour y ancrer la popup.
-        const frais = document.querySelector('#edt-grille .edt-creneau[data-id="'
-            + aEcrire.c.id + '"]') || aEcrire.bloc;
-        ouvrirLeMotDuCours(aEcrire.c, frais);
-    }
+    if (aRegler) reglerUnCreneau(aRegler);
 }
 
 // ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé par erreur
@@ -35137,6 +35265,8 @@ function ouvrirLAgenda() {
         // frontière invisible à connaître pour ajouter un bouton.
         boite.addEventListener('click', (e) => {
             if (e.target.closest('#edt-ajouter')) { reglerUneEntree(null); return; }
+            const onglet = e.target.closest('.edt-onglet');
+            if (onglet) { choisirLOngletDeLEdt(onglet.dataset.onglet); return; }
             const regler = e.target.closest('[data-regler]');
             if (regler) { reglerUneEntree(regler.dataset.regler); return; }
             const oterEntree = e.target.closest('[data-oter-entree]');
@@ -35196,6 +35326,17 @@ function ouvrirLAgenda() {
         });
     }
     boite.style.display = 'flex';
+    // LES MOTS ÉCRITS SOUS L'ANCIENNE CLÉ REJOIGNENT LEUR CRÉNEAU. C'est ici,
+    // et pas ailleurs : il faut l'emploi du temps ET le cahier pour apparier
+    // les deux, et « ouvrirLAgenda » est le seul endroit où l'on a les deux.
+    if (typeof lireLeCahier === 'function') lireLeCahier();
+    if (reprendreLesVieuxMots() > 0) ecrireLeCahier();
+    // L'ONGLET QU'ON RETROUVE — ou celui qu'il reste à faire. Un emploi du
+    // temps vide n'a rien à remplir : s'ouvrir sur « Ma semaine » et sa grille
+    // déserte ne dirait pas par où commencer.
+    edtOnglet = (agenda.onglet === 'construire') ? 'construire' : 'semaine';
+    if (!agenda.creneaux.length) edtOnglet = 'construire';
+    majLOngletDeLEdt();
     rendreLAgenda();
 }
 

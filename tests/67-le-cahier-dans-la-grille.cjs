@@ -49,6 +49,10 @@ module.exports = async function (browser) {
         ecrireLAgenda(); ecrireLeCahier();
         revenirACetteSemaine();
         ouvrirLAgenda();
+        // CE CHAPITRE SE TIENT DANS « MA SEMAINE ». C'est l'onglet du
+        // remplissage — celui qui s'ouvre de lui-même dès qu'il y a des
+        // heures à remplir —, et on le dit plutôt qu'on ne l'espère.
+        choisirLOngletDeLEdt('semaine');
         rendreLAgenda();
     });
     await page.waitForTimeout(600);
@@ -195,7 +199,9 @@ module.exports = async function (browser) {
 
     const ecrit = await page.evaluate(() => {
         const lundi = lundiDe(new Date());
-        const cle = jourIso(lundi) + '|' + (8 * 60 + 5) + '|6EME B';
+        // LA CLÉ TIENT À L'IDENTITÉ DU CRÉNEAU, plus à son nom écrit ni à son
+        // heure : ceux-là changent, et le cahier se perdait avec eux.
+        const cle = jourIso(lundi) + '|c1';
         return { cle, enregistre: cahier.jours[cle] || null,
                  pastilles: document.querySelectorAll('#edt-grille .edt-ecrit').length };
     });
@@ -209,7 +215,7 @@ module.exports = async function (browser) {
     // ÇA TIENT APRÈS UN RECHARGEMENT — c'est du cahier, pas une note volante.
     r.egal('le cahier garde ce qu\'on y a mis',
         await page.evaluate(() => {
-            const cle = jourIso(lundiDe(new Date())) + '|' + (8 * 60 + 5) + '|6EME B';
+            const cle = jourIso(lundiDe(new Date())) + '|c1';
             cahier.jours = {};             // on oublie tout
             lireLeCahier();                // et l'on relit le stockage
             const m = cahier.jours && cahier.jours[cle];
@@ -239,7 +245,7 @@ module.exports = async function (browser) {
     const deuxSemaines = await page.evaluate(() => {
         const lundi = lundiDe(new Date());
         const suivant = new Date(lundi); suivant.setDate(suivant.getDate() + 7);
-        const cle = (d) => jourIso(d) + '|' + (8 * 60 + 5) + '|6EME B';
+        const cle = (d) => jourIso(d) + '|c1';
         return { cette: (cahier.jours[cle(lundi)] || {}).fait,
                  prochaine: (cahier.jours[cle(suivant)] || {}).fait };
     });
@@ -289,18 +295,64 @@ module.exports = async function (browser) {
     await page.evaluate(() => { fermerLeMotDuCours(); });
 
     // ==========================================================
-    // 5. LE « ⋯ » GARDE LA FICHE D'HORAIRE
+    // 5. DEUX ONGLETS, DEUX GESTES
     //
-    // On n'a pas supprimé le réglage, on l'a déplacé là où il était déjà.
+    // « Il faut bien distinguer la création de l'EDT et le remplissage car là
+    // clairement ça se parasite. Peut-être deux onglets. »
+    //
+    // « Ma semaine » ne montre QUE la semaine et ce qu'on y écrit : pas de
+    // palette, pas de réglages, et surtout pas le « × » qui efface une heure —
+    // on ne veut pas supprimer d'un doigt, un soir de fatigue, l'heure qu'on
+    // venait remplir. « Construire » rend tout cela, et l'appui nu y retrouve
+    // la fiche d'horaire.
     // ==========================================================
     await page.evaluate(() => { fermerLeMotDuCours(); revenirACetteSemaine(); });
     await page.waitForTimeout(400);
+    const deuxOnglets = await page.evaluate(async () => {
+        const vu = (sel) => {
+            const n = document.querySelector(sel);
+            if (!n) return false;
+            const q = n.getBoundingClientRect();
+            return getComputedStyle(n).display !== 'none' && q.width > 0 && q.height > 0;
+        };
+        const releve = () => ({
+            palette: vu('#edt-palette'),
+            journee: vu('#edt-journee'),
+            importer: vu('#edt-importer'),
+            modeDemploi: vu('#edt-mode-demploi'),
+            navigation: vu('#edt-navigation'),
+            croix: vu('#edt-grille .edt-creneau[data-id="c1"] .edt-oter'),
+            regler: vu('#edt-grille .edt-creneau[data-id="c1"] .edt-regler'),
+            // La date dans le titre : une semaine réelle en porte une, une
+            // semaine TYPE n'en a pas.
+            date: !!document.querySelector('#edt-grille .edt-titre .edt-date')
+        });
+        const semaine = releve();
+        choisirLOngletDeLEdt('construire');
+        await new Promise(ok => setTimeout(ok, 400));
+        const construire = releve();
+        return { semaine, construire };
+    });
+    const S = deuxOnglets.semaine, C = deuxOnglets.construire;
+    r.verifie('« Ma semaine » ne montre ni palette, ni réglages, ni mode d\'emploi',
+        !S.palette && !S.journee && !S.importer && !S.modeDemploi, JSON.stringify(S));
+    r.verifie('et un créneau n\'y porte ni « × » ni « ⋯ » : rien à effacer par mégarde',
+        !S.croix && !S.regler, JSON.stringify(S));
+    r.verifie('mais elle porte la semaine qu\'on feuillette, et ses dates',
+        S.navigation && S.date, JSON.stringify(S));
+    r.verifie('« Construire » rend la palette, les réglages et le mode d\'emploi',
+        C.palette && C.journee && C.importer && C.modeDemploi, JSON.stringify(C));
+    r.verifie('et rend au créneau son « × » et son « ⋯ »',
+        C.croix && C.regler, JSON.stringify(C));
+    r.verifie('la semaine y redevient une semaine type, sans dates ni feuilletage',
+        !C.date && !C.navigation, JSON.stringify(C));
+
     await page.evaluate(() => {
         const b = document.querySelector('#edt-grille .edt-creneau[data-id="c1"] .edt-regler');
         if (b) b.click();
     });
     await page.waitForTimeout(500);
-    r.verifie('le « ⋯ » ouvre toujours la fiche d\'horaire',
+    r.verifie('le « ⋯ » y ouvre la fiche d\'horaire',
         await page.evaluate(() => {
             const m = document.getElementById('custom-prompt-modal');
             return !!m && getComputedStyle(m).display !== 'none';
@@ -315,6 +367,53 @@ module.exports = async function (browser) {
     await page.waitForTimeout(300);
 
     // ==========================================================
+    // 5 bis. LE MOT TIENT À SON HEURE DE COURS, PAS AU NOM ÉCRIT DESSUS
+    //
+    // « Est-ce que les classes que l'on crée sont bien reliées aux heures de
+    // cours ? » Elles le sont — un créneau porte l'identité de son entrée de
+    // palette. Le cahier, lui, ne l'était pas : sa clé était
+    // « date | heure | NOM ÉCRIT DE LA CLASSE », et les trois morceaux
+    // bougent. Renommer « 6EME B » en « 6e B » en octobre effaçait tout ce
+    // qu'on avait écrit depuis septembre. Changer l'horaire aussi. Rien ne le
+    // disait : le texte ne revenait simplement plus.
+    // ==========================================================
+    const tenace = await page.evaluate(async () => {
+        const lundi = lundiDe(new Date());
+        const lu = () => (cahier.jours[jourIso(lundi) + '|c1'] || {}).fait || '(perdu)';
+        const avant = lu();
+
+        // ON RENOMME LA CLASSE, comme on le fait quand on s'aperçoit en
+        // octobre que Pronote écrit « 6EME B » et qu'on dit « 6e B ».
+        const e = agenda.entrees.find(x => x.id === 'e1');
+        e.libelle = '6e B';
+        agenda.creneaux.forEach(c => { if (c.entreeId === 'e1') c.libelle = '6e B'; });
+        ecrireLAgenda(); rendreLAgenda();
+        await new Promise(ok => setTimeout(ok, 250));
+        const apresLeNom = lu();
+        const pastillesApresLeNom = document.querySelectorAll('#edt-grille .edt-ecrit').length;
+
+        // ET ON AVANCE L'HEURE DE CINQ MINUTES, comme quand l'établissement
+        // change ses sonneries.
+        agenda.creneaux.find(c => c.id === 'c1').debut = 8 * 60;
+        ecrireLAgenda(); rendreLAgenda();
+        await new Promise(ok => setTimeout(ok, 250));
+        const apresLHeure = lu();
+
+        return { avant, apresLeNom, apresLHeure, pastillesApresLeNom,
+                 combienDeMots: Object.keys(cahier.jours).length };
+    });
+    r.egal('renommer la classe ne perd pas ce qu\'on avait écrit',
+        tenace.apresLeNom, tenace.avant);
+    r.egal('et la pastille reste sur la grille', tenace.pastillesApresLeNom, 1);
+    r.egal('changer l\'horaire du cours ne le perd pas non plus',
+        tenace.apresLHeure, tenace.avant);
+    // ET LIRE N'ÉCRIT PAS. Chaque lecture d'une case vide en créait une : se
+    // promener dans une semaine y déposait autant de mots vides qu'il y a
+    // d'heures, et le cahier enflait de fantômes.
+    r.egal('et regarder la grille n\'y dépose aucun mot vide',
+        tenace.combienDeMots, 2);
+
+    // ==========================================================
     // 6. LE MOT S'EN VA AVEC LA GRILLE
     //
     // On écrit dans une case, on referme l'emploi du temps — et la petite
@@ -322,6 +421,9 @@ module.exports = async function (browser) {
     // ne voyait plus. Posée à 200050, elle recouvrait ce qu'on venait
     // justement écrire.
     // ==========================================================
+    // On revient au remplissage : c'est là qu'un appui ouvre le mot du cours.
+    await page.evaluate(() => choisirLOngletDeLEdt('semaine'));
+    await page.waitForTimeout(400);
     const orphelin = await page.evaluate(async () => {
         const c = document.querySelector('#edt-grille .edt-creneau[data-id="c1"]');
         if (!c) return { ouvertAvant: false, pourquoi: 'la case c1 a disparu' };

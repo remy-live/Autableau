@@ -58,7 +58,7 @@ module.exports = async function (browser) {
     // ------------------------------------------------------------------
     const vide = await page.evaluate(async () => {
         localStorage.removeItem('board_agenda');
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         const f = document.getElementById('edt-modal');
         return {
@@ -283,7 +283,7 @@ module.exports = async function (browser) {
     // ------------------------------------------------------------------
     await rechargerApp(page);
     const retrouve = await page.evaluate(async () => {
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 150));
         return {
             entrees: [...document.querySelectorAll('.edt-entree-nom')].map(e => e.innerText),
@@ -629,7 +629,7 @@ module.exports = async function (browser) {
                              semaine: 'toutes', entreeId: 'e1', libelle: '3e A' }];
         // L'ouverture relit le disque : ce qu'on a posé en mémoire doit y être.
         ecrireLAgenda();
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         battementDeLAgenda();
         await new Promise(ok => setTimeout(ok, 60));
@@ -825,7 +825,7 @@ module.exports = async function (browser) {
         lireLAgenda();
         agenda.alterne = false; agenda.ancre = null; agenda.entrees = []; agenda.creneaux = [];
         ecrireLAgenda();
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 150));
 
         // 1. « + Ajouter », pour de vrai : un appui sur le bouton visible.
@@ -884,7 +884,7 @@ module.exports = async function (browser) {
         agenda.alterne = false; agenda.ancre = null; agenda.entrees = []; agenda.creneaux = [];
         agenda.derniere = null;
         ecrireLAgenda();
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 150));
         const paletteVide = document.querySelectorAll('.edt-entree').length;
 
@@ -1024,7 +1024,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_agenda');
         agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
                    debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55 };
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         agenda.entrees.push({ id: 'e1', libelle: '5e B', classeId: null, classeNom: null,
                               couleur: EDT_COULEURS[0] });
@@ -1204,7 +1204,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_agenda');
         agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
                    debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55 };
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         agenda.entrees.push({ id: 'e7', libelle: '6e C', classeId: null, classeNom: null, couleur: '#ffe6d5' });
         agenda.creneaux.push({ id: 'c7', jour: 2, debut: 9 * 60, duree: 55, semaine: 'toutes',
@@ -1277,7 +1277,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_agenda');
         agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
                    debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55 };
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         agenda.entrees.push({ id: 'e9', libelle: '3e A', classeId: null, classeNom: null, couleur: '#d9f2e6' });
         agenda.creneaux.push({ id: 'c9', jour: 1, debut: 10 * 60, duree: 60, semaine: 'toutes',
@@ -1309,12 +1309,14 @@ module.exports = async function (browser) {
         evt('pointermove', { x: rb.left + rb.width / 2 + 2, y: rb.top + 24 });
         evt('pointerup', { x: rb.left + rb.width / 2 + 2, y: rb.top + 24 });
         await new Promise(ok => setTimeout(ok, 200));
-        // L'appui ouvre le mot du cours — c'est ce que fait un appui depuis
-        // que la grille tient aussi le cahier de texte. Ce qui s'éprouve ici
-        // n'est pas QUOI s'ouvre, c'est que le tremblement reste un appui.
-        const mot = document.getElementById('edt-mot-du-cours');
-        const ficheOuverte = !!mot && getComputedStyle(mot).display !== 'none';
-        fermerLeMotDuCours();
+        // EN « CONSTRUIRE », L'APPUI OUVRE LA FICHE D'HORAIRE. Le cahier de
+        // texte a son onglet, et son appui à lui ; ici on bâtit. Ce qui
+        // s'éprouve n'est pas QUOI s'ouvre, c'est que le tremblement reste un
+        // appui et ne déplace pas le cours.
+        const f = document.getElementById('custom-prompt-modal');
+        const ficheOuverte = !!f && getComputedStyle(f).display !== 'none';
+        const annuler = document.getElementById('custom-prompt-cancel');
+        if (annuler) annuler.click();
         await new Promise(ok => setTimeout(ok, 150));
         const apresTremblement = agenda.creneaux.find(c => c.id === 'c9').debut;
         fermerLAgenda();
@@ -1324,7 +1326,7 @@ module.exports = async function (browser) {
     r.egal('et sa fin ne bouge pas', bords.parLeHaut.fin, 11 * 60);
     r.egal('un tremblement de quelques pixels ne déplace rien',
         bords.apresTremblement, bords.avant);
-    r.verifie('c\'est un appui, et un appui ouvre le mot du cours', bords.ficheOuverte,
+    r.verifie('c\'est un appui, et un appui ouvre la fiche d\'horaire', bords.ficheOuverte,
         JSON.stringify(bords));
 
     // LA DURÉE S'APPREND. C'est le principe qui retient déjà la dernière
@@ -1336,7 +1338,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_agenda');
         agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
                    debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55 };
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         agenda.entrees.push({ id: 'e8', libelle: '2nde', classeId: null, classeNom: null, couleur: '#d9eefb' });
         agenda.derniere = 'e8';
@@ -1386,7 +1388,7 @@ module.exports = async function (browser) {
         localStorage.removeItem('board_agenda');
         agenda = { alterne: false, samedi: false, ancre: null, entrees: [], creneaux: [],
                    debut: 8 * 60, fin: 18 * 60, px: 1, dureeDefaut: 55, sonneries: [] };
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 120));
         const sansRien = {
             lignes: document.querySelectorAll('.edt-jour[data-jour="1"] .edt-ligne.edt-sonnerie').length,
@@ -1640,7 +1642,7 @@ module.exports = async function (browser) {
         return { fait: true };
     };
 
-    await page.evaluate(() => { fermerLAgenda(); ouvrirLAgenda(); });
+    await page.evaluate(() => { fermerLAgenda(); ouvrirLAgenda(); choisirLOngletDeLEdt('construire'); });
     await page.waitForTimeout(400);
 
     const surLesSonneries = await cliquerVraiment('#edt-sonneries');
@@ -1690,7 +1692,7 @@ module.exports = async function (browser) {
         bd.classList.add('edt-bandeau-la');
         bd.innerHTML = '<span class="edt-bandeau-quand">Lundi 8 h 05</span>'
                      + '<span class="edt-bandeau-quoi">6e C</span>';
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 500));
         // ON REND AU VOILE L'ÉTAT DU PREMIER JOUR. Plus haut dans ce
         // chapitre, l'emploi du temps a été touché : « passerDevant » lui a
@@ -1740,7 +1742,7 @@ module.exports = async function (browser) {
         boite.style.position = ''; boite.style.left = '';
         boite.style.top = ''; boite.style.margin = ''; boite.style.transform = '';
         fermerLAgenda();
-        ouvrirLAgenda();
+        ouvrirLAgenda(); choisirLOngletDeLEdt('construire');
         await new Promise(ok => setTimeout(ok, 400));
         return out;
     });

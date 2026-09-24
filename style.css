@@ -13141,6 +13141,64 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 /* LA NAVIGATION DE SEMAINE, dans la barre de l'agenda : deux flèches et la
    semaine qu'on regarde. Le libellé est un bouton — il ramène à la semaine en
    cours, et se marque quand on y est déjà. */
+/* ==================================================================
+   DEUX GESTES, DEUX ONGLETS
+   « Il faut bien distinguer la création de l'EDT et le remplissage, car là
+   clairement ça se parasite. Peut-être deux onglets. »
+   « Ma semaine » ne montre que la grille datée et ce qu'on y écrit.
+   « Construire » rend la palette, le tracé et les sept réglages — ceux qu'on
+   touche trois fois en septembre et plus jamais ensuite.
+   Le « !important » est nécessaire : « majLesReglagesDeLAgenda » pose des
+   « display » EN LIGNE sur la moitié de ces éléments, pour les montrer ou les
+   cacher selon l'alternance A/B et le tampon. L'onglet passe avant.
+   ================================================================== */
+#edt-onglets {
+    display: flex;
+    gap: 6px;
+    margin: 0 0 10px;
+    border-bottom: 1px solid var(--border);
+}
+.edt-onglet {
+    border: none;
+    background: transparent;
+    color: var(--ink-doux, #636e72);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 14px 9px;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    /* Le trait qui marque l'onglet tenu est posé dès maintenant, transparent :
+       sans lui, le texte sautait d'un pixel en changeant d'onglet. */
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+.edt-onglet:hover { background: var(--accent-soft); color: var(--accent); }
+.edt-onglet.actif {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+#edt-boite.edt-mode-semaine .edt-pour-construire { display: none !important; }
+#edt-boite.edt-mode-construire .edt-pour-semaine { display: none !important; }
+
+/* EN « MA SEMAINE », UN CRÉNEAU NE SE RETOUCHE PLUS. Les poignées, le « ⋯ »
+   et le « × » appartiennent à la construction : les laisser là, c'est laisser
+   effacer d'un doigt, le soir, l'heure qu'on venait chercher pour y écrire. */
+#edt-boite.edt-mode-semaine .edt-regler,
+#edt-boite.edt-mode-semaine .edt-oter,
+#edt-boite.edt-mode-semaine .edt-poignee { display: none !important; }
+
+/* La grille prend toute la largeur : il n'y a plus de palette à sa gauche. */
+#edt-boite.edt-mode-semaine #edt-grille { flex: 1; }
+
+/* ET « CONSTRUIRE » NE SAIT RIEN DU CAHIER NI DU CALENDRIER. La pastille qui
+   marque une heure déjà remplie appartient à un jour précis ; « aujourd'hui »
+   aussi. Dans une semaine TYPE, qui se répète toute l'année, ni l'une ni
+   l'autre ne veut dire quoi que ce soit. */
+   (« aujourd'hui » ne se pose même pas : voir « rendreLaGrilleDeLAgenda ».) */
+#edt-boite.edt-mode-construire .edt-ecrit { display: none !important; }
+
 #edt-navigation {
     display: inline-flex;
     align-items: center;
