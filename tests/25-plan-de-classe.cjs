@@ -666,6 +666,58 @@ module.exports = async function (browser) {
     r.egal('le facteur atteint est écrit en entier', fort.texte, '300 %');
     r.verifie('sans déborder de sa place', !fort.deborde, JSON.stringify(fort));
 
+
+    // =====================================================================
+    // LE PLAN SUR PAPIER — EN TRAITS, PAS EN PIXELS
+    //
+    // « Je veux que tous les exports PDF (sauf si on choisit une autre option)
+    // soient vectoriels. » Celui-ci ne l'était pas : on dessinait le plan sur
+    // une toile et l'on collait le PNG dans la page.
+    //
+    // C'est pourtant la feuille la plus regardée de toutes : on l'imprime, on
+    // la pose sur le bureau, et l'on y cherche un nom du bout des yeux depuis
+    // le fond de la salle. Un nom d'élève photographié à deux fois l'écran, en
+    // corps dix, s'imprime en bouillie.
+    // =====================================================================
+    const surPapier = await page.evaluate(async () => {
+        if (typeof dessinerLePlanDansUnPdf !== 'function') return { err: 'la fonction n\'existe pas' };
+        const doc = dessinerLePlanDansUnPdf();
+        if (!doc) return { err: 'aucune feuille produite' };
+        const brut = doc.output();
+        let mots = [];
+        try {
+            const d = await window.pdfjsLib.getDocument({ data: doc.output('arraybuffer') }).promise;
+            mots = (await (await d.getPage(1)).getTextContent()).items
+                .map(i => i.str).filter(s => s.trim());
+        } catch (e) { mots = ['(illisible : ' + e.message + ')']; }
+        const cls = await ClassesStore.loadAll();
+        const c = cls.find(x => x.id === 'cz');
+        const assis = [];
+        (c.seatingPlan.tables || []).forEach(t => (t.seats || []).forEach(s => { if (s) assis.push(s); }));
+        const nom = id => (c.students.find(e => e.id === id) || {}).name || '·';
+        return {
+            images: (brut.match(/\/Subtype\s*\/Image/g) || []).length,
+            mots,
+            // Chaque élève assis doit être NOMMÉ sur la feuille : un plan où
+            // il manque un nom ne sert à rien.
+            manquants: assis.map(nom).filter(n => !mots.some(m => m.indexOf(n) >= 0)),
+            combienAssis: assis.length,
+            aLeTitre: mots.some(m => /Plan de classe/i.test(m))
+        };
+    });
+    r.verifie('la feuille est produite', !surPapier.err, JSON.stringify(surPapier));
+    // LA VÉRIFICATION D'AVANT N'EXISTAIT PAS : rien ne regardait le PDF du
+    // plan de classe, et il était donc resté une photographie sans que
+    // personne s'en aperçoive.
+    r.egal('elle ne contient aucune image : elle est faite de traits',
+        surPapier.images, 0);
+    r.verifie('elle porte son titre, en vrai texte',
+        surPapier.aLeTitre, JSON.stringify(surPapier.mots).slice(0, 200));
+    r.egal('et le nom de chaque élève assis, qu\'un lecteur retrouve',
+        surPapier.manquants, []);
+    r.verifie('il y avait bien des élèves à nommer',
+        surPapier.combienAssis >= 6, String(surPapier.combienAssis));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

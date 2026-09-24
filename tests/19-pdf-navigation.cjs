@@ -1603,6 +1603,83 @@ module.exports = async function (browser) {
     r.egal('la règle couchée le long de la page lit 29,7 cm', sousLaRegle.cm, 29.7);
     r.verifie('sans dévier de son bord', sousLaRegle.ecart < 0.01, JSON.stringify(sousLaRegle));
 
+
+    // ==================================================================
+    // DEUX DOCUMENTS NE SE POSENT PAS L'UN SUR L'AUTRE
+    //
+    // « Quand j'ai affiché un PDF et que je charge un autre PDF, c'est un gros
+    // conflit. »
+    //
+    // Relevé, et c'était pire qu'un conflit : les deux se posaient aux MÊMES
+    // COORDONNÉES, au pixel près — le centre de la vue —, et le second
+    // recouvrait le premier à CENT POUR CENT. Le cours disparaissait sous les
+    // exercices sans laisser de trace : rien à l'écran ne disait qu'il était
+    // encore là, dessous. Tout appui allait au document du dessus, et déplacer
+    // celui-ci faisait resurgir l'autre comme d'une trappe.
+    //
+    // Une seconde feuille se pose À CÔTÉ de la première sur un bureau.
+    // ==================================================================
+    const cote = await page.evaluate(async ({ a, b }) => {
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; freehands.length = 0; texts.length = 0;
+        selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(a)], 'cours.pdf', { type: 'application/pdf' }));
+        await new Promise(r2 => setTimeout(r2, 900));
+        const premier = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        const avant = { x: premier.x, y: premier.y, w: premier.w, h: premier.h };
+
+        await poserPdfFeuilletable(new File([new Uint8Array(b)], 'exercices.pdf', { type: 'application/pdf' }));
+        await new Promise(r2 => setTimeout(r2, 900));
+
+        const docs = images.filter(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        if (docs.length < 2) return { err: 'le second document n\'est pas arrivé', combien: docs.length };
+        const A = docs[0], B = docs[1];
+        // La surface commune, en pourcentage du premier : c'est ce qu'on perd
+        // de vue quand le second se pose dessus.
+        const ox = Math.max(0, Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x));
+        const oy = Math.max(0, Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y));
+        return {
+            bouge: A.x !== avant.x || A.y !== avant.y,
+            recouvrement: Math.round(100 * (ox * oy) / (A.w * A.h)),
+            aDroite: B.x >= A.x + A.w,
+            memeHaut: Math.abs(B.y - A.y) < 1,
+            // Deux clés distinctes : chacun feuillette ses propres pages.
+            clesDistinctes: A.pluginData.cle !== B.pluginData.cle,
+            pagesA: A.pluginData.pages, pagesB: B.pluginData.pages,
+            boites: [[Math.round(A.x), Math.round(A.y), Math.round(A.w), Math.round(A.h)],
+                     [Math.round(B.x), Math.round(B.y), Math.round(B.w), Math.round(B.h)]]
+        };
+    }, { a: Array.from(petitPdf()), b: Array.from(pdfA4(2)) });
+
+    r.verifie('les deux documents sont là', !cote.err, JSON.stringify(cote));
+    r.egal('le second ne recouvre pas le premier, pas d\'un pour cent',
+        cote.recouvrement, 0);
+    r.verifie('il se pose à sa droite, comme une seconde feuille sur le bureau',
+        cote.aDroite, JSON.stringify(cote.boites));
+    r.verifie('aligné sur le même haut : les deux se lisent d\'une seule ligne d\'yeux',
+        cote.memeHaut, JSON.stringify(cote.boites));
+    r.verifie('et le premier n\'a pas bougé de sa place', !cote.bouge, JSON.stringify(cote));
+    r.verifie('chacun garde son propre document à feuilleter',
+        cote.clesDistinctes && cote.pagesA !== cote.pagesB, JSON.stringify(cote));
+
+    // ET ON PEUT VRAIMENT TOUCHER CELUI DU DESSOUS. Un chiffre de recouvrement
+    // ne dit pas ce que le doigt atteint : on demande à la page ce qu'il y a
+    // sous le point, comme partout ailleurs.
+    const atteignable = await page.evaluate(() => {
+        const docs = images.filter(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        const A = docs[0];
+        const centre = { x: A.x + A.w / 2, y: A.y + A.h / 2 };
+        // Qui est l'objet le plus haut sous ce point du tableau ?
+        const dessus = images
+            .filter(i => centre.x >= i.x && centre.x <= i.x + i.w
+                      && centre.y >= i.y && centre.y <= i.y + i.h)
+            .sort((u, v) => (v.z || 0) - (u.z || 0))[0];
+        return { attendu: A.id, trouve: dessus ? dessus.id : null,
+                 nom: dessus && dessus.pluginData ? dessus.pluginData.nom : '' };
+    });
+    r.egal('au milieu du premier document, c\'est bien lui qu\'on touche',
+        atteignable.trouve, atteignable.attendu);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

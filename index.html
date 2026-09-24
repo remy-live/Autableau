@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=209 »,
-         « script.js?v=360 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=210 »,
+         « script.js?v=361 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=209">
+    <link rel="stylesheet" href="style.css?v=210">
 </head>
 
 <body>
@@ -3558,14 +3558,28 @@
                 style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 13px; transition: all 0.2s; color:#2d3436;">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
                 SVG</button>
+            <!-- « PDF » VEUT DIRE VECTORIEL.
+                 « Je veux que tous les exports PDF (sauf si on choisit une
+                 autre option) soient vectoriels. » Il y avait deux boutons,
+                 « PDF » et « PDF Vect. », et le premier — celui que tout le
+                 monde prend — collait une PHOTOGRAPHIE du tableau dans la
+                 page : floue dès qu'on l'agrandit, imprimée à la résolution
+                 de l'écran, et dont le texte ne se cherche pas. Personne ne
+                 pouvait deviner que « PDF » voulait dire « image de PDF ».
+                 « PDF » est donc le vectoriel, et l'autre dit ce qu'il est. -->
             <button class="btn-format-choice" data-format="pdf"
                 style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 13px; transition: all 0.2s; color:#2d3436;">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
                 PDF</button>
-            <button class="btn-format-choice" data-format="pdf-vector"
+            <!-- ET CELUI-CI RESTE, parce qu'il a son usage : un tableau
+                 couvert de photographies n'a rien à gagner à être décrit en
+                 traits, et c'est la sortie de secours si le dessin vectoriel
+                 achoppe sur une figure exotique. Son icône le dit : une image
+                 dans une page. -->
+            <button class="btn-format-choice" data-format="pdf-image"
                 style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:2px solid #dfe6e9; border-radius:8px; cursor:pointer; background: white; font-weight: bold; font-size: 13px; transition: all 0.2s; color:#2d3436;">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M9 15.5l1.5-1.5 2.5 2.5 3-3"></path></svg>
-                PDF Vect.</button>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><circle cx="10" cy="13" r="1.5"></circle><path d="M8 18l3-3 2 2 2.5-2.5L18 17"></path></svg>
+                PDF image</button>
             <!-- LE CINQUIÈME N'EST PAS UN FICHIER. « Il faudrait aussi le lien
                  dans les fonctions d'exporter, non ? » Oui : c'est ici qu'on
                  vient chercher « comment je sors ça d'ici », et un lien est
@@ -3881,7 +3895,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=360"></script>
+    <script src="script.js?v=361"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=117"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

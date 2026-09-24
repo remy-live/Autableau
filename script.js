@@ -5173,16 +5173,25 @@ async function performCapture(action) {
                 } catch (err) { showToast("Erreur lors de la copie."); console.error(err); }
             }, 'image/png');
         }
-        else if (action === 'pdf') {
-            if (window.jspdf && window.jspdf.jsPDF) {
-                const dataUrl = targetCanvas.toDataURL("image/jpeg", 1.0);
-                const pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
-                pdf.addImage(dataUrl, 'JPEG', 0, 0, rw, rh);
-                pdf.save(`AuTableau_${Date.now()}.pdf`);
-                showToast("Fichier PDF exporté !");
-            } else { showToast("Erreur : Moteur PDF non chargé."); }
+        // LA FEUILLE PHOTOGRAPHIÉE — celle qu'on demande expressément, et la
+        // sortie de secours du vectoriel. Un export qui échoue ne doit pas
+        // laisser les mains vides : devant une classe, on n'a pas le temps de
+        // comprendre pourquoi, on a besoin de la feuille.
+        const feuillePhotographiee = () => {
+            if (!(window.jspdf && window.jspdf.jsPDF)) {
+                showToast("Erreur : Moteur PDF non chargé.");
+                return false;
+            }
+            const dataUrl = targetCanvas.toDataURL("image/jpeg", 1.0);
+            const pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
+            pdf.addImage(dataUrl, 'JPEG', 0, 0, rw, rh);
+            pdf.save(`AuTableau_${Date.now()}.pdf`);
+            return true;
+        };
+        if (action === 'pdf-image') {
+            if (feuillePhotographiee()) showToast("Fichier PDF exporté !");
         }
-        else if (action === 'pdf-vector') {
+        else if (action === 'pdf') {
             console.log("=== EXPORT VECTORIEL (1 page) ===");
             console.log("window.jspdf présent:", !!window.jspdf);
 
@@ -5206,8 +5215,12 @@ async function performCapture(action) {
 
                 console.log("typeof pdfObj.svg:", typeof pdfObj.svg);
                 if (typeof pdfObj.svg !== 'function') {
-                    console.error("Erreur critique : pdfObj.svg n'est pas une fonction. jsPDF ne trouve pas svg2pdf.");
-                    return showToast("Erreur : svg2pdf n'est pas correctement chargé.");
+                    // ON REND LA FEUILLE QUAND MÊME. Sans svg2pdf on ne sait
+                    // pas dessiner en traits — mais on sait photographier, et
+                    // une feuille imparfaite vaut mieux que pas de feuille.
+                    console.error("svg2pdf introuvable : on retombe sur la feuille photographiée.");
+                    if (feuillePhotographiee()) showToast("PDF exporté en image : le dessin vectoriel n'est pas disponible ici");
+                    return;
                 }
 
                 let useHybrid = false;
@@ -5300,8 +5313,11 @@ async function performCapture(action) {
                     }
                 }).catch(err => {
                     if (document.body.contains(svgElement)) document.body.removeChild(svgElement);
-                    showToast("Erreur lors de la génération vectorielle.");
                     console.error("Erreur dans pdfObj.svg() :", err);
+                    // La même sortie de secours : on n'annonce pas une erreur
+                    // et rien d'autre, on donne la feuille.
+                    if (feuillePhotographiee()) showToast("PDF exporté en image : le dessin vectoriel a échoué");
+                    else showToast("Erreur lors de la génération du PDF.");
                 });
             } else {
                 console.error("Erreur : jsPDF non trouvé.");
@@ -5407,7 +5423,7 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         const desc = document.getElementById('format-description');
         const settings = document.getElementById('settings-png-pdf');
         const scopeContainer = document.getElementById('export-scope-container');
-        const supportsMultiPage = (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector');
+        const supportsMultiPage = (selectedFormat === 'pdf' || selectedFormat === 'pdf-image');
 
         // UN LIEN N'EST PAS UN FICHIER, et il ne partage aucun réglage avec
         // les quatre autres : ni qualité d'image, ni fond à garder, ni portée.
@@ -5437,12 +5453,17 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         } else if (selectedFormat === 'svg') {
             desc.innerText = "SVG : Format vectoriel parfait pour imprimer en grand ou modifier plus tard.";
             settings.style.display = 'none';
-        } else if (selectedFormat === 'pdf') {
-            desc.innerText = "PDF : Format image classique, idéal pour archiver ou imprimer.";
+        } else if (selectedFormat === 'pdf-image') {
+            desc.innerText = "PDF image : le tableau photographié dans une page. À prendre quand le tableau est surtout fait de photos — ou si le PDF ordinaire achoppe.";
             settings.style.display = 'block';
-        } else if (selectedFormat === 'pdf-vector') {
-            desc.innerText = "PDF Vect. : PDF vectoriel pur. Attention: les plugins complexes ne seront pas visibles.";
-            settings.style.display = 'none'; // Pas besoin de qualité x2 pour du vectoriel
+        } else if (selectedFormat === 'pdf') {
+            // LA PHRASE D'AVANT DISAIT LE CONTRAIRE DE CE QU'ELLE VOULAIT
+            // DIRE : « Attention : les plugins complexes ne seront pas
+            // visibles. » Relevé, les images des outils SONT dans la feuille —
+            // svg2pdf les y embarque. La mise en garde datait d'une version
+            // ancienne et détournait du bon format.
+            desc.innerText = "PDF : dessiné en traits, net à toutes les tailles et léger à l'impression. C'est celui qu'on veut.";
+            settings.style.display = 'none'; // Pas de qualité x2 à choisir : du vectoriel n'a pas de résolution
         } else if (selectedFormat === 'lien') {
             desc.innerText = "Lien : le tableau lui-même dans une adresse. Il s'ouvre sans compte et sans rien installer — et se rejoue. Les images ne tiennent pas dans une adresse.";
             settings.style.display = 'none';
@@ -5484,7 +5505,7 @@ if (btnDoExport) {
             });
             return;
         }
-        if (selectedScope === 'all' && (selectedFormat === 'pdf' || selectedFormat === 'pdf-vector')) {
+        if (selectedScope === 'all' && (selectedFormat === 'pdf' || selectedFormat === 'pdf-image')) {
             exportAllPagesPdf();
         } else {
             performCapture(selectedFormat);
@@ -5542,7 +5563,7 @@ async function exportAllPagesPdf() {
             if (!pdf) {
                 pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
 
-                if (selectedFormat === 'pdf-vector') {
+                if (selectedFormat === 'pdf') {
                     try {
                         if (!window.NUNITO_FONT_BASE64) throw new Error('Police Nunito non chargée');
                         pdf.addFileToVFS('Nunito-Regular.ttf', window.NUNITO_FONT_BASE64);
@@ -5558,7 +5579,7 @@ async function exportAllPagesPdf() {
                 pdf.addPage([rw, rh], rw > rh ? 'landscape' : 'portrait');
             }
 
-            if (selectedFormat === 'pdf-vector' && typeof pdf.svg === 'function') {
+            if (selectedFormat === 'pdf' && typeof pdf.svg === 'function') {
                 console.log(`=== EXPORT VECTORIEL (PAGE ${i + 1}/${pages.length}) ===`);
                 const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, keepBg);
                 console.log("Longueur du SVG généré:", svgStr.length);
@@ -5578,7 +5599,7 @@ async function exportAllPagesPdf() {
                 } catch (e) { console.error("Erreur svg2pdf", e); }
                 document.body.removeChild(svgElement);
             } else {
-                if (selectedFormat === 'pdf-vector') {
+                if (selectedFormat === 'pdf') {
                     console.warn(`Fallback bitmap utilisé pour la page ${i + 1} car pdf.svg n'est pas une fonction.`);
                 }
                 const tempC = document.createElement('canvas');
@@ -15585,6 +15606,40 @@ async function reprendreLesPdfDuTableau(pagesArr) {
 }
 window.reprendreLesPdfDuTableau = reprendreLesPdfDuTableau;
 
+// OÙ POSER UN DOCUMENT QU'ON VIENT D'OUVRIR
+//
+// « Quand j'ai affiché un PDF et que je charge un autre PDF, c'est un gros
+// conflit. »
+//
+// Relevé, et c'est pire qu'un conflit : les deux documents se posaient aux
+// MÊMES COORDONNÉES, au pixel près — le centre de la vue —, et le second
+// recouvrait le premier à cent pour cent. Le cours disparaissait sous les
+// exercices sans laisser de trace : rien à l'écran ne disait qu'il était
+// encore là, dessous. Tout appui allait au document du dessus, et déplacer
+// celui-ci faisait resurgir l'autre comme d'une trappe.
+//
+// Une seconde feuille se pose À CÔTÉ de la première sur un bureau, pas
+// dessus. On cherche donc la droite du document le plus à droite, et l'on
+// dépose la nouvelle page après lui, avec l'espace d'une marge. Le cadrage
+// qui suit emmène le regard sur la nouvelle — et un pas en arrière les montre
+// toutes les deux, côte à côte, comme deux feuilles posées l'une près de
+// l'autre.
+const ECART_ENTRE_DOCUMENTS = 40;     // en unités du tableau, soit une marge
+
+function ouPoserLeDocument(l, h) {
+    const cx = (window.innerWidth / 2 - panX) / zoom;
+    const cy = (window.innerHeight / 2 - panY) / zoom;
+    const dejaLa = images.filter(i => i && i.pluginData && i.pluginData.id === 'pdfDoc'
+        && Number.isFinite(i.x) && Number.isFinite(i.w));
+    if (!dejaLa.length) return { x: cx - l / 2, y: cy - h / 2 };
+    // On s'aligne sur le HAUT du premier document plutôt que sur le milieu de
+    // la vue : deux pages côte à côte se lisent d'une seule ligne d'yeux.
+    const bord = dejaLa.reduce((m, i) => Math.max(m, i.x + i.w), -Infinity);
+    const haut = dejaLa.reduce((m, i) => Math.min(m, i.y), Infinity);
+    return { x: bord + ECART_ENTRE_DOCUMENTS, y: haut };
+}
+window.ouPoserLeDocument = ouPoserLeDocument;
+
 async function poserPdfFeuilletable(file) {
     if (!window.pdfjsLib) { showToast('Le lecteur de PDF n\'est pas disponible'); return; }
     showToast('Ouverture du document…');
@@ -15604,11 +15659,10 @@ async function poserPdfFeuilletable(file) {
         // LA PAGE EST POSÉE À SA TAILLE RÉELLE : une A4 mesure 29,7 cm sous la
         // règle, quelle que soit la finesse de rendu choisie.
         const { l, h } = tailleReelleDuPdf(await doc.getPage(1));
-        const cx = (window.innerWidth / 2 - panX) / zoom;
-        const cy = (window.innerHeight / 2 - panY) / zoom;
+        const ou = ouPoserLeDocument(l, h);
 
         images.push(poserEnRognage({
-            id: nextId++, x: cx - l / 2, y: cy - h / 2, w: l, h: h,
+            id: nextId++, x: ou.x, y: ou.y, w: l, h: h,
             cx: 0, cy: 0, cw: rendu.l, ch: rendu.h,
             src: rendu.src, fileName: file.name, z: globalZ++,
             pluginData: { id: 'pdfDoc', cle, page: 1, pages: doc.numPages, nom: file.name, pdfRef }
@@ -29719,15 +29773,113 @@ async function openSeatingPlanEditor(classId, hote, options) {
         return canvasEl;
     }
 
+    // LE PLAN DE CLASSE SUR PAPIER — EN TRAITS, PAS EN PIXELS
+    //
+    // « Je veux que tous les exports PDF (sauf si on choisit une autre option)
+    // soient vectoriels. » Celui-ci ne l'était pas : on dessinait le plan sur
+    // une toile et l'on collait le PNG dans la page.
+    //
+    // C'est pourtant la feuille la plus regardée de toutes : on l'imprime, on
+    // la pose sur le bureau, et l'on y cherche un nom du bout des yeux depuis
+    // le fond de la salle. Un nom d'élève photographié à deux fois l'écran, en
+    // corps dix, s'imprime en bouillie.
+    //
+    // La géométrie ne change pas d'un pixel — ce sont les mêmes nombres, aux
+    // mêmes places. Deux détails seulement : les émojis du bureau du prof et
+    // de la première rangée n'existent pas dans les polices du PDF, et sont
+    // dits en toutes lettres plutôt que remplacés par un carré vide.
+    function dessinerLePlanDansUnPdf() {
+        const tables = plan.tables;
+        if (!tables.length) return null;
+        if (!window.jspdf || !window.jspdf.jsPDF) return null;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        tables.forEach(t => {
+            const w = t.isTeacherDesk ? 150 : (t.cols * largeurPlace() + 12);
+            const rows = t.isTeacherDesk ? 1 : Math.ceil(t.capacity / t.cols);
+            const h = t.isTeacherDesk ? 50 : (rows * 46 + 26);
+            minX = Math.min(minX, t.x); minY = Math.min(minY, t.y);
+            maxX = Math.max(maxX, t.x + w); maxY = Math.max(maxY, t.y + h);
+        });
+
+        const PAD = 30, TITLE_H = 34;
+        const L = (maxX - minX) + PAD * 2;
+        const H = (maxY - minY) + PAD * 2 + TITLE_H;
+
+        const doc = new window.jspdf.jsPDF({ orientation: L > H ? 'landscape' : 'portrait',
+                                             unit: 'px', format: [L, H] });
+        doc.setFillColor('#ffffff');
+        doc.rect(0, 0, L, H, 'F');
+
+        doc.setTextColor('#2d3436');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.text(`Plan de classe — ${classObj.name}`, PAD, 24);
+
+        tables.forEach(t => {
+            const tx = t.x - minX + PAD;
+            const ty = t.y - minY + PAD + TITLE_H;
+
+            if (t.isTeacherDesk) {
+                doc.setFillColor(237, 234, 253);      // le même mauve très pâle
+                doc.setDrawColor('#6c5ce7');
+                doc.setLineWidth(2);
+                doc.roundedRect(tx, ty, 150, 50, 8, 8, 'FD');
+                doc.setTextColor('#2d3436');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.text('Bureau du prof', tx + 75, ty + 30, { align: 'center' });
+                return;
+            }
+
+            const rows = Math.ceil(t.capacity / t.cols);
+            const w = t.cols * largeurPlace() + 12;
+            const h = rows * (SP_SEAT_H + 6) + 26;
+
+            doc.setFillColor('#ffffff');
+            doc.setDrawColor('#636e72');
+            doc.setLineWidth(2);
+            doc.roundedRect(tx, ty, w, h, 8, 8, 'FD');
+
+            t.seats.forEach((sid, idx) => {
+                const col = idx % t.cols, row = Math.floor(idx / t.cols);
+                const sx = tx + 6 + col * largeurPlace();
+                const sy = ty + 20 + row * 46;
+                const sw = largeurPlace() - 6, sh = SP_SEAT_H;
+
+                doc.setFillColor(sid ? 232 : 241, sid ? 228 : 242, sid ? 253 : 246);
+                doc.setDrawColor(sid ? '#6c5ce7' : '#b2bec3');
+                doc.setLineWidth(1);
+                // La place vide était en pointillés sur la toile : elle le
+                // reste, c'est ce qui la distingue d'un coup d'œil.
+                if (!sid) doc.setLineDashPattern([3, 2], 0);
+                doc.roundedRect(sx, sy, sw, sh, 5, 5, 'FD');
+                doc.setLineDashPattern([], 0);
+
+                if (!sid) return;
+                doc.setTextColor('#2d3436');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                // L'étoile de la première rangée n'existe pas dans les polices
+                // du PDF : une astérisque le dit, et s'imprime.
+                const nom = (isFrontRow(sid) ? '* ' : '') + studentName(sid);
+                const lignes = doc.splitTextToSize(nom, sw - 4).slice(0, 2);
+                const depart = sy + sh / 2 - (lignes.length - 1) * 6 + 3;
+                lignes.forEach((ligne, i) => {
+                    doc.text(ligne, sx + sw / 2, depart + i * 12, { align: 'center' });
+                });
+            });
+        });
+
+        return doc;
+    }
+
     function exportToPdf() {
-        const canvasEl = renderSeatingPlanToCanvas();
-        if (!canvasEl) { if (typeof showToast === 'function') showToast('Ajoute au moins une table avant d\'exporter.'); return; }
+        if (!plan.tables.length) { if (typeof showToast === 'function') showToast('Ajoute au moins une table avant d\'exporter.'); return; }
         try {
             if (!window.jspdf || !window.jspdf.jsPDF) { if (typeof showToast === 'function') showToast('❌ Moteur PDF non chargé.'); return; }
-            const imgData = canvasEl.toDataURL('image/png');
-            const w = canvasEl.width, h = canvasEl.height;
-            const doc = new window.jspdf.jsPDF({ orientation: w > h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
-            doc.addImage(imgData, 'PNG', 0, 0, w, h);
+            const doc = dessinerLePlanDansUnPdf();
+            if (!doc) { if (typeof showToast === 'function') showToast('❌ Erreur export PDF'); return; }
             doc.save(`Plan_de_classe_${(classObj.name || 'classe').replace(/[^a-z0-9]+/gi, '_')}.pdf`);
             if (typeof showToast === 'function') showToast('📄 PDF exporté !');
         } catch (e) {
@@ -29735,6 +29887,7 @@ async function openSeatingPlanEditor(classId, hote, options) {
             if (typeof showToast === 'function') showToast('❌ Erreur export PDF');
         }
     }
+    window.dessinerLePlanDansUnPdf = dessinerLePlanDansUnPdf;
 
     function stampToBoard() {
         const canvasEl = renderSeatingPlanToCanvas();
