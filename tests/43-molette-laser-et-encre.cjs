@@ -288,7 +288,10 @@ module.exports = async function (browser) {
     r.verifie('à la taille de ce qu\'il couvre vraiment',
         /r="12"/.test(rond.dedans), rond.dedans);
     r.verifie('de la couleur qu\'on a choisie', /%23f1c40f|#f1c40f/i.test(rond.dedans), rond.dedans);
-    r.egal('et l\'on vise son centre', rond.pointe, [14, 14]);
+    // LE CENTRE EST TOUJOURS LE CENTRE ; c'est l'image qui a grandi de deux
+    // pixels, le liseré étant désormais compté des deux côtés — il l'était
+    // d'un seul, et le rond mordait donc le bord de son image.
+    r.egal('et l\'on vise son centre', rond.pointe, [16, 16]);
 
     await page.evaluate(() => { zoom = 2; });
     const zoome = await lireLeCurseur();
@@ -561,6 +564,87 @@ module.exports = async function (browser) {
         freehands.length = 0; selectedItems = []; setMode('pointer');
         changerLeBoutDuSurligneur('rond'); draw();
     });
+
+
+    // =================================================================
+    // ET LE CRAYON MONTRE SON EMPREINTE, LUI AUSSI
+    //
+    // « Le crayon et le surligneur ne semblent plus arrondis (linéarisé ?),
+    // l'épaisseur du crayon ne fonctionne pas. »
+    //
+    // Les deux reproches n'en font qu'un, et c'est le curseur. Relevé : le
+    // surligneur montrait bien son rond — il grandissait de 3 à 30 —, mais le
+    // crayon n'avait qu'une classe CSS, « cursor-pencil », qui valait
+    // « crosshair ». Deux traits droits qui se croisent : rien d'arrondi, et
+    // surtout RIEN QUI CHANGE quand on règle l'épaisseur. On choisissait un
+    // trait de trente et l'on visait avec la même croix qu'à trois.
+    // =================================================================
+    const auCrayon = async (epaisseur) => page.evaluate((e) => {
+        selectedItems = [];
+        activeStyle.strokeColor = '#e17055';
+        setMode('freehand');
+        // On passe par la commande d'épaisseur, celle que le professeur
+        // touche — pas par la variable.
+        reglerEpaisseurTrait(e, 'sonde');
+        const brut = canvas.style.cursor;
+        const dedans = decodeURIComponent((brut.match(/utf8,([^']*)/) || [])[1] || '');
+        // Le rond de l'encre est le DERNIER cercle plein : le halo, lui, est
+        // sans remplissage.
+        const rayons = [...dedans.matchAll(/<circle[^>]*r="([\d.]+)"/g)].map(m => Number(m[1]));
+        const largeur = Number((dedans.match(/<svg[^>]*width="([\d.]+)"/) || [])[1] || 0);
+        return { epaisseur: e, brut: brut.slice(0, 30), dedans,
+                 estUneImage: brut.startsWith('url'),
+                 rond: /<circle/.test(dedans), croix: /crosshair/.test(brut) && !brut.startsWith('url'),
+                 rayonDeLEncre: rayons.length ? Math.min(...rayons) : null,
+                 rayonMax: rayons.length ? Math.max(...rayons) : null,
+                 largeur,
+                 aLaCouleur: /%23e17055|#e17055/i.test(dedans) };
+    }, epaisseur);
+
+    const c30 = await auCrayon(30);
+    r.verifie('le crayon montre un rond, et non une croix',
+        c30.estUneImage && c30.rond && !c30.croix, JSON.stringify({ brut: c30.brut, rond: c30.rond }));
+    r.verifie('à la taille de ce qu\'il dépose vraiment',
+        c30.rayonDeLEncre === 15, c30.dedans);
+    r.verifie('et de la couleur qu\'on a choisie', c30.aLaCouleur, c30.dedans);
+
+    const c6 = await auCrayon(6);
+    const c12 = await auCrayon(12);
+    // LE CŒUR DE L'AFFAIRE : trois épaisseurs, trois ronds différents.
+    r.verifie('un trait plus fin donne un rond plus petit, et cela se voit',
+        c6.rayonDeLEncre < c12.rayonDeLEncre && c12.rayonDeLEncre < c30.rayonDeLEncre,
+        JSON.stringify([c6.rayonDeLEncre, c12.rayonDeLEncre, c30.rayonDeLEncre]));
+
+    // ET IL RESTE TROUVABLE À L'ŒIL. Un curseur fidèle mais invisible ne vaut
+    // rien : à l'épaisseur deux, le rond fait deux pixels et se perd sur un
+    // polycopié chargé. Un cercle fin, toujours de la même taille, le
+    // rattrape — sans rien ôter à la fidélité de l'empreinte.
+    const c2 = await auCrayon(2);
+    r.verifie('le trait le plus fin garde une empreinte fidèle',
+        c2.rayonDeLEncre === 1, c2.dedans);
+    r.verifie('et un halo qui le rend trouvable à l\'œil',
+        c2.largeur >= 13 && c2.rayonMax > c2.rayonDeLEncre,
+        JSON.stringify({ largeur: c2.largeur, encre: c2.rayonDeLEncre, halo: c2.rayonMax }));
+    // Le gros trait n'en a pas besoin : il se voit tout seul.
+    r.verifie('le gros trait, lui, se passe de halo',
+        c30.rayonMax === c30.rayonDeLEncre, c30.dedans);
+
+    // LE CURSEUR SUIT SANS QU'ON REPASSE SUR LE TABLEAU. On règle l'épaisseur
+    // dans la barre, on regarde le curseur : il a déjà changé. Sans cela il
+    // fallait d'abord aller bouger la souris sur le tableau pour voir ce
+    // qu'on venait de choisir.
+    const vivant = await page.evaluate(() => {
+        setMode('freehand');
+        reglerEpaisseurTrait(4, 'sonde');
+        const avant = canvas.style.cursor;
+        // On ne touche à RIEN d'autre : pas de « pointermove », pas de
+        // « updateCursor » à la main.
+        reglerEpaisseurTrait(40, 'sonde');
+        return { avant: avant.length, apres: canvas.style.cursor.length,
+                 change: avant !== canvas.style.cursor };
+    });
+    r.verifie('régler l\'épaisseur change le curseur sur-le-champ',
+        vivant.change, JSON.stringify(vivant));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

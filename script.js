@@ -8213,25 +8213,95 @@ function empreinteDuSurligneur() {
     return activeStyle.lineWidth * 6 * EPAISSEUR_AU_TABLEAU * zoom;
 }
 
-// Le curseur du surligneur : sa vraie empreinte, de sa vraie couleur. Un
-// contour blanc doublé d'un contour sombre le garde visible aussi bien sur
+// LE CURSEUR D'UN OUTIL QUI TRACE : SA VRAIE EMPREINTE, DE SA VRAIE COULEUR
+//
+// « Le crayon et le surligneur ne semblent plus arrondis (linéarisé ?),
+// l'épaisseur du crayon ne fonctionne pas. »
+//
+// Les deux reproches n'en font qu'un, et c'est le CURSEUR. Relevé : le
+// surligneur montrait bien un rond à sa taille — il grandissait de 3 à 30 —,
+// mais le crayon n'avait qu'une classe CSS, « cursor-pencil », qui valait
+// « crosshair ». C'est-à-dire deux traits droits qui se croisent : rien
+// d'arrondi, et surtout RIEN QUI CHANGE quand on règle l'épaisseur. On
+// choisissait un trait de trente et l'on visait avec une croix de vingt
+// pixels, la même qu'à trois.
+//
+// Une empreinte se montre : c'est elle qui dit où l'encre tombera, et
+// combien. Les deux outils ont donc désormais le même curseur — la seule
+// différence étant leur largeur, et le nez carré que le surligneur peut
+// prendre.
+//
+// Un contour blanc doublé d'un contour sombre le garde visible aussi bien sur
 // un polycopié blanc que sur un tableau noir.
-function curseurDuSurligneur() {
-    const carre = boutDuSurligneur === 'carre';
+// ON NE REFABRIQUE PAS LA MÊME IMAGE SOIXANTE FOIS PAR SECONDE. Le curseur
+// est recalculé à chaque mouvement de souris, et le crayon est l'outil le plus
+// tenu de tous : tant que ni l'empreinte, ni la forme, ni la couleur n'ont
+// bougé, c'est la même chaîne — on la garde.
+let dernierCurseurDeTrace = { cle: '', css: '' };
+
+function curseurDeTrace(empreinte, carre) {
     // 128 px au plus : au-delà, les navigateurs refusent d'afficher le
     // curseur — et l'on se retrouverait sans rien du tout.
-    const cote = Math.max(8, Math.min(128, Math.round(empreinteDuSurligneur())));
-    const t = cote + 4;                       // la place des deux contours
+    //
+    // ET CINQ AU MOINS, PAS HUIT. Le plancher valait huit, ce qui convenait au
+    // surligneur — dont l'empreinte est six fois l'épaisseur, et qui n'y
+    // touche donc qu'en dessous de 1,3. Pour le crayon, il écrasait toute la
+    // plage fine : de 0,5 à 8, le même rond. « L'épaisseur ne fonctionne
+    // pas » serait resté à moitié vrai. En dessous de cinq pixels le rond ne
+    // se verrait plus du tout ; c'est le point de mire qui prend alors le
+    // relais, et il dit l'endroit exact.
+    const cote = Math.max(2, Math.min(128, Math.round(empreinte)));
+    const cle = cote + '|' + (carre ? 'c' : 'r') + '|' + activeStyle.strokeColor;
+    if (dernierCurseurDeTrace.cle === cle) return dernierCurseurDeTrace.css;
+    // LES CONTOURS MAIGRISSENT AVEC L'EMPREINTE. Un liseré de trois pixels
+    // autour d'un rond de cinq ne laisserait rien voir de la couleur : on ne
+    // verrait qu'un gros point noir, le même pour toutes les épaisseurs fines.
+    const liseré = Math.max(0.75, Math.min(3, cote / 6));
+    // ET UN HALO QUAND L'EMPREINTE EST TROP PETITE POUR SE VOIR.
+    //
+    // Un curseur fidèle mais invisible ne vaut rien : à l'épaisseur deux, le
+    // rond fait deux pixels, et on le perd des yeux sur un polycopié chargé.
+    // On garde donc l'empreinte exacte — c'est elle qui dit où l'encre
+    // tombera — et l'on pose autour un cercle fin, toujours de la même
+    // taille, qui sert à retrouver le curseur. Les deux se lisent d'un coup
+    // d'œil : le plein, c'est l'encre ; le fin, c'est le curseur.
+    const HALO = 13;
+    const avecHalo = cote < HALO - 2;
+    const t = Math.max(cote + 2 * liseré, avecHalo ? HALO + 2 : 0) + 2;
     const c = t / 2;
     const forme = carre
-        ? `<rect x="2" y="2" width="${cote}" height="${cote}" />`
+        ? `<rect x="${(t - cote) / 2}" y="${(t - cote) / 2}" width="${cote}" height="${cote}" />`
         : `<circle cx="${c}" cy="${c}" r="${cote / 2}" />`;
+    const halo = avecHalo
+        ? `<circle cx="${c}" cy="${c}" r="${HALO / 2}" fill="none" stroke="#fff" stroke-opacity="0.9" stroke-width="2.5"/>`
+        + `<circle cx="${c}" cy="${c}" r="${HALO / 2}" fill="none" stroke="#000" stroke-opacity="0.5" stroke-width="1"/>`
+        : '';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${t}" height="${t}" viewBox="0 0 ${t} ${t}">`
-        + `<g fill="${activeStyle.strokeColor}" fill-opacity="0.45" stroke="#000" stroke-opacity="0.55" stroke-width="3">${forme}</g>`
-        + `<g fill="none" stroke="#fff" stroke-opacity="0.9" stroke-width="1">${forme}</g>`
+        + halo
+        + `<g fill="${activeStyle.strokeColor}" fill-opacity="0.45" stroke="#000" stroke-opacity="0.55" stroke-width="${liseré}">${forme}</g>`
+        + `<g fill="none" stroke="#fff" stroke-opacity="0.9" stroke-width="${Math.min(1, liseré)}">${forme}</g>`
         + `</svg>`;
-    return `url('data:image/svg+xml;utf8,${encodeURIComponent(svg)}') ${Math.round(c)} ${Math.round(c)}, crosshair`;
+    const css = `url('data:image/svg+xml;utf8,${encodeURIComponent(svg)}') ${Math.round(c)} ${Math.round(c)}, crosshair`;
+    dernierCurseurDeTrace = { cle, css };
+    return css;
 }
+window.curseurDeTrace = curseurDeTrace;
+
+function curseurDuSurligneur() {
+    return curseurDeTrace(empreinteDuSurligneur(), boutDuSurligneur === 'carre');
+}
+
+// La largeur qu'occupe vraiment le crayon à l'écran, en pixels. Pas de facteur
+// six ici : le crayon écrit de l'épaisseur qu'on lui donne.
+function empreinteDuCrayon() {
+    return activeStyle.lineWidth * EPAISSEUR_AU_TABLEAU * zoom;
+}
+window.empreinteDuCrayon = empreinteDuCrayon;
+
+function curseurDuCrayon() {
+    return curseurDeTrace(empreinteDuCrayon(), false);
+}
+window.curseurDuCrayon = curseurDuCrayon;
 
 // ===================================================
 // OÙ LA BARRE DE STYLE SE POSE — UNE SEULE RÈGLE
@@ -8742,6 +8812,10 @@ function reglerEpaisseurTrait(v, source) {
     if (nombre && source !== 'nombre') nombre.value = t;
     pushStyleToObject();
     applyPluginStampWidthLive(activeStyle.lineWidth / 3);
+    // ET LE CURSEUR SUIT TOUT DE SUITE. Il montre l'empreinte du trait : la
+    // voir grossir pendant qu'on règle, c'est ce qui permet de choisir sans
+    // essayer. Sans cet appel il fallait d'abord repasser sur le tableau.
+    if (typeof updateCursor === 'function') updateCursor();
 }
 window.reglerEpaisseurTrait = reglerEpaisseurTrait;
 
@@ -9170,7 +9244,12 @@ function updateCursor() {
         }
     }
     else if (mode === 'highlighter') canvas.style.cursor = curseurDuSurligneur();
-    else if (mode === 'freehand' || mode === 'laser') canvas.classList.add('cursor-pencil');
+    // LE CRAYON MONTRE SON EMPREINTE, COMME LE SURLIGNEUR. Il n'avait qu'une
+    // croix, toujours la même : on réglait l'épaisseur et rien ne bougeait.
+    // Le laser, lui, garde la croix — il ne dépose rien, il n'a pas
+    // d'empreinte à annoncer.
+    else if (mode === 'freehand') canvas.style.cursor = curseurDuCrayon();
+    else if (mode === 'laser') canvas.classList.add('cursor-pencil');
     else if (mode === 'pointer') canvas.classList.add(hoveredObj ? 'cursor-grab' : 'cursor-default');
     else canvas.classList.add('cursor-crosshair');
 }
