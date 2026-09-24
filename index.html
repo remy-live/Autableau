@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=204 »,
-         « script.js?v=353 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=206 »,
+         « script.js?v=357 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=204">
+    <link rel="stylesheet" href="style.css?v=206">
 </head>
 
 <body>
@@ -3784,6 +3784,16 @@
         <div class="modal-box" id="edt-boite">
             <h3 class="modal-title">Mon emploi du temps</h3>
             <div id="edt-tete">
+                <!-- LA SEMAINE QU'ON REGARDE. La grille était une semaine TYPE,
+                     sans dates : « mardi 13 h 40 » ne disait pas QUEL mardi, et
+                     l'on n'écrit pas un cahier de texte sans date. Elle porte
+                     maintenant une semaine réelle, qu'on feuillette. -->
+                <span id="edt-navigation">
+                    <button type="button" id="edt-semaine-avant" aria-label="Semaine précédente">◀</button>
+                    <button type="button" id="edt-semaine-lue"
+                        data-tooltip="Revenir à la semaine en cours"></button>
+                    <button type="button" id="edt-semaine-apres" aria-label="Semaine suivante">▶</button>
+                </span>
                 <div id="edt-semaines">
                     <button type="button" class="edt-semaine" data-semaine="A">Semaine A</button>
                     <button type="button" class="edt-semaine" data-semaine="B">Semaine B</button>
@@ -3859,7 +3869,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=353"></script>
+    <script src="script.js?v=357"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

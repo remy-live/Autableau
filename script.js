@@ -32883,6 +32883,71 @@ let agenda = {
 let edtSemaineVue = 'A';
 let edtGeste = null;
 
+// ==============================================================================
+// LA GRILLE DEVIENT UN CALENDRIER
+//
+// « J'aurais plutôt vu une petite popup à côté du jour, penses-tu qu'autre
+// chose serait mieux ? » — et, plus tôt : « où remplit-on son cahier de texte,
+// car on pourrait le faire une fois l'emploi du temps fait ».
+//
+// LA GRILLE ÉTAIT UNE SEMAINE TYPE, SANS DATES. « Mardi 13 h 40, 4EME AP1 » ne
+// dit pas QUEL mardi — et l'on n'écrit pas un cahier de texte sans date : on
+// écrirait dans le vide, et Pronote attend une date. Elle porte donc désormais
+// une semaine réelle, qu'on feuillette, et chaque colonne sa date.
+//
+// LA LETTRE DE LA SEMAINE EN DÉCOULE au lieu de se choisir à part : l'ancre
+// dit déjà quel lundi est une semaine A. Deux commandes qui disaient la même
+// chose se contredisaient dès qu'on touchait l'une sans l'autre.
+// ==============================================================================
+let edtLundiVu = null;           // le lundi de la semaine regardée
+
+function lundiRegarde() {
+    if (!edtLundiVu) edtLundiVu = lundiDe(new Date());
+    return edtLundiVu;
+}
+
+function dateDeLaColonne(jour) {
+    const d = new Date(lundiRegarde());
+    d.setDate(d.getDate() + (jour - 1));
+    return d;
+}
+
+function allerALaSemaine(pas) {
+    const d = new Date(lundiRegarde());
+    d.setDate(d.getDate() + pas * 7);
+    edtLundiVu = lundiDe(d);
+    // La lettre suit la date : c'est l'ancre qui décide, pas un bouton.
+    edtSemaineVue = semaineDe(edtLundiVu);
+    fermerLeMotDuCours();
+    rendreLAgenda();
+}
+window.allerALaSemaine = allerALaSemaine;
+
+function revenirACetteSemaine() {
+    edtLundiVu = lundiDe(new Date());
+    edtSemaineVue = semaineDe(edtLundiVu);
+    fermerLeMotDuCours();
+    rendreLAgenda();
+}
+window.revenirACetteSemaine = revenirACetteSemaine;
+
+// « lundi 22/09 » : le jour et sa date, dans la largeur d'une colonne.
+function titreDeLaColonne(nom, jour) {
+    const d = dateDeLaColonne(jour);
+    return nom + ' <span class="edt-date">' + String(d.getDate()).padStart(2, '0')
+        + '/' + String(d.getMonth() + 1).padStart(2, '0') + '</span>';
+}
+
+// « semaine du 22 au 26 septembre »
+function semaineLue() {
+    const a = lundiRegarde();
+    const b = new Date(a); b.setDate(b.getDate() + 4);
+    const mois = (d) => d.toLocaleDateString('fr-FR', { month: 'long' });
+    return a.getMonth() === b.getMonth()
+        ? 'du ' + a.getDate() + ' au ' + b.getDate() + ' ' + mois(b)
+        : 'du ' + a.getDate() + ' ' + mois(a) + ' au ' + b.getDate() + ' ' + mois(b);
+}
+
 function edtDebut() { return Number.isFinite(agenda.debut) ? agenda.debut : EDT_JOUR_DEBUT; }
 function edtFin() { return Number.isFinite(agenda.fin) ? agenda.fin : EDT_JOUR_FIN; }
 function edtPx() { return (Number.isFinite(agenda.px) && agenda.px > 0) ? agenda.px : EDT_PX_DEFAUT; }
@@ -33611,6 +33676,214 @@ function repartirLesChevauchements(liste) {
 // un bouton qui ne paraît qu'au survol ne paraît jamais sur un tableau de
 // classe. Et DEUX POIGNÉES, en haut et en bas : on ne pouvait allonger que par
 // le bas, donc jamais avancer le début d'un cours sans le déplacer entier.
+// ==============================================================================
+// LE CAHIER DE TEXTE, À LA DATE — ET AU TABLEAU S'IL Y EN A UN
+//
+// « On pourrait le faire une fois l'emploi du temps fait, et on a une fenêtre
+// qui permet de le remplir. Il faut que ce soit beau, simple. »
+//
+// CE QUI DÉCIDE DE TOUT : le cahier existant est rattaché à un TABLEAU
+// ENREGISTRÉ. Or on remplit son cahier de texte pour des cours dont on n'a pas
+// toujours fait de tableau — une heure d'exercices, un devoir surveillé. La
+// date est donc la clé, et le tableau vient en plus quand il existe : on
+// retrouve alors ce qu'on a écrit au tableau ce jour-là, depuis le cahier.
+//
+// LA CLÉ NE PORTE PAS L'IDENTIFIANT DU CRÉNEAU, et c'est délibéré : réimporter
+// son emploi du temps refait tous les identifiants, et tout ce qu'on aurait
+// écrit deviendrait orphelin d'un coup. Elle porte la date, l'heure et le nom
+// de la classe — ce qui ne change pas quand on réimporte la même semaine.
+// ==============================================================================
+function cleDuMot(date, creneau) {
+    return jourIso(date) + '|' + creneau.debut + '|' + (creneau.libelle || '');
+}
+
+function motsDuCahier() {
+    if (!cahier.jours || typeof cahier.jours !== 'object') cahier.jours = {};
+    return cahier.jours;
+}
+
+function motDuCours(date, creneau) {
+    const m = motsDuCahier();
+    const cle = cleDuMot(date, creneau);
+    if (!m[cle]) m[cle] = { fait: '', devoirs: '', tableauId: null };
+    return m[cle];
+}
+
+function motEstRempli(date, creneau) {
+    const m = motsDuCahier()[cleDuMot(date, creneau)];
+    return !!(m && ((m.fait || '').trim() || (m.devoirs || '').trim()));
+}
+
+// Le tableau enregistré de cette classe, ce jour-là : c'est lui qu'on
+// rattachera. On le cherche par la classe ET par le jour — un tableau de la
+// 6e B fait mardi n'a rien à voir avec l'heure de 6e B de jeudi.
+function tableauDuCours(date, creneau) {
+    if (typeof savedTableaux === 'undefined' || !Array.isArray(savedTableaux)) return null;
+    const jour = jourIso(date);
+    const entree = agenda.entrees.find(e => e.id === creneau.entreeId);
+    return savedTableaux.find(t => {
+        const q = t.modifieLe || t.creeLe || t.date;
+        if (!q || jourIso(new Date(q)) !== jour) return false;
+        if (entree && entree.classeId && t.classeId === entree.classeId) return true;
+        return !!t.classeNom && t.classeNom === (creneau.libelle || '');
+    }) || null;
+}
+
+// ==============================================================================
+// LE MOT DU COURS : LA POPUP QU'ON REMPLIT APRÈS LA CLASSE
+//
+// « Il faut que ce soit beau, simple. » DEUX CHAMPS, ET PAS TROIS. Ce qu'on
+// écrit APRÈS un cours, c'est ce qu'on a fait et ce qu'il y a à faire. Les
+// objectifs de la séquence se posent une fois pour six semaines, et les deux
+// copies vers Pronote sont un autre geste : ils restent dans la fenêtre
+// complète, à un bouton d'ici. Trois champs longs et deux boutons, ce n'est
+// plus une popup, c'est un formulaire — et l'on ne remplit pas un formulaire
+// entre deux sonneries.
+//
+// ELLE S'ANCRE SUR LA CASE, ET SE RABAT DANS L'ÉCRAN. Exactement la mécanique
+// de la palette de couleurs, et pour la même raison qu'on a apprise à ses
+// dépens : une fenêtre posée à une place fixe finit par s'ouvrir à l'autre
+// bout de l'écran le jour où ce qui l'appelle a bougé.
+//
+// ON ENREGISTRE EN ÉCRIVANT. Un bouton « Enregistrer » dans une popup qu'on
+// ferme d'un clic à côté, c'est du travail perdu un soir sur deux.
+// ==============================================================================
+let motOuvert = null;             // { date, creneau }
+
+function boiteDuMotDuCours() {
+    let b = document.getElementById('edt-mot-du-cours');
+    if (b) return b;
+    b = document.createElement('div');
+    b.id = 'edt-mot-du-cours';
+    b.innerHTML = `
+        <div class="emc-tete">
+            <span class="emc-classe" id="emc-classe"></span>
+            <span class="emc-quand" id="emc-quand"></span>
+        </div>
+        <div>
+            <label for="emc-fait">Ce qu'on a fait</label>
+            <textarea id="emc-fait" placeholder="Exercices 12 à 15, correction du contrôle…"></textarea>
+        </div>
+        <div>
+            <label for="emc-devoirs">Travail à faire</label>
+            <textarea id="emc-devoirs" placeholder="Pour lundi : exercice 18 page 47"></textarea>
+        </div>
+        <div class="emc-pied">
+            <span class="emc-etat" id="emc-etat"></span>
+            <button type="button" class="emc-btn" id="emc-tableau">Le tableau</button>
+            <button type="button" class="emc-btn" id="emc-cahier">Cahier complet…</button>
+        </div>`;
+    document.body.appendChild(b);
+
+    const ecrire = () => {
+        if (!motOuvert) return;
+        const m = motDuCours(motOuvert.date, motOuvert.creneau);
+        m.fait = document.getElementById('emc-fait').value;
+        m.devoirs = document.getElementById('emc-devoirs').value;
+        const t = tableauDuCours(motOuvert.date, motOuvert.creneau);
+        m.tableauId = t ? t.id : null;
+        // « ecrireLeCahier » écrit le cahier dans le stockage, sans rien
+        // demander d'autre. « enregistrerLeCahier », lui, RELIT les champs de
+        // la grande fenêtre et exige une séance ouverte : appelé d'ici, il
+        // écrasait le mot du cours avec des champs vides.
+        ecrireLeCahier();
+        const etat = document.getElementById('emc-etat');
+        if (etat) etat.textContent = 'Enregistré';
+    };
+    b.querySelector('#emc-fait').addEventListener('input', ecrire);
+    b.querySelector('#emc-devoirs').addEventListener('input', ecrire);
+    // On ne redessine la grille qu'en SORTANT d'un champ : la repeindre à
+    // chaque lettre ferait clignoter la semaine sous les doigts.
+    const rafraichir = () => { if (motOuvert) rendreLaGrilleDeLAgenda(); };
+    b.querySelector('#emc-fait').addEventListener('blur', rafraichir);
+    b.querySelector('#emc-devoirs').addEventListener('blur', rafraichir);
+
+    b.querySelector('#emc-cahier').addEventListener('click', () => {
+        fermerLeMotDuCours();
+        if (typeof ouvrirLeCahier === 'function') ouvrirLeCahier();
+    });
+    b.querySelector('#emc-tableau').addEventListener('click', () => {
+        if (!motOuvert) return;
+        const t = tableauDuCours(motOuvert.date, motOuvert.creneau);
+        if (!t) { showToast('Aucun tableau enregistré pour cette heure-là'); return; }
+        fermerLeMotDuCours();
+        if (typeof fermerLAgenda === 'function') fermerLAgenda();
+        if (typeof loadBoard === 'function') loadBoard(t.id);
+    });
+    return b;
+}
+
+function fermerLeMotDuCours() {
+    const b = document.getElementById('edt-mot-du-cours');
+    if (b) b.classList.remove('ouvert');
+    motOuvert = null;
+}
+window.fermerLeMotDuCours = fermerLeMotDuCours;
+
+function placerLeMotDuCours(surQuoi) {
+    const b = document.getElementById('edt-mot-du-cours');
+    if (!b || !surQuoi || !b.classList.contains('ouvert')) return;
+    const c = surQuoi.getBoundingClientRect();
+    const p = b.getBoundingClientRect();
+    const MARGE = 8;
+    // À DROITE DE LA CASE si la place y est — c'est là qu'on regarde, et la
+    // case reste visible pendant qu'on écrit. À gauche sinon.
+    let gauche = c.right + MARGE;
+    if (gauche + p.width > window.innerWidth - MARGE) gauche = c.left - p.width - MARGE;
+    gauche = Math.max(MARGE, Math.min(gauche, window.innerWidth - p.width - MARGE));
+    let haut = c.top;
+    haut = Math.max(MARGE, Math.min(haut, window.innerHeight - p.height - MARGE));
+    b.style.left = Math.round(gauche) + 'px';
+    b.style.top = Math.round(haut) + 'px';
+}
+
+function ouvrirLeMotDuCours(creneau, surQuoi) {
+    if (!creneau) return null;
+    const date = dateDeLaColonne(creneau.jour);
+    const b = boiteDuMotDuCours();
+    motOuvert = { date, creneau };
+    const m = motDuCours(date, creneau);
+    document.getElementById('emc-classe').textContent = creneau.libelle || 'Cours';
+    document.getElementById('emc-quand').textContent =
+        date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+        + ' · ' + heureLisible(creneau.debut);
+    document.getElementById('emc-fait').value = m.fait || '';
+    document.getElementById('emc-devoirs').value = m.devoirs || '';
+    const t = tableauDuCours(date, creneau);
+    const bt = document.getElementById('emc-tableau');
+    // LE BOUTON NE PROMET QUE CE QU'IL PEUT TENIR : pas de tableau ce jour-là,
+    // pas de bouton. Un bouton éteint qui ne dit pas ce qui manque ne vaut pas
+    // mieux qu'un bouton absent — on l'a appris ce matin.
+    bt.style.display = t ? '' : 'none';
+    if (t) bt.title = 'Ouvrir « ' + (t.nom || t.name || 'le tableau') + ' »';
+    document.getElementById('emc-etat').textContent = '';
+    b.classList.add('ouvert');
+    placerLeMotDuCours(surQuoi);
+    document.getElementById('emc-fait').focus();
+    return b;
+}
+window.ouvrirLeMotDuCours = ouvrirLeMotDuCours;
+
+// ON LA FERME EN CLIQUANT À CÔTÉ, comme la palette de couleurs : une popup
+// ancrée n'a pas de croix, sinon elle en redevient une fenêtre.
+document.addEventListener('pointerdown', (e) => {
+    const b = document.getElementById('edt-mot-du-cours');
+    if (!b || !b.classList.contains('ouvert')) return;
+    if (b.contains(e.target)) return;
+    // Appuyer sur une AUTRE case doit ouvrir la sienne, pas seulement fermer
+    // celle-ci : le geste suivant est presque toujours « et celle d'à côté ».
+    if (e.target.closest && e.target.closest('.edt-creneau')) return;
+    fermerLeMotDuCours();
+}, true);
+
+// La fenêtre change de taille, ou la grille défile : la popup suit.
+window.addEventListener('resize', () => {
+    if (!motOuvert) return;
+    const bloc = document.querySelector('#edt-grille .edt-creneau[data-id="'
+        + motOuvert.creneau.id + '"]');
+    if (bloc) placerLeMotDuCours(bloc);
+});
+
 function dessinerUnCreneau(c, place) {
     const d = document.createElement('div');
     const p = place.get(c.id) || { rang: 0, total: 1 };
@@ -33630,6 +33903,17 @@ function dessinerUnCreneau(c, place) {
         <button class="edt-regler" title="Changer l'horaire, la classe" aria-label="Régler ${titre}">⋯</button>
         <button class="edt-oter" title="Retirer ce créneau" aria-label="Retirer ${titre}">×</button>
         <span class="edt-poignee edt-poignee-bas" data-bord="bas" aria-hidden="true"></span>`;
+    // LA SEMAINE DEVIENT LE CAHIER DE TEXTE. D'un coup d'œil sur la grille on
+    // voit ce qui est écrit et ce qui manque — c'est ce qu'on vient chercher le
+    // vendredi soir. Une pastille suffit : un texte de plus dans une case de
+    // cinquante pixels ne se lirait pas.
+    if (motEstRempli(dateDeLaColonne(c.jour), c)) {
+        const pastille = document.createElement('span');
+        pastille.className = 'edt-ecrit';
+        pastille.title = 'Le cahier de texte est rempli pour cette heure';
+        pastille.setAttribute('aria-label', 'cahier rempli');
+        d.appendChild(pastille);
+    }
     return d;
 }
 
@@ -33670,7 +33954,12 @@ function rendreLaGrilleDeLAgenda() {
         const jour = i + 1;
         const col = document.createElement('div');
         col.className = 'edt-colonne';
-        col.innerHTML = `<div class="edt-titre">${nom}</div>`;
+        // AUJOURD'HUI SE VOIT : sans cela, on cherche sa colonne des yeux, et
+        // l'on remplit le cahier du mauvais jour.
+        const dateDuJour = dateDeLaColonne(jour);
+        const cEstAujourdhui = jourIso(dateDuJour) === jourIso(new Date());
+        if (cEstAujourdhui) col.classList.add('edt-aujourdhui');
+        col.innerHTML = `<div class="edt-titre">${titreDeLaColonne(nom, jour)}</div>`;
 
         const fond = document.createElement('div');
         fond.className = 'edt-jour';
@@ -33739,6 +34028,16 @@ function majLesReglagesDeLAgenda() {
     if (sonne) {
         const n = edtSonneries().length;
         sonne.textContent = n ? n + ' heures' : 'heures rondes';
+    }
+
+    const semaineLibelle = document.getElementById('edt-semaine-lue');
+    if (semaineLibelle) {
+        const cetteSemaine = jourIso(lundiRegarde()) === jourIso(lundiDe(new Date()));
+        semaineLibelle.textContent = 'Semaine ' + semaineLue();
+        semaineLibelle.classList.toggle('actif', cetteSemaine);
+        semaineLibelle.setAttribute('data-tooltip', cetteSemaine
+            ? 'C\'est la semaine en cours'
+            : 'Revenir à la semaine en cours');
     }
 
     const journee = document.getElementById('edt-journee-lue');
@@ -34275,14 +34574,27 @@ function finirUnGesteDeLAgenda(e) {
     // palette était VIDE et qu'une entrée est née sous le doigt — or un tampon
     // armé EST une entrée. Un sabotage a montré que la garde ne servait rien.)
     const aNommer = edtGeste.nommer ? edtGeste.c.entreeId : null;
-    const aRegler = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge
+    // UN APPUI SUR UNE CASE OUVRE LE CAHIER DE TEXTE, ET NON PLUS SA FICHE
+    // D'HORAIRE.
+    //
+    // La fiche reste, sur le « ⋯ » qui était déjà là. Ce qui change, c'est
+    // lequel des deux gestes mérite l'appui nu : on règle ses horaires trois
+    // fois en septembre, on remplit son cahier deux cents fois dans l'année.
+    // Le geste le plus court va au geste le plus fréquent.
+    const aEcrire = (!edtGeste.nommer && edtGeste.type === 'deplacer' && !edtGeste.bouge
                      && !tamponArme())
-        ? edtGeste.c.id : null;
+        ? { c: edtGeste.c, bloc: edtGeste.bloc } : null;
     edtGeste = null;
     ecrireLAgenda();
     rendreLaGrilleDeLAgenda();
-    if (aNommer) reglerUneEntree(aNommer);
-    else if (aRegler) reglerUnCreneau(aRegler);
+    if (aNommer) { reglerUneEntree(aNommer); return; }
+    if (aEcrire) {
+        // La grille vient d'être repeinte : le bloc qu'on tenait n'existe
+        // plus. On retrouve le sien pour y ancrer la popup.
+        const frais = document.querySelector('#edt-grille .edt-creneau[data-id="'
+            + aEcrire.c.id + '"]') || aEcrire.bloc;
+        ouvrirLeMotDuCours(aEcrire.c, frais);
+    }
 }
 
 // ÉCHAP REMET TOUT COMME C'ÉTAIT. Sans lui, un déplacement commencé par erreur
@@ -34766,6 +35078,9 @@ function ouvrirLAgenda() {
             const zoom = e.target.closest('[data-zoom]');
             if (zoom) { reglerLeZoom(Number(zoom.dataset.zoom)); return; }
             if (e.target.closest('#edt-sonneries')) { reglerLesSonneries(); return; }
+            if (e.target.closest('#edt-semaine-avant')) { allerALaSemaine(-1); return; }
+            if (e.target.closest('#edt-semaine-apres')) { allerALaSemaine(1); return; }
+            if (e.target.closest('#edt-semaine-lue')) { revenirACetteSemaine(); return; }
             if (e.target.closest('#edt-pdf')) { exporterLAgendaEnPdf(); return; }
             // Le bouton ouvre le champ de fichier caché : un « input file »
             // nu est laid et ne dit pas ce qu'il attend.
@@ -34811,6 +35126,10 @@ function fermerLAgenda() {
     const boite = document.getElementById('edt-modal');
     if (boite) boite.style.display = 'none';
     cacherLeFantomeDeLAgenda();
+    // Le mot du cours s'en va avec la grille qui le portait. Sans cela il
+    // restait seul au-dessus du tableau, accroché à une case qu'on ne voit
+    // plus — et, posé à 200050, il recouvrait tout ce qu'on voulait écrire.
+    fermerLeMotDuCours();
     edtGeste = null;
 }
 
@@ -34849,7 +35168,14 @@ function lireLeCahier() {
     try {
         const brut = JSON.parse(localStorage.getItem(CLE_CAHIER) || 'null');
         if (brut && typeof brut === 'object') {
-            cahier = { familles: brut.familles || {}, seances: brut.seances || {} };
+            // LA RELECTURE RECONSTRUIT LE CAHIER CHAMP PAR CHAMP, et c'est
+            // volontaire — elle écarte ce que le stockage aurait de louche.
+            // Mais elle oubliait « jours », la clé du cahier de texte daté :
+            // tout ce qu'on écrivait dans la grille revenait vide au premier
+            // rechargement. Une épreuve l'a pris ; à l'écran, on ne l'aurait
+            // vu que le lendemain, et l'on aurait cru avoir mal enregistré.
+            cahier = { familles: brut.familles || {}, seances: brut.seances || {},
+                       jours: brut.jours || {} };
         }
     } catch (e) { /* stockage refusé */ }
     return cahier;
@@ -41354,6 +41680,13 @@ function laFormeDUneFenetre(el) {
     if (!el || el.nodeType !== 1 || !el.isConnected) return false;
     // Les meubles du tableau ont déjà le leur, et la visite a le sien.
     if (el.closest('#board, .toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
+    // UNE POPUP ANCRÉE N'EST PAS UNE FENÊTRE. Elle se colle à ce qui l'ouvre,
+    // elle se ferme dès qu'on clique ailleurs, et elle tient en trois cents
+    // pixels : lui coller une barre de titre avec son nom, son plein écran et
+    // sa croix, c'est lui donner un chapeau plus grand qu'elle — et lui
+    // prendre le tiers de sa hauteur. Le mot du cours se ferme en cliquant à
+    // côté, comme la palette de couleurs.
+    if (el.id === 'edt-mot-du-cours') return false;
     const s = getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
     if (s.position !== 'fixed' && s.position !== 'absolute') return false;

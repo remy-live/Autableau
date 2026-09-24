@@ -66,7 +66,11 @@ module.exports = async function (browser) {
             entrees: document.querySelectorAll('.edt-entree').length,
             mot: (document.querySelector('.edt-palette-mot') || {}).innerText || '',
             colonnes: document.querySelectorAll('.edt-colonne').length,
-            jours: [...document.querySelectorAll('.edt-titre')].map(t => t.innerText),
+            // Le titre porte désormais « Lundi 21/09 » : on lit le nom du
+            // jour, qui est ce que cette vérification-ci regarde. La date,
+            // elle, a son propre chapitre (67-le-cahier-dans-la-grille).
+            jours: [...document.querySelectorAll('.edt-titre')]
+                .map(t => (t.firstChild ? t.firstChild.textContent : '').trim()),
             // L'alternance et le samedi ne se paient que si on les demande.
             semaines: getComputedStyle(document.getElementById('edt-semaines')).display,
             recopier: getComputedStyle(document.getElementById('edt-recopier')).display
@@ -385,7 +389,8 @@ module.exports = async function (browser) {
         b.checked = true;
         b.dispatchEvent(new Event('change', { bubbles: true }));
         await new Promise(ok => setTimeout(ok, 120));
-        const avec = [...document.querySelectorAll('.edt-titre')].map(t => t.innerText);
+        const avec = [...document.querySelectorAll('.edt-titre')]
+            .map(t => (t.firstChild ? t.firstChild.textContent : '').trim());
         b.checked = false;
         b.dispatchEvent(new Event('change', { bubbles: true }));
         await new Promise(ok => setTimeout(ok, 120));
@@ -925,17 +930,15 @@ module.exports = async function (browser) {
     // c'est-à-dire par tranches de cinq minutes, et jamais exactement. Un
     // cours va de 8 h 05 à 9 h 00 : cela se dit, cela ne se vise pas.
     //
-    // Appuyer sur un créneau sans le bouger ouvre donc sa fiche, où les deux
-    // heures s'écrivent.
+    // Le « ⋯ » du créneau ouvre donc sa fiche, où les deux heures s'écrivent.
+    //
+    // Ce fut d'abord l'appui sur le bloc lui-même. Depuis que la grille sert
+    // aussi de cahier de texte, l'appui ouvre le mot du cours — le geste de
+    // tous les jours — et la fiche d'horaire, qu'on ne règle qu'une fois en
+    // septembre, se retire derrière son bouton.
     // ==================================================================
     const fiche = await page.evaluate(async () => {
-        const bloc = document.querySelector('.edt-creneau');
-        const r = bloc.getBoundingClientRect();
-        const x = r.left + r.width / 2, y = r.top + 20;
-        const evt = (type, cible) => (cible || window).dispatchEvent(
-            new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }));
-        evt('pointerdown', bloc);
-        evt('pointerup');
+        document.querySelector('.edt-creneau .edt-regler').click();
         await new Promise(ok => setTimeout(ok, 250));
         const formulaire = document.getElementById('custom-prompt-modal');
         const ouvert = getComputedStyle(formulaire).display !== 'none';
@@ -988,12 +991,7 @@ module.exports = async function (browser) {
         if (typeof dessinerLAgenda === 'function') dessinerLAgenda();
     });
     const refus = await page.evaluate(async () => {
-        const bloc = document.querySelector('.edt-creneau');
-        const r = bloc.getBoundingClientRect();
-        const evt = (type, cible) => (cible || window).dispatchEvent(
-            new PointerEvent(type, { clientX: r.left + r.width / 2, clientY: r.top + 20,
-                                     bubbles: true, pointerType: 'mouse' }));
-        evt('pointerdown', bloc); evt('pointerup');
+        document.querySelector('.edt-creneau .edt-regler').click();
         await new Promise(ok => setTimeout(ok, 250));
         const champs = [...document.querySelectorAll('#custom-prompt-inputs .prompt-input')];
         champs[0].value = '23 h';
@@ -1311,9 +1309,12 @@ module.exports = async function (browser) {
         evt('pointermove', { x: rb.left + rb.width / 2 + 2, y: rb.top + 24 });
         evt('pointerup', { x: rb.left + rb.width / 2 + 2, y: rb.top + 24 });
         await new Promise(ok => setTimeout(ok, 200));
-        const ficheOuverte = getComputedStyle(document.getElementById('custom-prompt-modal')).display !== 'none';
-        const annuler = document.getElementById('custom-prompt-cancel');
-        if (annuler) annuler.click();
+        // L'appui ouvre le mot du cours — c'est ce que fait un appui depuis
+        // que la grille tient aussi le cahier de texte. Ce qui s'éprouve ici
+        // n'est pas QUOI s'ouvre, c'est que le tremblement reste un appui.
+        const mot = document.getElementById('edt-mot-du-cours');
+        const ficheOuverte = !!mot && getComputedStyle(mot).display !== 'none';
+        fermerLeMotDuCours();
         await new Promise(ok => setTimeout(ok, 150));
         const apresTremblement = agenda.creneaux.find(c => c.id === 'c9').debut;
         fermerLAgenda();
@@ -1323,7 +1324,7 @@ module.exports = async function (browser) {
     r.egal('et sa fin ne bouge pas', bords.parLeHaut.fin, 11 * 60);
     r.egal('un tremblement de quelques pixels ne déplace rien',
         bords.apresTremblement, bords.avant);
-    r.verifie('c\'est un appui, et un appui ouvre la fiche', bords.ficheOuverte,
+    r.verifie('c\'est un appui, et un appui ouvre le mot du cours', bords.ficheOuverte,
         JSON.stringify(bords));
 
     // LA DURÉE S'APPREND. C'est le principe qui retient déjà la dernière

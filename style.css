@@ -12975,3 +12975,142 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
     background: #6c5ce7;
     color: #fff;
 }
+
+
+/* ==========================================================================
+   LE CAHIER DE TEXTE DANS LA GRILLE
+   « J'aurais plutôt vu une petite popup à côté du jour. » Elle s'ancre sur la
+   case, et la grille devient le cahier : une pastille dit ce qui est écrit.
+   ========================================================================== */
+
+/* La date, sous le nom du jour : plus petite, plus pâle — on lit « mardi »,
+   on vérifie « 23/09 ». */
+.edt-titre .edt-date {
+    font-weight: 400;
+    opacity: 0.55;
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* AUJOURD'HUI SE VOIT. Sans cela on cherche sa colonne des yeux, et l'on
+   remplit le cahier du mauvais jour. */
+.edt-colonne.edt-aujourdhui .edt-titre {
+    color: var(--accent, #6c5ce7);
+    font-weight: 700;
+}
+.edt-colonne.edt-aujourdhui .edt-jour { background: rgba(108, 92, 231, 0.045); }
+
+/* Une pastille, et rien de plus : un mot de plus dans une case de cinquante
+   pixels ne se lirait pas. */
+.edt-ecrit {
+    position: absolute;
+    left: 5px;
+    bottom: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+/* LE MOT DU COURS : la popup. Elle s'ancre sur la case et se rabat dans
+   l'écran, comme la palette de couleurs — même mécanique, mêmes raisons. */
+#edt-mot-du-cours {
+    position: fixed;
+    z-index: 200050;
+    width: 300px;
+    max-width: calc(100vw - 16px);
+    background: var(--surface-pleine, #ffffff);
+    border: 1px solid var(--contour);
+    border-radius: var(--arrondi, 12px);
+    box-shadow: var(--contour-ombre), 0 12px 34px rgba(0, 0, 0, 0.18);
+    padding: 12px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+}
+#edt-mot-du-cours.ouvert { display: flex; }
+#edt-mot-du-cours .emc-tete {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+#edt-mot-du-cours .emc-classe {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+}
+#edt-mot-du-cours .emc-quand {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+#edt-mot-du-cours label {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 3px;
+}
+#edt-mot-du-cours textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 58px;
+    resize: vertical;
+    padding: 7px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+}
+#edt-mot-du-cours .emc-pied {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+#edt-mot-du-cours .emc-etat {
+    font-size: 11px;
+    color: var(--muted);
+    margin-right: auto;
+}
+#edt-mot-du-cours .emc-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-size: 12px;
+    cursor: pointer;
+}
+#edt-mot-du-cours .emc-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.dark-mode #edt-mot-du-cours textarea { background: #1f2630; }
+
+
+/* LA NAVIGATION DE SEMAINE, dans la barre de l'agenda : deux flèches et la
+   semaine qu'on regarde. Le libellé est un bouton — il ramène à la semaine en
+   cours, et se marque quand on y est déjà. */
+#edt-navigation {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+#edt-navigation button {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    border-radius: 8px;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 12px;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+}
+#edt-semaine-avant, #edt-semaine-apres { width: 30px; padding: 0; }
+#edt-navigation button:hover { background: var(--accent-soft); color: var(--accent); }
+#edt-semaine-lue { font-weight: 600; min-width: 170px; }
+#edt-semaine-lue.actif { border-color: var(--accent, #6c5ce7); color: var(--accent, #6c5ce7); }
