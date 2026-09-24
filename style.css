@@ -8817,6 +8817,53 @@ body.focus-mode #edt-bandeau { display: none; }
     box-shadow: var(--contour-ombre), 0 15px 35px rgba(0, 0, 0, 0.2) !important;
 }
 
+/* ==================================================================
+   UNE FENÊTRE N'A PAS DE VOILE
+   « Certains plugins créent un voile transparent. Je ne veux pas de voile
+   transparent. Les fenêtres de plugin ne changent pas de z-index quand on les
+   sélectionne. Il faut vraiment que tous les plugins aient la même logique. »
+
+   Les deux reproches n'en font qu'un. Le voile teinte l'écran, mais SURTOUT
+   il le prend : relevé, le métronome vivait bien à l'étage 100 045 — et l'on
+   ne pouvait pas le cliquer, parce que la Fabrique à Flèches avait posé son
+   voile à 100 050 par-dessus tout. « Elles ne changent pas de z-index »
+   voulait dire « je n'arrive plus à les atteindre ».
+
+   Et la boîte enfermée dans un voile ne peut, de toute façon, PAS s'intercaler
+   entre les autres fenêtres : un voile qui porte un étage crée un contexte
+   d'empilement, et rien de ce qui vit dedans n'en sort. Tant qu'il y a un
+   voile, il n'y a pas d'empilement commun possible.
+
+   On ne supprime pas l'élément — c'est lui qui centre la boîte, et c'est son
+   « display » que chaque outil bascule pour s'ouvrir et se fermer. On le
+   DISSOUT : plus de teinte, plus de flou, et il ne prend plus les clics. Il
+   ne reste de lui qu'une chose, et c'est la seule qui compte : SON ÉTAGE.
+
+   On avait d'abord voulu le lui ôter aussi, pour que sa boîte aille se ranger
+   elle-même parmi les autres fenêtres. C'était une faute, et une faute
+   sournoise : « position: fixed » crée TOUJOURS un contexte d'empilement,
+   qu'on lui donne un z-index ou non. Sans étage, le voile ne libérait pas sa
+   boîte — il l'emmenait au niveau zéro avec lui, sous le moindre bandeau. Le
+   « + » de la journée passait ainsi derrière l'annonce du prochain cours.
+
+   C'est donc le voile qui porte l'étage de la fenêtre qu'il contient, et
+   « passerDevant » les classe TOUS ensemble — voiles et fenêtres nues — dans
+   une seule bande. Une seule logique, comme demandé.
+
+   « !important » est ici indispensable : ces voiles écrivent leur teinte EN
+   LIGNE, dans le « cssText » de chaque outil.
+   ================================================================== */
+.voile-dissous {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    pointer-events: none !important;
+    opacity: 1 !important;
+}
+
+/* Le voile ne prend plus les clics ; ce qu'il porte, si. */
+.voile-dissous > * { pointer-events: auto; }
+
 /* LA BARRE DE TITRE, EN HAUT, COMME PARTOUT AILLEURS.
    La poignée de déplacement vivait dans le coin BAS-DROITE : sur la fenêtre de
    dictée, haute de 786 px, elle tombait à 768 px du haut, contre le coin de

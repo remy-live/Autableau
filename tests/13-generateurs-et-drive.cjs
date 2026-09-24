@@ -1665,14 +1665,25 @@ module.exports = async function (browser) {
 
 
     // ------------------------------------------------------------------
-    // UNE MODALE PASSE AU-DESSUS DES FENÊTRES, MÊME TOUCHÉES
+    // CELLE QU'ON TOUCHE PASSE DEVANT — ET DANS LES DEUX SENS
     //
-    // « Tu n'as pas géré les z-index. Une modale passe au-dessus des autres
-    // fenêtres, non ? » Elle le devrait, et elle ne le faisait pas : relevé,
-    // le voile de Molécule Studio vivait à l'étage 10 000 quand les fenêtres
-    // d'outils vivent entre 100 010 et 100 045. Une modale s'ouvrait donc SOUS
-    // la dictée — et l'étage donné à sa boîte n'y changeait rien, une boîte ne
-    // sortant pas du contexte d'empilement de son voile.
+    // « Certains plugins créent un voile transparent. Je ne veux pas de voile
+    // transparent. Les fenêtres de plugin ne changent pas de z-index quand on
+    // les sélectionne. Il faut vraiment que tous les plugins aient la même
+    // logique. »
+    //
+    // C'était vrai, et la cause n'était pas celle qu'on croit : relevé, le
+    // métronome passait BIEN à l'étage 100 045 quand on le touchait — et l'on
+    // ne pouvait pas le toucher, parce que le voile d'un autre outil couvrait
+    // l'écran par-dessus tout. « Elles ne changent pas de z-index » voulait
+    // dire « je n'arrive plus à les atteindre ».
+    //
+    // On avait d'abord rangé les modales dans une bande AU-DESSUS des
+    // fenêtres, ce qui mettait de l'ordre entre elles mais gardait le défaut :
+    // une modale couvrait toujours une fenêtre, et l'on ne pouvait jamais
+    // revenir à la première. Il n'y a plus qu'une bande. Ce qui s'éprouve ici
+    // est donc l'aller ET le retour : la dernière touchée est devant, qu'elle
+    // ait un voile ou non.
     // ------------------------------------------------------------------
     const etages = await page.evaluate(async () => {
         const a = (ms) => new Promise(ok => setTimeout(ok, ms));
@@ -1683,34 +1694,99 @@ module.exports = async function (browser) {
         // ON REPART D'UNE MODALE NEUVE. Plus haut dans ce chapitre, tout a été
         // ouvert puis refermé : le voile garde alors l'étage qu'on lui a donné,
         // et la vérification passerait sans rien prouver — c'est ce qu'un
-        // sabotage a montré. On lui rend son étage d'origine et on le fait
-        // équiper comme au premier jour.
+        // sabotage a montré.
         v.style.zIndex = '';
-        const boite = v.querySelector('[data-equipee="1"]');
-        if (boite) { delete boite.dataset.equipee; delete boite.dataset.modaleVoile; }
+        const boite0 = v.querySelector('[data-equipee="1"]');
+        if (boite0) delete boite0.dataset.equipee;
         delete v.dataset.voileModale;
+        delete v.dataset.voileDissous;
+        v.classList.remove('voile-dissous');
         v.style.display = 'flex';
         equiperLesModales(document.body);
         await a(400);
         const etage = (n) => { const s = getComputedStyle(n);
             return s.zIndex === 'auto' ? 0 : Number(s.zIndex); };
-        // ON TOUCHE LA FENÊTRE : c'est le moment où elle réclame le dessus.
         const dic = document.getElementById('dictee-modal');
-        dic.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-        await a(250);
-        const fenetres = [...document.querySelectorAll('[data-equipee="1"]')]
-            .filter(n => n.getClientRects().length && !n.closest('[data-voile-modale]'))
-            .map(n => ({ quoi: n.id || (n.className || '').toString().slice(0, 20), z: etage(n) }));
-        const lu = { voile: etage(v), fenetres,
-                     plusHaute: fenetres.reduce((m, f) => Math.max(m, f.z), 0) };
+        const boite = v.querySelector('[data-equipee="1"]');
+        if (!dic || !boite) return { absent: 'il manque une des deux fenêtres' };
+        const toucher = async (n) => {
+            n.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            await a(250);
+        };
+        // CE QUE LE VOILE MONTRE ENCORE. Dissous, il ne doit plus rien
+        // teindre — c'est la moitié de la demande, et elle se mesure.
+        const fond = getComputedStyle(v).backgroundColor;
+        const flou = getComputedStyle(v).backdropFilter || 'none';
+
+        // ON ÉCARTE LA DICTÉE DU CHEMIN. Sans cela les deux boîtes se
+        // recouvrent, et « la dictée est couverte » ne dirait rien : elle
+        // serait couverte par la BOÎTE de la modale, ce qui est le
+        // fonctionnement normal de deux fenêtres empilées. Ce qu'on veut
+        // savoir, c'est si un VOILE couvre encore tout l'écran.
+        dic.style.position = 'fixed';
+        dic.style.margin = '0';
+        dic.style.transform = 'none';
+        dic.style.left = '10px';
+        dic.style.top = (window.innerHeight - dic.getBoundingClientRect().height - 10) + 'px';
+        await a(150);
+
+        // L'ALLER : on touche la dictée, elle doit passer devant la modale.
+        await toucher(dic);
+        const aller = { dictee: etage(dic), voile: etage(v) };
+
+        // LE RETOUR : on touche la modale, elle doit repasser devant.
+        await toucher(boite);
+        const retour = { boite: etage(v), dictee: etage(dic) };
+
+        // ET C'EST ICI QUE TOUT SE JOUE : LA MODALE EST DEVANT, ET PLUS RIEN
+        // NE PREND L'ÉCRAN ENTIER.
+        //
+        // C'est le geste exact du reproche — « je n'arrive plus à les
+        // atteindre ». Avec l'ancien voile, la modale étant au-dessus, son
+        // fond couvrait TOUT L'ÉCRAN : où qu'on posât le doigt, on tombait sur
+        // lui, et aucune autre fenêtre ne répondait plus.
+        //
+        // On ne demande pas que la dictée soit DEVANT — la modale vient d'être
+        // touchée, c'est son tour, et une fenêtre de 952 px sur un écran de
+        // 1280 en couvre légitimement une autre. On demande qu'aucun VOILE ne
+        // s'interpose : on relève tout ce qui se trouve sous le point, et l'on
+        // regarde si l'un d'eux couvre l'écran d'un bord à l'autre.
+        const rd = dic.getBoundingClientRect();
+        // « elementsFromPoint » rend la pile du dessus vers le dessous : on ne
+        // garde que ce qui est AU-DESSUS de la dictée. Sans cette coupe, le
+        // tableau lui-même — qui occupe tout l'écran, et qui est sous tout le
+        // reste — comptait comme un voile.
+        const pile = document.elementsFromPoint(rd.left + rd.width / 2, rd.top + 8);
+        const dessus = [];
+        for (const n of pile) {
+            if (n === dic || dic.contains(n)) break;
+            dessus.push(n);
+        }
+        const couvrants = dessus.filter(n => {
+            if (n === document.body || n === document.documentElement) return false;
+            const q = n.getBoundingClientRect();
+            return q.width >= window.innerWidth - 2 && q.height >= window.innerHeight - 2;
+        });
+        retour.voileSurLeChemin = couvrants.length > 0;
+        retour.quiCouvre = couvrants.map(n => n.id || (n.className || '').toString().slice(0, 24));
+
         v.style.display = 'none';
         D.fermer();
-        return lu;
+        return { fond, flou, aller, retour };
     });
-    r.verifie('il y a bien une fenêtre ouverte sous la modale',
-        !etages.absent && etages.fenetres.length >= 1, JSON.stringify(etages));
-    r.verifie('le voile d\'une modale reste au-dessus de toutes les fenêtres',
-        !etages.absent && etages.voile > etages.plusHaute, JSON.stringify(etages));
+    r.verifie('les deux fenêtres sont là pour être empilées',
+        !etages.absent, JSON.stringify(etages));
+    r.verifie('le voile ne teinte plus rien',
+        !etages.absent && /rgba\(0, 0, 0, 0\)/.test(etages.fond), JSON.stringify(etages.fond));
+    r.verifie('et il ne floute plus le tableau derrière',
+        !etages.absent && etages.flou === 'none', String(etages.flou));
+    r.verifie('touchée, la fenêtre nue passe devant la modale',
+        !etages.absent && etages.aller.dictee > etages.aller.voile, JSON.stringify(etages.aller));
+    r.verifie('touchée à son tour, la modale repasse devant',
+        !etages.absent && etages.retour.boite > etages.retour.dictee, JSON.stringify(etages.retour));
+    r.verifie('et la modale devant, plus rien ne prend l\'écran entier',
+        !etages.absent && etages.retour.voileSurLeChemin === false,
+        JSON.stringify(etages.retour));
 
     await context.close();
 

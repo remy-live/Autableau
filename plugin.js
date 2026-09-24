@@ -5217,7 +5217,7 @@ registerPlugin('pianoTool', 'Musique', {
     createRemote: function () {
         if (document.getElementById('piano-remote')) document.getElementById('piano-remote').remove();
         const remote = document.createElement('div'); remote.id = 'piano-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #1e272e; font-family: sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #1e272e; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#1e272e;">🎹 PIANO 3 OCTAVES :</div>
             <button id="btn-piano-lock" onclick="pianoToggleLock()" style="padding:10px 18px; background:#f1f2f6; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px; transition: all 0.2s;">🔓 Déverrouillé</button>
@@ -5800,7 +5800,7 @@ registerPlugin('solidPatronTool', 'Maths - Géométrie', {
     createCanvasRemote: function (id, type, factor, color) {
         if (document.getElementById('solid-patron-remote')) document.getElementById('solid-patron-remote').remove();
         const remote = document.createElement('div'); remote.id = 'solid-patron-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #2d3436; font-family: sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; display:flex; align-items:center; padding: 12px 20px; gap: 15px; border: 2px solid #2d3436; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#2d3436;">🧊 MANIPULATION :</div>
             <span style="font-size:12px; color:#636e72;">SOLIDE</span>
@@ -6213,7 +6213,7 @@ registerPlugin('solid3DTool', 'Maths - Géométrie', {
     createCanvasRemote: function (id, pd) {
         if (document.getElementById('solid-3d-remote')) document.getElementById('solid-3d-remote').remove();
         const remote = document.createElement('div'); remote.id = 'solid-3d-remote';
-        remote.style.cssText = "position:absolute; top:100px; left:100px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; flex-direction:column; padding: 15px 25px; gap: 10px; border: 2px solid #2d3436; font-family: sans-serif; width: 350px; cursor:move; touch-action:none;";
+        remote.style.cssText = "position:absolute; top:100px; left:100px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; display:flex; flex-direction:column; padding: 15px 25px; gap: 10px; border: 2px solid #2d3436; font-family: sans-serif; width: 350px; cursor:move; touch-action:none;";
 
         let isDragging = false, startX, startY, startLeft, startTop;
         remote.addEventListener('pointerdown', (e) => {
@@ -6607,7 +6607,7 @@ registerPlugin('longestWordTool', 'Jeux', {
     createGameRemote: function () {
         if (document.getElementById('word-game-remote')) document.getElementById('word-game-remote').remove();
         const remote = document.createElement('div'); remote.id = 'word-game-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; display:flex; align-items:center; padding: 10px 20px; gap: 12px; border: 2px solid #0984e3; font-family: sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; display:flex; align-items:center; padding: 10px 20px; gap: 12px; border: 2px solid #0984e3; font-family: sans-serif;";
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#2d3436; margin-right:5px;">🔤 TIRAGE :</div>
             <button onclick="wordGamePickLetter('vowel')" style="padding:10px 16px; background:#0984e3; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px; box-shadow:0 2px 4px rgba(9,132,227,0.3);">🔵 Voyelle</button>
@@ -12805,7 +12805,7 @@ registerPlugin('hangmanGameTool', 'Jeux', {
         if (document.getElementById('hangman-remote')) document.getElementById('hangman-remote').remove();
         const remote = document.createElement('div');
         remote.id = 'hangman-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:600px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family: sans-serif;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:600px; background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; overflow:hidden; font-family: sans-serif;";
 
         let html = `<div style="background:#1e272e; color:#fff; padding:10px; text-align:center; font-weight:bold;">🎮 Télécommande Pendu (Cachée aux élèves)</div>`;
         html += `<div style="padding:15px;"><div id="hangman-keys" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-bottom:15px;">`;
@@ -14145,7 +14145,7 @@ registerPlugin('petitBacTool', 'Jeux', {
 
         const remote = document.createElement('div');
         remote.id = 'petitbac-remote';
-        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:10005; overflow:hidden; font-family: sans-serif; display:flex; align-items:center; padding: 8px 15px; gap: 15px; border: 2px solid #0984e3;";
+        remote.style.cssText = "position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#fff; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,0.3); z-index:100000; overflow:hidden; font-family: sans-serif; display:flex; align-items:center; padding: 8px 15px; gap: 15px; border: 2px solid #0984e3;";
 
         let html = `
             <div style="font-weight:bold; color:#2d3436; font-size:16px;">📝 Petit Bac actif</div>

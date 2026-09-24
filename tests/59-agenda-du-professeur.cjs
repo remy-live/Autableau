@@ -1623,8 +1623,15 @@ module.exports = async function (browser) {
             if (r.width < 2 || r.height < 2) return null;
             const x = Math.round(r.x + r.width / 2), y = Math.round(r.y + r.height / 2);
             const dessus = document.elementFromPoint(x, y);
+            // QUI COUVRE, ET OÙ. « Couvert par edt-bandeau » ne dit pas si le
+            // gêneur est mal placé ou mal étagé : les deux se corrigent
+            // autrement, et il faut donc les deux nombres.
+            const ou = (n) => { const q = n.getBoundingClientRect();
+                return [Math.round(q.left), Math.round(q.top), Math.round(q.width), Math.round(q.height)]
+                    .join(',') + ' z=' + getComputedStyle(n).zIndex; };
             return { x, y, couvert: dessus && !e.contains(dessus) && dessus !== e
-                ? ((dessus.id || dessus.className || dessus.tagName) + '') : null };
+                ? ((dessus.id || dessus.className || dessus.tagName) + ' [' + ou(dessus)
+                   + '] ; visé [' + ou(e) + ']') : null };
         }, sel);
         if (!ou) return { fait: false, pourquoi: 'sans taille ou absent' };
         if (ou.couvert) return { fait: false, pourquoi: 'couvert par ' + ou.couvert };
@@ -1661,6 +1668,88 @@ module.exports = async function (browser) {
     r.verifie('le zoom de la grille se clique vraiment',
         surLeZoom.fait, surLeZoom.pourquoi || '');
     r.verifie('et grandit la grille', zoomApres > zoomAvant, `${zoomAvant} → ${zoomApres}`);
+
+    // ==================================================================
+    // LA FENÊTRE QU'ON VIENT D'OUVRIR ET QU'ON N'A PAS ENCORE TOUCHÉE
+    //
+    // Depuis que les voiles se dissolvent, c'est le voile qui porte l'étage de
+    // la fenêtre qu'il contient — et il faut qu'il le porte DÈS L'OUVERTURE,
+    // pas au premier geste. « position: fixed » crée toujours un contexte
+    // d'empilement, même sans z-index : un voile sans étage n'affranchit pas
+    // sa boîte, il l'emmène au niveau zéro avec lui.
+    //
+    // Le bandeau qui annonce le prochain cours vit à 9 500. L'emploi du temps
+    // remonté vers le haut de l'écran passait donc DERRIÈRE lui, et le « + »
+    // de la journée ne répondait plus — sans que rien ne le laisse voir.
+    // ==================================================================
+    const neuve = await page.evaluate(async () => {
+        fermerLAgenda();
+        // On annonce un cours : le bandeau se pose en haut, au milieu.
+        const bd = document.getElementById('edt-bandeau');
+        if (!bd) return { err: 'pas de bandeau' };
+        bd.classList.add('edt-bandeau-la');
+        bd.innerHTML = '<span class="edt-bandeau-quand">Lundi 8 h 05</span>'
+                     + '<span class="edt-bandeau-quoi">6e C</span>';
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 500));
+        // ON REND AU VOILE L'ÉTAT DU PREMIER JOUR. Plus haut dans ce
+        // chapitre, l'emploi du temps a été touché : « passerDevant » lui a
+        // alors donné le haut de la bande, et il le garde. La vérification
+        // passerait donc sans rien prouver — c'est ce qu'un sabotage a
+        // montré. On efface l'étage acquis et l'on refait, seule, la ligne
+        // qu'on éprouve : celle qui pose l'étage à la dissolution.
+        const v = document.getElementById('edt-modal');
+        v.style.zIndex = '';
+        delete v.dataset.voileDissous;
+        dissoudreLeVoile(v);
+        // La fenêtre est remontée vers le haut, comme on la pousse à la main
+        // pour voir la grille en entier. ON NE LA TOUCHE PAS : pas de
+        // « pointerdown », donc pas de « passerDevant » pour la rattraper.
+        const boite = document.getElementById('edt-boite');
+        boite.style.position = 'fixed';
+        boite.style.margin = '0';
+        boite.style.transform = 'none';
+        boite.style.left = '180px';
+        boite.style.top = '8px';
+        await new Promise(ok => setTimeout(ok, 200));
+        const plus = document.querySelector('[data-journee="fin"][data-sens="1"]');
+        if (!plus) return { err: 'pas de « + »' };
+        let r2 = plus.getBoundingClientRect();
+        // ON POSE LE BANDEAU SUR LE BOUTON, au lieu d'espérer qu'ils se
+        // rencontrent. Sa largeur dépend du nom de la classe annoncée —
+        // « 6e C » ou « 3e EURO ALLEMAND » ne couvrent pas la même chose —, et
+        // une épreuve qui ne tomberait que pour les noms longs ne vaut rien.
+        // Le chevauchement est le cas qu'on éprouve ; on le pose.
+        bd.style.left = Math.round(r2.left + r2.width / 2) + 'px';
+        bd.style.top = Math.round(r2.top + r2.height / 2 - 18) + 'px';
+        await new Promise(ok => setTimeout(ok, 120));
+        r2 = plus.getBoundingClientRect();
+        const rb = bd.getBoundingClientRect();
+        const chevauche = !(r2.right < rb.left || r2.left > rb.right
+                         || r2.bottom < rb.top || r2.top > rb.bottom);
+        const sous = document.elementFromPoint(r2.left + r2.width / 2, r2.top + r2.height / 2);
+        const out = { chevauche,
+                      atteignable: !!(sous && (sous === plus || plus.contains(sous))),
+                      sous: sous ? (sous.id || (sous.className || '').toString().slice(0, 24)) : 'rien',
+                      etageVoile: getComputedStyle(document.getElementById('edt-modal')).zIndex };
+        // ON RANGE DERRIÈRE SOI : le bandeau s'en va, la fenêtre reprend sa
+        // place, et la suite du chapitre retrouve l'agenda ouvert comme elle
+        // l'avait laissé.
+        bd.classList.remove('edt-bandeau-la'); bd.innerHTML = '';
+        bd.style.left = ''; bd.style.top = '';
+        boite.style.position = ''; boite.style.left = '';
+        boite.style.top = ''; boite.style.margin = ''; boite.style.transform = '';
+        fermerLAgenda();
+        ouvrirLAgenda();
+        await new Promise(ok => setTimeout(ok, 400));
+        return out;
+    });
+    // SANS CHEVAUCHEMENT, LA VÉRIFICATION NE PROUVERAIT RIEN : deux choses qui
+    // ne se rencontrent pas ne peuvent pas se couvrir.
+    r.verifie('le bandeau du prochain cours passe bien sur le « + »',
+        !neuve.err && neuve.chevauche, JSON.stringify(neuve));
+    r.verifie('et le « + » répond quand même, sans qu\'on ait touché la fenêtre',
+        !neuve.err && neuve.atteignable, JSON.stringify(neuve));
 
     // ET LE RECALAGE DE SEMAINE, qui vivait dans l'autre gestionnaire, répond
     // toujours : réunir les deux ne doit rien perdre.

@@ -21190,9 +21190,18 @@ function nomDeLaFenetre(cle, el) {
 // C'est donc la plus grosse exception qui reste à « toute fenêtre porte la
 // même barre », et elle est délibérée. La lever demanderait de sortir son
 // étage de la bande commune, pas de changer cette liste.
+//
+// ET C'EST AUSSI LA LISTE DE CE QUI GARDE SON VOILE. Les deux vont ensemble,
+// et ce n'est pas un hasard : une fenêtre porte une barre de titre parce
+// qu'on y reviendra plus tard, et elle n'a donc pas de voile ; une question
+// se répond maintenant, et son voile est ce qui le dit. Il n'y a pas d'autre
+// exception à faire — « je ne veux pas de voile transparent » vaut pour tout
+// ce qui n'est pas dans cette liste.
+//
+// Ces quatre-là vivent au-dessus de la bande des fenêtres : 100 050 pour
+// l'astuce et l'invitation à la visite, 200 100 pour les deux questions, qui
+// doivent couvrir jusqu'aux popups ancrées.
 const MODALES_SANS_BARRE = ['confirm-modal', 'custom-prompt-modal', 'astuce-modal', 'demo-invite'];
-const MOD_Z_BAS = 100050;
-const MOD_Z_HAUT = 100090;
 
 const VOILES_NOMMES = '.modal-backdrop, .compo-fond, [id$="-backdrop"], [data-voile-modale="1"]';
 
@@ -21237,6 +21246,51 @@ function ressembleAUnVoile(el) {
     return !!boiteDeLaModale(el);
 }
 
+// ON NE SUPPRIME PAS LE VOILE, ON LE DISSOUT.
+//
+// L'effacer serait le geste évident, et il casserait tout : c'est LUI qui
+// centre la boîte — « display:flex; align-items:center » —, et c'est son
+// « display » que chaque outil bascule pour s'ouvrir et se refermer. Quatre
+//-vingt-huit plugins s'en servent ainsi.
+//
+// Il reste donc en place, et ne fait plus rien : il ne teinte plus, il ne
+// floute plus, il ne prend plus les clics, et surtout IL NE PORTE PLUS
+// D'ÉTAGE. Ce dernier point est le seul qui compte vraiment : un élément
+// positionné qui porte un z-index crée un contexte d'empilement, et rien de
+// ce qui vit dedans n'en sort. Tant que le voile en porte un, sa boîte ne
+// peut pas s'intercaler entre les autres fenêtres — quel que soit le chiffre
+// qu'on lui donne.
+function dissoudreLeVoile(voile) {
+    if (!voile || voile.dataset.voileDissous === '1') return;
+    voile.dataset.voileDissous = '1';
+    voile.classList.add('voile-dissous');
+    // LE STYLE EN LIGNE BAT LA FEUILLE DE STYLE, MÊME AVEC « !important » —
+    // sauf à écrire « !important » en ligne à son tour. Ces voiles-là posent
+    // leur teinte dans un « cssText », et c'est le cas le plus répandu : on
+    // efface donc aussi la propriété en ligne.
+    ['background', 'background-color', 'backdrop-filter', '-webkit-backdrop-filter',
+     'opacity', 'pointer-events'].forEach(p => voile.style.removeProperty(p));
+    // ET IL PREND L'ÉTAGE DES FENÊTRES, parce que c'est lui qui le porte pour
+    // la sienne. Chaque outil s'était choisi son chiffre — 9 000, 10 000,
+    // 99 999, et jusqu'à 2 147 483 647 : aucun ne pouvait se comparer aux
+    // autres. Ils entrent tous dans la même bande, et se classent.
+    voile.style.zIndex = String(FEN_Z_BAS);
+}
+window.dissoudreLeVoile = dissoudreLeVoile;
+
+// CE QUI PORTE L'ÉTAGE D'UNE FENÊTRE.
+//
+// Une boîte ne sort pas du contexte d'empilement de son voile : lui donner un
+// étage plus haut ne la ferait pas passer devant la fenêtre d'à côté, qui vit
+// dans un autre voile. Quand il y a un voile, c'est LUI qu'on remonte ; sinon,
+// c'est la fenêtre elle-même. Les deux se rangent dans la même bande, et
+// « passerDevant » ne connaît plus qu'une sorte de chose à classer.
+function porteurDeLEtage(el) {
+    if (!el || el.nodeType !== 1) return el;
+    return el.closest('[data-voile-dissous="1"]') || el;
+}
+window.porteurDeLEtage = porteurDeLEtage;
+
 function boiteDeLaModale(voile) {
     if (!voile) return null;
     for (const n of voile.children) {
@@ -21272,25 +21326,33 @@ function equiperLesModales(racine) {
         const boite = boiteDeLaModale(voile);
         if (!boite || boite.dataset.equipee) return;
         voile.dataset.voileModale = '1';
-        boite.dataset.modaleVoile = '1';
-        // ET LE VOILE MONTE DANS LA BANDE DES MODALES.
+        // ET LE VOILE SE DISSOUT : CE QU'IL PORTE EST UNE FENÊTRE.
         //
-        // « Tu n'as pas géré les z-index. Une modale passe au-dessus des
-        // autres fenêtres, non ? » Elle le devrait, et elle ne le faisait pas :
-        // relevé, le voile de Molécule Studio vivait à l'étage 10 000, quand
-        // les fenêtres d'outils vivent entre 100 010 et 100 045. Une modale
-        // s'ouvrait donc SOUS la dictée, et l'étage qu'on donnait à sa boîte
-        // n'y changeait rien — une boîte ne sort pas du contexte
-        // d'empilement de son voile.
+        // « Certains plugins créent un voile transparent. Je ne veux pas de
+        // voile transparent. Les fenêtres de plugin ne changent pas de z-index
+        // quand on les sélectionne. Il faut vraiment que tous les plugins
+        // aient la même logique. »
         //
-        // Chaque outil s'était choisi son chiffre : 9 000, 10 000, 99 999…
-        // Aucun ne pouvait se comparer aux autres. On les ramène dans la
-        // bande prévue, au-dessus des fenêtres et au-dessous des questions.
-        const etageActuel = parseInt(voile.style.zIndex, 10)
-            || parseInt(getComputedStyle(voile).zIndex, 10) || 0;
-        if (etageActuel < MOD_Z_BAS || etageActuel > MOD_Z_HAUT) {
-            voile.style.zIndex = String(MOD_Z_BAS);
-        }
+        // On avait d'abord rangé les voiles dans une bande à eux, au-dessus
+        // des fenêtres : chaque outil s'était choisi son chiffre — 9 000,
+        // 10 000, 99 999 — et aucun ne pouvait se comparer aux autres. Cela
+        // mettait de l'ordre entre les voiles, mais cela GARDAIT le voile, et
+        // avec lui les deux ennuis d'un seul coup : l'écran teinté, et
+        // l'écran PRIS. Relevé : le métronome vivait bel et bien à l'étage
+        // 100 045, et l'on ne pouvait pas le toucher, parce que le voile de
+        // la Fabrique à Flèches couvrait tout à 100 050.
+        //
+        // La règle est donc plus simple, et elle ne souffre pas d'exception :
+        // CE QUI PORTE UNE BARRE DE TITRE EST UNE FENÊTRE, ET UNE FENÊTRE N'A
+        // PAS DE VOILE. Il ne reste qu'une bande, un seul empilement, et le
+        // même geste partout : on touche une fenêtre, elle passe devant.
+        //
+        // Ce qui garde son voile, ce sont les QUESTIONS — « Effacer le
+        // tableau ? », « Comment s'appelle cette classe ? ». Elles n'ont
+        // justement pas de barre de titre, parce qu'on n'y répond pas plus
+        // tard : leur voile est ce qui le dit. C'est la liste qui existait
+        // déjà, MODALES_SANS_BARRE, et il n'en faut pas d'autre.
+        dissoudreLeVoile(voile);
         equiperFenetre(boite, voile.id || '', { toujours: true });
         posees++;
     });
@@ -21561,6 +21623,18 @@ function envelopperLeTexteDuBandeau(bandeau) {
 const FEN_Z_BAS = 100010;
 const FEN_Z_HAUT = 100045;
 
+// L'ÉTAGE DES PANNEAUX ÉPINGLÉS, JUSTE SOUS LES FENÊTRES.
+//
+// Tout n'est pas une fenêtre. Le lecteur multimédia, la télécommande du piano,
+// celle du tirage de lettres sont des barres de commande collées à un bord :
+// on ne les déplace pas, on ne les empile pas, elles n'ont pas de nom à
+// porter. Elles forment une famille, et cette famille a droit à un étage —
+// pas à trois chiffres tirés au sort. Les deux télécommandes vivaient à
+// 10 005, c'est-à-dire sous absolument toutes les fenêtres : ouvrir un autre
+// outil enterrait le piano.
+const PANNEAU_Z = 100000;
+window.PANNEAU_Z = PANNEAU_Z;
+
 function fenetresEquipees() {
     return [...document.querySelectorAll('[data-equipee="1"]')]
         .filter(f => f.isConnected);
@@ -21568,35 +21642,33 @@ function fenetresEquipees() {
 
 function passerDevant(el) {
     if (!el) return;
-    // UNE MODALE MONTE PAR SON VOILE. Sa boîte vit DANS le voile : lui donner
-    // un étage plus haut ne la ferait pas passer devant la modale d'à côté,
-    // qui est dans un autre voile. C'est le voile qui porte l'étage, et la
-    // bande des modales est au-dessus des fenêtres — une modale couvre un
-    // outil — et au-dessous des questions, qu'on doit toujours pouvoir lire.
-    if (el.dataset && el.dataset.modaleVoile) {
-        const voile = voileDeModale(el);
-        if (!voile) return;
-        const voiles = [...document.querySelectorAll('.modal-backdrop, .compo-fond, [id$="-backdrop"]')]
-            .filter(v => v !== voile && !MODALES_SANS_BARRE.includes(v.id)
-                      && getComputedStyle(v).display !== 'none');
-        voiles
-            .sort((a, b) => (parseInt(a.style.zIndex, 10) || MOD_Z_BAS)
-                          - (parseInt(b.style.zIndex, 10) || MOD_Z_BAS))
-            .forEach((v, i) => { v.style.zIndex = String(Math.min(MOD_Z_HAUT - 1, MOD_Z_BAS + i)); });
-        voile.style.zIndex = String(MOD_Z_HAUT);
-        return;
-    }
-    const autres = fenetresEquipees().filter(f => f !== el);
-    // On les renumérote au lieu d'empiler toujours plus haut : sans quoi la
-    // bande finirait par déborder sur les modales, et la question de
-    // confirmation repasserait dessous.
+    // UNE SEULE SORTE DE CHOSE À CLASSER.
+    //
+    // « Les fenêtres de plugin ne changent pas de z-index quand on les
+    // sélectionne. Il faut vraiment que tous les plugins aient la même
+    // logique. » Il y avait deux logiques, et c'était le défaut : les modales
+    // montaient dans une bande, les fenêtres dans une autre, et une modale
+    // couvrait donc TOUJOURS une fenêtre, quel que soit celle qu'on venait
+    // de toucher. On ne pouvait pas revenir à la première.
+    //
+    // Il n'y en a plus qu'une. Ce qui porte l'étage — le voile dissous quand
+    // il y en a un, la fenêtre elle-même sinon — entre dans la même bande,
+    // et l'on renumérote au lieu d'empiler toujours plus haut : sans quoi la
+    // bande finirait par déborder sur les questions, et « Effacer le
+    // tableau ? » repasserait derrière.
+    const moi = porteurDeLEtage(el);
+    const autres = [];
+    fenetresEquipees().forEach(f => {
+        const p = porteurDeLEtage(f);
+        if (p !== moi && !autres.includes(p)) autres.push(p);
+    });
     autres
         .sort((a, b) => (parseInt(a.style.zIndex, 10) || FEN_Z_BAS)
                       - (parseInt(b.style.zIndex, 10) || FEN_Z_BAS))
         .forEach((f, i) => {
             f.style.zIndex = String(Math.min(FEN_Z_HAUT - 1, FEN_Z_BAS + i));
         });
-    el.style.zIndex = String(FEN_Z_HAUT);
+    moi.style.zIndex = String(FEN_Z_HAUT);
 }
 window.passerDevant = passerDevant;
 
@@ -21728,9 +21800,14 @@ function equiperVraiment(el, cle, options) {
 
     // ON LA TOUCHE, ELLE PASSE DEVANT. Le déplacement n'est pas le seul moment
     // où l'on veut voir une fenêtre en entier : écrire dedans aussi.
-    // La boîte d'une modale garde l'étage que son voile lui donne : c'est le
-    // voile qui monte, pas elle.
-    if (!(el.dataset && el.dataset.modaleVoile)) el.style.zIndex = String(FEN_Z_BAS);
+    // Elle entre par le bas de la bande ; le premier geste la fera monter.
+    // Celle qui a un voile y est déjà entrée par lui, au moment où il s'est
+    // dissous — et c'est important qu'elle n'attende pas jusqu'ici : entre les
+    // deux il peut se passer de longues secondes, le temps qu'une fenêtre
+    // bâtie repliée prenne enfin une taille. Sans étage pendant ce temps-là,
+    // elle tombe au niveau zéro, sous le moindre bandeau, car « position:
+    // fixed » crée toujours un contexte d'empilement.
+    if (porteurDeLEtage(el) === el) el.style.zIndex = String(FEN_Z_BAS);
     el.addEventListener('pointerdown', () => passerDevant(el), true);
 
     const bouton = tete.querySelector('.fen-plein');
@@ -38519,6 +38596,7 @@ function ensureMediaPlayerStyles() {
             box-shadow: var(--contour-ombre), 0 12px 32px rgba(45, 52, 54, 0.22);
             backdrop-filter: blur(16px);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            /* L'étage des panneaux épinglés — voir PANNEAU_Z. */
             z-index: 100000;
             /* LE MÊME CONTOUR QUE LES BARRES : posé sur un document blanc,
                un filet gris pâle ne se voyait plus. */
