@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=204 »,
-         « script.js?v=349 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=353 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -3819,6 +3819,19 @@
                 </span>
                 <button type="button" id="edt-pdf" class="edt-pas edt-pas-large"
                     aria-label="Exporter l'emploi du temps en PDF">📄 PDF</button>
+                <!-- IMPORTER SON EMPLOI DU TEMPS. « Serais-tu capable de
+                     permettre au logiciel d'importer son EDT plutôt que de
+                     tout taper à la main ? » Pronote exporte un « .ics » —
+                     le format de calendrier standard —, et tout y est :
+                     l'heure, la matière, la classe, la salle, et même les
+                     sonneries de l'établissement, qui sont les heures de
+                     début et de fin des cours.
+                     Le champ de fichier est caché derrière le bouton : un
+                     « input file » nu est laid et ne dit pas ce qu'il attend. -->
+                <button type="button" id="edt-importer" class="edt-pas edt-pas-large"
+                    aria-label="Importer l'emploi du temps depuis un fichier Pronote"
+                    data-tooltip="Importer depuis Pronote : exportez votre semaine au format iCal (.ics)">⬆ Importer</button>
+                <input type="file" id="edt-fichier" accept=".ics,text/calendar" style="display:none;">
                 <span id="edt-tampon" class="edt-tampon"></span>
                 <span id="edt-ancre"></span>
             </div>
@@ -3846,7 +3859,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=349"></script>
+    <script src="script.js?v=353"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=116"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

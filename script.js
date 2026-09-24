@@ -33006,6 +33006,384 @@ function nouvelIdEdt(prefixe) {
     return prefixe + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 }
 
+// ==============================================================================
+// IMPORTER SON EMPLOI DU TEMPS DEPUIS PRONOTE
+//
+// « Ça c'est mon EDT, serais-tu capable de permettre au logiciel d'importer son
+// EDT et de le mettre sur Au Tableau plutôt que de tout taper à la main ? »
+//
+// Pronote exporte un fichier « .ics » — le format de calendrier standard. Tout
+// y est : l'heure, la matière, la classe, la salle, et même la couleur que
+// Pronote donne à la matière. Mais quatre pièges s'y cachent, et chacun donne
+// un emploi du temps FAUX sans rien annoncer.
+//
+// 1. LES HEURES SONT EN TEMPS UNIVERSEL. « DTSTART:20260922T104500Z » n'est
+//    pas dix heures quarante-cinq : c'est midi quarante-cinq en France l'été,
+//    onze heures quarante-cinq l'hiver. Lues telles quelles, toutes les heures
+//    reculent d'une ou deux heures selon la saison — et l'erreur CHANGE au
+//    passage à l'heure d'hiver, si bien qu'un import de septembre et un import
+//    de novembre ne se ressembleraient pas. On laisse donc le navigateur faire
+//    la conversion, avec le fuseau de la machine de l'enseignant.
+//
+// 2. LES LIGNES SONT PLIÉES. La norme coupe à soixante-quinze octets et
+//    poursuit sur la ligne suivante précédée d'une ESPACE. Une description
+//    lue ligne à ligne perd donc un mot sur deux.
+//
+// 3. UN EXPORT NE COUVRE QU'UNE SEMAINE — celui-ci va du 21 au 25 septembre.
+//    L'enseignant en importera plusieurs, et le même cours reviendra autant de
+//    fois. On les rapproche par jour, heure et intitulé.
+//
+// 4. IL N'Y A PAS QUE DES COURS DEDANS. Les vacances et les jours fériés de
+//    toute l'année y figurent aussi, en journées entières. Rangés parmi les
+//    cours, ils couvriraient la grille de bandes grises.
+//
+// ET UN CADEAU, QU'ON AURAIT TORT DE LAISSER : les heures de début et de fin
+// des cours SONT les sonneries de l'établissement. L'enseignant les saisissait
+// à la main en septembre ; elles se lisent dans le fichier.
+// ==============================================================================
+
+// La norme replie les lignes longues et les poursuit après une espace ou une
+// tabulation. On les redresse avant toute chose, sinon tout le reste est faux.
+function deplierLIcs(texte) {
+    return String(texte || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\n[ \t]/g, '');
+}
+
+// « \n », « \, », « \; » et « &lt\; » : le texte d'un ICS est échappé.
+function detordreLeTexte(t) {
+    return String(t || '')
+        .replace(/\\n/gi, '\n')
+        .replace(/\\,/g, ',')
+        .replace(/\\;/g, ';')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .trim();
+}
+
+// UNE DATE ICS, RENDUE DANS LE FUSEAU DE LA MACHINE.
+//
+// Trois formes existent, et la première est celle qui piège :
+//   — « 20260922T104500Z » : temps universel. C'est « Date.UTC », et l'heure
+//     locale s'en déduit — le navigateur connaît l'heure d'été.
+//   — « 20260922T104500 » : heure locale telle quelle.
+//   — « 20260922 » : une journée entière (les vacances).
+function dateDeLIcs(valeur) {
+    const t = String(valeur || '').trim();
+    let m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(t);
+    if (m) {
+        return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+    }
+    m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/.exec(t);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    m = /^(\d{4})(\d{2})(\d{2})$/.exec(t);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    return null;
+}
+
+// Les événements, à plat : un objet par « VEVENT », avec ses propriétés.
+function evenementsDeLIcs(texte) {
+    const lignes = deplierLIcs(texte).split('\n');
+    const out = [];
+    let cur = null;
+    lignes.forEach(ligne => {
+        const l = ligne.trim();
+        if (l === 'BEGIN:VEVENT') { cur = { props: {} }; return; }
+        if (l === 'END:VEVENT') { if (cur) out.push(cur); cur = null; return; }
+        if (!cur) return;
+        const sep = l.indexOf(':');
+        if (sep < 0) return;
+        const gauche = l.slice(0, sep);
+        const valeur = l.slice(sep + 1);
+        // « DTSTART;VALUE=DATE » : le nom est avant le point-virgule, et les
+        // paramètres derrière comptent — c'est « VALUE=DATE » qui dit qu'on a
+        // affaire à une journée entière.
+        const bouts = gauche.split(';');
+        const nom = bouts[0].toUpperCase();
+        const params = {};
+        bouts.slice(1).forEach(p => {
+            const e = p.indexOf('=');
+            if (e > 0) params[p.slice(0, e).toUpperCase()] = p.slice(e + 1);
+        });
+        cur.props[nom] = { valeur, params };
+    });
+    return out;
+}
+
+const ICS_JOURNEE = 'journee';
+
+// Ce que Pronote met dans « DESCRIPTION » : « Matière : … », « Classe : … »,
+// « Groupe : … », « Salle : … ». On les lit, parce que « SUMMARY » mélange
+// tout dans une seule chaîne dont la forme change avec les groupes.
+function champsDeLaDescription(txt) {
+    const out = {};
+    detordreLeTexte(txt).split('\n').forEach(ligne => {
+        const m = /^\s*([^:]+?)\s*:\s*(.+?)\s*$/.exec(ligne);
+        if (!m) return;
+        out[m[1].toLowerCase()] = m[2];
+    });
+    return out;
+}
+
+// UN COURS, TEL QUE L'AGENDA LE COMPREND.
+function coursDeLEvenement(ev) {
+    const p = ev.props;
+    if (!p.DTSTART) return null;
+    const categorie = (p.CATEGORIES ? p.CATEGORIES.valeur : '') || '';
+    const journeeEntiere = (p.DTSTART.params.VALUE || '').toUpperCase() === 'DATE';
+
+    const debut = dateDeLIcs(p.DTSTART.valeur);
+    const fin = p.DTEND ? dateDeLIcs(p.DTEND.valeur) : null;
+    if (!debut) return null;
+
+    const titre = detordreLeTexte(p.SUMMARY ? p.SUMMARY.valeur : '');
+    if (journeeEntiere) {
+        // VACANCES ET JOURS FÉRIÉS. On ne les met pas dans la grille — elle ne
+        // montre qu'une semaine type — mais on les garde : ils disent quand
+        // l'année s'arrête, et c'est une information que personne n'a envie de
+        // retaper treize fois.
+        return { genre: ICS_JOURNEE, titre, debut, fin, categorie };
+    }
+    if (!fin) return null;
+
+    const champs = champsDeLaDescription(p.DESCRIPTION ? p.DESCRIPTION.valeur : '');
+    const matiere = champs['matière'] || champs['matiere'] || titre;
+    const classe = champs['classe'] || champs['groupe'] || '';
+    const salle = champs['salle'] || detordreLeTexte(p.LOCATION ? p.LOCATION.valeur : '');
+
+    // Le jour de la semaine, EN LOCAL : c'est toute la question du fuseau. Un
+    // cours de huit heures du matin à Paris tombe la veille à vingt-deux
+    // heures en temps universel pour certains fuseaux — pas pour le nôtre,
+    // mais on ne code pas une règle qui ne vaut que chez nous.
+    const jour = debut.getDay() === 0 ? 7 : debut.getDay();
+    const minutes = debut.getHours() * 60 + debut.getMinutes();
+    const duree = Math.round((fin - debut) / 60000);
+    if (!(duree > 0)) return null;
+
+    return {
+        genre: 'cours', categorie,
+        jour, debut: minutes, duree,
+        matiere: matiere.trim(),
+        classe: String(classe).replace(/^[[<]|[\]>]$/g, '').trim(),
+        salle: String(salle).trim(),
+        couleur: (p.COLOR ? String(p.COLOR.valeur).trim() : '') || null,
+        quand: debut
+    };
+}
+
+// L'INTITULÉ QU'ON LIRA DANS LA CASE. Une case d'emploi du temps est petite :
+// « MATHEMATIQUES - 6EME B » n'y tient pas, et la matière est la même toute la
+// journée. La classe suffit à s'y retrouver ; la matière ne revient que
+// lorsqu'elle change — une concertation, une évaluation nationale.
+function libelleDuCours(c, matiereDominante) {
+    const m = (c.matiere || '').trim();
+    const cl = (c.classe || '').trim();
+    if (cl && m && matiereDominante && m.toUpperCase() === matiereDominante.toUpperCase()) return cl;
+    if (cl && m) return m + ' ' + cl;
+    return cl || m || 'Cours';
+}
+
+// CE QUE LE FICHIER DIT DE L'ÉTABLISSEMENT : ses sonneries. Les heures de
+// début et de fin des cours SONT les sonneries — on les relève, on écarte
+// celles qui se touchent à moins de cinq minutes (un cours qui finit à 9 h 05
+// et le suivant qui commence à 9 h 05 ne font qu'une sonnerie).
+function sonneriesDesCours(cours) {
+    const toutes = [];
+    cours.forEach(c => { toutes.push(c.debut); toutes.push(c.debut + c.duree); });
+    toutes.sort((a, b) => a - b);
+    const gardees = [];
+    toutes.forEach(m => {
+        if (!gardees.length || m - gardees[gardees.length - 1] >= 5) gardees.push(m);
+    });
+    return gardees;
+}
+
+// ==============================================================================
+// DE L'ICS À L'AGENDA
+// ==============================================================================
+function edtDepuisIcs(texte) {
+    const evenements = evenementsDeLIcs(texte);
+    if (!evenements.length) return { erreur: 'Ce fichier ne contient aucun événement' };
+
+    const lus = evenements.map(coursDeLEvenement).filter(Boolean);
+    const cours = lus.filter(c => c.genre === 'cours');
+    const journees = lus.filter(c => c.genre === ICS_JOURNEE);
+    if (!cours.length) {
+        return { erreur: 'Ce fichier ne contient aucun cours', vacances: journees };
+    }
+
+    // LA MATIÈRE DOMINANTE : celle qu'on enseigne. Elle n'a pas à être écrite
+    // dans chaque case.
+    const compte = {};
+    cours.forEach(c => { const m = (c.matiere || '').toUpperCase(); compte[m] = (compte[m] || 0) + 1; });
+    let matiereDominante = null, meilleur = 0;
+    Object.keys(compte).forEach(m => { if (compte[m] > meilleur) { meilleur = compte[m]; matiereDominante = m; } });
+
+    // ON RAPPROCHE LES DOUBLONS. Un export ne couvre qu'une semaine ; qui en
+    // importe plusieurs retrouverait chaque cours autant de fois.
+    const vus = new Map();
+    cours.forEach(c => {
+        const cle = c.jour + '|' + c.debut + '|' + c.duree + '|' + libelleDuCours(c, matiereDominante);
+        if (!vus.has(cle)) vus.set(cle, c);
+    });
+    const uniques = [...vus.values()].sort((a, b) => a.jour - b.jour || a.debut - b.debut);
+
+    // UNE ENTRÉE PAR CLASSE, ET SA COULEUR. Pronote donne une couleur par
+    // MATIÈRE — la même pour toutes les classes, donc — ce qui ne distingue
+    // rien dans une grille où l'on enseigne la même matière toute la semaine.
+    // On la garde quand elle sépare quelque chose, et on répartit la palette
+    // de l'agenda sinon.
+    const parEntree = new Map();
+    uniques.forEach(c => {
+        const nom = libelleDuCours(c, matiereDominante);
+        if (!parEntree.has(nom)) {
+            parEntree.set(nom, { libelle: nom, matiere: c.matiere, classe: c.classe,
+                                 salle: c.salle, couleurPronote: c.couleur, heures: 0 });
+        }
+        parEntree.get(nom).heures++;
+    });
+    // ON N'UTILISE PAS LA COULEUR DE PRONOTE, ET C'EST DÉLIBÉRÉ.
+    //
+    // Pronote colore par MATIÈRE. Relevé sur un emploi du temps réel : onze
+    // entrées, trois couleurs — le même rouge pour la 6e B, la 6e E, la 4e A,
+    // la 4e C et les quatre groupes. Une grille d'enseignant de mathématiques
+    // serait un mur rouge, où l'on ne distinguerait rien de ce qu'on cherche
+    // précisément à distinguer : SES CLASSES.
+    //
+    // La palette de l'agenda donne une teinte par entrée, et deux entrées
+    // voisines ne tombent jamais sur la même. C'est le contraire d'ignorer
+    // l'information du fichier : c'est préférer celle qui sert ici.
+    const palette = (typeof EDT_COULEURS !== 'undefined' && Array.isArray(EDT_COULEURS) && EDT_COULEURS.length)
+        ? EDT_COULEURS : ['#dfe4ff', '#d9f2e6', '#ffe6d5', '#f3ddf7', '#d9eefb', '#fdf0c8', '#e7e2d6', '#ffd9de'];
+    const entrees = [...parEntree.values()].map((e, i) => ({
+        libelle: e.libelle,
+        classeNom: e.classe || null,
+        salle: e.salle || null,
+        couleur: palette[i % palette.length],
+        couleurPronote: e.couleurPronote || null,
+        heures: e.heures
+    }));
+
+    const minutes = sonneriesDesCours(uniques);
+    const premier = Math.min(...uniques.map(c => c.debut));
+    const dernier = Math.max(...uniques.map(c => c.debut + c.duree));
+
+    return {
+        cours: uniques,
+        entrees,
+        sonneries: minutes,
+        // On arrondit à l'heure pleine autour : une grille qui commence à
+        // huit heures cinq se lit mal.
+        debut: Math.floor(premier / 60) * 60,
+        fin: Math.ceil(dernier / 60) * 60,
+        matiereDominante,
+        vacances: journees,
+        semaines: 1,
+        lus: cours.length
+    };
+}
+window.edtDepuisIcs = edtDepuisIcs;
+
+// ==============================================================================
+// ET ON LE POSE DANS L'AGENDA
+// ==============================================================================
+function poserLEdtImporte(lu) {
+    if (!lu || lu.erreur) return null;
+    agenda.entrees = [];
+    agenda.creneaux = [];
+    const parNom = new Map();
+    lu.entrees.forEach(e => {
+        const entree = {
+            id: nouvelIdEdt('edt'), libelle: e.libelle, classeId: null,
+            classeNom: e.classeNom, couleur: e.couleur
+        };
+        if (e.salle) entree.salle = e.salle;
+        agenda.entrees.push(entree);
+        parNom.set(e.libelle, entree);
+    });
+    lu.cours.forEach(c => {
+        const nom = libelleDuCours(c, lu.matiereDominante);
+        const entree = parNom.get(nom);
+        if (!entree) return;
+        agenda.creneaux.push({
+            id: nouvelIdEdt('cr'), jour: c.jour, debut: c.debut, duree: c.duree,
+            // UN EXPORT NE DIT PAS SI LA SEMAINE EST A OU B : il ne montre
+            // qu'une semaine, sans dire laquelle. On pose donc tout sur
+            // « toutes », et l'enseignant tranche lui-même s'il alterne.
+            semaine: 'toutes',
+            entreeId: entree.id, libelle: entree.libelle, couleur: entree.couleur
+        });
+    });
+    agenda.debut = lu.debut;
+    agenda.fin = lu.fin;
+    if (lu.sonneries && lu.sonneries.length) agenda.sonneries = lu.sonneries;
+    // LE SAMEDI NE SE MONTRE QUE S'IL Y A COURS : la grille a six colonnes au
+    // lieu de cinq, et une colonne vide rétrécit toutes les autres.
+    if (lu.cours.some(c => c.jour >= 6)) agenda.samedi = true;
+    ecrireLAgenda();
+    return { entrees: agenda.entrees.length, creneaux: agenda.creneaux.length };
+}
+window.poserLEdtImporte = poserLEdtImporte;
+
+// ==============================================================================
+// LE GESTE : ON CHOISIT SON FICHIER, ON LIT CE QU'IL CONTIENT, ON CONFIRME
+//
+// IMPORTER REMPLACE. Un emploi du temps déjà saisi à la main disparaîtrait
+// sans un mot : on annonce donc CE QU'ON A LU avant de toucher à quoi que ce
+// soit — combien de cours, combien de classes, quelle amplitude — et l'on
+// demande. C'est aussi ce qui permet de s'apercevoir qu'on a ouvert le mauvais
+// fichier avant qu'il n'ait rien écrasé.
+// ==============================================================================
+function heureLisibleEdt(m) {
+    const h = Math.floor(m / 60), mn = m % 60;
+    return mn ? (h + ' h ' + String(mn).padStart(2, '0')) : (h + ' h');
+}
+
+async function importerUnEdtDepuisUnFichier(fichier) {
+    if (!fichier) return null;
+    let texte;
+    try { texte = await fichier.text(); }
+    catch (e) { showToast('Ce fichier n\'a pas pu être lu'); return null; }
+
+    const lu = edtDepuisIcs(texte);
+    if (lu.erreur) { showToast(lu.erreur); return null; }
+
+    const combienDeJours = new Set(lu.cours.map(c => c.jour)).size;
+    const lignes = [
+        lu.cours.length + ' heures de cours sur ' + combienDeJours + ' jours',
+        lu.entrees.length + ' classes ou groupes',
+        'journée de ' + heureLisibleEdt(lu.debut) + ' à ' + heureLisibleEdt(lu.fin),
+        lu.sonneries.length + ' sonneries relevées'
+    ];
+    // UN EXPORT NE COUVRE QU'UNE SEMAINE, et il ne dit pas si un cours revient
+    // toutes les semaines. Une évaluation ou une réunion ponctuelle y ressemble
+    // trait pour trait — mieux vaut le dire que de laisser découvrir une case
+    // fantôme dans trois semaines.
+    const ok = await demanderConfirmation(
+        'Importer cet emploi du temps ?',
+        lignes.join('\n') + '\n\nCela REMPLACERA l\'emploi du temps actuel.'
+        + '\nUn export ne montre qu\'une semaine : une évaluation ou une réunion '
+        + 'ponctuelle y ressemble à un cours. Vérifiez la grille et retirez ce qui '
+        + 'ne revient pas chaque semaine.');
+    if (!ok) return null;
+
+    const pose = poserLEdtImporte(lu);
+    if (typeof rendreLaPaletteDeLAgenda === 'function') rendreLaPaletteDeLAgenda();
+    if (typeof rendreLaGrilleDeLAgenda === 'function') rendreLaGrilleDeLAgenda();
+    if (typeof majLesReglagesDeLAgenda === 'function') majLesReglagesDeLAgenda();
+    showToast('Emploi du temps importé : ' + pose.creneaux + ' heures, '
+        + pose.entrees + ' classes — et les sonneries avec');
+    return pose;
+}
+window.importerUnEdtDepuisUnFichier = importerUnEdtDepuisUnFichier;
+
+document.getElementById('edt-fichier')?.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) importerUnEdtDepuisUnFichier(f);
+});
+
 // « 8 h », « 10 h 05 » : l'heure comme on l'écrit en français, et non 08:00.
 function heureLisible(minutes) {
     const h = Math.floor(minutes / 60), m = minutes % 60;
@@ -33082,7 +33460,10 @@ async function reglerUneEntree(id) {
 
     openCustomPrompt(e ? 'Régler « ' + e.libelle + ' »' : 'Ajouter une classe ou une matière',
         [
-            { label: 'Nom', type: 'text', value: e ? e.libelle : '', placeholder: '5e B, ou Français' },
+            // LE NOM EST AUSSI CE QUI FUSIONNE : un geste qu'on ne dit pas
+            // n'existe pas, et celui-ci ne s'invente pas.
+            { label: 'Nom — le même qu\'une autre classe et elles fusionnent',
+              type: 'text', value: e ? e.libelle : '', placeholder: '5e B, ou Français' },
             { label: 'Classe rattachée', type: 'select', value: e && e.classeId ? e.classeId : '', options },
             // SEIZE PASTILLES, ET PAS DE ROUE. La roue ouvrait le sélecteur de
             // couleur du système d'exploitation : une fenêtre étrangère par
@@ -33096,6 +33477,29 @@ async function reglerUneEntree(id) {
             if (!nom) return;
             const classeId = valeurs[1] || null;
             const classe = classes.find(c => c.id === classeId);
+            // LE MÊME NOM QU'UNE AUTRE : on fusionne, après avoir demandé.
+            const jumelle = e ? entreeQuiSAppelle(nom, e.id) : entreeQuiSAppelle(nom, null);
+            if (jumelle) {
+                const poses = agenda.creneaux.filter(c => c.entreeId === (e ? e.id : null)).length;
+                demanderConfirmation('Fusionner avec « ' + jumelle.libelle + ' » ?',
+                    'Une classe porte déjà ce nom. '
+                    + (e && poses
+                        ? (poses > 1
+                            ? 'Ses ' + poses + ' heures rejoindront celles de « ' + jumelle.libelle + ' »'
+                            : 'Son heure rejoindra celles de « ' + jumelle.libelle + ' »')
+                          + ', et « ' + e.libelle + ' » disparaîtra de la palette.'
+                        : 'Rien ne sera ajouté : la classe existe déjà.'),
+                    false).then(ok => {
+                        if (!ok) return;
+                        if (e) {
+                            const f = fusionnerDeuxEntrees(e.id, jumelle.id);
+                            if (f) showToast('Fusionnées : ' + f.bouges + ' heure'
+                                + (f.bouges > 1 ? 's' : '') + ' sont passées à « ' + f.vers + ' »');
+                        }
+                        rendreLAgenda();
+                    });
+                return;
+            }
             if (e) {
                 e.libelle = nom; e.classeId = classeId;
                 e.classeNom = classe ? classe.name : null;
@@ -33120,6 +33524,55 @@ async function reglerUneEntree(id) {
             rendreLAgenda();
         },
         () => { /* renoncé */ });
+}
+
+// ==============================================================================
+// FUSIONNER DEUX CLASSES : ON LES APPELLE DU MÊME NOM
+//
+// « Tu as semaine A, semaine B. Parfois ce sont des groupes classes, donc un
+// peu la même classe. » — « Il faudrait dans ce cas pouvoir fusionner
+// facilement, il faut de l'ultra simple. »
+//
+// C'est visible dans n'importe quel export Pronote : « 6EME EP1 » et
+// « 6EME EP2 » sont les deux moitiés de « 6EME E », « 4EME AP1 » et
+// « 4EME AP2 » celles de « 4EME A ». Une évaluation nationale de 6e B en est
+// un autre cas : c'est la 6e B, à une heure de plus.
+//
+// LE GESTE LE PLUS SIMPLE N'EST PAS UN BOUTON DE PLUS — c'est de les appeler
+// du même nom. On renomme « 6EME EP1 » en « 6EME E », et comme « 6EME E »
+// existe déjà, les deux n'en font plus qu'une : ses heures rejoignent celles
+// de l'autre, et la palette perd une ligne. C'est exactement ce qu'on veut
+// dire en le faisant, et il n'y a rien de nouveau à apprendre.
+//
+// ON NE LE FAIT PAS EN SILENCE : deux classes qui se confondent, c'est une
+// couleur et un nom qui disparaissent de la palette, et l'on doit pouvoir
+// dire non.
+function memeNomDEntree(a, b) {
+    const propre = (t) => String(t || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return propre(a) === propre(b);
+}
+
+function fusionnerDeuxEntrees(deId, versId) {
+    const de = entreeDeLAgenda(deId), vers = entreeDeLAgenda(versId);
+    if (!de || !vers || de === vers) return null;
+    let bouges = 0;
+    agenda.creneaux.forEach(c => {
+        if (c.entreeId !== de.id) return;
+        c.entreeId = vers.id;
+        c.libelle = vers.libelle;
+        c.couleur = vers.couleur;
+        bouges++;
+    });
+    agenda.entrees = agenda.entrees.filter(x => x.id !== de.id);
+    if (agenda.tampon === de.id) agenda.tampon = vers.id;
+    ecrireLAgenda();
+    return { bouges, vers: vers.libelle };
+}
+window.fusionnerDeuxEntrees = fusionnerDeuxEntrees;
+
+// Celle qui porte déjà ce nom-là, s'il y en a une.
+function entreeQuiSAppelle(nom, saufId) {
+    return agenda.entrees.find(x => x.id !== saufId && memeNomDEntree(x.libelle, nom)) || null;
 }
 
 async function retirerUneEntree(id) {
@@ -34314,6 +34767,13 @@ function ouvrirLAgenda() {
             if (zoom) { reglerLeZoom(Number(zoom.dataset.zoom)); return; }
             if (e.target.closest('#edt-sonneries')) { reglerLesSonneries(); return; }
             if (e.target.closest('#edt-pdf')) { exporterLAgendaEnPdf(); return; }
+            // Le bouton ouvre le champ de fichier caché : un « input file »
+            // nu est laid et ne dit pas ce qu'il attend.
+            if (e.target.closest('#edt-importer')) {
+                const champ = document.getElementById('edt-fichier');
+                if (champ) { champ.value = ''; champ.click(); }
+                return;
+            }
             const recaler = e.target.closest('#edt-recaler');
             if (recaler) {
                 ancrerLaSemaine(recaler.dataset.lettre);
