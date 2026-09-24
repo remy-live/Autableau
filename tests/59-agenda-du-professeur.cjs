@@ -1571,34 +1571,77 @@ module.exports = async function (browser) {
     const papier = await page.evaluate(async () => {
         const bouton = document.getElementById('edt-pdf');
         const vu = bouton ? getComputedStyle(bouton).display !== 'none' : false;
-        const toile = dessinerLAgendaSurUneToile(2);
-        const g = toile.getContext('2d');
-        // On regarde la feuille elle-même : un fond blanc, et de la couleur là
-        // où un cours est posé.
-        const coin = g.getImageData(4, 4, 1, 1).data;
-        // Le premier cours du jeudi, s'il y en a un — sinon on en pose un.
-        const c = agenda.creneaux.find(x => x.jour === 3) || agenda.creneaux[0];
-        const jours = EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES);
-        const x = (18 + 62 + (c.jour - 1) * 150 + 40) * 2;
-        const y = (18 + 26 + 34 + (c.debut - edtDebut()) * 0.95 + 10) * 2;
-        const dessus = g.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+        // UN LIBELLÉ PLUS LARGE QUE SA COLONNE : il doit être coupé, et non
+        // déborder sur le jour d'à côté.
+        agenda.creneaux.push({ id: 'cLong', jour: 2, debut: 15 * 60, duree: 55,
+            semaine: 'toutes', entreeId: agenda.entrees[0].id,
+            libelle: '3EME EURO ALLEMAND GROUPE 2 OPTION', couleur: '#ffeaa7' });
+        const pdf = fabriquerLePdfDeLAgenda();
+        if (!pdf) return { err: 'moteur PDF absent' };
+        const brut = pdf.output();
+        const data = pdf.output('arraybuffer');
+        const l = pdf.internal.pageSize.getWidth();
+        const h = pdf.internal.pageSize.getHeight();
+
+        // ON LIT LA FEUILLE COMME UN LECTEUR DE PDF LA LIT — avec le pdf.js de
+        // l'application, et non en fouillant les octets. Ce qu'on veut savoir,
+        // c'est ce qu'un lecteur y trouve.
+        let mots = [], hauteurDuTexte = 0;
+        if (window.pdfjsLib) {
+            const doc = await window.pdfjsLib.getDocument({ data }).promise;
+            const page1 = await doc.getPage(1);
+            const t = await page1.getTextContent();
+            mots = t.items.map(i => i.str);
+            hauteurDuTexte = t.items.reduce((m, i) => Math.max(m, Math.abs(i.height || 0)), 0);
+        }
+        agenda.creneaux = agenda.creneaux.filter(c => c.id !== 'cLong');
+
         // Et sans aucun cours, on refuse plutôt que de sortir une feuille vide.
         const garde = agenda.creneaux.slice();
         agenda.creneaux = [];
         const refus = exporterLAgendaEnPdf();
         agenda.creneaux = garde;
-        return {
-            vu, largeur: toile.width, hauteur: toile.height,
-            coinBlanc: coin[0] > 250 && coin[1] > 250 && coin[2] > 250,
-            colore: !(dessus[0] > 250 && dessus[1] > 250 && dessus[2] > 250),
-            refus, jours: jours.length
-        };
+        return { vu, largeur: l, hauteur: h, refus,
+                 images: (brut.match(/\/Subtype\s*\/Image/g) || []).length,
+                 mots, hauteurDuTexte,
+                 aLeTitre: mots.some(m => /emploi du temps/i.test(m)),
+                 aLesJours: ['Lundi', 'Mardi', 'Vendredi'].every(j => mots.some(m => m.indexOf(j) >= 0)),
+                 aUneHeure: mots.some(m => /\d+\s*h/.test(m)),
+                 // On ne cherche pas un nom écrit en dur : ce chapitre
+                 // renomme ses classes en chemin. On demande qu'au moins un
+                 // des cours posés se retrouve, mot pour mot, sur la feuille.
+                 aUneClasse: agenda.creneaux.some(c => mots.indexOf(c.libelle) >= 0),
+                 coupe: mots.some(m => m.indexOf('3EME EURO') >= 0 && /…|\.\.\./.test(m)),
+                 debordeur: mots.some(m => m.indexOf('GROUPE 2 OPTION') >= 0) };
     });
     r.verifie('le bouton d\'export est là', papier.vu, String(papier.vu));
     r.verifie('la feuille est plus large que haute : un emploi du temps est un paysage',
         papier.largeur > papier.hauteur, papier.largeur + '×' + papier.hauteur);
-    r.verifie('elle a un fond blanc — on l\'imprime', papier.coinBlanc, String(papier.coinBlanc));
-    r.verifie('et les cours y sont peints', papier.colore, String(papier.colore));
+    // « Je crois que ton export PDF pour l'emploi du temps est une image, pas
+    // quelque chose de vectoriel. » C'était vrai : on dessinait la grille sur
+    // une toile et l'on collait le PNG dans la page. Une feuille faite ainsi
+    // se floute dès qu'on l'agrandit, s'imprime à la résolution de l'écran et
+    // non de l'imprimante, et son texte ne se cherche pas.
+    //
+    // LA VÉRIFICATION D'AVANT NE POUVAIT PAS VOIR LE DÉFAUT : elle lisait des
+    // PIXELS DE LA TOILE — c'est-à-dire l'image elle-même — et jamais le PDF.
+    // C'est le piège habituel, sous un nouveau jour : on avait vérifié la
+    // DONNÉE, pas la feuille que le professeur imprime.
+    r.egal('la feuille ne contient aucune image : elle est faite de traits',
+        papier.images, 0);
+    r.verifie('son titre est du vrai texte, qu\'un lecteur retrouve',
+        papier.aLeTitre, JSON.stringify(papier.mots).slice(0, 300));
+    r.verifie('les jours aussi', papier.aLesJours, JSON.stringify(papier.mots).slice(0, 300));
+    r.verifie('les heures aussi', papier.aUneHeure, JSON.stringify(papier.mots).slice(0, 300));
+    r.verifie('et le nom des classes', papier.aUneClasse, JSON.stringify(papier.mots).slice(0, 300));
+    // ET IL EST LISIBLE : du texte vectoriel de deux points ne vaudrait pas
+    // mieux qu'une image floue.
+    r.verifie('et il fait une taille lisible sur le papier',
+        papier.hauteurDuTexte >= 6, String(papier.hauteurDuTexte));
+    r.verifie('un nom trop long pour sa colonne est coupé',
+        papier.coupe, JSON.stringify(papier.mots).slice(0, 400));
+    r.verifie('et ne déborde pas sur le jour d\'à côté',
+        !papier.debordeur, JSON.stringify(papier.mots).slice(0, 400));
     r.egal('sans aucun cours, on refuse plutôt que de sortir une feuille vide',
         papier.refus, false);
 

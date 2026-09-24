@@ -34296,8 +34296,44 @@ function reglerLaJournee(debut, fin) {
 // faite pour le doigt — boutons, poignées, colonne de palette — et rien de
 // tout cela n'a sa place sur une feuille. La feuille veut des traits nets, des
 // heures lisibles et les noms en grand.
-function dessinerLAgendaSurUneToile(echelle) {
-    const k = echelle || 2;
+// ==============================================================================
+// L'EMPLOI DU TEMPS SUR PAPIER — EN TRAITS, PAS EN PIXELS
+//
+// « Je crois que ton export PDF pour l'emploi du temps est une image, pas
+// quelque chose de vectoriel. »
+//
+// C'était exact. On dessinait la grille sur une TOILE, puis l'on collait le
+// PNG obtenu dans la page PDF. Une feuille faite ainsi :
+//
+//   — se floute dès qu'on l'agrandit, et une grille de cours se lit de près ;
+//   — s'imprime à la résolution de la toile, pas à celle de l'imprimante :
+//     deux fois l'écran, là où une laser en fait huit ;
+//   — ne se cherche pas, ne se copie pas, ne se lit pas à voix haute par un
+//     lecteur d'écran — c'est une photographie de texte ;
+//   — pèse cent fois le poids du même dessin en traits.
+//
+// Le PDF de Pronote, lui, est vectoriel : six polices, zéro image, dix
+// kilo-octets pour une semaine entière. Le nôtre doit l'être aussi.
+//
+// La géométrie ne change pas d'un pixel — ce sont les mêmes nombres qu'avant,
+// aux mêmes places. Seuls les verbes changent : « rect » et « text » de jsPDF
+// au lieu de « fillRect » et « fillText » de la toile.
+// ==============================================================================
+
+// jsPDF n'a pas le « clip » de la toile : on coupe le mot au dernier signe qui
+// tient, plutôt que de le laisser déborder sur la colonne d'à côté.
+function tenirDansLaColonne(pdf, texte, largeur) {
+    const t = String(texte || '');
+    if (!t) return '';
+    if (pdf.getTextWidth(t) <= largeur) return t;
+    let court = t;
+    while (court.length > 1 && pdf.getTextWidth(court + '…') > largeur) court = court.slice(0, -1);
+    return court + '…';
+}
+
+function fabriquerLePdfDeLAgenda() {
+    const moteur = window.jspdf && window.jspdf.jsPDF;
+    if (!moteur) return null;
     const jours = EDT_JOURS.slice(0, agenda.samedi ? EDT_JOURS_OUVRES + 1 : EDT_JOURS_OUVRES);
     const gouttiere = 62, entete = 34, marge = 18;
     const parJour = 150;
@@ -34306,23 +34342,22 @@ function dessinerLAgendaSurUneToile(echelle) {
     const L = marge * 2 + gouttiere + jours.length * parJour;
     const H = marge * 2 + entete + minutes * parMinute + 26;
 
-    const c = document.createElement('canvas');
-    c.width = Math.round(L * k);
-    c.height = Math.round(H * k);
-    const g = c.getContext('2d');
-    g.scale(k, k);
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, L, H);
+    const pdf = new moteur({ orientation: L > H ? 'landscape' : 'portrait',
+                             unit: 'px', format: [L, H] });
+    // Le fond blanc est posé, il n'est pas supposé : une feuille sans fond
+    // prend la couleur du papier — ou celle du visualiseur, qui peut être
+    // sombre, et l'encre grise du bandeau d'heures disparaîtrait.
+    pdf.setFillColor('#ffffff');
+    pdf.rect(0, 0, L, H, 'F');
 
     const hautGrille = marge + 26 + entete;
     const yDe = (m) => hautGrille + (m - edtDebut()) * parMinute;
 
-    g.fillStyle = '#2d3436';
-    g.font = 'bold 15px system-ui, sans-serif';
-    g.textBaseline = 'alphabetic';
-    const titre = 'Mon emploi du temps'
-        + (agenda.alterne ? ' — semaine ' + edtSemaineVue : '');
-    g.fillText(titre, marge, marge + 15);
+    pdf.setTextColor('#2d3436');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(15);
+    pdf.text('Mon emploi du temps'
+        + (agenda.alterne ? ' — semaine ' + edtSemaineVue : ''), marge, marge + 15);
 
     // Les heures de gauche : les sonneries si on en a, les heures rondes sinon.
     const sonneries = edtSonneries().filter(m => m >= edtDebut() && m <= edtFin());
@@ -34330,35 +34365,28 @@ function dessinerLAgendaSurUneToile(echelle) {
         : Array.from({ length: Math.floor((edtFin() - edtDebut()) / 60) + 1 },
                      (_, i) => edtDebut() + i * 60);
 
-    g.strokeStyle = '#dfe6e9';
-    g.lineWidth = 1;
+    pdf.setDrawColor('#dfe6e9');
+    pdf.setLineWidth(1);
     marques.forEach(m => {
-        const y = Math.round(yDe(m)) + 0.5;
-        g.beginPath();
-        g.moveTo(marge + gouttiere, y);
-        g.lineTo(L - marge, y);
-        g.stroke();
-        g.fillStyle = '#636e72';
-        g.font = '11px system-ui, sans-serif';
-        g.fillText(heureLisible(m), marge, y + 4);
+        const y = yDe(m);
+        pdf.line(marge + gouttiere, y, L - marge, y);
+        pdf.setTextColor('#636e72');
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(11);
+        pdf.text(heureLisible(m), marge, y + 4);
     });
 
     // Les jours, et leurs colonnes.
     jours.forEach((nom, i) => {
         const x = marge + gouttiere + i * parJour;
-        g.fillStyle = '#2d3436';
-        g.font = 'bold 12px system-ui, sans-serif';
-        g.fillText(nom, x + 6, hautGrille - 10);
-        g.strokeStyle = '#dfe6e9';
-        g.beginPath();
-        g.moveTo(Math.round(x) + 0.5, hautGrille);
-        g.lineTo(Math.round(x) + 0.5, yDe(edtFin()));
-        g.stroke();
+        pdf.setTextColor('#2d3436');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(12);
+        pdf.text(nom, x + 6, hautGrille - 10);
+        pdf.setDrawColor('#dfe6e9');
+        pdf.line(x, hautGrille, x, yDe(edtFin()));
     });
-    g.beginPath();
-    g.moveTo(Math.round(L - marge) + 0.5, hautGrille);
-    g.lineTo(Math.round(L - marge) + 0.5, yDe(edtFin()));
-    g.stroke();
+    pdf.line(L - marge, hautGrille, L - marge, yDe(edtFin()));
 
     // Les cours.
     creneauxVisibles().forEach(c2 => {
@@ -34368,44 +34396,39 @@ function dessinerLAgendaSurUneToile(echelle) {
         const y = yDe(c2.debut);
         const h = Math.max(12, c2.duree * parMinute) - 2;
         const w = parJour - 4;
-        g.fillStyle = c2.couleur || '#dfe4ff';
-        g.fillRect(x, y, w, h);
-        g.strokeStyle = 'rgba(0,0,0,0.10)';
-        g.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, w, h);
-        g.fillStyle = encreSur(c2.couleur || '#dfe4ff');
-        g.font = 'bold 12px system-ui, sans-serif';
-        g.save();
-        g.beginPath(); g.rect(x, y, w, h); g.clip();
-        g.fillText(c2.libelle || '', x + 5, y + 15);
+        const fond = c2.couleur || '#dfe4ff';
+        pdf.setFillColor(fond);
+        pdf.setDrawColor('#b2bec3');
+        pdf.rect(x, y, w, h, 'FD');
+        pdf.setTextColor(encreSur(fond));
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(12);
+        pdf.text(tenirDansLaColonne(pdf, c2.libelle || '', w - 10), x + 5, y + 15);
         if (h >= 28) {
-            g.font = '10px system-ui, sans-serif';
-            g.globalAlpha = 0.75;
-            g.fillText(heureLisible(c2.debut) + ' – ' + heureLisible(c2.debut + c2.duree), x + 5, y + 28);
-            g.globalAlpha = 1;
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(10);
+            pdf.text(heureLisible(c2.debut) + ' – ' + heureLisible(c2.debut + c2.duree),
+                     x + 5, y + 28);
         }
-        g.restore();
     });
 
-    return c;
+    return pdf;
 }
-window.dessinerLAgendaSurUneToile = dessinerLAgendaSurUneToile;
+window.fabriquerLePdfDeLAgenda = fabriquerLePdfDeLAgenda;
+
 
 function exporterLAgendaEnPdf() {
     if (!agenda.creneaux.length) {
         if (typeof showToast === 'function') showToast('Posez d’abord un cours : la feuille serait vide.');
         return false;
     }
-    const toile = dessinerLAgendaSurUneToile(2);
-    const moteur = window.jspdf && window.jspdf.jsPDF;
-    if (!moteur) {
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
         if (typeof showToast === 'function') showToast('Moteur PDF non chargé.');
         return false;
     }
     try {
-        const l = toile.width / 2, h = toile.height / 2;
-        const pdf = new moteur({ orientation: l > h ? 'landscape' : 'portrait',
-                                 unit: 'px', format: [l, h] });
-        pdf.addImage(toile.toDataURL('image/png'), 'PNG', 0, 0, l, h);
+        const pdf = fabriquerLePdfDeLAgenda();
+        if (!pdf) return false;
         pdf.save('Emploi_du_temps' + (agenda.alterne ? '_semaine_' + edtSemaineVue : '') + '.pdf');
         if (typeof showToast === 'function') showToast('📄 Emploi du temps exporté');
         return true;
