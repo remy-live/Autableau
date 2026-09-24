@@ -1680,6 +1680,89 @@ module.exports = async function (browser) {
     r.egal('au milieu du premier document, c\'est bien lui qu\'on touche',
         atteignable.trouve, atteignable.attendu);
 
+
+    // ==================================================================
+    // UN DOCUMENT QUI CHANGE D'ORIENTATION EN COURS DE ROUTE
+    //
+    // « J'ai un PDF qui est en A4 paysage puis portrait, il faut que ça
+    // s'adapte. »
+    //
+    // Relevé sur une fiche de dix pages — huit à l'italienne, deux à la
+    // française : le cadre posé sur le tableau restait 1485 × 1050, et la page
+    // portrait, rendue en 1488 × 2104, y était ÉCRASÉE du simple au double.
+    // Sur une fiche de transformations, un carré devenait un rectangle et un
+    // cercle une ellipse : le pire endroit où déformer.
+    //
+    // Ce qui s'éprouve ici n'est pas un nombre de pixels, c'est la FIDÉLITÉ :
+    // la forme du cadre doit être celle de la page qu'il montre.
+    // ==================================================================
+    const bascule = await page.evaluate(async () => {
+        const a = (ms) => new Promise(ok => setTimeout(ok, ms));
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; freehands.length = 0; texts.length = 0;
+        selectedItems = [];
+        const M = window.jspdf && window.jspdf.jsPDF;
+        if (!M) return { err: 'moteur PDF absent' };
+        // Une page à l'italienne, une à la française — et sur chacune un CARRÉ,
+        // qui est le témoin : déformé, il se voit tout de suite.
+        const d = new M({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+        d.setFontSize(24); d.text('italienne', 60, 70);
+        d.setDrawColor('#d63031'); d.setLineWidth(3); d.rect(60, 100, 200, 200);
+        d.addPage('a4', 'portrait');
+        d.setFontSize(24); d.text('française', 60, 70);
+        d.setDrawColor('#0984e3'); d.setLineWidth(3); d.rect(60, 100, 200, 200);
+        await poserPdfFeuilletable(new File([d.output('arraybuffer')], 'fiche.pdf',
+            { type: 'application/pdf' }));
+        await a(1600);
+
+        const o = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        if (!o) return { err: 'le document n\'est pas arrivé' };
+        const lire = () => {
+            const im = imageCache[o.src];
+            return {
+                page: o.pluginData.page,
+                boite: [Math.round(o.w), Math.round(o.h)],
+                rapportBoite: +(o.w / o.h).toFixed(3),
+                rapportRendu: im && im.naturalHeight ? +(im.naturalWidth / im.naturalHeight).toFixed(3) : null,
+                tientDansLEcran: o.w * zoom <= window.innerWidth && o.h * zoom <= window.innerHeight
+            };
+        };
+        const une = lire();
+        await allerALaPage(o, 2); await a(1400);
+        const deux = lire();
+        await allerALaPage(o, 1); await a(1400);
+        const retour = lire();
+        return { une, deux, retour };
+    });
+
+    const fidele = (v) => v && v.rapportRendu !== null
+        && Math.abs(v.rapportBoite - v.rapportRendu) < 0.01;
+    r.verifie('le document à deux orientations est posé', !bascule.err, JSON.stringify(bascule));
+    r.verifie('la page à l\'italienne est montrée sans déformation',
+        fidele(bascule.une), JSON.stringify(bascule.une));
+    // LE CŒUR DE L'AFFAIRE.
+    r.verifie('la page à la française aussi — le cadre a pris sa forme',
+        fidele(bascule.deux), JSON.stringify(bascule.deux));
+    r.verifie('et elle est bien plus haute que large',
+        bascule.deux && bascule.deux.boite[1] > bascule.deux.boite[0],
+        JSON.stringify(bascule.deux));
+    // LA MÊME FEUILLE, TOURNÉE : l'échelle choisie par le professeur est
+    // gardée. Sans cela « s'adapter » voudrait dire « se redimensionner au
+    // hasard », et le document changerait de taille à chaque page.
+    r.verifie('c\'est la même feuille, simplement tournée',
+        bascule.une && bascule.deux
+        && Math.abs(bascule.deux.boite[0] - bascule.une.boite[1]) <= 1
+        && Math.abs(bascule.deux.boite[1] - bascule.une.boite[0]) <= 1,
+        JSON.stringify([bascule.une.boite, bascule.deux.boite]));
+    // ET ON LA VOIT EN ENTIER. Une page à la française est plus haute que
+    // celle qu'on quittait : sans recul, on n'en verrait que le haut, sans
+    // rien qui dise qu'il y a une suite.
+    r.verifie('on recule juste assez pour la voir en entier',
+        bascule.deux && bascule.deux.tientDansLEcran, JSON.stringify(bascule.deux));
+    r.verifie('et revenir en arrière rend sa forme à la page à l\'italienne',
+        fidele(bascule.retour) && bascule.retour.boite[0] > bascule.retour.boite[1],
+        JSON.stringify(bascule.retour));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

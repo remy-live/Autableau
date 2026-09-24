@@ -15448,6 +15448,32 @@ async function allerALaPage(imgObj, numero) {
         : { x: 0, y: 0, l: 1, h: 1 };
     const etaitRogne = memeFormat && (part.l < 0.999 || part.h < 0.999);
 
+    // ET LA PAGE REPREND SA FORME.
+    //
+    // « J'ai un PDF qui est en A4 paysage puis portrait, il faut que ça
+    // s'adapte. » Relevé sur une fiche de dix pages — huit à l'italienne, deux
+    // à la française : le cadre posé sur le tableau restait 1485 × 1050, et la
+    // page portrait, rendue en 1488 × 2104, y était ÉCRASÉE du simple au
+    // double. Sur une fiche de transformations, un carré devenait un
+    // rectangle et un cercle une ellipse : le pire endroit où déformer.
+    //
+    // On garde l'échelle que le professeur a choisie — il a peut-être agrandi
+    // ou réduit le document — et l'on ne change que la forme. L'échelle se lit
+    // sur l'ancienne page : la largeur qu'occuperait sa page ENTIÈRE, divisée
+    // par la largeur qu'elle mesure pour de vrai.
+    let nouvelleForme = null;
+    if (!memeFormat && ancien && ancien.naturalWidth && imgObj.cw > 0) {
+        try {
+            const avant = tailleReelleDuPdf(await d.doc.getPage(imgObj.pluginData.page));
+            const apres = tailleReelleDuPdf(await d.doc.getPage(voulu));
+            const largeurPleine = imgObj.w * (ancien.naturalWidth / imgObj.cw);
+            const echelle = avant.l ? (largeurPleine / avant.l) : 1;
+            if (echelle > 0 && isFinite(echelle)) {
+                nouvelleForme = { l: apres.l * echelle, h: apres.h * echelle };
+            }
+        } catch (e) { /* une page illisible : on garde la forme d'avant */ }
+    }
+
     imgObj.src = rendu.src;
     imgObj.cx = part.x * rendu.l; imgObj.cy = part.y * rendu.h;
     imgObj.cw = part.l * rendu.l; imgObj.ch = part.h * rendu.h;
@@ -15456,7 +15482,26 @@ async function allerALaPage(imgObj, numero) {
     delete imgObj.pluginData.surlignes;
     // La zone tenue aussi : son rang ne veut plus rien dire sur la page d'après.
     zoneChoisie = -1; zoneNumerotation = false; zoneNumeroSuivant = 0;
-    if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
+    // LA FORME CHANGE AUTOUR DU MÊME POINT. On garde le milieu en largeur et
+    // le bord du HAUT : une page se tourne, elle ne saute pas de côté, et
+    // c'est par le haut qu'on la lit.
+    if (nouvelleForme) {
+        const milieu = imgObj.x + imgObj.w / 2;
+        imgObj.w = nouvelleForme.l;
+        imgObj.h = nouvelleForme.h;
+        imgObj.x = milieu - imgObj.w / 2;
+        if (typeof showToast === 'function') {
+            showToast(imgObj.w > imgObj.h
+                ? 'Cette page est à l\'italienne : la vue s\'adapte'
+                : 'Cette page est à la française : la vue s\'adapte');
+        }
+        // ET L'ON RECULE SI ELLE NE TIENT PLUS. Une page à la française est
+        // plus haute que celle qu'on quittait : sans cela on n'en verrait que
+        // le tiers supérieur, sans rien qui dise qu'il y a une suite.
+        const trop = imgObj.w * zoom > window.innerWidth * 0.92
+                  || imgObj.h * zoom > window.innerHeight * 0.92;
+        if (trop && typeof cadrerSurLObjet === 'function') cadrerSurLObjet(imgObj, 0.9);
+    } else if (!memeFormat && imgObj.pluginData.pageRognee && typeof showToast === 'function') {
         showToast('Cette page a un autre format : elle est montrée en entier');
     }
     imgObj.pluginData.pageRognee = etaitRogne;
