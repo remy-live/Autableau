@@ -1575,6 +1575,107 @@ module.exports = async function (browser) {
         { pleine: corbeille.pleine.compte, vide: corbeille.vide.compte },
         { pleine: '20', vide: '' });
 
+
+    // =====================================================================
+    // ET DANS UNE FENÊTRE COURTE, ELLE NE DÉBORDE PAS DAVANTAGE
+    //
+    // « La corbeille déborde. »
+    //
+    // L'épreuve d'au-dessus passait pourtant — parce qu'elle mesurait dans une
+    // fenêtre spacieuse, où il y a de la place pour tout le monde. Relevé sur
+    // une fenêtre de 420 × 700 : la liste était bien bornée à 238 px et
+    // défilait chez elle, mais la SECTION finissait à 703 px quand le tiroir
+    // s'arrête à 630. Soixante-treize pixels de sessions jetées dessinés
+    // PAR-DESSUS le tableau, hors du cadre arrondi.
+    //
+    // La cause n'était pas la corbeille : le tiroir est une colonne à hauteur
+    // fixe, et aucun de ses enfants n'avait pour consigne de céder la place.
+    // L'arborescence n'avait aucune règle de disposition. La corbeille, posée
+    // en dernier, était simplement ce qui tombait du bord.
+    //
+    // ON NE MESURE PAS LA RÈGLE, ON MESURE LE BORD : ce qui compte est qu'un
+    // pixel de corbeille ne soit jamais dessiné sous le tiroir.
+    // =====================================================================
+    const surUnPetitEcran = async (largeur, hauteur) => {
+        await page.setViewportSize({ width: largeur, height: hauteur });
+        await page.waitForTimeout(250);
+        return page.evaluate(() => {
+            const tiroir = document.getElementById('right-drawer');
+            tiroir.classList.add('open');
+            const avant = savedTableaux.length;
+            for (let i = 1; i <= 21; i++) {
+                savedTableaux.push({ id: 'court_' + i, name: 'Session du 2' + (i % 9) + '/09/2026',
+                                     type: 'file', deleted: true, parent: 'root', data: {} });
+            }
+            renderTrashList();
+            const t = tiroir.getBoundingClientRect();
+            const section = document.getElementById('trash-section').getBoundingClientRect();
+            const liste = document.getElementById('trash-list');
+            const r = liste.getBoundingClientRect();
+            const vider = [...document.querySelectorAll('#trash-section .trash-btn')]
+                .find(x => /vider/i.test(x.textContent));
+            const rv = vider ? vider.getBoundingClientRect() : null;
+            const lu = {
+                ecran: [window.innerWidth, window.innerHeight],
+                // CE QUI SE VOIT : rien de la corbeille sous le bord du tiroir,
+                // rien sous le bord de l'écran.
+                sousLeTiroir: Math.round(section.bottom - t.bottom),
+                sousLEcran: Math.round(section.bottom - window.innerHeight),
+                // ET CE QUI RESTE ATTEIGNABLE : on doit pouvoir tout lire, et
+                // trouver « Vider ».
+                onPeutLireLaSuite: liste.scrollHeight > liste.clientHeight
+                    || document.getElementById('rd-corps').scrollHeight
+                       > document.getElementById('rd-corps').clientHeight,
+                viderDansLeTiroir: !!rv && rv.bottom <= t.bottom + 1 && rv.top >= t.top - 1,
+                compte: (document.getElementById('trash-compte') || {}).textContent
+            };
+            savedTableaux.length = avant;
+            renderTrashList();
+            tiroir.classList.remove('open');
+            return lu;
+        });
+    };
+
+    const court = await surUnPetitEcran(420, 700);
+    r.egal('vingt et un tableaux jetés : la pastille les compte', court.compte, '21');
+    r.verifie('et pas un pixel de corbeille ne dépasse du tiroir',
+        court.sousLeTiroir <= 1, JSON.stringify(court));
+    r.verifie('ni du bas de l\'écran', court.sousLEcran <= 1, JSON.stringify(court));
+    r.verifie('on peut quand même atteindre ce qu\'il y a plus bas',
+        court.onPeutLireLaSuite, JSON.stringify(court));
+    r.verifie('et « Vider » reste dans le tiroir, pas dans le vide',
+        court.viderDansLeTiroir, JSON.stringify(court));
+
+    // LE CAS EXTRÊME : une fenêtre si courte que l'en-tête et le bandeau
+    // « Vous travaillez sur » suffisent presque à la remplir. C'est là qu'on
+    // saurait si l'on avait simplement COUPÉ au lieu de faire défiler.
+    const tresCourt = await surUnPetitEcran(420, 520);
+    r.verifie('même dans une fenêtre de 520 px, rien ne dépasse du tiroir',
+        tresCourt.sousLeTiroir <= 1, JSON.stringify(tresCourt));
+    r.verifie('et la corbeille reste atteignable plutôt que coupée',
+        tresCourt.onPeutLireLaSuite, JSON.stringify(tresCourt));
+
+    // LA POIGNÉE DU TIROIR VIT DEHORS, et c'est pourquoi on ne borne pas le
+    // tiroir lui-même mais son corps. Mesuré : elle dépasse de dix-sept
+    // pixels sur sa gauche — un « overflow » posé sur le tiroir la couperait.
+    const laPoignee = await page.evaluate(() => {
+        const t = document.getElementById('right-drawer');
+        t.classList.add('open');
+        const p = t.querySelector('.drawer-toggle-v');
+        const rp = p.getBoundingClientRect(), rt = t.getBoundingClientRect();
+        const lu = { depasseAGauche: Math.round(rt.left - rp.left),
+                     largeurVue: Math.round(rp.width),
+                     corpsBorne: getComputedStyle(document.getElementById('rd-corps')).overflowY };
+        t.classList.remove('open');
+        return lu;
+    });
+    r.verifie('la poignée déborde du tiroir : c\'est le corps qu\'on borne, pas lui',
+        laPoignee.depasseAGauche > 0 && laPoignee.largeurVue > 0, JSON.stringify(laPoignee));
+    r.egal('et le corps, lui, défile', laPoignee.corpsBorne, 'auto');
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(200);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

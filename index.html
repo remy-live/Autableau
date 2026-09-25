@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=210 »,
-         « script.js?v=364 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=211 »,
+         « script.js?v=365 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=210">
+    <link rel="stylesheet" href="style.css?v=211">
 </head>
 
 <body>
@@ -2948,7 +2948,20 @@
              disque. On ne savait pas lequel on modifiait, ni si le travail de
              l'heure était quelque part. Ce bandeau le dit, en toutes lettres,
              à l'endroit où l'on vient chercher ses tableaux. -->
-        <div id="rd-ou-je-suis">
+        <!-- LE CORPS DU TIROIR, ET POURQUOI IL EXISTE.
+             « La corbeille déborde. » Elle débordait, et ce n'était pas elle
+             la fautive : le tiroir est une colonne à hauteur fixe, et aucun
+             de ses enfants n'avait pour consigne de céder la place. La
+             corbeille, posée en dernier, était simplement ce qui tombait du
+             bord — dessiné PAR-DESSUS le tableau, hors du cadre arrondi.
+
+             On ne peut pas couper au niveau du tiroir lui-même : sa poignée
+             vit DEHORS, à seize pixels sur sa gauche. Mesuré : un « overflow:
+             hidden » posé là la coupait, et elle ne répondait plus au doigt —
+             on ne pouvait plus refermer le tiroir. C'est donc le CORPS qui
+             se borne, et la poignée reste libre. -->
+        <div id="rd-corps">
+            <div id="rd-ou-je-suis">
             <div class="ouje-titre">Vous travaillez sur</div>
             <div class="ouje-nom" id="ouje-nom">—</div>
             <ul class="ouje-lignes" id="ouje-lignes"></ul>
@@ -2974,6 +2987,7 @@
                 </div>
             </div>
             <div class="trash-list" id="trash-list"></div>
+            </div>
         </div>
     </div>
 
@@ -3898,7 +3912,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=364"></script>
+    <script src="script.js?v=365"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=117"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

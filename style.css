@@ -1866,6 +1866,65 @@ html {
     background: rgba(128, 128, 128, 0.16);
 }
 
+/* ==================================================================
+   LE TIROIR TIENT DANS SA BOÎTE
+   « La corbeille déborde. »
+
+   Elle débordait, et ce n'était pas elle la fautive : relevé sur une fenêtre
+   de 420 × 700, la liste était bien bornée à 238 px et défilait chez elle —
+   mais la section finissait à 703 px quand le tiroir s'arrête à 630. Soixante
+   -treize pixels de sessions jetées dessinés PAR-DESSUS le tableau, hors du
+   cadre arrondi, et trois pixels sous le bord de l'écran.
+
+   La cause tient à ce qui n'était écrit nulle part : le tiroir est une
+   colonne à hauteur fixe (de 10vh à 10vh), mais aucun de ses enfants n'avait
+   pour consigne de céder la place. L'arborescence n'avait AUCUNE règle de
+   disposition — elle prenait la hauteur de son contenu et poussait tout le
+   reste dehors. La corbeille, posée en dernier, était simplement ce qui
+   tombait du bord.
+
+   Trois lignes suffisent : le tiroir ne laisse rien sortir, l'arborescence
+   prend la place qui reste et défile, la corbeille garde la sienne et cède
+   quand il n'y a plus de quoi.
+   ================================================================== */
+/* LE CORPS SE BORNE, PAS LE TIROIR. La poignée du tiroir vit DEHORS, à seize
+   pixels sur sa gauche : mesuré, un « overflow: hidden » posé sur le tiroir la
+   coupait, et elle ne répondait plus au doigt — on ne pouvait plus le
+   refermer. Le corps, lui, n'a rien qui dépasse.
+   « auto » et non « hidden » : sur un écran vraiment court — une fenêtre de
+   520 pixels de haut —, l'en-tête et le bandeau « Vous travaillez sur »
+   suffisent à remplir la colonne. Couper laisserait alors la corbeille
+   présente, comptée, et hors d'atteinte. Elle défile. */
+#rd-corps {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Ce qui ne cède pas : l'en-tête porte les onglets, et le bandeau dit où l'on
+   travaille. Tout le rétrécissement va donc à l'arborescence, qui défile
+   déjà. */
+.rd-header,
+#rd-ou-je-suis { flex: 0 0 auto; }
+
+#file-tree-container,
+#interfaces-container.active {
+    flex: 1 1 auto;
+    /* Sans « min-height: 0 », un enfant de colonne flexible refuse de
+       descendre sous la hauteur de son contenu : la consigne de défiler
+       n'aurait servi à rien. */
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Elle ne grandit jamais au-delà de sa liste, et rétrécit si le tiroir
+   manque de hauteur — ce qui arrive sur un écran court ou une fenêtre
+   étroite, exactement là où le débordement se voyait. */
+#trash-section { flex: 0 1 auto; }
+
 /* LA CORBEILLE NE MANGE PAS LE TIROIR. Elle poussait l'arborescence hors de
    l'écran : vingt tableaux jetés — ce qu'une année de séances produit — la
    faisaient déborder de deux cent cinquante pixels, et il fallait faire
@@ -1876,6 +1935,11 @@ html {
     flex-direction: column;
     gap: 6px;
     max-height: min(34vh, 240px);
+    /* ET DEUX LIGNES AU MOINS. Sur un écran court, la colonne rétrécit tout
+       ce qui peut l'être : sans plancher, la corbeille tombait à un filet de
+       quelques pixels — présente, comptée, et inutilisable. C'est
+       l'arborescence qui cède alors la première, elle qui défile déjà. */
+    min-height: 72px;
     overflow-y: auto;
     /* De quoi laisser passer la barre de défilement sans coller aux bords. */
     padding-right: 2px;
