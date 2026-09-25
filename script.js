@@ -19062,12 +19062,29 @@ function majBarreDocument() {
         bForme.classList.toggle('actif', decoupeActive && formeDeDecoupe !== 'rectangle');
         majLaFormeDeDecoupe();
     }
-    // Repérer tout seul : même règle que les ciseaux — tout ce qui est une
-    // image posée, y compris un morceau qu'on redécoupe. MAIS PAS EN PLEIN
-    // ÉCRAN : on est là pour montrer la page à la classe, pas pour la
-    // débiter. Le repérage se fait en préparant, tranquillement.
+    // Repérer tout seul : un document posé — un PDF, un scan, une photo de
+    // manuel, un morceau qu'on redécoupe. MAIS PAS EN PLEIN ÉCRAN : on est là
+    // pour montrer la page à la classe, pas pour la débiter. Le repérage se
+    // fait en préparant, tranquillement.
+    //
+    // ET PAS SUR UN TAMPON DE PLUGIN. « J'ai mis un plugin au hasard, plein de
+    // boutons ne servent à rien sur la barre du haut. » Celui-ci proposait de
+    // « repérer les exercices de la page » sur une horloge : il n'y a pas
+    // d'exercice dans une horloge, et pas de page non plus.
     const bReperer = document.getElementById('doc-reperer');
-    if (bReperer) bReperer.style.display = (obj && obj.src && !enPresentation) ? 'inline-flex' : 'none';
+    if (bReperer) bReperer.style.display = (unDocument && obj.src && !enPresentation) ? 'inline-flex' : 'none';
+
+    // LE VOLET DES PAGES NON PLUS. Il s'appelle « Pages et réglages du
+    // document » et n'avait aucune condition : il paraissait sur tout ce que
+    // la barre montrait, tampons compris. Un tampon n'a pas de pages.
+    const bVolet = document.getElementById('doc-volet-btn');
+    if (bVolet) bVolet.style.display = unDocument ? 'inline-flex' : 'none';
+
+    // ET LA BARRE DIT CE QU'ELLE TIENT. Elle s'intitulait « Le document »
+    // quoi qu'il arrive : on posait une horloge, et une barre venue d'en haut
+    // annonçait un document qui n'existait pas.
+    const nom = barre.querySelector('.barre-nom');
+    if (nom) nom.textContent = unDocument ? 'Le document' : 'L’image';
 
     // LE PLEIN ÉCRAN NE DIT QU'UNE CHOSE : on y entre, on en sort. Les outils
     // par-dessus la page sont la question du bouton voisin — mêler les deux

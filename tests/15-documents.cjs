@@ -4527,6 +4527,80 @@ module.exports = async function (browser) {
         images.length = 0; selectedItems = []; draw();
     });
 
+
+    // =====================================================================
+    // LA BARRE DU HAUT NE PROMET QUE CE QU'ELLE PEUT TENIR
+    //
+    // « J'ai mis un plugin au hasard, il y a eu ces deux barres — plein de
+    // boutons ne servent à rien sur la barre du haut. »
+    //
+    // Relevé sur un tampon d'horloge : la barre s'intitulait « LE DOCUMENT »
+    // et offrait huit commandes, dont « Pages et réglages du document » et
+    // « Repérer les exercices de la page ». Il n'y a ni page ni exercice dans
+    // une horloge. Un bouton qui ne peut rien faire est pire qu'un bouton
+    // absent : on l'essaie, et l'on croit que c'est soi qui s'y prend mal.
+    // =====================================================================
+    const barreSelonLObjet = await page.evaluate(async ({ octets }) => {
+        const a = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const vu = (el) => !!(el && el.getClientRects().length
+            && getComputedStyle(el).display !== 'none');
+        const releve = () => {
+            const b = document.getElementById('bar-document');
+            const nom = b.querySelector('.barre-nom');
+            return {
+                nom: nom ? nom.textContent.trim() : '',
+                boutons: [...b.querySelectorAll('button')].filter(vu).map(x => x.id).filter(Boolean),
+                volet: vu(document.getElementById('doc-volet-btn')),
+                reperer: vu(document.getElementById('doc-reperer')),
+                pleinEcran: vu(document.getElementById('doc-plein-ecran')),
+                rogner: vu(document.getElementById('doc-rogner')),
+                ciseaux: vu(document.getElementById('doc-decouper'))
+            };
+        };
+
+        images.length = 0; freehands.length = 0; texts.length = 0; selectedItems = [];
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'cours.pdf',
+            { type: 'application/pdf' }));
+        await a(1000);
+        const doc = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        selectedItems = [{ type: 'image', id: doc.id }];
+        majBarreDocument(); await a(200);
+        const surLeDocument = releve();
+
+        // LE TAMPON D'UN OUTIL : une image posée sur le tableau, et rien de
+        // plus. Pas de fichier, pas de pages, pas d'exercices.
+        selectedItems = [];
+        images.push({ id: nextId++, x: 300, y: 200, w: 200, h: 200,
+                      cx: 0, cy: 0, cw: 200, ch: 200, src: 'data:image/png;base64,iVBORw0KGgo=',
+                      z: globalZ++, pluginData: { id: 'horlogeTool' } });
+        const tampon = images[images.length - 1];
+        selectedItems = [{ type: 'image', id: tampon.id }];
+        majBarreDocument(); await a(200);
+        const surLeTampon = releve();
+
+        return { surLeDocument, surLeTampon };
+    }, { octets: pdf });
+
+    const D = barreSelonLObjet.surLeDocument, T = barreSelonLObjet.surLeTampon;
+    r.egal('sur un PDF, la barre s\'appelle « Le document »', D.nom, 'Le document');
+    r.verifie('et elle porte tout ce qu\'un document permet',
+        D.volet && D.reperer && D.pleinEcran && D.rogner && D.ciseaux, JSON.stringify(D));
+
+    // LE CŒUR DE L'AFFAIRE.
+    r.egal('sur un tampon d\'outil, elle s\'appelle « L\'image »', T.nom, 'L’image');
+    r.verifie('le volet des pages s\'en va : un tampon n\'a pas de pages',
+        !T.volet, JSON.stringify(T));
+    r.verifie('« repérer les exercices » aussi : il n\'y a pas d\'exercice dans une horloge',
+        !T.reperer, JSON.stringify(T));
+    r.verifie('et il reste moins de boutons qu\'un document n\'en demande',
+        T.boutons.length < D.boutons.length,
+        JSON.stringify([T.boutons.length, D.boutons.length]));
+    // CE QUI RESTE SERT VRAIMENT. On ne vide pas la barre : rogner une image,
+    // en découper un morceau, la passer sous le quadrillage — ces gestes-là
+    // valent pour tout ce qui est posé, tampon compris.
+    r.verifie('mais rogner et découper restent : ils valent pour toute image',
+        T.rogner && T.ciseaux, JSON.stringify(T));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
