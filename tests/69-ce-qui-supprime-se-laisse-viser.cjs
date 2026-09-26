@@ -178,6 +178,64 @@ module.exports = async function (browser) {
     r.verifie('et le bandeau sombre n\'est pas le même que le clair : on a bien changé de monde',
         jour && nuit && jour.fond !== nuit.fond, JSON.stringify({ jour: jour && jour.fond, nuit: nuit && nuit.fond }));
 
+    // ------------------------------------------------------------------
+    // ET LES PASTILLES DE COULEUR DISENT LEUR COULEUR
+    // ------------------------------------------------------------------
+    // Relevé pendant l'audit : quatre-vingt-quatre pastilles sans un nom — ni
+    // titre, ni « aria-label » —, et un rond de vingt-six pixels ne dit rien à
+    // qui ne voit pas bien, rien du tout à un lecteur d'écran. « #6c5ce7 » non
+    // plus ne dit rien à personne : ce sont des mots de professeur qu'il faut,
+    // « bleu », « vert foncé », « violet clair ».
+    const mots = await page.evaluate(() => {
+        if (typeof nommerLaCouleur !== 'function') return null;
+        const out = {};
+        ['#2d3436', '#0984e3', '#d63031', '#00b894', '#e17055', '#6c5ce7', '#ffffff',
+         '#b2bec3', '#636e72', '#dfe6e9', '#fdcb6e', '#a29bfe', '#795548', '#e84393',
+         'rgb(46, 204, 113)'].forEach(c => { out[c] = nommerLaCouleur(c); });
+        return out;
+    });
+    r.egal('chaque couleur de l\'application a son mot', mots, {
+        '#2d3436': 'noir', '#0984e3': 'bleu', '#d63031': 'rouge', '#00b894': 'turquoise',
+        '#e17055': 'orange', '#6c5ce7': 'violet', '#ffffff': 'blanc', '#b2bec3': 'gris',
+        '#636e72': 'gris foncé', '#dfe6e9': 'gris clair', '#fdcb6e': 'jaune',
+        '#a29bfe': 'violet clair', '#795548': 'brun', '#e84393': 'rose',
+        'rgb(46, 204, 113)': 'vert'
+    });
+    // ET L'HEXADÉCIMAL SE LIT DEUX SIGNES PAR DEUX SIGNES. Le premier essai
+    // lisait « les chiffres de la chaîne » : sur « #6c5ce7 » il trouvait 6, 5 et
+    // 7, et nommait un noir presque parfait. C'est le genre de faute qui donne
+    // un résultat plausible partout et faux partout.
+    r.egal('« #f00 » vaut bien « #ff0000 », et « #6c5ce7 » n\'est pas noir',
+        await page.evaluate(() => [nommerLaCouleur('#f00'), nommerLaCouleur('#ff0000'),
+                                   nommerLaCouleur('#6c5ce7')]),
+        ['rouge', 'rouge', 'violet']);
+
+    const pastilles = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const g = document.getElementById('plugins-grid');
+        if (g) g.style.display = 'grid';
+        let total = 0, sansNom = 0, sansClavier = 0;
+        const exemples = [];
+        for (const b of [...document.querySelectorAll('#plugins-grid .btn')]) {
+            try { b.click(); } catch (e) { /* tant pis */ }
+            await attendre(150);
+            document.querySelectorAll('.swatch').forEach(s => {
+                total++;
+                const nom = (s.getAttribute('aria-label') || s.title || '').trim();
+                if (!nom) sansNom++;
+                else if (exemples.length < 4) exemples.push(nom);
+                if (s.tabIndex !== 0) sansClavier++;
+            });
+            const boite = document.getElementById('custom-prompt-modal');
+            if (boite) boite.style.display = 'none';
+        }
+        return { total, sansNom, sansClavier, exemples };
+    });
+    r.verifie('on a bien rencontré des pastilles de couleur',
+        pastilles.total >= 80, JSON.stringify(pastilles));
+    r.egal('aucune pastille ne reste sans nom', pastilles.sansNom, 0);
+    r.egal('et chacune se prend au clavier', pastilles.sansClavier, 0);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

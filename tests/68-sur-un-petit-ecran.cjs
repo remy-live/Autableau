@@ -188,6 +188,114 @@ module.exports = async function (browser) {
         tiroir.debordent, []);
     r.egal('et aucun outil n\'est coupé par le bord', tiroir.coupes, []);
 
+    // ------------------------------------------------------------------
+    // ET SI L'ÉCRAN RÉTRÉCIT EN COURS DE ROUTE
+    // ------------------------------------------------------------------
+    // Cela arrive pour de vrai : on branche le vidéoprojecteur et la résolution
+    // change, on fait pivoter une tablette, on partage l'écran en deux. Rien ne
+    // suivait : les fenêtres gardaient leur place, et celles qui tenaient tout
+    // juste se retrouvaient dehors, barre de titre comprise.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(300);
+    const ouvertes = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const g = document.getElementById('plugins-grid');
+        if (g) g.style.display = 'grid';
+        let posees = 0;
+        // Quelques outils qui portent de grandes fenêtres : c'est sur elles que
+        // le rétrécissement se voit.
+        for (const cle of ['tableStudioTool', 'evolutionStudioTool', 'funcPlotter',
+                           'moleculeStudioTool', 'pixelStudioTool']) {
+            const p = PluginManager.plugins[cle];
+            if (!p) continue;
+            for (const verbe of ['ouvrir', 'open', 'ouvrirFenetre', 'afficher', 'show']) {
+                if (typeof p[verbe] === 'function' && p[verbe].length === 0) {
+                    try { p[verbe](); posees++; } catch (e) { /* tant pis */ }
+                    break;
+                }
+            }
+            await attendre(250);
+        }
+        return posees;
+    });
+    r.verifie('des fenêtres sont bien ouvertes avant qu\'on rétrécisse',
+        ouvertes >= 2, String(ouvertes));
+    await page.setViewportSize({ width: 800, height: 520 });
+    await page.waitForTimeout(600);
+    const apresRetrecissement = await page.evaluate(() => {
+        const dehors = [], inatteignables = [];
+        document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+            if (!f.getClientRects().length) return;
+            const s = getComputedStyle(f);
+            if (s.visibility === 'hidden') return;
+            const b = f.getBoundingClientRect();
+            if (b.width < 80 || b.height < 60) return;
+            const tete = f.querySelector(':scope > .fen-tete');
+            if (!tete) return;
+            const nom = ((tete.textContent || f.id || '?').replace(/\s+/g, ' ').trim()).slice(0, 26);
+            if (b.top < -1 || b.left < -1 || b.bottom > innerHeight + 1 || b.right > innerWidth + 1) {
+                dehors.push(nom + ' [' + Math.round(b.left) + ',' + Math.round(b.top) + ' '
+                    + Math.round(b.width) + 'x' + Math.round(b.height) + ']');
+            }
+            const croix = tete.querySelector('.fen-fermer');
+            if (croix) {
+                const rc = croix.getBoundingClientRect();
+                const x = rc.left + rc.width / 2, y = rc.top + rc.height / 2;
+                const sous = document.elementFromPoint(x, y);
+                const saCroix = sous && (croix === sous || croix.contains(sous) || sous.contains(croix));
+                // CINQ FENÊTRES OUVERTES EN MÊME TEMPS SE RECOUVRENT, et c'est
+                // normal : ramenées dans un écran de 800 × 520, elles se posent
+                // toutes à la même place. Une croix cachée par UNE AUTRE FENÊTRE
+                // n'est pas perdue — on déplace celle du dessus, ou on la ferme.
+                // Ce qui serait perdu, c'est une croix que plus RIEN ne reçoit,
+                // ou qu'un voile intercepte.
+                const uneAutreFenetre = sous && sous.closest('[data-equipee="1"]')
+                    && sous.closest('[data-equipee="1"]') !== f;
+                if (!saCroix && !uneAutreFenetre) {
+                    inatteignables.push(nom + ' en ' + Math.round(x) + ',' + Math.round(y)
+                        + ' → ' + (sous ? String(sous.id || (typeof sous.className === 'string'
+                            ? sous.className : '') || sous.tagName) : 'personne'));
+                }
+            }
+        });
+        return { dehors, inatteignables, ecran: [innerWidth, innerHeight] };
+    });
+    r.egal('après le rétrécissement, aucune fenêtre n\'est restée dehors',
+        apresRetrecissement.dehors, []);
+    r.egal('et chaque croix se laisse encore viser',
+        apresRetrecissement.inatteignables, []);
+
+    // LA BOÎTE DE RÉGLAGES DES TAMPONS SUIT AUSSI. Elle naît à « left: 200px » :
+    // sur un écran de 320 px de large, elle sortait par la droite avec ses
+    // boutons.
+    const boite = await page.evaluate(async () => {
+        if (typeof openCustomPrompt !== 'function') return null;
+        openCustomPrompt('Essai', [{ label: 'Nombre', type: 'number', value: '3' }], null,
+            () => {}, () => {});
+        await new Promise(ok => setTimeout(ok, 300));
+        const m = document.getElementById('custom-prompt-modal');
+        return m && m.getClientRects().length ? true : false;
+    });
+    if (boite) {
+        await page.setViewportSize({ width: 420, height: 520 });
+        await page.waitForTimeout(500);
+        const place = await page.evaluate(() => {
+            const m = document.getElementById('custom-prompt-modal');
+            const b = m.getBoundingClientRect();
+            return { g: Math.round(b.left), d: Math.round(b.right), h: Math.round(b.top),
+                     bas: Math.round(b.bottom), ecran: [innerWidth, innerHeight] };
+        });
+        r.verifie('la boîte de réglages reste dans l\'écran rétréci',
+            place.g >= 0 && place.d <= place.ecran[0] + 1 && place.h >= 0,
+            JSON.stringify(place));
+        await page.evaluate(() => {
+            const m = document.getElementById('custom-prompt-modal');
+            if (m) m.style.display = 'none';
+        });
+    } else {
+        r.verifie('la boîte de réglages a bien pu être ouverte', false, 'non');
+    }
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

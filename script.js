@@ -22372,6 +22372,75 @@ function fondNeutre(rgb) {
     return Math.max(...rgb) - Math.min(...rgb) <= 24;
 }
 
+// ==================================================================
+// DIRE UNE COULEUR AVEC UN MOT
+// ==================================================================
+// Relevé pendant l'audit : quatre-vingt-quatre pastilles de couleur, dans la
+// boîte de réglages des tampons, sans un nom — ni titre, ni « aria-label ».
+// Un rond de vingt-six pixels ne dit rien à qui ne voit pas bien, rien du tout
+// à un lecteur d'écran, et « #6c5ce7 » ne dit rien à personne. On les nomme, et
+// avec des mots de professeur : « bleu », « vert foncé », « violet clair ».
+// « #6c5ce7 », « #abc » ou « rgb(108, 92, 231) » : trois nombres, ou rien.
+// ATTENTION, le piège : « nombresDeCouleur » lit les chiffres d'une chaîne, et
+// sur « #6c5ce7 » il en trouve — 6, 5, 7 — sans que cela veuille dire quoi que
+// ce soit. Un hexadécimal se lit deux signes par deux signes, pas autrement.
+function canauxDeCouleur(couleur) {
+    const t = String(couleur || '').trim();
+    const h = t.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (h) {
+        const s = h[1];
+        if (s.length === 3) return [0, 1, 2].map(i => parseInt(s[i] + s[i], 16));
+        return [0, 2, 4].map(i => parseInt(s.substr(i, 2), 16));
+    }
+    if (/^rgba?\(/i.test(t)) {
+        const n = nombresDeCouleur(t);
+        return (n && n.length >= 3) ? n.slice(0, 3) : null;
+    }
+    return null;
+}
+window.canauxDeCouleur = canauxDeCouleur;
+
+function nommerLaCouleur(couleur) {
+    const c = canauxDeCouleur(couleur);
+    if (!c) return String(couleur || '');
+    const [r, v, b] = c.slice(0, 3).map(x => x / 255);
+    const max = Math.max(r, v, b), min = Math.min(r, v, b), d = max - min;
+    const clarte = (max + min) / 2;
+    const saturation = d === 0 ? 0 : d / (1 - Math.abs(2 * clarte - 1));
+    const nuance = clarte < 0.3 ? ' foncé' : (clarte > 0.72 ? ' clair' : '');
+    // LE SEUIL DU GRIS EST À 0,18 ET NON 0,12 : #b2bec3, le gris de
+    // l'application, tire légèrement sur le bleu et se faisait appeler « bleu
+    // clair » — un professeur qui cherche du gris ne le trouvait pas.
+    if (saturation < 0.18 || d < 0.04) {
+        if (clarte < 0.2) return 'noir';
+        if (clarte > 0.94) return 'blanc';
+        return 'gris' + (clarte < 0.45 ? ' foncé' : (clarte > 0.75 ? ' clair' : ''));
+    }
+    let t;                                   // la teinte, en degrés
+    if (max === r) t = 60 * (((v - b) / d) % 6);
+    else if (max === v) t = 60 * ((b - r) / d + 2);
+    else t = 60 * ((r - v) / d + 4);
+    if (t < 0) t += 360;
+    // Les bornes sont choisies sur les couleurs de l'application : #d63031 est
+    // rouge (359°), #e17055 est orange (12°), #00b894 est turquoise (168°),
+    // #6c5ce7 est violet (247°).
+    let famille;
+    if (t < 10 || t >= 345) famille = 'rouge';
+    else if (t < 38) famille = clarte < 0.4 ? 'brun' : 'orange';
+    else if (t < 68) famille = 'jaune';
+    else if (t < 160) famille = 'vert';
+    else if (t < 195) famille = 'turquoise';
+    else if (t < 243) famille = 'bleu';
+    else if (t < 285) famille = 'violet';
+    else if (t < 320) famille = 'mauve';
+    else famille = 'rose';
+    // « brun clair » se dit ; « brun foncé » aussi, mais un brun est déjà
+    // sombre par définition : on ne le redit pas.
+    if (famille === 'brun') return 'brun';
+    return famille + nuance;
+}
+window.nommerLaCouleur = nommerLaCouleur;
+
 // ON NE REMPLACE PAS LA COULEUR, ON LA POUSSE JUSQU'À CE QU'ELLE SE VOIE.
 //
 // Les étiquettes de l'analyse grammaticale sont un code : violet pour
@@ -22559,6 +22628,14 @@ function poserLaBoiteDansLEcran() {
     reglages.style.maxHeight = '';
     reglages.style.overflowY = '';
     const marge = 12;
+    // ET LA LARGEUR AUSSI. La boîte naît à « left: 200px » : sur un écran
+    // rétréci à 320 px de large, ou après un changement de résolution, elle
+    // sortait par la droite et l'on ne voyait plus ses boutons.
+    let gauche = parseFloat(m.style.left);
+    if (!Number.isFinite(gauche)) gauche = m.getBoundingClientRect().left;
+    if (gauche + m.offsetWidth > window.innerWidth - marge || gauche < marge) {
+        m.style.left = Math.max(marge, window.innerWidth - marge - m.offsetWidth) + 'px';
+    }
     // Tout ce qui ne défile pas : la poignée du titre, l'aperçu, les boutons.
     const fixe = m.offsetHeight - reglages.offsetHeight;
     let haut = parseFloat(m.style.top);
@@ -22574,6 +22651,39 @@ function poserLaBoiteDansLEcran() {
     }
 }
 window.poserLaBoiteDansLEcran = poserLaBoiteDansLEcran;
+
+// ON RÉTRÉCIT LA FENÊTRE DU NAVIGATEUR, ET TOUT RESTE ATTEIGNABLE.
+//
+// Rien ne suivait : la boîte de réglages gardait son « top » d'avant, et les
+// fenêtres des outils leur place — celles qui tenaient tout juste se
+// retrouvaient dehors, barre de titre comprise. Cela arrive pour de vrai : on
+// branche le vidéoprojecteur et la résolution change, on fait pivoter une
+// tablette, on partage l'écran en deux.
+//
+// UNE IMAGE D'ATTENTE : un redimensionnement au pointeur envoie des dizaines
+// d'événements par seconde, et replacer dix fenêtres à chacun ferait un
+// tremblement. Et l'on ne touche qu'à ce qui est PERDU — jamais à une fenêtre
+// que le professeur a posée là où il la voulait.
+if (typeof window !== 'undefined') {
+    let replacementEnAttente = false;
+    window.addEventListener('resize', () => {
+        if (replacementEnAttente) return;
+        replacementEnAttente = true;
+        requestAnimationFrame(() => {
+            replacementEnAttente = false;
+            if (typeof poserLaBoiteDansLEcran === 'function') poserLaBoiteDansLEcran();
+            if (typeof ramenerFenetreDansLecran !== 'function') return;
+            document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+                if (!f.getClientRects().length) return;
+                const b = f.getBoundingClientRect();
+                const perdue = b.top < 0 || b.left < 0
+                    || b.bottom > window.innerHeight || b.right > window.innerWidth
+                    || b.height > window.innerHeight - 8 || b.width > window.innerWidth - 8;
+                if (perdue) ramenerFenetreDansLecran(f);
+            });
+        });
+    });
+}
 
 function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     annulerLaBoite = onCancel || annulerModePlugin;
@@ -22695,7 +22805,20 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
                         dot.style.boxShadow = '0 2px 4px rgba(0,0,0,0.15)';
                     }
 
-                    dot.onclick = () => { inp.value = c; renderSwatches(); inp.dispatchEvent(new Event('input')); };
+                    // ELLE DIT SA COULEUR, ET ELLE RÉPOND AU CLAVIER. Un rond de
+                    // vingt-six pixels sans nom ne dit rien à qui ne voit pas
+                    // bien, et rien du tout à un lecteur d'écran.
+                    const nom = (typeof nommerLaCouleur === 'function') ? nommerLaCouleur(c) : c;
+                    dot.title = nom;
+                    dot.setAttribute('aria-label', nom);
+                    dot.setAttribute('role', 'button');
+                    dot.tabIndex = 0;
+                    if (c.toLowerCase() === inp.value.toLowerCase()) dot.setAttribute('aria-pressed', 'true');
+                    const choisir = () => { inp.value = c; renderSwatches(); inp.dispatchEvent(new Event('input')); };
+                    dot.onclick = choisir;
+                    dot.onkeydown = (ev) => {
+                        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); choisir(); }
+                    };
                     colorWrap.insertBefore(dot, wheelBtn);
                 });
             };
@@ -22706,7 +22829,15 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             wheelBtn.style.background = 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)';
             wheelBtn.style.cursor = 'pointer';
             wheelBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.15)';
+            // La roue non plus ne disait pas ce qu'elle fait.
+            wheelBtn.title = 'Choisir une autre couleur';
+            wheelBtn.setAttribute('aria-label', 'Choisir une autre couleur');
+            wheelBtn.setAttribute('role', 'button');
+            wheelBtn.tabIndex = 0;
             wheelBtn.onclick = () => inp.click();
+            wheelBtn.onkeydown = (ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); inp.click(); }
+            };
 
             inp.addEventListener('input', () => {
                 renderSwatches();
@@ -22830,6 +22961,103 @@ window.addEventListener('keydown', (e) => {
     boite.style.display = 'none';
     refermerLaBoite();
 }, true);
+
+// ==================================================================
+// ÉCHAP FERME LA FENÊTRE DE DEVANT — quand Échap n'a rien d'autre à faire
+// ==================================================================
+// Mesuré sur les quatre-vingt-sept outils : Échap refermait ce qu'ouvraient
+// soixante-quatre d'entre eux, et SEIZE résistaient — les palettes de
+// « Mains & comptage », de « Tuiles algébriques », de « Réglettes », les
+// constructeurs du graphique et du tableau de proportionnalité, les quatre
+// Studios, la frise, les cartes… Chacun de ces outils avait, ou n'avait pas,
+// pensé à écouter la touche : soixante-quatre décisions séparées pour un geste
+// que tout le monde connaît. « Je veux une cohérence absolue. »
+//
+// LA FENÊTRE DE DEVANT, ET SA PROPRE CROIX. On ne cache pas la fenêtre : on
+// appuie sur la croix de sa barre de titre, celle qui sait ce que « fermer »
+// veut dire pour cet outil-là — rendre un tampon, arrêter un minuteur, ranger
+// une télécommande. La barre commune l'a déjà reliée à tout cela.
+//
+// ET SEULEMENT SI ÉCHAP N'A RIEN FAIT D'AUTRE, ce qui est toute la difficulté :
+// la même touche quitte le mode laser, annule un tampon en attente, referme un
+// menu, vide un champ de recherche. Les gestionnaires qui traitent la touche
+// arrêtent la propagation — celui-ci, posé en phase de REMONTÉE, ne les voit
+// donc jamais. Mais le tableau, lui, quitte le mode laser sans rien arrêter :
+// on relève l'état AVANT (en phase de capture) et l'on ne ferme que si rien
+// n'a bougé. Un geste, une conséquence.
+function fenetresOuvertesDeDevant() {
+    const vues = [];
+    document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+        if (!f.getClientRects().length) return;
+        const s = getComputedStyle(f);
+        if (s.visibility === 'hidden' || parseFloat(s.opacity || '1') < 0.05) return;
+        const croix = f.querySelector(':scope > .fen-tete .fen-fermer');
+        if (!croix) return;
+        const porteur = (typeof porteurDeLEtage === 'function') ? porteurDeLEtage(f) : f;
+        const etage = parseInt(getComputedStyle(porteur).zIndex, 10);
+        vues.push({ croix, etage: isNaN(etage) ? 0 : etage });
+    });
+    return vues.sort((a, b) => b.etage - a.etage);
+}
+
+// « EST-CE QU'ÉCHAP A FAIT QUELQUE CHOSE ? » On ne peut pas le demander au
+// navigateur : « preventDefault » dit qu'on a réclamé la touche, pas qu'on s'en
+// est servi — la bibliothèque de formules la réclame en permanence, même quand
+// le curseur n'est pas dans la formule, et la fenêtre des formules serait donc
+// la seule qu'Échap ne fermerait jamais. On prend donc une empreinte de ce qui
+// est ouvert AVANT, et l'on regarde APRÈS : le mode du tableau, un tampon en
+// attente, un menu, le mode sans distraction, une fenêtre en plein écran, et le
+// nombre de choses posées par-dessus la page. Si l'une a bougé, la touche avait
+// déjà un travail.
+function empreinteDEchap() {
+    let calques = 0;
+    document.querySelectorAll('body > *').forEach(el => {
+        if (!el.getClientRects || !el.getClientRects().length) return;
+        const s = getComputedStyle(el);
+        if (s.position !== 'fixed' && s.position !== 'absolute') return;
+        if (s.visibility === 'hidden') return;
+        const b = el.getBoundingClientRect();
+        if (b.width < 100 || b.height < 80) return;
+        calques++;
+    });
+    return [
+        (typeof mode !== 'undefined') ? mode : '',
+        (typeof hasPendingStamp === 'function' && hasPendingStamp()) ? 'tampon' : '',
+        (typeof unMenuEstOuvert === 'function' && unMenuEstOuvert()) ? 'menu' : '',
+        document.body.classList.contains('focus-mode') ? 'sansDistraction' : '',
+        document.querySelectorAll('.fen-pleine').length,
+        calques,
+        fenetresOuvertesDeDevant().length
+    ].join('|');
+}
+
+let empreinteAvantEchap = null;
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    empreinteAvantEchap = empreinteDEchap();
+}, true);
+
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const avant = empreinteAvantEchap;
+    empreinteAvantEchap = null;
+    if (avant === null) return;             // un autre a arrêté la touche en route
+    // UNE QUESTION QU'IL FAUT RÉPONDRE NE S'ESCAMOTE PAS. « Reprendre la séance
+    // d'hier ? » n'a pas de « plus tard » : escamotée, elle laisse le tableau
+    // sans page, et un fichier lâché dessus se pose sur des pages que personne
+    // n'a ouvertes. C'est une épreuve écrite de longue date qui a rattrapé la
+    // règle partagée le jour où elle est arrivée — elle avait raison.
+    if (typeof unEcranDeDepartEstLa === 'function' && unEcranDeDepartEstLa()) return;
+    // ON NE FERME JAMAIS SOUS LES DOIGTS DE QUELQU'UN QUI ÉCRIT. Échap, dans un
+    // champ, veut dire « oublie ce que je viens de taper », pas « jette la
+    // fenêtre et tout ce qu'elle contient ».
+    const ou = document.activeElement;
+    if (ou && (ou.isContentEditable || /^(INPUT|TEXTAREA|SELECT|MATH-FIELD)$/.test(ou.tagName))) return;
+    if (empreinteDEchap() !== avant) return;
+    const ouvertes = fenetresOuvertesDeDevant();
+    if (!ouvertes.length) return;
+    ouvertes[0].croix.click();
+});
 // =========================================================
 // GESTION DU DOCK (INJECTION DYNAMIQUE 100% SÉCURISÉE)
 // =========================================================
