@@ -1088,6 +1088,88 @@ module.exports = async function (browser) {
     r.verifie('et son fond est plein : rien ne transparaît dessous',
         loupeOuverte.opaque, loupeOuverte.fond);
 
+    // ------------------------------------------------------------------
+    // ON ATTRAPE UN OUTIL D'UN GESTE VIF, ET NON EN ATTENDANT
+    // ------------------------------------------------------------------
+    // « Évite les appuis longs et courts : aucun geste distingué par sa DURÉE. »
+    // Il y avait pourtant un « setTimeout(…, 400) » sur les quatre-vingt-sept
+    // boutons de la grille, et bouger avant le délai l'annulait : un appui de
+    // 120 ms suivi d'un glissement de 60 px ne faisait RIEN. Le professeur qui
+    // attrape une icône d'un geste vif pour la poser dans sa barre n'obtenait
+    // rien, sans savoir pourquoi.
+    //
+    // CE QUI DÉCIDE EST UNE DISTANCE — huit pixels —, et une distance se
+    // mesure : trois pixels n'arrachent pas l'icône, neuf l'arrachent, et le
+    // temps passé ne change rien à l'affaire. C'est aussi pour cela qu'on
+    // déplace la souris D'UN SEUL PAS : un glissement en plusieurs pas prend
+    // assez de temps pour qu'un délai de 400 ms paraisse marcher, et
+    // l'épreuve dirait le contraire de ce qu'elle croit dire.
+    // ON DÉGAGE D'ABORD LE TIROIR. Le chapitre a ouvert des dizaines d'outils
+    // avant d'arriver ici, et l'un d'eux tendait sa barre de titre juste
+    // au-dessus de la grille : le premier relevé disait « rien n'est attrapé »
+    // alors que le pointeur tombait sur « fen-tete ». Il ne disait pas faux, il
+    // ne parlait pas de ce qu'on croyait.
+    await page.evaluate(() => {
+        document.querySelectorAll('body > *').forEach(el => {
+            if (['plugins-grid', 'thumbnail-drawer', 'custom-bars-container',
+                 'html-postits-container'].includes(el.id)) return;
+            if (el.closest('#board, .toolbar, .drawer')) return;
+            const s = getComputedStyle(el);
+            if (s.display === 'none') return;
+            if (s.position !== 'fixed' && s.position !== 'absolute') return;
+            if (el.getBoundingClientRect().width < 150) return;
+            el.style.display = 'none';
+        });
+    });
+    const attraper = async (dx) => {
+        const ou = await page.evaluate(() => {
+            const g = document.getElementById('plugins-grid');
+            g.style.display = 'grid';
+            const b = [...g.querySelectorAll('.btn')]
+                .find(x => getComputedStyle(x).display !== 'none'
+                        && x.getBoundingClientRect().width > 8);
+            if (!b) return null;
+            draggedPluginTool = null; outilArme = null;
+            const r = b.getBoundingClientRect();
+            const x = r.left + r.width / 2, y = r.top + r.height / 2;
+            // ET L'ON VÉRIFIE QUE L'ICÔNE REÇOIT VRAIMENT LE POINTEUR. Un
+            // bouton peut avoir une boîte et rester hors d'atteinte — recouvert,
+            // ou rogné par un tiroir replié. Sans cela, l'épreuve dirait « le
+            // geste vif ne prend pas » là où personne n'a été touché.
+            const sous = document.elementFromPoint(x, y);
+            return { x, y, visee: !!(sous && sous.closest('.btn') === b),
+                     qui: sous ? String(sous.id || (typeof sous.className === 'string'
+                         ? sous.className : '') || sous.tagName) : 'personne' };
+        });
+        if (!ou) return { pris: false, arme: false, sansBouton: true };
+        await page.mouse.move(ou.x, ou.y);
+        await page.mouse.down();
+        const arme = await page.evaluate(() => !!outilArme);
+        await page.mouse.move(ou.x + dx, ou.y);         // un seul pas : le geste est vif
+        const lu = await page.evaluate(() => ({ pris: !!draggedPluginTool }));
+        lu.arme = arme; lu.visee = ou.visee; lu.qui = ou.qui;
+        // ON DÉSARME AVANT DE RELÂCHER : lâcher un outil vraiment attrapé le
+        // poserait quelque part, et la suite du chapitre travaillerait sur un
+        // tableau qu'on n'a pas voulu.
+        await page.evaluate(() => {
+            draggedPluginTool = null; outilArme = null;
+            if (window.dragGhost) dragGhost.style.display = 'none';
+        });
+        await page.mouse.up();
+        return lu;
+    };
+    const vif = await attraper(60);
+    r.verifie('l\'outil s\'arme au contact, sans délai',
+        vif.arme, JSON.stringify(vif));
+    r.verifie('et un geste vif suffit à l\'attraper : rien à attendre',
+        vif.pris, JSON.stringify(vif));
+    const troisPixels = await attraper(3);
+    r.verifie('mais trois pixels n\'arrachent rien : un appui reste un appui',
+        troisPixels.arme && !troisPixels.pris, JSON.stringify(troisPixels));
+    const neufPixels = await attraper(9);
+    r.verifie('et neuf pixels l\'arrachent : c\'est la distance qui décide',
+        neufPixels.pris, JSON.stringify(neufPixels));
+
     await context.close();
     return r.bilan();
 };

@@ -26,8 +26,16 @@ const { creerRapport, ouvrirApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Le cahier dans la grille');
+    // ON SE PLACE UN MERCREDI — mercredi 13 mai 2026, midi à Paris.
+    //
+    // « aujourd'hui est marqué, et lui seul » ne pouvait être vrai qu'en semaine :
+    // la grille va du lundi au vendredi, et le samedi cette épreuve accusait le
+    // tableau d'avoir perdu le repère du jour alors qu'il n'y avait tout
+    // simplement pas de colonne à marquer. Une heure fixe, un jour d'école, et
+    // le chapitre dit la même chose les sept jours de la semaine.
     const { page, context, erreurs } = await ouvrirApp(browser,
-        { viewport: { width: 1600, height: 1000 }, fuseau: 'Europe/Paris' });
+        { viewport: { width: 1600, height: 1000 }, fuseau: 'Europe/Paris',
+          jour: '2026-05-13T10:00:00Z' });
 
     // Un emploi du temps simple, posé à la main : ce chapitre ne parle pas de
     // l'import, il parle de ce qu'on écrit dans la grille.

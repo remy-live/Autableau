@@ -57,6 +57,20 @@ async function ouvrirApp(browser, options = {}) {
         // semaines A et B en dépend — demande un vrai fuseau.
         ...(options.fuseau ? { timezoneId: options.fuseau } : {})
     });
+    // UNE ÉPREUVE NE DOIT PAS DÉPENDRE DU JOUR OÙ ON LA LANCE.
+    //
+    // Le chapitre 67 vérifie qu'« aujourd'hui est marqué » dans la grille de la
+    // semaine. Il passait du lundi au vendredi et tombait le samedi et le
+    // dimanche : la grille n'a pas de colonne pour le week-end, donc aucune
+    // n'est « aujourd'hui », et l'épreuve accusait le tableau d'un défaut qu'il
+    // n'avait pas. Ce n'est pas une épreuve fragile qu'on tolère, c'est une
+    // épreuve qui ne disait vrai que cinq jours sur sept.
+    //
+    // « jour » fixe donc l'horloge de la page — « setFixedTime » arrête les
+    // dates, PAS les minuteries, et le tableau continue de vivre normalement.
+    // On ne neutralise pas le contrôle en acceptant zéro le samedi : on se place
+    // un jour d'école, et le contrôle reste entier tous les jours de l'année.
+    if (options.jour) await context.clock.setFixedTime(new Date(options.jour));
     const page = await context.newPage();
     // L'astuce du jour s'ouvre 2,5 s après le chargement et intercepte les
     // clics : on la désactive partout, sauf pour la suite qui la teste.

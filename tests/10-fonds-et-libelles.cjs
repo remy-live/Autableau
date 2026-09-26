@@ -136,10 +136,25 @@ module.exports = async function (browser) {
         return { m, errs };
     };
 
+    // LES NOMS SONT LÀ D'EMBLÉE.
+    //
+    // « On peut mettre les noms déjà sous les plugins. » Tout était construit
+    // — la table des noms courts, l'interrupteur, la pastille de la barre du
+    // bas — mais éteint par défaut, et personne ne va chercher un réglage
+    // dont il ignore l'existence. Quatre-vingt-sept icônes sans un mot, c'est
+    // quatre-vingt-sept outils qu'on n'ouvre pas.
+    //
+    // Ce qui change est le DÉFAUT, pas la liberté : l'interrupteur reste, et
+    // le choix de qui préfère les icônes seules est retenu (vérifié plus bas).
     const parDefaut = await mesurerGrille('');
-    r.verifie('sans paramètre : aucun libellé', !parDefaut.m.classe && parDefaut.m.largeurBouton <= 44,
+    r.verifie('sans rien demander : le nom est sous l\'icône',
+        parDefaut.m.classe && /Fraction|Matériel|Tableau|Axe|Formules/.test(parDefaut.m.libelle || ''),
         JSON.stringify(parDefaut.m));
-    r.verifie('sans paramètre : le bouton garde sa taille', parDefaut.m.hauteurBouton <= 44, `${parDefaut.m.hauteurBouton} px`);
+    r.verifie('et le bouton s\'agrandit juste ce qu\'il faut',
+        parDefaut.m.hauteurBouton > 44 && parDefaut.m.hauteurBouton <= 56,
+        `${parDefaut.m.hauteurBouton} px`);
+    r.verifie('sans déborder de la grille',
+        !parDefaut.m.debordeBas && !parDefaut.m.debordeDroite, JSON.stringify(parDefaut.m));
 
     const avecLibelles = await mesurerGrille('?libelles');
     r.verifie('« ?libelles » : le nom apparaît sous l\'icône',
@@ -190,23 +205,34 @@ module.exports = async function (browser) {
         await pageP.waitForTimeout(250);
     };
 
+    // L'INTERRUPTEUR PART DÉSORMAIS D'« ALLUMÉ », et c'est tout ce qui change :
+    // il fait toujours l'aller et le retour, et n'a jamais tenu que deux états.
     const depart = await etat();
-    r.verifie('au démarrage, pas de libellés', !depart.actif && !depart.pastille, JSON.stringify(depart));
+    r.verifie('au démarrage, les noms sont là', depart.actif && depart.pastille,
+        JSON.stringify(depart));
     await cliquer();
     const un = await etat();
-    r.verifie('un clic : les noms apparaissent', un.actif && !un.couleur && un.pastille, JSON.stringify(un));
+    r.verifie('un clic : les noms s\'en vont', !un.actif && !un.couleur && !un.pastille,
+        JSON.stringify(un));
     await cliquer();
     const deux = await etat();
-    r.verifie('deux clics : les noms s\'en vont', !deux.actif && !deux.pastille, JSON.stringify(deux));
+    r.verifie('deux clics : ils reviennent', deux.actif && deux.pastille, JSON.stringify(deux));
     r.verifie('et l\'on ne retombe jamais sur les couleurs de rubrique',
         !un.couleur && !deux.couleur, JSON.stringify({ un, deux }));
 
-    await cliquer();                 // on repart avec les noms, et l'on recharge
+    // ET LE CHOIX DE QUI PRÉFÈRE LES ICÔNES SEULES EST RETENU. C'est la
+    // contrepartie d'un défaut qu'on allume : il ne doit pas revenir se
+    // rallumer tout seul à chaque ouverture.
+    await cliquer();                 // on éteint, et l'on recharge
     await pageP.reload();
     await pageP.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
     await pageP.waitForTimeout(600);
     const apresRechargement = await etat();
-    r.verifie('le réglage survit au rechargement', apresRechargement.actif, JSON.stringify(apresRechargement));
+    r.verifie('« icônes seules » survit au rechargement',
+        !apresRechargement.actif && apresRechargement.memoire === 'non',
+        JSON.stringify(apresRechargement));
+    // On remet les noms pour la suite du chapitre.
+    await cliquer();
 
     // Un bloc de deux ou trois rangées, pas une bande d'un bout à l'autre
     await pageP.evaluate(() => {

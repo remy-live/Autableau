@@ -6613,6 +6613,19 @@ body.libelles-outils #plugins-grid {
     overflow-y: auto;
 }
 
+/* UNE RUBRIQUE VIDE GARDE LA HAUTEUR D'UNE RANGÉE, et une rangée mesure
+   désormais 48 px, pas 32 : sous les icônes, il y a un nom. Sans cela, les
+   Favoris d'un professeur qui n'en a pas encore choisi font sauter le tiroir
+   d'un cran, et le glisser-déposer n'a plus où viser.
+
+   ET IL FAUT LES DEUX IDENTIFIANTS. La règle d'origine s'écrit
+   « #bar-plugins #plugins-grid » : deux identifiants, que « body.libelles-outils
+   #plugins-grid » — un identifiant, une classe — ne bat pas. Posée dans le bloc
+   du dessus, la consigne était bel et bien écrite, lue, et perdue : la grille
+   vide mesurait 32 px. C'est le piège habituel de la cascade, et il ne se voit
+   qu'en mesurant la grille, jamais en relisant la feuille de style. */
+body.libelles-outils #bar-plugins #plugins-grid { min-height: 48px; }
+
 body.libelles-outils #plugins-grid .btn {
     flex-direction: column !important;
     justify-content: flex-start !important;
@@ -8923,6 +8936,16 @@ body.focus-mode #edt-bandeau { display: none; }
     -webkit-backdrop-filter: none !important;
     pointer-events: none !important;
     opacity: 1 !important;
+    /* UNE FENÊTRE TROP GRANDE SE POSE EN HAUT, ELLE NE SE CENTRE PAS.
+       Le voile centre sa boîte. Quand la fenêtre est plus haute que l'écran,
+       « center » lui donne un haut NÉGATIF : mesuré, Studio Évolution se pose
+       à y = −43 sur un écran de 600 px, et sa barre de titre occupe alors
+       y = −42 à −8. Elle est hors de l'écran, croix comprise : plus moyen de
+       fermer ni de déplacer, et Échap n'y peut rien.
+       « safe » est le mot que CSS a pour cela : centre tant que ça tient,
+       aligne au début dès que ça déborde. On ne perd jamais le haut. */
+    align-items: safe center !important;
+    justify-content: safe center !important;
 }
 
 /* Le voile ne prend plus les clics ; ce qu'il porte, si. */

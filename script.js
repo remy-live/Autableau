@@ -6428,22 +6428,18 @@ function moveDragGhost(x, y) {
 // par leur durée mais par ce qu'ils font : tenir sans bouger règle l'outil,
 // tenir et glisser le déplace.
 //
-// L'outil armé est unique : on n'a qu'un doigt sur une icône à la fois, et
-// l'appui long des réglages doit pouvoir le désarmer quand il ouvre son
-// panneau.
+// L'outil armé est unique : on n'a qu'un doigt sur une icône à la fois.
 let outilArme = null;
-// Trois pixels de tremblement ne sont pas un déplacement : sur un tableau
-// tactile, un doigt posé ne tient jamais parfaitement immobile.
-const SEUIL_DE_DEPART_DOUTIL = 6;
-
-function desarmerLeGlisserDOutil() { outilArme = null; }
+// Quelques pixels de tremblement ne sont pas un déplacement : sur un tableau
+// tactile, un doigt posé ne tient jamais parfaitement immobile. Huit pixels,
+// comme partout ailleurs dans l'application.
+const SEUIL_DE_DEPART_DOUTIL = 8;
 
 function bindPluginDragGhost(button, toolId) {
     if (!button || button.dataset.dragGhostBound === 'true') return;
     button.dataset.dragGhostBound = 'true';
     button.removeAttribute('draggable');
 
-    let holdTimer = null;
     button.addEventListener('pointerdown', (e) => {
         if (e.button !== 0 || e.target.closest('.fav-star')) return;
 
@@ -6467,17 +6463,25 @@ function bindPluginDragGhost(button, toolId) {
         }
 
         e.stopPropagation();
-        clearTimeout(holdTimer);
-        outilArme = null;
-        holdTimer = setTimeout(() => {
-            // Armé, et rien de plus : c'est le premier vrai déplacement qui
-            // sort le fantôme (voir « partir », plus bas).
-            outilArme = {
-                bouton: button, isCopy,
-                depart: { x: e.clientX, y: e.clientY },
-                outil: { id: normalizedId, el: button, source: sourceContainer, sourceKind, sourceToolbarId, isCopy }
-            };
-        }, 400);
+        // L'OUTIL S'ARME AU CONTACT, PAS AU BOUT DE QUATRE CENTS MILLISECONDES.
+        //
+        // « Évite les appuis longs et courts : aucun geste distingué par sa
+        // DURÉE. » C'était pourtant un « setTimeout(…, 400) » posé ici, sur
+        // les quatre-vingt-sept boutons de la grille — et bouger avant le
+        // délai l'annulait. Mesuré : un appui de 120 ms suivi d'un glissement
+        // de 60 px ne faisait RIEN. Le professeur qui attrape une icône d'un
+        // geste vif pour la poser dans sa barre n'obtenait rien, sans savoir
+        // pourquoi ; il croyait l'application en panne.
+        //
+        // Armé, et rien de plus : c'est le premier vrai déplacement — huit
+        // pixels, une DISTANCE — qui sort le fantôme (voir « partir »). Rien
+        // ne défile au glissement dans cette zone : la distance ne vole donc
+        // aucun autre geste.
+        outilArme = {
+            bouton: button, isCopy,
+            depart: { x: e.clientX, y: e.clientY },
+            outil: { id: normalizedId, el: button, source: sourceContainer, sourceKind, sourceToolbarId, isCopy }
+        };
     });
 
     const partir = (e) => {
@@ -6495,12 +6499,7 @@ function bindPluginDragGhost(button, toolId) {
     };
     window.addEventListener('pointermove', partir);
 
-    button.addEventListener('pointermove', () => {
-        if (!draggedPluginTool && !outilArme) clearTimeout(holdTimer);
-    });
-
     const clearHold = () => {
-        clearTimeout(holdTimer);
         if (outilArme && outilArme.bouton === button) outilArme = null;
         if (!draggedPluginTool) button.classList.remove('is-held');
     };
@@ -21494,8 +21493,21 @@ function boiteDeLaModale(voile) {
         if (s2.display === 'none' || s2.visibility === 'hidden') continue;
         const r = n.getBoundingClientRect();
         if (r.width < 150 || r.height < 70) continue;
-        // Le voile couvre l'écran ; sa boîte, non.
-        if (r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2) continue;
+        // ON COMPARE LA BOÎTE AU VOILE, ET NON À L'ÉCRAN.
+        //
+        // La règle disait : « le voile couvre l'écran, sa boîte non », et elle
+        // écartait donc tout enfant aussi grand que l'écran. Sur un petit
+        // écran, une grande fenêtre est plus grande que l'écran : Tableau
+        // Studio fait 1050 × 620 pour un écran de 1024 × 600. Elle n'était
+        // donc PAS reconnue — pas de barre de titre, pas de croix, et surtout
+        // le voile restait entier : noir à quarante pour cent, flouté, prenant
+        // les clics, à l'étage 2 147 483 647. Tout le tableau bloqué.
+        //
+        // Ce qu'on voulait écarter, c'est un calque qui double le voile — et
+        // celui-là a EXACTEMENT la taille du voile. Une fenêtre, même trop
+        // grande pour l'écran, ne l'a jamais.
+        const rv = voile.getBoundingClientRect();
+        if (Math.abs(r.width - rv.width) < 2 && Math.abs(r.height - rv.height) < 2) continue;
         return n;
     }
     return null;
@@ -22005,6 +22017,47 @@ function equiperVraiment(el, cle, options) {
     if (porteurDeLEtage(el) === el) el.style.zIndex = String(FEN_Z_BAS);
     el.addEventListener('pointerdown', () => passerDevant(el), true);
 
+    // ET ELLE NAÎT DANS L'ÉCRAN.
+    //
+    // « Sa barre de titre est à y = −42 » : mesuré sur quatre Studios à
+    // 1024 × 600. Une fenêtre plus haute que l'écran, centrée, se pose avec un
+    // haut négatif — barre de titre et croix au-dessus du bord, hors
+    // d'atteinte. Plus moyen de fermer, ni de déplacer, et Échap n'y peut
+    // rien : l'outil devient un cul-de-sac au milieu d'un cours.
+    //
+    // La fonction qui rattrape cela existait déjà ; elle n'était simplement
+    // appelée par personne ici. Le rendez-vous est repoussé d'une image :
+    // certaines fenêtres se dimensionnent juste après leur naissance.
+    //
+    // ET SEULEMENT SI LE HAUT EST PERDU. Appelée sur toute fenêtre équipée,
+    // elle faisait du dégât : le panneau du papier s'ancre sous son bouton et
+    // tenait très bien à 106 px du haut — la ramener « dans l'écran » le
+    // collait à 8 px et le faisait déborder de 36. Un panneau ancré n'est pas
+    // une fenêtre perdue. On ne corrige donc que le défaut qu'on a mesuré :
+    // une barre de titre au-dessus du bord, ou une fenêtre plus grande que
+    // l'écran — jamais une fenêtre qu'on a simplement déplacée.
+    //
+    // UNE SEULE IMAGE NE SUFFIT PAS, ET C'EST LA MESURE QUI L'A DIT. Ouvert
+    // depuis la grille des outils, Évolution Studio se reposait à y = −43 avec
+    // une barre de titre hors d'atteinte : au rendez-vous de l'image suivante,
+    // sa fenêtre n'avait pas encore sa taille — le haut était encore positif,
+    // le contrôle passait, et le contenu arrivait après. Le même outil ouvert
+    // par son verbe tombait juste. Un défaut qui dépend de la seconde où on
+    // regarde ne se corrige pas en regardant une fois : on SURVEILLE la taille.
+    // Le rattrapage réduit la fenêtre, donc le signal se tarit de lui-même.
+    const fenetrePerdue = () => {
+        const b = el.getBoundingClientRect();
+        if (!b.width && !b.height) return false;          // repliée : rien à ramener
+        return b.top < 0 || b.height > window.innerHeight - 8 || b.width > window.innerWidth - 8;
+    };
+    const rattraperLaFenetre = () => {
+        if (!el.isConnected || typeof ramenerFenetreDansLecran !== 'function') return;
+        if (!fenetrePerdue()) return;
+        ramenerFenetreDansLecran(el);
+    };
+    requestAnimationFrame(rattraperLaFenetre);
+    if (typeof ResizeObserver === 'function') new ResizeObserver(rattraperLaFenetre).observe(el);
+
     const bouton = tete.querySelector('.fen-plein');
     const poignee = outils.querySelector('.fen-poignee');
     const bouger = tete;          // la barre entière déplace, pas un carré de 22 px
@@ -22184,8 +22237,28 @@ function ramenerFenetreDansLecran(el) {
     const marge = 8;
     // Une fenêtre agrandie à la main garde sa taille : la borne ne s'applique
     // qu'à celles qui n'ont pas été touchées.
-    if (!el.style.width) el.style.maxWidth = 'calc(100vw - 16px)';
-    if (!el.style.height) el.style.maxHeight = 'calc(100vh - 16px)';
+    //
+    // MAIS UNE FENÊTRE PLUS GRANDE QUE L'ÉCRAN EST BORNÉE DANS TOUS LES CAS,
+    // taille écrite en dur comprise. Les quatre Studios se donnent 950 × 650
+    // dans leur style en ligne : sur un vidéoprojecteur en 1024 × 600, cela
+    // les fait déborder des deux côtés à la fois, et le centrage leur donne
+    // alors un haut NÉGATIF. Garder une taille qu'on ne peut pas afficher
+    // n'est pas respecter un choix, c'est rendre l'outil inutilisable.
+    const trop = el.getBoundingClientRect();
+    const borneL = !el.style.width || trop.width > window.innerWidth - 16;
+    const borneH = !el.style.height || trop.height > window.innerHeight - 16;
+    if (borneL) el.style.maxWidth = 'calc(100vw - 16px)';
+    if (borneH) el.style.maxHeight = 'calc(100vh - 16px)';
+    // ET LA BORNE DOIT COMPTER LE CADRE, sinon elle ne borne rien.
+    //
+    // Mesuré sur les quatre Studios à 1024 × 600 : « max-height » calculée à
+    // 584 px, fenêtre mesurée à 620. C'est juste : « max-height » borne la
+    // BOÎTE DE CONTENU tant que « box-sizing » vaut « content-box », et la
+    // barre de titre (34 px de remplissage en haut) plus les deux bordures
+    // s'ajoutent PAR-DESSUS la borne. La fenêtre pendait donc encore
+    // vingt-huit pixels sous le bord de l'écran, et l'on aurait pu relire la
+    // règle dix fois sans le voir — seule la mesure le dit.
+    if (borneL || borneH) el.style.boxSizing = 'border-box';
     const b = el.getBoundingClientRect();
     const gauche = Math.max(marge, Math.min(b.left, window.innerWidth - b.width - marge));
     const haut = Math.max(marge, Math.min(b.top, window.innerHeight - b.height - marge));
@@ -41363,13 +41436,29 @@ function equilibrerGrillePlugins() {
     // Le réglage se garde d'une fois sur l'autre ; l'adresse ?libelles=... reste
     // utile pour montrer l'essai à quelqu'un sans toucher à ses réglages.
     const CLE = 'board_libelles';
+    // LES NOMS SONT ÉCRITS D'EMBLÉE.
+    //
+    // « On peut mettre les noms déjà sous les plugins. » Tout était construit
+    // — la table des noms courts, l'interrupteur, la pastille de la barre du
+    // bas — mais éteint par défaut, et personne ne va chercher un réglage
+    // dont il ignore l'existence. Quatre-vingt-sept icônes sans un mot, c'est
+    // quatre-vingt-sept outils qu'on n'ouvre pas.
+    //
+    // Mesuré : les 87 reçoivent un nom, aucun n'est coupé. Qui préfère les
+    // icônes seules garde l'interrupteur sous la main, et son choix est
+    // retenu — c'est le DÉFAUT qui change, pas la liberté.
     const ETATS = ['non', 'oui', 'couleur'];
-    let valeur = 'non';
+    let valeur = 'oui';
     try {
         const params = new URLSearchParams(window.location.search);
         if (params.has('libelles')) valeur = params.get('libelles') || 'oui';
-        else valeur = localStorage.getItem(CLE) || 'non';
-    } catch (e) { valeur = 'non'; }
+        else {
+            // « null » veut dire « jamais choisi » : on met les noms. Une
+            // chaîne vide voudrait dire « choisi, et c'est non ».
+            const garde = localStorage.getItem(CLE);
+            valeur = (garde === null) ? 'oui' : (garde || 'non');
+        }
+    } catch (e) { valeur = 'oui'; }
     if (valeur === 'couleurs') valeur = 'couleur';
     if (!ETATS.includes(valeur)) valeur = 'oui';
 
@@ -41431,6 +41520,14 @@ function equilibrerGrillePlugins() {
             pastille.classList.toggle('active', valeur !== 'non');
             pastille.classList.toggle('allume', valeur !== 'non');
         }
+        // ET L'INTERRUPTEUR DIT LA MÊME CHOSE QUE LA GRILLE.
+        //
+        // Il ne se mettait à jour qu'au moment où l'on s'en servait : au
+        // démarrage, les noms étaient écrits sous les icônes et la commande
+        // qui les gouverne paraissait éteinte. Deux endroits qui répondent
+        // autrement à la même question, c'est exactement ce qu'on ne veut pas.
+        try { if (typeof majReglagesBarre === 'function') majReglagesBarre(); }
+        catch (e) { /* les réglages ne sont pas encore nés : voir « poser » */ }
         if (valeur !== 'non') nommer();
     };
 
@@ -41442,7 +41539,16 @@ function equilibrerGrillePlugins() {
             new MutationObserver(() => { if (valeur !== 'non') nommer(); })
                 .observe(grille, { childList: true, subtree: true });
         }
-        window.addEventListener('load', () => setTimeout(() => { if (valeur !== 'non') nommer(); }, 300));
+        window.addEventListener('load', () => setTimeout(() => {
+            if (valeur !== 'non') nommer();
+            // ET L'INTERRUPTEUR DIT LA MÊME CHOSE QUE LA GRILLE. Au premier
+            // passage il est trop tôt — les réglages qu'il lit ne sont pas
+            // encore nés. Ici, tout est là : les noms sont sous les icônes ET
+            // la commande qui les gouverne est allumée. Deux endroits qui
+            // répondaient autrement à la même question, c'est exactement ce
+            // qu'on ne veut pas.
+            if (typeof majReglagesBarre === 'function') majReglagesBarre();
+        }, 300));
     };
     if (document.body) poser();
     else document.addEventListener('DOMContentLoaded', poser);
