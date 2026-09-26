@@ -4235,6 +4235,26 @@ body.dark-mode {
     border-color: #a29bfe;
 }
 
+/* LA BOÎTE DE RÉGLAGES DES TAMPONS N'AVAIT PAS DE NUIT.
+   Elle porte son fond BLANC écrit en ligne dans la page, et ses étiquettes
+   passent au gris clair quand le tableau passe en sombre — « Numérateur »,
+   « Centaines », « Type de Solide » : #b2bec3 sur du blanc, 1,90:1. Mesuré sur
+   les quatre-vingt-sept outils la nuit : quarante-quatre étiquettes illisibles,
+   toutes issues de cette seule boîte, plus les deux boutons du bas qui
+   n'avaient plus de fond à eux. C'est le sens même de « une cause partagée » :
+   une ligne de feuille de style, et quarante-six défauts s'en vont.
+   « !important » n'est pas un caprice : ces fonds sont écrits EN LIGNE, et rien
+   d'autre ne les bat. Le gris des étiquettes rend alors 7,49:1. */
+.dark-mode #custom-prompt-modal {
+    background: #282a36 !important;
+    border-color: #44475a !important;
+}
+
+.dark-mode #custom-prompt-preview {
+    background: #1e1e24 !important;
+    border-color: #6272a4 !important;
+}
+
 /* UNE CASE À COCHER EST UNE LIGNE, PAS UN CHAMP. Elle portait une étiquette
    minuscule au-dessus d'un carré nu, et l'on devait deviner à quoi ce carré
    se rapportait. Le libellé entre dans la ligne, la ligne entière se clique,
@@ -8851,19 +8871,29 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .fen-outils > * { pointer-events: auto; }
 
+/* VINGT-HUIT PIXELS, ET PLEINEMENT ENCRÉS.
+   Les deux boutons de toutes les fenêtres mesuraient 22 × 22 et vivaient à
+   demi effacés : 0,5 d'opacité pour l'un, 0,7 pour l'autre. Mesuré, le
+   contraste du « ✕ » tombait à 2,93:1 en clair et 1,79:1 en sombre — sous le
+   plancher de 3:1 qu'on demande à un symbole, c'est-à-dire à la limite du
+   visible sur un vidéoprojecteur en plein jour. Et l'on vise ces 22 px au
+   doigt, sur un tableau interactif.
+   Vingt-huit pixels tiennent dans la barre de 34 px, l'opacité passe à 1 —
+   4,34:1 pour le « ✕» en clair, 4,70:1 en sombre, 4,69:1 et 6,41:1 pour le
+   plein écran —, et c'est le FOND qui dit le survol, comme avant. */
 .fen-plein {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: none;
     border-radius: 6px;
     background: rgba(127, 140, 141, 0.14);
     color: var(--muted, #636e72);
     cursor: pointer;
-    opacity: 0.5;
+    opacity: 1;
     transition: opacity 0.15s, background 0.15s;
 }
 
@@ -9031,26 +9061,37 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .fen-fermer {
     flex: none;
-    width: 22px;
-    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: none;
     border-radius: 6px;
     background: rgba(214, 48, 49, 0.12);
     color: #d63031;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 700;
     line-height: 1;
     cursor: pointer;
-    opacity: 0.7;
+    opacity: 1;
     transition: opacity 0.15s, background 0.15s;
 }
 
 .fen-fermer:hover, .fen-fermer:focus-visible { opacity: 1; background: rgba(214, 48, 49, 0.22); }
 
-.fen-tete .fen-plein { flex: none; opacity: 0.65; }
+.fen-tete .fen-plein { flex: none; }
 
 .dark-mode .fen-tete { background: #2f3640; border-bottom-color: #3d4852; }
 .dark-mode .fen-nom { color: #dfe6e9; }
+/* LE ROUGE DU JOUR NE SE LIT PAS LA NUIT : #d63031 sur le bandeau sombre
+   #2f3640 donne 1,79:1, autant dire rien. Le rouge clair de l'application y
+   rend 4,70:1, et le gris clair 6,41:1. */
+.dark-mode .fen-fermer { color: #ff7675; background: rgba(255, 118, 117, 0.16); }
+.dark-mode .fen-fermer:hover,
+.dark-mode .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.28); }
+.dark-mode .fen-plein { color: #b2bec3; background: rgba(178, 190, 195, 0.14); }
 
 /* Les deux traits obliques du coin : le dessin universel du « tirez ici » */
 /* LA POIGNÉE QUI DÉPLACE. Elle vit à côté du plein écran et du
@@ -10016,6 +10057,23 @@ body.focus-mode #edt-bandeau { display: none; }
 .carte-nb { font-size: 11px; color: #64748b; min-width: 18px; text-align: right; }
 .carte-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 2px 4px; }
 .carte-x:hover { color: #e11d48; }
+
+/* CE QUI SUPPRIME SE LAISSE VISER : VINGT-QUATRE PIXELS AU MOINS.
+   « Tu peux lancer un agent pour vérifier que c'est user friendly pour tous les
+   plugin. » Relevé sur les quatre-vingt-sept outils : neuf croix de suppression
+   plus petites que 24 px, dont une de 8 × 11 dans le tableau de
+   proportionnalité et une de 12 × 16 dans l'éditeur de signes — on les vise au
+   doigt, sur un tableau interactif, et l'on tombe à côté ou l'on n'ose pas.
+   Vingt-quatre pixels est le plancher de la règle WCAG 2.5.8 ; on ne grossit
+   pas le dessin, on grossit la CIBLE. */
+.cible-a-viser {
+    min-width: 24px;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
 
 .atelier-vide { font-size: 12px; color: #94a3b8; padding: 8px 0; }
 .carte-nom { font-size: 15px; font-weight: 600; color: #2d3436; }

@@ -22058,6 +22058,39 @@ function equiperVraiment(el, cle, options) {
     requestAnimationFrame(rattraperLaFenetre);
     if (typeof ResizeObserver === 'function') new ResizeObserver(rattraperLaFenetre).observe(el);
 
+    // ET SON TEXTE SE LIT. Voir « rendreLesTextesLisibles » : le rendez-vous est
+    // repoussé d'une image, car une fenêtre naît souvent vide et se remplit
+    // juste après.
+    //
+    // ET IL SE RELIT À CHAQUE FOIS QU'ELLE SE RÉÉCRIT. Le rattrapage s'écrit en
+    // ligne sur les éléments : un outil qui refait sa liste de couleurs ou sa
+    // fiche de questions repart avec des nœuds neufs, et le défaut revient avec
+    // eux. Mesuré : cinq textes échappaient encore au rattrapage — « Glisser
+    // pour réorganiser », « + Couleur : », « AE = 12 » —, tous écrits APRÈS
+    // l'ouverture, dans un coin de la fenêtre que l'autre observateur ne
+    // regardait pas (il ne veille que sur les enfants directs). Une image
+    // d'attente suffit à ne pas repasser vingt fois de suite, et le rattrapage
+    // ne touche que des styles : il ne peut pas se réveiller lui-même.
+    if (typeof MutationObserver === 'function' && typeof rendreLesTextesLisibles === 'function') {
+        let encreEnAttente = false;
+        new MutationObserver(() => {
+            if (encreEnAttente) return;
+            encreEnAttente = true;
+            requestAnimationFrame(() => {
+                encreEnAttente = false;
+                if (el.isConnected) rendreLesTextesLisibles(el);
+            });
+        }).observe(el, { childList: true, subtree: true });
+    }
+    requestAnimationFrame(() => {
+        if (!el.isConnected || typeof rattraperLesTextesDesFenetres !== 'function') return;
+        // ON REGARDE TOUT CE QUI EST OUVERT, et non cette seule fenêtre : un
+        // outil pose souvent, à côté d'elle, un panneau qui n'est pas une
+        // fenêtre équipée — et c'est là que vivaient les derniers textes
+        // illisibles.
+        rattraperLesTextesDesFenetres();
+    });
+
     const bouton = tete.querySelector('.fen-plein');
     const poignee = outils.querySelector('.fen-poignee');
     const bouger = tete;          // la barre entière déplace, pas un carré de 22 px
@@ -22272,6 +22305,203 @@ function ramenerFenetreDansLecran(el) {
 }
 window.ramenerFenetreDansLecran = ramenerFenetreDansLecran;
 
+// ==================================================================
+// NUL TEXTE NE RESTE ILLISIBLE SUR UN FOND NEUTRE
+// ==================================================================
+// « Tu peux lancer un agent pour vérifier que c'est user friendly pour tous les
+// plugin. » Mesuré la nuit, sur les quatre-vingt-sept outils : cent
+// quatre-vingt-seize textes sous 3:1 — le plancher qu'on demande à un simple
+// symbole, et loin des 4,5:1 d'un texte. Deux causes partagées en portaient
+// cent trente, corrigées à leur source. Les autres se ressemblent toutes :
+//
+//   un outil écrit le fond de son panneau EN DUR — blanc, #f8f9fa, #f1f2f6 —
+//   et n'écrit pas la couleur du texte. Celle-ci est alors héritée du corps de
+//   la page, qui passe au gris clair la nuit : #dfe6e9 sur #f1f2f6 donne
+//   1,13:1, autant dire une page blanche. Rien n'est faux dans l'outil pris
+//   seul ; c'est la rencontre de deux choix qui l'est, et il y a
+//   quatre-vingt-sept outils où elle peut avoir lieu.
+//
+// ON NE REPEINT DONC PAS LES OUTILS, on rattrape ce qui ne se lit pas — et
+// seulement cela : sous 3:1, l'encre reçoit la couleur qui va avec SON fond,
+// sombre sur un fond clair, claire sur un fond sombre. La correction s'écrit en
+// ligne, donc elle vaut dans les deux thèmes : le fond, lui, ne change pas.
+//
+// ET SEULEMENT SUR UN FOND NEUTRE. Le blanc sur le vert des boutons « Poser au
+// tableau » rend 2,54:1 — mais c'est la palette de l'application, la même de
+// jour comme de nuit, et repeindre ces textes-là ferait deux applications
+// différentes selon l'heure. Ce rattrapage ne décide pas d'une palette ; il
+// empêche un texte de disparaître.
+const CONTRASTE_MINIMAL = 3;
+
+function canalLineaire(c) {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function luminanceRelative(rgb) {
+    return 0.2126 * canalLineaire(rgb[0]) + 0.7152 * canalLineaire(rgb[1]) + 0.0722 * canalLineaire(rgb[2]);
+}
+
+function contrasteEntre(a, b) {
+    const la = luminanceRelative(a), lb = luminanceRelative(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+// « rgb(1, 2, 3) » et « rgba(1, 2, 3, .5) » : les nombres, dans l'ordre.
+function nombresDeCouleur(texte) {
+    const n = (texte || '').match(/[\d.]+/g);
+    return n ? n.map(Number) : null;
+}
+
+// LE FOND QU'ON VOIT VRAIMENT : le premier ancêtre qui en a un opaque. Un
+// panneau translucide laisse voir celui du dessous, et c'est celui-là qui
+// décide de la lisibilité. On rend aussi QUI le porte : ce n'est pas la même
+// chose d'être posé sur le fond d'un panneau ou sur celui de la page.
+function fondQuOnVoit(el) {
+    let n = el;
+    while (n && n.nodeType === 1) {
+        const c = nombresDeCouleur(getComputedStyle(n).backgroundColor);
+        if (c && (c.length < 4 || c[3] > 0.92)) return { rgb: c.slice(0, 3), porteur: n };
+        n = n.parentElement;
+    }
+    return { rgb: [255, 255, 255], porteur: null };
+}
+
+// Un fond neutre : du blanc, un gris, un presque-noir. Pas un vert de marque.
+function fondNeutre(rgb) {
+    return Math.max(...rgb) - Math.min(...rgb) <= 24;
+}
+
+// ON NE REMPLACE PAS LA COULEUR, ON LA POUSSE JUSQU'À CE QU'ELLE SE VOIE.
+//
+// Les étiquettes de l'analyse grammaticale sont un code : violet pour
+// l'épithète, bleu nuit pour le complément du nom. Les ramener toutes au même
+// gris rendrait le texte lisible et l'outil muet. On mélange donc l'encre à du
+// blanc sur un fond sombre, à du noir sur un fond clair, par petits pas, et
+// l'on s'arrête au premier qui se lit : la teinte reste, la clarté change.
+function encreQuiSeVoit(encre, fond) {
+    const versLeClair = luminanceRelative(fond) <= 0.4;
+    const but = versLeClair ? 255 : 0;
+    for (let pas = 1; pas <= 20; pas++) {
+        const k = pas / 20;
+        const essai = encre.map(v => v * (1 - k) + but * k);
+        if (contrasteEntre(essai, fond) >= CONTRASTE_MINIMAL + 0.2) {
+            return 'rgb(' + essai.map(v => Math.round(v)).join(', ') + ')';
+        }
+    }
+    return versLeClair ? '#ffffff' : '#000000';
+}
+
+// CE QUI N'EST PAS À NOUS. Le tableau lui-même, ses barres et ses tiroirs
+// suivent le thème depuis toujours : on ne va pas repeindre par-dessus. Le
+// rattrapage est là pour les panneaux des outils, écrits chacun à sa façon.
+const PAS_DE_RATTRAPAGE = '#board, .toolbar, .drawer, #plugins-grid, #thumbnail-drawer';
+
+function rendreLesTextesLisibles(racine) {
+    if (!racine || typeof racine.querySelectorAll !== 'function') return 0;
+    let rattrapes = 0;
+    const candidats = racine.querySelectorAll(
+        'div, span, label, p, td, th, li, button, h1, h2, h3, h4, h5, strong, em, small, a, option');
+    candidats.forEach(el => {
+        if (el.closest(PAS_DE_RATTRAPAGE)) return;
+        // Ce qui porte son propre texte, et non celui de ses enfants : sinon on
+        // repeindrait un conteneur entier pour un mot qu'il ne contient pas.
+        let propre = false;
+        for (const n of el.childNodes) {
+            if (n.nodeType === 3 && n.nodeValue.trim().length) { propre = true; break; }
+        }
+        if (!propre) return;
+        const s = getComputedStyle(el);
+        if (s.display === 'none' || s.visibility === 'hidden') return;
+        // ON REPART TOUJOURS DE L'ENCRE D'ORIGINE, jamais de celle qu'on a
+        // écrite la fois d'avant : sans cela un rattrapage fait sur un fond
+        // qui n'était pas encore peint ne pourrait plus être défait, et deux
+        // passages de suite éclairciraient indéfiniment la même couleur.
+        const dorigine = el.dataset.encreDorigine
+            ? nombresDeCouleur(el.dataset.encreDorigine) : nombresDeCouleur(s.color);
+        if (!dorigine) return;
+        const { rgb: fond, porteur } = fondQuOnVoit(el);
+        // LE FOND DE LA PAGE N'EST PAS UN FOND DE PANNEAU. Quand aucun ancêtre
+        // du panneau ne porte de fond opaque, c'est le tableau qu'on voit
+        // derrière — souvent parce que le panneau n'a pas encore été peint. On
+        // a mesuré le dégât : une réponse de « Questions Flash » posée sur un
+        // fond presque blanc a été éclaircie comme si elle était sur du noir,
+        // et son contraste est TOMBÉ de 1,83 à 1,51. Un rattrapage qui peut
+        // empirer les choses n'en est pas un ; dans le doute, on s'abstient.
+        if (!porteur || porteur === document.body || porteur === document.documentElement) return;
+        if (!fondNeutre(fond)) return;
+        // CE QUI EST CACHÉ PAR SON OPACITÉ NE NOUS REGARDE PAS — et l'on a
+        // manqué de faire là une faute grave. « Questions Flash » garde ses
+        // réponses derrière « opacity: 0 » jusqu'à ce que le professeur les
+        // révèle. Mesurées comme des textes, elles donnaient 1:1 — invisibles,
+        // donc illisibles — et le rattrapage leur rendait leur opacité : les
+        // réponses s'affichaient AVANT la question. Sous 0,35, on passe son
+        // chemin ; et l'on n'écrit jamais l'opacité de personne.
+        const opacite = parseFloat(s.opacity || '1');
+        if (opacite < 0.35) return;
+        const vue = dorigine.slice(0, 3).map((v, i) => v * opacite + fond[i] * (1 - opacite));
+        if (contrasteEntre(vue, fond) >= CONTRASTE_MINIMAL) {
+            // Ce qui se lit à nouveau tout seul reprend sa couleur : c'est ce
+            // qui permet au rattrapage de traverser un changement de thème.
+            if (el.dataset.encreRattrapee) {
+                el.style.color = el.dataset.encreDorigine || '';
+                delete el.dataset.encreRattrapee;
+            }
+            return;
+        }
+        if (!el.dataset.encreDorigine) el.dataset.encreDorigine = s.color;
+        el.style.color = encreQuiSeVoit(dorigine.slice(0, 3), fond);
+        el.dataset.encreRattrapee = '1';
+        rattrapes++;
+    });
+    return rattrapes;
+}
+window.rendreLesTextesLisibles = rendreLesTextesLisibles;
+
+// TOUT CE QUI EST OUVERT, et pas seulement les fenêtres équipées.
+//
+// Mesuré : cinq textes restaient illisibles alors que le rattrapage marchait —
+// « + Couleur : », « TESTER LE DÉPLIEMENT », « AE = 12 ». Ils vivent dans des
+// panneaux d'outils qui ne sont pas des fenêtres équipées, donc hors de portée
+// d'un rattrapage qui ne visitait que celles-là. Ce qu'on veut n'est pas « les
+// fenêtres », c'est « ce que l'outil affiche » : on part du corps de la page, et
+// l'on laisse de côté ce qui appartient au tableau (voir PAS_DE_RATTRAPAGE).
+//
+// C'est aussi ce qu'on appelle quand on change de thème en pleine séance : le
+// rattrapage mesure le contraste du moment, et il sait revenir sur lui-même
+// puisqu'il mesure ce qu'il a écrit.
+function rattraperLesTextesDesFenetres() {
+    rendreLesTextesLisibles(document.body);
+}
+window.rattraperLesTextesDesFenetres = rattraperLesTextesDesFenetres;
+
+// ET L'ON N'ATTEND PAS QU'UNE FENÊTRE S'ÉQUIPE POUR REGARDER.
+//
+// Mesuré : « TESTER LE DÉPLIEMENT », dans les patrons de solides, restait à
+// 2,89:1 alors que la règle le couvrait. Son panneau n'est pas une fenêtre
+// équipée — personne, donc, ne déclenchait le rattrapage quand il paraissait.
+// Or tous ces panneaux ont un point commun : ils sont posés comme ENFANTS
+// DIRECTS de la page. Un seul observateur là suffit, et il couvre du même coup
+// les outils qu'on écrira demain.
+//
+// Une image d'attente : on ne repasse pas vingt fois pour vingt nœuds ajoutés
+// d'affilée. Et le rattrapage n'écrit que des styles, jamais des nœuds : il ne
+// peut pas se réveiller lui-même.
+if (typeof MutationObserver === 'function' && document.body) {
+    let encreAVoir = false;
+    new MutationObserver((lots) => {
+        if (encreAVoir) return;
+        const duNouveau = lots.some(l => [...l.addedNodes].some(n => n.nodeType === 1
+            && n.tagName !== 'SCRIPT' && n.tagName !== 'STYLE'));
+        if (!duNouveau) return;
+        encreAVoir = true;
+        requestAnimationFrame(() => {
+            encreAVoir = false;
+            rattraperLesTextesDesFenetres();
+        });
+    }).observe(document.body, { childList: true });
+}
+
 // Une fois le tampon posé, on revient à la flèche ET l'objet posé est
 // sélectionné : c'est presque toujours pour le déplacer ou le redimensionner
 // qu'on le regarde ensuite. La moitié des outils repassaient déjà en flèche,
@@ -22351,6 +22581,27 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     const container = document.getElementById('custom-prompt-inputs');
     const previewBox = document.getElementById('custom-prompt-preview');
     container.innerHTML = '';
+
+    // ET CE QUE L'APERÇU DESSINE SE LIT AUSSI.
+    //
+    // Mesuré dans les patrons de solides, la nuit : l'aperçu écrit un
+    // « TESTER LE DÉPLIEMENT » en #666 sur le fond sombre de la boîte, 2,89:1.
+    // Il se redessine à chaque frappe, depuis quatre endroits différents ;
+    // plutôt que quatre appels qu'on oubliera, un veilleur posé une fois sur
+    // l'aperçu — il est petit, et le rattrapage n'écrit que des styles.
+    if (previewBox && !previewBox.dataset.encreVeillee && typeof MutationObserver === 'function'
+        && typeof rendreLesTextesLisibles === 'function') {
+        previewBox.dataset.encreVeillee = '1';
+        let encreEnAttente = false;
+        new MutationObserver(() => {
+            if (encreEnAttente) return;
+            encreEnAttente = true;
+            requestAnimationFrame(() => {
+                encreEnAttente = false;
+                rendreLesTextesLisibles(previewBox);
+            });
+        }).observe(previewBox, { childList: true, subtree: true });
+    }
 
     if (previewBox) {
         previewBox.innerHTML = '';
@@ -22672,6 +22923,11 @@ function toggleDarkMode() {
     isDarkMode = !isDarkMode;
     document.body.classList.toggle('dark-mode', isDarkMode);
     majInterrupteursBarre();
+    // LE TEXTE DES FENÊTRES OUVERTES SE RELIT DANS LE NOUVEAU THÈME. Le
+    // rattrapage d'encre mesure le contraste du moment : posé à l'ouverture, il
+    // ne saurait rien de la nuit qui tombe cinq minutes plus tard. Et il sait
+    // revenir sur lui-même, puisqu'il mesure ce qu'il a écrit.
+    if (typeof rattraperLesTextesDesFenetres === 'function') rattraperLesTextesDesFenetres();
     draw();
 }
 
@@ -31945,13 +32201,13 @@ function renderExplorerLists() {
     if (treeHtml) {
         container.appendChild(treeHtml);
     } else if (currentExplorerTab === 'interfaces' && !query) {
-        container.innerHTML = `<div style="padding:14px; color:#636e72; font-size:12px; text-align:center; line-height:1.6;">
+        container.innerHTML = `<div style="padding:14px; color:var(--muted, #636e72); font-size:12px; text-align:center; line-height:1.6;">
             Aucune interface.<br>
             <button class="btn-action" style="margin-top:10px; padding:6px 12px; font-size:12px;"
                 onclick="restaurerInterfacesFournies()">Remettre les interfaces fournies</button>
         </div>`;
     } else {
-        container.innerHTML = `<div style="padding:10px; color:#636e72; font-size:12px; text-align:center;">Aucun document trouvé.</div>`;
+        container.innerHTML = `<div style="padding:10px; color:var(--muted, #636e72); font-size:12px; text-align:center;">Aucun document trouvé.</div>`;
     }
 }
 

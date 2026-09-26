@@ -3304,7 +3304,7 @@ registerPlugin('statTool', 'Maths - Numérique', {
             container.innerHTML += `<div style="display:flex; gap:6px; align-items:center;">
                 <input type="text" value="${echapperTexte(r.label)}" class="prompt-input" oninput="pluginStatUpdate(${idx}, 'label', this.value)" style="flex:2; padding:6px; font-size:13px; border-radius:4px; border:1px solid #dfe6e9;">
                 <input type="number" value="${r.val}" class="prompt-input" oninput="pluginStatUpdate(${idx}, 'val', this.value)" style="flex:1; padding:6px; font-size:13px; border-radius:4px; border:1px solid #dfe6e9;">
-                <button style="border:none; background:transparent; cursor:pointer; color:#d63031; padding:0 6px; font-weight:bold; font-size:14px;" onclick="pluginStatRemove(${idx})">✕</button>
+                <button class="cible-a-viser" title="Retirer cette valeur" style="border:none; background:transparent; cursor:pointer; color:#d63031; padding:0 6px; font-weight:bold; font-size:14px;" onclick="pluginStatRemove(${idx})">✕</button>
             </div>`;
         });
         window.pluginStatRemove = (idx) => { this.state.rows.splice(idx, 1); this.renderRowsUI(); };
@@ -3432,7 +3432,7 @@ registerPlugin('propTableTool', 'Maths - Numérique', {
         const container = document.getElementById('prop-cols'); container.innerHTML = '';
         this.state.cols.forEach((c, idx) => {
             container.innerHTML += `<div style="display:flex; flex-direction:column; gap:2px; align-items:center;">
-                <button style="border:none; background:transparent; cursor:pointer; color:#d63031; font-size:10px; padding:0;" onclick="pluginPropRemove(${idx})">✕</button>
+                <button class="cible-a-viser" title="Retirer cette colonne" style="border:none; background:transparent; cursor:pointer; color:#d63031; font-size:13px; padding:0;" onclick="pluginPropRemove(${idx})">✕</button>
                 <input type="text" value="${c.v1}" class="prompt-input" oninput="pluginPropUpdate(${idx}, 'v1', this.value)" style="width:40px; text-align:center; padding:2px; font-size:12px;">
                 <input type="text" value="${c.v2}" class="prompt-input" oninput="pluginPropUpdate(${idx}, 'v2', this.value)" style="width:40px; text-align:center; padding:2px; font-size:12px;">
             </div>`;
@@ -4580,7 +4580,7 @@ registerPlugin('soundMeterTool', 'Outils Profs', {
                     <label style="font-size:13px; font-weight:bold; color:#d63031; cursor:pointer; display:flex; align-items:center; gap:5px;">
                         <input type="checkbox" id="sound-alarm-chk" ${this.alarmEnabled ? 'checked' : ''}> Alarme Visuelle (Flash)
                     </label>
-                    <button onclick="SoundMeterPlugin.clearHistory()" style="background:transparent; border:none; color:#636e72; cursor:pointer; text-decoration:underline; font-size:11px;">Vider l'historique</button>
+                    <button class="cible-a-viser" onclick="SoundMeterPlugin.clearHistory()" style="background:transparent; border:none; color:#636e72; cursor:pointer; text-decoration:underline; font-size:11px;">Vider l'historique</button>
                 </div>
 
                 <div style="display:flex; gap:10px;">
@@ -5221,7 +5221,7 @@ registerPlugin('pianoTool', 'Musique', {
         remote.innerHTML = `
             <div style="font-weight:bold; font-size:14px; color:#1e272e;">🎹 PIANO 3 OCTAVES :</div>
             <button id="btn-piano-lock" onclick="pianoToggleLock()" style="padding:10px 18px; background:#f1f2f6; border:1px solid #ccc; border-radius:6px; cursor:pointer; font-weight:bold; font-size:14px; transition: all 0.2s;">🔓 Déverrouillé</button>
-            <button onclick="pianoRangerTelecommande()" title="Ranger la télécommande" style="background:transparent; border:none; cursor:pointer; color:#e74c3c; font-weight:bold; font-size:16px; margin-left:10px;">✕</button>
+            <button class="cible-a-viser" onclick="pianoRangerTelecommande()" title="Ranger la télécommande" style="background:transparent; border:none; cursor:pointer; color:#e74c3c; font-weight:bold; font-size:16px; margin-left:10px;">✕</button>
         `;
         document.body.appendChild(remote);
     },
@@ -6616,7 +6616,7 @@ registerPlugin('longestWordTool', 'Jeux', {
             <div id="wordgame-timer-display" style="font-size:24px; font-weight:bold; color:#2d3436; min-width:50px; text-align:center;">30s</div>
             <button id="btn-wg-timer" onclick="wordGameStartTimer()" style="padding:10px 14px; background:#2ecc71; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">⏳ Lancer</button>
             <button onclick="wordGameReset()" style="padding:8px; background:transparent; color:#636e72; border:none; cursor:pointer; text-decoration:underline; font-size:13px;">Effacer</button>
-            <button onclick="document.getElementById('word-game-remote').remove()" style="padding:8px; background:transparent; color:#e74c3c; border:none; cursor:pointer; font-size:13px; font-weight:bold; margin-left:5px;">X</button>
+            <button title="Ranger la télécommande" onclick="document.getElementById('word-game-remote').remove()" style="padding:8px; background:transparent; color:#e74c3c; border:none; cursor:pointer; font-size:13px; font-weight:bold; margin-left:5px;">X</button>
         `;
         document.body.appendChild(remote);
     }
@@ -7463,7 +7463,7 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
                     <label class="frise-de">à</label>
                     <input type="number" value="${p.fin}" data-champ="fin" data-i="${i}" class="frise-an" title="Fin">
                     <span style="flex:1"></span>
-                    <button class="frise-x" data-retirer-periode="${i}" title="Retirer">✕</button>
+                    <button class="frise-x cible-a-viser" data-retirer-periode="${i}" title="Retirer cette période">✕</button>
                 </div>
             </div>`).join('') || '<div class="atelier-vide">Aucune période.</div>';
 
@@ -7473,7 +7473,7 @@ registerPlugin('friseTool', 'Histoire-Géographie', {
             <div class="frise-ligne" data-evenement="${i}">
                 <input type="number" value="${e.annee}" data-champev="annee" data-i="${i}" class="frise-an">
                 <input type="text" value="${this.echapper(e.libelle)}" data-champev="libelle" data-i="${i}" class="frise-nom">
-                <button class="frise-x" data-retirer-evenement="${i}" title="Retirer">✕</button>
+                <button class="frise-x cible-a-viser" data-retirer-evenement="${i}" title="Retirer cet événement">✕</button>
             </div>`).join('') || '<div class="atelier-vide">Aucun événement.</div>';
 
         // Modifier une ligne ne doit pas reconstruire le panneau sous les
@@ -9752,7 +9752,7 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
                 <input type="color" value="${l.couleur}" data-couleur="${l.id}">
                 <input type="text" value="${this.echapper(l.libelle)}" data-libelle="${l.id}">
                 <span class="carte-nb">${(l.pays || []).length}</span>
-                <button class="carte-x" data-retirer="${l.id}" title="Retirer cette légende">✕</button>
+                <button class="carte-x cible-a-viser" data-retirer="${l.id}" title="Retirer cette légende">✕</button>
             </div>`).join('');
         boite.querySelectorAll('.carte-legende').forEach(el => {
             el.addEventListener('click', (e) => {
@@ -19434,7 +19434,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
 
             // Label
             html += `<div style="width:${wHead}; flex-shrink:0; display:flex; align-items:center; justify-content:center; gap:5px;">`;
-            html += `<button onclick="window.SignVarDynamic.removeRow(${rIdx})" style="background:none; border:none; color:#d63031; cursor:pointer; padding:0; font-size:0.9rem;" title="Supprimer">✖</button>`;
+            html += `<button class="cible-a-viser" onclick="window.SignVarDynamic.removeRow(${rIdx})" style="background:none; border:none; color:#d63031; cursor:pointer; padding:0; font-size:0.9rem;" title="Supprimer cette ligne">✖</button>`;
             html += `<input type="text" value="${echapperTexte(row.label)}" oninput="window.SignVarDynamic.updateLabel(${rIdx}, this)" style="width:100%; text-align:center; border:1px solid #ccc; border-radius:4px; font-family:monospace;">`;
             html += `</div>`;
 
@@ -29558,7 +29558,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                                 <div>
                                     <button id="fp-undo-btn" class="fp-tool-btn" style="padding:2px 4px; font-size:11px;" title="Annuler (Undo)">↩️</button>
                                     <button id="fp-redo-btn" class="fp-tool-btn" style="padding:2px 4px; font-size:11px;" title="Rétablir (Redo)">↪️</button>
-                                    <button id="fp-clear-btn" class="fp-tool-btn" style="padding:2px 4px; font-size:11px; color:#e74c3c;" title="Tout Effacer">🗑️</button>
+                                    <button id="fp-clear-btn" class="fp-tool-btn cible-a-viser" style="padding:2px 4px; font-size:11px; color:#e74c3c;" title="Tout Effacer">🗑️</button>
                                 </div>
                             </div>
                             <div id="fp-tables-container" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:10px; padding-right:5px;">
@@ -29989,7 +29989,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                         <div style="flex:1;"></div>
                         <label style="display:flex; align-items:center; cursor:pointer; font-size:9px;" title="Afficher la dérivée"><input type="checkbox" class="fp-c-deriv" ${f.deriv ? 'checked' : ''}> f'</label>
                         <button class="fp-c-trace" style="background:none; border:none; cursor:pointer; font-size:12px; flex-shrink:0; opacity:${f.trace ? '1' : '0.2'}; filter: grayscale(${f.trace ? '0' : '1'});" title="Mode Trace / Cible">🎯</button>
-                        <button class="fp-c-del" style="background:none; border:none; cursor:pointer; color:#e74c3c; font-size:12px; flex-shrink:0;" title="Supprimer">✕</button>
+                        <button class="fp-c-del cible-a-viser" style="background:none; border:none; cursor:pointer; color:#e74c3c; font-size:12px; flex-shrink:0;" title="Supprimer cette courbe">✕</button>
                     </div>
                     <div style="display:flex; gap:5px; align-items:center; width: 100%; margin-top: 4px;">
                         <span style="font-family:monospace; font-weight:bold; color:#2d3436; font-size:11px;">y</span>
@@ -30015,7 +30015,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                         </div>
                         <div style="flex:1;"></div>
                         <button class="fp-c-trace" style="background:none; border:none; cursor:pointer; font-size:12px; flex-shrink:0; opacity:${f.trace ? '1' : '0.2'}; filter: grayscale(${f.trace ? '0' : '1'});" title="Mode Trace / Cible">🎯</button>
-                        <button class="fp-c-del" style="background:none; border:none; cursor:pointer; color:#e74c3c; font-size:12px; flex-shrink:0;" title="Supprimer">✕</button>
+                        <button class="fp-c-del cible-a-viser" style="background:none; border:none; cursor:pointer; color:#e74c3c; font-size:12px; flex-shrink:0;" title="Supprimer cette courbe">✕</button>
                     </div>
                     <div style="display:flex; gap:5px; align-items:center; width: 100%; margin-top: 4px;">
                         <span style="font-family:monospace; font-weight:bold; color:#2d3436; font-size:10px; width:22px;">x(t)</span>
