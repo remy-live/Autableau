@@ -24,7 +24,7 @@
 //     porte vraiment ;
 //   — le grossissement se tape en pour cent, et le chiffre et le curseur
 //     disent la même chose.
-const { creerRapport, ouvrirApp, petitPdf } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, rechargerApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Zooms et épaisseurs');
@@ -243,6 +243,55 @@ module.exports = async function (browser) {
         await page.evaluate(() => ({
             z: Math.round(zoom * 100) / 100, champ: document.getElementById('zoom-num').value
         })), { z: 2, champ: '200' });
+
+    // ------------------------------------------------------------------
+    // LA BARRE DIT CE QUE LE STYLO FAIT, MÊME APRÈS UN RECHARGEMENT
+    // ------------------------------------------------------------------
+    // « Je trace un trait que je mets à 7,5 px d'épaisseur, je recharge,
+    // l'épaisseur affiche 3 px mais cela dessine à 7,5 px. »
+    //
+    // Le stylo était bien relu — il appartient à celui qui écrit, pas au
+    // tableau, et il est rangé dans le navigateur. Ce sont les COMMANDES qui
+    // gardaient la valeur écrite dans la page : « value=3 », « value=24 »,
+    // le curseur d'opacité à 1. On lisait 3 et l'on dessinait à 7,5.
+    //
+    // ON MESURE LES TROIS, et non la seule épaisseur : la cause est unique —
+    // personne ne posait le stylo sur ses commandes au démarrage — et un
+    // contrôle qui ne regarderait qu'un réglage laisserait les deux autres
+    // mentir en silence.
+    await page.evaluate(() => {
+        reglerEpaisseurTrait(7.5, 'objet');
+        activeStyle.fontSize = 48;
+        activeStyle.strokeOpacity = 0.4;
+        activeStyle.lineDash = 'dashed';
+    });
+    await page.waitForTimeout(700);
+    await rechargerApp(page);
+    const repris = await page.evaluate(() => {
+        const v = (id) => { const e = document.getElementById(id); return e ? e.value : null; };
+        return {
+            stylo: { epaisseur: activeStyle.lineWidth, taille: activeStyle.fontSize,
+                     opacite: activeStyle.strokeOpacity, tirets: activeStyle.lineDash },
+            barre: { epaisseur: v('line-width'), epaisseurChiffres: v('line-width-num'),
+                     taille: v('font-size'), tailleChiffres: v('font-size-num'),
+                     opacite: v('opacity-slider') },
+            // ET CE QUE LE TRAIT FAIT VRAIMENT : c'est le seul juge.
+            trace: (() => {
+                freehands.push({ id: nextId++, points: [{ x: 0, y: 0 }, { x: 10, y: 10 }],
+                                 color: activeStyle.strokeColor, width: activeStyle.lineWidth,
+                                 z: globalZ++ });
+                return freehands[freehands.length - 1].width;
+            })()
+        };
+    });
+    r.egal('le stylo, lui, a bien traversé le rechargement', repris.stylo,
+        { epaisseur: 7.5, taille: 48, opacite: 0.4, tirets: 'dashed' });
+    r.egal('et le trait qu\'on trace fait bien 7,5', repris.trace, 7.5);
+    r.egal('l\'épaisseur affichée est celle qu\'on dessine', repris.barre.epaisseur, '7.5');
+    r.egal('en chiffres aussi', repris.barre.epaisseurChiffres, '7.5');
+    r.egal('la taille du texte ne ment pas non plus', repris.barre.taille, '48');
+    r.egal('ni son champ', repris.barre.tailleChiffres, '48');
+    r.egal('ni l\'opacité', repris.barre.opacite, '0.4');
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

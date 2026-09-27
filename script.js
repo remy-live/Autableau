@@ -8792,7 +8792,63 @@ document.getElementById('btn-bout-surligneur')?.addEventListener('click', () => 
     changerLeBoutDuSurligneur(boutDuSurligneur === 'carre' ? 'rond' : 'carre');
 });
 
-document.getElementById('btn-dash').addEventListener('click', () => { const dashes = ['solid', 'dashed', 'dotted']; const icons = { 'solid': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3"/>', 'dashed': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="6,4"/>', 'dotted': '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="2,4"/>' }; activeStyle.lineDash = dashes[(dashes.indexOf(activeStyle.lineDash) + 1) % dashes.length]; document.getElementById('icon-dash').innerHTML = icons[activeStyle.lineDash]; pushStyleToObject(); });
+// Le dessin des trois traits, écrit UNE fois : le bouton qui fait tourner les
+// tirets et la remise à jour du démarrage y puisent au même endroit.
+const TRAITS = ['solid', 'dashed', 'dotted'];
+const DESSIN_DU_TRAIT = {
+    solid: '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3"/>',
+    dashed: '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="6,4"/>',
+    dotted: '<line x1="4" y1="12" x2="20" y2="12" stroke-width="3" stroke-dasharray="2,4"/>'
+};
+
+document.getElementById('btn-dash').addEventListener('click', () => {
+    activeStyle.lineDash = TRAITS[(TRAITS.indexOf(activeStyle.lineDash) + 1) % TRAITS.length];
+    document.getElementById('icon-dash').innerHTML = DESSIN_DU_TRAIT[activeStyle.lineDash];
+    pushStyleToObject();
+});
+
+// ==================================================================
+// LES COMMANDES DISENT CE QUE LE STYLO FAIT — DÈS LE DÉMARRAGE
+// ==================================================================
+// « Je trace un trait que je mets à 7,5 px d'épaisseur, je recharge,
+// l'épaisseur affiche 3 px mais cela dessine à 7,5 px. »
+//
+// Le stylo, lui, était bien relu : il appartient à celui qui écrit, pas au
+// tableau, et il est rangé dans le navigateur. Ce sont les COMMANDES qui
+// gardaient la valeur écrite dans la page — « value="3" », « value="24" », le
+// curseur d'opacité à 1 — parce que personne ne leur disait ce que le stylo
+// était devenu. On lisait donc 3 et l'on dessinait à 7,5 : la barre mentait.
+//
+// Mesuré après un rechargement, stylo réglé à 7,5 px, texte en 48, opacité
+// 0,4 : l'épaisseur affichait 3, la taille 24, l'opacité 1. Trois mensonges,
+// une seule cause. On pose donc le stylo sur ses commandes au démarrage, et
+// l'on n'y touche pas autrement : c'est l'affichage qui suit la valeur, jamais
+// l'inverse.
+function appliquerLeStyloAuxCommandes() {
+    if (typeof reglerEpaisseurTrait === 'function') {
+        // « objet » : la source n'est ni le curseur ni le champ, les deux suivent.
+        reglerEpaisseurTrait(activeStyle.lineWidth, 'objet');
+    }
+    const taille = document.getElementById('font-size');
+    if (taille) taille.value = Math.max(6, Math.min(120, activeStyle.fontSize));
+    const tailleEnChiffres = document.getElementById('font-size-num');
+    if (tailleEnChiffres) tailleEnChiffres.value = activeStyle.fontSize;
+    const interligne = document.getElementById('text-line-height');
+    if (interligne) interligne.value = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
+    const opacite = document.getElementById('opacity-slider');
+    if (opacite) opacite.value = activeStyle.strokeOpacity;
+    if (typeof afficherLOpacite === 'function') afficherLOpacite(activeStyle.strokeOpacity);
+    const trait = document.getElementById('icon-dash');
+    if (trait && DESSIN_DU_TRAIT[activeStyle.lineDash]) {
+        trait.innerHTML = DESSIN_DU_TRAIT[activeStyle.lineDash];
+    }
+    if (typeof updateColorIndicator === 'function') updateColorIndicator();
+}
+window.appliquerLeStyloAuxCommandes = appliquerLeStyloAuxCommandes;
+document.addEventListener('DOMContentLoaded', appliquerLeStyloAuxCommandes);
+// Le document peut être déjà prêt quand ce fichier s'exécute : on ne parie pas
+// sur l'ordre des scripts.
+if (document.readyState !== 'loading') appliquerLeStyloAuxCommandes();
 // L'EPAISSEUR SE LIT ET SE TAPE, comme la taille du texte. Le curseur seul ne
 // disait pas la valeur, et il s'arrete a dix : on peut aller au-dela en la
 // tapant.
@@ -20967,6 +21023,68 @@ let calcHistoryIndex = -1; // <-- CORRIGÉ : Nom unique pour éviter le conflit
 let isShifted = false;
 let angleMode = 'DEG';
 
+// LA MÉMOIRE, ET LA FORME DU RÉSULTAT.
+//
+// « Ajoute d'autres fonctions pour que ça ressemble à la fx92 collège au niveau
+// des fonctions. » Une calculatrice de collège n'est pas une scientifique au
+// rabais : ce qu'elle a de particulier, c'est qu'elle répond en FRACTIONS
+// EXACTES, et qu'elle sait faire ce qu'on fait au cycle 4 — PGCD, PPCM,
+// division euclidienne, décomposition en facteurs premiers.
+let memoireCalc = 0;
+let derniereValeur = 0;          // le nombre, pour la bascule fraction / décimal
+let afficheEnDecimal = false;    // ce que « S⇔D » fait basculer
+
+// Un dénominateur au-delà de mille n'est plus une fraction qu'on lit : c'est un
+// nombre décimal déguisé. Au collège, les fractions utiles sont bien en deçà.
+const DENOMINATEUR_LISIBLE = 1000;
+
+function fractionLisible(x) {
+    if (!isFinite(x) || Math.abs(x) % 1 === 0) return null;
+    let h1 = 1, h2 = 0, k1 = 0, k2 = 1, b = Math.abs(x);
+    do {
+        const a = Math.floor(b);
+        let aux = h1; h1 = a * h1 + h2; h2 = aux;
+        aux = k1; k1 = a * k1 + k2; k2 = aux;
+        b = 1 / (b - a);
+    } while (Math.abs(Math.abs(x) - h1 / k1) > 1e-10 && k1 < DENOMINATEUR_LISIBLE);
+    if (k1 >= DENOMINATEUR_LISIBLE || k1 < 2) return null;
+    if (Math.abs(Math.abs(x) - h1 / k1) > 1e-10) return null;
+    return (x < 0 ? '-' : '') + h1 + '/' + k1;
+}
+
+// Ce qu'on écrit à l'écran pour un nombre : la fraction quand elle existe et
+// qu'on ne demande pas le contraire, l'écriture décimale sinon.
+function ecrireLeResultat(x) {
+    const decimal = parseFloat(x.toPrecision(12)).toString();
+    if (afficheEnDecimal) return decimal;
+    return fractionLisible(x) || decimal;
+}
+
+const pgcdDeuxNombres = (a, b) => {
+    a = Math.abs(Math.round(a)); b = Math.abs(Math.round(b));
+    while (b) { const r = a % b; a = b; b = r; }
+    return a;
+};
+
+// LA DÉCOMPOSITION S'ÉCRIT COMME AU TABLEAU : 60 = 2² × 3 × 5.
+const EXPOSANTS = ['', '', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
+function facteursPremiers(n) {
+    n = Math.round(Math.abs(n));
+    if (!isFinite(n) || n < 2) return null;
+    const facteurs = [];
+    let reste = n;
+    for (let d = 2; d * d <= reste; d += (d === 2 ? 1 : 2)) {
+        let combien = 0;
+        while (reste % d === 0) { reste /= d; combien++; }
+        if (combien) facteurs.push([d, combien]);
+    }
+    if (reste > 1) facteurs.push([reste, 1]);
+    if (facteurs.length === 1 && facteurs[0][1] === 1) return n + ' est premier';
+    return n + ' = ' + facteurs
+        .map(([p, k]) => p + (k > 1 ? (EXPOSANTS[k] || ('^' + k)) : ''))
+        .join('×');
+}
+
 // --- Fonction Utilitaires : Décimal vers Fraction ---
 function toFraction(x) {
     if (x === 0) return "0";
@@ -20982,6 +21100,35 @@ function toFraction(x) {
 
     if (k1 >= 10000) return parseFloat(x.toPrecision(12)).toString(); // Trop complexe
     return (x < 0 ? "-" : "") + h1 + " / " + k1;
+}
+
+// ÉVALUER UN MORCEAU, sans rien afficher : la division euclidienne et la
+// décomposition en ont besoin pour leurs deux opérandes, et la mémoire pour
+// ajouter ce qui est à l'écran. Un seul endroit où l'on compile, donc une seule
+// garde à tenir — celle-là même qui protège le traceur de fonctions.
+function evaluerUnMorceau(texte) {
+    const t = String(texte || '').trim();
+    if (!t) return null;
+    if (typeof formuleAcceptable === 'function' && !formuleAcceptable(t)) return null;
+    try {
+        const evalStr = t
+            .replace(/×/g, '*').replace(/÷/g, '/').replace(/\(-\)/g, '-')
+            .replace(/π/g, 'ctx.PI').replace(/Ans/g, 'ctx.Ans')
+            .replace(/√\(/g, 'ctx.sqrt(').replace(/∛\(/g, 'ctx.cbrt(')
+            .replace(/%/g, '/100').replace(/x³/g, '**3').replace(/x²/g, '**2')
+            .replace(/\^/g, '**');
+        const n = new Function('ctx', 'return ' + evalStr)({
+            PI: Math.PI, Ans: parseFloat(lastAnswer) || 0, sqrt: Math.sqrt, cbrt: Math.cbrt
+        });
+        return (typeof n === 'number' && isFinite(n)) ? n : null;
+    } catch (e) { return null; }
+}
+
+// La pastille « M » dit qu'il y a quelque chose en mémoire — sinon on additionne
+// sans le savoir à ce qu'on y avait mis une heure plus tôt.
+function majLaMemoire() {
+    const pastille = document.getElementById('ind-memoire');
+    if (pastille) pastille.style.opacity = memoireCalc ? 1 : 0;
 }
 
 // --- 1. Affichage / Masquage ---
@@ -21028,6 +21175,18 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             return;
         }
 
+        // SHIFT NE VAUT QUE POUR LA TOUCHE SUIVANTE, comme sur une vraie
+        // calculatrice. Il restait armé jusqu'à ce qu'on le rappuie : après une
+        // racine cubique, la touche « sin » donnait « arcsin » sans qu'on l'ait
+        // demandé, et l'on cherchait longtemps pourquoi le résultat était faux.
+        if (isShifted && id !== 'btn-calc-shift') {
+            isShifted = false;
+            document.getElementById('ind-shift').style.opacity = 0;
+            document.querySelectorAll('.shiftable').forEach(b => {
+                if (b.dataset.norm) b.innerText = b.dataset.norm;
+            });
+        }
+
         // -- GESTION DEG / RAD --
         if (id === 'btn-calc-deg') {
             angleMode = angleMode === 'DEG' ? 'RAD' : 'DEG';
@@ -21067,6 +21226,30 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
         }
         else if (val === '=') {
             try {
+                // LA DIVISION EUCLIDIENNE ET LA DÉCOMPOSITION NE RENDENT PAS UN
+                // NOMBRE mais une phrase — « 7 reste 2 », « 60 = 2²×3×5 ». Elles
+                // se traitent donc avant le calcul ordinaire, chacune avec ses
+                // opérandes passées par la même garde que le reste.
+                const euclide = expression.split('÷R');
+                if (euclide.length === 2) {
+                    const a = evaluerUnMorceau(euclide[0]);
+                    const b = evaluerUnMorceau(euclide[1]);
+                    if (a === null || b === null || !b) { calcRes.innerText = 'Erreur'; return; }
+                    const q = Math.floor(Math.round(a) / Math.round(b));
+                    const r = Math.round(a) - q * Math.round(b);
+                    calcRes.innerText = q + ' reste ' + r;
+                    derniereValeur = q; lastAnswer = String(q); evaluated = true;
+                    calcExpr.innerText = expression;
+                    return;
+                }
+                const decomposition = expression.match(/^FACT\(?([^)]*)\)?$/);
+                if (decomposition) {
+                    const n = evaluerUnMorceau(decomposition[1] || String(derniereValeur));
+                    const dit = n === null ? null : facteursPremiers(n);
+                    calcRes.innerText = dit || 'Erreur';
+                    evaluated = true;
+                    return;
+                }
                 // Même garde que pour le traceur : on ne compile que ce qui
                 // ressemble à un calcul.
                 if (typeof formuleAcceptable === 'function' && !formuleAcceptable(expression)) {
@@ -21088,6 +21271,11 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                     .replace(/tan\(/g, 'ctx.tan(')
                     .replace(/∛\(/g, 'ctx.cbrt(')
                     .replace(/√\(/g, 'ctx.sqrt(')
+                    .replace(/PGCD\(/gi, 'ctx.pgcd(')
+                    .replace(/PPCM\(/gi, 'ctx.ppcm(')
+                    .replace(/RanInt\(/gi, 'ctx.ranint(')
+                    .replace(/x⁻¹/g, '**(-1)')
+                    .replace(/%/g, '/100')
                     .replace(/x³/g, '**3')
                     .replace(/x²/g, '**2')
                     .replace(/\^/g, '**');
@@ -21099,15 +21287,37 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                     arcsin: (a) => (angleMode === 'DEG' ? 180 / Math.PI : 1) * Math.asin(a),
                     arccos: (a) => (angleMode === 'DEG' ? 180 / Math.PI : 1) * Math.acos(a),
                     arctan: (a) => (angleMode === 'DEG' ? 180 / Math.PI : 1) * Math.atan(a),
-                    sqrt: Math.sqrt, cbrt: Math.cbrt, PI: Math.PI, Ans: parseFloat(lastAnswer) || 0
+                    sqrt: Math.sqrt, cbrt: Math.cbrt, PI: Math.PI, Ans: parseFloat(lastAnswer) || 0,
+                    pgcd: (a, b) => pgcdDeuxNombres(a, b),
+                    ppcm: (a, b) => {
+                        const p = pgcdDeuxNombres(a, b);
+                        return p ? Math.abs(Math.round(a) * Math.round(b)) / p : 0;
+                    },
+                    // Un entier au hasard, bornes comprises : c'est ainsi qu'on
+                    // tire un dé ou un exercice en classe.
+                    ranint: (a, b) => {
+                        const bas = Math.ceil(Math.min(a, b)), haut = Math.floor(Math.max(a, b));
+                        return bas + Math.floor(Math.random() * (haut - bas + 1));
+                    }
                 };
 
                 let execFn = new Function('ctx', 'return ' + evalStr);
                 let result = execFn(ctxMath);
 
                 if (result !== undefined && !isNaN(result)) {
+                    // LA RÉPONSE EST D'ABORD UNE FRACTION, comme sur une
+                    // calculatrice de collège : un tiers s'écrit 1/3 et non
+                    // 0,333333333333. « S⇔D » donne l'écriture décimale à qui la
+                    // veut, et la garde pour les calculs suivants.
+                    derniereValeur = result;
+                    // UN NOUVEAU CALCUL REVIENT À LA FRACTION. « S⇔D » montre
+                    // l'écriture décimale du résultat qu'on a sous les yeux ;
+                    // il ne change pas la calculatrice pour la journée. Sans ce
+                    // retour, un professeur qui avait demandé une fois la valeur
+                    // décimale ne revoyait plus jamais une fraction.
+                    afficheEnDecimal = false;
                     result = parseFloat(result.toPrecision(12)).toString();
-                    calcRes.innerText = result;
+                    calcRes.innerText = ecrireLeResultat(derniereValeur);
                     lastAnswer = result;
                     evaluated = true;
 
@@ -21120,10 +21330,42 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                 calcRes.innerText = "Erreur syn.";
             }
         }
+        // LES TOUCHES DU COLLÈGE — celles qui ne se rangent pas dans
+        // l'expression, parce qu'elles agissent sur le RÉSULTAT ou sur la
+        // mémoire, et non sur ce qu'on est en train de taper.
+        else if (val === 'S⇔D') {
+            afficheEnDecimal = !afficheEnDecimal;
+            if (evaluated || derniereValeur) calcRes.innerText = ecrireLeResultat(derniereValeur);
+            return;
+        }
+        else if (val === 'M+' || val === 'M−') {
+            // RIEN DE TAPÉ, C'EST L'ÉCRAN QU'ON AJOUTE — et après AC, l'écran
+            // vaut zéro. Une calculatrice ne répond pas « Erreur » à qui appuie
+            // sur M− sans avoir rien écrit : elle ne retranche rien.
+            const n = expression.trim()
+                ? evaluerUnMorceau(expression)
+                : (evaluated ? derniereValeur : 0);
+            if (n === null) { calcRes.innerText = 'Erreur'; return; }
+            memoireCalc += (val === 'M+' ? n : -n);
+            majLaMemoire();
+            calcRes.innerText = ecrireLeResultat(memoireCalc);
+            evaluated = true; derniereValeur = memoireCalc;
+            return;
+        }
+        else if (val === 'MR') {
+            expression += parseFloat(memoireCalc.toPrecision(12));
+            calcExpr.innerText = expression;
+            return;
+        }
         else {
             let appendVal = val;
 
             if (['sin', 'cos', 'tan', 'arcsin', 'arccos', 'arctan', '√', '∛'].includes(val)) appendVal += '(';
+            else if (['PGCD', 'PPCM', 'RanInt'].includes(val)) appendVal += '(';
+            else if (val === 'FACT') appendVal = 'FACT(';
+            // Le hasard se tire à la frappe : le nombre entre dans le calcul
+            // comme s'il avait été tapé, et il ne change plus en chemin.
+            else if (val === 'Ran#') appendVal = (Math.round(Math.random() * 1000) / 1000).toString();
             else if (val === '×10ˣ') appendVal = '×10^';
             else if (val === 'a/b') {
                 if (evaluated) {
@@ -28173,6 +28415,10 @@ window.createMathImage = createMathImage;
 const FORMULE_FONCTIONS = [
     'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
     'sin', 'cos', 'tan', 'sqrt', 'cbrt', 'abs', 'exp',
+    // Les fonctions de la calculatrice du collège. Ce sont des NOMS, pas des
+    // lettres isolées : les retirer de la formule ne peut pas transformer un
+    // mot interdit en mot permis.
+    'pgcd', 'ppcm', 'ranint', 'fact',
     'floor', 'ceil', 'round', 'sign', 'min', 'max', 'pow',
     'log', 'ln', 'pi', 'ans', 'e'
 ];
@@ -28181,6 +28427,14 @@ const FORMULE_MAX = 400;
 function formuleAcceptable(expr) {
     if (typeof expr !== 'string') return false;
     if (expr.length > FORMULE_MAX) return false;
+    // UNE FLÈCHE N'EST PAS UNE FORMULE. « x=>1 » passait : le signe « = » et le
+    // signe « > » sont admis l'un et l'autre — on compare des nombres dans une
+    // formule conditionnelle —, mais côte à côte ils écrivent une fonction.
+    // Elle ne pouvait rien faire de mal, faute de pouvoir nommer quoi que ce
+    // soit, et la calculatrice répondait « Erreur » puisqu'une fonction n'est
+    // pas un nombre. On la refuse quand même : ce qui n'a aucune raison d'être
+    // compilé n'a pas à l'être.
+    if (expr.includes('=>')) return false;
     let reste = expr.toLowerCase();
     // Les noms les plus longs d'abord : sans quoi « sin » mangerait le cœur de
     // « arcsin » et laisserait un « arc » qui ferait tout rejeter.
@@ -28188,10 +28442,14 @@ function formuleAcceptable(expr) {
     // Ce qui subsiste : chiffres, les deux variables, la virgule décimale, les
     // séparateurs, et les opérateurs — y compris les signes que la calculatrice
     // affiche à l'écran (× ÷ π √ x² x³), qu'elle traduit ensuite elle-même.
+    // La racine cubique « ∛ » et l'inverse « x⁻¹ » ont été ajoutés le jour où
+    // l'on a mesuré qu'ils ne marchaient pas : la touche existait, le signe
+    // qu'elle écrit n'était pas admis ici, et la calculatrice répondait
+    // « Erreur » à qui demandait la racine cubique de huit.
     // Aucun d'eux ne permet de nommer une propriété : « π » compile en une
     // variable inconnue, les autres ne sont même pas des caractères
     // d'identifiant, et toutes les lettres restent hors du compte.
-    return !/[^0-9xt.,;+\-*/^%()|!<>=\s×÷π√²³⁻]/.test(reste);
+    return !/[^0-9xt.,;+\-*/^%()|!<>=\s×÷π√∛²³⁻¹]/.test(reste);
 }
 window.formuleAcceptable = formuleAcceptable;
 window.echapperTexte = echapperTexte;
