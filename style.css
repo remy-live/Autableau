@@ -3930,12 +3930,49 @@ body.dark-mode {
     background: transparent;
 }
 
+/* « Poser sur le tableau » se tient SOUS l'afficheur et non parmi les touches :
+   ce n'est pas une touche de calcul, c'est ce qu'on fait du calcul une fois
+   qu'il est juste. Le mettre dans le clavier l'aurait fait presser par erreur
+   au milieu d'une opération. */
+.calc-tampon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin-top: 7px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 7px;
+    background: #333d45;
+    color: #e6ebee;
+    font: 600 12px/1 sans-serif;
+    cursor: pointer;
+    transition: filter 0.1s;
+}
+
+.calc-tampon:hover { filter: brightness(1.15); }
+.calc-tampon:active { transform: translateY(1px); }
+.calc-tampon svg { flex: none; }
+
 /* L'ÉCRAN NE FAIT PLUS LE TIERS DE LA FENÊTRE POUR N'AFFICHER QU'UN ZÉRO. Il
    était centré dans soixante-dix pixels de haut : la ligne de calcul vide
    laissait un grand vide vert au-dessus du résultat. Un afficheur à cristaux
    liquides écrit EN BAS, contre le bord, et ce qui est écrit y est collé. */
+/* LA TRAME DE L'AFFICHEUR EST SOUS LE TEXTE, ET C'EST UNE DÉCISION.
+   Un afficheur de calculatrice est une matrice de points : c'est cela, et non
+   une police particulière, qui fait qu'on reconnaît un écran de calculatrice.
+   On peut la peindre de deux façons — par-dessus tout, ou dans le fond. Par
+   -dessus, elle mange une part de l'encre : le contraste baisse pour de vrai,
+   et AUCUNE de nos mesures ne le verrait, puisqu'elles lisent les couleurs
+   déclarées et non ce qui est peint. Un défaut qu'aucune épreuve ne peut voir
+   est le pire qu'on puisse poser. Elle est donc DANS LE FOND : l'écran a sa
+   grille de pixels éteints, et ce qui est écrit reste intact. */
 .calc-screen {
-    background: #9cad8e;
+    background-color: #9cad8e;
+    background-image:
+        repeating-linear-gradient(to right, rgba(72, 88, 58, 0.16) 0 1px, transparent 1px 4px),
+        repeating-linear-gradient(to bottom, rgba(72, 88, 58, 0.16) 0 1px, transparent 1px 4px);
     border-radius: 7px;
     padding: 7px 10px 8px;
     box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.28);
@@ -3974,6 +4011,14 @@ body.dark-mode {
     overflow-wrap: anywhere;
 }
 
+/* LE RÉSULTAT EST ÉCRIT EN POINTS, comme sur l'afficheur d'une calculatrice.
+   « Une calculatrice qui affiche une police de calculatrice. » On ne peut pas
+   compter sur une police installée chez le professeur — celle qu'on nommerait
+   serait remplacée en silence par une autre. On découpe donc l'encre elle-même
+   en points : ce sont les VRAIES formes des chiffres, rendues comme une
+   matrice les rendrait. Le découpage ne vaut QUE pour le résultat, écrit en
+   vingt-sept pixels : à la taille de la ligne de calcul, il rongerait les
+   signes au lieu de les dessiner. */
 #calc-res {
     font-size: 27px;
     font-weight: bold;
@@ -3981,6 +4026,90 @@ body.dark-mode {
     line-height: 1.1;
     word-wrap: break-word;
     overflow-wrap: anywhere;
+    letter-spacing: 0.01em;
+    /* LE PAS DE LA TRAME EST MESURÉ, PAS CHOISI. Au premier essai il valait
+       deux pixels : sur MON écran d'épreuve, qui compte deux points par pixel,
+       les chiffres étaient joliment tramés. Sur un écran ordinaire — celui
+       d'un vidéoprojecteur, celui d'un portable de salle de classe — la trame
+       ne faisait RIEN DU TOUT : mesuré, exactement la même encre avec et sans.
+       J'aurais livré une fonction que seul l'écran du développeur pouvait
+       voir. À trois pixels de pas, elle existe partout, garde cinquante-huit
+       pour cent de l'encre, et le cœur du trait reste à 7,19:1. */
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0 1.1px, transparent 1.2px);
+    mask-image: radial-gradient(circle at 50% 50%, #000 0 1.1px, transparent 1.2px);
+    -webkit-mask-size: 3px 3px;
+    mask-size: 3px 3px;
+    -webkit-mask-repeat: repeat;
+    mask-repeat: repeat;
+}
+
+/* ==========================================================
+   L'ÉCRITURE NATURELLE
+   ==========================================================
+   « La possibilité d'écrire les formules comme la fx-92. » Une fraction
+   s'écrit l'une sur l'autre avec une barre entre les deux, une racine passe
+   SOUS son signe avec le trait qui dit jusqu'où elle prend, une puissance
+   monte en exposant. L'écran rendait jusqu'ici la suite des touches telle
+   quelle — « 1/3+√(2)^2 » — et un élève qui recopie cela ne recopie pas des
+   mathématiques. */
+.nat-frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    /* La fraction descend d'un demi-trait pour que sa BARRE tombe sur la
+       ligne d'écriture, comme au tableau : sans cela elle flotte au-dessus
+       des signes qui l'entourent. */
+    margin: 0 2px;
+    line-height: 1.05;
+}
+
+.nat-haut { padding: 0 3px 1px; }
+
+.nat-bas {
+    padding: 1px 3px 0;
+    border-top: 1.5px solid currentColor;
+}
+
+/* La racine : son signe, et le trait qui couvre ce qu'elle prend. Sans ce
+   trait, « √2+3 » ne dit pas si le 3 est dessous. */
+.nat-rac { display: inline-flex; align-items: flex-start; vertical-align: middle; }
+.nat-rac .nat-signe { font-size: 1.15em; line-height: 1; }
+.nat-rac .nat-sous {
+    border-top: 1.5px solid currentColor;
+    padding: 1px 3px 0 1px;
+    margin-top: 0.12em;
+}
+/* L'ordre de la racine — le petit 3 de la racine cubique — se pose dans le
+   creux du signe. */
+.nat-rac .nat-ordre {
+    font-size: 0.55em;
+    align-self: flex-start;
+    margin-right: -0.35em;
+    margin-top: 0.05em;
+}
+
+.nat-exp { font-size: 0.6em; vertical-align: super; line-height: 0; }
+
+/* Les noms de fonction s'écrivent droit : « sin » n'est pas s × i × n. */
+.nat-fn { font-style: normal; letter-spacing: 0.02em; }
+
+/* LE CURSEUR DIT OÙ L'ON ÉCRIT. Une calculatrice sans curseur laisse croire
+   qu'elle n'a pas reçu la touche. */
+.nat-curseur {
+    display: inline-block;
+    width: 2px;
+    height: 0.95em;
+    background: currentColor;
+    vertical-align: -0.12em;
+    margin-left: 1px;
+    animation: nat-clignote 1.06s steps(2, start) infinite;
+}
+
+@keyframes nat-clignote { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .nat-curseur { animation: none; }
 }
 
 /* LES RANGÉES NE SONT PLUS COMPTÉES À LA MAIN. C'est ce qui écrasait les

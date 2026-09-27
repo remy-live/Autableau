@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=217 »,
-         « script.js?v=372 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=218 »,
+         « script.js?v=373 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=217">
+    <link rel="stylesheet" href="style.css?v=218">
 </head>
 
 <body>
@@ -2118,6 +2118,18 @@
                 <div id="calc-expr"></div>
                 <div id="calc-res">0</div>
             </div>
+            <!-- « Et on peut le tamponner sur le tableau. » Un calcul fait
+                 devant la classe ne sert que s'il RESTE. On le recopiait à la
+                 main sous la calculatrice — et une recopie est une occasion de
+                 se tromper devant trente élèves. -->
+            <button id="btn-calc-tampon" class="calc-tampon"
+                title="Poser ce calcul sur le tableau, en écriture mathématique">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3v10" /><path d="M8 9l4 4 4-4" /><path d="M4 17h16v4H4z" />
+                </svg>
+                Poser sur le tableau
+            </button>
         </div>
         <div class="calc-grid">
             <button class="calc-btn action shift" id="btn-calc-shift">SHIFT</button>
@@ -3953,7 +3965,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=372"></script>
+    <script src="script.js?v=373"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=120"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

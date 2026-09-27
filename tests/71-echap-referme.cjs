@@ -298,6 +298,71 @@ module.exports = async function (browser) {
         r.verifie('la boîte de réglages s\'ouvre et porte une croix', false, JSON.stringify(boite));
     }
 
+    // ------------------------------------------------------------------
+    // UNE FENÊTRE AGRANDIE : ÉCHAP REND L'ÉCRAN, ET NE FERME RIEN
+    // ------------------------------------------------------------------
+    // L'empreinte compte les fenêtres agrandies — c'est bien ce terme-là qui
+    // devait empêcher la fermeture. Mais elle est relevée AVANT et APRÈS la
+    // touche, et la sortie du plein écran n'a pas encore eu lieu quand on
+    // regarde : elle est branchée FENÊTRE PAR FENÊTRE, au moment de
+    // l'équipement, donc après la règle globale, posée au chargement. L'ordre
+    // des écoutes décidait du comportement, et il décidait mal : Échap fermait
+    // la fenêtre de devant, PUIS sortait du plein écran de l'autre.
+    //
+    // Cela ne se voyait pas tant que la fenêtre de devant n'était presque
+    // jamais celle qu'on regardait. Le jour où les fenêtres ont commencé à
+    // passer devant en s'ouvrant, la victime est devenue celle qu'on venait
+    // d'agrandir — et « Échap rend l'écran » la refermait pour de bon.
+    // ON PREND « MES CLASSES », ET C'EST MESURÉ, PAS CHOISI AU HASARD. La même
+    // épreuve montée sur la calculatrice reste verte même en débranchant la
+    // correction : la calculatrice est équipée TÔT, sa sortie du plein écran
+    // passe donc avant la règle globale et l'empreinte change à temps. C'est
+    // une fenêtre équipée TARD — une modale, avec son voile — qui met l'ordre
+    // des écoutes en défaut. Une épreuve qui n'aurait rien mesuré aurait été
+    // pire que pas d'épreuve du tout.
+    const agrandie = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        // Deux fenêtres, pour que « celle de devant » ait un sens.
+        document.getElementById('btn-toggle-calc').click();
+        await attendre(300);
+        await ClassesStore.saveAll([{ id: 'ec', name: 'Épreuve',
+            students: [{ id: 'a', name: 'Alix' }, { id: 'b', name: 'Bo' }] }]);
+        await openClassManagerModal(null, 'eleves');
+        await attendre(700);
+        const boite = document.querySelector('#class-manager-modal .modal-box');
+        if (!boite || !boite.querySelector('.fen-plein')) return { sansBouton: true };
+        const combien = () => [...document.querySelectorAll('[data-equipee="1"]')]
+            .filter(f => f.getClientRects().length).length;
+        const avant = combien();
+        const large = boite.getBoundingClientRect().width;
+        boite.querySelector('.fen-plein').click();
+        await attendre(250);
+        const agrandi = boite.getBoundingClientRect().width;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await attendre(350);
+        return {
+            avant, apres: combien(),
+            largeurs: [Math.round(large), Math.round(agrandi),
+                       Math.round(boite.getBoundingClientRect().width)],
+            toujoursLa: !!document.querySelector('#class-manager-modal .modal-box'),
+            calcLa: document.getElementById('calc-widget').getClientRects().length > 0,
+            pleines: document.querySelectorAll('.fen-pleine').length,
+        };
+    });
+    if (agrandie.sansBouton) {
+        r.verifie('« Mes classes » s\'ouvre et porte un bouton d\'agrandissement', false, 'pas de bouton');
+    } else {
+        r.verifie('il y a bien plusieurs fenêtres ouvertes', agrandie.avant >= 2, JSON.stringify(agrandie));
+        r.verifie('Échap rend l\'écran à la fenêtre agrandie',
+            agrandie.largeurs[1] > agrandie.largeurs[0]
+            && Math.abs(agrandie.largeurs[2] - agrandie.largeurs[0]) < 3, JSON.stringify(agrandie));
+        r.egal('elle est toujours là', agrandie.toujoursLa, true, JSON.stringify(agrandie));
+        r.egal('et l\'autre aussi', agrandie.calcLa, true, JSON.stringify(agrandie));
+        r.egal('il ne s\'en ferme aucune au passage',
+            agrandie.apres, agrandie.avant, JSON.stringify(agrandie));
+        r.egal('plus rien n\'est agrandi', agrandie.pleines, 0, JSON.stringify(agrandie));
+    }
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -21060,6 +21060,187 @@ function ecrireLeResultat(x) {
     return fractionLisible(x) || decimal;
 }
 
+// ==========================================================
+// L'ÉCRITURE NATURELLE
+// ==========================================================
+//
+// « La possibilité d'écrire les formules comme la fx-92. »
+//
+// C'est le propre d'une calculatrice de collège, et cela porte un nom :
+// l'ÉCRITURE NATURELLE. Une fraction s'écrit l'une sur l'autre avec une barre
+// entre les deux, une racine passe sous son signe, une puissance monte en
+// exposant — bref, ce qu'on écrit au tableau. Jusqu'ici l'écran rendait la
+// suite des touches telle quelle : « 1/3+√(2)^2 ». Un élève qui recopie cela
+// ne recopie pas des mathématiques.
+//
+// CE QUI EST CALCULÉ NE CHANGE PAS. L'expression reste une suite de signes,
+// une seule chaîne — c'est elle que la garde examine, que l'historique retient
+// et que le moteur évalue. On n'a ajouté qu'une façon de la MONTRER : rien de
+// ce qui marchait ne dépend du rendu, et si le rendu échoue on réaffiche la
+// suite des signes plutôt que rien.
+//
+// ET IL NE PEUT PAS INJECTER DE CODE. Tout ce qui vient de l'expression passe
+// par « echapper » avant d'entrer dans la page : c'est la même règle que pour
+// la garde des formules, du côté de l'affichage.
+
+// Les noms qu'on lit d'un bloc. Les plus longs d'abord, sans quoi « arcsin »
+// se lirait « arc » puis « sin ».
+const NAT_NOMS = ['arcsin', 'arccos', 'arctan', 'RanInt', 'PGCD', 'PPCM', 'FACT',
+                  'sin', 'cos', 'tan', 'Ans', '÷R', '√', '∛', 'x⁻¹', 'x²', 'x³', '(-)'];
+
+function echapper(t) {
+    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// LA SUITE DES SIGNES DEVIENT UNE SUITE DE MORCEAUX. « x² » est UN morceau et
+// non deux caractères : c'est ce qui permet à la touche d'effacement de
+// reprendre une touche entière au lieu de laisser un « x » orphelin.
+function morceauxDuCalcul(texte) {
+    const s = String(texte || '');
+    const morceaux = [];
+    let i = 0;
+    while (i < s.length) {
+        const nom = NAT_NOMS.find(n => s.startsWith(n, i));
+        if (nom) { morceaux.push(nom); i += nom.length; continue; }
+        const nombre = /^[0-9]+(\.[0-9]*)?/.exec(s.slice(i));
+        if (nombre) { morceaux.push(nombre[0]); i += nombre[0].length; continue; }
+        morceaux.push(s[i]); i += 1;
+    }
+    return morceaux;
+}
+
+// Ce qui ne fait pas partie d'un nombre : on l'écrit tel quel, entre les
+// morceaux. L'ESPACE EN FAIT PARTIE, et ce n'est pas un détail : sans lui,
+// « 1 / 2 » empilait un espace sur un espace, parce que la barre de fraction
+// prenait le morceau précédent — qui était un blanc.
+const NAT_OPERATEURS = ['+', '-', '×', '÷', '/', ',', '÷R', ' '];
+
+function ecrireEnNaturel(texte) {
+    const m = morceauxDuCalcul(texte);
+    let i = 0;
+
+    const lireGroupe = () => {
+        // Ce qu'il y a entre parenthèses — en acceptant qu'elles ne soient pas
+        // encore refermées : on écrit pendant qu'on tape.
+        if (m[i] !== '(') return null;
+        i++;
+        const debut = i;
+        let profondeur = 1;
+        while (i < m.length && profondeur > 0) {
+            if (m[i] === '(') profondeur++;
+            else if (m[i] === ')') profondeur--;
+            if (profondeur > 0) i++;
+        }
+        const dedans = m.slice(debut, i).join('');
+        if (m[i] === ')') i++;
+        return { dedans, refermee: profondeur === 0 };
+    };
+
+    const lireAtome = () => {
+        const t = m[i];
+        if (t === undefined) return '';
+        // LA RACINE PASSE SOUS SON SIGNE, avec le trait qui couvre ce qu'elle
+        // prend. Sans ce trait, « √2+3 » ne dit pas si le 3 est dessous.
+        if (t === '√' || t === '∛') {
+            i++;
+            const g = lireGroupe();
+            const dedans = g ? ecrireEnNaturel(g.dedans) : '';
+            const ordre = t === '∛' ? '<span class="nat-ordre">3</span>' : '';
+            return '<span class="nat-rac">' + ordre + '<span class="nat-signe">√</span>'
+                 + '<span class="nat-sous">' + dedans + '</span></span>';
+        }
+        if (['sin', 'cos', 'tan', 'arcsin', 'arccos', 'arctan', 'PGCD', 'PPCM', 'RanInt', 'FACT'].includes(t)) {
+            i++;
+            const g = lireGroupe();
+            const dedans = g ? ecrireEnNaturel(g.dedans) : '';
+            return '<span class="nat-fn">' + echapper(t) + '</span>'
+                 + (g ? '(' + dedans + (g.refermee ? ')' : '') : '');
+        }
+        if (t === '(') {
+            const g = lireGroupe();
+            return '(' + ecrireEnNaturel(g.dedans) + (g.refermee ? ')' : '');
+        }
+        i++;
+        return echapper(t);
+    };
+
+    // Les puissances montent : « x² », « x³ », « x⁻¹ » et « ^ » suivi de ce
+    // qu'on élève.
+    const lirePuissance = () => {
+        let html = lireAtome();
+        for (;;) {
+            const t = m[i];
+            if (t === 'x²') { i++; html += '<sup class="nat-exp">2</sup>'; continue; }
+            if (t === 'x³') { i++; html += '<sup class="nat-exp">3</sup>'; continue; }
+            if (t === 'x⁻¹') { i++; html += '<sup class="nat-exp">−1</sup>'; continue; }
+            if (t === '^') {
+                i++;
+                const avant = i;
+                const exposant = lireAtome();
+                html += '<sup class="nat-exp">' + (i > avant ? exposant : '') + '</sup>';
+                continue;
+            }
+            return html;
+        }
+    };
+
+    // ET LA FRACTION S'ÉCRIT L'UNE SUR L'AUTRE. C'est la touche « a/b » : sur
+    // une fx-92 elle empile le haut et le bas ; le signe « ÷ », lui, reste un
+    // signe de division écrit en ligne, comme sur la machine.
+    const lireFacteur = () => {
+        let html = lirePuissance();
+        while (m[i] === '/') {
+            i++;
+            const bas = lirePuissance();
+            html = '<span class="nat-frac"><span class="nat-haut">' + html + '</span>'
+                 + '<span class="nat-bas">' + bas + '</span></span>';
+        }
+        return html;
+    };
+
+    let sortie = '';
+    let garde = 0;
+    while (i < m.length && garde++ < 4000) {
+        const avant = i;
+        if (NAT_OPERATEURS.includes(m[i])) { sortie += echapper(m[i]); i++; continue; }
+        sortie += lireFacteur();
+        if (i === avant) { sortie += echapper(m[i]); i++; }   // rien n'a avancé : on ne boucle pas
+    }
+    return sortie;
+}
+
+// CE QU'ON MONTRE DANS L'AFFICHEUR, avec le curseur là où l'on écrit. Si le
+// rendu échoue pour une raison qu'on n'a pas prévue, on réaffiche la suite des
+// signes : une calculatrice qui n'affiche plus rien est pire qu'une
+// calculatrice qui écrit en ligne.
+function montrerLExpression(el, texte, avecCurseur) {
+    if (!el) return;
+    // LA SUITE DES SIGNES RESTE LISIBLE À CÔTÉ DU DESSIN. Une fraction empilée
+    // n'a plus de texte : « 1/2 » dessiné rend « 1 2 » si on le relit. Ce que
+    // la machine a calculé doit rester lisible tel quel — pour les épreuves,
+    // pour le tampon, et pour qui voudra le reprendre.
+    el.dataset.brut = String(texte === undefined || texte === null ? '' : texte);
+    try {
+        el.innerHTML = ecrireEnNaturel(texte)
+            + (avecCurseur === false ? '' : '<span class="nat-curseur"></span>');
+    } catch (e) {
+        el.textContent = String(texte || '');
+    }
+}
+
+// Le résultat aussi s'écrit naturellement : « 1/2 » est une fraction empilée,
+// et c'est justement la réponse qu'une calculatrice de collège donne.
+function montrerLeResultat(el, texte) {
+    if (!el) return;
+    const t = String(texte === undefined || texte === null ? '' : texte);
+    el.dataset.brut = t;
+    // Une phrase — « 3 reste 2 », « 23 est premier » — n'est pas un calcul :
+    // on l'écrit telle quelle.
+    if (/[a-zà-ÿ]{3}/i.test(t.replace(/sin|cos|tan|Ans/gi, ''))) { el.textContent = t; return; }
+    try { el.innerHTML = ecrireEnNaturel(t); }
+    catch (e) { el.textContent = t; }
+}
+
 const pgcdDeuxNombres = (a, b) => {
     a = Math.abs(Math.round(a)); b = Math.abs(Math.round(b));
     while (b) { const r = a % b; a = b; b = r; }
@@ -21085,6 +21266,185 @@ function facteursPremiers(n) {
         .join('×');
 }
 
+// ==========================================================
+// POSER LE CALCUL SUR LE TABLEAU
+// ==========================================================
+//
+// « Et on peut le tamponner sur le tableau. »
+//
+// Un calcul fait devant la classe ne sert que s'il RESTE. On écrivait jusqu'ici
+// le résultat à la main sous la calculatrice, en le recopiant de l'écran — et
+// une recopie est une occasion de se tromper devant trente élèves.
+//
+// LE TAMPON EST UNE IMAGE VECTORIELLE, comme celui de l'atelier des formules :
+// elle se déplace, s'agrandit, se supprime et s'annule comme n'importe quel
+// objet du tableau, et elle reste nette quand on la projette.
+
+const LATEX_FONCTIONS = { sin: '\\sin', cos: '\\cos', tan: '\\tan',
+                          arcsin: '\\arcsin', arccos: '\\arccos', arctan: '\\arctan' };
+
+// La même lecture que pour l'écriture naturelle, mais qui écrit du LaTeX.
+// Les deux partent des mêmes morceaux : ce qu'on VOIT à l'écran et ce qu'on
+// POSE sur le tableau ne peuvent donc pas diverger.
+function calculEnLatex(texte) {
+    const m = morceauxDuCalcul(texte);
+    let i = 0;
+
+    const lireGroupe = () => {
+        if (m[i] !== '(') return null;
+        i++;
+        const debut = i;
+        let profondeur = 1;
+        while (i < m.length && profondeur > 0) {
+            if (m[i] === '(') profondeur++;
+            else if (m[i] === ')') profondeur--;
+            if (profondeur > 0) i++;
+        }
+        const dedans = m.slice(debut, i).join('');
+        if (m[i] === ')') i++;
+        return dedans;
+    };
+
+    const lireAtome = () => {
+        const t = m[i];
+        if (t === undefined) return '';
+        if (t === '√') { i++; return '\\sqrt{' + calculEnLatex(lireGroupe() || '') + '}'; }
+        if (t === '∛') { i++; return '\\sqrt[3]{' + calculEnLatex(lireGroupe() || '') + '}'; }
+        if (LATEX_FONCTIONS[t]) { i++; return LATEX_FONCTIONS[t] + '\\left(' + calculEnLatex(lireGroupe() || '') + '\\right)'; }
+        if (['PGCD', 'PPCM', 'RanInt', 'FACT'].includes(t)) {
+            i++;
+            return '\\mathrm{' + t + '}\\left(' + calculEnLatex(lireGroupe() || '') + '\\right)';
+        }
+        if (t === '(') { return '\\left(' + calculEnLatex(lireGroupe()) + '\\right)'; }
+        i++;
+        if (t === 'π') return '\\pi ';
+        if (t === 'Ans') return '\\mathrm{Ans}';
+        if (t === '×') return ' \\times ';
+        if (t === '÷') return ' \\div ';
+        if (t === '(-)') return '-';
+        if (t === ',') return ' ; ';
+        if (t === '+') return ' + ';
+        if (t === '-') return ' - ';
+        return t;
+    };
+
+    const lirePuissance = () => {
+        let out = lireAtome();
+        for (;;) {
+            const t = m[i];
+            if (t === 'x²') { i++; out += '^{2}'; continue; }
+            if (t === 'x³') { i++; out += '^{3}'; continue; }
+            if (t === 'x⁻¹') { i++; out += '^{-1}'; continue; }
+            if (t === '^') { i++; out += '^{' + lireAtome() + '}'; continue; }
+            return out;
+        }
+    };
+
+    const lireFacteur = () => {
+        let out = lirePuissance();
+        while (m[i] === '/') {
+            i++;
+            out = '\\frac{' + out + '}{' + lirePuissance() + '}';
+        }
+        return out;
+    };
+
+    let sortie = '', garde = 0;
+    while (i < m.length && garde++ < 4000) {
+        const avant = i;
+        sortie += lireFacteur();
+        if (i === avant) { sortie += lireAtome(); }
+        if (i === avant) { i++; }
+    }
+    return sortie;
+}
+
+// Les exposants écrits en petits caractères — « 2²×3×5 » — redeviennent des
+// puissances. C'est ce que rend la décomposition en facteurs premiers.
+const EXPOSANTS_LUS = { '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9 };
+
+function phraseEnLatex(phrase) {
+    return String(phrase)
+        .replace(/[²³⁴⁵⁶⁷⁸⁹]/g, (c) => '^{' + EXPOSANTS_LUS[c] + '}')
+        .replace(/×/g, ' \\times ')
+        .replace(/\bet\b|\breste\b|\bpremier\b|\best\b/g, (mot) => '\\text{ ' + mot + ' }');
+}
+
+// CE QU'ON POSE, C'EST LA LIGNE ENTIÈRE : le calcul ET sa réponse. Deux cas
+// méritent mieux qu'une recopie — la division euclidienne et la décomposition
+// —, parce que ce qu'on écrit au tableau n'y est pas « 3 reste 2 » mais
+// l'égalité qui le dit.
+function latexDuCalcul(expression, resultat) {
+    const expr = String(expression || '').trim();
+    const res = String(resultat === undefined || resultat === null ? '' : resultat).trim();
+    if (!expr && !res) return null;
+
+    // 17 ÷R 5 → « 17 = 5 × 3 + 2 », l'égalité de la division euclidienne.
+    const euclide = expr.split('÷R');
+    const reste = res.match(/^(-?\d+) reste (-?\d+)$/);
+    if (euclide.length === 2 && reste) {
+        return calculEnLatex(euclide[0]) + ' = ' + calculEnLatex(euclide[1])
+             + ' \\times ' + reste[1] + ' + ' + reste[2];
+    }
+    // FACT(60) → « 60 = 2² × 3 × 5 » : le résultat est déjà l'égalité.
+    if (/^FACT/.test(expr) && res) return phraseEnLatex(res);
+    if (!res || res === 'Erreur' || res === 'Erreur syn.') return calculEnLatex(expr);
+    if (!expr) return phraseEnLatex(res);
+    return calculEnLatex(expr) + ' = ' + calculEnLatex(res);
+}
+
+// Le moteur de composition pèse deux mégaoctets et ne sert qu'ici : on ne le
+// charge qu'au premier tampon, comme l'atelier des formules le fait déjà.
+function poserLeCalculSurLeTableau() {
+    const expr = document.getElementById('calc-expr');
+    const res = document.getElementById('calc-res');
+    const latex = latexDuCalcul(expr && expr.dataset.brut, res && res.dataset.brut);
+    if (!latex) {
+        if (typeof showToast === 'function') showToast('Il n\'y a rien à poser');
+        return;
+    }
+    const composer = () => {
+        MathJax.tex2svgPromise(latex, { display: false }).then((noeud) => {
+            const svg = noeud.querySelector('svg');
+            if (!svg) { if (typeof showToast === 'function') showToast('Ce calcul n\'a pas pu être composé'); return; }
+            // MathJax mesure en « ex » ; on fixe une taille lisible au tableau.
+            const large = Math.round(parseFloat(svg.getAttribute('width')) * 25);
+            const haut = Math.round(parseFloat(svg.getAttribute('height')) * 25);
+            svg.setAttribute('width', large + 'px');
+            svg.setAttribute('height', haut + 'px');
+            svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            svg.style.color = '#2d3436';
+            const texte = new XMLSerializer().serializeToString(svg);
+            if (typeof createStampFromSVG !== 'function') return;
+            createStampFromSVG(texte, (tampon) => {
+                // Le tampon n'appartient à aucun plugin : c'est une image du
+                // tableau comme une autre, qu'on déplace et qu'on annule.
+                if (typeof imageCache !== 'undefined') imageCache[tampon.src] = tampon.img;
+                images.push({
+                    id: nextId++,
+                    x: (window.innerWidth / 2 - panX) / zoom - tampon.w / 2,
+                    y: (window.innerHeight / 2 - panY) / zoom - tampon.h / 2,
+                    w: tampon.w, h: tampon.h, cx: 0, cy: 0, cw: tampon.w, ch: tampon.h,
+                    src: tampon.src, z: globalZ++
+                });
+                if (typeof saveState === 'function') saveState();
+                if (typeof draw === 'function') draw();
+                if (typeof showToast === 'function') showToast('Calcul posé sur le tableau');
+            });
+        }).catch(() => {
+            if (typeof showToast === 'function') showToast('Ce calcul n\'a pas pu être composé');
+        });
+    };
+    if (window.MathJax && window.MathJax.tex2svgPromise) { composer(); return; }
+    if (typeof showToast === 'function') showToast('Préparation de l\'écriture…');
+    const chargement = (typeof chargerMathJax === 'function') ? chargerMathJax() : Promise.resolve(false);
+    chargement.then((pret) => {
+        if (pret) composer();
+        else if (typeof showToast === 'function') showToast('L\'écriture n\'a pas pu être préparée');
+    });
+}
+window.poserLeCalculSurLeTableau = poserLeCalculSurLeTableau;
+
 // --- Fonction Utilitaires : Décimal vers Fraction ---
 function toFraction(x) {
     if (x === 0) return "0";
@@ -21099,7 +21459,10 @@ function toFraction(x) {
     } while (Math.abs(Math.abs(x) - h1 / k1) > Math.abs(x) * 1.0E-6 && k1 < 10000);
 
     if (k1 >= 10000) return parseFloat(x.toPrecision(12)).toString(); // Trop complexe
-    return (x < 0 ? "-" : "") + h1 + " / " + k1;
+    // SANS ESPACES AUTOUR DE LA BARRE : depuis l'écriture naturelle, c'est
+    // cette barre-là qui empile le haut et le bas. « 1 / 2 » resterait écrit
+    // en ligne alors que la touche « a/b » sert précisément à voir la fraction.
+    return (x < 0 ? "-" : "") + h1 + "/" + k1;
 }
 
 // ÉVALUER UN MORCEAU, sans rien afficher : la division euclidienne et la
@@ -21138,6 +21501,13 @@ if (btnToggleCalc) {
     });
 }
 if (btnCalcClose) btnCalcClose.addEventListener('click', () => calcWidget.style.display = 'none');
+
+// « Et on peut le tamponner sur le tableau. »
+const btnCalcTampon = document.getElementById('btn-calc-tampon');
+if (btnCalcTampon) btnCalcTampon.addEventListener('click', (e) => {
+    e.stopPropagation();
+    poserLeCalculSurLeTableau();
+});
 
 // --- 2. Déplacement (Drag & Drop) ---
 let isDraggingCalc = false; let calcStartX = 0, calcStartY = 0;
@@ -21198,17 +21568,25 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
         // -- GESTION DE L'HISTORIQUE --
         if (id === 'btn-calc-up') {
             if (calcHistory.length > 0 && calcHistoryIndex > 0) {
-                calcHistoryIndex--; expression = calcHistory[calcHistoryIndex]; calcExpr.innerText = expression;
+                calcHistoryIndex--; expression = calcHistory[calcHistoryIndex]; montrerLExpression(calcExpr, expression);
             } return;
         }
         if (id === 'btn-calc-down') {
             if (calcHistoryIndex < calcHistory.length - 1 && calcHistoryIndex !== -1) {
                 calcHistoryIndex++; expression = calcHistory[calcHistoryIndex];
             } else { calcHistoryIndex = calcHistory.length; expression = ""; }
-            calcExpr.innerText = expression; return;
+            montrerLExpression(calcExpr, expression); return;
         }
 
         // -- NETTOYAGE SI NOUVEAU CALCUL --
+        // ON SE SOUVIENT QU'UN RÉSULTAT ÉTAIT À L'ÉCRAN. Le nettoyage remet
+        // « evaluated » à faux ; la touche « a/b », plus bas, interrogeait ce
+        // même drapeau pour savoir s'il fallait montrer la fraction du
+        // résultat. Il était donc TOUJOURS faux quand elle le lisait : au lieu
+        // de convertir la réponse en fraction, elle ajoutait une barre
+        // parasite à la fin du calcul — « 1÷8/ » — et le calcul suivant
+        // répondait « Erreur ».
+        const venaitDEtreEvalue = evaluated;
         if (evaluated) {
             if (['×', '÷', '+', '-', '^', 'x²', 'x³'].includes(val)) {
                 expression = "Ans";
@@ -21219,10 +21597,15 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
         }
 
         if (val === 'AC') {
-            expression = ""; calcRes.innerText = "0";
+            expression = ""; montrerLeResultat(calcRes, "0");
         }
         else if (val === 'DEL') {
-            expression = expression.slice(0, -1);
+            // ON EFFACE UNE TOUCHE, PAS UN CARACTÈRE. « x² » s'écrit avec deux
+            // signes : couper le dernier laissait un « x » orphelin dans
+            // l'expression, que plus rien ne savait lire — et le calcul suivant
+            // répondait « Erreur » sans qu'on comprenne pourquoi. On retire le
+            // dernier MORCEAU, c'est-à-dire la dernière touche pressée.
+            expression = morceauxDuCalcul(expression).slice(0, -1).join('');
         }
         else if (val === '=') {
             try {
@@ -21234,26 +21617,26 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                 if (euclide.length === 2) {
                     const a = evaluerUnMorceau(euclide[0]);
                     const b = evaluerUnMorceau(euclide[1]);
-                    if (a === null || b === null || !b) { calcRes.innerText = 'Erreur'; return; }
+                    if (a === null || b === null || !b) { montrerLeResultat(calcRes, 'Erreur'); return; }
                     const q = Math.floor(Math.round(a) / Math.round(b));
                     const r = Math.round(a) - q * Math.round(b);
-                    calcRes.innerText = q + ' reste ' + r;
+                    montrerLeResultat(calcRes, q + ' reste ' + r);
                     derniereValeur = q; lastAnswer = String(q); evaluated = true;
-                    calcExpr.innerText = expression;
+                    montrerLExpression(calcExpr, expression);
                     return;
                 }
                 const decomposition = expression.match(/^FACT\(?([^)]*)\)?$/);
                 if (decomposition) {
                     const n = evaluerUnMorceau(decomposition[1] || String(derniereValeur));
                     const dit = n === null ? null : facteursPremiers(n);
-                    calcRes.innerText = dit || 'Erreur';
+                    montrerLeResultat(calcRes, dit || 'Erreur');
                     evaluated = true;
                     return;
                 }
                 // Même garde que pour le traceur : on ne compile que ce qui
                 // ressemble à un calcul.
                 if (typeof formuleAcceptable === 'function' && !formuleAcceptable(expression)) {
-                    calcRes.innerText = 'Erreur';
+                    montrerLeResultat(calcRes, 'Erreur');
                     return;
                 }
                 let evalStr = expression
@@ -21317,17 +21700,17 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                     // décimale ne revoyait plus jamais une fraction.
                     afficheEnDecimal = false;
                     result = parseFloat(result.toPrecision(12)).toString();
-                    calcRes.innerText = ecrireLeResultat(derniereValeur);
+                    montrerLeResultat(calcRes, ecrireLeResultat(derniereValeur));
                     lastAnswer = result;
                     evaluated = true;
 
                     if (calcHistory[calcHistory.length - 1] !== expression) calcHistory.push(expression);
                     calcHistoryIndex = calcHistory.length;
                 } else {
-                    calcRes.innerText = "Erreur";
+                    montrerLeResultat(calcRes, "Erreur");
                 }
             } catch (err) {
-                calcRes.innerText = "Erreur syn.";
+                montrerLeResultat(calcRes, "Erreur syn.");
             }
         }
         // LES TOUCHES DU COLLÈGE — celles qui ne se rangent pas dans
@@ -21335,7 +21718,7 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
         // mémoire, et non sur ce qu'on est en train de taper.
         else if (val === 'S⇔D') {
             afficheEnDecimal = !afficheEnDecimal;
-            if (evaluated || derniereValeur) calcRes.innerText = ecrireLeResultat(derniereValeur);
+            if (evaluated || derniereValeur) montrerLeResultat(calcRes, ecrireLeResultat(derniereValeur));
             return;
         }
         else if (val === 'M+' || val === 'M−') {
@@ -21345,16 +21728,16 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             const n = expression.trim()
                 ? evaluerUnMorceau(expression)
                 : (evaluated ? derniereValeur : 0);
-            if (n === null) { calcRes.innerText = 'Erreur'; return; }
+            if (n === null) { montrerLeResultat(calcRes, 'Erreur'); return; }
             memoireCalc += (val === 'M+' ? n : -n);
             majLaMemoire();
-            calcRes.innerText = ecrireLeResultat(memoireCalc);
+            montrerLeResultat(calcRes, ecrireLeResultat(memoireCalc));
             evaluated = true; derniereValeur = memoireCalc;
             return;
         }
         else if (val === 'MR') {
             expression += parseFloat(memoireCalc.toPrecision(12));
-            calcExpr.innerText = expression;
+            montrerLExpression(calcExpr, expression);
             return;
         }
         else {
@@ -21368,8 +21751,9 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             else if (val === 'Ran#') appendVal = (Math.round(Math.random() * 1000) / 1000).toString();
             else if (val === '×10ˣ') appendVal = '×10^';
             else if (val === 'a/b') {
-                if (evaluated) {
-                    calcRes.innerText = toFraction(parseFloat(lastAnswer));
+                if (venaitDEtreEvalue) {
+                    montrerLeResultat(calcRes, toFraction(parseFloat(lastAnswer)));
+                    evaluated = true;         // le résultat est toujours à l'écran
                     return;
                 } else {
                     appendVal = '/';
@@ -21379,7 +21763,7 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             expression += appendVal;
         }
 
-        calcExpr.innerText = expression;
+        montrerLExpression(calcExpr, expression);
     });
 });
 
@@ -22258,6 +22642,32 @@ function equiperVraiment(el, cle, options) {
     // fixed » crée toujours un contexte d'empilement.
     if (porteurDeLEtage(el) === el) el.style.zIndex = String(FEN_Z_BAS);
     el.addEventListener('pointerdown', () => passerDevant(el), true);
+
+    // ET ELLE S'OUVRE DEVANT.
+    //
+    // « Une fenêtre saisie passe au-dessus des autres quand elle est
+    // sélectionnée. » Elle le faisait au premier geste — mais PAS à
+    // l'ouverture. Mesuré, trois outils ouverts l'un après l'autre : étages
+    // 100010, 100010 et « auto ». Trois fenêtres au même niveau : l'ordre à
+    // l'écran n'était plus celui de l'ouverture mais celui du code HTML, et
+    // l'on ouvrait un outil qui naissait DERRIÈRE un autre, parfois
+    // entièrement caché. Le professeur cliquait sur un bouton et rien ne
+    // semblait se produire.
+    //
+    // Ouvrir, c'est choisir. On ne peut pas le faire au moment de
+    // l'équipement, qui n'a lieu qu'une fois et souvent alors que la fenêtre
+    // est encore repliée : on guette le passage de RIEN à QUELQUE CHOSE, qui
+    // est exactement ce que veut dire « elle s'ouvre ». Le guetteur de taille
+    // le dit sans qu'on ait à inventer un signal — et sans minuterie.
+    let elleEtaitLa = false;
+    const guetterLOuverture = () => {
+        const b = el.getBoundingClientRect();
+        const la = b.width > 0 && b.height > 0;
+        if (la && !elleEtaitLa) passerDevant(el);
+        elleEtaitLa = la;
+    };
+    guetterLOuverture();
+    if (typeof ResizeObserver === 'function') new ResizeObserver(guetterLOuverture).observe(el);
 
     // ET ELLE NAÎT DANS L'ÉCRAN.
     //
@@ -23530,6 +23940,28 @@ window.addEventListener('keydown', (e) => {
     const ou = document.activeElement;
     if (ou && (ou.isContentEditable || /^(INPUT|TEXTAREA|SELECT|MATH-FIELD)$/.test(ou.tagName))) return;
     if (empreinteDEchap() !== avant) return;
+    // UNE FENÊTRE AGRANDIE A DÉJÀ DONNÉ DU TRAVAIL À LA TOUCHE, et l'empreinte
+    // ne pouvait pas le dire.
+    //
+    // Elle compte bien les fenêtres agrandies — c'est le sixième terme — mais
+    // ce compte est relevé AVANT et APRÈS la touche, et la sortie du plein
+    // écran n'a pas encore eu lieu quand on regarde : elle est branchée
+    // FENÊTRE PAR FENÊTRE, au moment de l'équipement, donc APRÈS cette
+    // règle-ci, posée au chargement. L'ordre des écoutes décidait du
+    // comportement — et il décidait mal : Échap fermait la fenêtre de devant,
+    // puis sortait du plein écran de l'autre.
+    //
+    // Cela ne se voyait pas, parce que la fenêtre de devant n'était presque
+    // jamais celle qu'on regardait. Le jour où les fenêtres ont commencé à
+    // passer devant en s'ouvrant, la victime est devenue celle qu'on venait
+    // d'agrandir : « Échap rend l'écran » la refermait pour de bon.
+    //
+    // On ne compte donc plus sur l'ordre : on demande directement s'il y a une
+    // fenêtre agrandie À L'ÉCRAN. Une fenêtre agrandie mais rangée ne bloque
+    // rien — sans quoi elle empêcherait Échap de refermer quoi que ce soit.
+    const agrandie = [...document.querySelectorAll('.fen-pleine')]
+        .some(f => f.getClientRects().length);
+    if (agrandie) return;
     const ouvertes = fenetresOuvertesDeDevant();
     if (!ouvertes.length) return;
     ouvertes[0].croix.click();

@@ -50,8 +50,12 @@ module.exports = async function (browser) {
             if (!b) return { erreur: 'touche introuvable : ' + t };
             b.click();
         }
-        return { ecran: document.getElementById('calc-res').innerText.trim(),
-                 expression: document.getElementById('calc-expr').innerText.trim() };
+        // ON LIT LE TEXTE BRUT, PAS LE DESSIN. Depuis l'écriture naturelle,
+        // « 1/2 » est une fraction EMPILÉE : la relire donnerait « 1 2 ». Ce
+        // que la machine a calculé est gardé à part, et c'est cela qu'on
+        // mesure ici ; la forme, elle, est mesurée au chapitre 74.
+        return { ecran: (document.getElementById('calc-res').dataset.brut || '').trim(),
+                 expression: (document.getElementById('calc-expr').dataset.brut || '').trim() };
     }, suite);
 
     // ------------------------------------------------------------------
@@ -130,6 +134,29 @@ module.exports = async function (browser) {
         des.every(n => Number.isInteger(n) && n >= 1 && n <= 6), JSON.stringify(des));
     r.verifie('et il ne tombe pas vingt fois sur la même face',
         new Set(des).size > 1, JSON.stringify(des));
+
+    // ------------------------------------------------------------------
+    // 3 bis. DEUX TOUCHES QUI MENTAIENT
+    // ------------------------------------------------------------------
+    // « DEL » EFFAÇAIT UN CARACTÈRE, PAS UNE TOUCHE. « x² » s'écrit avec deux
+    // signes : couper le dernier laissait un « x » orphelin que plus rien ne
+    // savait lire, et le calcul suivant répondait « Erreur » sans qu'on
+    // comprenne pourquoi.
+    const efface = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        ['AC', '5', 'x²', 'DEL'].forEach(clic);
+        return document.getElementById('calc-expr').dataset.brut;
+    });
+    r.egal('« DEL » reprend une touche entière et non un caractère', efface, '5');
+
+    // ET « a/b » APRÈS UN RÉSULTAT AJOUTAIT UNE BARRE PARASITE. Elle demandait
+    // « un résultat est-il à l'écran ? » à un drapeau que le nettoyage venait
+    // de remettre à faux dix lignes plus haut : la réponse était toujours non.
+    r.egal('« a/b » convertit le résultat en fraction',
+        (await taper(['AC', '0', '.', '1', '2', '5', '=', 'a/b'])).ecran, '1/8');
+    r.egal('et ne laisse pas de barre dans le calcul',
+        (await taper([])).expression, '0.125');
 
     // ------------------------------------------------------------------
     // 4. SHIFT NE VAUT QUE POUR LA TOUCHE SUIVANTE
