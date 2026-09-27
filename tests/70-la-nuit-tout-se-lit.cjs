@@ -18,10 +18,18 @@
 // jusqu'à ce qu'elle se voie — sa teinte est gardée, car les étiquettes de
 // l'analyse grammaticale sont un code de couleurs.
 //
-// CE QUE CE CHAPITRE NE DEMANDE PAS : le blanc sur le vert des boutons
-// « Poser au tableau » rend 2,54:1, et c'est pareil de jour. C'est la palette de
-// l'application, pas un défaut de la nuit ; la changer se décide, cela ne se
-// rattrape pas. On mesure donc ce qui est posé sur un fond NEUTRE.
+// ET LA PALETTE A ÉTÉ ASSOMBRIE, elle aussi — mais c'était une DÉCISION, pas un
+// rattrapage : « le blanc sur le vert des boutons Poser au tableau rend 2,54:1,
+// et c'est pareil de jour. Que veux-tu que j'en fasse ? — Assombrir les fonds. »
+// Le vert #00b894 est devenu #00866c, le vert vif #2ecc71 est devenu #1e874b, et
+// ainsi de suite : onze couleurs, chacune assombrie juste assez pour que le blanc
+// y rende 4,5:1. Les tuiles algébriques, elles, ont gardé leurs couleurs — c'est
+// le matériel qu'on manipule — et c'est l'encre de leur libellé qui s'adapte.
+// Ce chapitre garde donc DEUX planchers, et ce sont deux questions différentes :
+// sur un fond neutre, le rattrapage d'encre répond ; sur une couleur, la palette.
+// Ce qui reste entre 3 et 4,5 — le bleu #0984e3 à 3,87, le rouge #e74c3c à
+// 3,82 — n'a pas été touché : c'est le visage de l'application, et l'assombrir
+// se décide à son tour.
 const { creerRapport, ouvrirApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
@@ -80,9 +88,12 @@ module.exports = async function (browser) {
             }
             return { rgb: fond, porteur };
         };
-        const neutre = (rgb) => Math.max(...rgb) - Math.min(...rgb) <= 24;
+        // Quarante-cinq points d'écart : un blanc, un gris, un presque-noir, une
+        // ardoise à peine bleutée — le bleu-nuit des Studios en fait
+        // trente-quatre. Un vert de marque en fait cent quatre-vingt-quatre.
+        const neutre = (rgb) => Math.max(...rgb) - Math.min(...rgb) <= 45;
 
-        const illisibles = [];
+        const illisibles = [], surCouleur = [];
         let textesVus = 0;
         const examiner = (etiquette) => {
             document.querySelectorAll('div, span, label, p, td, th, li, button, h1, h2, h3, h4, strong, small, a')
@@ -106,16 +117,24 @@ module.exports = async function (browser) {
                     if (!encre) return;
                     const { rgb: fond, porteur } = fondDe(el);
                     if (!porteur || porteur === document.body || porteur === document.documentElement) return;
-                    if (!neutre(fond)) return;      // la palette de l'application, voir l'en-tête
                     textesVus++;
                     const vue = encre.slice(0, 3).map((v, i) => v * opacite + fond[i] * (1 - opacite));
                     const l1 = lum(vue), l2 = lum(fond);
                     const rap = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
                     if (rap >= 3) return;
-                    const quoi = etiquette + ' | ' + s.color + ' sur rgb(' + fond.join(',') + ') = '
-                        + rap.toFixed(2) + ' | « '
+                    const quoi = etiquette + ' | ' + s.color + ' sur rgb(' + fond.map(Math.round).join(',')
+                        + ') = ' + rap.toFixed(2) + ' | « '
                         + (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 34) + ' »';
-                    if (!illisibles.includes(quoi)) illisibles.push(quoi);
+                    // DEUX LISTES, PARCE QUE CE SONT DEUX QUESTIONS. Sur un fond
+                    // neutre, c'est le rattrapage d'encre qui répond. Sur une
+                    // couleur de la palette, c'est la palette elle-même : elle a
+                    // été assombrie pour que le blanc s'y lise, et ce contrôle
+                    // garde le plancher de 3:1 qu'on a gagné.
+                    if (neutre(fond)) {
+                        if (!illisibles.includes(quoi)) illisibles.push(quoi);
+                    } else if (!surCouleur.includes(quoi)) {
+                        surCouleur.push(quoi);
+                    }
                 });
         };
 
@@ -130,7 +149,7 @@ module.exports = async function (browser) {
             examiner(quoi);
             toutRefermer();
         }
-        return { illisibles, textesVus, outils: boutons.length };
+        return { illisibles, surCouleur, textesVus, outils: boutons.length };
     });
 
     const jour = await balayer();
@@ -139,6 +158,7 @@ module.exports = async function (browser) {
     r.verifie('et l\'on a bien mesuré des textes sur des fonds neutres',
         jour.textesVus >= 300, String(jour.textesVus));
     r.egal('de jour, aucun texte sous 3:1 sur un fond neutre', jour.illisibles, []);
+    r.egal('et aucun sous 3:1 sur une couleur de la palette', jour.surCouleur, []);
 
     await page.evaluate(() => {
         if (typeof toggleDarkMode === 'function' && !document.body.classList.contains('dark-mode')) {
@@ -153,6 +173,7 @@ module.exports = async function (browser) {
     r.verifie('et les quatre-vingt-sept ont été rouverts, la nuit',
         nuit.outils >= 80, String(nuit.outils));
     r.egal('de nuit non plus, aucun texte sous 3:1 sur un fond neutre', nuit.illisibles, []);
+    r.egal('ni sur une couleur de la palette', nuit.surCouleur, []);
 
     // ------------------------------------------------------------------
     // CE QU'UN OUTIL CACHE RESTE CACHÉ

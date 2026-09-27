@@ -22435,9 +22435,18 @@ function fondQuOnVoit(el) {
     return { rgb: fond, porteur };
 }
 
-// Un fond neutre : du blanc, un gris, un presque-noir. Pas un vert de marque.
+// Un fond neutre : du blanc, un gris, un presque-noir, une ardoise à peine
+// bleutée. Pas un vert de marque.
+//
+// QUARANTE-CINQ ET NON VINGT-QUATRE, et c'est la mesure qui l'a dit : les quatre
+// Studios posent leurs panneaux sur un bleu-nuit — rgb(39, 46, 73), trente-quatre
+// points d'écart entre son plus et son moins — et leur bouton « Annuler » y
+// écrivait en violet, 2,75:1. À vingt-quatre, ce fond passait pour « une couleur
+// de marque » et le rattrapage s'en détournait. Un vert de marque, lui, est à
+// cent quatre-vingt-quatre points d'écart, et un bleu à deux cent dix-huit : le
+// seuil sépare toujours ce qu'il doit séparer.
 function fondNeutre(rgb) {
-    return Math.max(...rgb) - Math.min(...rgb) <= 24;
+    return Math.max(...rgb) - Math.min(...rgb) <= 45;
 }
 
 // ==================================================================

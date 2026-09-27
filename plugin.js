@@ -3017,7 +3017,14 @@ registerPlugin('algebraTilesTool', 'Maths - Numérique', {
         const container = this.paletteEl.querySelector('#quick-btns');
         container.innerHTML = '';
         quickBtns.forEach(btnConf => {
-            const btn = document.createElement('button'); btn.className = 'a-btn'; btn.style.background = this.getColor(btnConf.w, btnConf.h);
+            const btn = document.createElement('button'); btn.className = 'a-btn';
+            const fondDeLaTuile = this.getColor(btnConf.w, btnConf.h);
+            btn.style.background = fondDeLaTuile;
+            // L'encre suit la tuile : sombre sur une tuile claire, blanche sinon.
+            if (typeof canauxDeCouleur === 'function' && typeof luminanceRelative === 'function') {
+                const canaux = canauxDeCouleur(fondDeLaTuile);
+                if (canaux) btn.style.color = luminanceRelative(canaux) > 0.32 ? '#14201b' : '#fff';
+            }
             let label = this.getAreaText(btnConf.w, btnConf.h).replace(/²/, '²');
             if (btnConf.w === '1' && btnConf.h !== '1') label = this.varNames[btnConf.h];
             if (btnConf.h === '1' && btnConf.w !== '1') label = this.varNames[btnConf.w];
@@ -5419,7 +5426,7 @@ registerPlugin('metronomeTool', 'Musique', {
                     
                     <input id="metro-bpm-slider" type="range" min="40" max="240" step="1" value="${this.bpm}" style="width: ${this.isFullScreen ? '300px' : '140px'}; cursor:pointer; margin: 0 15px;" oninput="metroActionBpm(this.value)">
                     
-                    <button id="btn-metro-play" onclick="metroActionPlay()" style="padding:15px 30px; background:${this.isPlaying ? '#e74c3c' : '#2ecc71'}; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:18px; min-width: 130px; box-shadow: 0 4px 15px ${this.isPlaying ? 'rgba(231,76,60,0.3)' : 'rgba(46,204,113,0.3)'}; transition:0.2s;">
+                    <button id="btn-metro-play" onclick="metroActionPlay()" style="padding:15px 30px; background:${this.isPlaying ? '#e74c3c' : '#1e874b'}; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:18px; min-width: 130px; box-shadow: 0 4px 15px ${this.isPlaying ? 'rgba(231,76,60,0.3)' : 'rgba(46,204,113,0.3)'}; transition:0.2s;">
                         ${this.isPlaying ? "🛑 Stop" : "▶️ Play"}
                     </button>
                     
@@ -5473,7 +5480,7 @@ registerPlugin('metronomeTool', 'Musique', {
         const btnPlay = document.getElementById('btn-metro-play');
         if (btnPlay) {
             btnPlay.innerHTML = this.isPlaying ? "🛑 Stop" : "▶️ Play";
-            btnPlay.style.background = this.isPlaying ? '#e74c3c' : '#2ecc71';
+            btnPlay.style.background = this.isPlaying ? '#e74c3c' : '#1e874b';
             btnPlay.style.boxShadow = `0 4px 15px ${this.isPlaying ? 'rgba(231,76,60,0.3)' : 'rgba(46,204,113,0.3)'}`;
         }
 
@@ -6614,7 +6621,7 @@ registerPlugin('longestWordTool', 'Jeux', {
             <button onclick="wordGamePickLetter('consonant')" style="padding:10px 16px; background:#d63031; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px; box-shadow:0 2px 4px rgba(214,48,49,0.3);">🔴 Consonne</button>
             <div style="width:1px; height:35px; background:#ccc; margin:0 5px;"></div>
             <div id="wordgame-timer-display" style="font-size:24px; font-weight:bold; color:#2d3436; min-width:50px; text-align:center;">30s</div>
-            <button id="btn-wg-timer" onclick="wordGameStartTimer()" style="padding:10px 14px; background:#2ecc71; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">⏳ Lancer</button>
+            <button id="btn-wg-timer" onclick="wordGameStartTimer()" style="padding:10px 14px; background:#1e874b; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold; font-size:14px;">⏳ Lancer</button>
             <button onclick="wordGameReset()" style="padding:8px; background:transparent; color:#636e72; border:none; cursor:pointer; text-decoration:underline; font-size:13px;">Effacer</button>
             <button title="Ranger la télécommande" onclick="document.getElementById('word-game-remote').remove()" style="padding:8px; background:transparent; color:#e74c3c; border:none; cursor:pointer; font-size:13px; font-weight:bold; margin-left:5px;">X</button>
         `;
@@ -10992,7 +10999,7 @@ registerPlugin('probabilityTreeTool', 'Maths - Numérique', {
             #pt-wrap .pt-btn:hover { filter:brightness(1.08); }
             #pt-wrap .pt-btn-ghost { background:#f1f2f6; color:#2d3436; border:1px solid #dfe6e9; }
             #pt-wrap .pt-btn-blue { background:linear-gradient(135deg, #0984e3, #6c5ce7); color:#fff; }
-            #pt-wrap .pt-btn-green { background:linear-gradient(135deg, #00b894, #00cec9); color:#fff; }
+            #pt-wrap .pt-btn-green { background:linear-gradient(135deg, #00866c, #008481); color:#fff; }
             #pt-wrap .pt-btn-red { background:#fff0f0; color:#d63031; border:1px solid #fab1a0; }
             #pt-wrap .pt-btn-main { padding:11px 20px; font-size:14px; box-shadow:0 4px 6px rgba(0,0,0,0.1); }
             #pt-wrap .pt-tpl { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
@@ -17445,8 +17452,8 @@ registerPlugin('randomDrawTool', 'Outils Profs', {
                 .dw-pill-revive { cursor:pointer; color:#00b894; font-weight:bold; font-size:14px; }
                 
                 .dw-btn-action { width:100%; padding:10px; border:none; border-radius:6px; font-weight:bold; font-size:14px; cursor:pointer; transition:0.2s; color:#fff; }
-                .dw-btn-primary { background:#0984e3; } .dw-btn-primary:hover { background:#74b9ff; }
-                .dw-btn-success { background:#00b894; } .dw-btn-success:hover { background:#55efc4; }
+                .dw-btn-primary { background:#0984e3; } .dw-btn-primary:hover { background:#0a6ab0; }
+                .dw-btn-success { background:#00866c; } .dw-btn-success:hover { background:#00705b; }
                 .dw-row { display:flex; gap:10px; align-items:center; }
 
                 /* OVERLAY PLEIN ÉCRAN RECOMPOSÉ POUR PANNEAU LATÉRAL */
@@ -18442,7 +18449,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
                             </select>
                         </div>
 
-                        <button id="pix-btn-import" style="padding:4px 10px; font-size:11px; border-radius:4px; background:#2ecc71; color:white; border:none; cursor:pointer; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                        <button id="pix-btn-import" style="padding:4px 10px; font-size:11px; border-radius:4px; background:#1e874b; color:white; border:none; cursor:pointer; font-weight:bold; display:flex; align-items:center; gap:5px;">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Import Image
                         </button>
                         <input type="file" id="pix-file-input" accept="image/*" style="display:none;">
@@ -18515,7 +18522,7 @@ registerPlugin('pixelStudioTool', 'Jeux', {
                 </div>
                 <div style="display:flex; gap:10px; width:100%; justify-content:flex-end;">
                     <button id="pix-crop-cancel" style="padding:8px 16px; border-radius:6px; background:#f1f2f6; border:none; cursor:pointer; font-weight:bold;">Annuler</button>
-                    <button id="pix-crop-ok" style="padding:8px 16px; border-radius:6px; background:#2ecc71; color:white; border:none; cursor:pointer; font-weight:bold;">Pixelliser ✅</button>
+                    <button id="pix-crop-ok" style="padding:8px 16px; border-radius:6px; background:#1e874b; color:white; border:none; cursor:pointer; font-weight:bold;">Pixelliser ✅</button>
                 </div>
             </div>
         </div>
@@ -19398,7 +19405,7 @@ registerPlugin('dynamicSignVarTable', 'Maths - Algèbre', {
 
                 <div style="margin-top:25px; display:flex; gap:15px; justify-content:flex-end;">
                     <button onclick="document.getElementById('dyn-signtable-modal').style.display='none'" style="padding:10px 20px; background:#dfe6e9; color:#2d3436; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Annuler</button>
-                    <button onclick="window.SignVarDynamic.generateStamp()" style="padding:10px 20px; background:#00b894; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer; box-shadow:0 4px 10px rgba(0,184,148,0.3); font-size:1.1rem;">✔ Valider le Tableau</button>
+                    <button onclick="window.SignVarDynamic.generateStamp()" style="padding:10px 20px; background:#00866c; color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer; box-shadow:0 4px 10px rgba(0,184,148,0.3); font-size:1.1rem;">✔ Valider le Tableau</button>
                 </div>
             </div>
         </div>`;
@@ -20307,7 +20314,7 @@ registerPlugin('spreadsheetTool', 'Maths - Numérique', {
             
             .spr-footer { padding:12px; border-top:1px solid #dfe6e9; background:#fff; display:flex; gap:10px; border-radius: 0 0 12px 12px; }
             .spr-btn { flex:1; padding:10px; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:14px; transition:0.2s; }
-            .spr-btn-primary { background:#0984e3; color:white; } .spr-btn-primary:hover { background:#74b9ff; }
+            .spr-btn-primary { background:#0984e3; color:white; } .spr-btn-primary:hover { background:#0a6ab0; }
             .spr-btn-secondary { background:#f1f2f6; color:#2d3436; border:1px solid #dfe6e9; } .spr-btn-secondary:hover { background:#dfe6e9; }
             
             /* MENU BORDURES LIBREOFFICE (CORRIGÉ POUR PAS DÉBORDER ET AVOIR DES ICONES CLAIRES) */
@@ -21697,7 +21704,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-btn-del { color:#e74c3c; }
             .fl-sheet-empty { grid-column:1/-1; text-align:center; color:#b2bec3; font-size:13px; padding:70px 20px; }
 
-            .fl-btn-action { background:var(--pw-accent); color:#fff; border:none; padding:11px; border-radius:9px; font-weight:700; cursor:pointer; transition:0.2s; text-align:center; font-size:13px; }
+            .fl-btn-action { background:var(--pw-accent-plein, var(--pw-accent)); color:#fff; border:none; padding:11px; border-radius:9px; font-weight:700; cursor:pointer; transition:0.2s; text-align:center; font-size:13px; }
             .fl-btn-action:hover { filter:brightness(1.08); }
 
             .fl-main { flex:1; display:flex; flex-direction:column; background:var(--pw-fond2); position:relative; min-width:0; }
@@ -21716,7 +21723,7 @@ registerPlugin('flashMathTool', 'Exercices', {
             .fl-footer-actions { padding:11px 18px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
                                  border-top:1px solid var(--pw-trait); background:var(--pw-fond); flex:none; }
             .fl-footer-actions .pw-espace { flex:1; }
-            .fl-btn-poser { border-color:transparent; background:#00b894; color:#fff; box-shadow:0 2px 8px rgba(0,184,148,0.28); }
+            .fl-btn-poser { border-color:transparent; background:#00866c; color:#fff; box-shadow:0 2px 8px rgba(0,184,148,0.28); }
             .fl-btn-poser:hover { background:#00a383; border-color:transparent; }
 
             /* CSS POUR ADAPTER LA TAILLE DES FIGURES SVG */
@@ -22411,8 +22418,8 @@ registerPlugin('binaroTool', 'Jeux', {
             
             .bin-footer { padding:12px; border-top:1px solid #dfe6e9; background:#fff; display:flex; gap:10px; border-radius:0 0 12px 12px; }
             .bin-btn { flex:1; padding:12px; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:14px; transition:0.2s; color:white; }
-            .bin-btn.primary { background:#0984e3; } .bin-btn.primary:hover { background:#74b9ff; }
-            .bin-btn.success { background:#00b894; } .bin-btn.success:hover { background:#55efc4; }
+            .bin-btn.primary { background:#0984e3; } .bin-btn.primary:hover { background:#0a6ab0; }
+            .bin-btn.success { background:#00866c; } .bin-btn.success:hover { background:#00705b; }
         `;
         this.widgetEl.appendChild(style);
 
@@ -22936,7 +22943,7 @@ registerPlugin('pythagoreTool', 'Maths - Numérique', {
 
             .pyt-footer { padding:10px; border-top:1px solid #dfe6e9; background:#fff; display:flex; gap:10px; border-radius:0 0 12px 12px; }
             .pyt-btn { flex:1; padding:10px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:14px; transition:0.2s; color:white; }
-            .pyt-btn.primary { background:#0984e3; } .pyt-btn.primary:hover { background:#74b9ff; }
+            .pyt-btn.primary { background:#0984e3; } .pyt-btn.primary:hover { background:#0a6ab0; }
             
             /* Panneau Custom Colors */
             #pyt-custom-colors { display:none; background:#f8f9fa; border-radius:4px; padding:6px; margin-top:6px; border:1px dashed #bdc3c7; justify-content:space-between; align-items:center;}
@@ -23464,7 +23471,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
             .rl-btn { padding:12px 24px; border:none; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer; transition:0.2s; color:white; box-shadow:0 4px 6px rgba(0,0,0,0.1); }
             .rl-btn:hover { transform:translateY(-2px); box-shadow:0 6px 12px rgba(0,0,0,0.15); }
             .rl-btn:active { transform:translateY(0); }
-            .rl-btn-anim { background:linear-gradient(135deg, #00b894, #00cec9); }
+            .rl-btn-anim { background:linear-gradient(135deg, #00866c, #008481); }
             .rl-btn-fast { background:linear-gradient(135deg, #0984e3, #6c5ce7); }
             .rl-btn-reset { background:#dfe6e9; color:#2d3436; box-shadow:none; padding:8px 16px; font-size:13px; }
             .rl-btn-reset:hover { background:#b2bec3; }
@@ -23490,7 +23497,7 @@ registerPlugin('randomLabPro', 'Maths - Numérique', {
                     <span style="color:#0984e3;">📊 randomLab</span> Pro
                 </div>
                 <div style="display:flex; gap:10px;">
-                    <button class="rl-btn-reset" id="rl-btn-export-visual" style="background:#81ecec; color:#00b894; font-weight:bold;">📥 Exporter Visuel</button>
+                    <button class="rl-btn-reset" id="rl-btn-export-visual" style="background:#81ecec; color:#006d57; font-weight:bold;">📥 Exporter Visuel</button>
                     <button class="rl-btn-reset" id="rl-btn-export" style="background:#ffeaa7; color:#d35400; font-weight:bold;">📥 Exporter Graphe</button>
                     <button id="rl-btn-close" style="background:none; border:none; color:#d63031; cursor:pointer; font-weight:bold; font-size:18px;">✕</button>
                 </div>
@@ -25175,7 +25182,7 @@ registerPlugin('evolutionStudioTool', 'Maths - Numérique', {
             if (isSelected && !this.isEditingText && this.currentTool === 'select') {
                 html += `
                 <div style="position:absolute; left:${txtX - 40}px; top:${txtY + 20}px; display:flex; gap:6px; z-index:10; pointer-events:auto; background:white; padding:4px; border-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,0.15);">
-                    <button class="evol-btn-rev" data-id="${arr.id}" style="width:24px;height:24px;border-radius:4px;background:#f39c12;color:white;border:none;cursor:pointer;font-size:14px;font-weight:bold;" title="Échanger Départ/Arrivée">⇄</button>
+                    <button class="evol-btn-rev" data-id="${arr.id}" style="width:24px;height:24px;border-radius:4px;background:#a3690c;color:white;border:none;cursor:pointer;font-size:14px;font-weight:bold;" title="Échanger Départ/Arrivée">⇄</button>
                     <button class="evol-btn-flip" data-id="${arr.id}" style="width:24px;height:24px;border-radius:4px;background:#3498db;color:white;border:none;cursor:pointer;font-size:14px;font-weight:bold;" title="Basculer Haut/Bas">↕</button>
                     <button class="evol-btn-del" data-id="${arr.id}" style="width:24px;height:24px;border-radius:4px;background:#e74c3c;color:white;border:none;cursor:pointer;font-size:16px;font-weight:bold;" title="Supprimer la flèche">×</button>
                 </div>`;
@@ -26010,10 +26017,10 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
             .sc-btn, .sc-select { background: #f1f2f6; color: #2d3436; border: 1px solid transparent; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; outline:none; font-size:13px; }
             .sc-btn:hover, .sc-select:hover { background: #dfe6e9; border-color: #b2bec3; }
             .sc-btn.active { background: #ff7675; color: white; border-color: #ff7675; box-shadow: 0 2px 5px rgba(255, 118, 117, 0.3); }
-            .sc-btn-preview { background: #74b9ff; color: white; border-color: #74b9ff; box-shadow: 0 2px 4px rgba(116, 185, 255, 0.3); }
+            .sc-btn-preview { background: #4b78a6; color: white; border-color: #4b78a6; box-shadow: 0 2px 4px rgba(75, 120, 166, 0.3); }
             .sc-btn-preview:hover { background: #0984e3; border-color: #0984e3; color: white; }
             .sc-btn-export { background: #55efc4; color: #2d3436; border-color: #55efc4; box-shadow: 0 2px 4px rgba(85, 239, 196, 0.3); }
-            .sc-btn-export:hover { background: #00b894; border-color: #00b894; color: white; }
+            .sc-btn-export:hover { background: #00866c; border-color: #00b894; color: white; }
             .sc-btn-icon { background: transparent; color: #b2bec3; padding: 6px; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: all 0.2s; }
             .sc-btn-icon:hover { background: #f1f2f6; color: #d63031; }
 
@@ -26138,7 +26145,7 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
                             <span>Aperçu (déplaçable)</span>
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <label style="font-size:11px; font-weight:normal; cursor:pointer;"><input type="checkbox" id="sc-checkbox-cat" checked style="vertical-align:middle;"> Chat</label>
-                                <button id="sc-btn-preview-stamp" style="font-size:10px; padding:2px 6px; cursor:pointer; background:#00b894; color:white; border:none; border-radius:3px;">📥 Tamponner</button>
+                                <button id="sc-btn-preview-stamp" style="font-size:10px; padding:2px 6px; cursor:pointer; background:#00866c; color:white; border:none; border-radius:3px;">📥 Tamponner</button>
                             </div>
                         </div>
                         <div id="sc-preview-toolbar" style="background:#dfe6e9; padding:4px; display:flex; justify-content:center; align-items:center; gap:5px; border-bottom:1px solid #b2bec3;">
@@ -27954,7 +27961,7 @@ registerPlugin('mathTaupeTool', 'Jeux', {
             .tm-ans-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; width:100%;}
             .tm-ans-btn { padding:8px 0; background:#f1f2f6; border:2px solid #dfe6e9; border-radius:6px; font-size:16px; font-weight:bold; color:#e17055; cursor:pointer; transition:0.2s; text-align:center;}
             .tm-ans-btn:hover { background:#e17055; color:#fff; border-color:#e17055; transform:translateY(-2px);}
-            .tm-ans-btn.correct { background:#00b894 !important; color:#fff !important; border-color:#00b894 !important; }
+            .tm-ans-btn.correct { background:#00866c !important; color:#fff !important; border-color:#00b894 !important; }
             .tm-ans-btn.wrong { background:#d63031 !important; color:#fff !important; border-color:#d63031 !important; }
         `;
         this.widgetEl.appendChild(style);
@@ -28970,7 +28977,7 @@ registerPlugin('tunerTool', 'Musique', {
             .tu-select { flex:2; padding:6px; border:1px solid #576574; border-radius:6px; background:#2f3640; color:#fff; font-weight:bold; outline:none; font-size:12px;}
             .tu-input { flex:1; padding:6px; border:1px solid #576574; border-radius:6px; background:#2f3640; color:#fff; text-align:center; font-weight:bold; font-size:12px; outline:none;}
             
-            .tu-btn { background:#0abde3; color:#fff; padding:10px; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer; transition:0.2s; width:100%; text-transform:uppercase;}
+            .tu-btn { background:#07819a; color:#fff; padding:10px; border:none; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer; transition:0.2s; width:100%; text-transform:uppercase;}
             .tu-btn:hover { background:#48dbfb; }
             .tu-btn.stop { background:#ee5253; }
             .tu-btn.stop:hover { background:#ff6b6b; }
@@ -29516,13 +29523,13 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                 .fp-vp-row { display:flex; gap:10px; margin-bottom:5px; align-items:center;}
                 .fp-vp-input { width:45px; padding:3px; border:1px solid #bdc3c7; border-radius:4px; text-align:center; }
                 .fp-btn { background:#0984e3; color:#fff; border:none; padding:8px; border-radius:6px; cursor:pointer; font-weight:bold; width:100%; margin-top:5px; }
-                .fp-btn:hover { background:#74b9ff; }
+                .fp-btn:hover { background:#0a6ab0; }
                 .fp-canvas-wrap { flex:1; position:relative; background:#ffffff; overflow:hidden; display:flex; flex-direction:column; }
                 .fp-tools { padding:10px; background:#f1f2f6; border-bottom:1px solid #dfe6e9; display:flex; gap:10px; align-items:center; font-size:13px; flex-wrap:wrap; }
                 .fp-tool-btn { padding:4px 8px; border:1px solid #bdc3c7; background:#fff; border-radius:4px; cursor:pointer; font-weight:bold; }
                 .fp-tool-btn:hover { background:#dfe6e9; }
                 .fp-tool-btn.active { background:#0984e3; color:#fff; border-color:#0984e3; }
-                .fp-export-btn { background:#00b894; color:#fff; padding:6px 12px; border-radius:4px; border:none; font-weight:bold; cursor:pointer; margin-left:auto; }
+                .fp-export-btn { background:#00866c; color:#fff; padding:6px 12px; border-radius:4px; border:none; font-weight:bold; cursor:pointer; margin-left:auto; }
                 .fp-grid-modal { position:absolute; top:45px; right:10px; background:#fff; border:1px solid #dfe6e9; box-shadow:0 10px 20px rgba(0,0,0,0.15); border-radius:8px; padding:10px; z-index:10; display:none; flex-direction:column; gap:10px; width:200px; font-size:12px;}
             `;
             this.widgetEl.appendChild(style);
@@ -29536,7 +29543,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                     <div class="fp-sidebar">
                         <div class="fp-funcs-list" id="fp-list"></div>
                         <div style="padding:8px; border-bottom:1px solid #dfe6e9; background:#fff;">
-                            <button class="fp-btn" id="fp-add-btn" style="background:#00b894; margin:0;">+ Ajouter une courbe</button>
+                            <button class="fp-btn" id="fp-add-btn" style="background:#00866c; margin:0;">+ Ajouter une courbe</button>
                         </div>
                         <div class="fp-vp-panel">
                             <div style="font-weight:bold; margin-bottom:5px; color:#2d3436;">Cadre (Viewport)</div>
@@ -29586,12 +29593,12 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                             
                             <div style="font-weight:bold; border-bottom:1px solid #dfe6e9; padding-bottom:5px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
                                 <span>Calques (Lignes)</span>
-                                <button id="fp-grid-add-layer" style="background:#00b894; color:#fff; border:none; padding:2px 4px; border-radius:4px; font-size:9px; cursor:pointer;">+ Ajouter Ligne</button>
+                                <button id="fp-grid-add-layer" style="background:#00866c; color:#fff; border:none; padding:2px 4px; border-radius:4px; font-size:9px; cursor:pointer;">+ Ajouter Ligne</button>
                             </div>
                             <div id="fp-grid-layers" style="display:flex; flex-direction:column; gap:5px; max-height:200px; overflow-y:auto; padding-right:5px; margin-bottom:10px;">
                                 <!-- Layers rendered dynamically here -->
                             </div>
-                            <button id="fp-grid-save" style="background:#00b894; color:#fff; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer; width:100%;">Enregistrer les modifications</button>
+                            <button id="fp-grid-save" style="background:#00866c; color:#fff; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer; width:100%;">Enregistrer les modifications</button>
                         </div>
                         <canvas id="fp-canvas" style="flex:1; width:100%; height:100%; cursor:crosshair;"></canvas>
                     </div>
@@ -30031,7 +30038,7 @@ registerPlugin('funcPlotter', 'Maths - Algèbre', {
                 <div class="fp-c-settings-panel" style="display:none; background:#fdfdfd; border:1px solid #dfe6e9; border-radius:4px; padding:6px; margin-top:4px; flex-direction:column; gap:6px; font-size:11px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <label style="display:flex; align-items:center; gap:5px; font-weight:bold;">Couleur: <input type="color" value="${f.color}" style="width:20px; height:20px; padding:0; border:none; cursor:pointer;" class="fp-c-col"></label>
-                        <button class="fp-c-show fp-tool-btn" style="padding:2px 6px; font-size:10px; opacity:${f.show ? '1' : '0.4'}; ${f.show ? 'background:#00b894; color:#fff; border-color:#00b894;' : ''}">👁️ Afficher Courbe</button>
+                        <button class="fp-c-show fp-tool-btn" style="padding:2px 6px; font-size:10px; opacity:${f.show ? '1' : '0.4'}; ${f.show ? 'background:#00866c; color:#fff; border-color:#00b894;' : ''}">👁️ Afficher Courbe</button>
                     </div>
                     <div style="display:flex; align-items:center; gap:8px; font-weight:bold;">
                         Épaisseur: <input type="range" class="fp-c-thick" min="1" max="5" value="${f.thickness}" style="flex:1;">
@@ -31212,7 +31219,7 @@ registerPlugin('superFractal', 'Maths - Géométrie', {
             .fr-canvas-container:active { cursor:grabbing; }
             .fr-canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
             .fr-canvas-grid { background-color: #ffffff; background-image: linear-gradient(#ecf0f1 1px, transparent 1px), linear-gradient(90deg, #ecf0f1 1px, transparent 1px); background-size: 20px 20px; }
-            .fr-btn { background:#0abde3; color:#fff; padding:12px; border:none; font-weight:bold; cursor:pointer; transition:0.2s; text-transform:uppercase; font-size:13px; letter-spacing:1px; margin: 10px; border-radius: 8px;}
+            .fr-btn { background:#07819a; color:#fff; padding:12px; border:none; font-weight:bold; cursor:pointer; transition:0.2s; text-transform:uppercase; font-size:13px; letter-spacing:1px; margin: 10px; border-radius: 8px;}
             .fr-btn:hover { background:#48dbfb; }
             .fr-help { position:absolute; top:10px; right:10px; background:rgba(255,255,255,0.8); padding:5px 10px; border-radius:15px; font-size:11px; font-weight:bold; color:#2f3640; pointer-events:none; display:none; border:1px solid #dcdde1; }
             .fr-checkbox-wrap { display:flex; align-items:center; gap:6px; margin-top:2px; }
@@ -31982,7 +31989,7 @@ registerPlugin('whackAMole', 'Jeux', {
             .std-header { background:#558B2F; color:#FFF; padding:15px 20px; display:flex; justify-content:space-between; align-items:center; cursor:grab; box-shadow:0 4px 10px rgba(0,0,0,0.2); z-index:10; }
             .std-title { font-weight:900; font-size:22px; text-transform:uppercase; display:flex; align-items:center; gap:10px; letter-spacing:1px; text-shadow:2px 2px 0 rgba(0,0,0,0.3); }
             .std-title svg { width:28px; height:28px; stroke:#FFF; filter: drop-shadow(2px 2px 0 rgba(0,0,0,0.3)); }
-            .std-stats { display:flex; justify-content:space-between; padding:15px 25px; background:#689F38; color:#FFF; font-size:24px; font-weight:900; text-shadow:2px 2px 0 rgba(0,0,0,0.3); border-bottom:4px solid #558B2F; }
+            .std-stats { display:flex; justify-content:space-between; padding:15px 25px; background:#487028; color:#FFF; font-size:24px; font-weight:900; text-shadow:2px 2px 0 rgba(0,0,0,0.3); border-bottom:4px solid #558B2F; }
             .std-combo { color:#FFEB3B; font-size:18px; position:absolute; top:80px; left:50%; transform:translateX(-50%); font-weight:900; text-shadow:2px 2px 0 #000; transition: transform 0.2s; }
             .std-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; padding:30px 40px; background-image: radial-gradient(#8BC34A 15%, transparent 16%), radial-gradient(#8BC34A 15%, transparent 16%); background-size: 40px 40px; background-position: 0 0, 20px 20px; position:relative; z-index:1; }
             .std-cell { position:relative; width:120px; height:120px; margin: 0 auto; display:flex; justify-content:center; align-items:flex-end; overflow:hidden; }
@@ -32003,8 +32010,8 @@ registerPlugin('whackAMole', 'Jeux', {
             .std-mole-container[data-type="gold"] .std-svg-mole { opacity: 0; }
             .std-mole-container[data-type="gold"] .std-svg-gold { opacity: 1; }
             
-            .std-controls { display:flex; justify-content:center; padding:20px; background:#689F38; border-top:4px solid #558B2F; z-index:10; position:relative; }
-            .std-btn { background:#FF9800; color:white; border:none; padding:15px 40px; font-size:22px; font-weight:900; font-family: sans-serif; border-radius:40px; cursor:pointer; box-shadow:0 6px 0 #E65100, 0 10px 20px rgba(0,0,0,0.3); text-transform:uppercase; transition: all 0.1s; letter-spacing:1px; }
+            .std-controls { display:flex; justify-content:center; padding:20px; background:#487028; border-top:4px solid #558B2F; z-index:10; position:relative; }
+            .std-btn { background:#ab6600; color:white; border:none; padding:15px 40px; font-size:22px; font-weight:900; font-family: sans-serif; border-radius:40px; cursor:pointer; box-shadow:0 6px 0 #E65100, 0 10px 20px rgba(0,0,0,0.3); text-transform:uppercase; transition: all 0.1s; letter-spacing:1px; }
             .std-btn:hover { background:#FFA726; transform:translateY(2px); box-shadow:0 4px 0 #E65100, 0 8px 15px rgba(0,0,0,0.3); }
             .std-btn:active { transform:translateY(6px); box-shadow:0 0 0 #E65100; }
             .std-gameover { position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(255,255,255,0.9); z-index:20; display:none; flex-direction:column; justify-content:center; align-items:center; color:#33691E; backdrop-filter: blur(5px); }
@@ -33004,7 +33011,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
             #qz-wrap .qz-mod.on { border-color:#1e90ff; background:#f0f7ff; border-width:3px; box-shadow:0 4px 10px rgba(30,144,255,.2); }
             #qz-wrap .qz-mod i { font-style:normal; font-size:27px; display:block; margin-bottom:4px; }
             #qz-wrap .qz-mod b { font-size:13px; }
-            #qz-wrap .qz-start { background:#2ed573; color:#fff; border:none; font-size:20px; padding:14px 34px; border-radius:14px; box-shadow:0 5px 0 #26b361; cursor:pointer; font-weight:900; }
+            #qz-wrap .qz-start { background:#1d8648; color:#fff; border:none; font-size:20px; padding:14px 34px; border-radius:14px; box-shadow:0 5px 0 #26b361; cursor:pointer; font-weight:900; }
             #qz-wrap .qz-start:active { transform:translateY(4px); box-shadow:none; }
             #qz-wrap .qz-left { flex:3; padding:14px; display:flex; flex-direction:column; align-items:center; overflow:hidden; }
             #qz-wrap .qz-right { flex:1; min-width:230px; background:#fff; border-left:2px solid #dfe4ea; padding:12px; display:flex; flex-direction:column; overflow:hidden; }
@@ -33021,7 +33028,7 @@ registerPlugin('quizBattleTool', 'Jeux', {
             #qz-wrap .qz-ans { font-size:20px; color:#2ed573; font-weight:900; background:#f1fef5; padding:6px 15px; border-radius:8px; border:2px solid #2ed573; }
             #qz-wrap .qz-ctrl { min-height:70px; display:flex; align-items:center; justify-content:center; width:100%; }
             #qz-wrap .qz-ok, #qz-wrap .qz-ko { color:#fff; border:none; border-radius:10px; font-size:19px; font-weight:bold; padding:12px 24px; cursor:pointer; margin:0 7px; }
-            #qz-wrap .qz-ok { background:#2ed573; box-shadow:0 5px 0 #26b361; }
+            #qz-wrap .qz-ok { background:#1d8648; box-shadow:0 5px 0 #26b361; }
             #qz-wrap .qz-ko { background:#ff4757; box-shadow:0 5px 0 #d63031; }
             #qz-wrap .qz-ok:active, #qz-wrap .qz-ko:active, #qz-wrap .qz-pick:active { transform:translateY(4px); box-shadow:none; }
             #qz-wrap .qz-dec { display:none; background:#fff3cd; padding:10px; border-radius:12px; border:2px solid #ffeeba; max-width:420px; width:100%; flex-direction:column; gap:8px; }
@@ -34641,7 +34648,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 <button id="pts-bilan-csv" data-tooltip="Le même tableau pour un tableur — conseil de classe, bulletins"
                         style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
                         padding:7px 12px; font-size:12px; cursor:pointer;">⬇ CSV</button>
-                <button id="pts-bilan-pdf" style="border:none; background:#00b894; color:#fff; border-radius:8px;
+                <button id="pts-bilan-pdf" style="border:none; background:#00866c; color:#fff; border-radius:8px;
                         padding:7px 13px; font-size:12px; font-weight:bold; cursor:pointer;">⬇ PDF</button>
                 ${this.hote ? '' : `<button id="pts-bilan-fermer" style="border:1px solid #dfe6e9; background:#fff; border-radius:8px;
                         padding:7px 12px; font-size:12px; cursor:pointer;">Fermer</button>`}
@@ -35220,7 +35227,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 </div>
             </div>
             <div style="border-top:1px solid #dfe6e9; padding-top:12px; display:flex; gap:8px; align-items:center;">
-                <button id="pts-badge-ok" style="padding:9px 18px; border:none; background:#00b894; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Enregistrer</button>
+                <button id="pts-badge-ok" style="padding:9px 18px; border:none; background:#00866c; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Enregistrer</button>
                 <button id="pts-badge-retour" style="padding:9px 16px; border:1px solid #dfe6e9; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">Annuler</button>
                 <div style="flex:1;"></div>
                 ${b.id ? `<button id="pts-badge-suppr" style="padding:9px 14px; border:1px solid #d63031; color:#d63031; background:#fff; border-radius:8px; cursor:pointer; font-size:13px;">
@@ -35626,7 +35633,7 @@ registerPlugin('classPointsTool', 'Outils Profs', {
                 ${ligne('YEUX', 'yeux', [1, 2, 3], v => v === 1 ? '1 œil' : v + ' yeux')}
                 ${ligne('BOUCHE', 'bouche', this.BOUCHES, v => v)}
                 ${ligne('SUR LA TÊTE', 'cornes', this.CORNES, v => v)}
-                <button id="pts-avatar-ok" style="margin-top:6px; padding:8px 18px; border:none; background:#00b894; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Terminé</button>
+                <button id="pts-avatar-ok" style="margin-top:6px; padding:8px 18px; border:none; background:#00866c; color:#fff; border-radius:8px; cursor:pointer; font-weight:bold;">Terminé</button>
             </div>
         </div>`;
     },
