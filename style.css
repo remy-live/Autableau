@@ -3849,22 +3849,49 @@ body.dark-mode {
     border-color: #2d3436;
 }
 
+/* LA CALCULATRICE EST UN OBJET, PAS UN PANNEAU.
+   « Elle est horrible, et des boutons écrasés. » Deux fautes, et la seconde
+   explique la première : la grille déclarait SEPT rangées alors que le clavier
+   du collège en compte NEUF. Les sept premières se partageaient la hauteur, les
+   deux autres prenaient ce qui restait — des touches de tailles différentes sur
+   un même clavier. Plus aucun nombre de rangées n'est écrit ici : les rangées
+   se comptent toutes seules et se partagent la place à parts égales, de sorte
+   qu'ajouter une touche demain ne réécrase rien.
+
+   POUR LE RESTE, C'ÉTAIT UN EMPILEMENT DE COULEURS. Orange pour SHIFT, orange
+   pour DEG, orange pour les flèches, orange pour DEL, rouge pour AC, bleu pour
+   « = », gris pour les opérations, bleu nuit pour les fonctions, blanc pour les
+   chiffres — et tout cela posé sur une dalle GRIS CLAIR elle-même posée dans
+   une coque SOMBRE. Neuf teintes pour cinquante touches.
+
+   La règle tient en une phrase : DEUX FONDS ET DEUX ENCRES. Les touches sombres
+   sont le clavier, les touches claires sont les chiffres ; l'ambre ne sert qu'à
+   SHIFT — parce que sa couleur EST son sens, c'est elle qui est imprimée sur la
+   seconde fonction des touches — et le bleu ne sert qu'à « = ». DEL et AC ne
+   sont plus des pavés de couleur : ce sont des touches du clavier, avec une
+   encre qui prévient. Et la dalle claire disparaît : les touches reposent
+   directement sur la coque, comme sur une calculatrice qu'on tient en main. */
 #calc-widget {
     position: absolute;
-    width: 320px;
-    height: 540px;
-    min-width: 260px;
-    min-height: 420px;
-    background: #2d3436;
-    border-radius: 12px;
+    box-sizing: border-box;
+    width: 304px;
+    height: 566px;
+    min-width: 252px;
+    min-height: 430px;
+    /* La coque garde la même teinte de jour comme de nuit : une calculatrice
+       posée sur le bureau ne change pas de couleur quand on éteint la lumière.
+       Seule sa barre de titre suit le thème, comme celle de toutes les
+       fenêtres. */
+    background: #1b2024;
+    border-radius: 14px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
     display: flex;
     flex-direction: column;
     z-index: 9000;
     overflow: hidden;
     resize: both;
-    border: 2px solid #636e72;
-    padding-bottom: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    padding-bottom: 6px;
 }
 
 .drag-handle-calc {
@@ -3899,132 +3926,157 @@ body.dark-mode {
 }
 
 .calc-screen-container {
-    padding: 15px;
-    background: #2d3436;
+    padding: 12px 12px 7px;
+    background: transparent;
 }
 
+/* L'ÉCRAN NE FAIT PLUS LE TIERS DE LA FENÊTRE POUR N'AFFICHER QU'UN ZÉRO. Il
+   était centré dans soixante-dix pixels de haut : la ligne de calcul vide
+   laissait un grand vide vert au-dessus du résultat. Un afficheur à cristaux
+   liquides écrit EN BAS, contre le bord, et ce qui est écrit y est collé. */
 .calc-screen {
     background: #9cad8e;
-    border-radius: 6px;
-    padding: 10px;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3);
+    border-radius: 7px;
+    padding: 7px 10px 8px;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.28);
     text-align: right;
     font-family: 'Courier New', Courier, monospace;
+    font-variant-numeric: tabular-nums;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    min-height: 70px;
+    /* UN SEUL MÉCANISME POUR RANGER L'AFFICHEUR. Il y avait ici en plus un
+       « justify-content: flex-end » : le sabotage a montré qu'il ne tenait
+       rien, la marge automatique des témoins mangeant déjà toute la place
+       libre. Deux mécanismes pour un même effet, c'est un de trop — et celui
+       qui ne sert pas finit par être cru responsable. */
+    gap: 2px;
+    min-height: 64px;
 }
 
+/* Les témoins restent en HAUT de l'afficheur, le calcul et le résultat en bas :
+   « margin-bottom: auto » pousse tout le reste vers le bas. */
 #calc-indicators {
     font-size: 10px;
-    color: #555;
+    color: #4b5a42;
     text-align: left;
     height: 12px;
     display: flex;
     gap: 8px;
     font-weight: bold;
+    margin-bottom: auto;
 }
 
 #calc-expr {
-    font-size: 16px;
-    color: #2c3e50;
-    min-height: 20px;
+    font-size: 13px;
+    color: #41513a;
+    min-height: 16px;
     word-wrap: break-word;
+    overflow-wrap: anywhere;
 }
 
 #calc-res {
-    font-size: 32px;
+    font-size: 27px;
     font-weight: bold;
-    color: #000;
-    margin-top: 5px;
+    color: #161c12;
+    line-height: 1.1;
     word-wrap: break-word;
+    overflow-wrap: anywhere;
 }
 
+/* LES RANGÉES NE SONT PLUS COMPTÉES À LA MAIN. C'est ce qui écrasait les
+   touches : la grille en annonçait sept, le clavier en avait neuf. Chaque
+   rangée créée prend désormais sa part de la hauteur, et « minmax » lui laisse
+   un plancher pour qu'une fenêtre rétrécie donne un clavier qui défile plutôt
+   qu'une dernière rangée coupée. */
 .calc-grid {
     flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    grid-template-rows: repeat(7, minmax(0, 1fr));
-    gap: 8px;
-    padding: 10px 15px;
-    background: #bdc3c7;
-    border-radius: 0 0 10px 10px;
+    grid-auto-rows: minmax(30px, 1fr);
+    gap: 6px;
+    padding: 4px 12px 8px;
+    background: transparent;
+    overflow-y: auto;
 }
 
 .calc-btn {
     border: none;
-    border-radius: 6px;
-    font-size: 16px;
-    font-weight: bold;
+    border-radius: 7px;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.2);
-    transition: transform 0.05s, box-shadow 0.05s;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.38);
+    transition: transform 0.05s, box-shadow 0.05s, filter 0.1s;
     user-select: none;
     font-family: sans-serif;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
+    padding: 0 2px;
     overflow: hidden;
     white-space: nowrap;
 }
 
+.calc-btn:hover { filter: brightness(1.12); }
+
 .calc-btn:active {
-    transform: translateY(3px);
-    box-shadow: 0 0 0 rgba(0, 0, 0, 0.2);
+    transform: translateY(2px);
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0.38);
 }
 
+/* LE CLAVIER — un fond sombre pour les commandes, un fond clair pour ce qu'on
+   tape le plus souvent. Les chiffres sont les touches qu'on cherche du regard :
+   ce sont elles qui sont claires. */
 .calc-btn.num {
-    background: #ecf0f1;
-    color: #2c3e50;
+    background: #eceff1;
+    color: #1b2024;
+    font-size: 16px;
+    font-weight: 700;
 }
 
-.calc-btn.fn {
-    background: #34495e;
-    color: #ecf0f1;
-    font-size: 13px;
-    font-weight: normal;
-    letter-spacing: -0.5px;
+.calc-btn.fn,
+.calc-btn.action {
+    background: #333d45;
+    color: #e6ebee;
+    font-size: 12px;
+    font-weight: 500;
 }
 
 .calc-btn.op {
-    background: #95a5a6;
-    color: #000;
-    font-size: 18px;
+    background: #46535d;
+    color: #f2f5f7;
+    font-size: 17px;
+    font-weight: 700;
 }
 
-.calc-btn.action {
-    background: #e67e22;
-    color: #fff;
+/* Le trait d'union est deux fois plus court que le « + » : on lui rend son
+   poids sans changer le signe écrit sur la touche, que le code lit. */
+.calc-btn.op.moins { font-size: 25px; line-height: 0.6; }
+
+/* LES DEUX TOUCHES QUI EFFACENT NE SONT PLUS DES PAVÉS DE COULEUR : ce sont des
+   touches du clavier, avec une encre qui prévient. Un pavé orange et un pavé
+   rouge côte à côte au milieu des chiffres attiraient l'œil bien plus que ce
+   qu'ils font ne le mérite. */
+.calc-btn.action.del { color: #f0b74a; font-weight: 700; font-size: 13px; }
+.calc-btn.action.red { color: #ff9b94; font-weight: 700; font-size: 13px; }
+
+/* L'AMBRE NE SERT QU'À SHIFT. Sa couleur EST son sens : c'est celle qui est
+   imprimée au-dessus des touches pour dire leur seconde fonction. */
+.calc-btn.action.shift {
+    background: #e2a32b;
+    color: #1b2024;
+    font-weight: 700;
+    font-size: 13px;
 }
 
-.calc-btn.action.red {
-    background: #e74c3c;
-}
-
+/* ET LE BLEU NE SERT QU'À « = ». Une seule touche exécute ; c'est la seule qui
+   ait le droit d'être la plus visible du clavier. */
 .calc-btn.equal {
-    background: #2980b9;
+    background: #1b6fb5;
     color: #fff;
     font-size: 20px;
-}
-
-.calc-btn.action.shift {
-    background: #f39c12;
-    color: #fff;
-}
-
-.dark-mode .calc-grid {
-    background: #1e272e;
-}
-
-.dark-mode .calc-btn.num {
-    background: #636e72;
-    color: #fff;
-}
-
-.dark-mode .calc-btn.action.shift {
-    background: #d35400;
+    font-weight: 700;
 }
 
 .popup-wrapper {

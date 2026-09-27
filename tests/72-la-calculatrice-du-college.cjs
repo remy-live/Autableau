@@ -178,6 +178,196 @@ module.exports = async function (browser) {
     r.egal('aucune formule légitime n\'est refusée', garde.refuseesATort, []);
     r.egal('et rien de ce qui ressemble à du code ne passe', garde.accepteesATort, []);
 
+    // ------------------------------------------------------------------
+    // 6. LE CLAVIER A LA TÊTE D'UN CLAVIER
+    // ------------------------------------------------------------------
+    // « Elle est horrible, et des boutons écrasés. » La grille déclarait SEPT
+    // rangées alors que le clavier du collège en compte NEUF : les sept
+    // premières se partageaient la hauteur à parts égales, les deux autres
+    // prenaient ce qui restait. On mesure donc LA RÈGLE, et non le nombre neuf —
+    // une épreuve qui compterait les rangées aurait accompagné la faute.
+    const clavier = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const hauteurs = touches().map(t => t.getBoundingClientRect().height);
+        const grille = document.querySelector('.calc-grid');
+        const bas = grille.getBoundingClientRect().bottom;
+        return {
+            combien: touches().length,
+            ecart: Math.max(...hauteurs) - Math.min(...hauteurs),
+            plusPetite: Math.min(...hauteurs),
+            depasse: touches().filter(t => t.getBoundingClientRect().bottom > bas + 1).length,
+        };
+    });
+    r.verifie('le clavier a toutes ses touches', clavier.combien >= 45, String(clavier.combien));
+    r.verifie('et elles ont toutes la même hauteur',
+        clavier.ecart <= 1, 'écart de ' + clavier.ecart.toFixed(1) + ' px');
+    r.verifie('aucune n\'est écrasée', clavier.plusPetite >= 30,
+        'la plus petite fait ' + clavier.plusPetite.toFixed(0) + ' px');
+    r.egal('et aucune ne déborde du clavier', clavier.depasse, 0);
+
+    // LA RÈGLE, ET NON LE NOMBRE : on AJOUTE une rangée, et les touches doivent
+    // rester de la même taille. C'est exactement ce qui a été cassé le jour où
+    // l'on a ajouté les touches du collège à une grille qui comptait ses
+    // rangées à la main.
+    const apresAjout = await page.evaluate(() => {
+        const grille = document.querySelector('.calc-grid');
+        const ajoutees = [];
+        for (let i = 0; i < 5; i++) {
+            const b = document.createElement('button');
+            b.className = 'calc-btn fn epreuve-rangee';
+            b.textContent = 'ZZ' + i;
+            grille.appendChild(b); ajoutees.push(b);
+        }
+        const h = [...grille.querySelectorAll('.calc-btn')].map(t => t.getBoundingClientRect().height);
+        const bas = grille.getBoundingClientRect().bottom;
+        const depasse = [...grille.querySelectorAll('.calc-btn')]
+            .filter(t => t.getBoundingClientRect().bottom > bas + 1).length;
+        ajoutees.forEach(b => b.remove());
+        return { ecart: Math.max(...h) - Math.min(...h), depasse };
+    });
+    r.verifie('une rangée de plus ne réécrase rien',
+        apresAjout.ecart <= 1, 'écart de ' + apresAjout.ecart.toFixed(1) + ' px');
+    r.egal('et rien ne déborde pour autant', apresAjout.depasse, 0);
+
+    // L'AFFICHEUR N'EST PLUS UN GRAND VIDE VERT. Il était centré dans
+    // soixante-dix pixels de haut, avec un résultat de trente-deux : la ligne de
+    // calcul vide laissait une large bande verte au-dessus du chiffre.
+    //
+    // ET L'ON MESURE ICI LE JEU, ET NON LA POSITION. Une première rédaction
+    // vérifiait que « les témoins sont en haut » et que « le résultat est collé
+    // en bas » : ces deux-là sont vraies SANS RIEN dans la feuille de style,
+    // parce qu'à sa hauteur naturelle l'afficheur n'a aucune place à répartir.
+    // Le sabotage l'a dit — retirer le calage ne changeait pas un pixel. On
+    // mesure donc d'abord qu'il n'y a pas de place perdue, puis, EN FORÇANT de
+    // la place, que le contenu se range bien en haut et en bas.
+    const afficheur = await page.evaluate(() => {
+        const e = document.querySelector('.calc-screen');
+        const s = getComputedStyle(e);
+        const contenu = [...e.children].reduce((t, c) => t + c.getBoundingClientRect().height, 0);
+        const bords = parseFloat(s.paddingTop) + parseFloat(s.paddingBottom);
+        const naturelle = e.getBoundingClientRect().height;
+
+        // On force maintenant cent soixante pixels : il y a de la place à
+        // répartir, et c'est là que le rangement se voit.
+        e.style.height = '160px';
+        const r2 = e.getBoundingClientRect();
+        const force = {
+            temoinsEnHaut: Math.round(document.getElementById('calc-indicators').getBoundingClientRect().top - r2.top),
+            resEnBas: Math.round(r2.bottom - document.getElementById('calc-res').getBoundingClientRect().bottom),
+        };
+        e.style.height = '';
+        return {
+            perdu: Math.round(naturelle - contenu - bords),
+            hauteur: naturelle,
+            fenetre: document.getElementById('calc-widget').getBoundingClientRect().height,
+            force,
+        };
+    });
+    r.verifie('l\'afficheur n\'a pas de place perdue', afficheur.perdu <= 10,
+        afficheur.perdu + ' px de vert vide');
+    r.verifie('l\'afficheur ne mange pas le cinquième de la fenêtre',
+        afficheur.hauteur / afficheur.fenetre < 0.2,
+        Math.round(100 * afficheur.hauteur / afficheur.fenetre) + ' %');
+    r.verifie('agrandi, il garde ses témoins en haut',
+        afficheur.force.temoinsEnHaut < 12, String(afficheur.force.temoinsEnHaut));
+    r.verifie('et son résultat collé en bas',
+        afficheur.force.resEnBas < 14, String(afficheur.force.resEnBas));
+
+    // ------------------------------------------------------------------
+    // 7. DEUX FONDS ET DEUX ENCRES
+    // ------------------------------------------------------------------
+    // Il y avait NEUF teintes pour cinquante touches : orange pour SHIFT, pour
+    // DEG, pour les flèches, pour DEL ; rouge pour AC ; bleu pour « = » ; gris
+    // pour les opérations ; bleu nuit pour les fonctions ; blanc pour les
+    // chiffres — le tout sur une dalle gris clair posée dans une coque sombre.
+    const teintes = await page.evaluate(() => {
+        const fonds = {};
+        document.querySelectorAll('#calc-widget .calc-btn').forEach(t => {
+            const f = getComputedStyle(t).backgroundColor;
+            fonds[f] = (fonds[f] || 0) + 1;
+        });
+        return fonds;
+    });
+    r.verifie('le clavier ne compte pas plus de cinq fonds',
+        Object.keys(teintes).length <= 5, JSON.stringify(teintes));
+    // ET LA DALLE CLAIRE A DISPARU. Les touches reposaient sur un rectangle
+    // gris clair lui-même posé dans une coque sombre : deux objets pour un
+    // seul clavier. Elles reposent maintenant sur la coque, comme sur une
+    // calculatrice qu'on tient en main.
+    const dalle = await page.evaluate(() => {
+        const g = getComputedStyle(document.querySelector('.calc-grid')).backgroundColor;
+        const c = getComputedStyle(document.getElementById('calc-widget')).backgroundColor;
+        const transparent = /rgba\(0, 0, 0, 0\)|transparent/.test(g);
+        return { grille: g, coque: c, memeFond: transparent || g === c };
+    });
+    r.verifie('les touches reposent sur la coque, sans dalle intermédiaire',
+        dalle.memeFond, 'clavier ' + dalle.grille + ' / coque ' + dalle.coque);
+    // ET LES DEUX COULEURS VIVES NE SERVENT QU'À UNE TOUCHE CHACUNE : l'ambre
+    // pour SHIFT — sa couleur EST son sens, c'est elle qui est imprimée sur la
+    // seconde fonction des touches — et le bleu pour « = ».
+    const vives = await page.evaluate(() => {
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const compte = {};
+        document.querySelectorAll('#calc-widget .calc-btn').forEach(t => {
+            const v = getComputedStyle(t).backgroundColor.match(/[\d.]+/g).map(Number);
+            const sat = Math.max(v[0], v[1], v[2]) - Math.min(v[0], v[1], v[2]);
+            if (sat > 60) compte[t.innerText.trim()] = getComputedStyle(t).backgroundColor;
+        });
+        void lin;
+        return compte;
+    });
+    r.egal('seules SHIFT et « = » portent une couleur vive',
+        Object.keys(vives).sort(), ['=', 'SHIFT']);
+
+    // TOUT CE QUI EST ÉCRIT SUR UNE TOUCHE SE LIT. Le barème vient de la norme :
+    // 4,5:1, ou 3:1 pour un grand texte — l'épreuve le recalcule chez elle.
+    const lisibilite = await page.evaluate(() => {
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const lum = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+        const nb = (s) => s.match(/[\d.]+/g).map(Number);
+        const mauvais = [];
+        document.querySelectorAll('#calc-widget .calc-btn').forEach(t => {
+            const s = getComputedStyle(t);
+            const a = lum(nb(s.color)), b = lum(nb(s.backgroundColor));
+            const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+            const taille = parseFloat(s.fontSize) || 16;
+            const gras = (parseInt(s.fontWeight, 10) || 400) >= 700;
+            const seuil = (taille >= 24 || (gras && taille >= 18.66)) ? 3 : 4.5;
+            if (ratio < seuil) mauvais.push(t.innerText.trim() + ' : ' + ratio.toFixed(2) + ' < ' + seuil);
+        });
+        return mauvais;
+    });
+    r.egal('tout ce qui est écrit sur une touche se lit', lisibilite, []);
+    // ET AUCUNE TOUCHE N'A BESOIN D'ÊTRE RATTRAPÉE. Le contrôle ci-dessus mesure
+    // ce que VOIT le professeur — donc après le rattrapage d'encre, qui repeint
+    // ce qui ne se lit pas. Saboté en écrivant une encre illisible dans la
+    // feuille de style, il ne tombait pas : l'application corrigeait la faute
+    // avant qu'il ne regarde. C'est une bonne nouvelle pour le professeur, mais
+    // cela ne dit rien de la palette. Ceci le dit : une palette juste n'a rien à
+    // faire rattraper, et le rattrapage marque ce qu'il touche.
+    const rattrapees = await page.evaluate(() =>
+        [...document.querySelectorAll('#calc-widget .calc-btn')]
+            .filter(t => t.dataset.encreDorigine)
+            .map(t => t.innerText.trim() + ' (' + t.dataset.encreDorigine + ')'));
+    r.egal('et aucune n\'a eu besoin d\'être rattrapée', rattrapees, []);
+
+    // ELLE A LA MÊME TÊTE DE JOUR ET DE NUIT. Une calculatrice posée sur le
+    // bureau ne change pas de couleur quand on éteint la lumière ; seule sa
+    // barre de titre suit le thème, comme celle de toutes les fenêtres.
+    const memeTete = await page.evaluate(async () => {
+        const lire = () => [...document.querySelectorAll('#calc-widget .calc-btn')]
+            .map(t => getComputedStyle(t).backgroundColor + '/' + getComputedStyle(t).color).join('|');
+        const jour = lire();
+        document.body.classList.add('dark-mode');
+        await new Promise(ok => setTimeout(ok, 500));
+        const nuit = lire();
+        document.body.classList.remove('dark-mode');
+        await new Promise(ok => setTimeout(ok, 300));
+        return { pareil: jour === nuit, jour: jour.slice(0, 80), nuit: nuit.slice(0, 80) };
+    });
+    r.verifie('le clavier a la même tête de jour et de nuit',
+        memeTete.pareil, memeTete.jour + ' ≠ ' + memeTete.nuit);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

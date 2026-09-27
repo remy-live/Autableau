@@ -6,7 +6,7 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=216 »,
+         dépôt est protégé par des numéros de version — « style.css?v=217 »,
          « script.js?v=372 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=216">
+    <link rel="stylesheet" href="style.css?v=217">
 </head>
 
 <body>
@@ -2106,8 +2106,11 @@
         </div>
         <div class="calc-screen-container">
             <div class="calc-screen">
-                <div id="calc-indicators"
-                    style="font-size: 10px; color: #555; text-align: left; height: 12px; display: flex; gap: 8px; font-weight: bold;">
+                <!-- La ligne des témoins était habillée ICI, en ligne, ce qui
+                     passait devant la feuille de style : l'afficheur ne pouvait
+                     pas changer de teinte sans qu'on vienne réécrire la page.
+                     Elle est habillée par « #calc-indicators ». -->
+                <div id="calc-indicators">
                     <span id="ind-shift" style="opacity: 0;">SHIFT</span>
                     <span id="ind-angle">DEG</span>
                     <span id="ind-memoire" style="opacity: 0;">M</span>
@@ -2157,7 +2160,7 @@
             <button class="calc-btn num">7</button>
             <button class="calc-btn num">8</button>
             <button class="calc-btn num">9</button>
-            <button class="calc-btn action">DEL</button>
+            <button class="calc-btn action del">DEL</button>
             <button class="calc-btn action red">AC</button>
 
             <button class="calc-btn num">4</button>
@@ -2170,7 +2173,12 @@
             <button class="calc-btn num">2</button>
             <button class="calc-btn num">3</button>
             <button class="calc-btn op">+</button>
-            <button class="calc-btn op">-</button>
+            <!-- Le trait du moins est un TRAIT D'UNION : à la même taille que
+                 le « + », il paraît deux fois plus maigre que ses voisins. On
+                 l'agrandit dans la feuille de style plutôt que de changer le
+                 signe écrit sur la touche : ce signe est ce que le code lit
+                 pour savoir quelle touche on a pressée. -->
+            <button class="calc-btn op moins">-</button>
 
             <button class="calc-btn num">0</button>
             <button class="calc-btn num">.</button>
