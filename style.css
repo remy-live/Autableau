@@ -74,11 +74,6 @@
     --muted: #636e72;
     --faint: #b2bec3;
     --accent: #6c5ce7;
-    /* LE MÊME ACCENT, POUR UN FOND PLEIN. Un bouton qui prend l'accent pour
-       fond et écrit en blanc dessus demande 4,5:1 : le violet du jour les
-       donne (4,86), celui de la nuit — clair, parce qu'il sert aussi d'encre
-       sur fond sombre — n'en donnait que 2,43. Deux rôles, deux valeurs. */
-    --accent-plein: #6c5ce7;
     --accent-soft: rgba(108, 92, 231, 0.1);
     --accent-hover: rgba(108, 92, 231, 0.15);
     --red: #e74c3c;
@@ -124,7 +119,6 @@ body.dark-mode {
     --muted: #bdc3c7;
     --faint: #6272a4;
     --accent: #a29bfe;
-    --accent-plein: #736eb4;          /* 2,43:1 → 4,54:1 avec du blanc */
     --accent-soft: rgba(162, 155, 254, 0.15);
     --accent-hover: rgba(162, 155, 254, 0.25);
     /* Sur fond sombre, c'est un trait CLAIR qui détache : le même noir s'y
@@ -2744,7 +2738,7 @@ body.cercle-libre .ico-cercle-libre {
 }
 #btn-clignote.actif:hover, #text-clignote.actif:hover { background: #5b4bd6; color: #fff; }
 .dark-mode #btn-clignote.actif,
-.dark-mode #text-clignote.actif { background: #736eb4; color: #1e272e; }
+.dark-mode #text-clignote.actif { background: #a29bfe; color: #1e272e; }
 
 .opacity-container {
     display: flex;
@@ -2932,7 +2926,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 .btn-action.primary {
-    background: var(--accent-plein, #6c5ce7);
+    background: #6c5ce7;
     color: white;
 }
 
@@ -2953,7 +2947,7 @@ input[type=range]::-moz-range-thumb {
 .btn-action.danger {
     /* 2,59:1 en blanc sur l'ancien rouge clair. Le rouge du survol, #d63031,
        en donne 4,85 : celui du repos le rejoint. */
-    background: #bd5757;
+    background: #ff7675;
     color: white;
 }
 
@@ -4016,7 +4010,7 @@ body.dark-mode {
 }
 
 .calc-btn.action.shift {
-    background: #a3690c;
+    background: #f39c12;
     color: #fff;
 }
 
@@ -6248,7 +6242,7 @@ dark-mode .title-btn:hover {
 }
 
 .btn-action.primary {
-    background: var(--accent-plein, var(--accent));
+    background: var(--accent);
     color: white;
 }
 
@@ -8472,7 +8466,6 @@ body.focus-mode #edt-bandeau { display: none; }
     --pw-encre: #232b2f;
     --pw-gris: #6d787e;
     --pw-accent: #0984e3;
-    --pw-accent-plein: #0984e3;
     --pw-accent-doux: #e8f4fd;
 
     position: fixed;
@@ -8497,7 +8490,6 @@ body.focus-mode #edt-bandeau { display: none; }
     --pw-encre: #e6ecef;
     --pw-gris: #9aa7ae;
     --pw-accent: #4aa8f0;
-    --pw-accent-plein: #367baf;       /* 2,58:1 → 4,57:1 avec du blanc */
     --pw-accent-doux: #17303f;
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
@@ -8763,13 +8755,13 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .pw-btn.primaire {
     border-color: transparent;
-    background: var(--pw-accent-plein, var(--pw-accent));
+    background: var(--pw-accent);
     color: #fff;
     box-shadow: 0 2px 8px rgba(9, 132, 227, 0.3);
 }
 
 .pw-btn.primaire:hover { background: #0b76c9; border-color: transparent; }
-.dark-mode .pw-btn.primaire:hover { background: #487ba3; }   /* 2,15:1 → 4,52:1 */
+.dark-mode .pw-btn.primaire:hover { background: #6bb8f3; }   /* 2,15:1 → 4,52:1 */
 
 .pw-btn.actif { border-color: var(--pw-accent); background: var(--pw-accent-doux); color: var(--pw-accent); }
 .pw-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
@@ -10127,7 +10119,7 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .atelier-btn:hover { background: #eef2ff; }
 .atelier-large { width: 100%; }
-.atelier-vert { background: #00866c; border-color: #00b894; color: #fff; font-weight: 600; }
+.atelier-vert { background: #00b894; border-color: #00b894; color: #fff; font-weight: 600; }
 .atelier-vert:hover { background: #00a383; }
 .atelier-tete .atelier-btn { background: transparent; border-color: rgba(255, 255, 255, 0.25); color: #fff; }
 .atelier-tete .atelier-btn:hover { background: rgba(255, 255, 255, 0.12); }

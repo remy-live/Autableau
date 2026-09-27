@@ -13,28 +13,39 @@
 //
 // DEUX CAUSES PARTAGÉES en portaient cent trente : la boîte de réglages des
 // tampons, qui n'avait pas de nuit, et deux états vides de l'arborescence
-// écrits en gris fixe. Le reste est rattrapé à l'ouverture de chaque panneau :
-// sous 3:1 sur un fond NEUTRE, l'encre est poussée vers le clair ou le sombre
-// jusqu'à ce qu'elle se voie — sa teinte est gardée, car les étiquettes de
-// l'analyse grammaticale sont un code de couleurs.
+// écrits en gris fixe. Tout le reste est rattrapé à l'ouverture de chaque
+// panneau — et c'est aujourd'hui UNE SEULE RÈGLE, pour les quatre-vingt-sept
+// outils, les deux thèmes et n'importe quel fond.
 //
-// ET LA PALETTE A ÉTÉ ASSOMBRIE, elle aussi — mais c'était une DÉCISION, pas un
-// rattrapage : « le blanc sur le vert des boutons Poser au tableau rend 2,54:1,
-// et c'est pareil de jour. Que veux-tu que j'en fasse ? — Assombrir les fonds. »
-// Le vert #00b894 est devenu #00866c, le vert vif #2ecc71 est devenu #1e874b, et
-// ainsi de suite : onze couleurs, chacune assombrie juste assez pour que le blanc
-// y rende 4,5:1. Les tuiles algébriques, elles, ont gardé leurs couleurs — c'est
-// le matériel qu'on manipule — et c'est l'encre de leur libellé qui s'adapte.
-// Ce chapitre garde donc DEUX planchers, et ce sont deux questions différentes :
-// sur un fond neutre, le rattrapage d'encre répond ; sur une couleur, la palette.
-// Ce qui reste entre 3 et 4,5 — le bleu #0984e3 à 3,87, le rouge #e74c3c à
-// 3,82 — n'a pas été touché : c'est le visage de l'application, et l'assombrir
-// se décide à son tour.
+// COMMENT ON EN EST ARRIVÉ À UNE SEULE RÈGLE. On avait d'abord assombri les
+// fonds : onze couleurs de la palette, chacune juste assez pour que le blanc y
+// rende 4,5:1. « J'aime bien l'ancien. » Les couleurs vives sont donc revenues
+// — toutes —, et c'est l'ENCRE qui cède désormais, partout, comme elle le
+// faisait déjà sur les tuiles algébriques, dont la couleur n'avait jamais bougé.
+// Onze exceptions écrites à la main ont laissé la place à une règle qu'on
+// mesure : « Fais tout ce qui donne une cohérence au projet. »
+//
+// LE BARÈME EST CELUI DE LA NORME, et il en a deux : un texte demande 4,5:1, un
+// GRAND texte — vingt-quatre pixels, ou dix-neuf en gras — n'en demande que 3,
+// parce qu'à cette taille l'œil rattrape ce que le contraste ne donne pas. Les
+// gros boutons des jeux gardent ainsi leur blanc sur leur couleur vive ; les
+// petits libellés prennent une encre qui se lit. Une encre sans teinte — du
+// blanc, du noir — emprunte celle de son fond : un vert très foncé sur un vert
+// vif, jamais du gris, sinon le bouton perd sa couleur.
 const { creerRapport, ouvrirApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('La nuit, tout se lit encore');
     const { page, context, erreurs } = await ouvrirApp(browser, {});
+    // ON MESURE LA COULEUR AU REPOS, PAS EN PLEIN FONDU. Les libellés ont une
+    // transition de 0,15 s : relevés trop tôt après le rattrapage, ils rendaient
+    // encore leur ancienne couleur, et le chapitre accusait une correction qui
+    // avait bel et bien eu lieu — vérifié, une demi-seconde plus tard la couleur
+    // était la bonne. Couper les transitions est ici la seule façon de mesurer
+    // ce que le professeur finit par voir.
+    await page.addStyleTag({
+        content: '*, *::before, *::after { transition: none !important; animation: none !important; }'
+    });
 
     // ON BALAIE DEUX FOIS : de jour, puis de nuit. Le rattrapage d'encre
     // s'applique dans les deux thèmes, et c'est en plein jour qu'on a trouvé la
@@ -88,14 +99,19 @@ module.exports = async function (browser) {
             }
             return { rgb: fond, porteur };
         };
-        // Quarante-cinq points d'écart : un blanc, un gris, un presque-noir, une
-        // ardoise à peine bleutée — le bleu-nuit des Studios en fait
-        // trente-quatre. Un vert de marque en fait cent quatre-vingt-quatre.
-        const neutre = (rgb) => Math.max(...rgb) - Math.min(...rgb) <= 45;
+        // LE PLANCHER QUE LA NORME DONNE À CE TEXTE-LÀ : 4,5:1, ou 3:1 s'il est
+        // grand — vingt-quatre pixels, ou dix-neuf en gras. L'épreuve le recalcule
+        // chez elle : une épreuve qui emprunterait sa formule à l'application se
+        // tromperait avec elle.
+        const plancher = (s) => {
+            const taille = parseFloat(s.fontSize) || 16;
+            const gras = (parseInt(s.fontWeight, 10) || 400) >= 700;
+            return (taille >= 24 || (gras && taille >= 18.66)) ? 3 : 4.5;
+        };
 
-        const illisibles = [], surCouleur = [];
+        const illisibles = [];
         let textesVus = 0;
-        const examiner = (etiquette) => {
+        const examiner = (etiquette, vus) => {
             document.querySelectorAll('div, span, label, p, td, th, li, button, h1, h2, h3, h4, strong, small, a')
                 .forEach(el => {
                     if (!vu(el)) return;
@@ -121,20 +137,14 @@ module.exports = async function (browser) {
                     const vue = encre.slice(0, 3).map((v, i) => v * opacite + fond[i] * (1 - opacite));
                     const l1 = lum(vue), l2 = lum(fond);
                     const rap = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-                    if (rap >= 3) return;
-                    const quoi = etiquette + ' | ' + s.color + ' sur rgb(' + fond.map(Math.round).join(',')
-                        + ') = ' + rap.toFixed(2) + ' | « '
-                        + (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 34) + ' »';
-                    // DEUX LISTES, PARCE QUE CE SONT DEUX QUESTIONS. Sur un fond
-                    // neutre, c'est le rattrapage d'encre qui répond. Sur une
-                    // couleur de la palette, c'est la palette elle-même : elle a
-                    // été assombrie pour que le blanc s'y lise, et ce contrôle
-                    // garde le plancher de 3:1 qu'on a gagné.
-                    if (neutre(fond)) {
-                        if (!illisibles.includes(quoi)) illisibles.push(quoi);
-                    } else if (!surCouleur.includes(quoi)) {
-                        surCouleur.push(quoi);
-                    }
+                    const cible = plancher(s);
+                    if (rap >= cible) return;
+                    const qui = etiquette + '|' + String(el.id || (typeof el.className === 'string'
+                        ? el.className : '') || el.tagName) + '|'
+                        + (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 34);
+                    vus.set(qui, etiquette + ' | ' + s.color + ' sur rgb(' + fond.map(Math.round).join(',')
+                        + ') = ' + rap.toFixed(2) + ' (plancher ' + cible + ') | « '
+                        + (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 34) + ' »');
                 });
         };
 
@@ -146,10 +156,26 @@ module.exports = async function (browser) {
             const quoi = (b.dataset.pluginKey || b.getAttribute('data-tooltip') || b.title || '?').slice(0, 26);
             try { b.click(); } catch (e) { /* cet outil refuse de s'ouvrir */ }
             await attendre(150);
-            examiner(quoi);
+            // ON REGARDE DEUX FOIS, ET L'ON NE RETIENT QUE CE QUI PERSISTE.
+            //
+            // Mesuré : le panneau des Studios naît SOMBRE et passe au clair une
+            // fraction de seconde plus tard ; le rattrapage d'encre suit, et
+            // corrige soixante-dix millisecondes après. Relevé une seule fois,
+            // l'écart apparaissait une fois sur deux — et il accusait une
+            // correction qui avait bien lieu. Un texte qui se corrige tout seul
+            // dans la foulée n'est pas illisible ; ce qui l'est encore au second
+            // regard, si.
+            const premier = new Map();
+            examiner(quoi, premier);
+            await attendre(300);
+            const second = new Map();
+            examiner(quoi, second);
+            for (const [cle, texte] of second) {
+                if (premier.has(cle) && !illisibles.includes(texte)) illisibles.push(texte);
+            }
             toutRefermer();
         }
-        return { illisibles, surCouleur, textesVus, outils: boutons.length };
+        return { illisibles, textesVus, outils: boutons.length };
     });
 
     const jour = await balayer();
@@ -157,8 +183,7 @@ module.exports = async function (browser) {
         jour.outils >= 80, String(jour.outils));
     r.verifie('et l\'on a bien mesuré des textes sur des fonds neutres',
         jour.textesVus >= 300, String(jour.textesVus));
-    r.egal('de jour, aucun texte sous 3:1 sur un fond neutre', jour.illisibles, []);
-    r.egal('et aucun sous 3:1 sur une couleur de la palette', jour.surCouleur, []);
+    r.egal('de jour, chaque texte atteint le plancher que la norme lui donne', jour.illisibles, []);
 
     await page.evaluate(() => {
         if (typeof toggleDarkMode === 'function' && !document.body.classList.contains('dark-mode')) {
@@ -172,8 +197,7 @@ module.exports = async function (browser) {
     const nuit = await balayer();
     r.verifie('et les quatre-vingt-sept ont été rouverts, la nuit',
         nuit.outils >= 80, String(nuit.outils));
-    r.egal('de nuit non plus, aucun texte sous 3:1 sur un fond neutre', nuit.illisibles, []);
-    r.egal('ni sur une couleur de la palette', nuit.surCouleur, []);
+    r.egal('et la nuit aussi, sur n\'importe quel fond', nuit.illisibles, []);
 
     // ------------------------------------------------------------------
     // CE QU'UN OUTIL CACHE RESTE CACHÉ

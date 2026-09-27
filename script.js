@@ -22073,14 +22073,51 @@ function equiperVraiment(el, cle, options) {
     // ne touche que des styles : il ne peut pas se réveiller lui-même.
     if (typeof MutationObserver === 'function' && typeof rendreLesTextesLisibles === 'function') {
         let encreEnAttente = false;
-        new MutationObserver(() => {
+        new MutationObserver((lots) => {
+            // ON ÉCOUTE AUSSI LE STYLE — SAUF LE NÔTRE, et c'est ce qui rend la
+            // chose possible sans boucle. Le vrai coupable n'était ni un nœud ni
+            // une classe : c'est le FOND D'UN ANCÊTRE qui change après coup. Le
+            // bouton « Annuler » des Studios était corrigé pour un panneau
+            // sombre, le panneau passait au violet pâle une fraction de seconde
+            // plus tard, et son encre claire y rendait 2,26:1 — une fois sur
+            // deux, selon la seconde où l'on regardait. Le rattrapage n'écrit,
+            // lui, que sur des éléments qu'il a marqués : on ignore donc les
+            // changements de style DE CEUX-LÀ, et l'on réagit à tous les autres.
+            const aNous = (m) => m.type === 'attributes' && m.attributeName === 'style'
+                && m.target.dataset && m.target.dataset.encreRattrapee === '1';
+            if (lots.every(aNous)) return;
             if (encreEnAttente) return;
             encreEnAttente = true;
             requestAnimationFrame(() => {
                 encreEnAttente = false;
                 if (el.isConnected) rendreLesTextesLisibles(el);
             });
-        }).observe(el, { childList: true, subtree: true });
+        // ET L'ON SURVEILLE AUSSI LES CLASSES, pas seulement les nœuds ajoutés.
+        //
+        // Mesuré dans « Molécules 2D » : le bouton « Annuler » avait été corrigé
+        // pour un panneau SOMBRE, et le panneau est ensuite passé au clair sans
+        // qu'un seul nœud bouge — une classe, et tout change de couleur. L'encre
+        // claire restait, 2,26:1. On écoute donc « class » ; on n'écoute pas
+        // « style », que le rattrapage écrit lui-même et qui le réveillerait en
+        // boucle.
+        }).observe(el, { childList: true, subtree: true, attributes: true,
+            attributeFilter: ['class', 'style'] });
+    }
+    // ET QUAND LA FENÊTRE REPARAÎT APRÈS AVOIR ÉTÉ CACHÉE.
+    //
+    // DEUX GUETTEURS, ET ILS NE VOIENT PAS LA MÊME CHOSE — vérifié en retirant
+    // celui-ci : le défaut revenait une fois sur trois. L'autre, plus bas, est
+    // posé sur les enfants de la page ; quand un voile reste visible et que le
+    // panneau qu'il porte change de teinte au-dedans, il ne voit rien. Celui-ci
+    // est posé sur la fenêtre elle-même.
+    if (typeof IntersectionObserver === 'function' && typeof rendreLesTextesLisibles === 'function') {
+        new IntersectionObserver((entrees) => {
+            if (!entrees.some(e => e.isIntersecting)) return;
+            requestAnimationFrame(() => { if (el.isConnected) rendreLesTextesLisibles(el); });
+            // Et une fois de plus un peu après : un panneau reçoit parfois sa
+            // teinte définitive après avoir paru.
+            setTimeout(() => { if (el.isConnected) rendreLesTextesLisibles(el); }, 350);
+        }).observe(el);
     }
     requestAnimationFrame(() => {
         if (!el.isConnected || typeof rattraperLesTextesDesFenetres !== 'function') return;
@@ -22379,7 +22416,30 @@ window.ramenerFenetreDansLecran = ramenerFenetreDansLecran;
 // jour comme de nuit, et repeindre ces textes-là ferait deux applications
 // différentes selon l'heure. Ce rattrapage ne décide pas d'une palette ; il
 // empêche un texte de disparaître.
-const CONTRASTE_MINIMAL = 3;
+// LE BARÈME EST CELUI DE LA NORME, ET IL EN A DEUX — c'est ce qui permet une
+// règle unique sans qu'elle soit brutale. Un texte demande 4,5:1. Un GRAND texte
+// — vingt-quatre pixels, ou dix-neuf en gras — n'en demande que 3 : à cette
+// taille, l'œil rattrape ce que le contraste ne donne pas. Les gros boutons des
+// jeux gardent donc leur blanc sur leur couleur vive ; les petits libellés, eux,
+// prennent une encre qui se lit.
+const CONTRASTE_TEXTE = 4.5;
+const CONTRASTE_GRAND_TEXTE = 3;
+// ET L'ON VISE UN PEU AU-DESSUS DU PLANCHER, jamais pile dessus.
+//
+// Mesuré : neuf corrections retombaient entre 4,24 et 4,48 alors que le calcul
+// annonçait 4,65. Le fond avait bougé d'un cheveu APRÈS le rattrapage — un
+// panneau qui reçoit sa teinte juste après sa naissance, un blanc qui devient
+// #f8f9fa. Une marge de quatre dixièmes absorbe ce décalage sans repeindre plus
+// qu'il ne faut ; sans elle, la moitié des corrections manquaient leur but de
+// deux centièmes.
+const MARGE_DE_CORRECTION = 0.45;
+
+function planchierDuTexte(style) {
+    const taille = parseFloat(style.fontSize) || 16;
+    const gras = (parseInt(style.fontWeight, 10) || 400) >= 700;
+    const grand = taille >= 24 || (gras && taille >= 18.66);
+    return grand ? CONTRASTE_GRAND_TEXTE : CONTRASTE_TEXTE;
+}
 
 function canalLineaire(c) {
     c /= 255;
@@ -22435,19 +22495,6 @@ function fondQuOnVoit(el) {
     return { rgb: fond, porteur };
 }
 
-// Un fond neutre : du blanc, un gris, un presque-noir, une ardoise à peine
-// bleutée. Pas un vert de marque.
-//
-// QUARANTE-CINQ ET NON VINGT-QUATRE, et c'est la mesure qui l'a dit : les quatre
-// Studios posent leurs panneaux sur un bleu-nuit — rgb(39, 46, 73), trente-quatre
-// points d'écart entre son plus et son moins — et leur bouton « Annuler » y
-// écrivait en violet, 2,75:1. À vingt-quatre, ce fond passait pour « une couleur
-// de marque » et le rattrapage s'en détournait. Un vert de marque, lui, est à
-// cent quatre-vingt-quatre points d'écart, et un bleu à deux cent dix-huit : le
-// seuil sépare toujours ce qu'il doit séparer.
-function fondNeutre(rgb) {
-    return Math.max(...rgb) - Math.min(...rgb) <= 45;
-}
 
 // ==================================================================
 // DIRE UNE COULEUR AVEC UN MOT
@@ -22525,17 +22572,39 @@ window.nommerLaCouleur = nommerLaCouleur;
 // gris rendrait le texte lisible et l'outil muet. On mélange donc l'encre à du
 // blanc sur un fond sombre, à du noir sur un fond clair, par petits pas, et
 // l'on s'arrête au premier qui se lit : la teinte reste, la clarté change.
-function encreQuiSeVoit(encre, fond) {
-    const versLeClair = luminanceRelative(fond) <= 0.4;
-    const but = versLeClair ? 255 : 0;
-    for (let pas = 1; pas <= 20; pas++) {
-        const k = pas / 20;
-        const essai = encre.map(v => v * (1 - k) + but * k);
-        if (contrasteEntre(essai, fond) >= CONTRASTE_MINIMAL + 0.2) {
+// ET SUR UNE COULEUR VIVE, L'ENCRE PREND LA TEINTE DU FOND.
+//
+// « J'aime bien l'ancien. » Les couleurs des boutons sont celles de
+// l'application, on n'y touche pas : c'est le libellé qui s'adapte. Mais pousser
+// du BLANC vers le noir donne du gris, et un gris sur un vert vif est laid — le
+// bouton n'a plus de couleur, il a de la boue. Une encre sans teinte (du blanc,
+// du noir, un gris) emprunte donc celle de son fond : un vert très foncé sur un
+// vert vif, un bleu très pâle sur un bleu nuit. C'est ce qui est déjà fait sur
+// les tuiles algébriques, et c'est devenu la règle de tout le monde.
+function encreSansTeinte(rgb) {
+    return Math.max(...rgb) - Math.min(...rgb) <= 30;
+}
+
+function encreQuiSeVoit(encre, fond, cible) {
+    // VERS LE CLAIR OU VERS LE SOMBRE ? On ne le décide pas au jugé : on regarde
+    // de quel côté il y a de la place. Le vert #00b894 a une luminance de 0,37 —
+    // « plutôt clair » selon un seuil à 0,4, donc l'encre partait vers le blanc,
+    // et le blanc sur ce vert plafonne à 2,54:1 : la correction ne pouvait pas
+    // aboutir et rendait le blanc d'origine. Vers le noir, le même fond offre
+    // 8,3:1. On compare donc les deux plafonds, et l'on va du côté large.
+    const clarte = luminanceRelative(fond);
+    const versLeBlanc = 1.05 / (clarte + 0.05);
+    const versLeNoir = (clarte + 0.05) / 0.05;
+    const but = versLeBlanc >= versLeNoir ? 255 : 0;
+    const depart = encreSansTeinte(encre) ? fond : encre;
+    for (let pas = 1; pas <= 40; pas++) {
+        const k = pas / 40;
+        const essai = depart.map(v => v * (1 - k) + but * k);
+        if (contrasteEntre(essai, fond) >= cible + MARGE_DE_CORRECTION) {
             return 'rgb(' + essai.map(v => Math.round(v)).join(', ') + ')';
         }
     }
-    return versLeClair ? '#ffffff' : '#000000';
+    return but === 255 ? '#ffffff' : '#000000';
 }
 
 // CE QUI N'EST PAS À NOUS. Le tableau lui-même, ses barres et ses tiroirs
@@ -22575,7 +22644,13 @@ function rendreLesTextesLisibles(racine) {
         // et son contraste est TOMBÉ de 1,83 à 1,51. Un rattrapage qui peut
         // empirer les choses n'en est pas un ; dans le doute, on s'abstient.
         if (!porteur || porteur === document.body || porteur === document.documentElement) return;
-        if (!fondNeutre(fond)) return;
+        // ET L'ON NE DEMANDE PLUS SI LE FOND EST « À NOUS ». Il l'était : le
+        // rattrapage évitait les couleurs de marque, et l'on assombrissait les
+        // fonds à côté, à la main, onze fois. « J'aime bien l'ancien. » Les
+        // couleurs vives sont revenues, et il n'y a plus qu'une règle : sur
+        // n'importe quel fond, un texte doit se lire, et c'est l'ENCRE qui cède.
+        // Une règle qui vaut partout vaut mieux que onze exceptions qui se
+        // rattrapent l'une l'autre.
         // CE QUI EST CACHÉ PAR SON OPACITÉ NE NOUS REGARDE PAS — et l'on a
         // manqué de faire là une faute grave. « Questions Flash » garde ses
         // réponses derrière « opacity: 0 » jusqu'à ce que le professeur les
@@ -22585,18 +22660,39 @@ function rendreLesTextesLisibles(racine) {
         // chemin ; et l'on n'écrit jamais l'opacité de personne.
         const opacite = parseFloat(s.opacity || '1');
         if (opacite < 0.35) return;
+        const cible = planchierDuTexte(s);
         const vue = dorigine.slice(0, 3).map((v, i) => v * opacite + fond[i] * (1 - opacite));
-        if (contrasteEntre(vue, fond) >= CONTRASTE_MINIMAL) {
+        if (contrasteEntre(vue, fond) >= cible) {
             // Ce qui se lit à nouveau tout seul reprend sa couleur : c'est ce
             // qui permet au rattrapage de traverser un changement de thème.
+            // ON REND CE QU'ON AVAIT TROUVÉ EN LIGNE — rien de plus.
+            //
+            // La première version rendait la couleur CALCULÉE d'origine, écrite
+            // en ligne : elle gelait ainsi le thème du moment. Mesuré sur la
+            // croix des fenêtres : rattrapée puis rendue de jour, elle gardait
+            // le rouge #d63031 en ligne, et la nuit ce rouge-là rendait 1,86:1
+            // sur le bandeau sombre — la règle de la nuit, elle, n'avait plus
+            // voix au chapitre. On retient donc ce que l'auteur avait écrit en
+            // ligne (souvent rien), et c'est cela qu'on rend : la feuille de
+            // style reprend alors la main, thème compris.
             if (el.dataset.encreRattrapee) {
-                el.style.color = el.dataset.encreDorigine || '';
+                el.style.color = el.dataset.encreEnLigne || '';
                 delete el.dataset.encreRattrapee;
             }
             return;
         }
         if (!el.dataset.encreDorigine) el.dataset.encreDorigine = s.color;
-        el.style.color = encreQuiSeVoit(dorigine.slice(0, 3), fond);
+        // Ce que l'auteur avait écrit EN LIGNE, s'il avait écrit quelque chose :
+        // c'est ce qu'on lui rendra, et rien d'autre.
+        if (el.dataset.encreEnLigne === undefined) el.dataset.encreEnLigne = el.style.color || '';
+        // SANS « !important », ET C'EST UNE ERREUR QU'ON A FAILLI GRAVER. On
+        // avait cru que certains libellés résistaient à la correction parce que
+        // leur feuille de style écrit « !important » ; la vraie raison était la
+        // transition de 0,15 s, qui rendait encore l'ancienne couleur au moment
+        // où on la relisait. Le sabotage l'a dit : retirer la priorité ne fait
+        // tomber aucun contrôle. Et une priorité posée par le code écraserait
+        // aussi les couleurs de survol, qu'on n'a aucune raison de voler.
+        el.style.color = encreQuiSeVoit(dorigine.slice(0, 3), fond, cible);
         el.dataset.encreRattrapee = '1';
         rattrapes++;
     });
@@ -22635,17 +22731,61 @@ window.rattraperLesTextesDesFenetres = rattraperLesTextesDesFenetres;
 // peut pas se réveiller lui-même.
 if (typeof MutationObserver === 'function' && document.body) {
     let encreAVoir = false;
-    new MutationObserver((lots) => {
+    const repasser = () => {
         if (encreAVoir) return;
-        const duNouveau = lots.some(l => [...l.addedNodes].some(n => n.nodeType === 1
-            && n.tagName !== 'SCRIPT' && n.tagName !== 'STYLE'));
-        if (!duNouveau) return;
         encreAVoir = true;
         requestAnimationFrame(() => {
             encreAVoir = false;
             rattraperLesTextesDesFenetres();
         });
+        // ET UNE FOIS DE PLUS, UN PEU APRÈS.
+        //
+        // Un panneau reçoit parfois sa teinte définitive APRÈS avoir paru : le
+        // temps qu'un outil lise ses réglages, applique son thème, remplisse sa
+        // liste. Mesuré sur trois passages : le bouton « Annuler » des Studios
+        // gardait, une fois sur deux, l'encre calculée pour l'état d'avant —
+        // 2,26:1 — parce que son panneau avait viré du sombre au clair entre
+        // temps, sans qu'un seul nœud bouge. Ce n'est pas un geste qu'on
+        // chronomètre : c'est un rattrapage qui repasse, et rien de ce qu'il
+        // fait ne dépend de la durée choisie.
+        setTimeout(rattraperLesTextesDesFenetres, 350);
+    };
+    new MutationObserver((lots) => {
+        const duNouveau = lots.some(l => [...l.addedNodes].some(n => n.nodeType === 1
+            && n.tagName !== 'SCRIPT' && n.tagName !== 'STYLE'));
+        if (duNouveau) repasser();
     }).observe(document.body, { childList: true });
+
+    // ET LE THÈME, QUEL QUE SOIT LE CHEMIN QUI LE CHANGE.
+    //
+    // L'interrupteur appelait déjà le rattrapage ; mais le thème se pose sur une
+    // CLASSE du corps de la page, et rien ne garantit qu'on passe toujours par
+    // l'interrupteur. Mesuré : la croix des fenêtres, corrigée de jour — 4,34:1
+    // sur le bandeau clair, sous le plancher —, gardait son rouge sombre en
+    // ligne quand la nuit tombait par un autre chemin : 1,86:1 sur le bandeau
+    // sombre. On écoute donc la classe du corps, et tout est réévalué.
+    new MutationObserver(repasser)
+        .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+    // ET CE QUI REPARAÎT SANS QU'UN NŒUD BOUGE. Beaucoup d'outils ne ferment pas
+    // leur panneau : ils le cachent, puis le remontrent. Entre les deux, le
+    // thème a pu changer. Un observateur d'intersection voit cela — et rien
+    // d'autre ne le voit.
+    if (typeof IntersectionObserver === 'function') {
+        const guetteur = new IntersectionObserver((entrees) => {
+            if (entrees.some(e => e.isIntersecting)) repasser();
+        });
+        const surveillerLesPanneaux = () => {
+            document.querySelectorAll('body > *').forEach(el => {
+                if (el.dataset.encreGuettee === '1') return;
+                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+                el.dataset.encreGuettee = '1';
+                guetteur.observe(el);
+            });
+        };
+        surveillerLesPanneaux();
+        new MutationObserver(surveillerLesPanneaux).observe(document.body, { childList: true });
+    }
 }
 
 // Une fois le tampon posé, on revient à la flèche ET l'objet posé est
