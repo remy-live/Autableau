@@ -251,6 +251,53 @@ module.exports = async function (browser) {
     r.verifie('la croix de « Formules mathématiques » referme sa fenêtre',
         croix && croix.ouverte && croix.refermee, JSON.stringify(croix));
 
+    // ------------------------------------------------------------------
+    // ET LA BOÎTE DE RÉGLAGES A UNE CROIX, ELLE AUSSI
+    // ------------------------------------------------------------------
+    // Elle a sa barre à elle — elle n'est pas équipée par le mécanisme commun —
+    // et elle n'avait donc jamais eu de croix : on en sortait par « Annuler », en
+    // bas, ou par Échap, qu'il faut connaître. Chercher la croix en haut à droite
+    // est le geste le plus ordinaire qu'il y ait. Elle fait ce que fait
+    // « Annuler » : elle referme ET elle prévient celui qui attendait une
+    // réponse, sinon un outil resterait suspendu à une promesse.
+    await faireLePropre();
+    const boite = await page.evaluate(async () => {
+        if (typeof openCustomPrompt !== 'function') return null;
+        let annule = false;
+        openCustomPrompt('Essai de la croix', [{ label: 'Nombre', type: 'number', value: '3' }],
+            null, () => {}, () => { annule = true; });
+        await new Promise(ok => setTimeout(ok, 300));
+        const m = document.getElementById('custom-prompt-modal');
+        const croix = document.getElementById('custom-prompt-fermer');
+        if (!m || !m.getClientRects().length || !croix) {
+            return { ouverte: !!(m && m.getClientRects().length), croix: !!croix };
+        }
+        const rc = croix.getBoundingClientRect();
+        const rm = m.getBoundingClientRect();
+        // Elle est bien en haut à DROITE, et de la taille des autres.
+        const place = { droite: Math.round(rm.right - rc.right), haut: Math.round(rc.top - rm.top),
+                        taille: [Math.round(rc.width), Math.round(rc.height)] };
+        // Et on la vise pour de vrai, là où elle est.
+        const sous = document.elementFromPoint(rc.left + rc.width / 2, rc.top + rc.height / 2);
+        const atteinte = !!(sous && (sous === croix || croix.contains(sous) || sous.contains(croix)));
+        croix.click();
+        await new Promise(ok => setTimeout(ok, 250));
+        return { ouverte: true, croix: true, place, atteinte,
+                 refermee: !m.getClientRects().length, annule };
+    });
+    if (boite && boite.ouverte && boite.croix) {
+        r.verifie('la croix est en haut à droite, à la taille des autres',
+            boite.place.droite >= 0 && boite.place.droite <= 12 && boite.place.haut <= 12
+            && boite.place.taille[0] >= 24 && boite.place.taille[1] >= 24,
+            JSON.stringify(boite.place));
+        r.egal('on peut la viser', boite.atteinte, true, JSON.stringify(boite));
+        r.egal('elle referme la boîte', boite.refermee, true, JSON.stringify(boite));
+        r.egal('et elle prévient celui qui attendait une réponse', boite.annule, true,
+            JSON.stringify(boite));
+    } else {
+        r.verifie('la boîte de réglages s\'ouvre et porte une croix', false, JSON.stringify(boite));
+    }
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

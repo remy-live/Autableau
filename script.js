@@ -22263,6 +22263,52 @@ function equiperVraiment(el, cle, options) {
 }
 window.equiperFenetre = equiperFenetre;
 
+// ==================================================================
+// UNE FENÊTRE BORNÉE DÉFILE, ET SA BARRE RESTE EN HAUT
+// ==================================================================
+// Borner la hauteur empêche la fenêtre de pendre sous l'écran ; cela ne dit pas
+// où passe ce qui ne tient plus. Mesuré : les fenêtres des outils portent
+// « overflow: hidden », donc c'était COUPÉ — et l'on a cherché ce que cela
+// coûtait VRAIMENT, parce que « le contenu descend 300 px plus bas » ne veut
+// rien dire quand il s'agit d'un calque de glissement invisible.
+//
+// LA MESURE HONNÊTE EST CELLE DES COMMANDES : quels boutons, quels champs un
+// professeur ne peut-il pas atteindre ? En 1280 × 800, aucun sur les
+// quatre-vingt-sept outils. En 1024 × 600, un seul — le « JOUER » de la taupe,
+// posé à y = 594 dans une fenêtre qui s'arrête à 592. Un seul bouton, mais le
+// bouton qui lance le jeu, et rien pour aller le chercher.
+//
+// On rend donc le défilement à la fenêtre qu'on a bornée. Et comme sa barre de
+// titre et son coin bas sont posés « absolute », ils défilent AVEC le contenu :
+// dès le premier tour de molette, la barre et la croix s'en vont par le haut. On
+// les décale donc de ce qui a défilé. C'est la contrepartie d'une barre qui ne
+// vit pas dans le flux, et cela se mesure : on fait défiler, et l'on regarde si
+// la croix est toujours là.
+function rendreLaFenetreDefilable(el) {
+    if (!el || el.dataset.fenetreDefilable === '1') return;
+    const s = getComputedStyle(el);
+    if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') el.style.overflowY = 'auto';
+    el.dataset.fenetreDefilable = '1';
+    const suivreLeDefilement = () => {
+        const passe = el.scrollTop;
+        // LES DEUX SE DÉCALENT DE LA MÊME CHOSE, et il a fallu le mesurer pour
+        // le croire : le coin bas est posé « bottom: 3px », et l'on s'attendait
+        // donc à ce qu'il soit ancré au bas du CONTENU, bien plus bas que la
+        // partie visible. Non : son bloc conteneur est la boîte VISIBLE de la
+        // fenêtre, et il défile avec le contenu comme la barre. Le décaler de
+        // « ce qui reste à défiler » le faisait remonter de quatre-vingt-quatre
+        // pixels au-dessus de sa place.
+        const decalage = passe ? 'translateY(' + passe + 'px)' : '';
+        const tete = el.querySelector(':scope > .fen-tete');
+        const outils = el.querySelector(':scope > .fen-outils');
+        if (tete) tete.style.transform = decalage;
+        if (outils) outils.style.transform = decalage;
+    };
+    el.addEventListener('scroll', suivreLeDefilement);
+    suivreLeDefilement();
+}
+window.rendreLaFenetreDefilable = rendreLaFenetreDefilable;
+
 function ramenerFenetreDansLecran(el) {
     if (!el) return;
     equiperFenetre(el);                 // même repliée : elle s'équipera en s'ouvrant
@@ -22292,6 +22338,8 @@ function ramenerFenetreDansLecran(el) {
     // vingt-huit pixels sous le bord de l'écran, et l'on aurait pu relire la
     // règle dix fois sans le voir — seule la mesure le dit.
     if (borneL || borneH) el.style.boxSizing = 'border-box';
+    // ET CE QU'ON A COUPÉ RESTE ATTEIGNABLE : la fenêtre bornée DÉFILE.
+    if (borneH) rendreLaFenetreDefilable(el);
     const b = el.getBoundingClientRect();
     const gauche = Math.max(marge, Math.min(b.left, window.innerWidth - b.width - marge));
     const haut = Math.max(marge, Math.min(b.top, window.innerHeight - b.height - marge));
@@ -22358,13 +22406,33 @@ function nombresDeCouleur(texte) {
 // décide de la lisibilité. On rend aussi QUI le porte : ce n'est pas la même
 // chose d'être posé sur le fond d'un panneau ou sur celui de la page.
 function fondQuOnVoit(el) {
-    let n = el;
+    // ON COMPOSE LES FONDS TRANSLUCIDES, ON NE LES SAUTE PAS.
+    //
+    // La première version n'acceptait qu'un fond franchement opaque et montait
+    // chercher plus haut sinon. Les pastilles de message sont posées sur
+    // « rgba(45, 52, 54, 0.9) » : leur fond était donc ignoré, et leur texte
+    // blanc paraissait posé sur le blanc de la page — 1,08:1. Le garde-fou du
+    // fond de page les a sauvées de justesse d'un rattrapage qui les aurait
+    // rendues illisibles pour de bon, en écrivant du gris foncé sur du gris
+    // foncé. Ce qu'on voit à travers un fond à quatre-vingt-dix pour cent, c'est
+    // dix pour cent de ce qu'il y a derrière : cela se calcule.
+    const couches = [];
+    let n = el, porteur = null;
     while (n && n.nodeType === 1) {
         const c = nombresDeCouleur(getComputedStyle(n).backgroundColor);
-        if (c && (c.length < 4 || c[3] > 0.92)) return { rgb: c.slice(0, 3), porteur: n };
+        const a = c ? (c.length === 4 ? c[3] : 1) : 0;
+        if (c && a > 0.02) {
+            couches.push({ rgb: c.slice(0, 3), a });
+            if (!porteur) porteur = n;
+            if (a > 0.98) break;
+        }
         n = n.parentElement;
     }
-    return { rgb: [255, 255, 255], porteur: null };
+    let fond = [255, 255, 255];
+    for (let i = couches.length - 1; i >= 0; i--) {
+        fond = couches[i].rgb.map((v, k) => v * couches[i].a + fond[k] * (1 - couches[i].a));
+    }
+    return { rgb: fond, porteur };
 }
 
 // Un fond neutre : du blanc, un gris, un presque-noir. Pas un vert de marque.
@@ -22940,6 +23008,23 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         if (onValidate) onValidate(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value));
     });
     newBtnCancel.addEventListener('click', () => { promptModal.style.display = 'none'; refermerLaBoite(); });
+
+    // LA CROIX DE LA BARRE FAIT CE QUE FAIT « ANNULER » — le même geste, la même
+    // conséquence, et surtout celui qui attend une réponse est prévenu. Elle est
+    // posée une fois pour toutes : la boîte, elle, est réutilisée à chaque outil.
+    const croix = document.getElementById('custom-prompt-fermer');
+    if (croix && !croix.dataset.branchee) {
+        croix.dataset.branchee = '1';
+        // La barre entière déplace la boîte : sans ceci, viser la croix
+        // commencerait un déplacement.
+        croix.addEventListener('pointerdown', (e) => e.stopPropagation());
+        croix.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const boite = document.getElementById('custom-prompt-modal');
+            if (boite) boite.style.display = 'none';
+            refermerLaBoite();
+        });
+    }
 }
 
 // Referme la boîte de réglages en prévenant celui qui l'a ouverte : sans cela,

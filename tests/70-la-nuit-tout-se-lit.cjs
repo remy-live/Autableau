@@ -27,16 +27,13 @@ const { creerRapport, ouvrirApp } = require('./harness.cjs');
 module.exports = async function (browser) {
     const r = creerRapport('La nuit, tout se lit encore');
     const { page, context, erreurs } = await ouvrirApp(browser, {});
-    await page.evaluate(() => {
-        if (typeof toggleDarkMode === 'function' && !document.body.classList.contains('dark-mode')) {
-            toggleDarkMode();
-        }
-    });
-    await page.waitForTimeout(300);
-    r.verifie('le tableau est bien passé à la nuit',
-        await page.evaluate(() => document.body.classList.contains('dark-mode')), 'dark-mode');
 
-    const releve = await page.evaluate(async () => {
+    // ON BALAIE DEUX FOIS : de jour, puis de nuit. Le rattrapage d'encre
+    // s'applique dans les deux thèmes, et c'est en plein jour qu'on a trouvé la
+    // faute de mesure qui aurait pu tout fausser — une pastille de message,
+    // posée sur un fond à quatre-vingt-dix pour cent, passait pour du blanc sur
+    // du blanc. Un seul des deux balayages n'aurait rien dit.
+    const balayer = () => page.evaluate(async () => {
         const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
         const vu = (el) => {
             const s = getComputedStyle(el);
@@ -60,14 +57,28 @@ module.exports = async function (browser) {
         const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
         const lum = ([r0, g0, b0]) => 0.2126 * lin(r0) + 0.7152 * lin(g0) + 0.0722 * lin(b0);
         const nb = (s) => { const v = (s || '').match(/[\d.]+/g); return v ? v.map(Number) : null; };
+        // ON COMPOSE LES FONDS TRANSLUCIDES : une pastille de message est posée
+        // sur « rgba(45, 52, 54, 0.9) », et sauter ce fond-là ferait croire que
+        // son texte blanc est écrit sur le blanc de la page — 1,08:1 au lieu de
+        // 10:1. Une épreuve qui se trompe de fond accuse ce qui va bien.
         const fondDe = (el) => {
-            let n = el;
+            const couches = [];
+            let n = el, porteur = null;
             while (n && n.nodeType === 1) {
                 const c = nb(getComputedStyle(n).backgroundColor);
-                if (c && (c.length < 4 || c[3] > 0.92)) return { rgb: c.slice(0, 3), porteur: n };
+                const a = c ? (c.length === 4 ? c[3] : 1) : 0;
+                if (c && a > 0.02) {
+                    couches.push({ rgb: c.slice(0, 3), a });
+                    if (!porteur) porteur = n;
+                    if (a > 0.98) break;
+                }
                 n = n.parentElement;
             }
-            return { rgb: [255, 255, 255], porteur: null };
+            let fond = [255, 255, 255];
+            for (let i = couches.length - 1; i >= 0; i--) {
+                fond = couches[i].rgb.map((v, k) => v * couches[i].a + fond[k] * (1 - couches[i].a));
+            }
+            return { rgb: fond, porteur };
         };
         const neutre = (rgb) => Math.max(...rgb) - Math.min(...rgb) <= 24;
 
@@ -122,11 +133,26 @@ module.exports = async function (browser) {
         return { illisibles, textesVus, outils: boutons.length };
     });
 
-    r.verifie('les quatre-vingt-sept outils ont été ouverts, la nuit',
-        releve.outils >= 80, String(releve.outils));
+    const jour = await balayer();
+    r.verifie('les quatre-vingt-sept outils ont été ouverts, de jour',
+        jour.outils >= 80, String(jour.outils));
     r.verifie('et l\'on a bien mesuré des textes sur des fonds neutres',
-        releve.textesVus >= 300, String(releve.textesVus));
-    r.egal('aucun texte sous 3:1 sur un fond neutre', releve.illisibles, []);
+        jour.textesVus >= 300, String(jour.textesVus));
+    r.egal('de jour, aucun texte sous 3:1 sur un fond neutre', jour.illisibles, []);
+
+    await page.evaluate(() => {
+        if (typeof toggleDarkMode === 'function' && !document.body.classList.contains('dark-mode')) {
+            toggleDarkMode();
+        }
+    });
+    await page.waitForTimeout(300);
+    r.verifie('le tableau est bien passé à la nuit',
+        await page.evaluate(() => document.body.classList.contains('dark-mode')), 'dark-mode');
+
+    const nuit = await balayer();
+    r.verifie('et les quatre-vingt-sept ont été rouverts, la nuit',
+        nuit.outils >= 80, String(nuit.outils));
+    r.egal('de nuit non plus, aucun texte sous 3:1 sur un fond neutre', nuit.illisibles, []);
 
     // ------------------------------------------------------------------
     // CE QU'UN OUTIL CACHE RESTE CACHÉ

@@ -9093,6 +9093,19 @@ body.focus-mode #edt-bandeau { display: none; }
 .dark-mode .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.28); }
 .dark-mode .fen-plein { color: #b2bec3; background: rgba(178, 190, 195, 0.14); }
 
+/* LA CROIX DE LA BOÎTE DE RÉGLAGES vit sur une barre TOUJOURS sombre (#1e272e),
+   de jour comme de nuit : elle prend donc les couleurs de la nuit dans les deux
+   thèmes. Le rouge du jour y rendrait 1,79:1. Elle emprunte la forme et la
+   taille de « .fen-fermer » — une seule vérité sur ce que « fermer » a l'air
+   d'être —, et seule la couleur change. */
+.drag-handle-prompt .fen-fermer {
+    color: #ff7675;
+    background: rgba(255, 118, 117, 0.16);
+}
+
+.drag-handle-prompt .fen-fermer:hover,
+.drag-handle-prompt .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.3); }
+
 /* Les deux traits obliques du coin : le dessin universel du « tirez ici » */
 /* LA POIGNÉE QUI DÉPLACE. Elle vit à côté du plein écran et du
    redimensionnement : une fenêtre équipée se déplace, se redimensionne et

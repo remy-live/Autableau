@@ -143,6 +143,143 @@ module.exports = async function (browser) {
     r.egal('aucun voile ne reste visible derrière une fenêtre', toutes.voilesOpaques, []);
 
     // ------------------------------------------------------------------
+    // ET AUCUNE COMMANDE NE RESTE HORS D'ATTEINTE
+    // ------------------------------------------------------------------
+    // Borner la hauteur d'une fenêtre l'empêche de pendre sous l'écran ; cela ne
+    // dit pas où passe ce qui ne tient plus. Les fenêtres des outils portent
+    // « overflow: hidden » : c'était coupé, donc perdu.
+    //
+    // ON MESURE LES COMMANDES, ET NON « JUSQU'OÙ DESCEND LE CONTENU ». C'est la
+    // leçon de ce relevé : à compter les pixels, Scratch semblait perdre deux
+    // mille deux cents pixels de contenu — un calque de glissement invisible. À
+    // compter les BOUTONS qu'on ne peut pas atteindre, il n'en perdait aucun.
+    // En 1280 × 800, aucune commande perdue sur les quatre-vingt-sept outils ;
+    // en 1024 × 600, une seule — le « JOUER » de la taupe, posé à y = 594 dans
+    // une fenêtre qui s'arrête à 592. Un seul bouton, mais celui qui lance le
+    // jeu, et rien pour aller le chercher : la fenêtre bornée défile désormais.
+    const commandes = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const vu = (el) => {
+            const s = getComputedStyle(el);
+            return s.display !== 'none' && s.visibility !== 'hidden'
+                && parseFloat(s.opacity || '1') > 0.05;
+        };
+        const MEUBLES = ['plugins-grid', 'thumbnail-drawer', 'custom-bars-container',
+                         'html-postits-container', 'demo-barre', 'demo-liste'];
+        const toutRefermer = () => {
+            document.querySelectorAll('body > *').forEach(el => {
+                if (!vu(el) || MEUBLES.includes(el.id)) return;
+                if (el.closest('#board, .toolbar, .drawer')) return;
+                const s = getComputedStyle(el);
+                if (s.position !== 'fixed' && s.position !== 'absolute') return;
+                if (el.getBoundingClientRect().width < 150) return;
+                el.style.display = 'none';
+            });
+        };
+        // Un cadre qui défile entre la commande et le dehors : on peut l'y amener.
+        // La fenêtre elle-même en fait partie, depuis qu'elle défile.
+        const onPeutLAmener = (c, f) => {
+            let n = c.parentElement;
+            while (n && n !== f.parentElement) {
+                const s = getComputedStyle(n);
+                const defile = /auto|scroll/.test(s.overflowY) || /auto|scroll/.test(s.overflow);
+                if (defile && n.scrollHeight > n.clientHeight + 2) return true;
+                n = n.parentElement;
+            }
+            return false;
+        };
+        const perdues = [];
+        const examiner = (etiquette) => {
+            document.querySelectorAll('[data-equipee="1"]').forEach(f => {
+                if (!vu(f) || !f.getClientRects().length) return;
+                const b = f.getBoundingClientRect();
+                if (b.width < 80 || b.height < 60) return;
+                f.querySelectorAll('button, input, select, textarea, [role="button"], .btn')
+                    .forEach(c => {
+                        if (!vu(c)) return;
+                        const rc = c.getBoundingClientRect();
+                        if (rc.width < 4 || rc.height < 4) return;
+                        const dehors = rc.top > b.bottom - 4 || rc.bottom > b.bottom + 4
+                            || rc.top > innerHeight - 4 || rc.bottom > innerHeight + 4;
+                        if (!dehors || onPeutLAmener(c, f)) return;
+                        const quoi = etiquette + ' / « '
+                            + ((c.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 20)
+                               || c.id || c.type || c.tagName)
+                            + ' » à ' + Math.round(rc.top) + ', fenêtre jusqu\'à '
+                            + Math.round(b.bottom) + ', écran ' + innerHeight;
+                        if (!perdues.includes(quoi)) perdues.push(quoi);
+                    });
+            });
+        };
+        toutRefermer();
+        const grille = document.getElementById('plugins-grid');
+        if (grille) grille.style.display = 'grid';
+        const boutons = [...document.querySelectorAll('#plugins-grid .btn')];
+        for (const b of boutons) {
+            const quoi = (b.dataset.pluginKey || b.getAttribute('data-tooltip') || b.title || '?').slice(0, 24);
+            try { b.click(); } catch (e) { /* refuse de s'ouvrir */ }
+            await attendre(150);
+            examiner(quoi);
+            toutRefermer();
+        }
+        return { perdues, outils: boutons.length };
+    });
+    r.verifie('les outils ont été rouverts pour chercher les commandes perdues',
+        commandes.outils >= 80, String(commandes.outils));
+    r.egal('aucune commande hors d\'atteinte', commandes.perdues, []);
+
+    // ET LA BARRE RESTE EN HAUT QUAND LA FENÊTRE DÉFILE. C'est la contrepartie
+    // du défilement : la barre de titre et le coin bas sont posés « absolute »
+    // et s'en vont avec le contenu. Sans rien pour les retenir, le premier tour
+    // de molette emporte la croix hors de l'écran — on aurait échangé un
+    // cul-de-sac contre un autre.
+    const enDefilant = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const g = document.getElementById('plugins-grid');
+        if (g) g.style.display = 'grid';
+        const b = [...document.querySelectorAll('#plugins-grid .btn')]
+            .find(x => /taupe/i.test(x.getAttribute('data-tooltip') || x.title || ''));
+        if (!b) return null;
+        b.click();
+        await attendre(700);
+        const f = [...document.querySelectorAll('[data-equipee="1"]')]
+            .find(x => x.getClientRects().length && x.scrollHeight > x.clientHeight + 2);
+        if (!f) return { defilante: false };
+        const lire = () => {
+            const tete = f.querySelector(':scope > .fen-tete');
+            const croix = tete && tete.querySelector('.fen-fermer');
+            const outils = f.querySelector(':scope > .fen-outils');
+            const rb = f.getBoundingClientRect();
+            const rt = tete.getBoundingClientRect();
+            const rc = croix && croix.getBoundingClientRect();
+            const ro = outils && outils.getBoundingClientRect();
+            const sous = rc ? document.elementFromPoint(rc.left + rc.width / 2,
+                                                        rc.top + rc.height / 2) : null;
+            return {
+                barreEnHaut: Math.round(rt.top - rb.top),
+                coinEnBas: ro ? Math.round(rb.bottom - ro.bottom) : null,
+                croixAtteinte: !!(sous && croix
+                    && (sous === croix || croix.contains(sous) || sous.contains(croix)))
+            };
+        };
+        const avant = lire();
+        f.scrollTop = 9999;
+        await attendre(250);
+        return { defilante: true, avant, apres: lire(), aDefile: Math.round(f.scrollTop) };
+    });
+    if (enDefilant && enDefilant.defilante) {
+        r.verifie('la fenêtre a bien défilé', enDefilant.aDefile > 10, JSON.stringify(enDefilant));
+        r.egal('la barre de titre reste à sa place', enDefilant.apres.barreEnHaut,
+            enDefilant.avant.barreEnHaut, JSON.stringify(enDefilant));
+        r.egal('le coin bas aussi', enDefilant.apres.coinEnBas,
+            enDefilant.avant.coinEnBas, JSON.stringify(enDefilant));
+        r.egal('et la croix se laisse toujours viser', enDefilant.apres.croixAtteinte, true,
+            JSON.stringify(enDefilant));
+    } else {
+        r.verifie('une fenêtre qui défile a bien été trouvée', false, JSON.stringify(enDefilant));
+    }
+
+    // ------------------------------------------------------------------
     // LA BARRE DES OUTILS, AVEC SES NOMS, TIENT DANS CET ÉCRAN-LÀ
     // ------------------------------------------------------------------
     // Les noms sous les icônes font des rangées de 48 px là où elles en

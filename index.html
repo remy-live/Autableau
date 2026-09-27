@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=213 »,
-         « script.js?v=368 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=214 »,
+         « script.js?v=369 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=213">
+    <link rel="stylesheet" href="style.css?v=214">
 </head>
 
 <body>
@@ -1953,9 +1953,17 @@
          dans « .modal-backdrop ». -->
     <div id="custom-prompt-modal"
         style="display: none; position: absolute; left: 200px; top: 150px; width: 320px; z-index: 200100; flex-direction: column; background: #ffffff; border-radius: 10px; box-shadow: 0 15px 40px rgba(0,0,0,0.3); border: 1px solid #dfe6e9; overflow: hidden;">
+        <!-- UNE CROIX, COMME TOUTES LES AUTRES FENÊTRES. Cette boîte-ci a sa
+             barre à elle — elle n'est pas équipée par le mécanisme commun — et
+             elle n'avait donc jamais eu de croix : on en sortait par « Annuler »,
+             en bas, ou par Échap, qu'il faut connaître. Chercher la croix en
+             haut à droite d'une fenêtre est le geste le plus ordinaire qu'il y
+             ait. Elle fait exactement ce que fait « Annuler ». -->
         <div class="drag-handle-prompt"
-            style="height: 35px; background: #1e272e; color: #dfe6e9; display: flex; align-items: center; padding: 0 15px; font-size: 13px; font-weight: bold; cursor: grab; user-select: none;">
-            <span id="custom-prompt-title">Titre</span>
+            style="height: 35px; background: #1e272e; color: #dfe6e9; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 15px; font-size: 13px; font-weight: bold; cursor: grab; user-select: none;">
+            <span id="custom-prompt-title" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Titre</span>
+            <button id="custom-prompt-fermer" class="fen-fermer" type="button" title="Fermer"
+                aria-label="Fermer">✕</button>
         </div>
         <div class="prompt-corps" style="padding: 15px;">
             <!-- Seuls les RÉGLAGES défilent quand la boîte ne tient pas dans
@@ -3912,7 +3920,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=368"></script>
+    <script src="script.js?v=369"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=118"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
