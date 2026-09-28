@@ -21213,6 +21213,56 @@ function effacerAuCurseur(texte) {
     return neuf;
 }
 
+// OÙ COMMENCE LE NOMBRE — OU LE GROUPE — QUI PRÉCÈDE LE CURSEUR.
+//
+// C'est ce que la touche « a/b » prend pour numérateur : sur une fx-92, taper
+// « 9 » puis la touche de fraction met le 9 en haut et attend le bas.
+function debutDeLOperande(texte, fin) {
+    const m = morceauxDuCalcul(texte.slice(0, fin));
+    let k = m.length - 1;
+    if (k < 0) return fin;
+    // Les puissances collées derrière font partie de l'opérande : « 5x² ».
+    while (k >= 0 && ['x²', 'x³', 'x⁻¹'].includes(m[k])) k--;
+    if (k < 0) return fin;
+    if (m[k] === ')') {
+        let profondeur = 0;
+        while (k >= 0) {
+            if (m[k] === ')') profondeur++;
+            else if (m[k] === '(') { profondeur--; if (!profondeur) break; }
+            k--;
+        }
+        if (k < 0) return fin;                       // parenthèse jamais ouverte
+        // Le nom de fonction qui ouvrait le groupe en fait partie.
+        if (k > 0 && NAT_NOMS.includes(m[k - 1]) && m[k - 1] !== '÷R') k--;
+    } else if (!/^[0-9.]+$/.test(m[k]) && !['π', 'Ans'].includes(m[k])) {
+        return fin;                                  // ce n'est pas un opérande
+    }
+    return m.slice(0, k).join('').length;
+}
+
+// LA TOUCHE « a/b » POSE UN GABARIT À DEUX CASES, comme sur la machine.
+//
+// « On ne peut écrire encore une fraction à ce niveau ni écrire au dénominateur
+// 2+5 par exemple. » La barre de fraction ne séparait que deux OPÉRANDES : le
+// dénominateur s'arrêtait donc au premier « + », et « 5/2+5 » se dessinait
+// « (5/2)+5 » au lieu de « 5/(2+5) ». Impossible non plus d'y remettre une
+// fraction.
+//
+// Chaque case est désormais un groupe entre parenthèses dans l'expression :
+// tout ce qu'on tape y reste tant qu'on n'en sort pas avec le pad, on peut y
+// poser une autre fraction, et le calcul lit exactement ce qui est dessiné.
+// Les parenthèses ne se dessinent pas — c'est la barre qui les dit.
+function poserUneFraction(texte) {
+    const ou = placeDuCurseur(texte);
+    const debut = debutDeLOperande(texte, ou);
+    const haut = texte.slice(debut, ou);
+    const neuf = texte.slice(0, debut) + '(' + haut + ')/()' + texte.slice(ou);
+    // Le curseur va dans la case vide : le dénominateur si le numérateur est
+    // déjà écrit, le numérateur sinon.
+    curseurCalc = haut ? debut + haut.length + 4 : debut + 1;
+    return neuf;
+}
+
 // D'une touche vers la gauche, d'une touche vers la droite.
 function deplacerLeCurseur(texte, sens) {
     const bornes = bornesDesMorceaux(texte);
@@ -21255,15 +21305,24 @@ function ecrireEnNaturel(texte) {
         return { dedans: devant + dedans, refermee: profondeur === 0 };
     };
 
+    // UN MORCEAU LU REND DEUX CHOSES : son dessin, et — quand c'est un groupe
+    // entre parenthèses — le dessin de ce qu'il y a DEDANS, sans les
+    // parenthèses. C'est ce second dessin qui va dans une case de fraction :
+    // « (2+5) » écrit au-dessus d'une barre s'écrit « 2+5 », sans quoi chaque
+    // fraction traînerait ses parenthèses au tableau.
+    const nu = (h) => ({ h, nu: null });
+
     const lireAtome = () => {
         const t = m[i];
-        if (t === undefined) return '';
+        if (t === undefined) return nu('');
         // LE CURSEUR EST TRANSPARENT : il se dessine, puis l'on continue de
         // lire ce qui vient. Sans cela, « 1/⌶2 » prendrait le curseur pour le
         // dénominateur et le 2 se retrouverait dehors.
         if (t === MARQUE_CURSEUR) {
             i++;
-            return '<span class="nat-curseur"></span>' + lireAtome();
+            const suite = lireAtome();
+            return { h: '<span class="nat-curseur"></span>' + suite.h,
+                     nu: suite.nu === null ? null : '<span class="nat-curseur"></span>' + suite.nu };
         }
         // LA RACINE PASSE SOUS SON SIGNE, avec le trait qui couvre ce qu'elle
         // prend. Sans ce trait, « √2+3 » ne dit pas si le 3 est dessous.
@@ -21284,33 +21343,34 @@ function ecrireEnNaturel(texte) {
             // « preserveAspectRatio="none" » le laisse se déformer, et
             // « non-scaling-stroke » garde son épaisseur constante : le crochet
             // grandit, le trait reste fin.
-            return '<span class="nat-rac">' + ordre
+            return nu('<span class="nat-rac">' + ordre
                  + '<svg class="nat-signe" viewBox="0 0 12 24" preserveAspectRatio="none"'
                  + ' aria-hidden="true"><path d="M0 14 L3.5 14 L6.5 23 L9.5 1 L12 1"'
                  + ' fill="none" stroke="currentColor" stroke-width="1.5"'
                  + ' stroke-linejoin="round" stroke-linecap="round"'
                  + ' vector-effect="non-scaling-stroke"/></svg>'
-                 + '<span class="nat-sous">' + dedans + '</span></span>';
+                 + '<span class="nat-sous">' + dedans + '</span></span>');
         }
         if (['sin', 'cos', 'tan', 'arcsin', 'arccos', 'arctan', 'PGCD', 'PPCM', 'RanInt', 'FACT'].includes(t)) {
             i++;
             const g = lireGroupe();
             const dedans = g ? ecrireEnNaturel(g.dedans) : '';
-            return '<span class="nat-fn">' + echapper(t) + '</span>'
-                 + (g ? '(' + dedans + (g.refermee ? ')' : '') : '');
+            return nu('<span class="nat-fn">' + echapper(t) + '</span>'
+                 + (g ? '(' + dedans + (g.refermee ? ')' : '') : ''));
         }
         if (t === '(') {
             const g = lireGroupe();
-            return '(' + ecrireEnNaturel(g.dedans) + (g.refermee ? ')' : '');
+            const dedans = ecrireEnNaturel(g.dedans);
+            return { h: '(' + dedans + (g.refermee ? ')' : ''), nu: dedans };
         }
         i++;
-        return ecrireUnMorceau(t);
+        return nu(ecrireUnMorceau(t));
     };
 
     // Les puissances montent : « x² », « x³ », « x⁻¹ » et « ^ » suivi de ce
     // qu'on élève.
     const lirePuissance = () => {
-        let html = lireAtome();
+        let a = lireAtome();
         for (;;) {
             // LE CURSEUR PEUT SE TENIR JUSTE AVANT UNE PUISSANCE, et il ne doit
             // pas arrêter la lecture : sans cela, « 5|x² » se dessinerait
@@ -21318,7 +21378,9 @@ function ecrireEnNaturel(texte) {
             let j = i, marque = '';
             if (m[j] === MARQUE_CURSEUR) { marque = '<span class="nat-curseur"></span>'; j++; }
             const t = m[j];
-            const suite = (sup) => { i = j + 1; html += marque + '<sup class="nat-exp">' + sup + '</sup>'; };
+            // Une puissance posée sur un groupe garde ses parenthèses : dans
+            // une case de fraction, « (2+5)² » n'est pas « 2+5² ».
+            const suite = (sup) => { i = j + 1; a = nu(a.h + marque + '<sup class="nat-exp">' + sup + '</sup>'); };
             if (t === 'x²') { suite('2'); continue; }
             if (t === 'x³') { suite('3'); continue; }
             if (t === 'x⁻¹') { suite('−1'); continue; }
@@ -21326,28 +21388,39 @@ function ecrireEnNaturel(texte) {
                 i = j + 1;
                 const avant = i;
                 const exposant = lireAtome();
-                html += marque + '<sup class="nat-exp">' + (i > avant ? exposant : '') + '</sup>';
+                a = nu(a.h + marque + '<sup class="nat-exp">' + (i > avant ? exposant.h : '') + '</sup>');
                 continue;
             }
-            return html;
+            return a;
         }
     };
 
     // ET LA FRACTION S'ÉCRIT L'UNE SUR L'AUTRE. C'est la touche « a/b » : sur
-    // une fx-92 elle empile le haut et le bas ; le signe « ÷ », lui, reste un
-    // signe de division écrit en ligne, comme sur la machine.
+    // une fx-92 elle pose un GABARIT à deux cases, et ce qu'on tape reste dans
+    // la case. Chaque case est un groupe entre parenthèses dans l'expression —
+    // ce qui permet d'y écrire « 2+5 », ou une autre fraction — et les
+    // parenthèses ne se dessinent pas : c'est la barre qui les dit.
     const lireFacteur = () => {
-        let html = lirePuissance();
+        let a = lirePuissance();
         for (;;) {
             // Le curseur a le droit de se tenir juste avant la barre : on le
             // ramasse au bout du numérateur, qui est sa place.
             let j = i, marque = '';
             if (m[j] === MARQUE_CURSEUR) { marque = '<span class="nat-curseur"></span>'; j++; }
-            if (m[j] !== '/') return html;
+            if (m[j] !== '/') return a;
             i = j + 1;
             const bas = lirePuissance();
-            html = '<span class="nat-frac"><span class="nat-haut">' + html + marque + '</span>'
-                 + '<span class="nat-bas">' + bas + '</span></span>';
+            // UNE CASE VIDE SE VOIT. Le gabarit posé par « a/b » a deux cases
+            // dont l'une est encore vide : sans rien pour la dessiner, il ne
+            // reste qu'une barre flottante et l'on ne sait plus où l'on écrit.
+            // La fx-92 y met un petit cadre en pointillé ; on fait de même.
+            const case_ = (c) => {
+                const h = c.nu === null ? c.h : c.nu;
+                return h ? h : '<span class="nat-case"></span>';
+            };
+            a = nu('<span class="nat-frac"><span class="nat-haut">'
+                 + case_(a) + marque + '</span>'
+                 + '<span class="nat-bas">' + case_(bas) + '</span></span>');
         }
     };
 
@@ -21356,7 +21429,7 @@ function ecrireEnNaturel(texte) {
     while (i < m.length && garde++ < 4000) {
         const avant = i;
         if (NAT_OPERATEURS.includes(m[i])) { sortie += ecrireUnMorceau(m[i]); i++; continue; }
-        sortie += lireFacteur();
+        sortie += lireFacteur().h;
         if (i === avant) { sortie += ecrireUnMorceau(m[i]); i++; }   // rien n'a avancé : on ne boucle pas
     }
     return sortie;
@@ -21499,11 +21572,26 @@ function calculEnLatex(texte) {
         }
     };
 
+    // Une case de fraction est un groupe entre parenthèses dans l'expression :
+    // c'est ce qui permet d'y écrire « 2+5 ». Au tableau, la barre dit déjà ce
+    // que les parenthèses disaient — on les retire.
+    const sansParenthesesAutour = (s) => {
+        if (!s.startsWith('\\left(') || !s.endsWith('\\right)')) return s;
+        const dedans = s.slice(6, -7);
+        let profondeur = 0;
+        for (let k = 0; k < dedans.length; k++) {
+            if (dedans.startsWith('\\left(', k)) profondeur++;
+            else if (dedans.startsWith('\\right)', k)) { profondeur--; if (profondeur < 0) return s; }
+        }
+        return profondeur === 0 ? dedans : s;
+    };
+
     const lireFacteur = () => {
         let out = lirePuissance();
         while (m[i] === '/') {
             i++;
-            out = '\\frac{' + out + '}{' + lirePuissance() + '}';
+            out = '\\frac{' + sansParenthesesAutour(out) + '}{'
+                + sansParenthesesAutour(lirePuissance()) + '}';
         }
         return out;
     };
@@ -21935,9 +22023,11 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                     montrerLeResultat(calcRes, toFraction(parseFloat(lastAnswer)));
                     evaluated = true;         // le résultat est toujours à l'écran
                     return;
-                } else {
-                    appendVal = '/';
                 }
+                // Le gabarit à deux cases, et le curseur dans celle qui est vide.
+                expression = poserUneFraction(expression);
+                montrerLExpression(calcExpr, expression);
+                return;
             }
 
             expression = insererAuCurseur(expression, appendVal);

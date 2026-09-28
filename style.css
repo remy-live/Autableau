@@ -4069,6 +4069,19 @@ body.dark-mode {
 
 .nat-haut { padding: 0 3px 1px; }
 
+/* LA CASE ENCORE VIDE D'UN GABARIT. « a/b » pose une fraction à deux cases et
+   le curseur dans l'une d'elles : sans rien pour dessiner l'autre, il ne
+   resterait qu'une barre flottante et l'on ne saurait plus où l'on écrit. */
+.nat-case {
+    display: inline-block;
+    width: 0.62em;
+    height: 0.86em;
+    vertical-align: -0.08em;
+    border: 1px dashed currentColor;
+    border-radius: 2px;
+    opacity: 0.55;
+}
+
 .nat-bas {
     padding: 1px 3px 0;
     border-top: 1.5px solid currentColor;

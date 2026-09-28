@@ -210,9 +210,63 @@ module.exports = async function (browser) {
                  denominateur: bas ? bas.textContent : null,
                  fractions: e.querySelectorAll('.nat-frac').length };
     });
-    r.egal('on écrit au milieu du dénominateur', dansLeNombre.brut, '12/934');
+    // La case est un groupe entre parenthèses dans l'expression — c'est ce qui
+    // permet d'y écrire « 2+5 » ou une autre fraction — et ces parenthèses ne
+    // se dessinent pas : c'est la barre qui les dit.
+    r.egal('on écrit au milieu du dénominateur', dansLeNombre.brut, '(12)/(934)');
     r.egal('et le dénominateur garde ses trois chiffres',
         dansLeNombre.denominateur, '934', JSON.stringify(dansLeNombre));
+
+    // ------------------------------------------------------------------
+    // 4 ter. « a/b » POSE UN GABARIT À DEUX CASES
+    // ------------------------------------------------------------------
+    // « On ne peut écrire encore une fraction à ce niveau ni écrire au
+    // dénominateur 2+5 par exemple. »
+    //
+    // La barre ne séparait que deux OPÉRANDES : le dénominateur s'arrêtait donc
+    // au premier « + », et « 5/2+5 » se dessinait « (5/2)+5 » — un calcul juste,
+    // montré et calculé faux. Impossible non plus d'y remettre une fraction.
+    // Chaque case est maintenant un groupe : tout ce qu'on tape y reste tant
+    // qu'on n'en sort pas avec le pad.
+    const gabarit = await page.evaluate(async () => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const etat = () => {
+            const e = document.getElementById('calc-expr');
+            return { brut: e.dataset.brut,
+                     res: document.getElementById('calc-res').dataset.brut,
+                     haut: [...e.querySelectorAll('.nat-haut')].map(x => x.textContent),
+                     bas: [...e.querySelectorAll('.nat-bas')].map(x => x.textContent),
+                     cases: e.querySelectorAll('.nat-case').length,
+                     fractions: e.querySelectorAll('.nat-frac').length };
+        };
+        const out = {};
+        ['AC', '5', 'a/b', '2', '+', '5'].forEach(clic);
+        out.somme = etat();
+        clic('='); await new Promise(ok => setTimeout(ok, 120));
+        out.sommeCalculee = document.getElementById('calc-res').dataset.brut;
+
+        ['AC', '9', 'a/b', '2', 'a/b', '3'].forEach(clic);
+        out.dansLaCase = etat();
+        clic('='); await new Promise(ok => setTimeout(ok, 120));
+        out.imbriqueeCalculee = document.getElementById('calc-res').dataset.brut;
+
+        ['AC', 'a/b'].forEach(clic);
+        out.vide = etat();
+        return out;
+    });
+    r.egal('on écrit « 2+5 » au dénominateur', gabarit.somme.bas, ['2+5']);
+    r.egal('et la case ne montre pas ses parenthèses', gabarit.somme.haut, ['5']);
+    r.egal('le calcul lit ce qui est dessiné', gabarit.sommeCalculee, '5/7');
+    r.egal('on peut poser une fraction DANS une fraction',
+        gabarit.dansLaCase.fractions, 2, JSON.stringify(gabarit.dansLaCase));
+    r.egal('et celle-là aussi est calculée juste', gabarit.imbriqueeCalculee, '27/2');
+    // UNE CASE ENCORE VIDE SE VOIT. Sans rien pour la dessiner, il ne resterait
+    // qu'une barre flottante et l'on ne saurait plus où l'on écrit.
+    r.egal('le gabarit vide montre sa case à remplir', gabarit.vide.cases, 1,
+        JSON.stringify(gabarit.vide));
+    r.egal('et le curseur est dans l\'autre',
+        gabarit.vide.fractions, 1, JSON.stringify(gabarit.vide));
 
     // ET LE TRAIT SE VOIT LÀ OÙ L'ON ÉCRIT.
     //
