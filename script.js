@@ -12495,6 +12495,21 @@ function poserLeTraitEnCours() {
     return true;
 }
 
+// Le tampon qu'on vient d'étirer sait-il se refaire à sa nouvelle taille ?
+// Le plugin qui l'a posé répond, et lui seul : le tableau sait le faire, une
+// photo non — on n'étire pas un visage en colonnes.
+function etirementAbsorbeParLeTampon() {
+    if (typeof PluginManager === 'undefined' || !PluginManager.plugins) return false;
+    if (selectedItems.length !== 1 || selectedItems[0].type !== 'image') return false;
+    const obj = getObjectById('image', selectedItems[0].id);
+    const id = obj && obj.pluginData && obj.pluginData.id;
+    const plugin = id && PluginManager.plugins[id];
+    if (!plugin || typeof plugin.absorberLEtirement !== 'function') return false;
+    try { return plugin.absorberLEtirement(obj) === true; }
+    catch (err) { return false; }        // le tampon reste étiré, rien n'est perdu
+}
+window.etirementAbsorbeParLeTampon = etirementAbsorbeParLeTampon;
+
 function handlePointerUp(e) {
     // ON REPOSE LA GOMME BLANCHE ICI, EN PREMIER ET SANS CONDITION. Elle ne se
     // rabaissait que dans le filet de sécurité du survol, qui ne passe pas
@@ -12776,7 +12791,20 @@ function handlePointerUp(e) {
 
     if (glissePage) { glissePage = null; saveState(); }
 
-    if (isDraggingObjs || draggedHandle) { saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
+    // CE QUI SAIT SE REFAIRE À SA NOUVELLE TAILLE LE FAIT ICI.
+    //
+    // « Quand j'ai voulu agrandir un tableau juste pour le rendre plus grand
+    // avec les poignées d'objet, ça déformait le texte dedans : ça changeait
+    // l'échelle du tableau et non pas la taille du tableau. » Tirer une
+    // poignée agrandit une IMAGE, lettres comprises — juste pour une photo,
+    // faux pour une grille. Un tampon peut donc ABSORBER l'étirement : la
+    // place gagnée passe dans son dessin, et son texte garde sa taille.
+    //
+    // Il enregistre lui-même l'étape d'historique, une fois son dessin refait :
+    // en enregistrer une ici de plus laisserait dans la pile un état étiré que
+    // personne n'a voulu, et « annuler » y reviendrait.
+    const absorbe = draggedHandle && etirementAbsorbeParLeTampon();
+    if (isDraggingObjs || draggedHandle) { if (!absorbe) saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
     poserLeTraitEnCours();
     // Le geste est fini : ce qu'on vient de tracer appartient-il au document ?
     if (typeof accrocherLesNouvellesFormes === 'function') accrocherLesNouvellesFormes(idAvantLeGeste);

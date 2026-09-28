@@ -13,6 +13,22 @@
 // Dès que le tableau est pris en main, ses séparations se montrent : un trait
 // bleu et deux petites flèches, à l'endroit exact où l'on peut tirer ; et le
 // curseur le dit avant même qu'on clique.
+//
+// ET LA POIGNÉE ELLE-MÊME, ENSUITE. « Quand j'ai voulu agrandir un tableau
+// juste pour le rendre plus grand avec les poignées d'objet, ça déformait le
+// texte dedans : ça changeait l'échelle du tableau et non pas la taille du
+// tableau. » Montrer les séparations ne suffisait donc pas : le geste qu'on
+// fait naturellement pour agrandir quelque chose, c'est tirer son coin.
+//
+// Une grille posée est une IMAGE, et tirer la poignée d'une image l'agrandit
+// tout entière, lettres comprises. C'est juste pour une photo, faux pour un
+// tableau : ce qu'on veut, c'est de la PLACE dans les cases. Au relâchement,
+// l'étirement est maintenant ABSORBÉ — la place gagnée passe dans les
+// colonnes et les lignes, le dessin est refait à la taille demandée, et le
+// corps du texte ne bouge pas d'un pixel.
+//
+// La poignée agrandit la grille, « A⁺ » et « A⁻ » changent les lettres :
+// deux gestes, deux effets, et plus un seul qui fait les deux.
 const { creerRapport, ouvrirApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
@@ -279,6 +295,102 @@ module.exports = async function (browser) {
         JSON.stringify(barre));
     r.egal('l\'épaisseur des traits change', barre.epaisseur, 2, JSON.stringify(barre));
     r.egal('et les traits passent en pointillés', barre.pointilles, true, JSON.stringify(barre));
+
+    // ==================================================================
+    // LA POIGNÉE AGRANDIT LE TABLEAU, ELLE NE LE ZOOME PAS
+    //
+    // « Quand j'ai voulu agrandir un tableau juste pour le rendre plus grand
+    // avec les poignées d'objet, ça déformait le texte dedans : ça changeait
+    // l'échelle du tableau et non pas la taille du tableau. »
+    //
+    // LE GESTE EST FAIT POUR DE VRAI — on vise la poignée du coin, on tire, on
+    // relâche. Appeler la fonction qui absorbe ne prouverait que la fonction :
+    // le sabotage « plus personne n'appelle l'absorption » ne faisait alors
+    // tomber aucun contrôle, ce qui voulait dire que le contrôle ne mesurait
+    // rien. C'est le relâcher qui doit déclencher l'absorption.
+    //
+    // ET CE QU'IL FAUT MESURER, c'est la taille des lettres À L'ÉCRAN — le
+    // corps DESSINÉ multiplié par l'échelle où l'objet est posé. Le corps
+    // rangé dans l'état ne dit rien : il ne bougeait pas non plus AVANT la
+    // correction, et le texte doublait quand même.
+    // ==================================================================
+    const lireLeTableau = () => page.evaluate((id) => {
+        const img = getObjectById('image', id);
+        const src = String(img.src || '');
+        const virgule = src.indexOf(',');
+        let dessine = null;
+        if (virgule >= 0) {
+            let texte = null;
+            try { texte = src.includes('base64') ? atob(src.slice(virgule + 1))
+                                                 : decodeURIComponent(src.slice(virgule + 1)); }
+            catch (e) { texte = null; }
+            const trouve = (texte && texte.match(/font-size="(\d+(?:\.\d+)?)"/g)) || [];
+            const tailles = trouve.map(t => Number(t.match(/[\d.]+/)[0]));
+            dessine = tailles.length ? Math.max(...tailles) : null;
+        }
+        return {
+            objet: [Math.round(img.w), Math.round(img.h)],
+            echelle: +(img.w / img.cw).toFixed(3),
+            colonnes: img.pluginData.state.colW.map(v => Math.round(v)),
+            corpsRange: img.pluginData.state.fs,
+            corpsDessine: dessine,
+            // Ce que la classe lit au fond de la salle.
+            corpsVu: (dessine && img.cw) ? +(dessine * (img.w / img.cw)).toFixed(2) : null
+        };
+    }, pose.id);
+
+    // On prend le tableau en main, et l'on vise sa poignée du coin bas-droit.
+    const poignee = await page.evaluate((id) => {
+        const img = getObjectById('image', id);
+        setMode('pointer');
+        selectedItems = [{ type: 'image', id: img.id }];
+        draw();
+        return { x: (img.x + img.w) * zoom + panX, y: (img.y + img.h) * zoom + panY,
+                 viseBien: getHandleAt(img.x + img.w, img.y + img.h, img, 'image') };
+    }, pose.id);
+    r.egal('la poignée du coin se laisse viser', poignee.viseBien, 'BR');
+
+    const avant = await lireLeTableau();
+    await page.mouse.move(poignee.x, poignee.y);
+    await page.mouse.down();
+    await page.mouse.move(poignee.x + 120, poignee.y + 120, { steps: 6 });
+    // CE QU'ON VOIT PENDANT LE GESTE : l'image est étirée, texte compris.
+    const pendant = await lireLeTableau();
+    await page.mouse.move(poignee.x + 250, poignee.y + 250, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(600);
+    const apres = await lireLeTableau();
+    const tout = JSON.stringify({ avant, pendant, apres });
+
+    r.verifie('le tableau devient vraiment plus grand',
+        apres.objet[0] > avant.objet[0] * 1.5 && apres.objet[1] > avant.objet[1] * 1.5, tout);
+    // LA PLACE GAGNÉE EST PASSÉE DANS LES COLONNES.
+    r.verifie('et la place gagnée est passée dans ses colonnes',
+        apres.colonnes[0] > avant.colonnes[0] * 1.5, tout);
+    // C'EST TOUTE LA PLAINTE : le texte ne doit pas avoir bougé.
+    r.verifie('LE TEXTE GARDE SA TAILLE À L\'ÉCRAN',
+        Math.abs(apres.corpsVu - avant.corpsVu) < 0.3, tout);
+    // Sans celui-ci, le précédent ne prouverait rien : il faut que l'étirement
+    // ait VRAIMENT déformé le texte pendant le geste.
+    r.verifie('alors qu\'en cours de geste il était bien étiré',
+        pendant.corpsVu > avant.corpsVu * 1.2, tout);
+    // L'objet redescend à son échelle propre : le dessin EST à sa taille.
+    r.egal('le tableau est redessiné à sa taille, et non mis à l\'échelle',
+        apres.echelle, 1, tout);
+    // ET LE DESSIN SUIT L'OBJET AU PIXEL PRÈS : sans quoi la grille sauterait
+    // au relâchement, et l'on n'obtiendrait jamais la taille visée.
+    r.verifie('la grille ne saute pas au relâchement',
+        Math.abs(apres.objet[0] - apres.colonnes.reduce((a, b) => a + b, 0) - 20) <= 2, tout);
+
+    // UN SIMPLE DÉPLACEMENT NE REFAIT RIEN : refaire le dessin pour rien
+    // coûterait une étape d'historique à chaque objet qu'on pousse.
+    const pourRien = await page.evaluate((id) => {
+        const img = getObjectById('image', id);
+        img.x += 40; img.y += 25;
+        selectedItems = [{ type: 'image', id: img.id }];
+        return etirementAbsorbeParLeTampon();
+    }, pose.id);
+    r.egal('un simple déplacement ne refait pas le dessin', pourRien, false);
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

@@ -243,10 +243,16 @@ function invalidatePendingStampLoads() { stampGeneration++; }
 function updatePluginStampInPlace(imgObj, stamp, state, opts) {
     if (!imgObj || !stamp) return false;
     opts = opts || {};
-    const scaleX = (imgObj.cw ? imgObj.w / imgObj.cw : 1) || 1;
-    const scaleY = (imgObj.ch ? imgObj.h / imgObj.ch : 1) || 1;
+    // « taillePropre » : LE TAMPON REPREND SA TAILLE, et non l'échelle où on
+    // l'avait mis. C'est ce qu'il faut quand le dessin vient d'être refait À
+    // LA TAILLE DEMANDÉE — agrandir un tableau ne grossit pas ses lettres.
+    // Le coin haut-gauche ne bouge alors pas : c'est le point fixe d'une
+    // poignée qu'on vient de lâcher.
+    const scaleX = opts.taillePropre ? 1 : ((imgObj.cw ? imgObj.w / imgObj.cw : 1) || 1);
+    const scaleY = opts.taillePropre ? 1 : ((imgObj.ch ? imgObj.h / imgObj.ch : 1) || 1);
     const centerX = imgObj.x + imgObj.w / 2;
     const centerY = imgObj.y + imgObj.h / 2;
+    const coinX = imgObj.x, coinY = imgObj.y;
 
     if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
     imgObj.src = stamp.src;
@@ -254,8 +260,8 @@ function updatePluginStampInPlace(imgObj, stamp, state, opts) {
     imgObj.cw = stamp.w; imgObj.ch = stamp.h;
     imgObj.w = stamp.w * scaleX;
     imgObj.h = stamp.h * scaleY;
-    imgObj.x = centerX - imgObj.w / 2;
-    imgObj.y = centerY - imgObj.h / 2;
+    if (opts.taillePropre) { imgObj.x = coinX; imgObj.y = coinY; }
+    else { imgObj.x = centerX - imgObj.w / 2; imgObj.y = centerY - imgObj.h / 2; }
 
     if (state !== undefined) {
         if (!imgObj.pluginData) imgObj.pluginData = {};
@@ -17010,7 +17016,7 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     // On travaille sur l'état d'un tableau POSÉ, sans toucher à celui de
     // l'atelier : deux grilles ouvertes en même temps ne doivent pas se
     // mélanger.
-    surCeTableau: function (imgObj, faire) {
+    surCeTableau: function (imgObj, faire, reglages) {
         if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.state) return false;
         const memoire = this.state, enCours = this.editingImage;
         this.state = JSON.parse(JSON.stringify(imgObj.pluginData.state));
@@ -17027,9 +17033,49 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
             // chaque clic sur « une ligne de plus » ; et rendre l'outil au
             // pointeur LÂCHE LA GRILLE — la barre s'en allait donc entre deux
             // lignes, et il fallait la reprendre à chaque fois.
-            updatePluginStampInPlace(imgObj, stamp, etat, { quiet: true });
+            updatePluginStampInPlace(imgObj, stamp, etat,
+                Object.assign({ quiet: true }, reglages || {}));
         });
         return true;
+    },
+
+    // UN TABLEAU S'AGRANDIT, IL NE SE ZOOME PAS.
+    //
+    // « Quand j'ai voulu agrandir un tableau juste pour le rendre plus grand
+    // avec les poignées d'objet, ça déformait le texte dedans : ça changeait
+    // l'échelle du tableau et non pas la taille du tableau. »
+    //
+    // C'est exactement cela, et c'était inévitable : une grille posée sur le
+    // tableau est une IMAGE, et tirer la poignée d'une image l'agrandit tout
+    // entière, lettres comprises. C'est juste pour une photo. C'est faux pour
+    // un tableau : ce qu'on veut, c'est de la PLACE dans les cases, pas des
+    // caractères de trois centimètres.
+    //
+    // Au relâchement, l'étirement est donc ABSORBÉ : la place gagnée passe
+    // dans les colonnes et dans les lignes, le dessin est refait à la taille
+    // où la poignée l'a laissé, et le corps du texte comme l'épaisseur des
+    // traits ne bougent pas d'un pixel. La poignée agrandit la grille ; « A⁺ »
+    // et « A⁻ » de la barre changent les lettres. Deux gestes, deux effets, et
+    // plus un seul qui fait les deux à la fois.
+    absorberLEtirement: function (imgObj) {
+        const m = this.mesureDuTableau(imgObj);
+        if (!m) return false;
+        const sommeX = m.large - m.pad * 2, sommeY = m.haut - m.pad * 2;
+        if (!(sommeX > 0 && sommeY > 0)) return false;
+        // LES MARGES NE S'ÉTIRENT PAS : elles font dix pixels à toute taille.
+        // On vise donc la place INTÉRIEURE, sans quoi le dessin refait ne
+        // tomberait pas sur la taille demandée et la grille sauterait un peu
+        // à chaque relâchement.
+        const fx = (imgObj.w - m.pad * 2) / sommeX;
+        const fy = (imgObj.h - m.pad * 2) / sommeY;
+        if (!(fx > 0 && fy > 0) || !isFinite(fx) || !isFinite(fy)) return false;
+        // Un déplacement n'est pas un étirement : au pixel près, on ne refait
+        // rien — refaire le dessin pour rien coûte une étape d'historique.
+        if (Math.abs(fx - 1) < 0.002 && Math.abs(fy - 1) < 0.002) return false;
+        return this.surCeTableau(imgObj, (vif) => {
+            vif.colW = vif.colW.map(w => Math.max(12, w * fx));
+            vif.rowH = vif.rowH.map(h => Math.max(12, h * fy));
+        }, { taillePropre: true });
     },
 
     // La case sous un point du tableau : on ramène le point dans le repère de
