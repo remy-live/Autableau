@@ -104,8 +104,12 @@
        UN RECTANGLE ARRONDI, LE MÊME PARTOUT — et une seule valeur à changer
        pour qui le veut plus doux ou plus franc. Les tiroirs n'arrondissent
        que leurs bords libres : une surface collée au bord de l'écran n'a pas
-       de coin de ce côté-là. */
-    --arrondi: 12px;
+       de coin de ce côté-là.
+       « Rends toutes les fenêtres un peu moins arrondies, très légèrement. »
+       Douze pixels, c'était la rondeur d'un galet ; dix tiennent encore la
+       main sans faire mou. Une seule valeur, et les quatre-vingt-sept outils
+       la suivent. */
+    --arrondi: 10px;
 }
 
 body.dark-mode {
@@ -4011,37 +4015,36 @@ body.dark-mode {
     overflow-wrap: anywhere;
 }
 
-/* LE RÉSULTAT EST ÉCRIT EN POINTS, comme sur l'afficheur d'une calculatrice.
-   « Une calculatrice qui affiche une police de calculatrice. » On ne peut pas
-   compter sur une police installée chez le professeur — celle qu'on nommerait
-   serait remplacée en silence par une autre. On découpe donc l'encre elle-même
-   en points : ce sont les VRAIES formes des chiffres, rendues comme une
-   matrice les rendrait. Le découpage ne vaut QUE pour le résultat, écrit en
-   vingt-sept pixels : à la taille de la ligne de calcul, il rongerait les
-   signes au lieu de les dessiner. */
+/* LE RÉSULTAT EST ÉCRIT PLEIN, ET C'EST UN RENONCEMENT ASSUMÉ.
+   « On a du mal à lire le 34/15. »
+
+   Il était découpé en une matrice de points, pour ressembler à l'afficheur
+   d'une calculatrice. La trame était mesurée — elle existait bien sur un écran
+   ordinaire, et le cœur du trait tenait ses 7,19:1 — mais la mesure ne disait
+   qu'une chose à la fois : elle ne disait pas qu'à vingt-sept pixels, un
+   chiffre gras n'a que quatre ou cinq pixels d'épaisseur de trait, donc UN ou
+   DEUX points par jambage. Et la barre de fraction, épaisse d'un pixel et
+   demi, devenait une ligne pointillée.
+
+   Pour qu'une trame de points dessine au lieu de ronger, il lui faut des
+   traits d'au moins deux fois son pas — c'est-à-dire un résultat écrit en
+   quarante pixels et plus. Ce n'est pas la taille d'une calculatrice posée
+   dans un coin du tableau. La trame de points reste donc DANS LE FOND de
+   l'afficheur, où elle ne coûte rien : l'écran a sa grille de pixels éteints,
+   et ce qui est écrit dessus se lit entièrement. */
 #calc-res {
-    font-size: 27px;
+    font-size: 28px;
     font-weight: bold;
     color: #161c12;
-    line-height: 1.1;
+    line-height: 1.15;
     word-wrap: break-word;
     overflow-wrap: anywhere;
     letter-spacing: 0.01em;
-    /* LE PAS DE LA TRAME EST MESURÉ, PAS CHOISI. Au premier essai il valait
-       deux pixels : sur MON écran d'épreuve, qui compte deux points par pixel,
-       les chiffres étaient joliment tramés. Sur un écran ordinaire — celui
-       d'un vidéoprojecteur, celui d'un portable de salle de classe — la trame
-       ne faisait RIEN DU TOUT : mesuré, exactement la même encre avec et sans.
-       J'aurais livré une fonction que seul l'écran du développeur pouvait
-       voir. À trois pixels de pas, elle existe partout, garde cinquante-huit
-       pour cent de l'encre, et le cœur du trait reste à 7,19:1. */
-    -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0 1.1px, transparent 1.2px);
-    mask-image: radial-gradient(circle at 50% 50%, #000 0 1.1px, transparent 1.2px);
-    -webkit-mask-size: 3px 3px;
-    mask-size: 3px 3px;
-    -webkit-mask-repeat: repeat;
-    mask-repeat: repeat;
 }
+
+/* Et la barre de fraction du RÉSULTAT est plus franche que celle du calcul :
+   c'est la réponse, elle se lit de loin. */
+#calc-res .nat-bas { border-top-width: 2px; }
 
 /* ==========================================================
    L'ÉCRITURE NATURELLE
@@ -4071,22 +4074,39 @@ body.dark-mode {
     border-top: 1.5px solid currentColor;
 }
 
-/* La racine : son signe, et le trait qui couvre ce qu'elle prend. Sans ce
-   trait, « √2+3 » ne dit pas si le 3 est dessous. */
-.nat-rac { display: inline-flex; align-items: flex-start; vertical-align: middle; }
-.nat-rac .nat-signe { font-size: 1.15em; line-height: 1; }
+/* LA RACINE : SON SIGNE S'ÉTIRE SUR CE QU'ELLE COUVRE.
+   « Petit bug de racine carrée, peu lisible. » Le « √ » d'une police a une
+   taille fixe : dès que la racine couvre une fraction — donc deux étages — il
+   restait petit en haut à gauche pendant que le trait filait tout seul
+   au-dessus du contenu. On ne reconnaissait plus une racine. Le signe est
+   maintenant DESSINÉ, et il grandit avec ce qu'il prend. */
+.nat-rac { display: inline-flex; align-items: stretch; vertical-align: middle; }
+
+.nat-rac .nat-signe {
+    width: 0.62em;
+    min-width: 7px;
+    align-self: stretch;
+    flex: none;
+    /* Le crochet descend un peu plus bas que le contenu, comme à la main. */
+    margin-bottom: -0.05em;
+}
+
 .nat-rac .nat-sous {
     border-top: 1.5px solid currentColor;
-    padding: 1px 3px 0 1px;
-    margin-top: 0.12em;
+    padding: 2px 3px 0 2px;
+    /* Le trait prolonge exactement le haut du signe dessiné : celui-ci monte
+       jusqu'à un pixel du bord de son dessin. */
+    margin-top: 0;
 }
+
 /* L'ordre de la racine — le petit 3 de la racine cubique — se pose dans le
    creux du signe. */
 .nat-rac .nat-ordre {
     font-size: 0.55em;
     align-self: flex-start;
-    margin-right: -0.35em;
-    margin-top: 0.05em;
+    margin-right: -0.3em;
+    position: relative;
+    z-index: 1;
 }
 
 .nat-exp { font-size: 0.6em; vertical-align: super; line-height: 0; }
@@ -4148,6 +4168,29 @@ body.dark-mode {
 }
 
 .calc-btn:hover { filter: brightness(1.12); }
+
+/* LE PAD DE DÉPLACEMENT — « sur la fx-92 on a un pad qui permet de se déplacer
+   de gauche à droite. » Il tient trois colonnes sur deux rangées, et gauche et
+   droite y sont les GRANDES touches : ce sont celles qu'on presse à chaque
+   calcul, haut et bas ne servant qu'à rappeler un calcul précédent. Deux
+   flèches semées dans le clavier n'auraient pas dit qu'elles vont ensemble. */
+.calc-pad {
+    grid-column: span 3;
+    grid-row: span 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.calc-pad .pad-gauche { grid-area: 1 / 1 / 3 / 2; }
+.calc-pad .pad-droite { grid-area: 1 / 3 / 3 / 4; }
+.calc-pad .pad-haut { grid-area: 1 / 2 / 2 / 3; }
+.calc-pad .pad-bas { grid-area: 2 / 2 / 3 / 3; }
+.calc-pad .calc-btn { font-size: 13px; }
 
 .calc-btn:active {
     transform: translateY(2px);
@@ -9072,12 +9115,12 @@ body.focus-mode #edt-bandeau { display: none; }
     height: 28px;
     padding: 0;
     border: none;
-    border-radius: 6px;
-    background: rgba(127, 140, 141, 0.14);
-    color: var(--muted, #636e72);
+    border-radius: 7px;
+    background: transparent;
+    color: #6b7680;
     cursor: pointer;
     opacity: 1;
-    transition: opacity 0.15s, background 0.15s;
+    transition: color 0.15s, background 0.15s;
 }
 
 .fen-plein:hover,
@@ -9242,6 +9285,13 @@ body.focus-mode #edt-bandeau { display: none; }
     box-shadow: none !important;
 }
 
+/* LES COMMANDES DE LA BARRE DE TITRE NE SONT PLUS DES PASTILLES TEINTÉES.
+   « L'icône de fermeture et de plein écran font vieillot. » Deux pavés de
+   couleur posés en permanence — un rouge, un gris — attiraient l'œil bien plus
+   que ce qu'ils font ne le mérite, et dataient la barre entière. Au repos, il
+   ne reste que le dessin, dans une encre neutre qui se lit sur le bandeau ; la
+   couleur n'arrive qu'au survol, au moment où elle dit quelque chose : rouge
+   pour fermer, bleu pour agrandir. La cible, elle, ne bouge pas d'un pixel. */
 .fen-fermer {
     flex: none;
     display: inline-flex;
@@ -9251,18 +9301,19 @@ body.focus-mode #edt-bandeau { display: none; }
     height: 28px;
     padding: 0;
     border: none;
-    border-radius: 6px;
-    background: rgba(214, 48, 49, 0.12);
-    color: #d63031;
-    font-size: 14px;
-    font-weight: 700;
+    border-radius: 7px;
+    background: transparent;
+    color: #6b7680;
     line-height: 1;
     cursor: pointer;
     opacity: 1;
-    transition: opacity 0.15s, background 0.15s;
+    transition: color 0.15s, background 0.15s;
 }
 
-.fen-fermer:hover, .fen-fermer:focus-visible { opacity: 1; background: rgba(214, 48, 49, 0.22); }
+.fen-fermer:hover, .fen-fermer:focus-visible {
+    background: rgba(214, 48, 49, 0.14);
+    color: #d63031;
+}
 
 .fen-tete .fen-plein { flex: none; }
 
@@ -9270,11 +9321,14 @@ body.focus-mode #edt-bandeau { display: none; }
 .dark-mode .fen-nom { color: #dfe6e9; }
 /* LE ROUGE DU JOUR NE SE LIT PAS LA NUIT : #d63031 sur le bandeau sombre
    #2f3640 donne 1,79:1, autant dire rien. Le rouge clair de l'application y
-   rend 4,70:1, et le gris clair 6,41:1. */
-.dark-mode .fen-fermer { color: #ff7675; background: rgba(255, 118, 117, 0.16); }
+   rend 4,70:1, et le gris clair 6,41:1. Au repos les deux commandes portent
+   maintenant la même encre neutre ; c'est au survol que la couleur arrive, et
+   c'est celle de la nuit. */
+.dark-mode .fen-fermer, .dark-mode .fen-plein { color: #aeb8be; background: transparent; }
 .dark-mode .fen-fermer:hover,
-.dark-mode .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.28); }
-.dark-mode .fen-plein { color: #b2bec3; background: rgba(178, 190, 195, 0.14); }
+.dark-mode .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.24); color: #ff7675; }
+.dark-mode .fen-plein:hover,
+.dark-mode .fen-plein:focus-visible { background: rgba(116, 185, 255, 0.22); color: #74b9ff; }
 
 /* LA CROIX DE LA BOÎTE DE RÉGLAGES vit sur une barre TOUJOURS sombre (#1e272e),
    de jour comme de nuit : elle prend donc les couleurs de la nuit dans les deux
@@ -9282,12 +9336,15 @@ body.focus-mode #edt-bandeau { display: none; }
    taille de « .fen-fermer » — une seule vérité sur ce que « fermer » a l'air
    d'être —, et seule la couleur change. */
 .drag-handle-prompt .fen-fermer {
-    color: #ff7675;
-    background: rgba(255, 118, 117, 0.16);
+    color: #aeb8be;
+    background: transparent;
 }
 
 .drag-handle-prompt .fen-fermer:hover,
-.drag-handle-prompt .fen-fermer:focus-visible { background: rgba(255, 118, 117, 0.3); }
+.drag-handle-prompt .fen-fermer:focus-visible {
+    background: rgba(255, 118, 117, 0.28);
+    color: #ff7675;
+}
 
 /* Les deux traits obliques du coin : le dessin universel du « tirez ici » */
 /* LA POIGNÉE QUI DÉPLACE. Elle vit à côté du plein écran et du

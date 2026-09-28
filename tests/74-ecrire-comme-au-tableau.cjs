@@ -95,6 +95,37 @@ module.exports = async function (browser) {
         r.verifie('et le signe est à sa gauche', racine.signeAGauche, JSON.stringify(racine));
     }
 
+    // ET SON SIGNE GRANDIT AVEC CE QU'IL COUVRE.
+    //
+    // « Petit bug de racine carrée, peu lisible. » Le « √ » d'une police a une
+    // taille fixe : dès que la racine couvre une FRACTION — donc deux étages —
+    // il restait petit en haut à gauche pendant que le trait filait tout seul
+    // au-dessus du contenu. On ne reconnaissait plus une racine. Le signe est
+    // maintenant dessiné, et c'est sa HAUTEUR qu'on mesure : sur un contenu
+    // haut, il doit être haut.
+    const racineHaute = await page.evaluate(async () => {
+        const e = document.getElementById('calc-expr');
+        const mesurer = (t) => {
+            curseurCalc = null;
+            montrerLExpression(e, t, false);
+            const rac = e.querySelector('.nat-rac');
+            if (!rac) return null;
+            const signe = rac.querySelector('.nat-signe').getBoundingClientRect();
+            const sous = rac.querySelector('.nat-sous').getBoundingClientRect();
+            return { signe: signe.height, sous: sous.height,
+                     hautsPareils: Math.abs(signe.top - sous.top) < 3 };
+        };
+        return { courte: mesurer('√(2)'), haute: mesurer('√(65+12/3)') };
+    });
+    r.verifie('sur un contenu court, le signe est court',
+        racineHaute.courte && racineHaute.courte.signe < 30, JSON.stringify(racineHaute.courte));
+    r.verifie('sur une fraction, il grandit avec elle',
+        racineHaute.haute && racineHaute.haute.signe >= racineHaute.haute.sous - 2
+        && racineHaute.haute.signe > racineHaute.courte.signe + 8,
+        JSON.stringify(racineHaute));
+    r.verifie('et son sommet rejoint le trait',
+        racineHaute.haute && racineHaute.haute.hautsPareils, JSON.stringify(racineHaute.haute));
+
     // ------------------------------------------------------------------
     // 3. LA PUISSANCE MONTE, ET ELLE EST PLUS PETITE
     // ------------------------------------------------------------------
@@ -132,6 +163,94 @@ module.exports = async function (browser) {
         !!curseur && curseur.large >= 1 && curseur.haut >= 6, JSON.stringify(curseur));
 
     // ------------------------------------------------------------------
+    // 4 bis. LE PAD DÉPLACE LE CURSEUR DANS LE CALCUL
+    // ------------------------------------------------------------------
+    // « Sur la fx-92 on a un pad qui permet de se déplacer de gauche à
+    // droite. » C'est ce qui manquait pour corriger sans tout retaper : une
+    // parenthèse oubliée au début d'un calcul de vingt touches obligeait à
+    // recommencer.
+    const pas = async (suite) => (await taper(suite)).brut;
+    r.egal('on tape un calcul', await pas(['AC', '1', '2', '+', '3', '4']), '12+34');
+    r.egal('trois reculs ramènent au début', await pas(['◀', '◀', '◀']), '12+34');
+    r.egal('et ce qu\'on tape entre LÀ', await pas(['9']), '912+34');
+    r.egal('« DEL » reprend ce qui est devant le curseur', await pas(['DEL']), '12+34');
+    r.egal('on avance, et l\'on écrit au milieu', await pas(['▶', '7']), '127+34');
+    r.egal('le calcul tient compte de l\'insertion', (await taper(['='])).brut, '127+34');
+    const apresEgal = await page.evaluate(() => document.getElementById('calc-res').dataset.brut);
+    r.egal('et il donne le bon résultat', apresEgal, '161');
+
+    // LE CURSEUR NE S'ARRÊTE PAS AU MILIEU D'UNE TOUCHE. « x² » s'écrit avec
+    // deux signes mais c'est UNE touche : un curseur entre le « x » et le
+    // « ² » se tiendrait à un endroit où rien ne peut être inséré.
+    const auMilieu = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        ['AC', '5', 'x²'].forEach(clic);
+        const places = [];
+        for (let i = 0; i < 4; i++) { clic('◀'); places.push(curseurCalc); }
+        return places;
+    });
+    r.egal('il saute la touche entière', auMilieu, [1, 0, 0, 0]);
+
+    // ET ÉCRIRE AU MILIEU D'UN NOMBRE NE CASSE PAS LE DESSIN.
+    //
+    // Le curseur est glissé DANS l'expression pour être dessiné à sa place.
+    // S'il coupait « 34 » en « 3 » et « 4 », la barre de fraction ne prendrait
+    // que le « 3 » pour dénominateur et le « 4 » sortirait de la fraction —
+    // un calcul juste, montré faux. Il fait donc partie du nombre où il se
+    // tient. C'est le seul endroit où il a le droit d'être au milieu d'une
+    // touche, parce que c'est là qu'on écrit vraiment.
+    const dansLeNombre = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        ['AC', '1', '2', 'a/b', '3', '4', '◀', '9'].forEach(clic);
+        const e = document.getElementById('calc-expr');
+        const bas = e.querySelector('.nat-bas');
+        return { brut: e.dataset.brut, curseur: curseurCalc,
+                 denominateur: bas ? bas.textContent : null,
+                 fractions: e.querySelectorAll('.nat-frac').length };
+    });
+    r.egal('on écrit au milieu du dénominateur', dansLeNombre.brut, '12/934');
+    r.egal('et le dénominateur garde ses trois chiffres',
+        dansLeNombre.denominateur, '934', JSON.stringify(dansLeNombre));
+
+    // ET LE TRAIT SE VOIT LÀ OÙ L'ON ÉCRIT.
+    //
+    // On ne mesure pas sa place dans la BOÎTE — elle est large et le calcul
+    // s'y aligne à droite, si bien qu'un trait « au milieu du calcul » est aux
+    // neuf dixièmes de la boîte. Une première rédaction s'y est trompée. Ce
+    // qu'il faut mesurer, c'est qu'il AIT BOUGÉ : entre le curseur au bout et
+    // le curseur après « 12 », il doit reculer de la largeur de « +34 ».
+    const ouEstLeTrait = await page.evaluate(() => {
+        const e = document.getElementById('calc-expr');
+        const trait = (place) => {
+            curseurCalc = place;
+            montrerLExpression(e, '12+34');
+            const c = e.querySelector('.nat-curseur');
+            return c ? { x: c.getBoundingClientRect().left,
+                         combien: e.querySelectorAll('.nat-curseur').length } : null;
+        };
+        return { bout: trait(null), milieu: trait(2) };
+    });
+    r.verifie('un seul trait, et un seul',
+        ouEstLeTrait.bout && ouEstLeTrait.bout.combien === 1
+        && ouEstLeTrait.milieu && ouEstLeTrait.milieu.combien === 1, JSON.stringify(ouEstLeTrait));
+    r.verifie('et il recule quand le curseur recule',
+        ouEstLeTrait.bout.x - ouEstLeTrait.milieu.x > 20,
+        'il n\'a reculé que de ' + Math.round(ouEstLeTrait.bout.x - ouEstLeTrait.milieu.x) + ' px');
+
+    // LE PAD RAPPELLE AUSSI LES CALCULS PRÉCÉDENTS, sans SHIFT.
+    const rappel = await page.evaluate(async () => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        ['AC', '8', '+', '8', '=', 'AC'].forEach(clic);
+        await new Promise(ok => setTimeout(ok, 80));
+        clic('▲');
+        return document.getElementById('calc-expr').dataset.brut;
+    });
+    r.egal('« ▲ » rappelle le calcul d\'avant', rappel, '8+8');
+
+    // ------------------------------------------------------------------
     // 5. LE DESSIN NE PERD RIEN, ET N'INVENTE RIEN
     // ------------------------------------------------------------------
     // Le rendu ne doit jamais avaler un signe ni en ajouter. On compare donc,
@@ -146,12 +265,14 @@ module.exports = async function (browser) {
         for (const e of essais) {
             boite.innerHTML = ecrireEnNaturel(e);
             // ON TRADUIT CE QUE LE DESSIN APPORTE. « x² » devient un « 2 » en
-            // exposant, « x⁻¹ » un « −1 », et « ∛ » se dessine comme un petit
-            // 3 posé sur un signe de racine : « 3√ ». Ces traductions-là ne
-            // sont pas des pertes, ce sont justement les mathématiques que le
-            // dessin fait apparaître.
+            // exposant, « x⁻¹ » un « −1 ». Le signe de la racine, lui, n'est
+            // plus un caractère : il est DESSINÉ pour pouvoir s'étirer sur ce
+            // qu'il couvre, et il ne laisse donc plus de texte derrière lui —
+            // seul l'ordre de la racine cubique reste écrit. Ces traductions
+            // ne sont pas des pertes : ce sont les mathématiques que le dessin
+            // fait apparaître.
             const attendu = e.replace(/x²/g, '2').replace(/x³/g, '3').replace(/x⁻¹/g, '−1')
-                             .replace(/∛/g, '3√')
+                             .replace(/∛/g, '3').replace(/√/g, '')
                              .replace(/[()^\/]/g, '').replace(/\s/g, '');
             const obtenu = boite.textContent.replace(/[()\s]/g, '');
             if (obtenu !== attendu) perdus.push(e + ' → « ' + obtenu + ' » au lieu de « ' + attendu + ' »');
@@ -171,40 +292,53 @@ module.exports = async function (browser) {
     r.egal('rien de ce qui est tapé ne devient une balise', injection.balises, 0);
 
     // ------------------------------------------------------------------
-    // 6. LA TRAME DE POINTS — MESURÉE SUR LES VRAIS PIXELS
+    // 6. LE RÉSULTAT SE LIT — MESURÉ SUR LES VRAIS PIXELS
     // ------------------------------------------------------------------
-    // C'EST ICI QU'UNE FAUTE A ÉTÉ PRISE, et elle mérite d'être racontée. La
-    // trame était posée avec un pas de deux pixels. Sur l'écran d'épreuve, qui
-    // compte deux points par pixel, les chiffres étaient joliment tramés — et
-    // la photo était belle. Sur un écran ORDINAIRE, celui d'un vidéoprojecteur
-    // ou d'un portable de salle de classe, elle ne faisait RIEN : mesuré,
-    // exactement la même encre avec et sans. Une fonction que seul l'écran du
-    // développeur pouvait voir.
+    // CE CONTRÔLE RACONTE UN RENONCEMENT, et c'est pour cela qu'il existe.
     //
-    // Aucune mesure de couleur ne pouvait l'attraper : la feuille de style dit
-    // toujours « presque noir sur vert pâle », et c'est le découpage, après,
-    // qui retire l'encre. On décode donc l'image.
-    const tramePng = await page.locator('#calc-res').screenshot();
-    const trame = mesurerLeTexte(tramePng);
+    // Le résultat a d'abord été découpé en une matrice de points, pour
+    // ressembler à l'afficheur d'une calculatrice. La trame était mesurée : on
+    // avait même attrapé, ici, qu'à deux pixels de pas elle n'existait QUE sur
+    // un écran à deux points par pixel — celui du développeur — et pas sur un
+    // vidéoprojecteur. Corrigée à trois pixels, elle existait partout et le
+    // cœur du trait tenait ses 7,19:1.
+    //
+    // Cela ne suffisait pas. « On a du mal à lire le 34/15. » À vingt-huit
+    // pixels, un chiffre gras n'a que quatre ou cinq pixels d'épaisseur de
+    // trait : un ou deux points par jambage. Et la barre de fraction, épaisse
+    // d'un pixel et demi, devenait une ligne pointillée. Pour qu'une trame
+    // DESSINE au lieu de RONGER, il lui faut des traits d'au moins deux fois
+    // son pas — un résultat écrit en quarante pixels et plus, ce qui n'est pas
+    // la taille d'une calculatrice posée dans un coin du tableau.
+    //
+    // La trame est donc restée dans le FOND de l'afficheur, où elle ne coûte
+    // rien. Et ce chapitre garde la mesure des vrais pixels, retournée : elle
+    // veille désormais à ce que plus rien ne ronge le résultat. Aucune mesure
+    // de couleur ne pourrait le faire — la feuille de style dirait toujours
+    // « presque noir sur vert pâle » pendant qu'un masque mangerait l'encre.
+    const rendu = mesurerLeTexte(await page.locator('#calc-res').screenshot());
     await page.evaluate(() => {
         const e = document.getElementById('calc-res');
         e.style.setProperty('-webkit-mask-image', 'none', 'important');
         e.style.setProperty('mask-image', 'none', 'important');
     });
     await page.waitForTimeout(250);
-    const plein = mesurerLeTexte(await page.locator('#calc-res').screenshot());
+    const sansMasque = mesurerLeTexte(await page.locator('#calc-res').screenshot());
     await page.evaluate(() => {
         const e = document.getElementById('calc-res');
         e.style.removeProperty('-webkit-mask-image');
         e.style.removeProperty('mask-image');
     });
-    const part = trame.couverture / plein.couverture;
-    r.verifie('le résultat est vraiment écrit en points sur un écran ordinaire',
-        part < 0.8, Math.round(part * 100) + ' % de l\'encre — la trame ne retire rien');
-    r.verifie('et la trame ne ronge pas les signes',
-        part > 0.35, 'il ne reste que ' + Math.round(part * 100) + ' % de l\'encre');
-    r.verifie('le cœur du trait reste lisible',
-        trame.contrasteDuCoeur >= 4.5, trame.contrasteDuCoeur.toFixed(2) + ':1');
+    const part = rendu.couverture / sansMasque.couverture;
+    r.verifie('rien ne ronge l\'encre du résultat',
+        part > 0.97, 'il n\'en reste que ' + Math.round(part * 100) + ' %');
+    r.verifie('le cœur du trait est bien noir sur le vert',
+        rendu.contrasteDuCoeur >= 4.5, rendu.contrasteDuCoeur.toFixed(2) + ':1');
+    // Le plancher est bas, et c'est normal : une fraction empilée occupe une
+    // petite part d'une ligne large. Il ne sert qu'à dire qu'il y a de l'encre,
+    // pour qu'un afficheur devenu vide ne passe pas pour un afficheur propre.
+    r.verifie('et il y a vraiment quelque chose d\'écrit',
+        rendu.couverture > 0.005, Math.round(rendu.couverture * 1000) / 10 + ' % de l\'image');
 
     // ------------------------------------------------------------------
     // 7. LE TAMPON

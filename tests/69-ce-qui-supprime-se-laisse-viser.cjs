@@ -236,6 +236,80 @@ module.exports = async function (browser) {
     r.egal('aucune pastille ne reste sans nom', pastilles.sansNom, 0);
     r.egal('et chacune se prend au clavier', pastilles.sansClavier, 0);
 
+    // ------------------------------------------------------------------
+    // LES COMMANDES DE LA BARRE DE TITRE SONT DE LA MÊME MAIN
+    // ------------------------------------------------------------------
+    // « L'icône de fermeture et de plein écran font vieillot. » La croix était
+    // un « ✕ » PRIS DANS LA POLICE : sa taille, son épaisseur et sa forme
+    // changeaient d'une machine à l'autre, et à côté du plein écran — dessiné,
+    // fin, aux bouts arrondis — elle faisait tache. Les deux étaient de plus
+    // posées sur des pastilles teintées en permanence, un rouge et un gris, qui
+    // attiraient l'œil bien plus que ce qu'elles font ne le mérite.
+    //
+    // ON MESURE CE QUI FAIT QU'ELLES VONT ENSEMBLE : toutes deux dessinées, au
+    // même format, de la même épaisseur de trait, sans fond au repos — et
+    // lisibles sur leur bandeau, de jour comme de nuit.
+    await page.evaluate(() => { document.getElementById('btn-toggle-calc').click(); });
+    await page.waitForTimeout(600);
+
+    const commandes = await page.evaluate(async () => {
+        const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+        const lum = (s) => { const v = s.match(/[\d.]+/g).map(Number); return 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]); };
+        const relever = () => {
+            const tete = document.querySelector('#calc-widget > .fen-tete');
+            if (!tete) return null;
+            const fond = lum(getComputedStyle(tete).backgroundColor);
+            const lire = (c) => {
+                const b = tete.querySelector('.' + c);
+                if (!b) return null;
+                const s = getComputedStyle(b);
+                const svg = b.querySelector('svg');
+                const trait = svg ? svg.querySelector('path') : null;
+                const r = b.getBoundingClientRect();
+                const e = lum(s.color);
+                return {
+                    dessinee: !!svg,
+                    texte: b.textContent.trim(),
+                    epaisseur: trait ? trait.getAttribute('stroke-width') : null,
+                    format: svg ? svg.getAttribute('viewBox') : null,
+                    cible: [Math.round(r.width), Math.round(r.height)],
+                    sansFondAuRepos: /rgba\(0, 0, 0, 0\)|transparent/.test(s.backgroundColor),
+                    contraste: (Math.max(e, fond) + 0.05) / (Math.min(e, fond) + 0.05),
+                };
+            };
+            return { fermer: lire('fen-fermer'), plein: lire('fen-plein') };
+        };
+        const jour = relever();
+        document.body.classList.add('dark-mode');
+        await new Promise(ok => setTimeout(ok, 400));
+        const nuit = relever();
+        document.body.classList.remove('dark-mode');
+        return { jour, nuit };
+    });
+
+    if (!commandes.jour || !commandes.jour.fermer || !commandes.jour.plein) {
+        r.verifie('la barre de titre porte ses deux commandes', false, JSON.stringify(commandes));
+    } else {
+        const f = commandes.jour.fermer, p = commandes.jour.plein;
+        r.egal('la croix est dessinée et non écrite', [f.dessinee, f.texte], [true, '']);
+        r.egal('le plein écran aussi', p.dessinee, true);
+        r.egal('les deux dessins ont le même format', f.format, p.format);
+        r.egal('et la même épaisseur de trait', f.epaisseur, p.epaisseur);
+        r.egal('les deux cibles ont la même taille', f.cible, p.cible);
+        r.verifie('et elles se laissent viser',
+            f.cible[0] >= 24 && f.cible[1] >= 24, JSON.stringify(f.cible));
+        r.egal('aucune n\'est une pastille de couleur au repos',
+            [f.sansFondAuRepos, p.sansFondAuRepos], [true, true]);
+        // Le plancher d'une commande — un dessin, pas du texte — est de 3:1.
+        r.verifie('elles se lisent de jour',
+            Math.min(f.contraste, p.contraste) >= 3,
+            'croix ' + f.contraste.toFixed(2) + ', plein écran ' + p.contraste.toFixed(2));
+        const fn = commandes.nuit.fermer, pn = commandes.nuit.plein;
+        r.verifie('et elles se lisent de nuit',
+            Math.min(fn.contraste, pn.contraste) >= 3,
+            'croix ' + fn.contraste.toFixed(2) + ', plein écran ' + pn.contraste.toFixed(2));
+    }
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

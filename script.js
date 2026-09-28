@@ -21092,6 +21092,14 @@ function echapper(t) {
     return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Ce qu'on écrit pour un morceau : échappé d'abord — c'est la règle, et elle
+// passe avant tout —, puis le marqueur du curseur devient le trait clignotant.
+// Un morceau peut en contenir un, puisqu'il fait partie du nombre où il se
+// tient.
+function ecrireUnMorceau(t) {
+    return echapper(t).split(MARQUE_CURSEUR).join('<span class="nat-curseur"></span>');
+}
+
 // LA SUITE DES SIGNES DEVIENT UNE SUITE DE MORCEAUX. « x² » est UN morceau et
 // non deux caractères : c'est ce qui permet à la touche d'effacement de
 // reprendre une touche entière au lieu de laisser un « x » orphelin.
@@ -21102,7 +21110,15 @@ function morceauxDuCalcul(texte) {
     while (i < s.length) {
         const nom = NAT_NOMS.find(n => s.startsWith(n, i));
         if (nom) { morceaux.push(nom); i += nom.length; continue; }
-        const nombre = /^[0-9]+(\.[0-9]*)?/.exec(s.slice(i));
+        // LE MARQUEUR DU CURSEUR NE COUPE PAS UN NOMBRE EN DEUX. Il est glissé
+        // dans l'expression au moment de dessiner ; s'il coupait « 34 » en
+        // « 3 » et « 4 », la barre de fraction ne prendrait que le « 3 » pour
+        // dénominateur et le « 4 » sortirait de la fraction. Il fait donc
+        // partie du nombre où il se tient, et le dessin le remplace ensuite par
+        // le trait clignotant. Aucune touche ne le porte : il ne peut pas
+        // arriver par la frappe.
+        const nombre = new RegExp('^[0-9' + MARQUE_CURSEUR + ']+(\\.[0-9' + MARQUE_CURSEUR + ']*)?')
+            .exec(s.slice(i));
         if (nombre) { morceaux.push(nombre[0]); i += nombre[0].length; continue; }
         morceaux.push(s[i]); i += 1;
     }
@@ -21115,6 +21131,101 @@ function morceauxDuCalcul(texte) {
 // prenait le morceau précédent — qui était un blanc.
 const NAT_OPERATEURS = ['+', '-', '×', '÷', '/', ',', '÷R', ' '];
 
+// ==========================================================
+// LE CURSEUR SE DÉPLACE DANS LE CALCUL
+// ==========================================================
+//
+// C'est la dernière chose qui manquait pour écrire « comme la fx-92 ». On ne
+// pouvait corriger qu'à la fin : une parenthèse oubliée au début d'un calcul de
+// vingt touches obligeait à tout retaper. Les flèches ◀ ▶ posent le curseur où
+// l'on veut, et ce qu'on tape s'insère là.
+//
+// LE CURSEUR SE DÉPLACE PAR TOUCHE, ET NON PAR CARACTÈRE. « x² » s'écrit avec
+// deux signes mais c'est UNE touche : un curseur qui s'arrêterait entre le
+// « x » et le « ² » se tiendrait à un endroit où rien ne peut être inséré, et
+// la moitié d'une touche n'a pas de sens pour qui regarde l'écran.
+//
+// ON LE GARDE EN NOMBRE DE CARACTÈRES tout de même, et non en rang de morceau :
+// un morceau se recoupe quand on écrit dedans — taper « 3 » au milieu de
+// « 12 » donne UN morceau « 132 » et non trois —, et un rang de morceau ne
+// voudrait alors plus rien dire. « null » veut dire « à la fin », qui est la
+// place ordinaire.
+let curseurCalc = null;
+
+// Les places où le curseur a le droit de se tenir : entre deux touches.
+function bornesDesMorceaux(texte) {
+    const bornes = [0];
+    let p = 0;
+    for (const t of morceauxDuCalcul(texte)) { p += t.length; bornes.push(p); }
+    return bornes;
+}
+
+function placeDuCurseur(texte) {
+    const t = String(texte || '');
+    const fin = t.length;
+    if (curseurCalc === null || curseurCalc >= fin || curseurCalc < 0) return fin;
+    const bornes = bornesDesMorceaux(t);
+    if (bornes.includes(curseurCalc)) return curseurCalc;
+    // LE CURSEUR EST DANS UNE TOUCHE. C'est légitime dans un NOMBRE — on écrit
+    // « 9 » au milieu de « 12 », et l'on veut le voir là — mais nulle part
+    // ailleurs : la moitié d'un « x² » n'est pas une place où poser quoi que ce
+    // soit, et le dessin ne saurait plus lire la touche coupée en deux. On le
+    // ramène alors au bord du morceau où il se trouve.
+    let debut = 0;
+    for (const m of morceauxDuCalcul(t)) {
+        if (curseurCalc < debut + m.length) {
+            return /^[0-9.]+$/.test(m) ? curseurCalc : debut;
+        }
+        debut += m.length;
+    }
+    return fin;
+}
+
+// LE SIGNE QUI MARQUE LA PLACE DU CURSEUR DANS LE DESSIN. On ne peut pas
+// dessiner les deux moitiés du calcul séparément et poser le curseur entre les
+// deux : une fraction à cheval sur le curseur serait coupée en deux. On glisse
+// donc un signe invisible DANS l'expression, on dessine le tout, et le rendu le
+// remplace par le trait clignotant — il traverse les fractions et les racines
+// sans les défaire. Ce signe-là ne peut pas être tapé : aucune touche ne le
+// porte, et la garde des formules le refuserait.
+const MARQUE_CURSEUR = '\u0001';
+
+// Ce qu'on tape entre là où l'on est, et non à la fin.
+function insererAuCurseur(texte, ajout) {
+    const ou = placeDuCurseur(texte);
+    const neuf = texte.slice(0, ou) + ajout + texte.slice(ou);
+    const apres = ou + ajout.length;
+    curseurCalc = (apres >= neuf.length) ? null : apres;
+    return neuf;
+}
+
+// « DEL » reprend la touche qui est JUSTE AVANT le curseur — c'est ce que fait
+// une calculatrice, et c'est ce que fait un traitement de texte.
+function effacerAuCurseur(texte) {
+    const ou = placeDuCurseur(texte);
+    if (!ou) return texte;                       // rien devant le curseur
+    const avant = texte.slice(0, ou);
+    const morceaux = morceauxDuCalcul(avant);
+    const dernier = morceaux[morceaux.length - 1] || '';
+    const neuf = avant.slice(0, avant.length - dernier.length) + texte.slice(ou);
+    const place = ou - dernier.length;
+    curseurCalc = (place >= neuf.length) ? null : place;
+    return neuf;
+}
+
+// D'une touche vers la gauche, d'une touche vers la droite.
+function deplacerLeCurseur(texte, sens) {
+    const bornes = bornesDesMorceaux(texte);
+    const ou = placeDuCurseur(texte);
+    if (sens < 0) {
+        const avant = bornes.filter(b => b < ou);
+        curseurCalc = avant.length ? avant[avant.length - 1] : 0;
+    } else {
+        const suivante = bornes.find(b => b > ou);
+        curseurCalc = (suivante === undefined || suivante >= texte.length) ? null : suivante;
+    }
+}
+
 function ecrireEnNaturel(texte) {
     const m = morceauxDuCalcul(texte);
     let i = 0;
@@ -21122,7 +21233,15 @@ function ecrireEnNaturel(texte) {
     const lireGroupe = () => {
         // Ce qu'il y a entre parenthèses — en acceptant qu'elles ne soient pas
         // encore refermées : on écrit pendant qu'on tape.
-        if (m[i] !== '(') return null;
+        //
+        // ET LE CURSEUR PEUT SE TENIR JUSTE AVANT LA PARENTHÈSE. « √ » pose
+        // « √( » d'un coup : le curseur a le droit de se placer entre les deux.
+        // S'il arrêtait la lecture du groupe, la racine se dessinerait vide et
+        // son contenu partirait à côté. On le laisse passer, et il se dessine
+        // au début de ce que la racine prend.
+        let devant = '';
+        if (m[i] === MARQUE_CURSEUR && m[i + 1] === '(') { devant = MARQUE_CURSEUR; i++; }
+        if (m[i] !== '(') { if (devant) i--; return null; }
         i++;
         const debut = i;
         let profondeur = 1;
@@ -21133,12 +21252,19 @@ function ecrireEnNaturel(texte) {
         }
         const dedans = m.slice(debut, i).join('');
         if (m[i] === ')') i++;
-        return { dedans, refermee: profondeur === 0 };
+        return { dedans: devant + dedans, refermee: profondeur === 0 };
     };
 
     const lireAtome = () => {
         const t = m[i];
         if (t === undefined) return '';
+        // LE CURSEUR EST TRANSPARENT : il se dessine, puis l'on continue de
+        // lire ce qui vient. Sans cela, « 1/⌶2 » prendrait le curseur pour le
+        // dénominateur et le 2 se retrouverait dehors.
+        if (t === MARQUE_CURSEUR) {
+            i++;
+            return '<span class="nat-curseur"></span>' + lireAtome();
+        }
         // LA RACINE PASSE SOUS SON SIGNE, avec le trait qui couvre ce qu'elle
         // prend. Sans ce trait, « √2+3 » ne dit pas si le 3 est dessous.
         if (t === '√' || t === '∛') {
@@ -21146,7 +21272,24 @@ function ecrireEnNaturel(texte) {
             const g = lireGroupe();
             const dedans = g ? ecrireEnNaturel(g.dedans) : '';
             const ordre = t === '∛' ? '<span class="nat-ordre">3</span>' : '';
-            return '<span class="nat-rac">' + ordre + '<span class="nat-signe">√</span>'
+            // LE SIGNE DE LA RACINE EST DESSINÉ, ET NON ÉCRIT.
+            //
+            // « Petit bug de racine carrée, peu lisible. » Le signe « √ » d'une
+            // police a une taille fixe : dès qu'il couvre une fraction — donc
+            // deux étages —, il reste petit en haut à gauche pendant que le
+            // trait file tout seul au-dessus du contenu. On ne reconnaît plus
+            // une racine.
+            //
+            // Un trait dessiné, lui, s'étire à la hauteur de ce qu'il couvre.
+            // « preserveAspectRatio="none" » le laisse se déformer, et
+            // « non-scaling-stroke » garde son épaisseur constante : le crochet
+            // grandit, le trait reste fin.
+            return '<span class="nat-rac">' + ordre
+                 + '<svg class="nat-signe" viewBox="0 0 12 24" preserveAspectRatio="none"'
+                 + ' aria-hidden="true"><path d="M0 14 L3.5 14 L6.5 23 L9.5 1 L12 1"'
+                 + ' fill="none" stroke="currentColor" stroke-width="1.5"'
+                 + ' stroke-linejoin="round" stroke-linecap="round"'
+                 + ' vector-effect="non-scaling-stroke"/></svg>'
                  + '<span class="nat-sous">' + dedans + '</span></span>';
         }
         if (['sin', 'cos', 'tan', 'arcsin', 'arccos', 'arctan', 'PGCD', 'PPCM', 'RanInt', 'FACT'].includes(t)) {
@@ -21161,7 +21304,7 @@ function ecrireEnNaturel(texte) {
             return '(' + ecrireEnNaturel(g.dedans) + (g.refermee ? ')' : '');
         }
         i++;
-        return echapper(t);
+        return ecrireUnMorceau(t);
     };
 
     // Les puissances montent : « x² », « x³ », « x⁻¹ » et « ^ » suivi de ce
@@ -21169,15 +21312,21 @@ function ecrireEnNaturel(texte) {
     const lirePuissance = () => {
         let html = lireAtome();
         for (;;) {
-            const t = m[i];
-            if (t === 'x²') { i++; html += '<sup class="nat-exp">2</sup>'; continue; }
-            if (t === 'x³') { i++; html += '<sup class="nat-exp">3</sup>'; continue; }
-            if (t === 'x⁻¹') { i++; html += '<sup class="nat-exp">−1</sup>'; continue; }
+            // LE CURSEUR PEUT SE TENIR JUSTE AVANT UNE PUISSANCE, et il ne doit
+            // pas arrêter la lecture : sans cela, « 5|x² » se dessinerait
+            // « 5x² » au lieu de « 5² », la touche n'étant plus reconnue.
+            let j = i, marque = '';
+            if (m[j] === MARQUE_CURSEUR) { marque = '<span class="nat-curseur"></span>'; j++; }
+            const t = m[j];
+            const suite = (sup) => { i = j + 1; html += marque + '<sup class="nat-exp">' + sup + '</sup>'; };
+            if (t === 'x²') { suite('2'); continue; }
+            if (t === 'x³') { suite('3'); continue; }
+            if (t === 'x⁻¹') { suite('−1'); continue; }
             if (t === '^') {
-                i++;
+                i = j + 1;
                 const avant = i;
                 const exposant = lireAtome();
-                html += '<sup class="nat-exp">' + (i > avant ? exposant : '') + '</sup>';
+                html += marque + '<sup class="nat-exp">' + (i > avant ? exposant : '') + '</sup>';
                 continue;
             }
             return html;
@@ -21189,22 +21338,26 @@ function ecrireEnNaturel(texte) {
     // signe de division écrit en ligne, comme sur la machine.
     const lireFacteur = () => {
         let html = lirePuissance();
-        while (m[i] === '/') {
-            i++;
+        for (;;) {
+            // Le curseur a le droit de se tenir juste avant la barre : on le
+            // ramasse au bout du numérateur, qui est sa place.
+            let j = i, marque = '';
+            if (m[j] === MARQUE_CURSEUR) { marque = '<span class="nat-curseur"></span>'; j++; }
+            if (m[j] !== '/') return html;
+            i = j + 1;
             const bas = lirePuissance();
-            html = '<span class="nat-frac"><span class="nat-haut">' + html + '</span>'
+            html = '<span class="nat-frac"><span class="nat-haut">' + html + marque + '</span>'
                  + '<span class="nat-bas">' + bas + '</span></span>';
         }
-        return html;
     };
 
     let sortie = '';
     let garde = 0;
     while (i < m.length && garde++ < 4000) {
         const avant = i;
-        if (NAT_OPERATEURS.includes(m[i])) { sortie += echapper(m[i]); i++; continue; }
+        if (NAT_OPERATEURS.includes(m[i])) { sortie += ecrireUnMorceau(m[i]); i++; continue; }
         sortie += lireFacteur();
-        if (i === avant) { sortie += echapper(m[i]); i++; }   // rien n'a avancé : on ne boucle pas
+        if (i === avant) { sortie += ecrireUnMorceau(m[i]); i++; }   // rien n'a avancé : on ne boucle pas
     }
     return sortie;
 }
@@ -21219,12 +21372,18 @@ function montrerLExpression(el, texte, avecCurseur) {
     // n'a plus de texte : « 1/2 » dessiné rend « 1 2 » si on le relit. Ce que
     // la machine a calculé doit rester lisible tel quel — pour les épreuves,
     // pour le tampon, et pour qui voudra le reprendre.
-    el.dataset.brut = String(texte === undefined || texte === null ? '' : texte);
+    const brut = String(texte === undefined || texte === null ? '' : texte);
+    el.dataset.brut = brut;
     try {
-        el.innerHTML = ecrireEnNaturel(texte)
-            + (avecCurseur === false ? '' : '<span class="nat-curseur"></span>');
+        // Le curseur est glissé DANS l'expression, à sa place, puis dessiné
+        // avec le reste : il traverse ainsi les fractions et les racines sans
+        // les couper en deux.
+        const ou = placeDuCurseur(brut);
+        const avec = (avecCurseur === false) ? brut
+            : brut.slice(0, ou) + MARQUE_CURSEUR + brut.slice(ou);
+        el.innerHTML = ecrireEnNaturel(avec);
     } catch (e) {
-        el.textContent = String(texte || '');
+        el.textContent = brut;
     }
 }
 
@@ -21565,16 +21724,31 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             return;
         }
 
+        // -- LE CURSEUR SE DÉPLACE DANS LE CALCUL --
+        // On regarde CE QUI EST ÉCRIT SUR LA TOUCHE et non son identifiant :
+        // ces deux touches-là en portent deux choses, la flèche de curseur et,
+        // en seconde fonction, la flèche d'historique. C'est le libellé qui dit
+        // ce que le professeur vient de demander — et « val » a été relevé
+        // avant que SHIFT ne se désarme.
+        if (val === '◀' || val === '▶') {
+            deplacerLeCurseur(expression, val === '◀' ? -1 : 1);
+            montrerLExpression(calcExpr, expression);
+            return;
+        }
+
         // -- GESTION DE L'HISTORIQUE --
-        if (id === 'btn-calc-up') {
+        if (val === '▲') {
             if (calcHistory.length > 0 && calcHistoryIndex > 0) {
-                calcHistoryIndex--; expression = calcHistory[calcHistoryIndex]; montrerLExpression(calcExpr, expression);
+                calcHistoryIndex--; expression = calcHistory[calcHistoryIndex];
+                curseurCalc = null;
+                montrerLExpression(calcExpr, expression);
             } return;
         }
-        if (id === 'btn-calc-down') {
+        if (val === '▼') {
             if (calcHistoryIndex < calcHistory.length - 1 && calcHistoryIndex !== -1) {
                 calcHistoryIndex++; expression = calcHistory[calcHistoryIndex];
             } else { calcHistoryIndex = calcHistory.length; expression = ""; }
+            curseurCalc = null;
             montrerLExpression(calcExpr, expression); return;
         }
 
@@ -21593,21 +21767,27 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             } else if (val !== '=' && val !== 'a/b') {
                 expression = "";
             }
+            // Un calcul neuf s'écrit à la fin de lui-même : le curseur ne reste
+            // pas là où il était dans le calcul d'avant.
+            curseurCalc = null;
             evaluated = false;
         }
 
         if (val === 'AC') {
-            expression = ""; montrerLeResultat(calcRes, "0");
+            expression = ""; curseurCalc = null; montrerLeResultat(calcRes, "0");
         }
         else if (val === 'DEL') {
             // ON EFFACE UNE TOUCHE, PAS UN CARACTÈRE. « x² » s'écrit avec deux
             // signes : couper le dernier laissait un « x » orphelin dans
             // l'expression, que plus rien ne savait lire — et le calcul suivant
-            // répondait « Erreur » sans qu'on comprenne pourquoi. On retire le
-            // dernier MORCEAU, c'est-à-dire la dernière touche pressée.
-            expression = morceauxDuCalcul(expression).slice(0, -1).join('');
+            // répondait « Erreur » sans qu'on comprenne pourquoi. On retire la
+            // touche qui est juste AVANT le curseur.
+            expression = effacerAuCurseur(expression);
         }
         else if (val === '=') {
+            // Le calcul est fini : le curseur revient au bout, là où l'on
+            // écrirait la suite.
+            curseurCalc = null;
             try {
                 // LA DIVISION EUCLIDIENNE ET LA DÉCOMPOSITION NE RENDENT PAS UN
                 // NOMBRE mais une phrase — « 7 reste 2 », « 60 = 2²×3×5 ». Elles
@@ -21736,7 +21916,7 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             return;
         }
         else if (val === 'MR') {
-            expression += parseFloat(memoireCalc.toPrecision(12));
+            expression = insererAuCurseur(expression, String(parseFloat(memoireCalc.toPrecision(12))));
             montrerLExpression(calcExpr, expression);
             return;
         }
@@ -21760,7 +21940,7 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
                 }
             }
 
-            expression += appendVal;
+            expression = insererAuCurseur(expression, appendVal);
         }
 
         montrerLExpression(calcExpr, expression);
@@ -21898,6 +22078,14 @@ function accepteUneHauteur(el) {
     return d === 'flex' || d === 'grid';
 }
 
+// LA CROIX EST DESSINÉE, ELLE N'EST PLUS UN CARACTÈRE.
+//
+// « L'icône de fermeture et de plein écran font vieillot. » C'était un « ✕ »
+// pris dans la police : sa taille, son épaisseur et sa forme changeaient d'une
+// machine à l'autre, et à côté des deux autres commandes — dessinées, fines,
+// aux bouts arrondis — il faisait tache. Trois commandes sur une barre de
+// titre doivent être de la même main.
+const ICONE_FERMER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>';
 const ICONE_PLEIN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
 const ICONE_REDUIT = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
 
@@ -22537,7 +22725,7 @@ function equiperVraiment(el, cle, options) {
     // marche partout ailleurs sur la barre, et prendre la place du nom.
     tete.innerHTML = `<span class="fen-nom">${echapperTexte(nom || '')}</span>`
         + `<button type="button" class="fen-plein" title="Agrandir la fenêtre">${ICONE_PLEIN}</button>`
-        + `<button type="button" class="fen-fermer" title="Fermer">✕</button>`;
+        + `<button type="button" class="fen-fermer" title="Fermer">${ICONE_FERMER}</button>`;
     el.insertBefore(tete, el.firstChild);
     el.classList.add('fen-titree');
     if (maison) {

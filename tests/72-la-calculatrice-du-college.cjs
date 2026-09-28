@@ -213,29 +213,72 @@ module.exports = async function (browser) {
     // premières se partageaient la hauteur à parts égales, les deux autres
     // prenaient ce qui restait. On mesure donc LA RÈGLE, et non le nombre neuf —
     // une épreuve qui compterait les rangées aurait accompagné la faute.
+    // LE PAD DE DÉPLACEMENT EST À PART, ET C'EST VOULU : ses quatre flèches
+    // n'ont pas la taille des autres touches — gauche et droite sont les
+    // grandes, parce que ce sont celles qu'on presse à chaque calcul. On
+    // mesure donc les touches ORDINAIRES entre elles, et le pad pour
+    // lui-même : sans cette distinction, le contrôle aurait accusé une forme
+    // voulue d'être un écrasement.
     const clavier = await page.evaluate(() => {
-        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
-        const hauteurs = touches().map(t => t.getBoundingClientRect().height);
+        const ordinaires = [...document.querySelectorAll('#calc-widget .calc-btn')]
+            .filter(t => !t.closest('.calc-pad'));
+        const hauteurs = ordinaires.map(t => t.getBoundingClientRect().height);
         const grille = document.querySelector('.calc-grid');
         const bas = grille.getBoundingClientRect().bottom;
         return {
-            combien: touches().length,
+            combien: document.querySelectorAll('#calc-widget .calc-btn').length,
             ecart: Math.max(...hauteurs) - Math.min(...hauteurs),
             plusPetite: Math.min(...hauteurs),
-            depasse: touches().filter(t => t.getBoundingClientRect().bottom > bas + 1).length,
+            depasse: ordinaires.filter(t => t.getBoundingClientRect().bottom > bas + 1).length,
         };
     });
-    r.verifie('le clavier a toutes ses touches', clavier.combien >= 45, String(clavier.combien));
+    r.verifie('le clavier a toutes ses touches', clavier.combien >= 48, String(clavier.combien));
     r.verifie('et elles ont toutes la même hauteur',
         clavier.ecart <= 1, 'écart de ' + clavier.ecart.toFixed(1) + ' px');
     r.verifie('aucune n\'est écrasée', clavier.plusPetite >= 30,
         'la plus petite fait ' + clavier.plusPetite.toFixed(0) + ' px');
     r.egal('et aucune ne déborde du clavier', clavier.depasse, 0);
 
+    // LE PAD A LA FORME D'UN PAD : les deux grandes flèches se font face et
+    // valent deux petites, les deux petites sont l'une au-dessus de l'autre.
+    const pad = await page.evaluate(() => {
+        const q = (c) => document.querySelector('#calc-widget .' + c).getBoundingClientRect();
+        const g = q('pad-gauche'), d = q('pad-droite'), h = q('pad-haut'), b = q('pad-bas');
+        return {
+            grandesPareilles: Math.abs(g.height - d.height) < 1,
+            petitesPareilles: Math.abs(h.height - b.height) < 1,
+            grandeVautDeuxPetites: Math.abs(g.height - (h.height + b.height + 6)) < 2,
+            gaucheAGauche: g.right <= h.left + 1 && h.right <= d.left + 1,
+            hautAuDessusDuBas: h.bottom <= b.top + 1,
+            hauteurs: [Math.round(g.height), Math.round(h.height)],
+            plusPetite: Math.min(g.height, d.height, h.height, b.height),
+            hauteurDuPad: document.querySelector('#calc-widget .calc-pad').getBoundingClientRect().height,
+        };
+    });
+    r.egal('les deux grandes flèches ont la même hauteur', pad.grandesPareilles, true, JSON.stringify(pad));
+    r.egal('les deux petites aussi', pad.petitesPareilles, true, JSON.stringify(pad));
+    r.egal('une grande vaut deux petites', pad.grandeVautDeuxPetites, true, JSON.stringify(pad));
+    r.egal('gauche est à gauche et droite à droite', pad.gaucheAGauche, true, JSON.stringify(pad));
+    r.egal('et haut est au-dessus de bas', pad.hautAuDessusDuBas, true, JSON.stringify(pad));
+    // ET IL EST ASSEZ GRAND POUR QU'ON LE VISE. Un pad écrasé sur une seule
+    // rangée garde toutes ses proportions — les contrôles ci-dessus restent
+    // verts, le sabotage l'a dit — et donne pourtant des flèches de treize
+    // pixels de haut. C'est la HAUTEUR qu'il faut mesurer, et le plancher est
+    // celui que le projet se donne partout : vingt-quatre pixels.
+    r.verifie('chaque flèche du pad se laisse viser',
+        pad.plusPetite >= 24, 'la plus petite fait ' + Math.round(pad.plusPetite) + ' px');
+    r.verifie('et le pad tient bien deux rangées',
+        pad.hauteurDuPad >= 2 * clavier.plusPetite - 4,
+        Math.round(pad.hauteurDuPad) + ' px pour deux touches de ' + Math.round(clavier.plusPetite));
+
     // LA RÈGLE, ET NON LE NOMBRE : on AJOUTE une rangée, et les touches doivent
     // rester de la même taille. C'est exactement ce qui a été cassé le jour où
     // l'on a ajouté les touches du collège à une grille qui comptait ses
     // rangées à la main.
+    //
+    // ET QUAND LE CLAVIER NE TIENT PLUS, IL DÉFILE : il ne rogne pas sa
+    // dernière rangée et il n'écrase pas les autres. C'est la seconde moitié
+    // de la règle, et la seule réponse acceptable sur un petit écran.
     const apresAjout = await page.evaluate(() => {
         const grille = document.querySelector('.calc-grid');
         const ajoutees = [];
@@ -245,16 +288,23 @@ module.exports = async function (browser) {
             b.textContent = 'ZZ' + i;
             grille.appendChild(b); ajoutees.push(b);
         }
-        const h = [...grille.querySelectorAll('.calc-btn')].map(t => t.getBoundingClientRect().height);
-        const bas = grille.getBoundingClientRect().bottom;
-        const depasse = [...grille.querySelectorAll('.calc-btn')]
-            .filter(t => t.getBoundingClientRect().bottom > bas + 1).length;
+        const h = [...grille.querySelectorAll('.calc-btn')]
+            .filter(t => !t.closest('.calc-pad'))
+            .map(t => t.getBoundingClientRect().height);
+        const etat = {
+            ecart: Math.max(...h) - Math.min(...h),
+            plusPetite: Math.min(...h),
+            defile: grille.scrollHeight > grille.clientHeight,
+            peutDefiler: getComputedStyle(grille).overflowY,
+        };
         ajoutees.forEach(b => b.remove());
-        return { ecart: Math.max(...h) - Math.min(...h), depasse };
+        return etat;
     });
     r.verifie('une rangée de plus ne réécrase rien',
-        apresAjout.ecart <= 1, 'écart de ' + apresAjout.ecart.toFixed(1) + ' px');
-    r.egal('et rien ne déborde pour autant', apresAjout.depasse, 0);
+        apresAjout.ecart <= 1 && apresAjout.plusPetite >= 28, JSON.stringify(apresAjout));
+    r.verifie('et si le clavier ne tient plus, il défile',
+        !apresAjout.defile || apresAjout.peutDefiler === 'auto' || apresAjout.peutDefiler === 'scroll',
+        JSON.stringify(apresAjout));
 
     // L'AFFICHEUR N'EST PLUS UN GRAND VIDE VERT. Il était centré dans
     // soixante-dix pixels de haut, avec un résultat de trente-deux : la ligne de

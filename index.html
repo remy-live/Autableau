@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=218 »,
-         « script.js?v=373 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=219 »,
+         « script.js?v=374 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=218">
+    <link rel="stylesheet" href="style.css?v=219">
 </head>
 
 <body>
@@ -1962,8 +1962,13 @@
         <div class="drag-handle-prompt"
             style="height: 35px; background: #1e272e; color: #dfe6e9; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 15px; font-size: 13px; font-weight: bold; cursor: grab; user-select: none;">
             <span id="custom-prompt-title" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Titre</span>
+            <!-- Le même dessin que les autres croix : trois commandes de barre
+                 de titre doivent être de la même main. -->
             <button id="custom-prompt-fermer" class="fen-fermer" type="button" title="Fermer"
-                aria-label="Fermer">✕</button>
+                aria-label="Fermer"><svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12" /><path
+                        d="M18 6L6 18" /></svg></button>
         </div>
         <div class="prompt-corps" style="padding: 15px;">
             <!-- Seuls les RÉGLAGES défilent quand la boîte ne tient pas dans
@@ -2134,20 +2139,39 @@
         <div class="calc-grid">
             <button class="calc-btn action shift" id="btn-calc-shift">SHIFT</button>
             <button class="calc-btn action" id="btn-calc-deg">DEG</button>
-            <button class="calc-btn action" id="btn-calc-up" title="Historique Haut">▲</button>
-            <button class="calc-btn action" id="btn-calc-down" title="Historique Bas">▼</button>
-            <button class="calc-btn fn">π</button>
+
+            <!-- LE PAD DE DÉPLACEMENT — « sur la fx-92 on a un pad qui permet
+                 de se déplacer de gauche à droite. »
+                 C'est ce qui manquait pour corriger sans tout retaper : une
+                 parenthèse oubliée au début d'un calcul de vingt touches
+                 obligeait à recommencer. Et ce n'est pas deux touches perdues
+                 dans le clavier : c'est UN objet, reconnaissable du premier
+                 coup d'œil, où gauche et droite sont les grandes touches parce
+                 que ce sont celles qu'on presse à chaque calcul. Haut et bas
+                 rappellent les calculs précédents. -->
+            <div class="calc-pad" role="group" aria-label="Déplacement dans le calcul">
+                <button class="calc-btn action pad-gauche" title="Reculer d'une touche">◀</button>
+                <button class="calc-btn action pad-haut" title="Calcul précédent">▲</button>
+                <button class="calc-btn action pad-droite" title="Avancer d'une touche">▶</button>
+                <button class="calc-btn action pad-bas" title="Calcul suivant">▼</button>
+            </div>
 
             <button class="calc-btn fn" title="Fraction / Convertir">a/b</button>
             <button class="calc-btn fn shiftable" data-shift="∛">√</button>
+
             <button class="calc-btn fn shiftable" data-shift="x³">x²</button>
             <button class="calc-btn fn">^</button>
             <button class="calc-btn fn" title="Puissance de 10">×10ˣ</button>
+            <button class="calc-btn fn">π</button>
+            <!-- LA VIRGULE A SA PROPRE TOUCHE. Elle était en seconde fonction
+                 sur la parenthèse : écrire PGCD(24;36) demandait un SHIFT au
+                 milieu du calcul, et personne ne le devinait. -->
+            <button class="calc-btn fn" title="Séparateur des fonctions à deux nombres">,</button>
 
             <button class="calc-btn fn shiftable" data-shift="arcsin">sin</button>
             <button class="calc-btn fn shiftable" data-shift="arccos">cos</button>
             <button class="calc-btn fn shiftable" data-shift="arctan">tan</button>
-            <button class="calc-btn fn shiftable" data-shift="," title="Parenthèse — SHIFT : virgule des fonctions à deux nombres">(</button>
+            <button class="calc-btn fn">(</button>
             <button class="calc-btn fn">)</button>
 
             <!-- CE QU'ON FAIT AU COLLÈGE, ET QUI MANQUAIT. Les touches d'une
@@ -3965,7 +3989,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=373"></script>
+    <script src="script.js?v=374"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=120"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
