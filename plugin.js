@@ -16919,7 +16919,14 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
                         tx = pivotX; ty = pivotY;
                     }
 
-                    svg += `<text x="${tx}" y="${ty}" ${transform} dominant-baseline="${bas}" text-anchor="${anc}" font-family="sans-serif" font-size="16" fill="${fc}" ${fw} ${fu}>${cell.t}</text>`;
+                    // LA TAILLE DU TEXTE EST UN RÉGLAGE, plus un nombre écrit
+                    // en dur. Elle valait seize pixels pour tout le monde et
+                    // partout : la seule façon d'avoir des lettres plus grandes
+                    // était d'étirer tout l'objet, ce qui étire aussi la
+                    // grille. Les seize pixels restent la valeur par défaut —
+                    // les tableaux déjà posés ne changent pas d'un cheveu.
+                    const corps = (this.state && this.state.fs) || 16;
+                    svg += `<text x="${tx}" y="${ty}" ${transform} dominant-baseline="${bas}" text-anchor="${anc}" font-family="sans-serif" font-size="${corps}" fill="${fc}" ${fw} ${fu}>${cell.t}</text>`;
                 }
             }
         }
@@ -17121,9 +17128,81 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
             { titre: 'Une colonne de moins', texte: '－▥',
               actif: etat.cols > 1,
               faire: () => this.surCeTableau(imgObj, (e) => { this.state = e; this.deleteCol(e.cols - 1); }) },
+            // LA TAILLE DU TEXTE, SUR PLACE.
+            //
+            // « C'est dans le canvas qu'il serait pratique de pouvoir modifier
+            // en taille, en style, en colonne le tableau. » Pour grossir les
+            // lettres, il n'y avait qu'une manière : étirer tout l'objet — ce
+            // qui étire la grille avec. Les deux gestes sont maintenant
+            // séparés : l'objet garde sa taille, le texte change de corps.
+            { titre: 'Des lettres plus petites (' + this.corpsDuTexte(etat) + ' px)', texte: 'A⁻',
+              actif: this.corpsDuTexte(etat) > 8,
+              faire: () => this.surCeTableau(imgObj, (e) => {
+                  e.fs = Math.max(8, this.corpsDuTexte(e) - 2); }) },
+            { titre: 'Des lettres plus grandes (' + this.corpsDuTexte(etat) + ' px)', texte: 'A⁺',
+              actif: this.corpsDuTexte(etat) < 48,
+              faire: () => this.surCeTableau(imgObj, (e) => {
+                  e.fs = Math.min(48, this.corpsDuTexte(e) + 2); }) },
+
+            // LE STYLE DES TRAITS : leur épaisseur, et le pointillé.
+            { titre: 'L\'épaisseur des traits (' + this.epaisseurDesTraits(etat) + ')', texte: '▤',
+              faire: () => this.surCeTableau(imgObj, (e) => {
+                  const suite = { 1: 2, 2: 3, 3: 1 };
+                  this.epaissirLesTraits(e, suite[this.epaisseurDesTraits(e)] || 1); }) },
+            { titre: this.traitsEnPointilles(etat) ? 'Des traits pleins' : 'Des traits en pointillés',
+              texte: this.traitsEnPointilles(etat) ? '▬' : '┅',
+              faire: () => this.surCeTableau(imgObj, (e) => {
+                  this.pointillerLesTraits(e, !this.traitsEnPointilles(e)); }) },
+
             { titre: 'La couleur des traits', couleur: this.couleurDesTraits(etat),
               faire: (c) => this.surCeTableau(imgObj, (e) => { this.peindreLesTraits(e, c); }) }
         ];
+    },
+
+    // Le corps du texte d'un tableau : seize pixels tant qu'on n'a rien dit,
+    // ce qui est la taille de tous les tableaux déjà posés.
+    corpsDuTexte: function (etat) {
+        const n = etat && etat.fs;
+        return (typeof n === 'number' && isFinite(n) && n > 0) ? n : 16;
+    },
+
+    // L'épaisseur qui revient le plus dans les traits, comme pour la couleur.
+    epaisseurDesTraits: function (etat) {
+        const compte = {};
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => {
+                const b = bords[k];
+                if (b && b.w) compte[b.w] = (compte[b.w] || 0) + 1;
+            });
+        });
+        const gagnante = Object.keys(compte).sort((a, b) => compte[b] - compte[a])[0];
+        return gagnante ? Number(gagnante) : 1;
+    },
+
+    epaissirLesTraits: function (etat, epaisseur) {
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => { if (bords[k]) bords[k].w = epaisseur; });
+        });
+    },
+
+    traitsEnPointilles: function (etat) {
+        let pleins = 0, pointilles = 0;
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => {
+                const b = bords[k];
+                if (!b) return;
+                if (b.d) pointilles++; else pleins++;
+            });
+        });
+        return pointilles > pleins;
+    },
+
+    pointillerLesTraits: function (etat, oui) {
+        [etat.hBorders, etat.vBorders].forEach(bords => {
+            Object.keys(bords || {}).forEach(k => {
+                if (bords[k]) bords[k].d = oui ? '6,4' : '';
+            });
+        });
     },
 
     // La couleur qui revient le plus dans les traits : c'est celle qu'on
@@ -17163,22 +17242,27 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     // geste que très près du trait : partout ailleurs, c'est un déplacement de
     // l'objet, et le lui voler serait pire que de ne rien offrir.
     separationSousLePoint: function (imgObj, pos) {
-        const etat = imgObj && imgObj.pluginData && imgObj.pluginData.state;
-        if (!etat || !etat.colW) return null;
-        const pad = 10;
-        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
-        const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
-        const ex = imgObj.w / large, ey = imgObj.h / haut;
-        const wy = (pos.y - imgObj.y) / ey - pad;
-        if (wy < -6 || wy > haut - pad * 2 + 6) return null;
-        const wx = (pos.x - imgObj.x) / ex - pad;
-        let x = 0;
-        for (let i = 0; i < etat.cols; i++) {
-            x += etat.colW[i];
-            // Le dernier trait est le bord droit : le tirer, c'est
-            // redimensionner l'objet, pas la colonne. On s'arrête avant.
-            if (i === etat.cols - 1) break;
-            if (Math.abs(wx - x) <= 7) return { idx: i, largeur: etat.colW[i] };
+        const m = this.mesureDuTableau(imgObj);
+        if (!m) return null;
+        // Dans le sens de la largeur, il faut être DANS la hauteur du tableau,
+        // et réciproquement : sinon on prendrait le geste à côté de la grille.
+        const dedans = (axe) => {
+            const t = axe === 'y'
+                ? { v: (pos.x - imgObj.x) / m.ex - m.pad, etendue: m.large - m.pad * 2 }
+                : { v: (pos.y - imgObj.y) / m.ey - m.pad, etendue: m.haut - m.pad * 2 };
+            return t.v >= -6 && t.v <= t.etendue + 6;
+        };
+        for (const axe of ['x', 'y']) {
+            if (!dedans(axe)) continue;
+            const b = this.bordsDuTableau(imgObj, axe);
+            if (!b) continue;
+            const v = axe === 'y' ? ((pos.y - imgObj.y) / m.ey - m.pad)
+                                  : ((pos.x - imgObj.x) / m.ex - m.pad);
+            for (const bord of b.bords) {
+                if (Math.abs(v - bord.d) <= 7) {
+                    return { axe, idx: bord.idx, largeur: bord.taille, taille: bord.taille };
+                }
+            }
         }
         return null;
     },
@@ -17189,7 +17273,9 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         if (this.currentStamp || this.glisseColonne) return null;
         const obj = this.tableauPrisEnMain();
         if (!obj) return null;
-        return this.separationSousLePoint(obj, pos) ? 'col-resize' : null;
+        const sep = this.separationSousLePoint(obj, pos);
+        if (!sep) return null;
+        return sep.axe === 'y' ? 'row-resize' : 'col-resize';
     },
 
     tableauPrisEnMain: function () {
@@ -17200,23 +17286,58 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         return o;
     },
 
-    // OÙ SONT LES SÉPARATIONS DE COLONNES, EN COORDONNÉES DU TABLEAU.
-    // Une seule mesure, et trois usages : les montrer, les viser, les tirer.
-    bordsDesColonnes: function (imgObj) {
+    // LE TABLEAU MESURÉ UNE FOIS : ce qu'il faut savoir pour montrer, viser et
+    // tirer ses séparations, dans les deux sens.
+    mesureDuTableau: function (imgObj) {
         const etat = imgObj && imgObj.pluginData && imgObj.pluginData.state;
-        if (!etat || !etat.colW || etat.cols < 2) return null;
+        if (!etat || !etat.colW || !etat.rowH) return null;
         const pad = 10;
         const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
         const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
-        const ex = imgObj.w / large, ey = imgObj.h / haut;
+        return { etat, pad, large, haut,
+                 ex: imgObj.w / large, ey: imgObj.h / haut,
+                 x0: imgObj.x + pad * (imgObj.w / large),
+                 x1: imgObj.x + (large - pad) * (imgObj.w / large),
+                 y0: imgObj.y + pad * (imgObj.h / haut),
+                 y1: imgObj.y + (haut - pad) * (imgObj.h / haut) };
+    },
+
+    // LES SÉPARATIONS, DANS LES DEUX SENS, ÉCRITES UNE FOIS.
+    //
+    // Une colonne se tire de gauche à droite, une ligne de haut en bas : c'est
+    // le même geste, et il n'y a aucune raison de l'écrire deux fois. « axe »
+    // vaut 'x' pour les colonnes, 'y' pour les lignes ; tout le reste — les
+    // poignées, le curseur, le glissement — s'en sert sans savoir lequel.
+    bordsDuTableau: function (imgObj, axe) {
+        const m = this.mesureDuTableau(imgObj);
+        if (!m) return null;
+        const tailles = axe === 'y' ? m.etat.rowH : m.etat.colW;
+        const combien = axe === 'y' ? m.etat.rows : m.etat.cols;
+        if (!tailles || combien < 2) return null;
+        const facteur = axe === 'y' ? m.ey : m.ex;
+        const origine = axe === 'y' ? imgObj.y : imgObj.x;
         const bords = [];
-        let x = 0;
-        for (let i = 0; i < etat.cols - 1; i++) {
-            x += etat.colW[i];
-            bords.push({ idx: i, largeur: etat.colW[i], wx: x, x: imgObj.x + (pad + x) * ex });
+        let d = 0;
+        // Le dernier trait est le bord de l'objet : le tirer, c'est
+        // redimensionner l'objet, pas la colonne. On s'arrête avant.
+        for (let i = 0; i < combien - 1; i++) {
+            d += tailles[i];
+            bords.push({ axe, idx: i, taille: tailles[i], largeur: tailles[i],
+                         d, p: origine + (m.pad + d) * facteur });
         }
-        return { bords, ex, ey, pad, haut,
-                 y0: imgObj.y + pad * ey, y1: imgObj.y + (haut - pad) * ey };
+        return Object.assign({ bords, axe, facteur }, m);
+    },
+
+    // Les colonnes, sous leur ancien nom : le geste des colonnes est venu en
+    // premier et son épreuve l'appelle ainsi.
+    bordsDesColonnes: function (imgObj) {
+        const b = this.bordsDuTableau(imgObj, 'x');
+        return b ? Object.assign({}, b, { bords: b.bords.map(o => ({ ...o, x: o.p, wx: o.d })) }) : null;
+    },
+
+    bordsDesLignes: function (imgObj) {
+        const b = this.bordsDuTableau(imgObj, 'y');
+        return b ? Object.assign({}, b, { bords: b.bords.map(o => ({ ...o, y: o.p, wy: o.d })) }) : null;
     },
 
     onDraw: function (ctx) {
@@ -17241,42 +17362,58 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         const pris = (typeof mode !== 'undefined' && mode === 'pointer' && !this.glisseColonne)
             ? this.tableauPrisEnMain() : null;
         if (pris) {
-            const m = this.bordsDesColonnes(pris);
-            if (m) {
-                const e = (typeof zoom !== 'undefined' && zoom) || 1;
+            const e = (typeof zoom !== 'undefined' && zoom) || 1;
+            ['x', 'y'].forEach(axe => {
+                const m = this.bordsDuTableau(pris, axe);
+                if (!m) return;
                 ctx.save();
                 ctx.strokeStyle = 'rgba(9, 132, 227, 0.55)';
                 ctx.lineWidth = 1.5 / e;
                 m.bords.forEach(b => {
                     ctx.beginPath();
-                    ctx.moveTo(b.x, m.y0);
-                    ctx.lineTo(b.x, m.y1);
+                    if (axe === 'y') { ctx.moveTo(m.x0, b.p); ctx.lineTo(m.x1, b.p); }
+                    else { ctx.moveTo(b.p, m.y0); ctx.lineTo(b.p, m.y1); }
                     ctx.stroke();
-                    // La poignée, au milieu du trait : deux flèches opposées.
-                    const cy = (m.y0 + m.y1) / 2, r = 9 / e;
+                    // La poignée, au milieu du trait : deux flèches opposées,
+                    // tournées dans le sens où l'on tire.
+                    const r = 9 / e;
+                    const cx = axe === 'y' ? (m.x0 + m.x1) / 2 : b.p;
+                    const cy = axe === 'y' ? b.p : (m.y0 + m.y1) / 2;
                     ctx.fillStyle = '#0984e3';
-                    ctx.beginPath();
-                    ctx.moveTo(b.x - r, cy); ctx.lineTo(b.x - r / 2.2, cy - r / 2.4);
-                    ctx.lineTo(b.x - r / 2.2, cy + r / 2.4); ctx.closePath(); ctx.fill();
-                    ctx.beginPath();
-                    ctx.moveTo(b.x + r, cy); ctx.lineTo(b.x + r / 2.2, cy - r / 2.4);
-                    ctx.lineTo(b.x + r / 2.2, cy + r / 2.4); ctx.closePath(); ctx.fill();
+                    [-1, 1].forEach(sens => {
+                        ctx.beginPath();
+                        if (axe === 'y') {
+                            ctx.moveTo(cx, cy + r * sens);
+                            ctx.lineTo(cx - r / 2.4, cy + (r / 2.2) * sens);
+                            ctx.lineTo(cx + r / 2.4, cy + (r / 2.2) * sens);
+                        } else {
+                            ctx.moveTo(cx + r * sens, cy);
+                            ctx.lineTo(cx + (r / 2.2) * sens, cy - r / 2.4);
+                            ctx.lineTo(cx + (r / 2.2) * sens, cy + r / 2.4);
+                        }
+                        ctx.closePath(); ctx.fill();
+                    });
                 });
                 ctx.restore();
-            }
+            });
         }
         // LE TRAIT QU'ON TIRE. Refaire le dessin de la grille à chaque pixel
         // coûterait trop cher : on montre où la colonne va tomber, et l'on ne
         // refait la grille qu'au relâchement.
         const g = this.glisseColonne;
-        if (g && g.xVif !== undefined) {
+        if (g && g.vif !== undefined) {
             ctx.save();
             ctx.strokeStyle = '#0984e3';
             ctx.lineWidth = 2 / ((typeof zoom !== 'undefined' && zoom) || 1);
             ctx.setLineDash([6, 4]);
             ctx.beginPath();
-            ctx.moveTo(g.xVif, g.obj.y);
-            ctx.lineTo(g.xVif, g.obj.y + g.obj.h);
+            if (g.axe === 'y') {
+                ctx.moveTo(g.obj.x, g.vif);
+                ctx.lineTo(g.obj.x + g.obj.w, g.vif);
+            } else {
+                ctx.moveTo(g.vif, g.obj.y);
+                ctx.lineTo(g.vif, g.obj.y + g.obj.h);
+            }
             ctx.stroke();
             ctx.restore();
         }
@@ -17285,9 +17422,10 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
     onPointerMove: function (pos) {
         const g = this.glisseColonne;
         if (!g) return false;
-        const large = Math.max(g.minimum, g.largeur0 + (pos.x - g.x0) / g.ex);
-        g.largeur = large;
-        g.xVif = g.xBord + (large - g.largeur0) * g.ex;
+        const depuis = (g.axe === 'y' ? pos.y : pos.x) - g.depart;
+        const taille = Math.max(g.minimum, g.taille0 + depuis / g.facteur);
+        g.taille = taille;
+        g.vif = g.bord + (taille - g.taille0) * g.facteur;
         if (typeof draw === 'function') draw();
         return true;
     },
@@ -17296,9 +17434,11 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         const g = this.glisseColonne;
         if (!g) return false;
         this.glisseColonne = null;
-        const large = Math.round(g.largeur);
-        if (Math.abs(large - g.largeur0) >= 1) {
-            this.surCeTableau(g.obj, (vif) => { vif.colW[g.idx] = large; });
+        const taille = Math.round(g.taille);
+        if (Math.abs(taille - g.taille0) >= 1) {
+            this.surCeTableau(g.obj, (vif) => {
+                if (g.axe === 'y') vif.rowH[g.idx] = taille; else vif.colW[g.idx] = taille;
+            });
         } else if (typeof draw === 'function') draw();
         return true;
     },
@@ -17310,16 +17450,17 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
             const obj = this.tableauPrisEnMain();
             const sep = obj ? this.separationSousLePoint(obj, pos) : null;
             if (sep) {
-                const etat = obj.pluginData.state;
-                const pad = 10;
-                const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
-                const ex = obj.w / large;
-                let x = 0;
-                for (let i = 0; i <= sep.idx; i++) x += etat.colW[i];
-                this.glisseColonne = { obj, idx: sep.idx, x0: pos.x, ex,
-                                       largeur0: sep.largeur, largeur: sep.largeur,
-                                       minimum: 24, xBord: obj.x + (pad + x) * ex,
-                                       xVif: obj.x + (pad + x) * ex };
+                const m = this.mesureDuTableau(obj);
+                const tailles = sep.axe === 'y' ? m.etat.rowH : m.etat.colW;
+                const facteur = sep.axe === 'y' ? m.ey : m.ex;
+                const origine = sep.axe === 'y' ? obj.y : obj.x;
+                let d = 0;
+                for (let i = 0; i <= sep.idx; i++) d += tailles[i];
+                const bord = origine + (m.pad + d) * facteur;
+                this.glisseColonne = { obj, axe: sep.axe, idx: sep.idx, facteur,
+                                       depart: sep.axe === 'y' ? pos.y : pos.x,
+                                       taille0: sep.taille, taille: sep.taille,
+                                       minimum: 24, bord, vif: bord };
                 return true;
             }
         }

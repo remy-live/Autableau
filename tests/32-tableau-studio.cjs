@@ -73,11 +73,15 @@ module.exports = async function (browser) {
         couleur: (document.querySelector('#quick-plugin-actions .qpa-couleur') || {}).value,
         vue: getComputedStyle(document.getElementById('quick-plugin-actions')).display
     }));
-    r.egal('quatre gestes et une pastille de couleur paraissent',
+    // HUIT GESTES ET UNE PASTILLE. Aux quatre premiers — lignes et colonnes —
+    // s'ajoutent la taille des lettres et le style des traits : « c'est dans le
+    // canvas qu'il serait pratique de pouvoir modifier en taille, en style, en
+    // colonne le tableau. »
+    r.egal('huit gestes et une pastille de couleur paraissent',
         { combien: barre.boutons.length, couleur: barre.couleur, vue: barre.vue },
-        { combien: 4, couleur: '#2d3436', vue: 'flex' });
+        { combien: 8, couleur: '#2d3436', vue: 'flex' });
     r.verifie('et chacun dit ce qu\'il fait',
-        barre.titres.every(t => /ligne|colonne/i.test(t)), JSON.stringify(barre.titres));
+        barre.titres.every(t => /ligne|colonne|lettres|traits/i.test(t)), JSON.stringify(barre.titres));
 
     const gestes = await page.evaluate(async () => {
         const appuyer = async (i) => {
@@ -117,7 +121,7 @@ module.exports = async function (browser) {
         barre: document.querySelectorAll('#quick-plugin-actions .qpa-btn').length
     }));
     r.egal('et la grille reste prise en main : la barre ne s\'en va pas entre deux gestes',
-        tenue, { selection: 1, cible: true, barre: 4 });
+        tenue, { selection: 1, cible: true, barre: 8 });
 
     // LA DERNIÈRE LIGNE NE SE RETIRE PAS. Une grille sans ligne n'est plus une
     // grille : le bouton s'éteint au lieu de la faire disparaître.
@@ -263,7 +267,7 @@ module.exports = async function (browser) {
                  rendue: document.querySelectorAll('#quick-plugin-actions .qpa-btn').length };
     });
     r.egal('verrouillée, la grille ne montre plus ses gestes ; déverrouillée, ils reviennent',
-        verrouillee, { verrouillee: 0, rendue: 4 });
+        verrouillee, { verrouillee: 0, rendue: 8 });
 
     await page.evaluate(() => {
         images.length = 0; selectedItems = [];
@@ -343,7 +347,10 @@ module.exports = async function (browser) {
     await page.waitForTimeout(150);
     const pendantLeGlissement = await page.evaluate(() => {
         const g = PluginManager.plugins['tableStudioTool'].glisseColonne;
-        return { enCours: !!g, largeur: g ? Math.round(g.largeur) : 0,
+        // « taille » et non « largeur » : le geste a été écrit une fois pour
+        // les deux sens — une colonne se tire de gauche à droite, une ligne de
+        // haut en bas —, et le mot qui les couvre tous les deux est « taille ».
+        return { enCours: !!g, largeur: g ? Math.round(g.taille) : 0,
                  // La grille n'est pas refaite à chaque pixel : c'est un trait
                  // de repère qu'on montre, et la colonne n'a pas encore bougé.
                  pasEncore: images[0].pluginData.state.colW[0] };
