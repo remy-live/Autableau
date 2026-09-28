@@ -8177,13 +8177,57 @@ function coinsDuNezCarre(p, demiLargeur) {
     return [{ x: p.x - h, y: p.y - h }, { x: p.x + h, y: p.y - h },
             { x: p.x + h, y: p.y + h }, { x: p.x - h, y: p.y + h }];
 }
+// LE SURLIGNEUR SUIT LE MÊME TRACÉ QUE LE CRAYON.
+//
+// « Est-ce possible de linéariser le tracé comme le crayon ? »
+//
+// Le crayon ne relie pas les points relevés : il fait passer une quadratique
+// par les MILIEUX des segments, en prenant chaque point comme point de
+// contrôle. C'est ce qui lui donne sa ligne posée là où le relevé, lui,
+// tremble — un pointeur envoie une position tous les quelques millimètres, et
+// la main n'est jamais parfaitement régulière.
+//
+// Le surligneur, lui, traînait son nez carré sur les points BRUTS : le même
+// geste donnait une ligne anguleuse à côté d'une ligne lisse. On échantillonne
+// donc la MÊME courbe que le crayon, et c'est sur ces points-là qu'on traîne
+// le nez. Le geste et l'outil ne se contredisent plus.
+//
+// Le pas d'échantillonnage vient de la largeur du trait : inutile de poser
+// cent tampons là où le nez en couvre déjà la place. Un plafond tient les très
+// longs tracés, où le relevé est déjà assez fin pour qu'on n'ajoute rien.
+function pointsAdoucisDuTrait(points, pas) {
+    if (!points || points.length < 3) return (points || []).slice();
+    const mil = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const sortie = [points[0]];
+    let depart = points[0];
+    for (let i = 1; i < points.length - 1; i++) {
+        const ctrl = points[i];
+        const fin = mil(points[i], points[i + 1]);
+        const long = Math.hypot(ctrl.x - depart.x, ctrl.y - depart.y)
+                   + Math.hypot(fin.x - ctrl.x, fin.y - ctrl.y);
+        const combien = Math.max(1, Math.min(16, Math.ceil(long / pas)));
+        for (let k = 1; k <= combien; k++) {
+            const t = k / combien, u = 1 - t;
+            sortie.push({
+                x: u * u * depart.x + 2 * u * t * ctrl.x + t * t * fin.x,
+                y: u * u * depart.y + 2 * u * t * ctrl.y + t * t * fin.y
+            });
+        }
+        depart = fin;
+    }
+    sortie.push(points[points.length - 1]);
+    return sortie;
+}
+
 // Les sous-chemins (un par segment, plus un pour un point isolé) du nez
 // carré : à qui les trace (canvas) comme à qui écrit du SVG.
 function sousCheminsDuNezCarre(points, demiLargeur) {
     const chemins = [];
+    if (!points || !points.length) return chemins;
     if (points.length === 1) { chemins.push(coinsDuNezCarre(points[0], demiLargeur)); return chemins; }
-    for (let i = 0; i < points.length - 1; i++) {
-        const hull = envelopeConvexe(coinsDuNezCarre(points[i], demiLargeur).concat(coinsDuNezCarre(points[i + 1], demiLargeur)));
+    const lisses = pointsAdoucisDuTrait(points, Math.max(1.5, demiLargeur / 2));
+    for (let i = 0; i < lisses.length - 1; i++) {
+        const hull = envelopeConvexe(coinsDuNezCarre(lisses[i], demiLargeur).concat(coinsDuNezCarre(lisses[i + 1], demiLargeur)));
         if (hull.length) chemins.push(hull);
     }
     return chemins;
@@ -11392,9 +11436,25 @@ canvas.addEventListener('pointerdown', (e) => {
         const pressure = (e.pointerType === 'pen' && e.pressure > 0) ? e.pressure : 0.5;
         const isH = (mode === 'highlighter');
 
+        // UN TRAIT NAÎT AVEC DEUX POINTS, ET C'EST TOUTE LA CORRECTION.
+        //
+        // « Pour le surligneur, si je clique et que je ne bouge pas, ça ne
+        // dessine pas ; je voudrais au moins que ça dessine le carré de base. »
+        // Un trait d'un seul point était refusé partout : l'aperçu en direct ne
+        // le dessinait pas (« points.length > 1 »), et le relâchement le JETAIT
+        // au lieu de le poser. Poser le doigt sans bouger ne laissait donc rien
+        // — ni carré de surligneur, ni point de crayon.
+        //
+        // On aurait pu écrire l'exception à ces trois endroits. Il vaut mieux
+        // qu'elle n'existe pas : le point de départ est posé DEUX FOIS, le
+        // trait a toujours au moins deux points, et tout ce qui le dessine, le
+        // mesure, l'exporte ou le retrouve marche sans rien savoir de ce cas.
+        // Un segment de longueur nulle donne exactement ce qu'on attend : un
+        // rond pour le crayon, le carré du nez pour le surligneur.
         currentFreehand = {
             id: nextId++,
-            points: [{ x: actionPos.x, y: actionPos.y, p: pressure }],
+            points: [{ x: actionPos.x, y: actionPos.y, p: pressure },
+                     { x: actionPos.x, y: actionPos.y, p: pressure }],
             color: activeStyle.strokeColor,
             width: isH ? (activeStyle.lineWidth * 6) : activeStyle.lineWidth,
             dash: activeStyle.lineDash,

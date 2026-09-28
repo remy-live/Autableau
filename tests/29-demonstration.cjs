@@ -289,19 +289,39 @@ module.exports = async function (browser) {
     // =====================================================================
     // LA CLASSE MONTRÉE EST INVENTÉE, ET RIEN NE S'ÉCRIT
     // =====================================================================
+    // ON COMPARE LE DISQUE À LUI-MÊME, ET NON À RIEN.
+    //
+    // Ce contrôle exigeait que la clé des classes soit ABSENTE du disque. Elle
+    // l'est presque toujours — mais pas forcément : le démarrage écrit, et
+    // « localforage » écrit sans attendre. Lancé seul, le chapitre lisait le
+    // disque avant que l'écriture du démarrage n'ait abouti ; lancé derrière
+    // soixante-dix autres, sur une machine occupée, elle avait eu le temps
+    // d'aboutir — et le contrôle tombait une fois sur quinze en accusant la
+    // démonstration d'une écriture qui n'était pas la sienne.
+    //
+    // Ce qu'il veut dire tient en une phrase : l'écriture faite PENDANT la
+    // visite ne doit pas atteindre le disque. On relève donc le disque avant,
+    // on force l'écriture, on relève après, et l'on regarde si cela a bougé.
     const classes = await page.evaluate(async () => {
         const enMemoire = (ClassesStore._cache || []).map(c => c.name);
+        const lire = async () => {
+            try { return JSON.stringify(await localforage.getItem('auTableau_classes_v2')); }
+            catch (e) { return 'refusé'; }
+        };
+        const avant = await lire();
         // On force une écriture, comme le ferait un point donné à un élève
         // pendant la visite : elle ne doit PAS atteindre le disque.
         await ClassesStore._ecrire();
-        let surLeDisque = null;
-        try { surLeDisque = await localforage.getItem('auTableau_classes_v2'); } catch (e) { surLeDisque = 'refusé'; }
-        return { enMemoire, surLeDisque: surLeDisque === null ? 'rien' : 'quelque chose',
+        const apres = await lire();
+        return { enMemoire, bouge: avant !== apres,
+                 // Et la classe inventée ne doit jamais s'y trouver.
+                 inventeeSurLeDisque: (apres || '').includes('Démonstration'),
                  pastille: (document.querySelector('#classe-pastille .cp-nom') || {}).textContent };
     });
     r.egal('la classe montrée est inventée, et le disque n\'a rien reçu',
-        { classes: classes.enMemoire, disque: classes.surLeDisque },
-        { classes: ['Démonstration — 6e B'], disque: 'rien' });
+        { classes: classes.enMemoire, bouge: classes.bouge,
+          inventee: classes.inventeeSurLeDisque },
+        { classes: ['Démonstration — 6e B'], bouge: false, inventee: false });
     r.egal('et la pastille du coin la nomme', classes.pastille, 'Démonstration — 6e B');
 
     // =====================================================================
