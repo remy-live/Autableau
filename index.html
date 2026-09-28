@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=220 »,
-         « script.js?v=379 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=380 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -3956,12 +3956,19 @@
                      l'heure, la matière, la classe, la salle, et même les
                      sonneries de l'établissement, qui sont les heures de
                      début et de fin des cours.
+                     ET LE PDF QU'ON IMPRIME, AUSSI. « As-tu réglé l'import
+                     d'emploi du temps ? » — la question est venue deux fois,
+                     avec le PDF de l'établissement en pièce jointe : c'est
+                     ce que tout le monde a sous la main, parce que c'est ce
+                     qu'on affiche au mur. Un même bouton lit les deux ; on
+                     ne demande pas de savoir lequel on a reçu. Le PDF dit en
+                     plus les semaines A et B, que le .ics tait.
                      Le champ de fichier est caché derrière le bouton : un
                      « input file » nu est laid et ne dit pas ce qu'il attend. -->
                 <button type="button" id="edt-importer" class="edt-pas edt-pas-large edt-pour-construire"
-                    aria-label="Importer l'emploi du temps depuis un fichier Pronote"
-                    data-tooltip="Importer depuis Pronote : exportez votre semaine au format iCal (.ics)">⬆ Importer</button>
-                <input type="file" id="edt-fichier" accept=".ics,text/calendar" style="display:none;">
+                    aria-label="Importer l'emploi du temps depuis un fichier Pronote ou un PDF"
+                    data-tooltip="Importer son emploi du temps : l'export iCal (.ics) de Pronote, ou le PDF qu'on imprime">⬆ Importer</button>
+                <input type="file" id="edt-fichier" accept=".ics,text/calendar,.pdf,application/pdf" style="display:none;">
                 <span id="edt-tampon" class="edt-tampon edt-pour-construire"></span>
                 <span id="edt-ancre" class="edt-pour-construire"></span>
             </div>
@@ -3989,7 +3996,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=379"></script>
+    <script src="script.js?v=380"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=122"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

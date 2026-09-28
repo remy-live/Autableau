@@ -35666,6 +35666,22 @@ function edtDepuisIcs(texte) {
         return { erreur: 'Ce fichier ne contient aucun cours', vacances: journees };
     }
 
+    return assemblerLEdt(cours, journees);
+}
+window.edtDepuisIcs = edtDepuisIcs;
+
+// ==============================================================================
+// ET DE L'UN COMME DE L'AUTRE, LE MÊME AGENDA
+//
+// Deux lectures mènent ici : le .ics de Pronote et l'emploi du temps imprimé
+// en PDF. Ce qu'elles rendent est la même chose — une liste de cours — et tout
+// ce qui suit vaut pour les deux : la matière dominante, les doublons
+// rapprochés, une entrée par classe avec sa couleur, les sonneries relevées.
+// L'écrire deux fois, c'était promettre que les deux imports vieilliraient
+// ensemble.
+// ==============================================================================
+function assemblerLEdt(cours, journees) {
+    journees = journees || [];
     // LA MATIÈRE DOMINANTE : celle qu'on enseigne. Elle n'a pas à être écrite
     // dans chaque case.
     const compte = {};
@@ -35674,10 +35690,13 @@ function edtDepuisIcs(texte) {
     Object.keys(compte).forEach(m => { if (compte[m] > meilleur) { meilleur = compte[m]; matiereDominante = m; } });
 
     // ON RAPPROCHE LES DOUBLONS. Un export ne couvre qu'une semaine ; qui en
-    // importe plusieurs retrouverait chaque cours autant de fois.
+    // importe plusieurs retrouverait chaque cours autant de fois. La semaine
+    // entre dans la clé : en semaine A et en semaine B, à la même heure, ce
+    // sont bien deux cours différents — c'est même tout l'intérêt.
     const vus = new Map();
     cours.forEach(c => {
-        const cle = c.jour + '|' + c.debut + '|' + c.duree + '|' + libelleDuCours(c, matiereDominante);
+        const cle = c.jour + '|' + c.debut + '|' + c.duree + '|' + (c.semaine || 'toutes')
+            + '|' + libelleDuCours(c, matiereDominante);
         if (!vus.has(cle)) vus.set(cle, c);
     });
     const uniques = [...vus.values()].sort((a, b) => a.jour - b.jour || a.debut - b.debut);
@@ -35732,11 +35751,323 @@ function edtDepuisIcs(texte) {
         fin: Math.ceil(dernier / 60) * 60,
         matiereDominante,
         vacances: journees,
+        // L'ALTERNANCE NE SE DEVINE PAS, ELLE SE LIT. Un .ics ne montre qu'une
+        // semaine et ne dit pas laquelle : aucun de ses cours n'est marqué, et
+        // l'on ne pose rien. Un emploi du temps imprimé, lui, porte ses
+        // pastilles « A » et « B » : s'il y en a une seule, la grille alterne.
+        alterne: uniques.some(c => c.semaine === 'A' || c.semaine === 'B'),
         semaines: 1,
         lus: cours.length
     };
 }
-window.edtDepuisIcs = edtDepuisIcs;
+window.assemblerLEdt = assemblerLEdt;
+
+// ==============================================================================
+// L'EMPLOI DU TEMPS QU'ON A IMPRIMÉ
+//
+// « As-tu réglé l'import d'emploi du temps dans Au tableau ? » — la question
+// est venue deux fois, avec l'emploi du temps de l'établissement en pièce
+// jointe. Un PDF, pas un .ics : c'est ce que tout le monde a sous la main,
+// parce que c'est ce qu'on imprime et qu'on affiche au mur.
+//
+// CE QU'UN TEL PDF CONTIENT VRAIMENT. Ce n'est pas une photo de grille : c'est
+// une grille DESSINÉE, et tout y est encore lisible. Relevé sur un emploi du
+// temps réel :
+//   — les en-têtes de colonne, « lundi » … « vendredi », qui donnent le centre
+//     de chaque journée et, par leur écart, la largeur d'une colonne ;
+//   — les heures dans la marge de gauche — 8h05, 9h05, 10h00, 10h15, … — qui
+//     donnent la hauteur de chaque ligne ;
+//   — un rectangle coloré par cours, large d'une colonne ou d'une demie quand
+//     la classe est dédoublée ;
+//   — dedans, la matière, la classe, la salle ;
+//   — et, au coin bas des cours qui alternent, une pastille « A » ou « B ».
+//
+// AUCUNE DE CES MESURES N'EST ÉCRITE EN DUR, et c'est la seule façon que cela
+// marche ailleurs que sur le fichier qu'on avait sous les yeux : un autre
+// établissement, un autre format de page, une semaine de six jours, une
+// journée qui commence à huit heures moins le quart. Tout se déduit du
+// fichier lui-même.
+// ==============================================================================
+const EDT_PDF_JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const EDT_PDF_HEURE = /^(\d{1,2})\s*h\s*(\d{2})$/i;
+
+// CE QU'ON LIT DANS UNE PAGE : SON TEXTE, ET SES RECTANGLES.
+//
+// Le texte, pdf.js le rend tout fait. Les rectangles, non : il faut relire la
+// liste des opérations de dessin en suivant la MATRICE COURANTE — un PDF ne
+// dit pas « un rectangle ici », il dit « déplace le repère, puis un rectangle
+// là ». Sans ce suivi, toutes les cases se retrouvent empilées à l'origine.
+async function structureDUnePagePdf(page) {
+    const vue = page.getViewport({ scale: 1 });
+    const contenu = await page.getTextContent();
+    const textes = contenu.items
+        .filter(i => i && i.str && i.str.trim())
+        .map(i => ({ t: i.str, x: i.transform[4], y: i.transform[5],
+                     l: i.width || 0, h: i.height || 0 }));
+
+    const ops = await page.getOperatorList();
+    const O = pdfjsLib.OPS;
+    const produit = (a, b) => [
+        a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1],
+        a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3],
+        a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]
+    ];
+    let matrice = [1, 0, 0, 1, 0, 0];
+    const pile = [];
+    let enCours = null;
+    const rects = [];
+    for (let i = 0; i < ops.fnArray.length; i++) {
+        const fn = ops.fnArray[i], args = ops.argsArray[i];
+        if (fn === O.save) pile.push(matrice.slice());
+        else if (fn === O.restore) matrice = pile.pop() || [1, 0, 0, 1, 0, 0];
+        else if (fn === O.transform) matrice = produit(matrice, args);
+        else if (fn === O.constructPath) {
+            const quoi = args[0], coords = args[1];
+            let k = 0;
+            for (let j = 0; j < quoi.length; j++) {
+                if (quoi[j] === O.rectangle) {
+                    const x = coords[k], y = coords[k + 1], l = coords[k + 2], h = coords[k + 3];
+                    k += 4;
+                    const a = [matrice[0] * x + matrice[2] * y + matrice[4],
+                               matrice[1] * x + matrice[3] * y + matrice[5]];
+                    const b = [matrice[0] * (x + l) + matrice[2] * (y + h) + matrice[4],
+                               matrice[1] * (x + l) + matrice[3] * (y + h) + matrice[5]];
+                    enCours = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]),
+                                l: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
+                } else if (quoi[j] === O.moveTo || quoi[j] === O.lineTo) k += 2;
+                else if (quoi[j] === O.curveTo) k += 6;
+                else if (quoi[j] === O.curveTo2 || quoi[j] === O.curveTo3) k += 4;
+            }
+        }
+        else if ((fn === O.fill || fn === O.eoFill) && enCours) { rects.push(enCours); enCours = null; }
+    }
+    return { page: { w: vue.width, h: vue.height }, textes, rects };
+}
+window.structureDUnePagePdf = structureDUnePagePdf;
+
+// Des valeurs voisines à moins de « tolerance » sont la même valeur : un PDF
+// écrit 645,8 et 645,7999 pour la même ligne de grille.
+function regrouperLesValeurs(valeurs, tolerance) {
+    const tri = valeurs.slice().sort((a, b) => a - b);
+    const paquets = [];
+    tri.forEach(v => {
+        const dernier = paquets[paquets.length - 1];
+        if (dernier && v - dernier[dernier.length - 1] <= tolerance) dernier.push(v);
+        else paquets.push([v]);
+    });
+    return paquets.map(p => p.reduce((s, v) => s + v, 0) / p.length);
+}
+
+// LES COLONNES SE LISENT DANS LES EN-TÊTES, et leur écart donne la largeur
+// d'une journée — on ne la suppose pas.
+function colonnesDesJours(textes) {
+    const parJour = new Map();
+    textes.forEach(t => {
+        const n = EDT_PDF_JOURS.indexOf(String(t.t).trim().toLowerCase());
+        if (n < 0 || parJour.has(n + 1)) return;
+        parJour.set(n + 1, { jour: n + 1, centre: t.x + t.l / 2, y: t.y });
+    });
+    const liste = [...parJour.values()].sort((a, b) => a.centre - b.centre);
+    if (liste.length < 2) return null;
+    const ecarts = [];
+    for (let i = 1; i < liste.length; i++) ecarts.push(liste[i].centre - liste[i - 1].centre);
+    ecarts.sort((a, b) => a - b);
+    const largeur = ecarts[Math.floor(ecarts.length / 2)];
+    return liste.map(e => ({ jour: e.jour, y: e.y, largeur,
+                             x0: e.centre - largeur / 2, x1: e.centre + largeur / 2 }));
+}
+
+// LES HEURES SE LISENT DANS LA MARGE, À GAUCHE DE LA GRILLE. Une heure écrite
+// DANS une case est l'horaire d'un devoir, pas une graduation.
+function heuresDeLaMarge(textes, xGrille) {
+    const marges = [];
+    textes.forEach(t => {
+        const m = EDT_PDF_HEURE.exec(String(t.t).trim());
+        if (!m || t.x + t.l > xGrille + 2) return;
+        marges.push({ minutes: (+m[1]) * 60 + (+m[2]), y: t.y });
+    });
+    return marges;
+}
+
+// LES CASES DE COURS. On écarte le fond de page — il contient tout — et les
+// pastilles A/B — elles ne contiennent rien. Un PDF dessine parfois deux fois
+// le même rectangle : on ne le compte qu'une.
+function casesDUnEdtPdf(rects, page) {
+    const vues = new Set();
+    return rects.filter(r => {
+        if (!(r.l >= 20 && r.h >= 20)) return false;
+        if (r.l > page.w * 0.5 || r.h > page.h * 0.5) return false;
+        const cle = [r.x, r.y, r.l, r.h].map(v => Math.round(v)).join('|');
+        if (vues.has(cle)) return false;
+        vues.add(cle);
+        return true;
+    });
+}
+
+// CHAQUE TRAIT DE LA GRILLE PORTE DEUX HEURES, ET CE N'EST PAS LA MÊME.
+//
+// Une récréation se lit ainsi : « 10h00 » juste au-dessus du trait — c'est la
+// fin du cours d'avant —, « 10h15 » juste en dessous — c'est le début du
+// suivant. Là où il n'y a pas de récréation, une seule heure sert aux deux.
+// Sans cette distinction, un cours de 9h05 à 10h00 durait soixante-dix minutes
+// et mordait sur la récréation.
+//
+// (Dans un PDF, y monte : « en dessous du trait » veut dire y plus petit.)
+function heuresDesLignes(lignes, marges, hauteurDeLigne) {
+    const portee = Math.max(10, hauteurDeLigne * 0.2);
+    return lignes.map(y => {
+        let debut = null, fin = null, dDebut = Infinity, dFin = Infinity;
+        marges.forEach(m => {
+            const d = Math.abs(m.y - y);
+            if (d > portee) return;
+            if (m.y <= y) { if (d < dDebut) { dDebut = d; debut = m.minutes; } }
+            else if (d < dFin) { dFin = d; fin = m.minutes; }
+        });
+        return { y, debut: debut !== null ? debut : fin, fin: fin !== null ? fin : debut };
+    });
+}
+
+function ligneLaPlusProche(lignes, y) {
+    let choisie = null, meilleur = Infinity;
+    lignes.forEach(l => {
+        const d = Math.abs(l.y - y);
+        if (d < meilleur) { meilleur = d; choisie = l; }
+    });
+    return choisie;
+}
+
+// UNE CLASSE PORTE SON NIVEAU, UNE SALLE PORTE UN NUMÉRO. « 6EME B »,
+// « [4EME CP1] », « 2NDE 4 » sont des classes ; « 08 », « B104 » sont des
+// salles. C'est la seule chose qui les sépare quand une case n'a que deux
+// lignes et qu'on ne sait pas laquelle manque.
+function ressembleAUneClasse(texte) {
+    const s = String(texte || '').trim();
+    if (!s) return false;
+    if (/[[\]<>]/.test(s)) return true;                      // un groupe est entre crochets
+    if (/\d\s*(E|EME|ÈME|ERE|ÈRE|ND|NDE)\b/i.test(s)) return true;
+    return /\b(TERM|TLE|SECONDE|PREMIERE|CP|CE[12]|CM[12]|BTS|MPSI|PCSI)\b/i.test(s);
+}
+
+// LES COURS D'UNE PAGE.
+function coursDUnePageDEdt(structure) {
+    const page = structure.page;
+    const textes = structure.textes.filter(t => String(t.t).trim());
+    const colonnes = colonnesDesJours(textes);
+    if (!colonnes) return { erreur: 'jours' };
+
+    const xGrille = Math.min(...colonnes.map(c => c.x0));
+    const marges = heuresDeLaMarge(textes, xGrille);
+    if (marges.length < 2) return { erreur: 'heures' };
+
+    const cases = casesDUnEdtPdf(structure.rects, page);
+    if (!cases.length) return { erreur: 'cases' };
+
+    const lignesBrutes = regrouperLesValeurs(
+        cases.reduce((t, r) => t.concat([r.y, r.y + r.h]), []), 2);
+    const hauteurs = [];
+    for (let i = 1; i < lignesBrutes.length; i++) hauteurs.push(lignesBrutes[i] - lignesBrutes[i - 1]);
+    hauteurs.sort((a, b) => a - b);
+    const hauteurDeLigne = hauteurs.length ? hauteurs[Math.floor(hauteurs.length / 2)] : 60;
+    const lignes = heuresDesLignes(lignesBrutes, marges, hauteurDeLigne);
+
+    // Un PDF dessine certains textes deux fois : on ne les lit qu'une.
+    const vus = new Set();
+    const uniques = textes.filter(t => {
+        const cle = t.t + '|' + Math.round(t.x) + '|' + Math.round(t.y);
+        if (vus.has(cle)) return false;
+        vus.add(cle);
+        return true;
+    });
+
+    const cours = [];
+    cases.forEach(r => {
+        const dedans = uniques.filter(t => {
+            const cx = t.x + t.l / 2;
+            return cx > r.x && cx < r.x + r.l && t.y > r.y && t.y < r.y + r.h;
+        }).sort((a, b) => b.y - a.y);
+        // LA PASTILLE DE SEMAINE : une seule lettre, au bas de la case.
+        let semaine = 'toutes';
+        const lignesTexte = [];
+        dedans.forEach(t => {
+            const mot = String(t.t).trim();
+            if (/^[AB]$/.test(mot) && t.y - r.y < hauteurDeLigne * 0.25) { semaine = mot; return; }
+            if (mot) lignesTexte.push(mot);
+        });
+        if (!lignesTexte.length) return;          // une case vide n'est pas un cours
+
+        // LE JOUR SE LIT SOUS LE TEXTE, PAS SOUS LA CASE. Relevé : un fond
+        // déborde parfois sur la colonne d'à côté — deux journées peintes
+        // d'un seul rectangle. Le texte, lui, est toujours dans sa journée.
+        const milieuTexte = dedans.reduce((s, t) => s + t.x + t.l / 2, 0) / dedans.length;
+        const colonne = colonnes.find(c => milieuTexte >= c.x0 && milieuTexte < c.x1)
+            || colonnes.find(c => (r.x + r.l / 2) >= c.x0 && (r.x + r.l / 2) < c.x1);
+        if (!colonne) return;
+
+        const haut = ligneLaPlusProche(lignes, r.y + r.h);
+        const bas = ligneLaPlusProche(lignes, r.y);
+        if (!haut || !bas || haut.debut === null || bas.fin === null) return;
+        const duree = bas.fin - haut.debut;
+        if (!(duree > 0)) return;
+
+        // TROIS LIGNES, OU DEUX. Une case porte d'ordinaire la matière, la
+        // classe et la salle. Une concertation, une réunion n'ont pas de
+        // classe : il ne reste que la matière et la salle, et prendre la
+        // deuxième ligne pour une classe créait une classe nommée « 08 ».
+        const classe = lignesTexte.length > 2 ? lignesTexte[1]
+            : (ressembleAUneClasse(lignesTexte[1] || '') ? lignesTexte[1] : '');
+        const salle = lignesTexte.length > 2 ? lignesTexte[2]
+            : (classe ? '' : (lignesTexte[1] || ''));
+        cours.push({
+            genre: 'cours', jour: colonne.jour, debut: haut.debut, duree, semaine,
+            matiere: lignesTexte[0] || '',
+            classe: String(classe).replace(/^[[<(]|[\]>)]$/g, '').trim(),
+            salle: String(salle).trim()
+        });
+    });
+    return { cours };
+}
+
+// ==============================================================================
+// DU PDF À L'AGENDA
+//
+// Toutes les pages, et non la première : un emploi du temps tient parfois sur
+// deux feuilles. Une page qui n'est pas une grille — une page de garde, un
+// règlement — ne dit rien et ne fait rien perdre.
+// ==============================================================================
+async function edtDepuisPdf(octets) {
+    if (typeof pdfjsLib === 'undefined') {
+        return { erreur: 'La lecture des PDF n\'est pas disponible' };
+    }
+    let doc;
+    try { doc = await pdfjsLib.getDocument({ data: new Uint8Array(octets) }).promise; }
+    catch (e) { return { erreur: 'Ce PDF n\'a pas pu être ouvert' }; }
+
+    const tous = [];
+    let raisons = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+        let lu;
+        try {
+            const page = await doc.getPage(n);
+            lu = coursDUnePageDEdt(await structureDUnePagePdf(page));
+        } catch (e) { lu = { erreur: 'lecture' }; }
+        if (lu.erreur) { raisons.push(lu.erreur); continue; }
+        lu.cours.forEach(c => tous.push(c));
+    }
+    if (!tous.length) {
+        if (raisons.indexOf('jours') >= 0) {
+            return { erreur: 'Ce PDF ne ressemble pas à un emploi du temps : on n\'y trouve pas les jours de la semaine' };
+        }
+        if (raisons.indexOf('heures') >= 0) {
+            return { erreur: 'Ce PDF ne ressemble pas à un emploi du temps : on n\'y trouve pas les heures dans la marge' };
+        }
+        // UNE GRILLE SCANNÉE N'EST PAS UNE GRILLE. Photographié ou scanné, le
+        // PDF n'a plus ni texte ni rectangles : il n'y a rien à lire, et le
+        // dire vaut mieux que de rendre un emploi du temps vide.
+        return { erreur: 'Aucun cours trouvé dans ce PDF. S\'il a été scanné ou photographié, il n\'en reste qu\'une image : exportez plutôt l\'emploi du temps depuis Pronote' };
+    }
+    return assemblerLEdt(tous, []);
+}
+window.edtDepuisPdf = edtDepuisPdf;
 
 // ==============================================================================
 // ET ON LE POSE DANS L'AGENDA
@@ -35755,18 +36086,35 @@ function poserLEdtImporte(lu) {
         agenda.entrees.push(entree);
         parNom.set(e.libelle, entree);
     });
+    // L'ALTERNANCE VIENT DU FICHIER, quand le fichier la porte.
+    agenda.alterne = !!lu.alterne;
+    if (agenda.alterne) {
+        // Comme le bouton « alterner » : cette semaine-ci est une A jusqu'à ce
+        // qu'on dise le contraire, et c'est elle qu'on regarde en sortant.
+        if (!agenda.ancre && typeof ancrerLaSemaine === 'function') ancrerLaSemaine('A');
+        edtSemaineVue = 'A';
+    }
     lu.cours.forEach(c => {
         const nom = libelleDuCours(c, lu.matiereDominante);
         const entree = parNom.get(nom);
         if (!entree) return;
-        agenda.creneaux.push({
+        // UN .ICS NE DIT PAS SI LA SEMAINE EST A OU B : il ne montre qu'une
+        // semaine, sans dire laquelle. On pose donc tout sur « toutes », et
+        // l'enseignant tranche lui-même s'il alterne. Un emploi du temps
+        // IMPRIMÉ, lui, porte ses pastilles, et l'on sait.
+        //
+        // ET QUAND LA GRILLE ALTERNE, UN COURS DE TOUTES LES SEMAINES SE POSE
+        // DEUX FOIS. Une grille alternée ne montre qu'une semaine à la fois :
+        // un créneau marqué « toutes » n'y paraîtrait ni en A ni en B, et le
+        // cours hebdomadaire disparaîtrait de l'écran. C'est déjà la règle du
+        // bouton « alterner ».
+        const semaines = !lu.alterne ? ['toutes']
+            : (c.semaine === 'A' || c.semaine === 'B') ? [c.semaine] : ['A', 'B'];
+        semaines.forEach(s => agenda.creneaux.push({
             id: nouvelIdEdt('cr'), jour: c.jour, debut: c.debut, duree: c.duree,
-            // UN EXPORT NE DIT PAS SI LA SEMAINE EST A OU B : il ne montre
-            // qu'une semaine, sans dire laquelle. On pose donc tout sur
-            // « toutes », et l'enseignant tranche lui-même s'il alterne.
-            semaine: 'toutes',
+            semaine: s,
             entreeId: entree.id, libelle: entree.libelle, couleur: entree.couleur
-        });
+        }));
     });
     agenda.debut = lu.debut;
     agenda.fin = lu.fin;
@@ -35795,12 +36143,23 @@ function heureLisibleEdt(m) {
 
 async function importerUnEdtDepuisUnFichier(fichier) {
     if (!fichier) return null;
-    let texte;
-    try { texte = await fichier.text(); }
-    catch (e) { showToast('Ce fichier n\'a pas pu être lu'); return null; }
-
-    const lu = edtDepuisIcs(texte);
-    if (lu.erreur) { showToast(lu.erreur); return null; }
+    // LE .ICS ET LE PDF PASSENT PAR LE MÊME BOUTON. On ne demande pas à un
+    // enseignant de savoir lequel des deux son établissement lui a donné : on
+    // regarde le fichier et l'on s'adapte.
+    const estUnPdf = /\.pdf$/i.test(fichier.name || '') || fichier.type === 'application/pdf';
+    let lu;
+    if (estUnPdf) {
+        let octets;
+        try { octets = await fichier.arrayBuffer(); }
+        catch (e) { showToast('Ce fichier n\'a pas pu être lu'); return null; }
+        lu = await edtDepuisPdf(octets);
+    } else {
+        let texte;
+        try { texte = await fichier.text(); }
+        catch (e) { showToast('Ce fichier n\'a pas pu être lu'); return null; }
+        lu = edtDepuisIcs(texte);
+    }
+    if (!lu || lu.erreur) { showToast((lu && lu.erreur) || 'Ce fichier n\'a pas pu être lu'); return null; }
 
     const combienDeJours = new Set(lu.cours.map(c => c.jour)).size;
     const lignes = [
@@ -35809,16 +36168,19 @@ async function importerUnEdtDepuisUnFichier(fichier) {
         'journée de ' + heureLisibleEdt(lu.debut) + ' à ' + heureLisibleEdt(lu.fin),
         lu.sonneries.length + ' sonneries relevées'
     ];
+    if (lu.alterne) lignes.push('semaines A et B distinguées');
     // UN EXPORT NE COUVRE QU'UNE SEMAINE, et il ne dit pas si un cours revient
     // toutes les semaines. Une évaluation ou une réunion ponctuelle y ressemble
     // trait pour trait — mieux vaut le dire que de laisser découvrir une case
-    // fantôme dans trois semaines.
+    // fantôme dans trois semaines. Un emploi du temps IMPRIMÉ, lui, est la
+    // semaine type elle-même : l'avertissement n'a pas lieu d'être.
+    const reserve = estUnPdf ? ''
+        : '\nUn export ne montre qu\'une semaine : une évaluation ou une réunion '
+          + 'ponctuelle y ressemble à un cours. Vérifiez la grille et retirez ce qui '
+          + 'ne revient pas chaque semaine.';
     const ok = await demanderConfirmation(
         'Importer cet emploi du temps ?',
-        lignes.join('\n') + '\n\nCela REMPLACERA l\'emploi du temps actuel.'
-        + '\nUn export ne montre qu\'une semaine : une évaluation ou une réunion '
-        + 'ponctuelle y ressemble à un cours. Vérifiez la grille et retirez ce qui '
-        + 'ne revient pas chaque semaine.');
+        lignes.join('\n') + '\n\nCela REMPLACERA l\'emploi du temps actuel.' + reserve);
     if (!ok) return null;
 
     const pose = poserLEdtImporte(lu);
@@ -35829,6 +36191,7 @@ async function importerUnEdtDepuisUnFichier(fichier) {
         + pose.entrees + ' classes — et les sonneries avec');
     return pose;
 }
+
 window.importerUnEdtDepuisUnFichier = importerUnEdtDepuisUnFichier;
 
 document.getElementById('edt-fichier')?.addEventListener('change', (e) => {

@@ -485,4 +485,84 @@ function polyEnCouleur(taille) {
     return Buffer.from(out, 'latin1');
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, pdfA4, fichePdf, polyDense, polyEnCases, polyEnCouleur, rechargerApp};
+// UN EMPLOI DU TEMPS IMPRIMÉ, comme un établissement en distribue.
+//
+// INVENTÉ DE TOUTES PIÈCES, et c'est important : un vrai emploi du temps
+// porte le nom d'un enseignant, celui de son collège et ses horaires — rien
+// de tout cela n'a sa place dans un dépôt. Celui-ci est bâti sur les MESURES
+// relevées sur un vrai fichier, et sur elles seules.
+//
+//   Page A4. Cinq colonnes de 113,4 pt à partir de x = 28,4.
+//   Dix traits de grille, espacés de 78,8 pt, de y = 803,4 à y = 94,2.
+//   Les heures dans la marge, dont une RÉCRÉATION : « 10h00 » au-dessus du
+//   trait, « 10h15 » en dessous — le cours d'avant finit, le suivant commence.
+//   Des cases pleine largeur, des DEMIES (classe dédoublée) avec leur
+//   pastille « A » ou « B », une case de DEUX heures, et une case sans classe.
+function edtPdf() {
+    const X0 = 28.4, COL = 113.4, HAUT = 803.4, LIGNE = 78.8;
+    const colonne = (j) => X0 + COL * (j - 1);
+    const trait = (n) => HAUT - LIGNE * n;
+    const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi'];
+    // Une largeur de texte approchée suffit à centrer un en-tête : ce qui
+    // compte, c'est l'ÉCART entre deux centres, et il ne bouge pas.
+    const large = (t, taille) => t.length * taille * 0.5;
+
+    let f = '';
+    const texte = (t, x, y, taille) =>
+        (f += `BT /F1 ${taille} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td (${t}) Tj ET\n`);
+    const pave = (x, y, l, h, c) =>
+        (f += `${c} rg ${x.toFixed(1)} ${y.toFixed(1)} ${l.toFixed(1)} ${h.toFixed(1)} re f\n`);
+
+    // Les en-têtes de colonne
+    JOURS.forEach((j, i) => texte(j, colonne(i + 1) + COL / 2 - large(j, 8) / 2, 807.8, 8));
+    // Les heures de la marge, avec la récréation entre le trait 2 et le suivant
+    const MARGE = [[0, '8h00', -8], [1, '9h00', -8], [2, '10h00', 2.6], [2, '10h15', -8],
+                   [3, '11h10', -8], [4, '12h05', -8], [5, '13h30', -8], [6, '14h25', -8],
+                   [7, '15h20', -8], [8, '16h15', -8], [9, '17h10', 2.6]];
+    MARGE.forEach(([n, t, d]) => texte(t, 5.8, trait(n) + d, 7));
+
+    // Les cours. [jour, du trait, au trait, part, matière, classe, salle, semaine]
+    // « part » : 0 = toute la colonne, 1 = moitié gauche, 2 = moitié droite.
+    const COURS = [
+        [1, 0, 1, 0, 'MATHEMATIQUES', '6EME A', '12', ''],
+        [1, 1, 2, 1, 'MATHEMATIQUES', '[6EME AG1]', '12', 'A'],
+        [1, 1, 2, 2, 'MATHEMATIQUES', '[6EME AG2]', '12', 'B'],
+        [2, 2, 3, 0, 'MATHEMATIQUES', '5EME C', '14', ''],
+        [3, 0, 1, 0, 'MATHEMATIQUES', '5EME C', '14', ''],
+        [4, 3, 4, 0, 'CONCERTATION', '12', '', ''],
+        [5, 5, 7, 0, 'MATHEMATIQUES', '4EME B', '9', '']
+    ];
+    COURS.forEach(([j, a, b, part, matiere, classe, salle, semaine]) => {
+        const l = part ? COL / 2 - 0.1 : COL;
+        const x = colonne(j) + (part === 2 ? COL / 2 : 0);
+        const bas = trait(b), haut = trait(a);
+        pave(x, bas, l, haut - bas, '0.86 0.47 0.48');
+        const lignes = salle ? [matiere, classe, salle] : [matiere, classe];
+        lignes.forEach((t, i) => {
+            const taille = part ? 5.5 : 7;
+            texte(t, x + l / 2 - large(t, taille) / 2, haut - 30.4 - i * 11.8, taille);
+        });
+        if (semaine) {
+            pave(x + l - 7, bas, 7, 10.6, '1 1 1');
+            texte(semaine, x + l - 5.5, bas + 2.6, 7);
+        }
+    });
+
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.276 841.89] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+        `<< /Length ${f.length} >>\nstream\n${f}\nendstream`
+    ];
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(q => { out += String(q).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, pdfA4, fichePdf, edtPdf, polyDense, polyEnCases, polyEnCouleur, rechargerApp};
