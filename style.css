@@ -4058,11 +4058,22 @@ body.dark-mode {
 .nat-frac {
     display: inline-flex;
     flex-direction: column;
-    align-items: center;
+    /* LA BARRE COUVRE TOUTE LA FRACTION, et pas seulement le dénominateur.
+       Elle est dessinée par le bord haut de la case du bas : centrées, les
+       deux cases ne prenaient que leur propre largeur, et la barre était donc
+       aussi large que le DÉNOMINATEUR. Tant que le bas est le plus large —
+       le cas ordinaire — cela ne se voyait pas ; dès que le haut débordait,
+       « (1/2 + 3/4) / 5 » se dessinait avec un moignon de trait sous une
+       somme deux fois plus large. Les deux cases prennent maintenant toute la
+       largeur, et leur contenu se centre dedans. */
+    align-items: stretch;
+    text-align: center;
+    /* La fraction est posée PAR SA BARRE, et « poserLesBarresSurLaLigne » s'en
+       charge après le dessin : aucune règle CSS ne sait aligner une boîte sur
+       un trait qui est dedans, et la place de ce trait dépend de ce qu'on a
+       écrit dessus et dessous. « middle » reste le repli — il suffit tant que
+       le haut et le bas ont la même hauteur. */
     vertical-align: middle;
-    /* La fraction descend d'un demi-trait pour que sa BARRE tombe sur la
-       ligne d'écriture, comme au tableau : sans cela elle flotte au-dessus
-       des signes qui l'entourent. */
     margin: 0 2px;
     line-height: 1.05;
 }

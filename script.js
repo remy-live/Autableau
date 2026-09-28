@@ -21487,6 +21487,67 @@ function deplacerLeCurseur(texte, sens) {
     }
 }
 
+// LA FRACTION DANS LAQUELLE ON ÉCRIT, ET DANS LAQUELLE DE SES DEUX CASES.
+//
+// Une fraction s'écrit « (haut)/(bas) » dans la ligne : on cherche la barre
+// dont une des deux cases contient la place du curseur, et l'on garde LA PLUS
+// SERRÉE. Sur « (1)/((2)/(3)) », écrire dans le 3, c'est écrire dans le bas de
+// la fraction INTÉRIEURE, pas de celle qui l'entoure.
+function fractionAutourDuCurseur(texte, p) {
+    const t = String(texte || '');
+    let choisie = null;
+    for (let k = 0; k < t.length; k++) {
+        if (t[k] !== '/' || t[k - 1] !== ')' || t[k + 1] !== '(') continue;
+        let prof = 0, debut = -1;
+        for (let i = k - 1; i >= 0; i--) {
+            if (t[i] === ')') prof++;
+            else if (t[i] === '(') { prof--; if (!prof) { debut = i; break; } }
+        }
+        if (debut < 0) continue;
+        prof = 0; let fin = -1;
+        for (let i = k + 1; i < t.length; i++) {
+            if (t[i] === '(') prof++;
+            else if (t[i] === ')') { prof--; if (!prof) { fin = i + 1; break; } }
+        }
+        if (fin < 0) continue;
+        const cadre = { debut, fin, barre: k,
+                        hautDebut: debut + 1, hautFin: k - 1,
+                        basDebut: k + 2, basFin: fin - 1 };
+        let ou = null;
+        if (p >= cadre.hautDebut && p <= cadre.hautFin) ou = 'haut';
+        else if (p >= cadre.basDebut && p <= cadre.basFin) ou = 'bas';
+        if (!ou) continue;
+        if (!choisie || (cadre.fin - cadre.debut) < (choisie.fin - choisie.debut)) {
+            choisie = Object.assign({ ou }, cadre);
+        }
+    }
+    return choisie;
+}
+
+// LE PAD DESCEND AU DÉNOMINATEUR ET REMONTE AU NUMÉRATEUR.
+//
+// « Si je tape fraction puis 5 puis la touche du bas, ça disparaît. » Les deux
+// flèches verticales ne servaient qu'à feuilleter l'historique — et la flèche
+// du bas, quand il n'y avait rien à feuilleter, VIDAIT la ligne. On tapait le
+// numérateur, on cherchait à descendre écrire le dénominateur comme sur la
+// machine, et tout le calcul s'effaçait.
+//
+// Sur une fx-92, le pad sert à circuler DANS le calcul : ▼ passe du haut au
+// bas d'une fraction, ▲ du bas au haut. C'est le geste qu'on fait, et c'est
+// pour cela qu'un pad existe. Le curseur se pose au BOUT de la case visée :
+// on y va pour écrire, et l'on écrit à la suite.
+//
+// L'historique ne disparaît pas pour autant : il reste sur ces deux touches,
+// mais SEULEMENT là où elles n'ont rien à faire dans le calcul.
+function deplacerLeCurseurEnHauteur(texte, sens) {
+    const t = String(texte || '');
+    const f = fractionAutourDuCurseur(t, placeDuCurseur(t));
+    if (!f) return false;
+    if (sens > 0 && f.ou === 'haut') { curseurCalc = f.basFin; return true; }
+    if (sens < 0 && f.ou === 'bas') { curseurCalc = f.hautFin; return true; }
+    return false;
+}
+
 function ecrireEnNaturel(texte) {
     const m = morceauxDuCalcul(texte);
     let i = 0;
@@ -21666,10 +21727,64 @@ function montrerLExpression(el, texte, avecCurseur) {
         const avec = (avecCurseur === false) ? brut
             : brut.slice(0, ou) + MARQUE_CURSEUR + brut.slice(ou);
         el.innerHTML = ecrireEnNaturel(avec);
+        poserLesBarresSurLaLigne(el);
     } catch (e) {
         el.textContent = brut;
     }
 }
+
+// LA BARRE D'UNE FRACTION TOMBE SUR LA LIGNE DES SIGNES.
+//
+// « Le + 9 devrait être au niveau de la barre de fraction du haut, non ? » —
+// oui. Une fraction était posée par son MILIEU. Tant que le haut et le bas ont
+// la même hauteur, son milieu EST sa barre et tout tombe juste. Mais dès que
+// l'une des deux cases grandit — une fraction dans le dénominateur, une racine
+// —, le milieu de la boîte n'est plus la barre : la barre monte, et le « + 9 »
+// écrit à côté reste en bas, sur la ligne d'écriture. On lisait alors une
+// somme dont les deux termes ne sont pas à la même hauteur.
+//
+// AUCUNE RÈGLE CSS NE SAIT POSER UNE BOÎTE PAR UN TRAIT QUI EST DEDANS.
+// « vertical-align » ne connaît que le haut, le bas, le milieu et la ligne de
+// base ; la barre n'est aucun des quatre, et sa place dépend de ce qu'on a
+// écrit. Il faut donc mesurer : on dessine, on regarde où la barre est tombée,
+// et l'on décale la fraction d'autant.
+//
+// LES PLUS IMBRIQUÉES D'ABORD : une fraction extérieure ne peut se mesurer
+// qu'une fois posées celles qu'elle contient — sans quoi on la placerait
+// d'après une hauteur qui va encore changer.
+const AXE_DES_SIGNES = 0.28;        // au-dessus de la ligne de base, en cadratins
+
+function poserLesBarresSurLaLigne(el) {
+    if (!el || typeof el.querySelectorAll !== 'function') return 0;
+    // Un écran qui n'est pas affiché ne se mesure pas : tout y vaut zéro, et
+    // l'on écrirait des décalages faux qui resteraient à la réouverture.
+    if (typeof el.getClientRects === 'function' && !el.getClientRects().length) return 0;
+    const fractions = [...el.querySelectorAll('.nat-frac')].reverse();
+    // On part d'un décalage NUL et non de la règle CSS : « middle » et une
+    // longueur ne se mesurent pas depuis le même point.
+    fractions.forEach(f => { f.style.verticalAlign = '0px'; });
+    let posees = 0;
+    fractions.forEach(f => {
+        const bas = [...f.children].find(c => c.classList && c.classList.contains('nat-bas'));
+        const parent = f.parentNode;
+        if (!bas || !parent || parent.nodeType !== 1) return;
+        // LA LIGNE DES SIGNES se relève avec un témoin de hauteur nulle : son
+        // bord EST la ligne de base de l'endroit où la fraction se trouve.
+        const temoin = document.createElement('span');
+        temoin.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
+        parent.insertBefore(temoin, f);
+        const ligne = temoin.getBoundingClientRect().bottom;
+        const corps = parseFloat(getComputedStyle(parent).fontSize) || 16;
+        parent.removeChild(temoin);
+        if (!corps) return;
+        const ecart = bas.getBoundingClientRect().top - (ligne - corps * AXE_DES_SIGNES);
+        if (!isFinite(ecart) || Math.abs(ecart) < 0.5) return;
+        f.style.verticalAlign = ecart + 'px';      // une longueur POSITIVE remonte
+        posees++;
+    });
+    return posees;
+}
+window.poserLesBarresSurLaLigne = poserLesBarresSurLaLigne;
 
 // Le résultat aussi s'écrit naturellement : « 1/2 » est une fraction empilée,
 // et c'est justement la réponse qu'une calculatrice de collège donne.
@@ -21680,7 +21795,7 @@ function montrerLeResultat(el, texte) {
     // Une phrase — « 3 reste 2 », « 23 est premier » — n'est pas un calcul :
     // on l'écrit telle quelle.
     if (/[a-zà-ÿ]{3}/i.test(t.replace(/sin|cos|tan|Ans/gi, ''))) { el.textContent = t; return; }
-    try { el.innerHTML = ecrireEnNaturel(t); }
+    try { el.innerHTML = ecrireEnNaturel(t); poserLesBarresSurLaLigne(el); }
     catch (e) { el.textContent = t; }
 }
 
@@ -22035,7 +22150,29 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             return;
         }
 
-        // -- GESTION DE L'HISTORIQUE --
+        // -- LE PAD CIRCULE DANS LE CALCUL, PUIS DANS L'HISTORIQUE --
+        // D'abord la fraction : c'est ce qu'on demande au pad quand on est en
+        // train d'écrire. L'historique ne vient qu'après, quand il n'y a ni
+        // dénominateur à descendre ni numérateur à remonter.
+        if (val === '▲' || val === '▼') {
+            if (deplacerLeCurseurEnHauteur(expression, val === '▲' ? -1 : 1)) {
+                montrerLExpression(calcExpr, expression);
+                return;
+            }
+        }
+        // L'HISTORIQUE NE SE FEUILLETTE PAS PAR-DESSUS UN CALCUL EN COURS.
+        //
+        // La touche du bas VIDAIT la ligne, celle du haut y COLLAIT un ancien
+        // calcul : deux façons de jeter ce qu'on était en train d'écrire, et
+        // la plainte ne portait que sur la première. On ne feuillette donc que
+        // lorsqu'il n'y a rien à perdre : une ligne vide, le calcul qu'on vient
+        // d'évaluer — il est dans l'historique —, ou celui qu'on vient d'en
+        // rappeler. Pour feuilleter en cours d'écriture, « AC » d'abord.
+        if (val === '▲' || val === '▼') {
+            const rappele = calcHistoryIndex >= 0 && calcHistoryIndex < calcHistory.length
+                && calcHistory[calcHistoryIndex] === expression;
+            if (!(!expression || evaluated || rappele)) return;
+        }
         if (val === '▲') {
             if (calcHistory.length > 0 && calcHistoryIndex > 0) {
                 calcHistoryIndex--; expression = calcHistory[calcHistoryIndex];
@@ -22044,9 +22181,14 @@ document.querySelectorAll('.calc-btn').forEach(btn => {
             } return;
         }
         if (val === '▼') {
-            if (calcHistoryIndex < calcHistory.length - 1 && calcHistoryIndex !== -1) {
+            if (calcHistoryIndex >= 0 && calcHistoryIndex < calcHistory.length - 1) {
                 calcHistoryIndex++; expression = calcHistory[calcHistoryIndex];
-            } else { calcHistoryIndex = calcHistory.length; expression = ""; }
+            } else {
+                // Sous le plus récent, la ligne redevient vide — et l'on ne
+                // perd rien : on n'arrive ici que si elle ne portait rien
+                // qu'on puisse perdre.
+                calcHistoryIndex = calcHistory.length; expression = "";
+            }
             curseurCalc = null;
             montrerLExpression(calcExpr, expression); return;
         }

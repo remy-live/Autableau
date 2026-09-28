@@ -508,6 +508,115 @@ module.exports = async function (browser) {
     r.egal('sur une case vide, elle disparaît tout court', dissoudre.vide, '1');
 
     // ------------------------------------------------------------------
+    // 10. LE PAD DESCEND AU DÉNOMINATEUR, ET NE VIDE RIEN
+    // ------------------------------------------------------------------
+    // « Si je tape fraction puis 5 puis la touche du bas, ça disparaît. » Les
+    // deux flèches verticales ne servaient qu'à feuilleter l'historique — et
+    // celle du bas, quand il n'y avait rien à feuilleter, VIDAIT la ligne. On
+    // tapait le numérateur, on cherchait à descendre écrire le dénominateur
+    // comme sur la machine, et tout le calcul s'effaçait.
+    const pad = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const e = document.getElementById('calc-expr');
+        const jouer = (suite) => {
+            // ON PART D'UN HISTORIQUE VIDE : ces contrôles-ci disent ce que le
+            // pad fait DANS le calcul, et non ce qu'il fait dans l'historique.
+            calcHistory.length = 0; calcHistoryIndex = -1;
+            clic('AC'); suite.forEach(clic); return e.dataset.brut;
+        };
+        return {
+            // LE GESTE DE LA PLAINTE, tel quel.
+            descendre: jouer(['a/b', '5', '▼']),
+            puisEcrire: jouer(['a/b', '5', '▼', '3']),
+            // Et l'on remonte écrire dans le haut.
+            remonter: jouer(['a/b', '5', '▼', '3', '▲', '7']),
+            // UNE FRACTION DANS UNE FRACTION : ▼ descend dans LA PLUS SERRÉE,
+            // celle où l'on écrit, et non dans celle qui l'entoure.
+            imbriquee: jouer(['a/b', 'a/b', '5', '▼', '3']),
+            // HORS D'UNE FRACTION, LES DEUX TOUCHES NE TOUCHENT À RIEN.
+            horsFraction: jouer(['1', '2', '+', '3', '▼']),
+            etCelleDuHautNonPlus: jouer(['1', '2', '+', '3', '▲']),
+            // MAIS L'HISTORIQUE RESTE SUR CES TOUCHES là où elles n'ont rien à
+            // faire dans le calcul : la ligne vide, ou ce qu'on vient de
+            // calculer.
+            historique: (() => {
+                calcHistory.length = 0; calcHistoryIndex = -1;
+                clic('AC'); ['1', '+', '1', '='].forEach(clic);
+                clic('AC'); ['2', '+', '2', '='].forEach(clic);
+                clic('▲');
+                const remonte = e.dataset.brut;
+                clic('▲');
+                const encore = e.dataset.brut;
+                clic('▼');
+                return { remonte, encore, redescend: e.dataset.brut };
+            })()
+        };
+    });
+    r.egal('la touche du bas n\'efface plus le calcul', pad.descendre, '(5)/()');
+    r.egal('elle descend dans le dénominateur, où l\'on écrit', pad.puisEcrire, '(5)/(3)');
+    r.egal('et celle du haut remonte au numérateur', pad.remonter, '(57)/(3)');
+    r.egal('on descend dans la fraction LA PLUS SERRÉE', pad.imbriquee, '((5)/(3))/()');
+    r.egal('hors d\'une fraction, la touche du bas ne vide rien', pad.horsFraction, '12+3');
+    r.egal('et celle du haut ne colle pas un ancien calcul par-dessus',
+        pad.etCelleDuHautNonPlus, '12+3');
+    r.egal('mais sur une ligne calculée, l\'historique se feuillette toujours',
+        [pad.historique.remonte, pad.historique.encore, pad.historique.redescend],
+        ['2+2', '1+1', '2+2']);
+
+    // ------------------------------------------------------------------
+    // 11. LA BARRE D'UNE FRACTION TOMBE SUR LA LIGNE DES SIGNES
+    // ------------------------------------------------------------------
+    // « Le + 9 devrait être au niveau de la barre de fraction du haut, non ? »
+    // Oui. Une fraction était posée par son MILIEU : tant que le haut et le bas
+    // ont la même hauteur, son milieu EST sa barre. Dès que l'une des deux
+    // cases grandit — une fraction au dénominateur —, la barre monte pendant
+    // que ce qu'on écrit à côté reste en bas, et l'on lit une somme dont les
+    // deux termes ne sont pas à la même hauteur.
+    //
+    // ON MESURE LA GÉOMÉTRIE, pas le style : le milieu du « +9 » doit tomber
+    // sur la barre, à moins d'un pixel.
+    const hauteurs = await page.evaluate(() => {
+        const e = document.getElementById('calc-expr');
+        const mesurer = (expr) => {
+            expression = expr; curseurCalc = null;
+            montrerLExpression(e, expression);
+            const frac = e.querySelector('.nat-frac');
+            if (!frac) return null;
+            const bas = [...frac.children].find(c => c.classList.contains('nat-bas'));
+            const barre = bas.getBoundingClientRect();
+            // Le dernier morceau de texte de la ligne : le « +9 » écrit à côté.
+            const m = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+            let dernier = null, n;
+            while ((n = m.nextNode())) if (n.textContent.trim()) dernier = n;
+            const r = document.createRange(); r.selectNodeContents(dernier);
+            const cote = r.getBoundingClientRect();
+            return {
+                texte: dernier.textContent.trim(),
+                ecart: +(barre.top - (cote.top + cote.bottom) / 2).toFixed(2),
+                // La barre couvre-t-elle toute la fraction, ou seulement le bas ?
+                largeurBarre: +barre.width.toFixed(1),
+                largeurFraction: +frac.getBoundingClientRect().width.toFixed(1)
+            };
+        };
+        return {
+            simple: mesurer('(1)/(2)+9'),
+            basPlusHaut: mesurer('(3)/(2+(5)/(3)+6)+9'),
+            hautPlusLarge: mesurer('((1)/(2)+(3)/(4))/(5)+7')
+        };
+    });
+    r.verifie('sur une fraction simple, le « +9 » est déjà sur la barre',
+        Math.abs(hauteurs.simple.ecart) < 1.2, JSON.stringify(hauteurs.simple));
+    r.verifie('AVEC UNE FRACTION AU DÉNOMINATEUR, LE « +9 » RESTE SUR LA BARRE',
+        Math.abs(hauteurs.basPlusHaut.ecart) < 1.2, JSON.stringify(hauteurs.basPlusHaut));
+    r.verifie('et avec un numérateur plus haut, de même',
+        Math.abs(hauteurs.hautPlusLarge.ecart) < 1.2, JSON.stringify(hauteurs.hautPlusLarge));
+    // ET LA BARRE COUVRE TOUTE LA FRACTION, pas seulement le dénominateur.
+    r.verifie('la barre couvre toute la fraction, même sous un numérateur large',
+        hauteurs.hautPlusLarge.largeurBarre >= hauteurs.hautPlusLarge.largeurFraction - 1,
+        JSON.stringify(hauteurs.hautPlusLarge));
+
+    // ------------------------------------------------------------------
     // 10. ON TAPE AU HASARD, ET RIEN NE DOIT SE DÉFAIRE
     // ------------------------------------------------------------------
     // Les trois contrôles ci-dessus disent les cas qu'on a su nommer. Celui-ci
@@ -516,19 +625,41 @@ module.exports = async function (browser) {
     // après chaque touche, quatre choses qui ne doivent jamais être fausses.
     // C'est ainsi que le défaut des coutures a été trouvé.
     const balayage = await page.evaluate(() => {
+        // LES QUATRE FLÈCHES DU PAD, ET NON DEUX. Le balayage n'essayait que
+        // « ◀ » et « ▶ » : celle du bas VIDAIT la ligne quand il n'y avait pas
+        // d'historique à feuilleter, et deux cents suites de touches n'ont
+        // jamais pu le dire. Une flèche qu'on ne tire jamais ne se mesure pas.
         const TOUCHES = ['1', '2', '3', '7', '+', '-', '×', 'a/b', 'a/b', '◀', '◀', '▶', '▶',
-                         'DEL', '√', 'x²', '(', ')', 'π', '.'];
+                         '▲', '▼', '▼', 'DEL', '√', 'x²', '(', ')', 'π', '.'];
         const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
         const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
         const e = document.getElementById('calc-expr');
         // La barre devient une BARRE DE FRACTION et les parenthèses d'une case
         // ne se dessinent pas : elles cessent d'être du texte, et c'est voulu.
-        const signes = () => e.textContent.replace(/[()\/\s]/g, '');
+        //
+        // ET LE « x » DE « x² » N'EST PAS DU TEXTE NON PLUS. Cette touche élève
+        // au carré ce qui la précède ; quand elle n'a rien à élever, elle se
+        // dessine telle quelle, « x² », faute de mieux. Dès qu'un calcul
+        // apparaît devant elle — on recule d'un pas et l'on pose une fraction
+        // —, le « x » cède la place à cette base et seul l'exposant reste. Ce
+        // n'est pas une perte : c'est la touche qui fait enfin son travail.
+        //
+        // ENFIN, UN EXPOSANT EST UN CHIFFRE. La touche sans base se dessine avec
+        // le caractère « ² » ; posée sur une base, elle devient un « 2 » monté
+        // en exposant. Même chiffre, deux écritures — on les ramène à une.
+        const signes = () => e.textContent
+            .replace(/[()\/\sx]/g, '')
+            .replace(/²/g, '2').replace(/³/g, '3');
         const contenu = (a, b) => { let i = 0; for (const c of b) if (i < a.length && a[i] === c) i++; return i === a.length; };
         const fautes = [];
         let graine = 987654321;
         const hasard = (n) => { graine = (graine * 1103515245 + 12345) & 0x7fffffff; return graine % n; };
         for (let essai = 0; essai < 200 && fautes.length < 6; essai++) {
+            // L'HISTORIQUE EST REMIS À VIDE À CHAQUE SUITE : ce balayage
+            // éprouve l'ÉCRITURE, et sur une ligne vide les flèches verticales
+            // rappellent légitimement un ancien calcul — ce qui n'a rien à
+            // voir avec ce qu'on mesure ici.
+            calcHistory.length = 0; calcHistoryIndex = -1;
             clic('AC');
             let fracAvant = 0;
             const suite = [];
@@ -540,7 +671,7 @@ module.exports = async function (browser) {
                 const brut = e.dataset.brut, dessin = signes();
                 const frac = e.querySelectorAll('.nat-frac').length;
                 const dire = (q, d) => fautes.push(q + ' [' + suite.join(' ') + '] ' + d);
-                if ((t === '◀' || t === '▶') && brut !== brutAvant)
+                if (['◀', '▶', '▲', '▼'].includes(t) && brut !== brutAvant)
                     dire('une flèche a changé le calcul', brutAvant + ' → ' + brut);
                 if (t !== 'DEL' && !contenu(dessinAvant, dessin))
                     dire('taper a effacé ce qui était écrit', dessinAvant + ' → ' + dessin);
