@@ -3932,6 +3932,20 @@ body.dark-mode {
 .calc-screen-container {
     padding: 12px 12px 7px;
     background: transparent;
+    /* L'AFFICHEUR CÈDE LA PLACE, LE CLAVIER NON.
+       « Quand j'ai tapé ce calcul et mis entrée, l'écran digital s'est
+       ré-agrandi et du coup des touches en bas se sont cachées. » L'afficheur
+       grandissait avec ce qu'on y écrit : une fraction au dénominateur, puis
+       un résultat en fraction, et il passait de 79 à 141 pixels — soixante-deux
+       pixels pris au clavier, c'est-à-dire la rangée du bas, « = » comprise.
+       La touche la plus utile de la machine sortait de la fenêtre.
+       Une calculatrice a un afficheur de taille fixe et des touches qui ne
+       bougent jamais. Le clavier garde donc sa hauteur, et c'est l'afficheur
+       qui se serre — son contenu y défile. */
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 0 1 auto;
 }
 
 /* « Poser sur le tableau » se tient SOUS l'afficheur et non parmi les touches :
@@ -3992,6 +4006,10 @@ body.dark-mode {
        qui ne sert pas finit par être cru responsable. */
     gap: 2px;
     min-height: 64px;
+    flex: 1 1 auto;
+    /* Ce qui dépasse défile, et l'on se range EN BAS : le résultat est la
+       dernière chose écrite, c'est lui qu'on doit voir. */
+    overflow-y: auto;
 }
 
 /* Les témoins restent en HAUT de l'afficheur, le calcul et le résultat en bas :
@@ -4162,8 +4180,9 @@ body.dark-mode {
    un plancher pour qu'une fenêtre rétrécie donne un clavier qui défile plutôt
    qu'une dernière rangée coupée. */
 .calc-grid {
-    flex: 1;
-    min-height: 0;
+    /* Le clavier prend la place qui reste, et ne la rend jamais : il grandit
+       avec la fenêtre, il ne rétrécit pas sous l'afficheur. */
+    flex: 1 0 auto;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     grid-auto-rows: minmax(30px, 1fr);

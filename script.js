@@ -21731,6 +21731,7 @@ function montrerLExpression(el, texte, avecCurseur) {
     } catch (e) {
         el.textContent = brut;
     }
+    montrerLeBasDeLAfficheur(el);
 }
 
 // LA BARRE D'UNE FRACTION TOMBE SUR LA LIGNE DES SIGNES.
@@ -21797,6 +21798,15 @@ function montrerLeResultat(el, texte) {
     if (/[a-zà-ÿ]{3}/i.test(t.replace(/sin|cos|tan|Ans/gi, ''))) { el.textContent = t; return; }
     try { el.innerHTML = ecrireEnNaturel(t); poserLesBarresSurLaLigne(el); }
     catch (e) { el.textContent = t; }
+    montrerLeBasDeLAfficheur(el);
+}
+
+// L'AFFICHEUR SE RANGE SUR SA DERNIÈRE LIGNE. Il ne grandit plus avec ce qu'on
+// y écrit — le clavier y perdrait une rangée —, alors ce qui ne tient pas y
+// défile. Et ce qu'on veut lire est en bas : le résultat.
+function montrerLeBasDeLAfficheur(el) {
+    const ecran = (el && typeof el.closest === 'function') ? el.closest('.calc-screen') : null;
+    if (ecran) ecran.scrollTop = ecran.scrollHeight;
 }
 
 const pgcdDeuxNombres = (a, b) => {

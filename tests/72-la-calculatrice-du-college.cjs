@@ -445,6 +445,77 @@ module.exports = async function (browser) {
     r.verifie('le clavier a la même tête de jour et de nuit',
         memeTete.pareil, memeTete.jour + ' ≠ ' + memeTete.nuit);
 
+    // ==================================================================
+    // L'AFFICHEUR CÈDE LA PLACE, LE CLAVIER NON
+    //
+    // « Quand j'ai tapé ce calcul et mis entrée, l'écran digital s'est
+    // ré-agrandi et du coup des touches en bas se sont cachées. » L'afficheur
+    // grandissait avec ce qu'on y écrit : une fraction au dénominateur, puis
+    // un résultat en fraction, et il passait de 79 à 141 pixels. Soixante-deux
+    // pixels pris au clavier — c'est-à-dire la rangée du bas, « = » comprise.
+    // La touche la plus utile de la machine sortait de la fenêtre.
+    //
+    // ON MESURE CE QU'ON VOIT : la dernière touche est-elle encore ENTIÈREMENT
+    // dans la fenêtre ? Mesurer la hauteur de l'afficheur ne dirait rien — il
+    // a le droit de bouger, c'est le clavier qui ne l'a pas.
+    // ==================================================================
+    const place = await page.evaluate(async () => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const w = document.getElementById('calc-widget');
+        const grille = document.querySelector('#calc-widget .calc-grid');
+        const releve = () => {
+            const der = touches().pop();
+            return {
+                touche: der ? der.innerText.trim() : null,
+                entiere: der ? (der.getBoundingClientRect().bottom
+                                <= w.getBoundingClientRect().bottom + 0.5) : null,
+                deborde: +(grille.scrollHeight - grille.clientHeight).toFixed(0),
+                ecran: +document.querySelector('.calc-screen').getBoundingClientRect().height.toFixed(0)
+            };
+        };
+        clic('AC');
+        const repos = releve();
+        // Un calcul qui empile : une fraction dans un dénominateur, deux fois.
+        ['3', 'a/b', '2', '+', '5', 'a/b', '2'].forEach(clic);
+        await new Promise(ok => setTimeout(ok, 150));
+        const ecrit = releve();
+        clic('=');
+        await new Promise(ok => setTimeout(ok, 300));
+        const calcule = releve();
+        // Et le résultat, écrit en dernier, est ce qu'on voit dans l'afficheur.
+        const ecran = document.querySelector('.calc-screen');
+        const res = document.getElementById('calc-res').getBoundingClientRect();
+        const cadre = ecran.getBoundingClientRect();
+        const marge = parseFloat(getComputedStyle(ecran).paddingBottom) || 0;
+        return { repos, ecrit, calcule,
+                 // LE BAS DU RÉSULTAT, et non sa boîte entière : c'est le
+                 // dernier trait de la fraction qu'on doit voir, et la marge
+                 // basse de l'afficheur ne compte pas comme de la place.
+                 deborde: +(ecran.scrollHeight - ecran.clientHeight).toFixed(0),
+                 depasse: +(res.bottom - (cadre.bottom - marge)).toFixed(1) };
+    });
+    r.egal('la dernière touche du clavier est « = »', place.repos.touche, '=');
+    r.verifie('au repos, elle est tout entière dans la fenêtre',
+        place.repos.entiere && place.repos.deborde === 0, JSON.stringify(place.repos));
+    r.verifie('en écrivant un calcul empilé, elle y est toujours',
+        place.ecrit.entiere && place.ecrit.deborde === 0, JSON.stringify(place.ecrit));
+    r.verifie('ET APRÈS « = », AVEC UN RÉSULTAT EN FRACTION, ELLE Y EST ENCORE',
+        place.calcule.entiere && place.calcule.deborde === 0, JSON.stringify(place.calcule));
+    // L'afficheur a le droit de grandir un peu — c'est le clavier qui ne doit
+    // pas maigrir. Sans ce contrôle, on pourrait figer l'afficheur à rien.
+    r.verifie('l\'afficheur prend quand même la place libre',
+        place.ecrit.ecran > place.repos.ecran, JSON.stringify(place));
+    // ET CE QU'ON VEUT LIRE EST DANS LE CADRE : ce qui déborde défile, et
+    // l'afficheur se range sur sa dernière ligne — le résultat.
+    // Le contrôle ne dit quelque chose que si l'afficheur DÉBORDE vraiment :
+    // sans débordement, se ranger en haut ou en bas revient au même, et le
+    // sabotage « on se range en haut » ne faisait rien tomber.
+    r.verifie('l\'afficheur déborde bien — sinon il n\'y a rien à mesurer',
+        place.deborde > 0, JSON.stringify(place));
+    r.verifie('et il se range sur sa dernière ligne : le résultat se lit en entier',
+        place.depasse <= 0.5, JSON.stringify(place));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
