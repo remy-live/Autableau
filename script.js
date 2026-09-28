@@ -9221,6 +9221,24 @@ function updateCursor() {
     canvas.className = '';
     canvas.style.cursor = '';
 
+    // UN OUTIL PEUT DIRE CE QUE LE CURSEUR MONTRE SOUS LE POINT.
+    //
+    // « Comment changer juste la taille des colonnes sans changer l'échelle ? »
+    // Le geste existait — tirer une séparation de colonne d'un tableau — mais
+    // rien ne le disait : ni dessin, ni curseur. Un geste que personne ne peut
+    // deviner n'existe pas. Les outils qui en ont un le nomment ici, et la main
+    // sait avant de cliquer.
+    if (typeof PluginManager !== 'undefined' && PluginManager.plugins
+        && typeof mode !== 'undefined' && mode === 'pointer') {
+        for (const p of Object.values(PluginManager.plugins)) {
+            if (!p || typeof p.curseurSousLePoint !== 'function') continue;
+            let c = null;
+            try { c = p.curseurSousLePoint({ x: lastRawX, y: lastRawY }); }
+            catch (e) { c = null; }          // un outil qui trébuche ne fige pas le curseur
+            if (c) { canvas.style.cursor = c; return; }
+        }
+    }
+
     // Les instruments restent attrapables même en plein tracé : on les
     // déplace, on les tourne, on les rallonge, et l'outil en cours ne
     // change pas — comme une règle qu'on repousse du doigt sans lâcher son

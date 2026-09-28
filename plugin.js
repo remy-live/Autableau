@@ -17183,6 +17183,15 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         return null;
     },
 
+    // Ce que le curseur montre au-dessus d'une séparation de colonne : le
+    // dessin universel du « tirez pour élargir ».
+    curseurSousLePoint: function (pos) {
+        if (this.currentStamp || this.glisseColonne) return null;
+        const obj = this.tableauPrisEnMain();
+        if (!obj) return null;
+        return this.separationSousLePoint(obj, pos) ? 'col-resize' : null;
+    },
+
     tableauPrisEnMain: function () {
         if (typeof selectedItems === 'undefined' || selectedItems.length !== 1) return null;
         if (selectedItems[0].type !== 'image') return null;
@@ -17191,11 +17200,70 @@ registerPlugin('tableStudioTool', 'Outils Profs', {
         return o;
     },
 
+    // OÙ SONT LES SÉPARATIONS DE COLONNES, EN COORDONNÉES DU TABLEAU.
+    // Une seule mesure, et trois usages : les montrer, les viser, les tirer.
+    bordsDesColonnes: function (imgObj) {
+        const etat = imgObj && imgObj.pluginData && imgObj.pluginData.state;
+        if (!etat || !etat.colW || etat.cols < 2) return null;
+        const pad = 10;
+        const large = etat.colW.reduce((a, b) => a + b, 0) + pad * 2;
+        const haut = etat.rowH.reduce((a, b) => a + b, 0) + pad * 2;
+        const ex = imgObj.w / large, ey = imgObj.h / haut;
+        const bords = [];
+        let x = 0;
+        for (let i = 0; i < etat.cols - 1; i++) {
+            x += etat.colW[i];
+            bords.push({ idx: i, largeur: etat.colW[i], wx: x, x: imgObj.x + (pad + x) * ex });
+        }
+        return { bords, ex, ey, pad, haut,
+                 y0: imgObj.y + pad * ey, y1: imgObj.y + (haut - pad) * ey };
+    },
+
     onDraw: function (ctx) {
         if (mode === 'tableStudio' && this.currentStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
             ctx.globalAlpha = 0.7;
             ctx.drawImage(this.currentStamp.img, mouseLogicalPos.x - this.currentStamp.w / 2, mouseLogicalPos.y - this.currentStamp.h / 2);
             ctx.globalAlpha = 1.0;
+        }
+
+        // ON MONTRE CE QU'ON PEUT TIRER.
+        //
+        // « Comment, pour une fois, pour le tableau, changer juste la taille
+        // des colonnes sans changer l'échelle ? » — le geste existait déjà :
+        // tirer une séparation élargit LA COLONNE et refait la grille, sans
+        // toucher au corps du texte. Mais RIEN NE LE DISAIT. Un geste que
+        // personne ne peut deviner n'existe pas.
+        //
+        // Dès que le tableau est pris en main, ses séparations se montrent :
+        // un trait bleu et deux petites flèches, à l'endroit exact où l'on
+        // peut tirer. Elles ne s'affichent QUE sur le tableau sélectionné :
+        // une grille posée au tableau reste une grille.
+        const pris = (typeof mode !== 'undefined' && mode === 'pointer' && !this.glisseColonne)
+            ? this.tableauPrisEnMain() : null;
+        if (pris) {
+            const m = this.bordsDesColonnes(pris);
+            if (m) {
+                const e = (typeof zoom !== 'undefined' && zoom) || 1;
+                ctx.save();
+                ctx.strokeStyle = 'rgba(9, 132, 227, 0.55)';
+                ctx.lineWidth = 1.5 / e;
+                m.bords.forEach(b => {
+                    ctx.beginPath();
+                    ctx.moveTo(b.x, m.y0);
+                    ctx.lineTo(b.x, m.y1);
+                    ctx.stroke();
+                    // La poignée, au milieu du trait : deux flèches opposées.
+                    const cy = (m.y0 + m.y1) / 2, r = 9 / e;
+                    ctx.fillStyle = '#0984e3';
+                    ctx.beginPath();
+                    ctx.moveTo(b.x - r, cy); ctx.lineTo(b.x - r / 2.2, cy - r / 2.4);
+                    ctx.lineTo(b.x - r / 2.2, cy + r / 2.4); ctx.closePath(); ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(b.x + r, cy); ctx.lineTo(b.x + r / 2.2, cy - r / 2.4);
+                    ctx.lineTo(b.x + r / 2.2, cy + r / 2.4); ctx.closePath(); ctx.fill();
+                });
+                ctx.restore();
+            }
         }
         // LE TRAIT QU'ON TIRE. Refaire le dessin de la grille à chaque pixel
         // coûterait trop cher : on montre où la colonne va tomber, et l'on ne
