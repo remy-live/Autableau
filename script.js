@@ -15539,6 +15539,9 @@ async function affinerLaPage(obj) {
     const suivre = (o) => {
         o.src = rendu.src;
         o.cx *= k; o.cy *= k; o.cw *= k; o.ch *= k;
+        // Ce que l'on a écrit dessus a noté CE QUE LA PAGE MONTRAIT : la note
+        // change d'unité avec elle.
+        if (typeof remettreLesMarquesALEchelle === 'function') remettreLesMarquesALEchelle(o.id, k);
         if (o.pluginData && o.pluginData.surlignes) {
             o.pluginData.surlignes = o.pluginData.surlignes.map(z => ({
                 x: z.x * k, y: z.y * k, l: z.l * k, h: z.h * k
@@ -18775,6 +18778,21 @@ window.revenirAuCadrage = revenirAuCadrage;
 // dans la marge est un trait qu'on a voulu là.
 function cadreQuiRogneCetObjet(obj) {
     if (!obj || !obj.surObjet || obj.surObjet.type !== 'image') return null;
+    // UNE DROITE N'A PAS DE BOUT : ELLE NE TIENT DANS AUCUN CADRE.
+    //
+    // « J'ai tracé une droite sur un PDF ; en bougeant la page, la ligne
+    // disparaît et réapparaît. » Mesuré : au premier pixel de glissement, la
+    // page ne montre plus exactement ce qu'elle montrait quand on a posé la
+    // droite, la règle ci-dessous s'allume, et la droite se coupe net aux
+    // bords de la page — les trois quarts du trait s'éteignaient d'un coup,
+    // et revenaient si l'on ramenait la page à sa place au pixel près.
+    //
+    // La coupe a été écrite pour L'ENCRE POSÉE SUR UNE RÉGION DE LA PAGE :
+    // celle-là, on la rogne avec la région. Une droite, elle, est une
+    // construction qui traverse le tableau par définition ; elle n'a jamais
+    // été « dans » la page, et la couper à son cadre ne veut rien dire. Une
+    // demi-droite non plus : elle part et ne s'arrête pas.
+    if (obj.lineType === 'droite' || obj.lineType === 'demi-droite') return null;
     const hote = (typeof getObjectById === 'function') ? getObjectById('image', obj.surObjet.id) : null;
     if (!hote || hote.angle || hote.rotation) return null;
     if (!documentEstRogne(hote)) return null;
@@ -26985,6 +27003,31 @@ function marqueDAccroche(type, hote) {
     return m;
 }
 window.marqueDAccroche = marqueDAccroche;
+
+// LA MARQUE EST ÉCRITE EN PIXELS DE LA PAGE RENDUE, ET CETTE UNITÉ CHANGE.
+//
+// Quand on regarde une page de plus près, elle se redessine plus finement :
+// la même région se compte alors en plus de pixels, et tous les cadrages du
+// document sont remis à l'échelle d'un coup. La marque d'accroche, elle,
+// restait dans l'ancienne unité — et désignait donc une région qui n'existait
+// plus. Mesuré : une page rendue trois fois plus fine suffisait à faire
+// croire que TOUTE son encre avait été posée sur un autre cadrage, et la
+// coupe au bord de la page s'allumait toute seule, sans que personne n'ait
+// rien touché.
+function remettreLesMarquesALEchelle(id, k) {
+    if (!isFinite(k) || k <= 0 || Math.abs(k - 1) < 1e-9) return;
+    const remettre = (o) => {
+        const m = o && o.surObjet;
+        if (!m || m.type !== 'image' || m.id !== id || !m.rogne) return;
+        m.rogne = { cx: m.rogne.cx * k, cy: m.rogne.cy * k,
+                    cw: m.rogne.cw * k, ch: m.rogne.ch * k };
+    };
+    traitsAccrochesA('image', id).forEach(remettre);
+    pointsAccrochesA('image', id).forEach(remettre);
+    textesAccrochesA('image', id).forEach(remettre);
+    formesAccrochesA('image', id).forEach(({ o }) => remettre(o));
+}
+window.remettreLesMarquesALEchelle = remettreLesMarquesALEchelle;
 
 // Appelée quand un tracé vient d'être posé.
 function accrocherLeTrait(trait) {
