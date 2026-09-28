@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=222 »,
-         « script.js?v=383 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=223 »,
+         « script.js?v=384 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=222">
+    <link rel="stylesheet" href="style.css?v=223">
 </head>
 
 <body>
@@ -3888,6 +3888,57 @@
          l'impose pas. Écarté, il ne revient pas de la journée. -->
     <div id="edt-bandeau"></div>
 
+    <!-- EXPORTER LE CAHIER DE TEXTE.
+         « Il faudrait pouvoir exporter le cahier de texte, soit par classe (ou
+         plusieurs). J'aime bien un tableau avec en ligne la classe en haut et
+         la date verticale à gauche et le contenu dans les cases ; on pourrait
+         avoir quelque chose qui permet la mise en forme, l'aperçu et l'export.
+         Et pouvoir choisir la période. »
+         C'est la forme du cahier de texte papier. L'APERÇU EST LA MISE EN
+         FORME : le tableau montré est celui qu'on emporte, et chaque réglage
+         le redessine sous les yeux. -->
+    <div id="cdx-modal" class="modal-backdrop">
+        <div class="modal-box" id="cdx-boite">
+            <h3 class="modal-title">Exporter le cahier de texte</h3>
+            <div id="cdx-reglages">
+                <div class="cdx-bloc">
+                    <span class="cdx-titre">La période</span>
+                    <label>du <input type="date" id="cdx-du"></label>
+                    <label>au <input type="date" id="cdx-au"></label>
+                    <button type="button" class="edt-pas" data-periode="semaine">Cette semaine</button>
+                    <button type="button" class="edt-pas" data-periode="mois">Ce mois-ci</button>
+                    <button type="button" class="edt-pas" data-periode="tout">Tout</button>
+                </div>
+                <div class="cdx-bloc">
+                    <span class="cdx-titre">Les classes</span>
+                    <span id="cdx-classes"></span>
+                    <button type="button" class="edt-pas" id="cdx-toutes">Toutes / aucune</button>
+                </div>
+                <div class="cdx-bloc">
+                    <span class="cdx-titre">La mise en forme</span>
+                    <label>Dans les cases
+                        <select id="cdx-cases">
+                            <option value="les deux">ce qu'on a fait et le travail à faire</option>
+                            <option value="fait">ce qu'on a fait</option>
+                            <option value="devoirs">le travail à faire</option>
+                        </select>
+                    </label>
+                    <label><input type="checkbox" id="cdx-par-heure"> Une ligne par heure</label>
+                    <label><input type="checkbox" id="cdx-vides"> Garder les jours sans rien</label>
+                </div>
+            </div>
+            <div id="cdx-compte" class="cdx-compte"></div>
+            <div id="cdx-apercu" class="cdx-apercu"></div>
+            <div id="cdx-rien" class="modal-text"></div>
+            <div class="export-actions-grid" style="display:flex; gap:8px; margin-top:14px;">
+                <button type="button" id="cdx-pdf" class="btn-action primary" style="flex:1;">📄 PDF</button>
+                <button type="button" id="cdx-copier" class="btn-action primary" style="flex:1;">Copier le tableau</button>
+                <button type="button" id="cdx-csv" class="btn-action secondary" style="flex:1;">Fichier .csv</button>
+                <button type="button" id="cdx-fermer" class="btn-action secondary" style="flex:1;">Fermer</button>
+            </div>
+        </div>
+    </div>
+
     <div id="edt-modal" class="modal-backdrop">
         <div class="modal-box" id="edt-boite">
             <h3 class="modal-title">Mon emploi du temps</h3>
@@ -3914,6 +3965,12 @@
                         data-tooltip="Revenir à la semaine en cours"></button>
                     <button type="button" id="edt-semaine-apres" aria-label="Semaine suivante">▶</button>
                 </span>
+                <!-- EXPORTER CE QU'ON A ÉCRIT. Le cahier se remplit ici, heure
+                     par heure ; il n'en ressortait jamais autrement qu'à
+                     l'écran, une case à la fois. -->
+                <button type="button" id="edt-exporter"
+                    class="btn-action secondary edt-pour-semaine"
+                    data-tooltip="Exporter le cahier de texte : un tableau par classes et par dates">⤓ Exporter le cahier</button>
                 <div id="edt-semaines" class="edt-pour-construire">
                     <button type="button" class="edt-semaine" data-semaine="A">Semaine A</button>
                     <button type="button" class="edt-semaine" data-semaine="B">Semaine B</button>
@@ -3996,7 +4053,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=383"></script>
+    <script src="script.js?v=384"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

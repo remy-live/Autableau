@@ -38116,6 +38116,7 @@ function ouvrirLAgenda() {
             if (e.target.closest('#edt-semaine-apres')) { allerALaSemaine(1); return; }
             if (e.target.closest('#edt-semaine-lue')) { revenirACetteSemaine(); return; }
             if (e.target.closest('#edt-pdf')) { exporterLAgendaEnPdf(); return; }
+            if (e.target.closest('#edt-exporter')) { ouvrirLExportDuCahier(); return; }
             // Le bouton ouvre le champ de fichier caché : un « input file »
             // nu est laid et ne dit pas ce qu'il attend.
             if (e.target.closest('#edt-importer')) {
@@ -38460,6 +38461,490 @@ function fermerLeCahier() {
 
 window.ouvrirLeCahier = ouvrirLeCahier;
 window.fermerLeCahier = fermerLeCahier;
+
+
+// ==============================================================================
+// EXPORTER LE CAHIER DE TEXTE
+//
+// « Il faudrait pouvoir exporter le cahier de texte, soit par classe (ou
+// plusieurs). Pour ma part j'aime bien un tableau avec en ligne la classe en
+// haut et la date verticale à gauche et le contenu dans les cases ; on pourrait
+// avoir quelque chose qui permet la mise en forme, l'aperçu et l'export. Et
+// pouvoir choisir la période. »
+//
+// C'EST LA FORME DU CAHIER DE TEXTE PAPIER : les jours descendent, les classes
+// traversent, et l'on lit une semaine d'un coup d'œil. Rien dans le logiciel ne
+// la rendait : ce qu'on écrit heure par heure dans la grille n'en ressortait
+// jamais, sinon une case à la fois, à l'écran.
+//
+// L'APERÇU EST LA MISE EN FORME. On ne règle pas d'un côté pour découvrir de
+// l'autre : le tableau montré EST celui qu'on emporte, et chaque réglage le
+// redessine sous les yeux. Les trois sorties partent du même tableau — le PDF
+// pour classer ou imprimer, le presse-papiers pour coller dans Pronote ou un
+// traitement de texte, le fichier CSV pour un tableur.
+// ==============================================================================
+
+// UN MOT DU CAHIER, REMIS DANS SON CONTEXTE : sa date, son heure, sa classe.
+// La clé seule ne dit rien — « 2026-09-28|cr-7 » —, c'est le créneau qui porte
+// le nom de la classe et l'heure de cours.
+function motsDatesDuCahier() {
+    const m = (typeof motsDuCahier === 'function') ? motsDuCahier() : {};
+    const creneaux = (typeof agenda !== 'undefined' && agenda && Array.isArray(agenda.creneaux))
+        ? agenda.creneaux : [];
+    const parId = new Map(creneaux.map(c => [c.id, c]));
+    const sortie = [];
+    Object.keys(m).forEach(cle => {
+        const mot = m[cle] || {};
+        const fait = String(mot.fait || '').trim();
+        const devoirs = String(mot.devoirs || '').trim();
+        // UNE CASE VIDE N'EST PAS UN MOT. Le cahier en garde — on a ouvert une
+        // heure sans rien y écrire — et les compter ferait des lignes vides.
+        if (!fait && !devoirs) return;
+        const p = String(cle).split('|');
+        const date = p[0];
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        let libelle = '', debut = null;
+        if (p.length === 2) {
+            const c = parId.get(p[1]);
+            if (c) { libelle = c.libelle || ''; debut = c.debut; }
+        } else {
+            // L'ANCIENNE CLÉ — « date | heure | nom » — se lit encore. Un cahier
+            // enregistré avant le changement en contient, et l'export ne doit
+            // pas faire comme s'il n'y avait rien écrit.
+            debut = Number(p[1]);
+            libelle = p.slice(2).join('|');
+        }
+        if (!libelle) libelle = 'Sans classe';
+        sortie.push({ date, cle, libelle, debut, fait, devoirs });
+    });
+    return sortie.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1
+        : (a.debut || 0) - (b.debut || 0)));
+}
+window.motsDatesDuCahier = motsDatesDuCahier;
+
+// Les classes qui ont quelque chose d'écrit, dans l'ordre de la palette —
+// celui que le professeur connaît — et les autres à la suite.
+function classesDuCahier(mots) {
+    const vues = [...new Set((mots || motsDatesDuCahier()).map(m => m.libelle))];
+    const ordre = (typeof agenda !== 'undefined' && agenda && Array.isArray(agenda.entrees))
+        ? agenda.entrees.map(e => e.libelle) : [];
+    const connues = ordre.filter(n => vues.indexOf(n) >= 0);
+    return connues.concat(vues.filter(n => connues.indexOf(n) < 0));
+}
+window.classesDuCahier = classesDuCahier;
+
+// « lun. 28 sept. » — la date comme on l'écrit en tête d'une ligne de cahier.
+function dateDuCahierLue(iso) {
+    const d = new Date(iso + 'T12:00:00');
+    if (isNaN(d.getTime())) return iso;
+    try {
+        return d.toLocaleDateString('fr-FR',
+            { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch (e) { return iso; }
+}
+
+// CE QU'ON MET DANS UNE CASE. Quand une classe a deux heures le même jour, les
+// deux tiennent dans la même case et l'heure les sépare — sans quoi on ne
+// saurait pas ce qui a été fait quand.
+function texteDeLaCase(liste, cases, avecLHeure) {
+    const bouts = [];
+    (liste || []).forEach(m => {
+        const p = [];
+        if (cases !== 'devoirs' && m.fait) p.push(m.fait);
+        if (cases !== 'fait' && m.devoirs) {
+            p.push((cases === 'les deux' ? 'À faire : ' : '') + m.devoirs);
+        }
+        if (!p.length) return;
+        const tete = (avecLHeure && Number.isFinite(m.debut) && typeof heureLisible === 'function')
+            ? heureLisible(m.debut) + ' — ' : '';
+        bouts.push(tete + p.join('\n'));
+    });
+    return bouts.join('\n');
+}
+
+// LE TABLEAU DEMANDÉ : les classes en colonnes, les dates en lignes.
+//
+// Rendu comme une DONNÉE et non comme du HTML : l'aperçu, le PDF, le
+// presse-papiers et le tableur partent tous de là, et disent donc tous la même
+// chose. Trois sorties bâties chacune de son côté finiraient par diverger, et
+// l'aperçu cesserait d'être un aperçu.
+function tableauDuCahier(reglages) {
+    const r = Object.assign({
+        du: null, au: null, classes: null,
+        cases: 'les deux',        // « fait », « devoirs », « les deux »
+        parHeure: false,          // une ligne par heure au lieu d'une par jour
+        videsGardees: false       // garder les jours où rien n'est écrit
+    }, reglages || {});
+
+    const tous = motsDatesDuCahier();
+    const mots = tous.filter(m =>
+        (!r.du || m.date >= r.du) && (!r.au || m.date <= r.au)
+        && (!r.classes || r.classes.indexOf(m.libelle) >= 0));
+
+    const colonnes = (r.classes && r.classes.length)
+        ? r.classes.slice() : classesDuCahier(mots);
+
+    // Les lignes : une par jour, ou une par heure de la journée.
+    const parLigne = new Map();
+    mots.forEach(m => {
+        const cle = r.parHeure ? (m.date + '|' + (m.debut === null ? '' : m.debut)) : m.date;
+        if (!parLigne.has(cle)) parLigne.set(cle, { date: m.date, debut: m.debut, mots: [] });
+        parLigne.get(cle).mots.push(m);
+    });
+
+    // ET LES JOURS SANS RIEN, SI ON LES VEUT. Un cahier de texte vierge d'une
+    // semaine se remplit à la main, sur le papier : la ligne doit y être.
+    if (r.videsGardees && r.du && r.au && !r.parHeure) {
+        for (let d = new Date(r.du + 'T12:00:00'); jourIso(d) <= r.au; d.setDate(d.getDate() + 1)) {
+            const j = jourIso(d);
+            // Ni samedi ni dimanche, sauf si le samedi est travaillé.
+            const n = d.getDay();
+            if (n === 0 || (n === 6 && !(typeof agenda !== 'undefined' && agenda && agenda.samedi))) continue;
+            if (!parLigne.has(j)) parLigne.set(j, { date: j, debut: null, mots: [] });
+        }
+    }
+
+    const lignes = [...parLigne.values()]
+        .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.debut || 0) - (b.debut || 0)))
+        .map(l => {
+            const titre = dateDuCahierLue(l.date)
+                + ((r.parHeure && Number.isFinite(l.debut) && typeof heureLisible === 'function')
+                    ? '\n' + heureLisible(l.debut) : '');
+            const cases = colonnes.map(nom => texteDeLaCase(
+                l.mots.filter(m => m.libelle === nom), r.cases, !r.parHeure));
+            return { date: l.date, debut: l.debut, titre, cases };
+        });
+
+    return { colonnes, lignes, combien: mots.length,
+             du: r.du, au: r.au, cases: r.cases };
+}
+window.tableauDuCahier = tableauDuCahier;
+
+// LE TITRE DE LA FEUILLE : ce qu'on lit en haut, et le nom du fichier.
+function titreDeLExport(t) {
+    const quand = (t.du && t.au)
+        ? ('du ' + dateDuCahierLue(t.du) + ' au ' + dateDuCahierLue(t.au))
+        : 'tout le cahier';
+    return 'Cahier de texte — ' + quand;
+}
+
+// ------------------------------------------------------------------
+// L'APERÇU, QUI EST AUSSI CE QU'ON COLLE
+// ------------------------------------------------------------------
+function cahierEnHtml(t, pourLeDehors) {
+    const e = (s) => String(s === undefined || s === null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const lignes = (s) => e(s).replace(/\n/g, '<br>');
+    // Les styles sont écrits DANS les balises pour la sortie qu'on emporte :
+    // un presse-papiers ne transporte pas de feuille de style, et le tableau
+    // collé dans Pronote ou dans un traitement de texte doit rester un tableau.
+    const st = pourLeDehors ? {
+        table: ' style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:12px"',
+        th: ' style="border:1px solid #888;padding:6px;background:#eef1f4;text-align:left;vertical-align:top"',
+        td: ' style="border:1px solid #888;padding:6px;vertical-align:top"',
+        date: ' style="border:1px solid #888;padding:6px;background:#f7f8fa;white-space:nowrap;vertical-align:top;font-weight:600"'
+    } : { table: '', th: '', td: '', date: ' class="cdx-date"' };
+
+    let h = pourLeDehors ? ('<p><b>' + e(titreDeLExport(t)) + '</b></p>') : '';
+    h += '<table' + st.table + '><thead><tr><th' + st.th + '>Date</th>';
+    t.colonnes.forEach(c => { h += '<th' + st.th + '>' + e(c) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    t.lignes.forEach(l => {
+        h += '<tr><th' + st.date + '>' + lignes(l.titre) + '</th>';
+        l.cases.forEach(c => { h += '<td' + st.td + '>' + lignes(c) + '</td>'; });
+        h += '</tr>';
+    });
+    h += '</tbody></table>';
+    return h;
+}
+window.cahierEnHtml = cahierEnHtml;
+
+// ------------------------------------------------------------------
+// LE TABLEUR
+// ------------------------------------------------------------------
+function cahierEnCsv(t) {
+    // LE POINT-VIRGULE, et non la virgule : c'est ce qu'attend un tableur en
+    // français, où la virgule est le séparateur décimal.
+    const champ = (s) => '"' + String(s === undefined || s === null ? '' : s)
+        .replace(/"/g, '""') + '"';
+    const l = [['Date'].concat(t.colonnes).map(champ).join(';')];
+    t.lignes.forEach(li => {
+        l.push([li.titre.replace(/\n/g, ' ')].concat(li.cases).map(champ).join(';'));
+    });
+    // Le BOM : sans lui, un tableur ouvre le fichier en latin-1 et « élève »
+    // devient « Ã©lÃ¨ve ».
+    return '﻿' + l.join('\r\n') + '\r\n';
+}
+window.cahierEnCsv = cahierEnCsv;
+
+// ------------------------------------------------------------------
+// LE PDF
+// ------------------------------------------------------------------
+// Une feuille à l'italienne : les classes traversent, et une case de cahier a
+// besoin de largeur. Les lignes se coupent d'elles-mêmes quand le texte est
+// long, et une ligne qui ne tient plus passe à la feuille suivante — entière,
+// jamais coupée en deux.
+function fabriquerLePdfDuCahier(t) {
+    const moteur = window.jspdf && window.jspdf.jsPDF;
+    if (!moteur) return null;
+    const L = 842, H = 595;                       // A4 à l'italienne, en points
+    const marge = 28, gouttiere = 74, entete = 22;
+    const pdf = new moteur({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const colonnes = t.colonnes.length || 1;
+    const large = (L - marge * 2 - gouttiere) / colonnes;
+
+    const enTete = (titre) => {
+        pdf.setFillColor('#ffffff');
+        pdf.rect(0, 0, L, H, 'F');
+        pdf.setTextColor('#2d3436');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(13);
+        pdf.text(titre, marge, marge + 4);
+        let y = marge + 20;
+        pdf.setFillColor('#eef1f4');
+        pdf.rect(marge, y, L - marge * 2, entete, 'F');
+        pdf.setFontSize(9);
+        pdf.text('Date', marge + 5, y + 14);
+        t.colonnes.forEach((c, i) => {
+            pdf.text(String(c), marge + gouttiere + i * large + 5, y + 14, { maxWidth: large - 10 });
+        });
+        pdf.setDrawColor('#9aa4ad');
+        pdf.rect(marge, y, L - marge * 2, entete);
+        return y + entete;
+    };
+
+    let y = enTete(titreDeLExport(t));
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+
+    t.lignes.forEach(li => {
+        const morceaux = li.cases.map(c => pdf.splitTextToSize(String(c || ''), large - 10));
+        const titre = pdf.splitTextToSize(li.titre.replace(/\n/g, ' '), gouttiere - 10);
+        const lignesHautes = Math.max(titre.length, ...morceaux.map(m => m.length), 1);
+        const haut = Math.max(20, lignesHautes * 10 + 8);
+        // UNE LIGNE NE SE COUPE PAS EN DEUX FEUILLES. Ce qu'on a fait un jour
+        // se lit d'un bloc ; à cheval, il faudrait tourner la page au milieu
+        // d'une phrase.
+        if (y + haut > H - marge) {
+            pdf.addPage();
+            y = enTete(titreDeLExport(t) + ' (suite)');
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(8.5);
+        }
+        pdf.setFillColor('#f7f8fa');
+        pdf.rect(marge, y, gouttiere, haut, 'F');
+        pdf.setTextColor('#2d3436');
+        pdf.text(titre, marge + 5, y + 12);
+        morceaux.forEach((m, i) => {
+            pdf.text(m, marge + gouttiere + i * large + 5, y + 12);
+        });
+        pdf.setDrawColor('#c3ccd3');
+        for (let i = 0; i <= colonnes; i++) {
+            const x = marge + gouttiere + i * large;
+            pdf.line(x, y, x, y + haut);
+        }
+        pdf.rect(marge, y, L - marge * 2, haut);
+        y += haut;
+    });
+    return pdf;
+}
+window.fabriquerLePdfDuCahier = fabriquerLePdfDuCahier;
+
+// ------------------------------------------------------------------
+// LA FENÊTRE : ON RÈGLE, ON VOIT, ON EMPORTE
+// ------------------------------------------------------------------
+let cdxBranche = false;
+
+function reglagesDeLExport() {
+    const v = (id) => { const e = document.getElementById(id); return e ? e.value : ''; };
+    const coche = (id) => { const e = document.getElementById(id); return !!(e && e.checked); };
+    const choisies = [...document.querySelectorAll('#cdx-classes input:checked')]
+        .map(c => c.value);
+    return {
+        du: v('cdx-du') || null,
+        au: v('cdx-au') || null,
+        classes: choisies.length ? choisies : null,
+        cases: v('cdx-cases') || 'les deux',
+        parHeure: coche('cdx-par-heure'),
+        videsGardees: coche('cdx-vides')
+    };
+}
+
+// LES BORNES PROPOSÉES SONT CELLES DU CAHIER : du premier mot écrit au
+// dernier. Proposer « depuis le 1er janvier » à quelqu'un qui a commencé en
+// septembre lui ferait cocher des semaines vides.
+function bornesDuCahier() {
+    const m = motsDatesDuCahier();
+    if (!m.length) return null;
+    return { du: m[0].date, au: m[m.length - 1].date };
+}
+
+function poserLaPeriode(quoi) {
+    const bornes = bornesDuCahier();
+    const du = document.getElementById('cdx-du');
+    const au = document.getElementById('cdx-au');
+    if (!du || !au) return;
+    if (quoi === 'tout') {
+        du.value = bornes ? bornes.du : '';
+        au.value = bornes ? bornes.au : '';
+    } else if (quoi === 'semaine') {
+        const lundi = lundiDe(edtLundiVu ? new Date(edtLundiVu + 'T12:00:00') : new Date());
+        const dimanche = new Date(lundi); dimanche.setDate(dimanche.getDate() + 6);
+        du.value = jourIso(lundi); au.value = jourIso(dimanche);
+    } else if (quoi === 'mois') {
+        const d = edtLundiVu ? new Date(edtLundiVu + 'T12:00:00') : new Date();
+        du.value = jourIso(new Date(d.getFullYear(), d.getMonth(), 1));
+        au.value = jourIso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+    }
+    rendreLExportDuCahier();
+}
+
+function rendreLesClassesDeLExport() {
+    const zone = document.getElementById('cdx-classes');
+    if (!zone) return;
+    const avant = new Set([...zone.querySelectorAll('input:checked')].map(c => c.value));
+    const neuf = !zone.dataset.pose;
+    zone.innerHTML = '';
+    classesDuCahier().forEach(nom => {
+        const l = document.createElement('label');
+        l.className = 'cdx-classe';
+        const c = document.createElement('input');
+        c.type = 'checkbox'; c.value = nom;
+        // À L'OUVERTURE, TOUTES : on exporte son cahier, pas une classe sur six.
+        c.checked = neuf ? true : avant.has(nom);
+        l.appendChild(c);
+        l.appendChild(document.createTextNode(' ' + nom));
+        zone.appendChild(l);
+    });
+    zone.dataset.pose = '1';
+}
+
+function rendreLExportDuCahier() {
+    const apercu = document.getElementById('cdx-apercu');
+    if (!apercu) return;
+    const t = tableauDuCahier(reglagesDeLExport());
+    const rien = document.getElementById('cdx-rien');
+    // UNE FEUILLE VIDE SE DIT AVANT L'EXPORT, et non après : on découvrirait
+    // sinon un PDF à en-tête et sans une ligne.
+    if (!t.lignes.length) {
+        apercu.innerHTML = '';
+        if (rien) {
+            rien.style.display = '';
+            rien.textContent = bornesDuCahier()
+                ? 'Rien d’écrit dans cette période pour ces classes — changez les dates ou cochez d’autres classes.'
+                : 'Le cahier de texte est encore vide : remplissez une heure dans la grille de la semaine, et elle paraîtra ici.';
+        }
+    } else {
+        if (rien) rien.style.display = 'none';
+        apercu.innerHTML = cahierEnHtml(t, false);
+    }
+    const dire = document.getElementById('cdx-compte');
+    if (dire) {
+        dire.textContent = t.lignes.length
+            ? (t.combien + (t.combien > 1 ? ' heures écrites' : ' heure écrite')
+               + ' · ' + t.colonnes.length + (t.colonnes.length > 1 ? ' classes' : ' classe'))
+            : '';
+    }
+    return t;
+}
+window.rendreLExportDuCahier = rendreLExportDuCahier;
+
+function exporterLeCahierEnPdf() {
+    const t = tableauDuCahier(reglagesDeLExport());
+    if (!t.lignes.length) { showToast('Il n’y a rien à exporter dans cette période'); return false; }
+    if (!(window.jspdf && window.jspdf.jsPDF)) { showToast('Moteur PDF non chargé.'); return false; }
+    try {
+        const pdf = fabriquerLePdfDuCahier(t);
+        if (!pdf) return false;
+        pdf.save('Cahier_de_texte' + (t.du ? '_' + t.du : '') + '.pdf');
+        showToast('📄 Cahier de texte exporté');
+        return true;
+    } catch (e) { showToast('L’export a échoué.'); return false; }
+}
+window.exporterLeCahierEnPdf = exporterLeCahierEnPdf;
+
+// LE PRESSE-PAPIERS PORTE LE TABLEAU, PAS SA PHOTO. Collé dans un traitement
+// de texte ou dans Pronote, il reste un tableau qu'on peut reprendre ; la
+// version en texte simple suit pour les endroits qui n'acceptent que cela.
+async function copierLeCahier() {
+    const t = tableauDuCahier(reglagesDeLExport());
+    if (!t.lignes.length) { showToast('Il n’y a rien à copier dans cette période'); return false; }
+    const html = cahierEnHtml(t, true);
+    const brut = [titreDeLExport(t), ''].concat(t.lignes.map(l =>
+        l.titre.replace(/\n/g, ' ') + '\n' + t.colonnes.map((c, i) =>
+            '  ' + c + ' : ' + (l.cases[i] || '—').replace(/\n/g, ' / ')).join('\n'))).join('\n');
+    try {
+        if (navigator.clipboard && window.ClipboardItem) {
+            await navigator.clipboard.write([new ClipboardItem({
+                'text/html': new Blob([html], { type: 'text/html' }),
+                'text/plain': new Blob([brut], { type: 'text/plain' })
+            })]);
+        } else if (typeof mettreDansLePressePapiers === 'function') {
+            await mettreDansLePressePapiers(brut);
+        }
+        showToast('Tableau copié — collez-le dans votre traitement de texte');
+        return true;
+    } catch (e) {
+        showToast('La copie a échoué : sélectionnez l’aperçu et copiez-le à la main');
+        return false;
+    }
+}
+window.copierLeCahier = copierLeCahier;
+
+function telechargerLeCahierEnCsv() {
+    const t = tableauDuCahier(reglagesDeLExport());
+    if (!t.lignes.length) { showToast('Il n’y a rien à exporter dans cette période'); return false; }
+    const b = new Blob([cahierEnCsv(t)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = 'Cahier_de_texte' + (t.du ? '_' + t.du : '') + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    showToast('Fichier .csv enregistré — ouvrez-le dans un tableur');
+    return true;
+}
+window.telechargerLeCahierEnCsv = telechargerLeCahierEnCsv;
+
+function ouvrirLExportDuCahier() {
+    const boite = document.getElementById('cdx-modal');
+    if (!boite) return;
+    if (typeof lireLeCahier === 'function') lireLeCahier();
+    if (typeof lireLAgenda === 'function') lireLAgenda();
+    if (!cdxBranche) {
+        cdxBranche = true;
+        ['cdx-du', 'cdx-au', 'cdx-cases', 'cdx-par-heure', 'cdx-vides'].forEach(id => {
+            const e = document.getElementById(id);
+            if (e) e.addEventListener('change', rendreLExportDuCahier);
+        });
+        document.getElementById('cdx-classes')?.addEventListener('change', rendreLExportDuCahier);
+        boite.querySelectorAll('[data-periode]').forEach(b =>
+            b.addEventListener('click', () => poserLaPeriode(b.dataset.periode)));
+        document.getElementById('cdx-toutes')?.addEventListener('click', () => {
+            const cases = [...document.querySelectorAll('#cdx-classes input')];
+            const toutes = cases.every(c => c.checked);
+            cases.forEach(c => { c.checked = !toutes; });
+            rendreLExportDuCahier();
+        });
+        document.getElementById('cdx-pdf')?.addEventListener('click', exporterLeCahierEnPdf);
+        document.getElementById('cdx-copier')?.addEventListener('click', copierLeCahier);
+        document.getElementById('cdx-csv')?.addEventListener('click', telechargerLeCahierEnCsv);
+        document.getElementById('cdx-fermer')?.addEventListener('click', fermerLExportDuCahier);
+    }
+    rendreLesClassesDeLExport();
+    // À L'OUVERTURE, LA SEMAINE QU'ON REGARDE : c'est celle qu'on vient de
+    // remplir, et c'est presque toujours celle qu'on veut emporter.
+    const du = document.getElementById('cdx-du');
+    if (du && !du.value) poserLaPeriode('semaine');
+    boite.style.display = 'flex';
+    rendreLExportDuCahier();
+}
+window.ouvrirLExportDuCahier = ouvrirLExportDuCahier;
+
+function fermerLExportDuCahier() {
+    const boite = document.getElementById('cdx-modal');
+    if (boite) boite.style.display = 'none';
+}
+window.fermerLExportDuCahier = fermerLExportDuCahier;
 
 // ============================================================
 // « JE DÉBUTE » : UNE ENTRÉE PAR LE MÉTIER, ET NON PAR LE CATALOGUE

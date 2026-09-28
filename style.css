@@ -13636,8 +13636,18 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 /* ET « CONSTRUIRE » NE SAIT RIEN DU CAHIER NI DU CALENDRIER. La pastille qui
    marque une heure déjà remplie appartient à un jour précis ; « aujourd'hui »
    aussi. Dans une semaine TYPE, qui se répète toute l'année, ni l'une ni
-   l'autre ne veut dire quoi que ce soit. */
-   (« aujourd'hui » ne se pose même pas : voir « rendreLaGrilleDeLAgenda ».) */
+   l'autre ne veut dire quoi que ce soit.
+   (« aujourd'hui » ne se pose même pas : voir « rendreLaGrilleDeLAgenda ».)
+
+   CE COMMENTAIRE ÉTAIT FERMÉ DEUX FOIS, et sa seconde ligne courait donc en
+   plein milieu de la feuille de style. Une fermeture de commentaire qui
+   traîne n'est pas une erreur qu'on voit : le navigateur cherche un bloc à
+   qui l'attacher, avale la règle suivante avec, et la jette. La pastille du
+   cahier se montrait donc dans « Construire », où elle ne veut rien dire —
+   et rien ne le disait.
+   (On n'écrit pas non plus la séquence en toutes lettres dans un
+   commentaire : elle le refermerait ici même. La leçon a été apprise en la
+   refaisant.) */
 #edt-boite.edt-mode-construire .edt-ecrit { display: none !important; }
 
 #edt-navigation {
@@ -13660,3 +13670,96 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 #edt-navigation button:hover { background: var(--accent-soft); color: var(--accent); }
 #edt-semaine-lue { font-weight: 600; min-width: 170px; }
 #edt-semaine-lue.actif { border-color: var(--accent, #6c5ce7); color: var(--accent, #6c5ce7); }
+
+/* ==========================================================
+   EXPORTER LE CAHIER DE TEXTE
+   ==========================================================
+   « J'aime bien un tableau avec en ligne la classe en haut et la date
+   verticale à gauche et le contenu dans les cases. » C'est la forme du cahier
+   de texte papier, et l'aperçu la montre telle qu'elle sortira. */
+#cdx-boite {
+    /* Une feuille de cahier de texte est LARGE : autant de colonnes que de
+       classes. La boîte modale ordinaire tient en cinq cents pixels — c'est
+       la bonne taille pour une question, pas pour un tableau. */
+    width: min(1150px, 95vw);
+    max-width: none;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 24px 18px;
+    /* Et l'on y lit un tableau, pas une annonce : tout est aligné à gauche. */
+    text-align: left;
+}
+
+#cdx-reglages {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 8px 0 10px;
+}
+
+/* CHAQUE RÉGLAGE SUR SA LIGNE, ET SON NOM TOUJOURS À LA MÊME PLACE : mêlés,
+   « la mise en forme » et « une ligne par heure » se retrouvaient sur deux
+   lignes différentes selon la largeur, et l'on ne savait plus ce qui allait
+   avec quoi. */
+.cdx-bloc {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: 13px;
+}
+
+.cdx-titre {
+    flex: none;
+    width: 120px;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+.cdx-bloc label { display: inline-flex; align-items: center; gap: 4px; }
+.cdx-bloc input[type="date"], .cdx-bloc select {
+    font: inherit; padding: 3px 5px; border-radius: 6px;
+    border: 1px solid var(--contour, #dfe6e9); background: inherit; color: inherit;
+}
+
+.cdx-classe { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+
+.cdx-compte { font-size: 12px; opacity: 0.7; padding-bottom: 4px; }
+
+/* L'APERÇU DÉFILE, LA FENÊTRE NON. Un trimestre de cahier fait deux mètres de
+   haut : sans cela, les boutons d'export sortiraient de l'écran — et ce sont
+   eux qu'on vient chercher. */
+.cdx-apercu {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--bordure, #dfe6e9);
+    border-radius: 8px;
+    background: #fff;
+    padding: 8px;
+}
+
+.cdx-apercu table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12px;
+}
+
+.cdx-apercu th, .cdx-apercu td {
+    border: 1px solid #b8c2c9;
+    padding: 6px 7px;
+    text-align: left;
+    vertical-align: top;
+    color: #2d3436;
+}
+
+.cdx-apercu thead th { background: #eef1f4; font-weight: 700; position: sticky; top: -8px; }
+.cdx-apercu .cdx-date { background: #f7f8fa; white-space: nowrap; font-weight: 600; }
+
+/* L'aperçu montre une FEUILLE : elle reste blanche la nuit, comme le papier
+   qui sortira de l'imprimante. */
+body.dark-mode .cdx-apercu { background: #fff; }
