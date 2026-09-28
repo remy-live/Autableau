@@ -454,6 +454,107 @@ module.exports = async function (browser) {
     r.egal('la racine cubique garde son ordre', latex.cube, '\\sqrt[3]{8} = 2');
     r.egal('et il n\'y a rien à poser quand il n\'y a rien', latex.rien, null);
 
+    // ------------------------------------------------------------------
+    // 9. LES COUTURES DU GABARIT NE SONT PAS DES PLACES
+    // ------------------------------------------------------------------
+    // « Il y a plein d'erreurs en tapant des fractions et en utilisant les
+    // flèches, des choses disparaissent. »
+    //
+    // Une case de fraction est un groupe entre parenthèses — « (1)/(2) ». Les
+    // flèches se déplaçant de touche en touche, le curseur pouvait se poser
+    // ENTRE la parenthèse fermante du haut et la barre, ou entre la barre et
+    // la parenthèse ouvrante du bas. Ces deux places ne sont pas du contenu :
+    // ce sont les coutures du gabarit.
+    const coutures = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const e = document.getElementById('calc-expr');
+        const jouer = (suite) => { clic('AC'); suite.forEach(clic);
+            return { brut: e.dataset.brut, frac: e.querySelectorAll('.nat-frac').length,
+                     haut: [...e.querySelectorAll('.nat-haut')].map(x => x.textContent) }; };
+        return {
+            recule: jouer(['1', 'a/b', '2', '◀', '◀', '◀', '3']),
+            sort: jouer(['1', 'a/b', '2', '▶', '+', '3']),
+            avant: jouer(['1', 'a/b', '2', '◀', '◀', '◀', '◀', '9']),
+        };
+    });
+    r.egal('trois reculs ramènent DANS le numérateur, et le chiffre y reste',
+        coutures.recule.brut, '(31)/(2)', JSON.stringify(coutures.recule));
+    r.egal('la fraction tient toujours', coutures.recule.frac, 1, JSON.stringify(coutures.recule));
+    r.egal('un pas en avant sort de la fraction', coutures.sort.brut, '(1)/(2)+3',
+        JSON.stringify(coutures.sort));
+    r.egal('un pas de plus passe DEVANT la fraction', coutures.avant.brut, '9(1)/(2)',
+        JSON.stringify(coutures.avant));
+
+    // ET « DEL » AU DÉBUT D'UNE CASE DISSOUT LA FRACTION SANS RIEN PERDRE.
+    // Il n'y a rien devant le curseur DANS la case : retirer la parenthèse du
+    // gabarit ne voudrait rien dire. On enlève la barre et les cases, et l'on
+    // remet leur contenu en ligne — séparé par « ÷ » quand les deux portent
+    // quelque chose, si bien que la valeur du calcul ne bouge pas.
+    const dissoudre = await page.evaluate(() => {
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const e = document.getElementById('calc-expr');
+        const jouer = (suite) => { clic('AC'); suite.forEach(clic); return e.dataset.brut; };
+        return {
+            pleine: jouer(['1', 'a/b', '2', '◀', 'DEL']),
+            vide: jouer(['1', 'a/b', 'DEL']),
+            valeur: (() => { clic('AC'); ['1', 'a/b', '2', '◀', 'DEL', '='].forEach(clic);
+                             return document.getElementById('calc-res').dataset.brut; })(),
+        };
+    });
+    r.egal('« DEL » au début du bas dissout la fraction', dissoudre.pleine, '1÷2');
+    r.egal('et la valeur du calcul ne bouge pas', dissoudre.valeur, '1/2');
+    r.egal('sur une case vide, elle disparaît tout court', dissoudre.vide, '1');
+
+    // ------------------------------------------------------------------
+    // 10. ON TAPE AU HASARD, ET RIEN NE DOIT SE DÉFAIRE
+    // ------------------------------------------------------------------
+    // Les trois contrôles ci-dessus disent les cas qu'on a su nommer. Celui-ci
+    // cherche ceux qu'on n'a pas su nommer : deux cents suites de seize touches
+    // tirées au hasard — mais TOUJOURS LES MÊMES, la graine est fixée — et,
+    // après chaque touche, quatre choses qui ne doivent jamais être fausses.
+    // C'est ainsi que le défaut des coutures a été trouvé.
+    const balayage = await page.evaluate(() => {
+        const TOUCHES = ['1', '2', '3', '7', '+', '-', '×', 'a/b', 'a/b', '◀', '◀', '▶', '▶',
+                         'DEL', '√', 'x²', '(', ')', 'π', '.'];
+        const touches = () => [...document.querySelectorAll('#calc-widget .calc-btn')];
+        const clic = (t) => { const b = touches().find(x => x.innerText.trim() === t); if (b) b.click(); };
+        const e = document.getElementById('calc-expr');
+        // La barre devient une BARRE DE FRACTION et les parenthèses d'une case
+        // ne se dessinent pas : elles cessent d'être du texte, et c'est voulu.
+        const signes = () => e.textContent.replace(/[()\/\s]/g, '');
+        const contenu = (a, b) => { let i = 0; for (const c of b) if (i < a.length && a[i] === c) i++; return i === a.length; };
+        const fautes = [];
+        let graine = 987654321;
+        const hasard = (n) => { graine = (graine * 1103515245 + 12345) & 0x7fffffff; return graine % n; };
+        for (let essai = 0; essai < 200 && fautes.length < 6; essai++) {
+            clic('AC');
+            let fracAvant = 0;
+            const suite = [];
+            for (let pas = 0; pas < 16; pas++) {
+                const t = TOUCHES[hasard(TOUCHES.length)];
+                suite.push(t);
+                const brutAvant = e.dataset.brut, dessinAvant = signes();
+                clic(t);
+                const brut = e.dataset.brut, dessin = signes();
+                const frac = e.querySelectorAll('.nat-frac').length;
+                const dire = (q, d) => fautes.push(q + ' [' + suite.join(' ') + '] ' + d);
+                if ((t === '◀' || t === '▶') && brut !== brutAvant)
+                    dire('une flèche a changé le calcul', brutAvant + ' → ' + brut);
+                if (t !== 'DEL' && !contenu(dessinAvant, dessin))
+                    dire('taper a effacé ce qui était écrit', dessinAvant + ' → ' + dessin);
+                if (t !== 'DEL' && frac < fracAvant)
+                    dire('une fraction dessinée a disparu', fracAvant + ' → ' + frac + ' : ' + brut);
+                if (e.querySelectorAll('.nat-curseur').length !== 1)
+                    dire('il n\'y a pas exactement un curseur', brut);
+                fracAvant = frac;
+            }
+        }
+        return fautes;
+    });
+    r.egal('deux cents suites de touches au hasard ne défont rien', balayage, []);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

@@ -21220,12 +21220,42 @@ function bornesDesMorceaux(texte) {
     return bornes;
 }
 
+// DEUX PLACES N'EN SONT PAS, DANS UN GABARIT DE FRACTION.
+//
+// « Il y a plein d'erreurs en tapant des fractions et en utilisant les
+// flèches, des choses disparaissent. »
+//
+// Une case de fraction est un groupe entre parenthèses — « (1)/(2) ». Les
+// flèches se déplaçant de touche en touche, le curseur pouvait se poser ENTRE
+// la parenthèse fermante du haut et la barre, ou entre la barre et la
+// parenthèse ouvrante du bas. Ces deux places-là ne sont pas du contenu : ce
+// sont les coutures du gabarit. Un chiffre tapé là — mesuré : trois « ◀ »
+// depuis le dénominateur, puis « 3 » — donnait « (1)3/(2) ». Le numérateur
+// sortait de sa case, réapparaissait avec ses parenthèses, et la fraction se
+// défaisait sous les yeux du professeur.
+//
+// Le curseur ne s'y arrête donc plus. Une flèche passe d'une case à l'autre
+// d'un seul pas, comme sur la machine.
+function placeInterdite(t, p) {
+    return (t[p - 1] === ')' && t[p] === '/') || (t[p - 1] === '/' && t[p] === '(');
+}
+
+function placesDuCurseur(texte) {
+    const t = String(texte || '');
+    return bornesDesMorceaux(t).filter(p => !placeInterdite(t, p));
+}
+
 function placeDuCurseur(texte) {
     const t = String(texte || '');
     const fin = t.length;
     if (curseurCalc === null || curseurCalc >= fin || curseurCalc < 0) return fin;
     const bornes = bornesDesMorceaux(t);
-    if (bornes.includes(curseurCalc)) return curseurCalc;
+    if (bornes.includes(curseurCalc)) {
+        if (!placeInterdite(t, curseurCalc)) return curseurCalc;
+        // Une couture : on se range sur la place permise juste avant.
+        const permises = placesDuCurseur(t).filter(p => p < curseurCalc);
+        return permises.length ? permises[permises.length - 1] : 0;
+    }
     // LE CURSEUR EST DANS UNE TOUCHE. C'est légitime dans un NOMBRE — on écrit
     // « 9 » au milieu de « 12 », et l'on veut le voir là — mais nulle part
     // ailleurs : la moitié d'un « x² » n'est pas une place où poser quoi que ce
@@ -21259,11 +21289,59 @@ function insererAuCurseur(texte, ajout) {
     return neuf;
 }
 
+// LE GABARIT DE FRACTION QUI ENTOURE CETTE PLACE, s'il y en a un et qu'on est
+// au DÉBUT d'une de ses deux cases. C'est le seul endroit où « DEL » ne doit
+// pas retirer une touche : il n'y a rien devant, dans la case.
+function gabaritAutour(texte, p) {
+    const t = String(texte || '');
+    for (let k = 0; k < t.length; k++) {
+        if (t[k] !== '/' || t[k - 1] !== ')' || t[k + 1] !== '(') continue;
+        // La parenthèse ouvrante du haut
+        let prof = 0, debut = -1;
+        for (let i = k - 1; i >= 0; i--) {
+            if (t[i] === ')') prof++;
+            else if (t[i] === '(') { prof--; if (!prof) { debut = i; break; } }
+        }
+        if (debut < 0) continue;
+        // La parenthèse fermante du bas
+        prof = 0; let fin = -1;
+        for (let i = k + 1; i < t.length; i++) {
+            if (t[i] === '(') prof++;
+            else if (t[i] === ')') { prof--; if (!prof) { fin = i + 1; break; } }
+        }
+        if (fin < 0) continue;
+        const hautDebut = debut + 1, basDebut = k + 2;
+        if (p !== hautDebut && p !== basDebut) continue;
+        return { debut, fin, hautDebut, basDebut,
+                 haut: t.slice(debut + 1, k - 1), bas: t.slice(k + 2, fin - 1) };
+    }
+    return null;
+}
+
 // « DEL » reprend la touche qui est JUSTE AVANT le curseur — c'est ce que fait
 // une calculatrice, et c'est ce que fait un traitement de texte.
 function effacerAuCurseur(texte) {
     const ou = placeDuCurseur(texte);
     if (!ou) return texte;                       // rien devant le curseur
+
+    // AU DÉBUT D'UNE CASE, « DEL » DISSOUT LA FRACTION — et ne perd rien.
+    //
+    // Il n'y a rien devant le curseur DANS la case : retirer la parenthèse du
+    // gabarit ne voudrait rien dire, et cassait la fraction. On enlève donc la
+    // barre et les deux cases, et l'on remet leur contenu en ligne. Quand les
+    // deux cases portent quelque chose, le signe « ÷ » les sépare : la valeur
+    // du calcul ne change pas d'un iota, et le professeur peut reprendre son
+    // écriture là où il en était. C'est ce que fait la machine quand on efface
+    // une barre de fraction.
+    const gab = gabaritAutour(texte, ou);
+    if (gab) {
+        const dedans = (gab.haut && gab.bas) ? (gab.haut + '÷' + gab.bas) : (gab.haut || gab.bas);
+        const neuf = texte.slice(0, gab.debut) + dedans + texte.slice(gab.fin);
+        const place = gab.debut + (gab.haut ? gab.haut.length : 0);
+        curseurCalc = (place >= neuf.length) ? null : place;
+        return neuf;
+    }
+
     const avant = texte.slice(0, ou);
     const morceaux = morceauxDuCalcul(avant);
     const dernier = morceaux[morceaux.length - 1] || '';
@@ -21323,15 +21401,24 @@ function poserUneFraction(texte) {
     return neuf;
 }
 
-// D'une touche vers la gauche, d'une touche vers la droite.
+// D'une touche vers la gauche, d'une touche vers la droite — en sautant les
+// coutures des gabarits, qui ne sont pas des places où l'on écrit.
+//
+// IL Y A DEUX COUCHES, ET C'EST VOULU. Celle-ci donne le GESTE : une flèche
+// passe d'une case à l'autre d'un seul pas, comme sur la machine, au lieu
+// d'avancer trois fois pour franchir une barre. Le filet, lui, est dans
+// « placeDuCurseur » : même si le curseur se retrouvait sur une couture par un
+// autre chemin, il serait ramené sur une place permise avant qu'on écrive.
+// Saboté ici seul, rien ne tombe — c'est le filet qui tient. Saboté aux deux
+// endroits, la fraction se défait, et l'épreuve le dit.
 function deplacerLeCurseur(texte, sens) {
-    const bornes = bornesDesMorceaux(texte);
+    const places = placesDuCurseur(texte);
     const ou = placeDuCurseur(texte);
     if (sens < 0) {
-        const avant = bornes.filter(b => b < ou);
+        const avant = places.filter(b => b < ou);
         curseurCalc = avant.length ? avant[avant.length - 1] : 0;
     } else {
-        const suivante = bornes.find(b => b > ou);
+        const suivante = places.find(b => b > ou);
         curseurCalc = (suivante === undefined || suivante >= texte.length) ? null : suivante;
     }
 }
