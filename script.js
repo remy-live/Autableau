@@ -6220,6 +6220,28 @@ function nommerLesBoutons(racine) {
 }
 window.nommerLesBoutons = nommerLesBoutons;
 
+// ON NOMME UNE FOIS PAR IMAGE, ET NON À CHAQUE REMUEMENT.
+//
+// Savoir si un bouton MONTRE un mot demande de lire « innerText » et de
+// regarder s'il est à l'écran : deux questions auxquelles le navigateur ne
+// répond qu'en recalculant la mise en page. Fait au fil des lots de mutations,
+// cela force un recalcul à chaque remuement du document — et une barre qui se
+// refait en pose des dizaines d'affilée. Mesuré : une épreuve qui passait six
+// fois sur six s'est mise à tomber une fois sur six, le temps s'étant déplacé
+// juste assez pour qu'un morceau arrive après le cadrage qui devait le
+// contenir. On empile donc ce qu'il y a à nommer, et l'on vide la pile au
+// prochain rendu : un seul recalcul, quoi qu'il arrive.
+let aNommer = null;
+
+function nommerBientot(n) {
+    if (aNommer) { aNommer.push(n); return false; }
+    aNommer = [n];
+    const vider = () => { const lot = aNommer; aNommer = null; lot.forEach(nommerLesBoutons); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(vider);
+    else setTimeout(vider, 0);
+    return true;
+}
+
 function veillerAuxNomsDesBoutons() {
     nommerLesBoutons();
     if (typeof MutationObserver !== 'function' || !document.body) return false;
@@ -6228,8 +6250,8 @@ function veillerAuxNomsDesBoutons() {
     // pas de boucle.
     new MutationObserver(lots => {
         lots.forEach(l => {
-            if (l.type === 'attributes') { nommerLesBoutons(l.target); return; }
-            l.addedNodes.forEach(n => { if (n.nodeType === 1) nommerLesBoutons(n); });
+            if (l.type === 'attributes') { nommerBientot(l.target); return; }
+            l.addedNodes.forEach(n => { if (n.nodeType === 1) nommerBientot(n); });
         });
     }).observe(document.body, { childList: true, subtree: true,
                                 attributes: true, attributeFilter: ['data-tooltip'] });

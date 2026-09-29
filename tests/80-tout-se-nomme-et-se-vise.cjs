@@ -163,6 +163,38 @@ module.exports = async function (browser) {
     });
     r.egal('une flèche seule ne nomme pas son bouton', signes, 'Page suivante');
 
+    // ------------------------------------------------------------------
+    // 6. ON NOMME UNE FOIS PAR IMAGE, ET NON À CHAQUE REMUEMENT
+    //
+    // Savoir si un bouton MONTRE un mot demande de lire son texte rendu et de
+    // regarder s'il est à l'écran : le navigateur n'y répond qu'en recalculant
+    // la mise en page. Fait au fil des mutations, cela force un recalcul à
+    // chaque remuement — et une barre qui se refait en pose des dizaines
+    // d'affilée. Mesuré : le chapitre « Tout voir » passait six fois sur six,
+    // et s'est mis à tomber une fois sur six, le temps s'étant déplacé juste
+    // assez pour qu'un morceau arrive après le cadrage qui devait le contenir.
+    //
+    // Le report ne se voit pas à l'œil : ce contrôle est le seul endroit qui
+    // l'exige. Sans lui, rien n'empêcherait de renommer au fil de l'eau et de
+    // rendre ce temps-là à l'insu de tous.
+    const report = await page.evaluate(async () => {
+        const b = document.createElement('button');
+        b.setAttribute('data-tooltip', 'Encore un bouton');
+        document.body.appendChild(b);
+        // APRÈS LE TOUR DE MICROTÂCHES, et non dans la foulée : le guetteur ne
+        // s'éveille qu'à ce moment-là, si bien que lire aussitôt ne mesurait
+        // rien du tout — la version qui renomme au fil de l'eau passait le
+        // contrôle sans broncher.
+        await Promise.resolve(); await Promise.resolve();
+        const tout_de_suite = b.getAttribute('aria-label');
+        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+        const apres = b.getAttribute('aria-label');
+        b.remove();
+        return { tout_de_suite, apres };
+    });
+    r.egal('un bouton neuf n\'est pas nommé dans la foulée', report.tout_de_suite, null);
+    r.egal('mais il l\'est au rendu suivant', report.apres, 'Encore un bouton');
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
