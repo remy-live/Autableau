@@ -7398,13 +7398,33 @@ function placerLaPalette() {
     pop.style.transform = 'none';
     const p = pop.getBoundingClientRect();
     const MARGE = 8;
-    let haut = b.bottom + MARGE;
-    if (haut + p.height > window.innerHeight - MARGE) haut = b.top - p.height - MARGE;
-    haut = Math.max(MARGE, Math.min(haut, window.innerHeight - p.height - MARGE));
+    // ELLE SE RANGE SOUS LA BARRE, ET NON SOUS LE BOUTON.
+    //
+    // « J'ai mis un pdf en plein écran, j'ai voulu écrire, la barre de style
+    // est apparue, j'ai voulu changer l'opacité, la barre a diminué. » Elle
+    // n'a pas diminué : la palette lui est TOMBÉE DESSUS. Mesuré en plein
+    // écran, barre en bas — 279 × 21 pixels de la barre passaient sous la
+    // palette, c'est-à-dire son tiers gauche à demi caché ; on ne voyait plus
+    // que le reste, et l'on croyait la barre raccourcie.
+    //
+    // La cause tient en une ligne : on gardait ses huit pixels de marge par
+    // rapport au BOUTON, qui est centré dans une barre de cinquante-quatre
+    // pixels et commence donc vingt-neuf pixels plus bas que son bord haut.
+    // La marge était comptée depuis le mauvais bord. C'est le MEUBLE qu'il
+    // faut éviter, pas la poignée.
+    const meuble = (typeof btn.closest === 'function' && btn.closest('.toolbar')) || btn;
+    const a = meuble.getBoundingClientRect();
+    const dessus = (a.width > 2 && a.height > 2) ? a : b;
+
     let gauche = b.left + b.width / 2 - p.width / 2;
     gauche = Math.max(MARGE, Math.min(gauche, window.innerWidth - p.width - MARGE));
-    pop.style.top = Math.round(haut) + 'px';
     pop.style.left = Math.round(gauche) + 'px';
+
+    const h = p.height;
+    let haut = dessus.bottom + MARGE;
+    if (haut + h > window.innerHeight - MARGE) haut = dessus.top - h - MARGE;
+    haut = Math.max(MARGE, Math.min(haut, window.innerHeight - h - MARGE));
+    pop.style.top = Math.round(haut) + 'px';
 }
 window.placerLaPalette = placerLaPalette;
 
@@ -7413,6 +7433,36 @@ btnColorPopover.addEventListener('click', (e) => {
     placerLaPalette();
     e.stopPropagation();
 });
+
+// ET ELLE SE REPOSE QUAND ELLE GRANDIT.
+//
+// Elle ne prend pas sa taille en s'ouvrant : l'équipement de fenêtre — la
+// barre de titre, sa croix — lui arrive quelques centaines de millisecondes
+// plus tard, et elle gagne vingt-deux pixels. Calculée sur la boîte d'avant,
+// elle retombait de ces vingt-deux pixels sur la barre : le bord de référence
+// une fois corrigé, il en restait quatorze. On n'attend donc pas un délai
+// qu'on aurait deviné : on regarde sa taille, et l'on repose quand elle
+// change.
+//
+// ET C'EST LA BOÎTE DE BORDURE QU'ON REGARDE, NON CELLE DU CONTENU.
+//
+// Un guetteur de taille surveille la boîte de CONTENU par défaut. Or ce que
+// l'équipement ajoute, c'est « .fen-titree { padding-top: 34px } » : une
+// marge intérieure, pour loger la barre de titre. Mesuré — le contenu reste
+// à 138 pixels d'un bout à l'autre pendant que la boîte visible passe de 164
+// à 186. Le guetteur n'avait donc rien à signaler, et ne s'est jamais
+// réveillé : il avait raison, on ne lui demandait pas la bonne boîte.
+let hauteurDeLaPalette = 0;
+if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => {
+        if (!colorPopover.classList.contains('visible')) return;
+        const h = Math.round(colorPopover.getBoundingClientRect().height);
+        // Reposer ne change pas la hauteur : sans cette garde, on tournerait.
+        if (h === hauteurDeLaPalette) return;
+        hauteurDeLaPalette = h;
+        placerLaPalette();
+    }).observe(colorPopover, { box: 'border-box' });
+}
 
 // La barre se déplace à la main, et l'écran change de taille — un vidéo-
 // projecteur qu'on branche en cours de séance suffit. Une palette ouverte

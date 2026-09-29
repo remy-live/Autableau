@@ -926,6 +926,102 @@ module.exports = async function (browser) {
     r.egal('ET LA VUE QU\'ON S\'EST POSÉE NE BOUGE PLUS TOUTE SEULE',
         saut.apres, saut.pose);
 
+    // ==================================================================
+    // LA PALETTE NE TOMBE PAS SUR LA BARRE QUI PORTE SON BOUTON
+    //
+    // « Petit bug : j'ai mis un pdf en plein écran, j'ai voulu écrire, la
+    // barre de style est apparue, j'ai voulu changer l'opacité, LA BARRE A
+    // DIMINUÉ. »
+    //
+    // Elle n'a pas diminué. Mesuré, barre en bas : 705 × 54 à (368,774), et
+    // la palette 299 × 186 à (347,580) — deux cent soixante-dix-neuf pixels
+    // sur vingt et un passaient DESSOUS la palette. Le tiers gauche de la
+    // barre disparaissait, on ne voyait plus que le reste, et l'on concluait
+    // très raisonnablement qu'elle avait raccourci.
+    //
+    // DEUX CAUSES, L'UNE DERRIÈRE L'AUTRE.
+    //
+    //   — La marge de huit pixels était comptée depuis le BOUTON, centré dans
+    //     une barre de cinquante-quatre pixels, et donc vingt-neuf pixels plus
+    //     bas que le bord haut de celle-ci. C'est le meuble qu'il faut éviter,
+    //     pas la poignée. Restaient quatorze pixels.
+    //   — La palette ne prend pas sa taille en s'ouvrant : l'équipement de
+    //     fenêtre lui arrive vers 450 ms et lui ajoute vingt-deux pixels. Un
+    //     guetteur de taille devait la reposer — il ne s'est jamais réveillé,
+    //     parce qu'il regardait la boîte de CONTENU, laquelle ne bouge pas :
+    //     ce que l'équipement ajoute, c'est « padding-top: 34px ». Le contenu
+    //     reste à 138 pixels pendant que la boîte visible passe de 164 à 186.
+    //
+    // CE QUE CE CONTRÔLE MESURE : L'ÉCART, et non le recouvrement.
+    //
+    // Compter les pixels qui se chevauchent ne suffisait pas. Remis à la
+    // poignée, avec la bonne hauteur, le calcul laisse UN pixel entre la
+    // palette et la barre : zéro recouvrement, et deux boîtes collées — la
+    // correction du bord de référence ne se mesurait plus. On demande donc
+    // les huit pixels de marge que la palette s'est toujours promis, et un
+    // écart négatif dit le recouvrement. Ainsi les deux causes tombent, et
+    // ce contrôle n'a pas à savoir laquelle reviendrait.
+    const palette = await page.evaluate(async () => {
+        const MARGE = 8;
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; texts.length = 0;
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560">'
+            + '<rect width="400" height="560" fill="#fff" stroke="#333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 560, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++, fileName: 'doc.pdf',
+            pluginData: { id: 'pdfDoc', page: 1, pages: 1, cle: 'k' } });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        majBarreDocument(); draw();
+        await attendre(200);
+        // EN PLEIN ÉCRAN : c'est là que les barres descendent en bas, et donc
+        // là que la palette doit remonter par-dessus elles.
+        document.getElementById('doc-plein-ecran').click();
+        await attendre(600);
+        // « J'ai voulu écrire » : le crayon de la barre du document.
+        document.getElementById('doc-outil-crayon').click();
+        await attendre(400);
+        document.getElementById('btn-color-popover').click();
+        // ON MESURE APRÈS L'ÉQUIPEMENT, pas avant : c'est tout l'objet.
+        await attendre(1000);
+
+        const pop = document.getElementById('color-popover').getBoundingClientRect();
+        const vue = (e) => {
+            const q = e.getBoundingClientRect(), s = getComputedStyle(e);
+            return q.width > 4 && q.height > 4 && s.display !== 'none'
+                && s.visibility !== 'hidden' && +s.opacity > 0.05;
+        };
+        const serrees = [];
+        document.querySelectorAll('.toolbar').forEach(t => {
+            if (!vue(t)) return;
+            const q = t.getBoundingClientRect();
+            // Deux boîtes qui ne se croisent pas en largeur ne se gênent pas.
+            if (Math.min(pop.right, q.right) - Math.max(pop.left, q.left) <= 0) return;
+            const ecart = q.top >= pop.bottom ? q.top - pop.bottom
+                : (pop.top >= q.bottom ? pop.top - q.bottom
+                    : -(Math.min(pop.bottom, q.bottom) - Math.max(pop.top, q.top)));
+            if (ecart < MARGE) serrees.push((t.id || '?') + ' écart ' + Math.round(ecart));
+        });
+        const barre = document.getElementById('bar-style').getBoundingClientRect();
+        return {
+            serrees,
+            // La barre doit bien être EN BAS, sans quoi rien n'est mesuré :
+            // une palette qui s'ouvre vers le bas ne rencontre personne.
+            barreEnBas: barre.top > innerHeight / 2,
+            ouverte: document.getElementById('color-popover').classList.contains('visible'),
+            dansLEcran: pop.top >= 0 && pop.left >= 0
+                && pop.bottom <= innerHeight && pop.right <= innerWidth,
+            // Et elle s'est bien équipée : sans quoi on mesurerait l'avant.
+            equipee: document.getElementById('color-popover').classList.contains('fen-titree')
+        };
+    });
+    r.verifie('la palette est ouverte', palette.ouverte, JSON.stringify(palette));
+    r.verifie('la barre de style est bien descendue en bas', palette.barreEnBas, JSON.stringify(palette));
+    r.verifie('et elle s\'est équipée en fenêtre', palette.equipee, JSON.stringify(palette));
+    r.egal('LA PALETTE NE TOUCHE AUCUNE BARRE, ET GARDE SA MARGE', palette.serrees, []);
+    r.verifie('et elle tient tout entière dans l\'écran', palette.dansLEcran, JSON.stringify(palette));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
