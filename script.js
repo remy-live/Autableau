@@ -28053,6 +28053,9 @@ function cleDePresentation(e) {
 // Le geste demandé : plein écran, interface effacée, le document occupe tout
 // l'espace, et l'on est en mode page — on fait glisser la page dans son cadre
 // et la molette la zoome.
+// Le rendez-vous du second cadrage : on le garde pour pouvoir l'annuler.
+let cadrageDiffere = null;
+
 function presenterLeDocument(cadrageVoulu) {
     const doc = documentAPresenter();
     if (!doc) {
@@ -28129,7 +28132,21 @@ function presenterLeDocument(cadrageVoulu) {
         if (typeof draw === 'function') draw();
     };
     cadrer();
-    setTimeout(cadrer, 250);
+    // ET LE SECOND CADRAGE N'ARRIVE PAS APRÈS QU'ON EST SORTI.
+    //
+    // On cadre deux fois parce que le plein écran redimensionne la fenêtre et
+    // qu'on ne sait pas quand : la seconde fois rattrape les dimensions
+    // nouvelles. Mais ce rendez-vous-là n'était annulé par rien. Qui quittait
+    // la présentation dans le quart de seconde — par Échap, par le mode Focus,
+    // par le bouton — voyait sa vue SAUTER toute seule un instant plus tard,
+    // recadrée sur un document qu'il venait de quitter. Repéré par une épreuve
+    // qui se mettait à tomber une fois sur six : « Tout voir » remettait tout
+    // à l'écran, puis le rendez-vous d'avant reprenait la main.
+    clearTimeout(cadrageDiffere);
+    cadrageDiffere = setTimeout(() => {
+        cadrageDiffere = null;
+        if (typeof presentationEnCours !== 'undefined' && presentationEnCours === doc.id) cadrer();
+    }, 250);
 
     showToast(cadrageDePresentation === 'largeur'
         ? 'Toute la largeur — molette ou Page↓ pour descendre, Ctrl+molette pour zoomer'

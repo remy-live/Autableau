@@ -887,6 +887,45 @@ module.exports = async function (browser) {
     r.egal('aucune commande du coin n\'est trop petite pour un doigt',
         auDoigt.petites, []);
 
+    // ==================================================================
+    // ON QUITTE LE PLEIN ÉCRAN, ET LA VUE NE SAUTE PLUS APRÈS COUP
+    //
+    // Le plein écran redimensionne la fenêtre, et l'on ne sait pas quand : on
+    // cadre donc DEUX fois, la seconde un quart de seconde plus tard, pour
+    // rattraper les dimensions nouvelles. Mais ce rendez-vous n'était annulé
+    // par rien. Qui sortait dans ce quart de seconde — par Échap, par le mode
+    // Focus, par le bouton — voyait sa vue sauter toute seule un instant plus
+    // tard, recadrée sur un document qu'il venait de quitter.
+    //
+    // REPÉRÉ PAR UNE ÉPREUVE QUI SE METTAIT À TOMBER UNE FOIS SUR SIX, et non
+    // par l'œil : « Tout voir » remettait tout à l'écran, puis le rendez-vous
+    // d'avant reprenait la main. Sous une machine chargée, il arrivait après.
+    const saut = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; texts.length = 0;
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560">'
+            + '<rect width="400" height="560" fill="#fff" stroke="#333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 560, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++, fileName: 'doc.pdf',
+            pluginData: { id: 'pdfDoc', page: 1, pages: 1, cle: 'k' } });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        presenterLeDocument();
+        // On sort tout de suite, bien avant le second cadrage.
+        if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
+        // Et l'on se pose une vue à soi, comme on le ferait en reprenant le
+        // travail : c'est elle qui ne doit pas bouger.
+        panX = -111; panY = -222; zoom = 0.5;
+        const pose = { panX, panY, zoom };
+        await attendre(500);          // le rendez-vous était à 250 ms
+        return { pose, apres: { panX, panY, zoom },
+                 presentation: presentationEnCours };
+    });
+    r.egal('on est bien sorti de la présentation', saut.presentation, null);
+    r.egal('ET LA VUE QU\'ON S\'EST POSÉE NE BOUGE PLUS TOUTE SEULE',
+        saut.apres, saut.pose);
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
