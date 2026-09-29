@@ -23408,6 +23408,47 @@ function equiperVraiment(el, cle, options) {
     // « Annuler » — aucune de ces huit-là n'a de travail à ranger derrière
     // elle. Celles qui ont quelque chose à ranger ont leur propre croix, et
     // c'est ELLE qu'on appelle : ce repli ne les concerne pas.
+    //
+    // MAIS « LE GESTE LE PLUS LITTÉRAL » TUAIT LA PALETTE DE COULEURS.
+    //
+    // « Je crée un polygone avec une couleur, je le duplique mais je ne peux
+    // changer la couleur de sa copie. » Ce n'était ni le polygone ni la
+    // duplication : c'était la palette, morte depuis qu'on l'avait fermée une
+    // fois par Échap ou par sa croix, et morte JUSQU'AU RECHARGEMENT.
+    //
+    // Elle s'ouvre par une classe — « #color-popover { display: none } » et
+    // « .visible { display: flex } ». La croix, elle, lui posait un
+    // « display: none » EN LIGNE. Deux leviers qui s'ignorent : la classe
+    // restait mise, et le style en ligne, plus fort que la feuille, gagnait à
+    // jamais. Le bouton de couleur ne faisait plus que basculer une classe
+    // sans effet — un clic sur deux enlevait « visible » d'une boîte déjà
+    // invisible. Mesuré : « visible contour-fenetre fen-titree » avec
+    // « display: none », 0 × 0.
+    //
+    // ON FERME DONC AVEC LE LEVIER QUI A OUVERT. On ne le devine pas : on
+    // l'essaie. Chaque classe est retirée tour à tour, et si la boîte
+    // disparaît, c'était celle-là — on la laisse retirée et l'on ne touche pas
+    // au style en ligne. Aucune ne cache rien ? Alors la fenêtre n'a pas de
+    // levier de classe, et le geste littéral reste le bon.
+    const fermerParSaClasse = (boite) => {
+        const depart = boite.className;
+        const cachee = () => {
+            const s = getComputedStyle(boite);
+            return s.display === 'none' || s.visibility === 'hidden'
+                || parseFloat(s.opacity || '1') < 0.05;
+        };
+        if (cachee()) return false;          // déjà invisible : rien à fermer
+        for (const c of Array.from(boite.classList)) {
+            boite.classList.remove(c);
+            if (cachee()) return true;
+            // L'ORDRE DES CLASSES COMPTE : à spécificité égale, la dernière
+            // règle écrite gagne, et un simple « remove » puis « add » aurait
+            // remis la classe en fin de liste. On rend la chaîne d'origine.
+            boite.className = depart;
+        }
+        boite.className = depart;
+        return false;
+    };
     if (!(maison && maison.fermer)) {
         const croixSeule = tete.querySelector('.fen-fermer');
         if (croixSeule) croixSeule.addEventListener('click', (e) => {
@@ -23417,6 +23458,8 @@ function equiperVraiment(el, cle, options) {
             // sur un fond où il n'y a plus rien à lire : la fenêtre a l'air
             // d'avoir disparu, mais l'application reste prise.
             const voile = (typeof voileDeModale === 'function') ? voileDeModale(el) : null;
+            // ET L'ON FERME AVEC LE LEVIER QUI A OUVERT, quand il y en a un.
+            if (!voile && fermerParSaClasse(el)) return;
             (voile || el).style.display = 'none';
         });
     }

@@ -363,6 +363,155 @@ module.exports = async function (browser) {
         r.egal('plus rien n\'est agrandi', agrandie.pleines, 0, JSON.stringify(agrandie));
     }
 
+    // ==================================================================
+    // ET CE QU'ÉCHAP A FERMÉ SE ROUVRE
+    //
+    // « Je crée un polygone avec une couleur, je le duplique mais je ne peux
+    // changer la couleur de sa copie. » Ni le polygone ni la duplication n'y
+    // étaient pour rien : LA PALETTE ÉTAIT MORTE, et morte jusqu'au
+    // rechargement de la page, depuis qu'on l'avait fermée une fois par Échap
+    // ou par sa croix.
+    //
+    // Elle s'ouvre par une classe — « #color-popover { display: none } » et
+    // « .visible { display: flex } ». La croix commune, elle, lui posait un
+    // « display: none » EN LIGNE. Deux leviers qui s'ignorent : la classe
+    // restait mise, le style en ligne gagnait pour toujours, et le bouton de
+    // couleur ne faisait plus que basculer une classe sans effet. Mesuré :
+    // « visible contour-fenetre fen-titree » avec « display: none », 0 × 0.
+    //
+    // La croix ferme désormais avec le levier qui a ouvert : elle essaie de
+    // retirer chaque classe et garde celle dont le retrait fait disparaître la
+    // boîte. Faute de levier, le geste littéral reste le bon — c'est le
+    // deuxième contrôle, celui qui empêche de « réparer » en cassant les huit
+    // fenêtres pour qui cette croix avait été écrite.
+    const rouvre = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const pop = document.getElementById('color-popover');
+        const vu = () => {
+            const q = pop.getBoundingClientRect();
+            return { l: Math.round(q.width), classes: pop.className,
+                     enLigne: pop.style.display || '' };
+        };
+        // On tient quelque chose : sans cela la barre de style n'est pas là.
+        points.length = 0; polygons.length = 0;
+        [[0, 0], [120, 0], [60, 90]].forEach(([x, y]) =>
+            points.push({ id: nextId++, x, y, color: '#e74c3c', shape: 'circle', z: globalZ++ }));
+        polygons.push({ id: nextId++, points: points.map(p => p.id), color: '#e74c3c',
+            width: 4, isFilled: false, fillColor: '#f1c40f', isClosed: true, z: globalZ++ });
+        selectedItems = [{ type: 'polygon', id: polygons[0].id }];
+        updateStyleBarContext(); draw();
+        await attendre(300);
+
+        document.getElementById('btn-color-popover').click();
+        await attendre(600);                 // elle s'équipe en fenêtre après coup
+        const ouverte = vu();
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await attendre(350);
+        const fermee = vu();
+
+        document.getElementById('btn-color-popover').click();
+        await attendre(400);
+        const relouverte = vu();
+
+        // Et l'on repeint pour de bon la copie : c'est ce que l'enseignant
+        // n'arrivait plus à faire.
+        duplicateSelection();
+        await attendre(200);
+        const copie = selectedItems[0];
+        const pastille = [...document.querySelectorAll('#color-popover [data-color]')]
+            .find(e => e.getAttribute('data-color') === '#3498db');
+        // ON NE CLIQUE QUE CE QUI SE VOIT. Appeler « click() » sur une pastille
+        // cachée réussit toujours — et le contrôle passait alors même que la
+        // palette était morte. Ce que l'enseignant peut atteindre, c'est ce
+        // qui a une boîte.
+        const atteignable = !!pastille && pastille.getClientRects().length > 0
+            && pastille.getBoundingClientRect().width > 4;
+        if (atteignable) pastille.click();
+        await attendre(250);
+        return { ouverte, fermee, relouverte, atteignable,
+                 combien: polygons.length,
+                 couleurs: polygons.map(p => p.color),
+                 copie: copie && copie.type + '#' + copie.id };
+    });
+    r.verifie('la palette de couleurs s\'ouvre', rouvre.ouverte.l > 40, JSON.stringify(rouvre));
+    r.verifie('Échap la referme', rouvre.fermee.l === 0, JSON.stringify(rouvre));
+    // LE CŒUR : on ferme par la classe, et AUCUN style en ligne ne vient
+    // s'ajouter par-dessus. C'est lui qui gagnait pour toujours.
+    r.egal('sans lui poser de « display » en ligne', rouvre.fermee.enLigne, '');
+    r.verifie('et elle ne garde pas la classe qui l\'ouvre',
+        !/\bvisible\b/.test(rouvre.fermee.classes), JSON.stringify(rouvre));
+    r.verifie('ET LE BOUTON LA ROUVRE', rouvre.relouverte.l > 40, JSON.stringify(rouvre));
+    r.egal('la duplication a bien donné une copie', rouvre.combien, 2, JSON.stringify(rouvre));
+    r.verifie('la pastille de couleur est atteignable', rouvre.atteignable, JSON.stringify(rouvre));
+    r.egal('ET LA COPIE CHANGE DE COULEUR', rouvre.couleurs, ['#e74c3c', '#3498db']);
+
+    // Une fenêtre que NULLE classe ne cache se ferme toujours à la littérale.
+    const litterale = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const boite = document.createElement('div');
+        boite.id = 'essai-sans-levier';
+        boite.style.cssText = 'position:fixed;left:40px;top:300px;width:260px;height:160px;'
+            + 'background:#fff;border:1px solid #ccc;z-index:99990';
+        boite.innerHTML = '<p>Une fenêtre sans classe qui la cache</p>';
+        document.body.appendChild(boite);
+        equiperFenetre(boite, 'essai-sans-levier', { toujours: true });
+        await attendre(300);
+        const croix = boite.querySelector(':scope > .fen-tete .fen-fermer');
+        const avant = Math.round(boite.getBoundingClientRect().width);
+        if (croix) croix.click();
+        await attendre(200);
+        const sortie = { avant, apres: Math.round(boite.getBoundingClientRect().width),
+                         enLigne: boite.style.display || '', classes: boite.className };
+        boite.remove();
+        return sortie;
+    });
+    r.verifie('une fenêtre sans levier de classe s\'ouvre bien', litterale.avant > 100, JSON.stringify(litterale));
+    r.egal('et sa croix la fait disparaître, littéralement', litterale.apres, 0, JSON.stringify(litterale));
+    r.egal('par un « display: none » en ligne, faute de mieux', litterale.enLigne, 'none');
+
+    // ET LES AUTRES CLASSES SURVIVENT, DANS LEUR ORDRE.
+    //
+    // Essayer les classes une à une veut dire en retirer, puis les remettre.
+    // Or à spécificité égale c'est la DERNIÈRE règle écrite qui gagne : un
+    // « remove » suivi d'un « add » remettrait la classe en fin de liste, et
+    // une fenêtre changerait d'allure en se fermant. On rend donc la chaîne
+    // d'origine entre deux essais — et sans cela, toute classe essayée avant
+    // le levier serait simplement PERDUE.
+    const ordre = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const style = document.createElement('style');
+        // « paree » ne cache rien : c'est une classe d'allure, essayée en
+        // premier. « posee » est le levier.
+        style.textContent = '#essai-deux-classes{display:none}'
+            + '#essai-deux-classes.posee{display:block}';
+        document.head.appendChild(style);
+        const boite = document.createElement('div');
+        boite.id = 'essai-deux-classes';
+        boite.className = 'paree posee';
+        boite.style.cssText = 'position:fixed;left:40px;top:300px;width:260px;height:160px;'
+            + 'background:#fff;border:1px solid #ccc;z-index:99990';
+        boite.innerHTML = '<p>Deux classes, une seule cache</p>';
+        document.body.appendChild(boite);
+        equiperFenetre(boite, 'essai-deux-classes', { toujours: true });
+        await attendre(300);
+        const croix = boite.querySelector(':scope > .fen-tete .fen-fermer');
+        const avant = Math.round(boite.getBoundingClientRect().width);
+        if (croix) croix.click();
+        await attendre(200);
+        const sortie = { avant, apres: Math.round(boite.getBoundingClientRect().width),
+                         classes: boite.className, enLigne: boite.style.display || '' };
+        boite.remove(); style.remove();
+        return sortie;
+    });
+    r.verifie('la fenêtre à deux classes s\'ouvre', ordre.avant > 100, JSON.stringify(ordre));
+    r.egal('sa croix la ferme par le levier, sans style en ligne', ordre.enLigne, '');
+    r.verifie('la fenêtre est bien fermée', ordre.apres === 0, JSON.stringify(ordre));
+    r.verifie('ET LA CLASSE D\'ALLURE, ESSAYÉE AVANT, EST TOUJOURS LÀ',
+        /\bparee\b/.test(ordre.classes), JSON.stringify(ordre));
+    r.verifie('tandis que le levier, lui, est parti',
+        !/\bposee\b/.test(ordre.classes), JSON.stringify(ordre));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
