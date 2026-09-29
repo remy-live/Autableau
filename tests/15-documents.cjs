@@ -2850,6 +2850,21 @@ module.exports = async function (browser) {
                                            || e.t < rb.top - 1 || e.b > rb.bottom + 1),
                 paginationEnLigne: getComputedStyle(document.getElementById('doc-pages')).flexDirection,
                 paginationDedans: pagination.right <= rb.right + 1 && pagination.left >= rb.left - 1,
+                // LA PAGINATION, RANG PAR RANG. Les flèches sont-elles l'une
+                // au-dessus de l'autre, et le numéro est-il encore une ligne ?
+                pagination: (() => {
+                    const r = (id) => document.getElementById(id).getBoundingClientRect();
+                    const p = r('doc-prec'), n = r('doc-page-num'),
+                          t = r('doc-total'), s = r('doc-suiv');
+                    return {
+                        flechesEmpilees: p.bottom <= n.top + 1 && n.bottom <= s.top + 1,
+                        numeroEnLigne: Math.abs((n.top + n.bottom) / 2 - (t.top + t.bottom) / 2) < 3
+                            && t.left >= n.right - 1,
+                        glyphes: document.getElementById('doc-prec').textContent.trim()
+                            + document.getElementById('doc-suiv').textContent.trim(),
+                        large: Math.round(r('doc-pages').width)
+                    };
+                })(),
                 defile: b.scrollHeight > b.clientHeight + 1
             };
         };
@@ -2879,9 +2894,31 @@ module.exports = async function (browser) {
         && debout.dressee.gauche > debout.ecran.L / 2
         && Math.abs(debout.dressee.milieu - debout.ecran.H / 2) < 3,
         JSON.stringify({ d: debout.dressee, e: debout.ecran }));
-    r.egal('mais « ◀ 2 /9 ▶ » reste une ligne, et tient dans la colonne',
-        { sens: debout.dressee.paginationEnLigne, dedans: debout.dressee.paginationDedans },
-        { sens: 'row', dedans: true });
+    // LE NUMÉRO RESTE UNE LIGNE, LES FLÈCHES SE LÈVENT.
+    //
+    // « Quand la barre est verticale, les flèches pour naviguer entre les
+    // pages, ça fait bizarre. » Ce contrôle disait auparavant « ◀ 2 /9 ▶ reste
+    // une ligne », et la raison tenait : une pagination en colonne ne se lit
+    // pas. Elle tient pour le NUMÉRO — « 2 /9 » se lit de gauche à droite et
+    // rien d'autre — mais pas pour les flèches : dans un PDF, la page suivante
+    // est en dessous, c'est ce que fait la molette. Et elles coûtaient cher :
+    // écartées, elles faisaient À ELLES SEULES la largeur de la barre.
+    r.verifie('debout, les flèches s\'empilent et le numéro reste une ligne',
+        debout.dressee.pagination.flechesEmpilees && debout.dressee.pagination.numeroEnLigne,
+        JSON.stringify(debout.dressee.pagination));
+    r.egal('et elles montrent alors le haut et le bas',
+        debout.dressee.pagination.glyphes, '▲▼');
+    r.egal('à plat, elles reviennent à gauche et à droite',
+        debout.plat.pagination.glyphes, '◀▶');
+    r.verifie('à plat, la pagination est une ligne',
+        !debout.plat.pagination.flechesEmpilees, JSON.stringify(debout.plat.pagination));
+    r.verifie('la pagination tient dans la colonne', debout.dressee.paginationDedans,
+        JSON.stringify(debout.dressee));
+    // ET CE N'EST PLUS ELLE QUI FIXE LA LARGEUR : c'était tout l'enjeu.
+    r.verifie('et ce n\'est plus elle qui fixe la largeur de la barre',
+        debout.dressee.pagination.large <= 40,
+        JSON.stringify({ pagination: debout.dressee.pagination.large,
+                         barre: debout.dressee.w }));
     r.egal('le choix est retenu, et un changement de sélection ne la recouche pas',
         { retenu: debout.retenu, survit: debout.survit }, { retenu: 'true', survit: true });
     r.egal('la bascule inverse la remet à plat', debout.recouchee.sens, 'row');

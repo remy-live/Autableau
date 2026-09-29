@@ -6158,6 +6158,85 @@ function brancherLaRechercheDeLAide() {
     filtrerLAide('');
 }
 
+// ==============================================================================
+// UN BOUTON DIT SON NOM, MÊME QUAND ON NE LE VOIT PAS
+//
+// Relevé : soixante-seize boutons sur les cent un visibles n'avaient AUCUN nom
+// pour une technologie d'assistance. Ils en portent pourtant un — « Page
+// précédente », « Découper », « Cache blanc » —, écrit dans « data-tooltip »
+// parce que l'infobulle maison marche au doigt, ce que « title » ne fait pas.
+// Mais un lecteur d'écran ne lit pas cet attribut-là : il annonçait « bouton »,
+// et rien d'autre, pour les trois quarts de l'interface.
+//
+// Le nom est donc recopié dans « aria-label ». Deux prudences :
+//   — on n'écrase jamais un nom déjà posé, ni un « title » ;
+//   — un bouton qui MONTRE du texte lisible se nomme tout seul, et lui coller
+//     un aria-label remplacerait ce texte au lieu de s'y ajouter. Deux pièges
+//     ici : « ◀ » n'est pas du texte lisible — c'est un dessin fait avec un
+//     caractère, on demande donc une lettre ou un chiffre ; et un libellé
+//     MASQUÉ ne se lit pas davantage qu'il ne se voit. Les ciseaux de la barre
+//     du document portent le mot « Découper » dans leur code, caché par la
+//     feuille de style : cinq boutons ont ainsi échappé au premier jet, qui
+//     regardait le texte écrit et non le texte rendu.
+//
+// ET L'INFOBULLE N'EST PAS UN NOM : « Découper : tracez un rectangle dessus,
+// le morceau part dans le tiroir en bas. Les ciseaux restent pris — Échap les
+// repose » est une phrase d'aide. Entendre cela à chaque passage sur le bouton
+// serait pire que de n'entendre rien. On ne garde que sa tête, jusqu'au
+// premier « : », « — » ou point.
+//
+// ON RÉCOLTE DANS LA PAGE plutôt que de tenir une liste d'endroits à visiter :
+// les barres se refont à chaque sélection, les plugins posent leurs boutons en
+// s'ouvrant, et une liste aurait vieilli dès le premier bouton ajouté ailleurs.
+// C'est déjà l'idée de l'index de la recherche, quelques centaines de lignes
+// plus bas — et c'est précisément l'oubli d'un endroit qui a fait ce défaut.
+// ==============================================================================
+function teteDuNom(bulle) {
+    const t = String(bulle || '').replace(/\s+/g, ' ').trim();
+    const coupe = t.search(/\s[—–-]\s|\s:\s|\.\s/);
+    const tete = coupe > 1 ? t.slice(0, coupe).trim() : t;
+    return tete.length > 1 ? tete : t;
+}
+
+function nommerLesBoutons(racine) {
+    const lisible = (t) => /[0-9A-Za-zÀ-ÖØ-öø-ÿ]/.test(t || '');
+    const traiter = (e) => {
+        if (!e || !e.getAttribute) return;
+        if (e.getAttribute('aria-label') || e.getAttribute('title')) return;
+        // « innerText » ne rend QUE ce qui se voit — sauf sur un élément qui
+        // n'est pas encore à l'écran, où il retombe sur le texte écrit. Or les
+        // barres naissent cachées : trois boutons de la barre du document s'y
+        // sont glissés, jugés « nommés par leur texte » alors que ce texte
+        // serait masqué le jour où la barre paraîtrait. On ne renonce donc à
+        // nommer QUE devant un bouton qu'on voit, et qui montre un mot.
+        const rendu = typeof e.getClientRects === 'function' && e.getClientRects().length > 0;
+        if (rendu && lisible((e.innerText || '').trim())) return;
+        const nom = teteDuNom(e.getAttribute('data-tooltip'));
+        if (nom) e.setAttribute('aria-label', nom);
+    };
+    const zone = (racine && racine.querySelectorAll) ? racine : document;
+    if (zone.matches && zone.matches('[data-tooltip]')) traiter(zone);
+    zone.querySelectorAll('[data-tooltip]').forEach(traiter);
+}
+window.nommerLesBoutons = nommerLesBoutons;
+
+function veillerAuxNomsDesBoutons() {
+    nommerLesBoutons();
+    if (typeof MutationObserver !== 'function' || !document.body) return false;
+    // On ne guette que l'arrivée de nœuds et la pose d'un « data-tooltip » :
+    // poser un « aria-label » ne rappelle donc pas le guetteur, et il n'y a
+    // pas de boucle.
+    new MutationObserver(lots => {
+        lots.forEach(l => {
+            if (l.type === 'attributes') { nommerLesBoutons(l.target); return; }
+            l.addedNodes.forEach(n => { if (n.nodeType === 1) nommerLesBoutons(n); });
+        });
+    }).observe(document.body, { childList: true, subtree: true,
+                                attributes: true, attributeFilter: ['data-tooltip'] });
+    return true;
+}
+veillerAuxNomsDesBoutons();
+
 // La touche s'écrit dans l'infobulle du bouton, dans un attribut à part :
 // « data-tooltip » sert aussi de nom d'outil sous l'icône, il doit rester net.
 function poserRaccourcisSurLesBoutons() {
@@ -7913,10 +7992,35 @@ function tiroirEnPlace(el) {
 }
 window.tiroirEnPlace = tiroirEnPlace;
 
+// LES FLÈCHES DE PAGE SE LÈVENT AVEC LA BARRE.
+//
+// « Quand la barre est verticale, les flèches pour naviguer entre les pages,
+// ça fait bizarre. » C'est vrai, et c'est mesurable : « ◀ 1 /1 ▶ » était la
+// seule chose horizontale d'un meuble qui se lit de haut en bas, et ses deux
+// flèches écartées faisaient À ELLES SEULES la largeur de la barre — 80 px
+// pour des icônes de 32.
+//
+// On avait déjà vu le débordement et on l'avait SERRÉ, en gardant la ligne :
+// « une pagination en colonne ne se lit pas ». C'est juste pour le NUMÉRO —
+// « 1 /1 » se lit de gauche à droite et rien d'autre — mais pas pour les
+// flèches : dans un PDF, la page suivante est en dessous, c'est ce que fait
+// la molette. Elles montent donc au-dessus et descendent en dessous, le
+// numéro reste une ligne entre les deux, et la barre rend vingt-quatre pixels
+// de large à la page sur toute sa hauteur.
+function tournerLesFlechesDePage(debout) {
+    const p = document.getElementById('doc-prec');
+    const s = document.getElementById('doc-suiv');
+    if (p) p.textContent = debout ? '▲' : '◀';
+    if (s) s.textContent = debout ? '▼' : '▶';
+    return !!(p && s);
+}
+window.tournerLesFlechesDePage = tournerLesFlechesDePage;
+
 function placerLaBarreDuDocument() {
     const barre = document.getElementById('bar-document');
     if (!barre) return;
     barre.classList.toggle('vertical', barreDebout);
+    tournerLesFlechesDePage(barreDebout);
     if (barre.parentNode !== document.body) document.body.appendChild(barre);
 
     if (barreStylePosee) {
@@ -19190,8 +19294,15 @@ function majBarreDocument() {
     }
 
     // Les flèches n'ont de sens que pour un PDF qu'on peut encore feuilleter
+    //
+    // ON DIT « CACHÉ » OU RIEN, JAMAIS « flex ». Un style posé en ligne bat la
+    // feuille de style : écrire « flex » ici empêchait pour de bon la barre
+    // DEBOUT de ranger la pagination autrement — la règle existait, elle
+    // n'avait simplement aucune chance de s'appliquer. En rendant la main, on
+    // laisse la mise en page décider de la forme, et l'on ne garde ici que la
+    // seule chose qu'on sait vraiment : cette page se feuillette, ou non.
     const feuilletable = estUnPdfFeuilletable(obj);
-    document.getElementById('doc-pages').style.display = feuilletable ? 'flex' : 'none';
+    document.getElementById('doc-pages').style.display = feuilletable ? '' : 'none';
     document.getElementById('doc-pages-sep').style.display = feuilletable ? 'block' : 'none';
     if (feuilletable) {
         const champPage = document.getElementById('doc-page-num');

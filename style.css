@@ -219,7 +219,11 @@ html {
     left: 50%;
     transform: translateX(-50%);
     width: 48px;
-    height: 16px;
+    /* Voir « LA CIBLE FAIT VINGT-QUATRE PIXELS » : cette poignée-ci faisait
+       seize pixels de haut, et c'est celle qu'on attrape pour ouvrir le
+       tiroir. Ce qui dépasse du bord ne change pas — le reste passe derrière
+       le tiroir, de la même teinte. */
+    height: 24px;
     background: var(--surface);
     border: 1px solid var(--contour);
     display: inline-flex;
@@ -1299,7 +1303,10 @@ html {
     bottom: -12px;
     transform: translateX(-50%);
     width: 48px;
-    height: 16px;
+    /* Voir « LA CIBLE FAIT VINGT-QUATRE PIXELS ». Celle-ci pend sous la barre
+       des plugins ; ce qui dépasse ne change pas, le reste passe derrière la
+       barre. */
+    height: 24px;
     background: rgba(255, 255, 255, 0.92);
     border: 1px solid #dfe6e9;
     border-top: none;
@@ -5953,6 +5960,10 @@ body.dark-mode {
     font-family: inherit;
     text-align: center;
     padding: 2px 8px;
+    /* Voir « LA CIBLE FAIT VINGT-QUATRE PIXELS » : il en faisait vingt-trois,
+       et la pastille d'état est à quatre pixels. Un pixel de plus ne se voit
+       pas et se vise. */
+    min-height: 24px;
     /* La largeur est posée en JS d'après le texte : un <input> ne s'élargit
        pas tout seul, et la date longue avec l'heure était tronquée. */
     width: auto;
@@ -11964,16 +11975,33 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 #bar-document.vertical .drag-handle { margin-right: 0 !important; margin-bottom: 2px; }
 #bar-document.vertical .drag-wrapper { flex-direction: row; gap: 2px; }
 
-/* MAIS « ◀ 3 /9 ▶ » RESTE UNE LIGNE : une pagination en colonne ne se lit pas.
-   Les curseurs aussi — un réglage vertical ne se règle pas. */
-#bar-document.vertical #doc-pages,
+/* LE NUMÉRO RESTE UNE LIGNE, LES FLÈCHES SE LÈVENT.
+   « Quand la barre est verticale, les flèches pour naviguer entre les pages,
+   ça fait bizarre. » On avait déjà vu que la pagination débordait de la
+   colonne, et on l'avait SERRÉE en gardant la ligne entière — « une pagination
+   en colonne ne se lit pas ». C'est vrai du numéro : « 1 /9 » se lit de gauche
+   à droite et rien d'autre. Ce n'est pas vrai des flèches : dans un PDF, la
+   page suivante est EN DESSOUS, c'est ce que fait la molette.
+   Serrée, la ligne tenait — mais ses deux flèches écartées faisaient encore à
+   elles seules la largeur de la barre, 80 px pour des icônes de 32. En trois
+   rangs, la largeur revient au numéro seul.
+   Les curseurs, eux, restent une ligne pour de bon : un réglage vertical ne se
+   règle pas. */
 #bar-document.vertical .slider-container,
 #bar-document.vertical .opacity-container { flex-direction: row; }
-/* La pagination débordait de la colonne : ses flèches, écartées comme sur une
-   barre longue, faisaient à elles seules la largeur de la barre. Serrée, elle
-   tient dans la colonne sans cesser d'être une ligne. */
-#bar-document.vertical #doc-pages { gap: 0; }
-#bar-document.vertical #doc-pages .doc-btn { padding: 4px 2px; }
+#bar-document.vertical #doc-pages {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-areas: "prec prec" "num total" "suiv suiv";
+    justify-items: center;
+    align-items: center;
+    gap: 0;
+}
+#bar-document.vertical #doc-prec { grid-area: prec; }
+#bar-document.vertical #doc-page-num { grid-area: num; justify-self: end; }
+#bar-document.vertical #doc-total { grid-area: total; justify-self: start; }
+#bar-document.vertical #doc-suiv { grid-area: suiv; }
+#bar-document.vertical #doc-pages .doc-btn { padding: 1px 2px; }
 #bar-document.vertical #doc-page-num { max-width: 3ch; padding-left: 2px; padding-right: 2px; }
 #bar-document.vertical #doc-total { font-size: 11px; }
 #bar-document.vertical .slider-container input[type="range"] { width: 58px; }
@@ -13079,8 +13107,17 @@ body.focus-mode #barre-ecran #btn-ecran-suite {
 .ouje-action:hover { background: var(--accent-soft, rgba(108, 92, 231, 0.12)); }
 
 /* --- L'état, à côté du titre du tableau --- */
+/* LA CIBLE FAIT VINGT-QUATRE PIXELS, MÊME QUAND LE DESSIN EST PLUS PETIT.
+   Relevé : trois commandes de tout l'écran passaient sous le plancher du
+   doigt — la pastille d'état (19 × 19), le champ du titre (98 × 23) et la
+   poignée du tiroir (48 × 16) —, et aucune des trois n'avait la place autour
+   d'elle qui aurait pu l'excuser : leur plus proche voisin est à 4 px, 4 px
+   et 0 px. Sur un tableau tactile de classe, on vise cela avec un doigt. */
 #etat-enregistrement {
     display: inline-flex;
+    min-height: 24px;
+    min-width: 24px;
+    justify-content: center;
     align-items: center;
     gap: 6px;
     margin-left: 8px;
