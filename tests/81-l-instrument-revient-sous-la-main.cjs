@@ -175,6 +175,81 @@ module.exports = async function (browser) {
     });
     r.egal('L\'INSTRUMENT REVIENT SUR LA PAGE PROJETÉE', surLaPage.dedans, true, JSON.stringify(surLaPage));
 
+    // ------------------------------------------------------------------
+    // 6. ET JAMAIS SOUS UNE BARRE : LÀ, LE COMPAS NE TRACE PAS DU TOUT
+    //
+    // Les barres sont posées PAR-DESSUS la toile. Un appui qui tombe sur
+    // l'une d'elles ne parvient jamais au tableau — « if (e.target !== canvas)
+    // return » est la toute première ligne du gestionnaire. Mesuré : mine du
+    // compas en (700, 801), « elementFromPoint » rend un bouton de la barre de
+    // style, et le geste entier ne crée AUCUN arc. Ce n'est pas un tracé raté,
+    // c'est un geste qui n'existe pas.
+    //
+    // ET C'EST LA MINE QU'IL FAUT REGARDER, pas le centre : un compas se prend
+    // par sa mine. Sa pointe sèche peut être au beau milieu de l'écran pendant
+    // que la mine, à cent cinquante pixels de là, est sous la barre du bas.
+    const sousLaBarre = await page.evaluate(() => {
+        const b = document.getElementById('bar-style').getBoundingClientRect();
+        const w = widgets.compass;
+        // LA MINE VERS LE BAS, ET LE CENTRE BIEN AU MILIEU. C'est le seul
+        // placement qui sépare les deux : un compas tourné vers le bas, dont
+        // la pointe sèche est en plein écran et la mine, à cent cinquante
+        // pixels de là, sous la barre. Le premier jet posait les DEUX sous la
+        // barre — le contrôle passait alors même sans regarder la mine, et ne
+        // mesurait donc rien.
+        w.angle = Math.PI / 2;
+        w.x = (b.left + b.width / 2 - panX) / zoom;
+        w.y = (b.top + b.height / 2 - panY) / zoom - w.radius;
+        draw();
+        const m = w.toGlobal(w.radius, 0);
+        const p = { x: Math.round(m.x * zoom + panX), y: Math.round(m.y * zoom + panY) };
+        const el = document.elementFromPoint(p.x, p.y);
+        // Le centre se juge sur LA MÊME place que la mine : le comparer à
+        // l'écran entier ferait croire à une différence qui n'en est pas une.
+        const r = rectangleUtileDeLaVue();
+        const cx = w.x * zoom + panX, cy = w.y * zoom + panY;
+        return { mine: p, sous: el ? (el.id || el.tagName) : null,
+                 centre: { x: Math.round(cx), y: Math.round(cy) },
+                 centreEnVue: cx > r.x1 + 40 && cx < r.x2 - 40 && cy > r.y1 + 40 && cy < r.y2 - 40,
+                 enVue: instrumentEnVue(w), arcs: arcs.length };
+    });
+    r.verifie('la mine est bien tombée sur la barre, pas sur la toile',
+        sousLaBarre.sous !== 'board' && sousLaBarre.sous !== 'CANVAS', JSON.stringify(sousLaBarre));
+    // LE PIÈGE EN UNE LIGNE : le centre est parfaitement visible, et pourtant
+    // l'instrument est inutilisable. Regarder le seul centre laissait passer
+    // exactement ce cas-là.
+    r.egal('son centre, lui, est en pleine place utile', sousLaBarre.centreEnVue, true, JSON.stringify(sousLaBarre));
+    r.egal('ET L\'INSTRUMENT EST POURTANT DÉCLARÉ HORS D\'USAGE', sousLaBarre.enVue, false, JSON.stringify(sousLaBarre));
+
+    // On essaie vraiment de tracer, à la souris : le geste ne donne rien.
+    await page.mouse.move(sousLaBarre.mine.x, sousLaBarre.mine.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) {
+        const pt = await page.evaluate((a) => {
+            const w = widgets.compass;
+            const g = w.toGlobal(w.radius * Math.cos(a), w.radius * Math.sin(a));
+            return { x: Math.round(g.x * zoom + panX), y: Math.round(g.y * zoom + panY) };
+        }, -(i / 12) * 1.2);
+        await page.mouse.move(pt.x, pt.y);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(350);
+    r.egal('le geste sous la barre ne trace rien — c\'est le défaut mesuré',
+        await page.evaluate(() => arcs.length), sousLaBarre.arcs);
+
+    // Et le rallumer remet la MINE sur la toile.
+    await bouton('compass'); await page.waitForTimeout(200);
+    await bouton('compass'); await page.waitForTimeout(350);
+    const remise = await page.evaluate(() => {
+        const w = widgets.compass;
+        const m = w.toGlobal(w.radius, 0);
+        const p = { x: Math.round(m.x * zoom + panX), y: Math.round(m.y * zoom + panY) };
+        const el = document.elementFromPoint(p.x, p.y);
+        return { mine: p, sous: el ? (el.id || el.tagName) : null, enVue: instrumentEnVue(w) };
+    });
+    r.egal('LA MINE REVIENT SUR LA TOILE', remise.sous, 'board', JSON.stringify(remise));
+    r.egal('et l\'instrument est de nouveau utilisable', remise.enVue, true, JSON.stringify(remise));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
