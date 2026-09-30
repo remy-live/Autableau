@@ -1768,6 +1768,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Boutons des instruments de géométrie
+    //
+    // « Je dessine au compas. Ça a marché une fois. Sur un pdf en plein écran
+    // j'ai recliqué sur le compas. D'abord il était loin, ce serait bien qu'on
+    // le voie tout de suite dans l'écran visible. Et aussi j'ai voulu
+    // redessiner avec le compas et le tracé n'est pas resté ; mais en bougeant
+    // le pdf après, c'est revenu. »
+    //
+    // LES DEUX N'EN FONT QU'UN, et c'est le premier qui cause le second.
+    //
+    // L'instrument n'était construit qu'à la PREMIÈRE activation — « if
+    // (activeWidgets[nom] && !widgets[nom]) » — et il garde ses coordonnées de
+    // MONDE. Projeter une page change le zoom et le décalage du tableau : le
+    // compas posé au milieu de l'écran d'avant se retrouve n'importe où, et
+    // rallumer le bouton ne le ramenait pas, puisqu'il existait déjà.
+    //
+    // Là où il atterrit, on trace. Or pendant une projection UN VOILE À
+    // QUATRE-VINGT-QUATORZE POUR CENT couvre tout sauf la page. Mesuré : un
+    // trait rouge dans la page se lit « #ff0000 », le même trait dans la marge
+    // se lit « #221517 » — la couleur du voile. Le tracé était bien là, et
+    // invisible. Bouger le PDF faisait passer le trou du voile par-dessus :
+    // « c'est revenu ».
+    //
+    // ON LE RAMÈNE DONC LÀ OÙ IL SERT, et « là où il sert » n'est pas le
+    // milieu de l'écran mais le milieu de LA PAGE PROJETÉE quand il y en a
+    // une : le reste de l'écran est sous le voile, on y dessinerait pour rien.
+    // ==================================================================
+
+    // La partie de l'écran où ce qu'on pose se verra : la portion visible de
+    // la page projetée s'il y a une projection, tout l'écran sinon.
+    function rectangleUtileDeLaVue() {
+        const L = canvas.clientWidth || window.innerWidth;
+        const H = canvas.clientHeight || window.innerHeight;
+        const doc = (typeof presentationEnCours !== 'undefined' && presentationEnCours
+            && typeof getObjectById === 'function')
+            ? getObjectById('image', presentationEnCours) : null;
+        if (doc) {
+            const x1 = Math.max(0, doc.x * zoom + panX);
+            const y1 = Math.max(0, doc.y * zoom + panY);
+            const x2 = Math.min(L, doc.x * zoom + panX + doc.w * zoom);
+            const y2 = Math.min(H, doc.y * zoom + panY + doc.h * zoom);
+            // Une page réduite à un liseré ne fait pas une place pour un
+            // compas : on retombe alors sur l'écran entier.
+            if (x2 - x1 > 120 && y2 - y1 > 120) return { x1, y1, x2, y2 };
+        }
+        return { x1: 0, y1: 0, x2: L, y2: H };
+    }
+
+    function centreUtileDeLaVue() {
+        const r = rectangleUtileDeLaVue();
+        return { x: (r.x1 + r.x2) / 2, y: (r.y1 + r.y2) / 2 };
+    }
+    window.centreUtileDeLaVue = centreUtileDeLaVue;
+
+    // Son point d'ancrage est-il dans cette place ? On garde une marge : un
+    // compas dont la pointe touche le bord n'a pas la place de tourner.
+    function instrumentEnVue(w) {
+        if (!w) return true;
+        const r = rectangleUtileDeLaVue();
+        const M = 40;
+        const x = w.x * zoom + panX, y = w.y * zoom + panY;
+        return x > r.x1 + M && x < r.x2 - M && y > r.y1 + M && y < r.y2 - M;
+    }
+    window.instrumentEnVue = instrumentEnVue;
+
+    // IL RESTE OÙ ON L'A MIS — tant qu'on l'y voit. C'est la règle de tous les
+    // meubles de cette application, et on ne la casse que pour ce qui a
+    // vraiment disparu.
+    function ramenerLInstrumentEnVue(w) {
+        if (!w || instrumentEnVue(w)) return false;
+        const centre = centreUtileDeLaVue();
+        w.x = (centre.x - panX) / zoom;
+        w.y = (centre.y - panY) / zoom;
+        return true;
+    }
+    window.ramenerLInstrumentEnVue = ramenerLInstrumentEnVue;
+
     document.querySelectorAll('.btn[data-widget]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const widgetName = btn.dataset.widget;
@@ -1775,10 +1851,9 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.toggle('widget-active', activeWidgets[widgetName]);
 
             if (activeWidgets[widgetName] && !widgets[widgetName]) {
-                const screenCenterX = window.innerWidth / 2;
-                const screenCenterY = window.innerHeight / 2;
-                const worldX = (screenCenterX - panX) / zoom;
-                const worldY = (screenCenterY - panY) / zoom;
+                const centre = centreUtileDeLaVue();
+                const worldX = (centre.x - panX) / zoom;
+                const worldY = (centre.y - panY) / zoom;
 
                 if (widgetName === 'ruler') widgets[widgetName] = new RulerWidget(worldX - 150, worldY);
                 if (widgetName === 'setsquare') widgets[widgetName] = new SetSquareWidget(worldX - 100, worldY - 50);
@@ -1788,6 +1863,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     widgets[widgetName].radius = 150;
                     widgets[widgetName].legLength = 250;
                 }
+            }
+            // ET S'IL EXISTAIT DÉJÀ, ON LE RAMÈNE SOUS LA MAIN.
+            else if (activeWidgets[widgetName]) {
+                ramenerLInstrumentEnVue(widgets[widgetName]);
             }
             if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
             setMode(mode); // Rafraîchit l'affichage de la barre de style si le compas est activé
