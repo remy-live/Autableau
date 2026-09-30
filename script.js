@@ -11998,6 +11998,51 @@ canvas.addEventListener('dblclick', (e) => {
     const rawPos = getRawLogicalPos(e); const clickedObj = findObjectAt(rawPos.x, rawPos.y);
     if (clickedObj && clickedObj.type === 'image') {
         const imgObj = getObjectById('image', clickedObj.id);
+        // ==================================================================
+        // DOUBLE-CLIC SUR UN DOCUMENT : IL SE PROJETTE, ET SE DÉPROJETTE.
+        //
+        // « Est-ce qu'en mode main ou souris un double-clic sur un pdf le
+        // mettrait en plein écran serait pertinent ? »
+        //
+        // Le créneau était VIDE : mesuré, un double-clic sur un PDF ne faisait
+        // rien. « pdfDoc » n'est pas un plugin enregistré, si bien qu'aucune
+        // des trois branches ci-dessous ne s'ouvrait — pas même le message
+        // « ce tampon ne se réédite pas », qui exige un plugin connu.
+        //
+        // ET LE GESTE DIT DÉJÀ CELA DANS CETTE PAGE : double-clic sur un
+        // texte, il se rouvre ; sur un tampon de plugin, son atelier se
+        // rouvre. « Ouvrir cet objet » — et pour un document, l'ouvrir c'est
+        // le projeter. Ce n'est pas un raccourci de plus à apprendre.
+        //
+        // C'EST UN INTERRUPTEUR, ET C'EST TOUT L'INTÉRÊT. « Je prends
+        // l'option 1, comme cela tout est gérable à la souris. » Câblé
+        // bêtement sur « presenterLeDocument », le second double-clic aurait
+        // changé le CADRAGE — page entière ↔ pleine largeur — au lieu de
+        // sortir : on aurait lu « mon geste n'a pas marché ». Le cadrage
+        // reste réglé par « D » et par le bouton, qui sont faits pour cela.
+        //
+        // À LA MAIN SEULEMENT. Avec un crayon, deux tapes rapprochées sont
+        // deux points qu'on vient de poser, et projeter par-dessus serait une
+        // surprise. Le geste appartient au mode où l'on manipule.
+        //
+        // ET SUR UN DOCUMENT, PAS SUR N'IMPORTE QUELLE IMAGE :
+        // « estUnDocumentPose » écarte les tampons de plugin, qui ont leur
+        // propre double-clic. Sans quoi taper deux fois sur un tampon pour
+        // vérifier qu'il est bien pris l'aurait projeté.
+        // ==================================================================
+        if (mode === 'pointer' && imgObj && typeof estUnDocumentPose === 'function'
+            && estUnDocumentPose(imgObj)) {
+            e.stopPropagation();
+            if (presentationEnCours === imgObj.id) quitterLaPresentation();
+            else {
+                // « presenterLeDocument » part de la sélection : il faut le
+                // tenir pour le projeter, et un double-clic sur un document
+                // voisin doit projeter CELUI-LÀ, pas celui d'avant.
+                selectedItems = [{ type: 'image', id: imgObj.id }];
+                presenterLeDocument();
+            }
+            return;
+        }
         if (imgObj && imgObj.pluginData && imgObj.pluginData.id) {
             const plugin = PluginManager.plugins[imgObj.pluginData.id];
             // CERTAINS OUTILS SE MODIFIENT SUR PLACE. Ouvrir une fenêtre plein

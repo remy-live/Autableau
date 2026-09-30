@@ -1022,7 +1022,139 @@ module.exports = async function (browser) {
     r.egal('LA PALETTE NE TOUCHE AUCUNE BARRE, ET GARDE SA MARGE', palette.serrees, []);
     r.verifie('et elle tient tout entière dans l\'écran', palette.dansLEcran, JSON.stringify(palette));
 
+    // ==================================================================
+    // DOUBLE-CLIC SUR UN DOCUMENT : IL SE PROJETTE, ET SE DÉPROJETTE
+    //
+    // « Est-ce qu'en mode main ou souris un double-clic sur un pdf le mettrait
+    // en plein écran serait pertinent ? » — « Je prends l'option 1, comme cela
+    // tout est gérable à la souris. »
+    //
+    // Le créneau était vide : mesuré avant d'y toucher, un double-clic sur un
+    // PDF ne faisait RIEN. « pdfDoc » n'est pas un plugin enregistré, et les
+    // trois branches du gestionnaire demandent toutes un plugin connu — même
+    // celle qui dit « ce tampon ne se réédite pas ».
+    //
+    // CE QUE CE CONTRÔLE TIENT, ET POURQUOI IL COMPTE TROIS APPUIS : un
+    // interrupteur qui n'allume qu'une fois n'est pas un interrupteur.
+    // « presenterLeDocument » ne bascule pas dedans/dehors — au second appel
+    // il change le CADRAGE, page entière ↔ pleine largeur. Câblé dessus
+    // naïvement, le geste n'aurait jamais rendu la main.
+    const dbl = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        if (presentationEnCours) quitterLaPresentation();
+        if (document.fullscreenElement) await document.exitFullscreen().catch(() => { });
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; texts.length = 0;
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560">'
+            + '<rect width="400" height="560" fill="#fff" stroke="#333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        // Un document, et à côté un tampon de plugin — qui, lui, a son propre
+        // double-clic et ne doit pas se projeter.
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 560, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++, fileName: 'doc.pdf',
+            pluginData: { id: 'pdfDoc', page: 1, pages: 1, cle: 'k' } });
+        images.push({ id: nextId++, x: 600, y: 0, w: 200, h: 200, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++,
+            pluginData: { id: 'unOutilQuelconque' } });
+        const doc = images[0], tampon = images[1];
+        selectedItems = []; setMode('pointer'); draw();
+        await attendre(200);
+
+        const auCentre = (o) => ({ x: o.x + o.w / 2, y: o.y + o.h / 2 });
+        const doubleClic = async (o) => {
+            const p = auCentre(o);
+            const ev = (t, detail) => canvas.dispatchEvent(new MouseEvent(t, {
+                clientX: p.x * zoom + panX, clientY: p.y * zoom + panY,
+                detail, bubbles: true, cancelable: true }));
+            ev('mousedown', 1); ev('mouseup', 1); ev('click', 1);
+            ev('mousedown', 2); ev('mouseup', 2); ev('click', 2); ev('dblclick', 2);
+            await attendre(350);
+        };
+
+        const suite = [];
+        const etat = () => ({ presente: presentationEnCours, cadrage: cadrageDePresentation });
+        suite.push(etat());
+        await doubleClic(doc); suite.push(etat());   // 1. il se projette
+        await doubleClic(doc); suite.push(etat());   // 2. il se déprojette
+        await doubleClic(doc); suite.push(etat());   // 3. et se reprojette
+
+        // Avec un crayon en main, deux tapes sont deux points : on ne projette pas.
+        if (presentationEnCours) quitterLaPresentation();
+        await attendre(200);
+        setMode('freehand');
+        await doubleClic(doc);
+        const auCrayon = etat();
+
+        // Et un tampon de plugin garde son double-clic à lui. ON REPART DE
+        // RIEN : sans cela ce contrôle lirait ce que l'étape d'avant a laissé,
+        // et non ce que le tampon a fait — mesuré, il l'a montré sous sabotage.
+        if (presentationEnCours) quitterLaPresentation();
+        setMode('pointer');
+        await attendre(200);
+        await doubleClic(tampon);
+        const surLeTampon = etat();
+
+        if (presentationEnCours) quitterLaPresentation();
+        return { suite, auCrayon, surLeTampon, idDoc: doc.id, idTampon: tampon.id };
+    });
+    r.egal('au départ, on ne projette rien', dbl.suite[0].presente, null, JSON.stringify(dbl));
+    r.egal('UN DOUBLE-CLIC PROJETTE LE DOCUMENT', dbl.suite[1].presente, dbl.idDoc, JSON.stringify(dbl));
+    r.egal('et sur toute la largeur, comme le bouton', dbl.suite[1].cadrage, 'largeur');
+    r.egal('LE SUIVANT LE DÉPROJETTE', dbl.suite[2].presente, null, JSON.stringify(dbl));
+    // LE TROISIÈME APPUI EST LE CŒUR : c'est lui qui distingue un interrupteur
+    // d'un geste qui aurait seulement changé de cadrage.
+    r.egal('et le troisième le reprojette : c\'est bien un interrupteur',
+        dbl.suite[3].presente, dbl.idDoc, JSON.stringify(dbl));
+    r.egal('un crayon en main, deux tapes ne projettent rien', dbl.auCrayon.presente, null,
+        JSON.stringify(dbl));
+    r.egal('et un tampon de plugin garde son double-clic', dbl.surLeTampon.presente, null,
+        JSON.stringify(dbl));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
+
+    // ------------------------------------------------------------------
+    // ET AU DOIGT, car c'est un tableau tactile qui est devant la classe.
+    //
+    // Deux tapes rapprochées produisent bien un « dblclick » — mesuré même à
+    // six pixels l'une de l'autre, ce qu'un doigt fait vraiment. Sans cela le
+    // geste n'existerait qu'à la souris, c'est-à-dire nulle part en cours.
+    // ------------------------------------------------------------------
+    const tactile = await ouvrirApp(browser, { viewport: { width: 1400, height: 900 }, tactile: true });
+    await tactile.page.waitForFunction(() => typeof estUnDocumentPose === 'function', { timeout: 20000 });
+    await tactile.page.waitForTimeout(600);
+    const centre = await tactile.page.evaluate(async () => {
+        if (presentationEnCours) quitterLaPresentation();
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0;
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560">'
+            + '<rect width="400" height="560" fill="#fff" stroke="#333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 560, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++, fileName: 'doc.pdf',
+            pluginData: { id: 'pdfDoc', page: 1, pages: 1, cle: 'k' } });
+        selectedItems = []; setMode('pointer'); draw();
+        const d = images[0];
+        return { x: Math.round(d.x * zoom + panX + d.w * zoom / 2),
+                 y: Math.round(d.y * zoom + panY + d.h * zoom / 2), id: d.id };
+    });
+    // À SIX PIXELS PRÈS, et non au pixel : un doigt ne retombe pas au même
+    // endroit, et un contrôle qui tape deux fois exactement au même point
+    // mesurerait une précision que personne n'a.
+    await tactile.page.touchscreen.tap(centre.x, centre.y);
+    await tactile.page.waitForTimeout(100);
+    await tactile.page.touchscreen.tap(centre.x + 6, centre.y + 5);
+    await tactile.page.waitForTimeout(700);
+    const projeteAuDoigt = await tactile.page.evaluate(() => presentationEnCours);
+    r.egal('DEUX TAPES DU DOIGT PROJETTENT AUSSI', projeteAuDoigt, centre.id, String(projeteAuDoigt));
+    await tactile.page.touchscreen.tap(centre.x + 3, centre.y - 4);
+    await tactile.page.waitForTimeout(100);
+    await tactile.page.touchscreen.tap(centre.x - 2, centre.y + 6);
+    await tactile.page.waitForTimeout(700);
+    r.egal('et deux autres le déprojettent',
+        await tactile.page.evaluate(() => presentationEnCours), null);
+    r.verifie('aucune erreur de page au doigt', tactile.erreurs.length === 0, tactile.erreurs.join(' | '));
+    await tactile.context.close();
+
     return r.bilan();
 };
