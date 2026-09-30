@@ -5832,7 +5832,10 @@ const RACCOURCIS_COMBINES = [
     // il écrivait sa touche DANS son texte — « Projeter la page en grand (D) » —
     // et l'infobulle la rendait en prose au milieu de trois boutons qui la
     // montrent comme une vraie touche.
-    { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page (aussi : « D »)',
+    // ET CTRL+L EN PLEIN ÉCRAN, comme dans Acrobat. On ne l'écrit pas comme une
+    // ligne à lui : dans un onglet il ne ferait rien, et une table de
+    // raccourcis qui promet une touche morte est pire que muette.
+    { touche: 'Ctrl+Maj+L', nom: 'Document en pleine page — aussi « D », et Ctrl+L en plein écran',
       bouton: ['btn-ecran-presenter'] }
 ];
 
@@ -27841,11 +27844,77 @@ function libererLePleinEcran() {
     finDuVerrouPlein = null;
 }
 
+// ==============================================================================
+// EMPRUNTER CTRL+L AU NAVIGATEUR
+//
+// « On ne peut vraiment pas intercepter le Ctrl+L du navigateur pour éviter
+// Ctrl+Maj+L pour le PDF et garder les mêmes réflexes qu'Acrobat ? »
+//
+// Dans un onglet ordinaire, non : Ctrl+L appartient à la barre d'adresse, le
+// navigateur le prend avant que la page le voie, et « preventDefault » n'y
+// change rien — on ne peut pas refuser un événement qu'on ne reçoit pas.
+// C'est pour cela que le raccourci était « D » et Ctrl+Maj+L.
+//
+// MAIS IL Y A DEUX SITUATIONS OÙ LA TOUCHE EST À NOUS, et la seconde est
+// justement celle de la classe.
+//
+//   — L'application installée EN FENÊTRE À ELLE (« ouvrir en tant que
+//     fenêtre » du menu du navigateur) n'a pas de barre d'adresse : plus
+//     personne ne se dispute Ctrl+L, et la page le reçoit.
+//   — EN PLEIN ÉCRAN, le navigateur sait PRÊTER ses touches réservées :
+//     c'est « navigator.keyboard.lock », fait pour les bureaux à distance et
+//     les jeux. On lui emprunte la seule touche L, le temps du plein écran,
+//     et on la rend en sortant. Mesuré ici : l'interface existe et accepte
+//     l'emprunt, même depuis « file:// », qui est un contexte sûr.
+//
+// ON N'ACCEPTE CTRL+L QUE QUAND ON TIENT VRAIMENT LA TOUCHE. Sans cette
+// condition, le jour où un navigateur enverrait l'événement à la page ET
+// ouvrirait quand même sa barre d'adresse, le geste ferait les deux : la page
+// projetée et le curseur dans l'adresse. Un raccourci qui fait deux choses
+// dont une qu'on n'a pas demandée est pire que pas de raccourci.
+// ==============================================================================
+let laToucheLEstEmpruntee = false;
+
+// Une fenêtre sans barre d'adresse n'a rien à nous disputer.
+function fenetreSansBarreDAdresse() {
+    try {
+        return ['standalone', 'fullscreen', 'window-controls-overlay']
+            .some(m => matchMedia('(display-mode: ' + m + ')').matches);
+    } catch (e) { return false; }
+}
+
+function laToucheLEstANous() {
+    return laToucheLEstEmpruntee || fenetreSansBarreDAdresse();
+}
+window.laToucheLEstANous = laToucheLEstANous;
+
+function emprunterLaToucheL() {
+    if (laToucheLEstEmpruntee) return Promise.resolve(true);
+    if (!navigator.keyboard || !navigator.keyboard.lock) return Promise.resolve(false);
+    // Firefox et Safari ne connaissent pas l'emprunt : ils gardent Ctrl+L, et
+    // « D » reste le chemin qui marche partout.
+    return navigator.keyboard.lock(['KeyL'])
+        .then(() => { laToucheLEstEmpruntee = true; return true; })
+        .catch(() => { laToucheLEstEmpruntee = false; return false; });
+}
+window.emprunterLaToucheL = emprunterLaToucheL;
+
+function rendreLaToucheL() {
+    laToucheLEstEmpruntee = false;
+    try { if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); }
+    catch (e) { /* rien à rendre */ }
+}
+window.rendreLaToucheL = rendreLaToucheL;
+
 // Échap sort du plein écran sans passer par nous : la barre doit le voir,
 // sinon elle propose d'en sortir alors qu'on n'y est plus.
 document.addEventListener('fullscreenchange', () => {
     libererLePleinEcran();
     if (!document.fullscreenElement) pleinEcranDeLaPresentation = false;
+    // ON EMPRUNTE EN ENTRANT, ON REND EN SORTANT. Le prêt ne vaut que pendant
+    // le plein écran ; garder le verrou après en serait sorti laisserait
+    // croire qu'on tient encore la touche.
+    if (document.fullscreenElement) emprunterLaToucheL(); else rendreLaToucheL();
     if (typeof majBoutonDuPleinEcran === 'function') majBoutonDuPleinEcran();
     if (typeof majBarreDocument === 'function') majBarreDocument();
 });
@@ -28676,11 +28745,21 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
-    // Le document en pleine page. Ctrl+L serait le plus naturel, mais le
-    // navigateur le garde pour sa barre d'adresse — sur Mac comme ailleurs —
-    // et une page web ne peut pas le lui reprendre. C'est donc « D » tout
-    // court (voir RACCOURCIS_GESTES), doublé de Ctrl+Maj+L pour ceux qui
-    // préfèrent une combinaison.
+    // LE DOCUMENT EN PLEINE PAGE, PAR CTRL+L COMME DANS ACROBAT — quand la
+    // touche est à nous, c'est-à-dire en plein écran ou en fenêtre
+    // d'application. Voir « emprunterLaToucheL » : dans un onglet ordinaire le
+    // navigateur garde Ctrl+L pour sa barre d'adresse et cette condition est
+    // fausse, si bien que le geste ne fait jamais deux choses à la fois.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+        && (e.key === 'L' || e.key === 'l') && laToucheLEstANous()) {
+        e.preventDefault(); e.stopPropagation();
+        presenterLeDocument();
+        return;
+    }
+
+    // Et Ctrl+Maj+L, qui marche partout : c'est lui qu'on garde sous la main
+    // quand la touche seule appartient encore au navigateur. « D » tout court
+    // fait la même chose (voir RACCOURCIS_GESTES).
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
         e.preventDefault(); e.stopPropagation();
         presenterLeDocument();

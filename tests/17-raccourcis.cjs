@@ -1291,6 +1291,122 @@ module.exports = async function (browser) {
         marques.length >= 20, String(marques.length));
     r.egal('chaque arrêt du clavier se voit', marques.filter(m => !m.marque).map(m => m.quoi), []);
 
+    // ==================================================================
+    // CTRL+L, EMPRUNTÉ AU NAVIGATEUR
+    //
+    // « On ne peut vraiment pas intercepter le Ctrl+L du navigateur pour éviter
+    // Ctrl+Maj+L pour le PDF et garder les mêmes réflexes qu'Acrobat ? »
+    //
+    // Dans un onglet, non : la touche appartient à la barre d'adresse et la
+    // page ne la reçoit pas. EN PLEIN ÉCRAN, si : le navigateur sait prêter ses
+    // touches réservées — « navigator.keyboard.lock » —, et l'on lui emprunte
+    // la seule touche L le temps du plein écran.
+    //
+    // CE QUE CE CONTRÔLE PEUT MESURER, ET CE QU'IL NE PEUT PAS. Il vérifie
+    // notre côté du marché : on demande la touche en entrant, on la rend en
+    // sortant, on n'agit que quand on la tient. Que Chrome la cède vraiment ne
+    // se mesure pas ici — l'épreuve envoie ses touches directement à la page,
+    // par-dessus le navigateur. C'est justement pourquoi la condition
+    // « laToucheLEstANous » existe : sans elle, un navigateur qui enverrait
+    // l'événement À LA PAGE tout en ouvrant SA barre d'adresse ferait les deux
+    // choses d'un coup.
+    // On se donne un document à projeter, et l'on revient dans un onglet
+    // ordinaire : ce chapitre a essayé le plein écran plus haut, et le mesurer
+    // sans sortir d'abord, c'est croire qu'on est dans un onglet alors qu'on
+    // tient encore la touche — le premier jet est tombé là-dessus.
+    await page.evaluate(async () => {
+        if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
+        if (document.fullscreenElement) await document.exitFullscreen().catch(() => { });
+        panX = 0; panY = 0; zoom = 1;
+        images.length = 0; texts.length = 0;
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560">'
+            + '<rect width="400" height="560" fill="#fff" stroke="#333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        images.push({ id: nextId++, x: 0, y: 0, w: 400, h: 560, cx: 0, cy: 0,
+            cw: st.w, ch: st.h, src: st.src, z: globalZ++, fileName: 'doc.pdf',
+            pluginData: { id: 'pdfDoc', page: 1, pages: 1, cle: 'k' } });
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        // On note ce qu'on demande au navigateur, et ce qu'on lui rend.
+        window.__journalDuClavier = [];
+        const vraiLock = navigator.keyboard.lock.bind(navigator.keyboard);
+        const vraiUnlock = navigator.keyboard.unlock.bind(navigator.keyboard);
+        navigator.keyboard.lock = (t) => {
+            window.__journalDuClavier.push('emprunte:' + (t || []).join('+')); return vraiLock(t);
+        };
+        navigator.keyboard.unlock = () => {
+            window.__journalDuClavier.push('rend'); return vraiUnlock();
+        };
+    });
+    await page.waitForTimeout(600);
+    const etatL = () => page.evaluate(() => ({
+        plein: !!document.fullscreenElement,
+        aNous: laToucheLEstANous(),
+        projette: !!presentationEnCours,
+        mode: ['standalone', 'fullscreen', 'minimal-ui', 'browser']
+            .filter(m => matchMedia('(display-mode: ' + m + ')').matches).join(',')
+    }));
+
+    // 1. DANS UN ONGLET : la touche n'est pas à nous, et rien ne bouge.
+    const avant = await etatL();
+    await page.keyboard.press('Control+l');
+    await page.waitForTimeout(300);
+    const onglet = await etatL();
+    r.egal('la fenêtre est bien un onglet ordinaire', avant.mode, 'browser');
+    r.egal('dans un onglet, la touche L n\'est pas à nous', avant.aNous, false);
+    r.egal('ET CTRL+L N\'Y FAIT DONC RIEN', onglet.projette, false, JSON.stringify(onglet));
+
+    // 2. Ctrl+Maj+L, qui marche partout : c'est le filet.
+    await page.keyboard.press('Control+Shift+l');
+    await page.waitForTimeout(400);
+    const filet = await etatL();
+    r.egal('tandis que Ctrl+Maj+L projette, lui, partout', filet.projette, true, JSON.stringify(filet));
+    await page.evaluate(async () => {
+        quitterLaPresentation();
+        if (document.fullscreenElement) await document.exitFullscreen().catch(() => { });
+    });
+    await page.waitForTimeout(600);
+
+    // 3. EN PLEIN ÉCRAN : on emprunte, et Ctrl+L seul projette. Le plein écran
+    // se demande par SON raccourci — une vraie frappe, car le navigateur ne
+    // l'accorde qu'à un geste d'utilisateur, et un événement fabriqué n'en est
+    // pas un : le premier jet appelait « requestFullscreen » à la main et se
+    // faisait refuser.
+    await page.keyboard.press('Control+Shift+f');
+    await page.waitForTimeout(900);
+    const dedans = await etatL();
+    r.egal('le plein écran s\'obtient', dedans.plein, true, JSON.stringify(dedans));
+    r.egal('et le navigateur y prête la touche L', dedans.aNous, true, JSON.stringify(dedans));
+    await page.keyboard.press('Control+l');
+    await page.waitForTimeout(400);
+    const projete = await etatL();
+    r.egal('CTRL+L SEUL PROJETTE ALORS, COMME DANS ACROBAT', projete.projette, true, JSON.stringify(projete));
+
+    // 4. ET L'ON REND LA TOUCHE EN SORTANT.
+    await page.evaluate(async () => {
+        quitterLaPresentation();
+        if (document.fullscreenElement) await document.exitFullscreen().catch(() => { });
+    });
+    await page.waitForTimeout(700);
+    const dehors = await etatL();
+    r.egal('en sortant, on n\'est plus en plein écran', dehors.plein, false, JSON.stringify(dehors));
+    r.egal('LA TOUCHE EST RENDUE', dehors.aNous, false, JSON.stringify(dehors));
+    await page.keyboard.press('Control+l');
+    await page.waitForTimeout(300);
+    r.egal('et Ctrl+L ne fait plus rien', (await etatL()).projette, false);
+
+    // ON N'EMPRUNTE QUE LA TOUCHE L. Verrouiller tout le clavier prendrait
+    // Ctrl+T, Ctrl+W, Échap — on rendrait la fenêtre inquittable.
+    const journal = await page.evaluate(() => window.__journalDuClavier.slice());
+    // On entre deux fois en plein écran au cours de cette section — la
+    // projection y entre d'elle-même —, donc deux emprunts : ce qui compte
+    // n'est pas leur nombre mais qu'AUCUN AUTRE nom de touche n'y paraisse.
+    const empruntes = journal.filter(x => x.indexOf('emprunte') === 0);
+    r.verifie('on a bien emprunté quelque chose', empruntes.length > 0, JSON.stringify(journal));
+    r.egal('et jamais autre chose que « KeyL »',
+        Array.from(new Set(empruntes)), ['emprunte:KeyL']);
+    r.egal('et le dernier mot est de la rendre', journal[journal.length - 1], 'rend',
+        JSON.stringify(journal));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
