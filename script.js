@@ -5908,9 +5908,11 @@ const RACCOURCIS_GESTES = [
 const RACCOURCIS_PARTOUT = [
     { touche: 'Ctrl+Z', nom: 'Annuler', bouton: ['btn-undo'] },
     { touche: 'Ctrl+Y', nom: 'Refaire', bouton: ['btn-redo'] },
-    { touche: 'Ctrl+C', nom: 'Copier', bouton: ['btn-copier'] },
-    { touche: 'Ctrl+X', nom: 'Couper', bouton: ['btn-couper'] },
-    { touche: 'Ctrl+V', nom: 'Coller', bouton: ['btn-coller', 'btn-coller-tableau'] },
+    // Copier et couper n'ont plus de bouton : celui de « Copier » portait le
+    // dessin exact de « Dupliquer », dans l'autre barre et au même instant.
+    { touche: 'Ctrl+C', nom: 'Copier' },
+    { touche: 'Ctrl+X', nom: 'Couper' },
+    { touche: 'Ctrl+V', nom: 'Coller', bouton: ['btn-coller-tableau'] },
     { touche: 'Ctrl+Maj+V', nom: 'Coller sans mise en forme' },
     { touche: 'Ctrl+D', nom: 'Dupliquer la sélection',
       bouton: ['btn-quick-duplicate'] },
@@ -8738,16 +8740,6 @@ function updateStyleBarContext() {
     // qui change sans qu'on touche à l'orientation.
     majBoutonDOrientation();
     majBoutonDOrientationDuStyle();
-
-    // LE GROUPE « COPIER / COUPER / COLLER » NE PARAÎT QUE S'IL PEUT AGIR.
-    // Une sélection donne de quoi copier et couper ; un presse-papier rempli
-    // donne de quoi coller, même sans rien tenir. Le reste du temps, trois
-    // boutons morts sous les doigts de quelqu'un qui trace.
-    const aCopier = selectedItems.length > 0;
-    const aColler = (typeof boardClipboard !== 'undefined' && boardClipboard
-        && ((boardClipboard.items && boardClipboard.items.length)
-            || (boardClipboard.points && boardClipboard.points.length)));
-    barStyle.classList.toggle('ctx-edition', !!(aCopier || aColler));
 
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
@@ -29741,20 +29733,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const b = document.getElementById(id);
         if (b) b.addEventListener('click', action);
     };
-    brancher('btn-copier', () => copierSelection());
-    brancher('btn-couper', () => couperSelection());
-    // Ctrl+D existe depuis longtemps et passe par duplicateSelection() :
-    // le bouton fait exactement le même geste, pas un second.
-    brancher('btn-dupliquer', () => {
-        if (!selectedItems.length) {
-            if (typeof showToast === 'function') showToast("Rien à dupliquer : sélectionnez d'abord");
-            return;
-        }
-        if (typeof duplicateSelection === 'function') duplicateSelection();
-        else dupliquerSelection();
-    });
-    // Le même geste, aux deux endroits : dans la barre de sélection, et dans
-    // la barre du bas où il reste atteignable sans rien avoir sélectionné.
+    // Coller vit dans le tiroir du bas, et nulle part ailleurs : c'est le seul
+    // des trois qui s'atteint SANS sélection, donc le seul qui ait besoin
+    // d'une place fixe.
     const coller = () => {
         // Le presse-papier du tableau d'abord ; sinon celui du système.
         if (collerDuTableau()) return;
@@ -29767,7 +29748,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } else if (typeof showToast === 'function') showToast('Rien à coller');
     };
-    brancher('btn-coller', coller);
     brancher('btn-coller-tableau', coller);
 });
 

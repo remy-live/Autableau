@@ -1258,8 +1258,10 @@ module.exports = async function (browser) {
         return { mode: x('doc-mode-bascule'),
                  // ce qui a quitté la barre pour le volet
                  rogner: x('doc-rogner'),
+                 // « btn-copier » était de cette liste ; il n'existe plus
+                 // nulle part, donc l'y laisser ne mesurerait plus rien.
                  partis: ['doc-proportions', 'doc-grille', 'btn-color-popover',
-                          'btn-z-up', 'btn-copier'].filter(id => x(id) !== null) };
+                          'btn-z-up'].filter(id => x(id) !== null) };
     });
     const suite = ['mode', 'rogner'].map(k => ordre[k]);
     r.egal('rien de ce qui a rejoint le volet ne traîne encore dans la barre', ordre.partis, []);

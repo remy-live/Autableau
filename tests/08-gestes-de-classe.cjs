@@ -401,25 +401,26 @@ module.exports = async function (browser) {
         segments.push(seg);
         selectedItems = [{ type: 'segment', id: seg.id }];
         updateStyleBarContext();
-        const grp = document.querySelector('#bar-style .group-edition');
-        // La DUPLICATION a quitté ce groupe pour le menu flottant : elle agit
-        // sur l'objet, elle ne le décrit pas. Restent les trois du
-        // presse-papiers, qui n'ont pas d'équivalent ailleurs.
+        // LE PRESSE-PAPIERS A QUITTÉ LA BARRE DE STYLE. « À quoi sert le
+        // couper copier coller de la barre de style ? C'est inutilisable
+        // pendant un tracé. » Puis, une fois qu'ils ne parurent plus qu'avec
+        // une sélection : « mais là il y a pas doublon du coup ? » — si, et au
+        // pixel près : l'icône de « Copier » était le dessin exact de celle de
+        // « Dupliquer », qui vit dans le menu flottant et paraît au même
+        // instant. Deux barres, deux glyphes identiques, deux sens.
         const trois = ['btn-copier', 'btn-couper', 'btn-coller'];
         return {
-            presents: trois.filter(i => document.getElementById(i)).length,
-            // le groupe était dans le HTML mais aucune règle ne l'affichait :
-            // les boutons existaient sans que personne puisse les voir
-            groupeAffiche: grp && getComputedStyle(grp).display,
-            vus: trois.filter(i => document.getElementById(i).getClientRects().length).length,
-            dupliquerAilleurs: !!document.getElementById('btn-quick-duplicate')
+            restants: trois.filter(i => document.getElementById(i)),
+            groupe: !!document.querySelector('#bar-style .group-edition'),
+            dupliquerAilleurs: !!document.getElementById('btn-quick-duplicate'),
+            collerEnBas: !!document.getElementById('btn-coller-tableau')
         };
     });
-    r.egal('les trois du presse-papiers sont dans la barre contextuelle', boutons.presents, 3);
-    r.egal('et le groupe est bien affiché quand la barre l\'est', boutons.groupeAffiche, 'flex');
-    r.egal('les trois se voient vraiment à l\'écran', boutons.vus, 3);
-    r.verifie('et la duplication se trouve dans le menu flottant de l\'objet',
+    r.egal('AUCUN DES TROIS NE RESTE DANS LA BARRE DE STYLE', boutons.restants, []);
+    r.verifie('et leur groupe entier a disparu du HTML', !boutons.groupe);
+    r.verifie('la duplication, elle, reste dans le menu flottant de l\'objet',
         boutons.dupliquerAilleurs);
+    r.verifie('et le collage dans le tiroir du bas', boutons.collerEnBas);
 
     // Coller doit rester atteignable sans rien de sélectionné : la barre de
     // sélection, elle, disparaît dès qu'on désélectionne.
@@ -442,8 +443,17 @@ module.exports = async function (browser) {
         segments.push(seg);
         selectedItems = [{ type: 'segment', id: seg.id }, { type: 'point', id: a.id }, { type: 'point', id: c.id }];
 
-        document.getElementById('btn-copier').click();
-        document.getElementById('btn-coller').click();
+        // Copier et couper N'ONT PLUS DE BOUTON : on les fait donc par où ils
+        // se font désormais, le clavier — et c'est le raccourci lui-même qu'on
+        // mesure, pas la fonction qu'il appelle.
+        const ctrl = (k) => document.dispatchEvent(new KeyboardEvent('keydown',
+            { key: k, ctrlKey: true, bubbles: true, cancelable: true }));
+        ctrl('c');
+        // UN BOUTON ABSENT DOIT SE DIRE, PAS FAIRE EXPLOSER LE CHAPITRE : sans
+        // ce garde, retirer « coller » du tiroir emportait les quatre-vingts
+        // contrôles qui suivent, et le rapport ne nommait plus le défaut.
+        const bCol = document.getElementById('btn-coller-tableau');
+        if (bCol) bCol.click();
         const colle = {
             points: points.length, segments: segments.length,
             // la copie doit s'appuyer sur SES points, pas sur ceux de l'original
@@ -462,21 +472,21 @@ module.exports = async function (browser) {
                            pressePapierIntact: boardClipboard.items.map(i => i.type).join(',') === memoire };
 
         selectedItems = [{ type: 'segment', id: segments[segments.length - 1].id }];
-        document.getElementById('btn-couper').click();
+        ctrl('x');
         const coupe = segments.length;
 
         selectedItems = [];
         const sansRien = copierSelection();
         return { colle, duplique, coupe, sansRien };
     });
-    r.egal('copier puis coller ajoute une copie', gestes.colle.segments, 2);
+    r.egal('CTRL+C PUIS LE BOUTON DU BAS AJOUTENT UNE COPIE', gestes.colle.segments, 2);
     r.egal('avec ses propres points', gestes.colle.points, 4);
     r.verifie('la copie est reliée à ses points, pas à ceux de l\'original', gestes.colle.relie,
         JSON.stringify(gestes.colle));
     r.verifie('et posée à côté, pas par-dessus', gestes.colle.decale);
     r.egal('dupliquer pose une copie de plus', gestes.duplique.segments, 3);
     r.verifie('sans écraser ce qu\'on avait copié avant', gestes.duplique.pressePapierIntact);
-    r.egal('couper retire l\'objet', gestes.coupe, 2);
+    r.egal('et Ctrl+X retire l\'objet', gestes.coupe, 2);
     r.verifie('sans sélection, copier ne fait rien et le dit', gestes.sansRien === false);
 
     // --- RÉORDONNER LES PAGES EN TIRANT LEUR VIGNETTE ---

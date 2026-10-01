@@ -138,8 +138,14 @@ module.exports = async function (browser) {
                          titreRestant: b.hasAttribute('title') } : null;
         };
         return {
-            annuler: lire('btn-undo'), copier: lire('btn-copier'),
-            coller: lire('btn-coller'), collerBis: lire('btn-coller-tableau'),
+            annuler: lire('btn-undo'), coller: lire('btn-coller-tableau'),
+            // Copier et couper N'ONT PLUS DE BOUTON : celui de « Copier »
+            // portait le dessin exact de « Dupliquer », dans l'autre barre et
+            // au même instant. Une entrée de la table sans bouton reste
+            // légitime — l'aide la montre, le clavier la fait.
+            sansBouton: RACCOURCIS_PARTOUT
+                .filter(r => ['Ctrl+C', 'Ctrl+X'].includes(r.touche))
+                .map(r => [r.touche, r.nom, (r.bouton || []).length]),
             supprimer: lire('btn-quick-delete'), pleinEcran: lire("btn-ecran-plein"),
             chercher: lire('plugin-search-btn'),
             // Toutes les entrées de la table qui nomment un bouton l'ont trouvé
@@ -154,9 +160,12 @@ module.exports = async function (browser) {
     });
     r.egal('« Annuler » porte Ctrl+Z, et son libellé redevient un nom',
         [partout.annuler.touche, partout.annuler.nom], ['Ctrl+Z', 'Annuler']);
-    r.egal('« Copier » aussi', [partout.copier.touche, partout.copier.nom], ['Ctrl+C', 'Copier']);
-    r.egal('les deux boutons « Coller » annoncent la même touche',
-        [partout.coller.touche, partout.collerBis.touche], ['Ctrl+V', 'Ctrl+V']);
+    r.egal('COPIER ET COUPER RESTENT DANS LA TABLE, SANS BOUTON', partout.sansBouton,
+        [['Ctrl+C', 'Copier', 0], ['Ctrl+X', 'Couper', 0]]);
+    // « lire » rend null quand le bouton n'est pas là : le dire, et non planter
+    // sur la ligne suivante en emportant tout le chapitre.
+    r.egal('« Coller » garde le sien, dans le tiroir du bas',
+        [(partout.coller || {}).touche, (partout.coller || {}).nom], ['Ctrl+V', 'Coller']);
     r.egal('« Supprimer » porte Suppr', partout.supprimer.touche, 'Suppr');
     r.egal('le plein écran porte sa combinaison', partout.pleinEcran.touche, 'Ctrl+Maj+F');
     r.egal('et la recherche porte Ctrl+K', partout.chercher.touche, 'Ctrl+K');
@@ -164,7 +173,7 @@ module.exports = async function (browser) {
         partout.libellesSales.length === 0, JSON.stringify(partout.libellesSales));
     r.egal('chaque bouton nommé par la table existe', partout.orphelins, []);
     r.verifie('et « title » a laissé la place à l\'infobulle qui marche au doigt',
-        !partout.annuler.titreRestant && !partout.copier.titreRestant);
+        !partout.annuler.titreRestant && !(partout.coller || {}).titreRestant);
 
     const bulleCombinee = await page.evaluate(async () => {
         const b = document.querySelector('[id="btn-undo"]');

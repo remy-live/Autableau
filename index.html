@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=228 »,
-         « script.js?v=400 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=229 »,
+         « script.js?v=401 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=228">
+    <link rel="stylesheet" href="style.css?v=229">
 </head>
 
 <body>
@@ -1059,10 +1059,13 @@
                         <li><strong>Reconnaissance :</strong> Dessinez + maintenez 1s à la fin</li>
                         <li><strong>Post-it (N) :</strong> glissez un cadre, il devient un papier où l'on écrit.
                             Son en-tête règle la couleur, la police et la taille.</li>
-                        <li><strong>Copier, couper, dupliquer :</strong> trois boutons dans la barre qui apparaît
-                            quand un objet est sélectionné — c'est le seul moment où ces gestes ont un sens.
-                            Raccourcis <b>Ctrl+C / Ctrl+X / Ctrl+D</b>. La copie garde sa géométrie : un segment
-                            collé s'appuie sur ses propres points.</li>
+                        <li><strong>Dupliquer :</strong> le bouton est dans le <b>menu flottant</b> de l'objet,
+                            là où l'on est déjà en train de le tenir. Raccourci <b>Ctrl+D</b>. La copie garde sa
+                            géométrie : un segment collé s'appuie sur ses propres points.</li>
+                        <li><strong>Copier, couper :</strong> au clavier, <b>Ctrl+C</b> et <b>Ctrl+X</b>. Ils
+                            avaient aussi des boutons dans la barre de style ; celui de « Copier » portait le
+                            dessin exact de « Dupliquer », juste au-dessous, et les deux paraissaient ensemble.
+                            Un même glyphe pour deux gestes vaut moins que pas de bouton du tout.</li>
                         <li><strong>Coller :</strong> son bouton est dans la <b>barre du bas</b>, à côté de « Mes
                             classes » — on colle justement quand rien n'est sélectionné, et la barre de sélection
                             n'est pas là à ce moment. Raccourci <b>Ctrl+V</b>.</li>
@@ -3111,9 +3114,6 @@
                 <path d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10V2z" fill="currentColor" fill-opacity="0.3" />
             </svg></div>
 
-        <!-- Copier, couper, dupliquer, coller : les raccourcis existaient
-             depuis toujours, mais rien ne les montrait — sur tablette, il n'y
-             a même pas de clavier pour les faire. -->
         <!-- LA POIGNEE ET LE REPLI SONT DE RETOUR. Je les avais retires en croyant
              qu'une barre fixe n'en avait plus besoin : c'est faux sur un document
              en plein ecran, ou elle peut tomber en travers de ce qu'on montre.
@@ -3248,8 +3248,8 @@
         <!-- L'ORDRE, ET C'EST LUI QUI FAIT LA COHÉRENCE. De gauche à droite :
              ce qui ne concerne QUE cet objet (pages, cadre, rognage), puis son
              APPARENCE (couleur, épaisseur, opacité, texte), puis son PLACE dans
-             la pile, puis le PRESSE-PAPIERS, le CADENAS, et la suppression tout
-             au bout — la seule action irréversible, seule et en rouge. -->
+             la pile, puis le CADENAS. Le presse-papiers s'en est allé : voir
+             plus bas. -->
         <div class="style-group group-lock">
             <button class="btn group-postit" id="btn-minimize-postit" style="display:none;"
                 title="Réduire/Agrandir le post-it"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
@@ -3272,27 +3272,17 @@
                     <path d="M12 1.5v5M9.5 4l2.5 2.5L14.5 4" />
                 </svg></button>
         </div>
-        <div class="style-group group-edition">
-            <button class="btn" id="btn-copier" title="Copier (Ctrl+C)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <rect x="9" y="9" width="12" height="12" rx="2" />
-                    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-                </svg></button>
-            <button class="btn" id="btn-couper" title="Couper (Ctrl+X)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <circle cx="6" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <line x1="20" y1="4" x2="8.12" y2="15.88" />
-                    <line x1="14.47" y1="14.48" x2="20" y2="20" />
-                    <line x1="8.12" y1="8.12" x2="12" y2="12" />
-                </svg></button>
-            <button class="btn" id="btn-coller" title="Coller (Ctrl+V)"><svg xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24" class="stroke-icon">
-                    <path d="M16 4h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-                    <rect x="8" y="2" width="8" height="4" rx="1" />
-                </svg></button>
-            <div class="divider"></div>
-        </div>
+        <!-- LE PRESSE-PAPIERS A QUITTÉ CETTE BARRE. « À quoi sert le couper
+             copier coller de la barre de style ? C'est inutilisable pendant un
+             tracé. » Puis, une fois qu'ils ne parurent plus qu'avec une
+             sélection : « mais là il y a pas doublon du coup ? » — si, et au
+             pixel près : l'icône de « Copier » était le dessin exact de celle
+             de « Dupliquer », qui vit dans le menu flottant de l'objet et
+             paraît au même instant. Deux barres, deux glyphes identiques, deux
+             sens. Le geste immédiat reste sous l'objet (Dupliquer), le collage
+             reste dans le tiroir du bas où il s'atteint SANS sélection, et le
+             presse-papier différé reste au clavier (Ctrl+C, Ctrl+X). Cette
+             barre redevient ce que son nom dit : l'apparence. -->
 
 
     </div>
@@ -4091,7 +4081,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=400"></script>
+    <script src="script.js?v=401"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -2306,16 +2306,6 @@ body.sans-tiroirs #donate-float-btn {
     gap: 8px;
 }
 
-/* COPIER, COUPER, COLLER NE PARAISSENT QUE QUAND ILS PEUVENT QUELQUE CHOSE.
-   « À quoi sert le couper copier coller de la barre de style ? C'est
-   inutilisable pendant un tracé. » — et c'était exact : le groupe s'affichait
-   dès que la barre était là, donc dès qu'on tenait un crayon, une courbe, un
-   segment. Sans sélection et sans presse-papier, les trois boutons ne
-   pouvaient rien faire. C'est ce que le code reproche déjà au surligneur :
-   une commande sans effet ne fait pas qu'encombrer, elle MENT.
-   « ctx-edition » dit qu'il y a de quoi : une sélection à copier, ou quelque
-   chose à coller. */
-#bar-style.ctx-edition .group-edition,
 #bar-style.ctx-point .group-point,
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-surligneur .group-surligneur,
@@ -8519,10 +8509,7 @@ body.focus-mode #edt-bandeau { display: none; }
 #bar-document.annote #doc-modes,
 #bar-document.annote #doc-modes-sep,
 #bar-document.annote #doc-proportions,
-#bar-document.annote #doc-rogner,
-/* Copier, couper, coller, dupliquer : la sélection est vide pendant qu'on
-   annote, ils n'auraient rien à prendre. */
-#bar-document.annote .group-edition { display: none !important; }
+#bar-document.annote #doc-rogner { display: none !important; }
 /* Le cadenas, la duplication et l'opacité ne sont plus ici : la barre unique
    les portait DÉJÀ pour tous les objets, et se retrouvait avec deux cadenas
    côte à côte une fois les deux barres réunies. Ce sont les versions générales
@@ -10949,7 +10936,6 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 #bar-document.doc-allege:not(.annote) #doc-entiere,
 #bar-document.doc-allege:not(.annote) #btn-color-popover,
 #bar-document.doc-allege:not(.annote) .group-zindex,
-#bar-document.doc-allege:not(.annote) .group-edition,
 /* Le séparateur qui suivait la pastille de couleur restait seul en bout de
    barre : les gardes génériques ne l'attrapent pas, puisque les groupes
    masqués comptent encore comme des frères. */

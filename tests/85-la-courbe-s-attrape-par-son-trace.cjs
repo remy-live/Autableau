@@ -17,7 +17,11 @@
 //     segments mais d'une spline.
 //   — Les trois boutons « copier / couper / coller » paraissaient dès que la
 //     barre était là, donc dès qu'on tenait un crayon. Sans sélection et sans
-//     presse-papier, ils ne pouvaient rien faire.
+//     presse-papier, ils ne pouvaient rien faire. Les restreindre à une
+//     sélection ne suffit pas : ils paraissent alors en même temps que le menu
+//     flottant de l'objet, où « Dupliquer » porte LE MÊME DESSIN que « Copier ».
+//     Ils s'en vont donc — la duplication sous l'objet, le collage dans le
+//     tiroir du bas, le presse-papier différé au clavier.
 //
 // LE CONTRÔLE DE LA COURBE CHERCHE UN PIXEL PEINT. C'est ce qui le rend
 // difficile à satisfaire par hasard : on relit la toile, on y trouve un point
@@ -135,46 +139,56 @@ module.exports = async function (browser) {
     r.egal('une courbe sans point n\'en donne aucun', formes.vide, 0);
 
     // ------------------------------------------------------------------
-    // 5. COPIER / COUPER / COLLER NE PARAISSENT QUE S'ILS PEUVENT AGIR
+    // 5. LE PRESSE-PAPIERS A QUITTÉ LA BARRE DE STYLE
     //
-    // « C'est inutilisable pendant un tracé. » Trois boutons sous les doigts
-    // de quelqu'un qui trace, et qui ne font rien : une commande sans effet ne
-    // fait pas qu'encombrer, elle ment.
+    // « À quoi sert le couper copier coller de la barre de style ? C'est
+    // inutilisable pendant un tracé. » Première réponse : ne les montrer
+    // qu'avec une sélection. Mais ils parurent alors exactement en même temps
+    // que le menu flottant de l'objet — « mais là il y a pas doublon du
+    // coup ? » —, et l'icône de « Copier » y était le DESSIN EXACT de celle de
+    // « Dupliquer » : deux barres, deux glyphes identiques, deux sens.
+    //
+    // Ils sont donc partis. Ce qui reste doit rester : la duplication sous
+    // l'objet, le collage dans le tiroir du bas — le seul des trois qui
+    // s'atteigne SANS sélection —, et le presse-papier différé au clavier.
     // ------------------------------------------------------------------
     const edition = await page.evaluate(async () => {
         const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
-        const lu = {};
-        const voir = () => {
-            const g = document.querySelector('#bar-style .group-edition');
-            return g ? getComputedStyle(g).display : '(absent)';
-        };
-        boardClipboard = { items: [], points: [] };
-        selectedItems = [];
-        setMode('curve');                      // un outil en main, rien de pris
-        updateStyleBarContext(); await attendre(150);
-        lu.enTracant = voir();
-
+        // L'ORDRE COMPTE : setMode() vide la sélection. La poser d'abord puis
+        // changer d'outil ne mesurait rien du tout — le menu de l'objet n'avait
+        // plus d'objet.
+        setMode('pointer');
         selectedItems = [{ type: 'curve', id: curves[0].id }];
-        updateStyleBarContext(); await attendre(150);
-        lu.avecSelection = voir();
-
-        copierSelection();
-        selectedItems = [];
-        updateStyleBarContext(); await attendre(150);
-        lu.pressePapierRempli = voir();
-
-        boardClipboard = { items: [], points: [] };
-        selectedItems = [];
-        updateStyleBarContext(); await attendre(150);
-        lu.toutVide = voir();
-        return lu;
+        updateStyleBarContext();
+        if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        await attendre(200);
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            return !!(e && e.getClientRects().length);
+        };
+        return {
+            troisPartis: ['btn-copier', 'btn-couper', 'btn-coller']
+                .filter(i => document.getElementById(i)),
+            groupe: !!document.querySelector('.group-edition'),
+            dupliquer: vu('btn-quick-duplicate'),
+            collerEnBas: !!document.getElementById('btn-coller-tableau'),
+            // La table des raccourcis est la seule source : une entrée sans
+            // bouton y reste légitime, une entrée qui en nomme un doit le
+            // trouver.
+            sansBouton: RACCOURCIS_PARTOUT.filter(x => ['Ctrl+C', 'Ctrl+X'].includes(x.touche))
+                .map(x => [x.touche, (x.bouton || []).length]),
+            orphelins: RACCOURCIS_PARTOUT.flatMap(x => x.bouton || [])
+                .filter(i => !document.getElementById(i))
+        };
     });
-    r.egal('EN TRAÇANT, LES TROIS BOUTONS NE SONT PAS LÀ', edition.enTracant, 'none',
-        JSON.stringify(edition));
-    r.egal('avec une sélection, ils paraissent', edition.avecSelection, 'flex', JSON.stringify(edition));
-    r.egal('et avec de quoi coller aussi, même sans sélection',
-        edition.pressePapierRempli, 'flex', JSON.stringify(edition));
-    r.egal('tout vide, ils s\'en vont de nouveau', edition.toutVide, 'none', JSON.stringify(edition));
+    r.egal('AUCUN DES TROIS NE SUBSISTE', edition.troisPartis, []);
+    r.verifie('et leur groupe entier a quitté le HTML', !edition.groupe);
+    r.verifie('la duplication se voit toujours sous l\'objet sélectionné',
+        edition.dupliquer, JSON.stringify(edition));
+    r.verifie('et le collage reste dans le tiroir du bas', edition.collerEnBas);
+    r.egal('copier et couper restent dans la table, sans bouton',
+        edition.sansBouton, [['Ctrl+C', 0], ['Ctrl+X', 0]]);
+    r.egal('et plus aucune entrée ne nomme un bouton absent', edition.orphelins, []);
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
