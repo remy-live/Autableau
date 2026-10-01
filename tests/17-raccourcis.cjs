@@ -867,6 +867,23 @@ module.exports = async function (browser) {
     const cycle = await page.evaluate(async () => {
         const bouton = document.getElementById('doc-plein-ecran');
         const barres = document.getElementById('doc-barres');
+        // ON ATTEND LA TRANSITION, ON NE LA DEVINE PAS.
+        //
+        // Le code du tableau le dit lui-même : « requestFullscreen et
+        // exitFullscreen sont LENTS — le gestionnaire de fenêtres
+        // redimensionne la fenêtre, cela prend des dixièmes de seconde — mais
+        // document.fullscreenElement ne change qu'À LA FIN. » Ce contrôle
+        // attendait 350 ms et lisait l'état : il passait seul, et tombait une
+        // fois dans la suite complète, machine chargée, en rendant
+        // « plein: false ». Ce n'était pas le tableau qui avait tort, c'était
+        // la montre. On attend donc l'état voulu, jusqu'à trois secondes.
+        const attendreLePlein = async (veut) => {
+            for (let i = 0; i < 60; i++) {
+                if (!!document.fullscreenElement === veut) return true;
+                await new Promise(r => setTimeout(r, 50));
+            }
+            return false;
+        };
         const releve = () => ({
             etat: etatDuPleinEcran(),
             presentation: !!presentationEnCours,
@@ -884,7 +901,7 @@ module.exports = async function (browser) {
         const depart = releve();
 
         bouton.click();
-        await new Promise(r => setTimeout(r, 350));
+        await attendreLePlein(true);
         majBarreDocument();
         const premier = releve();
 
@@ -896,7 +913,7 @@ module.exports = async function (browser) {
         // Et le plein écran ferme tout d'un seul appui, quel que soit l'état
         // des barres : c'est là que le cycle piégeait.
         bouton.click();
-        await new Promise(r => setTimeout(r, 350));
+        await attendreLePlein(false);
         majBarreDocument();
         const troisieme = releve();
         return { depart, premier, second, troisieme,
@@ -1372,7 +1389,11 @@ module.exports = async function (browser) {
     // pas un : le premier jet appelait « requestFullscreen » à la main et se
     // faisait refuser.
     await page.keyboard.press('Control+Shift+f');
-    await page.waitForTimeout(900);
+    // Même raison qu'au-dessus : on attend que la fenêtre ait fini de
+    // s'agrandir, on ne parie pas sur neuf cents millisecondes.
+    await page.waitForFunction(() => !!document.fullscreenElement, { timeout: 5000 })
+        .catch(() => { /* on laissera le contrôle le dire */ });
+    await page.waitForTimeout(250);          // le prêt de la touche suit l'événement
     const dedans = await etatL();
     r.egal('le plein écran s\'obtient', dedans.plein, true, JSON.stringify(dedans));
     r.egal('et le navigateur y prête la touche L', dedans.aNous, true, JSON.stringify(dedans));
@@ -1386,7 +1407,9 @@ module.exports = async function (browser) {
         quitterLaPresentation();
         if (document.fullscreenElement) await document.exitFullscreen().catch(() => { });
     });
-    await page.waitForTimeout(700);
+    await page.waitForFunction(() => !document.fullscreenElement, { timeout: 5000 })
+        .catch(() => { });
+    await page.waitForTimeout(250);
     const dehors = await etatL();
     r.egal('en sortant, on n\'est plus en plein écran', dehors.plein, false, JSON.stringify(dehors));
     r.egal('LA TOUCHE EST RENDUE', dehors.aNous, false, JSON.stringify(dehors));
