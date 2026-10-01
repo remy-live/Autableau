@@ -25537,9 +25537,18 @@ window.plancherDesBarresDuHaut = plancherDesBarresDuHaut;
 
 function plafondDesBarresDuBas() {
     let bas = window.innerHeight;
-    ['bar-document', 'bar-style', 'demo-barre', 'bande-morceaux'].forEach(id => {
+    // LE CLAVIER DE L'ÉCRAN EN FAIT PARTIE — MAIS SEULEMENT RANGÉ EN BAS.
+    //
+    // Collé au bord sur toute la largeur, c'est un meuble comme les autres, et
+    // ce qui se place « en bas faute de mieux » doit s'arrêter au-dessus de
+    // lui. FLOTTANT, non : il se pose à vingt-quatre pixels du bord, ce qui
+    // suffisait à le faire compter — mesuré, le plafond tombait à 476 pixels
+    // et les barres remontaient pour une fenêtre qu'on peut déplacer d'un
+    // doigt. Une fenêtre n'est pas un meuble du bord.
+    ['bar-document', 'bar-style', 'demo-barre', 'bande-morceaux', 'clavier-ecran'].forEach(id => {
         const e = document.getElementById(id);
         if (!e || e.hidden) return;
+        if (id === 'clavier-ecran' && !e.classList.contains('clavier-en-bas')) return;
         const s = getComputedStyle(e);
         if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return;
         const r = e.getBoundingClientRect();
@@ -48068,3 +48077,253 @@ window.addEventListener('keydown', (e) => {
     const l = document.getElementById('demo-liste');
     if (l && l.classList.contains('ouvert')) { fermerLaListeDeLaDemo(); e.stopImmediatePropagation(); }
 }, true);
+
+// ==============================================================================
+// LE CLAVIER DE L'ÉCRAN
+//
+// « On pourrait rajouter un clavier optionnel pour le texte, comme cela on
+// aura vraiment une appli qui peut se passer du clavier. »
+//
+// IL S'OUVRE AU DOIGT, ET SEULEMENT AU DOIGT. « Parfois on n'a pas besoin que
+// ça s'ouvre tout seul, je suis plus souvent à l'ordi qu'au TBI. » La réponse
+// n'est ni une durée ni un réglage à retenir : c'est le GESTE lui-même. Au
+// tableau on touche, au bureau on clique, et l'événement le dit tout de suite
+// — « pointerType » vaut « touch » ou « mouse ». Rien à chronométrer, rien à
+// deviner, rien à régler : à la souris le clavier ne paraît jamais.
+//
+// ET UN REFUS VAUT POUR LA SÉANCE. Qui le ferme à la main ne le verra plus
+// s'ouvrir seul ; son bouton le rappelle quand on en veut.
+//
+// IL SE DÉPLACE, SE REDIMENSIONNE ET SE RANGE EN BAS. « Il faut que le
+// clavier puisse s'étendre en bas, se bouger voire changer de taille. » Les
+// deux premiers viennent de l'équipement commun des fenêtres — barre de
+// titre, poignée de taille, croix. Le troisième est à lui : un bouton qui le
+// colle au bord bas sur toute la largeur, comme le clavier d'une tablette, et
+// qui l'en détache.
+//
+// CE QU'IL NE FAIT PAS : voler le curseur. Appuyer sur une touche d'écran,
+// c'est appuyer sur un bouton — et un bouton prend le focus, donc le retire
+// au texte qu'on écrit. Chaque touche annule donc son « pointerdown » : le
+// curseur ne quitte jamais la saisie.
+// ==============================================================================
+const CLAVIER_RANGEES = [
+    [{ t: '1' }, { t: '2' }, { t: '3' }, { t: '4' }, { t: '5' }, { t: '6' }, { t: '7' },
+     { t: '8' }, { t: '9' }, { t: '0' }, { t: '⌫', act: 'effacer', nom: 'Effacer', large: 1.6 }],
+    [{ t: 'a' }, { t: 'z' }, { t: 'e' }, { t: 'r' }, { t: 't' }, { t: 'y' }, { t: 'u' },
+     { t: 'i' }, { t: 'o' }, { t: 'p' }, { t: '^', nom: 'Accent circonflexe' }],
+    [{ t: 'q' }, { t: 's' }, { t: 'd' }, { t: 'f' }, { t: 'g' }, { t: 'h' }, { t: 'j' },
+     { t: 'k' }, { t: 'l' }, { t: 'm' }, { t: '⏎', act: 'ligne', nom: 'Aller à la ligne', large: 1.6 }],
+    [{ t: '⇧', act: 'majuscule', nom: 'Majuscules', large: 1.6 }, { t: 'w' }, { t: 'x' }, { t: 'c' },
+     { t: 'v' }, { t: 'b' }, { t: 'n' }, { t: ',' }, { t: '.' }, { t: '\'' }, { t: '-' }],
+    [{ t: 'é' }, { t: 'è' }, { t: 'ê' }, { t: 'à' }, { t: 'ù' }, { t: 'ç' },
+     { t: 'espace', act: 'espace', nom: 'Espace', large: 4 }, { t: '?' }, { t: '!' }]
+];
+
+let clavierDeLEcran = null;
+let clavierEnMajuscule = false;
+let clavierEcarte = false;          // fermé à la main : il ne s'ouvrira plus seul
+let dernierAppuiAuDoigt = false;
+
+// OÙ CE QU'ON TAPE ATTERRIT. Le bloc de texte du tableau d'abord — c'est pour
+// lui que le clavier existe —, mais tout champ qui a le curseur fait l'affaire :
+// refuser d'écrire dans celui qu'on vient de toucher n'aurait aucun sens.
+function cibleDuClavier() {
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return a;
+    if (typeof wysiwygText !== 'undefined' && wysiwygText && wysiwygText.style.display === 'block') {
+        return wysiwygText;
+    }
+    return null;
+}
+window.cibleDuClavier = cibleDuClavier;
+
+function taperAuClavier(car) {
+    const cible = cibleDuClavier();
+    if (!cible) return false;
+    // Le bloc du tableau a déjà son chemin, qui garde l'habillage en cours —
+    // gras, couleur, taille — et remet le curseur dedans s'il s'en était allé.
+    if (typeof wysiwygText !== 'undefined' && cible === wysiwygText
+        && typeof insererSymbole === 'function') return insererSymbole(car);
+    cible.focus();
+    if (cible.tagName === 'INPUT' || cible.tagName === 'TEXTAREA') {
+        const d = (cible.selectionStart === null || cible.selectionStart === undefined)
+            ? cible.value.length : cible.selectionStart;
+        const f = (cible.selectionEnd === null || cible.selectionEnd === undefined) ? d : cible.selectionEnd;
+        cible.value = cible.value.slice(0, d) + car + cible.value.slice(f);
+        try { cible.selectionStart = cible.selectionEnd = d + car.length; } catch (e) { /* champ sans curseur */ }
+        cible.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    }
+    try { return document.execCommand('insertText', false, car); } catch (e) { return false; }
+}
+window.taperAuClavier = taperAuClavier;
+
+function effacerAuClavier() {
+    const cible = cibleDuClavier();
+    if (!cible) return false;
+    cible.focus();
+    if (cible.tagName === 'INPUT' || cible.tagName === 'TEXTAREA') {
+        const d = cible.selectionStart, f = cible.selectionEnd;
+        if (d === f && d === 0) return false;
+        const a = (d === f) ? d - 1 : d;
+        cible.value = cible.value.slice(0, a) + cible.value.slice(f);
+        try { cible.selectionStart = cible.selectionEnd = a; } catch (e) { /* champ sans curseur */ }
+        cible.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+    }
+    try { return document.execCommand('delete'); } catch (e) { return false; }
+}
+
+function majLesTouchesDuClavier() {
+    if (!clavierDeLEcran) return;
+    clavierDeLEcran.querySelectorAll('.clavier-touche[data-lettre]').forEach(b => {
+        const l = b.getAttribute('data-lettre');
+        b.textContent = clavierEnMajuscule ? l.toUpperCase() : l;
+    });
+    const maj = clavierDeLEcran.querySelector('.clavier-touche[data-act="majuscule"]');
+    if (maj) maj.classList.toggle('actif', clavierEnMajuscule);
+}
+
+function construireLeClavier() {
+    if (clavierDeLEcran) return clavierDeLEcran;
+    const el = document.createElement('div');
+    el.id = 'clavier-ecran';
+    el.className = 'clavier-ecran';
+    el.dataset.fenetreTitre = 'Clavier';
+
+    const corps = document.createElement('div');
+    corps.className = 'clavier-corps';
+    CLAVIER_RANGEES.forEach(rangee => {
+        const r = document.createElement('div');
+        r.className = 'clavier-rangee';
+        rangee.forEach(touche => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'clavier-touche';
+            b.textContent = touche.act === 'espace' ? '' : touche.t;
+            b.title = touche.nom || touche.t;
+            if (touche.act) b.dataset.act = touche.act;
+            else b.dataset.lettre = touche.t;
+            if (touche.large) b.style.flexGrow = String(touche.large);
+            // LE CURSEUR NE QUITTE PAS LA SAISIE : un bouton prend le focus,
+            // et l'aurait volé au texte qu'on est en train d'écrire.
+            b.addEventListener('pointerdown', (e) => e.preventDefault());
+            b.addEventListener('mousedown', (e) => e.preventDefault());
+            b.addEventListener('click', () => {
+                if (touche.act === 'effacer') { effacerAuClavier(); return; }
+                if (touche.act === 'espace') { taperAuClavier(' '); return; }
+                if (touche.act === 'ligne') {
+                    try { document.execCommand('insertLineBreak'); } catch (e) { taperAuClavier('\n'); }
+                    return;
+                }
+                if (touche.act === 'majuscule') {
+                    clavierEnMajuscule = !clavierEnMajuscule;
+                    majLesTouchesDuClavier();
+                    return;
+                }
+                taperAuClavier(clavierEnMajuscule ? touche.t.toUpperCase() : touche.t);
+                // UNE MAJUSCULE, PUIS ON REDESCEND : c'est ce que fait le
+                // clavier d'un téléphone, et c'est ce qu'on veut neuf fois
+                // sur dix — un prénom, un début de phrase.
+                if (clavierEnMajuscule) { clavierEnMajuscule = false; majLesTouchesDuClavier(); }
+            });
+            r.appendChild(b);
+        });
+        corps.appendChild(r);
+    });
+
+    const pied = document.createElement('div');
+    pied.className = 'clavier-pied';
+    const bas = document.createElement('button');
+    bas.type = 'button';
+    bas.className = 'clavier-ranger';
+    bas.textContent = '⤓ En bas';
+    bas.title = 'Ranger le clavier au bord bas, sur toute la largeur';
+    bas.addEventListener('pointerdown', (e) => e.preventDefault());
+    bas.addEventListener('click', () => rangerLeClavierEnBas(!el.classList.contains('clavier-en-bas')));
+    pied.appendChild(bas);
+    corps.appendChild(pied);
+
+    el.appendChild(corps);
+    document.body.appendChild(el);
+    clavierDeLEcran = el;
+    // La barre de titre, la poignée de taille et la croix viennent de
+    // l'équipement commun : déplacer et redimensionner ne se réécrivent pas ici.
+    if (typeof equiperFenetre === 'function') equiperFenetre(el, 'clavier-ecran', { toujours: true });
+    majLesTouchesDuClavier();
+    return el;
+}
+
+// AU BORD BAS, SUR TOUTE LA LARGEUR — et l'inverse. Les positions posées à la
+// main par le déplacement sont en ligne : elles gagneraient contre la feuille
+// de style, il faut donc les retirer pour que le rangement prenne.
+function rangerLeClavierEnBas(enBas) {
+    const el = clavierDeLEcran;
+    if (!el) return false;
+    el.classList.toggle('clavier-en-bas', !!enBas);
+    if (enBas) { el.style.left = ''; el.style.top = ''; el.style.width = ''; el.style.height = ''; }
+    const b = el.querySelector('.clavier-ranger');
+    if (b) b.textContent = enBas ? '⤒ Détacher' : '⤓ En bas';
+    return !!enBas;
+}
+window.rangerLeClavierEnBas = rangerLeClavierEnBas;
+
+function clavierEstOuvert() {
+    return !!(clavierDeLEcran && clavierDeLEcran.classList.contains('visible'));
+}
+window.clavierEstOuvert = clavierEstOuvert;
+
+function ouvrirLeClavier() {
+    const el = construireLeClavier();
+    el.classList.add('visible');
+    if (typeof passerDevant === 'function') passerDevant(el);
+    majLeBoutonDuClavier();
+    return true;
+}
+window.ouvrirLeClavier = ouvrirLeClavier;
+
+function fermerLeClavier(parLaMain) {
+    if (!clavierDeLEcran) return false;
+    clavierDeLEcran.classList.remove('visible');
+    if (parLaMain) clavierEcarte = true;
+    majLeBoutonDuClavier();
+    return true;
+}
+window.fermerLeClavier = fermerLeClavier;
+
+function basculerLeClavier() {
+    if (clavierEstOuvert()) return fermerLeClavier(true);
+    clavierEcarte = false;          // on le redemande : il peut redevenir spontané
+    return ouvrirLeClavier();
+}
+window.basculerLeClavier = basculerLeClavier;
+
+function majLeBoutonDuClavier() {
+    const b = document.getElementById('btn-clavier-ecran');
+    if (b) b.classList.toggle('active', clavierEstOuvert());
+}
+
+// Le geste dit l'outil : au doigt le clavier d'écran, à la souris celui du
+// bureau. On relève donc le DERNIER appui, quel qu'il soit.
+document.addEventListener('pointerdown', (e) => {
+    dernierAppuiAuDoigt = (e.pointerType === 'touch');
+}, true);
+
+// La saisie s'ouvre à deux endroits du code ; on ne les visite pas tous les
+// deux. On regarde la boîte elle-même devenir visible — un seul endroit, et il
+// couvre aussi celui qu'on ajoutera demain.
+if (typeof MutationObserver === 'function' && typeof wysiwygText !== 'undefined' && wysiwygText) {
+    let saisieEtaitLa = false;
+    new MutationObserver(() => {
+        const la = wysiwygText.style.display === 'block';
+        if (la && !saisieEtaitLa && dernierAppuiAuDoigt && !clavierEcarte && !clavierEstOuvert()) {
+            ouvrirLeClavier();
+        }
+        saisieEtaitLa = la;
+    }).observe(wysiwygText, { attributes: true, attributeFilter: ['style'] });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('btn-clavier-ecran');
+    if (b) b.addEventListener('click', basculerLeClavier);
+});

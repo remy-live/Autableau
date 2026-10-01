@@ -13897,3 +13897,115 @@ body.sans-tiroirs #etat-enregistrement { display: none; }
 /* L'aperçu montre une FEUILLE : elle reste blanche la nuit, comme le papier
    qui sortira de l'imprimante. */
 body.dark-mode .cdx-apercu { background: #fff; }
+
+/* ==========================================================================
+   LE CLAVIER DE L'ÉCRAN
+   « Il faut que le clavier puisse s'étendre en bas, se bouger voire changer
+   de taille. » Déplacer et redimensionner viennent de l'équipement commun des
+   fenêtres ; le rangement au bord bas est à lui.
+   Les touches se partagent la place en largeur ET en hauteur : agrandir la
+   fenêtre agrandit les touches, ce qui est tout l'intérêt sur un tableau de
+   classe où l'on vise de loin.
+   ========================================================================== */
+.clavier-ecran {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    width: min(680px, calc(100vw - 32px));
+    height: 300px;
+    background: var(--surface, #fff);
+    border: 1px solid var(--contour);
+    border-radius: 14px;
+    box-shadow: var(--contour-ombre), 0 14px 38px rgba(45, 52, 54, 0.26);
+    display: none;
+    z-index: 100040;
+    box-sizing: border-box;
+}
+
+.clavier-ecran.visible { display: block; }
+
+/* Rangé au bord bas, il prend toute la largeur — comme le clavier d'une
+   tablette. Les « !important » tiennent tête aux positions posées en ligne
+   par le déplacement : sans eux, un clavier qu'on a bougé refuserait de se
+   ranger. */
+.clavier-ecran.clavier-en-bas {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    /* L'ÉQUIPEMENT DE FENÊTRE POSE « max-width: calc(100vw - 16px) » EN LIGNE,
+       pour qu'aucune fenêtre flottante ne déborde de l'écran. La règle est
+       bonne pour une fenêtre ; elle est fausse pour un clavier collé au bord,
+       qui doit aller d'un bout à l'autre. Mesuré : 1264 px au lieu de 1280,
+       seize pixels de blanc à droite. */
+    max-width: none !important;
+    border-radius: 14px 14px 0 0;
+}
+
+.clavier-corps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.clavier-rangee {
+    display: flex;
+    gap: 6px;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.clavier-touche {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 34px;
+    border: 1px solid var(--contour, rgba(45, 52, 54, 0.18));
+    background: var(--surface, #fff);
+    color: var(--ink, #2d3436);
+    font-size: 17px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 1px 0 rgba(45, 52, 54, 0.14);
+    touch-action: manipulation;
+}
+
+.clavier-touche:hover { background: rgba(108, 92, 231, 0.10); }
+.clavier-touche:active { transform: translateY(1px); box-shadow: none; }
+
+.clavier-touche.actif {
+    background: rgba(108, 92, 231, 0.16);
+    border-color: #6c5ce7;
+    color: #6c5ce7;
+}
+
+.clavier-pied {
+    display: flex;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+}
+
+.clavier-ranger {
+    border: none;
+    background: transparent;
+    color: #636e72;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    min-height: 26px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+.clavier-ranger:hover { background: rgba(108, 92, 231, 0.10); color: #6c5ce7; }
+
+.dark-mode .clavier-ecran { background: #2f3640; border-color: #3d4852; }
+.dark-mode .clavier-touche { background: #353b48; border-color: #3d4852; color: #dfe6e9; }
+.dark-mode .clavier-touche:hover { background: #3d4852; }
+.dark-mode .clavier-ranger { color: #b2bec3; }

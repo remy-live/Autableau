@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=225 »,
-         « script.js?v=395 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=226 »,
+         « script.js?v=396 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=225">
+    <link rel="stylesheet" href="style.css?v=226">
 </head>
 
 <body>
@@ -106,6 +106,10 @@
             </svg></button>
 
         <button class="btn tt-tab" data-panel="symb" title="Symboles : × ÷ ≠ ≤ « » …">Ω</button>
+        <!-- LE CLAVIER DE L'ÉCRAN. Il s'ouvre tout seul quand on a pris le
+             texte AU DOIGT — au TBI on touche, au bureau on clique — et ce
+             bouton sert à le rappeler, ou à le faire taire. -->
+        <button class="btn" id="btn-clavier-ecran" title="Clavier à l'écran">⌨</button>
 
         <button class="btn tt-tab" data-panel="size" title="Taille, police, interligne">A<span
                 class="tt-size-badge" id="text-size-display">24</span></button>
@@ -4072,7 +4076,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=395"></script>
+    <script src="script.js?v=396"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
