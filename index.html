@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=224 »,
-         « script.js?v=393 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=225 »,
+         « script.js?v=394 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=224">
+    <link rel="stylesheet" href="style.css?v=225">
 </head>
 
 <body>
@@ -206,7 +206,21 @@
                      contraire : ≠ répond à =, ≤ et ≥ se font face, et ∈ restait
                      seul. Barré, il se tape encore moins qu'il ne s'écrit. -->
                 <button class="btn tt-symb" data-symbole="∉" title="N'appartient pas">∉</button>
+                <!-- LES ENSEMBLES AU COMPLET, puisqu'on y est. L'inclusion et
+                     l'union arrivent au lycée, l'appartenance et les ensembles
+                     de nombres dès la sixième — mais le tiroir sert aux deux,
+                     et un symbole absent est un symbole qu'on va chercher
+                     ailleurs. ⊄ accompagne ⊂ comme ∉ accompagne ∈. -->
+                <button class="btn tt-symb" data-symbole="⊂" title="Inclus dans">⊂</button>
+                <button class="btn tt-symb" data-symbole="⊄" title="N'est pas inclus dans">⊄</button>
+                <button class="btn tt-symb" data-symbole="∪" title="Union">∪</button>
+                <button class="btn tt-symb" data-symbole="∩" title="Intersection">∩</button>
                 <button class="btn tt-symb" data-symbole="∅" title="Ensemble vide">∅</button>
+                <button class="btn tt-symb" data-symbole="ℕ" title="Entiers naturels">ℕ</button>
+                <button class="btn tt-symb" data-symbole="ℤ" title="Entiers relatifs">ℤ</button>
+                <button class="btn tt-symb" data-symbole="𝔻" title="Nombres décimaux">𝔻</button>
+                <button class="btn tt-symb" data-symbole="ℚ" title="Nombres rationnels">ℚ</button>
+                <button class="btn tt-symb" data-symbole="ℝ" title="Nombres réels">ℝ</button>
                 <button class="btn tt-symb" data-symbole="→" title="Flèche">→</button>
                 <button class="btn tt-symb" data-symbole="⇒" title="Implique">⇒</button>
             </div>
@@ -4058,7 +4072,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=393"></script>
+    <script src="script.js?v=394"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -424,6 +424,55 @@ module.exports = async function (browser) {
     r.egal('et aucun ne montre autre chose que ce qu\'il écrit', grille.menteurs, []);
     r.egal('L\'APPARTENANCE A SES DEUX FACES', grille.appartenance, ['∈', '∉']);
 
+    // ------------------------------------------------------------------
+    // ET CHAQUE SYMBOLE SE DESSINE VRAIMENT
+    //
+    // Un caractère que la police ne connaît pas s'affiche en « tofu » — le
+    // petit rectangle — et un bouton qui propose un rectangle est pire qu'un
+    // bouton absent. Le risque n'est pas théorique : les ensembles de nombres
+    // ℕ ℤ ℚ ℝ vivent dans les « lettres de forme », mais 𝔻, celui des
+    // décimaux, vit hors du plan de base et manque dans bien des polices.
+    //
+    // ON NE MESURE PAS LA LARGEUR — premier jet, et il accusait π, À et Ç :
+    // la largeur du glyphe manquant coïncide avec celle de beaucoup de vrais
+    // caractères. On dessine chaque symbole sur une toile et l'on compare SES
+    // PIXELS à ceux de caractères non attribués.
+    //
+    // CE QUE CELA PROUVE, ET CE QUE CELA NE PROUVE PAS : que les polices de
+    // CETTE machine les connaissent. Une police plus pauvre ailleurs rendrait
+    // encore des rectangles — mais au moins on ne publie plus un symbole que
+    // personne ici ne peut voir.
+    // ------------------------------------------------------------------
+    const dessines = await page.evaluate(() => {
+        const btn = document.querySelector('#text-toolbar .tt-symb');
+        const police = btn ? getComputedStyle(btn).font : '17px sans-serif';
+        const c = document.createElement('canvas');
+        c.width = 48; c.height = 48;
+        const g = c.getContext('2d');
+        const empreinte = (ch) => {
+            g.clearRect(0, 0, 48, 48);
+            g.font = police; g.fillStyle = '#000';
+            g.textBaseline = 'middle'; g.textAlign = 'center';
+            g.fillText(ch, 24, 24);
+            const d = g.getImageData(0, 0, 48, 48).data;
+            let h = 0, encre = 0;
+            for (let i = 3; i < d.length; i += 4) { if (d[i]) { encre++; h = (h * 31 + i + d[i]) >>> 0; } }
+            return { h, encre };
+        };
+        const tofus = ['\uFFFF', '\u0870'].map(empreinte).map(e => e.h);
+        const liste = [...document.querySelectorAll('#text-toolbar .tt-symb')]
+            .map(b => b.getAttribute('data-symbole'));
+        const vus = liste.map(ch => ({ ch, e: empreinte(ch) }));
+        return {
+            combien: vus.length,
+            sansEncre: vus.filter(v => v.e.encre === 0).map(v => v.ch),
+            commeUnTofu: vus.filter(v => tofus.includes(v.e.h)).map(v => v.ch)
+        };
+    });
+    r.verifie('il y a bien des symboles à dessiner', dessines.combien >= 25, String(dessines.combien));
+    r.egal('aucun symbole ne reste sans encre', dessines.sansEncre, []);
+    r.egal('ET AUCUN NE SE REND COMME UN GLYPHE MANQUANT', dessines.commeUnTofu, []);
+
     // Et il s'écrit pour de bon, comme les autres.
     await page.keyboard.type(' 3 ');
     r.egal('le ∉ s\'écrit à la suite',

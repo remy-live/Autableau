@@ -44480,6 +44480,43 @@ function ouvrirPanneauAppui(bouton, titre, entrees) {
             panneau.appendChild(st);
             return;
         }
+        // UNE RANGÉE PLUTÔT QU'UNE LIGNE PAR VALEUR.
+        //
+        // « Il est grand le menu ! » Mesuré sur le papier du tableau : 836
+        // pixels de contenu, dont 548 seulement visibles sur un vidéoprojecteur
+        // de 1280 × 720 — un tiers du menu sous le pli, et un défilement pour
+        // atteindre un réglage. Vingt-cinq choix, dont DIX-SEPT qui n'avaient
+        // rien à faire sur une ligne chacun : des valeurs courtes et
+        // exclusives — cinq couleurs, cinq épaisseurs, sept pas. C'est une
+        // rangée qu'il leur faut. Seuls les choix qui portent une vraie phrase
+        // — « Cahier (Seyès et marge) » — méritent leur ligne.
+        //
+        // ET CHAQUE CASE MONTRE CE QU'ELLE RÈGLE : la couleur du papier en
+        // vraie couleur, l'épaisseur du quadrillage à l'épaisseur réelle. On
+        // ne lit plus « Vert d'eau », on le voit.
+        if (entree.rangee) {
+            const r = document.createElement('div');
+            r.className = 'rp-rangee';
+            entree.rangee.forEach(c => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'rp-case' + (c.actif ? ' actif' : '');
+                // LE NOM RESTE, MÊME QUAND LE MOT S'EN VA. Une pastille de
+                // couleur ne se lit pas : « title » la nomme pour l'infobulle
+                // comme pour une technologie d'assistance, et « nommerLesBoutons »
+                // n'a alors rien à y ajouter.
+                b.title = c.nom;
+                if (c.apercu) b.innerHTML = c.apercu;
+                else b.textContent = c.etiquette || c.nom;
+                b.addEventListener('click', () => {
+                    try { c.action(); } catch (err) { console.error(err); }
+                    fermerPanneauAppui();
+                });
+                r.appendChild(b);
+            });
+            panneau.appendChild(r);
+            return;
+        }
         const b = document.createElement('button');
         b.className = 'rp-choix' + (entree.actif ? ' actif' : '');
         b.innerText = entree.nom;
@@ -44655,19 +44692,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
 
         entrees.push({ separateur: 'Couleur du papier' });
-        TEINTES_PAPIER.forEach(t => entrees.push({
+        entrees.push({ rangee: TEINTES_PAPIER.map(t => ({
             nom: t.nom,
+            // La pastille PORTE la teinte, et un filet la cerne : sans lui, le
+            // blanc sur fond blanc n'aurait aucun bord.
+            apercu: '<span class="rp-teinte" style="background:' + t.valeur + '"></span>',
             actif: bgColors.default === t.valeur,
             action: () => {
                 bgColors.default = t.valeur;
                 draw();
                 setTimeout(() => ouvrirLePapier(bouton), 0);
             }
-        }));
+        })) });
 
         entrees.push({ separateur: 'Épaisseur du quadrillage' });
-        [0.5, 1, 1.5, 2, 3].forEach(e => entrees.push({
-            nom: String(e).replace('.', ','),
+        entrees.push({ rangee: [0.5, 1, 1.5, 2, 3].map(e => ({
+            nom: 'Épaisseur ' + String(e).replace('.', ','),
+            // LE NOMBRE ET LE TRAIT ENSEMBLE. Le trait seul ne sépare pas 0,5
+            // de 1 sur un écran de classe — un demi-pixel ne se dessine pas ;
+            // le nombre seul ne dit rien à l'œil. Les deux se complètent.
+            apercu: '<span class="rp-num">' + String(e).replace('.', ',') + '</span>'
+                + '<span class="rp-trait" style="height:' + Math.max(1, e) + 'px"></span>',
             actif: Math.abs(gridWeight - e) < 1e-9,
             action: () => {
                 gridWeight = e;
@@ -44677,11 +44722,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 draw();
                 setTimeout(() => ouvrirLePapier(bouton), 0);
             }
-        }));
+        })) });
 
         entrees.push({ separateur: 'Une case vaut' });
-        [0.1, 0.5, 1, 2, 5, 10, 100].forEach(pas => entrees.push({
-            nom: String(pas).replace('.', ','),
+        entrees.push({ rangee: [0.1, 0.5, 1, 2, 5, 10, 100].map(pas => ({
+            nom: 'Une case vaut ' + String(pas).replace('.', ','),
+            etiquette: String(pas).replace('.', ','),
             actif: Math.abs(pasAxes - pas) < 1e-9,
             action: () => {
                 pasAxes = pas;
@@ -44696,7 +44742,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 draw();
                 setTimeout(() => ouvrirLePapier(bouton), 0);
             }
-        }));
+        })) });
 
         ouvrirPanneauAppui(bouton, 'Le papier du tableau', entrees);
     };

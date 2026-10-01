@@ -205,7 +205,14 @@ module.exports = async function (browser) {
         /^\d+%$/.test(tiroir.texte), JSON.stringify(tiroir.texte.slice(0, 80)));
 
     // LE PAPIER : un clic, et les huit fonds sont NOMMÉS.
-    for (const [id, titre, mini] of [['btn-cycle', 'Le papier du tableau', 8],
+    //
+    // LE PLANCHER EST UN PLANCHER, et il compte TOUT ce que le panneau offre :
+    // huit papiers, cinq couleurs, cinq épaisseurs, sept pas — vingt-cinq. Il
+    // était à huit, et ne voyait donc pas disparaître les dix-sept autres :
+    // mesuré, en débranchant les rangées le panneau se vidait de ses trois
+    // réglages et le contrôle passait quand même. Un plancher ne gêne pas
+    // qu'on en ajoute ; il interdit qu'on en perde.
+    for (const [id, titre, mini] of [['btn-cycle', 'Le papier du tableau', 25],
                                      ['btn-aimant-reglages', 'Aimant', 3]]) {
         const boite = await page.evaluate((x) => {
             const b = document.getElementById(x).getBoundingClientRect();
@@ -220,10 +227,22 @@ module.exports = async function (browser) {
             const b = p.getBoundingClientRect();
             return {
                 titre: p.querySelector('.rp-titre').innerText,
-                choix: p.querySelectorAll('.rp-choix').length,
+                choix: p.querySelectorAll('.rp-choix, .rp-case').length,
                 sections: [...p.querySelectorAll('.rp-titre')].map(t => t.innerText),
                 dansEcran: b.left >= -1 && b.top >= -1
-                    && b.right <= window.innerWidth + 1 && b.bottom <= window.innerHeight + 1
+                    && b.right <= window.innerWidth + 1 && b.bottom <= window.innerHeight + 1,
+                // Ce qu'il mesure VRAIMENT, rembourrage compris : une boîte
+                // bornée à l'écran ne dit rien si son contenu déborde dedans.
+                contenu: p.scrollHeight,
+                defile: p.scrollHeight > p.clientHeight + 2,
+                // Les cases d'une rangée se visent au doigt comme le reste.
+                tropPetites: [...p.querySelectorAll('.rp-case')].filter(c => {
+                    const q = c.getBoundingClientRect();
+                    return Math.min(q.width, q.height) < 24;
+                }).length,
+                sansNom: [...p.querySelectorAll('.rp-case')].filter(c =>
+                    !c.getAttribute('title') && !c.getAttribute('aria-label')
+                    && !(c.textContent || '').trim()).length
             };
         });
         r.verifie(`« ${titre} » : un clic ouvre son panneau`,
@@ -233,6 +252,23 @@ module.exports = async function (browser) {
             !!panneau && panneau.dansEcran, JSON.stringify(panneau));
         r.verifie(`« ${titre} » : il propose ses choix, nommés`,
             !!panneau && panneau.choix >= mini, JSON.stringify(panneau));
+        // ET IL NE DÉFILE PAS.
+        //
+        // « Il est grand le menu ! » Mesuré sur le papier : 836 pixels de
+        // contenu, dont 548 seulement visibles sur un vidéoprojecteur de
+        // 1280 × 720 — un tiers sous le pli. Dix-sept des vingt-cinq choix
+        // n'avaient rien à faire sur une ligne chacun : cinq couleurs, cinq
+        // épaisseurs, sept pas, toutes valeurs courtes et exclusives. Passées
+        // en rangées, le panneau tombe à 487 pixels et tient en entier.
+        //
+        // Le contrôle ne fige pas un nombre de lignes — demain on en ajoute
+        // une — il exige que RIEN NE DÉFILE : c'est la gêne elle-même.
+        r.verifie(`« ${titre} » : et rien n'y défile, tout se voit d'un coup`,
+            !!panneau && !panneau.defile, JSON.stringify(panneau));
+        r.egal(`« ${titre} » : aucune case trop petite pour un doigt`,
+            panneau && panneau.tropPetites, 0, JSON.stringify(panneau));
+        r.egal(`« ${titre} » : et aucune case muette`,
+            panneau && panneau.sansNom, 0, JSON.stringify(panneau));
 
         await page.mouse.click(5, 400);
         await page.waitForTimeout(200);

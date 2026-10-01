@@ -427,7 +427,11 @@ module.exports = async function (browser) {
         const p = document.getElementById('panneau-appui');
         if (!p) return { absent: true };
         const titres = [...p.querySelectorAll('.rp-titre')].map(t => t.textContent);
-        const deux = [...p.querySelectorAll('.rp-choix')].find(b => b.textContent === '2');
+        // « .rp-case » ET « .rp-choix » : les valeurs courtes sont passées en
+        // rangées de cases — « il est grand le menu ! » —, les choix qui
+        // portent une phrase gardent leur ligne. Le contrôle vise les deux.
+        const deux = [...p.querySelectorAll('.rp-choix, .rp-case')]
+            .find(b => b.textContent.trim() === '2');
         if (deux) deux.click();
         await new Promise(ok => setTimeout(ok, 200));
         const lu = { absent: false, titres, epaisseur: gridWeight };

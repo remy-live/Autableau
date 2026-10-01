@@ -119,12 +119,12 @@ module.exports = async function (browser) {
 
     await ouvrirLePapier();
     const choix = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('#panneau-appui .rp-choix')).map(c => c.innerText.trim()));
+        Array.from(document.querySelectorAll('#panneau-appui .rp-choix, #panneau-appui .rp-case')).map(c => c.innerText.trim()));
     ['0,1', '1', '10'].forEach(pas =>
         r.verifie(`les axes proposent le pas « ${pas} »`, choix.includes(pas), choix.join(' · ')));
 
     const retenu = await page.evaluate(() => {
-        const c = Array.from(document.querySelectorAll('#panneau-appui .rp-choix')).find(x => x.innerText.trim() === '0,1');
+        const c = Array.from(document.querySelectorAll('#panneau-appui .rp-choix, #panneau-appui .rp-case')).find(x => x.innerText.trim() === '0,1');
         c.click();
         return { pas: pasAxes, memoire: localStorage.getItem('board_pas_axes'), axes: showAxes };
     });

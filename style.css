@@ -7063,6 +7063,103 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 
 .reglages-popup .rp-choix.actif::after { content: ' ✓'; }
 
+/* ==========================================================================
+   UNE RANGÉE DE CASES, PLUTÔT QU'UNE LIGNE PAR VALEUR
+   « Il est grand le menu ! » — mesuré, 836 px de contenu pour le papier du
+   tableau, dont 548 visibles sur un vidéoprojecteur de 1280 × 720. Les
+   valeurs courtes et exclusives tiennent en rangée ; la rangée se replie
+   quand elle ne tient pas, plutôt que d'élargir le panneau sans fin.
+   ========================================================================== */
+.reglages-popup .rp-rangee {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 2px 8px 6px;
+}
+
+.reglages-popup .rp-case {
+    flex: 0 0 auto;
+    /* QUARANTE PIXELS, et non vingt-quatre : vingt-quatre est le plancher
+       d'une cible qu'on vise, pas la taille d'une cible qu'on vise VITE,
+       debout, devant une classe. */
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    /* La coche se pose DANS la case : sans ce repère, « position: absolute »
+       remonterait au panneau et la coche se placerait par la seule grâce de
+       ses marges — ce qui marche jusqu'au jour où l'on change un rembourrage. */
+    position: relative;
+}
+
+.reglages-popup .rp-case:hover { background: rgba(108, 92, 231, 0.10); }
+
+/* CE QUI EST CHOISI NE SE DIT PAS QU'EN COULEUR. Un fond teinté seul ne se
+   voit ni en nuances de gris, ni pour un daltonien : le cadre et la coche
+   le disent aussi. */
+.reglages-popup .rp-case.actif {
+    background: rgba(108, 92, 231, 0.14);
+    border-color: #6c5ce7;
+    color: #6c5ce7;
+}
+
+.reglages-popup .rp-case.actif::after {
+    content: '✓';
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #6c5ce7;
+    text-shadow: 0 0 2px var(--surface, #fff), 0 0 2px var(--surface, #fff);
+}
+
+/* La pastille PORTE la teinte du papier : on ne lit plus « Vert d'eau », on
+   le voit. Le filet lui donne un bord, sans quoi le blanc sur fond blanc
+   n'aurait pas d'existence. */
+.reglages-popup .rp-teinte {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid var(--contour, rgba(45, 52, 54, 0.22));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+/* Le trait est à l'épaisseur RÉELLE du quadrillage. */
+.reglages-popup .rp-trait {
+    width: 26px;
+    background: var(--ink, #2d3436);
+    border-radius: 2px;
+}
+
+.reglages-popup .rp-case.actif .rp-trait { background: #6c5ce7; }
+
+.reglages-popup .rp-num {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dark-mode .reglages-popup .rp-case { color: #dfe6e9; }
+.dark-mode .reglages-popup .rp-trait { background: #dfe6e9; }
+.dark-mode .reglages-popup .rp-case.actif,
+.dark-mode .reglages-popup .rp-case.actif .rp-num { color: #a29bfe; }
+.dark-mode .reglages-popup .rp-case.actif { border-color: #a29bfe; }
+.dark-mode .reglages-popup .rp-case.actif::after { color: #a29bfe; }
+.dark-mode .reglages-popup .rp-case.actif .rp-trait { background: #a29bfe; }
+
 /* Le panneau de la date pend sous la pastille, aligné sur son bord gauche.
    Il s'accroche au cadre entier et non à la roue : celle-ci est absente à la
    souris, sa boîte est alors haute de zéro et le menu remontait sur la date.
