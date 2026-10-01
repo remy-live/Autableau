@@ -8739,6 +8739,16 @@ function updateStyleBarContext() {
     majBoutonDOrientation();
     majBoutonDOrientationDuStyle();
 
+    // LE GROUPE « COPIER / COUPER / COLLER » NE PARAÎT QUE S'IL PEUT AGIR.
+    // Une sélection donne de quoi copier et couper ; un presse-papier rempli
+    // donne de quoi coller, même sans rien tenir. Le reste du temps, trois
+    // boutons morts sous les doigts de quelqu'un qui trace.
+    const aCopier = selectedItems.length > 0;
+    const aColler = (typeof boardClipboard !== 'undefined' && boardClipboard
+        && ((boardClipboard.items && boardClipboard.items.length)
+            || (boardClipboard.points && boardClipboard.points.length)));
+    barStyle.classList.toggle('ctx-edition', !!(aCopier || aColler));
+
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
@@ -10985,7 +10995,29 @@ function findObjectAt(lx, ly) {
         if (onBorder || inside) updateHit({ type: 'polygon', id: poly.id });
     }
 
-    for (let i = curves.length - 1; i >= 0; i--) { const c = curves[i]; for (let j = 0; j < c.points.length; j++) { const p = getObjectById('point', c.points[j]); if (p && Math.hypot(p.x - lx, p.y - ly) < hitZoneLine) updateHit({ type: 'curve', id: c.id }); } }
+    // UNE COURBE S'ATTRAPE PAR SON TRACÉ, ET NON PAR SES POINTS DE CONTRÔLE.
+    //
+    // « Je n'arrive pas en cliquant sur un Bézier à la sélectionner. » Le test
+    // ne regardait que les POINTS : « pour chaque point de la courbe, si le
+    // clic en est proche, c'est elle ». Entre deux points il n'y avait rien à
+    // attraper — et sur une courbe tracée à main levée, deux points voisins
+    // sont souvent à plusieurs centaines de pixels l'un de l'autre. La courbe
+    // était dessinée partout et saisissable en quatre endroits.
+    //
+    // Les polygones, juste au-dessus, font l'inverse depuis toujours : ils
+    // testent les SEGMENTS entre leurs sommets. La courbe avait été oubliée,
+    // parce qu'elle n'est pas faite de segments mais d'une spline — on
+    // l'échantillonne donc, avec la même formule que celle du dessin.
+    for (let i = curves.length - 1; i >= 0; i--) {
+        const c = curves[i];
+        const ech = echantillonsDeLaCourbe(c);
+        for (let j = 1; j < ech.length; j++) {
+            if (distToSegment(lx, ly, ech[j - 1].x, ech[j - 1].y, ech[j].x, ech[j].y) < hitZoneLine) {
+                updateHit({ type: 'curve', id: c.id });
+                break;
+            }
+        }
+    }
     for (let i = freehands.length - 1; i >= 0; i--) { const f = freehands[i]; for (let j = 0; j < f.points.length; j++) if (Math.hypot(f.points[j].x - lx, f.points[j].y - ly) < hitZoneLine) updateHit({ type: 'freehand', id: f.id }); }
 
     // --- 5. Images (Avec compensation de la rotation) ---
@@ -11004,6 +11036,41 @@ function findObjectAt(lx, ly) {
 
     return bestHit;
 }
+
+// LE TRACÉ D'UNE COURBE, EN POINTS.
+//
+// La même spline que celle du rendu : chaque paire de points voisins donne
+// une cubique dont les mains de contrôle valent le sixième du segment qui
+// enjambe le point. Si l'on change la formule du dessin, il faut la changer
+// ici — et c'est le chapitre qui le dira, puisqu'il cherche un pixel PEINT de
+// la courbe et exige qu'un clic à cet endroit-là la sélectionne.
+const PAS_DE_LA_COURBE = 12;        // points par cubique : assez fin pour le doigt
+function echantillonsDeLaCourbe(c) {
+    const pts = (c.points || []).map(id => getObjectById('point', id)).filter(Boolean);
+    if (pts.length < 2) return pts.slice();
+    if (pts.length === 2) return [pts[0], pts[1]];
+    const sortie = [{ x: pts[0].x, y: pts[0].y }];
+    const ferme = !!c.closed;
+    const n = pts.length;
+    const dernier = ferme ? n : n - 1;
+    for (let i = 0; i < dernier; i++) {
+        const p0 = ferme ? pts[(i - 1 + n) % n] : pts[i === 0 ? 0 : i - 1];
+        const p1 = pts[i % n];
+        const p2 = pts[(i + 1) % n];
+        const p3 = ferme ? pts[(i + 2) % n] : pts[i + 2 >= n ? n - 1 : i + 2];
+        const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+        for (let k = 1; k <= PAS_DE_LA_COURBE; k++) {
+            const t = k / PAS_DE_LA_COURBE, u = 1 - t;
+            sortie.push({
+                x: u * u * u * p1.x + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * p2.x,
+                y: u * u * u * p1.y + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * p2.y
+            });
+        }
+    }
+    return sortie;
+}
+window.echantillonsDeLaCourbe = echantillonsDeLaCourbe;
 
 function clearSelection() { selectedItems = []; if (!['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode) && !(typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
 // La forme d'un point, avec un repli sûr : un point existe, donc il se voit.

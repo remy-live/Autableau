@@ -2306,10 +2306,16 @@ body.sans-tiroirs #donate-float-btn {
     gap: 8px;
 }
 
-/* Copier, couper, dupliquer, coller n'ont pas de contexte : dès que la barre
-   est là, ils sont là. Sans cette règle, le groupe restait invisible — les
-   boutons existaient mais personne ne pouvait les voir. */
-#bar-style .group-edition,
+/* COPIER, COUPER, COLLER NE PARAISSENT QUE QUAND ILS PEUVENT QUELQUE CHOSE.
+   « À quoi sert le couper copier coller de la barre de style ? C'est
+   inutilisable pendant un tracé. » — et c'était exact : le groupe s'affichait
+   dès que la barre était là, donc dès qu'on tenait un crayon, une courbe, un
+   segment. Sans sélection et sans presse-papier, les trois boutons ne
+   pouvaient rien faire. C'est ce que le code reproche déjà au surligneur :
+   une commande sans effet ne fait pas qu'encombrer, elle MENT.
+   « ctx-edition » dit qu'il y a de quoi : une sélection à copier, ou quelque
+   chose à coller. */
+#bar-style.ctx-edition .group-edition,
 #bar-style.ctx-point .group-point,
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-surligneur .group-surligneur,
