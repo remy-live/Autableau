@@ -106,10 +106,6 @@
             </svg></button>
 
         <button class="btn tt-tab" data-panel="symb" title="Symboles : × ÷ ≠ ≤ « » …">Ω</button>
-        <!-- LE CLAVIER DE L'ÉCRAN. Il s'ouvre tout seul quand on a pris le
-             texte AU DOIGT — au TBI on touche, au bureau on clique — et ce
-             bouton sert à le rappeler, ou à le faire taire. -->
-        <button class="btn" id="btn-clavier-ecran" title="Clavier à l'écran">⌨</button>
 
         <button class="btn tt-tab" data-panel="size" title="Taille, police, interligne">A<span
                 class="tt-size-badge" id="text-size-display">24</span></button>
@@ -2666,6 +2662,27 @@
                                 <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                                 <path d="M12 11v5M9.5 13.5L12 11l2.5 2.5" />
                             </svg></span> <span id="lib-dossier-securite">Sauvegarde automatique…</span></button>
+                    <div style="padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Écrire</div>
+                    <!-- LE CLAVIER DE L'ÉCRAN EST ICI, ET NON DANS LA BARRE DU
+                         TEXTE. Il y était d'abord : la barre passait alors à
+                         onze commandes et 404 pixels pour une limite de 420 —
+                         le compte de dix n'était pas du rembourrage, il
+                         protégeait les seize derniers pixels d'une barre qui
+                         doit tenir sur une tablette.
+                         Sa place est d'ailleurs meilleure ici : le clavier
+                         écrit dans N'IMPORTE quel champ, pas seulement dans le
+                         bloc de texte, et la barre du texte n'existe que
+                         pendant qu'on écrit sur le tableau. Au TBI il s'ouvre
+                         de lui-même au premier contact du doigt ; ce bouton
+                         sert à le demander quand on n'a pas d'écran tactile,
+                         ou à le rappeler après l'avoir fermé. -->
+                    <button class="menu-item" id="btn-clavier-ecran"><span class="icon"><svg
+                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <rect x="2" y="6" width="20" height="12" rx="2" />
+                                <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+                            </svg></span> <span id="lib-clavier-ecran">Clavier à l'écran</span></button>
                 </div>
             </div>
                     <!-- « MES TABLEAUX » EST PARTI DANS LE BLOC DE DROITE, avec

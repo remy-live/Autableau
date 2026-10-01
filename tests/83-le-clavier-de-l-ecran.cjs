@@ -54,6 +54,18 @@ module.exports = async function (browser) {
     };
 
     // ------------------------------------------------------------------
+    // 0. L'ENTRÉE DE MENU DIT CE QU'ELLE FERA, DÈS LA PREMIÈRE OUVERTURE
+    //
+    // Le libellé écrit dans la page n'est mesuré nulle part ailleurs : le
+    // JavaScript le réécrit au premier basculement, si bien qu'un libellé
+    // d'origine faux se corrigeait tout seul au premier clic et passait
+    // inaperçu. Il se lit donc AVANT qu'on ait touché à quoi que ce soit.
+    // ------------------------------------------------------------------
+    r.egal('au départ, l\'entrée propose le clavier',
+        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
+        'Clavier à l\'écran');
+
+    // ------------------------------------------------------------------
     // 1. À LA SOURIS, IL NE PARAÎT PAS
     // ------------------------------------------------------------------
     await page.evaluate(() => setMode('text'));
@@ -188,10 +200,36 @@ module.exports = async function (browser) {
     r.egal('APRÈS L\'AVOIR FERMÉ, IL NE SE ROUVRE PLUS SEUL', apresRefus.ouvert, false,
         JSON.stringify(apresRefus));
 
-    // Mais son bouton le rappelle, et le redemander lève le refus.
-    await page.evaluate(() => basculerLeClavier());
+    // MAIS SON ENTRÉE DE MENU LE RAPPELLE, et le redemander lève le refus.
+    //
+    // Elle n'est pas dans la barre du texte, et c'est une décision : l'y
+    // mettre portait la barre à onze commandes et 404 pixels pour une limite
+    // de 420 — le compte de dix protégeait les seize derniers pixels d'une
+    // barre qui doit tenir sur une tablette. Sa place est d'ailleurs meilleure
+    // au menu : le clavier écrit dans n'importe quel champ, là où la barre du
+    // texte n'existe que pendant qu'on écrit sur le tableau.
+    const auMenu = await page.evaluate(() => {
+        const b = document.getElementById('btn-clavier-ecran');
+        if (!b) return { absent: true };
+        b.click();
+        return { absent: false, dansLaBarre: !!document.querySelector('#text-toolbar #btn-clavier-ecran'),
+                 libelle: (document.getElementById('lib-clavier-ecran') || {}).textContent };
+    });
     await page.waitForTimeout(300);
-    r.egal('son bouton le rappelle', (await etat()).ouvert, true);
+    r.egal('l\'entrée de menu existe', auMenu.absent, false, JSON.stringify(auMenu));
+    r.egal('et elle n\'encombre pas la barre du texte', auMenu.dansLaBarre, false);
+    r.egal('son entrée de menu le rappelle', (await etat()).ouvert, true);
+    r.egal('et elle dit alors comment le ranger',
+        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
+        'Ranger le clavier à l\'écran');
+    // Et elle revient à sa première phrase une fois le clavier rangé.
+    await page.evaluate(() => document.getElementById('btn-clavier-ecran').click());
+    await page.waitForTimeout(250);
+    r.egal('rangé, elle repropose de l\'ouvrir',
+        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
+        'Clavier à l\'écran');
+    await page.evaluate(() => { clavierEcarte = false; ouvrirLeClavier(); });
+    await page.waitForTimeout(200);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     await page.evaluate(() => setMode('text'));
