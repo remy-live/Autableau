@@ -1113,19 +1113,35 @@ module.exports = async function (browser) {
         vraimentLent.ou, 0);
 
     // LA BOUCLE : la classe recopie, le film repasse.
+    //
+    // ON ATTEND LE TOUR, ON NE LE CHRONOMÈTRE PAS. Ce contrôle partait à trois
+    // étapes de la fin, attendait 2200 MILLISECONDES FIXES et exigeait que la
+    // lecture ait rebouclé. Sous la charge de la suite entière, elle n'en avait
+    // parcouru que deux : « ou: 6, total: 7 » — à la dernière étape, pas encore
+    // repartie. Le film n'avait pas tort, la montre si.
+    //
+    // La boucle se reconnaît à un fait exact, et non à un délai : l'index
+    // redevient PLUS PETIT que celui d'où l'on est parti. Sans boucle, la
+    // lecture s'arrête au bout et cela n'arrive jamais.
     const enBoucle = await page.evaluate(async () => {
         reglerLaVitesse(8);
         basculerLaBoucle(true);
-        poserEtapeDeLecture(history.length - 3);
+        const depart = history.length - 3;
+        poserEtapeDeLecture(depart);
         lireOuPause();
-        await new Promise(res => setTimeout(res, 2200));
-        const etat = { enMarche: lectureEnMarche, ou: lectureIndex, total: history.length,
+        let aBoucle = false;
+        for (let i = 0; i < 160 && !aBoucle; i++) {      // jusqu'à huit secondes
+            await new Promise(res => setTimeout(res, 50));
+            if (lectureIndex < depart) aBoucle = true;
+        }
+        const etat = { enMarche: lectureEnMarche, aBoucle, depart, ou: lectureIndex,
+                       total: history.length,
                        bouton: document.getElementById('lecture-boucle').classList.contains('actif') };
         arreterLaLecture(); basculerLaBoucle(false);
         return etat;
     });
     r.verifie('en boucle, la lecture repart du début au lieu de s\'arrêter',
-        enBoucle.enMarche && enBoucle.ou < enBoucle.total - 1,
+        enBoucle.enMarche && enBoucle.aBoucle,
         JSON.stringify(enBoucle));
     r.verifie('et le bouton de boucle s\'allume', enBoucle.bouton);
 
