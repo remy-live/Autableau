@@ -39997,6 +39997,19 @@ async function rangerLesVieillesCopies() {
     return faits;
 }
 
+// CE QUE CETTE COPIE PORTERAIT : des tableaux rangés, ou une séance en cours.
+// La question n'a l'air de rien ; c'est elle qui empêche d'écraser une
+// journée de travail par un tableau blanc.
+function copiePorteQuelqueChose(espace) {
+    if (!espace) return false;
+    const ranges = Array.isArray(espace.tableaux)
+        ? espace.tableaux.filter(t => t && t.type !== 'folder').length : 0;
+    if (ranges > 0) return true;
+    return (typeof sauvegardeAvecDuContenu === 'function')
+        ? sauvegardeAvecDuContenu(espace.autoSave) : !!espace.autoSave;
+}
+window.copiePorteQuelqueChose = copiePorteQuelqueChose;
+
 async function ecrireLaSauvegardeDeSecurite(force) {
     if (!dossierSecurite || securiteEnCours) return false;
     if (!force && Date.now() - securiteDerniereEcriture < SECURITE_PERIODE) return false;
@@ -40006,7 +40019,44 @@ async function ecrireLaSauvegardeDeSecurite(force) {
         if (typeof syncPage === 'function') syncPage();
         const espace = await getWorkspaceData();
         const contenu = JSON.stringify(espace);
-        const fichier = await dossierSecurite.getFileHandle(nomDuFichierDeSecurite(), { create: true });
+
+        // ==================================================================
+        // UNE COPIE VIDE N'ÉCRASE JAMAIS UNE COPIE PLEINE.
+        //
+        // La copie du jour porte la DATE dans son nom : toutes les écritures
+        // d'une même journée tombent sur le même fichier. Or le démarrage
+        // appelle cette fonction en force dès que le dossier est retrouvé —
+        // et au démarrage, le tableau peut être encore vide : la séance
+        // d'hier attend qu'on réponde « Reprendre », un fichier n'a pas fini
+        // de se charger, ou l'on vient d'ouvrir l'application sans rien faire.
+        // Une seule écriture dans cette fenêtre-là, et le travail de la
+        // matinée est remplacé par un tableau blanc, dans le fichier même qui
+        // était censé le protéger.
+        //
+        // La règle est donc absolue, et ne dépend pas de « force » : ce qui ne
+        // porte rien ne remplace pas ce qui porte quelque chose. On compare à
+        // ce qui est VRAIMENT sur le disque — sa taille —, et non à ce qu'on
+        // croit y avoir mis.
+        // ==================================================================
+        const nom = nomDuFichierDeSecurite();
+        // UNE COPIE VIDE NE S'ÉCRIT JAMAIS — ni par-dessus une autre, ni dans
+        // un fichier neuf.
+        //
+        // Le premier jet comparait les TAILLES : on gardait l'existant s'il
+        // était plus gros. Mesuré, cette ruse ne vaut rien — un espace qui ne
+        // porte RIEN pèse déjà neuf mille sept cents octets, parce que les
+        // barres, les interfaces et les favoris voyagent avec. La taille ne
+        // dit pas le vide ; seule la question « cela porte-t-il quelque
+        // chose ? » le dit.
+        //
+        // Et l'on ne crée pas davantage le fichier du jour : il deviendrait la
+        // copie la plus récente du dossier, et la reprise du lendemain
+        // proposerait de rouvrir un tableau blanc.
+        if (!copiePorteQuelqueChose(espace)) {
+            console.warn('Sauvegarde de sécurité : rien à copier, on ne touche à rien.');
+            return false;
+        }
+        const fichier = await dossierSecurite.getFileHandle(nom, { create: true });
         const flux = await fichier.createWritable();
         await flux.write(contenu);
         await flux.close();
@@ -40059,7 +40109,15 @@ async function reprendreLaSauvegardeDeSecurite() {
     dossierSecurite = handle;
     majLibelleDeLaSecurite();
     const droit = await droitSurLeDossier(handle, false);
-    if (droit === 'granted') { ecrireLaSauvegardeDeSecurite(true); return true; }
+    if (droit === 'granted') {
+        // ON PROPOSE AVANT D'ÉCRIRE, et l'ordre n'est pas un détail : écrire
+        // d'abord poserait la copie du jour, que la proposition trouverait
+        // ensuite comme la plus récente. On offrirait de reprendre ce qu'on
+        // vient soi-même d'enregistrer.
+        await proposerDeRouvrirLaCopie();
+        ecrireLaSauvegardeDeSecurite(true);
+        return true;
+    }
     proposerDeReprendreLaSecurite(handle);
     return false;
 }
@@ -40090,6 +40148,88 @@ function proposerDeReprendreLaSecurite(handle) {
     barre.appendChild(texte); barre.appendChild(oui); barre.appendChild(non);
     document.body.appendChild(barre);
 }
+
+// ==============================================================================
+// ET LE DOSSIER SAIT AUSSI RENDRE CE QU'IL GARDE
+//
+// « Au collège, on a un cloud interne… en gros, quelle que soit ma salle,
+// j'ai accès à mon fichier autableau. »
+//
+// La moitié « enregistrer » était déjà faite : la copie du jour se réécrit
+// toute seule dès que quelque chose change. C'est la moitié « revenir » qui
+// manquait. On arrive en salle 4, autre machine, tableau blanc — et le
+// fichier d'hier est là, sur l'espace réseau, sans que rien ne le propose.
+// Il fallait aller le chercher dans l'arborescence, deux fois par jour.
+//
+// ON NE PROPOSE QUE SUR UN TABLEAU VIDE, et c'est la règle entière : jamais
+// par-dessus du travail. Qui arrive avec sa séance en cours ne voit rien.
+// ==============================================================================
+async function copieLaPlusRecente() {
+    if (!dossierSecurite || !dossierSecurite.values) return null;
+    const candidates = [];
+    try {
+        for await (const entree of dossierSecurite.values()) {
+            if (entree.kind !== 'file') continue;
+            const m = /^Au Tableau — (\d{4}-\d{2}-\d{2})\.autableau$/.exec(entree.name);
+            if (!m) continue;
+            // Les dates s'écrivent à l'endroit : les comparer comme du texte
+            // les range comme des dates.
+            candidates.push({ jour: m[1], entree });
+        }
+    } catch (e) { return null; }
+    candidates.sort((a, b) => (a.jour < b.jour ? 1 : a.jour > b.jour ? -1 : 0));
+    // LA PLUS RÉCENTE QUI PORTE QUELQUE CHOSE. Une copie vide traînant dans le
+    // dossier — d'une version plus ancienne, d'un dossier partagé — ne doit
+    // pas être proposée : « reprendre » rendrait alors un tableau blanc.
+    for (const c of candidates) {
+        try {
+            const f = await c.entree.getFile();
+            const data = JSON.parse(await f.text());
+            if (copiePorteQuelqueChose(data)) return Object.assign({ data }, c);
+        } catch (e) { /* illisible : on essaie la précédente */ }
+    }
+    return null;
+}
+window.copieLaPlusRecente = copieLaPlusRecente;
+
+function jourEnClair(j) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(j || '');
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : j;
+}
+
+async function proposerDeRouvrirLaCopie() {
+    if (!dossierSecurite) return false;
+    if (document.getElementById('bandeau-securite')) return false;
+    if (await droitSurLeDossier(dossierSecurite, false) !== 'granted') return false;
+    const espace = await getWorkspaceData();
+    if (copiePorteQuelqueChose(espace)) return false;        // du travail est là : on se tait
+    const copie = await copieLaPlusRecente();
+    if (!copie) return false;
+
+    const barre = document.createElement('div');
+    barre.id = 'bandeau-securite';
+    barre.className = 'bandeau-securite';
+    const texte = document.createElement('span');
+    texte.textContent = `Ce tableau est vide, et « ${dossierSecurite.name || 'votre dossier'} »`
+        + ` garde une copie du ${jourEnClair(copie.jour)}. La reprendre ?`;
+    const oui = document.createElement('button');
+    oui.className = 'btn-action primary';
+    oui.textContent = 'Reprendre';
+    oui.onclick = () => {
+        barre.remove();
+        // La copie a déjà été lue pour savoir qu'elle portait quelque chose :
+        // on ne la relit pas, et le clic répond tout de suite.
+        processWorkspaceData(copie.data);    // le même chemin que « Importer tous les tableaux »
+    };
+    const non = document.createElement('button');
+    non.className = 'btn-action secondary';
+    non.textContent = 'Page blanche';
+    non.onclick = () => barre.remove();
+    barre.appendChild(texte); barre.appendChild(oui); barre.appendChild(non);
+    document.body.appendChild(barre);
+    return true;
+}
+window.proposerDeRouvrirLaCopie = proposerDeRouvrirLaCopie;
 
 // SANS DOSSIER, ON PRÉVIENT. Une semaine sans copie, c'est une semaine de
 // cours qui ne tient qu'à un navigateur.
