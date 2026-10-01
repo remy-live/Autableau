@@ -386,6 +386,59 @@ module.exports = async function (browser) {
     });
     r.egal('puis le ÷ au bon endroit', suite, '12 × 4 ÷');
 
+    // ------------------------------------------------------------------
+    // CHAQUE SYMBOLE MONTRE CE QU'IL POSE, ET IL EN POSE UN
+    //
+    // « Il manque le symbole n'appartient pas dans les caractères spéciaux. »
+    // Il était le seul de la grille à n'avoir pas son contraire : ≠ répond
+    // à =, ≤ et ≥ se font face, et ∈ restait seul.
+    //
+    // Le contrôle ne tient pas une liste — une liste se périme. Il vérifie
+    // que CHAQUE bouton porte un symbole, et que ce qu'il montre est bien ce
+    // qu'il écrit : un bouton muet ou qui ment se repère tout seul, y compris
+    // celui qu'on ajoutera demain. Et il nomme la seule paire que l'usage
+    // réclamait.
+    // ------------------------------------------------------------------
+    const grille = await page.evaluate(() => {
+        const btns = [...document.querySelectorAll('#text-toolbar .tt-symb')];
+        const lus = btns.map(b => ({
+            pose: b.getAttribute('data-symbole') || '',
+            montre: (b.textContent || '').trim(),
+            nom: b.getAttribute('title') || ''
+        }));
+        // L'espace insécable des guillemets ne se voit pas sur le bouton :
+        // on compare donc hors espaces.
+        const sansBlancs = (t) => t.replace(/[\s ]/g, '');
+        return {
+            combien: lus.length,
+            muets: lus.filter(s => !s.pose).map(s => s.montre || '(vide)'),
+            sansNom: lus.filter(s => !s.nom).map(s => s.montre),
+            menteurs: lus.filter(s => sansBlancs(s.pose) !== sansBlancs(s.montre))
+                .map(s => s.montre + ' pose « ' + s.pose + ' »'),
+            appartenance: lus.filter(s => s.pose === '∈' || s.pose === '∉').map(s => s.pose)
+        };
+    });
+    r.verifie('la grille des symboles est bien garnie', grille.combien >= 25, String(grille.combien));
+    r.egal('aucun bouton ne pose le vide', grille.muets, []);
+    r.egal('aucun bouton n\'est sans nom', grille.sansNom, []);
+    r.egal('et aucun ne montre autre chose que ce qu\'il écrit', grille.menteurs, []);
+    r.egal('L\'APPARTENANCE A SES DEUX FACES', grille.appartenance, ['∈', '∉']);
+
+    // Et il s'écrit pour de bon, comme les autres.
+    await page.keyboard.type(' 3 ');
+    r.egal('le ∉ s\'écrit à la suite',
+        await page.evaluate(() => {
+            insererSymbole('∉');
+            return document.getElementById('wysiwyg-text').textContent;
+        }), '12 × 4 ÷ 3 ∉');
+    // On rend au texte ce que la suite attend : les deux symboles d'origine.
+    await page.evaluate(() => {
+        const el = document.getElementById('wysiwyg-text');
+        el.textContent = '12 × 4 ÷';
+        const r2 = document.createRange(); r2.selectNodeContents(el); r2.collapse(false);
+        const s2 = window.getSelection(); s2.removeAllRanges(); s2.addRange(r2);
+    });
+
     // Ce qu'on a posé se retrouve tel quel sur le tableau
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
