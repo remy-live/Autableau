@@ -13914,6 +13914,15 @@ body.dark-mode .cdx-apercu { background: #fff; }
     transform: translateX(-50%);
     width: min(680px, calc(100vw - 32px));
     height: 300px;
+    /* ON NE LE RÉDUIT PAS SOUS CE QU'IL FAUT POUR L'AFFICHER.
+       « Le redimensionnement est particulier. » Mesuré : à 420 × 200, SOIXANTE
+       ET UNE paires de touches se chevauchaient ; à 300 × 150, quatre-vingt-
+       quatre. Les touches gardent une hauteur minimale, la rangée n'en a plus
+       assez, et elles se grimpent dessus. Un plancher sur la fenêtre règle la
+       cause : onze touches par rangée, cinq rangées, la barre de titre et le
+       pied — en dessous, il n'y a pas de clavier à dessiner. */
+    min-width: 440px;
+    min-height: 290px;
     background: var(--surface, #fff);
     border: 1px solid var(--contour);
     border-radius: 14px;
@@ -13964,7 +13973,10 @@ body.dark-mode .cdx-apercu { background: #fff; }
 .clavier-touche {
     flex: 1 1 0;
     min-width: 0;
-    min-height: 34px;
+    /* Plus bas que le plancher de la fenêtre, une touche n'existe plus : ce
+       minimum-ci ne sert qu'à ce qu'elle reste visible, il ne doit jamais
+       dépasser la hauteur que la rangée peut lui donner. */
+    min-height: 30px;
     border: 1px solid var(--contour, rgba(45, 52, 54, 0.18));
     background: var(--surface, #fff);
     color: var(--ink, #2d3436);

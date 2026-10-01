@@ -61,9 +61,11 @@ module.exports = async function (browser) {
     // d'origine faux se corrigeait tout seul au premier clic et passait
     // inaperçu. Il se lit donc AVANT qu'on ait touché à quoi que ce soit.
     // ------------------------------------------------------------------
-    r.egal('au départ, l\'entrée propose le clavier',
-        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
-        'Clavier à l\'écran');
+    r.egal('au départ, le bouton propose le clavier',
+        await page.evaluate(() => {
+            const b = document.getElementById('btn-clavier-ecran');
+            return b ? b.getAttribute('data-tooltip') : '(absent)';
+        }), 'Clavier à l\'écran');
 
     // ------------------------------------------------------------------
     // 1. À LA SOURIS, IL NE PARAÎT PAS
@@ -161,6 +163,64 @@ module.exports = async function (browser) {
     r.egal('depuis le bord gauche', range.boite.x, 0, JSON.stringify(range));
 
     // ------------------------------------------------------------------
+    // 6 bis. ON NE LE RÉDUIT PAS SOUS CE QU'IL FAUT POUR L'AFFICHER
+    //
+    // « Le redimensionnement est particulier. » Mesuré : à 420 × 200, SOIXANTE
+    // ET UNE paires de touches se chevauchaient ; à 300 × 150, quatre-vingt-
+    // quatre. Les touches gardent une hauteur minimale, la rangée n'en a plus
+    // assez à leur donner, et elles se grimpent dessus — le clavier devient
+    // une bouillie dont aucune touche n'est sûre.
+    //
+    // CE QUE MESURE CE CONTRÔLE : zéro chevauchement, à TOUTE taille, y
+    // compris celles qu'on demande et qui n'existent pas. Il ne fige aucun
+    // nombre de pixels : une rangée ajoutée demain changera le plancher, pas
+    // la règle.
+    // ------------------------------------------------------------------
+    const tailles = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const e = document.getElementById('clavier-ecran');
+        e.classList.remove('clavier-en-bas');
+        const essai = async (l, h) => {
+            e.style.width = l + 'px'; e.style.height = h + 'px';
+            await attendre(60);
+            const q = e.getBoundingClientRect();
+            const b = [...e.querySelectorAll('.clavier-touche')].map(t => t.getBoundingClientRect());
+            let croisees = 0;
+            for (let i = 0; i < b.length; i++) {
+                for (let j = i + 1; j < b.length; j++) {
+                    if (b[i].left < b[j].right - 1 && b[j].left < b[i].right - 1
+                        && b[i].top < b[j].bottom - 1 && b[j].top < b[i].bottom - 1) croisees++;
+                }
+            }
+            return { demande: l + '×' + h,
+                     obtenu: Math.round(q.width) + '×' + Math.round(q.height),
+                     croisees,
+                     dehors: b.filter(t => t.bottom > q.bottom + 1 || t.right > q.right + 1).length,
+                     touche: Math.round(b[0].width) + '×' + Math.round(b[0].height) };
+        };
+        const lu = [];
+        for (const [l, h] of [[680, 300], [440, 290], [300, 150], [200, 100], [1100, 520]]) {
+            lu.push(await essai(l, h));
+        }
+        e.style.width = ''; e.style.height = '';
+        return lu;
+    });
+    r.egal('AUCUNE TOUCHE N\'EN CHEVAUCHE UNE AUTRE, À AUCUNE TAILLE',
+        tailles.filter(t => t.croisees > 0).map(t => t.demande + ' : ' + t.croisees), []);
+    r.egal('et aucune ne déborde du clavier',
+        tailles.filter(t => t.dehors > 0).map(t => t.demande), []);
+    // LE PLANCHER TIENT : réduit trop, il ne descend pas — et ce n'est pas la
+    // même chose que « il n'a pas bougé », qu'un clavier figé satisferait
+    // aussi. Agrandi, il grandit pour de bon : les touches passent de 32 à 89
+    // pixels de large.
+    r.verifie('réduit trop, il s\'arrête à son plancher',
+        tailles[2].obtenu === tailles[1].obtenu && tailles[3].obtenu === tailles[1].obtenu,
+        JSON.stringify(tailles));
+    r.verifie('ET AGRANDI, LES TOUCHES GRANDISSENT AVEC',
+        parseInt(tailles[4].touche, 10) > 2 * parseInt(tailles[1].touche, 10),
+        tailles[1].touche + ' → ' + tailles[4].touche);
+
+    // ------------------------------------------------------------------
     // 7. RANGÉ, IL DEVIENT UN MEUBLE DU BORD — FLOTTANT, NON
     //
     // Ce qui se place « en bas faute de mieux » doit s'arrêter au-dessus de
@@ -172,6 +232,10 @@ module.exports = async function (browser) {
     const planchers = await page.evaluate(async () => {
         const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
         const lu = {};
+        // ON LE RANGE ICI MÊME. La section d'avant l'a détaché pour éprouver
+        // les tailles : hériter de son état ferait mesurer autre chose que ce
+        // qu'on croit — ce contrôle est tombé pour cette seule raison.
+        rangerLeClavierEnBas(true); await attendre(150);
         lu.range = plafondDesBarresDuBas();
         rangerLeClavierEnBas(false); await attendre(150);
         lu.flottant = plafondDesBarresDuBas();
@@ -210,23 +274,42 @@ module.exports = async function (browser) {
     // texte n'existe que pendant qu'on écrit sur le tableau.
     const auMenu = await page.evaluate(() => {
         const b = document.getElementById('btn-clavier-ecran');
-        if (!b) return { absent: true };
+        // UNE ABSENCE SE RAPPORTE, ELLE NE FAIT PAS PLANTER. Sabotage fait :
+        // sans le bouton, l'épreuve s'arrêtait net sur « voisins » indéfini et
+        // les quarante contrôles mouraient avec elle. Un contrôle qui plante
+        // dit bien qu'il y a un problème, mais il ne dit pas LEQUEL.
+        if (!b) return { absent: true, dansLaBarre: false, dansUnMenu: false, voisins: [] };
         b.click();
-        return { absent: false, dansLaBarre: !!document.querySelector('#text-toolbar #btn-clavier-ecran'),
-                 libelle: (document.getElementById('lib-clavier-ecran') || {}).textContent };
+        return { absent: false,
+                 dansLaBarre: !!document.querySelector('#text-toolbar #btn-clavier-ecran'),
+                 // ET PAS ENTERRÉ DANS UN MENU. Il l'a été : dans celui de
+                 // l'EXPORTATION, où personne ne cherche un clavier.
+                 dansUnMenu: !!b.closest('.popup-content'),
+                 voisins: [...b.parentElement.querySelectorAll(':scope > .btn')]
+                     .map(x => x.id).filter(Boolean).slice(0, 12) };
     });
     await page.waitForTimeout(300);
-    r.egal('l\'entrée de menu existe', auMenu.absent, false, JSON.stringify(auMenu));
-    r.egal('et elle n\'encombre pas la barre du texte', auMenu.dansLaBarre, false);
-    r.egal('son entrée de menu le rappelle', (await etat()).ouvert, true);
-    r.egal('et elle dit alors comment le ranger',
-        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
+    r.egal('le bouton existe', auMenu.absent, false, JSON.stringify(auMenu));
+    r.egal('il n\'encombre pas la barre du texte', auMenu.dansLaBarre, false);
+    r.egal('ET IL N\'EST PAS ENTERRÉ DANS UN MENU', auMenu.dansUnMenu, false, JSON.stringify(auMenu));
+    r.verifie('il voisine les autres bascules du tiroir',
+        auMenu.voisins.includes('btn-toggle-calc') && auMenu.voisins.includes('btn-rideau'),
+        JSON.stringify(auMenu.voisins));
+    r.egal('son bouton le rappelle', (await etat()).ouvert, true);
+    r.egal('et il dit alors comment le ranger',
+        await page.evaluate(() => {
+            const b = document.getElementById('btn-clavier-ecran');
+            return b ? b.getAttribute('data-tooltip') : '(bouton absent)';
+        }),
         'Ranger le clavier à l\'écran');
-    // Et elle revient à sa première phrase une fois le clavier rangé.
-    await page.evaluate(() => document.getElementById('btn-clavier-ecran').click());
+    // Et il revient à sa première phrase une fois le clavier rangé.
+    await page.evaluate(() => { const b = document.getElementById('btn-clavier-ecran'); if (b) b.click(); });
     await page.waitForTimeout(250);
-    r.egal('rangé, elle repropose de l\'ouvrir',
-        await page.evaluate(() => (document.getElementById('lib-clavier-ecran') || {}).textContent),
+    r.egal('rangé, il repropose de l\'ouvrir',
+        await page.evaluate(() => {
+            const b = document.getElementById('btn-clavier-ecran');
+            return b ? b.getAttribute('data-tooltip') : '(bouton absent)';
+        }),
         'Clavier à l\'écran');
     await page.evaluate(() => { clavierEcarte = false; ouvrirLeClavier(); });
     await page.waitForTimeout(200);

@@ -48300,10 +48300,12 @@ window.basculerLeClavier = basculerLeClavier;
 
 function majLeBoutonDuClavier() {
     const b = document.getElementById('btn-clavier-ecran');
-    if (b) b.classList.toggle('active', clavierEstOuvert());
-    // L'entrée de menu DIT CE QU'ELLE FERA, comme sa voisine « Sauvegarde ».
-    const lib = document.getElementById('lib-clavier-ecran');
-    if (lib) lib.textContent = clavierEstOuvert() ? 'Ranger le clavier à l\'écran' : 'Clavier à l\'écran';
+    if (!b) return;
+    // LE BOUTON DIT OÙ L'ON EN EST, comme ses voisins du tiroir : allumé quand
+    // le clavier est là, et son infobulle annonce ce qu'un clic fera.
+    b.classList.toggle('active', clavierEstOuvert());
+    b.setAttribute('data-tooltip', clavierEstOuvert()
+        ? 'Ranger le clavier à l\'écran' : 'Clavier à l\'écran');
 }
 
 // Le geste dit l'outil : au doigt le clavier d'écran, à la souris celui du
