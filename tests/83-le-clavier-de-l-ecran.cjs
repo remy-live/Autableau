@@ -285,15 +285,21 @@ module.exports = async function (browser) {
                  // ET PAS ENTERRÉ DANS UN MENU. Il l'a été : dans celui de
                  // l'EXPORTATION, où personne ne cherche un clavier.
                  dansUnMenu: !!b.closest('.popup-content'),
-                 voisins: [...b.parentElement.querySelectorAll(':scope > .btn')]
-                     .map(x => x.id).filter(Boolean).slice(0, 12) };
+                 // LE VOISINAGE SE LIT SUR LE BLOC, pas sur le parent
+                 // immédiat : certains boutons vivent dans une enveloppe à
+                 // eux, et l'on ne verrait alors que deux voisins.
+                 voisins: (() => {
+                     const bloc = b.closest('.tiroir-groupe') || b.parentElement;
+                     return [...bloc.querySelectorAll('button.btn')]
+                         .map(x => x.id).filter(Boolean).slice(0, 12);
+                 })() };
     });
     await page.waitForTimeout(300);
     r.egal('le bouton existe', auMenu.absent, false, JSON.stringify(auMenu));
     r.egal('il n\'encombre pas la barre du texte', auMenu.dansLaBarre, false);
     r.egal('ET IL N\'EST PAS ENTERRÉ DANS UN MENU', auMenu.dansUnMenu, false, JSON.stringify(auMenu));
-    r.verifie('il voisine les autres bascules du tiroir',
-        auMenu.voisins.includes('btn-toggle-calc') && auMenu.voisins.includes('btn-rideau'),
+    r.verifie('il voisine les aides du tiroir : l\'aimant, le zoom, les raccourcis',
+        auMenu.voisins.includes('btn-help') && auMenu.voisins.includes('btn-loupe'),
         JSON.stringify(auMenu.voisins));
     r.egal('son bouton le rappelle', (await etat()).ouvert, true);
     r.egal('et il dit alors comment le ranger',

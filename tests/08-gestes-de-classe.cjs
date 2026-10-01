@@ -650,11 +650,19 @@ module.exports = async function (browser) {
         Math.abs((apres.traitX - departDeLEncre.x0) - 150) < 3 && Math.abs((apres.traitY - departDeLEncre.y0) - 90) < 3,
         JSON.stringify({ dx: apres.traitX - departDeLEncre.x0, dy: apres.traitY - departDeLEncre.y0 }));
 
-    // Un trait tracé LOIN du texte reste indépendant
+    // Un trait tracé LOIN du texte reste indépendant.
+    //
+    // LOIN DU TEXTE, ET LOIN DU TIROIR. Le trait partait de (820, 640) pour
+    // finir en (890, 690) : mesuré, ce second point tombe SUR le tiroir du bas
+    // — 550 × 117 à (365, 683) sur un écran de 1280 × 800. Le geste finissait
+    // donc hors de la toile, et le trait n'était pas toujours posé : le
+    // chapitre est tombé une fois dans la suite complète, « obtenu 1, attendu
+    // 2 », en passant seul à chaque essai. Ce qui compte ici, c'est la
+    // DISTANCE AU TEXTE ; on la garde en allant chercher le vide à droite.
     await page.evaluate(() => { setMode('freehand'); });
-    await page.mouse.move(820, 640);
+    await page.mouse.move(980, 240);
     await page.mouse.down();
-    await page.mouse.move(890, 690, { steps: 5 });
+    await page.mouse.move(1050, 290, { steps: 5 });
     await page.mouse.up();
     await page.waitForTimeout(150);
     const libre = await page.evaluate(() => ({

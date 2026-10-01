@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=227 »,
-         « script.js?v=397 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=398 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -2840,6 +2840,24 @@
                      haut droit, toujours visible : ce bouton-ci menait au même
                      endroit depuis un tiroir qu'il fallait ouvrir. -->
             </div>
+                    <!-- LE CLAVIER DE L'ÉCRAN. « Tu le vois où l'option pour le
+                         clavier virtuel ? » Il a cherché sa place trois fois :
+                         la barre du texte (onze commandes pour une limite de
+                         dix), le menu « Exporter » (où personne ne cherche un
+                         clavier), puis la grille de droite du tiroir — qui est
+                         un 3 × 2 aligné sur les rangées de gauche, et qu'un
+                         septième bouton défaisait.
+                         Sa place est ici, dans le bloc des aides, auprès de
+                         l'aimant, du zoom et des raccourcis : ce qui assiste
+                         sans rien dessiner. Et ici il reste atteignable quel
+                         que soit le champ où l'on écrit — ce que la barre du
+                         texte, qui n'existe que pendant la saisie, ne
+                         permettait pas. -->
+                    <button class="btn" id="btn-clavier-ecran" data-tooltip="Clavier à l'écran"><svg
+                            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                            <rect x="2" y="6" width="20" height="12" rx="2" />
+                            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" stroke-linecap="round" />
+                        </svg></button>
                     <button class="btn" id="btn-help" data-tooltip="Raccourcis clavier"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
                     </div>
                 </div>
@@ -2882,23 +2900,6 @@
                         <path d="M18 10v4" />
                     </svg>
                 </button>
-                <!-- LE CLAVIER DE L'ÉCRAN EST UNE BASCULE, pas une entrée de
-                     menu. Il était d'abord dans la barre du texte — onze
-                     commandes et 404 pixels pour une limite de 420 — puis dans
-                     le menu « Exporter », où personne ne cherche un clavier :
-                     « tu le vois où l'option pour le clavier virtuel ? ».
-                     Sa place est ici, avec le rideau, le projecteur, l'horloge
-                     et la calculatrice : des outils du tableau qu'on allume
-                     d'un clic. Et ici il reste atteignable quel que soit le
-                     champ où l'on écrit, ce que la barre du texte ne permettait
-                     pas. Au TBI il s'ouvre de lui-même au premier contact du
-                     doigt ; ce bouton sert à le demander sans écran tactile, ou
-                     à le rappeler après l'avoir fermé. -->
-                <button class="btn" id="btn-clavier-ecran" data-tooltip="Clavier à l'écran"><svg
-                        xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                        <rect x="2" y="6" width="20" height="12" rx="2" />
-                        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" stroke-linecap="round" />
-                    </svg></button>
                 <button class="btn" id="btn-toggle-calc" data-tooltip="Calculatrice"><svg xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24" class="stroke-icon">
                         <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
@@ -4089,7 +4090,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=397"></script>
+    <script src="script.js?v=398"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
