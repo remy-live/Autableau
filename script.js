@@ -4896,6 +4896,9 @@ function generateSVGString(rect, keepBg) {
         } else if (item.type === 'point') {
             if (hiddenPoints.has(obj.id)) return;
             const forme = formeDuPoint(obj);
+            // À l'export, personne ne survole : « aucune marque » veut dire
+            // qu'il n'y en a pas.
+            if (forme === 'aucun') return;
             const s = 4;
             if (forme === 'circle') svg += `<circle cx="${obj.x}" cy="${obj.y}" r="${s}" fill="${color}" />`;
             else if (forme === 'square') svg += `<rect x="${obj.x - s}" y="${obj.y - s}" width="${s * 2}" height="${s * 2}" fill="${color}" />`;
@@ -9105,7 +9108,68 @@ document.getElementById('btn-arrow-end').addEventListener('click', () => {
 document.getElementById('btn-z-up').addEventListener('click', () => { selectedItems.forEach(item => { const obj = getObjectById(item.type, item.id); if (obj && !obj.locked) obj.z = globalZ++; }); saveState(); draw(); showToast("Placé au premier plan"); });
 document.getElementById('btn-z-down').addEventListener('click', () => { let minZ = 0;[points, segments, circles, rectangles, curves, polygons, freehands, images, texts].forEach(arr => { arr.forEach(o => { if (o.z !== undefined && o.z < minZ) minZ = o.z; }); }); selectedItems.forEach(item => { const obj = getObjectById(item.type, item.id); if (obj && !obj.locked) obj.z = minZ - 1; }); saveState(); draw(); showToast("Envoyé à l'arrière-plan"); });
 
-document.getElementById('btn-shape').addEventListener('click', () => { const shapes = ['circle', 'cross', 'square', 'pixel']; const icons = { 'circle': '<circle cx="12" cy="12" r="6"/>', 'cross': '<line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3"/>', 'square': '<rect x="6" y="6" width="12" height="12"/>', 'pixel': '<rect x="10" y="10" width="4" height="4" fill="currentColor"/>' }; activeStyle.pointShape = shapes[(shapes.indexOf(activeStyle.pointShape) + 1) % shapes.length]; document.getElementById('icon-shape').innerHTML = icons[activeStyle.pointShape]; pushStyleToObject(); });
+// ==============================================================================
+// LA FORME DES POINTS SE CHOISIT, ELLE NE SE DEVINE PLUS
+//
+// « Je n'ai plus l'option point, pixel, ou rien. » Le bouton TOURNAIT : un
+// appui, la forme suivante, sans jamais dire lesquelles existent ni où l'on en
+// est. Pour en essayer quatre il fallait appuyer quatre fois et regarder le
+// tableau entre-temps — et « rien » n'existait pas du tout, si bien qu'un
+// segment portait toujours deux croix.
+//
+// C'est le même défaut que les huit fonds du tableau, soigné de la même
+// façon : un panneau qui NOMME les choix et MONTRE chaque marque à sa vraie
+// allure. On n'essaie plus, on choisit.
+// ==============================================================================
+const APERCUS_DE_FORME = {
+    aucun: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.6" stroke-dasharray="3 3"><circle cx="12" cy="12" r="7"/></svg>',
+    cross: '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="3"'
+        + ' stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+    circle: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
+    square: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>',
+    pixel: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="10" y="10" width="4" height="4"/></svg>'
+};
+
+// Le bouton MONTRE la forme en vigueur : c'est la moitié de la réponse à
+// « où en suis-je ? », l'autre étant la coche dans le panneau.
+function majLIconeDeForme() {
+    const i = document.getElementById('icon-shape');
+    if (!i) return;
+    const f = FORMES_DE_POINT.includes(activeStyle.pointShape) ? activeStyle.pointShape : 'cross';
+    i.outerHTML = APERCUS_DE_FORME[f].replace('<svg', '<svg id="icon-shape"');
+    const b = document.getElementById('btn-shape');
+    if (b) b.setAttribute('data-tooltip', 'Forme des points — ' + NOMS_DES_FORMES_DE_POINT[f]);
+}
+window.majLIconeDeForme = majLIconeDeForme;
+
+function ouvrirLesFormesDePoint(bouton) {
+    if (typeof ouvrirPanneauAppui !== 'function') return false;
+    ouvrirPanneauAppui(bouton, 'Forme des points', [{
+        rangee: FORMES_DE_POINT.map(f => ({
+            nom: NOMS_DES_FORMES_DE_POINT[f],
+            apercu: APERCUS_DE_FORME[f],
+            actif: activeStyle.pointShape === f,
+            action: () => {
+                activeStyle.pointShape = f;
+                majLIconeDeForme();
+                pushStyleToObject();
+                if (typeof draw === 'function') draw();
+            }
+        }))
+    }]);
+    return true;
+}
+window.ouvrirLesFormesDePoint = ouvrirLesFormesDePoint;
+
+document.getElementById('btn-shape').addEventListener('click', function () {
+    ouvrirLesFormesDePoint(this);
+});
+// AU CHARGEMENT, ET NON ICI. « FORMES_DE_POINT » est déclaré deux mille lignes
+// plus bas : appeler la mise à jour depuis cette ligne lève une erreur de zone
+// morte, et le script ENTIER s'arrête là — mesuré, les constantes suivantes
+// devenaient inaccessibles et l'application ne démarrait plus du tout.
+document.addEventListener('DOMContentLoaded', majLIconeDeForme);
 // Le bout du surligneur : rond ou carré, d'un appui, là où l'on règle déjà
 // son épaisseur. Le même choix vit derrière l'appui long de l'icône.
 document.getElementById('btn-bout-surligneur')?.addEventListener('click', () => {
@@ -10925,11 +10989,35 @@ function findObjectAt(lx, ly) {
 
 function clearSelection() { selectedItems = []; if (!['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode) && !(typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
 // La forme d'un point, avec un repli sûr : un point existe, donc il se voit.
-const FORMES_DE_POINT = ['circle', 'cross', 'square', 'pixel'];
+// LES FORMES D'UN POINT, ET « AUCUNE » PARMI ELLES.
+//
+// « Quand je trace des segments, j'ai forcément des croix, je n'ai plus
+// l'option point, pixel, ou rien — idem avec demi-droite et courbe de
+// Bézier. »
+//
+// Deux manques en un. Il n'y avait QUE QUATRE formes et pas de « rien » : un
+// segment porte donc toujours deux marques à ses bouts, qu'on le veuille ou
+// non. Et le choix se faisait à l'aveugle, par un bouton qui tourne sans
+// jamais dire où l'on en est — exactement ce qu'on a reproché aux huit fonds
+// du tableau, et pour la même raison.
+//
+// « AUCUN » NE VEUT PAS DIRE « INTROUVABLE ». Un point qu'on ne dessine pas
+// reste sélectionnable : invisible ET attrapable, c'est un piège, et c'est
+// précisément pour cela qu'une forme manquante valait la croix. La règle est
+// donc plus fine qu'un simple « on ne dessine rien » : rien pour la classe,
+// une marque discrète dès qu'on le tient ou qu'on le survole. Le professeur
+// le retrouve sous son doigt, l'élève ne voit que la figure.
+const FORMES_DE_POINT = ['aucun', 'circle', 'cross', 'square', 'pixel'];
+const NOMS_DES_FORMES_DE_POINT = { aucun: 'Aucune marque', circle: 'Rond',
+                                   cross: 'Croix', square: 'Carré', pixel: 'Point fin' };
 function formeDuPoint(obj) {
     const f = obj && obj.shape;
+    // UNE FORME ABSENTE OU INCONNUE VAUT TOUJOURS LA CROIX. Seul le mot
+    // « aucun », écrit exprès, efface la marque : sans cette distinction, un
+    // tableau d'une version plus ancienne perdrait toutes ses extrémités.
     return FORMES_DE_POINT.includes(f) ? f : 'cross';
 }
+window.formeDuPoint = formeDuPoint;
 
 function isSelected(type, id) { return selectedItems.some(item => item.type === type && item.id === id); }
 
@@ -14175,6 +14263,24 @@ function draw() {
                 // sélectionnable et invisible, et l'extrémité d'un segment
                 // semblait avoir disparu. Une forme manquante vaut la croix.
                 const forme = formeDuPoint(obj);
+                // « AUCUNE MARQUE » : rien pour la classe, un repère discret
+                // pour qui le tient. Sans ce repère, le point serait invisible
+                // et pourtant attrapable — on déplacerait une extrémité sans
+                // savoir qu'elle est là.
+                if (forme === 'aucun') {
+                    const tenu = (typeof isSelected === 'function' && isSelected('point', obj.id))
+                        || (typeof hoveredObj !== 'undefined' && hoveredObj
+                            && hoveredObj.type === 'point' && hoveredObj.id === obj.id);
+                    if (!tenu) return;
+                    ctx.beginPath();
+                    ctx.arc(obj.x, obj.y, lw * 3, 0, Math.PI * 2);
+                    ctx.strokeStyle = renderColor;
+                    ctx.lineWidth = Math.max(1, lw);
+                    ctx.setLineDash([lw * 2, lw * 2]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    return;
+                }
                 const s = lw * 4; ctx.beginPath();
                 if (forme === 'circle') { ctx.arc(obj.x, obj.y, s, 0, Math.PI * 2); ctx.fillStyle = renderColor; ctx.fill(); }
                 else if (forme === 'square') { ctx.rect(obj.x - s, obj.y - s, s * 2, s * 2); ctx.fillStyle = renderColor; ctx.fill(); }
