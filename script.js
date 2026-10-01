@@ -9121,15 +9121,31 @@ document.getElementById('btn-z-down').addEventListener('click', () => { let minZ
 // façon : un panneau qui NOMME les choix et MONTRE chaque marque à sa vraie
 // allure. On n'essaie plus, on choisit.
 // ==============================================================================
-const APERCUS_DE_FORME = {
-    aucun: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"'
-        + ' stroke-width="1.6" stroke-dasharray="3 3"><circle cx="12" cy="12" r="7"/></svg>',
-    cross: '<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="3"'
-        + ' stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
-    circle: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
-    square: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>',
-    pixel: '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="10" y="10" width="4" height="4"/></svg>'
+// UN SEUL ENDROIT ÉCRIT CES DESSINS, ET C'EST ICI.
+//
+// Le bouton montrait sa croix EN DUR dans la page, et le code la repeignait au
+// chargement : deux sources pour un seul dessin, qui finissent par ne plus
+// dire la même chose. Le chapitre 54 l'interdit, et il a raison — il a attrapé
+// exactement cela. La page ne porte donc plus qu'un « svg » vide ; tout ce qui
+// se dessine se décide ici.
+const DESSINS_DE_FORME = {
+    aucun: '<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.6" stroke-dasharray="3 3"/>',
+    cross: '<line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>'
+        + '<line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>',
+    circle: '<circle cx="12" cy="12" r="6" fill="currentColor"/>',
+    square: '<rect x="6" y="6" width="12" height="12" fill="currentColor"/>',
+    pixel: '<rect x="10" y="10" width="4" height="4" fill="currentColor"/>'
 };
+// ON PARCOURT LES DESSINS, PAS « FORMES_DE_POINT » : cette liste-là est
+// déclarée deux mille lignes plus bas, et la lire d'ici lève une erreur de
+// zone morte qui arrête le script ENTIER — mesuré deux fois aujourd'hui,
+// l'application ne démarrait plus du tout.
+const APERCUS_DE_FORME = {};
+Object.keys(DESSINS_DE_FORME).forEach(f => {
+    APERCUS_DE_FORME[f] = '<svg viewBox="0 0 24 24" width="22" height="22">'
+        + DESSINS_DE_FORME[f] + '</svg>';
+});
 
 // Le bouton MONTRE la forme en vigueur : c'est la moitié de la réponse à
 // « où en suis-je ? », l'autre étant la coche dans le panneau.
@@ -9137,7 +9153,9 @@ function majLIconeDeForme() {
     const i = document.getElementById('icon-shape');
     if (!i) return;
     const f = FORMES_DE_POINT.includes(activeStyle.pointShape) ? activeStyle.pointShape : 'cross';
-    i.outerHTML = APERCUS_DE_FORME[f].replace('<svg', '<svg id="icon-shape"');
+    // ON NE REMPLACE QUE LE DEDANS : l'enveloppe garde ses attributs, donc le
+    // bouton garde l'allure de ses voisins.
+    i.innerHTML = DESSINS_DE_FORME[f];
     const b = document.getElementById('btn-shape');
     if (b) b.setAttribute('data-tooltip', 'Forme des points — ' + NOMS_DES_FORMES_DE_POINT[f]);
 }

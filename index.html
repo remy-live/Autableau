@@ -3160,11 +3160,12 @@
         </button>
         <div class="divider"></div>
         <div class="style-group group-point">
-            <div class="divider"></div><button class="btn" id="btn-shape" title="Forme de point"><svg
-                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape">
-                    <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" />
-                    <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" />
-                </svg></button>
+            <div class="divider"></div><!-- LE DESSIN EST VIDE EXPRÈS : la forme en vigueur se peint au
+                     chargement et change à chaque choix. L'écrire ici aussi
+                     ferait deux sources pour un seul dessin — ce que le
+                     chapitre 54 interdit, et il a attrapé exactement cela. -->
+                <button class="btn" id="btn-shape" data-tooltip="Forme des points"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon-shape"></svg></button>
         </div>
 
         <div class="style-group group-line">
