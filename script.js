@@ -4990,13 +4990,18 @@ function generateSVGString(rect, keepBg) {
                                  + `<rect x="-100000" y="-100000" width="200000" height="200000" fill="white"/>`
                                  + dessinDuCadre('black', false) + `</mask>`;
                         }
-                        const ang = Math.atan2(f.pointe.y - f.ctrl.y, f.pointe.x - f.ctrl.x);
+                        const e = f.echantillons;
+                        const avant = e[e.length - 2] || f.depart;
+                        const ang = Math.atan2(f.pointe.y - avant.y, f.pointe.x - avant.x);
                         const L = Math.max(10, trait * 4);
                         const masque = forme === 'aucun' ? '' : ` mask="url(#leg-${obj.id})"`;
                         svg += `<g${masque}>`;
-                        svg += `<path d="M ${f.depart.x} ${f.depart.y} Q ${f.ctrl.x} ${f.ctrl.y} `
-                             + `${f.pointe.x} ${f.pointe.y}" fill="none" stroke="${couleur}" `
-                             + `stroke-width="${trait}" stroke-linecap="round"/>`;
+                        // LE MÊME TRACÉ QU'À L'ÉCRAN, point par point : écrire
+                        // ici une autre formule, c'était se préparer à ce qu'un
+                        // PDF montre une courbe que le tableau n'a jamais eue.
+                        svg += `<path d="M ${e.map(p => `${p.x} ${p.y}`).join(' L ')}" `
+                             + `fill="none" stroke="${couleur}" `
+                             + `stroke-width="${trait}" stroke-linecap="round" stroke-linejoin="round"/>`;
                         svg += `<path d="M ${f.pointe.x} ${f.pointe.y} `
                              + `L ${f.pointe.x - L * Math.cos(ang - 0.4)} ${f.pointe.y - L * Math.sin(ang - 0.4)} `
                              + `L ${f.pointe.x - L * Math.cos(ang + 0.4)} ${f.pointe.y - L * Math.sin(ang + 0.4)} Z" `
@@ -5259,6 +5264,18 @@ function acheverLaLegende() {
     // L'ATTACHE NAÎT LÀ OÙ LE DOIGT A POSÉ LE CADRE, et non à un coin
     // choisi d'avance : c'est ce point-là qu'on a visé.
     obj.ancre = abscisseDuContour(boiteDuTexte(obj), cadreDeLegende.startX, cadreDeLegende.startY);
+    // LE SECOND PLI SE POSE TOUT SEUL, SUR LA COURBE QU'ON AURAIT EUE. On ne
+    // demande pas un clic de plus : la création reste en quatre temps. On place
+    // simplement le second pli là où passait l'ancienne quadratique, aux
+    // trois quarts du chemin — si bien que la flèche qu'on vient de tracer a
+    // exactement l'allure attendue, et qu'on découvre la seconde poignée en la
+    // sélectionnant, sans avoir rien eu à apprendre.
+    const depart0 = pointDuContour(boiteDuTexte(obj), obj.ancre);
+    const ctrl0 = { x: 2 * obj.pliX - (depart0.x + obj.pointeX) / 2,
+                    y: 2 * obj.pliY - (depart0.y + obj.pointeY) / 2 };
+    const t0 = 0.72, u0 = 1 - t0;
+    obj.pli2X = u0 * u0 * depart0.x + 2 * u0 * t0 * ctrl0.x + t0 * t0 * obj.pointeX;
+    obj.pli2Y = u0 * u0 * depart0.y + 2 * u0 * t0 * ctrl0.y + t0 * t0 * obj.pointeY;
     if (typeof noterLaPage === 'function') noterLaPage(obj, obj.x, obj.y);
     texts.push(obj);
     legendeEnCours = null;
@@ -5281,21 +5298,30 @@ function dansLeCadre(b, forme, p) {
     return p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h;
 }
 
-function pointDeLaQuadratique(a, ctrl, c, t) {
-    const u = 1 - t;
-    return { x: u * u * a.x + 2 * u * t * ctrl.x + t * t * c.x,
-             y: u * u * a.y + 2 * u * t * ctrl.y + t * t * c.y };
+// LES POINTS PAR LESQUELS LA FLÈCHE PASSE, dans l'ordre : son départ, un ou
+// DEUX plis, sa pointe. Deux plis, parce qu'un seul ne réglait pas vraiment la
+// courbure — « on ne peut pas vraiment régler la courbure, faudrait-il
+// rajouter un quatrième point ». Avec un seul, la courbe était une quadratique
+// : toujours convexe, jamais d'S, et une seule poignée pour trois choses à la
+// fois — par où l'on quitte l'étiquette, l'ampleur du ventre, et la direction
+// d'arrivée, donc l'orientation de la tête. Deux plis séparent tout cela.
+function plisDeLaLegende(o) {
+    const plis = [];
+    if (o.pliX !== undefined) plis.push({ x: o.pliX, y: o.pliY });
+    if (o.pli2X !== undefined) plis.push({ x: o.pli2X, y: o.pli2Y });
+    return plis;
 }
 
 function flecheDeLaLegende(o) {
     const b = boiteDuTexte(o);
     const pose = pointDuContour(b, o.ancre === undefined ? 0.5 : o.ancre);   // 0,5 : le milieu du haut
-    const c = { x: o.pointeX, y: o.pointeY };
-    const pli = (o.pliX === undefined)
-        ? { x: (pose.x + c.x) / 2, y: (pose.y + c.y) / 2 }
-        : { x: o.pliX, y: o.pliY };
-    const controle = (d) => ({ x: 2 * pli.x - (d.x + c.x) / 2, y: 2 * pli.y - (d.y + c.y) / 2 });
-    let depart = pose, ctrl = controle(pose);
+    const pointe = { x: o.pointeX, y: o.pointeY };
+    let plis = plisDeLaLegende(o);
+    if (!plis.length) plis = [{ x: (pose.x + pointe.x) / 2, y: (pose.y + pointe.y) / 2 }];
+    const tracer = (d) => splineParLesPoints([d, ...plis, pointe], false);
+
+    let depart = pose;
+    let echantillons = tracer(depart);
 
     // L'ATTACHE SE RATTRAPE QUAND ELLE EST DU MAUVAIS CÔTÉ.
     //
@@ -5306,46 +5332,41 @@ function flecheDeLaLegende(o) {
     // naître de nulle part.
     //
     // On ne déplace pas l'attache enregistrée — elle reste celle qu'on a
-    // posée. On part simplement du DERNIER POINT OÙ LA COURBE QUITTE LE CADRE,
-    // qui est lui aussi un point du contour, et celui-là regarde la flèche.
-    // Dans tous les cas normaux la courbe sort tout de suite, et ce point EST
-    // l'attache : rien ne bouge.
-    // Sans cadre, « dansLeCadre » ne répond jamais oui : il n'y a rien à
-    // contourner, et aucune garde supplémentaire n'aurait d'effet. En revanche
-    // une POINTE POSÉE DANS L'ÉTIQUETTE n'a pas de sortie — on ne cherche donc
-    // pas à en trouver une, et c'est le découpage du dessin qui s'en charge.
+    // posée, et sa poignée aussi. On part simplement du DERNIER POINT OÙ LA
+    // COURBE QUITTE LE CADRE, qui est lui aussi un point du contour, et
+    // celui-là regarde la flèche. Dans tous les cas normaux la courbe sort
+    // tout de suite, et ce point EST l'attache : rien ne bouge.
+    //
+    // Une POINTE POSÉE DANS L'ÉTIQUETTE, elle, n'a aucune sortie : on ne
+    // cherche donc pas à en trouver une, et c'est le découpage du dessin qui
+    // empêche alors le trait de barrer le texte.
     const forme = formeDuCadre(o);
-    if (!dansLeCadre(b, forme, c)) {
-        const N = 32;
+    if (!dansLeCadre(b, forme, pointe)) {
         let dernierDedans = -1;
-        for (let k = 0; k <= N; k++) {
-            if (dansLeCadre(b, forme, pointDeLaQuadratique(depart, ctrl, c, k / N))) dernierDedans = k;
+        for (let k = 0; k < echantillons.length; k++) {
+            if (dansLeCadre(b, forme, echantillons[k])) dernierDedans = k;
         }
-        if (dernierDedans >= 0) {
-            // La sortie, affinée entre le dernier point dedans et le suivant.
-            let lo = dernierDedans / N, hi = (dernierDedans + 1) / N;
-            for (let i = 0; i < 18; i++) {
+        if (dernierDedans >= 0 && dernierDedans < echantillons.length - 1) {
+            const A = echantillons[dernierDedans], B = echantillons[dernierDedans + 1];
+            let lo = 0, hi = 1;
+            for (let i = 0; i < 20; i++) {
                 const mi = (lo + hi) / 2;
-                if (dansLeCadre(b, forme, pointDeLaQuadratique(depart, ctrl, c, mi))) lo = mi; else hi = mi;
+                const p = { x: A.x + (B.x - A.x) * mi, y: A.y + (B.y - A.y) * mi };
+                if (dansLeCadre(b, forme, p)) lo = mi; else hi = mi;
             }
-            depart = pointDeLaQuadratique(depart, ctrl, c, hi);
-            ctrl = controle(depart);
+            depart = { x: A.x + (B.x - A.x) * hi, y: A.y + (B.y - A.y) * hi };
+            echantillons = tracer(depart);
         }
     }
-    return { depart, pli, pointe: c, cadre: b, ctrl, attache: pose };
+    return { depart, plis, pointe, cadre: b, attache: pose, echantillons };
 }
 
-// La courbe en petits segments : le clic s'en sert pour mesurer une distance,
-// l'export pour l'écrire en SVG. Une seule source, comme pour la courbe lisse.
+// La courbe en petits segments : le dessin s'en sert, le clic pour mesurer une
+// distance, et l'export pour l'écrire en SVG. UNE SEULE SOURCE — si le tracé
+// et le test de clic se séparaient, le contrôle qui cherche un pixel peint
+// tomberait aussitôt.
 function echantillonsDeLaFleche(o) {
-    const f = flecheDeLaLegende(o);
-    const out = [];
-    for (let k = 0; k <= PAS_DE_LA_FLECHE; k++) {
-        const t = k / PAS_DE_LA_FLECHE, u = 1 - t;
-        out.push({ x: u * u * f.depart.x + 2 * u * t * f.ctrl.x + t * t * f.pointe.x,
-                   y: u * u * f.depart.y + 2 * u * t * f.ctrl.y + t * t * f.pointe.y });
-    }
-    return out;
+    return flecheDeLaLegende(o).echantillons;
 }
 
 window.estUneLegende = estUneLegende;
@@ -5428,6 +5449,7 @@ function getAutoBoundingBox(padding = 40) {
         if (t.isLegende && t.pointeX !== undefined) {
             addPt(t.pointeX, t.pointeY);
             if (t.pliX !== undefined) addPt(t.pliX, t.pliY);
+            if (t.pli2X !== undefined) addPt(t.pli2X, t.pli2Y);
         }
     });
     if (typeof segments !== 'undefined') segments.forEach(s => { checkPointId(s.p1_id); checkPointId(s.p2_id); });
@@ -9939,7 +9961,8 @@ function getHandleAt(lx, ly, obj, type) {
     if (obj.isLegende) {
         if (Math.hypot(lx - obj.pointeX, ly - obj.pointeY) <= hw * 1.5) return 'LEG_POINTE';
         const f = flecheDeLaLegende(obj);
-        if (Math.hypot(lx - f.pli.x, ly - f.pli.y) <= hw * 1.5) return 'LEG_PLI';
+        if (f.plis[1] && Math.hypot(lx - f.plis[1].x, ly - f.plis[1].y) <= hw * 1.5) return 'LEG_PLI2';
+        if (f.plis[0] && Math.hypot(lx - f.plis[0].x, ly - f.plis[0].y) <= hw * 1.5) return 'LEG_PLI';
         // La poignée est sur l'attache POSÉE, et non sur le point de sortie :
         // c'est celle-là qu'on a mise, c'est celle-là qu'on reprend.
         if (Math.hypot(lx - f.attache.x, ly - f.attache.y) <= hw * 1.5) return 'LEG_ANCRE';
@@ -11440,12 +11463,15 @@ function findObjectAt(lx, ly) {
 // ici — et c'est le chapitre qui le dira, puisqu'il cherche un pixel PEINT de
 // la courbe et exige qu'un clic à cet endroit-là la sélectionne.
 const PAS_DE_LA_COURBE = 12;        // points par cubique : assez fin pour le doigt
-function echantillonsDeLaCourbe(c) {
-    const pts = (c.points || []).map(id => getObjectById('point', id)).filter(Boolean);
+// LA SPLINE QUI PASSE PAR SES POINTS, EN UN SEUL ENDROIT POUR TOUTE
+// L'APPLICATION. La courbe lisse s'en servait déjà ; la flèche courbe s'en
+// sert aussi depuis qu'elle a deux plis. Écrire la formule deux fois, c'était
+// se préparer à ce que les deux divergent — et le contrôle qui cherche un
+// pixel PEINT du tracé n'aurait plus su laquelle des deux il mesure.
+function splineParLesPoints(pts, ferme) {
     if (pts.length < 2) return pts.slice();
     if (pts.length === 2) return [pts[0], pts[1]];
     const sortie = [{ x: pts[0].x, y: pts[0].y }];
-    const ferme = !!c.closed;
     const n = pts.length;
     const dernier = ferme ? n : n - 1;
     for (let i = 0; i < dernier; i++) {
@@ -11465,6 +11491,13 @@ function echantillonsDeLaCourbe(c) {
     }
     return sortie;
 }
+window.splineParLesPoints = splineParLesPoints;
+
+function echantillonsDeLaCourbe(c) {
+    const pts = (c.points || []).map(id => getObjectById('point', id)).filter(Boolean);
+    return splineParLesPoints(pts, !!c.closed);
+}
+
 window.echantillonsDeLaCourbe = echantillonsDeLaCourbe;
 
 function clearSelection() { selectedItems = []; if (!['point', 'segment', 'droite', 'demi-droite', 'circle', 'rectangle', 'text', 'freehand', 'highlighter', 'curve', 'polygon'].includes(mode) && !(typeof activeWidgets !== 'undefined' && activeWidgets['compass'])) { document.getElementById('bar-style').classList.remove('visible'); document.getElementById('bar-style').removeAttribute('data-dragged'); } document.getElementById('bar-style').classList.remove('ctx-zindex', 'ctx-lock'); draw(); }
@@ -13127,6 +13160,9 @@ canvas.addEventListener('pointermove', (e) => {
             else if (draggedHandle === 'LEG_PLI' && obj.isLegende) {
                 obj.pliX = rawPos.x; obj.pliY = rawPos.y;
             }
+            else if (draggedHandle === 'LEG_PLI2' && obj.isLegende) {
+                obj.pli2X = rawPos.x; obj.pli2Y = rawPos.y;
+            }
             // L'ATTACHE NE QUITTE PAS LE BORD : où que le doigt aille, on
             // reprend l'abscisse du contour la plus proche. C'est ce qui fait
             // qu'elle « glisse tout le long du cadre » au lieu de s'en
@@ -13388,7 +13424,8 @@ canvas.addEventListener('pointermove', (e) => {
             // pousse l'étiquette pour faire de la place. Le pli, lui, ne
             // désigne rien : laissé sur place, il tordait la courbe dès que
             // l'étiquette s'éloignait un peu.
-            if (t.isLegende && t.pliX !== undefined) { t.pliX += dx; t.pliY += dy; } } });
+            if (t.isLegende && t.pliX !== undefined) { t.pliX += dx; t.pliY += dy; }
+            if (t.isLegende && t.pli2X !== undefined) { t.pli2X += dx; t.pli2Y += dy; } } });
         freehandsToMove.forEach(fid => { const f = getObjectById('freehand', fid); if (f) { f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); } }); imgsToMove.forEach(iid => { const i = getObjectById('image', iid); if (i) { i.x += dx; i.y += dy; } });
         // L'encre posée sur un texte ou une image part avec lui. On exclut les
         // traits déjà déplacés pour eux-mêmes, sinon ils avanceraient double.
@@ -14935,16 +14972,17 @@ function draw() {
                         ctx.clip('evenodd');
                     }
                     ctx.strokeStyle = encre;
+                    const e = f.echantillons;
                     ctx.beginPath();
-                    ctx.moveTo(f.depart.x, f.depart.y);
-                    ctx.quadraticCurveTo(f.ctrl.x, f.ctrl.y, f.pointe.x, f.pointe.y);
+                    ctx.moveTo(e[0].x, e[0].y);
+                    for (let k = 1; k < e.length; k++) ctx.lineTo(e[k].x, e[k].y);
                     ctx.stroke();
                     // LA POINTE REGARDE D'OÙ ELLE VIENT : l'angle se prend sur
-                    // la tangente en bout de courbe, c'est-à-dire la direction
-                    // qui va du point de contrôle à la pointe. Prendre l'angle
-                    // du départ à la pointe aurait mis la tête de travers dès
-                    // que le pli courbe un peu.
-                    const ang = Math.atan2(f.pointe.y - f.ctrl.y, f.pointe.x - f.ctrl.x);
+                    // le DERNIER PAS du tracé. Prendre l'angle du départ à la
+                    // pointe mettrait la tête de travers dès que la courbe
+                    // tourne un peu, et plus encore avec deux plis.
+                    const avant = e[e.length - 2] || f.depart;
+                    const ang = Math.atan2(f.pointe.y - avant.y, f.pointe.x - avant.x);
                     const L = Math.max(10, trait * 4);
                     ctx.beginPath();
                     ctx.moveTo(f.pointe.x, f.pointe.y);
@@ -15370,8 +15408,9 @@ function draw() {
                         ctx.lineWidth = lw * 2;
                         // Le pli se distingue des deux bouts : c'est le point
                         // qu'on cherche quand la courbe passe mal.
-                        [[f.pointe, '#6c5ce7'], [f.pli, '#00b894'], [f.attache, '#0984e3'],
-                         [{ x: f.cadre.x + f.cadre.w, y: f.cadre.y + f.cadre.h }, '#6c5ce7']]
+                        [[f.pointe, '#6c5ce7'], [f.attache, '#0984e3'],
+                         [{ x: f.cadre.x + f.cadre.w, y: f.cadre.y + f.cadre.h }, '#6c5ce7'],
+                         ...f.plis.map(pl => [pl, '#00b894'])]
                             .forEach(([pt, couleur]) => {
                                 ctx.beginPath(); ctx.arc(pt.x, pt.y, hr, 0, Math.PI * 2);
                                 ctx.fillStyle = '#ffffff'; ctx.fill();

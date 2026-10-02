@@ -89,26 +89,54 @@ module.exports = async function (browser) {
     // droite qui joindrait les deux bouts — c'est le cas où une formule
     // approchée se trahit.
     // ------------------------------------------------------------------
-    const parLePli = await page.evaluate(() => {
+    const parLesPlis = await page.evaluate(() => {
         const t = texts[0];
-        const e = echantillonsDeLaFleche(t);
-        const m = e[e.length >> 1];
         const f = flecheDeLaLegende(t);
-        // La droite des deux bouts, pour dire que le pli en est VRAIMENT loin.
-        const dDroite = (() => {
+        const e = f.echantillons;
+        // Pour chaque pli, le point du tracé qui en est le plus proche : zéro,
+        // ou le pli ne sert à rien.
+        const ecarts = f.plis.map(pl => Math.round(
+            Math.min(...e.map(p => Math.hypot(p.x - pl.x, p.y - pl.y)))));
+        // Et les plis sont-ils bien AILLEURS que sur la corde ? Sans cela, la
+        // mesure précédente serait satisfaite par une simple droite.
+        const corde = (pl) => {
             const ax = f.depart.x, ay = f.depart.y, bx = f.pointe.x, by = f.pointe.y;
-            const num = Math.abs((by - ay) * t.pliX - (bx - ax) * t.pliY + bx * ay - by * ax);
-            return num / Math.hypot(bx - ax, by - ay);
-        })();
-        return { ecart: Math.round(Math.hypot(m.x - t.pliX, m.y - t.pliY)),
-                 pliHorsDeLaDroite: Math.round(dDroite),
+            return Math.round(Math.abs((by - ay) * pl.x - (bx - ax) * pl.y + bx * ay - by * ax)
+                / Math.hypot(bx - ax, by - ay));
+        };
+        return { combien: f.plis.length, ecarts, horsCorde: f.plis.map(corde),
                  bouts: [Math.round(e[0].x), Math.round(e[0].y),
                          Math.round(e[e.length - 1].x), Math.round(e[e.length - 1].y)] };
     });
-    r.verifie('le pli est bien loin de la droite des deux bouts',
-        parLePli.pliHorsDeLaDroite > 60, JSON.stringify(parLePli));
-    r.egal('ET LA COURBE PASSE EXACTEMENT PAR LUI', parLePli.ecart, 0);
-    r.egal('elle part de l\'attache et finit sur la pointe', parLePli.bouts, [700, 400, 300, 250]);
+    r.egal('LA FLÈCHE NAÎT AVEC DEUX PLIS', parLesPlis.combien, 2, JSON.stringify(parLesPlis));
+    r.verifie('tous deux bien à l\'écart de la corde',
+        parLesPlis.horsCorde.every(d => d > 20), JSON.stringify(parLesPlis));
+    r.egal('ET LE TRACÉ PASSE EXACTEMENT PAR CHACUN', parLesPlis.ecarts, [0, 0]);
+    r.egal('il part de l\'attache et finit sur la pointe', parLesPlis.bouts, [700, 400, 300, 250]);
+
+    // L'S EST POSSIBLE, et c'est tout l'intérêt du second pli : « on ne peut
+    // pas vraiment régler la courbure ». Un seul pli donnait une quadratique,
+    // toujours convexe — jamais d'S, et une seule poignée pour la direction de
+    // départ, l'ampleur du ventre ET la direction d'arrivée.
+    const enS = await page.evaluate(() => {
+        const t = texts[0];
+        const cote = (p, a, b) => Math.sign((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x));
+        const compter = () => {
+            const f = flecheDeLaLegende(t);
+            const a = f.depart, b = f.pointe;
+            const cotes = f.echantillons.map(p => cote(p, a, b)).filter(c => c !== 0);
+            return new Set(cotes).size;
+        };
+        // Les deux plis du MÊME côté : un ventre, et rien d'autre.
+        t.pliX = 560; t.pliY = 180; t.pli2X = 420; t.pli2Y = 200;
+        const memeCote = compter();
+        // De PART ET D'AUTRE : la courbe doit alors passer des deux côtés.
+        t.pliX = 620; t.pliY = 420; t.pli2X = 380; t.pli2Y = 180;
+        const deuxCotes = compter();
+        return { memeCote, deuxCotes };
+    });
+    r.egal('deux plis du même côté : un seul ventre', enS.memeCote, 1);
+    r.egal('DEUX PLIS DE PART ET D\'AUTRE : LA COURBE FAIT UN S', enS.deuxCotes, 2);
 
     // ------------------------------------------------------------------
     // 3. LA FLÈCHE EST VRAIMENT PEINTE, ET ELLE S'ATTRAPE PAR SON TRACÉ
@@ -219,13 +247,18 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'text', id: t.id }];
         draw();
         const f = flecheDeLaLegende(t);
-        const nom = (p) => getHandleAt(p.x, p.y, t, 'text');
-        return { pointe: nom(f.pointe), pli: nom(f.pli), attache: nom(f.depart),
+        // UN POINT ABSENT SE DIT, IL NE FAIT PAS EXPLOSER LE CHAPITRE : sans
+        // ce garde, retirer le second pli emportait les soixante-dix contrôles
+        // qui suivent, et le rapport ne nommait plus le défaut.
+        const nom = (p) => p ? getHandleAt(p.x, p.y, t, 'text') : '(aucun point)';
+        return { pointe: nom(f.pointe), pli: nom(f.plis[0]), pli2: nom(f.plis[1]),
+                 attache: nom(f.depart),
                  coin: nom({ x: f.cadre.x + f.cadre.w, y: f.cadre.y + f.cadre.h }),
                  nullePart: nom({ x: f.cadre.x - 400, y: f.cadre.y - 400 }) };
     });
     r.egal('la pointe se saisit', poignees.pointe, 'LEG_POINTE');
-    r.egal('LE PLI AUSSI', poignees.pli, 'LEG_PLI');
+    r.egal('LE PREMIER PLI AUSSI', poignees.pli, 'LEG_PLI');
+    r.egal('ET LE SECOND, celui qui règle vraiment la courbure', poignees.pli2, 'LEG_PLI2');
     r.egal('et l\'attache également', poignees.attache, 'LEG_ANCRE');
     r.egal('le coin du cadre le redimensionne', poignees.coin, 'LEG_CADRE');
     r.egal('et ailleurs, rien ne se saisit', poignees.nullePart, null);
@@ -346,21 +379,34 @@ module.exports = async function (browser) {
             ? generateSVGString(getAutoBoundingBox(40), false) : null;
         if (svg === null) return { pasDExport: true };
         const f = flecheDeLaLegende(t);
-        // La courbe doit sortir comme une QUADRATIQUE, avec le point de
-        // contrôle du rendu : une droite entre les deux bouts passerait le
-        // contrôle « il y a bien un trait », et serait fausse.
-        const q = new RegExp('Q ' + Math.round(f.ctrl.x) + '(\\.\\d+)? ' + Math.round(f.ctrl.y));
-        return { aUneCourbe: /M [\d.-]+ [\d.-]+ Q /.test(svg),
-                 bonControle: q.test(svg.replace(/(\d+)\.\d+/g, '$1')),
+        const e = f.echantillons;
+        // L'EXPORT ÉCRIT LE MÊME TRACÉ QUE L'ÉCRAN, point par point. On ne se
+        // contente donc pas de « il y a bien un trait » : on exige que le
+        // chemin porte AUTANT DE POINTS que le tracé, et que ses deux bouts
+        // soient exactement ceux du tracé. Une droite entre les extrémités
+        // passerait le premier contrôle et serait fausse.
+        const chemin = (svg.match(/d="[^"]*"/g) || [])
+            .map(d => d.slice(3, -1).replace(/^M\s*/, '').split(' L ')
+                      .map(c => c.trim().split(/\s+/).map(Number)))
+            .find(pts => pts.length > 5 && pts.every(c => c.length === 2 && c.every(n => !isNaN(n))));
+        return { aUnChemin: !!chemin,
+                 combien: chemin ? chemin.length : 0,
+                 attendu: e.length,
+                 premier: chemin ? chemin[0].map(Math.round) : null,
+                 dernier: chemin ? chemin[chemin.length - 1].map(Math.round) : null,
+                 bouts: [Math.round(e[0].x), Math.round(e[0].y),
+                         Math.round(e[e.length - 1].x), Math.round(e[e.length - 1].y)],
                  aUnCadre: /<rect [^>]*rx=/.test(svg), taille: svg.length };
     });
     if (exporte.pasDExport) {
         r.verifie('l\'export SVG se mesure', false, 'aucune fonction d\'export trouvée');
     } else {
         r.verifie('L\'EXPORT ÉCRIT UNE COURBE, PAS UNE CORDE',
-            exporte.aUneCourbe, JSON.stringify(exporte));
-        r.verifie('avec le point de contrôle du rendu',
-            exporte.bonControle, JSON.stringify(exporte));
+            exporte.aUnChemin, JSON.stringify(exporte));
+        r.egal('AVEC AUTANT DE POINTS QUE LE TRACÉ DE L\'ÉCRAN',
+            exporte.combien, exporte.attendu, JSON.stringify(exporte));
+        r.egal('et les mêmes deux bouts',
+            [].concat(exporte.premier, exporte.dernier), exporte.bouts);
         r.verifie('et le cadre part avec elle', exporte.aUnCadre, JSON.stringify(exporte));
     }
 
