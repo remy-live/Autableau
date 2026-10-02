@@ -2306,6 +2306,7 @@ body.sans-tiroirs #donate-float-btn {
     gap: 8px;
 }
 
+#bar-style.ctx-legende .group-legende,
 #bar-style.ctx-point .group-point,
 #bar-style.ctx-line .group-line,
 #bar-style.ctx-surligneur .group-surligneur,

@@ -147,7 +147,8 @@ let activeStyle = {
     // La croix est la convention en géométrie : elle marque l'endroit exact
     pointShape: 'cross', lineWidth: 3, lineDash: 'solid', fontSize: 24,
     lineHeight: 29, // <--- AJOUTE lineHeight ICI
-    arrowStart: 0, arrowEnd: 0
+    arrowStart: 0, arrowEnd: 0,
+    formeDuCadre: 'arrondi'
 };
 
 // LE CACHE BLANC. « Rajouter une icône pour dessiner un rectangle blanc, pour
@@ -373,6 +374,11 @@ let isDrawingPostit = false; let postitBox = { startX: 0, startY: 0, endX: 0, en
 let legendeEnCours = null;
 let isDrawingLegende = false;
 let cadreDeLegende = { startX: 0, startY: 0, endX: 0, endY: 0 };
+// LA MAIN DIT D'ELLE-MÊME CE QU'ELLE VEUT. Qui tire sans lâcher attend que le
+// relâchement referme le cadre ; qui clique et relève attend un second clic.
+// On ne choisit donc pas pour lui : on regarde si le pointeur a bougé.
+const ECART_DU_GLISSEMENT = 8;
+let departDuCadreEnPixels = null;
 // L'ellipse libre se trace à la boîte, comme le post-it et le zoom : un coin,
 // on tire, on lâche.
 let isDrawingEllipse = false; let boiteEllipse = null;
@@ -4958,10 +4964,36 @@ function generateSVGString(rect, keepBg) {
                     // forme que le tableau.
                     if (obj.isLegende) {
                         const f = flecheDeLaLegende(obj);
+                        const forme = formeDuCadre(obj);
                         const trait = Math.max(1, obj.width || 3);
                         const couleur = obj.color || '#2d3436';
+                        const b = f.cadre;
+                        const rr = Math.min(10, b.w / 2, b.h / 2);
+                        const dessinDuCadre = (remplissage, contour) => {
+                            if (forme === 'ellipse') {
+                                return `<ellipse cx="${b.x + b.w / 2}" cy="${b.y + b.h / 2}" `
+                                     + `rx="${b.w / 2}" ry="${b.h / 2}" fill="${remplissage}" `
+                                     + (contour ? `stroke="${couleur}" stroke-width="${trait}"` : 'stroke="none"') + `/>`;
+                            }
+                            return `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" `
+                                 + `rx="${forme === 'droit' ? 0 : rr}" fill="${remplissage}" `
+                                 + (contour ? `stroke="${couleur}" stroke-width="${trait}"` : 'stroke="none"') + `/>`;
+                        };
+                        // LE MÊME DÉCOUPAGE QU'À L'ÉCRAN : un masque blanc
+                        // partout, noir sur le cadre. Sans lui, un PDF
+                        // montrerait le trait traverser l'étiquette alors que
+                        // le tableau le cache.
+                        if (forme !== 'aucun') {
+                            svg += dessinDuCadre(obj.fillColor || '#ffffff', true);
+                            svg += `<mask id="leg-${obj.id}" maskUnits="userSpaceOnUse" `
+                                 + `x="-100000" y="-100000" width="200000" height="200000">`
+                                 + `<rect x="-100000" y="-100000" width="200000" height="200000" fill="white"/>`
+                                 + dessinDuCadre('black', false) + `</mask>`;
+                        }
                         const ang = Math.atan2(f.pointe.y - f.ctrl.y, f.pointe.x - f.ctrl.x);
                         const L = Math.max(10, trait * 4);
+                        const masque = forme === 'aucun' ? '' : ` mask="url(#leg-${obj.id})"`;
+                        svg += `<g${masque}>`;
                         svg += `<path d="M ${f.depart.x} ${f.depart.y} Q ${f.ctrl.x} ${f.ctrl.y} `
                              + `${f.pointe.x} ${f.pointe.y}" fill="none" stroke="${couleur}" `
                              + `stroke-width="${trait}" stroke-linecap="round"/>`;
@@ -4969,10 +5001,7 @@ function generateSVGString(rect, keepBg) {
                              + `L ${f.pointe.x - L * Math.cos(ang - 0.4)} ${f.pointe.y - L * Math.sin(ang - 0.4)} `
                              + `L ${f.pointe.x - L * Math.cos(ang + 0.4)} ${f.pointe.y - L * Math.sin(ang + 0.4)} Z" `
                              + `fill="${couleur}" stroke="none"/>`;
-                        const b = f.cadre;
-                        const rr = Math.min(10, b.w / 2, b.h / 2);
-                        svg += `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${rr}" `
-                             + `fill="${obj.fillColor || '#ffffff'}" stroke="${couleur}" stroke-width="${trait}"/>`;
+                        svg += `</g>`;
                     }
 
                     // 🌟 EXPORT VECTORIEL DES BULLES INTERACTIVES
@@ -5118,6 +5147,32 @@ const btnCapture = document.getElementById('btn-capture');
 // MI-CHEMIN. Sans cela, poser le pli sur un mot ne le ferait pas contourner,
 // et le réglage mentirait.
 const MARGE_DE_LA_LEGENDE = 14;     // entre le texte et son cadre
+
+// LA FORME DU CADRE SE CHOISIT. « On peut d'abord avoir un rectangle arrondi,
+// et par un menu de forme. » Le menu n'est ni au double-clic — il ouvre déjà
+// la saisie dans le cadre — ni au clic droit, qui n'existe nulle part ici et
+// pas du tout au tableau : c'est un bouton de la barre de style, et un panneau
+// qui NOMME et qui MONTRE, comme pour la forme des points.
+const FORMES_DU_CADRE = ['arrondi', 'droit', 'ellipse', 'aucun'];
+const NOMS_DES_CADRES = {
+    arrondi: 'Rectangle arrondi', droit: 'Rectangle',
+    ellipse: 'Ellipse', aucun: 'Sans cadre'
+};
+function formeDuCadre(o) {
+    const f = o && o.formeDuCadre;
+    return FORMES_DU_CADRE.includes(f) ? f : 'arrondi';
+}
+// Le contour, pour le dessin ET pour le découpage : une seule source, sinon la
+// flèche serait coupée sur un bord qui n'est pas celui qu'on voit.
+function cheminDuCadre(c, b, forme, r) {
+    if (forme === 'ellipse') {
+        c.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+    } else if (forme === 'droit' || !c.roundRect) {
+        c.rect(b.x, b.y, b.w, b.h);
+    } else {
+        c.roundRect(b.x, b.y, b.w, b.h, r);
+    }
+}
 const PAS_DE_LA_FLECHE = 16;        // échantillons pour le clic et l'export
 
 function estUneLegende(o) { return !!(o && o.isLegende); }
@@ -5169,15 +5224,115 @@ function abscisseDuContour(b, x, y) {
 // Les trois points de la flèche, prêts à dessiner. « ctrl » est le point de
 // contrôle de la quadratique, calculé pour que la courbe PASSE par le pli :
 // une quadratique vaut (A + 2C + B)/4 en son milieu, d'où C = 2P - (A + B)/2.
+// POSER LA LÉGENDE. Deux chemins y mènent — le relâchement d'un glissement et
+// le second clic d'un dessin — et ils doivent produire exactement le même
+// objet : d'où une seule fonction.
+function acheverLaLegende() {
+    isDrawingLegende = false;
+    departDuCadreEnPixels = null;
+    if (!legendeEnCours) return null;
+    const x0 = Math.min(cadreDeLegende.startX, cadreDeLegende.endX);
+    const y0 = Math.min(cadreDeLegende.startY, cadreDeLegende.endY);
+    // UN CADRE MINIMUM : un simple clic, sans glissement, ne doit pas
+    // donner une étiquette invisible qu'on ne retrouvera jamais.
+    const W = Math.max(Math.abs(cadreDeLegende.endX - cadreDeLegende.startX), 110);
+    const H = Math.max(Math.abs(cadreDeLegende.endY - cadreDeLegende.startY), 56);
+    const m = MARGE_DE_LA_LEGENDE;
+    const obj = {
+        id: nextId++, isLegende: true,
+        x: x0 + m, y: y0 + m,
+        fixedWidth: W - 2 * m, fixedHeight: H - 2 * m, colWidth: W - 2 * m,
+        bubblePad: m,
+        content: '',
+        color: activeStyle.strokeColor,
+        fillColor: '#ffffff',
+        formeDuCadre: formeDuCadre(activeStyle),
+        width: activeStyle.lineWidth,
+        fontSize: activeStyle.fontSize,
+        fontFamily: activeStyle.fontFamily || 'sans-serif',
+        align: activeStyle.textAlign || 'left',
+        lineHeight: activeStyle.lineHeight,
+        pointeX: legendeEnCours.pointeX, pointeY: legendeEnCours.pointeY,
+        pliX: legendeEnCours.pliX, pliY: legendeEnCours.pliY,
+        z: globalZ++
+    };
+    // L'ATTACHE NAÎT LÀ OÙ LE DOIGT A POSÉ LE CADRE, et non à un coin
+    // choisi d'avance : c'est ce point-là qu'on a visé.
+    obj.ancre = abscisseDuContour(boiteDuTexte(obj), cadreDeLegende.startX, cadreDeLegende.startY);
+    if (typeof noterLaPage === 'function') noterLaPage(obj, obj.x, obj.y);
+    texts.push(obj);
+    legendeEnCours = null;
+    saveState(); draw();
+    legendeEnCours = null;
+    saveState(); draw();
+    return obj;
+}
+window.acheverLaLegende = acheverLaLegende;
+
+// Un point est-il SOUS l'étiquette ? Le coin arrondi fait dix pixels : on le
+// néglige, et le découpage du dessin rattrape ce que ce calcul laisse passer.
+function dansLeCadre(b, forme, p) {
+    if (forme === 'aucun') return false;
+    if (forme === 'ellipse') {
+        const dx = (p.x - (b.x + b.w / 2)) / (b.w / 2);
+        const dy = (p.y - (b.y + b.h / 2)) / (b.h / 2);
+        return dx * dx + dy * dy < 1;
+    }
+    return p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h;
+}
+
+function pointDeLaQuadratique(a, ctrl, c, t) {
+    const u = 1 - t;
+    return { x: u * u * a.x + 2 * u * t * ctrl.x + t * t * c.x,
+             y: u * u * a.y + 2 * u * t * ctrl.y + t * t * c.y };
+}
+
 function flecheDeLaLegende(o) {
     const b = boiteDuTexte(o);
-    const a = pointDuContour(b, o.ancre === undefined ? 0.5 : o.ancre);   // 0,5 : le milieu du haut
+    const pose = pointDuContour(b, o.ancre === undefined ? 0.5 : o.ancre);   // 0,5 : le milieu du haut
     const c = { x: o.pointeX, y: o.pointeY };
     const pli = (o.pliX === undefined)
-        ? { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 }
+        ? { x: (pose.x + c.x) / 2, y: (pose.y + c.y) / 2 }
         : { x: o.pliX, y: o.pliY };
-    return { depart: a, pli, pointe: c, cadre: b,
-             ctrl: { x: 2 * pli.x - (a.x + c.x) / 2, y: 2 * pli.y - (a.y + c.y) / 2 } };
+    const controle = (d) => ({ x: 2 * pli.x - (d.x + c.x) / 2, y: 2 * pli.y - (d.y + c.y) / 2 });
+    let depart = pose, ctrl = controle(pose);
+
+    // L'ATTACHE SE RATTRAPE QUAND ELLE EST DU MAUVAIS CÔTÉ.
+    //
+    // « Quand on bouge le point, s'il passe en dessous, il ne faut pas que ça
+    // cache la flèche : il faut que le trait s'adapte. » Une attache posée en
+    // bas et une pointe en haut obligent la flèche à TRAVERSER l'étiquette
+    // pour en sortir : on n'en voyait plus que la fin, et le trait semblait
+    // naître de nulle part.
+    //
+    // On ne déplace pas l'attache enregistrée — elle reste celle qu'on a
+    // posée. On part simplement du DERNIER POINT OÙ LA COURBE QUITTE LE CADRE,
+    // qui est lui aussi un point du contour, et celui-là regarde la flèche.
+    // Dans tous les cas normaux la courbe sort tout de suite, et ce point EST
+    // l'attache : rien ne bouge.
+    // Sans cadre, « dansLeCadre » ne répond jamais oui : il n'y a rien à
+    // contourner, et aucune garde supplémentaire n'aurait d'effet. En revanche
+    // une POINTE POSÉE DANS L'ÉTIQUETTE n'a pas de sortie — on ne cherche donc
+    // pas à en trouver une, et c'est le découpage du dessin qui s'en charge.
+    const forme = formeDuCadre(o);
+    if (!dansLeCadre(b, forme, c)) {
+        const N = 32;
+        let dernierDedans = -1;
+        for (let k = 0; k <= N; k++) {
+            if (dansLeCadre(b, forme, pointDeLaQuadratique(depart, ctrl, c, k / N))) dernierDedans = k;
+        }
+        if (dernierDedans >= 0) {
+            // La sortie, affinée entre le dernier point dedans et le suivant.
+            let lo = dernierDedans / N, hi = (dernierDedans + 1) / N;
+            for (let i = 0; i < 18; i++) {
+                const mi = (lo + hi) / 2;
+                if (dansLeCadre(b, forme, pointDeLaQuadratique(depart, ctrl, c, mi))) lo = mi; else hi = mi;
+            }
+            depart = pointDeLaQuadratique(depart, ctrl, c, hi);
+            ctrl = controle(depart);
+        }
+    }
+    return { depart, pli, pointe: c, cadre: b, ctrl, attache: pose };
 }
 
 // La courbe en petits segments : le clic s'en sert pour mesurer une distance,
@@ -8889,6 +9044,13 @@ function updateStyleBarContext() {
     majBoutonDOrientation();
     majBoutonDOrientationDuStyle();
 
+    // UNE LÉGENDE EST-ELLE EN JEU ? À l'outil, ou sous la sélection. On ne
+    // touche pas à « targetType » : l'objet est un texte, et doit garder les
+    // réglages du texte quand on le tient.
+    const legendeTenue = selectedItems.length === 1 && selectedItems[0].type === 'text'
+        && !!(getObjectById('text', selectedItems[0].id) || {}).isLegende;
+    barStyle.classList.toggle('ctx-legende', mode === 'legende' || legendeTenue);
+
     let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
@@ -9323,6 +9485,55 @@ function majLIconeDeForme() {
 }
 window.majLIconeDeForme = majLIconeDeForme;
 
+// Les quatre cadres, dessinés une fois : le bouton les montre, le panneau les
+// propose, et l'export n'a pas à les redessiner.
+const DESSINS_DE_CADRE = {
+    arrondi: '<rect x="3" y="6" width="18" height="12" rx="3.5" fill="none" stroke="currentColor" stroke-width="2"/>',
+    droit: '<rect x="3" y="6" width="18" height="12" fill="none" stroke="currentColor" stroke-width="2"/>',
+    ellipse: '<ellipse cx="12" cy="12" rx="9" ry="6" fill="none" stroke="currentColor" stroke-width="2"/>',
+    aucun: '<rect x="3" y="6" width="18" height="12" rx="3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" opacity="0.45"/><line x1="5" y1="19" x2="19" y2="5" stroke="currentColor" stroke-width="2"/>'
+};
+const APERCUS_DE_CADRE = {};
+Object.keys(DESSINS_DE_CADRE).forEach(f => {
+    APERCUS_DE_CADRE[f] = '<svg viewBox="0 0 24 24" width="26" height="26">' + DESSINS_DE_CADRE[f] + '</svg>';
+});
+
+function majLIconeDuCadre() {
+    const i = document.getElementById('icon-cadre-legende');
+    if (!i) return;
+    const f = formeDuCadre(activeStyle);
+    i.innerHTML = DESSINS_DE_CADRE[f];
+    const b = document.getElementById('btn-cadre-legende');
+    if (b) b.setAttribute('data-tooltip', 'Forme du cadre — ' + NOMS_DES_CADRES[f]);
+}
+window.majLIconeDuCadre = majLIconeDuCadre;
+
+// LE CHOIX S'APPLIQUE À CE QU'ON TIENT, ou à ce qu'on va poser. Changer la
+// forme sans toucher la légende sélectionnée obligerait à l'effacer pour la
+// refaire.
+function ouvrirLesFormesDeCadre(bouton) {
+    if (typeof ouvrirPanneauAppui !== 'function') return false;
+    ouvrirPanneauAppui(bouton, 'Forme du cadre', [{
+        rangee: FORMES_DU_CADRE.map(f => ({
+            nom: NOMS_DES_CADRES[f],
+            apercu: APERCUS_DE_CADRE[f],
+            actif: formeDuCadre(activeStyle) === f,
+            action: () => {
+                activeStyle.formeDuCadre = f;
+                majLIconeDuCadre();
+                selectedItems.forEach(it => {
+                    const o = getObjectById(it.type, it.id);
+                    if (o && o.isLegende && !o.locked) o.formeDuCadre = f;
+                });
+                saveState();
+                if (typeof draw === 'function') draw();
+            }
+        }))
+    }]);
+    return true;
+}
+window.ouvrirLesFormesDeCadre = ouvrirLesFormesDeCadre;
+
 function ouvrirLesFormesDePoint(bouton) {
     if (typeof ouvrirPanneauAppui !== 'function') return false;
     ouvrirPanneauAppui(bouton, 'Forme des points', [{
@@ -9350,6 +9561,10 @@ document.getElementById('btn-shape').addEventListener('click', function () {
 // morte, et le script ENTIER s'arrête là — mesuré, les constantes suivantes
 // devenaient inaccessibles et l'application ne démarrait plus du tout.
 document.addEventListener('DOMContentLoaded', majLIconeDeForme);
+document.getElementById('btn-cadre-legende')?.addEventListener('click', function () {
+    ouvrirLesFormesDeCadre(this);
+});
+document.addEventListener('DOMContentLoaded', majLIconeDuCadre);
 // Le bout du surligneur : rond ou carré, d'un appui, là où l'on règle déjà
 // son épaisseur. Le même choix vit derrière l'appui long de l'icône.
 document.getElementById('btn-bout-surligneur')?.addEventListener('click', () => {
@@ -9725,7 +9940,9 @@ function getHandleAt(lx, ly, obj, type) {
         if (Math.hypot(lx - obj.pointeX, ly - obj.pointeY) <= hw * 1.5) return 'LEG_POINTE';
         const f = flecheDeLaLegende(obj);
         if (Math.hypot(lx - f.pli.x, ly - f.pli.y) <= hw * 1.5) return 'LEG_PLI';
-        if (Math.hypot(lx - f.depart.x, ly - f.depart.y) <= hw * 1.5) return 'LEG_ANCRE';
+        // La poignée est sur l'attache POSÉE, et non sur le point de sortie :
+        // c'est celle-là qu'on a mise, c'est celle-là qu'on reprend.
+        if (Math.hypot(lx - f.attache.x, ly - f.attache.y) <= hw * 1.5) return 'LEG_ANCRE';
         const b = f.cadre;
         if (Math.hypot(lx - (b.x + b.w), ly - (b.y + b.h)) <= hw * 1.5) return 'LEG_CADRE';
     }
@@ -12052,6 +12269,17 @@ canvas.addEventListener('pointerdown', (e) => {
 
     if (mode === 'legende') {
         clearSelection();
+        if (isDrawingLegende) {
+            // 4. ON REFERME LE CADRE. « Quand on arrive au troisième point, le
+            // cadre apparaît tout de suite, il faudrait pouvoir le dessiner. »
+            // Les deux premiers points sont des CLICS ; faire du troisième un
+            // glissement obligatoire rompait la série, et un simple clic posait
+            // aussitôt un cadre de taille imposée. On pose donc un coin, le
+            // cadre suit le pointeur, et un second clic le referme.
+            cadreDeLegende.endX = rawPos.x; cadreDeLegende.endY = rawPos.y;
+            acheverLaLegende();
+            return;
+        }
         if (!legendeEnCours) {
             // 1. LA POINTE, sur ce qu'on veut montrer.
             legendeEnCours = { pointeX: rawPos.x, pointeY: rawPos.y };
@@ -12059,9 +12287,10 @@ canvas.addEventListener('pointerdown', (e) => {
             // 2. LE PLI, par où la courbe passera.
             legendeEnCours.pliX = rawPos.x; legendeEnCours.pliY = rawPos.y;
         } else {
-            // 3. L'AUTRE BOUT, et le cadre se tire de là.
+            // 3. LE PREMIER COIN DU CADRE.
             isDrawingLegende = true;
             cadreDeLegende = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y };
+            departDuCadreEnPixels = { x: e.clientX, y: e.clientY };
         }
         updateCursor(); draw(); return;
     }
@@ -13486,40 +13715,17 @@ function handlePointerUp(e) {
         draw(); return;
     }
 
-    // LA FLÈCHE COURBE SE REFERME SUR SON CADRE.
+    // LA FLÈCHE COURBE SE REFERME SUR SON CADRE — au relâchement si l'on a
+    // TIRÉ, au second clic si l'on a seulement cliqué.
     if (isDrawingLegende) {
-        isDrawingLegende = false;
-        const x0 = Math.min(cadreDeLegende.startX, cadreDeLegende.endX);
-        const y0 = Math.min(cadreDeLegende.startY, cadreDeLegende.endY);
-        // UN CADRE MINIMUM : un simple clic, sans glissement, ne doit pas
-        // donner une étiquette invisible qu'on ne retrouvera jamais.
-        const W = Math.max(Math.abs(cadreDeLegende.endX - cadreDeLegende.startX), 110);
-        const H = Math.max(Math.abs(cadreDeLegende.endY - cadreDeLegende.startY), 56);
-        const m = MARGE_DE_LA_LEGENDE;
-        const obj = {
-            id: nextId++, isLegende: true,
-            x: x0 + m, y: y0 + m,
-            fixedWidth: W - 2 * m, fixedHeight: H - 2 * m, colWidth: W - 2 * m,
-            bubblePad: m,
-            content: '',
-            color: activeStyle.strokeColor,
-            fillColor: '#ffffff',
-            width: activeStyle.lineWidth,
-            fontSize: activeStyle.fontSize,
-            fontFamily: activeStyle.fontFamily || 'sans-serif',
-            align: activeStyle.textAlign || 'left',
-            lineHeight: activeStyle.lineHeight,
-            pointeX: legendeEnCours.pointeX, pointeY: legendeEnCours.pointeY,
-            pliX: legendeEnCours.pliX, pliY: legendeEnCours.pliY,
-            z: globalZ++
-        };
-        // L'ATTACHE NAÎT LÀ OÙ LE DOIGT A POSÉ LE CADRE, et non à un coin
-        // choisi d'avance : c'est ce point-là qu'on a visé.
-        obj.ancre = abscisseDuContour(boiteDuTexte(obj), cadreDeLegende.startX, cadreDeLegende.startY);
-        if (typeof noterLaPage === 'function') noterLaPage(obj, obj.x, obj.y);
-        texts.push(obj);
-        legendeEnCours = null;
-        saveState(); draw();
+        const bouge = departDuCadreEnPixels
+            ? Math.hypot(e.clientX - departDuCadreEnPixels.x, e.clientY - departDuCadreEnPixels.y)
+            : 0;
+        // Le coin mobile est déjà tenu à jour par le déplacement : le relevé
+        // de position n'existe pas dans ce gestionnaire-ci.
+        if (bouge > ECART_DU_GLISSEMENT) acheverLaLegende();
+        // Sinon on ne fait RIEN : le cadre continue de suivre le pointeur, et
+        // c'est le prochain appui qui le referme.
         return;
     }
 
@@ -14687,13 +14893,48 @@ function draw() {
                 // ==========================================
                 if (obj.isLegende) {
                     const f = flecheDeLaLegende(obj);
+                    const forme = formeDuCadre(obj);
                     const trait = Math.max(1, (obj.width || 3)) * lw;
+                    const b = f.cadre;
+                    const r = Math.min(10 * lw, b.w / 2, b.h / 2);
+                    const encre = obj.color || renderColor;
                     ctx.save();
                     ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
                     ctx.setLineDash([]);
                     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                    ctx.strokeStyle = obj.color || renderColor;
                     ctx.lineWidth = trait;
+
+                    // 1. LE CADRE D'ABORD.
+                    if (forme !== 'aucun') {
+                        ctx.beginPath();
+                        cheminDuCadre(ctx, b, forme, r);
+                        ctx.fillStyle = obj.fillColor || '#ffffff';
+                        ctx.fill();
+                        ctx.strokeStyle = encre;
+                        ctx.stroke();
+                    }
+
+                    // 2. LA FLÈCHE ENSUITE, DÉCOUPÉE HORS DU CADRE.
+                    //
+                    // « Quand on bouge le point, s'il passe en dessous, il ne
+                    // faut pas que ça cache la flèche : il faut que le trait
+                    // s'adapte. » Le cadre était peint par-dessus, et tout ce
+                    // qui passait sous l'étiquette disparaissait — la flèche
+                    // semblait coupée net, ou amputée de son départ selon le
+                    // côté d'où elle arrivait.
+                    //
+                    // On ne déplace donc pas l'attache dans le dos de celui qui
+                    // l'a posée : on NE DESSINE PAS ce qui est sous le cadre.
+                    // Le trait reparaît exactement au bord, de quelque côté
+                    // qu'il vienne, et l'attache reste là où on l'a mise.
+                    ctx.save();
+                    if (forme !== 'aucun') {
+                        ctx.beginPath();
+                        ctx.rect(-1e7, -1e7, 2e7, 2e7);
+                        cheminDuCadre(ctx, b, forme, r);
+                        ctx.clip('evenodd');
+                    }
+                    ctx.strokeStyle = encre;
                     ctx.beginPath();
                     ctx.moveTo(f.depart.x, f.depart.y);
                     ctx.quadraticCurveTo(f.ctrl.x, f.ctrl.y, f.pointe.x, f.pointe.y);
@@ -14710,19 +14951,9 @@ function draw() {
                     ctx.lineTo(f.pointe.x - L * Math.cos(ang - 0.4), f.pointe.y - L * Math.sin(ang - 0.4));
                     ctx.lineTo(f.pointe.x - L * Math.cos(ang + 0.4), f.pointe.y - L * Math.sin(ang + 0.4));
                     ctx.closePath();
-                    ctx.fillStyle = obj.color || renderColor;
+                    ctx.fillStyle = encre;
                     ctx.fill();
-                    // Le cadre.
-                    const b = f.cadre;
-                    const r = Math.min(10 * lw, b.w / 2, b.h / 2);
-                    ctx.beginPath();
-                    if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, r);
-                    else ctx.rect(b.x, b.y, b.w, b.h);
-                    ctx.fillStyle = obj.fillColor || '#ffffff';
-                    ctx.fill();
-                    ctx.lineWidth = trait;
-                    ctx.strokeStyle = obj.color || renderColor;
-                    ctx.stroke();
+                    ctx.restore();
                     ctx.restore();
                 }
 
@@ -15139,7 +15370,7 @@ function draw() {
                         ctx.lineWidth = lw * 2;
                         // Le pli se distingue des deux bouts : c'est le point
                         // qu'on cherche quand la courbe passe mal.
-                        [[f.pointe, '#6c5ce7'], [f.pli, '#00b894'], [f.depart, '#0984e3'],
+                        [[f.pointe, '#6c5ce7'], [f.pli, '#00b894'], [f.attache, '#0984e3'],
                          [{ x: f.cadre.x + f.cadre.w, y: f.cadre.y + f.cadre.h }, '#6c5ce7']]
                             .forEach(([pt, couleur]) => {
                                 ctx.beginPath(); ctx.arc(pt.x, pt.y, hr, 0, Math.PI * 2);

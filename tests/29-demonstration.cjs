@@ -100,21 +100,28 @@ module.exports = async function (browser) {
     // (deux icônes), la barre de l'interface, le menu de la pastille et la
     // fenêtre « Mes classes ». Tout cela sous la visite en cours, donc rien ne
     // peut aller au disque.
-    await page.evaluate(async () => {
+    // TOUT SE MONTE ET SE MESURE DANS LE MÊME SOUFFLE.
+    //
+    // « #floating-demo introuvable », vu deux fois et jamais reproduit à la
+    // demande. La barre de démonstration était posée AVANT deux ouvertures
+    // asynchrones dont l'une redessine les barres flottantes depuis le
+    // stockage — où celle-ci n'est pas. Elle était donc balayée de temps en
+    // temps.
+    //
+    // La poser APRÈS, dans un second aller-retour, a déplacé le défaut sans le
+    // guérir : la visite est MINUTÉE, et le temps gagné suffisait parfois à ce
+    // qu'elle referme « Mes classes » avant la mesure. On ne rajoute donc pas
+    // de temps, on en RETIRE : le montage et le relevé tiennent dans un seul
+    // appel, et le relevé est synchrone — rien ne peut se glisser entre.
+    const cibles = await page.evaluate(async () => {
         demarrerLaDemonstration();
         handleMp3Drop(new File([new Uint8Array(512)], 'essai.mp3', { type: 'audio/mpeg' }));
+        ouvrirLeMenuDeClasse(ClassesStore._cache);
+        await openClassManagerModal('classe_demonstration', 'points');
+        await new Promise(ok => setTimeout(ok, 300));
         renderFloatingToolbar({ id: 'floating-demo', name: 'Ma barre', x: 40, y: 40,
             palette: 'default', titlePalette: 'default', borderPalette: 'default',
             iconSize: '1', items: ['freehand'] });
-        ouvrirLeMenuDeClasse(ClassesStore._cache);
-        await openClassManagerModal('classe_demonstration', 'points');
-    });
-    await page.waitForTimeout(300);
-    // LE MENU DE LA PASTILLE A DEUX ÉTATS, et le chapitre passe par les deux :
-    // la liste des classes, puis l'appel. Un seul instantané en manquerait
-    // forcément la moitié — on regarde donc dans les deux, et ce qui manque
-    // partout manque vraiment.
-    const cibles = await page.evaluate(() => {
         // Les sélecteurs que les chapitres désignent, lus dans leur source :
         // c'est la source qui fait foi, pas une liste tenue à côté.
         const src = chapitresDeLaDemonstration().map(c => String(c.faire)).join('\n');

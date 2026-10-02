@@ -183,7 +183,7 @@ module.exports = async function (browser) {
         t.ancre = 1.25;
         const avant = flecheDeLaLegende(t);
         const sur = (f) => {
-            const b = f.cadre, p = f.depart;
+            const b = f.cadre, p = f.attache;
             if (Math.abs(p.y - b.y) < 0.5) return ['haut', (p.x - b.x) / b.w];
             if (Math.abs(p.x - (b.x + b.w)) < 0.5) return ['droite', (p.y - b.y) / b.h];
             if (Math.abs(p.y - (b.y + b.h)) < 0.5) return ['bas', (b.x + b.w - p.x) / b.w];
@@ -274,7 +274,16 @@ module.exports = async function (browser) {
     // Sans glissement, un cadre de zéro serait une étiquette invisible qu'on
     // ne retrouverait jamais.
     // ------------------------------------------------------------------
-    await poser([300, 600], [420, 560], [600, 650], [600, 650]);
+    await page.evaluate(() => {
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        legendeEnCours = null; isDrawingLegende = false;
+        setMode('legende');
+    });
+    await page.mouse.click(300, 600);
+    await page.mouse.click(420, 560);
+    await page.mouse.click(600, 650);      // le coin
+    await page.mouse.click(600, 650);      // et on referme au même endroit
+    await page.waitForTimeout(200);
     const sansGlisser = await page.evaluate(() => {
         const t = texts[0];
         if (!t) return { aucune: true };
@@ -383,6 +392,229 @@ module.exports = async function (browser) {
     r.egal('SON PLI', ecrit.pli, [500, 200]);
     r.egal('son attache', ecrit.ancre, 1.4);
     r.egal('et ce qu\'on avait écrit dedans', ecrit.content, 'attention à la retenue');
+
+    // ------------------------------------------------------------------
+    // 10. LE CADRE SE DESSINE : ON POSE UN COIN, ON BOUGE, ON REFERME
+    //
+    // « Quand on arrive au troisième point, le cadre apparaît tout de suite,
+    // il faudrait pouvoir le dessiner. » Les deux premiers points sont des
+    // CLICS ; faire du troisième un glissement obligatoire rompait la série,
+    // et un simple clic posait aussitôt un cadre de taille imposée.
+    // ------------------------------------------------------------------
+    await page.evaluate(() => {
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        legendeEnCours = null; isDrawingLegende = false;
+        setMode('legende');
+    });
+    await page.mouse.click(300, 250);
+    await page.mouse.click(500, 200);
+    await page.mouse.click(700, 400);            // le premier coin, et on relève
+    await page.waitForTimeout(150);
+    const apresTroisClics = await page.evaluate(() => ({ posee: texts.length, enTrain: isDrawingLegende }));
+    r.egal('APRÈS LE TROISIÈME CLIC, RIEN N\'EST ENCORE POSÉ', apresTroisClics.posee, 0);
+    r.verifie('mais le cadre est en train de se dessiner', apresTroisClics.enTrain,
+        JSON.stringify(apresTroisClics));
+    await page.mouse.move(930, 530, { steps: 6 });
+    await page.waitForTimeout(120);
+    const pendant = await page.evaluate(() => ({ posee: texts.length,
+        coin: [Math.round(cadreDeLegende.endX), Math.round(cadreDeLegende.endY)] }));
+    r.egal('le cadre suit le pointeur sans rien poser', pendant.posee, 0);
+    r.egal('et il en épouse la position', pendant.coin, [930, 530]);
+    await page.mouse.click(930, 530);            // le second clic referme
+    await page.waitForTimeout(200);
+    const dessine = await page.evaluate(() => {
+        const t = texts[0];
+        if (!t) return { aucune: true };
+        const f = flecheDeLaLegende(t);
+        return { posee: texts.length,
+                 cadre: [Math.round(f.cadre.x), Math.round(f.cadre.y),
+                         Math.round(f.cadre.w), Math.round(f.cadre.h)],
+                 enTrain: isDrawingLegende };
+    });
+    r.egal('LE SECOND CLIC LE REFERME', dessine.posee, 1, JSON.stringify(dessine));
+    r.egal('à la taille dessinée', dessine.cadre, [700, 400, 230, 130]);
+    r.verifie('et le geste est terminé', !dessine.enTrain, JSON.stringify(dessine));
+
+    // ------------------------------------------------------------------
+    // 11. LE TRAIT NE SE PERD PAS SOUS L'ÉTIQUETTE
+    //
+    // « Quand on bouge le point, s'il passe en dessous, il ne faut pas que ça
+    // cache la flèche : il faut que le trait s'adapte. » Une attache posée en
+    // bas et une pointe en haut obligent la flèche à TRAVERSER l'étiquette
+    // pour en sortir : on n'en voyait plus que la fin.
+    //
+    // ON MESURE DEUX CHOSES, et il faut les deux : que plus aucun point du
+    // tracé ne soit sous le cadre, ET que l'attache POSÉE n'ait pas bougé dans
+    // le dos de celui qui l'a mise là.
+    // ------------------------------------------------------------------
+    const rattrape = await page.evaluate(() => {
+        const t = texts[0];
+        t.pointeX = 760; t.pointeY = 120;      // la pointe AU-DESSUS du cadre
+        t.pliX = 480; t.pliY = 230;
+        t.ancre = 2.5;                          // l'attache AU MILIEU DU BAS
+        const f = flecheDeLaLegende(t);
+        const b = f.cadre;
+        const dedans = echantillonsDeLaFleche(t)
+            .filter(p => dansLeCadre(b, formeDuCadre(t), p)).length;
+        const surLeBord = (p) => {
+            const dx = Math.min(Math.abs(p.x - b.x), Math.abs(p.x - (b.x + b.w)));
+            const dy = Math.min(Math.abs(p.y - b.y), Math.abs(p.y - (b.y + b.h)));
+            return dx < 1 || dy < 1;
+        };
+        return { dedans,
+                 depart: [Math.round(f.depart.x), Math.round(f.depart.y)],
+                 departSurLeBord: surLeBord(f.depart),
+                 attache: [Math.round(f.attache.x), Math.round(f.attache.y)],
+                 ancre: t.ancre,
+                 aBouge: Math.hypot(f.depart.x - f.attache.x, f.depart.y - f.attache.y) > 1 };
+    });
+    r.egal('PLUS AUCUN POINT DU TRACÉ N\'EST SOUS L\'ÉTIQUETTE', rattrape.dedans, 0,
+        JSON.stringify(rattrape));
+    r.verifie('le trait repart d\'un point du contour', rattrape.departSurLeBord,
+        JSON.stringify(rattrape));
+    r.verifie('et il a bien fallu le rattraper', rattrape.aBouge, JSON.stringify(rattrape));
+    r.egal('MAIS L\'ATTACHE POSÉE N\'A PAS BOUGÉ', rattrape.ancre, 2.5);
+
+    // Et dans le cas ordinaire, on ne touche à rien : l'attache du bon côté
+    // reste exactement le départ du trait.
+    const ordinaire = await page.evaluate(() => {
+        const t = texts[0];
+        t.ancre = 0.5;                          // le milieu du haut, face à la pointe
+        const f = flecheDeLaLegende(t);
+        return { ecart: Math.round(Math.hypot(f.depart.x - f.attache.x, f.depart.y - f.attache.y)),
+                 dedans: echantillonsDeLaFleche(t)
+                     .filter(p => dansLeCadre(f.cadre, formeDuCadre(t), p)).length };
+    });
+    r.egal('UNE ATTACHE DU BON CÔTÉ N\'EST PAS DÉPLACÉE', ordinaire.ecart, 0);
+    r.egal('et le tracé reste entier dehors', ordinaire.dedans, 0);
+
+    // La poignée, elle, reste sur l'attache qu'on a posée : c'est celle-là
+    // qu'on reprend, pas le point de sortie calculé.
+    const poigneeDeLAttache = await page.evaluate(() => {
+        const t = texts[0];
+        t.ancre = 2.5;
+        selectedItems = [{ type: 'text', id: t.id }];
+        draw();
+        const f = flecheDeLaLegende(t);
+        return { surLAttache: getHandleAt(f.attache.x, f.attache.y, t, 'text'),
+                 surLaSortie: getHandleAt(f.depart.x, f.depart.y, t, 'text') };
+    });
+    r.egal('LA POIGNÉE EST SUR L\'ATTACHE POSÉE', poigneeDeLAttache.surLAttache, 'LEG_ANCRE');
+    r.egal('et non sur le point de sortie', poigneeDeLAttache.surLaSortie, null);
+
+    // ------------------------------------------------------------------
+    // 12. LA FORME DU CADRE SE CHOISIT, ET « SANS CADRE » EN EST UNE
+    //
+    // Le menu n'est ni au double-clic — il ouvre déjà la saisie — ni au clic
+    // droit, qui n'existe nulle part ici et pas du tout au tableau.
+    // ------------------------------------------------------------------
+    const panneauDuCadre = await page.evaluate(async () => {
+        fermerPanneauAppui();
+        selectedItems = []; setMode('legende');
+        updateStyleBarContext();
+        await new Promise(ok => setTimeout(ok, 200));
+        const b = document.getElementById('btn-cadre-legende');
+        if (!b) return { absent: true };
+        const q = b.getBoundingClientRect();
+        b.click();
+        await new Promise(ok => setTimeout(ok, 250));
+        const pan = document.getElementById('panneau-appui');
+        return { visible: q.width > 10 && q.height > 10,
+                 titre: pan ? pan.querySelector('.rp-titre').textContent : null,
+                 choix: pan ? [...pan.querySelectorAll('.rp-case')].map(c => c.title) : [],
+                 actif: pan ? [...pan.querySelectorAll('.rp-case.actif')].map(c => c.title) : [],
+                 muettes: pan ? [...pan.querySelectorAll('.rp-case')]
+                     .filter(c => !c.querySelector('svg')).map(c => c.title) : ['(pas de panneau)'] };
+    });
+    r.verifie('le bouton de forme du cadre est atteignable', panneauDuCadre.visible,
+        JSON.stringify(panneauDuCadre));
+    r.egal('il ouvre un panneau nommé', panneauDuCadre.titre, 'Forme du cadre');
+    r.egal('QUI PROPOSE LES QUATRE FORMES', panneauDuCadre.choix,
+        ['Rectangle arrondi', 'Rectangle', 'Ellipse', 'Sans cadre']);
+    r.egal('et dit laquelle est en vigueur', panneauDuCadre.actif, ['Rectangle arrondi']);
+    r.egal('chaque case montre sa forme', panneauDuCadre.muettes, []);
+
+    // « SANS CADRE » EFFACE VRAIMENT LE CADRE, et la flèche devient entière :
+    // il n'y a plus rien à contourner.
+    const sansCadre = await page.evaluate(async () => {
+        fermerPanneauAppui();
+        const t = texts[0];
+        t.ancre = 2.5; t.content = '';
+        selectedItems = [{ type: 'text', id: t.id }];
+        const lire = () => {
+            draw();
+            const f = flecheDeLaLegende(t);
+            const b = f.cadre;
+            const fond = (() => { const d = ctx.getImageData(40, 660, 1, 1).data; return [d[0], d[1], d[2]]; })();
+            // Un point du BORD du cadre : peint s'il y a un cadre, nu sinon.
+            const d = ctx.getImageData(Math.round(b.x + b.w / 2), Math.round(b.y), 1, 1).data;
+            const encre = Math.abs(d[0] - fond[0]) + Math.abs(d[1] - fond[1]) + Math.abs(d[2] - fond[2]) > 60;
+            return { bordPeint: encre,
+                     dedans: echantillonsDeLaFleche(t)
+                         .filter(p => dansLeCadre(b, formeDuCadre(t), p)).length,
+                     ecart: Math.round(Math.hypot(f.depart.x - f.attache.x, f.depart.y - f.attache.y)) };
+        };
+        const avec = lire();
+        t.formeDuCadre = 'aucun';
+        const sans = lire();
+        t.formeDuCadre = 'arrondi';
+        return { avec, sans };
+    });
+    r.verifie('avec un cadre, son bord est peint', sansCadre.avec.bordPeint,
+        JSON.stringify(sansCadre));
+    r.verifie('SANS CADRE, IL N\'Y A PLUS RIEN À CET ENDROIT', !sansCadre.sans.bordPeint,
+        JSON.stringify(sansCadre));
+    r.egal('et la flèche repart alors de l\'attache elle-même, sans rattrapage',
+        sansCadre.sans.ecart, 0);
+
+    // ------------------------------------------------------------------
+    // 13. UNE POINTE POSÉE DANS L'ÉTIQUETTE N'A PAS DE SORTIE
+    //
+    // Le rattrapage cherche l'endroit où la courbe QUITTE le cadre. Si la
+    // pointe est dedans, elle n'en sort jamais : il n'y a rien à rattraper, et
+    // c'est le DÉCOUPAGE du dessin qui empêche le trait de barrer le texte.
+    // C'est le seul cas où ce découpage sert — mais il sert vraiment, et sans
+    // lui la flèche traverserait l'étiquette de part en part.
+    // ------------------------------------------------------------------
+    const pointeDedans = await page.evaluate(() => {
+        const t = texts[0];
+        t.formeDuCadre = 'arrondi';
+        t.ancre = 0.5;
+        selectedItems = [];
+        const f0 = flecheDeLaLegende(t);
+        const b = f0.cadre;
+        // La pointe au CENTRE de l'étiquette, le pli bien au-dessus.
+        t.pointeX = b.x + b.w / 2; t.pointeY = b.y + b.h / 2;
+        t.pliX = b.x + b.w / 2; t.pliY = b.y - 200;
+        draw();
+        const fond = (() => { const d = ctx.getImageData(40, 660, 1, 1).data; return [d[0], d[1], d[2]]; })();
+        // On lit une bande à l'intérieur du cadre, loin de ses bords : seule
+        // la couleur de fond du cadre doit s'y trouver.
+        const x0 = Math.round(b.x + 12), y0 = Math.round(b.y + 12);
+        const l = Math.round(b.w - 24), h = Math.round(b.h - 24);
+        const d = ctx.getImageData(x0, y0, l, h).data;
+        let encre = 0;
+        for (let i = 0; i < d.length; i += 4) {
+            if (Math.abs(d[i] - fond[0]) + Math.abs(d[i + 1] - fond[1])
+                + Math.abs(d[i + 2] - fond[2]) > 60) encre++;
+        }
+        // Et au-dessus du cadre, la flèche doit bel et bien être peinte.
+        const dh = ctx.getImageData(Math.round(b.x + b.w / 2) - 8, Math.round(b.y) - 40, 17, 17).data;
+        let dehors = 0;
+        for (let i = 0; i < dh.length; i += 4) {
+            if (Math.abs(dh[i] - fond[0]) + Math.abs(dh[i + 1] - fond[1])
+                + Math.abs(dh[i + 2] - fond[2]) > 60) dehors++;
+        }
+        return { encre, dehors, rattrapee: Math.round(Math.hypot(
+            flecheDeLaLegende(t).depart.x - flecheDeLaLegende(t).attache.x,
+            flecheDeLaLegende(t).depart.y - flecheDeLaLegende(t).attache.y)) };
+    });
+    r.egal('AUCUN TRAIT NE BARRE L\'INTÉRIEUR DE L\'ÉTIQUETTE', pointeDedans.encre, 0,
+        JSON.stringify(pointeDedans));
+    r.verifie('alors que dehors, la flèche est bien peinte', pointeDedans.dehors > 5,
+        JSON.stringify(pointeDedans));
+    r.egal('et l\'attache n\'a pas été rattrapée vers une sortie qui n\'existe pas',
+        pointeDedans.rattrapee, 0);
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
