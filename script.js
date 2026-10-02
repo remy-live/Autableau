@@ -8697,6 +8697,15 @@ function placerLaBarreStyle() {
 }
 window.placerLaBarreStyle = placerLaBarreStyle;
 
+// LES OUTILS QUI POSENT DES POINTS, et qui ont donc de quoi en régler la
+// forme. Le cercle pose son centre et un point de son bord ; le rectangle,
+// deux coins opposés — tous avec « activeStyle.pointShape ». Ils manquaient à
+// cette liste : la marque apparaissait, le réglage restait hors d'atteinte.
+// Le crayon, le surligneur et le post-it n'en posent aucun et n'y sont pas.
+const OUTILS_QUI_POSENT_DES_POINTS = ['segment', 'droite', 'demi-droite',
+                                      'curve', 'polygon', 'circle', 'rectangle'];
+window.OUTILS_QUI_POSENT_DES_POINTS = OUTILS_QUI_POSENT_DES_POINTS;
+
 function updateStyleBarContext() {
     // LA BARRE DE STYLE NE PARLE PLUS DU DOCUMENT. Les deux avaient fusionné,
     // et choisir le crayon pendant qu'on tenait un polycopié y déversait tous
@@ -8765,10 +8774,22 @@ function updateStyleBarContext() {
             barStyle.removeAttribute('data-dragged');
         }
     }
-    // --- NOUVEAU : On ajoute 'ctx-point' pour les outils segment, curve et polygon ---
+    // LA FORME DES POINTS SE RÈGLE PARTOUT OÙ L'ON EN POSE — voir
+    // « OUTILS_QUI_POSENT_DES_POINTS », juste au-dessus de cette fonction.
+    //
+    // « Je n'ai plus le style de point dans les barres de style et les
+    // segments. » Le bouton était bien là pour le segment ; il manquait au
+    // CERCLE et au RECTANGLE, qui posent pourtant deux points chacun — le
+    // centre et un bord pour l'un, deux coins opposés pour l'autre — et les
+    // posent avec « activeStyle.pointShape », mesuré : deux croix par figure.
+    // Un réglage qui s'applique sans qu'on puisse l'atteindre est pire qu'un
+    // réglage absent : on voit la marque, on la croit fatale.
+    //
+    // Le crayon, le surligneur et le post-it n'en posent aucun : chez eux le
+    // bouton n'aurait rien à régler, et il reste absent.
     else if (targetType === 'point') barStyle.classList.add('ctx-point');
-    else if (['segment', 'droite', 'demi-droite', 'curve', 'polygon'].includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
-    else if (['circle', 'rectangle', 'freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) {
+    else if (OUTILS_QUI_POSENT_DES_POINTS.includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
+    else if (['freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) {
         barStyle.classList.add('ctx-line');
         // LE SURLIGNEUR N'EST PAS UN TRAIT COMME UN AUTRE. « Pourquoi avoir
         // les options extrémité de ligne (flèche) et pointillés, ils ne

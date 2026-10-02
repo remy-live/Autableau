@@ -64,7 +64,7 @@ module.exports = async function (browser) {
     // « Idem avec demi-droite et courbe de Bézier. » Trois outils, un seul
     // chemin : les mesurer tous les trois empêche de n'en réparer qu'un.
     // ------------------------------------------------------------------
-    for (const outil of ['segment', 'demi-droite', 'curve']) {
+    for (const outil of ['segment', 'demi-droite', 'curve', 'circle', 'rectangle']) {
         const vu = await page.evaluate(async (o) => {
             fermerPanneauAppui();
             setMode(o);
@@ -78,6 +78,51 @@ module.exports = async function (browser) {
         r.verifie(`« ${outil} » : la forme des points se règle`,
             vu.l > 10 && vu.h > 10 && vu.groupe === 'flex', JSON.stringify(vu));
     }
+
+    // ------------------------------------------------------------------
+    // 2 bis. LE BOUTON PARAÎT LÀ OÙ DES POINTS SE POSENT, ET NULLE PART AILLEURS
+    //
+    // « Je n'ai plus le style de point dans les barres de style et les
+    // segments. » Il était bien là pour le segment ; il MANQUAIT au cercle et
+    // au rectangle, qui posent pourtant deux points chacun — le centre et un
+    // bord, deux coins opposés — avec la forme en vigueur. Le réglage
+    // s'appliquait sans qu'on puisse l'atteindre : on voyait la croix, on la
+    // croyait fatale.
+    //
+    // ON TRACE VRAIMENT, et l'on regarde les points NÉS du tracé : c'est la
+    // seule mesure qui lie le bouton à ce qu'il règle. Le crayon est là pour
+    // dire l'autre moitié de la règle — il ne pose aucun point, le bouton n'a
+    // rien à y faire.
+    const poseurs = [];
+    for (const outil of ['rectangle', 'circle', 'freehand']) {
+        await page.evaluate((o) => {
+            fermerPanneauAppui();
+            [points, segments, circles, rectangles, freehands].forEach(a => a.length = 0);
+            selectedItems = []; panX = 700; panY = 450; zoom = 1;
+            activeStyle.pointShape = 'square';
+            setMode(o);
+        }, outil);
+        await page.mouse.move(500, 400);
+        await page.mouse.down();
+        await page.mouse.move(700, 550, { steps: 10 });
+        await page.mouse.up();
+        await page.waitForTimeout(220);
+        poseurs.push(await page.evaluate((o) => {
+            const bs = document.getElementById('btn-shape');
+            return { outil: o, nes: points.length,
+                     formes: [...new Set(points.map(p => p.shape))],
+                     bouton: !!(bs && bs.getClientRects().length) };
+        }, outil));
+    }
+    const rect = poseurs[0], cercle = poseurs[1], crayon = poseurs[2];
+    r.egal('UN RECTANGLE POSE DEUX POINTS, À LA FORME CHOISIE',
+        [rect.nes, rect.formes], [2, ['square']]);
+    r.verifie('et son bouton de forme est donc atteignable', rect.bouton, JSON.stringify(rect));
+    r.egal('UN CERCLE AUSSI', [cercle.nes, cercle.formes], [2, ['square']]);
+    r.verifie('et le sien également', cercle.bouton, JSON.stringify(cercle));
+    r.egal('LE CRAYON N\'EN POSE AUCUN', crayon.nes, 0);
+    r.verifie('et n\'offre donc pas un réglage sans objet', !crayon.bouton,
+        JSON.stringify(crayon));
 
     // ------------------------------------------------------------------
     // 3. « AUCUNE » EFFACE LA MARQUE — ET LA REND DÈS QU'ON TIENT LE POINT
