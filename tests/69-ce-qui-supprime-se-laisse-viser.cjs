@@ -250,7 +250,17 @@ module.exports = async function (browser) {
     // même format, de la même épaisseur de trait, sans fond au repos — et
     // lisibles sur leur bandeau, de jour comme de nuit.
     await page.evaluate(() => { document.getElementById('btn-toggle-calc').click(); });
-    await page.waitForTimeout(600);
+    // ON ATTEND LA FENÊTRE, ON NE LA CHRONOMÈTRE PAS. Six cents millisecondes
+    // suffisaient presque toujours — et une fois sur une suite entière, non :
+    // le relevé de jour rendait « null » quand celui de nuit, pris quatre
+    // cents millisecondes plus tard, trouvait tout. Un délai fixe en face d'une
+    // ouverture asynchrone finit toujours par mentir.
+    // Et si elle ne vient JAMAIS, l'attente ne doit pas faire exploser le
+    // chapitre : on la laisse expirer, et les contrôles d'en dessous disent
+    // proprement ce qui manque. Une absence se rapporte, elle ne se crashe pas.
+    await page.waitForFunction(
+        () => !!document.querySelector('#calc-widget > .fen-tete .fen-fermer'),
+        { timeout: 15000 }).catch(() => { });
 
     const commandes = await page.evaluate(async () => {
         const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };

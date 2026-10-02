@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=229 »,
-         « script.js?v=402 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=403 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -2368,7 +2368,21 @@
                     viewBox="0 0 24 24" class="stroke-icon">
                     <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg></button>
-            <div></div> <!-- Empty cell for grid layout to match screenshot -->
+            <!-- LA FLÈCHE COURBE ET SON CADRE. « J'aimerais bien une fonction
+                 dans les outils qui crée une flèche arrondie : premier point,
+                 bout de la flèche, ça montre quelque chose ; deuxième point,
+                 le point d'inflexion ; troisième point, le bout de la flèche,
+                 et on crée un cadre de la taille qu'on veut. »
+                 C'est le geste qu'on fait vingt fois sur un polycopié : montrer
+                 un mot, et écrire à côté pourquoi. L'outil le fait d'un seul
+                 trait au lieu d'un trait, d'un cadre et d'un bloc de texte à
+                 aligner à la main. -->
+            <button class="btn" data-mode="legende" title="Flèche courbe et cadre"><svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <rect x="2" y="15" width="10" height="7" rx="1.5" />
+                    <path d="M12 18.5c5.5 0 7.5-4.5 8.4-9.5" />
+                    <path d="M17.6 10.6l2.9-2.2 1.3 3.3" />
+                </svg></button>
 
             <button class="btn" id="btn-ruler" data-widget="ruler" title="Règle">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon" fill="none"
@@ -4081,7 +4095,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=402"></script>
+    <script src="script.js?v=403"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=123"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

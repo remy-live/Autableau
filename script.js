@@ -367,6 +367,12 @@ function getGroupMembers(groupId) {
 let isSelectingBox = false; let selectionBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
 let isZoomBoxing = false; let zoomBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
 let isDrawingPostit = false; let postitBox = { startX: 0, startY: 0, endX: 0, endY: 0 };
+// LA FLÈCHE COURBE SE POSE EN TROIS TEMPS. « legendeEnCours » retient ce qui
+// est déjà placé : rien, puis la pointe, puis la pointe et le pli. Le
+// troisième appui ouvre le cadre et se tire comme un post-it.
+let legendeEnCours = null;
+let isDrawingLegende = false;
+let cadreDeLegende = { startX: 0, startY: 0, endX: 0, endY: 0 };
 // L'ellipse libre se trace à la boîte, comme le post-it et le zoom : un coin,
 // on tire, on lâche.
 let isDrawingEllipse = false; let boiteEllipse = null;
@@ -4946,6 +4952,29 @@ function generateSVGString(rect, keepBg) {
 
                     if (transformAttr !== "") svg += `<g${transformAttr}>`;
 
+                    // LA FLÈCHE COURBE S'EXPORTE AVEC SA COURBE, pas avec une
+                    // corde : on réemploie le MÊME point de contrôle que le
+                    // rendu à l'écran, sans quoi un PDF montrerait une autre
+                    // forme que le tableau.
+                    if (obj.isLegende) {
+                        const f = flecheDeLaLegende(obj);
+                        const trait = Math.max(1, obj.width || 3);
+                        const couleur = obj.color || '#2d3436';
+                        const ang = Math.atan2(f.pointe.y - f.ctrl.y, f.pointe.x - f.ctrl.x);
+                        const L = Math.max(10, trait * 4);
+                        svg += `<path d="M ${f.depart.x} ${f.depart.y} Q ${f.ctrl.x} ${f.ctrl.y} `
+                             + `${f.pointe.x} ${f.pointe.y}" fill="none" stroke="${couleur}" `
+                             + `stroke-width="${trait}" stroke-linecap="round"/>`;
+                        svg += `<path d="M ${f.pointe.x} ${f.pointe.y} `
+                             + `L ${f.pointe.x - L * Math.cos(ang - 0.4)} ${f.pointe.y - L * Math.sin(ang - 0.4)} `
+                             + `L ${f.pointe.x - L * Math.cos(ang + 0.4)} ${f.pointe.y - L * Math.sin(ang + 0.4)} Z" `
+                             + `fill="${couleur}" stroke="none"/>`;
+                        const b = f.cadre;
+                        const rr = Math.min(10, b.w / 2, b.h / 2);
+                        svg += `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${rr}" `
+                             + `fill="${obj.fillColor || '#ffffff'}" stroke="${couleur}" stroke-width="${trait}"/>`;
+                    }
+
                     // 🌟 EXPORT VECTORIEL DES BULLES INTERACTIVES
                     if (obj.isBubble) {
                         let pad = obj.bubblePad !== undefined ? obj.bubblePad : 25;
@@ -5067,6 +5096,109 @@ function generateSVGString(rect, keepBg) {
 const exportPopover = document.getElementById('export-popover');
 const btnCapture = document.getElementById('btn-capture');
 
+// ===========================================================================
+// LA FLÈCHE COURBE ET SON CADRE
+//
+// « Premier point, bout de la flèche, ça montre quelque chose ; deuxième
+// point, le point d'inflexion ; troisième point, le bout de la flèche, et on
+// crée un cadre de la taille qu'on veut. On peut bouger le point accroché au
+// cadre tout au long du cadre, et quand on clique pour sélectionner l'objet on
+// peut bouger les points, dont le point d'inflexion. »
+//
+// TROIS POINTS, ET UN SEUL NOMBRE POUR L'ATTACHE. La pointe et le pli sont des
+// coordonnées du tableau ; l'attache, elle, est une ABSCISSE CURVILIGNE entre
+// 0 et 1 le long du contour du cadre, comptée depuis le coin haut-gauche dans
+// le sens des aiguilles. Un seul nombre, et il survit à tout : on agrandit le
+// cadre, l'attache reste au même endroit de son bord, et la flèche suit.
+// Garder un point absolu aurait obligé à le recoller au contour à chaque
+// redimensionnement — et il aurait fini dedans ou dehors.
+//
+// LA COURBE PASSE PAR LE PLI, elle ne s'en approche pas : c'est une quadratique
+// dont le point de contrôle se déduit pour que la courbe touche le pli À
+// MI-CHEMIN. Sans cela, poser le pli sur un mot ne le ferait pas contourner,
+// et le réglage mentirait.
+const MARGE_DE_LA_LEGENDE = 14;     // entre le texte et son cadre
+const PAS_DE_LA_FLECHE = 16;        // échantillons pour le clic et l'export
+
+function estUneLegende(o) { return !!(o && o.isLegende); }
+
+// Le contour du cadre, parcouru dans le sens des aiguilles depuis le coin
+// haut-gauche : une abscisse entre 0 et 1 donne un point, et un point donne
+// une abscisse. Les deux sens servent — l'un pour dessiner, l'autre pour
+// faire glisser l'attache sous le doigt.
+// UN NOMBRE ENTRE 0 ET 4 : la partie entière dit LE CÔTÉ — 0 le haut, 1 la
+// droite, 2 le bas, 3 la gauche —, et la partie décimale la place sur ce
+// côté. Compter en abscisse curviligne sur tout le périmètre semblait plus
+// simple, et c'était faux : la marge du cadre ne grandit pas avec lui, si bien
+// qu'un agrandissement déformait le tour et faisait dériver l'attache de deux
+// pour cent — mesuré. Un côté et une fraction de ce côté survivent à TOUT
+// redimensionnement, même à un étirement dans un seul sens.
+function cotesDuCadre(b) {
+    return [
+        [b.x, b.y, b.x + b.w, b.y],                     // haut
+        [b.x + b.w, b.y, b.x + b.w, b.y + b.h],         // droite
+        [b.x + b.w, b.y + b.h, b.x, b.y + b.h],         // bas
+        [b.x, b.y + b.h, b.x, b.y]                      // gauche
+    ];
+}
+
+function pointDuContour(b, t) {
+    const cotes = cotesDuCadre(b);
+    const v = ((t % 4) + 4) % 4;
+    const [ax, ay, bx, by] = cotes[Math.floor(v)];
+    const u = v - Math.floor(v);
+    return { x: ax + (bx - ax) * u, y: ay + (by - ay) * u };
+}
+
+function abscisseDuContour(b, x, y) {
+    // On projette sur chacun des quatre côtés et l'on garde le plus proche :
+    // le doigt ne suit jamais le bord exactement.
+    let meilleur = 0, mieux = Infinity;
+    cotesDuCadre(b).forEach(([ax, ay, bx, by], i) => {
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        if (!len2) return;
+        let u = ((x - ax) * dx + (y - ay) * dy) / len2;
+        u = Math.max(0, Math.min(1, u));
+        const d = Math.hypot(x - (ax + u * dx), y - (ay + u * dy));
+        if (d < mieux) { mieux = d; meilleur = i + u; }
+    });
+    return meilleur;
+}
+
+// Les trois points de la flèche, prêts à dessiner. « ctrl » est le point de
+// contrôle de la quadratique, calculé pour que la courbe PASSE par le pli :
+// une quadratique vaut (A + 2C + B)/4 en son milieu, d'où C = 2P - (A + B)/2.
+function flecheDeLaLegende(o) {
+    const b = boiteDuTexte(o);
+    const a = pointDuContour(b, o.ancre === undefined ? 0.5 : o.ancre);   // 0,5 : le milieu du haut
+    const c = { x: o.pointeX, y: o.pointeY };
+    const pli = (o.pliX === undefined)
+        ? { x: (a.x + c.x) / 2, y: (a.y + c.y) / 2 }
+        : { x: o.pliX, y: o.pliY };
+    return { depart: a, pli, pointe: c, cadre: b,
+             ctrl: { x: 2 * pli.x - (a.x + c.x) / 2, y: 2 * pli.y - (a.y + c.y) / 2 } };
+}
+
+// La courbe en petits segments : le clic s'en sert pour mesurer une distance,
+// l'export pour l'écrire en SVG. Une seule source, comme pour la courbe lisse.
+function echantillonsDeLaFleche(o) {
+    const f = flecheDeLaLegende(o);
+    const out = [];
+    for (let k = 0; k <= PAS_DE_LA_FLECHE; k++) {
+        const t = k / PAS_DE_LA_FLECHE, u = 1 - t;
+        out.push({ x: u * u * f.depart.x + 2 * u * t * f.ctrl.x + t * t * f.pointe.x,
+                   y: u * u * f.depart.y + 2 * u * t * f.ctrl.y + t * t * f.pointe.y });
+    }
+    return out;
+}
+
+window.estUneLegende = estUneLegende;
+window.flecheDeLaLegende = flecheDeLaLegende;
+window.echantillonsDeLaFleche = echantillonsDeLaFleche;
+window.pointDuContour = pointDuContour;
+window.abscisseDuContour = abscisseDuContour;
+
 // Place qu'occupe VRAIMENT un bloc de texte, mise en page comprise.
 // L'export supposait autrefois 300 × 100 pour tout le monde : un poème de dix
 // lignes sortait du cadre et le PDF le tranchait en plein mot.
@@ -5086,7 +5218,7 @@ function boiteDuTexte(t) {
         w = layout.width;
         h = Math.max(layout.height, t.minHeight || 0);
     }
-    if (t.isBubble && w < 20) { w = 150; h = Math.max(h, 30); }
+    if ((t.isBubble || t.isLegende) && w < 20) { w = 150; h = Math.max(h, 30); }
     // Même convention qu'à l'écran : sans colonne, un bloc centré est ancré
     // par son MILIEU.
     const x = (t.align === 'center' && !t.colWidth)
@@ -5094,8 +5226,9 @@ function boiteDuTexte(t) {
         : t.x;
 
     // La bulle est plus grande que son texte : elle l'entoure d'une marge.
-    if (t.isBubble) {
-        const p = t.bubblePad || 20;
+    if (t.isBubble || t.isLegende) {
+        const p = t.isLegende ? (t.bubblePad === undefined ? MARGE_DE_LA_LEGENDE : t.bubblePad)
+                              : (t.bubblePad || 20);
         return { x: x - p, y: t.y - p, w: w + 2 * p, h: h + 2 * p };
     }
     return { x, y: t.y, w, h };
@@ -5136,6 +5269,11 @@ function getAutoBoundingBox(padding = 40) {
         addBox(b.x, b.y, b.w, b.h, t.angle || 0);
         // La queue de la bulle part souvent bien au-delà du cadre
         if (t.isBubble && t.tailX !== undefined && t.tailY !== undefined) addPt(t.tailX, t.tailY);
+        // La flèche courbe part loin de son étiquette : c'est tout son emploi.
+        if (t.isLegende && t.pointeX !== undefined) {
+            addPt(t.pointeX, t.pointeY);
+            if (t.pliX !== undefined) addPt(t.pliX, t.pliY);
+        }
     });
     if (typeof segments !== 'undefined') segments.forEach(s => { checkPointId(s.p1_id); checkPointId(s.p2_id); });
     if (typeof polygons !== 'undefined') polygons.forEach(poly => poly.points.forEach(checkPointId));
@@ -6559,6 +6697,7 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === 'Backspace') {
         if (isCropMode) { isCropMode = false; cropRect = null; exportPopover.classList.remove('visible'); draw(); return; }
         let canceledSomething = false;
+        if (mode === 'legende' && legendeEnCours) { legendeEnCours = null; isDrawingLegende = false; canceledSomething = true; }
         if (mode === 'polygon' && currentPolygonPoints.length > 0) { currentPolygonPoints.pop(); canceledSomething = true; }
         else if (mode === 'curve' && currentCurvePoints.length > 0) { currentCurvePoints.pop(); canceledSomething = true; }
         else if ((mode === 'segment' || mode === 'droite' || mode === 'demi-droite' || mode === 'circle' || mode === 'rectangle') && creationStartPointId !== null) { creationStartPointId = null; canceledSomething = true; }
@@ -8789,7 +8928,7 @@ function updateStyleBarContext() {
     // bouton n'aurait rien à régler, et il reste absent.
     else if (targetType === 'point') barStyle.classList.add('ctx-point');
     else if (OUTILS_QUI_POSENT_DES_POINTS.includes(targetType)) barStyle.classList.add('ctx-line', 'ctx-point');
-    else if (['freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc'].includes(targetType)) {
+    else if (['freehand', 'highlighter', 'multi', 'postit', 'compass', 'arc', 'legende'].includes(targetType)) {
         barStyle.classList.add('ctx-line');
         // LE SURLIGNEUR N'EST PAS UN TRAIT COMME UN AUTRE. « Pourquoi avoir
         // les options extrémité de ligne (flèche) et pointillés, ils ne
@@ -9577,6 +9716,20 @@ function getHandleAt(lx, ly, obj, type) {
     const rotY = startY - (30 / zoom);
     if (type !== 'rectangle' && type !== 'circle'
         && Math.hypot(unrotatedX - cx, unrotatedY - rotY) <= hw * 1.5) return 'ROT';
+    // LES TROIS POINTS DE LA FLÈCHE COURBE. « Quand on clique pour
+    // sélectionner l'objet on peut bouger les points, dont le point
+    // d'inflexion. » L'attache vient en dernier : elle est sur le bord du
+    // cadre, donc souvent sous la poignée de redimensionnement, et c'est le
+    // geste le plus rare des trois.
+    if (obj.isLegende) {
+        if (Math.hypot(lx - obj.pointeX, ly - obj.pointeY) <= hw * 1.5) return 'LEG_POINTE';
+        const f = flecheDeLaLegende(obj);
+        if (Math.hypot(lx - f.pli.x, ly - f.pli.y) <= hw * 1.5) return 'LEG_PLI';
+        if (Math.hypot(lx - f.depart.x, ly - f.depart.y) <= hw * 1.5) return 'LEG_ANCRE';
+        const b = f.cadre;
+        if (Math.hypot(lx - (b.x + b.w), ly - (b.y + b.h)) <= hw * 1.5) return 'LEG_CADRE';
+    }
+
     // Poignées de la bulle interactive
     if (obj.isBubble) {
         // 1. Poignée de la pointe (Absolue)
@@ -10948,9 +11101,21 @@ function findObjectAt(lx, ly) {
 
         // Hitzone parfaite : on clique n'importe où dans le rectangle du texte
         // Hitzone parfaite élargie si c'est une bulle
-        let padHit = t.isBubble ? 25 / zoom : 0;
+        let padHit = t.isBubble ? 25 / zoom : (t.isLegende ? MARGE_DE_LA_LEGENDE : 0);
         if (checkX >= startX - padHit && checkX <= startX + w + padHit && checkY >= t.y - padHit && checkY <= t.y + h + padHit) {
             updateHit({ type: 'text', id: t.id });
+        }
+        // LA FLÈCHE FAIT PARTIE DE L'OBJET : on l'attrape par son trait comme
+        // on attrape une courbe lisse. Sans cela, seule l'étiquette se
+        // sélectionnait, et la flèche — ce qu'on regarde — était morte.
+        if (t.isLegende && t.pointeX !== undefined) {
+            const ech = echantillonsDeLaFleche(t);
+            for (let j = 1; j < ech.length; j++) {
+                if (distToSegment(lx, ly, ech[j - 1].x, ech[j - 1].y, ech[j].x, ech[j].y) < hitZoneLine) {
+                    updateHit({ type: 'text', id: t.id });
+                    break;
+                }
+            }
         }
     }
 
@@ -11885,6 +12050,22 @@ canvas.addEventListener('pointerdown', (e) => {
         return;
     }
 
+    if (mode === 'legende') {
+        clearSelection();
+        if (!legendeEnCours) {
+            // 1. LA POINTE, sur ce qu'on veut montrer.
+            legendeEnCours = { pointeX: rawPos.x, pointeY: rawPos.y };
+        } else if (legendeEnCours.pliX === undefined) {
+            // 2. LE PLI, par où la courbe passera.
+            legendeEnCours.pliX = rawPos.x; legendeEnCours.pliY = rawPos.y;
+        } else {
+            // 3. L'AUTRE BOUT, et le cadre se tire de là.
+            isDrawingLegende = true;
+            cadreDeLegende = { startX: rawPos.x, startY: rawPos.y, endX: rawPos.x, endY: rawPos.y };
+        }
+        updateCursor(); draw(); return;
+    }
+
     if (mode === 'postit') {
         clearSelection();
         isDrawingPostit = true;
@@ -12644,6 +12825,10 @@ canvas.addEventListener('pointermove', (e) => {
 
     if (isSelectingBox) { selectionBox.endX = rawPos.x; selectionBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
     if (isZoomBoxing) { zoomBox.endX = rawPos.x; zoomBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
+    if (isDrawingLegende) { cadreDeLegende.endX = rawPos.x; cadreDeLegende.endY = rawPos.y; requestAnimationFrame(draw); return; }
+    // Entre deux appuis, la flèche se montre déjà : on voit où elle ira avant
+    // de s'engager, comme le polygone montre son côté en cours.
+    if (mode === 'legende' && legendeEnCours) { requestAnimationFrame(draw); }
     if (isDrawingPostit && postitBox) { postitBox.endX = rawPos.x; postitBox.endY = rawPos.y; requestAnimationFrame(draw); return; }
     if (isDrawingEllipse && boiteEllipse) { boiteEllipse.endX = rawPos.x; boiteEllipse.endY = rawPos.y; requestAnimationFrame(draw); return; }
     if (boiteTexte) { boiteTexte.x1 = rawPos.x; boiteTexte.y1 = rawPos.y; requestAnimationFrame(draw); return; }
@@ -12706,6 +12891,25 @@ canvas.addEventListener('pointermove', (e) => {
                 if (type === 'image') { cx = obj.x + obj.w / 2; cy = obj.y + obj.h / 2; }
                 else { cx = (obj._cachedStartX || obj.x) + (obj._cachedW || 100) / 2; cy = obj.y + (obj._cachedH || 50) / 2; }
                 obj.angle = Math.atan2(rawPos.y - cy, rawPos.x - cx) + Math.PI / 2;
+            }
+            else if (draggedHandle === 'LEG_POINTE' && obj.isLegende) {
+                obj.pointeX = rawPos.x; obj.pointeY = rawPos.y;
+            }
+            else if (draggedHandle === 'LEG_PLI' && obj.isLegende) {
+                obj.pliX = rawPos.x; obj.pliY = rawPos.y;
+            }
+            // L'ATTACHE NE QUITTE PAS LE BORD : où que le doigt aille, on
+            // reprend l'abscisse du contour la plus proche. C'est ce qui fait
+            // qu'elle « glisse tout le long du cadre » au lieu de s'en
+            // détacher.
+            else if (draggedHandle === 'LEG_ANCRE' && obj.isLegende) {
+                obj.ancre = abscisseDuContour(boiteDuTexte(obj), rawPos.x, rawPos.y);
+            }
+            else if (draggedHandle === 'LEG_CADRE' && obj.isLegende) {
+                const m = obj.bubblePad === undefined ? MARGE_DE_LA_LEGENDE : obj.bubblePad;
+                obj.fixedWidth = Math.max(40, rawPos.x - m - obj.x);
+                obj.fixedHeight = Math.max(24, rawPos.y - m - obj.y);
+                obj.colWidth = obj.fixedWidth;
             }
             else if (draggedHandle === 'TAIL' && obj.isBubble) {
                 obj.tailX = rawPos.x;
@@ -12949,7 +13153,13 @@ canvas.addEventListener('pointermove', (e) => {
         });
         // Un point d'intersection n'est pas déplaçable : il est là où les deux
         // objets se croisent, et il y retournerait aussitôt.
-        ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p && !p.depend) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy; } });
+        ptsToMove.forEach(pid => { const p = getObjectById('point', pid); if (p && !p.depend) { p.x += dx; p.y += dy; } }); txtsToMove.forEach(tid => { const t = getObjectById('text', tid); if (t) { t.x += dx; t.y += dy;
+            // LA POINTE RESTE, LE PLI SUIT. La pointe désigne une chose réelle
+            // — un mot, un chiffre — et doit continuer de la désigner quand on
+            // pousse l'étiquette pour faire de la place. Le pli, lui, ne
+            // désigne rien : laissé sur place, il tordait la courbe dès que
+            // l'étiquette s'éloignait un peu.
+            if (t.isLegende && t.pliX !== undefined) { t.pliX += dx; t.pliY += dy; } } });
         freehandsToMove.forEach(fid => { const f = getObjectById('freehand', fid); if (f) { f.points.forEach(pt => { pt.x += dx; pt.y += dy; }); } }); imgsToMove.forEach(iid => { const i = getObjectById('image', iid); if (i) { i.x += dx; i.y += dy; } });
         // L'encre posée sur un texte ou une image part avec lui. On exclut les
         // traits déjà déplacés pour eux-mêmes, sinon ils avanceraient double.
@@ -13274,6 +13484,43 @@ function handlePointerUp(e) {
             }
         }
         draw(); return;
+    }
+
+    // LA FLÈCHE COURBE SE REFERME SUR SON CADRE.
+    if (isDrawingLegende) {
+        isDrawingLegende = false;
+        const x0 = Math.min(cadreDeLegende.startX, cadreDeLegende.endX);
+        const y0 = Math.min(cadreDeLegende.startY, cadreDeLegende.endY);
+        // UN CADRE MINIMUM : un simple clic, sans glissement, ne doit pas
+        // donner une étiquette invisible qu'on ne retrouvera jamais.
+        const W = Math.max(Math.abs(cadreDeLegende.endX - cadreDeLegende.startX), 110);
+        const H = Math.max(Math.abs(cadreDeLegende.endY - cadreDeLegende.startY), 56);
+        const m = MARGE_DE_LA_LEGENDE;
+        const obj = {
+            id: nextId++, isLegende: true,
+            x: x0 + m, y: y0 + m,
+            fixedWidth: W - 2 * m, fixedHeight: H - 2 * m, colWidth: W - 2 * m,
+            bubblePad: m,
+            content: '',
+            color: activeStyle.strokeColor,
+            fillColor: '#ffffff',
+            width: activeStyle.lineWidth,
+            fontSize: activeStyle.fontSize,
+            fontFamily: activeStyle.fontFamily || 'sans-serif',
+            align: activeStyle.textAlign || 'left',
+            lineHeight: activeStyle.lineHeight,
+            pointeX: legendeEnCours.pointeX, pointeY: legendeEnCours.pointeY,
+            pliX: legendeEnCours.pliX, pliY: legendeEnCours.pliY,
+            z: globalZ++
+        };
+        // L'ATTACHE NAÎT LÀ OÙ LE DOIGT A POSÉ LE CADRE, et non à un coin
+        // choisi d'avance : c'est ce point-là qu'on a visé.
+        obj.ancre = abscisseDuContour(boiteDuTexte(obj), cadreDeLegende.startX, cadreDeLegende.startY);
+        if (typeof noterLaPage === 'function') noterLaPage(obj, obj.x, obj.y);
+        texts.push(obj);
+        legendeEnCours = null;
+        saveState(); draw();
+        return;
     }
 
     if (isDrawingPostit) {
@@ -14431,6 +14678,55 @@ function draw() {
                 ctx.translate(cx, cy); if (obj.angle) ctx.rotate(obj.angle); ctx.translate(-cx, -cy);
 
                 // ==========================================
+                // 0. DESSIN DE LA FLÈCHE COURBE ET DE SON CADRE
+                //
+                // LA FLÈCHE D'ABORD, LE CADRE PAR-DESSUS : elle part du bord
+                // même du cadre, et le cadre plein vient alors recouvrir
+                // proprement son amorce. L'ordre inverse laissait un bout de
+                // trait traverser l'étiquette.
+                // ==========================================
+                if (obj.isLegende) {
+                    const f = flecheDeLaLegende(obj);
+                    const trait = Math.max(1, (obj.width || 3)) * lw;
+                    ctx.save();
+                    ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+                    ctx.setLineDash([]);
+                    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.strokeStyle = obj.color || renderColor;
+                    ctx.lineWidth = trait;
+                    ctx.beginPath();
+                    ctx.moveTo(f.depart.x, f.depart.y);
+                    ctx.quadraticCurveTo(f.ctrl.x, f.ctrl.y, f.pointe.x, f.pointe.y);
+                    ctx.stroke();
+                    // LA POINTE REGARDE D'OÙ ELLE VIENT : l'angle se prend sur
+                    // la tangente en bout de courbe, c'est-à-dire la direction
+                    // qui va du point de contrôle à la pointe. Prendre l'angle
+                    // du départ à la pointe aurait mis la tête de travers dès
+                    // que le pli courbe un peu.
+                    const ang = Math.atan2(f.pointe.y - f.ctrl.y, f.pointe.x - f.ctrl.x);
+                    const L = Math.max(10, trait * 4);
+                    ctx.beginPath();
+                    ctx.moveTo(f.pointe.x, f.pointe.y);
+                    ctx.lineTo(f.pointe.x - L * Math.cos(ang - 0.4), f.pointe.y - L * Math.sin(ang - 0.4));
+                    ctx.lineTo(f.pointe.x - L * Math.cos(ang + 0.4), f.pointe.y - L * Math.sin(ang + 0.4));
+                    ctx.closePath();
+                    ctx.fillStyle = obj.color || renderColor;
+                    ctx.fill();
+                    // Le cadre.
+                    const b = f.cadre;
+                    const r = Math.min(10 * lw, b.w / 2, b.h / 2);
+                    ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, r);
+                    else ctx.rect(b.x, b.y, b.w, b.h);
+                    ctx.fillStyle = obj.fillColor || '#ffffff';
+                    ctx.fill();
+                    ctx.lineWidth = trait;
+                    ctx.strokeStyle = obj.color || renderColor;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // ==========================================
                 // 1. DESSIN DE LA BULLE
                 // ==========================================
                 if (obj.isBubble) {
@@ -14831,8 +15127,28 @@ function draw() {
                 if (isSel && !isExportingTransparent && obj.id !== editingTextId) {
                     ctx.globalAlpha = 1;
                     ctx.strokeStyle = "#6c5ce7"; ctx.lineWidth = lw * 2;
-                    if (!obj.isBubble) ctx.strokeRect(startX, obj.y, w, h);
-                    if (!obj.locked) {
+                    if (!obj.isBubble && !obj.isLegende) ctx.strokeRect(startX, obj.y, w, h);
+                    // LES TROIS POINTS SE MONTRENT, SINON ILS N'EXISTENT PAS.
+                    // « Quand on clique pour sélectionner l'objet on peut
+                    // bouger les points, dont le point d'inflexion. » Une
+                    // poignée invisible n'est pas une poignée : on la cherche
+                    // au hasard, devant la classe.
+                    if (obj.isLegende && !obj.locked) {
+                        const f = flecheDeLaLegende(obj);
+                        const hr = 6 * lw;
+                        ctx.lineWidth = lw * 2;
+                        // Le pli se distingue des deux bouts : c'est le point
+                        // qu'on cherche quand la courbe passe mal.
+                        [[f.pointe, '#6c5ce7'], [f.pli, '#00b894'], [f.depart, '#0984e3'],
+                         [{ x: f.cadre.x + f.cadre.w, y: f.cadre.y + f.cadre.h }, '#6c5ce7']]
+                            .forEach(([pt, couleur]) => {
+                                ctx.beginPath(); ctx.arc(pt.x, pt.y, hr, 0, Math.PI * 2);
+                                ctx.fillStyle = '#ffffff'; ctx.fill();
+                                ctx.strokeStyle = couleur; ctx.stroke();
+                            });
+                        ctx.strokeStyle = '#6c5ce7';
+                    }
+                    if (!obj.locked && !obj.isLegende) {
                         const rotY = obj.y - (30 * lw) - (obj.isBubble ? (obj.bubblePad || 20) * lw : 0);
                         ctx.beginPath(); ctx.moveTo(cx, obj.y - (obj.isBubble ? (obj.bubblePad || 20) * lw : 0)); ctx.lineTo(cx, rotY); ctx.stroke();
                         ctx.beginPath(); ctx.arc(cx, rotY, 6 * lw, 0, Math.PI * 2);
@@ -15030,6 +15346,43 @@ function draw() {
             ctx.fillStyle = "rgba(0, 184, 148, 0.1)"; ctx.strokeStyle = "#00b894"; ctx.lineWidth = lw; ctx.setLineDash([lw * 5, lw * 5]);
             const w = zoomBox.endX - zoomBox.startX, h = zoomBox.endY - zoomBox.startY;
             ctx.fillRect(zoomBox.startX, zoomBox.startY, w, h); ctx.strokeRect(zoomBox.startX, zoomBox.startY, w, h); ctx.setLineDash([]);
+        }
+
+        // CE QUI N'EST PAS ENCORE POSÉ SE VOIT QUAND MÊME. Un geste en trois
+        // temps sans aperçu, c'est trois clics à l'aveugle : on ne saurait pas
+        // où la courbe va passer avant de l'avoir finie.
+        if (mode === 'legende' && legendeEnCours && !isExportingTransparent) {
+            const souris = mouseLogicalPos || { x: legendeEnCours.pointeX, y: legendeEnCours.pointeY };
+            const A = isDrawingLegende
+                ? { x: cadreDeLegende.startX, y: cadreDeLegende.startY }
+                : souris;
+            const P = { x: legendeEnCours.pointeX, y: legendeEnCours.pointeY };
+            ctx.save();
+            ctx.strokeStyle = activeStyle.strokeColor || '#2d3436';
+            ctx.lineWidth = Math.max(1, activeStyle.lineWidth || 3) * lw;
+            ctx.setLineDash([lw * 5, lw * 5]);
+            ctx.beginPath();
+            ctx.moveTo(A.x, A.y);
+            if (legendeEnCours.pliX === undefined) ctx.lineTo(P.x, P.y);
+            else {
+                const cx = 2 * legendeEnCours.pliX - (A.x + P.x) / 2;
+                const cy = 2 * legendeEnCours.pliY - (A.y + P.y) / 2;
+                ctx.quadraticCurveTo(cx, cy, P.x, P.y);
+            }
+            ctx.stroke();
+            // La pointe et le pli, en petit, pour savoir ce qui est déjà pris.
+            ctx.setLineDash([]);
+            ctx.fillStyle = activeStyle.strokeColor || '#2d3436';
+            [[P.x, P.y], legendeEnCours.pliX === undefined ? null : [legendeEnCours.pliX, legendeEnCours.pliY]]
+                .forEach(c => { if (!c) return; ctx.beginPath(); ctx.arc(c[0], c[1], 4 * lw, 0, 7); ctx.fill(); });
+            if (isDrawingLegende) {
+                ctx.setLineDash([lw * 5, lw * 5]);
+                ctx.strokeRect(Math.min(cadreDeLegende.startX, cadreDeLegende.endX),
+                               Math.min(cadreDeLegende.startY, cadreDeLegende.endY),
+                               Math.abs(cadreDeLegende.endX - cadreDeLegende.startX),
+                               Math.abs(cadreDeLegende.endY - cadreDeLegende.startY));
+            }
+            ctx.restore();
         }
 
         if (isDrawingPostit && !isExportingTransparent) {
