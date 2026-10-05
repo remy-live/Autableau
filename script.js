@@ -377,6 +377,15 @@ let cadreDeLegende = { startX: 0, startY: 0, endX: 0, endY: 0 };
 // LA MAIN DIT D'ELLE-MÊME CE QU'ELLE VEUT. Qui tire sans lâcher attend que le
 // relâchement referme le cadre ; qui clique et relève attend un second clic.
 // On ne choisit donc pas pour lui : on regarde si le pointeur a bougé.
+// LE GLISSEMENT SE SOUVIENT D'OÙ IL PART. Sans cela, l'aimantation se
+// recalcule à chaque image depuis une position DÉJÀ corrigée : l'objet reste
+// alors collé à sa ligne tant que le pointeur n'a pas quitté la bande, et l'on
+// ne peut plus le poser à trois pixels d'un bord. Mesuré : le pointeur avançait
+// de sept pixels, l'objet ne bougeait pas. On garde donc la trajectoire BRUTE
+// de la main, et l'on n'applique la correction qu'à l'arrivée — l'aimant tient,
+// puis lâche de lui-même.
+let glissementEnCours = null;
+
 const ECART_DU_GLISSEMENT = 8;
 let departDuCadreEnPixels = null;
 // L'ellipse libre se trace à la boîte, comme le post-it et le zoom : un coin,
@@ -10696,7 +10705,7 @@ function snapToGrid(lx, ly) {
 // L'ordre compte : une intersection est plus précise qu'un bord d'équerre,
 // lui-même plus précis qu'un carreau.
 // ===================================================
-let aimant = { grille: true, outils: true, intersections: true };
+let aimant = { grille: true, outils: true, intersections: true, alignements: true };
 try {
     const memoireAimant = JSON.parse(localStorage.getItem('board_aimant') || 'null');
     if (memoireAimant) {
@@ -13010,7 +13019,7 @@ canvas.addEventListener('pointermove', (e) => {
         const traitPose = poserLeTraitEnCours();
         const gesteEnCours = traitPose || isDraggingObjs || isSelectingBox || isDrawingEllipse
             || isPanningView || !!draggedHandle || !!boiteTexte;
-        libererLeCalque(); gommeBlancheEnCours = false; isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; isDrawingEllipse = false; boiteEllipse = null; boiteTexte = null; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] };
+        libererLeCalque(); glissementEnCours = null; gommeBlancheEnCours = false; isPanningView = false; isDraggingObjs = false; isDrawingFreehand = false; isSelectingBox = false; isDrawingEllipse = false; boiteEllipse = null; boiteTexte = null; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] };
         // Un geste interrompu laissait à l'écran ce qu'il affichait — cadre de
         // sélection, guides, poignées — jusqu'au prochain repeint. On repeint
         // SEULEMENT dans ce cas : le stylet survole le tableau en permanence, et
@@ -13375,17 +13384,31 @@ canvas.addEventListener('pointermove', (e) => {
     else if (isDraggingObjs && selectedItems.length > 0 && lastMouseX !== undefined) {
         let currentLog = getRawLogicalPos(e);
 
-        if (selectedItems.length === 1 && ['point', 'text'].includes(selectedItems[0].type)) {
-            let snapDist = 8 / zoom;
-            points.forEach(p => {
-                if (p.id === selectedItems[0].id && selectedItems[0].type === 'point') return;
-                if (Math.abs(currentLog.x - p.x) < snapDist) { currentLog.x = p.x; activeGuides.x.push(p.x); snapDist = Math.abs(currentLog.x - p.x); }
-                if (Math.abs(currentLog.y - p.y) < snapDist) { currentLog.y = p.y; activeGuides.y.push(p.y); snapDist = Math.abs(currentLog.y - p.y); }
-            });
-        }
+        const avant = getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY });
+        let dx = currentLog.x - avant.x;
+        let dy = currentLog.y - avant.y;
 
-        let dx = currentLog.x - getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY }).x;
-        let dy = currentLog.y - getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY }).y;
+        // L'ALIGNEMENT PASSE SOUS L'AIMANT, comme les trois autres sources : il
+        // n'y avait aucun moyen de l'éteindre, et c'est ce qui le rendait
+        // pénible dès qu'on mettait du texte en place.
+        if (magnetMode && aimant.alignements) {
+            const ici = getSelectionLogicalBounds();
+            if (ici && !glissementEnCours) glissementEnCours = { boite: ici, pointeur: avant };
+            if (ici && glissementEnCours) {
+                // Où la main veut aller, sans aucune correction : c'est à cette
+                // position BRUTE qu'on mesure la distance aux lignes, et c'est
+                // ce qui fait que l'aimant lâche quand on insiste.
+                const voulue = {
+                    bx: glissementEnCours.boite.bx + (currentLog.x - glissementEnCours.pointeur.x),
+                    by: glissementEnCours.boite.by + (currentLog.y - glissementEnCours.pointeur.y),
+                    bw: ici.bw, bh: ici.bh
+                };
+                const cale = calerLaSelection(voulue, 0, 0, PORTEE_ALIGNEMENT / zoom);
+                dx = voulue.bx + (cale ? cale.dx : 0) - ici.bx;
+                dy = voulue.by + (cale ? cale.dy : 0) - ici.by;
+                if (cale) activeGuides = cale.guides;
+            }
+        }
 
         let ptsToMove = new Set(); let txtsToMove = new Set(); let freehandsToMove = new Set(); let imgsToMove = new Set(); let arcsToMove = new Set();
         // Une ellipse libre n'a pas de points : c'est son centre qu'on déplace.
@@ -13813,7 +13836,7 @@ function handlePointerUp(e) {
     // en enregistrer une ici de plus laisserait dans la pile un état étiré que
     // personne n'a voulu, et « annuler » y reviendrait.
     const absorbe = draggedHandle && etirementAbsorbeParLeTampon();
-    if (isDraggingObjs || draggedHandle) { if (!absorbe) saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; }
+    if (isDraggingObjs || draggedHandle) { if (!absorbe) saveState(); isDraggingObjs = false; draggedHandle = null; textResizeHint = null; activeGuides = { x: [], y: [] }; glissementEnCours = null; }
     poserLeTraitEnCours();
     // Le geste est fini : ce qu'on vient de tracer appartient-il au document ?
     if (typeof accrocherLesNouvellesFormes === 'function') accrocherLesNouvellesFormes(idAvantLeGeste);
@@ -13922,6 +13945,7 @@ function resumeAimant() {
     if (aimant.grille) sources.push('quadrillage');
     if (aimant.outils) sources.push('outils');
     if (aimant.intersections) sources.push('points et intersections');
+    if (aimant.alignements) sources.push('alignements');
     return sources.join(' + ');
 }
 const btnMagnet = document.getElementById('btn-magnet');
@@ -13932,7 +13956,8 @@ const btnMagnet = document.getElementById('btn-magnet');
 const SOURCES_AIMANT = [
     ['grille', 'btn-aimant-grille'],
     ['outils', 'btn-aimant-outils'],
-    ['intersections', 'btn-aimant-points']
+    ['intersections', 'btn-aimant-points'],
+    ['alignements', 'btn-aimant-alignements']
 ];
 
 // LES TROIS SOURCES ONT QUITTÉ LA RANGÉE POUR LE PANNEAU DE L'AIMANT : elles
@@ -13969,7 +13994,7 @@ SOURCES_AIMANT.forEach(([cle, id]) => {
         aimant[cle] = !aimant[cle];
         // Éteindre la dernière source revient à éteindre l'aimant : on ne
         // laisse pas un aimant allumé qui n'attire rien.
-        if (!aimant.grille && !aimant.outils && !aimant.intersections) {
+        if (!aimant.grille && !aimant.outils && !aimant.intersections && !aimant.alignements) {
             aimant[cle] = true;
             magnetMode = false;
         }
@@ -25956,6 +25981,78 @@ function getItemLogicalBounds(type, obj) {
 }
 
 // Boîte englobante de toute la sélection courante
+// ===========================================================================
+// S'ALIGNER SUR CE QUI EST DÉJÀ LÀ
+//
+// « L'aimantation de forme c'est cool, ça ne fonctionne pas avec les copier
+// coller, et c'est relou avec le texte. »
+//
+// Les trois remarques tenaient à UNE SEULE LIGNE : l'alignement ne s'appliquait
+// que si l'on déplaçait UN SEUL objet ET que cet objet était un point ou un
+// texte. D'où :
+//   — coller une figure sélectionne la forme ET ses points, donc plusieurs
+//     objets, donc plus aucun alignement ;
+//   — un texte, lui, était l'un des deux seuls types concernés, et sautait sur
+//     l'abscisse de n'importe quel point traînant à huit pixels ;
+//   — et rien ne permettait de l'éteindre, puisque la règle vivait hors de
+//     l'aimant.
+//
+// ON ALIGNE DONC UNE BOÎTE, ET NON UNE ANCRE : les bords et le milieu de ce
+// qu'on tient, contre les bords et les milieux de ce qui reste. La question
+// « qu'est-ce que je déplace ? » disparaît, et avec elle les trois cas
+// particuliers.
+//
+// LES POINTS NUS NE SERVENT DE REPÈRE QUE POUR DES POINTS. Aligner une
+// étiquette sur l'abscisse d'un sommet n'est à peu près jamais ce qu'on veut ;
+// aligner deux annotations sur la même marge, si.
+const PORTEE_ALIGNEMENT = 8;        // en pixels d'écran, comme toutes les prises
+
+function lignesDAlignement(exclus, avecLesPoints) {
+    const x = [], y = [];
+    const ajouter = (b) => {
+        if (!b) return;
+        x.push(b.bx, b.bx + b.bw / 2, b.bx + b.bw);
+        y.push(b.by, b.by + b.bh / 2, b.by + b.bh);
+    };
+    const familles = [['point', points], ['segment', segments], ['circle', circles],
+                      ['rectangle', rectangles], ['text', texts], ['freehand', freehands],
+                      ['curve', curves], ['polygon', polygons], ['image', images], ['arc', arcs]];
+    familles.forEach(([type, tableau]) => {
+        if (!tableau) return;
+        if (type === 'point' && !avecLesPoints) return;
+        tableau.forEach(o => {
+            if (exclus.has(type + '-' + o.id)) return;
+            ajouter(getItemLogicalBounds(type, o));
+        });
+    });
+    return { x, y };
+}
+
+// La correction à appliquer au pointeur pour que la boîte tombe juste.
+// « null » quand rien n'est assez proche : on ne touche alors à rien.
+function calerLaSelection(boite, dx, dy, portee) {
+    const exclus = new Set(selectedItems.map(i => i.type + '-' + i.id));
+    const avecLesPoints = selectedItems.some(i => i.type === 'point');
+    const lignes = lignesDAlignement(exclus, avecLesPoints);
+    const meilleur = (depart, taille, candidates) => {
+        const bords = [depart, depart + taille / 2, depart + taille];
+        let correction = 0, ecart = portee, repere = null;
+        candidates.forEach(c => {
+            bords.forEach(b => {
+                const d = Math.abs(c - b);
+                if (d < ecart) { ecart = d; correction = c - b; repere = c; }
+            });
+        });
+        return { correction, repere };
+    };
+    const cx = meilleur(boite.bx + dx, boite.bw, lignes.x);
+    const cy = meilleur(boite.by + dy, boite.bh, lignes.y);
+    if (cx.repere === null && cy.repere === null) return null;
+    return { dx: cx.correction, dy: cy.correction,
+             guides: { x: cx.repere === null ? [] : [cx.repere],
+                       y: cy.repere === null ? [] : [cy.repere] } };
+}
+
 function getSelectionLogicalBounds() {
     if (typeof selectedItems === 'undefined' || !selectedItems.length) return null;
     let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
@@ -45724,7 +45821,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ouvrirPanneauAimant = (bouton) => {
         const bascule = (cle) => {
             aimant[cle] = !aimant[cle];
-            if (!aimant.grille && !aimant.outils && !aimant.intersections) aimant[cle] = true;  // jamais tout éteint
+            if (!aimant.grille && !aimant.outils && !aimant.intersections && !aimant.alignements) aimant[cle] = true;  // jamais tout éteint
             enregistrerAimant();
             if (!magnetMode) magnetMode = true;
             if (typeof majBoutonsAimant === 'function') majBoutonsAimant();
@@ -45735,7 +45832,11 @@ document.addEventListener('DOMContentLoaded', () => {
             { separateur: "S'aimanter sur" },
             { nom: 'Le quadrillage', actif: aimant.grille, action: () => bascule('grille') },
             { nom: 'Les outils de géométrie', actif: aimant.outils, action: () => bascule('outils') },
-            { nom: 'Les points et les intersections', actif: aimant.intersections, action: () => bascule('intersections') }
+            { nom: 'Les points et les intersections', actif: aimant.intersections, action: () => bascule('intersections') },
+            // L'ALIGNEMENT A SA PORTE, ENFIN. Il était câblé en dur, hors de
+            // l'aimant : on ne pouvait ni le comprendre ni l'arrêter, et il
+            // gênait dès qu'on mettait du texte en place.
+            { nom: 'Les bords des autres objets', actif: aimant.alignements, action: () => bascule('alignements') }
         ]);
     };
     // L'AIMANT GARDE SA BASCULE, SES RÉGLAGES PRENNENT LEUR PROPRE PORTE.

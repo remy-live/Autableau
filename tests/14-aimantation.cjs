@@ -59,11 +59,14 @@ module.exports = async function (browser) {
     });
     r.verifie('un CLIC sur le bouton des réglages ouvre le panneau de l\'aimant',
         !!panneau && panneau.titre === 'aimant', JSON.stringify(panneau));
-    r.verifie('il propose les trois sources', !!panneau && panneau.choix.length === 3, panneau && panneau.choix.join(' · '));
+    // QUATRE SOURCES : l'alignement sur les bords des autres objets a rejoint
+    // les trois autres. Il était câblé en dur, hors de l'aimant — impossible à
+    // comprendre, impossible à arrêter.
+    r.verifie('il propose les quatre sources', !!panneau && panneau.choix.length === 4, panneau && panneau.choix.join(' · '));
     r.verifie('le quadrillage, les outils et les intersections',
         !!panneau && /quadrillage/i.test(panneau.choix[0]) && /outils/i.test(panneau.choix[1]) && /intersection/i.test(panneau.choix[2]),
         panneau && panneau.choix.join(' · '));
-    r.verifie('les trois sont allumées au départ', !!panneau && panneau.actifs === 3, JSON.stringify(panneau));
+    r.verifie('les quatre sont allumées au départ', !!panneau && panneau.actifs === 4, JSON.stringify(panneau));
     r.verifie('et l\'aimant s\'allume tout seul quand on règle une source',
         await page.evaluate(() => magnetMode === false), 'l\'aimant n\'est pas encore allumé');
 
@@ -81,7 +84,9 @@ module.exports = async function (browser) {
     r.verifie('le panneau reste ouvert pour régler les autres sources', rouvert);
 
     const jamaisVide = await page.evaluate(() => {
-        aimant.grille = false; aimant.outils = false; aimant.intersections = true;
+        // Les QUATRE sources comptent : on éteint les trois autres d'abord.
+        aimant.grille = false; aimant.outils = false; aimant.alignements = false;
+        aimant.intersections = true;
         const p = document.getElementById('panneau-appui');
         Array.from(p.querySelectorAll('.rp-choix')).find(c => /intersection/i.test(c.innerText)).click();
         return { intersections: aimant.intersections };
@@ -1186,6 +1191,184 @@ module.exports = async function (browser) {
     await page.evaluate(() => {
         circles.length = 0; points.length = 0; selectedItems = [];
         setMode('pointer'); draw();
+    });
+
+    // ==================================================================
+    // S'ALIGNER SUR CE QUI EST DÉJÀ LÀ
+    //
+    // « L'aimantation de forme c'est cool, ça ne fonctionne pas avec les copier
+    // coller, et c'est relou avec le texte. »
+    //
+    // Les trois remarques tenaient à UNE SEULE LIGNE : l'alignement ne
+    // s'appliquait que si l'on déplaçait UN SEUL objet ET que cet objet était
+    // un point ou un texte. Coller une figure sélectionne la forme ET ses
+    // points — donc plusieurs objets, donc rien. Un texte, lui, était l'un des
+    // deux seuls types concernés, et sautait sur l'abscisse de n'importe quel
+    // point traînant à huit pixels. Et rien ne permettait de l'éteindre.
+    // ==================================================================
+    const poserAlign = async (quoi) => page.evaluate((q) => {
+        [points, rectangles, texts, segments, circles].forEach(a => a.length = 0);
+        panX = 0; panY = 0; zoom = 1; selectedItems = [];
+        magnetMode = true; aimant.alignements = true;
+        setMode('pointer');
+        eval(q);
+        draw();
+    }, quoi);
+    const tirerAlign = async (de, vers) => {
+        await page.mouse.move(de[0], de[1]);
+        await page.mouse.down();
+        await page.mouse.move(vers[0], vers[1], { steps: 12 });
+        await page.mouse.up();
+        await page.waitForTimeout(180);
+    };
+
+    // --- 1. LE RÉGLAGE EXISTE, IL EST NOMMÉ, ET IL SE RETIENT ---
+    await page.evaluate(() => {
+        if (typeof fermerPanneauAppui === 'function') fermerPanneauAppui();
+        aimant.grille = true; aimant.outils = true;
+        aimant.intersections = true; aimant.alignements = true;
+    });
+    await page.waitForTimeout(150);
+    const ouvre = await page.evaluate(() => {
+        const b = document.getElementById('btn-aimant-reglages').getBoundingClientRect();
+        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+    });
+    await page.mouse.click(ouvre.x, ouvre.y);
+    await page.waitForTimeout(250);
+    const panneauAimant = await page.evaluate(() => {
+        const p = document.getElementById('panneau-appui');
+        const noms = p ? Array.from(p.querySelectorAll('.rp-choix')).map(c => c.innerText.trim()) : [];
+        if (typeof fermerPanneauAppui === 'function') fermerPanneauAppui();
+        return { noms, dansLeResume: /alignements/.test(resumeAimant()) };
+    });
+    r.verifie('LE PANNEAU DE L\'AIMANT PROPOSE L\'ALIGNEMENT',
+        panneauAimant.noms.some(n => /bords des autres objets/i.test(n)), JSON.stringify(panneauAimant));
+    r.verifie('et le résumé le nomme', panneauAimant.dansLeResume, JSON.stringify(panneauAimant));
+
+    const reglageRetenu = await page.evaluate(() => {
+        aimant.alignements = false; enregistrerAimant();
+        const ecrit = JSON.parse(localStorage.getItem('board_aimant') || '{}');
+        aimant.alignements = true; enregistrerAimant();
+        return { ecrit: ecrit.alignements, relu: JSON.parse(localStorage.getItem('board_aimant')).alignements };
+    });
+    r.egal('il s\'écrit dans le navigateur', reglageRetenu.ecrit, false);
+    r.egal('et s\'y relit', reglageRetenu.relu, true);
+
+    // --- 2. LE CAS DU COLLAGE : UNE SÉLECTION MULTIPLE S'ALIGNE ---
+    //
+    // C'est exactement ce qu'une figure collée produit : la forme et ses deux
+    // points. Avant, « un seul objet » excluait ce cas, et rien ne se calait.
+    const deuxRectangles = `
+        const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+        const a = P(200, 200), b = P(320, 280);
+        rectangles.push({ id: nextId++, p1_id: a.id, p2_id: b.id, color: '#2d3436', width: 3, z: globalZ++ });
+        const c = P(500, 420), d = P(620, 500);
+        const r2 = { id: nextId++, p1_id: c.id, p2_id: d.id, color: '#2d3436', width: 3, z: globalZ++ };
+        rectangles.push(r2);
+        selectedItems = [{ type: 'rectangle', id: r2.id },
+                         { type: 'point', id: c.id }, { type: 'point', id: d.id }];`;
+    await poserAlign(deuxRectangles);
+    await tirerAlign([500, 420], [203, 320]);          // trois pixels à côté du bord 200
+    const colleAlign = await page.evaluate(() => {
+        const r = rectangles[1];
+        const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id);
+        return Math.round(Math.min(p1.x, p2.x));
+    });
+    r.egal('UNE SÉLECTION MULTIPLE SE CALE SUR LE BORD D\'À CÔTÉ', colleAlign, 200);
+
+    // Et sans le réglage, elle ne se cale plus : le trait reste où la main l'a
+    // laissé. Sans ce contrôle, le précédent passerait même si l'alignement
+    // s'appliquait toujours, interrupteur ou pas.
+    await page.evaluate(() => { aimant.alignements = false; });
+    await poserAlign(deuxRectangles);
+    await page.evaluate(() => { aimant.alignements = false; });
+    await tirerAlign([500, 420], [203, 320]);
+    const eteintAlign = await page.evaluate(() => {
+        const r = rectangles[1];
+        const p1 = getObjectById('point', r.p1_id), p2 = getObjectById('point', r.p2_id);
+        aimant.alignements = true;
+        return Math.round(Math.min(p1.x, p2.x));
+    });
+    r.egal('ÉTEINT, PLUS RIEN NE SE CALE', eteintAlign, 203);
+
+    // --- 3. LE CAS DU TEXTE : UN POINT NU N'EST PLUS UN REPÈRE ---
+    //
+    // Aligner une étiquette sur l'abscisse d'un sommet n'est à peu près jamais
+    // ce qu'on veut ; aligner deux annotations sur la même marge, si.
+    await poserAlign(`
+        points.push({ id: nextId++, x: 400, y: 100, z: globalZ++ });
+        const t = { id: nextId++, x: 600, y: 300, content: 'remarque',
+                    color: '#2d3436', fontSize: 24, fontFamily: 'sans-serif',
+                    align: 'left', lineHeight: 1.2, z: globalZ++ };
+        texts.push(t);
+        selectedItems = [{ type: 'text', id: t.id }];`);
+    // ON SAISIT LE BLOC EN SON MILIEU : à neuf pixels sous son bord, c'est sa
+    // POIGNÉE DE COIN qu'on attrape, et l'on redimensionne au lieu de déplacer.
+    await tirerAlign([650, 301], [453, 301]);          // trois pixels à côté du point x = 400
+    const texteSeul = await page.evaluate(() => Math.round(texts[0].x));
+    r.egal('UN TEXTE NE SAUTE PLUS SUR L\'ABSCISSE D\'UN POINT NU', texteSeul, 403);
+
+    // Mais il se cale sur le bord d'un AUTRE TEXTE : c'est la mise en page.
+    await poserAlign(`
+        const t1 = { id: nextId++, x: 400, y: 100, content: 'premier',
+                     color: '#2d3436', fontSize: 24, fontFamily: 'sans-serif',
+                     align: 'left', lineHeight: 1.2, z: globalZ++ };
+        const t2 = { id: nextId++, x: 600, y: 300, content: 'second',
+                     color: '#2d3436', fontSize: 24, fontFamily: 'sans-serif',
+                     align: 'left', lineHeight: 1.2, z: globalZ++ };
+        texts.push(t1, t2);
+        draw();
+        selectedItems = [{ type: 'text', id: t2.id }];`);
+    await tirerAlign([650, 301], [446, 301]);
+    const deuxTextes = await page.evaluate(() => Math.round(texts[1].x));
+    r.egal('MAIS IL SE CALE SUR LE BORD D\'UN AUTRE TEXTE', deuxTextes, 400);
+
+    // ET L'AIMANT LÂCHE QUAND ON INSISTE.
+    //
+    // C'est la moitié de la réponse à « c'est relou » : un aimant qui tient
+    // sans jamais céder empêche de poser quoi que ce soit à trois pixels d'un
+    // bord. On mesure donc les trois temps du même glissement — il tient sur
+    // une ligne, il passe à la suivante, puis il rend la main.
+    await poserAlign(`
+        const mk = (x, y, c) => ({ id: nextId++, x, y, content: c, color: '#2d3436',
+            fontSize: 24, fontFamily: 'sans-serif', align: 'left', lineHeight: 1.2, z: globalZ++ });
+        texts.push(mk(400, 100, 'premier'), mk(600, 300, 'second'));
+        draw();
+        selectedItems = [{ type: 'text', id: texts[1].id }];`);
+    await page.mouse.move(650, 301);
+    await page.mouse.down();
+    const etapes = [];
+    for (const x of [453, 446, 430]) {
+        await page.mouse.move(x, 301, { steps: 3 });
+        etapes.push(await page.evaluate(() => ({
+            x: Math.round(texts[1].x), guide: activeGuides.x.length })));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    r.verifie('il tient d\'abord sur une ligne', etapes[0].guide === 1, JSON.stringify(etapes));
+    r.egal('puis il passe sur la suivante', etapes[1].x, 400, JSON.stringify(etapes));
+    r.egal('ET IL LÂCHE QUAND ON INSISTE', [etapes[2].x, etapes[2].guide], [380, 0],
+        JSON.stringify(etapes));
+
+    // --- 4. UN SEUL GUIDE PAR AXE ---
+    //
+    // On en poussait autant qu'il passait de candidats : trois traits bleus
+    // pour un seul alignement ne disent pas lequel a gagné.
+    await poserAlign(`
+        const P = (x, y) => { const p = { id: nextId++, x, y, z: globalZ++ }; points.push(p); return p; };
+        P(400, 100); P(400, 500); P(400, 700);
+        const m = P(600, 300);
+        selectedItems = [{ type: 'point', id: m.id }];`);
+    await page.mouse.move(600, 300);
+    await page.mouse.down();
+    await page.mouse.move(402, 300, { steps: 10 });
+    const guides = await page.evaluate(() => ({ x: activeGuides.x.length, y: activeGuides.y.length }));
+    await page.mouse.up();
+    r.verifie('AU PLUS UN GUIDE PAR AXE', guides.x <= 1 && guides.y <= 1, JSON.stringify(guides));
+
+    await page.evaluate(() => {
+        [points, rectangles, texts].forEach(a => a.length = 0);
+        selectedItems = []; magnetMode = false; setMode('pointer'); draw();
     });
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
