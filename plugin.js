@@ -13950,6 +13950,451 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
 });
 
 // ---------------------------------------------------------
+// 12 bis. L'OPÉRATION POSÉE
+// ---------------------------------------------------------
+// « Tu pourras me faire un plugin où on écrit l'opération et il la pose, on
+//   peut activer ou non la solution (détaillée) et pour la division demander
+//   le nombre de chiffres après la virgule. »
+//
+// LE VOISIN DU DESSUS NE POSE RIEN. « Division Posée » dessine une potence
+// VIDE : un gabarit qu'on remplit à la main. C'est utile, et ce n'est pas ce
+// qui est demandé ici — on écrit « 734 ÷ 8 » et le tableau pose les chiffres,
+// les retenues, les produits partiels et les soustractions successives. Les
+// deux outils restent donc, côte à côte, et l'ancien n'est pas touché.
+//
+// ON POSE À LA COLONNE, ET NON AU TEXTE. Chaque chiffre occupe une case d'une
+// grille (une colonne, une ligne) et se dessine CENTRÉ dans sa colonne :
+// l'alignement des unités sous les unités ne dépend alors d'aucune police. Un
+// « 1 » et un « 8 » n'ont pas la même largeur dans la police du tableau, et
+// c'est exactement ce qui fait glisser une opération posée écrite en texte.
+// La virgule, elle, ne prend pas de colonne : elle se pose à la frontière de
+// deux cases, comme sur un cahier.
+//
+// LES ÉTAPES ENTRAÎNENT LE RÉSULTAT. « Montrer les étapes » sans « montrer le
+// résultat » n'existe pas : les chiffres du quotient SONT les étapes de la
+// potence, et les produits partiels d'une multiplication donnent la réponse à
+// qui sait additionner. Deux cases qui se contredisent valent moins qu'une
+// case qui en commande une autre.
+//
+// ET LE TAMPON SE RÉOUVRE. C'est tout l'intérêt du double-clic : on pose
+// l'opération nue devant la classe, on la fait chercher, puis on rouvre le
+// réglage et l'on coche « montrer les étapes ». Le dessin se remplace sur
+// place, à la même taille et au même endroit.
+registerPlugin('operationPoseeTool', 'Maths - Numérique', {
+
+    // Tout ce qu'un cahier, un clavier ou une calculette appelle « fois » et
+    // « divisé par ». Mieux vaut quatre caractères de plus ici qu'un message
+    // d'erreur parce qu'on a tapé « 47x26 ».
+    SIGNES: {
+        '+': '+',
+        '-': '−', '−': '−', '–': '−', '—': '−',
+        '*': '×', 'x': '×', 'X': '×', '×': '×',
+        '/': '÷', ':': '÷', '÷': '÷'
+    },
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.title = 'Opération posée';
+        // Deux rangées de chiffres, un signe et la barre : l'image même de ce
+        // que l'outil produit.
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="10" y1="5" x2="19" y2="5"/>
+    <line x1="13" y1="10" x2="19" y2="10"/>
+    <line x1="4" y1="10" x2="8" y2="10"/>
+    <line x1="6" y1="8" x2="6" y2="12"/>
+    <line x1="4" y1="14" x2="20" y2="14"/>
+    <line x1="9" y1="19" x2="19" y2="19"/>
+</svg>`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ouvrir();
+            if (typeof closeAllPopups === 'function') closeAllPopups();
+        });
+        grid.appendChild(btn);
+    },
+
+    edit: function (imgObj) { this.ouvrir(imgObj.pluginData.args, imgObj); },
+
+    ouvrir: function (prefill, target) {
+        const p = prefill || [];
+        openCustomPrompt(target ? "Modifier l'opération posée" : "Opération posée", [
+            {
+                type: 'text', label: "L'opération",
+                placeholder: '347 + 258     912 − 437     47 × 26     734 ÷ 8',
+                value: p[0] !== undefined ? p[0] : '347 + 258'
+            },
+            { type: 'checkbox', label: 'Montrer le résultat', value: p[1] !== undefined ? p[1] : false },
+            { type: 'checkbox', label: 'Montrer les étapes (avec le résultat)', value: p[2] !== undefined ? p[2] : false },
+            { type: 'number', label: 'Chiffres après la virgule (division)', value: p[3] !== undefined ? p[3] : '0' },
+            { type: 'color', label: 'Couleur', value: p[4] || '#2d3436' }
+        ], (r) => this.apercu(r), (r) => this.construire(r, target));
+    },
+
+    apercu: function (res) {
+        const plan = this.poser(res[0], { resultat: res[1], etapes: res[2], decimales: res[3] });
+        // CE QUI NE SE POSE PAS SE DIT. Un aperçu vide laisse croire que
+        // l'outil est cassé ; la phrase dit quoi corriger, et sans couleur
+        // propre pour que le rattrapage de contraste de la boîte s'applique.
+        if (plan.erreur) return `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:280px">${xmlEsc(plan.erreur)}</div>`;
+        return this.dessiner(plan, res[4] || '#2d3436', false);
+    },
+
+    construire: function (res, target) {
+        const plan = this.poser(res[0], { resultat: res[1], etapes: res[2], decimales: res[3] });
+        if (plan.erreur) {
+            if (typeof showToast === 'function') showToast(plan.erreur);
+            // ON NE JETTE PAS LA SAISIE. Rouvrir la boîte avec ce qui y était
+            // écrit, c'est la seule façon de corriger une coquille sans
+            // retaper l'opération.
+            this.ouvrir(res, target);
+            return;
+        }
+        placeGeneratedStamp('operationPoseeTool', this.dessiner(plan, res[4] || '#2d3436', true),
+            res, target, "🧮 " + plan.titre);
+    },
+
+    // ============ LIRE ============
+
+    // Un nombre d'école : des chiffres, et une virgule éventuelle. On rend les
+    // chiffres SANS la virgule plus son rang, parce que toute la suite
+    // travaille chiffre par chiffre — c'est ce qui permet de poser
+    // 12,5 + 3,75 sans jamais rencontrer un arrondi flottant.
+    lireUnNombre: function (txt) {
+        const t = String(txt === null || txt === undefined ? '' : txt)
+            .replace(/[\s  ]/g, '').replace(',', '.');
+        if (!/^\d+(\.\d+)?$/.test(t)) return null;
+        const bouts = t.split('.');
+        return { chiffres: bouts[0] + (bouts[1] || ''), virgule: bouts[1] ? bouts[1].length : 0 };
+    },
+
+    analyser: function (texte) {
+        const t = String(texte === null || texte === undefined ? '' : texte).trim().replace(/=\s*$/, '');
+        // Le premier nombre ne peut contenir aucun signe : c'est ce qui permet
+        // de couper « 47x26 » sans espaces, et de refuser « -5+3 » — un nombre
+        // négatif ne se pose pas en colonnes.
+        const m = t.match(/^([^+\-−–—*xX×÷/:]+)([+\-−–—*xX×÷/:])(.+)$/);
+        if (!m) return { erreur: "Écrivez une opération avec son signe, par exemple 347 + 258" };
+        const a = this.lireUnNombre(m[1]), b = this.lireUnNombre(m[3]);
+        if (!a || !b) return { erreur: "Les deux nombres doivent être des nombres positifs, par exemple 12,5" };
+        return { signe: this.SIGNES[m[2]], a, b };
+    },
+
+    poser: function (texte, opts) {
+        opts = opts || {};
+        const lu = this.analyser(texte);
+        if (lu.erreur) return lu;
+        const etapes = !!opts.etapes;
+        const resultat = !!opts.resultat || etapes;   // LES ÉTAPES ENTRAÎNENT LE RÉSULTAT
+        if (lu.signe === '+') return this.poserSomme(lu, resultat, etapes);
+        if (lu.signe === '−') return this.poserDifference(lu, resultat, etapes);
+        if (lu.signe === '×') return this.poserProduit(lu, resultat, etapes);
+        const d = parseInt(opts.decimales, 10);
+        return this.poserQuotient(lu, resultat, etapes, Math.max(0, Math.min(8, isNaN(d) ? 0 : d)));
+    },
+
+    // ============ POSER ============
+
+    // Deux nombres se posent l'un sous l'autre virgule sous virgule : on
+    // complète le plus court par des zéros à droite, et les deux ont alors le
+    // même rang de virgule.
+    memeVirgule: function (a, b) {
+        const v = Math.max(a.virgule, b.virgule);
+        return {
+            v,
+            A: a.chiffres + '0'.repeat(v - a.virgule),
+            B: b.chiffres + '0'.repeat(v - b.virgule)
+        };
+    },
+
+    // Pose une suite de chiffres alignée à DROITE sur la colonne `colFin`, avec
+    // sa virgule au rang `dec`. La virgule ne consomme pas de colonne : elle se
+    // décale d'une demi-case à droite du chiffre qu'elle suit.
+    poserChiffres: function (grains, texte, r, colFin, dec) {
+        const t = dec ? String(texte).padStart(dec + 1, '0') : String(texte);
+        for (let i = 0; i < t.length; i++) {
+            grains.push({ c: colFin - (t.length - 1 - i), r, t: t[i] });
+        }
+        if (dec) grains.push({ c: colFin - dec, r, t: ',', dx: 11 });
+    },
+
+    avecVirgule: function (s, v) {
+        if (!v) return String(s);
+        const p = String(s).padStart(v + 1, '0');
+        return p.slice(0, p.length - v) + ',' + p.slice(p.length - v);
+    },
+
+    sansZerosDeTete: function (s) { return String(s).replace(/^0+(?=\d)/, ''); },
+
+    sommeDeChaines: function (x, y) {
+        const n = Math.max(x.length, y.length);
+        const a = x.padStart(n, '0'), b = y.padStart(n, '0');
+        let s = '', r = 0;
+        for (let i = n - 1; i >= 0; i--) { const t = +a[i] + +b[i] + r; s = String(t % 10) + s; r = t >= 10 ? 1 : 0; }
+        return this.sansZerosDeTete((r ? '1' : '') + s);
+    },
+
+    // ---- ADDITION ----
+    poserSomme: function (lu, resultat, etapes) {
+        const al = this.memeVirgule(lu.a, lu.b), v = al.v;
+        const n = Math.max(al.A.length, al.B.length);
+        const pa = al.A.padStart(n, '0'), pb = al.B.padStart(n, '0');
+        let somme = '', r = 0; const retenues = [];
+        for (let i = n - 1; i >= 0; i--) {
+            const s = +pa[i] + +pb[i] + r;
+            somme = String(s % 10) + somme;
+            r = s >= 10 ? 1 : 0;
+            retenues[i] = r;           // produite par la colonne i, à ajouter dans celle de GAUCHE
+        }
+        if (r) somme = '1' + somme;
+
+        const colFin = Math.max(n, somme.length);   // les chiffres occupent 1..colFin, 0 est au signe
+        const grains = [], traits = [];
+        let haut = 0;
+        if (etapes) {
+            // LA RETENUE SE POSE AU-DESSUS DE LA COLONNE OÙ ELLE S'AJOUTE,
+            // c'est-à-dire une colonne à gauche de celle qui l'a produite.
+            for (let i = n - 1; i >= 0; i--) {
+                if (retenues[i]) grains.push({ c: colFin - (n - 1 - i) - 1, r: 0, t: '1', petit: true });
+            }
+            haut = 1;
+        }
+        this.poserChiffres(grains, al.A, haut, colFin, v);
+        this.poserChiffres(grains, al.B, haut + 1, colFin, v);
+        grains.push({ c: 0, r: haut + 1, t: '+' });
+        traits.push({ r: haut + 1, c1: 0, c2: colFin });
+        if (resultat) this.poserChiffres(grains, somme, haut + 2, colFin, v);
+        return {
+            signe: '+', grains, traits, montants: [],
+            colonnes: colFin + 1, lignes: haut + 3,
+            resultat: this.avecVirgule(somme, v), titre: 'Addition posée'
+        };
+    },
+
+    // ---- SOUSTRACTION ----
+    // La méthode des programmes : on ajoute dix au chiffre du haut et un au
+    // chiffre du bas de la colonne suivante. Les deux marques se posent donc
+    // en petit à côté des chiffres concernés, comme sur le cahier — un « 1 »
+    // en haut à gauche du chiffre du haut, un « 1 » en bas à gauche du chiffre
+    // du bas d'à côté.
+    poserDifference: function (lu, resultat, etapes) {
+        const al = this.memeVirgule(lu.a, lu.b), v = al.v;
+        const n = Math.max(al.A.length, al.B.length);
+        const pa = al.A.padStart(n, '0'), pb = al.B.padStart(n, '0');
+        if (pa < pb) return { erreur: "Pour poser une soustraction, le premier nombre doit être le plus grand" };
+        let diff = '', emprunt = 0; const emprunts = [];
+        for (let i = n - 1; i >= 0; i--) {
+            let x = +pa[i] - +pb[i] - emprunt;
+            if (x < 0) { x += 10; emprunt = 1; } else emprunt = 0;
+            emprunts[i] = emprunt;
+            diff = String(x) + diff;
+        }
+        let aff = this.sansZerosDeTete(diff);
+        if (v && aff.length < v + 1) aff = aff.padStart(v + 1, '0');
+
+        const colFin = Math.max(n, aff.length);
+        const grains = [], traits = [];
+        this.poserChiffres(grains, al.A, 0, colFin, v);
+        this.poserChiffres(grains, al.B, 1, colFin, v);
+        grains.push({ c: 0, r: 1, t: '−' });
+        if (etapes) {
+            for (let i = 0; i < n; i++) {
+                if (!emprunts[i]) continue;
+                const c = colFin - (n - 1 - i);
+                grains.push({ c, r: 0, t: '1', petit: true, dx: -11, dy: -11 });
+                if (c - 1 >= 1) grains.push({ c: c - 1, r: 1, t: '1', petit: true, dx: -11, dy: 6 });
+            }
+        }
+        traits.push({ r: 1, c1: 0, c2: colFin });
+        if (resultat) this.poserChiffres(grains, aff, 2, colFin, v);
+        return {
+            signe: '−', grains, traits, montants: [],
+            colonnes: colFin + 1, lignes: 3,
+            resultat: this.avecVirgule(aff, v), titre: 'Soustraction posée'
+        };
+    },
+
+    // ---- MULTIPLICATION ----
+    poserProduit: function (lu, resultat, etapes) {
+        const A = lu.a.chiffres, B = lu.b.chiffres;
+        const v = lu.a.virgule + lu.b.virgule;   // la virgule du produit : on additionne les rangs
+        const partiels = [];
+        for (let j = B.length - 1; j >= 0; j--) {
+            const d = +B[j], rang = B.length - 1 - j;
+            let p = '', r = 0;
+            for (let i = A.length - 1; i >= 0; i--) {
+                const s = (+A[i]) * d + r;
+                p = String(s % 10) + p;
+                r = Math.floor(s / 10);
+            }
+            while (r > 0) { p = String(r % 10) + p; r = Math.floor(r / 10); }
+            partiels.push({ rang, chiffres: this.sansZerosDeTete(p) });
+        }
+        let produit = '0';
+        partiels.forEach(p => { produit = this.sommeDeChaines(produit, p.chiffres + '0'.repeat(p.rang)); });
+
+        // UN SEUL CHIFFRE AU MULTIPLICATEUR, PAS DE PRODUITS PARTIELS : le
+        // produit partiel SERAIT le résultat, et l'on écrirait deux fois la
+        // même ligne en prétendant détailler.
+        const montrerPartiels = etapes && B.length > 1;
+        let colFin = Math.max(A.length, B.length, produit.length, v + 1);
+        if (montrerPartiels) partiels.forEach(p => { colFin = Math.max(colFin, p.chiffres.length + p.rang); });
+
+        const grains = [], traits = [];
+        this.poserChiffres(grains, A, 0, colFin, lu.a.virgule);
+        this.poserChiffres(grains, B, 1, colFin, lu.b.virgule);
+        grains.push({ c: 0, r: 1, t: '×' });
+        traits.push({ r: 1, c1: 0, c2: colFin });
+        let ligne = 2;
+        if (montrerPartiels) {
+            partiels.forEach((p, k) => {
+                this.poserChiffres(grains, p.chiffres, ligne, colFin - p.rang, 0);
+                if (k > 0) grains.push({ c: 0, r: ligne, t: '+' });
+                ligne++;
+            });
+            traits.push({ r: ligne - 1, c1: 0, c2: colFin });
+        }
+        if (resultat) this.poserChiffres(grains, produit, ligne, colFin, v);
+        return {
+            signe: '×', grains, traits, montants: [],
+            colonnes: colFin + 1, lignes: ligne + 1,
+            resultat: this.avecVirgule(produit, v), titre: 'Multiplication posée'
+        };
+    },
+
+    // ---- DIVISION ----
+    // La potence, et les soustractions successives qu'on y écrit. Le nombre de
+    // chiffres après la virgule est DEMANDÉ : c'est lui qui dit où s'arrête le
+    // calcul, et donc combien de zéros on abaisse. On tronque — poser une
+    // division, c'est s'arrêter, pas arrondir — et le reste reste visible.
+    poserQuotient: function (lu, resultat, etapes, nd) {
+        const Bc = this.sansZerosDeTete(lu.b.chiffres);
+        const Bv = parseInt(Bc, 10);
+        if (!Bv) return { erreur: "On ne divise pas par zéro" };
+
+        // UN DIVISEUR À VIRGULE SE RAMÈNE À UN ENTIER : multiplier les DEUX
+        // nombres par dix ne change pas le quotient. On décale donc la virgule
+        // du dividende d'autant de rangs, en ajoutant des zéros s'il le faut.
+        let D = lu.a.chiffres, vD = lu.a.virgule;
+        const vb = lu.b.virgule;
+        if (vb <= vD) vD -= vb; else { D += '0'.repeat(vb - vD); vD = 0; }
+
+        const entiers = D.length - vD;    // chiffres de la partie entière du dividende
+        const total = entiers + nd;       // chiffres du quotient à produire
+        // LE DIVIDENDE AFFICHÉ PORTE LES ZÉROS QU'ON VA ABAISSER : « 734 ÷ 8 »
+        // au centième s'écrit « 734,00 | 8 », comme au tableau.
+        let aff = D, vAff = vD;
+        if (total > D.length) { aff = D + '0'.repeat(total - D.length); vAff = vD + (total - D.length); }
+
+        const nAff = aff.length;
+        const colBarre = nAff + 1, colDiv = colBarre + 1;
+        const grains = [], traits = [], montants = [];
+        this.poserChiffres(grains, aff, 0, nAff, vAff);
+        for (let i = 0; i < Bc.length; i++) grains.push({ c: colDiv + i, r: 0, t: Bc[i] });
+        traits.push({ r: 0, c1: colBarre, c2: colDiv + Bc.length - 1 });
+
+        // Le calcul. Un chiffre du quotient par chiffre abaissé ; quand le
+        // dividende partiel est trop petit, le chiffre est zéro et l'on
+        // n'écrit RIEN — on abaisse simplement le suivant, comme au cahier.
+        const q = [], blocs = [];
+        let texte = '', ligne = 0, aEcrire = false, reste = 0, vientDeSoustraire = false;
+        for (let k = 0; k < total; k++) {
+            const d = k < aff.length ? +aff[k] : 0;
+            // ON N'ÉCRIT PAS « 04 ». Quand il ne reste rien et qu'on abaisse un
+            // chiffre, le dividende partiel est ce chiffre : le zéro de tête
+            // ferait croire à un nombre à deux chiffres.
+            if (k === 0) { texte = this.sansZerosDeTete(String(d)); aEcrire = false; ligne = 0; }
+            else if (vientDeSoustraire) { texte = this.sansZerosDeTete(String(reste) + String(d)); aEcrire = true; }
+            else texte = this.sansZerosDeTete(texte + String(d));
+            const cur = parseInt(texte, 10);
+            const qd = Math.floor(cur / Bv);
+            q.push(qd);
+            vientDeSoustraire = qd > 0;
+            if (!vientDeSoustraire) { reste = cur; continue; }
+            const prod = qd * Bv;
+            reste = cur - prod;
+            blocs.push({ ligne, colFin: 1 + k, texte, aEcrire, produit: String(prod), reste: String(reste) });
+            ligne += 2;
+        }
+
+        let bas = 0;
+        if (etapes) {
+            blocs.forEach(b => {
+                if (b.aEcrire) this.poserChiffres(grains, b.texte, b.ligne, b.colFin, 0);
+                this.poserChiffres(grains, b.produit, b.ligne + 1, b.colFin, 0);
+                grains.push({ c: b.colFin - b.produit.length, r: b.ligne + 1, t: '−' });
+                traits.push({ r: b.ligne + 1, c1: b.colFin - Math.max(b.texte.length, b.produit.length), c2: b.colFin });
+                bas = b.ligne + 2;
+            });
+            // CE QUI RESTE À LA FIN SE VOIT. Après la dernière soustraction il
+            // n'est encore nulle part ; si les derniers chiffres n'ont rien
+            // donné, c'est le dividende partiel lui-même, qui n'a pas de trait.
+            if (blocs.length && vientDeSoustraire) {
+                this.poserChiffres(grains, String(reste), ligne, total, 0);
+                bas = ligne;
+            } else if (aEcrire) {
+                this.poserChiffres(grains, texte, ligne, total, 0);
+                bas = ligne;
+            }
+        } else if (resultat) {
+            // SANS LES ÉTAPES, LE RESTE SE MET QUAND MÊME. Un quotient seul
+            // n'est pas la réponse à « 734 ÷ 8 » : il y reste six. Et sa place
+            // est celle du cahier — sous le dividende, dans la potence.
+            this.poserChiffres(grains, String(reste), 1, total, 0);
+            bas = 1;
+        }
+
+        // La partie entière du quotient a un chiffre par chiffre entier du
+        // dividende — « 12 ÷ 50 » en donne deux, tous deux nuls. On n'en garde
+        // qu'un : personne n'écrit « 00,24 ».
+        let entier = this.sansZerosDeTete(q.slice(0, entiers).join('')) || '0';
+        const decimales = q.slice(entiers).join('');
+        const quotient = nd ? entier + ',' + decimales : entier;
+        if (resultat) {
+            let c = colDiv;
+            for (let i = 0; i < entier.length; i++) grains.push({ c: c++, r: 1, t: entier[i] });
+            if (nd) {
+                grains.push({ c: c - 1, r: 1, t: ',', dx: 11 });
+                for (let i = 0; i < decimales.length; i++) grains.push({ c: c++, r: 1, t: decimales[i] });
+            }
+        }
+
+        const lignes = Math.max(bas + 1, 2);
+        montants.push({ c: colBarre, r1: 0, r2: lignes - 1 });
+        return {
+            signe: '÷', grains, traits, montants,
+            colonnes: Math.max(colDiv + Bc.length, colDiv + entier.length + decimales.length) + 1,
+            lignes,
+            resultat: quotient, reste: String(reste), titre: 'Division posée'
+        };
+    },
+
+    // ============ DESSINER ============
+    dessiner: function (plan, couleur, pourExport) {
+        const CL = 26, RH = 34, M = 14;
+        const w = M * 2 + plan.colonnes * CL, h = M * 2 + plan.lignes * RH;
+        const cx = (c) => M + c * CL + CL / 2;
+        const bas = (r) => M + r * RH + RH * 0.78;
+        const style = pourExport ? '' : ' style="max-width:100%;max-height:240px"';
+        let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"${style}>`;
+        plan.traits.forEach(t => {
+            const y = M + (t.r + 1) * RH + 2;
+            s += `<line x1="${cx(t.c1) - CL / 2}" y1="${y}" x2="${cx(t.c2) + CL / 2}" y2="${y}" stroke="${couleur}" stroke-width="2.5" stroke-linecap="round"/>`;
+        });
+        (plan.montants || []).forEach(m => {
+            s += `<line x1="${cx(m.c)}" y1="${M + m.r1 * RH}" x2="${cx(m.c)}" y2="${M + (m.r2 + 1) * RH + 2}" stroke="${couleur}" stroke-width="2.5" stroke-linecap="round"/>`;
+        });
+        plan.grains.forEach(g => {
+            s += `<text x="${cx(g.c) + (g.dx || 0)}" y="${bas(g.r) + (g.dy || 0)}" text-anchor="middle"`
+                + ` font-family="'Segoe UI', Tahoma, Verdana, sans-serif" font-size="${g.petit ? 13 : 28}"`
+                + ` font-weight="${g.petit ? 400 : 600}" fill="${couleur}"${g.petit ? ' opacity="0.7"' : ''}>${xmlEsc(g.t)}</text>`;
+        });
+        return s + '</svg>';
+    }
+});
+
+// ---------------------------------------------------------
 // 13. POLYGONES RÉGULIERS
 // ---------------------------------------------------------
 registerPlugin('polygonTool', 'Maths - Géométrie', {
