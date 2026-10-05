@@ -11825,6 +11825,18 @@ wysiwygText.addEventListener('keydown', (e) => {
     // saisie. MAIS quand on remplit un polycopié, elle fait ce qu'elle fait
     // dans tout formulaire — elle passe au trou suivant. On ne fait pas de
     // listes à puces dans une ligne pointillée.
+    // LES FLÈCHES, DANS UNE GRILLE, CHANGENT DE CASE.
+    //
+    // On ne les prend que si le déplacement a VRAIMENT eu lieu : hors d'une
+    // grille, ou au bord de la grille, elles rendent la main au curseur comme
+    // partout ailleurs.
+    const DIRECTIONS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+    if (DIRECTIONS[e.key] && tempTextLogicalPos && tempTextLogicalPos.zoneDoc !== undefined
+        && typeof allerDansLaGrille === 'function') {
+        const [dl, dc] = DIRECTIONS[e.key];
+        if (allerDansLaGrille(dl, dc)) { e.preventDefault(); return; }
+    }
+
     if (e.key === 'Tab') {
         e.preventDefault();
         if (tempTextLogicalPos && tempTextLogicalPos.zoneDoc !== undefined
@@ -12673,6 +12685,41 @@ function allerALaZoneVoisine(sens) {
     return true;
 }
 window.allerALaZoneVoisine = allerALaZoneVoisine;
+
+// DANS UNE GRILLE, ON NE REMPLIT PAS DANS L'ORDRE DE LECTURE.
+//
+// On remplit « la ligne du 3 », ou une diagonale, ou la case qu'un élève vient
+// de dire. La tabulation, qui suit l'ordre de lecture, ne sait faire que le
+// premier de ces trois gestes. Les flèches font les trois : elles déplacent
+// d'une CASE, dans la direction qu'on montre.
+//
+// Elles ne prennent la main que dans une grille — une case porte son rang et
+// sa colonne, les autres zones non. Ailleurs, elles continuent de déplacer le
+// curseur dans le texte, comme partout.
+function allerDansLaGrille(dLigne, dColonne) {
+    const depart = tempTextLogicalPos;
+    if (!depart || depart.zoneDoc === undefined) return false;
+    const idDoc = depart.zoneDoc, rang = depart.zoneRang;
+    const avant = getObjectById('image', idDoc);
+    const zonesAvant = avant && avant.pluginData && avant.pluginData.zones;
+    const ici = zonesAvant && zonesAvant[rang];
+    if (!ici || ici.grille === undefined) return false;
+    const cherche = (zs) => zs.findIndex(o => o.grille === ici.grille
+        && o.ligne === ici.ligne + dLigne && o.colonne === ici.colonne + dColonne);
+    if (cherche(zonesAvant) < 0) return false;      // le bord de la grille
+    finalizeText();
+    const obj = getObjectById('image', idDoc);
+    const zones = obj && obj.pluginData && obj.pluginData.zones;
+    if (!zones || !zones.length) return false;
+    const vise = cherche(zones);
+    if (vise < 0) return false;
+    const b = zoneSurLeTableau(obj, zones[vise]);
+    if (!b) return false;
+    ouvrirLaSaisie({ obj, i: vise, b }, { x: b.x, y: b.y });
+    draw();
+    return true;
+}
+window.allerDansLaGrille = allerDansLaGrille;
 
 // ROUVRIR UNE VIGNETTE DE PLUGIN. Soixante-quatre outils sur quatre-vingt-six
 // posent une vignette qu'on peut rouvrir pour la reprendre — et rien ne le
@@ -17680,6 +17727,68 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
         return couvert > large * 0.5;
     };
 
+    // ===================================================================
+    // UNE GRILLE SE RECONNAÎT COMME GRILLE, ET NON COMME CENT TRAITS
+    //
+    // « Comment remplir cela rapidement, en particulier la table d'addition ? »
+    //
+    // Elle ne donnait AUCUNE zone — mesuré, zéro sur une table de dix sur dix.
+    // La raison tient en une ligne : les traits d'un tableau courent sur toute
+    // sa largeur, donc au-delà de « CADRE_MAX », et ils sont écartés comme
+    // bordures de page. Les cases, elles, ne sont jamais isolées : aucun trait
+    // ne s'arrête au bord d'une case, ils traversent tout le tableau.
+    //
+    // ON CHERCHE DONC LA FIGURE ENTIÈRE. Des traits horizontaux de MÊME DÉBUT
+    // ET MÊME FIN, empilés : ce sont les lignes d'un tableau, et rien d'autre
+    // n'a cette forme sur une page. Les verticales se lisent ensuite dans la
+    // bande qu'ils délimitent — une colonne pleine du haut en bas. Les cases
+    // tombent alors toutes seules, avec leur RANG et leur COLONNE, qui sont ce
+    // qui permettra d'y circuler aux flèches.
+    const grilles = [];
+    {
+        const longs = fondus.filter(m => m.x2 - m.x1 >= w * 0.18)
+            .sort((a, b) => a.y - b.y);
+        const prises = new Set();
+        longs.forEach((m, i) => {
+            if (prises.has(i)) return;
+            const famille = [i];
+            for (let k = i + 1; k < longs.length; k++) {
+                if (prises.has(k)) continue;
+                const o = longs[k];
+                if (Math.abs(o.x1 - m.x1) <= 8 && Math.abs(o.x2 - m.x2) <= 8) famille.push(k);
+            }
+            // Quatre traits font trois rangées : moins, ce n'est pas un tableau
+            // mais un en-tête souligné deux fois.
+            if (famille.length < 4) return;
+            famille.forEach(k => prises.add(k));
+            const regles = famille.map(k => longs[k]);
+            const haut = regles[0].y, bas = regles[regles.length - 1].y;
+            if (bas - haut < 24) return;
+            const colonnes = [];
+            let courant = null;
+            const plein = Math.max(4, Math.round((bas - haut - 4) * 0.8));
+            // ON DÉBORDE DE HUIT PIXELS DE CHAQUE CÔTÉ. Un trait horizontal ne
+            // commence qu'APRÈS la verticale qui le borde — le test de finesse
+            // exige du vide au-dessus et au-dessous, et le montant de gauche en
+            // met. Balayer la seule étendue du trait manquait donc les deux
+            // bordures du tableau : mesuré, neuf verticales sur onze, et la
+            // colonne des en-têtes passait tout entière hors de la grille.
+            const gauche = Math.min(...regles.map(r => r.x1)) - 8;
+            const droite = Math.max(...regles.map(r => r.x2)) + 8;
+            for (let x = Math.max(0, gauche); x <= Math.min(w - 1, droite); x++) {
+                if (encreColonne(x, haut + 2, bas - 2) >= plein) {
+                    if (courant) courant.b = x; else courant = { a: x, b: x };
+                } else if (courant) {
+                    colonnes.push(Math.round((courant.a + courant.b) / 2));
+                    courant = null;
+                }
+            }
+            if (courant) colonnes.push(Math.round((courant.a + courant.b) / 2));
+            if (colonnes.length < 4) return;
+            grilles.push({ lignes: regles.map(r => r.y), colonnes });
+        });
+    }
+
     const traits = [], cadres = [];
     fondus.slice(0, 400).forEach(m => {
         if (encadre(m)) cadres.push(m);
@@ -17763,6 +17872,39 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
         zones.push({ genre: 'ligne', x: m.x1, y: m.y - hauteur, l: m.x2 - m.x1, h: hauteur });
     });
 
+    // LES CASES DE LA GRILLE, RANG ET COLONNE COMPRIS.
+    //
+    // UNE CASE DÉJÀ REMPLIE N'EST PAS UNE CASE À REMPLIR : les en-têtes « + 1 2
+    // 3… » portent leur chiffre et s'écartent donc d'elles-mêmes, sans qu'on
+    // ait à deviner lesquelles sont des en-têtes.
+    //
+    // UN FOND DE COULEUR N'EST PAS DE L'ENCRE. Les cases d'un tableau de calcul
+    // sont souvent teintées ; le test d'encre ne retient le clair que s'il est
+    // FRANCHEMENT coloré, et un pastel ne l'est pas. Une case rose pâle reste
+    // donc une case vide — ce qu'elle est.
+    grilles.forEach((g, n) => {
+        for (let i = 0; i < g.lignes.length - 1; i++) {
+            for (let j = 0; j < g.colonnes.length - 1; j++) {
+                const x = g.colonnes[j] + 2, y = g.lignes[i] + 2;
+                const l = g.colonnes[j + 1] - g.colonnes[j] - 4;
+                const hh = g.lignes[i + 1] - g.lignes[i] - 4;
+                if (l < 8 || hh < 8) continue;
+                // ON COMPTE L'ENCRE, PAS LES COLONNES ENCRÉES. Un « 1 » de
+                // seize pixels n'occupe que deux colonnes : en comptant les
+                // colonnes, neuf en-têtes sur dix-huit passaient pour des cases
+                // vides — mesuré. Quelques pixels suffisent à dire qu'une case
+                // porte déjà quelque chose.
+                let encree = 0;
+                for (let xx = x + 1; xx < x + l - 1; xx++) {
+                    encree += encreColonne(xx, y + 1, y + hh - 1);
+                }
+                if (encree > Math.max(10, l * hh * 0.004)) continue;
+                zones.push({ genre: 'case', x, y, l, h: hh,
+                             grille: n, ligne: i, colonne: j });
+            }
+        }
+    });
+
     return zones.slice(0, ZONES_MAX);
 }
 
@@ -17812,8 +17954,12 @@ async function chercherLesZones(d, numero) {
         if (hauteurs.length) hauteurTexte = hauteurs[Math.floor(hauteurs.length / 2)];
     } catch (e) { /* pas de texte : un scan, par exemple */ }
 
+    // ON GARDE CE QUE LA ZONE PORTE, et l'on ne récrit que sa géométrie. Cette
+    // ligne ne recopiait que cinq champs : le rang et la colonne d'une case de
+    // grille se perdaient en route, et les flèches n'avaient plus rien pour
+    // circuler — mesuré, douze cases trouvées, zéro marquée.
     return repererLesZones(c, hauteurTexte, boitesTexte).map(z => ({
-        genre: z.genre,
+        ...z,
         x: z.x / c.width, y: z.y / c.height, l: z.l / c.width, h: z.h / c.height
     }));
 }

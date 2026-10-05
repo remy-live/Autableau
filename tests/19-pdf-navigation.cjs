@@ -994,10 +994,17 @@ module.exports = async function (browser) {
         for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
         const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
         const z = await zonesDeLaPage({ doc }, 1);
-        return { n: z.length, lignes: z.filter(u => u.genre === 'ligne').length };
+        return { n: z.length, lignes: z.filter(u => u.genre === 'ligne').length,
+                 cases: z.filter(u => u.grille !== undefined).length };
     }, polyEnCases().toString('base64'));
     r.egal('un poly fait de tableaux : les dix-huit lignes sont trouvées', enCases.lignes, 18);
-    r.egal('et rien de plus', enCases.n, 18);
+    // ET LES CASES VIDES DE SES TABLEAUX, DEPUIS QU'UNE GRILLE SE RECONNAÎT.
+    // Elles n'étaient pas trouvées du tout : les traits d'un tableau courent sur
+    // toute sa largeur, donc au-delà de ce qu'un cadre a le droit de mesurer, et
+    // ils étaient écartés comme bordures de page. Une case vide est pourtant une
+    // case à remplir — c'est tout le sujet d'une table d'addition.
+    r.egal('et douze cases vides de ses tableaux', enCases.cases, 12);
+    r.egal('et rien d\'autre', enCases.n, 30);
 
     // UNE PAGE DENSE EN TROIS COLONNES, comme un vrai polycopié : vingt-quatre
     // courtes lignes après leur libellé. Les seuils se mesurent en hauteurs de
@@ -1762,6 +1769,186 @@ module.exports = async function (browser) {
     r.verifie('et revenir en arrière rend sa forme à la page à l\'italienne',
         fidele(bascule.retour) && bascule.retour.boite[0] > bascule.retour.boite[1],
         JSON.stringify(bascule.retour));
+
+    // ==================================================================
+    // UNE GRILLE SE RECONNAÎT COMME GRILLE
+    //
+    // « Comment remplir cela rapidement, en particulier la table d'addition ? »
+    //
+    // Elle ne donnait AUCUNE zone — mesuré, zéro sur une table de dix sur dix.
+    // Les traits d'un tableau courent sur toute sa largeur, donc au-delà de ce
+    // qu'un cadre a le droit de mesurer, et ils étaient écartés comme bordures
+    // de page. Les cases ne sont jamais isolées : aucun trait ne s'arrête au
+    // bord de l'une d'elles.
+    //
+    // ON DESSINE LA TABLE ET L'ON COMPTE CE QUI EN SORT. Le compte exact est la
+    // mesure qui ne pardonne pas : une table de dix sur dix, en-têtes compris,
+    // doit rendre QUATRE-VINGT-UNE cases — son corps de neuf sur neuf — et pas
+    // une de plus.
+    const table = async (reglages) => page.evaluate((o) => {
+        const c = document.createElement('canvas');
+        c.width = 700; c.height = 400;
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+        const x0 = 20, y0 = 20, L = 65, H = 36;
+        // Les fonds de couleur AVANT les traits : c'est l'ordre d'un polycopié.
+        if (o.teinte) {
+            g.fillStyle = o.teinte;
+            for (let i = 1; i <= 9; i++) {
+                for (let j = 1; j <= 9; j++) g.fillRect(x0 + j * L, y0 + i * H, L, H);
+            }
+        }
+        g.strokeStyle = '#000'; g.lineWidth = 1;
+        for (let i = 0; i <= (o.lignes === undefined ? 10 : o.lignes); i++) {
+            g.beginPath(); g.moveTo(x0, y0 + i * H);
+            g.lineTo(x0 + (o.colonnes === undefined ? 10 : o.colonnes) * L, y0 + i * H); g.stroke();
+        }
+        for (let i = 0; i <= (o.colonnes === undefined ? 10 : o.colonnes); i++) {
+            g.beginPath(); g.moveTo(x0 + i * L, y0);
+            g.lineTo(x0 + i * L, y0 + (o.lignes === undefined ? 10 : o.lignes) * H); g.stroke();
+        }
+        g.fillStyle = '#000'; g.font = '16px sans-serif';
+        if (o.entetes !== false) {
+            for (let i = 1; i <= 9; i++) {
+                g.fillText(String(i), x0 + i * L + 28, y0 + 24);
+                g.fillText(String(i), x0 + 28, y0 + i * H + 24);
+            }
+            g.fillText('+', x0 + 28, y0 + 24);
+        }
+        if (o.remplie) g.fillText('7', x0 + 3 * L + 28, y0 + 3 * H + 24);
+        const z = repererLesZones(c, 16, []);
+        const cases = z.filter(k => k.grille !== undefined);
+        return {
+            total: z.length, cases: cases.length,
+            lignes: [...new Set(cases.map(k => k.ligne))].sort((a, b) => a - b),
+            colonnes: [...new Set(cases.map(k => k.colonne))].sort((a, b) => a - b),
+            laRemplie: cases.some(k => k.ligne === 3 && k.colonne === 3)
+        };
+    }, reglages);
+
+    const dixSurDix = await table({});
+    r.egal('UNE TABLE DE DIX SUR DIX REND SON CORPS DE NEUF SUR NEUF',
+        dixSurDix.cases, 81, JSON.stringify(dixSurDix));
+    r.egal('les rangs vont de 1 à 9', dixSurDix.lignes, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    r.egal('et les colonnes aussi', dixSurDix.colonnes, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    r.egal('aucune autre zone ne vient s\'y mêler', dixSurDix.total, 81, JSON.stringify(dixSurDix));
+
+    // UNE CASE DÉJÀ REMPLIE N'EST PAS UNE CASE À REMPLIR. C'est la règle qui
+    // écarte les en-têtes sans qu'on ait à deviner lesquels en sont.
+    const avecUneReponse = await table({ remplie: true });
+    r.egal('une case déjà écrite sort du compte', avecUneReponse.cases, 80,
+        JSON.stringify(avecUneReponse));
+    r.verifie('et c\'est bien celle-là', !avecUneReponse.laRemplie, JSON.stringify(avecUneReponse));
+
+    // UN FOND DE COULEUR N'EST PAS DE L'ENCRE. Les tables de calcul d'un
+    // polycopié sont presque toujours teintées — rose, bleu, jaune pâle. Si la
+    // teinte comptait pour de l'encre, la table entière passerait pour remplie
+    // et l'on n'aurait rien gagné.
+    const teintee = await table({ teinte: '#f7d9d9' });
+    r.egal('UNE CASE TEINTÉE RESTE UNE CASE VIDE', teintee.cases, 81, JSON.stringify(teintee));
+
+    // ET TOUT EMPILEMENT DE TRAITS N'EST PAS UN TABLEAU. Deux rangées ne font
+    // pas une grille : ce serait un en-tête souligné deux fois.
+    const troisTraits = await table({ lignes: 2, colonnes: 10, entetes: false });
+    r.egal('deux rangées ne font pas une grille', troisTraits.cases, 0,
+        JSON.stringify(troisTraits));
+    const deuxColonnes = await table({ lignes: 10, colonnes: 2, entetes: false });
+    r.egal('deux colonnes non plus', deuxColonnes.cases, 0, JSON.stringify(deuxColonnes));
+
+    // ==================================================================
+    // ET L'ON Y CIRCULE AUX FLÈCHES
+    //
+    // La tabulation suit l'ordre de lecture : elle ne sait faire qu'un geste
+    // sur trois. En classe on remplit « la ligne du 3 », une diagonale, ou la
+    // case qu'un élève vient de dire.
+    // ==================================================================
+    const flechesDansLaGrille = await page.evaluate(() => {
+        // Une page de zones fabriquée à la main : on éprouve la circulation,
+        // pas la détection, qui vient d'être mesurée juste au-dessus.
+        // Les zones sont rangées en PROPORTIONS de la page, et la conversion
+        // vers le tableau demande l'image et son cadrage : sans eux, l'ouverture
+        // de la saisie échoue et l'on croirait la circulation cassée.
+        // Une vraie toile, et non un objet qui lui ressemble : le rendu la
+        // DESSINE, et un faux la fait exploser.
+        const toile = document.createElement('canvas');
+        toile.width = 700; toile.height = 400;
+        imageCache['grille-d-essai'] = toile;
+        const faux = { id: 9000 + Math.floor(Math.random() * 1000),
+                       src: 'grille-d-essai', x: 0, y: 0, w: 700, h: 400,
+                       cx: 0, cy: 0, cw: 700, ch: 400,
+                       pluginData: { id: 'pdfDoc', page: 1, zones: [] } };
+        for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+                faux.pluginData.zones.push({ genre: 'case', x: 0.1 + 0.25 * j, y: 0.1 + 0.25 * i,
+                                             l: 0.2, h: 0.2, grille: 0, ligne: i, colonne: j });
+            }
+        }
+        faux.pluginData.zones.push({ genre: 'ligne', x: 0.1, y: 0.9, l: 0.3, h: 0.05 });
+        images.push(faux);
+        const rangDe = (i, j) => faux.pluginData.zones
+            .findIndex(z => z.ligne === i && z.colonne === j);
+        // ON COMPTE LES VALIDATIONS. Au bord, la flèche ne doit RIEN faire : ni
+        // changer de case, ni valider ce qu'on est en train d'écrire. C'est la
+        // seule façon de le mesurer ici, puisque la saisie de ce faux document
+        // n'est pas réellement ouverte — et sans ce compte, on pouvait retirer
+        // la garde du bord sans qu'aucun chapitre ne s'en aperçoive.
+        const vraiFinalize = window.finalizeText;
+        let validations = 0;
+        window.finalizeText = function () { validations++; return vraiFinalize.apply(this, arguments); };
+        const essai = (depuis, dl, dc) => {
+            tempTextLogicalPos = { zoneDoc: faux.id, zoneRang: depuis };
+            validations = 0;
+            const bouge = allerDansLaGrille(dl, dc);
+            const arrive = tempTextLogicalPos && tempTextLogicalPos.zoneRang;
+            const valide = validations;
+            window.finalizeText = vraiFinalize;
+            finalizeText();
+            window.finalizeText = function () { validations++; return vraiFinalize.apply(this, arguments); };
+            return { bouge, arrive, valide };
+        };
+        const centre = rangDe(1, 1);
+        const lu = {
+            droite: essai(centre, 0, 1), gauche: essai(centre, 0, -1),
+            bas: essai(centre, 1, 0), haut: essai(centre, -1, 0),
+            attendus: { droite: rangDe(1, 2), gauche: rangDe(1, 0),
+                        bas: rangDe(2, 1), haut: rangDe(0, 1) },
+            // Au bord, la flèche ne prend pas la main : elle revient au curseur.
+            auBord: essai(rangDe(0, 0), -1, 0),
+            coinHautGauche: rangDe(0, 0),
+            // Et hors d'une grille non plus : une ligne à remplir n'a ni rang
+            // ni colonne, et les flèches doivent y rester des flèches.
+            horsGrille: essai(faux.pluginData.zones.length - 1, 0, 1)
+        };
+        window.finalizeText = vraiFinalize;
+        images.splice(images.indexOf(faux), 1);
+        tempTextLogicalPos = null;
+        return lu;
+    });
+    r.egal('LA FLÈCHE DROITE PASSE À LA CASE DE DROITE',
+        flechesDansLaGrille.droite.arrive, flechesDansLaGrille.attendus.droite,
+        JSON.stringify(flechesDansLaGrille));
+    r.egal('la gauche à celle de gauche',
+        flechesDansLaGrille.gauche.arrive, flechesDansLaGrille.attendus.gauche);
+    r.egal('LA FLÈCHE BASSE CHANGE DE RANG',
+        flechesDansLaGrille.bas.arrive, flechesDansLaGrille.attendus.bas);
+    r.egal('et la haute remonte', flechesDansLaGrille.haut.arrive,
+        flechesDansLaGrille.attendus.haut);
+    r.verifie('AU BORD DE LA GRILLE, LA FLÈCHE REND LA MAIN AU CURSEUR',
+        flechesDansLaGrille.auBord.bouge === false, JSON.stringify(flechesDansLaGrille.auBord));
+    // ET LA SAISIE NE SE FERME PAS POUR AUTANT. C'est tout l'enjeu : au bord,
+    // la flèche ne doit RIEN faire — ni changer de case, ni valider ce qu'on
+    // est en train d'écrire. Sans ce contrôle, on pouvait retirer la garde du
+    // bord sans qu'aucun chapitre ne s'en aperçoive.
+    r.egal('et la saisie reste dans sa case',
+        flechesDansLaGrille.auBord.arrive, flechesDansLaGrille.coinHautGauche,
+        JSON.stringify(flechesDansLaGrille.auBord));
+    r.egal('SANS VALIDER CE QU\'ON ÉTAIT EN TRAIN D\'ÉCRIRE',
+        flechesDansLaGrille.auBord.valide, 0, JSON.stringify(flechesDansLaGrille.auBord));
+    r.egal('alors qu\'un vrai déplacement, lui, valide',
+        flechesDansLaGrille.droite.valide, 1, JSON.stringify(flechesDansLaGrille.droite));
+    r.verifie('et hors d\'une grille aussi',
+        flechesDansLaGrille.horsGrille.bouge === false,
+        JSON.stringify(flechesDansLaGrille.horsGrille));
 
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
