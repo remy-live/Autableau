@@ -745,11 +745,37 @@ module.exports = async function (browser) {
             const t = Math.round(x.getBoundingClientRect().top);
             parLigne[t] = (parLigne[t] || 0) + 1;
         });
-        return { total: btns.length, repartition: Object.values(parLigne) };
+        // La place offerte est celle du tiroir MOINS la colonne du bord, que la
+        // grille n'a pas le droit de recouvrir — des deux côtés, puisqu'elle
+        // est centrée.
+        const st = getComputedStyle(g);
+        const jeu = parseFloat(st.columnGap || st.gap || '0') || 0;
+        const large = btns[0] ? btns[0].getBoundingClientRect().width : 0;
+        const colonne = document.getElementById('tiroir-commandes');
+        const reserve = colonne ? (colonne.getBoundingClientRect().width + 12) * 2 : 0;
+        const dispo = g.parentElement.getBoundingClientRect().width - reserve;
+        return { total: btns.length, repartition: Object.values(parLigne),
+                 maxParRangee: Math.max(1, Math.floor((dispo + jeu) / (large + jeu))) };
     });
-    const ecart = Math.max(...rangees.repartition) - Math.min(...rangees.repartition);
-    r.verifie('les rangées d\'icônes sont équilibrées', ecart <= 1,
-        `${rangees.total} outils répartis en ${JSON.stringify(rangees.repartition)}`);
+    // AUSSI ÉGALES QUE LA LARGEUR LE PERMET, et pas « à un près ». Une grille
+    // remplit ses rangées l'une après l'autre : vingt-cinq outils à huit par
+    // rangée au plus donnent 7+7+7+4, et aucune largeur de colonne ne fait
+    // mieux en quatre rangées. Exiger un écart de un, c'était exiger une
+    // cinquième rangée — un vide de plus pour une égalité de façade. On
+    // cherche donc le meilleur découpage au lieu de le réciter.
+    const meilleure = (n, max) => {
+        let mieux = null;
+        for (let c = 1; c <= max; c++) {
+            const r = Math.ceil(n / c), vide = r * c - n;
+            if (!mieux || r < mieux.r || (r === mieux.r && vide < mieux.vide)) mieux = { c, r, vide };
+        }
+        const l = [];
+        for (let k = 0; k < mieux.r; k++) l.push(Math.min(mieux.c, n - k * mieux.c));
+        return l;
+    };
+    r.egal('les rangées d\'icônes sont aussi pleines que la largeur le permet',
+        rangees.repartition, meilleure(rangees.total, rangees.maxParRangee),
+        `${rangees.total} outils, ${rangees.maxParRangee} au plus par rangée`);
 
     // --- PANNEAU D'UNE BARRE FLOTTANTE ---
     const dessus = await page.evaluate(() => {

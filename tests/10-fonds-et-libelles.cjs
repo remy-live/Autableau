@@ -265,21 +265,49 @@ module.exports = async function (browser) {
         // La place offerte et la largeur d'un bouton disent combien de rangées
         // sont NÉCESSAIRES : en garder davantage, c'est laisser du vide à
         // droite et empiler des rangées maigres.
+        //
+        // LA PLACE OFFERTE N'EST PAS CELLE DU TIROIR. La loupe et le « ⋯ »
+        // vivent hors du flux au bord du tiroir, et la grille a l'ordre de ne
+        // pas venir dessous — des deux côtés, puisqu'elle est centrée.
+        // Mesurer la largeur du parent, c'était réclamer une rangée que la
+        // grille n'a pas le droit de remplir.
         const st = getComputedStyle(g);
         const ecart = parseFloat(st.columnGap || st.gap || '0') || 0;
         const large = vis[0] ? vis[0].getBoundingClientRect().width : 0;
-        const dispo = g.parentElement.getBoundingClientRect().width;
-        const parRangee = Math.max(1, Math.floor((dispo + ecart) / (large + ecart)));
+        const colonne = document.getElementById('tiroir-commandes');
+        const reserve = colonne ? (colonne.getBoundingClientRect().width + 12) * 2 : 0;
+        const dispo = g.parentElement.getBoundingClientRect().width - reserve;
         return { lignes: [...parHaut.values()], n: vis.length,
-                 minimum: Math.ceil(vis.length / parRangee) };
+                 maxParRangee: Math.max(1, Math.floor((dispo + ecart) / (large + ecart))) };
     });
-    // Deux exigences, et il faut les deux : des rangées ÉGALES, et pas une
-    // rangée de plus que nécessaire. Prises séparément, chacune se laisse
-    // satisfaire par hasard — vingt-quatre outils en 5+5+5+5+4 sont bien
-    // « égaux à un près », et pourtant c'est deux rangées de trop.
+    // Deux exigences, et il faut les deux : des rangées AUSSI ÉGALES QUE
+    // POSSIBLE, et pas une rangée de plus que nécessaire. Prises séparément,
+    // chacune se laisse satisfaire par hasard — vingt-quatre outils en
+    // 5+5+5+5+4 sont bien « égaux à un près », et pourtant c'est deux rangées
+    // de trop.
+    //
+    // « ÉGALES À UN PRÈS » N'EST PAS TOUJOURS POSSIBLE, et l'exiger quand même
+    // revenait à exiger une rangée de plus — c'est-à-dire le contraire de
+    // l'autre moitié de la règle. Une grille remplit ses rangées l'une après
+    // l'autre : vingt-cinq outils à huit par rangée au plus donnent 7+7+7+4,
+    // et AUCUNE largeur de colonne ne fait mieux en quatre rangées (sept en
+    // laisse quatre, huit en laisse un). Le meilleur, lui, existe toujours.
+    //
+    // ON LE CHERCHE, ON NE LE RÉCITE PAS : on essaie toutes les largeurs qui
+    // tiennent, on garde celles qui font le moins de rangées, et parmi elles
+    // la plus pleine à la fin. Si la grille tombe ailleurs, elle a tort.
+    const meilleure = (n, maxParRangee) => {
+        let mieux = null;
+        for (let c = 1; c <= maxParRangee; c++) {
+            const r = Math.ceil(n / c), vide = r * c - n;
+            if (!mieux || r < mieux.r || (r === mieux.r && vide < mieux.vide)) mieux = { c, r, vide };
+        }
+        const lignes = [];
+        for (let k = 0; k < mieux.r; k++) lignes.push(Math.min(mieux.c, n - k * mieux.c));
+        return lignes;
+    };
     const bienReparti = (m) => m.lignes.length > 1
-        && (Math.max(...m.lignes) - Math.min(...m.lignes)) <= 1
-        && m.lignes.length === m.minimum;
+        && JSON.stringify(m.lignes) === JSON.stringify(meilleure(m.n, m.maxParRangee));
 
     await pageP.evaluate(() => choisirFormatIcones('non', false));
     await pageP.waitForTimeout(500);
@@ -295,6 +323,22 @@ module.exports = async function (browser) {
     // la rubrique s'étalait en cinq rangées maigres au lieu de trois pleines.
     r.verifie('et après retour aux libellés, elles le restent',
         bienReparti(enLibelles), JSON.stringify(enLibelles));
+
+    // ET LA RAISON DE LA RÉSERVE, mesurée pour elle-même : « les pointillés se
+    // superposent ». La grille ne doit JAMAIS passer sous la colonne du bord,
+    // quel que soit l'affichage — c'est la contrainte qui interdit la rangée
+    // de plus, et elle se voit à la géométrie, sans calcul.
+    const sousLaColonne = await pageP.evaluate(() => {
+        const g = document.getElementById('plugins-grid').getBoundingClientRect();
+        const c = document.getElementById('tiroir-commandes');
+        if (!c) return { pasDeColonne: true };
+        const b = c.getBoundingClientRect();
+        return { chevauche: g.left < b.right && g.right > b.left && g.top < b.bottom && g.bottom > b.top,
+                 grille: [Math.round(g.left), Math.round(g.right)],
+                 colonne: [Math.round(b.left), Math.round(b.right)] };
+    });
+    r.verifie('et la grille ne passe pas sous la colonne du bord',
+        !sousLaColonne.chevauche, JSON.stringify(sousLaColonne));
 
     // --- LA BARRE DU BAS : DES ICÔNES, DES PASTILLES, DES TÉMOINS ---
     const barre = await pageP.evaluate(() => ({
