@@ -13982,6 +13982,8 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
 // place, à la même taille et au même endroit.
 registerPlugin('operationPoseeTool', 'Maths - Numérique', {
 
+    currentStamp: null, currentArgs: null,
+
     // Tout ce qu'un cahier, un clavier ou une calculette appelle « fois » et
     // « divisé par ». Mieux vaut quatre caractères de plus ici qu'un message
     // d'erreur parce qu'on a tapé « 47x26 ».
@@ -13997,6 +13999,7 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         const btn = document.createElement('button');
         btn.className = 'btn';
         btn.title = 'Opération posée';
+        btn.dataset.mode = 'operationPosee';
         // Deux rangées de chiffres, un signe et la barre : l'image même de ce
         // que l'outil produit.
         btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -14017,32 +14020,77 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
 
     edit: function (imgObj) { this.ouvrir(imgObj.pluginData.args, imgObj); },
 
+    // LES MARQUES DU DÉCALAGE, et les polices : les mêmes identités que la
+    // barre du texte, pour qu'il n'y ait pas deux nommages d'une même chose.
+    DECALAGES: [
+        { value: 'point', label: 'Un point' },
+        { value: 'zero', label: 'Un zéro' },
+        { value: 'rien', label: 'Rien' }
+    ],
+    POLICES: [
+        { value: 'sans-serif', label: 'Bâton' },
+        { value: 'serif', label: 'Livre' },
+        { value: 'monospace', label: 'Chasse fixe' },
+        { value: "'Comic Sans MS', cursive", label: 'Comic' }
+    ],
+
+    // Les réglages d'un tampon, relus à l'endroit. LES PREMIERS TAMPONS N'EN
+    // AVAIENT QUE CINQ, la couleur en cinquième : rouvrir l'un d'eux aurait
+    // pris sa couleur pour un décalage. On le reconnaît à la forme de ce
+    // cinquième réglage, et on remet chaque chose à sa place — avec « rien »
+    // comme décalage, puisque c'est ainsi qu'il a été dessiné.
+    lireLesReglages: function (args) {
+        const a = args || [];
+        const ancien = a.length <= 5 && /^#[0-9a-fA-F]{6}$/.test(String(a[4] || ''));
+        return {
+            operation: a[0] !== undefined ? a[0] : '347 + 258',
+            resultat: !!a[1],
+            etapes: !!a[2],
+            decimales: a[3] !== undefined ? String(a[3]) : '0',
+            decalage: ancien ? 'rien' : (a[4] || 'point'),
+            police: ancien ? 'sans-serif' : (a[5] || 'sans-serif'),
+            couleur: (ancien ? a[4] : a[6]) || '#2d3436'
+        };
+    },
+
     ouvrir: function (prefill, target) {
-        const p = prefill || [];
+        const p = this.lireLesReglages(prefill);
         openCustomPrompt(target ? "Modifier l'opération posée" : "Opération posée", [
             {
                 type: 'text', label: "L'opération",
                 placeholder: '347 + 258     912 − 437     47 × 26     734 ÷ 8',
-                value: p[0] !== undefined ? p[0] : '347 + 258'
+                value: p.operation
             },
-            { type: 'checkbox', label: 'Montrer le résultat', value: p[1] !== undefined ? p[1] : false },
-            { type: 'checkbox', label: 'Montrer les étapes (avec le résultat)', value: p[2] !== undefined ? p[2] : false },
-            { type: 'number', label: 'Chiffres après la virgule (division)', value: p[3] !== undefined ? p[3] : '0' },
-            { type: 'color', label: 'Couleur', value: p[4] || '#2d3436' }
+            { type: 'checkbox', label: 'Montrer le résultat', value: p.resultat },
+            { type: 'checkbox', label: 'Montrer les étapes (avec le résultat)', value: p.etapes },
+            { type: 'number', label: 'Chiffres après la virgule (division)', value: p.decimales },
+            { type: 'select', label: 'Décalage de la multiplication', value: p.decalage, options: this.DECALAGES },
+            { type: 'select', label: 'Police', value: p.police, options: this.POLICES },
+            { type: 'color', label: 'Couleur', value: p.couleur }
         ], (r) => this.apercu(r), (r) => this.construire(r, target));
     },
 
+    planDe: function (res) {
+        const p = this.lireLesReglages(res);
+        return this.poser(p.operation, {
+            resultat: p.resultat, etapes: p.etapes,
+            decimales: p.decimales, decalage: p.decalage
+        });
+    },
+
     apercu: function (res) {
-        const plan = this.poser(res[0], { resultat: res[1], etapes: res[2], decimales: res[3] });
+        const p = this.lireLesReglages(res);
+        const plan = this.planDe(res);
         // CE QUI NE SE POSE PAS SE DIT. Un aperçu vide laisse croire que
         // l'outil est cassé ; la phrase dit quoi corriger, et sans couleur
         // propre pour que le rattrapage de contraste de la boîte s'applique.
         if (plan.erreur) return `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:280px">${xmlEsc(plan.erreur)}</div>`;
-        return this.dessiner(plan, res[4] || '#2d3436', false);
+        return this.dessiner(plan, p.couleur, false, p.police);
     },
 
     construire: function (res, target) {
-        const plan = this.poser(res[0], { resultat: res[1], etapes: res[2], decimales: res[3] });
+        const reglages = this.lireLesReglages(res);
+        const plan = this.planDe(res);
         if (plan.erreur) {
             if (typeof showToast === 'function') showToast(plan.erreur);
             // ON NE JETTE PAS LA SAISIE. Rouvrir la boîte avec ce qui y était
@@ -14051,8 +14099,87 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
             this.ouvrir(res, target);
             return;
         }
-        placeGeneratedStamp('operationPoseeTool', this.dessiner(plan, res[4] || '#2d3436', true),
-            res, target, "🧮 " + plan.titre);
+        const svg = this.dessiner(plan, reglages.couleur, true, reglages.police);
+        // RÉÉDITER, C'EST REMPLACER SUR PLACE : on ne redemande pas où poser
+        // un tampon qui est déjà posé.
+        if (target) { placeGeneratedStamp('operationPoseeTool', svg, res, target, "🧮 " + plan.titre); return; }
+        createStampFromSVG(svg, (stamp) => {
+            if (typeof imageCache !== 'undefined') imageCache[stamp.src] = stamp.img;
+            this.currentStamp = stamp;
+            this.currentArgs = res;
+            if (typeof setMode === 'function') setMode('operationPosee');
+            if (typeof showToast === 'function')
+                showToast("🧮 Cliquez où la poser — dans un cadre du document, elle le remplit");
+            if (typeof draw === 'function') draw();
+        });
+    },
+
+    // ============ OÙ ELLE SE POSE ============
+    // LE CADRE DU DOCUMENT SOUS LE POINT, s'il y en a un. C'est la même
+    // reconnaissance de zones que le remplissage au clavier : les cadres d'un
+    // polycopié, et les cases d'un tableau.
+    cadreSousLePoint: function (pos) {
+        if (typeof documentSousLePoint !== 'function' || typeof zonesRetouchables !== 'function'
+            || typeof zoneSousLePoint !== 'function' || typeof zoneSurLeTableau !== 'function') return null;
+        const doc = documentSousLePoint(pos);
+        if (!doc) return null;
+        const zones = zonesRetouchables(doc) || [];
+        const i = zoneSousLePoint(doc, zones, pos);
+        if (i < 0) return null;
+        return zoneSurLeTableau(doc, zones[i]);
+    },
+
+    // L'APERÇU ET LA POSE SONT LE MÊME CALCUL. S'ils divergeaient, le fantôme
+    // montrerait une chose et le clic en poserait une autre — et c'est
+    // précisément ce qu'on regarde avant de cliquer.
+    MARGE_DU_CADRE: 0.9,
+    REDUCTION_MAXIMALE: 0.5,   // en deçà, l'opération serait illisible
+    AGRANDISSEMENT_MAXIMAL: 3,
+    poseVisee: function (pos) {
+        const s = this.currentStamp;
+        if (!s || !pos) return null;
+        const cadre = this.cadreSousLePoint(pos);
+        if (cadre && cadre.l > 0 && cadre.h > 0) {
+            let k = Math.min(cadre.l * this.MARGE_DU_CADRE / s.w, cadre.h * this.MARGE_DU_CADRE / s.h);
+            if (k >= this.REDUCTION_MAXIMALE) {
+                k = Math.min(k, this.AGRANDISSEMENT_MAXIMAL);
+                const w = s.w * k, h = s.h * k;
+                return { x: cadre.x + (cadre.l - w) / 2, y: cadre.y + (cadre.h - h) / 2, w, h, cadre };
+            }
+        }
+        return { x: pos.x - s.w / 2, y: pos.y - s.h / 2, w: s.w, h: s.h, cadre: null };
+    },
+
+    onDraw: function (ctx) {
+        if (mode !== 'operationPosee' || !this.currentStamp || !mouseLogicalPos) return;
+        const v = this.poseVisee(mouseLogicalPos);
+        if (!v) return;
+        ctx.save();
+        if (v.cadre) {
+            ctx.strokeStyle = '#0984e3';
+            ctx.lineWidth = 2 / (typeof zoom === 'number' ? zoom : 1);
+            ctx.setLineDash([6 / (typeof zoom === 'number' ? zoom : 1), 4 / (typeof zoom === 'number' ? zoom : 1)]);
+            ctx.strokeRect(v.cadre.x, v.cadre.y, v.cadre.l, v.cadre.h);
+            ctx.setLineDash([]);
+        }
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(this.currentStamp.img, v.x, v.y, v.w, v.h);
+        ctx.restore();
+    },
+
+    onPointerDown: function (rawPos) {
+        if (mode !== 'operationPosee' || !this.currentStamp) return false;
+        const s = this.currentStamp, v = this.poseVisee(rawPos);
+        images.push({
+            id: nextId++, x: v.x, y: v.y, w: v.w, h: v.h,
+            cx: 0, cy: 0, cw: s.w, ch: s.h, src: s.src, z: globalZ++,
+            pluginData: { id: 'operationPoseeTool', args: this.currentArgs }
+        });
+        this.currentStamp = null;
+        if (typeof saveState === 'function') saveState();
+        if (typeof setMode === 'function') setMode('pointer');
+        if (typeof draw === 'function') draw();
+        return true;
     },
 
     // ============ LIRE ============
@@ -14089,7 +14216,7 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         const resultat = !!opts.resultat || etapes;   // LES ÉTAPES ENTRAÎNENT LE RÉSULTAT
         if (lu.signe === '+') return this.poserSomme(lu, resultat, etapes);
         if (lu.signe === '−') return this.poserDifference(lu, resultat, etapes);
-        if (lu.signe === '×') return this.poserProduit(lu, resultat, etapes);
+        if (lu.signe === '×') return this.poserProduit(lu, resultat, etapes, opts.decalage);
         const d = parseInt(opts.decimales, 10);
         return this.poserQuotient(lu, resultat, etapes, Math.max(0, Math.min(8, isNaN(d) ? 0 : d)));
     },
@@ -14216,7 +14343,13 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
     },
 
     // ---- MULTIPLICATION ----
-    poserProduit: function (lu, resultat, etapes) {
+    // LE DÉCALAGE SE MARQUE. « Rajoute les points ou les zéros par ligne quand
+    // tu décales. » Une place laissée vide se compte mal : l'élève glisse d'un
+    // rang et pose le quatre-vingt-quatorze sous les unités. Le POINT dit « ici
+    // il n'y a rien à lire » ; le ZÉRO dit mieux encore ce qui s'y passe, car
+    // la ligne devient alors le vrai produit — quarante-sept fois vingt font
+    // neuf cent quarante, et non quatre-vingt-quatorze décalé.
+    poserProduit: function (lu, resultat, etapes, decalage) {
         const A = lu.a.chiffres, B = lu.b.chiffres;
         const v = lu.a.virgule + lu.b.virgule;   // la virgule du produit : on additionne les rangs
         const partiels = [];
@@ -14248,8 +14381,10 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         traits.push({ r: 1, c1: 0, c2: colFin });
         let ligne = 2;
         if (montrerPartiels) {
+            const marque = decalage === 'zero' ? '0' : (decalage === 'rien' ? null : '·');
             partiels.forEach((p, k) => {
                 this.poserChiffres(grains, p.chiffres, ligne, colFin - p.rang, 0);
+                if (marque) for (let j = 0; j < p.rang; j++) grains.push({ c: colFin - j, r: ligne, t: marque });
                 if (k > 0) grains.push({ c: 0, r: ligne, t: '+' });
                 ligne++;
             });
@@ -14371,7 +14506,12 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
     },
 
     // ============ DESSINER ============
-    dessiner: function (plan, couleur, pourExport) {
+    // LA POLICE SE CHOISIT, et elle ne change RIEN à l'alignement : chaque
+    // chiffre est centré dans sa colonne, donc une Comic et une chasse fixe
+    // posent les unités sous les unités aussi bien l'une que l'autre. C'est
+    // tout l'intérêt d'avoir posé à la colonne.
+    dessiner: function (plan, couleur, pourExport, police) {
+        const famille = police || 'sans-serif';
         const CL = 26, RH = 34, M = 14;
         const w = M * 2 + plan.colonnes * CL, h = M * 2 + plan.lignes * RH;
         const cx = (c) => M + c * CL + CL / 2;
@@ -14387,7 +14527,7 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         });
         plan.grains.forEach(g => {
             s += `<text x="${cx(g.c) + (g.dx || 0)}" y="${bas(g.r) + (g.dy || 0)}" text-anchor="middle"`
-                + ` font-family="'Segoe UI', Tahoma, Verdana, sans-serif" font-size="${g.petit ? 13 : 28}"`
+                + ` font-family="${xmlEsc(famille)}" font-size="${g.petit ? 13 : 28}"`
                 + ` font-weight="${g.petit ? 400 : 600}" fill="${couleur}"${g.petit ? ' opacity="0.7"' : ''}>${xmlEsc(g.t)}</text>`;
         });
         return s + '</svg>';
