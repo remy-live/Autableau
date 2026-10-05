@@ -383,6 +383,68 @@ function polyDense() {
     return Buffer.from(out, 'latin1');
 }
 
+// LA VRAIE TABLE D'ADDITION D'UN POLYCOPIÉ. « Pas l'impression » : celle que
+// j'avais fabriquée pour mesurer était stérile — traits pleins, fond blanc —
+// et donnait ses cent cases. Une vraie table de manuel n'a RIEN de cela :
+//   — ses séparateurs intérieurs sont en POINTILLÉS ;
+//   — ses en-têtes sont des PAVÉS NOIRS à chiffres blancs ;
+//   — ses cases sont TEINTÉES, une couleur par case, dont des jaunes francs.
+// Les trois options permettent d'isoler ce qui casse quoi.
+function tableDAddition(opts) {
+    opts = opts || {};
+    const ptH = opts.ptH !== undefined ? opts.ptH : true;
+    const ptV = opts.ptV !== undefined ? opts.ptV : true;
+    const entetes = opts.entetes !== false;
+    const teintes = opts.teintes !== false;
+    const jaune = opts.jaune !== false;
+    const f = [];
+    const x0 = 60, y0 = 740, cel = 46, lig = 46, n = 10;
+    const pastels = jaune
+        ? [[0.88, .93, .86], [0.87, .92, .94], [0.89, .87, .94], [0.93, .85, .90],
+           [0.80, .87, .94], [0.98, .88, .91], [0.99, .90, .80], [1, .98, .85], [0.99, .91, .55]]
+        : [[0.88, .93, .86], [0.87, .92, .94], [0.89, .87, .94], [0.93, .85, .90],
+           [0.80, .87, .94], [0.98, .88, .91]];
+    if (teintes) for (let r = 1; r <= 9; r++) for (let c = 1; c <= 9; c++) {
+        const p = pastels[(r + c) % pastels.length];
+        f.push(`${p[0]} ${p[1]} ${p[2]} rg ${x0 + c * cel} ${y0 - r * lig} ${cel} ${lig} re f`);
+    }
+    if (entetes) {
+        f.push(`0.09 0.09 0.11 rg ${x0} ${y0} ${n * cel} ${lig} re f`);
+        f.push(`0.09 0.09 0.11 rg ${x0} ${y0 - 9 * lig} ${cel} ${9 * lig} re f`);
+    }
+    // SANS PAVÉ, LES CHIFFRES D'EN-TÊTE S'ÉCRIVENT EN NOIR — c'est une table
+    // d'addition très ordinaire, et c'est surtout le cas qui éprouve qu'une
+    // COLONNE DE CHIFFRES ALIGNÉS ne passe pas pour un montant : neuf « 1 »
+    // empilés ont une hampe verticale sur plus de la moitié de la hauteur.
+    f.push(entetes ? '1 1 1 rg' : '0 0 0 rg');
+    f.push(`BT /F1 18 Tf ${x0 + 16} ${y0 + 14} Td (+) Tj ET`);
+    for (let k = 1; k <= 9; k++) f.push(`BT /F1 18 Tf ${x0 + k * cel + 16} ${y0 + 14} Td (${k}) Tj ET`);
+    for (let k = 1; k <= 9; k++) f.push(`BT /F1 18 Tf ${x0 + 16} ${y0 - k * lig + 14} Td (${k}) Tj ET`);
+    f.push('0 0 0 RG 0.8 w');
+    f.push(ptH ? '[3 3] 0 d' : '[] 0 d');
+    for (let i = 1; i <= 9; i++) f.push(`${x0} ${y0 - i * lig} m ${x0 + n * cel} ${y0 - i * lig} l S`);
+    f.push(ptV ? '[3 3] 0 d' : '[] 0 d');
+    for (let j = 1; j <= 9; j++) f.push(`${x0 + j * cel} ${y0 + lig} m ${x0 + j * cel} ${y0 - 9 * lig} l S`);
+    f.push('[] 0 d 1.4 w');
+    f.push(`${x0} ${y0 - 9 * lig} ${n * cel} ${10 * lig} re S`);
+    const contenu = f.join('\n');
+    const objs = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
+        `<< /Length ${contenu.length} >>\nstream\n${contenu}\nendstream`
+    ];
+    let out = '%PDF-1.4\n';
+    const pos = [];
+    objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+    out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+}
+
 // LE POLYCOPIÉ EN CASES — le motif qui faisait tout manquer. Chaque ligne à
 // remplir est posée DANS une case, huit points au-dessus de la bordure basse
 // de cette case. La bordure, horizontale et proche, était comptée comme un
@@ -565,4 +627,4 @@ function edtPdf() {
     return Buffer.from(out, 'latin1');
 }
 
-module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, pdfA4, fichePdf, edtPdf, polyDense, polyEnCases, polyEnCouleur, rechargerApp};
+module.exports = { APP_URL, CHROMIUM, creerRapport, ouvrirApp, tableauVierge, petitPdf, pdfA4, fichePdf, edtPdf, polyDense, polyEnCases, polyEnCouleur, tableDAddition, rechargerApp};

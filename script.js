@@ -17674,12 +17674,27 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
     // Ce qui les sépare, c'est la SATURATION : un trait imprimé en couleur est
     // franc, un fond de case est délavé. On accepte donc, en plus du sombre,
     // le clair franchement coloré.
+    //
+    // MAIS LA SATURATION SEULE LAISSE PASSER LE JAUNE. « Pas l'impression » :
+    // sur une vraie table d'addition de polycopié, zéro case. Un jaune pastel
+    // — rgb(252, 232, 140), celui des dernières rangées — est à la fois CLAIR
+    // (227) et très coloré (112 d'écart) : il franchissait les deux conditions
+    // et toute la case comptait pour de l'encre. Un trait n'est un trait que
+    // s'il a du VIDE au-dessus et au-dessous ; une case entièrement encrée
+    // n'en laisse nulle part, et les neuf séparateurs de la table
+    // disparaissaient d'un coup. Une seule teinte sur neuf suffisait.
+    //
+    // LE PLAFOND DE LA BRANCHE COLORÉE DESCEND DONC À 205. C'est la mesure qui
+    // le fixe, et non le goût : le trait saumon qui avait motivé la règle,
+    // rgb(243, 172, 134), est à 189 et reste de l'encre ; le jaune pastel est
+    // à 227 et n'en est plus. Le mauve pâle rgb(209, 196, 233), qui est à 204,
+    // est écarté par sa faible saturation comme avant.
     const encre = new Uint8Array(w * h);
     for (let i = 0, p = 0; p < encre.length; i += 4, p++) {
         const r = data[i], v = data[i + 1], bl = data[i + 2];
         const lum = (r * 299 + v * 587 + bl * 114) / 1000;
         const vif = Math.max(r, v, bl) - Math.min(r, v, bl);
-        encre[p] = (data[i + 3] > 40 && (lum < 170 || (lum < 228 && vif > 55))) ? 1 : 0;
+        encre[p] = (data[i + 3] > 40 && (lum < 170 || (lum < 205 && vif > 55))) ? 1 : 0;
     }
 
     // Cumul vertical par colonne : savoir en temps constant s'il y a de l'encre
@@ -17861,7 +17876,26 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
             if (bas - haut < 24) return;
             const colonnes = [];
             let courant = null;
-            const plein = Math.max(4, Math.round((bas - haut - 4) * 0.8));
+            // UN MONTANT TRAVERSE TOUTES LES RANGÉES ; IL N'EST PAS FORCÉMENT
+            // PLEIN. « Pas l'impression » : les séparateurs intérieurs d'une
+            // table de polycopié sont presque toujours EN POINTILLÉS, et un
+            // pointillé n'a d'encre que sur la moitié de sa hauteur. Il ne
+            // franchissait jamais les quatre-vingts pour cent exigés : mesuré
+            // sur une table de dix sur dix, deux colonnes trouvées — les deux
+            // bordures pleines — au lieu de dix, donc aucune grille.
+            //
+            // LA MOITIÉ SUFFIT DONC, ET QUARANTE POUR CENT LAISSENT DE LA
+            // MARGE. On a d'abord exigé, en plus, que le montant ne saute
+            // AUCUNE rangée — une colonne de chiffres alignés étant vide entre
+            // deux nombres. Mesuré : cette condition ne change rien, sur aucune
+            // des tables d'essai, en pointillés comme en traits pleins ; neuf
+            // chiffres empilés n'atteignent jamais les quarante pour cent dans
+            // une même colonne de pixels. Une garde qu'aucune mesure ne
+            // distingue est une garde qu'on croit avoir : elle est retirée.
+            // Et descendre plus bas ne vaut rien non plus — à vingt pour cent,
+            // mesuré, le texte des en-têtes fabrique deux fausses colonnes.
+            const DENSITE_MIN = Math.max(4, Math.round((bas - haut - 4) * 0.4));
+            const montant = (x) => encreColonne(x, haut + 2, bas - 2) >= DENSITE_MIN;
             // ON DÉBORDE DE HUIT PIXELS DE CHAQUE CÔTÉ. Un trait horizontal ne
             // commence qu'APRÈS la verticale qui le borde — le test de finesse
             // exige du vide au-dessus et au-dessous, et le montant de gauche en
@@ -17871,7 +17905,7 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
             const gauche = Math.min(...regles.map(r => r.x1)) - 8;
             const droite = Math.max(...regles.map(r => r.x2)) + 8;
             for (let x = Math.max(0, gauche); x <= Math.min(w - 1, droite); x++) {
-                if (encreColonne(x, haut + 2, bas - 2) >= plein) {
+                if (montant(x)) {
                     if (courant) courant.b = x; else courant = { a: x, b: x };
                 } else if (courant) {
                     colonnes.push(Math.round((courant.a + courant.b) / 2));
@@ -17880,7 +17914,74 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
             }
             if (courant) colonnes.push(Math.round((courant.a + courant.b) / 2));
             if (colonnes.length < 4) return;
-            grilles.push({ lignes: regles.map(r => r.y), colonnes });
+
+            // LES RANGÉES SE RELISENT COMME LES COLONNES, une fois la figure
+            // reconnue. Un séparateur collé à un pavé d'en-tête n'a pas de
+            // vide au-dessus de lui : le test de finesse, qui sert à écarter
+            // le bas des lettres, l'écarte avec elles — et la première rangée
+            // du tableau disparaît. Mesuré sur la vraie table d'un polycopié,
+            // en-têtes en pavés noirs : sept rangées sur neuf.
+            //
+            // Le test de finesse ne sert plus ici : on sait DÉJÀ où est le
+            // tableau et où sont ses colonnes. Une règle, c'est alors un trait
+            // qui traverse TOUTES LES COLONNES, exactement comme un montant
+            // traverse toutes les rangées.
+            const encreLigne = (y, x1, x2) => {
+                let n = 0; const base = y * w;
+                for (let x = Math.max(0, x1); x <= Math.min(w - 1, x2); x++) n += encre[base + x];
+                return n;
+            };
+            const cols = [];
+            for (let i = 0; i < colonnes.length - 1; i++) {
+                const a = colonnes[i] + 2, b = colonnes[i + 1] - 2;
+                if (b > a) cols.push([a, b]);
+            }
+            const LARGEUR_MIN = Math.max(4, Math.round((droite - gauche) * 0.4));
+            const regleH = (y) => {
+                if (encreLigne(y, gauche, droite) < LARGEUR_MIN) return false;
+                for (let i = 0; i < cols.length; i++) if (encreLigne(y, cols[i][0], cols[i][1]) === 0) return false;
+                return true;
+            };
+            // UN PAVÉ N'EST PAS UNE RÈGLE, MAIS IL EN A DEUX : ses bords. Les
+            // en-têtes d'une table de polycopié sont des bandes pleines ;
+            // prises pour un trait, elles donneraient une règle en leur milieu
+            // et couperaient la première rangée en deux.
+            const EPAIS_MAX = Math.max(4, Math.round((bas - haut) * 0.04));
+            const lignes = [];
+            const poser = (a, b) => {
+                if (b - a > EPAIS_MAX) { lignes.push(a); lignes.push(b); }
+                else lignes.push(Math.round((a + b) / 2));
+            };
+            // ON DÉBORDE DE TROIS RANGÉES AU-DESSUS ET AU-DESSOUS. Les règles
+            // qui manquent sont précisément celles des BORDS — le bord du pavé
+            // d'en-tête, la bordure basse —, c'est-à-dire hors de l'étendue de
+            // celles qu'on a trouvées. Chercher entre la première et la
+            // dernière, c'est ne jamais retrouver celles qui manquent. Le test
+            // est assez strict pour qu'on puisse déborder : il exige de l'encre
+            // dans CHACUN des intervalles de colonnes, ce qu'un paragraphe ou
+            // un titre posé au-dessus du tableau ne fait pas.
+            const PAS = Math.max(1, Math.round((bas - haut) / Math.max(1, regles.length - 1)));
+            let bande = null;
+            for (let y = Math.max(0, haut - PAS * 3); y <= Math.min(h - 1, bas + PAS * 3); y++) {
+                if (regleH(y)) { if (bande) bande.b = y; else bande = { a: y, b: y }; }
+                else if (bande) { poser(bande.a, bande.b); bande = null; }
+            }
+            if (bande) poser(bande.a, bande.b);
+
+            // ON AJOUTE, ON NE REMPLACE PAS. Un tableau peut être fait de
+            // rectangles SÉPARÉS, recollés en règles par le rapprochement des
+            // segments voisins : entre deux rectangles il y a un écart, donc
+            // pas d'encre, et la relecture n'y voit aucune règle. Mesuré : un
+            // polycopié fait de tableaux perdait ses douze cases. La relecture
+            // sert à RETROUVER les règles que le test de finesse a écartées,
+            // jamais à récuser celles qu'il a trouvées.
+            const toutes = regles.map(r => r.y);
+            lignes.forEach(y => {
+                if (!toutes.some(v => Math.abs(v - y) <= 4)) toutes.push(y);
+            });
+            toutes.sort((a, b) => a - b);
+            if (toutes.length < 4) return;
+            grilles.push({ lignes: toutes, colonnes });
         });
     }
 

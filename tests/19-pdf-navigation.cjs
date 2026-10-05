@@ -1,7 +1,7 @@
 // Naviguer dans un PDF posé sur le tableau : garder les pages rendues,
 // aller droit à un numéro, feuilleter au clavier et au doigt, l'encre qui
 // appartient à sa page, le volet des vignettes et la recherche dans le texte.
-const { creerRapport, ouvrirApp, petitPdf, pdfA4, fichePdf, polyDense, polyEnCases, polyEnCouleur, tableauVierge } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, pdfA4, fichePdf, polyDense, polyEnCases, polyEnCouleur, tableDAddition, tableauVierge } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Navigation dans les PDF');
@@ -1005,6 +1005,62 @@ module.exports = async function (browser) {
     // case à remplir — c'est tout le sujet d'une table d'addition.
     r.egal('et douze cases vides de ses tableaux', enCases.cases, 12);
     r.egal('et rien d\'autre', enCases.n, 30);
+
+    // ================================================================
+    // LA VRAIE TABLE D'ADDITION D'UN POLYCOPIÉ
+    // ================================================================
+    // « Pas l'impression. » La table que j'avais fabriquée pour mesurer était
+    // STÉRILE — traits pleins, fond blanc — et rendait ses cent cases. Celle
+    // d'un manuel n'a rien de cela, et elle en rendait ZÉRO. Trois différences,
+    // et deux d'entre elles suffisaient chacune à tout faire disparaître.
+    const laTable = async (opts) => await page.evaluate(async ([b64]) => {
+        const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const doc = await pdfjsLib.getDocument({ data: u8 }).promise;
+        const z = await zonesDeLaPage({ doc }, 1);
+        const cases = z.filter(u => u.grille !== undefined);
+        return { cases: cases.length,
+                 rangees: new Set(cases.map(u => u.ligne)).size,
+                 colonnes: new Set(cases.map(u => u.colonne)).size };
+    }, [tableDAddition(opts).toString('base64')]);
+
+    const vraie = await laTable({});
+    r.egal('LA TABLE D\'ADDITION D\'UN VRAI POLYCOPIÉ REND SON CORPS ENTIER',
+        [vraie.cases, vraie.rangees, vraie.colonnes], [81, 9, 9], JSON.stringify(vraie));
+
+    // DEUX DÉFAUTS, ET CHACUN SUFFISAIT. On les isole en retirant une seule
+    // caractéristique à la fois : si la table est complète dans les deux cas,
+    // c'est que ni l'un ni l'autre ne la tue plus.
+    const sansPointilles = await laTable({ ptH: false, ptV: false });
+    r.verifie('traits pleins ou pointillés, la figure est la même',
+        sansPointilles.rangees === 9 && sansPointilles.colonnes >= 8,
+        JSON.stringify(sansPointilles));
+    // UN MONTANT EN POINTILLÉS n'a d'encre que sur la moitié de sa hauteur :
+    // il ne franchissait jamais les quatre-vingts pour cent exigés, et l'on
+    // ne trouvait que les deux bordures pleines.
+    const vPointillees = await laTable({ ptH: false, ptV: true, teintes: false, entetes: false });
+    r.egal('LES MONTANTS EN POINTILLÉS SONT DES MONTANTS',
+        vPointillees.colonnes, 9, JSON.stringify(vPointillees));
+    // UN JAUNE PASTEL EST CLAIR ET TRÈS COLORÉ : il passait les deux
+    // conditions de l'encre, et la case entière comptait pour écrite — donc
+    // plus aucun séparateur n'avait de vide au-dessus ni au-dessous.
+    const sansJaune = await laTable({ jaune: false });
+    r.egal('ET UN FOND JAUNE N\'EST PAS DE L\'ENCRE, pas plus qu\'un fond rose',
+        [vraie.cases, sansJaune.cases], [81, 81], JSON.stringify({ vraie, sansJaune }));
+    // LE PAVÉ D'EN-TÊTE ne laisse aucun vide au-dessus du séparateur qui le
+    // suit : la première rangée du tableau disparaissait, et la dernière avec
+    // la bordure basse.
+    const sansEntetes = await laTable({ entetes: false });
+    r.egal('UN PAVÉ D\'EN-TÊTE NE MANGE PLUS LA PREMIÈRE RANGÉE',
+        vraie.rangees, 9, JSON.stringify(vraie));
+    // CE QUI RESTE À FAIRE, ÉCRIT PLUTÔT QUE TU. Quand les en-têtes sont de
+    // SIMPLES CHIFFRES, sans pavé derrière eux, le séparateur qui les suit
+    // n'est toujours pas retrouvé et la première rangée du corps manque : huit
+    // rangées sur neuf. Le pavé, lui, se relit parce qu'il porte de l'encre sur
+    // toute la largeur. Mesuré ici pour que le jour où on le corrige, le
+    // contrôle le dise — et pour qu'on ne croie pas le problème réglé.
+    r.egal('tandis que de simples chiffres en coupent encore une : huit sur neuf',
+        sansEntetes.rangees, 8, JSON.stringify(sansEntetes));
 
     // UNE PAGE DENSE EN TROIS COLONNES, comme un vrai polycopié : vingt-quatre
     // courtes lignes après leur libellé. Les seuils se mesurent en hauteurs de
