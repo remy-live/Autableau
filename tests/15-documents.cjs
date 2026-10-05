@@ -433,21 +433,53 @@ module.exports = async function (browser) {
 
     // ELLE SE DÉPLACE ET S'EN SOUVIENT. Fixe ne veut pas dire clouée : sur un
     // document en plein écran elle peut tomber en travers de ce qu'on montre.
-    const deplacee = await page.evaluate(() => {
+    //
+    // ON FAIT LE GESTE, ON NE LE SIMULE PLUS. Ce contrôle envoyait des
+    // « MouseEvent » fabriqués à la poignée, et il passait pendant que la
+    // barre, au vrai pointeur, NE BOUGEAIT PAS D'UN PIXEL — « draw » la
+    // remettait à sa place automatique à chaque image, et une image passe à
+    // chaque mouvement sur le tableau. Un geste simulé ne redessine rien : il
+    // ne pouvait pas voir le défaut. On tire donc la barre pour de bon.
+    const place = await page.evaluate(() => {
         const barre = document.getElementById('bar-document');
         const poignee = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
-        const aUnePoignee = !!poignee, aUnRepli = !!barre.querySelector('.btn-minimize');
-        // On la remet d'abord à sa place automatique : le test précédent l'a
-        // laissée en bas, et tirer vers le bas depuis là serait borné.
         barreStylePosee = null;
         selectedItems = [{ type: 'image', id: images[0].id }];
         updateStyleBarContext();
+        if (typeof majBarreDocument === 'function') majBarreDocument();
         const r0 = barre.getBoundingClientRect();
-        poignee.dispatchEvent(new MouseEvent('mousedown', { bubbles: true,
-            clientX: r0.left + 5, clientY: r0.top + 5 }));
-        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true,
-            clientX: r0.left + 5 + 120, clientY: r0.top + 5 + 220 }));
-        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        const rp = poignee ? poignee.getBoundingClientRect() : null;
+        return {
+            aUnePoignee: !!poignee, aUnRepli: !!barre.querySelector('.btn-minimize'),
+            barre: { x: Math.round(r0.left), y: Math.round(r0.top) },
+            prise: rp ? { x: Math.round(rp.x + rp.width / 2), y: Math.round(rp.y + rp.height / 2) } : null
+        };
+    });
+    r.verifie('la barre a de nouveau une poignée et un repli',
+        place.aUnePoignee && place.aUnRepli, JSON.stringify(place));
+
+    const suivi = [];
+    if (place.prise) {
+        await page.mouse.move(place.prise.x, place.prise.y);
+        await page.mouse.down();
+        for (let i = 1; i <= 4; i++) {
+            await page.mouse.move(place.prise.x + 30 * i, place.prise.y + 55 * i);
+            // UNE IMAGE REDESSINÉE EN PLEIN GESTE : c'est tout le défaut.
+            suivi.push(await page.evaluate(([px, py]) => {
+                if (typeof draw === 'function') draw();
+                const p = document.querySelector('#bar-document .cbar-head').getBoundingClientRect();
+                return { dx: Math.round(p.x + p.width / 2 - px), dy: Math.round(p.y + p.height / 2 - py) };
+            }, [place.prise.x + 30 * i, place.prise.y + 55 * i]));
+        }
+        await page.mouse.up();
+    }
+    r.verifie('LA POIGNÉE RESTE SOUS LE POINTEUR, MÊME QUAND LE TABLEAU SE REDESSINE',
+        suivi.length === 4 && suivi.every(d => Math.abs(d.dx) <= 2 && Math.abs(d.dy) <= 2),
+        JSON.stringify(suivi));
+
+    const deplacee = await page.evaluate(([x0, y0]) => {
+        const barre = document.getElementById('bar-document');
+        const poignee = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
         const pose = barreStylePosee && { x: Math.round(barreStylePosee.x), y: Math.round(barreStylePosee.y) };
         // Un changement de sélection ne doit pas la ramener à sa place auto
         selectedItems = []; updateStyleBarContext();
@@ -457,14 +489,12 @@ module.exports = async function (browser) {
         // et le double-clic sur la poignée défait tout
         poignee.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
         const remise = { pose: barreStylePosee, memoire: localStorage.getItem('auTableau_barre_document') };
-        return { aUnePoignee, aUnRepli, pose, memoire,
-                 bougeX: Math.round(apres.left - r0.left), bougeY: Math.round(apres.top - r0.top),
+        return { pose, memoire,
+                 bougeX: Math.round(apres.left - x0), bougeY: Math.round(apres.top - y0),
                  dansEcran: apres.left >= 0 && apres.top >= 0
                      && apres.right <= window.innerWidth + 1 && apres.bottom <= window.innerHeight + 1,
                  remise };
-    });
-    r.verifie('la barre a de nouveau une poignée et un repli',
-        deplacee.aUnePoignee && deplacee.aUnRepli, JSON.stringify(deplacee));
+    }, [place.barre.x, place.barre.y]);
     r.verifie('on la déplace d\'autant qu\'on a tiré',
         Math.abs(deplacee.bougeX - 120) <= 6 && Math.abs(deplacee.bougeY - 220) <= 6,
         JSON.stringify(deplacee));
@@ -472,6 +502,100 @@ module.exports = async function (browser) {
         !!deplacee.memoire && deplacee.dansEcran, JSON.stringify(deplacee));
     r.egal('le double-clic sur la poignée défait le déplacement', deplacee.remise.pose, null);
     r.egal('et l\'oubli est retenu', deplacee.remise.memoire, null);
+
+    // AU DOIGT AUSSI. Un tableau interactif se touche : la barre ne se
+    // déplaçait d'aucun pixel au doigt, puisque le doigt n'émet pas de
+    // « mousemove ». On envoie ici de vrais événements de pointeur tactile aux
+    // mêmes gestionnaires que ceux du navigateur, en redessinant en route.
+    const auDoigt = await page.evaluate(() => {
+        const barre = document.getElementById('bar-document');
+        const p = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
+        barreStylePosee = null;
+        selectedItems = [{ type: 'image', id: images[0].id }];
+        updateStyleBarContext();
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+        const r0 = barre.getBoundingClientRect();
+        const rp = p.getBoundingClientRect();
+        const x0 = rp.x + rp.width / 2, y0 = rp.y + rp.height / 2;
+        const doigt = (t, x, y) => p.dispatchEvent(new PointerEvent(t, {
+            pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true,
+            cancelable: true, clientX: x, clientY: y, buttons: t === 'pointerup' ? 0 : 1
+        }));
+        doigt('pointerdown', x0, y0);
+        for (let i = 1; i <= 5; i++) { doigt('pointermove', x0 + 28 * i, y0 + 24 * i); draw(); }
+        doigt('pointerup', x0 + 140, y0 + 120);
+        const r1 = barre.getBoundingClientRect();
+        return { dx: Math.round(r1.left - r0.left), dy: Math.round(r1.top - r0.top),
+                 retenue: !!barreStylePosee };
+    });
+    r.egal('ON LA DÉPLACE AUSSI AU DOIGT', [auDoigt.dx, auDoigt.dy], [140, 120], JSON.stringify(auDoigt));
+    r.verifie('et la place se retient sans qu\'il y ait eu de souris', auDoigt.retenue,
+        JSON.stringify(auDoigt));
+
+    // ELLE NE SORT PAS DE L'ÉCRAN. Rien ne la bornait : tirée un peu loin,
+    // elle partait se poser hors de la fenêtre, d'où rien ne la ramenait.
+    const bornee = await page.evaluate(() => {
+        const barre = document.getElementById('bar-document');
+        const p = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
+        const rp = p.getBoundingClientRect();
+        const x0 = rp.x + rp.width / 2, y0 = rp.y + rp.height / 2;
+        const doigt = (t, x, y) => p.dispatchEvent(new PointerEvent(t, {
+            pointerId: 8, pointerType: 'touch', isPrimary: true, bubbles: true,
+            cancelable: true, clientX: x, clientY: y, buttons: t === 'pointerup' ? 0 : 1
+        }));
+        doigt('pointerdown', x0, y0);
+        doigt('pointermove', -600, -400);
+        doigt('pointermove', -900, -700);
+        const hautGauche = barre.getBoundingClientRect();
+        doigt('pointermove', window.innerWidth + 900, window.innerHeight + 700);
+        const basDroite = barre.getBoundingClientRect();
+        doigt('pointerup', window.innerWidth + 900, window.innerHeight + 700);
+        const dedans = (q) => q.left >= 0 && q.top >= 0
+            && q.right <= window.innerWidth + 1 && q.bottom <= window.innerHeight + 1;
+        return { hautGauche: dedans(hautGauche), basDroite: dedans(basDroite),
+                 g: [Math.round(hautGauche.left), Math.round(hautGauche.top)],
+                 d: [Math.round(basDroite.left), Math.round(basDroite.top)] };
+    });
+    r.verifie('TIRÉE TRÈS LOIN, ELLE RESTE DANS L\'ÉCRAN — des deux côtés',
+        bornee.hautGauche && bornee.basDroite, JSON.stringify(bornee));
+
+    // Un clic qui a tremblé n'est pas un déplacement : c'est ce qui laisse
+    // vivre le double-clic de la poignée, qui est fait de deux clics.
+    const tremble = await page.evaluate(() => {
+        const barre = document.getElementById('bar-document');
+        const p = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
+        // AU MILIEU DE L'ÉCRAN, et non dans un coin : le contrôle précédent
+        // l'a laissée contre le bord, où la borne absorberait les deux pixels
+        // qu'on veut justement voir ne pas bouger.
+        barre.style.transform = 'none'; barre.style.right = 'auto'; barre.style.bottom = 'auto';
+        barre.style.left = '300px'; barre.style.top = '300px';
+        const r0 = barre.getBoundingClientRect();
+        const rp = p.getBoundingClientRect();
+        const x0 = rp.x + rp.width / 2, y0 = rp.y + rp.height / 2;
+        const doigt = (t, x, y) => p.dispatchEvent(new PointerEvent(t, {
+            pointerId: 9, pointerType: 'mouse', isPrimary: true, bubbles: true,
+            cancelable: true, clientX: x, clientY: y, buttons: t === 'pointerup' ? 0 : 1
+        }));
+        doigt('pointerdown', x0, y0);
+        doigt('pointermove', x0 + 2, y0 + 1);
+        doigt('pointerup', x0 + 2, y0 + 1);
+        const r1 = barre.getBoundingClientRect();
+        return { bouge: Math.round(Math.abs(r1.left - r0.left) + Math.abs(r1.top - r0.top)) };
+    });
+    r.egal('deux pixels de tremblement ne déplacent rien', tremble.bouge, 0, JSON.stringify(tremble));
+
+    // ON REMET LA BARRE D'APLOMB avant la suite : les contrôles qui viennent
+    // mesurent sa place AUTOMATIQUE, et on vient justement de la déplacer.
+    await page.evaluate(() => {
+        const barre = document.getElementById('bar-document');
+        const p = barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle');
+        p.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        if (typeof majBarreDocument === 'function') majBarreDocument();
+    });
+    const remiseAPlat = await page.evaluate(() => ({
+        pose: barreStylePosee, memoire: localStorage.getItem('auTableau_barre_document')
+    }));
+    r.egal('et tout est remis d\'aplomb pour la suite', [remiseAPlat.pose, remiseAPlat.memoire], [null, null]);
     r.egal('elle affiche la page courante sur le total', barre.info, '2/3');
 
     const fleches = await page.evaluate(async () => {

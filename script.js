@@ -7569,28 +7569,71 @@ function deposerDesFichiers(fichiers, clientX, clientY) {
 
 // --- DRAG BARRES ---
 // --- DRAG BARRES ---
+// AU POINTEUR, ET NON À LA SOURIS. Un tableau interactif se touche : mesuré,
+// un glissement au doigt ne déplaçait la barre d'aucun pixel, puisque le doigt
+// n'émet pas de « mousemove ». La pastille repliée, elle, était déjà passée au
+// pointeur — c'est la même règle pour la barre dépliée.
+//
+// ET LA MAIN NE SE PERD PLUS. Sans capture, le pointeur qui sort de la poignée
+// — ce qui arrive au premier mouvement un peu vif — rendait la barre à son
+// sort ; avec, elle suit jusqu'au relâchement.
 document.querySelectorAll('.toolbar').forEach(bar => {
-    const handle = bar.querySelector('.cbar-head') || bar.querySelector('.drag-handle'); let isDraggingBar = false, startX, startY;
+    const handle = bar.querySelector('.cbar-head') || bar.querySelector('.drag-handle');
     if (handle) {
         handle.style.cursor = 'grab';
-        handle.addEventListener('mousedown', (e) => {
-            isDraggingBar = true;
-
-            const rect = bar.getBoundingClientRect();
-
-            bar.style.transform = 'none';
-            bar.style.left = rect.left + 'px';
-            bar.style.top = rect.top + 'px';
-
-            // IMPORTANT
-            bar.style.right = 'auto';
-            bar.style.bottom = 'auto';
-
-            startX = e.clientX - rect.left;
-            startY = e.clientY - rect.top;
+        // Sans cela, le navigateur fait défiler la page sous le doigt au lieu
+        // de laisser passer le geste.
+        handle.style.touchAction = 'none';
+        let prise = null;
+        handle.addEventListener('pointerdown', (e) => {
+            if (e.button > 0) return;
+            // Un bouton posé dans la poignée reste un bouton.
+            if (e.target.closest('button, input, select, a')) return;
+            const r = bar.getBoundingClientRect();
+            prise = { x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top,
+                      l: r.width, h: r.height, bouge: false };
+            try { handle.setPointerCapture(e.pointerId); } catch (err) { /* capture refusée */ }
         });
-        window.addEventListener('mousemove', (e) => { if (isDraggingBar) { bar.dataset.dragged = 'true'; bar.style.left = (e.clientX - startX) + 'px'; bar.style.top = (e.clientY - startY) + 'px'; } });
-        window.addEventListener('mouseup', () => isDraggingBar = false);
+        handle.addEventListener('pointermove', (e) => {
+            if (!prise) return;
+            // EN DEÇÀ DE QUATRE PIXELS, C'EST UN CLIC QUI A TREMBLÉ. Le même
+            // seuil que la pastille, et pour la même raison : la poignée porte
+            // un double-clic qui remet la barre à sa place, et « empêcher »
+            // dès l'appui supprimerait le clic qui le compose.
+            if (!prise.bouge && Math.hypot(e.clientX - prise.x, e.clientY - prise.y) < 4) return;
+            if (!prise.bouge) {
+                prise.bouge = true;
+                bar.dataset.dragged = 'true';
+                // C'est ce drapeau qui défend la barre contre « draw ».
+                bar.dataset.enDeplacement = '1';
+                handle.style.cursor = 'grabbing';
+                bar.style.transform = 'none';
+                bar.style.right = 'auto';
+                bar.style.bottom = 'auto';
+            }
+            // ELLE NE SORT PAS DE L'ÉCRAN. Rien ne la bornait : tirée un peu
+            // loin, elle partait se poser hors de la fenêtre, d'où rien ne la
+            // ramenait qu'un « Ranger l'espace ».
+            const x = Math.max(4, Math.min(window.innerWidth - prise.l - 4, e.clientX - prise.dx));
+            const y = Math.max(4, Math.min(window.innerHeight - prise.h - 4, e.clientY - prise.dy));
+            bar.style.left = Math.round(x) + 'px';
+            bar.style.top = Math.round(y) + 'px';
+            e.preventDefault();
+        });
+        const lacherLaBarre = (e) => {
+            if (!prise) return;
+            const aBouge = prise.bouge;
+            prise = null;
+            delete bar.dataset.enDeplacement;
+            handle.style.cursor = 'grab';
+            try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ }
+            // LA PLACE SE RETIENT ICI. Elle s'écrivait sur un « mouseup » de la
+            // fenêtre : au doigt il n'y en a pas, et la barre serait revenue à
+            // sa place automatique à la séance suivante.
+            if (aBouge) bar.dispatchEvent(new CustomEvent('barre-deplacee'));
+        };
+        handle.addEventListener('pointerup', lacherLaBarre);
+        handle.addEventListener('pointercancel', lacherLaBarre);
     }
 
     // REPLIÉE, ELLE SE DÉPLACE AUSSI.
@@ -8588,6 +8631,20 @@ window.tournerLesFlechesDePage = tournerLesFlechesDePage;
 function placerLaBarreDuDocument() {
     const barre = document.getElementById('bar-document');
     if (!barre) return;
+    // PENDANT QU'ON LA TIENT, PERSONNE D'AUTRE NE LA PLACE.
+    //
+    // « La barre du PDF a du mal à se déplacer, c'est un peu erratique. »
+    // Mesuré, et ce n'était pas « un peu » : elle ne se déplaçait PAS DU TOUT.
+    // Le glissement partait bien — au « pointerdown » la barre prenait sa
+    // position en pixels —, puis la première image redessinée la remettait à
+    // sa place automatique : « draw » appelle « majBarreDocument », qui
+    // appelle cette fonction, et « draw » passe à chaque mouvement du pointeur
+    // sur le tableau. Sept fois pour un geste de soixante pixels.
+    //
+    // La place retenue, elle, ne s'écrit qu'au RELÂCHEMENT : pendant le
+    // glissement il n'y avait donc rien pour défendre la barre, et elle
+    // revenait se centrer sous les doigts.
+    if (barre.dataset.enDeplacement) return;
     barre.classList.toggle('vertical', barreDebout);
     tournerLesFlechesDePage(barreDebout);
     if (barre.parentNode !== document.body) document.body.appendChild(barre);
@@ -8752,7 +8809,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const barre = document.getElementById('bar-style');
     const poignee = barre && (barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle'));
     if (!barre || !poignee) return;
-    window.addEventListener('mouseup', () => {
+    // SUR LE GESTE DE LA BARRE, ET NON SUR UN RELÂCHEMENT DE SOURIS. Au doigt
+    // il n'y a pas de « mouseup » — la barre serait revenue à sa place
+    // automatique à la séance suivante — et à la souris, n'importe quel clic
+    // ailleurs dans la page passait par ici pour rien.
+    barre.addEventListener('barre-deplacee', () => {
         if (barre.dataset.dragged !== 'true') return;
         const l = barre.offsetWidth || 480, h = barre.offsetHeight || 44;
         const r = barre.getBoundingClientRect();
@@ -8771,7 +8832,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const barre = document.getElementById('bar-document');
     const poignee = barre && (barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle'));
     if (!barre || !poignee) return;
-    window.addEventListener('mouseup', () => {
+    barre.addEventListener('barre-deplacee', () => {
         if (barre.dataset.dragged !== 'true') return;
         const l = barre.offsetWidth || 480, h = barre.offsetHeight || 44;
         const r = barre.getBoundingClientRect();
@@ -9062,6 +9123,12 @@ window.curseurDuCrayon = curseurDuCrayon;
 function placerLaBarreStyle() {
     const barStyle = document.getElementById('bar-style');
     if (!barStyle) return;
+    // LA BARRE DE STYLE N'A PAS BESOIN DE LA MÊME GARDE que celle du document,
+    // et on a vérifié pourquoi plutôt que de la recopier par symétrie : cette
+    // fonction n'est appelée qu'aux changements de CONTEXTE — sélection,
+    // outil, rangement de l'espace —, jamais par « draw ». Pendant qu'on tient
+    // la barre, aucun de ces trois ne peut survenir. Le garde-fou posé ici n'a
+    // fait tomber aucun contrôle quand on l'a saboté : il est donc retiré.
     // DÉPLACÉE À LA MAIN, ELLE RESTE OÙ ON L'A MISE. Cette fonction est appelée
     // à chaque changement de contexte — donc à chaque sélection : sans cette
     // sortie, la barre revenait se coller en haut, ou à droite quand elle est
