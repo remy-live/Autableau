@@ -526,6 +526,105 @@ module.exports = async function (browser) {
         && enPleinePage.enPlein.style.dansLEcran,
         JSON.stringify(enPleinePage.enPlein));
 
+    // ==================================================================
+    // LA BARRE DE STYLE RESTE OÙ ON L'A MISE
+    //
+    // « En plein écran avec un PDF, la barre de style accrochée au PDF ne peut
+    // pas bouger : elle se recolle en haut ou à droite. »
+    //
+    // C'était écrit noir sur blanc dans le code, et assumé : « la barre de
+    // style revient toujours à sa place ; elle change de contenu à chaque
+    // sélection, et une barre dont le contenu change ET qui bouge ne se
+    // retrouve plus ». La règle confondait deux choses. Une barre qui se
+    // déplace TOUTE SEULE est insupportable ; une barre qu'on a déplacée
+    // SOI-MÊME et qui y reste est le contraire — on sait où on l'a mise. Et en
+    // plein écran la place automatique est justement celle qui gêne : la page
+    // occupe l'écran, la barre tombe en travers.
+    // ==================================================================
+    const prendreLaBarre = async () => page.evaluate(() => {
+        replacerLaBarreDeStyle();
+        basculerLOrientationDeLaBarreStyle(false);
+        setMode('segment');
+        updateStyleBarContext();
+        const b = document.getElementById('bar-style');
+        const p = b.querySelector('.cbar-head') || b.querySelector('.drag-handle');
+        const r = p.getBoundingClientRect();
+        const bb = b.getBoundingClientRect();
+        return { poignee: [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)],
+                 depart: [Math.round(bb.left), Math.round(bb.top)] };
+    });
+    const ouEstElle = async () => page.evaluate(() => {
+        const b = document.getElementById('bar-style').getBoundingClientRect();
+        return [Math.round(b.left), Math.round(b.top)];
+    });
+
+    const prise = await prendreLaBarre();
+    await page.mouse.move(prise.poignee[0], prise.poignee[1]);
+    await page.mouse.down();
+    await page.mouse.move(prise.poignee[0] - 200, prise.poignee[1] + 300, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(180);
+    const posee = await ouEstElle();
+    r.verifie('ON PEUT LA DÉPLACER PAR SA POIGNÉE',
+        Math.abs(posee[0] - (prise.depart[0] - 200)) < 4
+        && Math.abs(posee[1] - (prise.depart[1] + 300)) < 4,
+        JSON.stringify({ posee, depart: prise.depart }));
+
+    // LE CŒUR DU DÉFAUT : « placerLaBarreStyle » est rappelée à chaque
+    // changement de contexte, c'est-à-dire à chaque sélection et à chaque
+    // changement d'outil. C'est elle qui la recollait.
+    await page.evaluate(() => { setMode('circle'); updateStyleBarContext(); });
+    await page.waitForTimeout(120);
+    r.egal('ET UN CHANGEMENT D\'OUTIL NE LA RECOLLE PLUS', await ouEstElle(), posee);
+
+    // EN PLEIN ÉCRAN AUSSI — c'est là que le défaut a été vu. La place
+    // automatique y est le bas de l'écran, et c'est elle qui gênait.
+    const enPleinDeLaBarre = await page.evaluate(() => {
+        document.body.classList.add('focus-mode');
+        updateStyleBarContext();
+        const b = document.getElementById('bar-style').getBoundingClientRect();
+        const ou = [Math.round(b.left), Math.round(b.top)];
+        document.body.classList.remove('focus-mode');
+        updateStyleBarContext();
+        return ou;
+    });
+    r.egal('EN PLEIN ÉCRAN NON PLUS', enPleinDeLaBarre, posee);
+
+    // ET LE DOUBLE-CLIC SUR LA POIGNÉE LA REMET, comme pour la barre du
+    // document : déplacer sans pouvoir revenir serait un piège.
+    const remise = await page.evaluate(() => {
+        const b = document.getElementById('bar-style');
+        const p = b.querySelector('.cbar-head') || b.querySelector('.drag-handle');
+        p.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const r = b.getBoundingClientRect();
+        return { place: [Math.round(r.left), Math.round(r.top)],
+                 memoire: placeDeLaBarreStyle,
+                 ecrit: localStorage.getItem('bar_style_x') };
+    });
+    r.egal('UN DOUBLE-CLIC SUR LA POIGNÉE LA REMET À SA PLACE',
+        remise.place, prise.depart, JSON.stringify(remise));
+    r.egal('et il oublie la place choisie', remise.memoire, null);
+    r.egal('jusque dans le navigateur', remise.ecrit, null);
+
+    // SE METTRE DEBOUT, C'EST DEMANDER UNE PLACE : on oublie l'ancienne, sans
+    // quoi le bouton ne ferait rien.
+    const deboutDeLaBarre = await page.evaluate(() => {
+        placeDeLaBarreStyle = { x: 120, y: 500 };
+        retenirLaPlaceDeLaBarreStyle();
+        basculerLOrientationDeLaBarreStyle(true);
+        updateStyleBarContext();
+        const b = document.getElementById('bar-style').getBoundingClientRect();
+        const lu = { memoire: placeDeLaBarreStyle, gauche: Math.round(b.left),
+                     aDroite: b.right > window.innerWidth - 120 };
+        basculerLOrientationDeLaBarreStyle(false);
+        replacerLaBarreDeStyle();
+        updateStyleBarContext();
+        return lu;
+    });
+    r.egal('SE METTRE DEBOUT OUBLIE LA PLACE CHOISIE', deboutDeLaBarre.memoire, null,
+        JSON.stringify(deboutDeLaBarre));
+    r.verifie('et la barre part bien au bord droit', deboutDeLaBarre.aDroite, JSON.stringify(deboutDeLaBarre));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

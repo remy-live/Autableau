@@ -1416,6 +1416,7 @@ function handleWorkspaceArrange() {
     const barStyle = document.getElementById('bar-style');
     if (barStyle) {
         barStyle.removeAttribute('data-dragged');
+        if (typeof placeDeLaBarreStyle !== 'undefined') placeDeLaBarreStyle = null;
         localStorage.removeItem('bar_style_x');
         localStorage.removeItem('bar_style_y');
         // La remise à plat de l'interface oublie aussi la place choisie à la
@@ -8372,9 +8373,21 @@ window.majLeBoutonClignoter = majLeBoutonClignoter;
 // l'affichage : gardée hors de l'écran, elle reviendrait telle quelle demain,
 // hors d'atteinte.
 //
-// C'EST LA BARRE DU DOCUMENT, ET ELLE SEULE. La barre de style, elle, revient
-// toujours à sa place : elle change de contenu à chaque sélection, et une
-// barre dont le contenu change ET qui bouge ne se retrouve plus.
+// C'ÉTAIT LA BARRE DU DOCUMENT, ET ELLE SEULE — et ce n'est plus vrai.
+//
+// « En plein écran avec un PDF, la barre de style accrochée au PDF ne peut pas
+// bouger : elle se recolle en haut ou à droite. »
+//
+// La règle d'alors se défendait : une barre dont le CONTENU change à chaque
+// sélection et qui bouge en plus ne se retrouve plus. Mais elle confondait deux
+// choses. Une barre qui se déplace TOUTE SEULE, c'est insupportable ; une barre
+// qu'on a déplacée SOI-MÊME et qui y reste, c'est le contraire — on sait où on
+// l'a mise. Et en plein écran, la place automatique est justement celle qui
+// gêne : la page occupe l'écran, et la barre tombe en travers.
+//
+// Elle garde donc sa place automatique tant qu'on n'y touche pas, et respecte
+// la main dès qu'on l'a prise. Le double-clic sur sa poignée la remet où elle
+// était, comme pour la barre du document.
 const CLE_BARRE_STYLE = 'auTableau_barre_document';
 let barreStylePosee = null;
 try {
@@ -8396,6 +8409,42 @@ function replacerLaBarreStyle() {
     if (typeof showToast === 'function') showToast('Barre remise à sa place');
 }
 window.replacerLaBarreStyle = replacerLaBarreStyle;
+
+// LA PLACE CHOISIE À LA MAIN POUR LA BARRE DE STYLE.
+//
+// Deux clés plutôt qu'une, parce qu'elles existaient déjà : « bar_style_x » et
+// « bar_style_y » sont celles que l'enregistrement des interfaces emporte et
+// que « Ranger l'espace » efface. En inventer une troisième aurait laissé ces
+// deux-là derrière, à moitié vivantes.
+let placeDeLaBarreStyle = null;
+try {
+    const px = parseFloat(localStorage.getItem('bar_style_x'));
+    const py = parseFloat(localStorage.getItem('bar_style_y'));
+    if (isFinite(px) && isFinite(py)) placeDeLaBarreStyle = { x: px, y: py };
+} catch (e) { /* réglage illisible */ }
+
+function retenirLaPlaceDeLaBarreStyle() {
+    try {
+        if (placeDeLaBarreStyle) {
+            localStorage.setItem('bar_style_x', String(Math.round(placeDeLaBarreStyle.x)));
+            localStorage.setItem('bar_style_y', String(Math.round(placeDeLaBarreStyle.y)));
+        } else {
+            localStorage.removeItem('bar_style_x');
+            localStorage.removeItem('bar_style_y');
+        }
+    } catch (e) { /* stockage refusé */ }
+}
+window.retenirLaPlaceDeLaBarreStyle = retenirLaPlaceDeLaBarreStyle;
+
+function replacerLaBarreDeStyle() {
+    placeDeLaBarreStyle = null;
+    retenirLaPlaceDeLaBarreStyle();
+    const b = document.getElementById('bar-style');
+    if (b) b.removeAttribute('data-dragged');
+    if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
+    if (typeof showToast === 'function') showToast('Barre de style remise à sa place');
+}
+window.replacerLaBarreDeStyle = replacerLaBarreDeStyle;
 
 // LA BARRE SE MET DEBOUT.
 // Un tableau est en 16/9, une page en 1/1,41 : quand la page occupe toute la
@@ -8447,6 +8496,12 @@ function majBoutonDOrientationDuStyle() {
 
 function basculerLOrientationDeLaBarreStyle(force) {
     barreStyleDebout = (force === undefined) ? !barreStyleDebout : !!force;
+    // SE METTRE DEBOUT, C'EST DEMANDER UNE PLACE. On oublie donc celle qu'on
+    // avait choisie à la main : la garder ferait un bouton qui ne fait rien.
+    placeDeLaBarreStyle = null;
+    if (typeof retenirLaPlaceDeLaBarreStyle === 'function') retenirLaPlaceDeLaBarreStyle();
+    const bs = document.getElementById('bar-style');
+    if (bs) bs.removeAttribute('data-dragged');
     try { localStorage.setItem(CLE_BARRE_STYLE_DEBOUT, barreStyleDebout ? 'true' : 'false'); } catch (e) { /* refusé */ }
     if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
     if (typeof showToast === 'function') {
@@ -8684,6 +8739,30 @@ document.addEventListener('DOMContentLoaded', () => {
     // première saisie l'aurait fait paraître d'abord au mauvais endroit. Ici
     // et non à son propre bloc, qui s'exécute AVANT que son réglage existe.
     if (typeof placerLaBarreDuTexte === 'function') placerLaBarreDuTexte();
+});
+
+// LA BARRE DE STYLE RETIENT SA PLACE, ELLE AUSSI.
+//
+// La poignée générique la déplaçait déjà — c'est le même code pour toutes les
+// barres — mais rien ne gardait le résultat, et « placerLaBarreStyle » la
+// ramenait à sa place automatique au premier changement de sélection. Il ne
+// manquait que ces quelques lignes, et elles sont celles de la barre du
+// document, à la lettre.
+document.addEventListener('DOMContentLoaded', () => {
+    const barre = document.getElementById('bar-style');
+    const poignee = barre && (barre.querySelector('.cbar-head') || barre.querySelector('.drag-handle'));
+    if (!barre || !poignee) return;
+    window.addEventListener('mouseup', () => {
+        if (barre.dataset.dragged !== 'true') return;
+        const l = barre.offsetWidth || 480, h = barre.offsetHeight || 44;
+        const r = barre.getBoundingClientRect();
+        placeDeLaBarreStyle = {
+            x: Math.max(4, Math.min(window.innerWidth - l - 4, r.left)),
+            y: Math.max(4, Math.min(window.innerHeight - h - 4, r.top))
+        };
+        retenirLaPlaceDeLaBarreStyle();
+    });
+    poignee.addEventListener('dblclick', (e) => { e.preventDefault(); replacerLaBarreDeStyle(); });
 });
 
 // La poignée générique des barres déplace celle-ci comme les autres ; il ne
@@ -8983,6 +9062,22 @@ window.curseurDuCrayon = curseurDuCrayon;
 function placerLaBarreStyle() {
     const barStyle = document.getElementById('bar-style');
     if (!barStyle) return;
+    // DÉPLACÉE À LA MAIN, ELLE RESTE OÙ ON L'A MISE. Cette fonction est appelée
+    // à chaque changement de contexte — donc à chaque sélection : sans cette
+    // sortie, la barre revenait se coller en haut, ou à droite quand elle est
+    // debout, aussitôt qu'on la lâchait.
+    if (placeDeLaBarreStyle) {
+        const l = barStyle.offsetWidth || 480, h = barStyle.offsetHeight || 44;
+        barStyle.dataset.dragged = 'true';
+        barStyle.style.transform = 'none';
+        barStyle.style.right = 'auto';
+        barStyle.style.bottom = 'auto';
+        barStyle.style.left = Math.round(Math.max(4,
+            Math.min(window.innerWidth - l - 4, placeDeLaBarreStyle.x))) + 'px';
+        barStyle.style.top = Math.round(Math.max(4,
+            Math.min(window.innerHeight - h - 4, placeDeLaBarreStyle.y))) + 'px';
+        return;
+    }
     // EN HAUT d'ordinaire : le bas est la zone où l'on écrit, et une barre
     // posée là recevait les traits à la place du tableau. EN BAS en plein
     // écran : la page occupe alors tout le haut, on la lit de haut en bas, et
