@@ -427,6 +427,20 @@ function tableDAddition(opts) {
     for (let j = 1; j <= 9; j++) f.push(`${x0 + j * cel} ${y0 + lig} m ${x0 + j * cel} ${y0 - 9 * lig} l S`);
     f.push('[] 0 d 1.4 w');
     f.push(`${x0} ${y0 - 9 * lig} ${n * cel} ${10 * lig} re S`);
+    // LE SÉPARATEUR DE COLONNES DE LA PAGE, à deux points du tableau. Un vrai
+    // polycopié est en trois colonnes, et le filet qui les sépare passe juste
+    // à côté du tableau — assez près pour être happé par les huit pixels de
+    // débordement du balayage des montants. Il devient alors un montant
+    // FANTÔME, et l'intervalle de quelques pixels qu'il laisse entre lui et la
+    // vraie bordure n'a JAMAIS d'encre, puisqu'il est hors des règles. Comme
+    // une règle doit traverser tous les intervalles, plus aucune n'est
+    // retenue : mesuré sur le vrai fichier, quarante-huit cases sur
+    // quatre-vingt-une.
+    if (opts.separateurDePage) {
+        f.push('0.6 w');
+        const xs = x0 + n * cel + (opts.separateurDePage === true ? 2 : opts.separateurDePage);
+        f.push(`${xs} 820 m ${xs} 20 l S`);
+    }
     const contenu = f.join('\n');
     const objs = [
         '<< /Type /Catalog /Pages 2 0 R >>',

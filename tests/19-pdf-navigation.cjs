@@ -1062,6 +1062,18 @@ module.exports = async function (browser) {
     r.egal('tandis que de simples chiffres en coupent encore une : huit sur neuf',
         sansEntetes.rangees, 8, JSON.stringify(sansEntetes));
 
+    // UN MONTANT FANTÔME SUFFISAIT À COUPER LE TABLEAU EN DEUX. Un polycopié
+    // est en trois colonnes, et le filet qui les sépare passe à quelques
+    // points du tableau — assez près pour être happé par les huit pixels de
+    // débordement du balayage. Il laisse alors, entre lui et la vraie bordure,
+    // un intervalle de quelques pixels où AUCUNE règle n'a d'encre, puisqu'il
+    // est hors du tableau ; et comme une règle doit traverser tous les
+    // intervalles, plus aucune n'était retenue. Mesuré sur le vrai fichier
+    // d'un professeur : quarante-huit cases sur quatre-vingt-une.
+    const fantome = await laTable({ separateurDePage: 3 });
+    r.egal('UN FILET DE PAGE À CÔTÉ DU TABLEAU NE LE COUPE PLUS EN DEUX',
+        [fantome.cases, fantome.rangees, fantome.colonnes], [81, 9, 9], JSON.stringify(fantome));
+
     // UNE PAGE DENSE EN TROIS COLONNES, comme un vrai polycopié : vingt-quatre
     // courtes lignes après leur libellé. Les seuils se mesurent en hauteurs de
     // TEXTE — en proportions de la page, « 4 % de la largeur » faisait

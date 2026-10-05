@@ -17998,10 +17998,26 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
                 for (let x = Math.max(0, x1); x <= Math.min(w - 1, x2); x++) n += encre[base + x];
                 return n;
             };
+            // UN INTERVALLE RIDICULE N'EST PAS UNE COLONNE À TRAVERSER. Sur la
+            // vraie table d'un polycopié, la bordure droite est vue DEUX FOIS,
+            // à six pixels d'écart : entre les deux il reste un intervalle de
+            // quatre pixels où aucune règle n'a jamais d'encre. Mesuré, chacune
+            // des neuf règles du tableau en manquait un — celui-là, et lui seul
+            // — et pas une n'était retenue : quarante-huit cases sur
+            // quatre-vingt-une. On ne touche PAS à la géométrie pour autant —
+            // fusionner les deux montants coûtait une colonne sur un tableau à
+            // double filet — on écarte seulement ces intervalles-là du test.
+            // ET LA MESURE DIT « QUELQUES PIXELS », NON « UNE PROPORTION ».
+            // Pris au tiers de la colonne médiane, le seuil écartait aussi les
+            // ÉCARTS ENTRE DEUX RECTANGLES d'un polycopié fait de tableaux —
+            // vingt pixels, et ce sont eux qui empêchent les lignes à remplir
+            // de passer pour des règles : soixante cases au lieu de douze. Un
+            // montant compté deux fois laisse quelques pixels, pas vingt.
+            const colonneMin = Math.max(6, Math.round(w * 0.008));
             const cols = [];
             for (let i = 0; i < colonnes.length - 1; i++) {
                 const a = colonnes[i] + 2, b = colonnes[i + 1] - 2;
-                if (b > a) cols.push([a, b]);
+                if (b > a && colonnes[i + 1] - colonnes[i] >= colonneMin) cols.push([a, b]);
             }
             const LARGEUR_MIN = Math.max(4, Math.round((droite - gauche) * 0.4));
             const regleH = (y) => {
