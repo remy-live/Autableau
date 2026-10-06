@@ -18173,9 +18173,26 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
                 // colonnes, neuf en-têtes sur dix-huit passaient pour des cases
                 // vides — mesuré. Quelques pixels suffisent à dire qu'une case
                 // porte déjà quelque chose.
+                // ET L'ON NE COMPTE PAS LE BORD DE LA CASE. Un seul pixel de
+                // retrait ne suffit pas quand le bord est ÉPAIS : sur la table
+                // d'addition d'un vrai polycopié, la première colonne du corps
+                // touche le pavé noir des en-têtes, dont le bord fait trois
+                // pixels. Ces trois pixels, sur toute la hauteur de la case,
+                // font bien plus que les quelques-uns qui disent « déjà
+                // écrite » — et c'est toute la colonne qui disparaissait, neuf
+                // cases d'un coup. Le retrait suit donc la taille de la case.
+                // Le retrait s'applique aux DEUX côtés, et seul l'horizontal
+                // est mesuré : aucune page d'essai ne met un pavé AU-DESSUS
+                // d'une case sans trait entre eux, parce que le bord d'une
+                // bande horizontale, lui, est retrouvé À SA PLACE exacte — on
+                // le relit comme règle, tandis qu'un montant se pose au milieu
+                // de ce que le balayage en voit. Écrire « retrait » en largeur
+                // et « un » en hauteur serait une asymétrie que personne ne
+                // saurait lire ; on l'écrit donc des deux côtés, en le disant.
+                const retrait = Math.max(2, Math.round(Math.min(l, hh) * 0.08));
                 let encree = 0;
-                for (let xx = x + 1; xx < x + l - 1; xx++) {
-                    encree += encreColonne(xx, y + 1, y + hh - 1);
+                for (let xx = x + retrait; xx < x + l - retrait; xx++) {
+                    encree += encreColonne(xx, y + retrait, y + hh - retrait);
                 }
                 if (encree > Math.max(10, l * hh * 0.004)) continue;
                 zones.push({ genre: 'case', x, y, l, h: hh,

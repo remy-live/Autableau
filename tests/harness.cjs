@@ -411,6 +411,16 @@ function tableDAddition(opts) {
     if (entetes) {
         f.push(`0.09 0.09 0.11 rg ${x0} ${y0} ${n * cel} ${lig} re f`);
         f.push(`0.09 0.09 0.11 rg ${x0} ${y0 - 9 * lig} ${cel} ${9 * lig} re f`);
+        // LE PAVÉ ENTIÈREMENT À GAUCHE DES RÈGLES : c'est ainsi que sont faits
+        // les vrais tableaux de polycopié. Les traits horizontaux commencent
+        // APRÈS lui, et le balayage des montants, qui ne déborde que de huit
+        // pixels, n'en voit qu'une tranche : il pose le montant au milieu de
+        // CETTE TRANCHE, trois pixels trop à gauche. Le bord du pavé tombe
+        // alors DANS la première case du corps, qui passe pour déjà écrite.
+        if (opts.paveHorsDesRegles) {
+            f.push(`1 1 1 rg ${x0} ${y0 - 9 * lig} ${cel} ${10 * lig} re f`);
+            f.push(`0.09 0.09 0.11 rg ${x0 - cel} ${y0 - 9 * lig} ${cel} ${10 * lig} re f`);
+        }
     }
     // SANS PAVÉ, LES CHIFFRES D'EN-TÊTE S'ÉCRIVENT EN NOIR — c'est une table
     // d'addition très ordinaire, et c'est surtout le cas qui éprouve qu'une
@@ -424,7 +434,13 @@ function tableDAddition(opts) {
     f.push(ptH ? '[3 3] 0 d' : '[] 0 d');
     for (let i = 1; i <= 9; i++) f.push(`${x0} ${y0 - i * lig} m ${x0 + n * cel} ${y0 - i * lig} l S`);
     f.push(ptV ? '[3 3] 0 d' : '[] 0 d');
-    for (let j = 1; j <= 9; j++) f.push(`${x0 + j * cel} ${y0 + lig} m ${x0 + j * cel} ${y0 - 9 * lig} l S`);
+    // LE BORD DU PAVÉ TIENT LIEU DE SÉPARATEUR, comme sur un vrai polycopié :
+    // aucun trait n'est tracé entre la colonne des en-têtes et la première du
+    // corps — c'est le changement de couleur qui fait la limite.
+    for (let j = 1; j <= 9; j++) {
+        if (j === 1 && opts.sansTraitSousLePave) continue;
+        f.push(`${x0 + j * cel} ${y0 + lig} m ${x0 + j * cel} ${y0 - 9 * lig} l S`);
+    }
     f.push('[] 0 d 1.4 w');
     f.push(`${x0} ${y0 - 9 * lig} ${n * cel} ${10 * lig} re S`);
     // LE SÉPARATEUR DE COLONNES DE LA PAGE, à deux points du tableau. Un vrai

@@ -1074,6 +1074,20 @@ module.exports = async function (browser) {
     r.egal('UN FILET DE PAGE À CÔTÉ DU TABLEAU NE LE COUPE PLUS EN DEUX',
         [fantome.cases, fantome.rangees, fantome.colonnes], [81, 9, 9], JSON.stringify(fantome));
 
+    // ET LE BORD D'UNE CASE N'EST PAS CE QU'ELLE PORTE. Sur un vrai polycopié
+    // le pavé des en-têtes est ENTIÈREMENT à gauche des traits du tableau :
+    // le balayage des montants, qui ne déborde que de huit pixels, n'en voit
+    // qu'une tranche et pose le montant au milieu de celle-ci — trois pixels
+    // trop à gauche. Le bord du pavé tombe alors DANS la première case du
+    // corps, et un seul pixel de retrait ne suffisait pas à l'en écarter :
+    // cette case passait pour déjà écrite, et toute la colonne avec elle.
+    // Mesuré sur le fichier d'un professeur : soixante-douze cases sur
+    // quatre-vingt-une, et la colonne du 1 inatteignable.
+    const paveAGauche = await laTable({ paveHorsDesRegles: true, sansTraitSousLePave: true });
+    r.egal('LE BORD D\'UN PAVÉ VOISIN NE FAIT PLUS PASSER UNE CASE POUR ÉCRITE',
+        [paveAGauche.cases, paveAGauche.rangees, paveAGauche.colonnes], [81, 9, 9],
+        JSON.stringify(paveAGauche));
+
     // UNE PAGE DENSE EN TROIS COLONNES, comme un vrai polycopié : vingt-quatre
     // courtes lignes après leur libellé. Les seuils se mesurent en hauteurs de
     // TEXTE — en proportions de la page, « 4 % de la largeur » faisait
