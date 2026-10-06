@@ -37,6 +37,18 @@ module.exports = async function (browser) {
     const r = creerRapport('Démonstration');
     const { page, context, erreurs } = await ouvrirApp(browser, { viewport: { width: 1360, height: 860 } });
 
+    // ON ATTEND QUE LA PAGE SOIT POSÉE, et l'on ne l'interroge pas au vol.
+    // Une fois sur six passages de la suite entière, ce chapitre tombait tout
+    // entier sur « Execution context was destroyed » — dès sa PREMIÈRE lecture,
+    // avant le moindre contrôle : la page bougeait encore. « waitForFunction »
+    // réessaie, là où un « evaluate » nu part une fois et meurt avec le
+    // contexte qu'il a trouvé.
+    await page.waitForFunction(
+        () => typeof chapitresDeLaDemonstration === 'function'
+            && typeof facteurDAttenteDeLaDemo !== 'undefined'
+            && document.querySelectorAll('#demo-sommaire li').length > 0,
+        { timeout: 20000 });
+
     // Les attentes se compriment ; les gestes, jamais. Ce qui est mesuré reste
     // donc ce qui se passe — seul le temps de regarder est raccourci.
     await page.evaluate(() => { facteurDAttenteDeLaDemo = 0.05; });
