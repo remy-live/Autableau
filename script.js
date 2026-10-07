@@ -9333,7 +9333,17 @@ function updateStyleBarContext() {
         && !!(getObjectById('text', selectedItems[0].id) || {}).isLegende;
     barStyle.classList.toggle('ctx-legende', mode === 'legende' || legendeTenue);
 
-    let targetType = mode; if (selectedItems.length === 1) targetType = selectedItems[0].type; else if (selectedItems.length > 1) targetType = 'multi';
+    // DES TEXTES ET RIEN D'AUTRE, CE SONT LES RÉGLAGES DU TEXTE. Mesuré avant
+    // correction : deux blocs de texte tenus faisaient basculer la barre en
+    // contexte « ligne ». Elle offrait alors le pointillé et les deux pointes
+    // de flèche — trois réglages qu'un texte ne dessine jamais —, et ils
+    // s'écrivaient quand même sur lui (« arrowEnd: 1 » posé sur un texte),
+    // tandis que la taille du texte, elle, disparaissait.
+    let targetType = mode;
+    if (selectedItems.length === 1) targetType = selectedItems[0].type;
+    else if (selectedItems.length > 1) {
+        targetType = selectedItems.every(i => i.type === 'text') ? 'text' : 'multi';
+    }
     if (selectedItems.length === 0 && typeof activeWidgets !== 'undefined' && activeWidgets['compass']) targetType = 'compass';
 
     // PENDANT QU'ON ÉCRIT, TOUT LE TEXTE SE RÈGLE AU MÊME ENDROIT. La barre du
@@ -9425,6 +9435,24 @@ function updateStyleBarContext() {
         // Synchro du bouton Verrouillage
         const isAllLocked = selectedItems.every(i => { const o = getObjectById(i.type, i.id); return o && o.locked; });
 
+        // ==================================================================
+        // UN OBJET VERROUILLÉ NE PROMET PLUS CE QU'IL NE TIENDRA PAS
+        //
+        // Mesuré pendant l'audit de l'outil texte : sur un bloc verrouillé, la
+        // barre offrait la couleur, la taille et l'opacité — et aucune des
+        // trois n'agissait. « pushStyleToObject » passe les objets verrouillés
+        // (« si non verrouillé »), ce qui est juste : c'est à cela que sert un
+        // verrou. Mais on voyait le curseur bouger, le nombre changer, et le
+        // texte ne pas suivre : on croit l'application cassée, alors qu'elle
+        // obéit. Les réglages s'effacent donc, et le cadenas reste — c'est par
+        // lui qu'on rouvre.
+        // ==================================================================
+        barStyle.classList.toggle('ctx-verrouille', isAllLocked);
+        if (isAllLocked) {
+            barStyle.classList.remove('ctx-text', 'ctx-line', 'ctx-point',
+                'ctx-surligneur', 'ctx-legende', 'ctx-bloc');
+        }
+
         // Synchro des boutons Flèche
         const hasAnyArrowStart = selectedItems.some(i => { const o = getObjectById(i.type, i.id); return o && o.arrowStart > 0; });
         const hasAnyArrowEnd = selectedItems.some(i => { const o = getObjectById(i.type, i.id); return o && o.arrowEnd > 0; });
@@ -9464,6 +9492,34 @@ function updateStyleBarContext() {
 
     syncStampStyleControls();
     syncTextStyleControls();
+
+    // ==================================================================
+    // UN BLOC POSÉ GARDE SA BARRE DE TEXTE
+    //
+    // L'audit comptait dix réglages sur treize qui s'évanouissaient dès qu'on
+    // lâchait le bloc : ¶, gras, italique, souligné, listes, alignement,
+    // police, interligne. Pour mettre un mot en gras dans une leçon de la
+    // veille, il fallait deviner le double-clic — rien ne le disait.
+    //
+    // Deux réglages n'ont toutefois de sens qu'avec un curseur : les symboles,
+    // qui s'insèrent à un endroit, et la pastille du texte, qui colore une
+    // portion. La pastille générale de la barre de style tient ce rôle sur un
+    // bloc entier ; les symboles s'effacent (voir « ctx-bloc » dans
+    // style.css). Un réglage qu'on montre doit agir.
+    // ==================================================================
+    //
+    // LA MARQUE VA SUR LA BARRE DU TEXTE ELLE-MÊME, pas sur celle du style :
+    // qui a rendu la barre au texte l'a sortie de son meuble, et une règle
+    // écrite « #bar-style.ctx-bloc #text-toolbar » ne l'aurait plus atteinte —
+    // les symboles et la pastille du texte seraient revenus, inertes, pour la
+    // moitié des professeurs. « ctx-bloc » reste sur la barre de style : c'est
+    // l'état de la barre, et les vérifications le lisent là.
+    const blocsTenus = (typeof blocsDeTexteTenus === 'function') ? blocsDeTexteTenus() : [];
+    barStyle.classList.toggle('ctx-bloc', blocsTenus.length > 0);
+    if (typeof textToolbar !== 'undefined' && textToolbar) {
+        textToolbar.classList.toggle('tt-bloc', blocsTenus.length > 0);
+    }
+    if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
 
     // UNE BARRE QUI PARAÎT NE DOIT PAS MANGER CE QU'ON ÉCRIT. C'est le cas
     // réel : on écrit en clair, puis la sélection change, la barre de style
@@ -21940,6 +21996,25 @@ if (textToolbar) {
                     if (typeof draw === 'function') draw();
                     return;
                 }
+                // SUR UN BLOC POSÉ, C'est l'objet qu'on aligne, et plusieurs
+                // d'un coup si plusieurs sont tenus.
+                const tenus = (typeof blocsDeTexteTenus === 'function') ? blocsDeTexteTenus() : [];
+                if (alignMode && tenus.length) {
+                    activeStyle.textAlign = alignMode;
+                    tenus.forEach(t => {
+                        // En centré, x est le MILIEU du bloc : on convertit
+                        // l'ancre, sinon le texte saute de sa demi-largeur.
+                        if (!t.fixedWidth && (t.align || 'left') !== alignMode) {
+                            const b = (typeof boiteDuTexte === 'function') ? boiteDuTexte(t) : null;
+                            if (b) t.x = (alignMode === 'center') ? b.x + b.w / 2 : b.x;
+                        }
+                        t.align = alignMode;
+                    });
+                    fermerTiroirsTexte();
+                    if (typeof saveState === 'function') saveState();
+                    if (typeof draw === 'function') draw();
+                    return;
+                }
                 if (alignMode) {
                     activeStyle.textAlign = alignMode;
                     if (editingTextId) {
@@ -21963,12 +22038,23 @@ if (textToolbar) {
             // --- Formatage (Gras, etc.) ---
             else if (btn.classList.contains('btn-format')) {
                 const command = btn.getAttribute('data-command');
-                if (command) document.execCommand(command, false, null);
+                if (!command) return;
+                // Bloc posé : c'est tout son contenu qu'on habille. Mesuré
+                // avant : « execCommand » seul ne faisait RIEN sans curseur.
+                const balise = BALISE_DE_FORMAT[command];
+                if (balise && habillerLesBlocsTenus(b => basculerLaBaliseDuBloc(b, balise))) {
+                    if (typeof syncBadgesTexte === 'function') syncBadgesTexte();
+                    return;
+                }
+                document.execCommand(command, false, null);
             }
             // --- Listes à puces / numérotées ---
             else if (btn.classList.contains('btn-list')) {
+                const genre = btn.getAttribute('data-list');
+                if (habillerLesBlocsTenus(b =>
+                        basculerLaListeDuBloc(b, genre === 'insertOrderedList'))) return;
                 wysiwygText.focus();
-                document.execCommand(btn.getAttribute('data-list'), false, null);
+                document.execCommand(genre, false, null);
                 if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
             }
         });
@@ -21979,8 +22065,14 @@ if (textToolbar) {
         if (btn.dataset.bound) return;
         btn.dataset.bound = 'true';
         btn.addEventListener('click', () => {
+            const tag = btn.getAttribute('data-block');
+            // Bloc posé : chaque ligne change de niveau, sans rouvrir la boîte.
+            if (habillerLesBlocsTenus(b => poserLeNiveauDesLignes(b, tag))) {
+                fermerTiroirsTexte();
+                return;
+            }
             wysiwygText.focus();
-            applyBlockTag(btn.getAttribute('data-block'));
+            applyBlockTag(tag);
             fermerTiroirsTexte();
             if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
         });
@@ -22127,6 +22219,166 @@ function texteEnCoursOuTenu() {
 }
 window.texteEnCoursOuTenu = texteEnCoursOuTenu;
 
+// ==================================================================
+// UN BLOC POSÉ SE RETRAVAILLE, SANS LE ROUVRIR
+//
+// « Je te montre quand on édite ou pas. Je pense qu'il faut lancer un audit
+// sur l'outil texte, vraiment avec gestion des styles, couleurs, réaction des
+// toolbar. » L'audit a été fait, et il est net. Inventaire des commandes, en
+// écrivant puis sur le même bloc une fois posé :
+//
+//   en écrivant : ¶ · gras · italique · souligné · listes · alignement ·
+//                 symboles · taille/police/interligne · couleur
+//   bloc posé   : couleur · taille · plan (devant/derrière)
+//
+// Dix réglages sur treize disparaissaient dès qu'on lâchait le bloc. Pour
+// mettre un mot en gras dans une leçon écrite la veille, il fallait deviner le
+// double-clic — rien ne le disait. Et la barre du texte, montrée de force sur
+// un bloc tenu, ne faisait RIEN : gras, alignement, police, taille, titre,
+// puces, tous mesurés sans effet, parce que ses boutons sont écrits pour la
+// boîte d'édition et passent par « execCommand », qui a besoin d'un curseur.
+//
+// Les fonctions qui suivent donnent à chaque commande sa seconde voie : agir
+// sur le CONTENU d'un bloc tenu. On travaille sur les nœuds de texte, jamais
+// sur une chaîne : la structure des lignes, les couleurs déjà posées et les
+// titres survivent au passage, ce qu'un « remplacer » dans le HTML ne
+// garantirait pas.
+// ==================================================================
+function blocsDeTexteTenus() {
+    // Une boîte ouverte commande : c'est la sélection qui s'y trouve qui
+    // décide, mot par mot, et non le bloc entier.
+    if (typeof wysiwygText !== 'undefined' && wysiwygText
+        && wysiwygText.style.display === 'block') return [];
+    if (typeof editingTextId !== 'undefined' && editingTextId) return [];
+    return (typeof selectedItems !== 'undefined' ? selectedItems : [])
+        .filter(i => i.type === 'text')
+        .map(i => (typeof getObjectById === 'function') ? getObjectById('text', i.id) : null)
+        .filter(t => t && !t.locked);
+}
+window.blocsDeTexteTenus = blocsDeTexteTenus;
+
+// Habille le contenu de chaque bloc tenu. Rend vrai si elle a servi : les
+// appelants s'en servent pour savoir s'il leur reste quelque chose à faire
+// dans la boîte d'édition.
+function habillerLesBlocsTenus(transformer) {
+    const blocs = blocsDeTexteTenus();
+    if (!blocs.length) return false;
+    blocs.forEach(t => {
+        const boite = document.createElement('div');
+        boite.innerHTML = t.content || '';
+        transformer(boite, t);
+        t.content = boite.innerHTML;
+        // Une formule change de dessin avec son habillage.
+        if (typeof createMathImage === 'function' && (t.content || '').includes('$')) {
+            createMathImage(t.content, t.color || t.strokeColor, t.fontSize, (img, w, h) => {
+                if (img) { t.mathImg = img; t.mathW = w; t.mathH = h; }
+                else t.mathImg = null;
+                if (typeof draw === 'function') draw();
+            });
+        }
+    });
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+window.habillerLesBlocsTenus = habillerLesBlocsTenus;
+
+// Les nœuds de texte qui portent quelque chose. C'est sur eux qu'on travaille :
+// envelopper un nœud de texte ne déplace rien d'autre.
+function noeudsEcritsDuBloc(racine) {
+    const trouves = [];
+    const marche = (n) => {
+        for (const e of [...n.childNodes]) {
+            if (e.nodeType === 3) { if (e.textContent.trim() !== '') trouves.push(e); }
+            else if (e.nodeType === 1) marche(e);
+        }
+    };
+    marche(racine);
+    return trouves;
+}
+
+function enveloppeAuDessus(noeud, balise, racine) {
+    let n = noeud.parentNode;
+    while (n && n !== racine) {
+        if (n.nodeType === 1 && n.nodeName.toLowerCase() === balise) return n;
+        n = n.parentNode;
+    }
+    return null;
+}
+
+// Gras, italique, souligné sur un bloc entier — et c'est une BASCULE, comme
+// dans la boîte : un bloc déjà tout en gras redevient maigre. Sans cela le
+// bouton n'aurait qu'un sens sur deux et ne dirait pas lequel.
+const BALISE_DE_FORMAT = { bold: 'b', italic: 'i', underline: 'u' };
+function basculerLaBaliseDuBloc(boite, balise) {
+    const mots = noeudsEcritsDuBloc(boite);
+    if (!mots.length) return;
+    if (mots.every(m => enveloppeAuDessus(m, balise, boite))) {
+        const enveloppes = new Set();
+        mots.forEach(m => { const e = enveloppeAuDessus(m, balise, boite); if (e) enveloppes.add(e); });
+        enveloppes.forEach(e => {
+            while (e.firstChild) e.parentNode.insertBefore(e.firstChild, e);
+            e.remove();
+        });
+        return;
+    }
+    mots.forEach(m => {
+        if (enveloppeAuDessus(m, balise, boite)) return;
+        const habit = document.createElement(balise);
+        m.parentNode.insertBefore(habit, m);
+        habit.appendChild(m);
+    });
+}
+
+// Corps / Titre / Sous-titre sur un bloc entier. Chaque LIGNE change de
+// niveau ; ce qui traîne à la racine en forme une, sans quoi la première
+// ligne resterait seule hors du niveau choisi.
+const LIGNES_DU_BLOC = ['div', 'p', 'h1', 'h2', 'h3'];
+function poserLeNiveauDesLignes(boite, tag) {
+    const nom = (tag === 'p') ? 'div' : tag;
+    const libres = [...boite.childNodes].filter(n =>
+        !(n.nodeType === 1 && LIGNES_DU_BLOC.includes(n.nodeName.toLowerCase())));
+    if (libres.some(n => n.nodeType !== 3 || n.textContent.trim() !== '')) {
+        const hote = document.createElement(nom);
+        boite.insertBefore(hote, libres[0]);
+        libres.forEach(n => hote.appendChild(n));
+    }
+    [...boite.children].forEach(e => {
+        const n = e.nodeName.toLowerCase();
+        if (!LIGNES_DU_BLOC.includes(n) || n === nom) return;
+        const neuf = document.createElement(nom);
+        while (e.firstChild) neuf.appendChild(e.firstChild);
+        e.replaceWith(neuf);
+    });
+}
+
+// Les puces et la numérotation, elles aussi en bascule.
+function basculerLaListeDuBloc(boite, ordonnee) {
+    const genre = ordonnee ? 'ol' : 'ul';
+    const dejaLa = [...boite.children].length
+        && [...boite.children].every(e => e.nodeName.toLowerCase() === genre);
+    if (dejaLa) {
+        [...boite.children].forEach(liste => {
+            [...liste.children].forEach(li => {
+                const ligne = document.createElement('div');
+                while (li.firstChild) ligne.appendChild(li.firstChild);
+                boite.insertBefore(ligne, liste);
+            });
+            liste.remove();
+        });
+        return;
+    }
+    poserLeNiveauDesLignes(boite, 'p');          // une ligne, un conteneur
+    const liste = document.createElement(genre);
+    [...boite.children].forEach(ligne => {
+        const li = document.createElement('li');
+        while (ligne.firstChild) li.appendChild(ligne.firstChild);
+        liste.appendChild(li);
+        ligne.remove();
+    });
+    boite.appendChild(liste);
+}
+
 function majLeClignotantDuTexte() {
     const b = document.getElementById('text-clignote');
     if (!b) return;
@@ -22142,6 +22394,11 @@ window.majLeClignotantDuTexte = majLeClignotantDuTexte;
 
 function poserLaCouleurDuTexte(c, options) {
     if (!c) return;
+    // PAS DE CHEMIN « BLOC POSÉ » ICI, ET C'EST MESURÉ. J'en avais écrit un ;
+    // sabotée, aucune vérification ne tombait. Ses trois seuls appelants sont
+    // dans le tiroir « couleur » de cette barre, et ce tiroir s'efface sur un
+    // bloc posé — c'est la pastille générale qui y peint le bloc entier. Du
+    // code qu'on ne peut pas atteindre ment sur ce qu'il fait.
     appliquerCouleurTexte(c);
     activeStyle.strokeColor = c;      // et la suite de la frappe la garde
     if (options && options.retenir && typeof retenirUneCouleur === 'function') retenirUneCouleur(c);
@@ -22624,6 +22881,11 @@ function changeFontSize(delta) {
         }
     }
 
+    // PAS DE CHEMIN « BLOC POSÉ » ICI NON PLUS. J'en avais écrit un ; sabotée,
+    // aucune vérification ne tombait, et c'était juste : le « + » et le « − »
+    // vivent dans la rangée « Taille » du tiroir, qui s'efface sur un bloc
+    // posé — c'est la réglette de la barre de style qui porte alors la taille,
+    // d'un seul geste. Un réglage, un endroit (chapitre 44).
     let currentSize = activeStyle.fontSize;
     if (editingTextId) {
         const t = getObjectById('text', editingTextId);
@@ -22676,6 +22938,13 @@ function choisirLaPolice(police) {
     if (editingTextId) {
         const t = getObjectById('text', editingTextId);
         if (t) t.fontFamily = police;
+    }
+    // Et sur les blocs posés qu'on tient : la police était mesurée « sans
+    // effet » une fois la boîte refermée.
+    const tenus = (typeof blocsDeTexteTenus === 'function') ? blocsDeTexteTenus() : [];
+    if (tenus.length) {
+        tenus.forEach(t => { t.fontFamily = police; });
+        if (typeof saveState === 'function') saveState();
     }
     majLesPolices(police);
     updateWysiwygPosition();
@@ -22869,20 +23138,31 @@ function updateTextToolbarPosition() {
 
     // RANGÉE DANS LA BARRE DU HAUT, elle n'a plus de place à calculer : elle
     // suit celle de son meuble, comme les autres réglages.
+    const tenus = (typeof blocsDeTexteTenus === 'function') ? blocsDeTexteTenus() : [];
     if (barreDuTexteEnHaut) {
         placerLaBarreDuTexte();
         const enSaisie = wysiwygText.style.display === 'block';
-        textToolbar.style.display = enSaisie ? 'flex' : 'none';
-        if (enSaisie) syncBadgesTexte();
+        const montrer = enSaisie || tenus.length > 0;
+        textToolbar.style.display = montrer ? 'flex' : 'none';
+        if (montrer) syncBadgesTexte();
         return;
     }
 
-    if (wysiwygText.style.display === 'block') {
+    if (wysiwygText.style.display === 'block' || tenus.length) {
         textToolbar.style.display = 'flex';
 
         syncBadgesTexte();
 
-        const rect = wysiwygText.getBoundingClientRect();
+        // Rendue au texte, elle se pose au-dessus de ce dont elle parle : la
+        // boîte qu'on écrit, ou, à défaut, le bloc qu'on tient.
+        const rect = (wysiwygText.style.display === 'block')
+            ? wysiwygText.getBoundingClientRect()
+            : (() => {
+                const b = (typeof boiteDuTexte === 'function') ? boiteDuTexte(tenus[0]) : null;
+                if (!b) return wysiwygText.getBoundingClientRect();
+                const x = b.x * zoom + panX, y = b.y * zoom + panY;
+                return { left: x, top: y, right: x + b.w * zoom, bottom: y + b.h * zoom };
+            })();
         const tbHeight = textToolbar.offsetHeight || 40;
         const tbWidth = textToolbar.offsetWidth || 350; // On récupère la largeur réelle de la barre
 

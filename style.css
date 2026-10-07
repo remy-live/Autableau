@@ -12591,6 +12591,32 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 #bar-style.ctx-saisie #btn-color-popover,
 #bar-style.ctx-saisie #btn-color-popover + .divider { display: none; }
 
+/* UN BLOC POSÉ : LA BARRE DU TEXTE SANS CE QUI EXIGE UN CURSEUR. Les symboles
+   s'insèrent À UN ENDROIT, et la pastille du texte colore UNE PORTION : sans
+   curseur, l'un n'aurait pas où aller et l'autre ferait double emploi avec la
+   pastille générale, qui elle sait peindre le bloc entier. Le bouton qui
+   décide où vit la barre reste : c'est un réglage de la barre, pas du texte.
+   Voir « UN BLOC POSÉ GARDE SA BARRE DE TEXTE » dans script.js. */
+#text-toolbar.tt-bloc .tt-tab[data-panel="symb"],
+#text-toolbar.tt-bloc .tt-tab[data-panel="color"] { display: none; }
+
+/* ET LA TAILLE RESTE À UN SEUL ENDROIT. Le chapitre 44 l'exige depuis
+   longtemps — « la taille ne s'y règle pas deux fois » —, et la règle ne
+   change pas, c'est l'endroit qui change de main : pendant la frappe, la
+   réglette s'efface et le tiroir la porte ; sur un bloc posé, la réglette est
+   là, d'un seul geste, et c'est la rangée du tiroir qui s'efface. */
+#text-toolbar.tt-bloc .tt-row-taille { display: none; }
+
+/* VERROUILLÉ : plus de réglages, seulement le cadenas. Un verrou empêche
+   « pushStyleToObject » d'écrire sur l'objet — c'est à cela qu'il sert —, mais
+   la couleur, la taille et l'opacité restaient offertes : le curseur bougeait,
+   le nombre changeait, et le texte ne suivait pas. On croit l'application
+   cassée alors qu'elle obéit. Le « !important » est nécessaire : ces deux-là
+   sont montrés par le script, en style en ligne. */
+#bar-style.ctx-verrouille #btn-color-popover,
+#bar-style.ctx-verrouille #btn-color-popover + .divider,
+#bar-style.ctx-verrouille #stamp-opacity-box { display: none !important; }
+
 /* Les tiroirs pendent toujours de leur propre bouton — c'est le script qui
    les y pose —, mais ils se mesurent désormais à la barre de STYLE, seule
    ancêtre positionnée une fois la barre du texte rangée dedans : ils s'ouvrent

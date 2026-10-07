@@ -80,8 +80,22 @@ module.exports = async function (browser) {
         { visible: true, affichee: 'flex' });
     r.egal('et la taille ne s\'y règle pas deux fois', enSaisie.reglette, 'none');
 
-    // Le bloc posé, la réglette revient : c'est le même réglage, par l'autre
-    // porte, et il ne doit pas disparaître avec la saisie.
+    // ------------------------------------------------------------------
+    // LE BLOC POSÉ, LA BARRE DU TEXTE RESTE — ET LA TAILLE N'A TOUJOURS
+    // QU'UN SEUL ENDROIT
+    //
+    // Cette vérification demandait l'inverse : « la barre du texte s'efface ».
+    // L'audit de l'outil texte a montré ce que cela coûtait — dix réglages sur
+    // treize évanouis dès qu'on lâchait le bloc (¶, gras, italique, souligné,
+    // listes, alignement, police, interligne) ; pour mettre un mot en gras
+    // dans une leçon de la veille, il fallait deviner le double-clic.
+    //
+    // La règle qu'elle défendait, elle, ne change pas : un réglage, un
+    // endroit. C'est l'endroit qui change de main. Pendant la frappe, la
+    // réglette s'efface et le tiroir porte la taille ; le bloc posé, la
+    // réglette revient — un seul geste — et c'est la rangée du tiroir qui
+    // s'efface.
+    // ------------------------------------------------------------------
     const bloc = await page.evaluate(async () => {
         wysiwygText.innerText = 'Décimaux';
         finalizeText();
@@ -90,12 +104,24 @@ module.exports = async function (browser) {
         selectedItems = [{ type: 'text', id: t.id }];
         updateStyleBarContext();
         const bs = document.getElementById('bar-style');
+        const vu = (sel) => { const e = bs.querySelector(sel); return !!e && e.offsetParent !== null; };
         return { reglette: getComputedStyle(bs.querySelector('.group-text')).display,
                  texte: getComputedStyle(document.getElementById('text-toolbar')).display,
+                 gras: vu('#text-toolbar [data-command="bold"]'),
+                 paragraphe: vu('#text-toolbar .tt-tab[data-panel="para"]'),
+                 rangeeTaille: vu('#text-toolbar .tt-row-taille'),
+                 symboles: vu('#text-toolbar .tt-tab[data-panel="symb"]'),
                  id: t.id };
     });
-    r.egal('le bloc posé, la réglette revient et la barre du texte s\'efface',
-        { reglette: bloc.reglette, texte: bloc.texte }, { reglette: 'flex', texte: 'none' });
+    r.egal('le bloc posé, la réglette revient ET la barre du texte reste',
+        { reglette: bloc.reglette, texte: bloc.texte }, { reglette: 'flex', texte: 'flex' },
+        JSON.stringify(bloc));
+    r.verifie('on peut donc reprendre le gras et le niveau sans rouvrir le bloc',
+        bloc.gras && bloc.paragraphe, JSON.stringify(bloc));
+    r.verifie('et la taille ne se règle toujours qu\'à un seul endroit',
+        !bloc.rangeeTaille, JSON.stringify(bloc));
+    r.verifie('les symboles, eux, s\'effacent : ils s\'insèrent où est le curseur',
+        !bloc.symboles, JSON.stringify(bloc));
 
     // ------------------------------------------------------------------
     // 2. LES TIROIRS S'OUVRENT VERS LE BAS, ET RESTENT À L'ÉCRAN
