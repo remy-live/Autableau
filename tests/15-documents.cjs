@@ -3093,11 +3093,27 @@ module.exports = async function (browser) {
             styleDebout: document.getElementById('bar-style').classList.contains('vertical'),
             regletteDansLeStyle: !!document.querySelector('#bar-style #font-size'),
             regletteDansLeDoc: !!document.querySelector('#bar-document input[type="range"]'),
-            // Et elle reste dans sa barre, sans déborder.
+            // ET ELLE RESTE DANS SA BARRE, SANS DÉBORDER. C'est le BOUTON
+            // qu'on mesure désormais : la réglette s'est repliée derrière lui
+            // (« on pourrait les voir que quand on clique sur opacité ou
+            // taille »), et le nombre a suivi dans le volet. Mesurer un
+            // élément replié ne dirait plus rien : sa boîte vaut zéro, et
+            // « déborde » répondait vrai quoi qu'il arrive.
             deborde: (() => {
                 const b = document.getElementById('bar-style').getBoundingClientRect();
-                const n = document.getElementById('font-size-num').getBoundingClientRect();
+                const n = document.getElementById('btn-taille').getBoundingClientRect();
                 return Math.round(n.right - b.right) > 0 || Math.round(b.left - n.left) > 0;
+            })(),
+            // Et le volet, une fois ouvert, tient dans la fenêtre : c'est là
+            // que vivent maintenant la réglette et son nombre.
+            voletDehors: (() => {
+                document.getElementById('btn-taille').click();
+                const v = document.querySelector('.reglette-volet[data-reglette="taille"]');
+                const r2 = v.getBoundingClientRect();
+                const dehors = r2.top < 0 || r2.left < 0
+                    || r2.bottom > window.innerHeight || r2.right > window.innerWidth;
+                if (typeof fermerLesReglettes === 'function') fermerLesReglettes();
+                return dehors;
             })()
         };
         basculerLOrientationDeLaBarre(false);
@@ -3106,7 +3122,8 @@ module.exports = async function (browser) {
     });
     r.egal('la réglette de taille vit dans la barre de style, qui ne se met jamais debout',
         reglette,
-        { styleDebout: false, regletteDansLeStyle: true, regletteDansLeDoc: false, deborde: false });
+        { styleDebout: false, regletteDansLeStyle: true, regletteDansLeDoc: false,
+          deborde: false, voletDehors: false });
 
     // SEULE LA BARRE DU DOCUMENT SE MET DEBOUT. Celle de style, qui change de
     // contenu à chaque sélection, resterait introuvable si elle pivotait —
