@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=233 »,
-         « script.js?v=417 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=234 »,
+         « script.js?v=418 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=233">
+    <link rel="stylesheet" href="style.css?v=234">
 </head>
 
 <body>
@@ -62,6 +62,36 @@
         </div>
     </div>
     <div id="text-toolbar" class="toolbar" style="display: none;">
+
+        <!-- ==========================================================
+             DEUX PORTES VISIBLES, EN PLUS DE CELLES QU'ON DEVINE
+
+             « Je trouve que l'édition n'est pas des plus pratiques pour ce qui
+             est du texte. » Mesuré : sur un bloc tenu, quinze commandes
+             paraissaient, et PAS UNE ne disait comment entrer dedans. La seule
+             porte était un double-clic que rien n'annonçait — et pour sortir,
+             Échap, sur un tableau qui n'a pas de clavier.
+
+             Le double-clic reste : « un double-clic pour valider sur ordi,
+             c'est courant », et c'est juste — Figma, PowerPoint et Canva font
+             tous cela. Ces deux boutons ne le remplacent pas, ils s'ajoutent à
+             côté, exactement comme « Modifier » s'est ajouté aux vignettes de
+             plugins sans leur retirer le double-clic. Au doigt, sur un TBI,
+             deux tapes rapprochées ratent souvent ; et Échap n'existe pas.
+             ========================================================== -->
+        <button class="btn" id="tt-modifier" type="button"
+            data-tooltip="Modifier ce texte (double-clic sur le bloc)"><svg viewBox="0 0 24 24" width="17"
+                height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
+                stroke-linejoin="round">
+                <path d="M4 20.5h4.5L20 9a2.5 2.5 0 0 0-3.5-3.5L5 17v3.5z" />
+                <path d="M14.5 7L17 9.5" />
+            </svg><span>Modifier</span></button>
+        <button class="btn" id="tt-termine" type="button"
+            data-tooltip="Terminer la saisie (Échap)"><svg viewBox="0 0 24 24" width="17" height="17"
+                fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                stroke-linejoin="round">
+                <polyline points="4 12.5 9.5 18 20 6.5" />
+            </svg><span>Terminé</span></button>
 
         <!-- Rangée principale : seulement l'essentiel, le reste est dans des tiroirs -->
         <button class="btn tt-tab" data-panel="para" title="Style de paragraphe">¶</button>
@@ -4144,7 +4174,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=417"></script>
+    <script src="script.js?v=418"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=125"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

@@ -473,6 +473,100 @@ module.exports = async function (browser) {
         updateStyleBarContext(); draw();
     });
 
+    // ------------------------------------------------------------------
+    // 8. DEUX PORTES VISIBLES
+    //
+    // « Je trouve que l'édition n'est pas des plus pratiques pour ce qui est du
+    // texte. » Mesuré : quinze commandes sur un bloc tenu, et PAS UNE ne disait
+    // comment entrer dedans. La seule porte était un double-clic que rien
+    // n'annonçait ; pour sortir, Échap, sur un tableau qui n'a pas de clavier.
+    //
+    // Le double-clic reste — « un double-clic pour valider sur ordi, c'est
+    // courant », et c'est juste. Ces deux boutons s'ajoutent à côté, comme
+    // « Modifier » s'est ajouté aux vignettes de plugins sans leur retirer le
+    // double-clic.
+    // ------------------------------------------------------------------
+    await tenirUnBloc(CONTENU);
+    const portes = await page.evaluate(() => {
+        const vu = (s) => { const e = document.querySelector(s); return !!e && e.offsetParent !== null; };
+        return { modifier: vu('#tt-modifier'), termine: vu('#tt-termine') };
+    });
+    r.egal('UN BLOC TENU OFFRE « MODIFIER », et pas « Terminé »',
+        portes, { modifier: true, termine: false });
+
+    const ouvrePorte = await page.evaluate(() => {
+        document.getElementById('tt-modifier').click();
+        return { saisie: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'block',
+                 edite: !!editingTextId };
+    });
+    await page.waitForTimeout(250);
+    const pendant = await page.evaluate(() => {
+        const vu = (s) => { const e = document.querySelector(s); return !!e && e.offsetParent !== null; };
+        return { contenu: document.getElementById('wysiwyg-text').innerText.replace(/\s+/g, ' ').trim(),
+                 modifier: vu('#tt-modifier'), termine: vu('#tt-termine') };
+    });
+    r.verifie('IL OUVRE LE BLOC, avec son texte dedans',
+        ouvrePorte.saisie && ouvrePorte.edite && /jhkhjkh/.test(pendant.contenu),
+        JSON.stringify({ ouvrePorte, pendant }));
+    r.egal('et les deux portes s\'échangent : « Terminé » prend la place',
+        { modifier: pendant.modifier, termine: pendant.termine },
+        { modifier: false, termine: true });
+
+    await page.keyboard.type(' ajoute');
+    await page.waitForTimeout(120);
+    const sort = await page.evaluate(() => {
+        document.getElementById('tt-termine').click();
+        return { saisie: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'block',
+                 edite: !!editingTextId, contenu: texts[0].content };
+    });
+    r.verifie('« TERMINÉ » REFERME ET GARDE CE QU\'ON VIENT D\'ÉCRIRE',
+        !sort.saisie && !sort.edite && /ajoute/.test(sort.contenu), JSON.stringify(sort));
+
+    // Plusieurs blocs tenus : « Modifier » n'ouvrirait pas lequel, il s'efface.
+    const plusieurs = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = [];
+        for (const id of ['P1', 'P2']) {
+            texts.push({ id, type: 'text', x: 200, y: id === 'P1' ? 250 : 450, fontSize: 32,
+                lineHeight: 38, content: 'bloc', color: '#2d3436', strokeColor: '#2d3436',
+                fontFamily: 'sans-serif', align: 'left', opacity: 1, z: 1 });
+        }
+        setMode('pointer');
+        selectedItems = texts.map(t => ({ type: 'text', id: t.id }));
+        updateStyleBarContext(); draw();
+        const vu = (s) => { const e = document.querySelector(s); return !!e && e.offsetParent !== null; };
+        return { modifier: vu('#tt-modifier'), gras: vu('#text-toolbar [data-command="bold"]') };
+    });
+    r.verifie('PLUSIEURS BLOCS TENUS : « Modifier » s\'efface, le reste demeure',
+        !plusieurs.modifier && plusieurs.gras, JSON.stringify(plusieurs));
+
+    // Et sur un texte NEUF, « Terminé » le pose : c'est la sortie de celui qui
+    // n'a pas de clavier.
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; setMode('text');
+    });
+    await page.mouse.click(600, 500);
+    await page.waitForTimeout(220);
+    await page.keyboard.type('un texte neuf');
+    await page.waitForTimeout(120);
+    const neuf = await page.evaluate(() => {
+        const vu = (s) => { const e = document.querySelector(s); return !!e && e.offsetParent !== null; };
+        const avant = vu('#tt-termine');
+        document.getElementById('tt-termine').click();
+        return { avant, blocs: texts.length, contenu: texts.length ? texts[0].content : null,
+                 saisie: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'block' };
+    });
+    r.verifie('UN TEXTE NEUF SE POSE PAR « TERMINÉ », sans toucher au clavier',
+        neuf.avant && neuf.blocs === 1 && /un texte neuf/.test(neuf.contenu || '') && !neuf.saisie,
+        JSON.stringify(neuf));
+
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; setMode('pointer');
+        updateStyleBarContext(); draw();
+    });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

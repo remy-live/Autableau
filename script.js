@@ -9674,6 +9674,9 @@ function updateStyleBarContext() {
     barStyle.classList.toggle('ctx-bloc', blocsTenus.length > 0);
     if (typeof textToolbar !== 'undefined' && textToolbar) {
         textToolbar.classList.toggle('tt-bloc', blocsTenus.length > 0);
+        // « Modifier » n'ouvre qu'un texte à la fois : avec plusieurs blocs
+        // tenus, il ne saurait pas lequel, et un bouton qui ne sait pas ment.
+        textToolbar.classList.toggle('tt-un-bloc', blocsTenus.length === 1);
     }
     if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
 
@@ -22131,10 +22134,27 @@ if (textToolbar) {
     const btnAncrer = document.getElementById('tt-ancrer');
     if (btnAncrer) btnAncrer.addEventListener('click', () => { basculerLAncrageDuTexte(); });
 
+    // LES DEUX PORTES VISIBLES. « Modifier » fait ce que fait le double-clic,
+    // et « Terminé » ce que fait Échap : rien de neuf sous eux, seulement un
+    // chemin qu'on voit. Ils sont branchés ici, avant les autres, et s'y
+    // arrêtent — ils ne règlent rien du texte lui-même.
+    const btnModifier = document.getElementById('tt-modifier');
+    if (btnModifier) btnModifier.addEventListener('click', () => {
+        const blocs = (typeof blocsDeTexteTenus === 'function') ? blocsDeTexteTenus() : [];
+        if (blocs.length !== 1) return;
+        rouvrirLeTexte(blocs[0]);
+    });
+    const btnTermine = document.getElementById('tt-termine');
+    if (btnTermine) btnTermine.addEventListener('click', () => {
+        if (typeof fermerTiroirsTexte === 'function') fermerTiroirsTexte();
+        finalizeText();
+        if (typeof canvas !== 'undefined' && canvas) canvas.focus();
+    });
+
     // 2. Écouteurs pour TOUS les boutons de la barre d'outils (Alignement, Gras, etc.)
     document.querySelectorAll('#text-toolbar button').forEach(btn => {
         btn.addEventListener('click', () => {
-            if (btn.id === 'tt-ancrer') return;
+            if (btn.id === 'tt-ancrer' || btn.id === 'tt-modifier' || btn.id === 'tt-termine') return;
             // --- Gestion de l'alignement ---
             if (btn.classList.contains('btn-align')) {
                 const alignMode = btn.getAttribute('data-align');

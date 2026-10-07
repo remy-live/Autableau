@@ -12682,6 +12682,34 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 #text-toolbar.tt-bloc .tt-tab[data-panel="symb"],
 #text-toolbar.tt-bloc .tt-tab[data-panel="color"] { display: none; }
 
+/* LES DEUX PORTES VISIBLES, CHACUNE À SON MOMENT. « Modifier » sur un bloc
+   tenu, « Terminé » pendant la frappe — jamais les deux, puisqu'on ne peut pas
+   à la fois tenir un bloc et l'écrire. « Modifier » s'efface aussi quand on en
+   tient PLUSIEURS : on n'ouvre qu'un texte à la fois, et un bouton qui ne
+   saurait pas lequel mentirait. Les deux portent leur mot, comme le
+   « Modifier » des vignettes de plugins. */
+#text-toolbar #tt-modifier,
+#text-toolbar #tt-termine { display: none; }
+#text-toolbar.tt-bloc.tt-un-bloc #tt-modifier { display: flex; }
+#text-toolbar:not(.tt-bloc) #tt-termine { display: flex; }
+
+#text-toolbar #tt-modifier,
+#text-toolbar #tt-termine {
+    width: auto;
+    gap: 6px;
+    padding: 0 11px;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* Debout, la barre n'a pas la largeur d'un mot : l'icône suffit, et
+   l'infobulle dit le reste. */
+.toolbar.vertical #text-toolbar #tt-modifier span,
+.toolbar.vertical #text-toolbar #tt-termine span,
+#text-toolbar.vertical #tt-modifier span,
+#text-toolbar.vertical #tt-termine span { display: none; }
+
 /* ET LA TAILLE RESTE À UN SEUL ENDROIT. Le chapitre 44 l'exige depuis
    longtemps — « la taille ne s'y règle pas deux fois » —, et la règle ne
    change pas, c'est l'endroit qui change de main : pendant la frappe, la
