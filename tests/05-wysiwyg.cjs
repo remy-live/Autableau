@@ -168,7 +168,12 @@ module.exports = async function (browser) {
         await surligner('grand');
         await page.click('#text-toolbar .tt-tab[data-panel="size"]');
         await page.waitForTimeout(120);
-        for (let i = 0; i < 8; i++) await page.click('#btn-size-up');
+        // La taille est une réglette : on la pousse d'un geste.
+        await page.evaluate(() => {
+            const r2 = document.getElementById('tt-taille');
+            r2.value = 32;
+            r2.dispatchEvent(new Event('input', { bubbles: true }));
+        });
     });
 
     await scenario('un mot coloré', async () => {

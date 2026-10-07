@@ -8455,6 +8455,7 @@ window.reglerLOpaciteDeLaSelection = reglerLOpaciteDeLaSelection;
 
 document.getElementById('stamp-opacity')?.addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
+    if (typeof majLesReglettes === 'function') majLesReglettes();
     const twin = document.getElementById('opacity-slider');
     if (twin) { twin.value = e.target.value; afficherLOpacite(v); }
     // ON NE TIENT PAS TOUJOURS QUELQUE CHOSE. Pendant qu'on ANNOTE un
@@ -8470,6 +8471,158 @@ document.getElementById('stamp-opacity')?.addEventListener('change', (e) => {
     stampOpacityPending = null; stampOpacityBusy = false;
     applyPluginStampOpacity(v, true);
 });
+// ==================================================================
+// OÙ S'OUVRE UN VOLET
+//
+// Deux sortes de volets pendent des barres : les tiroirs de la barre du texte
+// et les réglettes repliées. Même problème, donc même réponse, et une seule
+// fois — « quand je clique sur la taille de la police, la petite popup
+// n'apparaît pas » : debout, une barre fait cinq cents pixels de haut, et un
+// volet qui pend de SA hauteur sort de l'écran. Une colonne a de la place à sa
+// gauche, pas en dessous ; couchée, le volet pend de son propre bouton.
+//
+// Les noms de classes sont passés en paramètre : les tiroirs du texte ont les
+// leurs depuis longtemps, et les renommer aurait touché une feuille de style
+// que rien ne demandait de toucher.
+// ==================================================================
+function poserUnVolet(volet, bouton, options) {
+    const o = Object.assign({ cote: 'a-cote', haut: 'vers-le-haut', prefererLeHaut: false },
+        options || {});
+    const colonne = bouton.closest('.toolbar.vertical');
+    volet.classList.remove(o.cote, o.haut);
+    volet.style.left = '0px';
+    volet.style.top = '';
+
+    if (colonne) {
+        volet.classList.add(o.cote);
+        volet.style.top = '0px';
+        const v0 = volet.getBoundingClientRect();
+        const b = bouton.getBoundingClientRect();
+        const c = colonne.getBoundingClientRect();
+        let x = c.left - 8 - v0.width;
+        if (x < 8) x = c.right + 8;
+        x = Math.max(8, Math.min(window.innerWidth - 8 - v0.width, x));
+        const y = Math.max(8, Math.min(window.innerHeight - 8 - v0.height,
+            b.top + b.height / 2 - v0.height / 2));
+        volet.style.left = Math.round(x - v0.left) + 'px';
+        volet.style.top = Math.round(y - v0.top) + 'px';
+        return;
+    }
+
+    volet.classList.toggle(o.haut, !!o.prefererLeHaut);
+    const v0 = volet.getBoundingClientRect();
+    const b = bouton.getBoundingClientRect();
+    const voulu = Math.max(8, Math.min(window.innerWidth - 8 - v0.width,
+        b.left + b.width / 2 - v0.width / 2));
+    volet.style.left = Math.round(voulu - v0.left) + 'px';
+    // Et il ne sort ni par le haut ni par le bas : on choisit le côté qui a la
+    // place, et non pas seulement celui qu'on aurait préféré.
+    let r = volet.getBoundingClientRect();
+    if (r.top < 8 && volet.classList.contains(o.haut)) {
+        volet.classList.remove(o.haut);
+        r = volet.getBoundingClientRect();
+    }
+    if (r.bottom > window.innerHeight - 8 && !volet.classList.contains(o.haut)
+        && b.top - r.height - 8 > 0) {
+        volet.classList.add(o.haut);
+    }
+}
+window.poserUnVolet = poserUnVolet;
+
+// ==================================================================
+// LES RÉGLETTES REPLIÉES
+//
+// « Pour les sliders de l'opacité ou de la taille des polices on pourrait les
+// voir que quand on clique sur opacité ou taille. »
+//
+// La barre portait deux réglettes dépliées en permanence. Elles se replient
+// derrière un bouton — MAIS CE BOUTON N'EST PAS MUET : il porte la valeur en
+// clair. C'est ce qui le sépare du cas que ce dépôt condamne deux fois (« un
+// réglage qu'il faut aller chercher derrière un bouton n'existe pas », à
+// propos de l'épaisseur puis de l'opacité) : on LIT le réglage sans l'ouvrir,
+// et l'on n'ouvre que pour le changer. L'épaisseur du trait, elle, reste
+// dépliée : c'est le réglage qu'on touche le plus souvent en traçant, et rien
+// ne demandait de le replier.
+// ==================================================================
+function fermerLesReglettes(saufCelui) {
+    document.querySelectorAll('.reglette-volet.ouvert').forEach(v => {
+        if (v === saufCelui) return;
+        v.classList.remove('ouvert');
+        const b = v.parentNode && v.parentNode.querySelector('.btn-reglette');
+        if (b) { b.classList.remove('active'); b.setAttribute('aria-expanded', 'false'); }
+    });
+}
+window.fermerLesReglettes = fermerLesReglettes;
+
+function basculerUneReglette(bouton) {
+    const volet = bouton.parentNode.querySelector('.reglette-volet');
+    if (!volet) return;
+    const etaitOuvert = volet.classList.contains('ouvert');
+    fermerLesReglettes();
+    if (etaitOuvert) return;
+    volet.classList.add('ouvert');
+    bouton.classList.add('active');
+    bouton.setAttribute('aria-expanded', 'true');
+    poserUnVolet(volet, bouton);
+}
+
+document.querySelectorAll('.btn-reglette').forEach(b => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); basculerUneReglette(b); });
+});
+// On referme en cliquant ailleurs ou par Échap — comme le nuancier.
+document.addEventListener('pointerdown', (e) => {
+    if (e.target.closest && e.target.closest('.reglette-pliee')) return;
+    fermerLesReglettes();
+}, true);
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') fermerLesReglettes();
+});
+
+// Une valeur s'écrit dans un champ comme dans une étiquette — et jamais dans
+// un champ qu'on est en train de taper, sinon « 4 » en route vers « 42 »
+// remonterait à 4 sous les doigts.
+function ecrireLaValeur(el, v) {
+    if (!el) return;
+    if (el.tagName === 'INPUT') { if (document.activeElement !== el) el.value = v; }
+    else el.innerText = v;
+}
+window.ecrireLaValeur = ecrireLaValeur;
+
+// Les quatre affichages de réglette disent la même chose que l'état : on les
+// rafraîchit tous au même endroit, pour qu'aucun ne puisse diverger.
+function majLesReglettes() {
+    const op = document.getElementById('stamp-opacity');
+    if (op) {
+        const pc = Math.round(parseFloat(op.value) * 100);
+        ecrireLaValeur(document.getElementById('opacite-val'), pc);
+        ecrireLaValeur(document.getElementById('opacite-num'), pc);
+    }
+    const bloc = (typeof editingTextId !== 'undefined' && editingTextId
+        && typeof getObjectById === 'function') ? getObjectById('text', editingTextId) : null;
+    const taille = Math.round((bloc && bloc.fontSize) || activeStyle.fontSize || 24);
+    const inter = Math.round((bloc && bloc.lineHeight) || activeStyle.lineHeight || 29);
+    ecrireLaValeur(document.getElementById('taille-val'), taille);
+    ecrireLaValeur(document.getElementById('text-size-display-2'), taille);
+    ecrireLaValeur(document.getElementById('text-lh-display'), inter);
+    const r1 = document.getElementById('tt-taille');
+    if (r1 && document.activeElement !== r1) r1.value = Math.max(6, Math.min(120, taille));
+    const r2 = document.getElementById('tt-interligne');
+    if (r2 && document.activeElement !== r2) r2.value = Math.max(10, Math.min(150, inter));
+}
+window.majLesReglettes = majLesReglettes;
+
+// Le nombre de l'opacité et sa réglette disent la même chose : on passe par la
+// réglette, qui porte déjà tout le comportement (tampons, page annotée, objets).
+document.getElementById('opacite-num')?.addEventListener('input', (e) => {
+    const pc = parseInt(e.target.value, 10);
+    if (!isFinite(pc) || pc < 10 || pc > 100) return;
+    const curseur = document.getElementById('stamp-opacity');
+    if (!curseur) return;
+    curseur.value = pc / 100;
+    curseur.dispatchEvent(new Event('input', { bubbles: true }));
+    curseur.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 document.getElementById('btn-no-fill').addEventListener('click', () => { if (popoverTarget === 'fill') { activeStyle.isFilled = false; updateColorIndicator(); pushStyleToObject(); } });
 
 document.getElementById('btn-clignote')?.addEventListener('click', () => {
@@ -9492,6 +9645,9 @@ function updateStyleBarContext() {
 
     syncStampStyleControls();
     syncTextStyleControls();
+    // Les boutons des réglettes repliées portent la valeur : elle doit suivre
+    // la sélection, sinon on lirait celle de l'objet précédent.
+    if (typeof majLesReglettes === 'function') majLesReglettes();
 
     // ==================================================================
     // UN BLOC POSÉ GARDE SA BARRE DE TEXTE
@@ -9566,6 +9722,7 @@ function syncTextStyleControls() {
         if (input && !curseurEnMain(input)) input.value = op;
     }
     if (quickColors) quickColors.style.display = 'none';
+    if (typeof majLesReglettes === 'function') majLesReglettes();
     // On ne referme plus le nuancier d'office : il n'y avait plus de bouton
     // pour l'ouvrir, le fermer était donc sans conséquence. Maintenant que la
     // pastille est là, le refermer à chaque rafraîchissement de la barre le
@@ -10081,8 +10238,7 @@ function reglerTailleTexte(px, source) {
     const rapport = rapportVoulu(activeStyle.fontSize, activeStyle.lineHeight);
     activeStyle.fontSize = t;
     activeStyle.lineHeight = interlignePour(t, rapport);
-    const jauge = document.getElementById('text-lh-display');
-    if (jauge) jauge.innerText = activeStyle.lineHeight;
+    ecrireLaValeur(document.getElementById('text-lh-display'), activeStyle.lineHeight);
     const curseur = document.getElementById('font-size');
     const nombre = document.getElementById('font-size-num');
     if (curseur && source !== 'curseur') curseur.value = Math.max(6, Math.min(120, t));
@@ -22119,67 +22275,19 @@ if (textToolbar) {
                 // bouton. Il passe à droite si la gauche manque, et reste
                 // toujours entier dans la fenêtre.
                 // ==================================================
-                const colonne = textToolbar.closest('.toolbar.vertical')
-                    || (textToolbar.classList.contains('vertical') ? textToolbar : null);
-                if (colonne) {
-                    panneau.classList.add('tt-cote');
-                    panneau.classList.remove('tt-up');
-                    panneau.style.left = '0px';
-                    panneau.style.top = '0px';
-                    const p0 = panneau.getBoundingClientRect();
-                    const ongletR = tab.getBoundingClientRect();
-                    const barreR = colonne.getBoundingClientRect();
-                    let x = barreR.left - 8 - p0.width;
-                    if (x < 8) x = barreR.right + 8;
-                    x = Math.max(8, Math.min(window.innerWidth - 8 - p0.width, x));
-                    const y = Math.max(8, Math.min(window.innerHeight - 8 - p0.height,
-                        ongletR.top + ongletR.height / 2 - p0.height / 2));
-                    panneau.style.left = Math.round(x - p0.left) + 'px';
-                    panneau.style.top = Math.round(y - p0.top) + 'px';
-                    wysiwygText.focus();
-                    return;
-                }
-                panneau.classList.remove('tt-cote');
-                panneau.style.top = '';
-
-                // Le tiroir s'ouvre du côté opposé au texte : si la barre
-                // FLOTTE au-dessus du bloc, il descendrait pile sur ce qu'on
-                // écrit. Rangée dans la barre du haut, elle est loin du texte :
-                // le tiroir descend alors, comme tous les autres menus de
-                // l'application — s'ouvrir vers le haut l'aurait envoyé
-                // par-dessus le tiroir des plugins.
+                // Les tiroirs et les réglettes repliées s'ouvrent par la
+                // même porte : voir « OÙ S'OUVRE UN VOLET » dans ce fichier.
+                // Le tiroir s'ouvre du côté opposé au texte quand la barre
+                // FLOTTE au-dessus du bloc — il descendrait sinon pile sur ce
+                // qu'on écrit. Rangée dans la barre du haut, elle est loin du
+                // texte : le tiroir descend alors, comme tous les autres menus
+                // de l'application.
                 const barre = textToolbar.getBoundingClientRect();
                 const saisie = wysiwygText.getBoundingClientRect();
-                const barreAuDessus = !barreDuTexteEnHaut && barre.bottom <= saisie.top + 2;
-                panneau.classList.toggle('tt-up', barreAuDessus);
-
-                // LE TIROIR PEND DE SON PROPRE BOUTON. Il s'ouvrait collé au
-                // bord GAUCHE de la barre, quel que soit l'onglet : le panneau
-                // « Taille, police, interligne » paraissait à l'autre bout de
-                // l'icône qui venait de l'ouvrir, et l'on cherchait le lien
-                // entre les deux. Il se centre maintenant sous — ou sur — le
-                // bouton, et ne sort pas de l'écran pour autant.
-                panneau.style.left = '0px';
-                const p0 = panneau.getBoundingClientRect();
-                const ongletR = tab.getBoundingClientRect();
-                const voulu = Math.max(8, Math.min(window.innerWidth - 8 - p0.width,
-                    ongletR.left + ongletR.width / 2 - p0.width / 2));
-                panneau.style.left = Math.round(voulu - p0.left) + 'px';
-
-                // ET IL NE SORT PAS PAR LE HAUT. La barre collée au bord haut
-                // de la fenêtre ouvrait son tiroir vers le haut : « les options
-                // étaient tronquées par le haut de la fenêtre ». On choisit le
-                // côté qui a la place, et non plus seulement celui qui est
-                // opposé au texte.
-                let r = panneau.getBoundingClientRect();
-                if (r.top < 8 && panneau.classList.contains('tt-up')) {
-                    panneau.classList.remove('tt-up');
-                    r = panneau.getBoundingClientRect();
-                }
-                if (r.bottom > window.innerHeight - 8 && !panneau.classList.contains('tt-up')
-                    && barre.top - r.height - 8 > 0) {
-                    panneau.classList.add('tt-up');
-                }
+                poserUnVolet(panneau, tab, {
+                    cote: 'tt-cote', haut: 'tt-up',
+                    prefererLeHaut: !barreDuTexteEnHaut && barre.bottom <= saisie.top + 2
+                });
             }
             wysiwygText.focus();
         });
@@ -22868,33 +22976,33 @@ function appliquerTailleSelection(pxLogique) {
     });
 }
 
-function changeFontSize(delta) {
+// LA TAILLE SE DONNE, ELLE NE SE COMPTE PLUS PAR PAS. « J'aimerais bien des
+// sliders avec à côté la valeur qu'on peut éditer. » Les deux boutons « − » et
+// « + » demandaient un clic par point : trente-six pour passer de 24 à 60. La
+// réglette couvre la course d'un geste et le nombre reçoit la valeur exacte,
+// au-delà de la course s'il le faut.
+//
+// PAS DE CHEMIN « BLOC POSÉ » ICI. J'en avais écrit un ; saboté, aucune
+// vérification ne tombait, et c'était juste : cette rangée du tiroir s'efface
+// sur un bloc posé — c'est la réglette de la barre de style qui porte alors la
+// taille. Un réglage, un endroit (chapitre 44).
+function poserLaTailleDuTexte(px) {
+    let newSize = Math.round(px);
+    if (!isFinite(newSize)) return;
+    if (newSize < 10) newSize = 10;
+    if (newSize > 200) newSize = 200;
+
     // Sélection en cours : on ne touche qu'à elle
-    if (selectionDansSaisie()) {
-        const courante = tailleSelectionCourante() || tailleDeBaseSaisie();
-        let cible = Math.round(courante) + delta;
-        if (cible < 10) cible = 10;
-        if (cible > 200) cible = 200;
-        if (appliquerTailleSelection(cible)) {
-            if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
-            return;
-        }
+    if (selectionDansSaisie() && appliquerTailleSelection(newSize)) {
+        if (typeof updateTextToolbarPosition === 'function') updateTextToolbarPosition();
+        return;
     }
 
-    // PAS DE CHEMIN « BLOC POSÉ » ICI NON PLUS. J'en avais écrit un ; sabotée,
-    // aucune vérification ne tombait, et c'était juste : le « + » et le « − »
-    // vivent dans la rangée « Taille » du tiroir, qui s'efface sur un bloc
-    // posé — c'est la réglette de la barre de style qui porte alors la taille,
-    // d'un seul geste. Un réglage, un endroit (chapitre 44).
     let currentSize = activeStyle.fontSize;
     if (editingTextId) {
         const t = getObjectById('text', editingTextId);
         if (t) currentSize = t.fontSize || activeStyle.fontSize;
     }
-
-    let newSize = currentSize + delta;
-    if (newSize < 10) newSize = 10;
-    if (newSize > 200) newSize = 200;
 
     // L'interligne garde son rapport à la police : sans cela, agrandir
     // faisait se chevaucher les lignes, et réduire ouvrait des gouffres.
@@ -22905,8 +23013,7 @@ function changeFontSize(delta) {
     activeStyle.lineHeight = interlignePour(newSize, rapport);
 
     if (bloc) { bloc.fontSize = newSize; bloc.lineHeight = activeStyle.lineHeight; }
-    const jauge = document.getElementById('text-lh-display');
-    if (jauge) jauge.innerText = activeStyle.lineHeight;
+    if (typeof majLesReglettes === 'function') majLesReglettes();
     updateWysiwygPosition();
     draw();
 }
@@ -22956,8 +23063,6 @@ lesPastillesDePolice().forEach(b => {
 });
 majLesPolices();
 
-const btnSizeUp = document.getElementById('btn-size-up');
-const btnSizeDown = document.getElementById('btn-size-down');
 // --- GESTION DE L'INTERLIGNE MANUEL ---
 // ===================================================
 // GESTION DE L'INTERLIGNE ET DE L'AIMANT 🧲
@@ -22984,8 +23089,17 @@ if (textLineHeightInput) {
 }
 
 
-if (btnSizeUp) btnSizeUp.addEventListener('click', () => changeFontSize(1));
-if (btnSizeDown) btnSizeDown.addEventListener('click', () => changeFontSize(-1));
+[['tt-taille', 'reglette'], ['text-size-display-2', 'nombre']].forEach(([id, genre]) => {
+    const champ = document.getElementById(id);
+    if (!champ) return;
+    champ.addEventListener('input', () => {
+        const v = parseInt(champ.value, 10);
+        // On ne recadre pas pendant la frappe : « 4 » en route vers « 42 »
+        // serait remonté à 4 avant qu'on ait fini de taper.
+        if (genre === 'nombre' && (!isFinite(v) || v < 4 || v > 400)) return;
+        poserLaTailleDuTexte(v);
+    });
+});
 
 // ===================================================
 // POSITIONNEMENT ET SYNCHRONISATION DE LA BARRE
@@ -23041,8 +23155,11 @@ function syncBadgesTexte() {
 
     const sizeDisplay = document.getElementById('text-size-display');
     if (sizeDisplay) sizeDisplay.innerText = Math.round(currentSize);
-    const sizeDisplay2 = document.getElementById('text-size-display-2');
-    if (sizeDisplay2) sizeDisplay2.innerText = Math.round(currentSize);
+    ecrireLaValeur(document.getElementById('text-size-display-2'), Math.round(currentSize));
+    const regletteTaille = document.getElementById('tt-taille');
+    if (regletteTaille && document.activeElement !== regletteTaille) {
+        regletteTaille.value = Math.max(6, Math.min(120, Math.round(currentSize)));
+    }
     const pastille = document.getElementById('tt-color-dot');
     if (pastille) pastille.style.background = couleur;
     // Et la pastille allumée dans le tiroir suit le curseur : on voit d'un
@@ -35614,14 +35731,10 @@ window.addEventListener('paste', (e) => {
 // GESTION DE L'INTERLIGNE ET DE L'AIMANT 🧲 (BOUTONS +/-)
 // ===================================================
 
-function changeLineHeight(delta) {
-    let currentLH = activeStyle.lineHeight || 29;
-    if (editingTextId) {
-        const t = getObjectById('text', editingTextId);
-        if (t && t.lineHeight) currentLH = t.lineHeight;
-    }
-
-    let newLH = currentLH + delta;
+// L'INTERLIGNE AUSSI SE DONNE D'UN GESTE, par sa réglette ou par son nombre.
+function poserLInterligne(px) {
+    let newLH = Math.round(px);
+    if (!isFinite(newLH)) return;
     if (newLH < 10) newLH = 10;
     if (newLH > 150) newLH = 150;
 
@@ -35629,8 +35742,7 @@ function changeLineHeight(delta) {
     // C'est un choix : le rapport qu'il exprime est celui qui suivra la police.
     fixerLeRapport((editingTextId && getObjectById('text', editingTextId)
         ? getObjectById('text', editingTextId).fontSize : activeStyle.fontSize), newLH);
-    const display = document.getElementById('text-lh-display');
-    if (display) display.innerText = newLH;
+    if (typeof majLesReglettes === 'function') majLesReglettes();
 
     const applyToText = (t) => { t.lineHeight = newLH; };
 
@@ -35650,10 +35762,15 @@ function changeLineHeight(delta) {
     draw();
 }
 
-const btnLhUp = document.getElementById('btn-lh-up');
-const btnLhDown = document.getElementById('btn-lh-down');
-if (btnLhUp) btnLhUp.addEventListener('click', () => changeLineHeight(1));
-if (btnLhDown) btnLhDown.addEventListener('click', () => changeLineHeight(-1));
+[['tt-interligne', 'reglette'], ['text-lh-display', 'nombre']].forEach(([id, genre]) => {
+    const champ = document.getElementById(id);
+    if (!champ) return;
+    champ.addEventListener('input', () => {
+        const v = parseInt(champ.value, 10);
+        if (genre === 'nombre' && (!isFinite(v) || v < 10 || v > 150)) return;
+        poserLInterligne(v);
+    });
+});
 
 const btnTextSnap = document.getElementById('btn-text-snap');
 if (btnTextSnap) {
@@ -35667,9 +35784,8 @@ if (btnTextSnap) {
         else if (bg === 'millimetre') spacing = 10;
 
         if (spacing) {
-            const display = document.getElementById('text-lh-display');
-            if (display) display.innerText = spacing;
             activeStyle.lineHeight = spacing;
+            if (typeof majLesReglettes === 'function') majLesReglettes();
 
             const applyToText = (t) => {
                 t.lineHeight = spacing;

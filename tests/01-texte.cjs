@@ -299,7 +299,13 @@ module.exports = async function (browser) {
     await page.waitForTimeout(150);
     await page.click('#text-toolbar .tt-police[data-police="monospace"]');
     await page.waitForTimeout(100);
-    for (let i = 0; i < 10; i++) { await page.click('#btn-size-up'); }
+    // La taille est une RÉGLETTE depuis que les « − » et « + » sont partis :
+    // on la pousse d'un geste au lieu de compter les clics.
+    await page.evaluate((v) => {
+        const r2 = document.getElementById('tt-taille');
+        r2.value = v;
+        r2.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 34);
     await page.waitForTimeout(200);
 
     const badge = await page.evaluate(() => ({
@@ -451,7 +457,13 @@ module.exports = async function (browser) {
     });
     await page.click('#text-toolbar .tt-tab[data-panel="size"]');
     await page.waitForTimeout(150);
-    for (let i = 0; i < 6; i++) await page.click('#btn-size-up');
+    // La taille est une RÉGLETTE depuis que les « − » et « + » sont partis :
+    // on la pousse d'un geste au lieu de compter les clics.
+    await page.evaluate((v) => {
+        const r2 = document.getElementById('tt-taille');
+        r2.value = v;
+        r2.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 30);
     await page.waitForTimeout(200);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(350);
@@ -787,7 +799,7 @@ p { line-height: 115%; margin-bottom: 0.25cm }</style></head>
         activeStyle.fontSize = 20; activeStyle.lineHeight = 24;
         activeStyle.interligneRatio = null;
         editingTextId = null; selectedItems = [];
-        for (let i = 0; i < 8; i++) changeLineHeight(2);      // 24 → 40, soit ×2
+        poserLInterligne(40);                                 // 24 → 40, soit ×2
         const large = { fs: activeStyle.fontSize, lh: activeStyle.lineHeight };
         const nombre = document.getElementById('font-size-num');
         nombre.value = '40'; nombre.dispatchEvent(new Event('input', { bubbles: true }));

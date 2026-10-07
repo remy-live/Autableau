@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=232 »,
-         « script.js?v=416 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=233 »,
+         « script.js?v=417 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=232">
+    <link rel="stylesheet" href="style.css?v=233">
 </head>
 
 <body>
@@ -256,15 +256,24 @@
                  rangée-ci s'efface ; pendant la frappe, c'est l'inverse, la
                  réglette s'en va et cette rangée reste. Voir « ctx-bloc » et
                  « ctx-saisie » dans style.css. -->
+            <!-- DES RÉGLETTES, ET LA VALEUR ÉDITABLE À CÔTÉ. « J'aimerais
+                 bien des sliders avec à côté la valeur qu'on peut éditer. »
+                 Les deux « − » et « + » demandaient un clic par point : passer
+                 de 24 à 60 en faisait trente-six. La réglette couvre la course
+                 d'un geste, et le nombre reçoit la valeur exacte — y compris
+                 au-delà de la course, ce qu'aucune réglette ne permet. -->
             <div class="tt-row tt-row-taille"><span class="tt-label">Taille</span>
-                <button class="btn" id="btn-size-down">−</button>
-                <span class="tt-val" id="text-size-display-2">24</span>
-                <button class="btn" id="btn-size-up">+</button>
+                <input type="range" class="tt-reglette" id="tt-taille" min="6" max="120" step="1"
+                    value="24" aria-label="Taille du texte">
+                <input type="number" class="slider-num" id="text-size-display-2" min="4" max="400"
+                    step="1" value="24" title="Taille du texte, en points"
+                    aria-label="Taille du texte, en points">
             </div>
             <div class="tt-row"><span class="tt-label">Interligne</span>
-                <button class="btn" id="btn-lh-down">−</button>
-                <span class="tt-val" id="text-lh-display">29</span>
-                <button class="btn" id="btn-lh-up">+</button>
+                <input type="range" class="tt-reglette" id="tt-interligne" min="10" max="150" step="1"
+                    value="29" aria-label="Interligne">
+                <input type="number" class="slider-num" id="text-lh-display" min="10" max="150"
+                    step="1" value="29" title="Interligne, en points" aria-label="Interligne">
             </div>
             <!-- LES POLICES SE MONTRENT. Un seul bouton « Aa » faisait défiler
                  les quatre à l'aveugle : rien ne disait qu'il y avait une
@@ -3237,14 +3246,30 @@
              aller chercher derrière un bouton n'existe pas.
              Il ne paraît que lorsqu'on tient quelque chose : un curseur
              qui n'agirait sur personne n'allongerait la barre pour rien. -->
-        <div class="slider-container" id="stamp-opacity-box" title="Opacité de la sélection"
-             style="display:none;">
-            <div class="slider-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14"
-                    height="14" fill="none" stroke="currentColor" stroke-width="2">
+        <!-- ET ELLE SE REPLIE AUJOURD'HUI, SANS SE CACHER POUR AUTANT.
+             « Pour les sliders de l'opacité ou de la taille des polices on
+             pourrait les voir que quand on clique sur opacité ou taille. » La
+             règle écrite juste au-dessus — « un réglage qu'il faut aller
+             chercher derrière un bouton n'existe pas » — tenait contre un
+             bouton MUET, celui qui ne dit rien de ce qu'il cache. Ce
+             bouton-ci porte la valeur en clair : on LIT l'opacité sans
+             l'ouvrir, et l'on n'ouvre que pour la changer. La barre, elle,
+             reprend la largeur de deux réglettes. -->
+        <div class="reglette-pliee" id="stamp-opacity-box" style="display:none;">
+            <button class="btn btn-reglette" id="btn-opacite" type="button" aria-expanded="false"
+                    data-tooltip="Opacité de la sélection"><svg xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                    stroke-width="2">
                     <circle cx="12" cy="12" r="9" />
                     <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-                </svg></div><input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1"
-                aria-label="Opacité de la sélection">
+                </svg><span class="reglette-val" id="opacite-val">100</span></button>
+            <div class="reglette-volet" data-reglette="opacite">
+                <span class="reglette-nom">Opacité</span>
+                <input type="range" id="stamp-opacity" min="0.1" max="1" step="0.05" value="1"
+                    aria-label="Opacité de la sélection">
+                <input type="number" id="opacite-num" class="slider-num" min="10" max="100" step="1"
+                    value="100" title="Opacité, en pour cent" aria-label="Opacité, en pour cent">
+            </div>
         </div>
 
         <!-- LE BOUT DU SURLIGNEUR, LÀ OÙ ON RÈGLE SON ÉPAISSEUR. Il se choisit
@@ -3267,10 +3292,19 @@
             <!-- Le curseur seul ne disait pas la taille, et s'arrêtait à 12 :
                  on ne pouvait ni la lire ni descendre plus bas. Le nombre
                  l'affiche et se tape directement, au-delà du curseur si besoin. -->
-            <div class="slider-container" title="Taille du texte">
-                <div class="slider-icon">A</div><input type="range" id="font-size" min="6" max="120" step="1"
-                    value="24"><input type="number" id="font-size-num" class="slider-num" min="4" max="400" step="1"
-                    value="24" title="Taille du texte, en points" aria-label="Taille du texte">
+            <!-- Repliée elle aussi, et pour la même raison : le bouton porte
+                 la taille en clair, on la lit sans l'ouvrir. -->
+            <div class="reglette-pliee" id="pli-taille">
+                <button class="btn btn-reglette" id="btn-taille" type="button" aria-expanded="false"
+                        data-tooltip="Taille du texte"><span class="reglette-icone">A</span><span
+                        class="reglette-val" id="taille-val">24</span></button>
+                <div class="reglette-volet" data-reglette="taille">
+                    <span class="reglette-nom">Taille</span>
+                    <input type="range" id="font-size" min="6" max="120" step="1" value="24"
+                        aria-label="Taille du texte"><input type="number" id="font-size-num"
+                        class="slider-num" min="4" max="400" step="1" value="24"
+                        title="Taille du texte, en points" aria-label="Taille du texte, en points">
+                </div>
             </div>
         </div>
 
@@ -4110,7 +4144,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=416"></script>
+    <script src="script.js?v=417"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=125"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
