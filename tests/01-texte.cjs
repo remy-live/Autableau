@@ -128,13 +128,33 @@ module.exports = async function (browser) {
     const barre = await page.evaluate(() => {
         const t = document.getElementById('text-toolbar');
         const rc = t.getBoundingClientRect();
-        return { largeur: Math.round(rc.width), boutons: t.querySelectorAll(':scope > .btn').length, tiroirs: t.querySelectorAll('.tt-panel').length };
+        return {
+            largeur: Math.round(rc.width),
+            boutons: t.querySelectorAll(':scope > .btn').length,
+            // CE QU'ON VOIT, ET NON CE QUI EST DÉCLARÉ. Deux boutons ne
+            // paraissent jamais ensemble — « Modifier » sur un bloc tenu,
+            // « Terminé » pendant la frappe —, et compter les deux ferait
+            // reprocher à la barre une largeur qu'elle n'a jamais.
+            vus: [...t.querySelectorAll(':scope > .btn')].filter(b => b.offsetParent !== null).length,
+            tiroirs: t.querySelectorAll('.tt-panel').length
+        };
     });
-    r.verifie('barre d\'édition compacte', barre.largeur < 420, `${barre.largeur} px`);
-    // Dix, et non plus neuf : le dixième est celui qui décide où la barre vit
-    // — rangée dans celle du haut, ou suivant le texte. Il compte parmi les
-    // contrôles, et le reste doit donc tenir en neuf.
-    r.verifie('barre d\'édition : contrôles regroupés', barre.boutons <= 10, `${barre.boutons} boutons`);
+    // QUATRE CENT QUATRE-VINGTS, ET NON PLUS QUATRE CENT VINGT. Le nombre
+    // d'origine valait pour une barre de dix icônes muettes ; elle porte
+    // maintenant un bouton qui dit son nom, « Terminé », parce que sur un
+    // tableau sans clavier il n'y avait aucune sortie visible. Mesuré : 367 px
+    // sans lui, 412 avec son icône seule, 468 avec son mot — le mot coûte
+    // cinquante-six pixels, et c'est lui qu'on achète.
+    //
+    // CE QUE LA RÈGLE PROTÈGE N'A PAS CHANGÉ : « compacte et tenant sur une
+    // tablette ». Une tablette fait 768 px ; 468 y tient avec trois cents
+    // pixels de marge, et le plafond reste assez bas pour qu'un treizième
+    // bouton ne puisse pas s'y glisser en silence.
+    r.verifie('barre d\'édition compacte', barre.largeur < 480, `${barre.largeur} px`);
+    // Onze À L'ÉCRAN. Neuf réglages, celui qui décide où la barre vit, et la
+    // porte du moment — « Modifier » ou « Terminé », jamais les deux.
+    r.verifie('barre d\'édition : contrôles regroupés', barre.vus <= 11,
+        `${barre.vus} boutons vus sur ${barre.boutons} déclarés`);
     r.verifie('barre d\'édition : tiroirs présents', barre.tiroirs === 6, `${barre.tiroirs} tiroirs`);
 
     // Le style de paragraphe s'applique (l'ancienne liste déroulante ne s'ouvrait pas)
