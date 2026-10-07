@@ -6822,11 +6822,19 @@ window.addEventListener('keydown', (e) => {
     // L'encre appartenant à sa page, tout ce qui venait d'être écrit sortait de
     // la vue d'un coup, sans que rien ne le dise.
     //
-    // Pendant qu'on remplit, les pages se tournent donc par les boutons de la
-    // barre du document — ils sont à portée, et eux ne se déclenchent pas tout
-    // seuls au bout d'une rangée.
-    if (!e.ctrlKey && !e.metaKey && !e.altKey
-        && !(typeof zonesActives !== 'undefined' && zonesActives)
+    // LES FLÈCHES SEULES SE TAISENT, PAS « PAGE↓ ». Il fallait d'abord faire
+    // taire les quatre touches ; une vérification du chapitre 15 l'a refusé,
+    // et elle a raison : « Page↓ tourne la page de ce qu'on TIENT », c'est la
+    // règle de toute l'application, et personne ne confond « Page↓ » avec un
+    // déplacement de case en case. Ce sont les FLÈCHES qu'on enchaîne en
+    // remplissant une grille, et elles seules qui partaient tourner la page.
+    //
+    // Pendant qu'on remplit, les pages se tournent donc par « Page↓ » ou par
+    // les boutons de la barre du document — ils sont à portée, et eux ne se
+    // déclenchent pas tout seuls au bout d'une rangée.
+    const flecheEnRemplissant = (typeof zonesActives !== 'undefined' && zonesActives)
+        && (e.key === 'ArrowRight' || e.key === 'ArrowLeft');
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !flecheEnRemplissant
         && ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
         const docAFeuilleter = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
         if (docAFeuilleter && typeof estUnPdfFeuilletable === 'function'

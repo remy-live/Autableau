@@ -164,7 +164,24 @@ module.exports = async function (browser) {
             pastilles: vis(document.getElementById('quick-colors-container'))
         };
     });
-    r.verifie('texte sélectionné : pas de pastilles de couleur', !barreStyle.couleur && !barreStyle.pastilles);
+    // LA PASTILLE DE COULEUR A CHANGÉ DE CAMP. Elle était rangée ici parmi les
+    // contrôles INERTES — « la couleur d'un texte se règle dans la barre
+    // d'édition » —, et cette vérification défendait son absence. C'était vrai
+    // pendant la frappe et faux après : un bloc seulement sélectionné n'a pas
+    // de barre d'édition, et il n'existait alors AUCUN endroit pour le
+    // recolorer. « De plus la couleur ne fonctionne plus. » Elle agit, elle
+    // reste ; ce qui n'agit pas s'en va toujours.
+    const agit = await page.evaluate(() => {
+        const avant = texts[0].color;
+        choisirLaCouleur('#e84393');
+        return { avant, apres: texts[0].color };
+    });
+    r.verifie('texte sélectionné : la pastille de couleur est là', barreStyle.couleur,
+        JSON.stringify(barreStyle));
+    r.verifie('et elle agit vraiment sur le bloc tenu',
+        agit.apres.toLowerCase() === '#e84393' && agit.avant !== agit.apres,
+        JSON.stringify(agit));
+    r.verifie('texte sélectionné : pas de pastilles sous l\'objet', !barreStyle.pastilles);
     r.verifie('texte sélectionné : pas de curseur d\'épaisseur', !barreStyle.epaisseur);
 
     // Alignement ligne par ligne (et non plus tout le bloc d'un coup)
