@@ -1065,9 +1065,286 @@ module.exports = async function (browser) {
     r.egal('et il ne bouge pas quand rien ne le gêne',
         tranquille, { bouge: false, memePanY: true });
 
+    // ET LE BORD HAUT DE L'ÉCRAN EST UN PLANCHER COMME UNE BARRE. En plein
+    // écran il n'y a plus de barre à dégager — le plafond vaut zéro —, et le
+    // secours ne s'armait QUE s'il y avait une barre : « si (haut) ». Or le
+    // bord de l'écran cache aussi bien qu'une barre. Un bloc remonté
+    // au-dessus du bord doit redescendre, en plein écran comme ailleurs.
+    const enPlein = await page.evaluate(async () => {
+        // On met le plafond des barres à zéro — c'est exactement ce que
+        // répond l'application en plein écran — sans dépendre de l'état où
+        // les vérifications précédentes ont laissé les barres.
+        const vrai = window.plafondQuiGeneLaSaisie;
+        window.plafondQuiGeneLaSaisie = () => 0;
+        try {
+            panY -= 260; draw(); updateWysiwygPosition();
+            const avant = document.getElementById('wysiwyg-text').getBoundingClientRect().top;
+            const plafond = plafondQuiGeneLaSaisie();
+            const bouge = degagerLaSaisie();
+            await new Promise(ok => setTimeout(ok, 120));
+            const apres = document.getElementById('wysiwyg-text').getBoundingClientRect().top;
+            return { avant: Math.round(avant), plafond, apres: Math.round(apres), bouge };
+        } finally { window.plafondQuiGeneLaSaisie = vrai; }
+    });
+    r.egal('sans barre en travers, le plafond vaut zéro', enPlein.plafond, 0,
+        JSON.stringify(enPlein));
+    r.verifie('et le bloc était bien sorti par le haut de l\'écran',
+        enPlein.avant < 0, JSON.stringify(enPlein));
+    r.verifie('LE BORD DE L\'ÉCRAN LE RATTRAPE QUAND MÊME',
+        enPlein.bouge && enPlein.apres >= 0, JSON.stringify(enPlein));
+
+    // ==================================================================
+    // ÉCRIRE TOUT EN HAUT, SANS QUE LA PAGE SAUTE
+    //
+    // « Quand j'ai voulu taper du texte tout en haut, en plein écran, le
+    // curseur s'est mis en dessous. » La ligne ENFOURCHE le clic : sa moitié
+    // haute est au-dessus du point qu'on montre, et en grand corps cette
+    // moitié fait quarante pixels. Tout en haut, elle sortait de l'écran — on
+    // ne voyait que sa moitié basse, qui commence plus bas que le clic.
+    //
+    // DEUX EXIGENCES, ET IL FAUT LES DEUX. La ligne entière se voit, ET le
+    // tableau ne bouge pas : faire sauter toute la page sous la main de celui
+    // qui vient de montrer un endroit serait un autre défaut, pas une
+    // correction. C'est en GRAND CORPS que cela se mesure — en corps
+    // vingt-quatre la moitié d'interligne ne fait que quatorze pixels, et le
+    // défaut se cache.
+    // ==================================================================
+    await page.evaluate(() => {
+        if (typeof toggleFocusMode === 'function' && !document.body.classList.contains('focus-mode')) toggleFocusMode();
+    });
+    await page.waitForTimeout(350);
+    const enHaut = [];
+    for (const taille of [24, 48, 96]) {
+        for (const y of [10, 25, 50]) {
+            await page.evaluate(([t]) => {
+                if (typeof finalizeText === 'function') finalizeText();
+                texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+                setMode('text');
+                if (typeof reglerTailleTexte === 'function') reglerTailleTexte(t, 'essai');
+                else { activeStyle.fontSize = t; activeStyle.lineHeight = Math.round(t * 1.2); }
+                draw();
+            }, [taille]);
+            await page.mouse.click(700, y);
+            await page.waitForTimeout(130);
+            enHaut.push(await page.evaluate(([t, y]) => {
+                const w = document.getElementById('wysiwyg-text');
+                if (getComputedStyle(w).display !== 'block') return { corps: t, y, pasDeSaisie: true };
+                const r = w.getBoundingClientRect();
+                return { corps: t, y, haut: Math.round(r.top), panY: Math.round(panY),
+                         plafond: typeof plafondQuiGeneLaSaisie === 'function' ? plafondQuiGeneLaSaisie() : 0 };
+            }, [taille, y]));
+        }
+    }
+    r.verifie('LA LIGNE NE COMMENCE JAMAIS HORS DE L\'ÉCRAN, même en grand corps',
+        enHaut.every(e => !e.pasDeSaisie && e.haut >= e.plafond),
+        JSON.stringify(enHaut));
+    r.verifie('ET LE TABLEAU NE SAUTE PAS SOUS LA MAIN : il ne bouge d\'aucun pixel',
+        enHaut.every(e => e.panY === 0), JSON.stringify(enHaut));
+    // Et plus bas, rien ne change : la ligne enfourche le clic comme avant.
+    const loinDuBord = enHaut.filter(e => e.y === 50 && e.corps === 24)[0];
+    r.egal('loin du bord, la ligne enfourche toujours le point montré',
+        loinDuBord && loinDuBord.haut, 36, JSON.stringify(loinDuBord));
+
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        if (typeof toggleFocusMode === 'function' && document.body.classList.contains('focus-mode')) toggleFocusMode();
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0;
+        if (typeof reglerTailleTexte === 'function') reglerTailleTexte(24, 'essai');
+        setMode('pointer'); draw();
+    });
+    await page.waitForTimeout(250);
+
+    // ==================================================================
+    // ROUVRIR UN BLOC NE DOIT RIEN LUI PRENDRE
+    //
+    // « Gros bug quand on tape le texte et qu'on le resélectionne. » Un
+    // objectif indenté à la main — dix espaces avant l'étoile — revenait
+    // collé à la marge : la boîte de saisie était en « white-space: nowrap »,
+    // qui écrase les suites d'espaces, alors que le canevas les garde. Le
+    // bloc rouvert valait donc moins que le bloc posé, et cela se voyait à
+    // la première réouverture.
+    // ==================================================================
+    const AVEC_ESPACES = 'Objectifs : * Connaitre le vocabulaire'
+        + '<div>          * Poser des additions</div>';
+    const blocRouvert = await page.evaluate((html) => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        texts.push({ id: 'TR', type: 'text', x: 150, y: 150, fontSize: 24,
+                     lineHeight: 29, content: html, color: '#2d3436',
+                     strokeColor: '#2d3436', opacity: 1 });
+        selectedItems = [{ type: 'text', id: 'TR' }];
+        rouvrirLeTexte(texts[0]);
+        const w = document.getElementById('wysiwyg-text');
+        return { blanc: getComputedStyle(w).whiteSpace, dansLaBoite: w.innerText };
+    }, AVEC_ESPACES);
+    r.verifie('LA BOÎTE DE SAISIE GARDE LES SUITES D\'ESPACES',
+        /\n {10}\* Poser/.test(blocRouvert.dansLaBoite),
+        `blanc=${blocRouvert.blanc} boîte=${JSON.stringify(blocRouvert.dansLaBoite)}`);
+    const referme = await page.evaluate(() => {
+        finalizeText(); draw();
+        return texts.length ? texts[texts.length - 1].content : null;
+    });
+    r.verifie('et refermer sans rien taper rend le bloc INTACT',
+        referme === AVEC_ESPACES, JSON.stringify(referme));
+
+    // ==================================================================
+    // RECOLORER UN TEXTE DÉJÀ POSÉ
+    //
+    // « De plus la couleur ne fonctionne plus. » La pastille de couleur était
+    // escamotée dès qu'on tenait un texte, au motif que sa couleur se règle
+    // dans la barre d'édition — vrai pendant la frappe, faux après : un bloc
+    // seulement sélectionné n'a pas de barre d'édition. Il n'existait donc
+    // AUCUN endroit pour recolorer un texte déjà écrit.
+    //
+    // Et la pastille seule ne suffit pas : le canevas honore les couleurs
+    // posées DANS le contenu, de sorte qu'un bloc coloré mot à mot ne bougeait
+    // pas d'un pixel. Les deux se mesurent ici.
+    // ==================================================================
+    const avantCouleur = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        setMode('pointer');
+        texts.push({ id: 'TC', type: 'text', x: 200, y: 300, fontSize: 48,
+            lineHeight: 58,
+            content: '<span style="color: rgb(231, 76, 60);">trois</span> plus '
+                   + '<span style="color: rgb(52, 152, 219);">deux</span>',
+            color: '#2d3436', strokeColor: '#2d3436', opacity: 1 });
+        selectedItems = [{ type: 'text', id: 'TC' }];
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        draw();
+        const compte = (test) => {
+            const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2])) n++;
+            return n;
+        };
+        const past = document.getElementById('btn-color-popover');
+        return {
+            pastille: !!past && past.offsetParent !== null,
+            rouge: compte((r2, g, b) => r2 > 150 && g < 110 && b < 110),
+            vert: compte((r2, g, b) => g > 150 && r2 < 110 && b < 160)
+        };
+    });
+    r.verifie('LA PASTILLE DE COULEUR PARAÎT SUR UN BLOC DE TEXTE SÉLECTIONNÉ',
+        avantCouleur.pastille, JSON.stringify(avantCouleur));
+    r.verifie('avant : le bloc porte bien ses couleurs mot à mot',
+        avantCouleur.rouge > 100 && avantCouleur.vert < 40, JSON.stringify(avantCouleur));
+
+    const apresCouleur = await page.evaluate(() => {
+        choisirLaCouleur('#2ecc71');
+        draw();
+        const compte = (test) => {
+            const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let n = 0;
+            for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2])) n++;
+            return n;
+        };
+        return {
+            couleur: texts[0].color, contenu: texts[0].content,
+            rouge: compte((r2, g, b) => r2 > 150 && g < 110 && b < 110),
+            vert: compte((r2, g, b) => g > 150 && r2 < 110 && b < 160)
+        };
+    });
+    r.verifie('et CHOISIR UNE COULEUR REPEINT LE BLOC ENTIER, couleurs internes comprises',
+        apresCouleur.rouge === 0 && apresCouleur.vert > 100, JSON.stringify(apresCouleur));
+    r.verifie('plus aucune couleur ne traîne dans le contenu',
+        !/color\s*:/i.test(apresCouleur.contenu || ''), JSON.stringify(apresCouleur.contenu));
+
+    // PENDANT LA FRAPPE, C'EST L'AUTRE PASTILLE QUI COMMANDE. La barre du
+    // texte a la sienne — celle qui ne colore que le mot sélectionné —, et la
+    // pastille générale s'efface pour ne pas proposer deux fois le même
+    // réglage avec deux effets différents. C'est à cette règle que tient tout
+    // le reste : si elle tombait, choisir une couleur en écrivant repeindrait
+    // le bloc entier au lieu du mot visé.
+    await page.evaluate(() => {
+        texts.length = 0; selectedItems = []; setMode('text');
+    });
+    await page.mouse.click(500, 500);
+    await page.waitForTimeout(200);
+    const pendantLaFrappe = await page.evaluate(() => {
+        const past = document.getElementById('btn-color-popover');
+        const sienne = document.querySelector('#text-toolbar .tt-tab[data-panel="color"]');
+        const bs = document.getElementById('bar-style');
+        return {
+            saisieOuverte: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'block',
+            contexte: bs ? bs.className : null,
+            generale: !!past && past.offsetParent !== null,
+            celleDuTexte: !!sienne && sienne.offsetParent !== null
+        };
+    });
+    // Une seule vérification pour les deux moitiés de la règle : la pastille
+    // de la barre du texte a déjà la sienne plus haut, où l'on ouvre son
+    // tiroir. Ce qui se mesure ici, c'est que l'autre s'efface.
+    r.verifie('EN ÉCRIVANT, la pastille générale s\'efface : un seul réglage à la fois',
+        pendantLaFrappe.saisieOuverte && pendantLaFrappe.celleDuTexte
+        && !pendantLaFrappe.generale, JSON.stringify(pendantLaFrappe));
+
+    // ==================================================================
+    // LA BARRE DEBOUT OUVRE SES TIROIRS SUR LE CÔTÉ
+    //
+    // « Quand j'ai ça et que je clique sur la taille de la police, la petite
+    // popup n'apparaît pas. » Debout, la barre fait cinq cents pixels de
+    // haut, et le tiroir pendait de SA hauteur : il sortait de l'écran par le
+    // haut. Mesuré avant correction, sur un écran de 1430×895 : « Taille »
+    // s'ouvrait de −16 à 201, « Symboles » de −41 à 201.
+    //
+    // On ne vérifie pas seulement qu'il tient dans la fenêtre — un tiroir
+    // collé en haut de l'écran y tiendrait aussi : il doit sortir À LA
+    // HAUTEUR DE SON PROPRE BOUTON, sans quoi on ne fait plus le lien.
+    // ==================================================================
+    for (const debout of [false, true]) {
+        await page.evaluate((d) => {
+            if (typeof finalizeText === 'function') finalizeText();
+            texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+            if (typeof basculerLAncrageDuTexte === 'function') basculerLAncrageDuTexte(true);
+            if (typeof barreStyleDebout !== 'undefined') barreStyleDebout = d;
+            if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
+            const bs = document.getElementById('bar-style');
+            if (bs) bs.classList.toggle('vertical', d);
+            setMode('text'); draw();
+        }, debout);
+        await page.mouse.click(600, 420);
+        await page.waitForTimeout(200);
+        const tiroirs = [];
+        for (const nom of ['size', 'color', 'para', 'symb']) {
+            tiroirs.push(await page.evaluate((n) => {
+                const tab = document.querySelector(`#text-toolbar .tt-tab[data-panel="${n}"]`);
+                const p = document.querySelector(`#text-toolbar .tt-panel[data-panel="${n}"]`);
+                if (!tab || !p) return { nom: n, absent: true };
+                tab.click();
+                const r = p.getBoundingClientRect(), b = tab.getBoundingClientRect();
+                return {
+                    nom: n, ouvert: p.classList.contains('tt-open'),
+                    boite: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
+                    dedans: r.top >= 0 && r.left >= 0
+                        && r.bottom <= window.innerHeight && r.right <= window.innerWidth,
+                    // Le tiroir et son bouton se regardent : leurs bandes
+                    // horizontales se croisent.
+                    enFace: r.bottom >= b.top - 2 && r.top <= b.bottom + 2
+                };
+            }, nom));
+        }
+        const ou = debout ? 'DEBOUT' : 'couchée';
+        r.verifie(`barre ${ou} : chaque tiroir de la barre de texte s'ouvre`,
+            tiroirs.every(t => t.ouvert), JSON.stringify(tiroirs));
+        r.verifie(`barre ${ou} : AUCUN TIROIR NE SORT DE L'ÉCRAN`,
+            tiroirs.every(t => t.dedans), JSON.stringify(tiroirs));
+        if (debout) {
+            r.verifie('barre DEBOUT : et chacun sort À LA HAUTEUR DE SON BOUTON',
+                tiroirs.every(t => t.enFace), JSON.stringify(tiroirs));
+        }
+    }
+    await page.evaluate(() => {
+        if (typeof fermerTiroirsTexte === 'function') fermerTiroirsTexte();
+        if (typeof barreStyleDebout !== 'undefined') barreStyleDebout = false;
+        const bs = document.getElementById('bar-style');
+        if (bs) bs.classList.remove('vertical');
+        if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
+    });
+
     await page.evaluate(() => {
         editingTextId = null;
-        if (wysiwygText) wysiwygText.style.display = 'none';
+        if (wysiwygText) { wysiwygText.innerHTML = ''; wysiwygText.style.display = 'none'; }
         texts.length = 0; selectedItems = []; panX = 0; panY = 0;
         setMode('pointer'); draw();
     });

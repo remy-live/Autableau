@@ -6095,15 +6095,30 @@ function degagerLaSaisie() {
     const r = wysiwygText.getBoundingClientRect();
     if (r.height < 1) return false;
     const MARGE = 8;
+    // LE HAUT DE L'ÉCRAN EST UN PLANCHER COMME UNE BARRE.
+    //
+    // « Quand j'ai voulu taper du texte tout en haut, en plein écran, le
+    // curseur s'est mis en dessous. » Le bloc de saisie est CENTRÉ sur le
+    // point qu'on montre : sa moitié haute est au-dessus du clic. En grand
+    // corps, cette moitié fait quarante pixels — mesuré, quarante-huit en
+    // corps quatre-vingt-seize. Cliquer tout en haut la mettait donc HORS DE
+    // L'ÉCRAN, et ce qu'on voyait de son écriture commençait plus bas que là
+    // où l'on avait pointé.
+    //
+    // Rien ne la rattrapait, parce que le secours ne s'armait que s'il y avait
+    // une BARRE à dégager : « si (haut) », et en plein écran il n'y en a pas.
+    // Or le bord de l'écran cache tout aussi bien qu'une barre. On garde donc
+    // le plafond des barres quand il y en a, et zéro sinon — ce qui revient à
+    // dire « ne sors pas par le haut », et c'est la même phrase.
     const haut = plafondQuiGeneLaSaisie();
     const bas = (typeof plafondDesBarresDuBas === 'function') ? plafondDesBarresDuBas() : window.innerHeight;
     let dy = 0;
-    if (haut && r.top < haut + MARGE) dy = (haut + MARGE) - r.top;
+    if (r.top < haut + MARGE) dy = (haut + MARGE) - r.top;
     else if (bas < window.innerHeight && r.bottom > bas - MARGE) {
         dy = (bas - MARGE) - r.bottom;
         // Ne jamais faire sortir la première ligne par le haut pour gagner la
         // dernière : on lit d'abord ce qu'on vient d'écrire.
-        if (haut && r.top + dy < haut + MARGE) dy = 0;
+        if (r.top + dy < haut + MARGE) dy = 0;
     }
     if (!dy) return false;
     panY += dy;
@@ -6143,7 +6158,14 @@ function updateWysiwygPosition() {
             wysiwygText.style.width = (colW * zoom) + 'px';
             wysiwygText.style.maxWidth = 'none';
         } else {
-            wysiwygText.style.whiteSpace = 'nowrap';
+            // « PRE » ET NON « NOWRAP » : les deux empêchent le repli, mais
+            // « nowrap » ÉCRASE LES SUITES D'ESPACES. Un cours importé ou collé
+            // aligne ses lignes avec de vrais espaces — « Objectifs : * …  /
+            // [neuf espaces] * … » — et le tableau les dessine ; la boîte de
+            // saisie, elle, les ravalait à un seul. Rouvrir un bloc le montrait
+            // donc désaligné, alors que rien n'avait changé : ce qu'on édite
+            // doit être ce qu'on voit.
+            wysiwygText.style.whiteSpace = 'pre';
             wysiwygText.style.width = 'auto';
         }
 
@@ -6788,7 +6810,23 @@ window.addEventListener('keydown', (e) => {
     // Feuilleter un document au clavier. Les flèches ne servent à rien d'autre
     // sur le tableau, et devant une classe on tourne les pages sans quitter la
     // page des yeux pour viser un bouton de six millimètres.
+    //
+    // SAUF QUAND ON REMPLIT LE DOCUMENT : là, les flèches servent à quelque
+    // chose, et à quelque chose d'autre.
+    //
+    // « En remplissant la table d'addition case après case, à partir de la
+    // huitième, des blocs précédents de texte ont disparu. » Ils n'avaient pas
+    // disparu : LA PAGE AVAIT TOURNÉ. Entre deux cases la saisie se referme —
+    // la tabulation au dernier trou, Échap, un clic à côté —, et la flèche
+    // suivante ne trouvait plus de champ pour la retenir : elle tombait ici.
+    // L'encre appartenant à sa page, tout ce qui venait d'être écrit sortait de
+    // la vue d'un coup, sans que rien ne le dise.
+    //
+    // Pendant qu'on remplit, les pages se tournent donc par les boutons de la
+    // barre du document — ils sont à portée, et eux ne se déclenchent pas tout
+    // seuls au bout d'une rangée.
     if (!e.ctrlKey && !e.metaKey && !e.altKey
+        && !(typeof zonesActives !== 'undefined' && zonesActives)
         && ['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
         const docAFeuilleter = (typeof documentDeLaBarre === 'function') ? documentDeLaBarre() : null;
         if (docAFeuilleter && typeof estUnPdfFeuilletable === 'function'
@@ -7996,10 +8034,53 @@ function choisirLaCouleur(hex, options) {
     if (opt.retenir) retenirUneCouleur(hex);
     majLaPastilleActive();
     updateColorIndicator();
+    // UN TEXTE COLORÉ MOT À MOT DOIT POUVOIR REPASSER D'UN SEUL BLOC. Le
+    // canevas honore les « color: » écrits DANS le contenu — c'est ce qui
+    // permet de colorer un mot pendant la frappe. Régler « t.color » sur un
+    // bloc dont chaque mot porte son span ne change donc rien à l'écran, et
+    // la couleur paraît encore « ne pas fonctionner ». Choisir une couleur
+    // sur un bloc SÉLECTIONNÉ efface les couleurs internes ; pendant la
+    // frappe, où l'on ne veut colorer que le mot suivant, on n'y touche pas.
+    if (popoverTarget !== 'fill') repeindreLesTextesTenus();
     pushStyleToObject();
     applyPluginStampStyle({ color: hex });
 }
 window.choisirLaCouleur = choisirLaCouleur;
+
+// Les couleurs posées à l'intérieur du contenu, retirées — le fond d'un
+// surlignage, lui, reste : ce n'est pas la couleur du texte.
+function sansCouleursInternes(html) {
+    const boite = document.createElement('div');
+    boite.innerHTML = html;
+    boite.querySelectorAll('[style*="color"]').forEach(e => {
+        e.style.color = '';
+        if (!e.getAttribute('style')) e.removeAttribute('style');
+    });
+    boite.querySelectorAll('font[color]').forEach(e => e.removeAttribute('color'));
+    return boite.innerHTML;
+}
+window.sansCouleursInternes = sansCouleursInternes;
+
+// PAS DE GARDE « SAUF PENDANT LA FRAPPE » ICI, ET C'EST MESURÉ. J'en avais
+// posé une — « pendant la saisie, c'est la sélection dans la boîte qui
+// commande » —, elle sonnait juste et ne mesurait rien : sabotée, aucune
+// vérification ne tombait. Elle ne pouvait pas en faire tomber, pour deux
+// raisons qui tiennent toutes les deux. La pastille générale est cachée
+// pendant la frappe (voir « ctx-saisie » dans style.css) : on ne passe donc
+// pas par ici en écrivant. Et quand bien même : le bloc en cours d'édition
+// reçoit son contenu de la BOÎTE à la validation, qui réécrit par-dessus tout
+// ce qu'on aurait pu lui retirer. Du code qui ne protège rien ment sur ce
+// qu'il protège ; il est parti.
+function repeindreLesTextesTenus() {
+    if (typeof selectedItems === 'undefined') return;
+    selectedItems.forEach(item => {
+        if (item.type !== 'text') return;
+        const t = getObjectById('text', item.id);
+        if (!t || t.locked || !t.content) return;
+        t.content = sansCouleursInternes(t.content);
+    });
+}
+window.repeindreLesTextesTenus = repeindreLesTextesTenus;
 
 // La pastille allumée est celle de la couleur en cours — dans la grille comme
 // dans « mes couleurs ». Aucune ne l'est si la couleur ne figure nulle part.
@@ -9386,13 +9467,21 @@ function updateStyleBarContext() {
 }
 
 
-// Un texte n'a ni épaisseur de trait ni opacité de REMPLISSAGE, et sa couleur
-// se règle dans la barre d'édition. On n'affiche donc pas ces contrôles ici :
-// ils n'agissaient sur rien et encombraient la barre.
+// Un texte n'a ni épaisseur de trait ni opacité de REMPLISSAGE : on n'affiche
+// pas ces contrôles ici, ils n'agissaient sur rien et encombraient la barre.
 //
-// L'opacité de l'OBJET, elle, lui va très bien — un énoncé qu'on estompe
-// derrière une correction, c'est un usage —, et depuis qu'elle existe pour
-// tout le monde, le curseur de la barre reste.
+// LA PASTILLE DE COULEUR, ELLE, REVIENT. « De plus la couleur ne fonctionne
+// plus. » Elle était cachée ici au motif que « la couleur d'un texte se règle
+// dans la barre d'édition » — vrai PENDANT la frappe, faux après : un bloc
+// seulement SÉLECTIONNÉ n'a pas de barre d'édition, et la pastille générale
+// était justement escamotée. Mesuré : « pastille en saisie : oui ; pastille
+// sur un bloc sélectionné : NON ». Il n'existait donc AUCUN endroit pour
+// recolorer un texte déjà posé — c'est exactement ce que le professeur
+// décrit. La pastille paraît maintenant dès qu'on tient un texte.
+//
+// L'opacité de l'OBJET lui va très bien — un énoncé qu'on estompe derrière
+// une correction, c'est un usage —, et depuis qu'elle existe pour tout le
+// monde, le curseur de la barre reste.
 function syncTextStyleControls() {
     const colorBtn = document.getElementById('btn-color-popover');
     const widthBox = document.getElementById('line-width')?.closest('.slider-container');
@@ -9402,7 +9491,7 @@ function syncTextStyleControls() {
         && selectedItems.every(i => i.type === 'text');
     if (!seulementDesTextes) return;
 
-    if (colorBtn) colorBtn.style.display = 'none';
+    if (colorBtn) colorBtn.style.display = '';
     if (widthBox) widthBox.style.display = 'none';
     if (stampOpacityBox) {
         stampOpacityBox.style.display = 'flex';
@@ -9413,7 +9502,10 @@ function syncTextStyleControls() {
         if (input && !curseurEnMain(input)) input.value = op;
     }
     if (quickColors) quickColors.style.display = 'none';
-    document.getElementById('color-popover')?.classList.remove('visible');
+    // On ne referme plus le nuancier d'office : il n'y avait plus de bouton
+    // pour l'ouvrir, le fermer était donc sans conséquence. Maintenant que la
+    // pastille est là, le refermer à chaque rafraîchissement de la barre le
+    // ferait claquer sous les doigts.
 }
 
 // Sur une sélection d'images (tampons), on n'affiche la pastille de couleur et
@@ -12791,6 +12883,27 @@ function ouvrirLaSaisie(vise, pos, cadre) {
     // écrit dans « autoWrapWhileTyping », et c'est ce qui fait qu'une largeur
     // choisie à la main n'est jamais reprise par la machine.
     if (cadre && cadre.largeur > 0) tempTextLogicalPos.colWidth = cadre.largeur;
+    // ET LA LIGNE NE COMMENCE PAS HORS DE L'ÉCRAN.
+    //
+    // « Quand j'ai voulu taper du texte tout en haut, en plein écran, le
+    // curseur s'est mis en dessous. » Parce que la ligne ENFOURCHE le clic :
+    // sa moitié haute est au-dessus du point qu'on montre, et en grand corps
+    // cette moitié fait quarante pixels — mesuré, quarante-huit en corps
+    // quatre-vingt-seize. Tout en haut, elle sortait de l'écran : on ne voyait
+    // que sa moitié basse, qui commence plus bas que le clic.
+    //
+    // ON POSE LA LIGNE, ON NE DÉPLACE PAS LE TABLEAU. Le secours existant fait
+    // glisser la vue quand une BARRE cache la saisie — c'est juste pour un
+    // bloc DÉJÀ ÉCRIT, qu'on n'a pas le droit de bouger. Pour une ligne qu'on
+    // ouvre à l'instant, c'est le contraire : faire sauter toute la page sous
+    // la main de celui qui vient de montrer un endroit est bien plus
+    // surprenant que de poser la ligne un demi-interligne plus bas, contre le
+    // bord. Au bord, la ligne ne peut plus enfourcher : elle s'y appuie.
+    {
+        const plafond = (typeof plafondQuiGeneLaSaisie === 'function' ? plafondQuiGeneLaSaisie() : 0) + 8;
+        if (tempTextLogicalPos.y * zoom + panY < plafond)
+            tempTextLogicalPos.y = (plafond - panY) / zoom;
+    }
     // D'où l'on vient : c'est ce qui permet d'aller au trou suivant sans
     // relever la main du clavier.
     if (vise) { tempTextLogicalPos.zoneDoc = vise.obj.id; tempTextLogicalPos.zoneRang = vise.i; }
@@ -21887,6 +22000,47 @@ if (textToolbar) {
             if (panneau && !ouvert) {
                 panneau.classList.add('tt-open');
                 tab.classList.add('tt-open');
+
+                // ==================================================
+                // LA BARRE DEBOUT OUVRE SES TIROIRS SUR LE CÔTÉ
+                //
+                // « Quand j'ai ça et que je clique sur la taille de la
+                // police, la petite popup n'apparaît pas. » Elle
+                // apparaissait — hors de l'écran. Debout, la barre fait
+                // cinq cents pixels de haut, et le tiroir pend de SA
+                // HAUTEUR : « top: 100% » le posait sous le pied de la
+                // colonne, ou, retourné, au-dessus de sa tête. Mesuré sur
+                // la barre de la capture, écran de 1430×895 : « Taille »
+                // s'ouvrait de −16 à 201, et « Symboles » de −41 à 201 —
+                // tranchés par le bord haut de la fenêtre.
+                //
+                // Une colonne a de la place à sa GAUCHE, pas en dessous :
+                // le tiroir sort donc à côté, à la hauteur de son propre
+                // bouton. Il passe à droite si la gauche manque, et reste
+                // toujours entier dans la fenêtre.
+                // ==================================================
+                const colonne = textToolbar.closest('.toolbar.vertical')
+                    || (textToolbar.classList.contains('vertical') ? textToolbar : null);
+                if (colonne) {
+                    panneau.classList.add('tt-cote');
+                    panneau.classList.remove('tt-up');
+                    panneau.style.left = '0px';
+                    panneau.style.top = '0px';
+                    const p0 = panneau.getBoundingClientRect();
+                    const ongletR = tab.getBoundingClientRect();
+                    const barreR = colonne.getBoundingClientRect();
+                    let x = barreR.left - 8 - p0.width;
+                    if (x < 8) x = barreR.right + 8;
+                    x = Math.max(8, Math.min(window.innerWidth - 8 - p0.width, x));
+                    const y = Math.max(8, Math.min(window.innerHeight - 8 - p0.height,
+                        ongletR.top + ongletR.height / 2 - p0.height / 2));
+                    panneau.style.left = Math.round(x - p0.left) + 'px';
+                    panneau.style.top = Math.round(y - p0.top) + 'px';
+                    wysiwygText.focus();
+                    return;
+                }
+                panneau.classList.remove('tt-cote');
+                panneau.style.top = '';
 
                 // Le tiroir s'ouvre du côté opposé au texte : si la barre
                 // FLOTTE au-dessus du bloc, il descendrait pile sur ce qu'on

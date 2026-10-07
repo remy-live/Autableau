@@ -133,6 +133,43 @@ module.exports = async function (browser) {
     });
     r.egal('les flèches dans le champ ne tournent pas la page', dansLeChamp, 1);
 
+    // ==================================================================
+    // LES ZONES ARMÉES, LES FLÈCHES NE TOURNENT PLUS LA PAGE
+    //
+    // « J'ai mis les zones d'input, je me suis déplacé, j'ai tapé les
+    // additions pour les lignes 1 à 8, et à partir de la 8 des blocs
+    // précédents de texte ont disparu. »
+    //
+    // Ils n'étaient pas perdus : la PAGE avait tourné. En remplissant une
+    // table case par case, on sort de la boîte de saisie entre deux cases —
+    // la tabulation à la dernière zone la referme, un clic ailleurs aussi —
+    // et la flèche suivante ne va plus au caractère voisin mais à la page
+    // suivante. Comme une annotation porte sa page, tout ce qu'on venait
+    // d'écrire disparaissait de l'écran d'un coup.
+    //
+    // La garde existante ne protège que tant que la boîte a le focus : elle
+    // ne pouvait rien voir de ce cas-là.
+    // ==================================================================
+    const flechesEtZones = [];
+    for (const armees of [false, true]) {
+        flechesEtZones.push(await page.evaluate(async ([a]) => {
+            await allerALaPage(images[0], 1);
+            zonesActives = a;
+            document.getElementById('board').focus();
+            return { armees: a, avant: images[0].pluginData.page };
+        }, [armees]));
+        await page.keyboard.press('ArrowRight');
+        await page.waitForTimeout(350);
+        flechesEtZones[flechesEtZones.length - 1].apres =
+            await page.evaluate(() => images[0].pluginData.page);
+    }
+    await page.evaluate(async () => { zonesActives = false; await allerALaPage(images[0], 1); });
+    await page.waitForTimeout(300);
+    r.egal('zones éteintes, la flèche tourne la page comme avant',
+        flechesEtZones[0].apres, 2, JSON.stringify(flechesEtZones));
+    r.egal('ZONES ARMÉES, LA FLÈCHE NE TOURNE PLUS LA PAGE',
+        flechesEtZones[1].apres, 1, JSON.stringify(flechesEtZones));
+
     // --- FEUILLETER AU DOIGT ---
     const cdp = await context.newCDPSession(page);
     const doigts = async (type, pts) => {

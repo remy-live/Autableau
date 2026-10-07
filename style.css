@@ -6668,6 +6668,14 @@ dark-mode .title-btn:hover {
     bottom: calc(100% + 6px);
 }
 
+/* BARRE DEBOUT : le tiroir sort SUR LE CÔTÉ, et sa place est calculée en
+   pixels (voir « LA BARRE DEBOUT OUVRE SES TIROIRS SUR LE CÔTÉ » dans
+   script.js). « top: 100% » d'une colonne de cinq cents pixels envoyait le
+   tiroir hors de l'écran : c'est le défaut qu'on lit sur la capture. */
+#text-toolbar .tt-panel.tt-cote {
+    bottom: auto;
+}
+
 #text-toolbar .tt-panel[data-panel="align"] {
     flex-direction: row;
 }
