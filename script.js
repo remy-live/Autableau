@@ -2137,9 +2137,32 @@ function cancelRestore() {
 // 110 Mo réécrits à chaque action sur un tableau chargé. Ce qu'on garde à sa
 // place, c'est le film — les mêmes étapes, mais en différences, et il se
 // redéroule en historique au chargement.
+const FAMILLES_DU_TABLEAU = ['points', 'segments', 'circles', 'rectangles', 'texts',
+    'freehands', 'curves', 'polygons', 'arcs', 'htmlPostits'];
+
+// CE QUI COMMENCE PAR « _ » NE SORT PAS — ET « TOUTES LES SORTIES » VEUT DIRE
+// TOUTES. Il y en a quatre qui portent les objets du tableau : l'historique,
+// le disque (l'enregistrement automatique et les tableaux nommés passent tous
+// deux par « stateForStorage »), et le fichier exporté. La règle n'était vraie
+// qu'à la première, et une image de formule faisait échouer le clone
+// d'IndexedDB — donc l'enregistrement ENTIER — sous une pastille qui disait
+// « à l'instant ». (Le long commentaire est auprès de « sansLesCaches ».)
+//
+// Une seule fonction pour une seule règle : c'est ce qui manquait, bien plus
+// que des précautions supplémentaires.
+function sansLesCachesDUnePage(p) {
+    if (!p || typeof p !== 'object') return p;
+    const copie = { ...p };
+    FAMILLES_DU_TABLEAU.forEach(f => {
+        if (Array.isArray(copie[f])) copie[f] = copie[f].map(sansLesCachesEnSurface);
+    });
+    return copie;
+}
+window.sansLesCachesDUnePage = sansLesCachesDUnePage;
+
 function pagesForStorage() {
     return pages.map(p => {
-        const pCopy = { ...p };
+        const pCopy = sansLesCachesDUnePage(p);
         delete pCopy.history;
         pCopy.images = packImages(p.images);   // sources mutualisées dans la table d'images
         return pCopy;
@@ -3453,6 +3476,91 @@ function sansLesCaches(cle, valeur) {
     return (typeof cle === 'string' && cle.charAt(0) === '_') ? undefined : valeur;
 }
 
+// ==============================================================================
+// UNE SEULE RÈGLE POUR TOUTES LES SORTIES : CE QUI COMMENCE PAR « _ » NE SORT PAS
+//
+// La règle ci-dessus n'était vraie qu'à UNE sortie sur trois, et c'est ce qui a
+// coûté le plus cher de tout le dépôt. L'image d'une formule mathématique est
+// un élément du navigateur posé sur l'objet texte ; elle s'appelait « mathImg »,
+// sans trait de soulignement, et elle partait donc avec l'état.
+//
+// CE QUE CELA FAISAIT, MESURÉ DANS LE NAVIGATEUR, une seule formule au tableau :
+//
+//   DataCloneError: HTMLImageElement object could not be cloned
+//   sur le disque après l'écriture : RIEN
+//   horodatage « enregistré » : MIS À JOUR QUAND MÊME
+//
+// IndexedDB ne sait pas copier un élément du document : l'écriture échouait, le
+// repli de secours repartait des mêmes objets et échouait à l'identique, et le
+// « .finally » avançait malgré tout l'heure du dernier enregistrement. La
+// pastille disait « à l'instant » et le disque était vide. Une heure de cours
+// perdue sans un mot — le professeur n'avait aucun moyen de le savoir.
+//
+// ET AU RETOUR EN ARRIÈRE, LE TABLEAU CESSAIT DE SE PEINDRE. « JSON.stringify »
+// d'une image rend « {} » : l'historique portait donc un objet VIDE mais VRAI,
+// que le peintre passait à « drawImage », qui levait
+// « TypeError: ... not of type (CSSImageValue or HTMLCanvasElement or ...) ».
+// Le « try » de « draw » se referme sur un « finally » sans « catch » : l'écran
+// restait à moitié peint, et chaque repeinture suivante levait à son tour.
+//
+// TROIS GESTES, ET LA CLASSE ENTIÈRE DE DÉFAUTS DISPARAÎT :
+//   1. le champ s'appelle « _mathImg » (et « _mathW », « _mathH ») : la règle le
+//      couvre désormais partout où elle s'applique ;
+//   2. la règle s'applique à TOUTES les sorties, pas à une seule : il y en a
+//      quatre qui portent les objets du tableau — l'historique, le disque
+//      (l'enregistrement automatique et les tableaux nommés, par
+//      « stateForStorage ») et le fichier exporté — et toutes passent
+//      maintenant par « sansLesCachesDUnePage » ;
+//   3. et rien ne croit plus tenir une image sur la seule foi d'un champ non
+//      vide : « aUneImageDeFormule » exige un véritable élément d'image.
+//
+// Le troisième garde n'est pas une ceinture de plus : les liens de partage déjà
+// envoyés portent « mathImg: {} », et un tableau reçu par lien doit se peindre.
+// Avec le prédicat, un champ qui n'est pas une image compte pour « pas de
+// formule » : le texte se dessine, et la formule se refait d'elle-même à partir
+// des « $ » du contenu.
+// ==============================================================================
+function aUneImageDeFormule(o) {
+    if (!o || !o._mathImg) return false;
+    // « instanceof » répond exactement à la question que pose « drawImage » :
+    // ce que j'ai là est-il dessinable ? Un objet revenu d'un fichier, d'un
+    // historique ou d'un lien ne l'est pas, quoi qu'il contienne.
+    return (typeof HTMLImageElement === 'undefined') || (o._mathImg instanceof HTMLImageElement);
+}
+window.aUneImageDeFormule = aUneImageDeFormule;
+
+// La même règle que « sansLesCaches », mais sur un objet déjà construit : le
+// disque reçoit des objets, pas une chaîne, et les lui faire traverser en JSON
+// pour les relire coûterait une copie complète du tableau à chaque écriture.
+function sansLesCachesEnSurface(o) {
+    if (!o || typeof o !== 'object') return o;
+    let aNettoyer = false;
+    for (const cle in o) { if (cle.charAt(0) === '_') { aNettoyer = true; break; } }
+    if (!aNettoyer) return o;   // le cas courant : on ne copie rien pour rien
+    const copie = {};
+    for (const cle in o) { if (cle.charAt(0) !== '_') copie[cle] = o[cle]; }
+    return copie;
+}
+
+// LES FORMULES SE REFONT APRÈS CHAQUE CHANGEMENT D'ÉTAT, et c'est la
+// contrepartie obligatoire du point 1 : puisque l'image ne voyage plus avec
+// l'état, il faut la redemander quand l'état change. Le chargement le faisait
+// déjà ; le retour en arrière, non — un undo aurait laissé « $x^2$ » en clair
+// au tableau.
+function refaireLesImagesDeFormule(liste) {
+    if (typeof createMathImage !== 'function') return;
+    (liste || []).forEach(t => {
+        if (!t || !(t.content || '').includes('$')) return;
+        if (aUneImageDeFormule(t)) return;   // déjà dessinée, on ne la refait pas
+        createMathImage(t.content, t.color || t.strokeColor, t.fontSize, (img, w, h) => {
+            if (img) { t._mathImg = img; t._mathW = w; t._mathH = h; }
+            else { t._mathImg = null; }
+            if (typeof draw === 'function') draw();
+        });
+    });
+}
+window.refaireLesImagesDeFormule = refaireLesImagesDeFormule;
+
 function saveState() {
     // CEINTURE ET BRETELLES. Le tableau est deja fige pendant la lecture, mais
     // un plugin ou un raccourci pourrait appeler ceci sans passer par le
@@ -3536,7 +3644,7 @@ function restoreState(stateData) {
     pages.forEach(p => {
         p.images = unpackImages(p.images);   // les anciens fichiers passent ici sans changement
         (p.images || []).forEach(img => { if (!imageCache[img.src] && img.src !== "") { const i = new Image(); i.src = img.src; imageCache[img.src] = i; i.onload = () => requestAnimationFrame(draw); } });
-        (p.texts || []).forEach(t => { if (t.content.includes('$')) createMathImage(t.content, t.color || t.strokeColor, t.fontSize, (img, w, h) => { if (img) { t.mathImg = img; t.mathW = w; t.mathH = h; draw(); } }); });
+        refaireLesImagesDeFormule(p.texts);   // un seul endroit redemande les formules
     });
 
     loadPage(0);
@@ -3576,6 +3684,10 @@ function appliquerEtatDuTableau(brut, sauver) {
             if (typeof updateQuickMenu === 'function') updateQuickMenu();
         }
     }
+    // L'IMAGE DE LA FORMULE NE VOYAGE PLUS AVEC L'ÉTAT : ON LA REDEMANDE.
+    // C'est la contrepartie du contrat de sérialisation — sans cet appel, un
+    // retour en arrière laisserait « $x^2$ » en clair au tableau.
+    if (typeof refaireLesImagesDeFormule === 'function') refaireLesImagesDeFormule(texts);
     if (sauver) saveAppLocal();
     draw();
     if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
@@ -4993,14 +5105,14 @@ function generateSVGString(rect, keepBg) {
 
         } else if (item.type === 'text') {
             if (obj.id !== editingTextId) {
-                if (obj.mathImg) {
+                if (aUneImageDeFormule(obj)) {
                     let transformAttr = "";
                     if (angle !== 0) {
-                        const cx = obj.x + (obj.mathW / 2);
-                        const cy = obj.y + (obj.mathH / 2);
+                        const cx = obj.x + (obj._mathW / 2);
+                        const cy = obj.y + (obj._mathH / 2);
                         transformAttr = ` transform="rotate(${angleDeg}, ${cx}, ${cy})"`;
                     }
-                    svg += `<image href="${obj.mathImg.src}" x="${obj.x}" y="${obj.y}" width="${obj.mathW}" height="${obj.mathH}"${transformAttr} />`;
+                    svg += `<image href="${obj._mathImg.src}" x="${obj.x}" y="${obj.y}" width="${obj._mathW}" height="${obj._mathH}"${transformAttr} />`;
                 } else {
                     const align = obj.align || 'left';
                     const fontSize = obj.fontSize || 24;
@@ -5450,7 +5562,7 @@ window.abscisseDuContour = abscisseDuContour;
 // L'export supposait autrefois 300 × 100 pour tout le monde : un poème de dix
 // lignes sortait du cadre et le PDF le tranchait en plein mot.
 function boiteDuTexte(t) {
-    if (t.mathImg) return { x: t.x, y: t.y, w: t.mathW || 0, h: t.mathH || 0 };
+    if (aUneImageDeFormule(t)) return { x: t.x, y: t.y, w: t._mathW || 0, h: t._mathH || 0 };
     if (t.isMinimized && t.bubbleShape === 'postit') return { x: t.x, y: t.y, w: 40, h: 40 };
 
     // On remesure au lieu de lire les métriques du dernier rendu : l'export
@@ -10144,7 +10256,7 @@ function pushStyleToObject() {
                 obj.fontSize = activeStyle.fontSize;
                 if (obj.type === 'text' && obj.content.includes('$')) {
                     createMathImage(obj.content, obj.color || obj.strokeColor, obj.fontSize, (img, w, h) => {
-                        if (img) { obj.mathImg = img; obj.mathW = w; obj.mathH = h; draw(); }
+                        if (img) { obj._mathImg = img; obj._mathW = w; obj._mathH = h; draw(); }
                     });
                 }
             }
@@ -10491,7 +10603,7 @@ window.interlignePour = interlignePour;
 // Le curseur et le nombre disent la même chose : on lit la taille, et on la
 // tape quand on la connaît — y compris hors de la course du curseur.
 function reglerTailleTexte(px, source) {
-    const t = Math.max(4, Math.min(400, Math.round(px)));
+    const t = Math.max(TAILLE_TEXTE_MIN, Math.min(TAILLE_TEXTE_MAX, Math.round(px)));
     if (!isFinite(t)) return;
     // Le rapport se relève AVANT de toucher à la taille : après, il serait
     // calculé sur la nouvelle et l'interligne ne bougerait plus.
@@ -10734,7 +10846,7 @@ function getHandleAt(lx, ly, obj, type) {
         }
     }
     // Texte : côtés = largeur de colonne, coins = agrandir tout le bloc
-    if (type === 'text' && !obj.isBubble && !obj.mathImg) {
+    if (type === 'text' && !obj.isBubble && !aUneImageDeFormule(obj)) {
         const hx = [startX, startX + w, startX + w, startX, startX + w];
         const hy = [startY, startY, startY + h, startY + h, startY + h / 2];
         const hNames = ['TL', 'TR', 'BR', 'BL', 'R'];
@@ -10919,6 +11031,29 @@ function getObjectById(type, id) {
 // on ne coupe que sur les retours à la ligne explicites.
 // ==============================================================================
 const TEXT_HEADING_FACTOR = { H1: 1.6, H2: 1.3, H3: 1.15 };
+
+// UN CRAN DE RETRAIT, ÉCRIT UNE SEULE FOIS.
+//
+// Ce nombre vivait en double : « * 1.4 » dans le moteur du canevas et
+// « padding-left: 1.4em » dans la feuille de style, recopiés à la main. C'est
+// le défaut de fond de cette partie du dépôt — deux moteurs mettent le même
+// texte en page, et sept constantes sont recopiées d'un fichier à l'autre sans
+// source commune. Celle-ci ne l'est plus : la feuille de style la reçoit en
+// propriété personnalisée (« --tt-retrait »), mécanisme qu'elle emploie déjà
+// pour l'interligne. Les six autres attendent leur tour.
+//
+// L'unité compte autant que le nombre : un retrait exprimé en pixels fixes ne
+// suit pas la police. « indent », la commande du navigateur derrière la touche
+// Tab, écrit justement « margin-left: 40px » — quarante pixels quelle que soit
+// la taille des lettres. On la réécrit (voir « normaliserLignesSaisie »).
+const RETRAIT_PAR_CRAN = 1.4;
+const RETRAIT_DE_SAISIE = RETRAIT_PAR_CRAN + 'em';
+
+// LA COURSE DE LA TAILLE DU TEXTE, ÉCRITE UNE SEULE FOIS ELLE AUSSI. Deux
+// fonctions la bornaient différemment — 4-400 d'un côté, 10-200 de l'autre —
+// derrière des champs qui promettaient tous les deux 4 à 400.
+const TAILLE_TEXTE_MIN = 4;
+const TAILLE_TEXTE_MAX = 400;
 
 // ==================================================================
 // LES LIENS ÉCRITS SUR LE TABLEAU
@@ -11231,6 +11366,31 @@ function layoutTextObject(obj, measureCtx) {
             return;
         }
 
+        // LE RETRAIT DE LA TOUCHE TAB SE DESSINE AUSSI. La touche appelle
+        // « indent », et le navigateur fabrique pour cela un BLOCKQUOTE : une
+        // quinzième balise, qu'aucune branche d'ici ne savait lire. Le texte
+        // s'affichait donc, mais à la marge.
+        //
+        // Mesuré avant : dans la boîte, la deuxième ligne commençait à x=540
+        // quand la première était à x=500 — quarante pixels de retrait bien
+        // réels. Sur le canevas, les deux à x=0. Le retrait était dans vos
+        // données, et invisible au tableau.
+        //
+        // Un cran de retrait est ce que ce moteur sait déjà faire, c'est
+        // l'unité des listes : on la réemploie, au lieu d'en inventer une
+        // seconde. La boîte de saisie est calée sur la même (voir
+        // « #wysiwyg-text blockquote » dans la feuille de style, et
+        // « normaliserLignesSaisie » qui défait la marge en pixels que le
+        // navigateur écrit en style en ligne).
+        if (name === 'BLOCKQUOTE') {
+            reuseEmptyPara();
+            const dedans = { ...ctxBlock, indent: (ctxBlock.indent || 0) + 1 };
+            openPara(dedans);
+            Array.from(node.childNodes).forEach(c => walk(c, style, dedans));
+            openPara(ctxBlock);   // on ressort au niveau d'avant
+            return;
+        }
+
         if (name === 'UL' || name === 'OL') {
             reuseEmptyPara();
             const ordered = (name === 'OL');
@@ -11290,7 +11450,7 @@ function layoutTextObject(obj, measureCtx) {
 
     // Pas de paragraphe ouvert d'avance : il naît au premier contenu rencontré,
     // sinon une liste ou un titre en tête de bloc créerait une ligne vide.
-    if (!obj.mathImg) {
+    if (!aUneImageDeFormule(obj)) {
         Array.from(container.childNodes).forEach(c => walk(c, {}, {}));
     }
     // Un paragraphe vide en fin d'analyse est un artefact, sauf s'il est seul
@@ -11371,7 +11531,7 @@ function layoutTextObject(obj, measureCtx) {
         const lh = baseLH * p.factor;
         // Un peu d'air avant un titre, sauf s'il ouvre le bloc
         if (p.factor > 1 && lines.length > 0) y += baseLH * 0.4;
-        const indentPx = (p.indent || 0) * size * 1.4;
+        const indentPx = (p.indent || 0) * size * RETRAIT_PAR_CRAN;
         const markerW = p.marker ? measure(p.marker + ' ', { bold: p.bold }, size) : 0;
         const avail = col > 0 ? Math.max(size, col - indentPx - markerW) : Infinity;
 
@@ -12422,12 +12582,12 @@ function finalizeText() {
         const processMath = (textObj) => {
             if (val.includes('$')) {
                 createMathImage(val, textObj.color || textObj.strokeColor, textObj.fontSize, (img, w, h) => {
-                    if (img) { textObj.mathImg = img; textObj.mathW = w; textObj.mathH = h; }
-                    else { textObj.mathImg = null; }
+                    if (img) { textObj._mathImg = img; textObj._mathW = w; textObj._mathH = h; }
+                    else { textObj._mathImg = null; }
                     draw();
                 });
             } else {
-                textObj.mathImg = null;
+                textObj._mathImg = null;
             }
         };
 
@@ -12513,6 +12673,7 @@ function normaliserLignesSaisie() {
     let ancre = null, offset = 0;
     if (sel && sel.rangeCount && wysiwygText.contains(sel.anchorNode)) { ancre = sel.anchorNode; offset = sel.anchorOffset; }
 
+    calerLesRetraitsDeSaisie();
     let modifie = false;
     let enfants = Array.from(wysiwygText.childNodes);
     let paquet = [];
@@ -12542,6 +12703,28 @@ function normaliserLignesSaisie() {
             sel.removeAllRanges(); sel.addRange(r);
         } catch (e) { /* le curseur reste où le navigateur l'a laissé */ }
     }
+}
+
+// LE RETRAIT SE MESURE DANS LA MÊME UNITÉ DES DEUX CÔTÉS.
+//
+// « indent », la commande du navigateur derrière la touche Tab, fabrique un
+// BLOCKQUOTE et lui écrit « margin: 0 0 0 40px » en style EN LIGNE — quarante
+// pixels fixes, qui ne savent rien de la taille des lettres, et qu'aucune
+// règle de feuille de style ne peut contredire. Le moteur du canevas, lui,
+// retrait d'un cran par niveau, dans l'unité des listes.
+//
+// On réécrit donc la marge dans cette unité : la boîte et le tableau tombent
+// au même endroit, et un retrait reste un retrait quand on grossit la police.
+// Le filet de citation et la rembourrure que la commande ajoute avec, eux,
+// n'ont rien à faire dans une leçon.
+function calerLesRetraitsDeSaisie() {
+    if (!wysiwygText) return;
+    wysiwygText.querySelectorAll('blockquote').forEach(bq => {
+        if (bq.style.marginLeft === RETRAIT_DE_SAISIE) return;
+        bq.style.margin = '0 0 0 ' + RETRAIT_DE_SAISIE;
+        bq.style.border = 'none';
+        bq.style.padding = '0';
+    });
 }
 
 // Applique un style de bloc (titre, paragraphe) à la ligne courante.
@@ -12604,6 +12787,10 @@ wysiwygText.addEventListener('keydown', (e) => {
             return;
         }
         document.execCommand(e.shiftKey ? 'outdent' : 'indent', false, null);
+        // TOUT DE SUITE, PAS À LA PROCHAINE OCCASION. « indent » écrit sa
+        // marge en pixels fixes à l'instant où il fabrique le blockquote : si
+        // l'on attend, c'est cette marge-là qui part dans le contenu validé.
+        calerLesRetraitsDeSaisie();
         return;
     }
 
@@ -13563,6 +13750,12 @@ function rouvrirLeTexte(t) {
 
     // On utilise innerHTML pour récupérer le gras/couleur sauvegardé
     wysiwygText.innerHTML = t.content;
+    // ET LA LEÇON D'HIER SE RECALE EN S'OUVRANT. Un bloc écrit avant que le
+    // retrait de Tab soit mesuré dans l'unité du texte porte encore sa marge
+    // en pixels fixes, écrite EN LIGNE : aucune règle de feuille de style ne
+    // peut la contredire, et la boîte montrerait 40 px là où le tableau
+    // dessine 34. On la réécrit à l'ouverture, comme à la frappe.
+    calerLesRetraitsDeSaisie();
 
     // La barre d'outils lit activeStyle : on la synchronise sur le texte édité
     activeStyle.textAlign = t.align || 'left';
@@ -15761,11 +15954,11 @@ function draw() {
                 const fontSize = obj.fontSize || 24;
                 const fontFamily = obj.fontFamily || 'sans-serif';
                 const lineHeight = obj.lineHeight || Math.round(fontSize * 1.2);
-                const layout = obj.mathImg ? null : layoutTextObject(obj, ctx);
+                const layout = aUneImageDeFormule(obj) ? null : layoutTextObject(obj, ctx);
                 const lines = layout ? layout.lines : [];
 
-                if (obj.mathImg) {
-                    w = obj.mathW; h = obj.mathH; startX = obj.x;
+                if (aUneImageDeFormule(obj)) {
+                    w = obj._mathW; h = obj._mathH; startX = obj.x;
                 } else {
                     if (obj.fixedWidth && obj.fixedHeight) {
                         w = Math.max(layout.width, obj.fixedWidth);
@@ -16135,10 +16328,10 @@ function draw() {
                 // 2. DESSIN DU TEXTE 
                 // ==========================================
                 if (obj.id !== editingTextId && !obj.isMinimized) {
-                    if (obj.mathImg) {
+                    if (aUneImageDeFormule(obj)) {
                         ctx.shadowBlur = (!isExportingTransparent && sc && !obj.isBubble) ? 10 * lw : 0;
                         ctx.shadowColor = (!isExportingTransparent && sc && !obj.isBubble) ? sc : "transparent";
-                        ctx.drawImage(obj.mathImg, startX, obj.y, w, h);
+                        ctx.drawImage(obj._mathImg, startX, obj.y, w, h);
                     } else {
                         const align = obj.align || 'left';
                         // Les lettres se dessinent toujours nettes : l'ombre que
@@ -16305,7 +16498,7 @@ function draw() {
                         ctx.fillStyle = "#a29bfe"; ctx.fill(); ctx.stroke();
 
                         // Poignées du bloc de texte : coins = agrandir, côtés = colonne
-                        if (!obj.isBubble && !obj.mathImg) {
+                        if (!obj.isBubble && !aUneImageDeFormule(obj)) {
                             const hr = 6 * lw;
                             ctx.lineWidth = lw * 2;
                             // Coins (ronds, violets) : agrandissement proportionnel
@@ -22709,8 +22902,8 @@ function habillerLesBlocsTenus(transformer) {
         // Une formule change de dessin avec son habillage.
         if (typeof createMathImage === 'function' && (t.content || '').includes('$')) {
             createMathImage(t.content, t.color || t.strokeColor, t.fontSize, (img, w, h) => {
-                if (img) { t.mathImg = img; t.mathW = w; t.mathH = h; }
-                else t.mathImg = null;
+                if (img) { t._mathImg = img; t._mathW = w; t._mathH = h; }
+                else t._mathImg = null;
                 if (typeof draw === 'function') draw();
             });
         }
@@ -23316,11 +23509,17 @@ function appliquerTailleSelection(pxLogique) {
 // vérification ne tombait, et c'était juste : cette rangée du tiroir s'efface
 // sur un bloc posé — c'est la réglette de la barre de style qui porte alors la
 // taille. Un réglage, un endroit (chapitre 44).
+// LES DEUX BORNES DISENT MAINTENANT LA MÊME CHOSE QUE LE CHAMP.
+// Les champs de taille promettent 4 à 400 (« min="4" max="400" » dans la
+// page), « reglerTailleTexte » borne à 4-400 — et celle-ci bornait à 10-200.
+// Mesuré : on tape 8, on obtient 10 d'un côté et 8 de l'autre, sans qu'aucun
+// message ne le dise. Un champ qui n'honore pas le nombre qu'il accepte est le
+// même défaut que la commande offerte qui n'agit pas.
 function poserLaTailleDuTexte(px) {
     let newSize = Math.round(px);
     if (!isFinite(newSize)) return;
-    if (newSize < 10) newSize = 10;
-    if (newSize > 200) newSize = 200;
+    if (newSize < TAILLE_TEXTE_MIN) newSize = TAILLE_TEXTE_MIN;
+    if (newSize > TAILLE_TEXTE_MAX) newSize = TAILLE_TEXTE_MAX;
 
     // Sélection en cours : on ne touche qu'à elle
     if (selectionDansSaisie() && appliquerTailleSelection(newSize)) {
@@ -23446,6 +23645,19 @@ function appliquerInterligneSaisie(lhLogique, sizeLogique) {
     wysiwygText.style.lineHeight = String((lhLogique / taille) || 1.2);
     wysiwygText.style.setProperty('--tt-lh', (lhLogique * zoom) + 'px');
 }
+
+// LE CRAN DE RETRAIT DESCEND À LA FEUILLE DE STYLE, UNE FOIS, AU DÉMARRAGE.
+// La feuille de style ne le recopie plus à la main : elle le reçoit, et sans
+// valeur de repli — un repli aurait été le même nombre écrit une seconde fois,
+// et c'est précisément ce qu'on cherche à supprimer. Posé au démarrage, il ne
+// manque jamais ; posé à l'ouverture de la saisie, une liste aurait pu se
+// peindre un instant à la marge.
+function poserLeCranDeRetrait() {
+    const boite = document.getElementById('wysiwyg-text');
+    if (boite) boite.style.setProperty('--tt-retrait', RETRAIT_DE_SAISIE);
+}
+document.addEventListener('DOMContentLoaded', poserLeCranDeRetrait);
+if (document.readyState !== 'loading') poserLeCranDeRetrait();
 
 function fermerTiroirsTexte() {
     document.querySelectorAll('#text-toolbar .tt-panel.tt-open, #text-toolbar .tt-tab.tt-open')
@@ -27734,7 +27946,7 @@ function duplicateSelection() {
             case 'text': case 'image':
                 c.x += ECART_COPIE; c.y += ECART_COPIE;
                 if (c.tailX !== undefined) { c.tailX += ECART_COPIE; c.tailY += ECART_COPIE; }
-                if (item.type === 'text') { c.mathImg = obj.mathImg; }   // l'image de formule se partage
+                if (item.type === 'text') { c._mathImg = obj._mathImg; }   // l'image de formule se partage
                 break;
             case 'arc':
                 c.cx += ECART_COPIE; c.cy += ECART_COPIE;
@@ -32184,11 +32396,29 @@ function chargerMathJax() {
 }
 window.chargerMathJax = chargerMathJax;
 
+// UNE FORMULE NE SE RECOMPOSE PAS DEUX FOIS POUR LE MÊME DESSIN.
+//
+// Cette mémoire n'était pas nécessaire tant que l'image voyageait avec l'état.
+// Maintenant qu'elle ne sort plus de l'application, il faut la REDEMANDER à
+// chaque changement d'état — et « rejouer la séance » applique un état par
+// pas : une leçon de deux cents étapes avec cinq formules aurait relancé
+// MathJax mille fois, pour mille dessins identiques.
+//
+// La clé est ce qui détermine le dessin, et rien d'autre : le LaTeX, le corps
+// et la couleur. Le plafond évite qu'une séance entière de formules différentes
+// ne garde tout en mémoire ; au-delà, on repart de zéro plutôt que de tenir une
+// comptabilité d'usage qui coûterait plus qu'elle ne rend.
+const memoireDesFormules = new Map();
+const PLAFOND_DES_FORMULES = 300;
+
 function createMathImage(contenu, couleur, taille, retour) {
     const rendre = (img, l, h) => { try { retour(img, l, h); } catch (e) { /* l'appelant s'en charge */ } };
     try {
         const latex = texteEnLatex(contenu);
         if (!latex) { rendre(null); return; }
+        const cle = latex + '|' + (parseInt(taille, 10) || 24) + '|' + (couleur || '#000');
+        const deja = memoireDesFormules.get(cle);
+        if (deja) { rendre(deja.img, deja.l, deja.h); return; }
         // Une formule vient d'apparaître : c'est ici, et pas au démarrage,
         // qu'on va chercher les deux mégaoctets.
         if (!mathjaxPret()) {
@@ -32216,7 +32446,11 @@ function createMathImage(contenu, couleur, taille, retour) {
             if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
             const source = new XMLSerializer().serializeToString(svg);
             const img = new Image();
-            img.onload = () => rendre(img, l, h);
+            img.onload = () => {
+                if (memoireDesFormules.size >= PLAFOND_DES_FORMULES) memoireDesFormules.clear();
+                memoireDesFormules.set(cle, { img, l, h });
+                rendre(img, l, h);
+            };
             img.onerror = () => rendre(null);
             img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
         }).catch(() => rendre(null));
@@ -43309,7 +43543,11 @@ function promptExportCurrentBoard() {
                 zoom: p.zoom || 1,
                 pdfMetadata: p.pdfMetadata,
                 lotPdf: p.lotPdf
-            })), nextId, globalZ, currentBgIndex }
+            // LE FICHIER EXPORTÉ EST UNE SORTIE COMME LES AUTRES. Sans ce
+            // filtre, « _mathImg » partait dans le fichier sous la forme
+            // « {} » — un objet vide mais VRAI —, et le tableau rouvert
+            // depuis ce fichier passait cet objet à « drawImage », qui lève.
+            })).map(sansLesCachesDUnePage), nextId, globalZ, currentBgIndex }
         };
     }
 
@@ -43597,7 +43835,7 @@ function exportCurrentBoard(includeMedias = true, boardObj = null) {
                 id: 'current_export_' + Date.now(),
                 name: currentBoardName,
                 // sans l'historique d'annulation : il alourdissait le fichier sans servir
-                data: { pages: [{ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, panX, panY, zoom }], nextId, globalZ, currentBgIndex }
+                data: { pages: [sansLesCachesDUnePage({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, panX, panY, zoom })], nextId, globalZ, currentBgIndex }
             };
         }
     }

@@ -3089,8 +3089,25 @@ input[type=range]::-moz-range-thumb {
 #wysiwyg-text h1:first-child,
 #wysiwyg-text h2:first-child,
 #wysiwyg-text h3:first-child { margin-top: 0; }
+/* Le cran de retrait vient du script (« --tt-retrait »), comme l'interligne :
+   il vivait en double, ici et dans le moteur du canvas, recopié à la main.
+   C'est l'une des sept constantes que les deux moteurs de mise en page se
+   recopiaient ; les six autres attendent leur tour.
+
+   PAS DE VALEUR DE REPLI DANS LE « var() ». J'en avais mis une — « var(--tt-retrait,
+   1.4em) » — et c'était écrire le nombre une seconde fois : saboté, le script
+   pouvait cesser de descendre la variable sans qu'aucune vérification ne
+   tombe, puisque le repli disait la même chose. Une seule source veut dire
+   une seule. La variable est posée au démarrage, elle ne manque jamais.
+
+   PAS DE RÈGLE POUR LE BLOCKQUOTE DE LA TOUCHE TAB ICI. J'en avais écrit une ;
+   retirée, aucune vérification ne tombait, et c'était juste : « indent » écrit
+   sa marge en style EN LIGNE, qu'aucune règle d'ici ne peut contredire. C'est
+   donc le script qui la réécrit, à la frappe comme à l'ouverture d'un bloc
+   (« calerLesRetraitsDeSaisie »). Une règle que rien ne peut atteindre n'est
+   pas une précaution. */
 #wysiwyg-text ul,
-#wysiwyg-text ol { margin: 0; padding-left: 1.4em; }
+#wysiwyg-text ol { margin: 0; padding-left: var(--tt-retrait); }
 #wysiwyg-text li { margin: 0; }
 
 
