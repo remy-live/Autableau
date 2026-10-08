@@ -6197,6 +6197,59 @@ function degagerLaSaisie() {
         // Ne jamais faire sortir la première ligne par le haut pour gagner la
         // dernière : on lit d'abord ce qu'on vient d'écrire.
         if (r.top + dy < haut + MARGE) dy = 0;
+
+        // ==================================================================
+        // UNE LIGNE QU'ON VIENT D'OUVRIR SE POSE ; ON NE DÉPLACE PAS LE TABLEAU
+        //
+        // « Je mets le pdf, je le mets en plein écran, je zoome avec la
+        // molette, je prends le T de la toolbar à gauche, je clique : tout le
+        // pdf se décale vers le haut et le curseur aussi. »
+        //
+        // C'était ce « panY += dy » qui remontait le tableau entier pour
+        // dégager une ligne vide. Mesuré sur la vraie fiche à zoom 3,2 : −14,9
+        // px au clic en 700,575, −29,9 en 590, −39,9 en 600 — et c'est
+        // CUMULATIF, trois annotations au même endroit emportaient 105 px de
+        // polycopié. À fort grossissement, jusqu'à −297 px d'un coup, soit
+        // 40 % de l'écran.
+        //
+        // ET LE PLEIN ÉCRAN N'Y EST POUR RIEN, contrairement à ce que la
+        // recette laissait croire : la vraie condition est « bas <
+        // window.innerHeight », et DEUX portes y mènent. Projeter un document
+        // descend sa barre (« placerLaBarreDuDocument »), qui entraîne celle du
+        // style (« rangerLesDeuxBarres ») ; mais le seul mode Focus suffit, sa
+        // barre de style se posant à seize pixels du bord. Mesuré sur un
+        // tableau VIERGE, sans aucune image, à zoom 1 : −21,5 px. Une
+        // correction écrite sur le seul cas du PDF projeté aurait laissé la
+        // moitié du défaut ouverte.
+        //
+        // LA RÈGLE JUSTE EST DÉJÀ ÉCRITE DANS CE FICHIER, pour le bord HAUT,
+        // à sept mille lignes d'ici : « faire sauter toute la page sous la
+        // main de celui qui vient de montrer un endroit serait un autre
+        // défaut, pas une correction. » Le bord BAS ne l'avait jamais eue. On
+        // pose donc la ligne contre le plancher, et le tableau ne bouge pas.
+        //
+        // ON NE DÉPLACE QUE CE QUI EST À NOUS : une ligne NEUVE et VIDE. Un
+        // bloc déjà écrit qu'on rouvre garde sa place — le déplacer serait
+        // déplacer le texte du professeur —, et un trou de polycopié aussi :
+        // sa place est celle de la case, pas la nôtre. Dans ces deux cas, le
+        // tableau se déplace comme avant.
+        // ==================================================================
+        // DEUX GARDES, PAS TROIS. J'en avais écrit une de plus — « !editingTextId » —
+        // et, sabotée, rien ne tombait. Mesuré : à la réouverture d'un bloc,
+        // « tempTextLogicalPos » vaut null ET la boîte porte déjà son texte,
+        // si bien que les deux conditions qui restent l'écartent chacune à
+        // elles seules. Dans l'état le plus hostile qu'on puisse fabriquer —
+        // une position de saisie remise en mémoire À LA MAIN par-dessus un
+        // bloc rouvert — « ligneNeuve » rend faux avec comme sans elle. Une
+        // garde qui ne garde rien ment sur ce qu'elle protège.
+        const ligneNeuve = !(wysiwygText.textContent || '').trim()
+            && typeof tempTextLogicalPos !== 'undefined' && tempTextLogicalPos
+            && tempTextLogicalPos.zoneDoc === undefined;
+        if (dy && ligneNeuve) {
+            tempTextLogicalPos.y += dy / zoom;   // AVANT de replacer la boîte,
+            updateWysiwygPosition();             // qui relit cette position
+            return true;
+        }
     }
     if (!dy) return false;
     panY += dy;

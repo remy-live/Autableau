@@ -1150,6 +1150,7 @@ module.exports = async function (browser) {
     r.egal('loin du bord, la ligne enfourche toujours le point montré',
         loinDuBord && loinDuBord.haut, 36, JSON.stringify(loinDuBord));
 
+
     await page.evaluate(() => {
         if (typeof finalizeText === 'function') finalizeText();
         if (typeof toggleFocusMode === 'function' && document.body.classList.contains('focus-mode')) toggleFocusMode();
@@ -1158,6 +1159,119 @@ module.exports = async function (browser) {
         setMode('pointer'); draw();
     });
     await page.waitForTimeout(250);
+
+    // ==================================================================
+    // ET ÉCRIRE TOUT EN BAS NE DOIT PAS DAVANTAGE FAIRE SAUTER LA PAGE
+    //
+    // « Je mets le pdf, je le mets en plein écran, je zoome avec la molette, je
+    // prends le T de la toolbar à gauche, je clique : tout le pdf se décale
+    // vers le haut et le curseur aussi. »
+    //
+    // La règle du bord HAUT, juste au-dessus, n'avait jamais été écrite pour le
+    // bord BAS : la branche basse de « degagerLaSaisie » déplaçait le TABLEAU.
+    // Mesuré avant correction, sur un tableau vierge en plein écran à zoom 1 :
+    // −21,5 px ; sur la vraie fiche projetée à zoom 3,2 : −14,9 / −29,9 / −39,9
+    // px selon la hauteur du clic. Et c'est CUMULATIF.
+    //
+    // DEUX PORTES MÈNENT AU DÉFAUT, et il faut les deux ici : la vraie
+    // condition n'est pas le plein écran d'un document mais « le plancher des
+    // barres du bas est au-dessus du bord de l'écran ». Projeter un document y
+    // mène ; le seul mode d'affichage « plein écran » y mène aussi, sans
+    // aucune image. Une vérification écrite sur le seul cas du document aurait
+    // laissé la moitié du défaut ouverte.
+    // ==================================================================
+    const enBas = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; images.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        if (typeof poserLAffichage === 'function') poserLAffichage(2);   // plein écran
+        if (typeof reglerTailleTexte === 'function') reglerTailleTexte(24, 'essai');
+        setMode('text');
+        if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+        draw();
+        return { plancher: plafondDesBarresDuBas(), ecran: window.innerHeight,
+                 focus: document.body.classList.contains('focus-mode') };
+    });
+    await page.waitForTimeout(450);
+    // UN VRAI PLANCHER, PAS UN PIXEL. Relevé pendant un sabotage, le décor
+    // rendait parfois un plancher à 730 pour un écran de 731 : les clics qui
+    // suivent n'éprouvaient alors presque rien. On exige donc une barre qui
+    // mange vraiment le bas, sans quoi la vérification échoue bruyamment au
+    // lieu de passer en ne mesurant rien.
+    r.verifie('le plein écran pose bien une barre en bas : il y a un plancher à dégager',
+        enBas.focus && enBas.plancher < enBas.ecran - 30, JSON.stringify(enBas));
+
+    const basses = [];
+    for (const y of [enBas.plancher - 60, enBas.plancher - 20, enBas.plancher - 10, enBas.plancher - 1]) {
+        await page.evaluate(() => {
+            if (typeof finalizeText === 'function') finalizeText();
+            texts.length = 0; panY = 0; draw();
+        });
+        await page.mouse.click(700, y);
+        await page.waitForTimeout(170);
+        basses.push(await page.evaluate(([y]) => {
+            const w = document.getElementById('wysiwyg-text');
+            if (getComputedStyle(w).display !== 'block') return { y, pasDeSaisie: true };
+            const r2 = w.getBoundingClientRect();
+            return { y, panY: Math.round(panY), haut: Math.round(r2.top),
+                     bas: Math.round(r2.bottom), plancher: plafondDesBarresDuBas() };
+        }, [y]));
+    }
+    r.verifie('ÉCRIRE TOUT EN BAS : LE TABLEAU NE BOUGE D\'AUCUN PIXEL',
+        basses.every(b => !b.pasDeSaisie && b.panY === 0), JSON.stringify(basses));
+    r.verifie('et la ligne entière se voit : elle se pose CONTRE le plancher, jamais dessous',
+        basses.every(b => !b.pasDeSaisie && b.bas <= b.plancher - 8 + 1), JSON.stringify(basses));
+
+    // LE CUMUL, qui est ce que le professeur subit vraiment : trois annotations
+    // au même endroit emportaient cent cinq pixels de polycopié.
+    const cumul = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; panY = 0; draw();
+        return Math.round(panY);
+    });
+    const apresCumul = [];
+    for (let i = 0; i < 3; i++) {
+        await page.mouse.click(700, enBas.plancher - 15);
+        await page.waitForTimeout(170);
+        await page.keyboard.type('7');
+        await page.evaluate(() => { if (typeof finalizeText === 'function') finalizeText(); });
+        await page.waitForTimeout(140);
+        apresCumul.push(await page.evaluate(() => Math.round(panY)));
+    }
+    r.verifie('TROIS ANNOTATIONS DE SUITE NE DÉPLACENT PAS LA PAGE',
+        apresCumul.every(v => v === cumul), JSON.stringify({ depart: cumul, apresCumul }));
+
+    // LE CONTRE-CAS. On ne déplace que ce qui est à nous : un bloc DÉJÀ ÉCRIT
+    // qu'on rouvre garde sa place, et c'est le tableau qui se range — le
+    // déplacer reviendrait à déplacer le texte du professeur.
+    const contre = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; panY = 0;
+        const bas2 = plafondDesBarresDuBas();
+        const t = { id: nextId++, type: 'text', x: (300 - panX) / zoom, y: (bas2 - 20 - panY) / zoom,
+            fontSize: 24, lineHeight: 29, content: 'deja ecrit', color: '#2d3436',
+            strokeColor: '#2d3436', fontFamily: 'sans-serif', align: 'left', opacity: 1, z: globalZ++ };
+        texts.push(t); selectedItems = [{ type: 'text', id: t.id }];
+        const avant = { panY: Math.round(panY), ty: +t.y.toFixed(2) };
+        rouvrirLeTexte(t);
+        return { avant, id: t.id };
+    });
+    await page.waitForTimeout(300);
+    const apresContre = await page.evaluate(([id]) => {
+        const t = texts.find(x => x.id === id);
+        return { panY: Math.round(panY), ty: t ? +t.y.toFixed(2) : null };
+    }, [contre.id]);
+    r.verifie('EN REVANCHE UN BLOC DÉJÀ ÉCRIT GARDE SA PLACE : c\'est le tableau qui se range',
+        apresContre.panY !== contre.avant.panY && apresContre.ty === contre.avant.ty,
+        JSON.stringify({ contre, apresContre }));
+
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        if (typeof poserLAffichage === 'function') poserLAffichage(0);
+        texts.length = 0; images.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1; setMode('pointer'); draw();
+    });
+    await page.waitForTimeout(400);
 
     // ==================================================================
     // ROUVRIR UN BLOC NE DOIT RIEN LUI PRENDRE
