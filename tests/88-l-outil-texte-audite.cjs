@@ -573,6 +573,211 @@ module.exports = async function (browser) {
         updateStyleBarContext(); draw();
     });
 
+    // ======================================================================
+    // « J'AI JUSTE QUITTÉ L'ÉDITION ET APRÈS J'AI SÉLECTIONNÉ »
+    //
+    // Un bloc de cinq lignes perdait sa fin. Deux causes, sans rapport l'une
+    // avec l'autre, et toutes deux mesurées ici.
+    //
+    // LA PREMIÈRE EST UNE PERTE SÈCHE. Le dépôt savait déjà qu'« on ne peut
+    // plus modifier tant que la bande est ouverte » — mais il n'avait fermé
+    // que la porte du canevas. Le double-clic, le bouton « Modifier » et les
+    // vingt commandes de la barre de style passaient par ailleurs, et ce
+    // qu'on écrivait alors n'était pas annulé : il n'existait jamais, car
+    // « saveState » refuse d'écrire pendant la lecture. « Refaire » ne le
+    // rendait pas.
+    //
+    // LA SECONDE EST UNE ÉTAPE FANTÔME. Un simple clic sur un bloc
+    // enregistrait une étape d'historique : la sélection relisait l'épaisseur
+    // de l'objet pour la poser sur la barre, et ce mouvement-là repartait
+    // aussitôt dans l'autre sens. Le Ctrl+Z suivant défaisait donc le clic,
+    // pas la phrase — il semblait ne rien faire.
+    //
+    // CE QUI SE VÉRIFIE ICI N'EST PAS QU'UN GARDE-FOU EXISTE, c'est qu'on ne
+    // perd rien : le texte après le refus, le nombre d'étapes après un clic,
+    // et ce que rend un unique Ctrl+Z.
+    // ======================================================================
+
+    // Deux étapes au moins, sinon la bande refuse de s'ouvrir.
+    const deuxEtapes = () => page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; points.length = 0; selectedItems = [];
+        history.length = 0; historyIndex = -1;
+        panX = 0; panY = 0; zoom = 1; setMode('pointer');
+        draw(); saveState();
+        points.push({ id: 9801, type: 'point', x: 120, y: 120, color: '#2d3436' });
+        draw(); saveState();
+    });
+
+    await deuxEtapes();
+    const lecture = await page.evaluate(() => {
+        texts.push({ id: 'LEC', type: 'text', x: 320, y: 320, fontSize: 32, lineHeight: 38,
+            content: 'cinq lignes de cours', color: '#2d3436', strokeColor: '#2d3436',
+            fontFamily: 'sans-serif', align: 'left', opacity: 1, z: 1 });
+        draw(); saveState();
+        selectedItems = [{ type: 'text', id: 'LEC' }];
+        updateStyleBarContext(); updateQuickMenu(); draw();
+        const ouvert = ouvrirLeLecteur(true);
+        const vu = (s) => { const e = document.querySelector(s); return !!e && e.offsetParent !== null; };
+        const bouton = document.getElementById('tt-modifier');
+        const offert = vu('#tt-modifier');
+        if (bouton && offert) bouton.click();
+        const parLaPorte = rouvrirLeTexte(texts.find(t => t.id === 'LEC'));
+        return { ouvert, offert, parLaPorte, edite: !!editingTextId,
+            saisie: getComputedStyle(document.getElementById('wysiwyg-text')).display === 'block',
+            contenu: (texts.find(t => t.id === 'LEC') || {}).content,
+            dit: (document.getElementById('toast-container') || {}).textContent || '' };
+    });
+    r.verifie('BANDE OUVERTE : « MODIFIER » REFUSE, ET LE DIT',
+        lecture.ouvert && lecture.parLaPorte === false && !lecture.edite && !lecture.saisie
+        && lecture.contenu === 'cinq lignes de cours' && /fermez la bande/i.test(lecture.dit),
+        JSON.stringify(lecture));
+
+    // La barre de style, elle, restait offerte sur le bloc tenu : chacune de
+    // ses commandes finit dans « pushStyleToObject ». On en presse une.
+    const styleEnLecture = await page.evaluate(() => {
+        // La pastille de la vérification précédente est encore là : sans ce
+        // nettoyage, le message qu'on va lire serait celui d'avant, et
+        // l'assertion ne mesurerait rien.
+        const bac = document.getElementById('toast-container');
+        if (bac) bac.innerHTML = '';
+        const t = texts.find(x => x.id === 'LEC');
+        const avant = JSON.stringify(t);
+        activeStyle.strokeColor = '#e74c3c'; activeStyle.fontSize = 12;
+        pushStyleToObject();
+        const apres = JSON.stringify(texts.find(x => x.id === 'LEC'));
+        return { intact: avant === apres, taille: t.fontSize, couleur: t.color,
+            n: history.length,
+            dit: (document.getElementById('toast-container') || {}).textContent || '' };
+    });
+    r.verifie('BANDE OUVERTE : LA BARRE DE STYLE N\'ÉCRIT PAS SUR LE BLOC',
+        styleEnLecture.intact && styleEnLecture.taille === 32
+        && /fermez la bande/i.test(styleEnLecture.dit),
+        JSON.stringify(styleEnLecture));
+
+    // Et en refermant, on retrouve exactement son bloc.
+    const apresBande = await page.evaluate(() => {
+        ouvrirLeLecteur(false);
+        const t = texts.find(x => x.id === 'LEC');
+        return { blocs: texts.length, contenu: t ? t.content : null,
+                 taille: t ? t.fontSize : null };
+    });
+    r.verifie('EN REFERMANT LA BANDE, LE BLOC EST CELUI QU\'ON AVAIT LAISSÉ',
+        apresBande.contenu === 'cinq lignes de cours' && apresBande.taille === 32,
+        JSON.stringify(apresBande));
+
+    // Une frappe en cours au moment où l'on ouvre la bande : elle se pose
+    // AVANT, pendant que « saveState » accepte encore d'écrire.
+    await deuxEtapes();
+    await page.evaluate(() => { setMode('text'); });
+    await page.mouse.click(640, 520);
+    await page.waitForTimeout(240);
+    await page.keyboard.type('une phrase en cours');
+    await page.waitForTimeout(140);
+    const frappe = await page.evaluate(() => {
+        const avant = { blocs: texts.length, n: history.length };
+        const ouvert = ouvrirLeLecteur(true);
+        const pendant = { blocs: texts.length, n: history.length };
+        ouvrirLeLecteur(false);
+        return { avant, ouvert, pendant, blocs: texts.length,
+                 contenu: texts.length ? texts[0].content : null };
+    });
+    r.verifie('UNE FRAPPE EN COURS SE POSE AVANT LA BANDE, ET REVIENT APRÈS',
+        frappe.ouvert && frappe.avant.blocs === 0 && frappe.pendant.blocs === 1
+        && frappe.pendant.n === frappe.avant.n + 1
+        && /une phrase en cours/.test(frappe.contenu || ''),
+        JSON.stringify(frappe));
+
+    // L'ÉTAPE FANTÔME. Un clic de sélection n'est pas une modification.
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; points.length = 0; selectedItems = [];
+        history.length = 0; historyIndex = -1;
+        panX = 0; panY = 0; zoom = 1; setMode('text');
+        draw(); saveState();
+    });
+    await page.mouse.click(620, 420);
+    await page.waitForTimeout(240);
+    await page.keyboard.type('bonjour la classe');
+    await page.waitForTimeout(140);
+    await page.evaluate(() => { finalizeText(); setMode('pointer'); draw(); });
+    await page.waitForTimeout(180);
+    const avantClic = await page.evaluate(() => ({ n: history.length, i: historyIndex }));
+    const ou = await page.evaluate(() => {
+        const t = texts[0];
+        return { x: (t._cachedStartX !== undefined ? t._cachedStartX : t.x) + 20, y: t.y + 10 };
+    });
+    await page.mouse.click(ou.x, ou.y);
+    await page.waitForTimeout(240);
+    const apresClic = await page.evaluate(() => ({ n: history.length, i: historyIndex,
+        sel: selectedItems.length }));
+    r.verifie('SÉLECTIONNER UN BLOC N\'ÉCRIT AUCUNE ÉTAPE D\'HISTORIQUE',
+        apresClic.sel === 1 && apresClic.n === avantClic.n && apresClic.i === avantClic.i,
+        'avant ' + JSON.stringify(avantClic) + ' après ' + JSON.stringify(apresClic));
+
+    // Le bloc est tenu : un seul Ctrl+Z doit défaire la PHRASE, pas le clic.
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(260);
+    const unSeulZ = await page.evaluate(() => ({ blocs: texts.length,
+        contenu: texts.length ? texts[0].content : null, i: historyIndex }));
+    r.verifie('UN SEUL CTRL+Z APRÈS « TERMINÉ » DÉFAIT LA PHRASE',
+        unSeulZ.blocs === 0, JSON.stringify(unSeulZ));
+
+    // Et le garde-fou d'égalité, mesuré pour lui-même : deux enregistrements
+    // qui n'encadrent qu'un DESSIN ne font qu'une étape. C'est ce que les
+    // clés de cache (« _cachedW », « __liens ») faisaient échouer : elles
+    // naissent au premier dessin, pas à la création de l'objet.
+    const garde = await page.evaluate(() => {
+        texts.length = 0; selectedItems = []; history.length = 0; historyIndex = -1;
+        draw(); saveState();
+        // Posé SANS dessiner : l'étape ne porte encore aucune mesure.
+        texts.push({ id: 'G', type: 'text', x: 300, y: 300, fontSize: 32, lineHeight: 38,
+            content: 'une ligne', color: '#2d3436', fontFamily: 'sans-serif',
+            align: 'left', opacity: 1, z: 1 });
+        saveState();
+        const n1 = history.length;
+        // Puis dessiné : les mesures arrivent sur l'objet, et rien d'autre
+        // n'a changé.
+        draw(); saveState();
+        const n2 = history.length;
+        const caches = Object.keys(texts[0]).filter(k => k.charAt(0) === '_');
+        const dansLHistoire = Object.keys(JSON.parse(history[history.length - 1]).texts[0])
+            .filter(k => k.charAt(0) === '_');
+        return { n1, n2, caches, dansLHistoire };
+    });
+    r.verifie('UN DESSIN N\'EST PAS UNE MODIFICATION : LES MESURES NE PASSENT PAS DANS L\'HISTORIQUE',
+        garde.n2 === garde.n1 && garde.caches.length > 0 && garde.dansLHistoire.length === 0,
+        JSON.stringify(garde));
+
+    // Revenir en arrière peut effacer l'objet qu'on tenait : on ne garde pas
+    // une sélection qui ne désigne plus rien.
+    const orphelin = await page.evaluate(() => {
+        texts.length = 0; selectedItems = []; history.length = 0; historyIndex = -1;
+        setMode('pointer'); draw(); saveState();
+        texts.push({ id: 'O', type: 'text', x: 400, y: 400, fontSize: 32, lineHeight: 38,
+            content: 'bloc tenu', color: '#2d3436', fontFamily: 'sans-serif',
+            align: 'left', opacity: 1, z: 1 });
+        draw(); saveState();
+        selectedItems = [{ type: 'text', id: 'O' }];
+        updateStyleBarContext(); updateQuickMenu(); draw();
+        const avant = { sel: selectedItems.length, barre: document.getElementById('bar-style').className };
+        undo();
+        return { avant, blocs: texts.length, sel: selectedItems.length,
+            barre: document.getElementById('bar-style').className,
+            existe: selectedItems.length ? !!getObjectById(selectedItems[0].type, selectedItems[0].id) : null };
+    });
+    r.verifie('UN RETOUR EN ARRIÈRE NE LAISSE PAS TENIR UN BLOC DISPARU',
+        orphelin.avant.sel === 1 && /ctx-bloc/.test(orphelin.avant.barre)
+        && orphelin.blocs === 0 && orphelin.sel === 0 && !/ctx-bloc/.test(orphelin.barre),
+        JSON.stringify(orphelin));
+
+    await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; points.length = 0; selectedItems = [];
+        history.length = 0; historyIndex = -1; setMode('pointer');
+        updateStyleBarContext(); draw(); saveState();
+    });
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

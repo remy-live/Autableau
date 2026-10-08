@@ -2739,6 +2739,12 @@ function ouvrirLeLecteur(ouvrir) {
             }
             return false;
         }
+        // UNE SAISIE EN COURS SE VALIDE AVANT D'OUVRIR LA BANDE. Sans cela,
+        // ouvrir « rejouer la séance » en pleine frappe jetterait la frappe :
+        // « saveState » refuse d'écrire dès que la lecture est ouverte, et la
+        // ligne en cours ne serait enregistrée nulle part. On la pose donc
+        // pendant que « lectureOuverte » est encore faux.
+        if (typeof finalizeText === 'function') finalizeText();
         // Ce qu'on est en train de faire, mis de côté : c'est là qu'on
         // reviendra. Sans cela, rejouer effacerait le travail en cours.
         lectureRetour = history[historyIndex] || history[history.length - 1];
@@ -3423,6 +3429,30 @@ async function ouvrirDepuisLeLien(href) {
 }
 window.ouvrirDepuisLeLien = ouvrirDepuisLeLien;
 
+// LE GARDE-FOU D'ÉGALITÉ NE SERT À RIEN SI L'ON COMPARE DES MESURES.
+//
+// « saveState » refuse d'enregistrer une étape identique à la précédente —
+// c'est ce qui empêche l'historique de se remplir de rien. Mais la chaîne
+// comparée contenait aussi ce que « draw » POSE SUR LES OBJETS en peignant :
+// « _cachedW », « _cachedH », « _cachedStartX » (la boîte d'un bloc de texte,
+// relevée au moment où l'on connaît la place exacte de chaque mot) et
+// « __liens », « __lienCentre » (les zones cliquables du même bloc).
+//
+// Ces clés-là ne sont pas l'état du tableau, c'est son empreinte à l'écran :
+// elles naissent au premier dessin, pas à la création de l'objet. Le premier
+// enregistrement les ignorait donc, le second les portait — deux chaînes
+// différentes pour un tableau identique, et le garde-fou laissait passer une
+// étape fantôme. Mesuré : un clic sur un bloc ajoutait une étape dont la
+// SEULE différence tenait dans ces cinq clés.
+//
+// On les omet à la sérialisation, par convention sur le trait de soulignement
+// initial : dans ce dépôt, une clé qui commence par « _ » est un calcul que
+// « draw » refait à chaque image, jamais une donnée à garder. Elle revient
+// d'elle-même au premier dessin qui suit un retour en arrière.
+function sansLesCaches(cle, valeur) {
+    return (typeof cle === 'string' && cle.charAt(0) === '_') ? undefined : valeur;
+}
+
 function saveState() {
     // CEINTURE ET BRETELLES. Le tableau est deja fige pendant la lecture, mais
     // un plugin ou un raccourci pourrait appeler ceci sans passer par le
@@ -3435,7 +3465,7 @@ function saveState() {
         filmTemps = filmTemps.slice(0, historyIndex + 1);
         filmDernierEtat = null;   // la dernière case a changé : on la relira
     }
-    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits });
+    const state = JSON.stringify({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images: packImages(images), arcs, htmlPostits }, sansLesCaches);
     if (historyIndex >= 0 && history[historyIndex] === state) return;
     // Le film se tient à jour au fil de l'eau : reconstruire les différences de
     // toute la séance à chaque enregistrement coûterait 220 ms, une par étape
@@ -3529,6 +3559,23 @@ function appliquerEtatDuTableau(brut, sauver) {
     texts = state.texts || []; freehands = state.freehands || []; curves = state.curves || [];
     polygons = state.polygons || []; images = unpackImages(state.images || []); arcs = state.arcs || []; htmlPostits = state.htmlPostits || [];
     creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; mouseLogicalPos = null; currentTracingArc = null;
+    // ON NE TIENT PAS CE QUI N'EXISTE PLUS. Revenir en arrière peut effacer
+    // l'objet même qu'on avait sous la main : « selectedItems » gardait alors
+    // son identifiant, et la barre de style continuait d'offrir la couleur, la
+    // taille et le plan d'un bloc disparu. Mesuré après un retour en arrière
+    // sur la création du bloc tenu : zéro texte au tableau, « selectedItems »
+    // toujours à un élément, « getObjectById » rendant rien, et la barre
+    // encore en « ctx-text ctx-bloc ». Trois réglages qui ne pouvaient plus
+    // agir sur rien — exactement le reproche fait au bloc verrouillé.
+    if (Array.isArray(selectedItems) && selectedItems.length
+        && typeof getObjectById === 'function') {
+        const vivants = selectedItems.filter(i => !!getObjectById(i.type, i.id));
+        if (vivants.length !== selectedItems.length) {
+            selectedItems = vivants;
+            if (typeof updateStyleBarContext === 'function') updateStyleBarContext();
+            if (typeof updateQuickMenu === 'function') updateQuickMenu();
+        }
+    }
     if (sauver) saveAppLocal();
     draw();
     if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
@@ -10050,6 +10097,28 @@ function pushStyleToObject() {
         wysiwygText.style.fontSize = (activeStyle.fontSize * zoom) + 'px';
     }
     if (selectedItems.length === 0) return;
+    // LA MÊME PORTE, EN PLUS DISCRÈTE : LA BARRE DE STYLE.
+    //
+    // Interdire de REPRENDRE un bloc pendant la lecture ne suffisait pas. Le
+    // bloc tenu gardait sa barre de style, et tout ce qu'elle porte — couleur,
+    // épaisseur, taille, opacité, flèches, plan — aboutit ici. Mesuré, la
+    // bande ouverte : un réglage d'épaisseur repeignait le bloc en rouge et le
+    // ramenait de 32 à 24 px à l'écran, « saveState » refusait d'enregistrer,
+    // et la fermeture de la bande reposait l'état d'avant. Le réglage était
+    // perdu SANS UN MOT — le défaut même que ce chapitre reproche au bloc
+    // verrouillé, mais en pire : ici le tableau avait bougé pour de bon avant
+    // de revenir en arrière tout seul.
+    //
+    // Un refus ici ferme d'un coup les vingt commandes de la barre, car
+    // chacune passe par cette fonction. Le message est unique : les pastilles
+    // identiques se comptent au lieu de s'empiler, un curseur qu'on fait
+    // glisser ne remplit donc pas le bas du tableau.
+    if (typeof lectureOuverte !== 'undefined' && lectureOuverte) {
+        if (typeof showToast === 'function') {
+            showToast('Lecture en cours : fermez la bande pour reprendre la main');
+        }
+        return;
+    }
     // Les images ne portent aucun de ces styles : inutile de sérialiser tout
     // le tableau à chaque cran de curseur (c'est ce qui faisait ramer).
     if (selectedItems.every(i => i.type === 'image')) return;
@@ -10339,7 +10408,21 @@ function reglerEpaisseurTrait(v, source) {
     const nombre = document.getElementById('line-width-num');
     if (curseur && source !== 'curseur') curseur.value = Math.min(10, t);
     if (nombre && source !== 'nombre') nombre.value = t;
-    pushStyleToObject();
+    // « OBJET » LIT, IL N'ÉCRIT PAS. Quand « selectObject » appelle ceci, c'est
+    // pour poser sur les commandes l'épaisseur DE L'OBJET qu'on vient de
+    // prendre : le mouvement va de l'objet vers la barre. Repartir aussitôt
+    // dans l'autre sens — « pushStyleToObject » réécrit activeStyle sur tout
+    // ce qui est tenu, puis enregistre une étape — faisait de la simple
+    // sélection une MODIFICATION.
+    //
+    // Mesuré, sur un clic unique sur un bloc de texte : l'historique passait
+    // de 2 à 3 étapes, et l'objet gagnait quatre clés qu'il n'avait pas
+    // (« strokeColor », « strokeOpacity », « arrowStart », « arrowEnd »).
+    // Conséquence pour le professeur : « j'ai juste quitté l'édition et après
+    // j'ai sélectionné » — le Ctrl+Z suivant ne défaisait pas sa phrase, il
+    // défaisait le clic, et il semblait ne rien faire du tout. Il fallait
+    // appuyer deux fois pour revenir d'un pas.
+    if (source !== 'objet') pushStyleToObject();
     applyPluginStampWidthLive(activeStyle.lineWidth / 3);
     // ET LE CURSEUR SUIT TOUT DE SUITE. Il montre l'empreinte du trait : la
     // voir grossir pendant qu'on règle, c'est ce qui permet de choisir sans
@@ -13448,6 +13531,34 @@ window.rouvrirLaVignette = rouvrirLaVignette;
 // suite. Un seul chemin pour les deux, sinon l'un des deux dérive.
 function rouvrirLeTexte(t) {
     if (!t || t.locked) return false;
+
+    // ==================================================================
+    // PENDANT LA LECTURE, ON NE RÉÉCRIT PAS — ET CETTE PORTE-LÀ ÉTAIT RESTÉE
+    // GRANDE OUVERTE
+    //
+    // Le dépôt connaissait déjà le danger : « un seul Ctrl+Z, et la moitié du
+    // cours disparaissait. On ne peut donc plus modifier tant que la bande est
+    // ouverte. » Mais seule la porte du CANEVAS avait été fermée. Celle-ci,
+    // par où passent le double-clic et le bouton « Modifier » que j'ai ajouté
+    // hier, ne regardait rien.
+    //
+    // CE QU'IL EN COÛTAIT, mesuré : la bande ouverte, on rouvre un bloc, on
+    // écrit cinq lignes, on valide. L'écran montre neuf lignes et 399
+    // caractères — mais « saveState » commence par refuser d'écrire pendant la
+    // lecture, si bien que l'historique reste à trois entrées. En refermant la
+    // bande, le tableau repose l'état d'avant : 190 caractères, cinq
+    // paragraphes. Le travail n'est pas annulé, IL N'A JAMAIS EXISTÉ — et
+    // « Refaire » ne le rendra pas.
+    //
+    // Un seul refus ici ferme tous les chemins d'entrée en édition ; garder
+    // chaque bouton en laisserait passer un.
+    // ==================================================================
+    if (typeof lectureOuverte !== 'undefined' && lectureOuverte) {
+        if (typeof showToast === 'function') {
+            showToast('Lecture en cours : fermez la bande pour reprendre la main');
+        }
+        return false;
+    }
     editingTextId = t.id;
 
     // On utilise innerHTML pour récupérer le gras/couleur sauvegardé
