@@ -376,13 +376,16 @@ module.exports = async function (browser) {
         document.getElementById('btn-taille').click();
         const v = document.querySelector('.reglette-volet[data-reglette="taille"]');
         const r2 = v.getBoundingClientRect();
+        const dessus = document.elementFromPoint(
+            Math.round(r2.left + r2.width / 2), Math.round(r2.top + r2.height / 2));
         return { ouvert: v.classList.contains('ouvert'),
                  regletteVue: document.getElementById('font-size').offsetParent !== null,
+                 peint: !!dessus && v.contains(dessus),
                  dedans: r2.top >= 0 && r2.left >= 0
                      && r2.bottom <= window.innerHeight && r2.right <= window.innerWidth };
     });
-    r.verifie('un clic l\'ouvre, entière et dans l\'écran',
-        ouvre.ouvert && ouvre.regletteVue && ouvre.dedans, JSON.stringify(ouvre));
+    r.verifie('un clic l\'ouvre, entière, dans l\'écran ET VRAIMENT PEINTE',
+        ouvre.ouvert && ouvre.regletteVue && ouvre.dedans && ouvre.peint, JSON.stringify(ouvre));
     await page.mouse.click(700, 760);
     await page.waitForTimeout(150);
     const referme = await page.evaluate(() =>
@@ -399,13 +402,16 @@ module.exports = async function (browser) {
         const v = document.querySelector('.reglette-volet[data-reglette="taille"]');
         const r2 = v.getBoundingClientRect();
         const b = document.getElementById('btn-taille').getBoundingClientRect();
+        const dessus = document.elementFromPoint(
+            Math.round(r2.left + r2.width / 2), Math.round(r2.top + r2.height / 2));
         return { boite: [Math.round(r2.left), Math.round(r2.top), Math.round(r2.right), Math.round(r2.bottom)],
                  dedans: r2.top >= 0 && r2.left >= 0
                      && r2.bottom <= window.innerHeight && r2.right <= window.innerWidth,
+                 peint: !!dessus && v.contains(dessus),
                  enFace: r2.bottom >= b.top - 2 && r2.top <= b.bottom + 2 };
     });
-    r.verifie('BARRE DEBOUT : le volet reste dans l\'écran, à la hauteur de son bouton',
-        debout.dedans && debout.enFace, JSON.stringify(debout));
+    r.verifie('BARRE DEBOUT : le volet est peint, dans l\'écran, à la hauteur de son bouton',
+        debout.dedans && debout.enFace && debout.peint, JSON.stringify(debout));
     await page.evaluate(() => {
         if (typeof fermerLesReglettes === 'function') fermerLesReglettes();
         if (typeof barreStyleDebout !== 'undefined') barreStyleDebout = false;

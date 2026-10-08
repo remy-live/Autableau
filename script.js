@@ -8572,6 +8572,33 @@ function poserUnVolet(volet, bouton, options) {
     volet.style.top = '';
 
     if (colonne) {
+        // ==================================================
+        // UNE BARRE DEBOUT ROGNE CE QUI PEND D'ELLE
+        //
+        // « Et là rien ne se passe quand je clique sur la couleur. » Il se
+        // passait tout, sauf qu'on ne voyait rien : le volet s'ouvrait à la
+        // bonne place — mesuré à 991,512 sur 291×79, entièrement dans
+        // l'écran — et « elementFromPoint » en son milieu rendait « board ».
+        // Le canevas était par-dessus, parce que le volet n'était tout
+        // simplement pas peint.
+        //
+        // La cause est dans la feuille de style : une barre debout porte
+        // « overflow-y: auto » pour pouvoir défiler si elle devient plus
+        // haute que l'écran. Or TOUT « overflow » autre que « visible » rogne
+        // les descendants en position absolue — et un volet qui sort sur le
+        // côté est précisément cela. Le défilement ne servait à rien ici
+        // (mesuré : 183 px de contenu pour 183 px visibles), mais il coûtait
+        // tous les tiroirs.
+        //
+        // On lève donc le rognage LE TEMPS QU'UN VOLET PENDE, et on le
+        // remet en refermant. Le défilement reste pour le cas où la barre
+        // deviendrait vraiment trop haute ; sa position est mémorisée et
+        // rendue, pour qu'une barre défilée ne saute pas sous les doigts.
+        // ==================================================
+        if (!colonne.classList.contains('volet-dehors')) {
+            colonne.dataset.defilement = String(colonne.scrollTop || 0);
+            colonne.classList.add('volet-dehors');
+        }
         volet.classList.add(o.cote);
         volet.style.top = '0px';
         const v0 = volet.getBoundingClientRect();
@@ -8607,6 +8634,19 @@ function poserUnVolet(volet, bouton, options) {
 }
 window.poserUnVolet = poserUnVolet;
 
+// Et l'on remet le rognage dès que plus rien ne pend. La barre retrouve son
+// défilement là où il était : une barre défilée qui saute sous les doigts
+// serait un autre défaut, pas une correction.
+function rangerLesVolets() {
+    document.querySelectorAll('.toolbar.vertical.volet-dehors').forEach(barre => {
+        barre.classList.remove('volet-dehors');
+        const ou = parseFloat(barre.dataset.defilement || '0');
+        delete barre.dataset.defilement;
+        if (isFinite(ou) && ou > 0) barre.scrollTop = ou;
+    });
+}
+window.rangerLesVolets = rangerLesVolets;
+
 // ==================================================================
 // LES RÉGLETTES REPLIÉES
 //
@@ -8629,6 +8669,9 @@ function fermerLesReglettes(saufCelui) {
         const b = v.parentNode && v.parentNode.querySelector('.btn-reglette');
         if (b) { b.classList.remove('active'); b.setAttribute('aria-expanded', 'false'); }
     });
+    if (!document.querySelector('.reglette-volet.ouvert, #text-toolbar .tt-panel.tt-open')) {
+        rangerLesVolets();
+    }
 }
 window.fermerLesReglettes = fermerLesReglettes;
 
@@ -23218,6 +23261,8 @@ function appliquerInterligneSaisie(lhLogique, sizeLogique) {
 function fermerTiroirsTexte() {
     document.querySelectorAll('#text-toolbar .tt-panel.tt-open, #text-toolbar .tt-tab.tt-open')
         .forEach(el => el.classList.remove('tt-open'));
+    if (typeof rangerLesVolets === 'function'
+        && !document.querySelector('.reglette-volet.ouvert')) rangerLesVolets();
 }
 
 // La barre affiche la taille, la police et la couleur de ce sur quoi le

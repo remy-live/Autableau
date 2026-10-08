@@ -1318,11 +1318,21 @@ module.exports = async function (browser) {
                 if (!tab || !p) return { nom: n, absent: true };
                 tab.click();
                 const r = p.getBoundingClientRect(), b = tab.getBoundingClientRect();
+                // ÊTRE BIEN PLACÉ NE SUFFIT PAS : IL FAUT ÊTRE PEINT.
+                // « Rien ne se passe quand je clique sur la couleur » — et
+                // pourtant le tiroir s'ouvrait à la bonne place, entièrement
+                // dans l'écran. Il était découpé par le « overflow » de sa
+                // barre debout, et aucune de ces mesures ne pouvait le voir.
+                // On demande donc au navigateur QUI est au-dessus au milieu
+                // du tiroir : si ce n'est pas le tiroir, il n'existe pas.
+                const dessus = document.elementFromPoint(
+                    Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
                 return {
                     nom: n, ouvert: p.classList.contains('tt-open'),
                     boite: [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)],
                     dedans: r.top >= 0 && r.left >= 0
                         && r.bottom <= window.innerHeight && r.right <= window.innerWidth,
+                    peint: !!dessus && p.contains(dessus),
                     // Le tiroir et son bouton se regardent : leurs bandes
                     // horizontales se croisent.
                     enFace: r.bottom >= b.top - 2 && r.top <= b.bottom + 2
@@ -1334,6 +1344,8 @@ module.exports = async function (browser) {
             tiroirs.every(t => t.ouvert), JSON.stringify(tiroirs));
         r.verifie(`barre ${ou} : AUCUN TIROIR NE SORT DE L'ÉCRAN`,
             tiroirs.every(t => t.dedans), JSON.stringify(tiroirs));
+        r.verifie(`barre ${ou} : ET CHAQUE TIROIR EST VRAIMENT PEINT, pas découpé`,
+            tiroirs.every(t => t.peint), JSON.stringify(tiroirs));
         if (debout) {
             r.verifie('barre DEBOUT : et chacun sort À LA HAUTEUR DE SON BOUTON',
                 tiroirs.every(t => t.enFace), JSON.stringify(tiroirs));

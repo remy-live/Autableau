@@ -12748,6 +12748,18 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
    elle se range à gauche de celle du document quand les deux
    sont debout.
    =========================================================== */
+/* LE TEMPS QU'UN VOLET PENDE, LA BARRE NE ROGNE PLUS. Un « overflow » autre
+   que « visible » découpe les descendants en position absolue : tiroirs du
+   texte et réglettes repliées disparaissaient purement et simplement dès que
+   la barre se mettait debout. Voir « UNE BARRE DEBOUT ROGNE CE QUI PEND
+   D'ELLE » dans script.js. */
+/* Nommées par leur identifiant : « #bar-style.vertical » l'emporte sur une
+   règle de classes, et la première version de ce correctif n'a rien changé —
+   mesuré, le volet restait découpé. */
+#bar-style.vertical.volet-dehors,
+#bar-document.vertical.volet-dehors,
+.toolbar.vertical.volet-dehors { overflow: visible; }
+
 #bar-style.vertical {
     left: auto;
     top: 50%;
