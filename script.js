@@ -4710,17 +4710,31 @@ function generateSVGString(rect, keepBg) {
         return 'none';
     }
 
+    // ==================================================================
+    // CE QUI APPARTIENT À UNE AUTRE PAGE NE S'EXPORTE PAS
+    //
+    // L'écran le savait, l'export l'ignorait. Dix appels à « surUneAutrePage »
+    // protègent le rendu du tableau ; il n'y en avait AUCUN ici. Sur un
+    // polycopié qu'on feuillette, exporter la page 2 déversait donc par-dessus
+    // elle toutes les annotations des pages 1 et 3.
+    //
+    // Mesuré : document de trois pages, « UN » écrit sur la première, « DEUX »
+    // sur la seconde ; à l'écran la page 2 cache bien « UN »
+    // (« surUneAutrePage » rend vrai), et le SVG d'export contenait les deux.
+    // La feuille qui sortait n'était pas celle qu'on montrait.
+    // ==================================================================
+    const dUneAutrePage = (o) => (typeof surUneAutrePage === 'function') && surUneAutrePage(o);
     let displayList = [];
-    images.forEach(o => displayList.push({ type: 'image', obj: o }));
-    polygons.forEach(o => displayList.push({ type: 'polygon', obj: o }));
-    curves.forEach(o => displayList.push({ type: 'curve', obj: o }));
-    circles.forEach(o => displayList.push({ type: 'circle', obj: o }));
-    arcs.forEach(o => displayList.push({ type: 'arc', obj: o }));
-    rectangles.forEach(o => displayList.push({ type: 'rectangle', obj: o }));
-    segments.forEach(o => displayList.push({ type: 'segment', obj: o }));
-    freehands.forEach(o => displayList.push({ type: 'freehand', obj: o }));
-    points.forEach(o => displayList.push({ type: 'point', obj: o }));
-    texts.forEach(o => displayList.push({ type: 'text', obj: o }));
+    images.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'image', obj: o }); });
+    polygons.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'polygon', obj: o }); });
+    curves.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'curve', obj: o }); });
+    circles.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'circle', obj: o }); });
+    arcs.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'arc', obj: o }); });
+    rectangles.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'rectangle', obj: o }); });
+    segments.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'segment', obj: o }); });
+    freehands.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'freehand', obj: o }); });
+    points.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'point', obj: o }); });
+    texts.forEach(o => { if (!dUneAutrePage(o)) displayList.push({ type: 'text', obj: o }); });
 
     displayList.sort((a, b) => (a.obj.z || 0) - (b.obj.z || 0));
 
@@ -5781,9 +5795,31 @@ function updateExportButtonLabel() {
     if (!btn) return;
     // « Exporter la page » devant un lien serait faux deux fois : rien n'est
     // exporté, et ce n'est pas une page mais le tableau qui part.
-    if (selectedFormat === 'lien') { btn.innerText = 'Copier le lien'; return; }
+    if (selectedFormat === 'lien') { btn.innerText = 'Copier le lien'; annoncerLaPorteeDuDocument(); return; }
     btn.innerText = selectedScope === 'all' ? 'Exporter TOUTES les pages' : 'Exporter la page';
+    annoncerLaPorteeDuDocument();
 }
+
+// CE QUI SORTIRA D'UN POLYCOPIÉ, DIT AVANT DE CLIQUER.
+//
+// Un document qu'on feuillette tient sur UNE page de tableau : « Page
+// actuelle » n'en rend donc qu'une feuille sur douze, et rien ne le disait —
+// on s'en apercevait en ouvrant le fichier, après la classe. La phrase ne
+// paraît que lorsqu'il y a vraiment un document à feuilleter.
+function annoncerLaPorteeDuDocument() {
+    const ligne = document.getElementById('export-portee-doc');
+    if (!ligne) return;
+    const docs = (typeof images !== 'undefined' ? images : []).filter(o => o && o.pluginData
+        && o.pluginData.id === 'pdfDoc' && (o.pluginData.pages || 1) > 1);
+    if (docs.length !== 1 || selectedFormat === 'lien') { ligne.style.display = 'none'; return; }
+    const d = docs[0].pluginData;
+    const nom = d.nom ? '« ' + d.nom + ' »' : 'Ce document';
+    ligne.style.display = 'block';
+    ligne.textContent = (selectedScope === 'all')
+        ? `${nom} a ${d.pages} pages : toutes sortiront, chacune avec ses annotations.`
+        : `${nom} a ${d.pages} pages : seule la page ${d.page} sortira. « Toutes les pages » les rend toutes.`;
+}
+window.annoncerLaPorteeDuDocument = annoncerLaPorteeDuDocument;
 
 // LA LONGUEUR SE LIT AVANT DE COPIER, pas après. Un lien de trois mille
 // caractères se colle très bien dans Pronote et passe mal dans un QR code ;
@@ -5970,17 +6006,26 @@ async function exportAllPagesPdf() {
 
         let pdf = null;
 
-        // 2. Boucle de capture sur toutes les pages
-        for (let i = 0; i < pages.length; i++) {
-            // C'EST ICI LA CORRECTION DU BUG !
-            // loadPage() gère tout tout seul, il ne faut surtout pas forcer currentPageIndex
-            loadPage(i);
-
-            // Préparation visuelle (pas de cadres de sélection, pas de fond si demandé)
-            clearSelection();
-            if (!keepBg) { showAxes = 0; isExportingTransparent = true; }
-            isCropMode = false;
-
+        // ==================================================================
+        // UN POLYCOPIÉ FEUILLETABLE SORT ENTIER
+        //
+        // « Exporter TOUTES les pages » bouclait sur les pages du TABLEAU. Or
+        // l'import par défaut — « importPdfFeuilletable = true » — laisse le
+        // document en UN seul objet sur UNE seule page de tableau : un
+        // polycopié de douze pages n'en rendait donc qu'une, celle qu'on
+        // montrait. Mesuré : document de trois pages, « pages du tableau : 1 ».
+        //
+        // Le commentaire de l'import le dit depuis toujours — « l'import
+        // classique fabrique une page de tableau par page du document » — et
+        // c'est précisément ce mode-là, devenu le cas particulier, qui gardait
+        // l'export. Le mode courant l'avait perdu sans que rien ne le dise.
+        //
+        // On tourne donc les pages du document comme on tourne celles du
+        // tableau. UN SEUL document à la fois : s'il y en avait deux sur la
+        // même page, il faudrait croiser leurs pages deux à deux, et personne
+        // ne saurait dire ce que la feuille doit montrer.
+        // ==================================================================
+        const capturerCeQuiEstAEcran = async () => {
             // Recadrage auto INVISIBLE pour chaque page !
             const box = getAutoBoundingBox(40);
             let rx = box.startX, ry = box.startY;
@@ -6017,7 +6062,7 @@ async function exportAllPagesPdf() {
             }
 
             if (selectedFormat === 'pdf' && typeof pdf.svg === 'function') {
-                console.log(`=== EXPORT VECTORIEL (PAGE ${i + 1}/${pages.length}) ===`);
+                console.log('=== EXPORT VECTORIEL (une feuille de plus) ===');
                 const svgStr = generateSVGString({ x: rx, y: ry, w: rw, h: rh }, keepBg);
                 console.log("Longueur du SVG généré:", svgStr.length);
                 const parser = new DOMParser();
@@ -6037,7 +6082,7 @@ async function exportAllPagesPdf() {
                 document.body.removeChild(svgElement);
             } else {
                 if (selectedFormat === 'pdf') {
-                    console.warn(`Fallback bitmap utilisé pour la page ${i + 1} car pdf.svg n'est pas une fonction.`);
+                    console.warn("Fallback bitmap utilisé car pdf.svg n'est pas une fonction.");
                 }
                 const tempC = document.createElement('canvas');
                 tempC.width = rw * qualityScale;
@@ -6046,6 +6091,39 @@ async function exportAllPagesPdf() {
                 tCtx.scale(qualityScale, qualityScale);
                 tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
                 pdf.addImage(tempC.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, rw, rh);
+            }
+        };
+
+        // 2. Boucle de capture sur toutes les pages
+        for (let i = 0; i < pages.length; i++) {
+            // C'EST ICI LA CORRECTION DU BUG !
+            // loadPage() gère tout tout seul, il ne faut surtout pas forcer currentPageIndex
+            loadPage(i);
+
+            // Préparation visuelle (pas de cadres de sélection, pas de fond si demandé)
+            clearSelection();
+            if (!keepBg) { showAxes = 0; isExportingTransparent = true; }
+            isCropMode = false;
+
+            const feuilletables = images.filter(o => o && o.pluginData
+                && o.pluginData.id === 'pdfDoc' && (o.pluginData.pages || 1) > 1);
+
+            if (feuilletables.length === 1) {
+                const doc = feuilletables[0];
+                const depart = doc.pluginData.page;
+                for (let n = 1; n <= doc.pluginData.pages; n++) {
+                    await allerALaPage(doc, n);
+                    // Le rendu d'une page est asynchrone : on lui laisse le
+                    // temps d'arriver, sinon on photographierait la précédente.
+                    await new Promise(r => setTimeout(r, 160));
+                    await capturerCeQuiEstAEcran();
+                }
+                // Le document est rendu tel qu'on l'avait laissé : exporter ne
+                // doit pas déplacer ce que la classe a sous les yeux.
+                await allerALaPage(doc, depart);
+                await new Promise(r => setTimeout(r, 120));
+            } else {
+                await capturerCeQuiEstAEcran();
             }
         }
 

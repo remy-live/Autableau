@@ -4781,6 +4781,129 @@ module.exports = async function (browser) {
     r.verifie('mais rogner et découper restent : ils valent pour toute image',
         T.rogner && T.ciseaux, JSON.stringify(T));
 
+    // ==================================================================
+    // UN POLYCOPIÉ FEUILLETABLE SORT ENTIER, ET CHAQUE FEUILLE EST LA SIENNE
+    //
+    // « On n'a pas fait le 3 ? » — si, à moitié. « Exporter TOUTES les pages »
+    // existe et marche, mais il boucle sur les pages du TABLEAU ; or l'import
+    // par défaut laisse le document en UN objet sur UNE page de tableau. Un
+    // polycopié de douze pages n'en rendait donc qu'une.
+    //
+    // Pire que « une seule page » : la page qui sortait était FAUSSE.
+    // « generateSVGString » ne mentionnait nulle part « surUneAutrePage » —
+    // dix appels protègent le rendu de l'écran, aucun ne protégeait l'export —
+    // de sorte que la feuille recevait les annotations de toutes les pages
+    // empilées. Mesuré avant correction : page 2 à l'écran cachant bien
+    // « UN », et le SVG contenant « UN » ET « DEUX ».
+    // ==================================================================
+    const depart = await page.evaluate(async ({ octets }) => {
+        if (typeof finalizeText === 'function') finalizeText();
+        images.length = 0; texts.length = 0; selectedItems = [];
+        panX = 0; panY = 0; zoom = 1;
+        await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'poly.pdf', { type: 'application/pdf' }));
+        await new Promise(ok => setTimeout(ok, 1400));
+        const doc = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        if (!doc) return { pasDeDoc: true };
+        const mots = ['UN', 'DEUX', 'TROIS'];
+        for (let n = 1; n <= doc.pluginData.pages; n++) {
+            await allerALaPage(doc, n);
+            await new Promise(ok => setTimeout(ok, 300));
+            const t = { id: nextId++, type: 'text', x: doc.x + 40, y: doc.y + 60, fontSize: 40,
+                lineHeight: 48, content: mots[n - 1] || ('P' + n), color: '#e74c3c',
+                strokeColor: '#e74c3c', fontFamily: 'sans-serif', align: 'left', opacity: 1,
+                z: globalZ++ };
+            texts.push(t);
+            if (typeof noterLaPage === 'function') noterLaPage(t, t.x, t.y);
+        }
+        await allerALaPage(doc, 2);          // la classe est sur la page 2
+        await new Promise(ok => setTimeout(ok, 300));
+        draw();
+        return { pagesDuDoc: doc.pluginData.pages, pagesDuTableau: pages.length,
+                 pageMontree: doc.pluginData.page,
+                 caches: texts.map(t => surUneAutrePage(t)) };
+    }, { octets: Array.from(petitPdf()) });
+    r.verifie('un document de trois pages tient sur UNE page de tableau',
+        depart.pagesDuDoc === 3 && depart.pagesDuTableau === 1, JSON.stringify(depart));
+    r.egal('et l\'écran ne montre que les annotations de la page affichée',
+        depart.caches, [true, false, true], JSON.stringify(depart));
+
+    // L'export voit-il la même chose que l'écran ?
+    const feuilleSeule = await page.evaluate(() => {
+        const b = getAutoBoundingBox(40);
+        const s = generateSVGString({ x: b.startX, y: b.startY,
+            w: Math.abs(b.endX - b.startX), h: Math.abs(b.endY - b.startY) }, true);
+        return ['UN', 'DEUX', 'TROIS'].filter(m => new RegExp('>' + m + '<').test(s));
+    });
+    r.egal('L\'EXPORT NE DÉVERSE PLUS LES AUTRES PAGES SUR CELLE QU\'ON MONTRE',
+        feuilleSeule, ['DEUX'], JSON.stringify(feuilleSeule));
+
+    // Et « toutes les pages » rend-il le polycopié entier ?
+    const tout = await page.evaluate(async () => {
+        selectedFormat = 'pdf'; selectedScope = 'all';
+        const vraiSvg = window.generateSVGString;
+        const vues = [];
+        window.generateSVGString = function (...a) {
+            const s = vraiSvg.apply(this, a);
+            vues.push(['UN', 'DEUX', 'TROIS'].filter(m => new RegExp('>' + m + '<').test(s)));
+            return s;
+        };
+        // jsPDF pose ses méthodes sur l'INSTANCE : on garde les documents créés
+        // pour compter leurs pages, et l'on neutralise le téléchargement.
+        const nes = [];
+        const VraiJsPDF = window.jspdf.jsPDF;
+        function Espion(...a) { const o = new VraiJsPDF(...a); o.save = function () { }; nes.push(o); return o; }
+        Espion.prototype = VraiJsPDF.prototype;
+        window.jspdf.jsPDF = Espion;
+        try { await exportAllPagesPdf(); }
+        finally { window.generateSVGString = vraiSvg; window.jspdf.jsPDF = VraiJsPDF; }
+        let feuillesDuPdf = -1;
+        try { feuillesDuPdf = nes.length ? nes[nes.length - 1].internal.getNumberOfPages() : 0; }
+        catch (e) { feuillesDuPdf = -1; }
+        const doc = images.find(i => i.pluginData && i.pluginData.id === 'pdfDoc');
+        return { vues, feuillesDuPdf, documents: nes.length,
+                 pageApres: doc ? doc.pluginData.page : null };
+    });
+    r.egal('UN POLYCOPIÉ FEUILLETABLE SORT ENTIER, une feuille par page',
+        tout.feuillesDuPdf, 3, JSON.stringify(tout));
+    r.egal('et chaque feuille porte SES annotations, et elles seules',
+        tout.vues, [['UN'], ['DEUX'], ['TROIS']], JSON.stringify(tout));
+    r.egal('en un seul fichier, pas trois', tout.documents, 1, JSON.stringify(tout));
+    r.egal('ET LA CLASSE RETROUVE SA PAGE : exporter ne déplace pas ce qu\'elle regarde',
+        tout.pageApres, 2, JSON.stringify(tout));
+
+    // LA PORTÉE SE DIT AVANT DE CLIQUER. Un bouton qui promet ce qu'il ne
+    // tient pas ment : « Page actuelle » devant douze pages n'en rend qu'une.
+    const portee = await page.evaluate(() => {
+        const lire = () => {
+            const l = document.getElementById('export-portee-doc');
+            return { vue: !!l && l.style.display !== 'none', texte: l ? l.textContent : '' };
+        };
+        selectedFormat = 'pdf'; selectedScope = 'page'; updateExportButtonLabel();
+        const unePage = lire();
+        selectedScope = 'all'; updateExportButtonLabel();
+        const toutes = lire();
+        selectedFormat = 'lien'; updateExportButtonLabel();
+        const lien = lire();
+        selectedFormat = 'pdf'; selectedScope = 'page'; updateExportButtonLabel();
+        return { unePage, toutes, lien };
+    });
+    r.verifie('LA PORTÉE SE DIT AVANT DE CLIQUER : trois pages, une seule sortira',
+        portee.unePage.vue && /3 pages/.test(portee.unePage.texte)
+        && /seule la page 2/.test(portee.unePage.texte), JSON.stringify(portee.unePage));
+    r.verifie('et « toutes les pages » le dit autrement',
+        portee.toutes.vue && /toutes sortiront/.test(portee.toutes.texte),
+        JSON.stringify(portee.toutes));
+    r.verifie('un lien n\'a pas de portée : la phrase s\'efface',
+        !portee.lien.vue, JSON.stringify(portee.lien));
+
+    const sansDoc = await page.evaluate(() => {
+        images.length = 0; texts.length = 0; selectedItems = [];
+        selectedFormat = 'pdf'; selectedScope = 'page'; updateExportButtonLabel();
+        const l = document.getElementById('export-portee-doc');
+        return !!l && l.style.display !== 'none';
+    });
+    r.verifie('et sans document à feuilleter, elle ne paraît pas du tout', !sansDoc);
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
