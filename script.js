@@ -11226,7 +11226,32 @@ function layoutTextObject(obj, measureCtx) {
             tokens.forEach(tok => {
                 const w = measure(tok, style, size);
                 if (/^\s+$/.test(tok)) {
-                    if (line.length === 0) return;      // pas d'espace en tête de ligne
+                    // L'INDENTATION D'UN PARAGRAPHE SE DESSINE.
+                    //
+                    // Il y avait ici « si la ligne est vide, on jette l'espace
+                    // — pas d'espace en tête de ligne ». La règle visait les
+                    // lignes nées d'un REPLI, où l'espace n'est qu'un artefact
+                    // de la coupure ; mais elle frappait aussi la PREMIÈRE
+                    // ligne d'un paragraphe, où ces espaces sont la main du
+                    // professeur. « Objectifs : … » suivi de dix espaces puis
+                    // « Savoir poser… » se dessinait collé à la marge, alors
+                    // que la boîte d'édition les gardait depuis qu'elle est en
+                    // « white-space: pre » : on éditait un texte et l'on en
+                    // voyait un autre. Mesuré : dix espaces dans la boîte,
+                    // zéro sur le tableau.
+                    //
+                    // ET IL N'EN RESTE RIEN, pas même une version restreinte.
+                    // J'avais d'abord écrit « … && out.length > 0 », pour ne
+                    // jeter que sur une continuation ; sabotée, cette moitié
+                    // n'a rien fait tomber, et pour cause : la boucle dépile
+                    // déjà les espaces de fin avant chaque repli (quelques
+                    // lignes plus bas), si bien qu'une continuation ne peut
+                    // pas commencer par un espace. Vérifié sur trois cas
+                    // construits exprès — mot plus long que la colonne suivi
+                    // d'espaces, deux mots longs séparés d'espaces, repli
+                    // ordinaire — : zéro continuation avec un espace en tête,
+                    // avec la règle comme sans elle. Une règle qui ne règle
+                    // rien ment sur ce qu'elle fait.
                     line.push({ text: tok, style }); lineW += w;
                     return;
                 }

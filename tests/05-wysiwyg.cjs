@@ -1306,6 +1306,48 @@ module.exports = async function (browser) {
     r.verifie('et refermer sans rien taper rend le bloc INTACT',
         referme === AVEC_ESPACES, JSON.stringify(referme));
 
+    // ET LE TABLEAU LES DESSINE AUSSI — c'est la moitié qui manquait.
+    //
+    // La correction d'hier n'avait réparé que la BOÎTE. Le canevas, lui,
+    // continuait de jeter les espaces de tête : « le repli ne met pas d'espace
+    // en tête de ligne » valait aussi pour la PREMIÈRE ligne d'un paragraphe,
+    // où ces espaces sont l'indentation voulue par le professeur. Mesuré :
+    // dix espaces dans la boîte, zéro sur le tableau — on éditait un texte et
+    // l'on en voyait un autre.
+    //
+    // On éprouve les deux à la fois : l'indentation se dessine, ET un vrai
+    // repli de colonne ne traîne pas d'espace en tête de sa continuation.
+    const espacesDessines = await page.evaluate((html) => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        const lire = (t) => layoutTextObject(t, ctx).lines.map(l => {
+            const txt = (l.segs || []).map(s => s.text).join('');
+            return (txt.match(/^ */) || [''])[0].length;
+        });
+        const libre = { id: nextId++, type: 'text', x: 100, y: 100, fontSize: 24, lineHeight: 29,
+            content: html, color: '#2d3436', strokeColor: '#2d3436',
+            fontFamily: 'sans-serif', align: 'left', opacity: 1, z: globalZ++ };
+        texts.push(libre);
+        // Le même texte dans une COLONNE étroite : il se replie, et les
+        // continuations ne doivent pas commencer par un espace.
+        const enColonne = { ...libre, id: nextId++, y: 400, colWidth: 150 };
+        texts.push(enColonne);
+        draw();
+        return { libre: lire(libre), colonne: lire(enColonne) };
+    }, AVEC_ESPACES);
+    r.egal('LE TABLEAU DESSINE L\'INDENTATION, comme la boîte la montre',
+        espacesDessines.libre, [0, 10], JSON.stringify(espacesDessines));
+    // EN COLONNE, LE RELEVÉ EST [0, 0, 0, 10, 0] : le premier paragraphe se
+    // replie en trois lignes, puis le second COMMENCE par son indentation, et
+    // sa continuation n'en porte pas. La règle tient donc en une phrase : une
+    // seule ligne porte l'indentation — celle qui ouvre le paragraphe — et
+    // toutes les autres commencent à la marge.
+    r.verifie('et en colonne, UNE SEULE ligne porte l\'indentation : celle qui ouvre le paragraphe',
+        espacesDessines.colonne.filter(n => n === 10).length === 1
+        && espacesDessines.colonne.filter(n => n !== 0 && n !== 10).length === 0
+        && espacesDessines.colonne.length > 3,
+        JSON.stringify(espacesDessines));
+
     // ==================================================================
     // RECOLORER UN TEXTE DÉJÀ POSÉ
     //
