@@ -108,8 +108,15 @@ module.exports = async function (browser) {
         const tenu = typeof documentDeLaBarre === 'function' ? !!documentDeLaBarre() : null;
         // On le montre grand : la page réclame alors bien plus de pixels
         // qu'elle n'en a.
+        //
+        // QUATRE MILLE DEUX CENTS, ET NON DEUX MILLE HUIT CENTS. La page
+        // enregistrée fait trois mille pixels de large : montrée sur 2800 elle
+        // en a DE RESTE, et le scénario ne disait plus ce que son titre
+        // annonce — il passait seulement parce que les étapes précédentes
+        // laissaient, à l'époque, une page plus grossière. On fixe donc le
+        // décor au lieu de dépendre de ce qui précède.
         montrerToutLeDocument(img);
-        img.w = 2800; img.h = 2800 * (img.ch / img.cw);
+        img.w = 4200; img.h = 4200 * (img.ch / img.cw);
         panX = 0; panY = 0; zoom = 1; img.x = 10; img.y = 10;
         const d = documentsPdf.get(img.pluginData.cle);
         // ON MESURE L'IMAGE QU'ON REGARDE, en pixels : c'est ce que voit

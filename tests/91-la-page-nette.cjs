@@ -87,6 +87,30 @@ module.exports = async function (browser) {
         !regle.manque && regle.propre > regle.batard * 1.05,
         'rapport 2 : pente ' + regle.propre + ' | rapport 2,49 : pente ' + regle.batard);
 
+    // LE CHEVEU DE LA VIRGULE FLOTTANTE, MESURÉ LÀ OÙ IL VIT.
+    //
+    // Le choix du rapport comparait strictement au plancher, et basculait sur
+    // un cheveu : une page montrée au quart donne « (4619/400) × (200/4619) »,
+    // qui ne vaut pas 0,5 mais 0,49999999999999994. Multiplié par quatre :
+    // 1,9999999999999998, donc « plus petit que 2 », donc un cran de plus — la
+    // page recevait DEUX FOIS les pixels qu'il lui fallait, puis était
+    // redessinée pour corriger. Deux rendus complets au lieu d'un.
+    //
+    // UNE SUITE DE TESTS L'AVAIT ATTRAPÉ, puis une autre correction a changé le
+    // chemin et le scénario ne passait plus par là : le sabotage ne tombait
+    // plus, alors que le défaut, lui, est toujours possible. On le mesure donc
+    // sur la fonction elle-même, avec le nombre exact qui l'avait révélé.
+    const cheveu = await page.evaluate(() => {
+        const presqueUnDemi = (4619 / 400) * (200 / 4619);   // 0,49999999999999994
+        return { valeur: presqueUnDemi, exactementUnDemi: presqueUnDemi === 0.5,
+                 rapport: rapportPropre(presqueUnDemi),
+                 rapportDUnDemiRond: rapportPropre(0.5) };
+    });
+    r.verifie('UN CHEVEU SOUS LA VALEUR RONDE NE FAIT PAS SAUTER UN CRAN',
+        cheveu.exactementUnDemi === false
+        && cheveu.rapport === 4 && cheveu.rapportDUnDemiRond === 4,
+        JSON.stringify(cheveu));
+
     // ------------------------------------------------------------------
     // 2. L'APPLICATION LA SUIT
     // ------------------------------------------------------------------
@@ -133,6 +157,22 @@ module.exports = async function (browser) {
     r.verifie('DÉZOOMÉ, LE RAPPORT RESTE PROPRE — c\'est là qu\'on voyait le grain',
         !petit.manque && puissanceDeDeux(petit.rapport) && petit.garde >= 2 * 1190 * 0.98,
         JSON.stringify(Object.assign({}, petit, { rapport: +petit.rapport.toFixed(3) })));
+
+    // ET QUAND LA MÉMOIRE MANQUE, ON DESCEND L'ÉCHELLE — ON NE ROGNE PAS.
+    //
+    // C'est la seconde moitié de la règle, et elle manquait à ma première
+    // version : montré très grand, le rapport 2 crève le plafond de pixels, et
+    // le rognage qui suivait rendait un rapport bâtard — 1,65 mesuré — c'est-
+    // à-dire MOINS net que le 1,07 d'avant, tout en pesant plus lourd. On
+    // redescend donc à 1, qui est le plus net de tous ET le plus léger. Le
+    // plancher du papier cède ici devant le plafond de mémoire : on ne réserve
+    // pas ce qu'on n'a pas, et un document montré si grand a de toute façon
+    // des pixels de reste pour le papier.
+    await regler(2);
+    const grand = await etat();
+    r.verifie('MONTRÉ TRÈS GRAND, LE RAPPORT RESTE PROPRE au lieu d\'être rogné',
+        !grand.manque && puissanceDeDeux(grand.rapport) && grand.pixels <= 16e6,
+        JSON.stringify(Object.assign({}, grand, { rapport: +grand.rapport.toFixed(3) })));
 
     await page.evaluate(() => { zoom = 1; panX = 0; panY = 0; images.length = 0; draw(); });
 

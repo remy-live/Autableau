@@ -665,8 +665,16 @@ module.exports = async function (browser) {
                  partAvant: Math.round((avant.cw / avant.l) * 1000),
                  partApres: Math.round((apres.cw / apres.l) * 1000) };
     });
+    // LE SEUIL ÉTAIT UN INSTANTANÉ, PAS UNE PROPRIÉTÉ. Il disait « plus de 2 »
+    // parce que la page arrivait ici à une certaine finesse ; le jour où la
+    // finesse de départ a changé, « demande » est tombée à 2 tout rond et le
+    // contrôle est tombé avec, sans que rien d'observable ait bougé — la page
+    // est toujours étirée, et la vérification suivante montre toujours qu'elle
+    // est redessinée plus fine. On vérifie donc ce que le titre annonce : la
+    // page est étirée, c'est-à-dire qu'on lui demande plus de pixels qu'elle
+    // n'en a.
     r.verifie('zoomer fort demande plus de pixels que la page n\'en a',
-        finesse.demande > 2, JSON.stringify(finesse));
+        finesse.demande > 1, JSON.stringify(finesse));
     r.verifie('la page est alors redessinée plus finement', finesse.refait
         && finesse.apres.echelle > finesse.avant.echelle
         && finesse.apres.l > finesse.avant.l, JSON.stringify(finesse));
@@ -690,7 +698,24 @@ module.exports = async function (browser) {
     });
     r.verifie('montrée petite, la page redescend en finesse',
         degrossi.refait && degrossi.apres < degrossi.avant, JSON.stringify(degrossi));
-    r.egal('sans jamais descendre sous la qualité de base', degrossi.apres, degrossi.base);
+    // LE PLANCHER A CHANGÉ DE NATURE, ET C'EST VOULU. Il valait « la qualité de
+    // base », 2,5 fois la page, quelle que soit la taille d'affichage — et
+    // c'est précisément ce plancher qui imposait un rapport de réduction de
+    // 2,49 à l'écran, celui que le navigateur réduit le plus mal (voir le
+    // chapitre 91). Il vaut maintenant deux fois la page, et il ne sert plus à
+    // la netteté de l'écran mais au PAPIER : l'export et l'impression
+    // réutilisent cette image, et un document montré petit doit rester
+    // imprimable. Deux fois un A4, c'est 288 points par pouce.
+    r.verifie('sans jamais descendre sous le plancher du papier',
+        degrossi.apres >= 2 * 0.999, JSON.stringify(degrossi));
+    // Et le rapport auquel on la montre reste une puissance de deux.
+    const rapportDegrossi = await page.evaluate(() => {
+        const img = images[0];
+        return (imageCache[img.src].naturalWidth) / Math.round(img.w * zoom);
+    });
+    r.verifie('et le rapport montré reste une puissance de deux',
+        Math.abs(Math.log2(rapportDegrossi) - Math.round(Math.log2(rapportDegrossi))) < 0.03,
+        'rapport ' + rapportDegrossi.toFixed(3));
     r.egal('et l\'on montre toujours la même part de page', degrossi.part, 1000);
     r.verifie('une fois d\'aplomb, elle n\'est plus redessinée pour rien',
         degrossi.encore === false, JSON.stringify(degrossi));

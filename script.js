@@ -18001,10 +18001,21 @@ const MULTIPLE_MIN = 2;             // toujours de la marge pour zoomer d'un cra
 const FINESSE_PLANCHER = 2;         // et jamais moins de deux fois la page : le papier
 
 // Le plus petit rapport en puissance de deux qui tienne les deux contraintes.
+//
+// LE CHEVEU DE LA VIRGULE FLOTTANTE. Cette comparaison était stricte, et elle
+// basculait sur un cheveu : une page montrée au quart donne
+// « (4619/400) × (200/4619) », qui ne vaut pas 0,5 mais 0,49999999999999994.
+// Multiplié par quatre : 1,9999999999999998, donc « plus petit que 2 », donc
+// un cran de plus — la page recevait DEUX FOIS les pixels qu'il lui fallait,
+// et le passage suivant la redescendait. Deux rendus complets au lieu d'un,
+// pour rien, et seulement dans certains cadrages.
+//
+// Un millième de tolérance l'efface. C'est très au-dessous de tout écart qui
+// aurait un sens ici — un millième de la page, c'est un pixel sur mille.
 function rapportPropre(pourUnPixel) {
     if (!(pourUnPixel > 0)) return MULTIPLE_MIN;
     let m = MULTIPLE_MIN;
-    while (pourUnPixel * m < FINESSE_PLANCHER && m < 64) m *= 2;
+    while (pourUnPixel * m < FINESSE_PLANCHER * 0.999 && m < 64) m *= 2;
     return m;
 }
 window.rapportPropre = rapportPropre;
@@ -18078,7 +18089,27 @@ async function affinerLaPage(obj) {
     // On vise maintenant un rapport en puissance de deux (voir « rapportPropre »
     // et la mesure qui l'accompagne).
     const pourUnPixel = echelle * besoin;      // un pixel d'image pour un pixel d'écran
-    let voulue = Math.min(FINESSE_MAX, pourUnPixel * rapportPropre(pourUnPixel));
+    // ET SI LE RAPPORT VISÉ NE TIENT PAS EN MÉMOIRE, ON DESCEND L'ÉCHELLE DES
+    // PUISSANCES DE DEUX — on ne rogne pas.
+    //
+    // C'est le second temps de la règle, et il manquait. Un document montré
+    // très grand demande un rapport 2 qui crève le plafond de pixels ; le
+    // rognage qui suivait rendait alors un rapport bâtard — 1,65 mesuré sur un
+    // tableau rouvert — c'est-à-dire MOINS net que le 1,07 d'avant, tout en
+    // pesant plus lourd. On préfère redescendre à 1, qui est à la fois le plus
+    // net de tous (pente 0,625 contre 0,596 pour 2) et le plus léger.
+    //
+    // Le plancher du papier cède ici devant le plafond de mémoire, et c'est le
+    // bon ordre : on ne peut pas réserver ce qu'on n'a pas, et un document
+    // montré assez grand pour saturer la mémoire a de toute façon des pixels
+    // de reste pour le papier.
+    let m = rapportPropre(pourUnPixel);
+    while (m > 1) {
+        const e = Math.min(FINESSE_MAX, pourUnPixel * m);
+        if (nature.width * e * nature.height * e <= PIXELS_MAX) break;
+        m /= 2;
+    }
+    let voulue = Math.min(FINESSE_MAX, pourUnPixel * m);
     const trop = Math.sqrt((nature.width * nature.height * voulue * voulue) / PIXELS_MAX);
     if (trop > 1) voulue = voulue / trop;
     // LA CIBLE EST DISCRÈTE, DONC LA MARGE PEUT ÊTRE ÉTROITE. L'ancienne
