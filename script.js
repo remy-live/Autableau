@@ -4883,10 +4883,73 @@ function poserDuPapierSous(toile) {
 }
 window.poserDuPapierSous = poserDuPapierSous;
 
+// ==============================================================================
+// SUR DU PAPIER, L'ENCRE BLANCHE N'EXISTE PAS
+//
+// En mode nuit, le tableau est sombre et l'encre claire : c'est juste à
+// l'écran. Mais une feuille sort BLANCHE, et « generateSVGString » y écrivait
+// « fill="#ffffff" » — pour les traits comme pour chaque morceau de texte. Le
+// professeur imprimait une page vide et croyait à une panne.
+//
+// On ne touche pas à « clarteDUneCouleur », qui sert à conseiller le
+// professeur à l'écran. Et surtout, on ne la laisse pas répondre « je ne sais
+// pas » : elle n'accepte que les six chiffres hexadécimaux, alors que ce
+// fichier émet « #fff » et « #000 » à trois. C'est le piège de cette
+// correction, et il est traité ici, une fois, au lieu d'être oublié deux fois.
+//
+// Les blancs VOULUS ne passent pas par ici : le remplissage d'une forme
+// (« fillColor »), le fond d'un cadre, l'intérieur d'une bulle. Un cadre blanc
+// sur du papier blanc reste un cadre blanc — c'est ce que le professeur a
+// demandé, et sa bordure, elle, est de l'encre.
+// ==============================================================================
+const ENCRE_SUR_PAPIER = '#2d3436';
+function encrePourLePapier(couleur, surPapier) {
+    if (!surPapier) return couleur;
+    const brut = String(couleur || '').trim();
+    // Les trois chiffres hexadécimaux, que « clarteDUneCouleur » refuse.
+    const court = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(brut);
+    let hex = court ? ('#' + court[1] + court[1] + court[2] + court[2] + court[3] + court[3]) : brut;
+    // ET « rgb() », QUI EST LA FORME LA PLUS FRÉQUENTE — c'est celle-là que
+    // j'avais oubliée, et l'oubli rendait la correction INOPÉRANTE SUR LE
+    // TEXTE, c'est-à-dire sur l'essentiel.
+    //
+    // Mesuré : un morceau de texte écrit « style="color: #ffffff" » dans le
+    // contenu ressort du navigateur en « rgb(255, 255, 255) », parce que le
+    // DOM normalise toute couleur relue. La feuille portait donc encore
+    // « fill="rgb(255, 255, 255)" » — du blanc sur blanc — pendant que le
+    // trait et les points, eux, étaient bien rabattus. Un demi-correctif qui
+    // avait l'air d'un correctif.
+    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(brut);
+    if (rgb) {
+        const deuxChiffres = (v) => {
+            const n = Math.max(0, Math.min(255, Math.round(parseFloat(v))));
+            return (n < 16 ? '0' : '') + n.toString(16);
+        };
+        hex = '#' + deuxChiffres(rgb[1]) + deuxChiffres(rgb[2]) + deuxChiffres(rgb[3]);
+    }
+    const clarte = clarteDUneCouleur(hex);
+    // Une couleur qu'on ne sait pas lire (un nom, un rgba) n'est pas rabattue :
+    // mieux vaut la laisser telle quelle que de repeindre ce qu'on ignore.
+    if (clarte === null) return couleur;
+    // Le seuil est celui que le dépôt emploie déjà pour dire à l'écran qu'une
+    // encre se perd sur son fond (voir « encreLisibleSurLeFond ») : on n'en
+    // invente pas un second.
+    if (clarte <= 0.75) return couleur;
+    return ENCRE_SUR_PAPIER;
+}
+window.encrePourLePapier = encrePourLePapier;
+
 function generateSVGString(rect, keepBg) {
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${rect.w} ${rect.h}" width="${rect.w}" height="${rect.h}">`;
 
-    if (keepBg) {
+    // LE TROISIÈME ÉTAT DU FOND. « keepBg » valait oui ou non ; il vaut
+    // maintenant aussi « papier », et alors la feuille est BLANCHE quoi qu'il
+    // arrive — un tableau noir imprimé est une faute, et c'est le détail qui
+    // décide si la fonction sert ou non.
+    const surPapier = (keepBg === 'papier');
+    if (surPapier) {
+        svg += `<rect x="0" y="0" width="${rect.w}" height="${rect.h}" fill="#ffffff"/>`;
+    } else if (keepBg) {
         let bgColor = (backgrounds[currentBgIndex] === 'millimetre') ?
             (isDarkMode ? '#2d3436' : bgColors.millimetre) :
             (isDarkMode ? '#1e272e' : bgColors.default);
@@ -4949,7 +5012,7 @@ function generateSVGString(rect, keepBg) {
         const alphaObjet = (obj.opacity === undefined) ? 1
             : Math.max(0, Math.min(1, obj.opacity));
         const avantCetObjet = svg.length;
-        const color = obj.strokeColor || obj.color || (isDarkMode ? '#fff' : '#000');
+        const color = encrePourLePapier(obj.strokeColor || obj.color || (isDarkMode ? '#fff' : '#000'), surPapier);
         const w = obj.width || 3;
         const dash = getDash(obj.dash, w);
         const fill = obj.isFilled ? hexToRgba(obj.fillColor || obj.color, obj.fillOpacity || 0.2) : 'none';
@@ -5308,7 +5371,7 @@ function generateSVGString(rect, keepBg) {
                             const fw = (seg.style.bold || L.bold) ? 'bold' : 'normal';
                             const fs = seg.style.italic ? 'italic' : 'normal';
                             const td = seg.style.underline ? 'underline' : 'none';
-                            const fc = seg.style.color || color;
+                            const fc = encrePourLePapier(seg.style.color || color, surPapier);
                             const ff = seg.style.fontFamily ? ` font-family="${seg.style.fontFamily}"` : '';
                             const sz = seg.style.fontSize ? ` font-size="${seg.style.fontSize * (L.size / (obj.fontSize || 24))}px"` : '';
                             const escapedText = seg.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -5720,10 +5783,122 @@ document.getElementById('btn-cancel-export').addEventListener('click', () => {
 
 
 
+// ==============================================================================
+// IMPRIMER, C'EST L'EXPORT PDF PLUS UN BOUTON
+//
+// « 0 window.print(), 0 @media print » : un professeur qui prépare un exercice
+// au tableau et veut le distribuer sur papier n'avait aucun chemin. Mais il n'y
+// a presque rien à écrire, parce que tout existe :
+//
+//   — « exportAllPagesPdf » sort déjà UNE FEUILLE PAR PAGE d'un polycopié
+//     feuilletable, chacune avec ses propres annotations ;
+//   — « pdf.autoPrint() » est dans la bibliothèque livrée : elle pose
+//     « /OpenAction /Print » dans le fichier, et tout lecteur — y compris
+//     celui du navigateur — ouvre la boîte d'impression à l'ouverture.
+//
+// On n'emploie PAS « window.print() » : le tableau est peint sur un canevas,
+// une feuille de style d'impression n'aurait rien à mettre en page, et la
+// fenêtre du navigateur imprimerait l'interface avec. Le PDF, lui, sait déjà
+// ce qu'est une page.
+//
+// CE DRAPEAU EST LA SEULE CHOSE QUE L'IMPRESSION AJOUTE À L'EXPORT : il dit
+// « cette sortie va sur du papier », ce qui veut dire une feuille blanche et
+// une encre lisible (voir « encrePourLePapier »). Il est posé juste avant la
+// sortie et retiré juste après, dans un « finally » : une exception au milieu
+// ne doit pas laisser les exports suivants croire qu'ils impriment.
+// ==============================================================================
+let sortieSurPapier = false;
+window.sortieSurPapier = () => sortieSurPapier;
+
+// Le fond demandé par la sortie en cours : « papier » l'emporte sur la case à
+// cocher, qui ne parle que de l'écran.
+function fondDemandePourLaSortie() {
+    if (sortieSurPapier) return 'papier';
+    const boite = document.getElementById('export-bg');
+    return !!(boite && boite.checked);
+}
+
+// LA SEULE LIGNE QUE L'IMPRESSION AJOUTE À UN DOCUMENT.
+//
+// « autoPrint » souscrit à la fabrication du catalogue du PDF pour y poser
+// « /OpenAction /Print » : le lecteur ouvre alors la boîte d'impression tout
+// seul. C'est tout ce qu'il y a à écrire — le reste, c'est l'export PDF, qui
+// sait déjà sortir une feuille par page avec ses annotations.
+//
+// PAS DE GARDE CONTRE UN DOUBLE MARQUAGE ICI. J'en avais mis un — un
+// « WeakSet » des documents déjà marqués, parce qu'« autoPrint » appelée deux
+// fois souscrit deux fois et écrirait deux actions. Saboté, rien ne tombait,
+// et c'était juste : cette fonction est appelée UNE fois par sortie, juste
+// avant l'enregistrement, et jamais dans la boucle des pages. Un garde que
+// rien ne peut atteindre n'est pas une précaution — c'est un second endroit
+// où le code peut dériver. Si une sortie nouvelle devait un jour marquer dans
+// une boucle, c'est la boucle qu'il faudrait corriger, pas ce garde-là.
+function marquerPourImpression(pdf) {
+    if (!sortieSurPapier || !pdf || typeof pdf.autoPrint !== 'function') return;
+    pdf.autoPrint();
+}
+window.marquerPourImpression = marquerPourImpression;
+
+// LA PORTE DE L'IMPRESSION, ET ELLE N'OUVRE QU'UN CHEMIN.
+//
+// Imprimer, c'est demander la sortie PDF VECTORIELLE avec une feuille blanche.
+// Le chemin bitmap (« pdf-image ») est REFUSÉ ici, et c'est un refus assumé :
+// il photographie le canevas, donc le tableau noir et la craie blanche, et
+// rabattre l'encre dans « draw » repeindrait l'ÉCRAN sous les yeux de la
+// classe. Mieux vaut forcer le vectoriel et le dire, que tendre au professeur
+// une feuille illisible.
+//
+// « toutes les pages » quand il y a un polycopié feuilletable : c'est le
+// réglage que le professeur attend d'un « Imprimer » — une feuille par page,
+// chacune avec ses annotations. Sinon, la page courante seule.
+async function imprimerLeTableau() {
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
+        showToast("Le moteur PDF n'est pas chargé : l'impression ne peut pas être préparée.");
+        return false;
+    }
+    const popover = document.getElementById('export-popover');
+    if (popover) popover.classList.remove('visible');
+    if (typeof closeAllPopups === 'function') closeAllPopups();
+
+    const formatDAvant = (typeof selectedFormat !== 'undefined') ? selectedFormat : null;
+    const feuilletables = (typeof images !== 'undefined' ? images : []).filter(o => o && o.pluginData
+        && o.pluginData.id === 'pdfDoc' && (o.pluginData.pages || 1) > 1);
+
+    sortieSurPapier = true;
+    try {
+        if (formatDAvant === 'pdf-image') {
+            showToast("Impression : la sortie vectorielle est employée, pour que l'encre reste lisible sur le papier.");
+        }
+        selectedFormat = 'pdf';
+        if (feuilletables.length === 1 && typeof exportAllPagesPdf === 'function') {
+            await exportAllPagesPdf();
+        } else {
+            await performCapture('pdf');
+        }
+        showToast("Feuille prête : la boîte d'impression s'ouvre à l'ouverture du fichier.");
+        return true;
+    } catch (e) {
+        console.error("Impression :", e);
+        showToast("L'impression n'a pas pu être préparée.");
+        return false;
+    } finally {
+        // UN « finally », ET NON LA FIN DU « try » : une exception au milieu ne
+        // doit pas laisser les exports suivants croire qu'ils impriment.
+        sortieSurPapier = false;
+        if (formatDAvant !== null) selectedFormat = formatDAvant;
+    }
+}
+window.imprimerLeTableau = imprimerLeTableau;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('btn-imprimer');
+    if (b) b.addEventListener('click', () => imprimerLeTableau());
+});
+
 // --- 3. Fonction de Capture Améliorée (Qualité) ---
 async function performCapture(action) {
     enTrainDExporter = true;
-    const keepBg = document.getElementById('export-bg').checked;
+    const keepBg = fondDemandePourLaSortie();
 
     // Gestion de la Qualité (si le menu n'existe pas, on met 2 par défaut)
     const qualitySelect = document.getElementById('export-quality');
@@ -5831,6 +6006,7 @@ async function performCapture(action) {
             const dataUrl = targetCanvas.toDataURL("image/jpeg", 1.0);
             const pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
             pdf.addImage(dataUrl, 'JPEG', 0, 0, rw, rh);
+            marquerPourImpression(pdf);
             pdf.save(`AuTableau_${Date.now()}.pdf`);
             return true;
         };
@@ -5951,9 +6127,11 @@ async function performCapture(action) {
                         } catch (err) {
                             console.error("Erreur hybrid:", err);
                             showToast("Erreur lors de la fusion vectorielle.");
+                            marquerPourImpression(pdfObj);
                             pdfObj.save(`AuTableau_Vect_${Date.now()}.pdf`);
                         }
                     } else {
+                        marquerPourImpression(pdfObj);
                         pdfObj.save(`AuTableau_Vect_${Date.now()}.pdf`);
                         showToast("Fichier PDF vectoriel exporté !");
                     }
@@ -6190,7 +6368,7 @@ async function exportAllPagesPdf() {
 
         const qualitySelect = document.getElementById('export-quality');
         const qualityScale = qualitySelect ? parseInt(qualitySelect.value) : 2;
-        const keepBg = document.getElementById('export-bg').checked;
+        const keepBg = fondDemandePourLaSortie();
 
         // 1. On sécurise et mémorise l'état de départ
         syncPage();
@@ -6337,6 +6515,7 @@ async function exportAllPagesPdf() {
 
         draw();
 
+        marquerPourImpression(pdf);
         pdf.save(`AuTableau_Complet_${Date.now()}.pdf`);
         showToast("✅ PDF Multi-pages téléchargé !");
 }
@@ -6591,6 +6770,7 @@ const RACCOURCIS_PARTOUT = [
     { touche: 'Ctrl+D', nom: 'Dupliquer la sélection',
       bouton: ['btn-quick-duplicate'] },
     { touche: 'Ctrl+A', nom: 'Tout sélectionner' },
+    { touche: 'Ctrl+P', nom: 'Imprimer', bouton: ['btn-imprimer'] },
     { touche: 'Suppr', nom: 'Effacer la sélection', bouton: ['btn-quick-delete'] },
     { touche: 'Espace', nom: 'Panoramique (maintenir)' },
     { touche: 'Échap', nom: 'Revenir à la sélection', bouton: ['exit-focus-cross'] },
@@ -31457,6 +31637,18 @@ window.addEventListener('keydown', (e) => {
         && (e.key === 'L' || e.key === 'l') && laToucheLEstANous()) {
         e.preventDefault(); e.stopPropagation();
         presenterLeDocument();
+        return;
+    }
+
+    // CTRL+P : LA FEUILLE DU TABLEAU, ET NON CELLE DU NAVIGATEUR. Sans
+    // « preventDefault », les deux impressions partaient — la nôtre et celle
+    // de la page, qui aurait imprimé l'interface. On l'intercepte ici, à côté
+    // du Ctrl+L, et non dans la table des raccourcis de frappe : celle-là rend
+    // la main dès qu'une touche de commande est enfoncée.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+        && (e.key === 'P' || e.key === 'p')) {
+        e.preventDefault(); e.stopPropagation();
+        if (typeof imprimerLeTableau === 'function') imprimerLeTableau();
         return;
     }
 
