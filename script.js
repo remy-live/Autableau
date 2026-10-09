@@ -5244,14 +5244,14 @@ function generateSVGString(rect, keepBg) {
 
                     // Export du texte
                     lines.forEach((L) => {
-                        const lineY = obj.y + L.y + (L.demiInterligne !== undefined
-                            ? L.demiInterligne
-                            : (L.size * 0.1) + (L.lineHeight - L.size * 1.2) / 2);
+                        // Même raison qu'à l'écran : la mise en page le pose
+                        // toujours, et ce repli recopiait sa formule pour rien.
+                        const lineY = obj.y + L.y + L.demiInterligne;
                         // MÊME CONVENTION QU'À L'ÉCRAN : la ligne de base. Un
                         // « dominant-baseline: hanging » visait encore ailleurs,
                         // et une page exportée ne retombait pas sur celle qu'on
                         // avait sous les yeux.
-                        const baseSvg = lineY + (L.ascendante !== undefined ? L.ascendante : L.size * 0.9);
+                        const baseSvg = lineY + L.ascendante;   // idem
                         const alignL = L.align || align;
                         let curX = exX + L.indent;
                         if (alignL === 'center') curX = exX + (maxW - L.contentW) / 2;
@@ -13582,8 +13582,12 @@ function ouvrirLaSaisie(vise, pos, cadre) {
         // la barre pendant qu'on ecrivait en 21, et le panneau du texte disait
         // encore autre chose.
         const t = Math.max(9, Math.min(72, Math.round(zone.h * 0.78)));
-        if (typeof reglerTailleTexte === 'function') reglerTailleTexte(t, 'zone');
-        else { activeStyle.fontSize = t; activeStyle.lineHeight = Math.round(t * 1.2); }
+        // Le « else » qui était ici posait la taille à la main, et c'est
+        // exactement ce que le commentaire ci-dessus interdit. Il ne pouvait
+        // de toute façon jamais s'exécuter : « reglerTailleTexte » est une
+        // fonction déclarée au premier niveau de ce fichier, « typeof » vaut
+        // donc toujours « function ». Saboté, rien ne tombait.
+        reglerTailleTexte(t, 'zone');
     }
     const interligne = activeStyle.lineHeight || Math.round(activeStyle.fontSize * 1.2);
     // UNE BOÎTE DESSINÉE COMMENCE À SON COIN, et non au milieu d'une ligne : on
@@ -16383,9 +16387,14 @@ function draw() {
                             // Le demi-interligne : le DOM centre chaque ligne dans sa
                             // line-box, on compense pour retomber sur la saisie
                             const grande = L.tailleMax || L.size;
-                            const lineY = obj.y + L.y + (L.demiInterligne !== undefined
-                                ? L.demiInterligne
-                                : (grande * 0.1) + (L.lineHeight - grande * 1.2) / 2);
+                            // UN SEUL CALCUL DU DEMI-INTERLIGNE, ET IL EST
+                            // DANS LA MISE EN PAGE. Le repli qui était ici
+                            // recopiait la formule — « 0,1 » et « 1,2 » — pour
+                            // un cas qui n'arrive pas : « layoutTextObject »
+                            // pose « demiInterligne » SANS condition, et ce
+                            // peintre l'appelle juste avant. Saboté à 99,
+                            // aucune des 396 vérifications du texte ne tombait.
+                            const lineY = obj.y + L.y + L.demiInterligne;
                             // Taille et police propres au segment (sélection partielle)
                             const tailleDe = (st) => (st && st.fontSize) ? st.fontSize * (L.size / (obj.fontSize || 24)) : L.size;
                             const setFont = (st) => {
@@ -16396,7 +16405,7 @@ function draw() {
                             // ce que « les segments partagent la même ligne de
                             // base » veut dire, et l'ancienne formule ne faisait
                             // que l'approcher en alignant les hauts.
-                            const asc = (L.ascendante !== undefined) ? L.ascendante : grande * 0.9;
+                            const asc = L.ascendante;   // posée sans condition par la mise en page
                             const baseLigne = lineY + asc;
                             const basY = () => baseLigne;
                             // Le haut du segment, pour ce qui se mesure depuis
