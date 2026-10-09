@@ -308,17 +308,153 @@ module.exports = async function (browser) {
         const li = wysiwygText.querySelector('li');
         const bord = Math.round(wysiwygText.getBoundingClientRect().left);
         const dansLaBoite = li ? Math.round(li.getBoundingClientRect().left) - bord : null;
+        // LE TEXTE, PAS LA BOÎTE. La boîte du « li » tombait juste et c'est
+        // pour cela que ma première version de cette mesure passait : elle ne
+        // regardait pas où le TEXTE commence. Or la puce est dans la
+        // GOUTTIÈRE, à gauche du bloc — « list-style-position » vaut
+        // « outside » et rien ne le contredit —, donc le texte part au cran,
+        // pas après la puce.
+        const marche = document.createTreeWalker(li || wysiwygText, NodeFilter.SHOW_TEXT);
+        let noeud = null;
+        while (marche.nextNode()) {
+            if ((marche.currentNode.textContent || '').trim()) { noeud = marche.currentNode; break; }
+        }
+        let texteDansLaBoite = null;
+        if (noeud) {
+            const r = document.createRange();
+            r.selectNodeContents(noeud);
+            texteDansLaBoite = Math.round(r.getBoundingClientRect().left) - bord;
+        }
+        const puceDansLaBoite = li ? Math.round(li.getBoundingClientRect().left) - bord : null;
         finalizeText(); setMode('pointer'); draw();
         const t = texts[0];
         const L = t ? layoutTextObject(t, canvas.getContext('2d')).lines[0] : null;
-        return { dansLaBoite, puce: L ? L.marker : null,
+        return { dansLaBoite, texteDansLaBoite, puceDansLaBoite, puce: L ? L.marker : null,
                  surLeTableau: L ? Math.round(L.indent || 0) : null,
+                 texteSurLeTableau: L ? Math.round(L.indent || 0) : null,
+                 largeurDeLaPuce: L ? Math.round(L.markerW || 0) : null,
                  contenu: t ? (t.content || '').slice(0, 80) : null };
     });
     r.verifie('UNE PUCE SE RETROUVE AU MÊME CRAN DANS LA BOÎTE ET SUR LE TABLEAU',
         liste.dansLaBoite > 10 && liste.surLeTableau > 10
         && Math.abs(liste.dansLaBoite - liste.surLeTableau) <= 2,
         JSON.stringify(liste));
+    // ET SON TEXTE AUSSI — MESURÉ SUR L'ENCRE, PAS SUR UN CHAMP.
+    //
+    // Mesuré avant correction : le texte part à 34 px dans la boîte et à 49 px
+    // sur le tableau — la largeur de « • » plus une espace. Le professeur tape
+    // « - premier », voit le mot au cran, valide, et le mot saute de quinze
+    // pixels vers la droite. À chaque ligne de chaque liste.
+    //
+    // POURQUOI L'ENCRE ET NON « L.indent ». Les DEUX peintres — celui du
+    // canevas et celui de l'export SVG — calculent eux-mêmes où commencer, et
+    // avançaient de la largeur de la puce avant d'écrire. Comparer la boîte à
+    // un champ de la mise en page aurait donc été vert aujourd'hui, sur un
+    // tableau visiblement faux : c'est l'erreur que j'ai déjà commise deux
+    // fois dans cette séance. On lit donc les pixels : la première trace est
+    // la puce, la seconde le texte.
+    const encre = await page.evaluate(() => {
+        const t = texts[0];
+        const L = layoutTextObject(t, canvas.getContext('2d')).lines[0];
+        const ctx = canvas.getContext('2d');
+        // La bande de la ligne, en pixels de l'écran (zoom 1, aucun décalage).
+        const haut = Math.max(0, Math.floor(t.y - 4));
+        const hauteur = Math.ceil((L.lineHeight || 30) + 10);
+        const d = ctx.getImageData(0, haut, canvas.width, hauteur).data;
+        const fond = [d[0], d[1], d[2]];
+        const difference = (i) => Math.abs(d[i] - fond[0]) + Math.abs(d[i + 1] - fond[1]) + Math.abs(d[i + 2] - fond[2]);
+        const colonnes = [];
+        for (let x = 0; x < canvas.width; x++) {
+            let encree = false;
+            for (let y = 0; y < hauteur && !encree; y++) {
+                if (difference((y * canvas.width + x) * 4) > 60) encree = true;
+            }
+            if (encree) colonnes.push(x);
+        }
+        // Les traces, groupées : un creux de trois colonnes vides les sépare.
+        const traces = [];
+        colonnes.forEach(x => {
+            const derniere = traces[traces.length - 1];
+            if (derniere && x - derniere.fin <= 3) derniere.fin = x;
+            else traces.push({ debut: x, fin: x });
+        });
+        return { bloc: Math.round(t.x), cran: Math.round(L.indent || 0),
+            largeurDeLaPuce: Math.round(L.markerW || 0),
+            puceEncree: traces[0] ? traces[0].debut - Math.round(t.x) : null,
+            texteEncre: traces[1] ? traces[1].debut - Math.round(t.x) : null,
+            traces: traces.length };
+    });
+    // La puce vit dans la gouttière : à GAUCHE du cran, d'une largeur de puce.
+    r.verifie('LA PUCE EST PEINTE DANS LA GOUTTIÈRE, à gauche du cran',
+        encre.traces >= 2 && encre.puceEncree !== null
+        && Math.abs(encre.puceEncree - (encre.cran - encre.largeurDeLaPuce)) <= 3,
+        JSON.stringify(encre));
+    // Et le texte commence AU cran, là où la boîte le met.
+    r.verifie('ET LE TEXTE EST PEINT AU CRAN, comme dans la boîte',
+        encre.texteEncre !== null && Math.abs(encre.texteEncre - encre.cran) <= 3
+        && Math.abs(encre.texteEncre - liste.texteDansLaBoite) <= 3,
+        JSON.stringify(encre) + ' | boîte ' + liste.texteDansLaBoite);
+
+    // ET LA LARGEUR DISPONIBLE SUIT LA MÊME CONVENTION.
+    //
+    // Un bloc à largeur imposée (« colWidth ») replie son texte. Dans la
+    // boîte, le texte d'une puce dispose de TOUTE la largeur du bloc moins le
+    // cran : la puce pend dans la gouttière, elle ne mange pas la colonne. Le
+    // moteur du canevas, lui, retranchait aussi la largeur de la puce — donc
+    // il repliait plus tôt, et une liste serrée ne coupait pas aux mêmes mots
+    // des deux côtés.
+    //
+    // CE SABOTAGE-LÀ NE TOMBAIT NULLE PART : aucun contrôle du dépôt ne fait
+    // replier une liste. C'est pour cela que cette vérification existe.
+    const repli = await page.evaluate(() => {
+        if (typeof finalizeText === 'function') finalizeText();
+        texts.length = 0; selectedItems = []; setMode('pointer');
+        const LARGEUR = 150;
+        const t = { id: 'REPLI', type: 'text', x: 300, y: 500, fontSize: 24, lineHeight: 29,
+            content: '<ul><li>alpha beta gamma delta epsilon</li></ul>',
+            color: '#2d3436', fontFamily: 'sans-serif', align: 'left', opacity: 1, z: 1,
+            colWidth: LARGEUR };
+        texts.push(t); draw();
+        const lignes = layoutTextObject(t, canvas.getContext('2d')).lines
+            .map(L => (L.segs || []).map(s => s.text).join(''));
+
+        // La même largeur, le même texte, mis en page par le navigateur.
+        const clone = document.getElementById('wysiwyg-text').cloneNode(false);
+        Object.assign(clone.style, { display: 'block', position: 'absolute', left: '-9999px',
+            fontSize: '24px', fontFamily: 'sans-serif', whiteSpace: 'pre-wrap', width: LARGEUR + 'px' });
+        clone.style.lineHeight = String(29 / 24);
+        clone.style.setProperty('--tt-lh', '29px');
+        clone.innerHTML = t.content;
+        document.body.appendChild(clone);
+        // Où le navigateur coupe : on relève le haut de chaque mot.
+        const li = clone.querySelector('li');
+        const marche = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
+        const parLigne = new Map();
+        while (marche.nextNode()) {
+            const n = marche.currentNode;
+            const mots = (n.textContent || '').split(/(\s+)/);
+            let pos = 0;
+            mots.forEach(m => {
+                if (m.trim()) {
+                    const r = document.createRange();
+                    r.setStart(n, pos); r.setEnd(n, pos + m.length);
+                    const haut = Math.round(r.getBoundingClientRect().top);
+                    if (!parLigne.has(haut)) parLigne.set(haut, []);
+                    parLigne.get(haut).push(m);
+                }
+                pos += m.length;
+            });
+        }
+        document.body.removeChild(clone);
+        const dansLaBoite = [...parLigne.entries()].sort((a, b) => a[0] - b[0]).map(e => e[1].join(' '));
+        texts.length = 0; draw();
+        return { surLeTableau: lignes.map(s => s.trim()), dansLaBoite };
+    });
+    r.verifie('UNE LISTE SERRÉE COUPE AUX MÊMES MOTS DANS LA BOÎTE ET SUR LE TABLEAU',
+        repli.surLeTableau.length > 1
+        && repli.surLeTableau.length === repli.dansLaBoite.length
+        && repli.surLeTableau.every((l, i) => l === repli.dansLaBoite[i]),
+        JSON.stringify(repli));
 
     // On revient au bloc de Tab pour la mesure suivante.
     await page.evaluate(() => {

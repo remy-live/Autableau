@@ -39,7 +39,7 @@ const MESURE_HTML = `(() => {
     // Repère commun aux deux rendus : le haut de la ligne, c'est-à-dire le haut
     // du plus gros morceau (côté canvas, c'est exactement « y » de la ligne).
     return lignes.sort((a, b) => a.haut - b.haut)
-        .map(L => ({ top: L.haut, largeur: L.droite - L.gauche, couleurs: L.couleurs, taille: L.taille }));
+        .map(L => ({ top: L.haut, gauche: L.gauche, largeur: L.droite - L.gauche, couleurs: L.couleurs, taille: L.taille }));
 })()`;
 
 // Mêmes mesures, côté tableau
@@ -59,7 +59,17 @@ const MESURE_CANVAS = `(() => {
         base: t.fontSize,
         lignes: lay.lines.map(L => ({
             top: L.y,
-            largeur: L.contentW - (L.markerW || 0),
+            // Où le TEXTE commence : le cran. La puce vit dans la gouttière,
+            // à gauche, et n'entre donc pas dans ce repère (voir « markerW »
+            // dans layoutTextObject).
+            gauche: L.indent || 0,
+            // « contentW » EST la largeur du texte, et c'est exactement ce que
+            // mesure le côté DOM. La soustraction qui était ici défaisait
+            // l'ancienne convention, où la puce était comptée comme du contenu
+            // — convention abandonnée le jour où l'on a mesuré que le texte
+            // d'une puce partait quinze pixels trop à droite sur le tableau.
+            // Une correction de moins des deux côtés, la même grandeur comparée.
+            largeur: L.contentW,
             couleurs: Array.from(new Set(L.segs.filter(s => s.text.trim()).map(s => enRgb((s.style && s.style.color) || t.color)))),
             taille: L.tailleMax || L.size
         }))
@@ -91,7 +101,7 @@ module.exports = async function (browser) {
         r.egal(`${nom} : même nombre de lignes`, canvas.lignes.length, html.length);
 
         const n = Math.min(canvas.lignes.length, html.length);
-        let largeurOk = true, espaceOk = true, couleurOk = true, tailleOk = true;
+        let largeurOk = true, espaceOk = true, couleurOk = true, tailleOk = true, departOk = true;
         let detail = '';
         for (let i = 0; i < n; i++) {
             const c = canvas.lignes[i], h = html[i];
@@ -103,6 +113,20 @@ module.exports = async function (browser) {
                 const dh = h.top - html[0].top;
                 if (Math.abs(dc - dh) > 1.5) { espaceOk = false; detail += `L${i + 1} écart ${dc.toFixed(1)} vs ${dh.toFixed(1)}; `; }
             }
+            // ET LA MÊME CHOSE À L'HORIZONTALE, qui manquait : ce chapitre
+            // comparait les hauteurs, les largeurs, les couleurs et les
+            // tailles — jamais le point de DÉPART d'une ligne. C'est ainsi
+            // qu'un retrait de liste a pu diverger de quinze pixels sans que
+            // rien ne tombe. Comme pour le vertical, on compare l'écart à la
+            // PREMIÈRE ligne : les deux rendus ne partent pas du même repère
+            // absolu, mais leurs décalages internes doivent se répondre.
+            {
+                const gc = (c.gauche || 0) - (canvas.lignes[0].gauche || 0);
+                const gh = (h.gauche || 0) - (html[0].gauche || 0);
+                if (Math.abs(gc - gh) > 1.5) {
+                    departOk = false; detail += `L${i + 1} départ ${gc.toFixed(1)} vs ${gh.toFixed(1)}; `;
+                }
+            }
             if (c.couleurs.sort().join('|') !== h.couleurs.sort().join('|')) {
                 couleurOk = false; detail += `L${i + 1} couleurs ${c.couleurs} vs ${h.couleurs}; `;
             }
@@ -112,6 +136,7 @@ module.exports = async function (browser) {
         }
         r.verifie(`${nom} : largeur des lignes`, largeurOk, detail);
         r.verifie(`${nom} : espacement des lignes`, espaceOk, detail);
+        r.verifie(`${nom} : position horizontale des lignes`, departOk, detail);
         r.verifie(`${nom} : couleurs`, couleurOk, detail);
         r.verifie(`${nom} : tailles`, tailleOk, detail);
     }

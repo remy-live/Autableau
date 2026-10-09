@@ -5263,10 +5263,11 @@ function generateSVGString(rect, keepBg) {
                         const ecart = resteAJustifier(L, alignL, maxW);
                         let apresUnEspace = false;
 
+                        // La même convention qu'à l'écran : la puce dans la
+                        // gouttière, le texte au cran.
                         if (L.marker) {
-                            svg += `<text x="${curX}" y="${baseSvg}" font-family="${fontFamily}" font-size="${L.size}px" font-weight="${L.bold ? 'bold' : 'normal'}" fill="${color}" xml:space="preserve">${L.marker}</text>`;
+                            svg += `<text x="${curX - L.markerW}" y="${baseSvg}" font-family="${fontFamily}" font-size="${L.size}px" font-weight="${L.bold ? 'bold' : 'normal'}" fill="${color}" xml:space="preserve">${L.marker}</text>`;
                         }
-                        curX += L.markerW;
 
                         svg += `<text x="${curX}" y="${baseSvg}" font-family="${fontFamily}" font-size="${L.size}px" xml:space="preserve">`;
                         L.segs.forEach(seg => {
@@ -11533,7 +11534,26 @@ function layoutTextObject(obj, measureCtx) {
         if (p.factor > 1 && lines.length > 0) y += baseLH * 0.4;
         const indentPx = (p.indent || 0) * size * RETRAIT_PAR_CRAN;
         const markerW = p.marker ? measure(p.marker + ' ', { bold: p.bold }, size) : 0;
-        const avail = col > 0 ? Math.max(size, col - indentPx - markerW) : Infinity;
+        // LA PUCE VIT DANS LA GOUTTIÈRE, ELLE N'EST PAS UNE RALLONGE.
+        //
+        // Le navigateur la pose À GAUCHE du bloc — « list-style-position »
+        // vaut « outside » par défaut et rien ne le contredit —, de sorte que
+        // le texte d'un élément de liste commence AU CRAN. Ce moteur, lui,
+        // comptait la puce comme du contenu : il la peignait au cran, puis
+        // avançait de sa largeur avant d'écrire.
+        //
+        // Mesuré sur l'encre, avant : la puce peinte à 34 px du bloc et le
+        // texte à 50, quand la boîte de saisie met son texte à 34. Le
+        // professeur tape « - premier », voit le mot au cran, valide, et le mot
+        // saute de quinze pixels vers la droite — à chaque ligne de chaque
+        // liste. C'était la divergence la plus fréquente des deux moteurs.
+        //
+        // La correction n'ajoute aucune constante : le canevas adopte la
+        // convention que le navigateur applique déjà. La largeur disponible
+        // cesse donc d'être amputée de la puce, et la largeur de contenu ne la
+        // compte plus — c'est elle qui sert à centrer et à ferrer à droite, et
+        // la puce n'y participe pas davantage dans la boîte.
+        const avail = col > 0 ? Math.max(size, col - indentPx) : Infinity;
 
         const lignesDuPara = wrap(p, avail, size);
         lignesDuPara.forEach((segs, i) => {
@@ -11546,7 +11566,9 @@ function layoutTextObject(obj, measureCtx) {
             const lhLigne = (tailleMax > size) ? lh * (tailleMax / size) : lh;
             // Le navigateur centre la ligne dans son interligne : on fait pareil.
             const demiInterligne = (lhLigne - hauteurNaturelle(tailleMax, { bold: p.bold })) / 2;
-            const contentW = (i === 0 ? markerW : markerW) + segsW; // le retrait de continuation garde la gouttière
+            // Le ternaire qui était ici rendait la même chose dans ses deux
+            // branches, et son commentaire décrivait une intention abandonnée.
+            const contentW = segsW;
             maxW = Math.max(maxW, indentPx + contentW);
             lines.push({
                 segs, size, lineHeight: lhLigne, y,
@@ -16393,12 +16415,16 @@ function draw() {
                             else if (alignL === 'right') curX = startX + w - L.contentW;
                             const ecart = resteAJustifier(L, alignL, w);
 
+                            // La puce se peint DANS LA GOUTTIÈRE, à gauche du
+                            // cran, et l'on n'avance pas : le texte commence au
+                            // cran, comme dans la boîte de saisie. (Voir le
+                            // long commentaire auprès de « markerW », dans
+                            // layoutTextObject.)
                             if (L.marker) {
                                 setFont({ bold: L.bold });
                                 ctx.fillStyle = renderColor;
-                                ctx.fillText(L.marker, curX, basY({}));
+                                ctx.fillText(L.marker, curX - L.markerW, basY({}));
                             }
-                            curX += L.markerW;
 
                             L.segs.forEach(seg => {
                                 setFont(seg.style);

@@ -99,7 +99,15 @@ module.exports = async function (browser) {
             ['titre + corps', '<h1>Titre</h1><div>corps</div>'],
             ['sous-titre', '<h2>Sous-titre</h2><div>corps</div>'],
             ['liste', '<ul><li>un</li><li>deux</li></ul>'],
-            ['titre + liste', '<h1>Titre</h1><ul><li>un</li><li>deux</li></ul>']
+            ['titre + liste', '<h1>Titre</h1><ul><li>un</li><li>deux</li></ul>'],
+            // UN TITRE QUI N'OUVRE PAS LE BLOC. Les six cas ci-dessus mettent
+            // tous le titre en PREMIÈRE position — et là, « h1:first-child »
+            // d'un côté et « lines.length > 0 » de l'autre mettent tous deux
+            // l'air à zéro. L'air avant un titre (0,4 interligne, écrit dans
+            // les deux fichiers) n'était donc mesuré nulle part. Ce cas-ci est
+            // le seul qui le traverse.
+            ['corps puis titre', '<div>corps</div><h1>Titre</h1>'],
+            ['corps, titre, corps', '<div>avant</div><h2>Milieu</h2><div>après</div>']
         ];
         return cas.map(([nom, h]) => {
             texts.length = 0;
