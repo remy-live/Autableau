@@ -17955,6 +17955,60 @@ function rendreLaPage(d, numero) {
 // ---------------------------------------------------
 const FINESSE_MAX = 12;             // au plus douze fois la taille naturelle
 const PIXELS_MAX = 16e6;            // et jamais une image démesurée
+
+// ==============================================================================
+// CE N'EST PAS LE NOMBRE DE PIXELS QUI REND UNE PAGE NETTE, C'EST LE RAPPORT
+//
+// « Le PDF inclus n'est pas très précis, je trouve qu'il fait un peu flou. »
+// On cherchait du côté de la densité de l'écran et du codec de l'image : les
+// deux sont hors de cause. Le JPEG ne perd rien d'appréciable sur du trait
+// (erreur moyenne 0,03 sur 256, 224 pixels sur 6,3 millions écartés de plus de
+// 16), et la lisseuse du canevas est déjà réglée au plus fin.
+//
+// LE DÉFAUT EST QU'IL Y AVAIT TROP DE PIXELS, et d'un rapport bâtard. Une page
+// gardée à 2975 pixels de large et montrée sur 1196 oblige le navigateur à
+// réduire de 2,49 — un rapport qu'il ne sait pas faire proprement. Il réduit
+// par MOITIÉS successives : une moitié, un quart, un huitième se moyennent
+// exactement quatre pixels en un ; tout le reste s'interpole, et c'est ce flou
+// que l'on voyait.
+//
+// Mesuré sur une page dense, à la même taille d'affichage (pente moyenne entre
+// pixels voisins — plus elle est forte, plus l'arête est franche) :
+//
+//     rapport 1     pente 0,625     1196 px gardés      24 ko
+//     rapport 2     pente 0,596     2392 px             63 ko
+//     rapport 2,49  pente 0,510     2978 px             87 ko   ← avant
+//     rapport 3     pente 0,545     3588 px            115 ko
+//     rapport 4     pente 0,614     4784 px            181 ko
+//
+// La courbe est en U, et elle ne suit pas la quantité de pixels : 3 ne vaut
+// pas mieux que 2,49, et 4 rattrape seulement parce qu'il est une puissance de
+// deux. On vise donc un rapport EN PUISSANCE DE DEUX, et le plus petit qui
+// convienne.
+//
+// DEUX CONTRAINTES, ET ELLES TIRENT EN SENS INVERSE :
+//   — l'écran veut le plus petit rapport propre, pour la netteté et le poids ;
+//   — le PAPIER veut des pixels : l'export et l'impression réutilisent cette
+//     même image (« generateSVGString » y met « obj.src »), et un document
+//     montré petit à l'écran doit quand même s'imprimer. D'où un plancher en
+//     multiples de la page, pas de l'écran.
+//
+// Deux fois la page, c'est 288 points par pouce sur un A4 — au-delà de ce que
+// l'œil distingue sur du papier, et le quart de moins qu'avant ne s'y voit
+// pas. Un document montré tout petit, lui, prendra un rapport 8 ou 16 : il
+// reste propre à l'écran ET imprimable.
+const MULTIPLE_MIN = 2;             // toujours de la marge pour zoomer d'un cran
+const FINESSE_PLANCHER = 2;         // et jamais moins de deux fois la page : le papier
+
+// Le plus petit rapport en puissance de deux qui tienne les deux contraintes.
+function rapportPropre(pourUnPixel) {
+    if (!(pourUnPixel > 0)) return MULTIPLE_MIN;
+    let m = MULTIPLE_MIN;
+    while (pourUnPixel * m < FINESSE_PLANCHER && m < 64) m *= 2;
+    return m;
+}
+window.rapportPropre = rapportPropre;
+// ==============================================================================
 let affinageDemande = null;
 
 // Combien de pixels d'écran pour un pixel d'image ? Au-delà de 1, on étire.
@@ -18012,17 +18066,30 @@ async function affinerLaPage(obj) {
     const echelle = (ancienne && ancienne.naturalWidth && nature.width)
         ? (ancienne.naturalWidth / nature.width)
         : ((actuel && actuel.echelle) || currentPdfQuality);
-    // La finesse suit la demande dans LES DEUX SENS. Une page rendue six fois
-    // trop grande puis montrée petite ne fait pas une belle petite image : le
-    // navigateur jette cinq pixels sur six, et cela se voit — c'est le grain
-    // qu'on remarque en dézoomant. On ne descend pas sous la qualité de base :
-    // elle sert de socle si l'on rezoome.
-    let voulue = Math.max(currentPdfQuality, Math.min(FINESSE_MAX, echelle * besoin));
+    // La finesse suit la demande dans LES DEUX SENS — ce commentaire-ci disait
+    // déjà pourquoi, et c'est le plancher qui l'empêchait d'agir : « une page
+    // rendue six fois trop grande puis montrée petite ne fait pas une belle
+    // petite image, le navigateur jette cinq pixels sur six, et cela se voit ».
+    // C'était vrai, et cela se voyait à la taille d'affichage ORDINAIRE, où
+    // « Math.max(currentPdfQuality, …) » imposait 2,5 fois la page quoi qu'il
+    // arrive — donc un rapport de réduction de 2,49 que le navigateur ne sait
+    // pas faire proprement.
+    //
+    // On vise maintenant un rapport en puissance de deux (voir « rapportPropre »
+    // et la mesure qui l'accompagne).
+    const pourUnPixel = echelle * besoin;      // un pixel d'image pour un pixel d'écran
+    let voulue = Math.min(FINESSE_MAX, pourUnPixel * rapportPropre(pourUnPixel));
     const trop = Math.sqrt((nature.width * nature.height * voulue * voulue) / PIXELS_MAX);
     if (trop > 1) voulue = voulue / trop;
-    // Une marge de part et d'autre : sans elle, le moindre frémissement du
-    // zoom relancerait un rendu complet.
-    if (voulue <= echelle * 1.15 && echelle <= voulue * 1.6) return false;
+    // LA CIBLE EST DISCRÈTE, DONC LA MARGE PEUT ÊTRE ÉTROITE. L'ancienne
+    // laissait passer tout ce qui tenait entre « échelle / 1,6 » et
+    // « échelle × 1,15 » — une bande si large qu'elle aurait à elle seule
+    // interdit la correction ci-dessus : passer de 2,5 à 2,0 y tombait, et
+    // rien n'aurait jamais été refait. Maintenant que la cible saute d'une
+    // puissance de deux à l'autre au lieu de glisser, deux pour cent
+    // suffisent : le frémissement du zoom ne change pas le rapport, seul un
+    // franchissement le change.
+    if (Math.abs(voulue - echelle) <= echelle * 0.02) return false;
 
     const viewport = page.getViewport({ scale: voulue });
     const c = document.createElement('canvas');
