@@ -4849,6 +4849,40 @@ function recognizeShape() {
 }
 
 // --- EXPORT SVG ---
+// ==============================================================================
+// UN JPEG N'A PAS DE TRANSPARENCE : SANS BLANC DESSOUS, IL COMPOSE SUR DU NOIR
+//
+// « Garder le fond du tableau » décoché, le tableau est peint sur une toile
+// VIDÉE : c'est ce qu'il faut, et le PNG le rend fidèlement — mesuré, son coin
+// vaut [0, 0, 0, 0], transparent. Mais le JPEG ne connaît pas la transparence,
+// et le navigateur compose alors sur du NOIR. Mesuré au même instant, sur la
+// même toile : le coin du JPEG vaut [0, 0, 0, 255].
+//
+// Autrement dit : un professeur qui exporte « sans fond » pour imprimer son
+// exercice reçoit une feuille NOIRE. Une cartouche d'encre pour un exercice,
+// et une classe qui attend.
+//
+// « destination-over » peint SOUS ce qui est déjà là : l'encre n'est pas
+// touchée, et seules les zones restées vides deviennent blanches. Posé ainsi,
+// c'est sans effet quand un fond opaque a volontairement été peint — donc une
+// seule écriture couvre les deux cas, au lieu d'un « si » de plus.
+//
+// ET SUR TOUTE LA TOILE, PAS SUR LE RECTANGLE LOGIQUE : la toile d'un export
+// de qualité vaut « largeur × échelle », et remplir le rectangle logique
+// laisserait un L noir en bas et à droite.
+// ==============================================================================
+function poserDuPapierSous(toile) {
+    if (!toile) return;
+    const g = toile.getContext('2d');
+    if (!g) return;
+    g.save();
+    g.globalCompositeOperation = 'destination-over';
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, toile.width, toile.height);
+    g.restore();
+}
+window.poserDuPapierSous = poserDuPapierSous;
+
 function generateSVGString(rect, keepBg) {
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${rect.w} ${rect.h}" width="${rect.w}" height="${rect.h}">`;
 
@@ -5793,6 +5827,7 @@ async function performCapture(action) {
                 showToast("Erreur : Moteur PDF non chargé.");
                 return false;
             }
+            poserDuPapierSous(targetCanvas);
             const dataUrl = targetCanvas.toDataURL("image/jpeg", 1.0);
             const pdf = new window.jspdf.jsPDF({ orientation: rw > rh ? 'landscape' : 'portrait', unit: 'px', format: [rw, rh] });
             pdf.addImage(dataUrl, 'JPEG', 0, 0, rw, rh);
@@ -6250,6 +6285,7 @@ async function exportAllPagesPdf() {
                 const tCtx = tempC.getContext('2d');
                 tCtx.scale(qualityScale, qualityScale);
                 tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, rw, rh);
+                poserDuPapierSous(tempC);
                 pdf.addImage(tempC.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, rw, rh);
             }
         };
