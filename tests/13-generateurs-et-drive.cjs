@@ -1796,11 +1796,68 @@ module.exports = async function (browser) {
     const pageWeb = await ctxWeb.newPage();
     const errsWeb = [];
     pageWeb.on('pageerror', e => { if (!/jsPDF|pdfjsLib|localforage|accounts\.google/.test(e.message)) errsWeb.push(e.message.slice(0, 140)); });
-    // La bibliothèque Google n'est pas joignable depuis les tests : on la neutralise
-    await ctxWeb.route('https://accounts.google.com/**', route => route.fulfill({ status: 200, body: '' }));
+    // La bibliothèque Google n'est pas joignable depuis les tests : on la
+    // neutralise — ET ON COMPTE. Ce compteur est tout le sujet de la
+    // vérification qui suit : il dit combien de fois Google a été contacté.
+    let appelsAGoogle = 0;
+    await ctxWeb.route('https://accounts.google.com/**', route => {
+        appelsAGoogle++;
+        route.fulfill({ status: 200, body: '' });
+    });
     await pageWeb.goto(`http://127.0.0.1:${port}/index.html`);
     await pageWeb.waitForFunction(() => window.PluginManager && Object.keys(PluginManager.plugins).length > 50, { timeout: 20000 });
     await pageWeb.waitForTimeout(400);
+
+    // ==================================================================
+    // RIEN NE PART VERS GOOGLE AVANT QU'ON LE DEMANDE
+    //
+    // La bibliothèque de Google était chargée au DÉMARRAGE, dès que la page
+    // s'ouvrait en http(s) — donc à chaque visite du site publié, que l'on
+    // touche à Drive ou non, puisque l'identifiant client est fourni par
+    // l'installation. Cela envoyait à « accounts.google.com » l'adresse IP du
+    // poste, le navigateur et l'adresse de la page, sans que personne l'ait
+    // demandé, dans un outil employé devant une classe.
+    //
+    // CE QUI SE MESURE ICI N'EST PAS QU'UN CHARGEMENT SOIT « PARESSEUX » :
+    // c'est le nombre d'appels, qui doit être zéro tant que le professeur n'a
+    // pas cliqué, et un ensuite. Le reste — la fonction marche toujours — est
+    // vérifié plus bas par la liste de fichiers.
+    // ==================================================================
+    const avantLeClic = await pageWeb.evaluate(() => ({
+        disponible: typeof driveDisponible === 'function' ? driveDisponible() : null,
+        contacte: typeof driveGoogleContacte === 'function' ? driveGoogleContacte() : null,
+        balise: !!document.getElementById('google-identity')
+    }));
+    r.verifie('AU DÉMARRAGE, GOOGLE N\'A PAS ÉTÉ CONTACTÉ UNE SEULE FOIS',
+        appelsAGoogle === 0 && avantLeClic.contacte === false && avantLeClic.balise === false,
+        appelsAGoogle + ' appel(s) — ' + JSON.stringify(avantLeClic));
+    r.verifie('et Drive est pourtant bien disponible : on n\'a rien désactivé',
+        avantLeClic.disponible === true, JSON.stringify(avantLeClic));
+
+    // Le premier clic sur la source, lui, doit joindre Google — et le dire.
+    await pageWeb.evaluate(() => {
+        const bac = document.getElementById('toast-container');
+        if (bac) bac.innerHTML = '';
+        if (typeof ouvrirExplorateur === 'function') ouvrirExplorateur('drive');
+    });
+    await pageWeb.waitForFunction(() => !!document.getElementById('google-identity'), null, { timeout: 8000 })
+        .catch(() => { /* mesuré ci-dessous */ });
+    await pageWeb.waitForTimeout(400);
+    const apresLeClic = await pageWeb.evaluate(() => ({
+        contacte: typeof driveGoogleContacte === 'function' ? driveGoogleContacte() : null,
+        dit: (document.getElementById('toast-container') || {}).textContent || ''
+    }));
+    r.verifie('LE PREMIER CLIC SUR DRIVE JOINT GOOGLE, et l\'annonce au professeur',
+        appelsAGoogle >= 1 && apresLeClic.contacte === true
+        && /contacte Google/i.test(apresLeClic.dit),
+        appelsAGoogle + ' appel(s) — ' + JSON.stringify(apresLeClic));
+
+    await pageWeb.evaluate(() => {
+        if (typeof Explorateur !== 'undefined' && Explorateur.fermer) Explorateur.fermer();
+        const bac = document.getElementById('toast-container');
+        if (bac) bac.innerHTML = '';
+    });
+    await pageWeb.waitForTimeout(200);
 
     const enLigne = await pageWeb.evaluate(() => {
         const b = document.getElementById('btn-drive');
