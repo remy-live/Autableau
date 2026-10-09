@@ -75,6 +75,36 @@ module.exports = async function (browser) {
     });
     r.verifie('« astuce suivante » en montre une autre', suivante.avant !== suivante.apres, JSON.stringify(suivante));
 
+    // L'ASTUCE COMPTE LES OUTILS, ELLE NE LES ÉCRIT PAS.
+    //
+    // Elle annonçait « les 83 outils » quand il y en avait quatre-vingt-neuf :
+    // le nombre, écrit à la main, avait dérivé. Remplacer 83 par 89 l'aurait
+    // fait dériver au prochain outil ajouté — on le CALCULE, et l'on calcule
+    // exactement ce que la loupe cherche : les boutons de la grille qui
+    // portent un nom.
+    //
+    // CE QUI SE VÉRIFIE ICI N'EST PAS QU'UN NOMBRE S'AFFICHE, c'est qu'il est
+    // JUSTE : on compte les boutons nous-mêmes, dans le test, et l'on exige que
+    // l'astuce dise ce nombre-là. Un contrôle qui se contenterait de « il y a
+    // des chiffres » serait vert sur « les 83 outils ».
+    const compte = await page.evaluate(() => {
+        // On va chercher l'astuce qui parle de la loupe, où qu'elle soit.
+        const i = ASTUCES.findIndex(a => /loupe/i.test(a.texte));
+        if (i < 0) return { manque: 'aucune astuce ne parle de la loupe' };
+        etatAstuces.index = i;
+        montrerAstuce(true, 0);
+        const affiche = document.getElementById('astuce-texte').innerText;
+        const vrai = Array.from(document.querySelectorAll('#plugins-grid .btn'))
+            .filter(b => (b.getAttribute('data-tooltip') || b.title || '').trim()).length;
+        const lu = (affiche.match(/parmi les (\d+) outils/) || [])[1];
+        fermerAstuce();
+        return { vrai, lu: lu ? +lu : null, brut: affiche.slice(0, 90),
+                 jeton: /\{\{/.test(affiche) };
+    });
+    r.verifie('L\'ASTUCE DIT LE VRAI NOMBRE D\'OUTILS, et le compte au lieu de l\'écrire',
+        !compte.manque && compte.vrai > 50 && compte.lu === compte.vrai && !compte.jeton,
+        JSON.stringify(compte));
+
     const uneParJour = await page.evaluate(() => {
         fermerAstuce();
         const ferme = getComputedStyle(document.getElementById('astuce-modal')).display === 'none';

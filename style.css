@@ -3083,9 +3083,15 @@ input[type=range]::-moz-range-thumb {
    Pas de line-height ici : il est hérité sans unité, donc recalculé sur la
    taille du titre — c'est ce que fait le moteur du canvas. La marge est
    exprimée dans l'interligne du bloc (--tt-lh), pas dans celui du titre. */
-#wysiwyg-text h1 { font-size: 1.6em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
-#wysiwyg-text h2 { font-size: 1.3em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
-#wysiwyg-text h3 { font-size: 1.15em; font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * 0.4) 0 0 0; }
+/* Les proportions viennent du script, comme le cran de retrait : les facteurs
+   de titre et l'air qui les précède vivaient en double, ici et dans le moteur
+   du canvas, recopiés à la main. Le « font-weight », lui, reste écrit : ce
+   n'est pas un nombre, et le canvas emploie le même mot-clé.
+   Pas de valeur de repli dans les « var() » : ce serait réécrire le nombre
+   qu'on cherche justement à n'écrire qu'une fois. */
+#wysiwyg-text h1 { font-size: var(--tt-h1); font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * var(--tt-air-titre)) 0 0 0; }
+#wysiwyg-text h2 { font-size: var(--tt-h2); font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * var(--tt-air-titre)) 0 0 0; }
+#wysiwyg-text h3 { font-size: var(--tt-h3); font-weight: bold; margin: calc(var(--tt-lh, 1.2em) * var(--tt-air-titre)) 0 0 0; }
 #wysiwyg-text h1:first-child,
 #wysiwyg-text h2:first-child,
 #wysiwyg-text h3:first-child { margin-top: 0; }

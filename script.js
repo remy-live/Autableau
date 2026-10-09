@@ -11249,6 +11249,13 @@ function getObjectById(type, id) {
 // ==============================================================================
 const TEXT_HEADING_FACTOR = { H1: 1.6, H2: 1.3, H3: 1.15 };
 
+// L'AIR AVANT UN TITRE, ÉCRIT UNE SEULE FOIS LUI AUSSI.
+// Quatre dixièmes d'interligne. Il vivait en double : « baseLH * 0.4 » dans le
+// moteur du canvas et « calc(var(--tt-lh) * 0.4) » dans la feuille de style.
+// C'est un FACTEUR SANS UNITÉ : il se descend tel quel, et le « calc() » de la
+// feuille le multiplie par l'interligne du bloc.
+const AIR_AVANT_TITRE = 0.4;
+
 // UN CRAN DE RETRAIT, ÉCRIT UNE SEULE FOIS.
 //
 // Ce nombre vivait en double : « * 1.4 » dans le moteur du canevas et
@@ -11747,7 +11754,7 @@ function layoutTextObject(obj, measureCtx) {
         const size = baseSize * p.factor;
         const lh = baseLH * p.factor;
         // Un peu d'air avant un titre, sauf s'il ouvre le bloc
-        if (p.factor > 1 && lines.length > 0) y += baseLH * 0.4;
+        if (p.factor > 1 && lines.length > 0) y += baseLH * AIR_AVANT_TITRE;
         const indentPx = (p.indent || 0) * size * RETRAIT_PAR_CRAN;
         const markerW = p.marker ? measure(p.marker + ' ', { bold: p.bold }, size) : 0;
         // LA PUCE VIT DANS LA GOUTTIÈRE, ELLE N'EST PAS UNE RALLONGE.
@@ -24001,12 +24008,28 @@ function appliquerInterligneSaisie(lhLogique, sizeLogique) {
 // et c'est précisément ce qu'on cherche à supprimer. Posé au démarrage, il ne
 // manque jamais ; posé à l'ouverture de la saisie, une liste aurait pu se
 // peindre un instant à la marge.
-function poserLeCranDeRetrait() {
+function poserLesProportionsDuTexte() {
     const boite = document.getElementById('wysiwyg-text');
-    if (boite) boite.style.setProperty('--tt-retrait', RETRAIT_DE_SAISIE);
+    if (!boite) return;
+    boite.style.setProperty('--tt-retrait', RETRAIT_DE_SAISIE);
+    // LES TROIS FACTEURS DE TITRE descendent par le même chemin. Ils vivaient
+    // en double — « 1.6 », « 1.3 », « 1.15 » dans le moteur du canvas et
+    // « 1.6em », « 1.3em », « 1.15em » dans la feuille de style, recopiés à la
+    // main. Un seul des deux changé, et ce qu'on tape cesse de ressembler à ce
+    // qu'on obtient, sans que rien ne le dise.
+    Object.keys(TEXT_HEADING_FACTOR).forEach(balise => {
+        boite.style.setProperty('--tt-' + balise.toLowerCase(), TEXT_HEADING_FACTOR[balise] + 'em');
+    });
+    // Et l'air avant un titre, qui est un facteur sans unité : la feuille le
+    // multiplie elle-même par l'interligne du bloc.
+    boite.style.setProperty('--tt-air-titre', String(AIR_AVANT_TITRE));
 }
-document.addEventListener('DOMContentLoaded', poserLeCranDeRetrait);
-if (document.readyState !== 'loading') poserLeCranDeRetrait();
+// L'ancien nom ne disait plus ce que la fonction fait ; on garde le pont pour
+// qui l'appellerait encore.
+const poserLeCranDeRetrait = poserLesProportionsDuTexte;
+window.poserLesProportionsDuTexte = poserLesProportionsDuTexte;
+document.addEventListener('DOMContentLoaded', poserLesProportionsDuTexte);
+if (document.readyState !== 'loading') poserLesProportionsDuTexte();
 
 function fermerTiroirsTexte() {
     document.querySelectorAll('#text-toolbar .tt-panel.tt-open, #text-toolbar .tt-tab.tt-open')
@@ -36841,7 +36864,7 @@ let savedInterfaces = [];
 
 // ===================================================
 // INTERFACES FOURNIES
-// Un tableau de 83 outils fait peur. Ces interfaces prêtes à l'emploi ne
+// Un tableau de quatre-vingts outils et plus fait peur. Ces interfaces prêtes à l'emploi ne
 // montrent que ce dont on a besoin : les barres posées sur le tableau et les
 // favoris changent, rien n'est supprimé — le tiroir complet reste accessible.
 //
@@ -48548,6 +48571,24 @@ document.addEventListener('DOMContentLoaded', () => {
 // Une astuce au démarrage, une par jour au maximum. Beaucoup de ces outils
 // ne se devinent pas : autant les faire connaître un par un.
 // ===================================================
+// COMBIEN D'OUTILS ? ON LES COMPTE, ON NE LES ÉCRIT PAS.
+//
+// L'astuce annonçait « les 83 outils » ; la loupe en trouve quatre-vingt-huit.
+// Le nombre avait été écrit à la main, et il a dérivé — c'est ce qui arrive
+// toujours. Le remplacer par le bon l'aurait fait dériver de nouveau au
+// prochain outil ajouté.
+//
+// Et l'on compte EXACTEMENT ce que la loupe cherche : les boutons de la grille
+// qui portent un nom (« filterPluginSearch » parcourt « #plugins-grid .btn »
+// et lit « data-tooltip » ou « title »). Compter les greffons enregistrés en
+// aurait donné quatre-vingt-neuf, et l'astuce aurait menti d'une autre façon —
+// elle promettrait un outil que la recherche ne sait pas trouver.
+function combienDOutilsCherchables() {
+    return Array.from(document.querySelectorAll('#plugins-grid .btn'))
+        .filter(b => (b.getAttribute('data-tooltip') || b.title || '').trim()).length;
+}
+window.combienDOutilsCherchables = combienDOutilsCherchables;
+
 const ASTUCES = [
     { titre: 'Le stylo qui redresse les formes',
       texte: "Dessinez un cercle, un triangle ou un rectangle à main levée, puis GARDEZ le doigt ou la souris appuyé une seconde à la fin du tracé : la forme se redresse toute seule. Les losanges et les parallélogrammes sont reconnus aussi." },
@@ -48566,7 +48607,7 @@ const ASTUCES = [
     { titre: 'Mettre un mot en couleur',
       texte: "Pendant la saisie, surlignez un mot : la couleur, la taille et la police ne s'appliquent qu'à lui. Sans surlignage, elles agissent sur tout le bloc." },
     { titre: 'Retrouver un outil par son nom',
-      texte: "La loupe de la barre des outils cherche parmi les 83 outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
+      texte: "La loupe de la barre des outils cherche parmi les {{outils}} outils. Tapez « fraction », « horloge » ou « tirage » : c'est plus rapide que de parcourir les rubriques." },
     { titre: 'Les points de la classe',
       texte: "Dans « Outils Profs », l'outil « Points de classe » affiche vos élèves avec un petit monstre. Un clic donne un bonus, le bouton « Malus » inverse le geste, et l'on peut poser le tableau des points sur le tableau. À 20 points, l'élève gagne une étoile et le compteur repart à zéro — le seuil se règle." },
     { titre: 'Votre cours arrive tel quel',
@@ -48616,7 +48657,10 @@ function montrerAstuce(manuelle, decalage) {
     if (decalage) etatAstuces.index = (etatAstuces.index + decalage + ASTUCES.length) % ASTUCES.length;
     const a = ASTUCES[etatAstuces.index % ASTUCES.length];
     document.getElementById('astuce-titre').innerText = a.titre;
-    document.getElementById('astuce-texte').innerText = a.texte;
+    // Le jeton se remplit à l'affichage : les outils ne sont enregistrés
+    // qu'après ce fichier, un nombre calculé plus tôt vaudrait zéro.
+    document.getElementById('astuce-texte').innerText =
+        String(a.texte).replace(/\{\{outils\}\}/g, combienDOutilsCherchables());
     document.getElementById('astuce-compte').innerText = `${(etatAstuces.index % ASTUCES.length) + 1} / ${ASTUCES.length}`;
     boite.style.display = 'flex';
     if (manuelle) {
