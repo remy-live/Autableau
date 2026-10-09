@@ -1083,7 +1083,20 @@ module.exports = async function (browser) {
         const cases = z.filter(u => u.grille !== undefined);
         return { cases: cases.length,
                  rangees: new Set(cases.map(u => u.ligne)).size,
-                 colonnes: new Set(cases.map(u => u.colonne)).size };
+                 colonnes: new Set(cases.map(u => u.colonne)).size,
+                 // LA GÉOMÉTRIE, et non les numéros. Savoir qu'il manque une
+                 // rangée ne dit pas LAQUELLE — et les numéros ne le disent pas
+                 // non plus : le détecteur numérote les rangées QU'IL TROUVE,
+                 // donc perdre la première ou la dernière rend « 1 à 8 » dans
+                 // les deux cas. Seule la place sur la page tranche : si c'est
+                 // la première qui manque, le haut du tableau descend ; si
+                 // c'est la dernière, le bas remonte.
+                 // EN MILLIÈMES DE PAGE : « chercherLesZones » rend des
+                 // coordonnées normalisées entre zéro et un, et les arrondir
+                 // à l'entier les ramenait toutes à 0 et 1 — la mesure ne
+                 // disait plus rien.
+                 haut: cases.length ? Math.round(1000 * Math.min(...cases.map(u => u.y))) : null,
+                 bas: cases.length ? Math.round(1000 * Math.max(...cases.map(u => u.y + (u.h || 0)))) : null };
     }, [tableDAddition(opts).toString('base64')]);
 
     const vraie = await laTable({});
@@ -1113,8 +1126,24 @@ module.exports = async function (browser) {
     // suit : la première rangée du tableau disparaissait, et la dernière avec
     // la bordure basse.
     const sansEntetes = await laTable({ entetes: false });
-    r.egal('UN PAVÉ D\'EN-TÊTE NE MANGE PLUS LA PREMIÈRE RANGÉE',
-        vraie.rangees, 9, JSON.stringify(vraie));
+    // CETTE LIGNE DISAIT « LE PAVÉ » ET REGARDAIT AILLEURS. Elle calculait
+    // « sansEntetes » — la table SANS pavé — puis affirmait « vraie.rangees »,
+    // c'est-à-dire exactement la troisième composante de la vérification
+    // d'ouverture, douze lignes plus haut. Elle doublait sa voisine sous un
+    // nom qui promettait autre chose : un sabotage du pavé la faisait tomber,
+    // mais pour la raison d'à côté, et l'on croyait tenir deux garde-fous là
+    // où il n'y en avait qu'un.
+    //
+    // Le pavé EST mesuré, et il l'est bien — par la vérification d'ouverture,
+    // qui lit la table complète, pavé compris, et exige ses neuf rangées. Ce
+    // qui n'était dit NULLE PART, c'est laquelle des rangées manque quand il
+    // n'y a pas de pavé : c'est la PREMIÈRE, et c'est ce que dit cette ligne
+    // désormais. Le défaut restant est ainsi décrit, pas seulement compté.
+    r.verifie('ET SANS PAVÉ, ON SAIT LAQUELLE MANQUE : on la nomme au lieu de la compter',
+        sansEntetes.haut !== null && vraie.haut !== null
+        && Math.abs(sansEntetes.haut - vraie.haut) > 8 && Math.abs(sansEntetes.bas - vraie.bas) <= 8,
+        JSON.stringify({ avecPave: { haut: vraie.haut, bas: vraie.bas },
+                         sansPave: { haut: sansEntetes.haut, bas: sansEntetes.bas } }));
     // CE QUI RESTE À FAIRE, ÉCRIT PLUTÔT QUE TU. Quand les en-têtes sont de
     // SIMPLES CHIFFRES, sans pavé derrière eux, le séparateur qui les suit
     // n'est toujours pas retrouvé et la première rangée du corps manque : huit

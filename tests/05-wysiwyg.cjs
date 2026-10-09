@@ -1540,6 +1540,79 @@ module.exports = async function (browser) {
         if (typeof placerLaBarreStyle === 'function') placerLaBarreStyle();
     });
 
+    // ==================================================================
+    // ON CLIQUE PENDANT QUE LE ZOOM GLISSE
+    //
+    // Le zoom ne saute pas, il GLISSE : d'un tiers de ce qui reste à chaque
+    // image, une dizaine d'images pour un cran de molette. Si l'on clique pour
+    // écrire PENDANT ce glissement, la ligne se posait sur la vue COURANTE —
+    // qui n'est pas celle où elle se retrouvera un dixième de seconde plus
+    // tard. Elle se retrouvait décalée, parfois sous une barre.
+    //
+    // CE CONTRÔLE NE DOIT RIEN DEVOIR AU TEMPS. On GÈLE donc le glissement en
+    // remplaçant « requestAnimationFrame » : la vue reste exactement celle
+    // d'avant la molette, puisque « viserLeZoom » n'applique aucun zoom
+    // lui-même. L'état hostile devient arithmétique au lieu d'être une
+    // question de chance — et un contrôle intermittent est pire que pas de
+    // contrôle.
+    //
+    // Puis on fait finir le glissement À LA MAIN, après le clic : c'est ce que
+    // le vrai glissement aurait fait, et c'est là que le défaut se voyait.
+    const pendantLeGlissement = await page.evaluate(() => {
+        editingTextId = null;
+        if (wysiwygText) { wysiwygText.innerHTML = ''; wysiwygText.style.display = 'none'; }
+        texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+        setMode('text'); draw();
+
+        const vraiRAF = window.requestAnimationFrame;
+        window.requestAnimationFrame = () => 123456;      // le glissement gèle
+        let sortie = null;
+        try {
+            const CX = 700, CY = 400;
+            viserLeZoom(2.5, CX, CY);                     // un gros cran, visé en un point
+            const pendant = { zoom, vise: zoomVise };
+            // Ce que le glissement VA donner, calculé depuis l'ancre.
+            const vise = { zoom: zoomVise,
+                panX: ancreDuZoom.ex - ancreDuZoom.lx * zoomVise,
+                panY: ancreDuZoom.ey - ancreDuZoom.ly * zoomVise };
+            // On clique pour écrire, en plein glissement.
+            ouvrirLaSaisie(null, { x: (CX - panX) / zoom, y: (CY - panY) / zoom }, null);
+            const boiteAuClic = wysiwygText.getBoundingClientRect();
+            const poseParLaSaisie = (zoomVise === null);
+            // Puis le glissement finit — ce qu'il aurait fait tout seul.
+            poserLeZoomMaintenant();
+            const boiteApres = wysiwygText.getBoundingClientRect();
+            sortie = { pendant, vise: { zoom: vise.zoom, panX: Math.round(vise.panX), panY: Math.round(vise.panY) },
+                apres: { zoom, panX: Math.round(panX), panY: Math.round(panY) },
+                poseParLaSaisie,
+                clic: { x: CX, y: CY },
+                boiteAuClic: { x: Math.round(boiteAuClic.left), y: Math.round(boiteAuClic.top) },
+                boiteApres: { x: Math.round(boiteApres.left), y: Math.round(boiteApres.top) } };
+        } finally {
+            window.requestAnimationFrame = vraiRAF;
+            finalizeText();
+            texts.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+            setMode('pointer'); draw();
+        }
+        return sortie;
+    });
+    r.verifie('LE DÉCOR EST BIEN HOSTILE : au clic, le zoom glissait encore',
+        pendantLeGlissement.pendant.zoom === 1 && pendantLeGlissement.pendant.vise === 2.5,
+        JSON.stringify(pendantLeGlissement.pendant));
+    r.verifie('OUVRIR LA SAISIE POSE LE ZOOM : la vue ne bouge plus sous la ligne',
+        pendantLeGlissement.poseParLaSaisie === true,
+        JSON.stringify(pendantLeGlissement));
+    r.verifie('ET ELLE LE POSE EXACTEMENT LÀ OÙ LE GLISSEMENT ALLAIT, au pixel',
+        pendantLeGlissement.apres.zoom === pendantLeGlissement.vise.zoom
+        && pendantLeGlissement.apres.panX === pendantLeGlissement.vise.panX
+        && pendantLeGlissement.apres.panY === pendantLeGlissement.vise.panY,
+        JSON.stringify(pendantLeGlissement));
+    // LE CŒUR : la ligne ne s'enfuit pas quand le glissement se termine.
+    r.verifie('LA LIGNE RESTE OÙ L\'ON A CLIQUÉ, le glissement fini',
+        Math.abs(pendantLeGlissement.boiteApres.x - pendantLeGlissement.boiteAuClic.x) <= 2
+        && Math.abs(pendantLeGlissement.boiteApres.y - pendantLeGlissement.boiteAuClic.y) <= 2,
+        JSON.stringify(pendantLeGlissement));
+
     await page.evaluate(() => {
         editingTextId = null;
         if (wysiwygText) { wysiwygText.innerHTML = ''; wysiwygText.style.display = 'none'; }

@@ -72,6 +72,41 @@ function viserLeZoom(cible, ecranX, ecranY) {
 }
 window.viserLeZoom = viserLeZoom;
 
+// LE ZOOM SE POSE TOUT DE SUITE QUAND ON VA ÉCRIRE.
+//
+// Le zoom ne saute pas, il GLISSE — d'un tiers de ce qui reste à chaque image,
+// une dizaine d'images pour un cran de molette. Si l'on clique pour écrire
+// PENDANT ce glissement, la ligne se pose sur la vue COURANTE, qui n'est pas
+// celle où elle se retrouvera un dixième de seconde plus tard : elle se
+// retrouve décalée, parfois sous une barre, parfois hors de l'écran. Le
+// professeur vise un endroit et écrit ailleurs.
+//
+// Des trois remèdes possibles, c'est celui-ci. Poser la ligne sur la vue VISÉE
+// plutôt que sur la vue courante laisserait le tableau continuer de bouger
+// SOUS la ligne, ce qui est pire à regarder. La rattraper après coup, comme le
+// bas de l'écran est rattrapé, ferait sauter le tableau une seconde fois. Ici,
+// le glissement se termine d'un coup au moment du clic : la vue est celle
+// qu'on vise, elle ne bouge plus, et la ligne s'y pose juste.
+//
+// Ce n'est pas une interruption : on va EXACTEMENT là où le glissement allait
+// — même zoom, même ancre, donc mêmes panX et panY au pixel près.
+function poserLeZoomMaintenant() {
+    if (zoomVise === null || !ancreDuZoom) return false;
+    if (animationDuZoom) { cancelAnimationFrame(animationDuZoom); animationDuZoom = null; }
+    zoom = zoomVise;
+    panX = ancreDuZoom.ex - ancreDuZoom.lx * zoom;
+    panY = ancreDuZoom.ey - ancreDuZoom.ly * zoom;
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+        && typeof bornerLaPresentation === 'function') bornerLaPresentation();
+    zoomVise = null; ancreDuZoom = null;
+    majCurseurZoom(); majPastilleZoom();
+    updateWysiwygPosition();
+    draw();
+    if (typeof demanderAffinageDeLaVue === 'function') demanderAffinageDeLaVue();
+    return true;
+}
+window.poserLeZoomMaintenant = poserLeZoomMaintenant;
+
 function glisserLeZoom() {
     animationDuZoom = null;
     if (zoomVise === null || !ancreDuZoom) return;
@@ -13798,6 +13833,12 @@ const SEUIL_ZONE_TEXTE = 5;
 
 // `cadre` : { largeur } quand on a dessiné une colonne plutôt que cliqué.
 function ouvrirLaSaisie(vise, pos, cadre) {
+    // AVANT TOUT : si le zoom glisse encore, on le pose. Tout ce qui suit
+    // calcule une position à partir de « zoom », « panX » et « panY » — la
+    // taille d'après la zone, le plafond des barres, le dégagement du bas, la
+    // position logique enregistrée. Les lire pendant que la vue bouge, c'est
+    // les calculer sur une vue qui n'existera plus.
+    poserLeZoomMaintenant();
     const zone = vise ? vise.b : null;
     if (zone) {
         // PAR « reglerTailleTexte » ET NON A LA MAIN : poser la taille
