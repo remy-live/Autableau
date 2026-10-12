@@ -14057,10 +14057,22 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         const p = this.lireLesReglages(prefill);
         openCustomPrompt(target ? "Modifier l'opération posée" : "Opération posée", [
             {
-                // L'EXEMPLE À TROIS TERMES EST EN PREMIER, ET C'EST VOULU : rien
-                // d'autre dans la boîte ne dit qu'une addition peut s'empiler, et
-                // une possibilité qu'on ne montre pas n'existe pas.
-                type: 'text', label: "L'opération",
+                // L'INDICATION VA DANS L'ÉTIQUETTE, PAS DANS LE FANTÔME DU CHAMP.
+                //
+                // J'avais d'abord mis l'exemple à trois termes en tête du
+                // « placeholder », en écrivant que rien d'autre dans la boîte ne
+                // disait qu'une addition peut s'empiler. C'était faux, et c'est
+                // mesuré : « ouvrir » passe toujours « value: p.operation », et
+                // « lireLesReglages » rend « 347 + 258 » quand il n'y a pas de
+                // réglage d'avant. Le champ n'est donc JAMAIS vide à l'ouverture,
+                // et son fantôme ne paraît que si le professeur efface la ligne —
+                // c'est-à-dire pas au moment où l'on découvre l'outil. Une
+                // possibilité annoncée là n'existe pour personne.
+                //
+                // L'étiquette, elle, se lit toujours. Le fantôme garde ses
+                // exemples pour qui vide le champ : il ne mentait pas, il ne se
+                // montrait pas.
+                type: 'text', label: "L'opération (ou plusieurs : 12 + 7 + 5)",
                 placeholder: '12 + 7 + 5     347 + 258     912 − 437     47 × 26     734 ÷ 8',
                 value: p.operation
             },

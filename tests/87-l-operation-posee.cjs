@@ -39,7 +39,22 @@ module.exports = async function (browser) {
     const plan = (txt, opts) => page.evaluate(([txt, opts]) => {
         const p = PluginManager.plugins['operationPoseeTool'];
         const plan = p.poser(txt, opts);
-        if (plan.erreur) return plan;
+        // UN REFUS DOIT FAIRE TOMBER UNE VÉRIFICATION, PAS PLANTER LE CHAPITRE.
+        //
+        // « run.cjs » enveloppe chaque chapitre dans un try/catch : une exception
+        // y compte « 1 échec sur 1 », et les cent-sept vérifications
+        // disparaissent — on lit « le test a planté » au lieu de lire CE QUI est
+        // cassé. Or la moitié des mesures d'ici déréférencent aussitôt
+        // « .lignesLues » ou « .petits ».
+        //
+        // Cela s'est vu sur le sabotage le plus évident de tous : revenir au
+        // refus de plus de deux nombres. Il devait faire tomber les mesures de
+        // l'addition empilée ; il emportait le chapitre entier. En rendant la
+        // forme COMPLÈTE sur un refus, chaque mesure tombe en disant ce qu'elle
+        // attendait, et le refus reste lisible pour qui l'interroge.
+        if (plan.erreur) {
+            return { erreur: plan.erreur, lignesLues: [], colonnesDe: [], petits: [], grains: [], traits: [] };
+        }
         // Une ligne lue de gauche à droite, virgule comprise.
         plan.lignesLues = [];
         for (let l = 0; l < plan.lignes; l++) {
@@ -118,6 +133,12 @@ module.exports = async function (browser) {
     const retenues = await plan('347 + 258', { resultat: true, etapes: true });
     r.egal('LA RETENUE SE POSE AU-DESSUS DE LA COLONNE OÙ ELLE S\'AJOUTE',
         retenues.petits.map(p => p.c).sort(), [1, 2], JSON.stringify(retenues.petits));
+    // ET ELLE PORTE LE CHIFFRE QU'ON REPORTE. Seules ses COLONNES étaient
+    // mesurées : on pouvait écrire « 7 » au-dessus de « 347 + 258 » sans faire
+    // tomber une seule vérification. Le contrôle des trois termes, lui, ne voit
+    // que les retenues qui valent deux — celle-ci garde le cas ordinaire.
+    r.egal('et elle porte le chiffre qu\'on reporte, pas un chiffre au hasard',
+        retenues.petits.map(p => p.t), ['1', '1'], JSON.stringify(retenues.petits));
     const sansEtapes = await plan('347 + 258', { resultat: true });
     r.egal('sans les étapes, aucune retenue n\'est écrite', sansEtapes.petits.length, 0);
 
@@ -170,13 +191,25 @@ module.exports = async function (browser) {
         new Set(colUnites(quatre)).size, 1, JSON.stringify(quatre.colonnesDe));
     const signesDe = (p) => p.grains.filter(g => g.t === '+').map(g => g.r);
     r.egal('UN SEUL SIGNE, SUR LA DERNIÈRE LIGNE, CONTRE LE TRAIT',
-        signesDe(quatre), [quatre.traits[0].r], JSON.stringify({ signes: signesDe(quatre), traits: quatre.traits }));
+        signesDe(quatre), [quatre.traits.length ? quatre.traits[0].r : null],
+        JSON.stringify({ signes: signesDe(quatre), traits: quatre.traits }));
+    // LA HAUTEUR DU PLAN SE MESURE AUSSI, et c'est le seul endroit où elle l'est.
+    // « filter(Boolean) » absorbe une bande blanche : une erreur d'un cran sur le
+    // rang du haut laisserait une ligne vide en tête du dessin — la retenue
+    // flottant à deux interlignes des chiffres — sans faire tomber une seule
+    // lecture de ligne.
+    r.egal('quatre termes et leurs retenues tiennent sur six lignes, pas sept',
+        [quatre.lignes, quatre.colonnes], [6, 5],
+        JSON.stringify({ lignes: quatre.lignes, colonnes: quatre.colonnes }));
 
     const virgulesEmpilees = await plan('12,5 + 3,75 + 0,125', { resultat: true });
     r.egal('les virgules s\'alignent aussi quand il y a trois termes',
         virgulesEmpilees.lignesLues.filter(Boolean), ['12,500', '3,750', '+0,125', '16,375']);
     r.egal('et la virgule reste au même rang sur les quatre lignes',
         new Set(colVirgule(virgulesEmpilees)).size, 1, JSON.stringify(colVirgule(virgulesEmpilees)));
+    r.egal('et sans les retenues, trois termes tiennent sur quatre lignes',
+        [virgulesEmpilees.lignes, virgulesEmpilees.colonnes], [4, 6],
+        JSON.stringify({ lignes: virgulesEmpilees.lignes, colonnes: virgulesEmpilees.colonnes }));
 
     // SEULE L'ADDITION S'EMPILE, et le refus le dit. « 12 − 3 − 4 » et
     // « 2 × 3 × 4 » n'ont pas de disposition d'école : leur en inventer une
@@ -185,6 +218,30 @@ module.exports = async function (browser) {
     r.verifie('une chaîne qui n\'est pas une addition se refuse en disant pourquoi',
         empilagesRefuses.every(p => /seule l.addition/i.test(p.erreur || '')),
         JSON.stringify(empilagesRefuses.map(p => p.erreur)));
+
+    // ET LA BOÎTE DIT LA POSSIBILITÉ, LÀ OÙ ELLE SE LIT.
+    //
+    // Une capacité qu'aucun écran n'annonce n'existe pour personne. Elle avait
+    // d'abord été mise dans le fantôme du champ, ce qui ne servait à rien — et
+    // c'est précisément ce que la seconde mesure ci-dessous établit : le champ
+    // s'ouvre REMPLI, donc son fantôme ne paraît jamais à l'ouverture. Sans
+    // cette seconde mesure, la première pourrait être satisfaite par un texte
+    // que personne ne verrait, et l'on croirait avoir annoncé quelque chose.
+    const annonce = await page.evaluate(() => {
+        PluginManager.plugins['operationPoseeTool'].ouvrir();
+        const boite = document.getElementById('custom-prompt-modal');
+        const champ = boite.querySelector('.prompt-input');
+        const etiquettes = [...boite.querySelectorAll('label, .prompt-label')].map(e => e.textContent.trim());
+        const sortie = { etiquettes, valeur: champ ? champ.value : null,
+                         fantome: champ ? champ.placeholder : null };
+        boite.style.display = 'none';
+        return sortie;
+    });
+    r.verifie('LA BOÎTE ANNONCE QU\'UNE ADDITION PEUT S\'EMPILER, dans une étiquette',
+        annonce.etiquettes.some(e => /\d\s*\+\s*\d+\s*\+\s*\d/.test(e)),
+        JSON.stringify(annonce.etiquettes));
+    r.verifie('et le champ s\'ouvre REMPLI — c\'est pourquoi son fantôme ne pouvait pas l\'annoncer',
+        !!annonce.valeur && annonce.valeur.length > 0, JSON.stringify(annonce));
 
     // =====================================================================
     // 3. LA SOUSTRACTION ET SES RETENUES
