@@ -14057,8 +14057,11 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         const p = this.lireLesReglages(prefill);
         openCustomPrompt(target ? "Modifier l'opération posée" : "Opération posée", [
             {
+                // L'EXEMPLE À TROIS TERMES EST EN PREMIER, ET C'EST VOULU : rien
+                // d'autre dans la boîte ne dit qu'une addition peut s'empiler, et
+                // une possibilité qu'on ne montre pas n'existe pas.
                 type: 'text', label: "L'opération",
-                placeholder: '347 + 258     912 − 437     47 × 26     734 ÷ 8',
+                placeholder: '12 + 7 + 5     347 + 258     912 − 437     47 × 26     734 ÷ 8',
                 value: p.operation
             },
             { type: 'checkbox', label: 'Montrer le résultat', value: p.resultat },
@@ -14196,16 +14199,43 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
         return { chiffres: bouts[0] + (bouts[1] || ''), virgule: bouts[1] ? bouts[1].length : 0 };
     },
 
+    // ON NE POSE PAS QUE DEUX NOMBRES.
+    //
+    // « Pour le plugin opération posée, il faudrait pouvoir poser des
+    // additions avec plus que 2 termes ! » Trois prix à ajouter, les quatre
+    // côtés d'un périmètre : l'addition empilée est le pain quotidien de
+    // l'école, et c'est même là que la retenue devient intéressante, puisque
+    // neuf et neuf et neuf font vingt-sept — deux de retenue, et non un.
+    //
+    // ON COUPE DONC SUR LES SIGNES AU LIEU D'EN CHERCHER UN SEUL. La règle
+    // d'avant tenait en une expression qui exigeait un nombre, UN signe, et
+    // le reste ; découper garde ses deux vertus sans y penser : « 47x26 » se
+    // coupe toujours sans espaces, et « -5+3 » commence par un morceau VIDE,
+    // donc se refuse encore — un nombre négatif ne se pose pas en colonnes.
+    DECOUPE: /([+\-−–—*xX×÷/:])/,
+
     analyser: function (texte) {
         const t = String(texte === null || texte === undefined ? '' : texte).trim().replace(/=\s*$/, '');
-        // Le premier nombre ne peut contenir aucun signe : c'est ce qui permet
-        // de couper « 47x26 » sans espaces, et de refuser « -5+3 » — un nombre
-        // négatif ne se pose pas en colonnes.
-        const m = t.match(/^([^+\-−–—*xX×÷/:]+)([+\-−–—*xX×÷/:])(.+)$/);
-        if (!m) return { erreur: "Écrivez une opération avec son signe, par exemple 347 + 258" };
-        const a = this.lireUnNombre(m[1]), b = this.lireUnNombre(m[3]);
-        if (!a || !b) return { erreur: "Les deux nombres doivent être des nombres positifs, par exemple 12,5" };
-        return { signe: this.SIGNES[m[2]], a, b };
+        const bouts = t.split(this.DECOUPE);
+        const termes = [], signes = [];
+        bouts.forEach((b, i) => {
+            if (i % 2 === 0) termes.push(this.lireUnNombre(b));
+            else signes.push(this.SIGNES[b]);
+        });
+        if (!signes.length) return { erreur: "Écrivez une opération avec son signe, par exemple 347 + 258" };
+        if (termes.some(n => !n)) {
+            return { erreur: termes.length > 2
+                ? "Chaque nombre doit être un nombre positif, par exemple 12,5"
+                : "Les deux nombres doivent être des nombres positifs, par exemple 12,5" };
+        }
+        // SEULE L'ADDITION S'EMPILE. La soustraction, la multiplication et la
+        // division se posent à DEUX nombres : « 12 − 3 − 4 » n'a pas de
+        // disposition d'école, et lui en inventer une apprendrait aux élèves
+        // une écriture qu'ils ne retrouveraient nulle part.
+        if (signes.length > 1 && signes.some(s => s !== '+')) {
+            return { erreur: "Seule l'addition se pose à plus de deux nombres : 12 + 7 + 5" };
+        }
+        return { signe: signes[0], termes, a: termes[0], b: termes[1] };
     },
 
     poser: function (texte, opts) {
@@ -14223,16 +14253,14 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
 
     // ============ POSER ============
 
-    // Deux nombres se posent l'un sous l'autre virgule sous virgule : on
-    // complète le plus court par des zéros à droite, et les deux ont alors le
-    // même rang de virgule.
-    memeVirgule: function (a, b) {
-        const v = Math.max(a.virgule, b.virgule);
-        return {
-            v,
-            A: a.chiffres + '0'.repeat(v - a.virgule),
-            B: b.chiffres + '0'.repeat(v - b.virgule)
-        };
+    // Des nombres se posent les uns sous les autres virgule sous virgule : on
+    // complète les plus courts par des zéros à droite, et ils ont alors tous
+    // le même rang de virgule. Elle rendait « A » et « B » quand il n'y avait
+    // que deux termes ; une liste dit la même chose pour deux comme pour
+    // quatre, et c'est une seule façon de nommer la chose plutôt que deux.
+    memeVirgule: function (termes) {
+        const v = termes.reduce((m, n) => Math.max(m, n.virgule), 0);
+        return { v, chaines: termes.map(n => n.chiffres + '0'.repeat(v - n.virgule)) };
     },
 
     // Pose une suite de chiffres alignée à DROITE sur la colonne `colFin`, avec
@@ -14263,18 +14291,26 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
     },
 
     // ---- ADDITION ----
+    // ELLE EN PREND AUTANT QU'ON LUI EN DONNE. Le calcul ne change pas de
+    // nature quand on empile un troisième nombre : on ajoute une colonne de
+    // chiffres au lieu de deux. Une seule chose y gagne de l'importance — LA
+    // RETENUE PEUT VALOIR PLUS QUE UN. Elle était écrite « 1 » en dur, ce qui
+    // était vrai de deux termes et aurait menti de tous les autres : neuf et
+    // neuf et neuf font vingt-sept, et c'est deux qu'on reporte.
     poserSomme: function (lu, resultat, etapes) {
-        const al = this.memeVirgule(lu.a, lu.b), v = al.v;
-        const n = Math.max(al.A.length, al.B.length);
-        const pa = al.A.padStart(n, '0'), pb = al.B.padStart(n, '0');
+        const al = this.memeVirgule(lu.termes), v = al.v;
+        const combien = al.chaines.length;
+        const n = al.chaines.reduce((m, c) => Math.max(m, c.length), 0);
+        const p = al.chaines.map(c => c.padStart(n, '0'));
         let somme = '', r = 0; const retenues = [];
         for (let i = n - 1; i >= 0; i--) {
-            const s = +pa[i] + +pb[i] + r;
+            let s = r;
+            for (let k = 0; k < combien; k++) s += +p[k][i];
             somme = String(s % 10) + somme;
-            r = s >= 10 ? 1 : 0;
+            r = Math.floor(s / 10);
             retenues[i] = r;           // produite par la colonne i, à ajouter dans celle de GAUCHE
         }
-        if (r) somme = '1' + somme;
+        if (r) somme = String(r) + somme;
 
         const colFin = Math.max(n, somme.length);   // les chiffres occupent 1..colFin, 0 est au signe
         const grains = [], traits = [];
@@ -14283,18 +14319,20 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
             // LA RETENUE SE POSE AU-DESSUS DE LA COLONNE OÙ ELLE S'AJOUTE,
             // c'est-à-dire une colonne à gauche de celle qui l'a produite.
             for (let i = n - 1; i >= 0; i--) {
-                if (retenues[i]) grains.push({ c: colFin - (n - 1 - i) - 1, r: 0, t: '1', petit: true });
+                if (retenues[i]) grains.push({ c: colFin - (n - 1 - i) - 1, r: 0, t: String(retenues[i]), petit: true });
             }
             haut = 1;
         }
-        this.poserChiffres(grains, al.A, haut, colFin, v);
-        this.poserChiffres(grains, al.B, haut + 1, colFin, v);
-        grains.push({ c: 0, r: haut + 1, t: '+' });
-        traits.push({ r: haut + 1, c1: 0, c2: colFin });
-        if (resultat) this.poserChiffres(grains, somme, haut + 2, colFin, v);
+        al.chaines.forEach((c, k) => this.poserChiffres(grains, c, haut + k, colFin, v));
+        // LE SIGNE VA SUR LA DERNIÈRE LIGNE, celle qui touche le trait : c'est
+        // sa place dans tous les cahiers, et il n'y en a qu'un seul même quand
+        // on empile quatre nombres.
+        grains.push({ c: 0, r: haut + combien - 1, t: '+' });
+        traits.push({ r: haut + combien - 1, c1: 0, c2: colFin });
+        if (resultat) this.poserChiffres(grains, somme, haut + combien, colFin, v);
         return {
             signe: '+', grains, traits, montants: [],
-            colonnes: colFin + 1, lignes: haut + 3,
+            colonnes: colFin + 1, lignes: haut + combien + 1,
             resultat: this.avecVirgule(somme, v), titre: 'Addition posée'
         };
     },
@@ -14306,9 +14344,10 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
     // en haut à gauche du chiffre du haut, un « 1 » en bas à gauche du chiffre
     // du bas d'à côté.
     poserDifference: function (lu, resultat, etapes) {
-        const al = this.memeVirgule(lu.a, lu.b), v = al.v;
-        const n = Math.max(al.A.length, al.B.length);
-        const pa = al.A.padStart(n, '0'), pb = al.B.padStart(n, '0');
+        const al = this.memeVirgule([lu.a, lu.b]), v = al.v;
+        const haut = al.chaines[0], bas = al.chaines[1];
+        const n = Math.max(haut.length, bas.length);
+        const pa = haut.padStart(n, '0'), pb = bas.padStart(n, '0');
         if (pa < pb) return { erreur: "Pour poser une soustraction, le premier nombre doit être le plus grand" };
         let diff = '', emprunt = 0; const emprunts = [];
         for (let i = n - 1; i >= 0; i--) {
@@ -14322,8 +14361,8 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
 
         const colFin = Math.max(n, aff.length);
         const grains = [], traits = [];
-        this.poserChiffres(grains, al.A, 0, colFin, v);
-        this.poserChiffres(grains, al.B, 1, colFin, v);
+        this.poserChiffres(grains, haut, 0, colFin, v);
+        this.poserChiffres(grains, bas, 1, colFin, v);
         grains.push({ c: 0, r: 1, t: '−' });
         if (etapes) {
             for (let i = 0; i < n; i++) {

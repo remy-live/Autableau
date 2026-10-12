@@ -132,6 +132,60 @@ module.exports = async function (browser) {
     r.egal('un résultat qui n\'a plus de partie entière garde son zéro',
         petitesDecimales.lignesLues.filter(Boolean)[2], '0,12');
 
+    // ---------------------------------------------------------------------
+    // 2 bis. L'ADDITION S'EMPILE — AUTANT DE TERMES QU'ON EN DONNE
+    //
+    // « Pour le plugin opération posée, il faudrait pouvoir poser des
+    // additions avec plus que 2 termes ! »
+    //
+    // Trois mesures, et chacune porte sur une chose que deux termes ne
+    // pouvaient pas montrer :
+    //
+    //   — LA RETENUE PEUT VALOIR PLUS QUE UN. Elle était écrite « 1 » en dur,
+    //     ce qui était vrai de deux nombres et faux de tous les autres :
+    //     neuf et neuf et neuf font vingt-sept. C'est le contrôle central, et
+    //     celui qu'on ne pouvait pas écrire avant.
+    //   — LES RANGS SE SUPERPOSENT ENCORE sur quatre lignes de longueurs
+    //     toutes différentes, ce qui est le seul critère de justesse d'une
+    //     opération posée.
+    //   — ET LE SIGNE RESTE UNIQUE, sur la dernière ligne, contre le trait :
+    //     c'est sa place dans les cahiers, et quatre « + » empilés seraient
+    //     une écriture qu'aucun élève ne retrouverait ailleurs.
+    // ---------------------------------------------------------------------
+    const troisTermes = await plan('12 + 7 + 5', { resultat: true, etapes: true });
+    r.egal('une addition à trois termes se pose et se lit',
+        troisTermes.lignesLues.filter(Boolean), ['12', '7', '+5', '24']);
+    r.egal('et elle est juste', troisTermes.resultat, '24');
+
+    const neufs = await plan('999 + 999 + 999', { resultat: true, etapes: true });
+    r.egal('trois fois neuf cent quatre-vingt-dix-neuf font deux mille neuf cent quatre-vingt-dix-sept',
+        neufs.resultat, '2997');
+    r.egal('ET LA RETENUE VAUT DEUX, PAS UN — ce que deux termes ne pouvaient pas montrer',
+        neufs.petits.map(p => p.t), ['2', '2', '2'], JSON.stringify(neufs.petits));
+
+    const quatre = await plan('1234 + 56 + 789 + 7', { resultat: true, etapes: true });
+    r.egal('quatre termes de longueurs toutes différentes s\'additionnent juste',
+        quatre.resultat, '2086');
+    r.egal('LES UNITÉS SONT DANS LA MÊME COLONNE SUR LES CINQ LIGNES',
+        new Set(colUnites(quatre)).size, 1, JSON.stringify(quatre.colonnesDe));
+    const signesDe = (p) => p.grains.filter(g => g.t === '+').map(g => g.r);
+    r.egal('UN SEUL SIGNE, SUR LA DERNIÈRE LIGNE, CONTRE LE TRAIT',
+        signesDe(quatre), [quatre.traits[0].r], JSON.stringify({ signes: signesDe(quatre), traits: quatre.traits }));
+
+    const virgulesEmpilees = await plan('12,5 + 3,75 + 0,125', { resultat: true });
+    r.egal('les virgules s\'alignent aussi quand il y a trois termes',
+        virgulesEmpilees.lignesLues.filter(Boolean), ['12,500', '3,750', '+0,125', '16,375']);
+    r.egal('et la virgule reste au même rang sur les quatre lignes',
+        new Set(colVirgule(virgulesEmpilees)).size, 1, JSON.stringify(colVirgule(virgulesEmpilees)));
+
+    // SEULE L'ADDITION S'EMPILE, et le refus le dit. « 12 − 3 − 4 » et
+    // « 2 × 3 × 4 » n'ont pas de disposition d'école : leur en inventer une
+    // apprendrait aux élèves une écriture qu'ils ne retrouveraient nulle part.
+    const empilagesRefuses = await Promise.all([plan('12 + 7 - 5', {}), plan('2 x 3 x 4', {})]);
+    r.verifie('une chaîne qui n\'est pas une addition se refuse en disant pourquoi',
+        empilagesRefuses.every(p => /seule l.addition/i.test(p.erreur || '')),
+        JSON.stringify(empilagesRefuses.map(p => p.erreur)));
+
     // =====================================================================
     // 3. LA SOUSTRACTION ET SES RETENUES
     // =====================================================================

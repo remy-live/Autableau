@@ -603,6 +603,87 @@ module.exports = async function (browser) {
     r.verifie('tenir puis partir emporte l\'outil, comme partout ailleurs',
         plusDArbitrage.emporte, JSON.stringify(plusDArbitrage));
 
+    // ------------------------------------------------------------------
+    // UNE BARRE D'OUTILS N'EST PAS UNE FENÊTRE, MÊME LARGE
+    //
+    // « Bug sur la toolbar quand j'ai voulu redimensionner la toolbar d'outils
+    // à gauche : les icônes plein écran et fermé se sont rajoutées, alors
+    // qu'elles n'y sont pas et qu'elles ne doivent pas y être ; et du coup la
+    // minimisation et les paramètres se retrouvent avec les icônes. »
+    //
+    // Mesuré : la barre debout fait 88 px de large, et passait donc sous le
+    // plancher de « laFormeDUneFenetre » (150 px). Tirée à la poignée du coin
+    // jusqu'à mille pixels, elle devenait une fenêtre aux yeux de
+    // l'application — qui lui boulonnait aussitôt un « fen-tete » EN PREMIER
+    // ENFANT, c'est-à-dire par-dessus sa propre « cbar-head », avec le plein
+    // écran et la croix. La liste d'exclusion disait « .toolbar », qui ne
+    // désigne pas « .custom-toolbar » : une classe n'en contient pas une autre.
+    //
+    // ON MESURE LES ENFANTS DE LA BARRE, pas une absence d'icône à l'écran :
+    // c'est la greffe elle-même qui est le défaut, et elle se voit là.
+    // LA POIGNÉE DEMANDE UN VRAI POINTEUR. Elle prend la capture du pointeur
+    // (« setPointerCapture »), ce qu'un « PointerEvent » fabriqué à la main ne
+    // peut pas satisfaire : il n'y a pas de pointeur actif derrière. On tire
+    // donc à la souris, comme le professeur.
+    await page.keyboard.press('Escape');
+    const poignee = await page.evaluate(() => {
+        // LE DÉCOR : ce chapitre a créé des barres avant nous, et l'une d'elles
+        // pourrait recouvrir la poignée. On ne garde que celle des outils, et
+        // debout, sans quoi l'élargissement mesuré ne serait pas le nôtre.
+        const gardees = getStoredFloatingToolbars().filter(t => t.id === 'system-toolbar-main');
+        gardees.forEach(t => { delete t.cols; delete t.minimized; });
+        saveStoredFloatingToolbars(gardees);
+        renderFloatingToolbars();
+        const bar = document.getElementById('system-toolbar-main');
+        if (!bar) return null;
+        const h = bar.querySelector('.custom-resizer');
+        if (!h) return null;
+        const r = h.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2, large0: bar.offsetWidth };
+    });
+    if (poignee) {
+        await page.mouse.move(poignee.x, poignee.y);
+        await page.mouse.down();
+        for (let i = 1; i <= 8; i++) {
+            await page.mouse.move(poignee.x + i * 100, poignee.y);
+            await page.waitForTimeout(20);
+        }
+        await page.mouse.up();
+        // L'œil qui équipe les fenêtres attend 120 ms après le dernier
+        // changement de style : on lui laisse largement le temps de frapper.
+        await page.waitForTimeout(700);
+    }
+    const barreLarge = await page.evaluate((large0) => {
+        const bar = document.getElementById('system-toolbar-main');
+        if (!bar) return { manque: 'pas de barre des outils' };
+        const tete = bar.querySelector(':scope > .cbar-head');
+        const dansLaTete = tete ? [...tete.children].map(c => c.className) : [];
+        return {
+            large0, large: bar.offsetWidth,
+            enfants: [...bar.children].map(c => c.className),
+            fenetre: !!bar.querySelector(':scope > .fen-tete, :scope > .fen-outils'),
+            titree: bar.classList.contains('fen-titree'),
+            contour: bar.classList.contains('contour-fenetre'),
+            // La tête de la barre doit rester le PREMIER enfant, et garder ses
+            // deux boutons : c'est le « du coup » de la plainte.
+            teteEnPremier: bar.firstElementChild === tete,
+            dansLaTete
+        };
+    }, poignee ? poignee.large0 : 0);
+    r.verifie('la poignée du coin élargit bien la barre — sans quoi la mesure ne mesure rien',
+        !barreLarge.manque && barreLarge.large > barreLarge.large0 + 300,
+        JSON.stringify(barreLarge));
+    r.verifie('UNE BARRE ÉLARGIE NE REÇOIT PAS DE BARRE DE TITRE DE FENÊTRE',
+        barreLarge.fenetre === false && barreLarge.titree === false,
+        JSON.stringify(barreLarge));
+    r.verifie('ni le contour des fenêtres d\'outil',
+        barreLarge.contour === false, JSON.stringify(barreLarge.enfants));
+    r.verifie('ET SA PROPRE TÊTE RESTE EN PREMIER, avec ses paramètres et sa minimisation',
+        barreLarge.teteEnPremier === true
+        && barreLarge.dansLaTete.join(' ').includes('c-action settings')
+        && barreLarge.dansLaTete.join(' ').includes('c-action min'),
+        JSON.stringify(barreLarge));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

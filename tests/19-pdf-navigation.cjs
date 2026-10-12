@@ -2123,6 +2123,79 @@ module.exports = async function (browser) {
         flechesDansLaGrille.horsGrille.bouge === false,
         JSON.stringify(flechesDansLaGrille.horsGrille));
 
+    // ------------------------------------------------------------------
+    // TOURNER LA PAGE EMPORTE LE RÉGLAGE QUI FLOTTAIT PAR-DESSUS
+    //
+    // « Le plugin addition reste sur l'écran quand on est en plein écran avec
+    // les PDF et que l'on change de page. »
+    //
+    // Mesuré avant la correction : en présentation, la boîte de réglage d'un
+    // plugin fait 322 px sur 622 au milieu de l'écran, et rien ne la bouge —
+    // ni l'entrée en présentation, qui efface pourtant toutes les barres, ni
+    // le changement de page. La classe voyait le réglage du professeur
+    // par-dessus l'exercice projeté.
+    //
+    // DEUX MESURES, ET LA SECONDE COMPTE AUTANT QUE LA PREMIÈRE. Sur l'écran
+    // ordinaire, feuilleter avec le réglage ouvert est la façon normale de
+    // CHERCHER le cadre qu'on veut remplir : refermer la boîte y ferait
+    // retaper l'opération. La règle ne vaut donc que pour la page projetée, et
+    // c'est une épreuve qui le dit, pas un commentaire.
+    const reglageEnGrand = await (async () => {
+        await page.evaluate(async ({ octets }) => {
+            panX = 0; panY = 0; zoom = 1; images.length = 0;
+            if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+                && typeof quitterLaPresentation === 'function') quitterLaPresentation();
+            await poserPdfFeuilletable(new File([new Uint8Array(octets)], 'reglage.pdf', { type: 'application/pdf' }));
+        }, { octets });
+        await attendre(() => images.length > 0 && images[0].pluginData && images[0].pluginData.pages >= 3);
+        const lire = () => page.evaluate(() => {
+            const b = document.getElementById('custom-prompt-modal');
+            return { ouvert: !!b && b.isConnected && getComputedStyle(b).display !== 'none',
+                     page: images[0].pluginData.page,
+                     presente: !!presentationEnCours };
+        });
+        const ouvrir = () => page.evaluate(() => {
+            PluginManager.plugins['operationPoseeTool'].ouvrir();
+        });
+        // 1. Écran ordinaire : on feuillette, le réglage RESTE.
+        await ouvrir();
+        await page.waitForTimeout(400);
+        const ordinaireAvant = await lire();
+        await page.evaluate(() => allerALaPage(images[0], 2));
+        await page.waitForTimeout(900);
+        const ordinaireApres = await lire();
+        // 2. En présentation : on feuillette, le réglage PART.
+        await page.evaluate(() => {
+            selectedItems = [{ type: 'image', id: images[0].id }];
+            presenterLeDocument();
+        });
+        await page.waitForTimeout(900);
+        const grandAvant = await lire();
+        await page.evaluate(() => allerALaPage(images[0], 3));
+        await page.waitForTimeout(900);
+        const grandApres = await lire();
+        await page.evaluate(() => {
+            if (typeof quitterLaPresentation === 'function') quitterLaPresentation();
+            const b = document.getElementById('custom-prompt-modal');
+            if (b) b.style.display = 'none';
+        });
+        await page.waitForTimeout(300);
+        return { ordinaireAvant, ordinaireApres, grandAvant, grandApres };
+    })();
+    r.verifie('le réglage d\'un plugin s\'ouvre bien par-dessus le document — sans quoi la mesure ne mesure rien',
+        reglageEnGrand.ordinaireAvant.ouvert === true, JSON.stringify(reglageEnGrand));
+    r.verifie('SUR L\'ÉCRAN ORDINAIRE, FEUILLETER NE REFERME PAS LE RÉGLAGE : c\'est ainsi qu\'on cherche son cadre',
+        reglageEnGrand.ordinaireApres.ouvert === true
+        && reglageEnGrand.ordinaireApres.page === 2,
+        JSON.stringify(reglageEnGrand.ordinaireApres));
+    r.verifie('il survit aussi à l\'entrée en présentation : on l\'ouvre souvent POUR poser sur la page projetée',
+        reglageEnGrand.grandAvant.ouvert === true && reglageEnGrand.grandAvant.presente === true,
+        JSON.stringify(reglageEnGrand.grandAvant));
+    r.verifie('MAIS TOURNER LA PAGE PROJETÉE L\'EMPORTE : la classe ne regarde pas un réglage',
+        reglageEnGrand.grandApres.ouvert === false
+        && reglageEnGrand.grandApres.page === 3,
+        JSON.stringify(reglageEnGrand.grandApres));
+
     r.verifie('aucune erreur JS', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

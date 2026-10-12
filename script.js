@@ -18299,6 +18299,45 @@ function preparerLesVoisines(d, numero, total) {
     });
 }
 
+// CE QUI FLOTTE PAR-DESSUS UNE PAGE PROJETÉE N'Y RESTE PAS QUAND ON TOURNE.
+//
+// « Le plugin addition reste sur l'écran quand on est en plein écran avec les
+// PDF et que l'on change de page. »
+//
+// Mesuré : en présentation, la boîte de réglage d'un plugin fait 322 px sur
+// 622 au milieu de l'écran, et rien ne la bouge. Les BARRES, elles, se rangent
+// toutes seules quand on projette — « rangerLesOutilsPourProjeter » les met au
+// quai —, et la feuille de style efface le reste ; la boîte, non. La classe
+// voit donc le réglage du professeur par-dessus l'exercice.
+//
+// ON NE LA FERME PAS EN ENTRANT EN PRÉSENTATION : on l'ouvre souvent POUR
+// poser quelque chose dans un cadre de la page projetée, et la refermer sous
+// les doigts serait un défaut de plus. Mais TOURNER LA PAGE est le geste qui
+// dit « je passe à la suite » : le réglage ouvert sur la page d'avant n'a plus
+// rien à y faire. C'est d'ailleurs déjà la règle de « allerALaPage », qui jette
+// au même endroit tout ce qui appartenait à la page qu'on quitte — le
+// surlignage d'une recherche, la zone qu'on tenait.
+//
+// DEUX LIMITES, ET TOUTES DEUX VOULUES.
+//
+// Sur l'écran ORDINAIRE on n'y touche pas : là, feuilleter avec le réglage
+// ouvert est la façon normale de chercher le cadre qu'on veut remplir, et
+// refermer la boîte ferait retaper l'opération.
+//
+// Et l'on ne range QUE la boîte de réglage, pas les fenêtres propres des
+// plugins : le métronome, le lecteur de dictée, la télécommande du piano sont
+// des outils que le professeur a ouverts pour qu'ils RESTENT, et les faire
+// disparaître en tournant la page serait exactement le défaut qu'on corrige,
+// à l'envers. La boîte de réglage, elle, est une question qu'on pose une fois.
+function rangerLeReglageDesPlugins() {
+    const boite = document.getElementById('custom-prompt-modal');
+    if (!boite || !boite.isConnected) return false;
+    if (getComputedStyle(boite).display === 'none') return false;
+    boite.style.display = 'none';
+    return true;
+}
+window.rangerLeReglageDesPlugins = rangerLeReglageDesPlugins;
+
 // Aller droit à une page. feuilleterPdf n'en est qu'un cas particulier.
 async function allerALaPage(imgObj, numero) {
     const d = imgObj && imgObj.pluginData && documentsPdf.get(imgObj.pluginData.cle);
@@ -18355,6 +18394,11 @@ async function allerALaPage(imgObj, numero) {
     delete imgObj.pluginData.surlignes;
     // La zone tenue aussi : son rang ne veut plus rien dire sur la page d'après.
     zoneChoisie = -1; zoneNumerotation = false; zoneNumeroSuivant = 0;
+    // Et le réglage d'un plugin, quand c'est CETTE page qu'on projette : voir
+    // « rangerLeReglageDesPlugins » juste au-dessus.
+    if (typeof presentationEnCours !== 'undefined' && presentationEnCours === imgObj.id) {
+        rangerLeReglageDesPlugins();
+    }
     // LA FORME CHANGE AUTOUR DU MÊME POINT. On garde le milieu en largeur et
     // le bord du HAUT : une page se tourne, elle ne saute pas de côté, et
     // c'est par le haut qu'on la lit.
@@ -48846,7 +48890,26 @@ window.reglerLaCouleurDuContour = reglerLaCouleurDuContour;
 function laFormeDUneFenetre(el) {
     if (!el || el.nodeType !== 1 || !el.isConnected) return false;
     // Les meubles du tableau ont déjà le leur, et la visite a le sien.
-    if (el.closest('#board, .toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
+    //
+    // ET « .custom-toolbar » EST UN MEUBLE, PAS UNE FENÊTRE. C'était écrit
+    // « .toolbar », qui ne la désigne pas : la barre des outils de gauche
+    // porte « custom-toolbar », et une classe n'en contient pas une autre.
+    // Tant qu'elle est debout — 88 px de large — elle passait sous la mesure
+    // d'en bas ; élargie à la poignée du coin, elle dépassait les 150 px et
+    // devenait une fenêtre aux yeux de l'application, qui lui boulonnait
+    // aussitôt une barre de titre avec son plein écran et sa croix :
+    //
+    //   « Quand j'ai voulu redimensionner la toolbar d'outils à gauche, les
+    //     icônes plein écran et fermé se sont rajoutées alors qu'elles n'y
+    //     sont pas et qu'elles ne doivent pas y être ; et du coup la
+    //     minimisation et les paramètres se retrouvent avec les icônes. »
+    //
+    // C'est exactement cela : « fen-tete » se glissait en PREMIER enfant, donc
+    // au-dessus de « cbar-head », et les deux bandeaux se superposaient — deux
+    // façons de fermer, deux façons de déplacer, pour une barre d'outils qui
+    // n'a ni l'une ni l'autre à offrir. Une barre se range dans le quai par sa
+    // minimisation ; elle ne se ferme pas et ne s'agrandit pas.
+    if (el.closest('#board, .toolbar, .custom-toolbar, .drawer, #demo-barre, #demo-liste, .media-player-panel')) return false;
     // UNE POPUP ANCRÉE N'EST PAS UNE FENÊTRE. Elle se colle à ce qui l'ouvre,
     // elle se ferme dès qu'on clique ailleurs, et elle tient en trois cents
     // pixels : lui coller une barre de titre avec son nom, son plein écran et
