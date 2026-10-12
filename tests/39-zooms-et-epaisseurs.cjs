@@ -265,7 +265,30 @@ module.exports = async function (browser) {
         activeStyle.strokeOpacity = 0.4;
         activeStyle.lineDash = 'dashed';
     });
-    await page.waitForTimeout(700);
+    // ON ATTEND L'ÉCRITURE, ON NE PARIE PAS SUR SA DURÉE.
+    //
+    // Le stylo part dans « localStorage » par un Proxy à écriture DIFFÉRÉE de
+    // 400 ms (script.js, « stylorAEcrire »). Attendre 700 ms fixes laissait
+    // trois cents millisecondes de marge : assez seul, pas assez au milieu de
+    // quatre-vingt-onze chapitres. Mesuré une fois sur trois suites complètes :
+    // les sept vérifications d'en dessous tombaient en rendant les valeurs
+    // d'USINE — 3, 24, 1, solid —, c'est-à-dire « rien n'avait été écrit ». On
+    // accusait l'application d'un défaut qui était une course dans l'épreuve.
+    //
+    // ET L'ATTENTE NE DOIT PAS FAIRE PLANTER LE CHAPITRE. « run.cjs » compte
+    // une exception comme « 1 échec sur 1 » et les vingt-huit vérifications
+    // disparaissent : on lirait « le test a planté » au lieu de lire CE QUI est
+    // cassé. Si l'écriture n'a vraiment pas lieu, on laisse donc les
+    // vérifications d'en dessous le dire, chacune par son nom.
+    try {
+        await page.waitForFunction(() => {
+            try {
+                const garde = JSON.parse(localStorage.getItem('AuTableau_stylo') || 'null');
+                return !!garde && garde.lineWidth === 7.5 && garde.fontSize === 48
+                    && garde.strokeOpacity === 0.4 && garde.lineDash === 'dashed';
+            } catch (e) { return false; }
+        }, null, { timeout: 6000 });
+    } catch (e) { /* on dira l'état réel : les vérifications qui suivent parlent */ }
     await rechargerApp(page);
     const repris = await page.evaluate(() => {
         const v = (id) => { const e = document.getElementById(id); return e ? e.value : null; };
