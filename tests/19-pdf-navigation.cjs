@@ -1973,6 +1973,20 @@ module.exports = async function (browser) {
         }
         g.strokeStyle = '#000'; g.lineWidth = 1;
         for (let i = 0; i <= (o.lignes === undefined ? 10 : o.lignes); i++) {
+            // UN SÉPARATEUR ÉPAIS SE PEINT AU « fillRect », PAS AU « stroke ».
+            // Sur des coordonnées entières, « lineWidth » mesure
+            // l'anticrénelage et non le trait : à lineWidth 3 on obtient trois
+            // rangées pleines et deux bords à vingt-cinq pour cent, dont la
+            // luminance 191 passe AU-DESSUS du seuil d'encre de 170 — on
+            // croirait régler l'épaisseur et l'on réglerait le flou. Avec
+            // « fillRect » sur des rangées entières, le nombre de rangées
+            // encrées est exactement celui qu'on demande.
+            if (o.separateur && i === 5) {
+                g.fillStyle = '#000';
+                g.fillRect(x0, y0 + i * H - Math.floor((o.separateur - 1) / 2),
+                           (o.colonnes === undefined ? 10 : o.colonnes) * L + 1, o.separateur);
+                continue;
+            }
             g.beginPath(); g.moveTo(x0, y0 + i * H);
             g.lineTo(x0 + (o.colonnes === undefined ? 10 : o.colonnes) * L, y0 + i * H); g.stroke();
         }
@@ -2027,6 +2041,117 @@ module.exports = async function (browser) {
         JSON.stringify(troisTraits));
     const deuxColonnes = await table({ lignes: 10, colonnes: 2, entetes: false });
     r.egal('deux colonnes non plus', deuxColonnes.cases, 0, JSON.stringify(deuxColonnes));
+
+    // ==================================================================
+    // UN SÉPARATEUR ÉPAIS NE COUPE PLUS LE TABLEAU EN DEUX
+    //
+    // « Le tableau est pris pour deux objets. »
+    //
+    // Le seuil au-delà duquel une bande d'encre est traitée comme un PAVÉ —
+    // deux règles, ses bords — et non comme un trait épais valait « 4 % de la
+    // hauteur de la grille », soit quatorze pixels sur cette table de 360. Une
+    // bande de dix à quatorze pixels était donc posée en son MILIEU, et les
+    // deux rangées qui la touchent perdaient leur bord dans l'encre.
+    //
+    // MESURÉ AVANT LA CORRECTION, et c'est ce que ces lignes tiennent :
+    //      1 à 8 px → 100 cases, rangs [0..9]
+    //     10 à 14 px →  80 cases, rangs [0,1,2,3,6,7,8,9]
+    // Deux rangées, pas une. Le basculement à neuf pixels se calcule : la
+    // rangée d'en dessous commence deux pixels sous la règle et son balayage
+    // part de « retrait » de plus, soit cinq pixels — tant que la DEMI-épaisseur
+    // de la bande tient dessous, le balayage passe au-dessus de l'encre.
+    //
+    // ON ÉPROUVE LES DEUX CÔTÉS DU SEUIL D'AVANT. Huit pixels passaient déjà :
+    // s'il ne restait que le cas à dix, on ne saurait pas si la correction a
+    // réparé le défaut ou simplement déplacé la frontière.
+    const sansEntetesNi = await table({ entetes: false });
+    r.egal('SANS EN-TÊTES, UNE TABLE DE DIX SUR DIX REND CENT CASES — la prémisse du reste',
+        [sansEntetesNi.cases, sansEntetesNi.lignes.length], [100, 10],
+        JSON.stringify(sansEntetesNi));
+    const separateurs = {};
+    for (const ep of [8, 10, 12, 14]) {
+        separateurs[ep] = await table({ entetes: false, separateur: ep });
+    }
+    r.egal('UNE BANDE DE DIX PIXELS AU MILIEU NE MANGE PLUS DEUX RANGÉES',
+        [separateurs[10].cases, separateurs[10].lignes.length], [100, 10],
+        JSON.stringify(separateurs[10]));
+    r.verifie('ni une de douze, ni une de quatorze — et huit continue de passer',
+        [8, 12, 14].every(ep => separateurs[ep].cases === 100 && separateurs[ep].lignes.length === 10),
+        JSON.stringify(Object.keys(separateurs).map(k =>
+            k + 'px:' + separateurs[k].cases + '/' + separateurs[k].lignes.length)));
+    // ET LE RANG DE LA BANDE ELLE-MÊME MANQUE, ce qui est juste : entre les deux
+    // bords d'un séparateur il n'y a rien à écrire. C'est pourquoi la
+    // circulation doit enjamber les trous — mesuré plus bas.
+    r.verifie('le rang de la bande elle-même manque, car on n\'y écrit pas',
+        separateurs[10].lignes.includes(4) && !separateurs[10].lignes.includes(5)
+        && separateurs[10].lignes.includes(6),
+        JSON.stringify(separateurs[10].lignes));
+
+    // ==================================================================
+    // UN BANDEAU DE TITRE NE FABRIQUE PLUS DE RANGÉE FANTÔME
+    //
+    // Un pavé de couleur pleine posé au-dessus d'un tableau donne deux règles :
+    // ses propres bords. Le bord du bas et la première règle du tableau
+    // encadrent alors une bande qui a tout d'une rangée vue d'en haut — deux
+    // traverses, de la place, pas d'encre. Mesuré : cent cases en devenaient
+    // CENT DIX, les dix intruses posées à y = 101 alors que le tableau commence
+    // à y = 120.
+    //
+    // ON NE PEUT PAS LES ÉCARTER PAR LA POSITION, et c'est pourquoi le cas du
+    // bandeau COLLÉ est ici : lui aussi a ses deux bords au-dessus de la
+    // première règle, et c'est son bord bas qui fait exister la première rangée
+    // du corps — légitimement. Sans ce second cas, on pourrait « corriger » le
+    // défaut en jetant tout ce qui naît au-dessus du tableau, et casser le cas
+    // vrai sans le voir.
+    //
+    // CE BANC A SA PROPRE TOILE, et il le faut : celle d'au-dessus fait
+    // 700 × 400 avec le tableau de y 20 à 380, où un bandeau de 44 px posé
+    // 20 px plus haut demanderait des ordonnées négatives. La hauteur de texte
+    // monte avec la toile, parce que « HAUTEUR_MAX » vaut 3,8 % de la hauteur
+    // et doit rester SOUS elle : à 520 px il vaut 20, donc il faut un texte de
+    // 22 — sinon des zones de genre « ligne » deviennent possibles et l'on
+    // mesurerait un tout autre défaut.
+    const avecBandeau = async (ecart) => page.evaluate((e) => {
+        const h = 520, tx = 22;
+        const c = document.createElement('canvas');
+        c.width = 700; c.height = h;
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+        const x0 = 20, y0 = 120, L = 65, H = 36, N = 10;
+        if (e !== null) {
+            g.fillStyle = '#f28c40';
+            g.fillRect(x0, y0 - e - 44, N * L, 44);
+        }
+        g.fillStyle = '#000';
+        for (let i = 0; i <= N; i++) g.fillRect(x0, y0 + i * H, N * L + 1, 1);
+        for (let i = 0; i <= N; i++) g.fillRect(x0 + i * L, y0, 1, N * H + 1);
+        const z = repererLesZones(c, tx, []);
+        const cases = z.filter(k => k.grille !== undefined);
+        return {
+            ecart: e, cases: cases.length,
+            rangs: [...new Set(cases.map(k => k.ligne))].sort((a, b) => a - b),
+            // CE QUI COMPTE N'EST PAS LE COMPTE, C'EST L'ORDONNÉE : une case
+            // posée plus haut que la première règle est une case qui n'existe
+            // pas, quel que soit le total.
+            plusHaut: cases.length ? Math.min(...cases.map(k => k.y)) : null,
+            premiereRegle: y0, hauteurMax: Math.round(h * 0.038), tx
+        };
+    }, ecart);
+    const sansBandeau = await avecBandeau(null);
+    r.egal('SANS BANDEAU, LE TABLEAU REND SES CENT CASES — la prémisse',
+        [sansBandeau.cases, sansBandeau.rangs.length], [100, 10], JSON.stringify(sansBandeau));
+    r.verifie('et la mesure est valide : la hauteur de texte dépasse HAUTEUR_MAX',
+        sansBandeau.tx > sansBandeau.hauteurMax,
+        JSON.stringify({ tx: sansBandeau.tx, hauteurMax: sansBandeau.hauteurMax }));
+    const bandeauEcarte = await avecBandeau(20);
+    r.egal('UN BANDEAU POSÉ AU-DESSUS N\'AJOUTE PLUS DIX CASES FANTÔMES',
+        [bandeauEcarte.cases, bandeauEcarte.rangs.length], [100, 10], JSON.stringify(bandeauEcarte));
+    r.verifie('AUCUNE CASE NE NAÎT PLUS AU-DESSUS DE LA PREMIÈRE RÈGLE',
+        bandeauEcarte.plusHaut >= bandeauEcarte.premiereRegle,
+        JSON.stringify({ plusHaut: bandeauEcarte.plusHaut, premiereRegle: bandeauEcarte.premiereRegle }));
+    const bandeauColle = await avecBandeau(0);
+    r.egal('ET UN BANDEAU COLLÉ AU TABLEAU LUI LAISSE SES CENT CASES',
+        [bandeauColle.cases, bandeauColle.rangs.length], [100, 10], JSON.stringify(bandeauColle));
 
     // ==================================================================
     // ET L'ON Y CIRCULE AUX FLÈCHES
@@ -2122,6 +2247,92 @@ module.exports = async function (browser) {
     r.verifie('et hors d\'une grille aussi',
         flechesDansLaGrille.horsGrille.bouge === false,
         JSON.stringify(flechesDansLaGrille.horsGrille));
+
+    // ==================================================================
+    // LA FLÈCHE ENJAMBE UN RANG QUI MANQUE
+    //
+    // C'est la moitié de la plainte « le tableau est pris pour deux objets » :
+    // réparer le compte des cases ne sert à rien si la flèche s'arrête encore.
+    //
+    // La grille d'essai d'au-dessus a des index CONTIGUS — c'est pourquoi rien
+    // ne mesurait ce cas. Or un rang peut manquer pour trois raisons toutes
+    // légitimes : la bande mince entre les deux bords d'un séparateur épais
+    // (mesurée plus haut : rangs [0,1,2,3,4,6,...]), le pavé d'en-tête, et une
+    // rangée dont TOUTES les cases sont déjà remplies.
+    //
+    // ON ÉPROUVE AUSSI LE VRAI BORD, et c'est le contrôle qui empêche la
+    // correction d'aller trop loin : enjamber les trous ne doit pas faire
+    // boucler la flèche ni la faire sortir de la grille. Sans lui, rendre
+    // « toujours la case suivante » passerait pour une réparation.
+    const parDessusLeTrou = await page.evaluate(() => {
+        const toile = document.createElement('canvas');
+        toile.width = 700; toile.height = 400;
+        imageCache['grille-trouee'] = toile;
+        const faux = { id: 9500, src: 'grille-trouee', x: 0, y: 0, w: 700, h: 400,
+                       cx: 0, cy: 0, cw: 700, ch: 400,
+                       pluginData: { id: 'pdfDoc', page: 1, zones: [] } };
+        // Rangs 0,1,2 puis 4,5 : le rang 3 manque ENTIÈREMENT, comme la bande
+        // d'un séparateur épais. Et dans le rang 1, la colonne 1 manque seule —
+        // une case déjà remplie au milieu d'une rangée.
+        const RANGS = [0, 1, 2, 4, 5];
+        RANGS.forEach(i => {
+            for (let j = 0; j < 3; j++) {
+                // « continue », et non « return » : dans un « forEach », le
+                // second sort de TOUTE la rangée et non de la seule colonne —
+                // le rang 1 n'avait plus qu'une case, et le contrôle de la case
+                // enjambée visait une case inexistante. C'est lui qui l'a dit.
+                if (i === 1 && j === 1) continue;
+                faux.pluginData.zones.push({ genre: 'case', x: 0.1 + 0.25 * j, y: 0.05 + 0.15 * i,
+                                             l: 0.2, h: 0.12, grille: 0, ligne: i, colonne: j });
+            }
+        });
+        images.push(faux);
+        const rangDe = (i, j) => faux.pluginData.zones
+            .findIndex(z => z.ligne === i && z.colonne === j);
+        const essai = (depuis, dl, dc) => {
+            tempTextLogicalPos = { zoneDoc: faux.id, zoneRang: depuis };
+            const bouge = allerDansLaGrille(dl, dc);
+            const arrive = tempTextLogicalPos && tempTextLogicalPos.zoneRang;
+            finalizeText();
+            return { bouge, arrive };
+        };
+        const lu = {
+            // Du rang 2 vers le bas : le 3 n'existe pas, on doit atteindre le 4.
+            parDessus: essai(rangDe(2, 0), 1, 0), attenduParDessus: rangDe(4, 0),
+            // Et en remontant du 4, on doit retomber sur le 2.
+            enRemontant: essai(rangDe(4, 0), -1, 0), attenduEnRemontant: rangDe(2, 0),
+            // Une case manquante au MILIEU d'une rangée s'enjambe aussi : de la
+            // colonne 0 du rang 1, la flèche droite atteint la colonne 2.
+            parDessusUneCase: essai(rangDe(1, 0), 0, 1), attenduParDessusUneCase: rangDe(1, 2),
+            // LE VRAI BORD REND LA MAIN. Depuis le dernier rang, vers le bas,
+            // il n'y a plus rien : la flèche ne doit pas bouger.
+            auBord: essai(rangDe(5, 0), 1, 0), departDuBord: rangDe(5, 0),
+            // Et l'on ne change pas de colonne en cherchant une rangée : si la
+            // descente trouvait « la case suivante quelle qu'elle soit », elle
+            // glisserait de colonne. Depuis la colonne 2 du rang 2.
+            memeColonne: essai(rangDe(2, 2), 1, 0), attenduMemeColonne: rangDe(4, 2)
+        };
+        images.splice(images.indexOf(faux), 1);
+        tempTextLogicalPos = null;
+        delete imageCache['grille-trouee'];
+        return lu;
+    });
+    r.egal('LA FLÈCHE BAS ENJAMBE UN RANG QUI MANQUE au lieu de s\'arrêter net',
+        parDessusLeTrou.parDessus.arrive, parDessusLeTrou.attenduParDessus,
+        JSON.stringify(parDessusLeTrou.parDessus));
+    r.egal('et la flèche haut l\'enjambe dans l\'autre sens',
+        parDessusLeTrou.enRemontant.arrive, parDessusLeTrou.attenduEnRemontant,
+        JSON.stringify(parDessusLeTrou.enRemontant));
+    r.egal('une case manquante au milieu d\'une rangée s\'enjambe aussi',
+        parDessusLeTrou.parDessusUneCase.arrive, parDessusLeTrou.attenduParDessusUneCase,
+        JSON.stringify(parDessusLeTrou.parDessusUneCase));
+    r.verifie('MAIS LE VRAI BORD REND TOUJOURS LA MAIN AU CURSEUR',
+        parDessusLeTrou.auBord.bouge === false
+        && parDessusLeTrou.auBord.arrive === parDessusLeTrou.departDuBord,
+        JSON.stringify(parDessusLeTrou.auBord));
+    r.egal('ET L\'ON NE GLISSE PAS DE COLONNE en cherchant une rangée',
+        parDessusLeTrou.memeColonne.arrive, parDessusLeTrou.attenduMemeColonne,
+        JSON.stringify(parDessusLeTrou.memeColonne));
 
     // ------------------------------------------------------------------
     // TOURNER LA PAGE EMPORTE LE RÉGLAGE QUI FLOTTAIT PAR-DESSUS

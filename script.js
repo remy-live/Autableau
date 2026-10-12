@@ -13961,14 +13961,56 @@ function allerDansLaGrille(dLigne, dColonne) {
     const zonesAvant = avant && avant.pluginData && avant.pluginData.zones;
     const ici = zonesAvant && zonesAvant[rang];
     if (!ici || ici.grille === undefined) return false;
-    const cherche = (zs) => zs.findIndex(o => o.grille === ici.grille
-        && o.ligne === ici.ligne + dLigne && o.colonne === ici.colonne + dColonne);
-    if (cherche(zonesAvant) < 0) return false;      // le bord de la grille
+    // LA FLÈCHE ENJAMBE LES RANGS QUI MANQUENT.
+    //
+    // « Le tableau est pris pour deux objets » : la flèche Bas s'arrêtait net au
+    // milieu d'un tableau, et l'on ne pouvait plus descendre.
+    //
+    // Le rang d'une case est l'index de son intervalle de règles — un fait
+    // géométrique — et il PEUT manquer, pour trois raisons toutes légitimes :
+    //   — un séparateur ÉPAIS donne deux règles, donc un intervalle mince entre
+    //     elles où il n'y a rien à écrire (c'est le cas mesuré : rangs
+    //     [0,1,2,3,4,6,7,8,9,10], la flèche butait sur le 5) ;
+    //   — un pavé d'en-tête occupe le rang 0, et ses cases sont déjà écrites ;
+    //   — une rangée dont TOUTES les cases sont déjà remplies ne rend aucune
+    //     case, et fait donc un trou au milieu du tableau.
+    //
+    // Chercher l'index EXACT et rendre « false » au premier trou, c'était
+    // confondre « il n'y a rien ici » avec « il n'y a plus rien ». Dans les
+    // trois cas, ce que le professeur veut est le même : la rangée suivante OÙ
+    // L'ON PEUT ÉCRIRE. On avance donc d'un cran jusqu'à trouver une case, et
+    // l'on ne s'arrête que lorsqu'il n'y a plus rien DEVANT — ce qui est le vrai
+    // bord de la grille.
+    //
+    // ON NE RENUMÉROTE PAS LES RANGS POUR AUTANT, et c'était l'autre voie
+    // possible. Le rang dit quel intervalle de règles porte la case : c'est ce
+    // qui fait que le corps d'une table de dix sur dix est numéroté de 1 à 9,
+    // l'en-tête gardant le 0. Compter les rangs RETENUS les renuméroterait de 0
+    // à 8 et perdrait cette information, pour réparer la navigation à l'endroit
+    // où elle n'est pas cassée.
+    const viser = (zs) => {
+        const dansLaGrille = zs.filter(o => o.grille === ici.grille);
+        let ligne = ici.ligne + dLigne, colonne = ici.colonne + dColonne;
+        // Y a-t-il encore quelque chose dans cette direction ? L'axe sur lequel
+        // on ne bouge pas doit être tenu EXACT : descendre d'une colonne à
+        // l'autre serait un déplacement que personne n'a demandé.
+        const resteDevant = (l, c) => dansLaGrille.some(o =>
+            (dLigne === 0 ? o.ligne === l : dLigne > 0 ? o.ligne >= l : o.ligne <= l)
+            && (dColonne === 0 ? o.colonne === c : dColonne > 0 ? o.colonne >= c : o.colonne <= c));
+        while (resteDevant(ligne, colonne)) {
+            const i = zs.findIndex(o => o.grille === ici.grille
+                && o.ligne === ligne && o.colonne === colonne);
+            if (i >= 0) return i;
+            ligne += dLigne; colonne += dColonne;
+        }
+        return -1;
+    };
+    if (viser(zonesAvant) < 0) return false;      // le bord de la grille
     finalizeText();
     const obj = getObjectById('image', idDoc);
     const zones = obj && obj.pluginData && obj.pluginData.zones;
     if (!zones || !zones.length) return false;
-    const vise = cherche(zones);
+    const vise = viser(zones);
     if (vise < 0) return false;
     const b = zoneSurLeTableau(obj, zones[vise]);
     if (!b) return false;
@@ -19309,7 +19351,31 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
             // en-têtes d'une table de polycopié sont des bandes pleines ;
             // prises pour un trait, elles donneraient une règle en leur milieu
             // et couperaient la première rangée en deux.
-            const EPAIS_MAX = Math.max(4, Math.round((bas - haut) * 0.04));
+            // QUATRE PIXELS, ET C'EST UNE MESURE, PAS UN GOÛT.
+            //
+            // Le seuil valait « 4 % de la hauteur de la grille », soit QUATORZE
+            // pixels sur une table de 360 — si bien qu'une bande de dix à
+            // quatorze pixels était traitée comme un trait, et posée en son
+            // MILIEU. Les deux rangées qui la touchent perdent alors leur bord
+            // dans l'encre : mesuré sur une table de dix sur dix, cent cases
+            // deviennent QUATRE-VINGTS, les rangs 4 et 5 disparaissent, et les
+            // index restants sont troués — « le tableau est pris pour deux
+            // objets », la plainte même.
+            //
+            // Le basculement est à NEUF PIXELS, et il se calcule : la rangée
+            // d'en dessous commence à « lignes[i] + 2 » et son balayage part de
+            // « + retrait », soit cinq pixels en tout sur une case ordinaire.
+            // Tant que la DEMI-épaisseur de la bande tient sous ces cinq
+            // pixels, le balayage passe au-dessus de l'encre. Vérifié par la
+            // mesure : huit pixels rendent encore cent cases, dix en rendent
+            // quatre-vingts.
+            //
+            // La proportion était fausse par nature, et c'est pour cela qu'on
+            // l'ôte plutôt que de la régler : l'échelle de rendu vaut deux
+            // (ZONES_ECHELLE), donc un filet d'un point fait deux pixels, QUELLE
+            // QUE SOIT la taille de la page. L'épaisseur d'un trait ne suit pas
+            // la hauteur du tableau ; elle suit la plume de celui qui l'a tracé.
+            const EPAIS_MAX = 4;
             const lignes = [];
             const poser = (a, b) => {
                 if (b - a > EPAIS_MAX) { lignes.push(a); lignes.push(b); }
@@ -19448,6 +19514,50 @@ function repererLesZones(canevas, hauteurTexte, boitesTexte) {
                 const l = g.colonnes[j + 1] - g.colonnes[j] - 4;
                 const hh = g.lignes[i + 1] - g.lignes[i] - 4;
                 if (l < 8 || hh < 8) continue;
+                // UNE CASE A DEUX MONTANTS. C'est ce qui la distingue d'une
+                // BANDE VIDE, et c'est le second défaut de ce bloc.
+                //
+                // Un bandeau de titre plein — le pavé orange d'un polycopié —
+                // posé au-dessus d'un tableau donne DEUX règles : ses propres
+                // bords. Le bord du bas et la première règle du tableau
+                // encadrent alors une bande vide qui a tout d'une rangée vue
+                // d'ici : deux traverses, de la place, pas d'encre. Mesuré :
+                // cent cases en deviennent CENT DIX, et les dix intruses se
+                // posent à y = 101 alors que le tableau commence à y = 120.
+                //
+                // On ne peut PAS les écarter par la position : le bandeau
+                // collé au tableau a lui aussi ses deux bords au-dessus de la
+                // première règle, et c'est son bord bas qui fait exister la
+                // première rangée du corps — légitimement. Ce qui manque à la
+                // bande intruse n'est donc pas sa place, c'est ses CÔTÉS : les
+                // montants du tableau commencent à la première règle, pas
+                // au-dessus, donc ses deux bords verticaux sont blancs.
+                //
+                // QUARANTE POUR CENT DE LA HAUTEUR DE LA CASE, et ce chiffre
+                // ne vient pas de « DENSITE_MIN », qui mesure tout autre chose
+                // — quarante pour cent de la hauteur de TOUTE la grille. Il
+                // vient du rapport cyclique d'un montant POINTILLÉ : un
+                // « [3 3] » à l'échelle deux donne six pixels d'encre pour six
+                // de vide, soit la moitié de la hauteur ; la marge jusqu'à
+                // quarante pour cent tient la phase du pointillé, qui ne peut
+                // pas manger un dixième sur une case de plusieurs périodes.
+                // Un pointillé plus maigre qu'un tiers passerait au travers :
+                // on le saura par ce commentaire, et non par surprise.
+                //
+                // On regarde à un pixel près de chaque côté : la position d'un
+                // montant est DÉTECTÉE, et le balayage la pose parfois au bord
+                // de l'encre plutôt qu'en son milieu.
+                const MONTANT_DE_CASE = Math.max(4, Math.round(hh * 0.4));
+                const montantDeCase = (xc) => {
+                    let mieux = 0;
+                    for (let d = -1; d <= 1; d++) {
+                        const xx = Math.max(0, Math.min(w - 1, xc + d));
+                        mieux = Math.max(mieux, encreColonne(xx, y, y + hh));
+                    }
+                    return mieux;
+                };
+                if (montantDeCase(g.colonnes[j]) < MONTANT_DE_CASE
+                    || montantDeCase(g.colonnes[j + 1]) < MONTANT_DE_CASE) continue;
                 // ON COMPTE L'ENCRE, PAS LES COLONNES ENCRÉES. Un « 1 » de
                 // seize pixels n'occupe que deux colonnes : en comptant les
                 // colonnes, neuf en-têtes sur dix-huit passaient pour des cases
