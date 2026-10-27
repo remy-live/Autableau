@@ -14680,29 +14680,41 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
             { type: 'color', label: 'Couleur des cases', value: p.cases },
             { type: 'color', label: "Couleur de l'encre", value: p.encre },
             { type: 'select', label: 'Police', value: p.police, options: this.POLICES }
-        ], (r) => this.apercu(r), (r) => this.construire(r, target));
+        ], (r, boite) => this.apercu(r, boite), (r) => this.construire(r, target));
+        this.elargirLaBoite();
     },
 
-    // L'APPEL À L'ASSEMBLEUR VIT DANS L'APERÇU, et il faut un verbe global pour
-    // cela : l'aperçu est injecté en « innerHTML » et se redessine à chaque
-    // frappe, donc un écouteur posé dessus serait détruit à la lettre suivante.
-    // C'est la façon de faire du tirage de lettres, qui a le même besoin.
-    BOUTON_ASSEMBLEUR: '<div style="display:flex;justify-content:center;margin-bottom:8px">'
-        + '<button type="button" class="btn-action secondary"'
-        + ' style="padding:6px 12px;font-size:13px;font-weight:bold;cursor:pointer"'
-        + ' onclick="arbreDeCalculAssembler()">✥ Assembler par glisser-déposer</button></div>',
-
-    apercu: function (res) {
-        const p = this.lireLesReglages(res);
-        const plan = this.poser(p.expression);
-        // CE QUI NE SE POSE PAS SE DIT. Un aperçu vide laisse croire que l'outil
-        // est cassé ; la phrase dit quoi corriger, et sans couleur propre pour
-        // que le rattrapage de contraste de la boîte s'applique.
-        if (plan.erreur) {
-            return this.BOUTON_ASSEMBLEUR
-                + `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:300px">${xmlEsc(plan.erreur)}</div>`;
+    // LA BOÎTE S'ÉLARGIT POUR CET OUTIL, ET POUR LUI SEUL.
+    //
+    // Elle naît à 320 px, et son aperçu fait 140 px de haut : un arbre de
+    // quatre rangées y entrait par le milieu et sortait des deux côtés. Tant
+    // qu'il n'était qu'un dessin cela se supportait ; depuis qu'il SE MODIFIE
+    // dans l'aperçu, il faut le voir en entier pour pouvoir le viser.
+    //
+    // ET ELLE REDEVIENT ÉTROITE EN SE FERMANT. Une classe posée et jamais
+    // retirée donnerait cette largeur aux quarante autres réglages de
+    // l'application — le polygone, le Boggle, la monnaie —, qui n'en ont que
+    // faire et dont l'aperçu se perdrait dans une colonne vide. Le veilleur
+    // couvre toutes les sorties : « Créer », « Annuler », la croix et Échap
+    // passent tous par le même « display:none ».
+    elargirLaBoite: function () {
+        const b = document.getElementById('custom-prompt-modal');
+        if (!b) return false;
+        if (!b.dataset.largeurEtroite) b.dataset.largeurEtroite = b.style.width || '320px';
+        b.classList.add('boite-large');
+        b.style.width = '';
+        if (typeof poserLaBoiteDansLEcran === 'function') poserLaBoiteDansLEcran();
+        if (!this.veilleSurLaBoite && typeof MutationObserver === 'function') {
+            this.veilleSurLaBoite = new MutationObserver(() => {
+                if (getComputedStyle(b).display === 'none' && b.classList.contains('boite-large')) {
+                    b.classList.remove('boite-large');
+                    b.style.width = b.dataset.largeurEtroite || '320px';
+                    this.apercuEl = null;
+                }
+            });
+            this.veilleSurLaBoite.observe(b, { attributes: true, attributeFilter: ['style', 'class'] });
         }
-        return this.BOUTON_ASSEMBLEUR + this.dessiner(plan, p, false);
+        return true;
     },
 
     construire: function (res, target) {
@@ -14720,161 +14732,70 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
             '🌳 Arbre de calcul posé');
     },
 
-    // ============ ASSEMBLER À LA MAIN ============
+    // ============ L'APERÇU EST L'ÉDITEUR ============
     //
-    // « On peut aussi créer en glisser-déposer. »
+    // « On voit mal l'arbre en entier, et on peut modifier l'arbre en cours, et
+    // on a déjà les blocs qu'on peut lier, glisser. Fais mieux ! »
     //
-    // L'ASSEMBLEUR ÉCRIT L'EXPRESSION, IL NE DESSINE RIEN. C'est la décision qui
-    // tient tout le reste : il n'y a qu'UNE façon de fabriquer un arbre — la
-    // lire depuis une expression — et le glisser-déposer est une seconde façon
-    // d'ÉCRIRE cette expression, pas une seconde façon de faire un arbre. Deux
-    // fabriques auraient divergé, et le tampon aurait eu deux formes d'arguments
-    // selon la porte par laquelle on l'a fait entrer : la réédition, l'annuler
-    // et le restylage s'appuient tous sur « args », qui reste donc identique.
+    // L'ASSEMBLEUR VIVAIT DANS UNE FENÊTRE À PART, avec des briques abstraites
+    // qui n'étaient pas les cases de l'arbre. C'était deux représentations d'une
+    // même chose, et l'une des deux était fausse : on assemblait des rectangles
+    // gris pour obtenir un arbre qu'on ne voyait qu'après. Les blocs sont DÉJÀ
+    // là, dessinés, dans l'aperçu — c'est eux qu'il faut pouvoir prendre.
     //
-    // ET LE PROFESSEUR VOIT L'EXPRESSION SE COMPOSER sous les blocs : c'est
-    // exactement la seconde question du manuel — « écrire l'expression en ligne
-    // correspondante » — rendue visible pendant qu'on assemble.
+    // L'APERÇU SE GÈRE DONC LUI-MÊME. « openCustomPrompt » injecte en innerHTML
+    // ce que l'aperçu lui rend, mais il ne touche à rien si on lui rend une
+    // chaîne vide : on peut alors poser un vrai morceau d'interface, avec ses
+    // écouteurs, et le reconstruire soi-même quand il le faut.
     //
-    // LE BLOC DE GAUCHE PASSE À GAUCHE DU SIGNE. Il fallait une règle, parce que
-    // « − » et « ÷ » ne pardonnent pas l'ordre ; la place à l'écran est la seule
-    // qui se voie sans rien lire.
-    briques: [], avant: [], widgetEl: null, boiteMasquee: false,
-
-    // DEUX FENÊTRES QUI SE RECOUVRENT NE SE DISPUTENT PAS, ON EN RANGE UNE.
+    // TROIS GESTES, ET PAS UN DE PLUS :
+    //   — TIRER un arbre sur un autre les réunit ; les quatre signes s'offrent
+    //     au point de dépôt.
+    //   — CLIQUER UNE BULLE défait ce nœud : ses deux moitiés redeviennent deux
+    //     arbres qu'on peut relier autrement. C'est « modifier l'arbre en
+    //     cours », et c'est la chose qui manquait le plus — sans elle, une
+    //     erreur de signe au troisième nœud obligeait à tout recommencer.
+    //   — CLIQUER UN NOMBRE le change sur place.
     //
-    // Mesuré : la boîte de réglages vit à l'étage 200100, les fenêtres d'outil à
-    // 100045, et leurs rectangles se chevauchent — la boîte mangeait donc les
-    // clics de l'assembleur, jusqu'au choix du signe qu'on ne pouvait pas
-    // atteindre. Monter l'assembleur au-dessus de 200100 aurait marché, et
-    // aurait enterré du même coup les QUESTIONS de confirmation, qui vivent au
-    // même étage : « Effacer le tableau ? » serait passée derrière.
-    //
-    // Or ces deux fenêtres ne servent jamais ensemble : on écrit le calcul, ou
-    // bien on l'assemble. On range donc la boîte le temps de l'assemblage, et
-    // on la rend ensuite — avec sa ligne remplie.
-    masquerLaBoite: function () {
-        const b = document.getElementById('custom-prompt-modal');
-        if (!b || getComputedStyle(b).display === 'none') return false;
-        b.style.display = 'none';
-        this.boiteMasquee = true;
-        return true;
+    // ET LA LIGNE DU HAUT RESTE LA VÉRITÉ. L'éditeur l'écrit, la frappe la
+    // relit : il n'y a toujours qu'une façon de fabriquer un arbre, et le
+    // glisser-déposer n'en est qu'une seconde façon d'écrire.
+    foret: [], apercuEl: null, reglagesCourants: null, derniereLigneEcrite: null,
+
+    ECART_FORET: 22, MARGE_FORET: 14,
+
+    // Les feuilles d'un arbre, de gauche à droite : c'est ce qu'on sème quand
+    // on défait tout, et ce qu'on relit d'une ligne déjà écrite.
+    feuillesDe: function (n, dans) {
+        const out = dans || [];
+        if (n.op) { this.feuillesDe(n.g, out); this.feuillesDe(n.d, out); }
+        else out.push(n);
+        return out;
     },
 
-    rendreLaBoite: function () {
-        if (!this.boiteMasquee) return false;
-        this.boiteMasquee = false;
-        const b = document.getElementById('custom-prompt-modal');
-        if (b) b.style.display = 'flex';
-        return true;
+    expressionDe: function (n) {
+        if (!n.op) return this.enTexte(n.valeur);
+        return '(' + this.expressionDe(n.g) + ' ' + n.op + ' ' + this.expressionDe(n.d) + ')';
     },
 
-    ouvrirLAssembleur: function () {
-        if (!this.widgetEl) this.batirLAssembleur();
-        this.masquerLaBoite();
-        this.widgetEl.style.display = 'flex';
-        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
-        if (typeof passerDevant === 'function') passerDevant(this.widgetEl);
-        // ON SÈME AVEC LES NOMBRES DU CALCUL DÉJÀ ÉCRIT. Repartir de zéro quand
-        // la boîte porte déjà « (2 + 3) × 4 » obligerait à retaper cinq nombres
-        // qu'on a sous les yeux.
-        if (!this.briques.length) {
-            const champ = this.leChampDeLaBoite();
-            const lu = champ ? this.analyser(champ.value) : { erreur: 1 };
-            if (!lu.erreur) {
-                const feuilles = [];
-                const voir = (n) => { if (n.op) { voir(n.g); voir(n.d); } else feuilles.push(this.enTexte(n.valeur)); };
-                voir(lu.noeud);
-                this.semer(feuilles.join(' '));
-            }
-        }
-        this.rafraichirLAssembleur();
-        return this.widgetEl;
-    },
-
-    leChampDeLaBoite: function () {
-        const boite = document.getElementById('custom-prompt-modal');
-        if (!boite) return null;
-        // Rangée par NOUS, la boîte reste la bonne : c'est seulement une boîte
-        // refermée par le professeur qu'il ne faut pas remplir dans son dos.
-        if (!this.boiteMasquee && getComputedStyle(boite).display === 'none') return null;
-        return boite.querySelector('#custom-prompt-inputs input.prompt-input');
-    },
-
-    // Des nombres séparés par des espaces : « −0,6 −5 −0,4 −8 2 » pose cinq
-    // blocs d'un coup, ce qui est le geste qu'on fait en recopiant un énoncé.
-    semer: function (txt) {
-        const lus = [];
-        String(txt || '').trim().split(/[\s  ]+/).forEach(bout => {
-            if (!bout) return;
-            let negatif = false, reste = bout;
-            if (SIGNES_DU_CALCUL[reste[0]] === '−') { negatif = true; reste = reste.slice(1); }
-            const n = this.lireUnNombre(reste);
-            if (!n) return;
-            lus.push(negatif ? { n: -n.n, d: n.d } : n);
-        });
-        if (!lus.length) return 0;
-        this.retenirLEtat();
-        lus.forEach((v, k) => {
-            const t = this.enTexte(v);
-            this.briques.push({ expr: t, valeur: v,
-                                x: 16 + (this.briques.length % 5) * 104,
-                                y: 16 + Math.floor((this.briques.length) / 5) * 64 });
-        });
-        return lus.length;
-    },
-
-    retenirLEtat: function () {
-        this.avant.push(this.briques.map(b => Object.assign({}, b)));
-        if (this.avant.length > 40) this.avant.shift();
-    },
-
-    defaire: function () {
-        if (!this.avant.length) return false;
-        this.briques = this.avant.pop();
-        this.rafraichirLAssembleur();
-        return true;
-    },
-
-    // DEUX BLOCS N'EN FONT PLUS QU'UN, et l'expression se parenthèse TOUJOURS :
-    // c'est ce qui garantit que l'arbre relu est celui qu'on a assemblé, sans
-    // dépendre des priorités. La paire extérieure s'ôte à la toute fin, pour ne
-    // pas rendre une ligne emballée dans une parenthèse inutile.
-    fusionner: function (i, j, op, xAvantLeGeste) {
-        const a = this.briques[i], b = this.briques[j];
-        if (!a || !b || a === b || !SIGNES_DU_CALCUL[op] && '+−×÷'.indexOf(op) < 0) return false;
-        // LA GAUCHE SE JUGE AVANT LE GESTE, PAS APRÈS.
-        //
-        // Mesuré : au moment du dépôt, le bloc tiré est POSÉ SUR sa cible, donc
-        // les deux ont la même abscisse et la comparaison départageait au
-        // hasard — en pratique toujours en faveur du bloc tiré. La règle
-        // affichée, « le bloc de gauche passe à gauche du signe », était donc
-        // fausse, et pour « − » et « ÷ » cela change la réponse.
-        //
-        // On compare donc la place qu'occupait le bloc tiré AU DÉBUT du geste :
-        // c'est celle que le professeur voyait quand il a décidé de le prendre.
-        const xa = xAvantLeGeste === undefined ? a.x : xAvantLeGeste;
-        const gauche = xa <= b.x ? a : b, droite = xa <= b.x ? b : a;
-        const lu = this.analyser('(' + gauche.expr + ') ' + op + ' (' + droite.expr + ')');
-        if (lu.erreur) return false;
-        this.retenirLEtat();
-        const neuve = { expr: '(' + gauche.expr + ' ' + op + ' ' + droite.expr + ')',
-                        valeur: this.valeurDe(lu.noeud),
-                        x: gauche === a ? xa : gauche.x, y: gauche.y };
-        this.briques = this.briques.filter(k => k !== a && k !== b);
-        this.briques.push(neuve);
-        this.rafraichirLAssembleur();
-        return true;
-    },
-
+    // La valeur d'un nœud et de tout ce qu'il porte, posée au passage : c'est
+    // elle qu'on lit dans les cases, et elle doit suivre chaque remaniement.
     valeurDe: function (n) {
         if (!n.op) return n.valeur;
         const a = this.valeurDe(n.g), b = this.valeurDe(n.d);
         if (!a || !b) return null;
-        if (n.op === '+') return this.plus(a, b);
-        if (n.op === '−') return this.moins(a, b);
-        if (n.op === '×') return this.fois(a, b);
-        return this.divise(a, b);
+        let v = null;
+        if (n.op === '+') v = this.plus(a, b);
+        else if (n.op === '−') v = this.moins(a, b);
+        else if (n.op === '×') v = this.fois(a, b);
+        else v = this.divise(a, b);
+        n.valeur = v;
+        return v;
+    },
+
+    laLigneDeLaForet: function () {
+        return this.foret.length === 1
+            ? this.sansSesParenthesesExterieures(this.expressionDe(this.foret[0].noeud)) : '';
     },
 
     sansSesParenthesesExterieures: function (e) {
@@ -14888,202 +14809,445 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return t;
     },
 
-    expressionAssemblee: function () {
-        return this.briques.length === 1 ? this.sansSesParenthesesExterieures(this.briques[0].expr) : '';
+    // ---- CE QUE L'ÉDITEUR REÇOIT, ET CE QU'IL REND ----
+
+    semerDepuisLaLigne: function (ligne) {
+        const lu = this.analyser(ligne);
+        if (lu.erreur) return { erreur: lu.erreur };
+        this.valeurDe(lu.noeud);
+        this.foret = [{ noeud: lu.noeud, x: 0, y: 0 }];
+        this.rangerLaForet();
+        return {};
     },
 
-    // ÉCRIRE DANS LA BOÎTE, ET NON POSER DIRECTEMENT. Le professeur garde ses
-    // couleurs, ses cases à cocher et sa police ; l'assembleur ne lui prend que
-    // la ligne de calcul, qu'il peut encore corriger à la main.
-    ecrireDansLaBoite: function () {
-        const e = this.expressionAssemblee();
-        if (!e) {
-            if (typeof showToast === 'function') showToast('Réunissez d\'abord tous les blocs en un seul');
-            return false;
-        }
-        const champ = this.leChampDeLaBoite();
-        if (!champ) {
-            if (typeof showToast === 'function') showToast('Le calcul assemblé : ' + e);
-            return false;
-        }
-        champ.value = e;
-        champ.dispatchEvent(new Event('input', { bubbles: true }));
-        // On referme l'assembleur ; le veilleur posé sur son style rend la
-        // boîte, par ce chemin comme par la croix de sa barre de titre.
-        if (this.widgetEl) this.widgetEl.style.display = 'none';
-        this.rendreLaBoite();
+    // ON RANGE DE GAUCHE À DROITE, et c'est aussi la règle de l'ordre : le sens
+    // de lecture décide de ce qui passe à gauche du signe.
+    rangerLaForet: function () {
+        let x = this.MARGE_FORET;
+        this.foret.forEach(a => {
+            const plan = this.poser(this.expressionDe(a.noeud));
+            a.x = x; a.y = this.MARGE_FORET;
+            x += (plan.erreur ? 80 : plan.l) + this.ECART_FORET;
+        });
+    },
+
+    // ---- LES TROIS GESTES ----
+
+    reunirLesArbres: function (i, j, op, xAvantLeGeste) {
+        const a = this.foret[i], b = this.foret[j];
+        if (!a || !b || a === b || '+−×÷'.indexOf(op) < 0) return false;
+        // LA GAUCHE SE JUGE AVANT LE GESTE, PAS APRÈS. Au moment du dépôt,
+        // l'arbre tiré est POSÉ SUR sa cible : les deux ont la même abscisse, et
+        // comparer là départagerait au hasard — en pratique toujours en faveur
+        // de celui qu'on tire, ce qui rendrait fausse la règle affichée. Pour
+        // « − » et « ÷ », cela change la réponse.
+        const xa = xAvantLeGeste === undefined ? a.x : xAvantLeGeste;
+        const gauche = xa <= b.x ? a : b, droite = xa <= b.x ? b : a;
+        const noeud = { op, g: gauche.noeud, d: droite.noeud };
+        if (!this.valeurDe(noeud)) return false;      // une division par zéro
+        // L'ARBRE NÉ RESTE À LA PLACE DU PLUS À GAUCHE DES DEUX. Ajouté en
+        // bout de liste, il sautait à l'extrême droite de la forêt au moment
+        // même où l'on venait de le composer — on perdait des yeux ce qu'on
+        // tenait, et l'ordre de lecture, qui est la règle de la gauche, ne
+        // voulait plus rien dire.
+        const rang = Math.min(this.foret.indexOf(a), this.foret.indexOf(b));
+        this.foret = this.foret.filter(k => k !== a && k !== b);
+        this.foret.splice(Math.min(rang, this.foret.length), 0,
+            { noeud, x: Math.min(xa, b.x), y: Math.min(a.y, b.y) });
+        this.rangerLaForet();
+        this.publier();
         return true;
     },
 
-    batirLAssembleur: function () {
-        if (!document.getElementById('arbre-assembleur-style')) {
+    // DÉFAIRE UN NŒUD, C'EST DÉFAIRE LA CHAÎNE QUI Y MÈNE.
+    //
+    // L'arbre se reprend ainsi en cours, au lieu de se refaire en entier à la
+    // première erreur de signe — c'est la chose qui manquait le plus.
+    //
+    // ET IL N'Y A PAS DE DEMI-MESURE : un nœud rendu à ses deux moitiés laisse
+    // son parent avec un enfant de moins, ce qui n'est pas un arbre. Tous les
+    // nœuds du chemin se défont donc avec lui, et chaque FRÈRE croisé en
+    // descendant reste entier, posé à côté. Rompre le « × » de « (A × B) + C »
+    // dans « ((A × B) + C) × (D − E) » rend quatre arbres : A, B, C, et
+    // (D − E) — dans cet ordre, celui de la lecture.
+    //
+    // Ma première version jetait l'arbre entier pour ne garder que les deux
+    // moitiés du nœud rompu : « −0,4 », « −8 » et « 2 » disparaissaient sans
+    // un mot. C'est la sonde qui l'a dit, pas la relecture.
+    defaireLeNoeud: function (i, chemin) {
+        const a = this.foret[i];
+        if (!a) return false;
+        const avant = [], apres = [];
+        let n = a.noeud;
+        for (const pas of (chemin || '')) {
+            if (!n.op) return false;
+            if (pas === 'g') { apres.unshift(n.d); n = n.g; }
+            else { avant.push(n.g); n = n.d; }
+        }
+        if (!n.op) return false;
+        const morceaux = avant.concat([n.g, n.d], apres);
+        this.foret.splice(i, 1);
+        morceaux.forEach((k, r) => this.foret.splice(i + r, 0, { noeud: k, x: a.x, y: a.y }));
+        this.rangerLaForet();
+        this.publier();
+        return true;
+    },
+
+    changerUnNombre: function (i, chemin, texte) {
+        const a = this.foret[i];
+        if (!a) return false;
+        let n = a.noeud;
+        for (const pas of (chemin || '')) {
+            if (!n.op) return false;
+            n = pas === 'g' ? n.g : n.d;
+        }
+        if (n.op) return false;
+        let brut = String(texte || '').trim(), negatif = false;
+        if (SIGNES_DU_CALCUL[brut[0]] === '−') { negatif = true; brut = brut.slice(1); }
+        const v = this.lireUnNombre(brut);
+        if (!v) return false;
+        n.valeur = negatif ? { n: -v.n, d: v.d } : v;
+        this.valeurDe(a.noeud);
+        this.rangerLaForet();
+        this.publier();
+        return true;
+    },
+
+    ajouterDesNombres: function (txt) {
+        let combien = 0;
+        String(txt || '').trim().split(/[\s  ]+/).forEach(bout => {
+            if (!bout) return;
+            let negatif = false, reste = bout;
+            if (SIGNES_DU_CALCUL[reste[0]] === '−') { negatif = true; reste = reste.slice(1); }
+            const v = this.lireUnNombre(reste);
+            if (!v) return;
+            this.foret.push({ noeud: { valeur: negatif ? { n: -v.n, d: v.d } : v }, x: 0, y: 0 });
+            combien++;
+        });
+        if (combien) { this.rangerLaForet(); this.publier(); }
+        return combien;
+    },
+
+    toutDefaire: function () {
+        const feuilles = [];
+        this.foret.forEach(a => this.feuillesDe(a.noeud).forEach(f => feuilles.push(f)));
+        if (!feuilles.length) return false;
+        this.foret = feuilles.map(f => ({ noeud: { valeur: f.valeur }, x: 0, y: 0 }));
+        this.rangerLaForet();
+        this.publier();
+        return true;
+    },
+
+    // ---- LA LIGNE, QUI RESTE LA VÉRITÉ ----
+    //
+    // On écrit dans le champ SANS réveiller son écouteur : « input » rappellerait
+    // l'aperçu, qui relirait la ligne et reconstruirait la forêt qu'on vient de
+    // composer — en perdant la disposition des arbres qu'on n'a pas encore
+    // réunis. On se souvient donc de ce qu'on a écrit, et l'on ne resème que
+    // lorsque la ligne a changé SOUS NOS PIEDS, c'est-à-dire quand c'est le
+    // professeur qui a tapé.
+    publier: function () {
+        const champ = document.querySelector('#custom-prompt-modal #custom-prompt-inputs input.prompt-input');
+        const ligne = this.laLigneDeLaForet();
+        if (champ && ligne) { champ.value = ligne; this.derniereLigneEcrite = ligne; }
+        this.rendreLEditeur();
+    },
+
+    // ---- LE DESSIN DE L'ÉDITEUR ----
+
+    apercu: function (res, boite) {
+        if (boite) this.apercuEl = boite;
+        const p = this.lireLesReglages(res);
+        this.reglagesCourants = p;
+        if (p.expression !== this.derniereLigneEcrite) {
+            this.derniereLigneEcrite = p.expression;
+            const lu = this.semerDepuisLaLigne(p.expression);
+            this.erreurCourante = lu.erreur || null;
+        }
+        this.rendreLEditeur();
+        return '';     // l'aperçu est à nous : on gère l'injection nous-mêmes
+    },
+
+    STYLE_EDITEUR: `
+#arbre-editeur { position:relative; width:100%; height:100%; min-height:440px; display:flex;
+    flex-direction:column; gap:6px; font-family:sans-serif; }
+#arbre-editeur .barre { display:flex; gap:6px; align-items:center; padding:8px 8px 0; }
+#arbre-editeur .barre input { flex:1; min-width:70px; padding:5px 8px; border-radius:6px;
+    border:1px solid var(--contour,#dfe6e9); font-size:13px; }
+#arbre-editeur .zone { position:relative; flex:1; overflow:auto; border-radius:8px; margin:0 8px 8px;
+    background:var(--fond,#fbfcfd); }
+#arbre-editeur .sous-arbre { position:absolute; transform-origin:top left; cursor:grab; touch-action:none; }
+#arbre-editeur .sous-arbre.tenu { cursor:grabbing; filter:drop-shadow(0 6px 14px rgba(0,0,0,0.3)); z-index:5; }
+#arbre-editeur .sous-arbre.visee { outline:3px solid #e03131; outline-offset:3px; border-radius:6px; }
+#arbre-editeur .poignee { position:absolute; border:none; background:transparent; padding:0;
+    cursor:pointer; border-radius:50%; }
+#arbre-editeur .poignee.case { border-radius:4px; }
+#arbre-editeur .poignee:hover { outline:2px solid #6c5ce7; outline-offset:1px; }
+#arbre-editeur .signe { width:34px; height:34px; border-radius:50%; border:none; cursor:pointer;
+    background:#2b7ec0; color:#fff; font-size:17px; font-weight:700; }
+#arbre-editeur .mot { padding:0 8px 8px; font-size:12px; opacity:0.75; }
+#arbre-editeur .plainte { padding:16px; font-size:13px; line-height:1.5; text-align:center; }`,
+
+    batirLEditeur: function () {
+        if (!document.getElementById('arbre-editeur-style')) {
             const st = document.createElement('style');
-            st.id = 'arbre-assembleur-style';
-            st.textContent = `
-#arbre-assembleur .brique { position:absolute; min-width:72px; padding:6px 10px; border-radius:6px;
-    background:#bcd9f0; color:#1c3d55; border:2px solid transparent; cursor:grab;
-    font-family:sans-serif; text-align:center; user-select:none; touch-action:none; }
-#arbre-assembleur .brique .valeur { font-size:17px; font-weight:700; line-height:1.1; }
-#arbre-assembleur .brique .detail { font-size:10px; opacity:0.75; margin-top:2px; }
-#arbre-assembleur .brique.tenue { cursor:grabbing; box-shadow:0 6px 18px rgba(0,0,0,0.25); z-index:5; }
-#arbre-assembleur .brique.visee { border-color:#e03131; }
-#arbre-assembleur .signe { width:34px; height:34px; border-radius:50%; border:none; cursor:pointer;
-    background:#2b7ec0; color:#fff; font-size:17px; font-weight:700; }`;
+            st.id = 'arbre-editeur-style';
+            st.textContent = this.STYLE_EDITEUR;
             document.head.appendChild(st);
         }
-        const f = document.createElement('div');
-        f.id = 'arbre-assembleur';
-        f.dataset.fenetreTitre = 'Assembler un arbre de calcul';
-        f.style.cssText = 'display:none; position:fixed; left:120px; top:110px; width:560px;'
-            + ' flex-direction:column; gap:8px; background:var(--surface,#fff); border-radius:12px;'
-            + ' box-shadow:0 8px 24px rgba(0,0,0,0.2); border:1px solid var(--contour,#dfe6e9);'
-            + ' padding:12px; font-family:sans-serif;';
-        f.innerHTML = `
-<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-    <input id="arbre-nombres" type="text" placeholder="−0,6 −5 −0,4 −8 2"
-           style="flex:1; min-width:150px; padding:6px 8px; border-radius:6px; border:1px solid var(--contour,#dfe6e9)">
-    <button type="button" id="arbre-ajouter" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Ajouter</button>
-    <button type="button" id="arbre-defaire" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Défaire</button>
-    <button type="button" id="arbre-vider" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Tout vider</button>
+        const e = document.createElement('div');
+        e.id = 'arbre-editeur';
+        e.innerHTML = `
+<div class="barre">
+    <input id="arbre-nombres" type="text" placeholder="ajouter des nombres : −0,6 −5 2">
+    <button type="button" id="arbre-ajouter" class="btn-action secondary" style="padding:5px 10px; font-size:13px; cursor:pointer">Ajouter</button>
+    <button type="button" id="arbre-tout-defaire" class="btn-action secondary" style="padding:5px 10px; font-size:13px; cursor:pointer">Tout défaire</button>
 </div>
-<!-- LA ZONE A UN FOND À ELLE. Laissée transparente, elle montrait la barre
-     d'outils et le tableau au travers : sur une page chargée, les blocs
-     devenaient illisibles au moment précis où on les vise. -->
-<div id="arbre-zone" style="position:relative; height:260px; border-radius:8px;
-     border:1px dashed var(--contour,#dfe6e9); background:var(--fond,#fbfcfd);
-     overflow:hidden"></div>
-<div style="display:flex; gap:8px; align-items:center">
-    <div id="arbre-ligne" style="flex:1; font-size:13px; min-height:20px; word-break:break-all"></div>
-    <button type="button" id="arbre-ecrire" class="btn-action primary" style="padding:6px 14px; cursor:pointer">Écrire le calcul</button>
-</div>
-<div style="font-size:11px; opacity:0.7">Glissez un bloc sur un autre pour les réunir — le bloc de gauche passe à gauche du signe.</div>`;
-        document.body.appendChild(f);
-        this.widgetEl = f;
-        // LA BOÎTE REVIENT QUELLE QUE SOIT LA SORTIE. La croix de la barre de
-        // titre commune pose « display:none » sur la fenêtre, Échap passe par
-        // « widgetEl », et notre bouton la referme lui aussi : un veilleur sur
-        // le style les couvre tous les trois, là où trois écouteurs auraient
-        // fini par en oublier un — et le professeur aurait perdu ses réglages.
-        if (typeof MutationObserver === 'function') {
-            new MutationObserver(() => {
-                if (f.style.display === 'none') this.rendreLaBoite();
-            }).observe(f, { attributes: true, attributeFilter: ['style'] });
-        }
-
+<div class="zone" id="arbre-zone"></div>
+<div class="mot">Tirez un arbre sur un autre pour les réunir — celui de gauche passe à gauche du signe. Cliquez un signe pour le défaire, un nombre pour le changer.</div>`;
         const ajouter = () => {
-            const champ = f.querySelector('#arbre-nombres');
-            if (this.semer(champ.value)) { champ.value = ''; this.rafraichirLAssembleur(); }
+            const champ = e.querySelector('#arbre-nombres');
+            if (this.ajouterDesNombres(champ.value)) champ.value = '';
             else if (typeof showToast === 'function') showToast('Écrivez un ou plusieurs nombres, séparés par des espaces');
         };
-        f.querySelector('#arbre-ajouter').addEventListener('click', ajouter);
-        f.querySelector('#arbre-nombres').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); ajouter(); }
+        e.querySelector('#arbre-ajouter').addEventListener('click', ajouter);
+        e.querySelector('#arbre-nombres').addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); ajouter(); }
         });
-        f.querySelector('#arbre-defaire').addEventListener('click', () => this.defaire());
-        f.querySelector('#arbre-vider').addEventListener('click', () => {
-            this.retenirLEtat(); this.briques = []; this.rafraichirLAssembleur();
-        });
-        f.querySelector('#arbre-ecrire').addEventListener('click', () => this.ecrireDansLaBoite());
-        return f;
+        e.querySelector('#arbre-tout-defaire').addEventListener('click', () => this.toutDefaire());
+        return e;
     },
 
-    rafraichirLAssembleur: function () {
-        if (!this.widgetEl) return;
-        const zone = this.widgetEl.querySelector('#arbre-zone');
+    rendreLEditeur: function () {
+        const hote = this.apercuEl;
+        if (!hote) return null;
+        let e = hote.querySelector('#arbre-editeur');
+        if (!e) { hote.innerHTML = ''; e = this.batirLEditeur(); hote.appendChild(e); }
+        const zone = e.querySelector('#arbre-zone');
         zone.innerHTML = '';
-        this.briques.forEach((b, i) => {
-            const el = document.createElement('div');
-            el.className = 'brique';
-            el.dataset.rang = String(i);
-            el.style.left = b.x + 'px';
-            el.style.top = b.y + 'px';
-            const detail = this.sansSesParenthesesExterieures(b.expr);
-            el.innerHTML = `<div class="valeur">${xmlEsc(this.enTexte(b.valeur))}</div>`
-                + (detail === this.enTexte(b.valeur) ? ''
-                   : `<div class="detail">${xmlEsc(detail)}</div>`);
-            this.rendreGlissable(el, i);
-            zone.appendChild(el);
+        if (this.erreurCourante && !this.foret.length) {
+            const d = document.createElement('div');
+            d.className = 'plainte';
+            d.textContent = this.erreurCourante;
+            zone.appendChild(d);
+            return e;
+        }
+        const reglages = this.reglagesCourants || this.lireLesReglages([]);
+        // UNE SEULE ÉCHELLE POUR TOUTE LA FORÊT : deux arbres réduits chacun à
+        // sa façon ne se comparent plus, et c'est précisément ce qu'on fait
+        // quand on choisit lequel passe à gauche.
+        const plans = this.foret.map(a => this.poser(this.expressionDe(a.noeud)));
+        const large = Math.max(1, ...plans.map((p, k) => (p.erreur ? 0 : this.foret[k].x + p.l)));
+        const haut = Math.max(1, ...plans.map(p => p.erreur ? 0 : p.h));
+        const dispo = { l: Math.max(120, zone.clientWidth - 8), h: Math.max(120, zone.clientHeight - 8) };
+        const echelle = Math.min(1, dispo.l / (large + this.MARGE_FORET), dispo.h / (haut + this.MARGE_FORET * 2));
+        this.echelleDeLaForet = echelle;
+
+        this.foret.forEach((a, i) => {
+            const plan = plans[i];
+            if (plan.erreur) return;
+            const bloc = document.createElement('div');
+            bloc.className = 'sous-arbre';
+            bloc.dataset.rang = String(i);
+            bloc.style.left = (a.x * echelle) + 'px';
+            bloc.style.top = (a.y * echelle) + 'px';
+            bloc.style.width = (plan.l * echelle) + 'px';
+            bloc.style.height = (plan.h * echelle) + 'px';
+            // Un morceau de calcul n'est pas une réponse : voir « enRouge ».
+            bloc.innerHTML = this.dessiner(plan, Object.assign({}, reglages,
+                { rouge: this.foret.length === 1 }), false)
+                .replace(' style="max-width:100%;max-height:260px"', ' style="width:100%;height:100%;display:block"');
+            // LES POIGNÉES SONT DU VRAI HTML POSÉ SUR LE DESSIN, et non des
+            // morceaux du SVG : le même dessin part en tampon, et un tampon n'a
+            // pas à porter les attributs d'un éditeur.
+            // LE CHEMIN SE NOMME SUR L'ARBRE DU PLAN, pas sur le nôtre.
+            //
+            // « poser » RELIT l'expression : ses nœuds sont d'autres objets que
+            // ceux de la forêt, de même forme mais pas les mêmes. Nommer les
+            // nôtres puis chercher ceux du plan dans la table ne trouvait donc
+            // jamais rien, et TOUTES les poignées recevaient le chemin vide,
+            // c'est-à-dire la racine. Cliquer n'importe quelle bulle défaisait
+            // la racine — et cela passait pour juste tant qu'on n'essayait
+            // qu'un arbre à deux nœuds.
+            const chemins = new Map();
+            const nommer = (n, c) => { chemins.set(n, c); if (n.op) { nommer(n.g, c + 'g'); nommer(n.d, c + 'd'); } };
+            nommer(plan.racine, '');
+            plan.noeuds.forEach(n => {
+                const chemin = chemins.get(n);
+                if (chemin === undefined) return;
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.dataset.chemin = chemin;
+                if (n.op) {
+                    b.className = 'poignee bulle';
+                    b.title = 'Défaire ce signe';
+                    b.dataset.role = 'defaire';
+                    b.style.left = ((n.cx - this.R_BULLE) * echelle) + 'px';
+                    b.style.top = ((n.yBulle - this.R_BULLE) * echelle) + 'px';
+                    b.style.width = (2 * this.R_BULLE * echelle) + 'px';
+                    b.style.height = (2 * this.R_BULLE * echelle) + 'px';
+                } else {
+                    b.className = 'poignee case';
+                    b.title = 'Changer ce nombre';
+                    b.dataset.role = 'changer';
+                    b.dataset.valeur = n.texte;
+                    b.style.left = (n.x * echelle) + 'px';
+                    b.style.top = (n.y * echelle) + 'px';
+                    b.style.width = (n.l * echelle) + 'px';
+                    b.style.height = (this.H_CASE * echelle) + 'px';
+                }
+                bloc.appendChild(b);
+            });
+            this.rendreArbreGlissable(bloc, i);
+            zone.appendChild(bloc);
         });
-        const e = this.expressionAssemblee();
-        const ligne = this.widgetEl.querySelector('#arbre-ligne');
-        ligne.textContent = e ? e + '  =  ' + this.enTexte(this.briques[0].valeur)
-            : (this.briques.length ? this.briques.length + ' blocs à réunir' : 'Ajoutez des nombres pour commencer');
-        this.widgetEl.querySelector('#arbre-ecrire').disabled = !e;
+        return e;
     },
 
-    // PAS DE « setPointerCapture » : la capture exige un vrai pointeur, et une
-    // épreuve qui fabrique ses événements n'en a pas — la poignée des barres
-    // flottantes l'a montré. On écoute le document, comme elle le fait
-    // désormais, et le geste reste mesurable.
-    rendreGlissable: function (el, rang) {
-        el.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            const b = this.briques[rang];
-            const depart = { x: e.clientX, y: e.clientY, bx: b.x, by: b.y };
-            el.classList.add('tenue');
-            const viser = (ev) => {
-                const zone = this.widgetEl.querySelector('#arbre-zone');
-                return Array.from(zone.querySelectorAll('.brique')).find(k => {
-                    if (k === el) return false;
-                    const r = k.getBoundingClientRect();
-                    return ev.clientX >= r.left && ev.clientX <= r.right
-                        && ev.clientY >= r.top && ev.clientY <= r.bottom;
-                });
-            };
-            const bouger = (ev) => {
-                b.x = Math.max(0, depart.bx + ev.clientX - depart.x);
-                b.y = Math.max(0, depart.by + ev.clientY - depart.y);
-                el.style.left = b.x + 'px';
-                el.style.top = b.y + 'px';
-                const sur = viser(ev);
-                this.widgetEl.querySelectorAll('.brique').forEach(k => k.classList.remove('visee'));
+    // PAS DE « setPointerCapture » : la capture exige un vrai pointeur, et la
+    // poignée des barres flottantes a montré ce que cela coûte à la mesure. On
+    // écoute le document, comme elle le fait désormais.
+    // LA ZONE SE RETROUVE PAR L'APERÇU, ET JAMAIS PAR LE PARENT D'UN BLOC.
+    // Un bloc est détaché à chaque redessin — et le redessin arrive au milieu
+    // d'un geste, quand on renonce à un signe ou qu'on valide un nombre. Son
+    // « parentNode » vaut alors « null », et tout ce qui s'appuyait dessus
+    // levait une exception qu'aucune vérification n'attrapait, seulement le
+    // compte des erreurs de page.
+    laZoneDeLEditeur: function () {
+        return this.apercuEl ? this.apercuEl.querySelector('#arbre-zone') : null;
+    },
+
+    rendreArbreGlissable: function (bloc, rang) {
+        bloc.addEventListener('click', (ev) => {
+            const p = ev.target.closest('.poignee');
+            if (!p || bloc.dataset.aGlisse === '1') return;
+            ev.preventDefault(); ev.stopPropagation();
+            if (p.dataset.role === 'defaire') this.defaireLeNoeud(rang, p.dataset.chemin);
+            else this.ouvrirLaSaisieDUnNombre(bloc, rang, p);
+        });
+        bloc.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0) return;
+            if (ev.target.closest('.poignee')) return;   // une poignée se clique, elle ne tire pas
+            ev.preventDefault();
+            const a = this.foret[rang];
+            const ech = this.echelleDeLaForet || 1;
+            const depart = { x: ev.clientX, y: ev.clientY, ax: a.x, ay: a.y };
+            bloc.dataset.aGlisse = '0';
+            bloc.classList.add('tenu');
+            const zone = this.laZoneDeLEditeur();
+            if (!zone) return;
+            const viser = (e) => Array.from(zone.querySelectorAll('.sous-arbre')).find(k => {
+                if (k === bloc) return false;
+                const r = k.getBoundingClientRect();
+                return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+            });
+            const bouger = (e) => {
+                if (Math.abs(e.clientX - depart.x) + Math.abs(e.clientY - depart.y) > 3) bloc.dataset.aGlisse = '1';
+                a.x = Math.max(0, depart.ax + (e.clientX - depart.x) / ech);
+                a.y = Math.max(0, depart.ay + (e.clientY - depart.y) / ech);
+                bloc.style.left = (a.x * ech) + 'px';
+                bloc.style.top = (a.y * ech) + 'px';
+                const sur = viser(e);
+                zone.querySelectorAll('.sous-arbre').forEach(k => k.classList.remove('visee'));
                 if (sur) sur.classList.add('visee');
             };
-            const lacher = (ev) => {
+            const lacher = (e) => {
                 document.removeEventListener('pointermove', bouger);
                 document.removeEventListener('pointerup', lacher);
-                el.classList.remove('tenue');
-                const sur = viser(ev);
-                this.widgetEl.querySelectorAll('.brique').forEach(k => k.classList.remove('visee'));
-                if (sur) this.demanderLeSigne(rang, parseInt(sur.dataset.rang, 10), ev, depart.bx);
-                else this.rafraichirLAssembleur();
+                bloc.classList.remove('tenu');
+                const sur = viser(e);
+                zone.querySelectorAll('.sous-arbre').forEach(k => k.classList.remove('visee'));
+                if (sur) this.demanderLeSigne(rang, parseInt(sur.dataset.rang, 10), e, depart.ax);
+                else this.rendreLEditeur();
+                setTimeout(() => { if (bloc.isConnected) bloc.dataset.aGlisse = '0'; }, 0);
             };
             document.addEventListener('pointermove', bouger);
             document.addEventListener('pointerup', lacher);
         });
     },
 
+    ouvrirLaSaisieDUnNombre: function (bloc, rang, poignee) {
+        const zone = this.laZoneDeLEditeur();
+        if (!zone) return null;
+        const vieux = zone.querySelector('.saisie-du-nombre');
+        if (vieux) vieux.remove();
+        const champ = document.createElement('input');
+        champ.className = 'saisie-du-nombre';
+        champ.type = 'text';
+        champ.value = (poignee.dataset.valeur || '').trim();
+        const r = poignee.getBoundingClientRect(), rz = zone.getBoundingClientRect();
+        champ.style.cssText = 'position:absolute; z-index:8; text-align:center; font-size:14px;'
+            + ' border:2px solid #6c5ce7; border-radius:4px; padding:2px;'
+            + ' left:' + (r.left - rz.left + zone.scrollLeft) + 'px;'
+            + ' top:' + (r.top - rz.top + zone.scrollTop) + 'px;'
+            + ' width:' + Math.max(56, r.width) + 'px; height:' + Math.max(24, r.height) + 'px;';
+        // ON NE VALIDE QU'UNE FOIS, ET L'ON N'ÔTE QUE CE QUI EST ENCORE LÀ.
+        // « Entrée » valide, puis le champ perd le foyer — ce qui validait une
+        // seconde fois — et entre les deux la zone a été redessinée : le
+        // navigateur se plaignait de retirer un nœud qui n'était plus là.
+        let valide = false;
+        const valider = () => {
+            if (valide) return;
+            valide = true;
+            const v = champ.value;
+            if (champ.isConnected) champ.remove();
+            if (!this.changerUnNombre(rang, poignee.dataset.chemin, v) && typeof showToast === 'function') {
+                showToast('« ' + v + ' » n\'est pas un nombre');
+            }
+        };
+        champ.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); valider(); }
+            else if (ev.key === 'Escape') {
+                ev.preventDefault(); ev.stopPropagation();
+                valide = true;
+                if (champ.isConnected) champ.remove();
+            }
+        });
+        champ.addEventListener('blur', valider);
+        zone.appendChild(champ);
+        champ.focus();
+        champ.select();
+        return champ;
+    },
+
     // LE SIGNE SE CHOISIT AU POINT DE DÉPÔT. Demander d'abord l'opération puis
-    // les deux blocs ferait trois gestes et une consigne à retenir ; là, on
+    // les deux arbres ferait trois gestes et une consigne à retenir ; là, on
     // rapproche ce qu'on veut réunir et l'on dit avec quoi.
     demanderLeSigne: function (i, j, ev, xAvantLeGeste) {
-        const zone = this.widgetEl.querySelector('#arbre-zone');
+        const zone = this.apercuEl && this.apercuEl.querySelector('#arbre-zone');
+        if (!zone) return null;
         const vieux = zone.querySelector('.choix-du-signe');
         if (vieux) vieux.remove();
         const r = zone.getBoundingClientRect();
         const choix = document.createElement('div');
         choix.className = 'choix-du-signe';
         choix.style.cssText = 'position:absolute; display:flex; gap:4px; padding:5px; border-radius:8px;'
-            + ' background:var(--surface,#fff); box-shadow:0 6px 18px rgba(0,0,0,0.25); z-index:9;'
-            + ' left:' + Math.max(0, Math.min(r.width - 164, ev.clientX - r.left - 82)) + 'px;'
-            + ' top:' + Math.max(0, Math.min(r.height - 46, ev.clientY - r.top - 22)) + 'px;';
+            + ' background:var(--surface,#fff); box-shadow:0 6px 18px rgba(0,0,0,0.3); z-index:9;'
+            + ' left:' + Math.max(0, Math.min(r.width - 170, ev.clientX - r.left - 85) + zone.scrollLeft) + 'px;'
+            + ' top:' + Math.max(0, Math.min(r.height - 48, ev.clientY - r.top - 22) + zone.scrollTop) + 'px;';
         ['+', '−', '×', '÷'].forEach(op => {
             const b = document.createElement('button');
-            b.type = 'button'; b.className = 'signe'; b.textContent = op;
-            b.dataset.signe = op;
-            b.addEventListener('click', () => { choix.remove(); this.fusionner(i, j, op, xAvantLeGeste); });
+            b.type = 'button'; b.className = 'signe'; b.textContent = op; b.dataset.signe = op;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                choix.remove();
+                if (!this.reunirLesArbres(i, j, op, xAvantLeGeste) && typeof showToast === 'function') {
+                    showToast('On ne divise pas par zéro');
+                }
+            });
             choix.appendChild(b);
         });
         zone.appendChild(choix);
-        // Un clic à côté renonce : on a pu lâcher un bloc sur un autre par
+        // Un clic à côté renonce : on a pu lâcher un arbre sur un autre par
         // mégarde, et rien ne doit se réunir sans qu'on l'ait dit.
         const renoncer = (e) => {
             if (choix.contains(e.target)) return;
             choix.remove();
             zone.removeEventListener('pointerdown', renoncer, true);
+            this.rendreLEditeur();
         };
         setTimeout(() => zone.addEventListener('pointerdown', renoncer, true), 0);
+        return choix;
     },
 
     // ============ LES NOMBRES, EXACTS ============
@@ -15328,7 +15492,14 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         const large = placer(racine, this.MARGE);
 
         const pas = this.H_CASE + this.FLECHE + 2 * this.R_BULLE + this.FLECHE;
-        noeuds.forEach(n => { n.y = this.MARGE + n.rang * pas; });
+        noeuds.forEach(n => {
+            n.y = this.MARGE + n.rang * pas;
+            // L'ORDONNÉE DE LA BULLE VIT DANS LE PLAN, et non dans le dessin :
+            // l'éditeur pose ses poignées dessus, et deux calculs jumeaux
+            // auraient fini par diverger d'un pixel — assez pour qu'une poignée
+            // rate la bulle qu'elle recouvre.
+            if (n.op) n.yBulle = n.y - this.FLECHE - this.R_BULLE;
+        });
 
         return {
             racine, noeuds, hauteur,
@@ -15379,7 +15550,7 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         // une pointe de flèche qui mordrait un bord disparaît sous lui.
         plan.noeuds.forEach(n => {
             if (!n.op) return;
-            const yBulle = n.y - this.FLECHE - this.R_BULLE;
+            const yBulle = n.yBulle;
             [n.g, n.d].forEach(e => {
                 s += this.fleche(e.cx, e.y + this.H_CASE,
                     n.cx + (e.cx < n.cx ? -1 : 1) * this.R_BULLE * 0.55,
@@ -15391,8 +15562,16 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
                 + ` font-family="${xmlEsc(famille)}" font-size="18" font-weight="700" fill="${this.encrePosee(bulle, encre)}">${xmlEsc(n.op)}</text>`;
         });
 
+        // LE ROUGE NE DIT PAS « RACINE », IL DIT « LA RÉPONSE ».
+        //
+        // Dans l'éditeur, une forêt en chantier a autant de racines que
+        // d'arbres : tous sortaient rouges, y compris un nombre resté seul —
+        // « −0,4 » s'affichait en case de réponse alors qu'il n'est qu'une
+        // donnée. On ne peint donc en rouge que si l'on dessine LE calcul, et
+        // non un morceau de calcul.
+        const enRouge = reglages.rouge !== false;
         plan.noeuds.forEach(n => {
-            const estRacine = n === plan.racine;
+            const estRacine = n === plan.racine && enRouge;
             // CE QU'ON ÉCRIT DANS UNE CASE : toujours les nombres de départ,
             // sinon ce ne serait plus un exercice ; les résultats seulement si
             // on les demande. C'est le double usage de l'outil — on pose l'arbre
@@ -15410,15 +15589,6 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return s + '</svg>';
     }
 });
-
-// L'APERÇU EST INJECTÉ EN « innerHTML » ET SE REDESSINE À CHAQUE FRAPPE : un
-// écouteur posé dessus serait détruit à la lettre suivante. Le bouton qui ouvre
-// l'assembleur appelle donc un verbe global, comme le fait déjà le remélangeur
-// du Boggle.
-window.arbreDeCalculAssembler = function () {
-    const p = PluginManager.plugins['arbreDeCalculTool'];
-    return p ? p.ouvrirLAssembleur() : null;
-};
 
 // ---------------------------------------------------------
 // 13. POLYGONES RÉGULIERS

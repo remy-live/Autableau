@@ -14190,3 +14190,55 @@ body.dark-mode .cdx-apercu { background: #fff; }
 .dark-mode .clavier-touche { background: #353b48; border-color: #3d4852; color: #dfe6e9; }
 .dark-mode .clavier-touche:hover { background: #3d4852; }
 .dark-mode .clavier-ranger { color: #b2bec3; }
+
+/* ===========================================================
+   LA BOÎTE LARGE, À DEUX COLONNES
+   « Tu pourrais faire la fenêtre plus large (éventuellement
+   aperçu à droite), on voit mal l'arbre en entier. »
+
+   La boîte de réglages naît à 320 px de large, et son aperçu
+   fait 140 px de haut avec « overflow:hidden » : un arbre de
+   calcul de quatre rangées y entrait par le milieu et sortait
+   des deux côtés. Tant qu'il n'était qu'un dessin, cela se
+   supportait ; depuis qu'il se MODIFIE dans l'aperçu, il faut
+   le voir en entier pour le viser.
+
+   Cette forme-ci ne s'applique qu'aux boîtes qui la demandent
+   — un outil pose la classe en s'ouvrant, et la retire en se
+   fermant : les quarante autres gardent leur colonne unique,
+   qui leur va. « poserLaBoiteDansLEcran » replace la boîte si
+   cette largeur ne tient pas sur l'écran, sans rien à écrire
+   ici : elle mesure la boîte, elle ne la suppose pas.
+   =========================================================== */
+#custom-prompt-modal.boite-large {
+    width: min(920px, 94vw);
+}
+
+#custom-prompt-modal.boite-large .prompt-corps {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-rows: 1fr auto;
+    gap: 0 16px;
+    align-items: start;
+}
+
+/* Les réglages à gauche, les deux boutons dessous : la colonne
+   de gauche garde exactement la boîte d'avant. */
+#custom-prompt-modal.boite-large .prompt-reglages { grid-column: 1; grid-row: 1; }
+#custom-prompt-modal.boite-large .export-actions-grid { grid-column: 1; grid-row: 2; }
+
+/* Et l'aperçu occupe toute la hauteur de la droite. Il perd son
+   « align-items: center » : un éditeur se remplit par le haut,
+   sinon les sous-arbres sautent verticalement dès qu'on en
+   réunit deux et que l'ensemble change de hauteur. */
+#custom-prompt-modal.boite-large #custom-prompt-preview {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    height: auto;
+    min-height: 440px;
+    align-self: stretch;
+    align-items: stretch;
+    justify-content: stretch;
+    margin-bottom: 0;
+    padding: 0;
+}
