@@ -14683,6 +14683,15 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         ], (r) => this.apercu(r), (r) => this.construire(r, target));
     },
 
+    // L'APPEL À L'ASSEMBLEUR VIT DANS L'APERÇU, et il faut un verbe global pour
+    // cela : l'aperçu est injecté en « innerHTML » et se redessine à chaque
+    // frappe, donc un écouteur posé dessus serait détruit à la lettre suivante.
+    // C'est la façon de faire du tirage de lettres, qui a le même besoin.
+    BOUTON_ASSEMBLEUR: '<div style="display:flex;justify-content:center;margin-bottom:8px">'
+        + '<button type="button" class="btn-action secondary"'
+        + ' style="padding:6px 12px;font-size:13px;font-weight:bold;cursor:pointer"'
+        + ' onclick="arbreDeCalculAssembler()">✥ Assembler par glisser-déposer</button></div>',
+
     apercu: function (res) {
         const p = this.lireLesReglages(res);
         const plan = this.poser(p.expression);
@@ -14690,9 +14699,10 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         // est cassé ; la phrase dit quoi corriger, et sans couleur propre pour
         // que le rattrapage de contraste de la boîte s'applique.
         if (plan.erreur) {
-            return `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:300px">${xmlEsc(plan.erreur)}</div>`;
+            return this.BOUTON_ASSEMBLEUR
+                + `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:300px">${xmlEsc(plan.erreur)}</div>`;
         }
-        return this.dessiner(plan, p, false);
+        return this.BOUTON_ASSEMBLEUR + this.dessiner(plan, p, false);
     },
 
     construire: function (res, target) {
@@ -14708,6 +14718,372 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         }
         placeGeneratedStamp('arbreDeCalculTool', this.dessiner(plan, p, true), res, target,
             '🌳 Arbre de calcul posé');
+    },
+
+    // ============ ASSEMBLER À LA MAIN ============
+    //
+    // « On peut aussi créer en glisser-déposer. »
+    //
+    // L'ASSEMBLEUR ÉCRIT L'EXPRESSION, IL NE DESSINE RIEN. C'est la décision qui
+    // tient tout le reste : il n'y a qu'UNE façon de fabriquer un arbre — la
+    // lire depuis une expression — et le glisser-déposer est une seconde façon
+    // d'ÉCRIRE cette expression, pas une seconde façon de faire un arbre. Deux
+    // fabriques auraient divergé, et le tampon aurait eu deux formes d'arguments
+    // selon la porte par laquelle on l'a fait entrer : la réédition, l'annuler
+    // et le restylage s'appuient tous sur « args », qui reste donc identique.
+    //
+    // ET LE PROFESSEUR VOIT L'EXPRESSION SE COMPOSER sous les blocs : c'est
+    // exactement la seconde question du manuel — « écrire l'expression en ligne
+    // correspondante » — rendue visible pendant qu'on assemble.
+    //
+    // LE BLOC DE GAUCHE PASSE À GAUCHE DU SIGNE. Il fallait une règle, parce que
+    // « − » et « ÷ » ne pardonnent pas l'ordre ; la place à l'écran est la seule
+    // qui se voie sans rien lire.
+    briques: [], avant: [], widgetEl: null, boiteMasquee: false,
+
+    // DEUX FENÊTRES QUI SE RECOUVRENT NE SE DISPUTENT PAS, ON EN RANGE UNE.
+    //
+    // Mesuré : la boîte de réglages vit à l'étage 200100, les fenêtres d'outil à
+    // 100045, et leurs rectangles se chevauchent — la boîte mangeait donc les
+    // clics de l'assembleur, jusqu'au choix du signe qu'on ne pouvait pas
+    // atteindre. Monter l'assembleur au-dessus de 200100 aurait marché, et
+    // aurait enterré du même coup les QUESTIONS de confirmation, qui vivent au
+    // même étage : « Effacer le tableau ? » serait passée derrière.
+    //
+    // Or ces deux fenêtres ne servent jamais ensemble : on écrit le calcul, ou
+    // bien on l'assemble. On range donc la boîte le temps de l'assemblage, et
+    // on la rend ensuite — avec sa ligne remplie.
+    masquerLaBoite: function () {
+        const b = document.getElementById('custom-prompt-modal');
+        if (!b || getComputedStyle(b).display === 'none') return false;
+        b.style.display = 'none';
+        this.boiteMasquee = true;
+        return true;
+    },
+
+    rendreLaBoite: function () {
+        if (!this.boiteMasquee) return false;
+        this.boiteMasquee = false;
+        const b = document.getElementById('custom-prompt-modal');
+        if (b) b.style.display = 'flex';
+        return true;
+    },
+
+    ouvrirLAssembleur: function () {
+        if (!this.widgetEl) this.batirLAssembleur();
+        this.masquerLaBoite();
+        this.widgetEl.style.display = 'flex';
+        if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
+        if (typeof passerDevant === 'function') passerDevant(this.widgetEl);
+        // ON SÈME AVEC LES NOMBRES DU CALCUL DÉJÀ ÉCRIT. Repartir de zéro quand
+        // la boîte porte déjà « (2 + 3) × 4 » obligerait à retaper cinq nombres
+        // qu'on a sous les yeux.
+        if (!this.briques.length) {
+            const champ = this.leChampDeLaBoite();
+            const lu = champ ? this.analyser(champ.value) : { erreur: 1 };
+            if (!lu.erreur) {
+                const feuilles = [];
+                const voir = (n) => { if (n.op) { voir(n.g); voir(n.d); } else feuilles.push(this.enTexte(n.valeur)); };
+                voir(lu.noeud);
+                this.semer(feuilles.join(' '));
+            }
+        }
+        this.rafraichirLAssembleur();
+        return this.widgetEl;
+    },
+
+    leChampDeLaBoite: function () {
+        const boite = document.getElementById('custom-prompt-modal');
+        if (!boite) return null;
+        // Rangée par NOUS, la boîte reste la bonne : c'est seulement une boîte
+        // refermée par le professeur qu'il ne faut pas remplir dans son dos.
+        if (!this.boiteMasquee && getComputedStyle(boite).display === 'none') return null;
+        return boite.querySelector('#custom-prompt-inputs input.prompt-input');
+    },
+
+    // Des nombres séparés par des espaces : « −0,6 −5 −0,4 −8 2 » pose cinq
+    // blocs d'un coup, ce qui est le geste qu'on fait en recopiant un énoncé.
+    semer: function (txt) {
+        const lus = [];
+        String(txt || '').trim().split(/[\s  ]+/).forEach(bout => {
+            if (!bout) return;
+            let negatif = false, reste = bout;
+            if (SIGNES_DU_CALCUL[reste[0]] === '−') { negatif = true; reste = reste.slice(1); }
+            const n = this.lireUnNombre(reste);
+            if (!n) return;
+            lus.push(negatif ? { n: -n.n, d: n.d } : n);
+        });
+        if (!lus.length) return 0;
+        this.retenirLEtat();
+        lus.forEach((v, k) => {
+            const t = this.enTexte(v);
+            this.briques.push({ expr: t, valeur: v,
+                                x: 16 + (this.briques.length % 5) * 104,
+                                y: 16 + Math.floor((this.briques.length) / 5) * 64 });
+        });
+        return lus.length;
+    },
+
+    retenirLEtat: function () {
+        this.avant.push(this.briques.map(b => Object.assign({}, b)));
+        if (this.avant.length > 40) this.avant.shift();
+    },
+
+    defaire: function () {
+        if (!this.avant.length) return false;
+        this.briques = this.avant.pop();
+        this.rafraichirLAssembleur();
+        return true;
+    },
+
+    // DEUX BLOCS N'EN FONT PLUS QU'UN, et l'expression se parenthèse TOUJOURS :
+    // c'est ce qui garantit que l'arbre relu est celui qu'on a assemblé, sans
+    // dépendre des priorités. La paire extérieure s'ôte à la toute fin, pour ne
+    // pas rendre une ligne emballée dans une parenthèse inutile.
+    fusionner: function (i, j, op, xAvantLeGeste) {
+        const a = this.briques[i], b = this.briques[j];
+        if (!a || !b || a === b || !SIGNES_DU_CALCUL[op] && '+−×÷'.indexOf(op) < 0) return false;
+        // LA GAUCHE SE JUGE AVANT LE GESTE, PAS APRÈS.
+        //
+        // Mesuré : au moment du dépôt, le bloc tiré est POSÉ SUR sa cible, donc
+        // les deux ont la même abscisse et la comparaison départageait au
+        // hasard — en pratique toujours en faveur du bloc tiré. La règle
+        // affichée, « le bloc de gauche passe à gauche du signe », était donc
+        // fausse, et pour « − » et « ÷ » cela change la réponse.
+        //
+        // On compare donc la place qu'occupait le bloc tiré AU DÉBUT du geste :
+        // c'est celle que le professeur voyait quand il a décidé de le prendre.
+        const xa = xAvantLeGeste === undefined ? a.x : xAvantLeGeste;
+        const gauche = xa <= b.x ? a : b, droite = xa <= b.x ? b : a;
+        const lu = this.analyser('(' + gauche.expr + ') ' + op + ' (' + droite.expr + ')');
+        if (lu.erreur) return false;
+        this.retenirLEtat();
+        const neuve = { expr: '(' + gauche.expr + ' ' + op + ' ' + droite.expr + ')',
+                        valeur: this.valeurDe(lu.noeud),
+                        x: gauche === a ? xa : gauche.x, y: gauche.y };
+        this.briques = this.briques.filter(k => k !== a && k !== b);
+        this.briques.push(neuve);
+        this.rafraichirLAssembleur();
+        return true;
+    },
+
+    valeurDe: function (n) {
+        if (!n.op) return n.valeur;
+        const a = this.valeurDe(n.g), b = this.valeurDe(n.d);
+        if (!a || !b) return null;
+        if (n.op === '+') return this.plus(a, b);
+        if (n.op === '−') return this.moins(a, b);
+        if (n.op === '×') return this.fois(a, b);
+        return this.divise(a, b);
+    },
+
+    sansSesParenthesesExterieures: function (e) {
+        const t = String(e || '').trim();
+        if (t[0] !== '(' || t[t.length - 1] !== ')') return t;
+        let n = 0;
+        for (let i = 0; i < t.length; i++) {
+            if (t[i] === '(') n++;
+            else if (t[i] === ')') { n--; if (n === 0) return i === t.length - 1 ? t.slice(1, -1).trim() : t; }
+        }
+        return t;
+    },
+
+    expressionAssemblee: function () {
+        return this.briques.length === 1 ? this.sansSesParenthesesExterieures(this.briques[0].expr) : '';
+    },
+
+    // ÉCRIRE DANS LA BOÎTE, ET NON POSER DIRECTEMENT. Le professeur garde ses
+    // couleurs, ses cases à cocher et sa police ; l'assembleur ne lui prend que
+    // la ligne de calcul, qu'il peut encore corriger à la main.
+    ecrireDansLaBoite: function () {
+        const e = this.expressionAssemblee();
+        if (!e) {
+            if (typeof showToast === 'function') showToast('Réunissez d\'abord tous les blocs en un seul');
+            return false;
+        }
+        const champ = this.leChampDeLaBoite();
+        if (!champ) {
+            if (typeof showToast === 'function') showToast('Le calcul assemblé : ' + e);
+            return false;
+        }
+        champ.value = e;
+        champ.dispatchEvent(new Event('input', { bubbles: true }));
+        // On referme l'assembleur ; le veilleur posé sur son style rend la
+        // boîte, par ce chemin comme par la croix de sa barre de titre.
+        if (this.widgetEl) this.widgetEl.style.display = 'none';
+        this.rendreLaBoite();
+        return true;
+    },
+
+    batirLAssembleur: function () {
+        if (!document.getElementById('arbre-assembleur-style')) {
+            const st = document.createElement('style');
+            st.id = 'arbre-assembleur-style';
+            st.textContent = `
+#arbre-assembleur .brique { position:absolute; min-width:72px; padding:6px 10px; border-radius:6px;
+    background:#bcd9f0; color:#1c3d55; border:2px solid transparent; cursor:grab;
+    font-family:sans-serif; text-align:center; user-select:none; touch-action:none; }
+#arbre-assembleur .brique .valeur { font-size:17px; font-weight:700; line-height:1.1; }
+#arbre-assembleur .brique .detail { font-size:10px; opacity:0.75; margin-top:2px; }
+#arbre-assembleur .brique.tenue { cursor:grabbing; box-shadow:0 6px 18px rgba(0,0,0,0.25); z-index:5; }
+#arbre-assembleur .brique.visee { border-color:#e03131; }
+#arbre-assembleur .signe { width:34px; height:34px; border-radius:50%; border:none; cursor:pointer;
+    background:#2b7ec0; color:#fff; font-size:17px; font-weight:700; }`;
+            document.head.appendChild(st);
+        }
+        const f = document.createElement('div');
+        f.id = 'arbre-assembleur';
+        f.dataset.fenetreTitre = 'Assembler un arbre de calcul';
+        f.style.cssText = 'display:none; position:fixed; left:120px; top:110px; width:560px;'
+            + ' flex-direction:column; gap:8px; background:var(--surface,#fff); border-radius:12px;'
+            + ' box-shadow:0 8px 24px rgba(0,0,0,0.2); border:1px solid var(--contour,#dfe6e9);'
+            + ' padding:12px; font-family:sans-serif;';
+        f.innerHTML = `
+<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+    <input id="arbre-nombres" type="text" placeholder="−0,6 −5 −0,4 −8 2"
+           style="flex:1; min-width:150px; padding:6px 8px; border-radius:6px; border:1px solid var(--contour,#dfe6e9)">
+    <button type="button" id="arbre-ajouter" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Ajouter</button>
+    <button type="button" id="arbre-defaire" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Défaire</button>
+    <button type="button" id="arbre-vider" class="btn-action secondary" style="padding:6px 12px; cursor:pointer">Tout vider</button>
+</div>
+<!-- LA ZONE A UN FOND À ELLE. Laissée transparente, elle montrait la barre
+     d'outils et le tableau au travers : sur une page chargée, les blocs
+     devenaient illisibles au moment précis où on les vise. -->
+<div id="arbre-zone" style="position:relative; height:260px; border-radius:8px;
+     border:1px dashed var(--contour,#dfe6e9); background:var(--fond,#fbfcfd);
+     overflow:hidden"></div>
+<div style="display:flex; gap:8px; align-items:center">
+    <div id="arbre-ligne" style="flex:1; font-size:13px; min-height:20px; word-break:break-all"></div>
+    <button type="button" id="arbre-ecrire" class="btn-action primary" style="padding:6px 14px; cursor:pointer">Écrire le calcul</button>
+</div>
+<div style="font-size:11px; opacity:0.7">Glissez un bloc sur un autre pour les réunir — le bloc de gauche passe à gauche du signe.</div>`;
+        document.body.appendChild(f);
+        this.widgetEl = f;
+        // LA BOÎTE REVIENT QUELLE QUE SOIT LA SORTIE. La croix de la barre de
+        // titre commune pose « display:none » sur la fenêtre, Échap passe par
+        // « widgetEl », et notre bouton la referme lui aussi : un veilleur sur
+        // le style les couvre tous les trois, là où trois écouteurs auraient
+        // fini par en oublier un — et le professeur aurait perdu ses réglages.
+        if (typeof MutationObserver === 'function') {
+            new MutationObserver(() => {
+                if (f.style.display === 'none') this.rendreLaBoite();
+            }).observe(f, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        const ajouter = () => {
+            const champ = f.querySelector('#arbre-nombres');
+            if (this.semer(champ.value)) { champ.value = ''; this.rafraichirLAssembleur(); }
+            else if (typeof showToast === 'function') showToast('Écrivez un ou plusieurs nombres, séparés par des espaces');
+        };
+        f.querySelector('#arbre-ajouter').addEventListener('click', ajouter);
+        f.querySelector('#arbre-nombres').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); ajouter(); }
+        });
+        f.querySelector('#arbre-defaire').addEventListener('click', () => this.defaire());
+        f.querySelector('#arbre-vider').addEventListener('click', () => {
+            this.retenirLEtat(); this.briques = []; this.rafraichirLAssembleur();
+        });
+        f.querySelector('#arbre-ecrire').addEventListener('click', () => this.ecrireDansLaBoite());
+        return f;
+    },
+
+    rafraichirLAssembleur: function () {
+        if (!this.widgetEl) return;
+        const zone = this.widgetEl.querySelector('#arbre-zone');
+        zone.innerHTML = '';
+        this.briques.forEach((b, i) => {
+            const el = document.createElement('div');
+            el.className = 'brique';
+            el.dataset.rang = String(i);
+            el.style.left = b.x + 'px';
+            el.style.top = b.y + 'px';
+            const detail = this.sansSesParenthesesExterieures(b.expr);
+            el.innerHTML = `<div class="valeur">${xmlEsc(this.enTexte(b.valeur))}</div>`
+                + (detail === this.enTexte(b.valeur) ? ''
+                   : `<div class="detail">${xmlEsc(detail)}</div>`);
+            this.rendreGlissable(el, i);
+            zone.appendChild(el);
+        });
+        const e = this.expressionAssemblee();
+        const ligne = this.widgetEl.querySelector('#arbre-ligne');
+        ligne.textContent = e ? e + '  =  ' + this.enTexte(this.briques[0].valeur)
+            : (this.briques.length ? this.briques.length + ' blocs à réunir' : 'Ajoutez des nombres pour commencer');
+        this.widgetEl.querySelector('#arbre-ecrire').disabled = !e;
+    },
+
+    // PAS DE « setPointerCapture » : la capture exige un vrai pointeur, et une
+    // épreuve qui fabrique ses événements n'en a pas — la poignée des barres
+    // flottantes l'a montré. On écoute le document, comme elle le fait
+    // désormais, et le geste reste mesurable.
+    rendreGlissable: function (el, rang) {
+        el.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            const b = this.briques[rang];
+            const depart = { x: e.clientX, y: e.clientY, bx: b.x, by: b.y };
+            el.classList.add('tenue');
+            const viser = (ev) => {
+                const zone = this.widgetEl.querySelector('#arbre-zone');
+                return Array.from(zone.querySelectorAll('.brique')).find(k => {
+                    if (k === el) return false;
+                    const r = k.getBoundingClientRect();
+                    return ev.clientX >= r.left && ev.clientX <= r.right
+                        && ev.clientY >= r.top && ev.clientY <= r.bottom;
+                });
+            };
+            const bouger = (ev) => {
+                b.x = Math.max(0, depart.bx + ev.clientX - depart.x);
+                b.y = Math.max(0, depart.by + ev.clientY - depart.y);
+                el.style.left = b.x + 'px';
+                el.style.top = b.y + 'px';
+                const sur = viser(ev);
+                this.widgetEl.querySelectorAll('.brique').forEach(k => k.classList.remove('visee'));
+                if (sur) sur.classList.add('visee');
+            };
+            const lacher = (ev) => {
+                document.removeEventListener('pointermove', bouger);
+                document.removeEventListener('pointerup', lacher);
+                el.classList.remove('tenue');
+                const sur = viser(ev);
+                this.widgetEl.querySelectorAll('.brique').forEach(k => k.classList.remove('visee'));
+                if (sur) this.demanderLeSigne(rang, parseInt(sur.dataset.rang, 10), ev, depart.bx);
+                else this.rafraichirLAssembleur();
+            };
+            document.addEventListener('pointermove', bouger);
+            document.addEventListener('pointerup', lacher);
+        });
+    },
+
+    // LE SIGNE SE CHOISIT AU POINT DE DÉPÔT. Demander d'abord l'opération puis
+    // les deux blocs ferait trois gestes et une consigne à retenir ; là, on
+    // rapproche ce qu'on veut réunir et l'on dit avec quoi.
+    demanderLeSigne: function (i, j, ev, xAvantLeGeste) {
+        const zone = this.widgetEl.querySelector('#arbre-zone');
+        const vieux = zone.querySelector('.choix-du-signe');
+        if (vieux) vieux.remove();
+        const r = zone.getBoundingClientRect();
+        const choix = document.createElement('div');
+        choix.className = 'choix-du-signe';
+        choix.style.cssText = 'position:absolute; display:flex; gap:4px; padding:5px; border-radius:8px;'
+            + ' background:var(--surface,#fff); box-shadow:0 6px 18px rgba(0,0,0,0.25); z-index:9;'
+            + ' left:' + Math.max(0, Math.min(r.width - 164, ev.clientX - r.left - 82)) + 'px;'
+            + ' top:' + Math.max(0, Math.min(r.height - 46, ev.clientY - r.top - 22)) + 'px;';
+        ['+', '−', '×', '÷'].forEach(op => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'signe'; b.textContent = op;
+            b.dataset.signe = op;
+            b.addEventListener('click', () => { choix.remove(); this.fusionner(i, j, op, xAvantLeGeste); });
+            choix.appendChild(b);
+        });
+        zone.appendChild(choix);
+        // Un clic à côté renonce : on a pu lâcher un bloc sur un autre par
+        // mégarde, et rien ne doit se réunir sans qu'on l'ait dit.
+        const renoncer = (e) => {
+            if (choix.contains(e.target)) return;
+            choix.remove();
+            zone.removeEventListener('pointerdown', renoncer, true);
+        };
+        setTimeout(() => zone.addEventListener('pointerdown', renoncer, true), 0);
     },
 
     // ============ LES NOMBRES, EXACTS ============
@@ -15034,6 +15410,15 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return s + '</svg>';
     }
 });
+
+// L'APERÇU EST INJECTÉ EN « innerHTML » ET SE REDESSINE À CHAQUE FRAPPE : un
+// écouteur posé dessus serait détruit à la lettre suivante. Le bouton qui ouvre
+// l'assembleur appelle donc un verbe global, comme le fait déjà le remélangeur
+// du Boggle.
+window.arbreDeCalculAssembler = function () {
+    const p = PluginManager.plugins['arbreDeCalculTool'];
+    return p ? p.ouvrirLAssembleur() : null;
+};
 
 // ---------------------------------------------------------
 // 13. POLYGONES RÉGULIERS

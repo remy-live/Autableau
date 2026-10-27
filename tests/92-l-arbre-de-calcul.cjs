@@ -461,7 +461,224 @@ module.exports = async function (browser) {
     r.egal('sans le déplacer', revele.apres.centre, revele.avant.centre, JSON.stringify(revele));
     r.egal('et le réglage part avec lui', revele.apres.etapes, false, JSON.stringify(revele));
 
-    await page.evaluate(() => { images.length = 0; draw(); });
+    // =====================================================================
+    // 6. ASSEMBLER À LA MAIN, PAR GLISSER-DÉPOSER
+    //
+    // « On peut aussi créer en glisser-déposer. »
+    //
+    // CE QUE CES LIGNES TIENNENT, c'est que l'assembleur ÉCRIT L'EXPRESSION et
+    // ne dessine rien. Il n'y a qu'une façon de fabriquer un arbre — le lire
+    // depuis une expression — et le glisser-déposer en est une seconde façon
+    // d'écrire, pas une seconde fabrique. La mesure qui le dit est le VA-ET-
+    // VIENT : l'arbre assemblé au doigt doit être, nœud pour nœud, celui qu'on
+    // obtient en tapant la ligne à la main.
+    // =====================================================================
+    await page.evaluate(() => {
+        images.length = 0;
+        PluginManager.plugins['arbreDeCalculTool'].ouvrir();
+    });
+    await page.waitForTimeout(150);
+
+    // LE GESTE, AVEC DE VRAIS POINTEURS. L'assembleur évite exprès
+    // « setPointerCapture » — qui exige un pointeur réel et rendait la poignée
+    // des barres flottantes impossible à éprouver —, mais on tire quand même à
+    // la souris : c'est le geste du professeur, et il passe par le même chemin.
+    const ouvrirLAssembleur = (nombres) => page.evaluate((n) => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.briques = []; p.avant = [];
+        p.ouvrirLAssembleur();
+        p.briques = [];
+        const combien = p.semer(n);
+        p.briques.forEach((b, i) => { b.x = 20 + i * 150; b.y = 30; });
+        p.rafraichirLAssembleur();
+        return { combien, blocs: p.briques.length };
+    }, nombres);
+
+    const rangDuBloc = (valeur) => page.evaluate((v) => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        return p.briques.findIndex(b => p.enTexte(b.valeur) === v);
+    }, valeur);
+
+    const reunir = async (tire, cible, signe) => {
+        const q = await page.evaluate(([a, b]) => {
+            const z = document.querySelector('#arbre-zone');
+            const g = (k) => {
+                const el = z.querySelector('.brique[data-rang="' + k + '"]');
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            };
+            const ra = g(a), rb = g(b);
+            return ra && rb ? { x1: ra.x, y1: ra.y, x2: rb.x, y2: rb.y } : null;
+        }, [tire, cible]);
+        if (!q) return false;
+        await page.mouse.move(q.x1, q.y1);
+        await page.mouse.down();
+        await page.mouse.move((q.x1 + q.x2) / 2, q.y1);
+        await page.mouse.move(q.x2, q.y2);
+        await page.mouse.up();
+        await page.waitForTimeout(60);
+        const bouton = await page.$('#arbre-zone .choix-du-signe button[data-signe="' + signe + '"]');
+        if (!bouton) return false;
+        await bouton.click();
+        await page.waitForTimeout(60);
+        return true;
+    };
+
+    const etatDeLAssembleur = () => page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const boite = document.getElementById('custom-prompt-modal');
+        return {
+            blocs: p.briques.map(b => p.enTexte(b.valeur)),
+            expression: p.expressionAssemblee(),
+            ligne: (document.querySelector('#arbre-ligne') || {}).textContent,
+            ecrireEteint: !!(document.querySelector('#arbre-ecrire') || {}).disabled,
+            fenetre: (document.querySelector('#arbre-assembleur') || {}).style
+                ? document.querySelector('#arbre-assembleur').style.display : null,
+            boiteVisible: boite ? getComputedStyle(boite).display !== 'none' : null
+        };
+    });
+
+    // LA BOÎTE DE RÉGLAGES SE RANGE LE TEMPS DE L'ASSEMBLAGE, et c'est une
+    // correction mesurée : elle vit à l'étage 200100, les fenêtres d'outil à
+    // 100045, et leurs rectangles se chevauchent — elle mangeait les clics de
+    // l'assembleur, jusqu'au choix du signe qu'on ne pouvait pas atteindre.
+    const semees = await ouvrirLAssembleur('−0,6 −5 −0,4 −8 2');
+    const auDepart = await etatDeLAssembleur();
+    r.egal('CINQ NOMBRES D\'UN COUP FONT CINQ BLOCS, séparés par des espaces',
+        [semees.combien, auDepart.blocs.length], [5, 5], JSON.stringify(auDepart));
+    r.egal('et chacun porte son nombre, signe compris',
+        auDepart.blocs, ['−0,6', '−5', '−0,4', '−8', '2'], JSON.stringify(auDepart));
+    r.verifie('LA BOÎTE DE RÉGLAGES SE RANGE : deux fenêtres qui se recouvrent ne se disputent pas',
+        auDepart.boiteVisible === false, JSON.stringify(auDepart));
+    r.verifie('et l\'on ne peut pas encore écrire : il reste cinq blocs à réunir',
+        auDepart.ecrireEteint === true, JSON.stringify(auDepart));
+
+    // ON ASSEMBLE L'ARBRE DU MANUEL, bloc par bloc, dans l'ordre où on le lit.
+    const gestes = [];
+    gestes.push(await reunir(await rangDuBloc('−0,6'), await rangDuBloc('−5'), '×'));
+    gestes.push(await reunir(await rangDuBloc('3'), await rangDuBloc('−0,4'), '+'));
+    gestes.push(await reunir(await rangDuBloc('−8'), await rangDuBloc('2'), '−'));
+    gestes.push(await reunir(await rangDuBloc('2,6'), await rangDuBloc('−10'), '×'));
+    r.verifie('les quatre gestes aboutissent — sans quoi la suite ne mesure rien',
+        gestes.every(Boolean), JSON.stringify(gestes));
+    const assemble = await etatDeLAssembleur();
+    r.egal('QUATRE GLISSER-DÉPOSER FONT L\'ARBRE DU MANUEL',
+        assemble.expression, '((−0,6 × −5) + −0,4) × (−8 − 2)', JSON.stringify(assemble));
+    r.egal('et il ne reste qu\'un bloc, qui porte la réponse',
+        assemble.blocs, ['−26'], JSON.stringify(assemble));
+    // LE PROFESSEUR VOIT L'EXPRESSION SE COMPOSER : c'est la seconde question du
+    // manuel — « écrire l'expression en ligne correspondante » — rendue visible
+    // pendant qu'on assemble.
+    r.verifie('et la ligne du bas montre l\'expression ET sa valeur',
+        /\(−0,6 × −5\)/.test(assemble.ligne || '') && /−26/.test(assemble.ligne || ''),
+        assemble.ligne);
+
+    // LE VA-ET-VIENT : C'EST LA MESURE CENTRALE DE CETTE SECTION. L'assembleur
+    // n'a pas sa fabrique à lui ; il écrit une ligne que la même lecture reprend.
+    const vaEtVient = await page.evaluate((e) => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const forme = (plan) => plan.erreur ? [plan.erreur]
+            : plan.noeuds.map(n => (n.op || 'n') + ':' + n.texte + '@r' + n.rang).sort();
+        return { assemble: forme(p.poser(e)), aLaMain: forme(p.poser('((−0,6 × −5) + −0,4) × (−8 − 2)')) };
+    }, assemble.expression);
+    r.egal('L\'ARBRE ASSEMBLÉ AU DOIGT EST CELUI QU\'ON TAPE À LA MAIN, nœud pour nœud',
+        vaEtVient.assemble, vaEtVient.aLaMain, JSON.stringify(vaEtVient));
+
+    // ÉCRIRE LE CALCUL REND LA BOÎTE, sa ligne remplie.
+    const ecrit = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const ok = p.ecrireDansLaBoite();
+        const champ = document.querySelector('#custom-prompt-inputs input.prompt-input');
+        const boite = document.getElementById('custom-prompt-modal');
+        const apercu = document.getElementById('custom-prompt-preview');
+        return { ok, champ: champ && champ.value,
+                 boiteVisible: boite ? getComputedStyle(boite).display !== 'none' : null,
+                 fenetre: document.querySelector('#arbre-assembleur').style.display,
+                 // L'APERÇU DOIT SUIVRE. Poser la valeur dans le champ ne
+                 // réveille rien : c'est l'événement « input » qui redessine.
+                 // Sans lui, le professeur écrirait son calcul et ne verrait
+                 // toujours que l'arbre d'avant — ou rien.
+                 apercuDessine: !!apercu && /<svg/.test(apercu.innerHTML),
+                 // ON COMPTE LES CASES, ON NE CHERCHE PAS UN NOMBRE. L'aperçu
+                 // du calcul par défaut porte lui aussi « −0,6 » : ce contrôle
+                 // était donc satisfait par un aperçu PÉRIMÉ, et le sabotage
+                 // qui supprime l'avertissement passait vert. L'arbre assemblé
+                 // a neuf cases, celui d'origine en a cinq — cela, un aperçu
+                 // resté en place ne peut pas le simuler.
+                 apercuCases: apercu ? (apercu.innerHTML.match(/<rect /g) || []).length : -1 };
+    });
+    r.egal('« ÉCRIRE LE CALCUL » PORTE L\'EXPRESSION DANS LA BOÎTE',
+        ecrit.champ, '((−0,6 × −5) + −0,4) × (−8 − 2)', JSON.stringify(ecrit));
+    r.verifie('l\'assembleur se referme', ecrit.fenetre === 'none', JSON.stringify(ecrit));
+    r.verifie('ET LA BOÎTE REVIENT, pour qu\'on garde ses couleurs et ses cases',
+        ecrit.boiteVisible === true, JSON.stringify(ecrit));
+    r.egal('ET L\'APERÇU MONTRE AUSSITÔT L\'ARBRE ASSEMBLÉ, ses neuf cases et non les cinq d\'avant',
+        [ecrit.apercuDessine, ecrit.apercuCases], [true, 9],
+        JSON.stringify({ dessine: ecrit.apercuDessine, cases: ecrit.apercuCases }));
+
+    // LA GAUCHE SE JUGE AVANT LE GESTE, et c'est tout l'enjeu pour « − » et
+    // « ÷ ». Au moment du dépôt le bloc tiré est POSÉ SUR sa cible : les deux
+    // ont alors la même abscisse, et comparer là départageait au hasard — en
+    // pratique toujours en faveur du bloc tiré, ce qui rendait fausse la règle
+    // affichée sous la fenêtre. On éprouve donc LES DEUX SENS du même geste :
+    // ils doivent donner la même réponse.
+    const ordre = {};
+    for (const [cle, tire, cible] of [['versLaDroite', '8', '2'], ['versLaGauche', '2', '8']]) {
+        await ouvrirLAssembleur('8 2');
+        await reunir(await rangDuBloc(tire), await rangDuBloc(cible), '−');
+        ordre[cle] = await etatDeLAssembleur();
+    }
+    r.egal('EN TIRANT LE BLOC DE GAUCHE SUR CELUI DE DROITE, c\'est huit moins deux',
+        [ordre.versLaDroite.expression, ordre.versLaDroite.blocs[0]], ['8 − 2', '6'],
+        JSON.stringify(ordre.versLaDroite));
+    r.egal('ET EN TIRANT DANS L\'AUTRE SENS, C\'EST ENCORE HUIT MOINS DEUX',
+        [ordre.versLaGauche.expression, ordre.versLaGauche.blocs[0]], ['8 − 2', '6'],
+        JSON.stringify(ordre.versLaGauche));
+
+    // DÉFAIRE REND LE GESTE D'AVANT. Assembler sans pouvoir revenir d'un cran
+    // obligerait à tout vider à la première erreur de signe.
+    await ouvrirLAssembleur('8 2 5');
+    await reunir(await rangDuBloc('8'), await rangDuBloc('2'), '−');
+    const avantDeDefaire = await etatDeLAssembleur();
+    const apresDefaire = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const fait = p.defaire();
+        return { fait, blocs: p.briques.map(b => p.enTexte(b.valeur)).sort() };
+    });
+    r.egal('un geste réunit bien deux blocs — la prémisse', avantDeDefaire.blocs.length, 2,
+        JSON.stringify(avantDeDefaire));
+    r.verifie('DÉFAIRE REND LES DEUX BLOCS D\'AVANT',
+        apresDefaire.fait === true && apresDefaire.blocs.join(' ') === '2 5 8',
+        JSON.stringify(apresDefaire));
+
+    // ET LA CROIX DE LA BARRE DE TITRE REND LA BOÎTE ELLE AUSSI. C'est la
+    // sortie qu'on oublie : sans elle, un professeur qui referme l'assembleur
+    // au lieu de valider perdait ses réglages avec la boîte restée cachée.
+    const parLaCroix = await page.evaluate(() => {
+        const f = document.querySelector('#arbre-assembleur');
+        const croix = f.querySelector(':scope > .fen-tete .fen-fermer');
+        if (!croix) return { pasDeCroix: true };
+        croix.click();
+        return { ferme: f.style.display === 'none' };
+    });
+    await page.waitForTimeout(120);
+    const apresLaCroix = await page.evaluate(() => {
+        const boite = document.getElementById('custom-prompt-modal');
+        return boite ? getComputedStyle(boite).display !== 'none' : null;
+    });
+    r.verifie('la barre de titre commune donne bien une croix à l\'assembleur',
+        !parLaCroix.pasDeCroix && parLaCroix.ferme === true, JSON.stringify(parLaCroix));
+    r.verifie('ET LA REFERMER PAR LA CROIX REND LA BOÎTE, pas seulement « Écrire le calcul »',
+        apresLaCroix === true, String(apresLaCroix));
+
+    await page.evaluate(() => {
+        const b = document.getElementById('custom-prompt-modal');
+        if (b) b.style.display = 'none';
+        const f = document.querySelector('#arbre-assembleur');
+        if (f) f.style.display = 'none';
+        images.length = 0; draw();
+    });
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
