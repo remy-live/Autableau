@@ -462,26 +462,31 @@ module.exports = async function (browser) {
     r.egal('et le réglage part avec lui', revele.apres.etapes, false, JSON.stringify(revele));
 
     // =====================================================================
-    // 6. L'APERÇU EST L'ÉDITEUR
+    // 6. L'APERÇU EST UN ÉDITEUR DE BLOCS
     //
-    // « On voit mal l'arbre en entier, et on peut modifier l'arbre en cours, et
-    // on a déjà les blocs qu'on peut lier, glisser. Fais mieux ! »
+    // « C'est pas pratique, il faudrait deux icônes, on drag-drop des blocs pour
+    // les nombres et les opérations, et on a une icône relier, une icône
+    // sélectionner pour l'alignement, on peut choisir la bordure des blocs et
+    // leur arrondi. »
     //
-    // L'assembleur vivait dans une fenêtre à part, avec des briques abstraites
-    // qui n'étaient pas les cases de l'arbre : deux représentations d'une même
-    // chose, dont l'une était fausse. Les blocs sont DÉJÀ là, dessinés — c'est
-    // eux qu'il faut pouvoir prendre.
+    // L'ÉDITEUR D'AVANT PARTAIT D'UN ARBRE DÉJÀ FAIT : ses gestes ne savaient
+    // que le défaire ou en réunir les morceaux. On ne pouvait pas POSER une case
+    // à l'endroit voulu, ni laisser un trou — c'est pourtant ainsi qu'on
+    // fabrique un exercice.
     //
-    // CE QUE CES LIGNES TIENNENT : la boîte s'élargit pour montrer l'arbre en
-    // entier ET redevient étroite en se fermant ; les trois gestes font ce
-    // qu'ils annoncent ; et la LIGNE reste la vérité — l'arbre modifié au doigt
-    // est celui qu'on obtient en tapant la ligne qu'il écrit.
+    // CE QUE CES LIGNES TIENNENT : les deux sources posent un bloc là où on le
+    // lâche ET au simple clic ; relier dit ce qu'il refuse, phrase par phrase ;
+    // choisir déplace, encadre et aligne ; la bordure et l'arrondi se voient
+    // dans le tampon ; et la DISPOSITION voyage avec lui, sans quoi la rouvrir
+    // perdrait tout alignement fait à la main.
     // =====================================================================
     await page.evaluate(() => { images.length = 0; });
 
     const ouvrirSur = (ligne) => page.evaluate((l) => {
         const p = PluginManager.plugins['arbreDeCalculTool'];
-        p.foret = []; p.derniereLigneEcrite = null; p.erreurCourante = null;
+        p.graphe = { blocs: [], liens: [] };
+        p.selection = []; p.relierDepuis = null; p.outil = 'choisir';
+        p.derniereLigneEcrite = null; p.erreurCourante = null;
         p.ouvrir([l, false, false, '#bcd9f0', '#2d3436', 'sans-serif']);
     }, ligne);
 
@@ -494,218 +499,819 @@ module.exports = async function (browser) {
         const r = (e) => e ? e.getBoundingClientRect() : null;
         const rb = r(b), ra = r(ap), rz = r(zone);
         const rr = r(document.getElementById('custom-prompt-inputs'));
+        const dit = (k) => k.genre === 'operation' ? k.op : k.texte;
         return {
-            arbres: p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud))),
-            ligne: p.laLigneDeLaForet(),
+            blocs: p.graphe.blocs.map(dit),
+            liens: p.graphe.liens.map(l => {
+                const d = p.graphe.blocs.find(k => k.id === l.de);
+                const v = p.graphe.blocs.find(k => k.id === l.vers);
+                return (d ? dit(d) : '?') + '→' + (v ? dit(v) : '?');
+            }).sort(),
+            ligne: p.laLigneDuGraphe(),
             champ: champ && champ.value,
+            choisis: p.graphe.blocs.filter(k => p.selection.indexOf(k.id) >= 0).map(dit).sort(),
+            outil: p.outil,
             large: !!b && b.classList.contains('boite-large'),
             largeurBoite: rb ? Math.round(rb.width) : null,
-            // L'APERÇU EST-IL À DROITE DES RÉGLAGES ? C'est la question posée,
-            // et elle se mesure : son bord gauche doit être au-delà du milieu.
-            // On compare l'aperçu AUX RÉGLAGES, et non au milieu de la boîte :
-            // la colonne des réglages fait 300 px d'une boîte de 920, donc son
-            // bord droit tombe bien avant le milieu — mesurer là disait « non »
-            // alors que l'aperçu était bel et bien à droite.
+            // L'APERÇU EST-IL À DROITE DES RÉGLAGES ? On le compare AUX RÉGLAGES
+            // et non au milieu de la boîte : leur colonne fait 300 px d'une
+            // boîte de 920, donc son bord droit tombe bien avant le milieu —
+            // mesurer là disait « non » alors que l'aperçu était à droite.
             apercuADroite: !!(ra && rr) && ra.x >= rr.x + rr.width - 1,
             apercuHaut: ra ? Math.round(ra.height) : null,
-            blocs: document.querySelectorAll('.sous-arbre').length,
-            poignees: Array.from(document.querySelectorAll('#arbre-editeur .poignee'))
-                .map(k => k.dataset.role[0] + ':' + (k.dataset.valeur || '') + ':' + k.dataset.chemin),
-            // L'ARBRE TIENT-IL DANS LA ZONE ? « on voit mal l'arbre en entier »
-            // était la plainte : on mesure donc que rien ne déborde.
-            deborde: !!rz && Array.from(document.querySelectorAll('.sous-arbre')).some(k => {
+            poignees: document.querySelectorAll('#arbre-zone .bloc').length,
+            coupes: document.querySelectorAll('#arbre-zone .coupe').length,
+            dessin: !!document.querySelector('#arbre-zone svg'),
+            // LE CHANTIER TIENT-IL DANS LA ZONE ? « On voit mal l'arbre en
+            // entier » était la plainte : on mesure donc que rien ne déborde.
+            deborde: !!rz && Array.from(document.querySelectorAll('#arbre-zone .bloc')).some(k => {
                 const q = k.getBoundingClientRect();
                 return q.right > rz.right + 1 || q.bottom > rz.bottom + 1;
             })
         };
     });
 
+    // La boîte d'un élément, relue JUSTE AVANT chaque geste : la fenêtre se
+    // recentre quand son contenu change de taille, et une mesure prise trois
+    // gestes plus tôt viserait à côté.
+    const boiteDe = (sel) => page.evaluate((s) => {
+        const e = document.querySelector(s);
+        if (!e) return null;
+        const q = e.getBoundingClientRect();
+        return { x: q.x, y: q.y, w: q.width, h: q.height };
+    }, sel);
+
+    const echelle = () => page.evaluate(
+        () => PluginManager.plugins['arbreDeCalculTool'].echelleDuGraphe || 1);
+
     await ouvrirSur('((−0,6 × −5) + −0,4) × (−8 − 2)');
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
     const ouvert = await etatDeLEditeur();
     r.verifie('LA BOÎTE S\'ÉLARGIT pour cet outil', ouvert.large === true && ouvert.largeurBoite > 700,
-        JSON.stringify(ouvert));
+        JSON.stringify({ large: ouvert.large, largeur: ouvert.largeurBoite }));
     r.verifie('ET L\'APERÇU PASSE À DROITE DES RÉGLAGES', ouvert.apercuADroite === true,
         JSON.stringify({ aDroite: ouvert.apercuADroite, largeur: ouvert.largeurBoite }));
     r.verifie('il est assez haut pour un arbre de quatre rangées — il faisait 140 px',
         ouvert.apercuHaut >= 400, String(ouvert.apercuHaut));
-    r.egal('L\'ARBRE EST LÀ, D\'UN SEUL TENANT', [ouvert.blocs, ouvert.arbres.length], [1, 1],
-        JSON.stringify(ouvert));
-    r.verifie('ET IL NE DÉBORDE PAS DE SA ZONE : c\'était la plainte',
-        ouvert.deborde === false, JSON.stringify(ouvert));
+    // TAPER RESTE LA FAÇON RAPIDE D'AVOIR UN ARBRE ENTIER : les blocs ne
+    // remplacent pas la frappe, ils la prolongent.
+    r.egal('TAPER UNE LIGNE POSE LES BLOCS, un par case et un par signe',
+        [ouvert.blocs.slice().sort().join(' '), ouvert.liens.length, ouvert.poignees],
+        ['+ 2 × × − −0,4 −0,6 −5 −8', 8, 9], JSON.stringify(ouvert));
+    r.verifie('ET LE CHANTIER NE DÉBORDE PAS DE SA ZONE : c\'était la plainte',
+        ouvert.deborde === false, JSON.stringify({ deborde: ouvert.deborde }));
+    r.verifie('le dessin est là, et c\'est celui du tampon', ouvert.dessin === true,
+        JSON.stringify({ dessin: ouvert.dessin }));
 
-    // CHAQUE NŒUD A SA POIGNÉE, ET SON CHEMIN. Le chemin se nomme sur l'arbre
-    // du PLAN et non sur celui de la forêt : « poser » relit l'expression, donc
-    // ses nœuds sont d'autres objets. Nommer les nôtres puis chercher les siens
-    // ne trouvait rien, et TOUTES les poignées recevaient le chemin vide —
-    // cliquer n'importe quelle bulle défaisait la racine.
-    r.egal('CHAQUE NŒUD A SA POIGNÉE, ET CHACUNE SON PROPRE CHEMIN',
-        ouvert.poignees,
-        ['d::', 'd::g', 'd::gg', 'c:−0,6:ggg', 'c:−5:ggd', 'c:−0,4:gd', 'd::d', 'c:−8:dg', 'c:2:dd'],
-        JSON.stringify(ouvert.poignees));
-
-    // GESTE 1 — CLIQUER UNE BULLE DÉFAIT LA CHAÎNE QUI Y MÈNE. Un nœud rendu à
-    // ses deux moitiés laisserait son parent avec un enfant de moins, ce qui
-    // n'est pas un arbre : les nœuds du chemin se défont donc avec lui, et
-    // chaque frère croisé reste entier, posé à côté.
-    const defait = await page.evaluate(() => {
-        const b = Array.from(document.querySelectorAll('#arbre-editeur .poignee.bulle'))
-            .find(k => k.dataset.chemin === 'gg');
-        if (b) b.click();
-        return !!b;
+    // LA PALETTE TIENT LA DEMANDE, OUTIL PAR OUTIL.
+    const palette = await page.evaluate(() => {
+        const lire = (s) => Array.from(document.querySelectorAll('#arbre-editeur ' + s))
+            .map(b => b.dataset.genre || b.dataset.outil || b.dataset.geste || b.dataset.aligner);
+        return { sources: lire('.source'), outils: lire('[data-outil]'),
+                 alignements: lire('[data-aligner]'),
+                 icones: document.querySelectorAll('#arbre-editeur .outil svg').length };
     });
-    await page.waitForTimeout(150);
-    const apresDefaire = await etatDeLEditeur();
-    r.verifie('la bulle intérieure existe et se clique — sans quoi la suite ne mesure rien',
-        defait === true, String(defait));
-    r.egal('DÉFAIRE UN SIGNE INTÉRIEUR REND QUATRE ARBRES, dans l\'ordre de lecture',
-        apresDefaire.arbres, ['−0,6', '−5', '−0,4', '−8 − 2'], JSON.stringify(apresDefaire));
-    r.verifie('et le frère resté entier l\'est vraiment : « −8 − 2 » n\'a pas été cassé',
-        apresDefaire.arbres.indexOf('−8 − 2') >= 0, JSON.stringify(apresDefaire.arbres));
+    r.egal('DEUX SOURCES À TIRER : une case de nombre, un signe', palette.sources,
+        ['nombre', 'operation'], JSON.stringify(palette));
+    r.egal('UNE ICÔNE RELIER ET UNE ICÔNE CHOISIR', palette.outils, ['relier', 'choisir'],
+        JSON.stringify(palette));
+    r.egal('ET QUATRE ALIGNEMENTS, puisque choisir sert à aligner', palette.alignements,
+        ['gauche', 'centre', 'haut', 'repartir'], JSON.stringify(palette));
+    r.verifie('chaque bouton porte une icône, et non un mot',
+        palette.icones >= 11, JSON.stringify(palette));
 
-    // GESTE 2 — TIRER UN ARBRE SUR UN AUTRE LES RÉUNIT.
-    const tirer = async (de, vers, signe) => {
-        const q = await page.evaluate(([a, b]) => {
-            const g = (k) => {
-                const e = document.querySelector('.sous-arbre[data-rang="' + k + '"]');
-                if (!e) return null;
-                const r = e.getBoundingClientRect();
-                return { x: r.x + r.width / 2, y: r.y + r.height - 12 };
-            };
-            const ra = g(a), rb = g(b);
-            return ra && rb ? { x1: ra.x, y1: ra.y, x2: rb.x, y2: rb.y } : null;
-        }, [de, vers]);
-        if (!q) return false;
-        await page.mouse.move(q.x1, q.y1);
+    // ---- ON TIRE UNE SOURCE DANS LA ZONE ----
+    //
+    // LE BLOC ARRIVE OÙ ON LE LÂCHE. C'est toute la différence avec l'assembleur
+    // d'avant, qui posait ses briques dans l'ordre où on les créait : ici, la
+    // place qu'on donne au bloc EST la mise en page du tampon.
+    await page.evaluate(() => PluginManager.plugins['arbreDeCalculTool'].vider());
+    await page.waitForTimeout(150);
+    // UNE ZONE VIDE DESSINE À L'ÉCHELLE UN. L'échelle restait celle du dernier
+    // arbre affiché : après « Vider », le premier bloc tiré était posé à ses
+    // coordonnées divisées par 0,75, un tiers plus loin que le pointeur. C'est
+    // la mesure qui l'a dit, pas la relecture — le bloc était « à peu près là ».
+    r.egal('UNE ZONE VIDE DESSINE À L\'ÉCHELLE UN, sans quoi le premier bloc tombe à côté',
+        await echelle(), 1, 'échelle après « Vider »');
+
+    const tirerDansLaZone = async (genre, vx, vy) => {
+        const src = await boiteDe('#arbre-editeur .source[data-genre="' + genre + '"]');
+        const zone = await boiteDe('#arbre-zone');
+        if (!src || !zone) return { rien: true };
+        await page.mouse.move(src.x + src.w / 2, src.y + src.h / 2);
         await page.mouse.down();
-        await page.mouse.move((q.x1 + q.x2) / 2, (q.y1 + q.y2) / 2);
-        await page.mouse.move(q.x2, q.y2);
+        await page.mouse.move(zone.x + vx, zone.y + vy, { steps: 8 });
+        // LA ZONE ET L'ÉCHELLE SE RELISENT AU MOMENT DU LÂCHER : poser le bloc
+        // précédent a pu faire grandir la fenêtre, donc la bouger — et faire
+        // rapetisser le dessin. Ce qu'on juge, c'est la vue QU'ON AVAIT SOUS LES
+        // YEUX en lâchant.
+        const zb = await boiteDe('#arbre-zone');
+        const eb = await echelle();
         await page.mouse.up();
-        await page.waitForTimeout(80);
-        const b = await page.$('#arbre-zone .choix-du-signe button[data-signe="' + signe + '"]');
+        await page.waitForTimeout(150);
+        return await page.evaluate(([z, vX, vY, ech]) => {
+            const p = PluginManager.plugins['arbreDeCalculTool'];
+            const b = p.graphe.blocs[p.graphe.blocs.length - 1];
+            if (!b || !z) return { rien: true, ecart: null, genre: null, dit: null, pas: 5 };
+            const q = document.querySelector('#arbre-zone').getBoundingClientRect();
+            // CE QU'ON MESURE : le milieu du bloc tombe là où le pointeur a
+            // lâché, à un cran de grille près — c'est le seul écart qu'on
+            // s'autorise, et il vaut cinq pixels.
+            const c = p.boiteDuBloc(b);
+            const vise = { x: (z.x + vX - q.x) / ech, y: (z.y + vY - q.y) / ech };
+            return { rien: false, genre: b.genre, dit: b.genre === 'operation' ? b.op : b.texte,
+                     ecart: [Math.round(Math.abs(c.x + c.l / 2 - vise.x)),
+                             Math.round(Math.abs(c.y + c.h / 2 - vise.y))],
+                     pas: p.PAS_GRILLE };
+        }, [zb, vx, vy, eb]);
+    };
+
+    const pose1 = await tirerDansLaZone('nombre', 90, 70);
+    r.egal('TIRER LA SOURCE « NOMBRE » POSE UNE CASE, vide de tout calcul',
+        [pose1.genre, pose1.dit], ['nombre', '0'], JSON.stringify(pose1));
+    r.verifie('ET ELLE ARRIVE LÀ OÙ ON L\'A LÂCHÉE, à un cran de grille près',
+        !!pose1.ecart && pose1.ecart[0] <= pose1.pas && pose1.ecart[1] <= pose1.pas,
+        JSON.stringify(pose1));
+    const pose2 = await tirerDansLaZone('nombre', 270, 70);
+    const pose3 = await tirerDansLaZone('operation', 180, 210);
+    r.verifie('la prémisse de la suite : la seconde case est bien posée',
+        pose2.rien !== true, JSON.stringify(pose2));
+    r.egal('TIRER LA SOURCE « SIGNE » POSE UNE BULLE ET SA CASE DE RÉSULTAT',
+        [pose3.genre, pose3.dit], ['operation', '+'], JSON.stringify(pose3));
+    r.verifie('elle aussi arrive là où on l\'a lâchée',
+        !!pose3.ecart && pose3.ecart[0] <= pose3.pas && pose3.ecart[1] <= pose3.pas,
+        JSON.stringify(pose3));
+    const troisBlocs = await etatDeLEditeur();
+    r.egal('TROIS BLOCS SONT POSÉS, ET AUCUN N\'EST RELIÉ — c\'est un chantier',
+        [troisBlocs.blocs.length, troisBlocs.liens.length, troisBlocs.poignees],
+        [3, 0, 3], JSON.stringify(troisBlocs));
+
+    // UN SIMPLE CLIC POSE AUSSI. Tout le monde ne tire pas : un pavé tactile,
+    // un doigt, une main qui tremble. Un outil muet au clic passe pour cassé.
+    const auClic = await (async () => {
+        const avant = (await etatDeLEditeur()).blocs.length;
+        await page.click('#arbre-editeur .source[data-genre="nombre"]');
+        await page.waitForTimeout(150);
+        const e = await etatDeLEditeur();
+        return { avant, apres: e.blocs.length, deborde: e.deborde, choisis: e.choisis };
+    })();
+    r.egal('UN SIMPLE CLIC SUR LA SOURCE POSE AUSSI UN BLOC', auClic.apres, auClic.avant + 1,
+        JSON.stringify(auClic));
+    r.verifie('il se pose à côté de ce qui existe, sans sortir de la zone',
+        auClic.deborde === false, JSON.stringify(auClic));
+    r.egal('et c\'est lui qu\'on tient : la barre du choix parle de lui',
+        auClic.choisis, ['0'], JSON.stringify(auClic));
+    await page.evaluate(() => PluginManager.plugins['arbreDeCalculTool'].supprimerLaSelection());
+    await page.waitForTimeout(140);
+
+    // ---- RELIER ----
+    //
+    // ON CLIQUE LE BLOC DE DÉPART, PUIS LE SIGNE QUI LE MANGE — et l'on clique
+    // les VRAIES poignées, à la souris : c'est la correspondance entre le dessin
+    // et les poignées qui a déjà menti une fois, toutes portant le chemin de la
+    // racine, si bien que cliquer n'importe quelle bulle défaisait tout l'arbre.
+    await page.click('#arbre-editeur [data-outil="relier"]');
+    await page.waitForTimeout(140);
+    const rangsDesBlocs = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        return p.graphe.blocs.map(b => [b.id, b.genre]);
+    });
+    // ON VISE LA POIGNÉE PAR SON BLOC, ET JAMAIS PAR SON RANG DANS LA ZONE : le
+    // dessin est le premier enfant de la zone, donc « nth-of-type » décale tout
+    // d'un cran et désigne le voisin — un contrôle qui tombe sans rien mesurer.
+    const cliquerLeBloc = async (genre, n) => {
+        const t = rangsDesBlocs.filter(k => k[1] === genre)[n];
+        if (!t) return false;
+        const b = await boiteDe('#arbre-zone .bloc[data-bloc="' + t[0] + '"]');
         if (!b) return false;
-        await b.click();
-        await page.waitForTimeout(120);
+        await page.mouse.click(b.x + b.w / 2, b.y + 6);
+        await page.waitForTimeout(140);
         return true;
     };
-    const reuni = await tirer(0, 1, '×');
-    const apresReunir = await etatDeLEditeur();
-    r.verifie('le geste aboutit — sans quoi la suite ne mesure rien', reuni === true, String(reuni));
-    r.egal('TIRER UN ARBRE SUR UN AUTRE LES RÉUNIT sous le signe choisi',
-        apresReunir.arbres, ['−0,6 × −5', '−0,4', '−8 − 2'], JSON.stringify(apresReunir));
+    const premierClic = await (async () => {
+        const fait = await cliquerLeBloc('nombre', 0);
+        const vu = await page.evaluate(() => {
+            const p = PluginManager.plugins['arbreDeCalculTool'];
+            return { depuis: p.relierDepuis,
+                     marque: !!document.querySelector('#arbre-zone .bloc.source-du-lien') };
+        });
+        return Object.assign({ fait }, vu);
+    })();
+    r.verifie('LE PREMIER CLIC CHOISIT LE DÉPART, et cela se voit',
+        premierClic.fait === true && !!premierClic.depuis && premierClic.marque === true,
+        JSON.stringify(premierClic));
+    await cliquerLeBloc('operation', 0);
+    const unLien = await etatDeLEditeur();
+    r.egal('LE SECOND CLIC TIRE LA FLÈCHE, du bloc vers le signe', unLien.liens, ['0→+'],
+        JSON.stringify(unLien));
+    await cliquerLeBloc('nombre', 1);
+    await cliquerLeBloc('operation', 0);
+    const deuxLiens = await etatDeLEditeur();
+    r.egal('ET LE SIGNE NOURRI DE SES DEUX BLOCS DEVIENT UN CALCUL',
+        [deuxLiens.liens, deuxLiens.champ], [['0→+', '0→+'], '0 + 0'], JSON.stringify(deuxLiens));
 
-    // GESTE 3 — CLIQUER UN NOMBRE LE CHANGE.
-    const change = await page.evaluate(() => {
+    // CHAQUE REFUS A SA PHRASE. « Ça ne marche pas » n'apprend rien à qui tient
+    // la souris : ce qu'il faut dire, c'est le geste qui débloque.
+    const refusDeRelier = await page.evaluate(() => {
         const p = PluginManager.plugins['arbreDeCalculTool'];
-        // ON NE DÉRÉFÉRENCE PAS CE QUI PEUT MANQUER. Un sabotage qui change la
-        // forme de la forêt fait disparaître ce bloc, et « run.cjs » compte une
-        // exception comme « 1 échec sur 1 » : les quatre-vingts vérifications
-        // s'évanouissent, et l'on lit « le test a planté » au lieu de lire CE
-        // QUI est cassé. Mesuré au banc, sur deux sabotages.
-        const bloc = document.querySelector('.sous-arbre[data-rang="1"]');
-        const poignee = bloc && bloc.querySelector('.poignee.case');
-        const champ = poignee ? p.ouvrirLaSaisieDUnNombre(bloc, 1, poignee) : null;
-        const avant = { ouverte: !!champ && champ.isConnected, valeur: champ && champ.value };
-        if (champ) {
-            champ.value = '7,5';
-            champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        }
-        return { avant, apres: p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud))) };
+        const n = p.graphe.blocs.filter(b => b.genre !== 'operation').map(b => b.id);
+        const o = p.graphe.blocs.filter(b => b.genre === 'operation').map(b => b.id);
+        if (n.length < 2 || !o.length) return { pret: false };
+        const compte = p.graphe.liens.length;
+        const dit = {
+            pret: true,
+            dejaNourri: p.relierLesBlocs(n[0], o[0]),
+            pasUnSigne: p.relierLesBlocs(o[0], n[0]),
+            luiMeme: p.relierLesBlocs(n[0], n[0]),
+            inconnu: p.relierLesBlocs('bZZ', o[0])
+        };
+        dit.liensInchanges = p.graphe.liens.length === compte;
+        return dit;
     });
+    r.verifie('un bloc qui nourrit déjà un signe le dit, et dit quoi faire',
+        /nourrit déjà/.test(refusDeRelier.dejaNourri || ''), JSON.stringify(refusDeRelier));
+    r.verifie('une flèche qui n\'arrive pas sur un signe le dit',
+        /sur un signe/.test(refusDeRelier.pasUnSigne || ''), JSON.stringify(refusDeRelier));
+    r.verifie('et un bloc ne se relie pas à lui-même',
+        /deux blocs différents/.test(refusDeRelier.luiMeme || ''), JSON.stringify(refusDeRelier));
+    r.verifie('AUCUN REFUS NE LAISSE DE FLÈCHE DERRIÈRE LUI',
+        refusDeRelier.liensInchanges === true, JSON.stringify(refusDeRelier));
+
+    // UN CALCUL NE TOURNE PAS EN ROND. Le cycle est le seul refusDeRelier qu'on ne voit
+    // pas venir : deux signes qui se nourrissent l'un l'autre se dessinent très
+    // bien et ne valent rien.
+    const rond = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [
+            { id: 'x1', genre: 'operation', op: '+', x: 20, y: 20, l: 74 },
+            { id: 'x2', genre: 'operation', op: '×', x: 160, y: 20, l: 74 }
+        ], liens: [{ de: 'x1', vers: 'x2' }] };
+        return { dit: p.relierLesBlocs('x2', 'x1'), liens: p.graphe.liens.length };
+    });
+    r.verifie('DEUX SIGNES QUI SE MANGENT L\'UN L\'AUTRE SONT REFUSÉS',
+        /tourne pas en rond/.test(rond.dit || '') && rond.liens === 1, JSON.stringify(rond));
+
+    // ---- COUPER ----
+    await ouvrirSur('1 + 2');
+    await page.waitForTimeout(280);
+    const avantCoupe = await etatDeLEditeur();
+    await page.click('#arbre-editeur [data-outil="relier"]');
     await page.waitForTimeout(150);
-    r.egal('CLIQUER UN NOMBRE OUVRE SA SAISIE, déjà remplie de ce qu\'il porte',
-        [change.avant.ouverte, change.avant.valeur], [true, '−0,4'], JSON.stringify(change.avant));
-    r.egal('et le valider change le nombre dans l\'arbre',
-        change.apres, ['−0,6 × −5', '7,5', '−8 − 2'], JSON.stringify(change.apres));
+    const enRelier = await etatDeLEditeur();
+    r.egal('LES PASTILLES À COUPER N\'EXISTENT QU\'AVEC L\'OUTIL QUI RELIE',
+        [avantCoupe.coupes, enRelier.coupes], [0, 2],
+        JSON.stringify({ avant: avantCoupe.coupes, enRelier: enRelier.coupes }));
+    const coupe = await (async () => {
+        const b = await boiteDe('#arbre-zone .coupe');
+        if (!b) return { rien: true, liens: null, ligne: null, blocs: [] };
+        await page.mouse.click(b.x + b.w / 2, b.y + b.h / 2);
+        await page.waitForTimeout(150);
+        return await etatDeLEditeur();
+    })();
+    r.egal('CLIQUER UNE PASTILLE COUPE SA FLÈCHE, et le calcul redevient un chantier',
+        [coupe.liens && coupe.liens.length, coupe.ligne, coupe.blocs.length],
+        [1, '', 3], JSON.stringify(coupe));
 
-    // ON TERMINE L'ARBRE, et la LIGNE suit : c'est elle qui reste la vérité.
-    await tirer(0, 1, '+');
-    await tirer(0, 1, '×');
-    const fini = await etatDeLEditeur();
-    r.egal('UNE FOIS LA FORÊT RÉDUITE À UN ARBRE, LA LIGNE S\'ÉCRIT TOUTE SEULE',
-        [fini.arbres.length, fini.champ], [1, '((−0,6 × −5) + 7,5) × (−8 − 2)'],
-        JSON.stringify(fini));
+    // ---- CHOISIR, DÉPLACER, ENCADRER, ALIGNER ----
+    //
+    // LA POIGNÉE DOIT COUVRIR LA CASE QU'ELLE NOMME. C'est l'erreur déjà commise
+    // une fois : les poignées étaient posées d'après un arbre RELU, donc
+    // d'autres objets que ceux qu'on dessinait, et toutes désignaient la racine.
+    // On clique donc le NOMBRE QU'ON VOIT, et l'on regarde qui est choisi.
+    await ouvrirSur('(−0,6 × −5) + 7');
+    await page.waitForTimeout(300);
+    const surLeDessin = await (async () => {
+        const vise = await page.evaluate(() => {
+            const t = Array.from(document.querySelectorAll('#arbre-zone svg text'))
+                .find(k => k.textContent === '−5');
+            if (!t) return null;
+            const q = t.getBoundingClientRect();
+            return { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+        });
+        if (!vise) return { rien: true, choisis: ['(aucun texte −5 dans le dessin)'] };
+        await page.mouse.click(vise.x, vise.y);
+        await page.waitForTimeout(150);
+        return await etatDeLEditeur();
+    })();
+    r.egal('CLIQUER LE NOMBRE QU\'ON VOIT CHOISIT LE BLOC QUI LE PORTE',
+        surLeDessin.choisis, ['−5'], JSON.stringify(surLeDessin));
 
-    // LE VA-ET-VIENT : C'EST LA MESURE CENTRALE. L'éditeur n'a pas sa fabrique
-    // à lui ; il écrit une ligne que la même lecture reprend.
-    const vaEtVient = await page.evaluate((e) => {
+    // LA BARRE DU CHOIX PARLE DU BLOC QU'ON TIENT, ET DE LUI SEUL.
+    const barreNombre = await page.evaluate(() => {
+        const champ = document.querySelector('#arbre-barre-choix .nombre-du-bloc');
+        return { champ: !!champ, valeur: champ && champ.value,
+                 signes: document.querySelectorAll('#arbre-barre-choix .signe').length };
+    });
+    r.egal('UNE CASE CHOISIE OUVRE SON NOMBRE DANS LA BARRE, déjà rempli',
+        [barreNombre.champ, barreNombre.valeur, barreNombre.signes], [true, '−5', 0],
+        JSON.stringify(barreNombre));
+    const change = await page.evaluate(() => {
+        const champ = document.querySelector('#arbre-barre-choix .nombre-du-bloc');
+        if (!champ) return { rien: true, texte: null, ligne: null, dansLeDessin: null };
+        champ.value = '-4';
+        champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const b = p.graphe.blocs.find(k => k.genre !== 'operation' && /4/.test(k.texte || ''));
+        return { texte: b && b.texte, ligne: p.laLigneDuGraphe(),
+                 dansLeDessin: !!Array.from(document.querySelectorAll('#arbre-zone svg text'))
+                     .find(t => t.textContent === '−4') };
+    });
+    // LE MOINS DU CLAVIER N'EST PAS CELUI QU'ON DESSINE : le trait d'union est
+    // plus court, et deux moins différents dans un même arbre se voient.
+    r.egal('LE CHANGER CHANGE LE BLOC, LE CALCUL ET LE DESSIN — et le trait d\'union devient un vrai moins',
+        [change.texte, change.ligne, change.dansLeDessin],
+        ['−4', '(−0,6 × −4) + 7', true], JSON.stringify(change));
+
+    const barreSigne = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const b = p.graphe.blocs.find(k => k.genre === 'operation' && k.op === '×');
+        if (!b) return { rien: true, combien: 0, actif: null, champ: null, apres: null };
+        p.selection = [b.id];
+        p.rendreLEditeur();
+        const signes = Array.from(document.querySelectorAll('#arbre-barre-choix .signe'));
+        const actif = signes.find(s => s.classList.contains('actif'));
+        const plus = signes.find(s => s.dataset.signe === '+');
+        if (plus) plus.click();
+        return { combien: signes.length, actif: actif && actif.dataset.signe,
+                 champ: !!document.querySelector('#arbre-barre-choix .nombre-du-bloc'),
+                 apres: p.laLigneDuGraphe() };
+    });
+    r.egal('UN SIGNE CHOISI OUVRE LES QUATRE SIGNES, celui qu\'il porte en évidence',
+        [barreSigne.combien, barreSigne.actif, barreSigne.champ], [4, '×', false],
+        JSON.stringify(barreSigne));
+    r.egal('ET EN CHOISIR UN AUTRE CHANGE LE CALCUL SANS RIEN DÉPLACER',
+        barreSigne.apres, '(−0,6 + −4) + 7', JSON.stringify(barreSigne));
+
+    // LA CASE S'ÉLARGIT AVEC SON NOMBRE. La largeur était copiée une fois pour
+    // toutes au moment de poser les blocs ; dès qu'on changeait le nombre, le
+    // texte débordait de son rectangle — et la poignée, qui épouse le bloc,
+    // ratait la moitié de la case qu'elle recouvre.
+    const largeurQuiSuit = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const b = p.graphe.blocs.find(k => k.genre !== 'operation' && k.texte === '7');
+        if (!b) return { rien: true };
+        p.changerLeTexteDUnBloc(b.id, '123456');
+        const h = document.querySelector('#arbre-zone .bloc[data-bloc="' + b.id + '"]');
+        const t = Array.from(document.querySelectorAll('#arbre-zone svg text'))
+            .find(k => k.textContent === '123456');
+        if (!h || !t) return { rien: true, poignee: null, texte: null, case: null };
+        const rh = h.getBoundingClientRect(), rt = t.getBoundingClientRect();
+        const rc = Array.from(document.querySelectorAll('#arbre-zone svg rect'))
+            .map(k => k.getBoundingClientRect())
+            .find(k => Math.abs(k.x - rh.x) < 2 && Math.abs(k.y - rh.y) < 2);
+        return { poignee: Math.round(rh.width), texte: Math.round(rt.width),
+                 case: rc ? Math.round(rc.width) : null };
+    });
+    r.verifie('LA CASE S\'ÉLARGIT AVEC SON NOMBRE : le texte ne déborde pas de son rectangle',
+        !!largeurQuiSuit.case && largeurQuiSuit.texte + 4 <= largeurQuiSuit.case,
+        JSON.stringify(largeurQuiSuit));
+    r.verifie('et la poignée épouse la case élargie, sinon on viserait à côté',
+        !!largeurQuiSuit.case && Math.abs(largeurQuiSuit.poignee - largeurQuiSuit.case) <= 1,
+        JSON.stringify(largeurQuiSuit));
+
+    // ON DÉPLACE CE QU'ON TIENT, ET LE DESSIN SUIT. Le déplacement vaut ce qu'on
+    // a tiré : la grille de cinq ne fait que ranger, elle ne décide pas.
+    //
+    // ET ON LE MESURE SUR UN DESSIN RÉDUIT, c'est-à-dire la seule situation où
+    // l'échelle compte. Sur un dessin à l'échelle un, diviser ou non par elle
+    // donne le même résultat : le contrôle passait alors même en l'ôtant, donc
+    // il ne mesurait rien. Deux blocs très éloignés forcent la réduction.
+    const deplace = await (async () => {
+        const avant = await page.evaluate(() => {
+            const p = PluginManager.plugins['arbreDeCalculTool'];
+            p.graphe = { blocs: [
+                { id: 'd1', genre: 'nombre', texte: '1', x: 40, y: 20, l: 54 },
+                { id: 'd2', genre: 'nombre', texte: '2', x: 40, y: 560, l: 54 }
+            ], liens: [] };
+            p.selection = ['d1'];
+            p.publier();
+            return { id: 'd1', ech: p.echelleDuGraphe };
+        });
+        const h = await boiteDe('#arbre-zone .bloc[data-bloc="d1"]');
+        if (!h) return { rien: true, x: null, y: null, ech: avant.ech };
+        await page.mouse.move(h.x + h.w / 2, h.y + h.h / 2);
+        await page.mouse.down();
+        await page.mouse.move(h.x + h.w / 2 + 60 * avant.ech, h.y + h.h / 2 + 25 * avant.ech,
+            { steps: 10 });
+        await page.mouse.up();
+        await page.waitForTimeout(160);
+        const ou = await page.evaluate(() => {
+            const b = PluginManager.plugins['arbreDeCalculTool'].graphe.blocs
+                .find(k => k.id === 'd1');
+            return { x: b && b.x, y: b && b.y };
+        });
+        return { x: ou.x, y: ou.y, ech: avant.ech };
+    })();
+    r.verifie('la prémisse : le dessin est réduit, sans quoi l\'échelle ne mesure rien',
+        deplace.ech < 0.9, JSON.stringify(deplace));
+    r.egal('TIRER UN BLOC LE DÉPLACE D\'AUTANT QU\'ON A TIRÉ, à l\'échelle du dessin',
+        [deplace.x, deplace.y], [100, 45], JSON.stringify(deplace));
+    const retourDuDeplacement = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.annulerLeDernierGeste();
+        const b = p.graphe.blocs.find(k => k.id === 'd1');
+        return { x: b && b.x, y: b && b.y };
+    });
+    r.egal('ET ANNULER LE REMET OÙ IL ÉTAIT', [retourDuDeplacement.x, retourDuDeplacement.y],
+        [40, 20], JSON.stringify(retourDuDeplacement));
+
+    // ENCADRER CHOISIT CE QUE LE CADRE TOUCHE, ET RIEN D'AUTRE : c'est la seule
+    // façon d'en tenir plusieurs à la fois pour les aligner.
+    const encadre = await (async () => {
+        await page.evaluate(() => {
+            const p = PluginManager.plugins['arbreDeCalculTool'];
+            p.graphe = { blocs: [
+                { id: 'e1', genre: 'nombre', texte: '1', x: 20, y: 20, l: 54 },
+                { id: 'e2', genre: 'nombre', texte: '2', x: 120, y: 20, l: 54 },
+                { id: 'e3', genre: 'nombre', texte: '3', x: 20, y: 260, l: 54 }
+            ], liens: [] };
+            p.selection = [];
+            p.publier();
+        });
+        await page.waitForTimeout(160);
+        const zone = await boiteDe('#arbre-zone');
+        const ech = await echelle();
+        await page.mouse.move(zone.x + 4, zone.y + 4);
+        await page.mouse.down();
+        await page.mouse.move(zone.x + 4 + 250 * ech, zone.y + 4 + 150 * ech, { steps: 10 });
+        await page.mouse.up();
+        await page.waitForTimeout(160);
+        return await etatDeLEditeur();
+    })();
+    r.egal('ENCADRER CHOISIT LES BLOCS TOUCHÉS, ET LAISSE LES AUTRES',
+        encadre.choisis, ['1', '2'], JSON.stringify(encadre));
+    const videLeChoix = await (async () => {
+        const zone = await boiteDe('#arbre-zone');
+        await page.mouse.click(zone.x + zone.w - 6, zone.y + zone.h - 6);
+        await page.waitForTimeout(150);
+        return await etatDeLEditeur();
+    })();
+    r.egal('ET UN CLIC DANS LE VIDE REND LES MAINS LIBRES', videLeChoix.choisis, [],
+        JSON.stringify(videLeChoix));
+
+    // LES QUATRE ALIGNEMENTS, sur trois blocs posés exprès de travers et de
+    // largeurs différentes — car aligner trois cases de même largeur ne
+    // départagerait pas « par le bord » de « par le milieu ».
+    const alignements = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const planter = () => {
+            p.graphe = { blocs: [
+                { id: 'a1', genre: 'nombre', texte: '1', x: 30, y: 10, l: 54 },
+                { id: 'a2', genre: 'nombre', texte: '2', x: 100, y: 60, l: 54 },
+                { id: 'a3', genre: 'nombre', texte: '300', x: 220, y: 30, l: 57 }
+            ], liens: [] };
+            p.selection = ['a1', 'a2', 'a3'];
+            p.poserLesValeurs(p.graphe);
+        };
+        const out = {};
+        ['gauche', 'centre', 'haut', 'repartir'].forEach(quoi => {
+            planter();
+            const fait = p.aligner(quoi);
+            const b = p.graphe.blocs;
+            out[quoi] = { fait, x: b.map(k => k.x), y: b.map(k => k.y),
+                          milieux: b.map(k => k.x + k.l / 2),
+                          ecarts: [b[1].x - (b[0].x + b[0].l), b[2].x - (b[1].x + b[1].l)],
+                          droite: Math.max.apply(null, b.map(k => k.x + k.l)),
+                          largeurs: b.map(k => k.l) };
+        });
+        planter();
+        p.selection = ['a1'];
+        out.seul = p.aligner('gauche');
+        out.ecartDuManuel = p.ECART_H;
+        return out;
+    });
+    r.egal('ALIGNER À GAUCHE MET TOUS LES BORDS GAUCHES SUR LE PLUS À GAUCHE',
+        alignements.gauche.x, [30, 30, 30], JSON.stringify(alignements.gauche));
+    // LE MILIEU EST LE MILIEU DES MILIEUX, et les trois cases n'ont pas la même
+    // largeur : les aligner par leur bord ne les centrerait pas.
+    r.verifie('ALIGNER LES MILIEUX LES MET SUR UNE MÊME VERTICALE',
+        Math.max.apply(null, alignements.centre.milieux)
+        - Math.min.apply(null, alignements.centre.milieux) <= 1
+        && alignements.centre.x[0] !== alignements.centre.x[2],
+        JSON.stringify(alignements.centre));
+    r.egal('ALIGNER LES HAUTS LES MET SUR UNE MÊME HORIZONTALE',
+        alignements.haut.y, [10, 10, 10], JSON.stringify(alignements.haut));
+    // RÉPARTIR DONNE LE MÊME ÉCART À TOUS, DANS LA PLACE DÉJÀ PRISE : il range,
+    // il n'étale pas — et il ne serre jamais plus que l'écart du manuel, sinon
+    // deux cases finiraient par se toucher.
+    r.verifie('RÉPARTIR DONNE LE MÊME ÉCART À TOUS, sans changer la place prise',
+        alignements.repartir.ecarts[0] === alignements.repartir.ecarts[1]
+        && alignements.repartir.ecarts[0] >= alignements.ecartDuManuel
+        && alignements.repartir.droite === 277,
+        JSON.stringify(alignements.repartir));
+    r.verifie('ON N\'ALIGNE PAS UN BLOC TOUT SEUL : il n\'y a rien à aligner',
+        alignements.seul === false, String(alignements.seul));
+
+    // SUPPRIMER EMPORTE LES FLÈCHES DU BLOC. Un lien dont une extrémité n'existe
+    // plus ne se dessine pas, mais il compte encore pour « ce signe a déjà ses
+    // deux blocs » : on ne pourrait plus rien rebrancher à sa place.
+    const supprime = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [
+            { id: 's1', genre: 'nombre', texte: '1', x: 20, y: 20, l: 54 },
+            { id: 's2', genre: 'nombre', texte: '2', x: 100, y: 20, l: 54 },
+            { id: 's3', genre: 'nombre', texte: '3', x: 180, y: 20, l: 54 },
+            { id: 's4', genre: 'operation', op: '+', x: 60, y: 120, l: 74 }
+        ], liens: [{ de: 's1', vers: 's4' }, { de: 's2', vers: 's4' }] };
+        p.selection = ['s1'];
+        const combien = p.supprimerLaSelection();
+        return { combien, blocs: p.graphe.blocs.length, liens: p.graphe.liens.length,
+                 rebranche: p.relierLesBlocs('s3', 's4'),
+                 apres: p.graphe.liens.length };
+    });
+    r.egal('SUPPRIMER UN BLOC EMPORTE SES FLÈCHES',
+        [supprime.combien, supprime.blocs, supprime.liens], [1, 3, 1],
+        JSON.stringify(supprime));
+    r.egal('et la place libérée se rebranche : le signe n\'avait plus qu\'une entrée',
+        [supprime.rebranche, supprime.apres], [null, 2], JSON.stringify(supprime));
+
+    // ON REVIENT EN ARRIÈRE DANS L'ÉDITEUR, ET PAS SEULEMENT SUR LE TABLEAU.
+    // « Vider » et « Supprimer » effacent sans rien demander, et l'annuler du
+    // tableau ne voit que les tampons posés : pendant qu'on construit, il n'y
+    // avait rien derrière soi. Un clic de travers perdait un arbre arrangé case
+    // par case.
+    const retour = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [], liens: [] };
+        p.memoire = [];
+        const a = p.poserUnBloc('nombre', 20, 20);
+        const b = p.poserUnBloc('nombre', 120, 20);
+        const o = p.poserUnBloc('operation', 60, 140);
+        p.relierLesBlocs(a, o);
+        // UN REFUS NE MANGE PAS UN RETOUR EN ARRIÈRE : il n'a rien changé.
+        const refuse = p.relierLesBlocs(a, o);
+        const apresLeRefus = p.memoire.length;
+        const avant = { blocs: p.graphe.blocs.length, liens: p.graphe.liens.length };
+        p.annulerLeDernierGeste();
+        const unCoup = { blocs: p.graphe.blocs.length, liens: p.graphe.liens.length };
+        p.annulerLeDernierGeste();
+        const deuxCoups = { blocs: p.graphe.blocs.length, liens: p.graphe.liens.length };
+        return { refuse: !!refuse, apresLeRefus, avant, unCoup, deuxCoups, b };
+    });
+    r.egal('ANNULER REND LE CHANTIER TEL QU\'IL ÉTAIT, geste par geste',
+        [retour.avant, retour.unCoup, retour.deuxCoups],
+        [{ blocs: 3, liens: 1 }, { blocs: 3, liens: 0 }, { blocs: 2, liens: 0 }],
+        JSON.stringify(retour));
+    r.egal('ET UN REFUS NE MANGE PAS UN RETOUR EN ARRIÈRE : il n\'a rien changé',
+        [retour.refuse, retour.apresLeRefus], [true, 4], JSON.stringify(retour));
+    const viderSeRattrape = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [], liens: [] };
+        p.semerDepuisLaLigne('1 + 2');
+        p.memoire = [];
+        p.rendreLEditeur();
+        const eteintAuDepart = !!(document.querySelector('#arbre-editeur [data-geste="annuler"]') || {}).disabled;
+        p.vider();
+        const vide = p.graphe.blocs.length;
+        const allume = !(document.querySelector('#arbre-editeur [data-geste="annuler"]') || {}).disabled;
+        p.annulerLeDernierGeste();
+        return { eteintAuDepart, vide, allume, blocs: p.graphe.blocs.length,
+                 liens: p.graphe.liens.length, ligne: p.laLigneDuGraphe() };
+    });
+    r.egal('« VIDER » SE RATTRAPE : l\'arbre revient entier',
+        [viderSeRattrape.vide, viderSeRattrape.blocs, viderSeRattrape.liens, viderSeRattrape.ligne],
+        [0, 3, 2, '1 + 2'], JSON.stringify(viderSeRattrape));
+    r.egal('ET LE BOUTON S\'ÉTEINT QUAND IL N\'Y A RIEN DERRIÈRE SOI',
+        [viderSeRattrape.eteintAuDepart, viderSeRattrape.allume], [true, true],
+        JSON.stringify(viderSeRattrape));
+
+    // RANGER REPOSE L'ARBRE COMME LE MANUEL. Les blocs vont où l'on veut, mais
+    // une fois l'arbre complet on veut la mise en page du livre sans la refaire
+    // à la main — et cela n'est possible que parce que la ligne se lit des
+    // blocs : on la relit, et on la repose.
+    const range = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [], liens: [] };
+        p.semerDepuisLaLigne('(2 + 3) × 4');
+        // ON DÉRANGE LES HAUTEURS, PAS L'ORDRE DE LECTURE : l'abscisse DIT quel
+        // bloc passe à gauche du signe, donc la bousculer changerait le calcul
+        // — ce qui est voulu, et se mesure deux lignes plus bas.
+        p.graphe.blocs.forEach((b, i) => { b.y = 300 - i * 23; });
+        const fait = p.ranger();
+        const plan = p.poser('(2 + 3) × 4');
+        const trier = (t) => t.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        return { fait,
+                 obtenu: trier(p.graphe.blocs.map(b => [Math.round(b.x), Math.round(b.y)])),
+                 voulu: plan.erreur ? [plan.erreur] : trier(plan.noeuds.map(n => [Math.round(n.x),
+                     Math.round(n.op ? n.yBulle - p.R_BULLE : n.y)])),
+                 ligne: p.laLigneDuGraphe() };
+    });
+    r.egal('RANGER REPOSE L\'ARBRE EXACTEMENT COMME LA LIGNE LE POSERAIT',
+        range.obtenu, range.voulu, JSON.stringify(range));
+    r.egal('et le calcul n\'a pas bougé d\'un signe', range.ligne, '(2 + 3) × 4',
+        JSON.stringify({ ligne: range.ligne }));
+
+    // L'ORDRE DE LECTURE SUIT LA PLACE DES BLOCS. C'est la règle de la gauche,
+    // et elle vaut pour « − » et « ÷ » : échanger deux cases de place échange
+    // les deux termes. Sans cela, déplacer un bloc serait un geste décoratif,
+    // et le dessin dirait autre chose que le calcul.
+    const laGauche = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [], liens: [] };
+        p.semerDepuisLaLigne('8 − 2');
+        const avant = p.laLigneDuGraphe();
+        const cases = p.graphe.blocs.filter(b => b.genre !== 'operation')
+            .sort((a, b) => a.x - b.x);
+        const x = cases[0].x, l = cases[0].l;
+        cases[0].x = cases[1].x; cases[0].l = cases[1].l;
+        cases[1].x = x; cases[1].l = l;
+        return { avant, apres: p.laLigneDuGraphe() };
+    });
+    r.egal('ÉCHANGER DEUX CASES DE PLACE ÉCHANGE LES DEUX TERMES',
+        [laGauche.avant, laGauche.apres], ['8 − 2', '2 − 8'], JSON.stringify(laGauche));
+    const rangeEnChantier = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        p.graphe = { blocs: [
+            { id: 'c1', genre: 'nombre', texte: '1', x: 20, y: 20, l: 54 },
+            { id: 'c2', genre: 'nombre', texte: '2', x: 200, y: 20, l: 54 }
+        ], liens: [] };
+        return { fait: p.ranger(), places: p.graphe.blocs.map(b => [b.x, b.y]) };
+    });
+    r.egal('ON NE RANGE QU\'UN ARBRE ENTIER : deux blocs libres restent où ils sont',
+        [rangeEnChantier.fait, rangeEnChantier.places], [false, [[20, 20], [200, 20]]],
+        JSON.stringify(rangeEnChantier));
+
+    // ---- LA LIGNE RESTE LA VÉRITÉ QUAND IL Y EN A UNE ----
+    await ouvrirSur('(1 + 2) × 3');
+    await page.waitForTimeout(280);
+    const vaEtVient = await page.evaluate(() => {
         const p = PluginManager.plugins['arbreDeCalculTool'];
         const forme = (plan) => plan.erreur ? [plan.erreur]
             : plan.noeuds.map(n => (n.op || 'n') + ':' + n.texte + '@r' + n.rang).sort();
-        return { editee: forme(p.poser(e)), aLaMain: forme(p.poser('((−0,6 × −5) + 7,5) × (−8 − 2)')) };
-    }, fini.champ);
+        // ON CHANGE L'ARBRE AU DOIGT, puis on relit la ligne qu'il écrit : c'est
+        // la mesure centrale. L'éditeur n'a pas sa fabrique à lui.
+        const b = p.graphe.blocs.find(k => k.genre === 'operation' && k.op === '+');
+        if (b) p.changerLeSigneDUnBloc(b.id, '−');
+        const ligne = p.laLigneDuGraphe();
+        return { ligne, editee: forme(p.poser(ligne)), aLaMain: forme(p.poser('(1 − 2) × 3')) };
+    });
     r.egal('L\'ARBRE MODIFIÉ AU DOIGT EST CELUI QU\'ON TAPE À LA MAIN, nœud pour nœud',
-        vaEtVient.editee, vaEtVient.aLaMain, JSON.stringify(vaEtVient));
+        [vaEtVient.ligne, vaEtVient.editee], ['(1 − 2) × 3', vaEtVient.aLaMain],
+        JSON.stringify(vaEtVient));
 
     // ET LA FRAPPE REPREND LA MAIN. L'éditeur écrit dans le champ sans réveiller
-    // son écouteur — sinon l'aperçu relirait la ligne et reconstruirait la forêt
-    // qu'on vient de composer. Mais quand c'est le PROFESSEUR qui tape, la forêt
-    // doit suivre : sans cela, le champ et le dessin diraient deux choses.
+    // son écouteur — sinon l'aperçu relirait la ligne et reposerait les blocs
+    // qu'on vient d'arranger. Mais quand c'est le PROFESSEUR qui tape, les blocs
+    // doivent suivre : sans cela, le champ et le dessin diraient deux choses.
     const aLaFrappe = await page.evaluate(() => {
         const champ = document.querySelector('#custom-prompt-inputs input.prompt-input');
-        champ.value = '(1 + 2) × 3';
+        champ.value = '7 × (8 + 9)';
         champ.dispatchEvent(new Event('input', { bubbles: true }));
         const p = PluginManager.plugins['arbreDeCalculTool'];
-        return { arbres: p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud))),
-                 blocs: document.querySelectorAll('.sous-arbre').length };
+        return { ligne: p.laLigneDuGraphe(), blocs: p.graphe.blocs.length,
+                 poignees: document.querySelectorAll('#arbre-zone .bloc').length };
     });
-    r.egal('QUAND LE PROFESSEUR TAPE, L\'ARBRE DESSINÉ SUIT SA LIGNE',
-        [aLaFrappe.arbres, aLaFrappe.blocs], [['(1 + 2) × 3'], 1], JSON.stringify(aLaFrappe));
+    r.egal('QUAND LE PROFESSEUR TAPE, LES BLOCS SUIVENT SA LIGNE',
+        [aLaFrappe.ligne, aLaFrappe.blocs, aLaFrappe.poignees], ['7 × (8 + 9)', 5, 5],
+        JSON.stringify(aLaFrappe));
 
-    // AJOUTER DES NOMBRES, et tout défaire d'un coup.
-    const ajout = await page.evaluate(() => {
+    // ET TOUCHER UN RÉGLAGE NE DÉTRUIT PAS LE CHANTIER. L'aperçu est rappelé à
+    // CHAQUE réglage touché — une case cochée, une couleur, la police. S'il
+    // reposait les blocs depuis la ligne à chaque fois, un chantier à moitié
+    // relié s'effondrerait pour avoir cliqué une pastille de couleur.
+    const chantier = await page.evaluate(async () => {
         const p = PluginManager.plugins['arbreDeCalculTool'];
-        const combien = p.ajouterDesNombres('−8 2,5');
-        return { combien, arbres: p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud))) };
-    });
-    r.egal('ON AJOUTE PLUSIEURS NOMBRES D\'UN COUP, séparés par des espaces',
-        [ajout.combien, ajout.arbres], [2, ['(1 + 2) × 3', '−8', '2,5']], JSON.stringify(ajout));
-    const toutDefait = await page.evaluate(() => {
-        const p = PluginManager.plugins['arbreDeCalculTool'];
-        p.toutDefaire();
-        return p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud)));
-    });
-    r.egal('ET « TOUT DÉFAIRE » REND LES NOMBRES NUS, dans l\'ordre',
-        toutDefait, ['1', '2', '3', '−8', '2,5'], JSON.stringify(toutDefait));
-
-    // ET CHANGER UNE COULEUR NE DÉTRUIT PAS LE TRAVAIL EN COURS. L'aperçu est
-    // rappelé à CHAQUE réglage touché — une case cochée, une couleur, la
-    // police. S'il resemait la forêt depuis la ligne à chaque fois, une forêt
-    // de trois arbres à moitié assemblée s'effondrerait sur le seul arbre que
-    // la ligne décrit, pour avoir cliqué une pastille de couleur.
-    await ouvrirSur('1 + 2');
-    await page.waitForTimeout(150);
-    await page.evaluate(() => PluginManager.plugins['arbreDeCalculTool'].ajouterDesNombres('7 9'));
-    await page.waitForTimeout(100);
-    const avantLaCouleur = await etatDeLEditeur();
-    const apresLaCouleur = await page.evaluate(() => {
+        p.graphe.liens = [];
+        p.publier();
+        const avant = { blocs: p.graphe.blocs.length, liens: p.graphe.liens.length };
         const cases = Array.from(document.querySelectorAll('#custom-prompt-inputs input[type=checkbox]'));
         if (cases[0]) { cases[0].checked = true; cases[0].dispatchEvent(new Event('change', { bubbles: true })); }
-        const p = PluginManager.plugins['arbreDeCalculTool'];
-        return p.foret.map(a => p.sansSesParenthesesExterieures(p.expressionDe(a.noeud)));
+        await new Promise(k => setTimeout(k, 80));
+        return { avant, apres: { blocs: p.graphe.blocs.length, liens: p.graphe.liens.length } };
     });
-    r.egal('trois arbres sont bien en chantier — la prémisse',
-        avantLaCouleur.arbres, ['1 + 2', '7', '9'], JSON.stringify(avantLaCouleur));
-    r.egal('ET TOUCHER UN RÉGLAGE NE DÉTRUIT PAS LA FORÊT EN CHANTIER',
-        apresLaCouleur, ['1 + 2', '7', '9'], JSON.stringify(apresLaCouleur));
+    r.egal('TOUCHER UN RÉGLAGE NE DÉTRUIT PAS LE CHANTIER EN COURS',
+        [chantier.avant, chantier.apres], [{ blocs: 5, liens: 0 }, { blocs: 5, liens: 0 }],
+        JSON.stringify(chantier));
 
-    // LA GAUCHE SE JUGE AVANT LE GESTE, et c'est tout l'enjeu pour « − » et
-    // « ÷ ». Au moment du dépôt l'arbre tiré est POSÉ SUR sa cible : les deux
-    // ont alors la même abscisse, et comparer là départagerait au hasard. On
-    // éprouve donc LES DEUX SENS du même geste : ils doivent s'accorder.
-    const ordre = {};
-    for (const [cle, de, vers] of [['versLaDroite', 0, 1], ['versLaGauche', 1, 0]]) {
-        await ouvrirSur('8');
-        await page.waitForTimeout(150);
-        await page.evaluate(() => PluginManager.plugins['arbreDeCalculTool'].ajouterDesNombres('2'));
-        await page.waitForTimeout(120);
-        await tirer(de, vers, '−');
-        ordre[cle] = await etatDeLEditeur();
-    }
-    r.egal('EN TIRANT L\'ARBRE DE GAUCHE SUR CELUI DE DROITE, c\'est huit moins deux',
-        ordre.versLaDroite.arbres, ['8 − 2'], JSON.stringify(ordre.versLaDroite));
-    r.egal('ET EN TIRANT DANS L\'AUTRE SENS, C\'EST ENCORE HUIT MOINS DEUX',
-        ordre.versLaGauche.arbres, ['8 − 2'], JSON.stringify(ordre.versLaGauche));
+    // ---- LA BORDURE ET L'ARRONDI ----
+    //
+    // « On peut choisir la bordure des blocs et leur arrondi. » Un polycopié
+    // imprimé en noir et blanc perd les fonds de couleur : sans trait, les cases
+    // y disparaissent — c'est à cela que sert le réglage.
+    const habits = await page.evaluate(() => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const svg = (bordure, arrondi) => p.dessiner(p.poser('2 + 3'),
+            { expression: '2 + 3', cases: '#bcd9f0', encre: '#2d3436', police: 'sans-serif',
+              bordure, arrondi }, true);
+        const rx = (s) => { const m = /<rect[^>]*rx="([-\d.]+)"/.exec(s); return m ? parseFloat(m[1]) : null; };
+        const trait = (s) => { const m = /<rect[^>]*stroke-width="([\d.]+)"/.exec(s); return m ? parseFloat(m[1]) : 0; };
+        return {
+            listes: Array.from(document.querySelectorAll('#custom-prompt-inputs select'))
+                .map(s => Array.from(s.options).map(o => o.value).join(',')),
+            aucune: trait(svg('aucune', 'leger')),
+            fine: trait(svg('fine', 'leger')),
+            epaisse: trait(svg('epaisse', 'leger')),
+            droit: rx(svg('fine', 'droit')),
+            leger: rx(svg('fine', 'leger')),
+            arrondi: rx(svg('fine', 'arrondi')),
+            pilule: rx(svg('fine', 'pilule')),
+            hauteur: p.H_CASE
+        };
+    });
+    r.verifie('LA BOÎTE OFFRE LA BORDURE ET L\'ARRONDI, chacun dans sa liste',
+        habits.listes.indexOf('aucune,fine,epaisse') >= 0
+        && habits.listes.indexOf('droit,leger,arrondi,pilule') >= 0,
+        JSON.stringify(habits.listes));
+    r.egal('TROIS BORDURES, ET « AUCUNE » N\'EN DESSINE AUCUNE',
+        [habits.aucune, habits.fine, habits.epaisse], [0, 1.5, 3], JSON.stringify(habits));
+    // LA PILULE NE DÉBORDE PAS DE SA CASE : un rayon plus grand que la
+    // demi-hauteur dessinerait n'importe quoi, et « 999 » est écrit en toutes
+    // lettres dans la table des rayons.
+    r.egal('QUATRE ARRONDIS, ET LA PILULE S\'ARRÊTE À LA DEMI-HAUTEUR',
+        [habits.droit, habits.leger, habits.arrondi, habits.pilule],
+        [0, 3, 10, habits.hauteur / 2], JSON.stringify(habits));
+
+    // ---- LE TAMPON EMPORTE LES BLOCS ----
+    //
+    // Sans cela, rouvrir un arbre arrangé à la main le remettrait en rang
+    // d'oignons — et l'on rouvre précisément pour révéler les cases devant la
+    // classe, une fois l'arbre posé au tableau.
+    const voyage = await page.evaluate(async () => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const args = ['(2 + 3) × 4', false, true, '#bcd9f0', '#2d3436', 'serif', 'epaisse', 'pilule'];
+        images.length = 0;
+        if (typeof saveState === 'function') saveState();
+        p.graphe = { blocs: [], liens: [] };
+        p.derniereLigneEcrite = null;
+        p.ouvrir(args);
+        await new Promise(k => setTimeout(k, 220));
+        // ON ARRANGE : un seul bloc part à droite. Une translation de TOUT le
+        // monde ne mesurerait rien — le recadrage la rendrait, et un tampon qui
+        // ignorerait les blocs pour relire la ligne passerait quand même.
+        const bouge = p.graphe.blocs[p.graphe.blocs.length - 1];
+        bouge.x += 220;
+        const arrange = p.graphe.blocs.map(b => [b.id, Math.round(b.x), Math.round(b.y)]);
+        p.construire(args, null);
+        for (let i = 0; i < 80 && !images.length; i++) await new Promise(k => setTimeout(k, 50));
+        if (!images.length) return { rien: true, arrange, dans: null, apres: null, ligne: null };
+        const im = images[0];
+        const dans = JSON.parse(im.pluginData.args[8] || '{}');
+        p.graphe = { blocs: [], liens: [] };
+        p.derniereLigneEcrite = null;
+        p.edit(im);
+        await new Promise(k => setTimeout(k, 260));
+        return {
+            arrange,
+            dans: { blocs: (dans.blocs || []).length, liens: (dans.liens || []).length },
+            apres: p.graphe.blocs.map(b => [b.id, Math.round(b.x), Math.round(b.y)]),
+            ligne: p.laLigneDuGraphe(),
+            reglages: im.pluginData.args.slice(5, 8)
+        };
+    });
+    r.egal('LES BLOCS VOYAGENT DANS LE TAMPON, avec leurs flèches',
+        [voyage.dans && voyage.dans.blocs, voyage.dans && voyage.dans.liens], [5, 4],
+        JSON.stringify(voyage.dans));
+    r.egal('ET LA RÉÉDITION RETROUVE LA DISPOSITION, bloc par bloc',
+        voyage.apres, voyage.arrange, JSON.stringify(voyage));
+    r.egal('avec le même calcul et les mêmes habits', [voyage.ligne, voyage.reglages],
+        ['(2 + 3) × 4', ['serif', 'epaisse', 'pilule']], JSON.stringify(voyage));
+
+    // LE TAMPON SE RECADRE SUR SES BLOCS : un arbre arrangé à droite de la zone
+    // garderait sinon deux cents pixels de blanc à sa gauche, et c'est l'image
+    // ENTIÈRE qu'on pose sur le tableau.
+    const recadre = await page.evaluate(async () => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const args = ['(2 + 3) × 4', false, false, '#bcd9f0', '#2d3436', 'sans-serif'];
+        images.length = 0;
+        p.graphe = { blocs: [], liens: [] };
+        p.derniereLigneEcrite = null;
+        p.ouvrir(args);
+        await new Promise(k => setTimeout(k, 220));
+        p.graphe.blocs.forEach(b => { b.x += 260; b.y += 90; });
+        p.construire(args, null);
+        for (let i = 0; i < 80 && !images.length; i++) await new Promise(k => setTimeout(k, 50));
+        const plan = p.poser('(2 + 3) × 4');
+        return { taille: images.length ? [Math.round(images[0].w), Math.round(images[0].h)] : null,
+                 voulue: plan.erreur ? [plan.erreur] : [Math.round(plan.l), Math.round(plan.h)] };
+    });
+    r.egal('UN ARBRE POUSSÉ DANS UN COIN SE RECADRE : l\'image n\'emporte pas le blanc',
+        recadre.taille, recadre.voulue, JSON.stringify(recadre));
+
+    // UN CHANTIER SE POSE AUSSI, et c'est l'exercice à trous : l'arbre nu au
+    // tableau, que la classe remplit. Aucun bloc n'y est « la » réponse, donc
+    // aucun ne se peint en rouge.
+    const aTrous = await page.evaluate(async () => {
+        const p = PluginManager.plugins['arbreDeCalculTool'];
+        const args = ['2 + 3', false, true, '#bcd9f0', '#2d3436', 'sans-serif'];
+        images.length = 0;
+        p.graphe = { blocs: [], liens: [] };
+        p.derniereLigneEcrite = null;
+        p.ouvrir(args);
+        await new Promise(k => setTimeout(k, 220));
+        p.graphe.liens = [];
+        p.publier();
+        p.construire(args, null);
+        for (let i = 0; i < 80 && !images.length; i++) await new Promise(k => setTimeout(k, 50));
+        const im = images[0];
+        const svg = im ? decodeURIComponent(im.src.slice(im.src.indexOf(',') + 1)) : '';
+        return { pose: !!im, rouge: /e03131/i.test(svg),
+                 blocs: im ? (JSON.parse(im.pluginData.args[8] || '{}').blocs || []).length : 0,
+                 liens: im ? (JSON.parse(im.pluginData.args[8] || '{}').liens || []).length : 0 };
+    });
+    r.egal('UN CHANTIER SE POSE QUAND MÊME : c\'est l\'exercice à trous',
+        [aTrous.pose, aTrous.blocs, aTrous.liens], [true, 3, 0], JSON.stringify(aTrous));
+    r.verifie('ET AUCUN BLOC N\'Y EST PEINT EN ROUGE : rien n\'y est encore le résultat',
+        aTrous.rouge === false, JSON.stringify(aTrous));
 
     // ET LA BOÎTE REDEVIENT ÉTROITE EN SE FERMANT. Une classe posée et jamais
     // retirée donnerait cette largeur aux quarante autres réglages de

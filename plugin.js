@@ -14649,6 +14649,9 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         { value: "'Comic Sans MS', cursive", label: 'Comic' }
     ],
 
+    // LES RÉGLAGES SE LISENT PAR LEUR RANG, et les nouveaux s'ajoutent EN BOUT :
+    // un tampon posé la semaine dernière n'a que six valeurs dans ses « args »,
+    // et sa réédition doit retrouver ses réglages, pas un décalage.
     lireLesReglages: function (args) {
         const a = args || [];
         return {
@@ -14657,12 +14660,24 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
             resultat: !!a[2],
             cases: a[3] || '#bcd9f0',
             encre: a[4] || '#2d3436',
-            police: a[5] || 'sans-serif'
+            police: a[5] || 'sans-serif',
+            bordure: a[6] || 'fine',
+            arrondi: a[7] || 'leger',
+            graphe: a[8] || ''
         };
     },
 
     ouvrir: function (prefill, target) {
         const p = this.lireLesReglages(prefill);
+        // L'ÉDITEUR REPREND LA DISPOSITION, PAS SEULEMENT LA LIGNE. Les blocs
+        // voyagent dans les « args » du tampon : sans eux, rouvrir un arbre
+        // qu'on a aligné à la main le remettrait en rang d'oignons, et l'on
+        // rouvre précisément pour révéler les cases devant la classe.
+        this.outil = 'choisir';
+        this.erreurCourante = null;
+        this.memoire = [];
+        if (this.semerDepuisDesBlocs(p.graphe)) this.derniereLigneEcrite = p.expression;
+        else { this.graphe = { blocs: [], liens: [] }; this.derniereLigneEcrite = null; }
         openCustomPrompt(target ? "Modifier l'arbre de calcul" : "Arbre de calcul", [
             {
                 // L'ÉTIQUETTE PORTE L'EXEMPLE, PAS LE FANTÔME DU CHAMP. Le champ
@@ -14679,7 +14694,9 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
             { type: 'checkbox', label: 'Remplir la case du résultat', value: p.resultat },
             { type: 'color', label: 'Couleur des cases', value: p.cases },
             { type: 'color', label: "Couleur de l'encre", value: p.encre },
-            { type: 'select', label: 'Police', value: p.police, options: this.POLICES }
+            { type: 'select', label: 'Police', value: p.police, options: this.POLICES },
+            { type: 'select', label: 'Bordure des blocs', value: p.bordure, options: this.BORDURES },
+            { type: 'select', label: 'Coins des blocs', value: p.arrondi, options: this.ARRONDIS }
         ], (r, boite) => this.apercu(r, boite), (r) => this.construire(r, target));
         this.elargirLaBoite();
     },
@@ -14717,60 +14734,133 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return true;
     },
 
+    // ON POSE CE QU'ON VOIT, ET L'ON EMPORTE LES BLOCS AVEC.
+    //
+    // L'éditeur tient la disposition ; la ligne ne connaît que l'arbre rangé. Si
+    // le tampon repassait par elle, tout alignement fait à la main serait perdu
+    // au moment même de poser — et un chantier volontairement incomplet, qui est
+    // l'exercice à trous, n'aurait aucune ligne pour le décrire.
     construire: function (res, target) {
         const p = this.lireLesReglages(res);
-        const plan = this.poser(p.expression);
-        if (plan.erreur) {
-            if (typeof showToast === 'function') showToast(plan.erreur);
-            // ON NE JETTE PAS LA SAISIE. Rouvrir la boîte avec ce qui y était
-            // écrit, c'est la seule façon de corriger une coquille sans retaper
-            // le calcul.
-            this.ouvrir(res, target);
-            return;
+        let g = null;
+        if (this.graphe.blocs.length) {
+            const ligne = this.laLigneDuGraphe();
+            // LES BLOCS NE VALENT QUE S'ILS DISENT LA MÊME CHOSE QUE LA LIGNE.
+            // Appelé sans que l'éditeur soit ouvert — et les chapitres le font —,
+            // « construire » ne doit pas poser le chantier d'une boîte déjà
+            // fermée : on retombe alors sur la ligne, qui ne mentira pas.
+            if (ligne === p.expression || (!ligne && this.apercuEl)) g = this.graphe;
         }
-        placeGeneratedStamp('arbreDeCalculTool', this.dessiner(plan, p, true), res, target,
-            '🌳 Arbre de calcul posé');
+        if (!g) {
+            const plan = this.poser(p.expression);
+            if (plan.erreur) {
+                if (typeof showToast === 'function') showToast(plan.erreur);
+                // ON NE JETTE PAS LA SAISIE. Rouvrir la boîte avec ce qui y était
+                // écrit, c'est la seule façon de corriger une coquille sans
+                // retaper le calcul.
+                this.ouvrir(res, target);
+                return;
+            }
+            g = this.grapheDepuisLePlan(plan);
+        }
+        const pose = this.grapheRecadre(g);
+        this.poserLesValeurs(pose);
+        const seuls = pose.blocs.filter(b => !this.sortieDe(pose, b.id));
+        const racine = seuls.length === 1 ? seuls[0].id : null;
+        const svg = this.dessinerLeGraphe(Object.assign({}, pose, { racine: racine || undefined }),
+            Object.assign({}, p, { rouge: !!racine }), true);
+        // LES BLOCS VOYAGENT AU NEUVIÈME RANG, ET IL FAUT LES HUIT AUTRES POUR
+        // LES Y METTRE. Appelé avec six réglages — c'est le cas d'un tampon
+        // d'avant la bordure —, « res.concat » posait le paquet de blocs au
+        // septième rang, c'est-à-dire À LA PLACE DE LA BORDURE : la réédition
+        // relisait un objet JSON comme un nom de trait, et la disposition était
+        // perdue. On repart donc des réglages LUS, qui ont toujours leurs huit
+        // cases remplies.
+        const args = [p.expression, p.etapes, p.resultat, p.cases, p.encre,
+                      p.police, p.bordure, p.arrondi].concat([JSON.stringify({
+            blocs: pose.blocs.map(b => b.genre === 'operation'
+                ? { id: b.id, genre: 'operation', op: b.op, x: b.x, y: b.y }
+                : { id: b.id, genre: 'nombre', texte: b.texte, x: b.x, y: b.y }),
+            liens: pose.liens.map(l => ({ de: l.de, vers: l.vers }))
+        })]);
+        placeGeneratedStamp('arbreDeCalculTool', svg, args, target,
+            racine ? '🌳 Arbre de calcul posé' : '🌳 Arbre posé — il reste des blocs à relier');
     },
 
-    // ============ L'APERÇU EST L'ÉDITEUR ============
-    //
-    // « On voit mal l'arbre en entier, et on peut modifier l'arbre en cours, et
-    // on a déjà les blocs qu'on peut lier, glisser. Fais mieux ! »
-    //
-    // L'ASSEMBLEUR VIVAIT DANS UNE FENÊTRE À PART, avec des briques abstraites
-    // qui n'étaient pas les cases de l'arbre. C'était deux représentations d'une
-    // même chose, et l'une des deux était fausse : on assemblait des rectangles
-    // gris pour obtenir un arbre qu'on ne voyait qu'après. Les blocs sont DÉJÀ
-    // là, dessinés, dans l'aperçu — c'est eux qu'il faut pouvoir prendre.
-    //
-    // L'APERÇU SE GÈRE DONC LUI-MÊME. « openCustomPrompt » injecte en innerHTML
-    // ce que l'aperçu lui rend, mais il ne touche à rien si on lui rend une
-    // chaîne vide : on peut alors poser un vrai morceau d'interface, avec ses
-    // écouteurs, et le reconstruire soi-même quand il le faut.
-    //
-    // TROIS GESTES, ET PAS UN DE PLUS :
-    //   — TIRER un arbre sur un autre les réunit ; les quatre signes s'offrent
-    //     au point de dépôt.
-    //   — CLIQUER UNE BULLE défait ce nœud : ses deux moitiés redeviennent deux
-    //     arbres qu'on peut relier autrement. C'est « modifier l'arbre en
-    //     cours », et c'est la chose qui manquait le plus — sans elle, une
-    //     erreur de signe au troisième nœud obligeait à tout recommencer.
-    //   — CLIQUER UN NOMBRE le change sur place.
-    //
-    // ET LA LIGNE DU HAUT RESTE LA VÉRITÉ. L'éditeur l'écrit, la frappe la
-    // relit : il n'y a toujours qu'une façon de fabriquer un arbre, et le
-    // glisser-déposer n'en est qu'une seconde façon d'écrire.
-    foret: [], apercuEl: null, reglagesCourants: null, derniereLigneEcrite: null,
+    // LE TAMPON SE RECADRE SUR SES BLOCS. Un arbre arrangé à droite de la zone
+    // garderait sinon trois cents pixels de blanc à sa gauche, et c'est l'image
+    // entière qu'on pose sur le tableau.
+    grapheRecadre: function (graphe) {
+        const blocs = graphe.blocs.map(b => Object.assign({}, b));
+        if (!blocs.length) return { blocs, liens: graphe.liens.slice(), racine: graphe.racine };
+        const dx = Math.min.apply(null, blocs.map(b => b.x)) - this.MARGE;
+        const dy = Math.min.apply(null, blocs.map(b => b.y)) - this.MARGE;
+        blocs.forEach(b => { b.x -= dx; b.y -= dy; });
+        return { blocs, liens: graphe.liens.slice(), racine: graphe.racine };
+    },
 
-    ECART_FORET: 22, MARGE_FORET: 14,
+    // ============ L'APERÇU EST UN ÉDITEUR DE BLOCS ============
+    //
+    // « C'est pas pratique, il faudrait deux icônes, on drag-drop des blocs pour
+    // les nombres et les opérations, et on a une icône relier, une icône
+    // sélectionner pour l'alignement, on peut choisir la bordure des blocs et
+    // leur arrondi. »
+    //
+    // L'ÉDITEUR D'AVANT PARTAIT D'UN ARBRE DÉJÀ FAIT. On tapait une ligne, elle
+    // posait un arbre, et les gestes ne savaient que le défaire ou en réunir les
+    // morceaux : impossible de commencer par poser une case à l'endroit où on la
+    // voulait. C'est pourtant ainsi qu'on fabrique un exercice — on dessine la
+    // figure, on la remplit ensuite.
+    //
+    // LES BLOCS SONT DONC LA MATIÈRE, et l'arbre n'est plus que ce qu'ils
+    // forment quand tout est relié. Quatre outils, et pas un de plus :
+    //   — DEUX SOURCES qu'on tire dans la zone : une case de nombre, un signe.
+    //   — RELIER : on clique le bloc de départ, puis le signe qui le mange ; et
+    //     l'on coupe une flèche en cliquant la pastille posée dessus.
+    //   — CHOISIR : on clique un bloc, on en encadre plusieurs, on les déplace
+    //     ensemble — et l'on aligne, ce qui était la demande même.
+    //
+    // ET LA LIGNE RESTE LISIBLE DANS LES DEUX SENS : elle s'écrit dès que les
+    // blocs forment un arbre, et la taper repose les blocs d'un coup. Un
+    // chantier à moitié relié n'a pas de ligne, et c'est normal : c'est l'état
+    // d'un exercice qu'on prépare.
+    graphe: { blocs: [], liens: [] },
+    apercuEl: null, reglagesCourants: null, derniereLigneEcrite: null, erreurCourante: null,
+    outil: 'choisir', selection: [], relierDepuis: null, prochainId: 1, echelleDuGraphe: 1,
 
-    // Les feuilles d'un arbre, de gauche à droite : c'est ce qu'on sème quand
-    // on défait tout, et ce qu'on relit d'une ligne déjà écrite.
-    feuillesDe: function (n, dans) {
-        const out = dans || [];
-        if (n.op) { this.feuillesDe(n.g, out); this.feuillesDe(n.d, out); }
-        else out.push(n);
-        return out;
+    // ON POSE SUR UNE GRILLE DE CINQ PIXELS. Deux blocs posés « à l'œil » au
+    // même endroit ne le sont jamais tout à fait, et l'écart d'un pixel se voit
+    // à l'impression. La grille ne remplace pas l'alignement — elle évite d'en
+    // avoir besoin pour la moitié des cas.
+    PAS_GRILLE: 5, NOMBRE_NEUF: '0',
+
+    // ON REVIENT EN ARRIÈRE DANS L'ÉDITEUR, ET PAS SEULEMENT SUR LE TABLEAU.
+    // « Vider » et « Supprimer » effacent sans rien demander : un clic de
+    // travers perdait un arbre arrangé case par case. Le tableau a son annuler,
+    // mais il ne voit que les tampons posés — pendant qu'on construit, il n'y a
+    // rien derrière soi. L'outil avait été demandé « facile pratique avec undo
+    // redo » : le voici aussi avant la pose.
+    memoire: [], MEMOIRE_MAX: 40,
+
+    instantane: function () {
+        return JSON.stringify({ blocs: this.graphe.blocs, liens: this.graphe.liens });
+    },
+
+    memoriser: function (quoi) {
+        this.memoire.push(quoi === undefined ? this.instantane() : quoi);
+        while (this.memoire.length > this.MEMOIRE_MAX) this.memoire.shift();
+    },
+
+    annulerLeDernierGeste: function () {
+        const avant = this.memoire.pop();
+        if (avant === undefined) return false;
+        let g = null;
+        try { g = JSON.parse(avant); } catch (e) { g = null; }
+        if (!g) return false;
+        this.graphe = { blocs: g.blocs || [], liens: g.liens || [] };
+        this.selection = []; this.relierDepuis = null;
+        this.publier();
+        return true;
     },
 
     expressionDe: function (n) {
@@ -14793,11 +14883,6 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return v;
     },
 
-    laLigneDeLaForet: function () {
-        return this.foret.length === 1
-            ? this.sansSesParenthesesExterieures(this.expressionDe(this.foret[0].noeud)) : '';
-    },
-
     sansSesParenthesesExterieures: function (e) {
         const t = String(e || '').trim();
         if (t[0] !== '(' || t[t.length - 1] !== ')') return t;
@@ -14809,151 +14894,221 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return t;
     },
 
-    // ---- CE QUE L'ÉDITEUR REÇOIT, ET CE QU'IL REND ----
+    // ---- CE QUE LES BLOCS DISENT ----
+
+    laLigneDuGraphe: function () {
+        const lu = this.lireLeGraphe(this.graphe);
+        return lu.erreur ? '' : this.sansSesParenthesesExterieures(this.expressionDe(lu.noeud));
+    },
+
+    // LE BLOC QUI NE NOURRIT RIEN EST LE RÉSULTAT, et il n'y en a qu'un quand le
+    // chantier est fini. Tant qu'il y en a plusieurs, aucun n'est « la » réponse
+    // et aucun ne se peint en rouge : un morceau de calcul n'est pas un
+    // résultat, c'est la leçon que la forêt avait déjà donnée.
+    laRacineUnique: function () {
+        const seuls = this.graphe.blocs.filter(b => !this.sortieDe(this.graphe, b.id));
+        return seuls.length === 1 ? seuls[0].id : null;
+    },
+
+    nouvelId: function () { return 'b' + (this.prochainId++); },
+
+    surLaGrille: function (v) {
+        return Math.max(0, Math.round(v / this.PAS_GRILLE) * this.PAS_GRILLE);
+    },
+
+    // ---- D'OÙ PARTENT LES BLOCS ----
 
     semerDepuisLaLigne: function (ligne) {
-        const lu = this.analyser(ligne);
-        if (lu.erreur) return { erreur: lu.erreur };
-        this.valeurDe(lu.noeud);
-        this.foret = [{ noeud: lu.noeud, x: 0, y: 0 }];
-        this.rangerLaForet();
+        const plan = this.poser(ligne);
+        if (plan.erreur) return { erreur: plan.erreur };
+        this.graphe = this.grapheDepuisLePlan(plan);
+        this.prochainId = this.graphe.blocs.length + 1;
+        this.selection = []; this.relierDepuis = null;
         return {};
     },
 
-    // ON RANGE DE GAUCHE À DROITE, et c'est aussi la règle de l'ordre : le sens
-    // de lecture décide de ce qui passe à gauche du signe.
-    rangerLaForet: function () {
-        let x = this.MARGE_FORET;
-        this.foret.forEach(a => {
-            const plan = this.poser(this.expressionDe(a.noeud));
-            a.x = x; a.y = this.MARGE_FORET;
-            x += (plan.erreur ? 80 : plan.l) + this.ECART_FORET;
-        });
-    },
-
-    // ---- LES TROIS GESTES ----
-
-    reunirLesArbres: function (i, j, op, xAvantLeGeste) {
-        const a = this.foret[i], b = this.foret[j];
-        if (!a || !b || a === b || '+−×÷'.indexOf(op) < 0) return false;
-        // LA GAUCHE SE JUGE AVANT LE GESTE, PAS APRÈS. Au moment du dépôt,
-        // l'arbre tiré est POSÉ SUR sa cible : les deux ont la même abscisse, et
-        // comparer là départagerait au hasard — en pratique toujours en faveur
-        // de celui qu'on tire, ce qui rendrait fausse la règle affichée. Pour
-        // « − » et « ÷ », cela change la réponse.
-        const xa = xAvantLeGeste === undefined ? a.x : xAvantLeGeste;
-        const gauche = xa <= b.x ? a : b, droite = xa <= b.x ? b : a;
-        const noeud = { op, g: gauche.noeud, d: droite.noeud };
-        if (!this.valeurDe(noeud)) return false;      // une division par zéro
-        // L'ARBRE NÉ RESTE À LA PLACE DU PLUS À GAUCHE DES DEUX. Ajouté en
-        // bout de liste, il sautait à l'extrême droite de la forêt au moment
-        // même où l'on venait de le composer — on perdait des yeux ce qu'on
-        // tenait, et l'ordre de lecture, qui est la règle de la gauche, ne
-        // voulait plus rien dire.
-        const rang = Math.min(this.foret.indexOf(a), this.foret.indexOf(b));
-        this.foret = this.foret.filter(k => k !== a && k !== b);
-        this.foret.splice(Math.min(rang, this.foret.length), 0,
-            { noeud, x: Math.min(xa, b.x), y: Math.min(a.y, b.y) });
-        this.rangerLaForet();
-        this.publier();
+    // UN TAMPON ROUVERT RETROUVE SA DISPOSITION, et pas seulement sa ligne.
+    // Sans cela, tout alignement fait à la main serait perdu à la première
+    // réédition — et comme la réédition est la façon de révéler les cases
+    // devant la classe, on l'aurait perdu à chaque fois.
+    semerDepuisDesBlocs: function (json) {
+        let g = null;
+        try { g = JSON.parse(json); } catch (e) { g = null; }
+        if (!g || !Array.isArray(g.blocs) || !g.blocs.length) return false;
+        this.graphe = {
+            blocs: g.blocs.map(b => Object.assign({}, b)),
+            liens: (Array.isArray(g.liens) ? g.liens : []).map(l => ({ de: l.de, vers: l.vers }))
+        };
+        this.prochainId = 1 + this.graphe.blocs.reduce(
+            (m, b) => Math.max(m, parseInt(String(b.id).slice(1), 10) || 0), 0);
+        this.selection = []; this.relierDepuis = null;
         return true;
     },
 
-    // DÉFAIRE UN NŒUD, C'EST DÉFAIRE LA CHAÎNE QUI Y MÈNE.
-    //
-    // L'arbre se reprend ainsi en cours, au lieu de se refaire en entier à la
-    // première erreur de signe — c'est la chose qui manquait le plus.
-    //
-    // ET IL N'Y A PAS DE DEMI-MESURE : un nœud rendu à ses deux moitiés laisse
-    // son parent avec un enfant de moins, ce qui n'est pas un arbre. Tous les
-    // nœuds du chemin se défont donc avec lui, et chaque FRÈRE croisé en
-    // descendant reste entier, posé à côté. Rompre le « × » de « (A × B) + C »
-    // dans « ((A × B) + C) × (D − E) » rend quatre arbres : A, B, C, et
-    // (D − E) — dans cet ordre, celui de la lecture.
-    //
-    // Ma première version jetait l'arbre entier pour ne garder que les deux
-    // moitiés du nœud rompu : « −0,4 », « −8 » et « 2 » disparaissaient sans
-    // un mot. C'est la sonde qui l'a dit, pas la relecture.
-    defaireLeNoeud: function (i, chemin) {
-        const a = this.foret[i];
-        if (!a) return false;
-        const avant = [], apres = [];
-        let n = a.noeud;
-        for (const pas of (chemin || '')) {
-            if (!n.op) return false;
-            if (pas === 'g') { apres.unshift(n.d); n = n.g; }
-            else { avant.push(n.g); n = n.d; }
+    // ---- LES GESTES ----
+
+    poserUnBloc: function (genre, x, y) {
+        this.memoriser();
+        const id = this.nouvelId();
+        const b = genre === 'operation'
+            ? { id, genre: 'operation', op: '+', x: this.surLaGrille(x), y: this.surLaGrille(y), l: this.L_RESULTAT }
+            : { id, genre: 'nombre', texte: this.NOMBRE_NEUF, x: this.surLaGrille(x), y: this.surLaGrille(y),
+                l: this.largeurDeCase(this.NOMBRE_NEUF, false) };
+        this.graphe.blocs.push(b);
+        this.selection = [id];
+        this.publier();
+        return id;
+    },
+
+    // CHAQUE REFUS A SA PHRASE. « Ça ne marche pas » n'apprend rien à qui tient
+    // la souris : ce qu'il faut dire, c'est le geste qui débloque.
+    relierLesBlocs: function (de, vers) {
+        const g = this.graphe;
+        const bd = g.blocs.find(b => b.id === de), bv = g.blocs.find(b => b.id === vers);
+        if (!bd || !bv || de === vers) return 'Reliez deux blocs différents';
+        if (bv.genre !== 'operation') return 'Une flèche arrive toujours sur un signe';
+        if (this.sortieDe(g, de)) return 'Ce bloc nourrit déjà un signe : coupez sa flèche d\'abord';
+        if (this.entreesDe(g, vers).length >= 2) return 'Ce signe a déjà ses deux blocs';
+        // UN CALCUL NE TOURNE PAS EN ROND : en descendant de la cible, on ne
+        // doit jamais retomber sur le départ.
+        let k = vers;
+        for (let tours = 0; k && tours <= g.blocs.length; tours++) {
+            if (k === de) return 'Un calcul ne tourne pas en rond';
+            const s = this.sortieDe(g, k);
+            k = s ? s.vers : null;
         }
-        if (!n.op) return false;
-        const morceaux = avant.concat([n.g, n.d], apres);
-        this.foret.splice(i, 1);
-        morceaux.forEach((k, r) => this.foret.splice(i + r, 0, { noeud: k, x: a.x, y: a.y }));
-        this.rangerLaForet();
+        this.memoriser();
+        g.liens.push({ de, vers });
+        this.publier();
+        return null;
+    },
+
+    couperLeLien: function (de, vers) {
+        if (!this.graphe.liens.some(l => l.de === de && l.vers === vers)) return false;
+        this.memoriser();
+        this.graphe.liens = this.graphe.liens.filter(l => !(l.de === de && l.vers === vers));
         this.publier();
         return true;
     },
 
-    changerUnNombre: function (i, chemin, texte) {
-        const a = this.foret[i];
-        if (!a) return false;
-        let n = a.noeud;
-        for (const pas of (chemin || '')) {
-            if (!n.op) return false;
-            n = pas === 'g' ? n.g : n.d;
+    supprimerLaSelection: function () {
+        if (!this.selection.length) return 0;
+        this.memoriser();
+        const morts = {};
+        this.selection.forEach(id => { morts[id] = true; });
+        const avant = this.graphe.blocs.length;
+        this.graphe.blocs = this.graphe.blocs.filter(b => !morts[b.id]);
+        // LES FLÈCHES PARTENT AVEC LEURS BLOCS. Un lien dont une extrémité
+        // n'existe plus ne se dessine pas, mais il compte encore pour « ce signe
+        // a déjà ses deux blocs » : on ne pourrait plus rien rebrancher.
+        this.graphe.liens = this.graphe.liens.filter(l => !morts[l.de] && !morts[l.vers]);
+        this.selection = []; this.relierDepuis = null;
+        this.publier();
+        return avant - this.graphe.blocs.length;
+    },
+
+    changerLeTexteDUnBloc: function (id, texte) {
+        const b = this.graphe.blocs.find(k => k.id === id);
+        if (!b || b.genre === 'operation') return false;
+        if (!this.lireUnNombreSigne(texte)) return false;
+        this.memoriser();
+        let t = String(texte).trim();
+        // LE MOINS QU'ON TAPE N'EST PAS CELUI QU'ON DESSINE. Le trait d'union du
+        // clavier est plus court que le signe moins, et deux moins différents
+        // dans un même arbre se voient.
+        if (SIGNES_DU_CALCUL[t[0]] === '−') t = '−' + t.slice(1);
+        b.texte = t;
+        this.publier();
+        return true;
+    },
+
+    changerLeSigneDUnBloc: function (id, op) {
+        const b = this.graphe.blocs.find(k => k.id === id);
+        if (!b || b.genre !== 'operation') return false;
+        const s = SIGNES_DU_CALCUL[op] || op;
+        if ('+−×÷'.indexOf(s) < 0) return false;
+        this.memoriser();
+        b.op = s;
+        this.publier();
+        return true;
+    },
+
+    // L'ALIGNEMENT EST LA RAISON D'ÊTRE DE L'OUTIL « CHOISIR ». On pose les
+    // blocs où l'on veut, donc jamais tout à fait droit ; les quatre gestes
+    // d'un logiciel de dessin suffisent à rattraper cela.
+    ALIGNEMENTS: [
+        { id: 'gauche', icone: 'gauche', titre: 'Aligner les bords gauches' },
+        { id: 'centre', icone: 'centre', titre: 'Aligner les milieux sur une même verticale' },
+        { id: 'haut', icone: 'haut', titre: 'Aligner les hauts' },
+        { id: 'repartir', icone: 'repartir', titre: 'Répartir l\'écart horizontal' }
+    ],
+
+    aligner: function (comment) {
+        const sel = this.graphe.blocs.filter(b => this.selection.indexOf(b.id) >= 0);
+        if (sel.length < 2) return false;
+        if (this.ALIGNEMENTS.every(a => a.id !== comment)) return false;
+        this.memoriser();
+        if (comment === 'gauche') {
+            const x = Math.min.apply(null, sel.map(b => b.x));
+            sel.forEach(b => { b.x = x; });
+        } else if (comment === 'centre') {
+            const c = sel.reduce((s, b) => s + b.x + b.l / 2, 0) / sel.length;
+            sel.forEach(b => { b.x = Math.max(0, Math.round(c - b.l / 2)); });
+        } else if (comment === 'haut') {
+            const y = Math.min.apply(null, sel.map(b => b.y));
+            sel.forEach(b => { b.y = y; });
+        } else if (comment === 'repartir') {
+            // ON RÉPARTIT DANS LA PLACE DÉJÀ PRISE, sans jamais serrer plus que
+            // l'écart du manuel : répartir ne doit pas faire se toucher deux
+            // cases, sinon l'arbre devient illisible au lieu d'être rangé.
+            const tri = sel.slice().sort((a, b) => a.x - b.x);
+            const debut = tri[0].x;
+            const fin = Math.max.apply(null, tri.map(b => b.x + b.l));
+            const pris = tri.reduce((s, b) => s + b.l, 0);
+            const ecart = Math.max(this.ECART_H, (fin - debut - pris) / (tri.length - 1));
+            let x = debut;
+            tri.forEach(b => { b.x = Math.round(x); x += b.l + ecart; });
         }
-        if (n.op) return false;
-        let brut = String(texte || '').trim(), negatif = false;
-        if (SIGNES_DU_CALCUL[brut[0]] === '−') { negatif = true; brut = brut.slice(1); }
-        const v = this.lireUnNombre(brut);
-        if (!v) return false;
-        n.valeur = negatif ? { n: -v.n, d: v.d } : v;
-        this.valeurDe(a.noeud);
-        this.rangerLaForet();
         this.publier();
         return true;
     },
 
-    ajouterDesNombres: function (txt) {
-        let combien = 0;
-        String(txt || '').trim().split(/[\s  ]+/).forEach(bout => {
-            if (!bout) return;
-            let negatif = false, reste = bout;
-            if (SIGNES_DU_CALCUL[reste[0]] === '−') { negatif = true; reste = reste.slice(1); }
-            const v = this.lireUnNombre(reste);
-            if (!v) return;
-            this.foret.push({ noeud: { valeur: negatif ? { n: -v.n, d: v.d } : v }, x: 0, y: 0 });
-            combien++;
-        });
-        if (combien) { this.rangerLaForet(); this.publier(); }
-        return combien;
-    },
-
-    toutDefaire: function () {
-        const feuilles = [];
-        this.foret.forEach(a => this.feuillesDe(a.noeud).forEach(f => feuilles.push(f)));
-        if (!feuilles.length) return false;
-        this.foret = feuilles.map(f => ({ noeud: { valeur: f.valeur }, x: 0, y: 0 }));
-        this.rangerLaForet();
+    // RANGER, C'EST REPOSER L'ARBRE COMME LE MANUEL. Les blocs vont où l'on
+    // veut, mais une fois l'arbre complet on veut la mise en page du livre sans
+    // la refaire à la main. Et cela n'est possible que parce que la ligne se lit
+    // des blocs : on la relit, et on la repose.
+    ranger: function () {
+        const ligne = this.laLigneDuGraphe();
+        if (!ligne) return false;
+        this.memoriser();
+        if (this.semerDepuisLaLigne(ligne).erreur) return false;
         this.publier();
         return true;
     },
 
-    // ---- LA LIGNE, QUI RESTE LA VÉRITÉ ----
+    vider: function () {
+        if (!this.graphe.blocs.length) return false;
+        this.memoriser();
+        this.graphe = { blocs: [], liens: [] };
+        this.selection = []; this.relierDepuis = null;
+        this.erreurCourante = null;
+        this.publier();
+        return true;
+    },
+
+    // ---- LA LIGNE, QUI RESTE LA VÉRITÉ QUAND IL Y EN A UNE ----
     //
     // On écrit dans le champ SANS réveiller son écouteur : « input » rappellerait
-    // l'aperçu, qui relirait la ligne et reconstruirait la forêt qu'on vient de
-    // composer — en perdant la disposition des arbres qu'on n'a pas encore
-    // réunis. On se souvient donc de ce qu'on a écrit, et l'on ne resème que
-    // lorsque la ligne a changé SOUS NOS PIEDS, c'est-à-dire quand c'est le
-    // professeur qui a tapé.
+    // l'aperçu, qui relirait la ligne et reposerait les blocs — en perdant la
+    // disposition qu'on vient d'arranger. On se souvient donc de ce qu'on a
+    // écrit, et l'on ne resème que lorsque la ligne a changé SOUS NOS PIEDS,
+    // c'est-à-dire quand c'est le professeur qui a tapé.
     publier: function () {
         const champ = document.querySelector('#custom-prompt-modal #custom-prompt-inputs input.prompt-input');
-        const ligne = this.laLigneDeLaForet();
+        const ligne = this.laLigneDuGraphe();
         if (champ && ligne) { champ.value = ligne; this.derniereLigneEcrite = ligne; }
         this.rendreLEditeur();
     },
-
-    // ---- LE DESSIN DE L'ÉDITEUR ----
 
     apercu: function (res, boite) {
         if (boite) this.apercuEl = boite;
@@ -14961,6 +15116,7 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         this.reglagesCourants = p;
         if (p.expression !== this.derniereLigneEcrite) {
             this.derniereLigneEcrite = p.expression;
+            this.memoire = [];      // la frappe a son propre retour : le champ
             const lu = this.semerDepuisLaLigne(p.expression);
             this.erreurCourante = lu.erreur || null;
         }
@@ -14968,25 +15124,80 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return '';     // l'aperçu est à nous : on gère l'injection nous-mêmes
     },
 
+    // ---- LES ICÔNES ----
+    //
+    // Des icônes, et non des mots : la barre tient alors sur une ligne même dans
+    // une boîte étroite, et chacune porte son infobulle en clair.
+    ICONES: {
+        nombre: '<rect x="2" y="6.5" width="20" height="11" rx="2.5"/>'
+            + '<text x="12" y="15.4" text-anchor="middle" font-size="8.5" font-weight="700"'
+            + ' font-family="sans-serif" fill="currentColor" stroke="none">12</text>',
+        operation: '<circle cx="12" cy="12" r="7.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>',
+        relier: '<rect x="1.5" y="2.5" width="8" height="5.5" rx="1.2"/><circle cx="17.2" cy="17.2" r="4.3"/>'
+            + '<path d="M9.8 8.8 13.2 12.6"/><path d="M13.6 13.1 10.7 12.5M13.6 13.1 13 10.2" stroke-linejoin="round"/>',
+        // UN CADRE EN POINTILLÉ ET UNE FLÈCHE : avec des équerres aux quatre
+        // coins, l'icône était celle du plein écran, qui vit à trois centimètres
+        // de là dans la barre du haut.
+        choisir: '<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke-dasharray="3.5 3"/>'
+            + '<path d="m8 7 9 4.6-4 1.3-1.3 4z" fill="currentColor" stroke="none"/>',
+        ranger: '<rect x="1.5" y="2.5" width="7" height="4.5" rx="1"/><rect x="15.5" y="2.5" width="7" height="4.5" rx="1"/>'
+            + '<rect x="8.5" y="17" width="7" height="4.5" rx="1"/><path d="M5 7v3.5h14V7M12 10.5V17"/>',
+        vider: '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="m8.5 8.5 7 7m0-7-7 7"/>',
+        annuler: '<path d="M4.5 9.5h10a5 5 0 0 1 0 10h-5"/><path d="m8.5 5.5-4 4 4 4"/>',
+        gauche: '<path d="M2.5 2.5v19"/><rect x="5.5" y="5" width="13.5" height="5" rx="1"/>'
+            + '<rect x="5.5" y="14" width="8" height="5" rx="1"/>',
+        centre: '<path d="M12 2.5v19"/><rect x="5.2" y="5" width="13.5" height="5" rx="1"/>'
+            + '<rect x="8" y="14" width="8" height="5" rx="1"/>',
+        haut: '<path d="M2.5 2.5h19"/><rect x="5" y="5.5" width="5" height="13.5" rx="1"/>'
+            + '<rect x="14" y="5.5" width="5" height="8" rx="1"/>',
+        repartir: '<rect x="1.5" y="8" width="5" height="8" rx="1"/><rect x="9.5" y="8" width="5" height="8" rx="1"/>'
+            + '<rect x="17.5" y="8" width="5" height="8" rx="1"/><path d="M7.4 12h1.2M15.4 12h1.2"/>',
+        supprimer: '<path d="M4 6.5h16M9.5 6.5V4h5v2.5M6 6.5 7 21h10l1-14.5M10 10.5v6.5M14 10.5v6.5"/>'
+    },
+
+    iconeSvg: function (nom) {
+        return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"'
+            + ' stroke-linecap="round" aria-hidden="true">' + (this.ICONES[nom] || '') + '</svg>';
+    },
+
+    // ---- LE DESSIN DE L'ÉDITEUR ----
+
     STYLE_EDITEUR: `
 #arbre-editeur { position:relative; width:100%; height:100%; min-height:440px; display:flex;
-    flex-direction:column; gap:6px; font-family:sans-serif; }
-#arbre-editeur .barre { display:flex; gap:6px; align-items:center; padding:8px 8px 0; }
-#arbre-editeur .barre input { flex:1; min-width:70px; padding:5px 8px; border-radius:6px;
-    border:1px solid var(--contour,#dfe6e9); font-size:13px; }
+    flex-direction:column; gap:5px; font-family:sans-serif; }
+#arbre-editeur .barre { display:flex; flex-wrap:wrap; gap:5px; align-items:center; padding:7px 8px 0; }
+#arbre-editeur .barre.seconde { padding-top:0; min-height:34px; }
+#arbre-editeur .outil { width:38px; height:34px; display:flex; align-items:center; justify-content:center;
+    padding:0; border:1px solid var(--contour,#dfe6e9); border-radius:7px; cursor:pointer;
+    background:var(--surface,#fff); color:var(--texte,#2d3436); }
+#arbre-editeur .outil svg { width:22px; height:22px; pointer-events:none; }
+#arbre-editeur .outil.source { cursor:grab; }
+#arbre-editeur .outil.actif { background:#6c5ce7; border-color:#6c5ce7; color:#fff; }
+#arbre-editeur .outil:disabled { opacity:0.3; cursor:default; }
+#arbre-editeur .sep { width:1px; height:26px; background:var(--contour,#dfe6e9); margin:0 3px; }
 #arbre-editeur .zone { position:relative; flex:1; overflow:auto; border-radius:8px; margin:0 8px 8px;
-    background:var(--fond,#fbfcfd); }
-#arbre-editeur .sous-arbre { position:absolute; transform-origin:top left; cursor:grab; touch-action:none; }
-#arbre-editeur .sous-arbre.tenu { cursor:grabbing; filter:drop-shadow(0 6px 14px rgba(0,0,0,0.3)); z-index:5; }
-#arbre-editeur .sous-arbre.visee { outline:3px solid #e03131; outline-offset:3px; border-radius:6px; }
-#arbre-editeur .poignee { position:absolute; border:none; background:transparent; padding:0;
-    cursor:pointer; border-radius:50%; }
-#arbre-editeur .poignee.case { border-radius:4px; }
-#arbre-editeur .poignee:hover { outline:2px solid #6c5ce7; outline-offset:1px; }
-#arbre-editeur .signe { width:34px; height:34px; border-radius:50%; border:none; cursor:pointer;
-    background:#2b7ec0; color:#fff; font-size:17px; font-weight:700; }
-#arbre-editeur .mot { padding:0 8px 8px; font-size:12px; opacity:0.75; }
-#arbre-editeur .plainte { padding:16px; font-size:13px; line-height:1.5; text-align:center; }`,
+    background:var(--fond,#fbfcfd); touch-action:none; }
+#arbre-editeur .dessin { position:absolute; left:0; top:0; transform-origin:top left; pointer-events:none; }
+#arbre-editeur .bloc { position:absolute; border-radius:6px; cursor:grab; }
+#arbre-editeur .bloc.choisi { outline:2px solid #6c5ce7; outline-offset:2px; }
+#arbre-editeur .bloc.source-du-lien { outline:3px solid #e8590c; outline-offset:2px; }
+#arbre-editeur .coupe { position:absolute; width:20px; height:20px; margin:-10px 0 0 -10px; padding:0;
+    border:none; border-radius:50%; background:#e03131; color:#fff; font-size:12px; line-height:20px;
+    cursor:pointer; }
+#arbre-editeur .cadre-de-choix { position:absolute; border:1.5px dashed #6c5ce7;
+    background:rgba(108,92,231,0.12); pointer-events:none; }
+#arbre-editeur .nombre-du-bloc { width:84px; padding:5px 7px; font-size:13px; border-radius:6px;
+    border:1px solid var(--contour,#dfe6e9); }
+#arbre-editeur .signe { width:32px; height:32px; border-radius:50%; border:none; cursor:pointer;
+    background:#2b7ec0; color:#fff; font-size:16px; font-weight:700; }
+#arbre-editeur .signe.actif { background:#e8590c; }
+#arbre-editeur .mot { padding:0 9px 8px; font-size:12px; opacity:0.75; }
+#arbre-editeur .plainte { position:absolute; left:0; right:0; top:6px; padding:0 14px; font-size:13px;
+    line-height:1.45; text-align:center; color:#c92a2a; pointer-events:none; }
+#arbre-fantome { position:fixed; z-index:10000; width:48px; height:40px; display:flex; align-items:center;
+    justify-content:center; border-radius:8px; pointer-events:none; opacity:0.9;
+    background:var(--surface,#fff); color:var(--texte,#2d3436); box-shadow:0 6px 16px rgba(0,0,0,0.35); }
+#arbre-fantome svg { width:26px; height:26px; }`,
 
     batirLEditeur: function () {
         if (!document.getElementById('arbre-editeur-style')) {
@@ -14999,23 +15210,315 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         e.id = 'arbre-editeur';
         e.innerHTML = `
 <div class="barre">
-    <input id="arbre-nombres" type="text" placeholder="ajouter des nombres : −0,6 −5 2">
-    <button type="button" id="arbre-ajouter" class="btn-action secondary" style="padding:5px 10px; font-size:13px; cursor:pointer">Ajouter</button>
-    <button type="button" id="arbre-tout-defaire" class="btn-action secondary" style="padding:5px 10px; font-size:13px; cursor:pointer">Tout défaire</button>
+    <button type="button" class="outil source" data-genre="nombre"
+        title="Une case de nombre : tirez-la dans la zone">${this.iconeSvg('nombre')}</button>
+    <button type="button" class="outil source" data-genre="operation"
+        title="Un signe et sa case de résultat : tirez-le dans la zone">${this.iconeSvg('operation')}</button>
+    <span class="sep"></span>
+    <button type="button" class="outil" data-outil="relier"
+        title="Relier : le bloc de départ, puis le signe qui le mange">${this.iconeSvg('relier')}</button>
+    <button type="button" class="outil" data-outil="choisir"
+        title="Sélectionner : cliquer, encadrer, déplacer, aligner">${this.iconeSvg('choisir')}</button>
+    <span class="sep"></span>
+    <button type="button" class="outil" data-geste="annuler"
+        title="Annuler le dernier geste">${this.iconeSvg('annuler')}</button>
+    <button type="button" class="outil" data-geste="ranger"
+        title="Ranger l'arbre comme dans le manuel">${this.iconeSvg('ranger')}</button>
+    <button type="button" class="outil" data-geste="vider"
+        title="Vider la zone">${this.iconeSvg('vider')}</button>
 </div>
+<div class="barre seconde" id="arbre-barre-choix"></div>
 <div class="zone" id="arbre-zone"></div>
-<div class="mot">Tirez un arbre sur un autre pour les réunir — celui de gauche passe à gauche du signe. Cliquez un signe pour le défaire, un nombre pour le changer.</div>`;
-        const ajouter = () => {
-            const champ = e.querySelector('#arbre-nombres');
-            if (this.ajouterDesNombres(champ.value)) champ.value = '';
-            else if (typeof showToast === 'function') showToast('Écrivez un ou plusieurs nombres, séparés par des espaces');
-        };
-        e.querySelector('#arbre-ajouter').addEventListener('click', ajouter);
-        e.querySelector('#arbre-nombres').addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter') { ev.preventDefault(); ajouter(); }
+<div class="mot" id="arbre-mot"></div>`;
+        e.querySelectorAll('.source').forEach(b => {
+            b.addEventListener('pointerdown', (ev) => this.tirerDepuisLaPalette(ev, b.dataset.genre));
         });
-        e.querySelector('#arbre-tout-defaire').addEventListener('click', () => this.toutDefaire());
+        e.querySelectorAll('[data-outil]').forEach(b => {
+            b.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                this.outil = b.dataset.outil;
+                this.relierDepuis = null;
+                this.rendreLEditeur();
+            });
+        });
+        e.querySelectorAll('[data-geste]').forEach(b => {
+            b.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                if (b.dataset.geste === 'annuler') {
+                    if (!this.annulerLeDernierGeste() && typeof showToast === 'function') {
+                        showToast('Il n\'y a rien à annuler');
+                    }
+                    return;
+                }
+                if (b.dataset.geste === 'vider') { this.vider(); return; }
+                if (!this.ranger() && typeof showToast === 'function') {
+                    showToast('Reliez d\'abord tous les blocs : on ne range qu\'un arbre entier');
+                }
+            });
+        });
+        this.brancherLaZone(e.querySelector('#arbre-zone'));
         return e;
+    },
+
+    // LA ZONE S'ÉCOUTE UNE FOIS POUR TOUTES. Elle survit aux redessins — seuls
+    // ses enfants sont remplacés —, alors que les blocs sont détruits à chaque
+    // mouvement : un écouteur posé sur un bloc serait reposé soixante fois par
+    // seconde pendant un déplacement.
+    brancherLaZone: function (zone) {
+        zone.addEventListener('click', (ev) => {
+            const coupe = ev.target.closest('.coupe');
+            if (coupe) { ev.preventDefault(); this.couperLeLien(coupe.dataset.de, coupe.dataset.vers); }
+        });
+        zone.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0) return;
+            if (ev.target.closest('.coupe')) return;
+            const bloc = ev.target.closest('.bloc');
+            if (this.outil === 'relier') {
+                ev.preventDefault();
+                this.cliquerPourRelier(bloc ? bloc.dataset.bloc : null);
+                return;
+            }
+            if (bloc) this.commencerLeDeplacement(ev, bloc.dataset.bloc);
+            else this.commencerLEncadrement(ev);
+        });
+    },
+
+    laZoneDeLEditeur: function () {
+        return this.apercuEl ? this.apercuEl.querySelector('#arbre-zone') : null;
+    },
+
+    // LE POINTEUR SE LIT DANS LES COORDONNÉES DU DESSIN, et non de l'écran : la
+    // zone est à l'échelle, et poser un bloc « là où on a lâché » veut dire là
+    // où le dessin l'a montré.
+    pointEnGraphe: function (ev) {
+        const zone = this.laZoneDeLEditeur();
+        if (!zone) return { x: 0, y: 0 };
+        const r = zone.getBoundingClientRect(), ech = this.echelleDuGraphe || 1;
+        return { x: (ev.clientX - r.left + zone.scrollLeft) / ech,
+                 y: (ev.clientY - r.top + zone.scrollTop) / ech };
+    },
+
+    placeLibre: function () {
+        if (!this.graphe.blocs.length) return { x: this.MARGE, y: this.MARGE };
+        const c = this.cadreDuGraphe(this.graphe);
+        return { x: c.l - this.MARGE + this.ECART_H, y: this.MARGE };
+    },
+
+    // ON TIRE UNE SOURCE DANS LA ZONE — ET UN SIMPLE CLIC POSE AUSSI UN BLOC.
+    // Tout le monde ne tire pas : un pavé tactile de portable, un doigt sur un
+    // écran, une main qui tremble. Un outil qui ne répond pas au clic passe pour
+    // cassé, et la plainte « c'est pas pratique » est venue de là.
+    tirerDepuisLaPalette: function (ev, genre) {
+        ev.preventDefault();
+        const zone = this.laZoneDeLEditeur();
+        if (!zone) return false;
+        const fantome = document.createElement('div');
+        fantome.id = 'arbre-fantome';
+        fantome.innerHTML = this.iconeSvg(genre === 'operation' ? 'operation' : 'nombre');
+        const suivre = (e) => {
+            fantome.style.left = (e.clientX - 24) + 'px';
+            fantome.style.top = (e.clientY - 20) + 'px';
+        };
+        suivre(ev);
+        document.body.appendChild(fantome);
+        const depart = { x: ev.clientX, y: ev.clientY };
+        let aBouge = false;
+        const bouger = (e) => {
+            if (Math.abs(e.clientX - depart.x) + Math.abs(e.clientY - depart.y) > 3) aBouge = true;
+            suivre(e);
+        };
+        const lacher = (e) => {
+            document.removeEventListener('pointermove', bouger);
+            document.removeEventListener('pointerup', lacher);
+            fantome.remove();
+            const rz = zone.getBoundingClientRect();
+            const dedans = e.clientX >= rz.left && e.clientX <= rz.right
+                && e.clientY >= rz.top && e.clientY <= rz.bottom;
+            if (!dedans && aBouge) return;          // tiré hors de la zone : on renonce
+            const l = genre === 'operation' ? this.L_RESULTAT
+                : this.largeurDeCase(this.NOMBRE_NEUF, false);
+            const h = genre === 'operation' ? this.HAUT_OPERATION() : this.H_CASE;
+            // LE BLOC ARRIVE CENTRÉ SOUS LE POINTEUR, là où le fantôme était.
+            // CLIQUÉ, il se pose à droite de ce qui existe déjà : au milieu, il
+            // se superposerait à l'arbre en cours.
+            const libre = this.placeLibre();
+            const p = dedans ? this.pointEnGraphe(e) : null;
+            this.poserUnBloc(genre, p ? p.x - l / 2 : libre.x, p ? p.y - h / 2 : libre.y);
+        };
+        document.addEventListener('pointermove', bouger);
+        document.addEventListener('pointerup', lacher);
+        return true;
+    },
+
+    cliquerPourRelier: function (id) {
+        if (!id) { this.relierDepuis = null; this.rendreLEditeur(); return false; }
+        if (!this.relierDepuis) { this.relierDepuis = id; this.rendreLEditeur(); return true; }
+        if (this.relierDepuis === id) { this.relierDepuis = null; this.rendreLEditeur(); return false; }
+        // LA SOURCE S'OUBLIE AVANT DE RELIER, et non après : « relierLesBlocs »
+        // redessine, et le bloc de départ garderait son halo orange sur un lien
+        // déjà fait.
+        const depart = this.relierDepuis;
+        this.relierDepuis = null;
+        const plainte = this.relierLesBlocs(depart, id);
+        if (plainte) {
+            if (typeof showToast === 'function') showToast(plainte);
+            this.rendreLEditeur();
+            return false;
+        }
+        return true;
+    },
+
+    commencerLeDeplacement: function (ev, id) {
+        ev.preventDefault();
+        if (this.selection.indexOf(id) < 0) {
+            this.selection = ev.shiftKey ? this.selection.concat([id]) : [id];
+            this.rendreLEditeur();
+        } else if (ev.shiftKey) {
+            // ON RETIRE DU CHOIX, ET L'ON NE DÉPLACE PAS : le même geste ne peut
+            // pas vouloir dire deux choses.
+            this.selection = this.selection.filter(k => k !== id);
+            this.rendreLEditeur();
+            return;
+        }
+        const ech = this.echelleDuGraphe || 1;
+        const pris = this.graphe.blocs.filter(b => this.selection.indexOf(b.id) >= 0)
+            .map(b => ({ b, x: b.x, y: b.y }));
+        const depart = { x: ev.clientX, y: ev.clientY };
+        const avantLeGeste = this.instantane();
+        let aBouge = false, dernier = '';
+        const bouger = (e) => {
+            if (Math.abs(e.clientX - depart.x) + Math.abs(e.clientY - depart.y) > 3) aBouge = true;
+            if (!aBouge) return;
+            const dx = (e.clientX - depart.x) / ech, dy = (e.clientY - depart.y) / ech;
+            // ON NE REDESSINE QUE SI LA GRILLE A CHANGÉ D'UN CRAN. Sans cela, un
+            // déplacement reconstruit le SVG à chaque pixel parcouru pour le
+            // reposer identique.
+            const cle = this.surLaGrille(pris[0].x + dx) + ':' + this.surLaGrille(pris[0].y + dy);
+            if (cle === dernier) return;
+            dernier = cle;
+            pris.forEach(k => {
+                k.b.x = this.surLaGrille(k.x + dx);
+                k.b.y = this.surLaGrille(k.y + dy);
+            });
+            this.rendreLEditeur();
+        };
+        const lacher = () => {
+            document.removeEventListener('pointermove', bouger);
+            document.removeEventListener('pointerup', lacher);
+            if (aBouge) { this.memoriser(avantLeGeste); this.publier(); }
+        };
+        document.addEventListener('pointermove', bouger);
+        document.addEventListener('pointerup', lacher);
+    },
+
+    // ON ENCADRE POUR CHOISIR PLUSIEURS BLOCS, parce qu'aligner demande d'en
+    // tenir plusieurs à la fois et que les prendre un par un avec une touche
+    // enfoncée n'est pas un geste de tableau.
+    commencerLEncadrement: function (ev) {
+        ev.preventDefault();
+        const zone = this.laZoneDeLEditeur();
+        if (!zone) return;
+        const ech = this.echelleDuGraphe || 1;
+        const p0 = this.pointEnGraphe(ev);
+        const cadre = document.createElement('div');
+        cadre.className = 'cadre-de-choix';
+        zone.appendChild(cadre);
+        let aBouge = false;
+        const poser = (p1) => {
+            const r = { x: Math.min(p0.x, p1.x), y: Math.min(p0.y, p1.y),
+                        l: Math.abs(p1.x - p0.x), h: Math.abs(p1.y - p0.y) };
+            cadre.style.left = (r.x * ech) + 'px';
+            cadre.style.top = (r.y * ech) + 'px';
+            cadre.style.width = (r.l * ech) + 'px';
+            cadre.style.height = (r.h * ech) + 'px';
+            return r;
+        };
+        poser(p0);
+        const bouger = (e) => {
+            if (Math.abs(e.clientX - ev.clientX) + Math.abs(e.clientY - ev.clientY) > 3) aBouge = true;
+            poser(this.pointEnGraphe(e));
+        };
+        const lacher = (e) => {
+            document.removeEventListener('pointermove', bouger);
+            document.removeEventListener('pointerup', lacher);
+            const r = poser(this.pointEnGraphe(e));
+            if (cadre.isConnected) cadre.remove();
+            // UN CLIC DANS LE VIDE DÉFAIT LE CHOIX : c'est ce que fait tout
+            // logiciel de dessin, et c'est la seule façon de « ne plus rien
+            // avoir sous la main » sans chercher un bouton.
+            this.selection = !aBouge ? [] : this.graphe.blocs.filter(b => {
+                const c = this.boiteDuBloc(b);
+                return c.x < r.x + r.l && c.x + c.l > r.x && c.y < r.y + r.h && c.y + c.h > r.y;
+            }).map(b => b.id);
+            this.rendreLEditeur();
+        };
+        document.addEventListener('pointermove', bouger);
+        document.addEventListener('pointerup', lacher);
+    },
+
+    // CE QUE LA SECONDE BARRE MONTRE DÉPEND DE CE QU'ON TIENT : le nombre d'une
+    // case choisie, les quatre signes d'une opération choisie, les alignements
+    // dès qu'on en tient deux. Une barre qui montrerait tout, tout le temps,
+    // demanderait de deviner lequel des onze boutons parle du bloc qu'on vient
+    // de prendre.
+    rendreLaBarreDeChoix: function (e) {
+        const barre = e.querySelector('#arbre-barre-choix');
+        if (!barre) return;
+        const actif = document.activeElement;
+        const avaitLeFoyer = !!(actif && actif.classList && actif.classList.contains('nombre-du-bloc'));
+        barre.innerHTML = '';
+        const choisis = this.graphe.blocs.filter(b => this.selection.indexOf(b.id) >= 0);
+        if (choisis.length === 1 && choisis[0].genre !== 'operation') {
+            const id = choisis[0].id;
+            const champ = document.createElement('input');
+            champ.type = 'text';
+            champ.className = 'nombre-du-bloc';
+            champ.value = choisis[0].texte;
+            champ.title = 'Le nombre de la case choisie — Entrée pour valider';
+            const valider = () => {
+                if (!this.changerLeTexteDUnBloc(id, champ.value) && typeof showToast === 'function') {
+                    showToast('« ' + champ.value + ' » n\'est pas un nombre');
+                }
+            };
+            champ.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') { ev.preventDefault(); valider(); }
+            });
+            champ.addEventListener('change', valider);
+            barre.appendChild(champ);
+            if (avaitLeFoyer) { champ.focus(); champ.select(); }
+        } else if (choisis.length === 1) {
+            const id = choisis[0].id;
+            ['+', '−', '×', '÷'].forEach(op => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'signe' + (choisis[0].op === op ? ' actif' : '');
+                b.textContent = op;
+                b.dataset.signe = op;
+                b.title = 'Mettre « ' + op + ' » dans ce signe';
+                b.addEventListener('click', (ev) => { ev.preventDefault(); this.changerLeSigneDUnBloc(id, op); });
+                barre.appendChild(b);
+            });
+        }
+        this.ALIGNEMENTS.forEach(a => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'outil';
+            b.dataset.aligner = a.id;
+            b.title = a.titre + ' (choisissez-en au moins deux)';
+            b.innerHTML = this.iconeSvg(a.icone);
+            b.disabled = choisis.length < 2;
+            b.addEventListener('click', (ev) => { ev.preventDefault(); this.aligner(a.id); });
+            barre.appendChild(b);
+        });
+        const sup = document.createElement('button');
+        sup.type = 'button';
+        sup.className = 'outil';
+        sup.dataset.geste = 'supprimer';
+        sup.title = 'Retirer les blocs choisis';
+        sup.innerHTML = this.iconeSvg('supprimer');
+        sup.disabled = !choisis.length;
+        sup.addEventListener('click', (ev) => { ev.preventDefault(); this.supprimerLaSelection(); });
+        barre.appendChild(sup);
     },
 
     rendreLEditeur: function () {
@@ -15023,231 +15526,105 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         if (!hote) return null;
         let e = hote.querySelector('#arbre-editeur');
         if (!e) { hote.innerHTML = ''; e = this.batirLEditeur(); hote.appendChild(e); }
+        e.querySelectorAll('[data-outil]').forEach(b => {
+            b.classList.toggle('actif', b.dataset.outil === this.outil);
+        });
+        const retour = e.querySelector('[data-geste="annuler"]');
+        if (retour) retour.disabled = !this.memoire.length;
+        // UN BLOC SUPPRIMÉ NE RESTE PAS CHOISI : la barre du choix parlerait d'un
+        // bloc absent, et « aligner » déplacerait ce qui n'existe plus.
+        this.selection = this.selection.filter(id => this.graphe.blocs.some(b => b.id === id));
+        if (this.relierDepuis && !this.graphe.blocs.some(b => b.id === this.relierDepuis)) {
+            this.relierDepuis = null;
+        }
+        this.rendreLaBarreDeChoix(e);
         const zone = e.querySelector('#arbre-zone');
         zone.innerHTML = '';
-        if (this.erreurCourante && !this.foret.length) {
-            const d = document.createElement('div');
-            d.className = 'plainte';
-            d.textContent = this.erreurCourante;
-            zone.appendChild(d);
-            return e;
-        }
         const reglages = this.reglagesCourants || this.lireLesReglages([]);
-        // UNE SEULE ÉCHELLE POUR TOUTE LA FORÊT : deux arbres réduits chacun à
-        // sa façon ne se comparent plus, et c'est précisément ce qu'on fait
-        // quand on choisit lequel passe à gauche.
-        const plans = this.foret.map(a => this.poser(this.expressionDe(a.noeud)));
-        const large = Math.max(1, ...plans.map((p, k) => (p.erreur ? 0 : this.foret[k].x + p.l)));
-        const haut = Math.max(1, ...plans.map(p => p.erreur ? 0 : p.h));
-        const dispo = { l: Math.max(120, zone.clientWidth - 8), h: Math.max(120, zone.clientHeight - 8) };
-        const echelle = Math.min(1, dispo.l / (large + this.MARGE_FORET), dispo.h / (haut + this.MARGE_FORET * 2));
-        this.echelleDeLaForet = echelle;
+        // UNE ZONE VIDE DESSINE À L'ÉCHELLE UN. L'échelle restait celle du
+        // dernier arbre affiché : après « Vider », le premier bloc tiré était
+        // posé à ses coordonnées divisées par 0,75 — il tombait un tiers plus
+        // loin que le pointeur, et rien ne disait pourquoi. Mesuré au banc.
+        this.echelleDuGraphe = 1;
+        if (this.graphe.blocs.length) {
+            this.poserLesValeurs(this.graphe);
+            const racine = this.laRacineUnique();
+            const cadre = this.cadreDuGraphe(this.graphe);
+            const dispo = { l: Math.max(120, zone.clientWidth - 6), h: Math.max(120, zone.clientHeight - 6) };
+            const echelle = Math.min(1, dispo.l / cadre.l, dispo.h / cadre.h);
+            this.echelleDuGraphe = echelle;
+            const dessin = document.createElement('div');
+            dessin.className = 'dessin';
+            dessin.style.width = cadre.l + 'px';
+            dessin.style.height = cadre.h + 'px';
+            dessin.style.transform = 'scale(' + echelle + ')';
+            // LE MÊME DESSINATEUR QUE LE TAMPON, aux poignées près : si l'éditeur
+            // avait le sien, on arrangerait une image et l'on poserait l'autre.
+            dessin.innerHTML = this.dessinerLeGraphe(
+                Object.assign({}, this.graphe, { racine: racine || undefined }),
+                Object.assign({}, reglages, { rouge: !!racine }), false)
+                .replace(' style="max-width:100%;max-height:260px"',
+                         ' style="width:100%;height:100%;display:block"');
+            zone.appendChild(dessin);
 
-        this.foret.forEach((a, i) => {
-            const plan = plans[i];
-            if (plan.erreur) return;
-            const bloc = document.createElement('div');
-            bloc.className = 'sous-arbre';
-            bloc.dataset.rang = String(i);
-            bloc.style.left = (a.x * echelle) + 'px';
-            bloc.style.top = (a.y * echelle) + 'px';
-            bloc.style.width = (plan.l * echelle) + 'px';
-            bloc.style.height = (plan.h * echelle) + 'px';
-            // Un morceau de calcul n'est pas une réponse : voir « enRouge ».
-            bloc.innerHTML = this.dessiner(plan, Object.assign({}, reglages,
-                { rouge: this.foret.length === 1 }), false)
-                .replace(' style="max-width:100%;max-height:260px"', ' style="width:100%;height:100%;display:block"');
             // LES POIGNÉES SONT DU VRAI HTML POSÉ SUR LE DESSIN, et non des
             // morceaux du SVG : le même dessin part en tampon, et un tampon n'a
             // pas à porter les attributs d'un éditeur.
-            // LE CHEMIN SE NOMME SUR L'ARBRE DU PLAN, pas sur le nôtre.
-            //
-            // « poser » RELIT l'expression : ses nœuds sont d'autres objets que
-            // ceux de la forêt, de même forme mais pas les mêmes. Nommer les
-            // nôtres puis chercher ceux du plan dans la table ne trouvait donc
-            // jamais rien, et TOUTES les poignées recevaient le chemin vide,
-            // c'est-à-dire la racine. Cliquer n'importe quelle bulle défaisait
-            // la racine — et cela passait pour juste tant qu'on n'essayait
-            // qu'un arbre à deux nœuds.
-            const chemins = new Map();
-            const nommer = (n, c) => { chemins.set(n, c); if (n.op) { nommer(n.g, c + 'g'); nommer(n.d, c + 'd'); } };
-            nommer(plan.racine, '');
-            plan.noeuds.forEach(n => {
-                const chemin = chemins.get(n);
-                if (chemin === undefined) return;
-                const b = document.createElement('button');
-                b.type = 'button';
-                b.dataset.chemin = chemin;
-                if (n.op) {
-                    b.className = 'poignee bulle';
-                    b.title = 'Défaire ce signe';
-                    b.dataset.role = 'defaire';
-                    b.style.left = ((n.cx - this.R_BULLE) * echelle) + 'px';
-                    b.style.top = ((n.yBulle - this.R_BULLE) * echelle) + 'px';
-                    b.style.width = (2 * this.R_BULLE * echelle) + 'px';
-                    b.style.height = (2 * this.R_BULLE * echelle) + 'px';
-                } else {
-                    b.className = 'poignee case';
-                    b.title = 'Changer ce nombre';
-                    b.dataset.role = 'changer';
-                    b.dataset.valeur = n.texte;
-                    b.style.left = (n.x * echelle) + 'px';
-                    b.style.top = (n.y * echelle) + 'px';
-                    b.style.width = (n.l * echelle) + 'px';
-                    b.style.height = (this.H_CASE * echelle) + 'px';
-                }
-                bloc.appendChild(b);
+            this.graphe.blocs.forEach(b => {
+                const c = this.boiteDuBloc(b);
+                const h = document.createElement('div');
+                h.className = 'bloc' + (this.selection.indexOf(b.id) >= 0 ? ' choisi' : '')
+                    + (this.relierDepuis === b.id ? ' source-du-lien' : '');
+                h.dataset.bloc = b.id;
+                h.dataset.genre = b.genre;
+                h.title = b.genre === 'operation' ? 'Le signe « ' + b.op + ' » et sa case'
+                    : 'La case « ' + b.texte + ' »';
+                h.style.left = (c.x * echelle) + 'px';
+                h.style.top = (c.y * echelle) + 'px';
+                h.style.width = (c.l * echelle) + 'px';
+                h.style.height = (c.h * echelle) + 'px';
+                zone.appendChild(h);
             });
-            this.rendreArbreGlissable(bloc, i);
-            zone.appendChild(bloc);
-        });
+
+            // ON NE COUPE QU'AVEC L'OUTIL QUI RELIE. Des pastilles rouges posées
+            // sur toutes les flèches en permanence cacheraient le dessin qu'on
+            // est en train de juger.
+            if (this.outil === 'relier') {
+                this.graphe.liens.forEach(l => {
+                    const de = this.graphe.blocs.find(b => b.id === l.de);
+                    const vers = this.graphe.blocs.find(b => b.id === l.vers);
+                    if (!de || !vers) return;
+                    const a = this.sortieDuBloc(de), v = this.bulleDuBloc(vers);
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'coupe';
+                    b.textContent = '✕';
+                    b.title = 'Couper cette flèche';
+                    b.dataset.de = l.de;
+                    b.dataset.vers = l.vers;
+                    b.style.left = ((a.x + v.x) / 2 * echelle) + 'px';
+                    b.style.top = ((a.y + v.y) / 2 * echelle) + 'px';
+                    zone.appendChild(b);
+                });
+            }
+        }
+        // LA PLAINTE SE POSE PAR-DESSUS, ET N'EFFACE PAS LE CHANTIER. Une ligne
+        // mal tapée ne doit pas faire disparaître les blocs déjà posés : on
+        // corrige la ligne, ou l'on continue aux blocs.
+        if (this.erreurCourante || !this.graphe.blocs.length) {
+            const d = document.createElement('div');
+            d.className = 'plainte';
+            d.textContent = this.erreurCourante
+                || 'Tirez une case de nombre ou un signe dans cette zone.';
+            zone.appendChild(d);
+        }
+        const mot = e.querySelector('#arbre-mot');
+        if (mot) {
+            mot.textContent = this.outil === 'relier'
+                ? 'Relier : cliquez le bloc de départ, puis le signe qui le mange. Une pastille rouge coupe la flèche.'
+                : 'Choisir : cliquez un bloc, encadrez-en plusieurs, déplacez-les — puis alignez-les.';
+        }
         return e;
-    },
-
-    // PAS DE « setPointerCapture » : la capture exige un vrai pointeur, et la
-    // poignée des barres flottantes a montré ce que cela coûte à la mesure. On
-    // écoute le document, comme elle le fait désormais.
-    // LA ZONE SE RETROUVE PAR L'APERÇU, ET JAMAIS PAR LE PARENT D'UN BLOC.
-    // Un bloc est détaché à chaque redessin — et le redessin arrive au milieu
-    // d'un geste, quand on renonce à un signe ou qu'on valide un nombre. Son
-    // « parentNode » vaut alors « null », et tout ce qui s'appuyait dessus
-    // levait une exception qu'aucune vérification n'attrapait, seulement le
-    // compte des erreurs de page.
-    laZoneDeLEditeur: function () {
-        return this.apercuEl ? this.apercuEl.querySelector('#arbre-zone') : null;
-    },
-
-    rendreArbreGlissable: function (bloc, rang) {
-        bloc.addEventListener('click', (ev) => {
-            const p = ev.target.closest('.poignee');
-            if (!p || bloc.dataset.aGlisse === '1') return;
-            ev.preventDefault(); ev.stopPropagation();
-            if (p.dataset.role === 'defaire') this.defaireLeNoeud(rang, p.dataset.chemin);
-            else this.ouvrirLaSaisieDUnNombre(bloc, rang, p);
-        });
-        bloc.addEventListener('pointerdown', (ev) => {
-            if (ev.button !== 0) return;
-            if (ev.target.closest('.poignee')) return;   // une poignée se clique, elle ne tire pas
-            ev.preventDefault();
-            const a = this.foret[rang];
-            const ech = this.echelleDeLaForet || 1;
-            const depart = { x: ev.clientX, y: ev.clientY, ax: a.x, ay: a.y };
-            bloc.dataset.aGlisse = '0';
-            bloc.classList.add('tenu');
-            const zone = this.laZoneDeLEditeur();
-            if (!zone) return;
-            const viser = (e) => Array.from(zone.querySelectorAll('.sous-arbre')).find(k => {
-                if (k === bloc) return false;
-                const r = k.getBoundingClientRect();
-                return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-            });
-            const bouger = (e) => {
-                if (Math.abs(e.clientX - depart.x) + Math.abs(e.clientY - depart.y) > 3) bloc.dataset.aGlisse = '1';
-                a.x = Math.max(0, depart.ax + (e.clientX - depart.x) / ech);
-                a.y = Math.max(0, depart.ay + (e.clientY - depart.y) / ech);
-                bloc.style.left = (a.x * ech) + 'px';
-                bloc.style.top = (a.y * ech) + 'px';
-                const sur = viser(e);
-                zone.querySelectorAll('.sous-arbre').forEach(k => k.classList.remove('visee'));
-                if (sur) sur.classList.add('visee');
-            };
-            const lacher = (e) => {
-                document.removeEventListener('pointermove', bouger);
-                document.removeEventListener('pointerup', lacher);
-                bloc.classList.remove('tenu');
-                const sur = viser(e);
-                zone.querySelectorAll('.sous-arbre').forEach(k => k.classList.remove('visee'));
-                if (sur) this.demanderLeSigne(rang, parseInt(sur.dataset.rang, 10), e, depart.ax);
-                else this.rendreLEditeur();
-                setTimeout(() => { if (bloc.isConnected) bloc.dataset.aGlisse = '0'; }, 0);
-            };
-            document.addEventListener('pointermove', bouger);
-            document.addEventListener('pointerup', lacher);
-        });
-    },
-
-    ouvrirLaSaisieDUnNombre: function (bloc, rang, poignee) {
-        const zone = this.laZoneDeLEditeur();
-        if (!zone) return null;
-        const vieux = zone.querySelector('.saisie-du-nombre');
-        if (vieux) vieux.remove();
-        const champ = document.createElement('input');
-        champ.className = 'saisie-du-nombre';
-        champ.type = 'text';
-        champ.value = (poignee.dataset.valeur || '').trim();
-        const r = poignee.getBoundingClientRect(), rz = zone.getBoundingClientRect();
-        champ.style.cssText = 'position:absolute; z-index:8; text-align:center; font-size:14px;'
-            + ' border:2px solid #6c5ce7; border-radius:4px; padding:2px;'
-            + ' left:' + (r.left - rz.left + zone.scrollLeft) + 'px;'
-            + ' top:' + (r.top - rz.top + zone.scrollTop) + 'px;'
-            + ' width:' + Math.max(56, r.width) + 'px; height:' + Math.max(24, r.height) + 'px;';
-        // ON NE VALIDE QU'UNE FOIS, ET L'ON N'ÔTE QUE CE QUI EST ENCORE LÀ.
-        // « Entrée » valide, puis le champ perd le foyer — ce qui validait une
-        // seconde fois — et entre les deux la zone a été redessinée : le
-        // navigateur se plaignait de retirer un nœud qui n'était plus là.
-        let valide = false;
-        const valider = () => {
-            if (valide) return;
-            valide = true;
-            const v = champ.value;
-            if (champ.isConnected) champ.remove();
-            if (!this.changerUnNombre(rang, poignee.dataset.chemin, v) && typeof showToast === 'function') {
-                showToast('« ' + v + ' » n\'est pas un nombre');
-            }
-        };
-        champ.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter') { ev.preventDefault(); valider(); }
-            else if (ev.key === 'Escape') {
-                ev.preventDefault(); ev.stopPropagation();
-                valide = true;
-                if (champ.isConnected) champ.remove();
-            }
-        });
-        champ.addEventListener('blur', valider);
-        zone.appendChild(champ);
-        champ.focus();
-        champ.select();
-        return champ;
-    },
-
-    // LE SIGNE SE CHOISIT AU POINT DE DÉPÔT. Demander d'abord l'opération puis
-    // les deux arbres ferait trois gestes et une consigne à retenir ; là, on
-    // rapproche ce qu'on veut réunir et l'on dit avec quoi.
-    demanderLeSigne: function (i, j, ev, xAvantLeGeste) {
-        const zone = this.apercuEl && this.apercuEl.querySelector('#arbre-zone');
-        if (!zone) return null;
-        const vieux = zone.querySelector('.choix-du-signe');
-        if (vieux) vieux.remove();
-        const r = zone.getBoundingClientRect();
-        const choix = document.createElement('div');
-        choix.className = 'choix-du-signe';
-        choix.style.cssText = 'position:absolute; display:flex; gap:4px; padding:5px; border-radius:8px;'
-            + ' background:var(--surface,#fff); box-shadow:0 6px 18px rgba(0,0,0,0.3); z-index:9;'
-            + ' left:' + Math.max(0, Math.min(r.width - 170, ev.clientX - r.left - 85) + zone.scrollLeft) + 'px;'
-            + ' top:' + Math.max(0, Math.min(r.height - 48, ev.clientY - r.top - 22) + zone.scrollTop) + 'px;';
-        ['+', '−', '×', '÷'].forEach(op => {
-            const b = document.createElement('button');
-            b.type = 'button'; b.className = 'signe'; b.textContent = op; b.dataset.signe = op;
-            b.addEventListener('click', (e) => {
-                e.stopPropagation();
-                choix.remove();
-                if (!this.reunirLesArbres(i, j, op, xAvantLeGeste) && typeof showToast === 'function') {
-                    showToast('On ne divise pas par zéro');
-                }
-            });
-            choix.appendChild(b);
-        });
-        zone.appendChild(choix);
-        // Un clic à côté renonce : on a pu lâcher un arbre sur un autre par
-        // mégarde, et rien ne doit se réunir sans qu'on l'ait dit.
-        const renoncer = (e) => {
-            if (choix.contains(e.target)) return;
-            choix.remove();
-            zone.removeEventListener('pointerdown', renoncer, true);
-            this.rendreLEditeur();
-        };
-        setTimeout(() => zone.addEventListener('pointerdown', renoncer, true), 0);
-        return choix;
     },
 
     // ============ LES NOMBRES, EXACTS ============
@@ -15384,6 +15761,172 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
             // professeur et personne n'irait le chercher.
             return { erreur: (e && e.ecrit) || 'Ce calcul ne se lit pas' };
         }
+    },
+
+    // ============ LE GRAPHE : DES BLOCS ET DES LIENS ============
+    //
+    // « Il faudrait deux icônes qu'on glisse-dépose, des blocs pour les nombres
+    // et les opérations, et on a une icône relier, une icône sélectionner pour
+    // l'alignement. »
+    //
+    // L'ARBRE N'EST PLUS LA FORME DE TRAVAIL, C'EST LE RÉSULTAT. On pose des
+    // blocs où l'on veut, on les relie, on les aligne ; l'expression se LIT du
+    // graphe quand il forme un arbre complet. Tant qu'il n'en forme pas, on a
+    // un chantier — ce qui est l'état normal pendant qu'on construit.
+    //
+    // UN BLOC 'nombre' est une case posée en (x, y), large de « l ».
+    // UN BLOC 'operation' est une BULLE suivie de sa case de résultat : sa
+    // bulle est centrée en (x + l/2, y + R), sa case est en (x, y + 2R + flèche).
+    // Les deux ensemble font un seul bloc qu'on déplace d'un geste, parce que
+    // c'est ainsi qu'on les lit — « ce signe, et ce qu'il donne ».
+    //
+    // UN LIEN va d'un bloc vers une opération. Rien d'autre : la case de
+    // résultat appartient à son opération, donc il n'y a qu'une sorte de
+    // liaison à comprendre et à dessiner.
+    HAUT_OPERATION: function () { return 2 * this.R_BULLE + this.FLECHE + this.H_CASE; },
+
+    sortieDuBloc: function (b) {
+        return { x: b.x + b.l / 2,
+                 y: b.y + (b.genre === 'operation' ? 2 * this.R_BULLE + this.FLECHE + this.H_CASE : this.H_CASE) };
+    },
+
+    bulleDuBloc: function (b) { return { x: b.x + b.l / 2, y: b.y + this.R_BULLE }; },
+
+    boiteDuBloc: function (b) {
+        return b.genre === 'operation'
+            ? { x: b.x, y: b.y, l: b.l, h: this.HAUT_OPERATION() }
+            : { x: b.x, y: b.y, l: b.l, h: this.H_CASE };
+    },
+
+    // LE PLAN AUTOMATIQUE DEVIENT UN GRAPHE, et c'est ce qui permet de n'avoir
+    // qu'UNE façon de dessiner. Taper une ligne pose l'arbre à la bonne place,
+    // et cette place n'est plus qu'une disposition de départ qu'on peut
+    // ensuite bouger : le dessin suit les blocs, il ne les recalcule pas.
+    grapheDepuisLePlan: function (plan) {
+        if (!plan || plan.erreur) return { blocs: [], liens: [], erreur: plan && plan.erreur };
+        const blocs = [], liens = [];
+        const idDe = new Map();
+        let n = 0;
+        plan.noeuds.forEach(k => {
+            const id = 'b' + (++n);
+            idDe.set(k, id);
+            if (k.op) {
+                blocs.push({ id, genre: 'operation', op: k.op, x: k.x, y: k.yBulle - this.R_BULLE, l: k.l });
+            } else {
+                blocs.push({ id, genre: 'nombre', texte: k.texte, x: k.x, y: k.y, l: k.l });
+            }
+        });
+        plan.noeuds.forEach(k => {
+            if (!k.op) return;
+            liens.push({ de: idDe.get(k.g), vers: idDe.get(k) });
+            liens.push({ de: idDe.get(k.d), vers: idDe.get(k) });
+        });
+        return { blocs, liens, racine: idDe.get(plan.racine) };
+    },
+
+    // ---- CE QUE LE GRAPHE VAUT, ET CE QU'IL DIT ----
+
+    entreesDe: function (graphe, id) {
+        return graphe.liens.filter(l => l.vers === id)
+            .map(l => graphe.blocs.find(b => b.id === l.de))
+            .filter(Boolean)
+            .sort((a, b) => (a.x + a.l / 2) - (b.x + b.l / 2));
+    },
+
+    sortieDe: function (graphe, id) { return graphe.liens.find(l => l.de === id) || null; },
+
+    // L'EXPRESSION SE LIT DU GRAPHE, et le graphe se refuse à mentir : une
+    // opération à une seule entrée, un bloc qui sert deux fois, un cycle, deux
+    // morceaux sans lien entre eux — chacun a sa phrase, parce qu'« il manque
+    // quelque chose » ne dit pas quoi corriger.
+    lireLeGraphe: function (graphe) {
+        const blocs = graphe.blocs;
+        if (!blocs.length) return { erreur: 'Posez un nombre pour commencer' };
+        for (const b of blocs) {
+            if (b.genre !== 'operation') continue;
+            const e = this.entreesDe(graphe, b.id);
+            if (e.length !== 2) {
+                return { erreur: 'Le signe « ' + b.op + ' » attend deux blocs : il en a ' + e.length };
+            }
+        }
+        const sansSortie = blocs.filter(b => !this.sortieDe(graphe, b.id));
+        if (sansSortie.length > 1) {
+            return { erreur: sansSortie.length + ' blocs ne mènent à rien : reliez-les pour n\'en faire qu\'un' };
+        }
+        if (!sansSortie.length) return { erreur: 'Les blocs tournent en rond : un calcul a une fin' };
+        const racine = sansSortie[0];
+        const vus = new Set();
+        const noeudDe = (b) => {
+            if (vus.has(b.id)) return null;            // un cycle
+            vus.add(b.id);
+            if (b.genre !== 'operation') {
+                const v = this.lireUnNombreSigne(b.texte);
+                return v ? { valeur: v } : null;
+            }
+            const e = this.entreesDe(graphe, b.id);
+            const g = noeudDe(e[0]), d = noeudDe(e[1]);
+            if (!g || !d) return null;
+            const n = { op: b.op, g, d };
+            return this.valeurDe(n) ? n : null;
+        };
+        const noeud = noeudDe(racine);
+        if (!noeud) return { erreur: 'Ce calcul ne se lit pas : un nombre manque, ou l\'on divise par zéro' };
+        if (vus.size !== blocs.length) {
+            return { erreur: (blocs.length - vus.size) + ' bloc(s) ne sont reliés à rien' };
+        }
+        return { noeud, racine: racine.id };
+    },
+
+    // UNE CASE PEUT PORTER UNE FRACTION. « 1 ÷ 3 » écrit « 1/3 » dans sa case de
+    // résultat : si l'on ne savait pas la relire, ce nombre-là serait le seul
+    // qu'on ne puisse pas écrire soi-même dans un bloc.
+    lireUnNombreSigne: function (txt) {
+        let brut = String(txt === null || txt === undefined ? '' : txt).trim(), negatif = false;
+        if (SIGNES_DU_CALCUL[brut[0]] === '−') { negatif = true; brut = brut.slice(1); }
+        const f = /^(\d+)\s*\/\s*(\d+)$/.exec(brut);
+        const v = f ? (parseInt(f[2], 10) ? this.reduire(parseInt(f[1], 10), parseInt(f[2], 10)) : null)
+                    : this.lireUnNombre(brut);
+        if (!v) return null;
+        return negatif ? { n: -v.n, d: v.d } : v;
+    },
+
+    // La valeur de chaque bloc, posée sur lui : c'est elle qu'on écrit dans les
+    // cases de résultat, et elle doit suivre chaque remaniement.
+    //
+    // ET LA LARGEUR SUIT LE TEXTE, ici et nulle part ailleurs. Elle était copiée
+    // du plan au moment de poser les blocs ; dès qu'on change un nombre ou qu'on
+    // rebranche une flèche, le texte de la case bouge sans que sa boîte suive —
+    // et les poignées de l'éditeur, qui se posent sur cette boîte, rataient la
+    // case qu'elles recouvrent. La formule est celle du plan, au mot près : une
+    // case de résultat ne dit jamais la longueur de sa réponse.
+    poserLesValeurs: function (graphe) {
+        const valeur = (b, vus) => {
+            if (!b || vus.has(b.id)) return null;      // rien, ou un cycle
+            vus.add(b.id);
+            if (b.genre !== 'operation') return this.lireUnNombreSigne(b.texte);
+            const e = this.entreesDe(graphe, b.id);
+            if (e.length !== 2) return null;
+            const g = valeur(e[0], vus), d = valeur(e[1], vus);
+            return (g && d) ? this.valeurDe({ op: b.op, g: { valeur: g }, d: { valeur: d } }) : null;
+        };
+        graphe.blocs.forEach(b => { b.valeur = valeur(b, new Set()); });
+        graphe.blocs.forEach(b => {
+            b.l = b.genre === 'operation'
+                ? this.largeurDeCase(this.enTexte(b.valeur), true)
+                : this.largeurDeCase(b.texte, false);
+        });
+        return graphe;
+    },
+
+    cadreDuGraphe: function (graphe) {
+        if (!graphe.blocs.length) return { l: 120, h: 80 };
+        let droite = 0, bas = 0;
+        graphe.blocs.forEach(b => {
+            const c = this.boiteDuBloc(b);
+            droite = Math.max(droite, c.x + c.l);
+            bas = Math.max(bas, c.y + c.h);
+        });
+        return { l: droite + this.MARGE, h: bas + this.MARGE };
     },
 
     // ============ POSER L'ARBRE ============
@@ -15537,57 +16080,110 @@ registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
         return ((r * 299 + v * 587 + b * 114) / 1000) < this.LISIBILITE ? '#ffffff' : (encre || '#2d3436');
     },
 
-    dessiner: function (plan, reglages, pourExport) {
+    // LA BORDURE ET L'ARRONDI DES CASES SE CHOISISSENT. « On peut choisir la
+    // bordure des blocs et leur arrondi. » Un polycopié imprimé en noir et
+    // blanc perd les fonds de couleur : sans trait, les cases y disparaissent.
+    BORDURES: [
+        { value: 'aucune', label: 'Aucune' },
+        { value: 'fine', label: 'Fine' },
+        { value: 'epaisse', label: 'Épaisse' }
+    ],
+    ARRONDIS: [
+        { value: 'droit', label: 'Droit' },
+        { value: 'leger', label: 'Léger' },
+        { value: 'arrondi', label: 'Arrondi' },
+        { value: 'pilule', label: 'Pilule' }
+    ],
+    TRAITS: { aucune: 0, fine: 1.5, epaisse: 3 },
+    RAYONS: { droit: 0, leger: 3, arrondi: 10, pilule: 999 },
+
+    // UN SEUL DESSIN, POUR L'ÉDITEUR COMME POUR LE TAMPON. S'ils divergeaient,
+    // on arrangerait une chose et l'on poserait l'autre — et c'est précisément
+    // ce qu'on regarde avant de cliquer « Créer le tampon ».
+    dessinerLeGraphe: function (graphe, reglages, pourExport) {
         const famille = reglages.police || 'sans-serif';
         const encre = reglages.encre || '#2d3436';
         const fond = reglages.cases || '#bcd9f0';
         const bulle = this.soutenir(fond);
+        const trait = this.TRAITS[reglages.bordure] !== undefined ? this.TRAITS[reglages.bordure] : 0;
+        const enRouge = reglages.rouge !== false;
+        const cadre = this.cadreDuGraphe(graphe);
         const style = pourExport ? '' : ' style="max-width:100%;max-height:260px"';
-        let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(plan.l)} ${Math.round(plan.h)}"`
-            + ` width="${Math.round(plan.l)}" height="${Math.round(plan.h)}"${style}>`;
+        // UN DIXIÈME QUI VAUT ZÉRO NE S'ÉCRIT PAS. « 38.0 » et « 38 » dessinent
+        // la même chose, mais le second se compare : c'est ce qui a permis de
+        // démontrer que ce dessinateur-ci rend EXACTEMENT ce que rendait celui
+        // qu'il remplace, au caractère près et non « à peu près ».
+        const n = (v) => { const t = v.toFixed(1); return t.slice(-2) === '.0' ? t.slice(0, -2) : t; };
+        let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(cadre.l)} ${Math.round(cadre.h)}"`
+            + ` width="${Math.round(cadre.l)}" height="${Math.round(cadre.h)}"${style}>`;
+
+        const parId = new Map(graphe.blocs.map(b => [b.id, b]));
+        const racine = graphe.racine !== undefined ? graphe.racine
+            : (graphe.blocs.find(b => !this.sortieDe(graphe, b.id)) || {}).id;
 
         // Les flèches et les bulles d'abord : les cases passent par-dessus, et
         // une pointe de flèche qui mordrait un bord disparaît sous lui.
-        plan.noeuds.forEach(n => {
-            if (!n.op) return;
-            const yBulle = n.yBulle;
-            [n.g, n.d].forEach(e => {
-                s += this.fleche(e.cx, e.y + this.H_CASE,
-                    n.cx + (e.cx < n.cx ? -1 : 1) * this.R_BULLE * 0.55,
-                    yBulle - this.R_BULLE * 0.75, encre);
+        graphe.blocs.forEach(b => {
+            if (b.genre !== 'operation') return;
+            const bul = this.bulleDuBloc(b);
+            this.entreesDe(graphe, b.id).forEach(e => {
+                const s0 = this.sortieDuBloc(e);
+                s += this.fleche(s0.x, s0.y,
+                    bul.x + (s0.x < bul.x ? -1 : 1) * this.R_BULLE * 0.55,
+                    bul.y - this.R_BULLE * 0.75, encre);
             });
-            s += this.fleche(n.cx, yBulle + this.R_BULLE, n.cx, n.y - 1, encre);
-            s += `<circle cx="${n.cx.toFixed(1)}" cy="${yBulle.toFixed(1)}" r="${this.R_BULLE}" fill="${bulle}"/>`
-                + `<text x="${n.cx.toFixed(1)}" y="${(yBulle + 6).toFixed(1)}" text-anchor="middle"`
-                + ` font-family="${xmlEsc(famille)}" font-size="18" font-weight="700" fill="${this.encrePosee(bulle, encre)}">${xmlEsc(n.op)}</text>`;
+            s += this.fleche(bul.x, bul.y + this.R_BULLE, bul.x,
+                b.y + 2 * this.R_BULLE + this.FLECHE - 1, encre);
+            s += `<circle cx="${n(bul.x)}" cy="${n(bul.y)}" r="${this.R_BULLE}" fill="${bulle}"`
+                + (trait ? ` stroke="${encre}" stroke-width="${trait}"` : '') + '/>';
+            s += `<text x="${n(bul.x)}" y="${n(bul.y + 6)}" text-anchor="middle"`
+                + ` font-family="${xmlEsc(famille)}" font-size="18" font-weight="700"`
+                + ` fill="${this.encrePosee(bulle, encre)}">${xmlEsc(b.op)}</text>`;
         });
 
-        // LE ROUGE NE DIT PAS « RACINE », IL DIT « LA RÉPONSE ».
-        //
-        // Dans l'éditeur, une forêt en chantier a autant de racines que
-        // d'arbres : tous sortaient rouges, y compris un nombre resté seul —
-        // « −0,4 » s'affichait en case de réponse alors qu'il n'est qu'une
-        // donnée. On ne peint donc en rouge que si l'on dessine LE calcul, et
-        // non un morceau de calcul.
-        const enRouge = reglages.rouge !== false;
-        plan.noeuds.forEach(n => {
-            const estRacine = n === plan.racine && enRouge;
-            // CE QU'ON ÉCRIT DANS UNE CASE : toujours les nombres de départ,
-            // sinon ce ne serait plus un exercice ; les résultats seulement si
-            // on les demande. C'est le double usage de l'outil — on pose l'arbre
-            // nu devant la classe, on le fait chercher, puis on rouvre le
-            // réglage et l'on coche. Le dessin se remplace sur place.
-            const montrer = !n.op || (estRacine ? reglages.resultat : reglages.etapes);
-            s += `<rect x="${n.x.toFixed(1)}" y="${n.y.toFixed(1)}" width="${n.l.toFixed(1)}" height="${this.H_CASE}"`
-                + ` rx="3" fill="${estRacine ? this.ROUGE : fond}"/>`;
-            if (montrer && n.texte) {
-                s += `<text x="${n.cx.toFixed(1)}" y="${(n.y + this.H_CASE * 0.68).toFixed(1)}" text-anchor="middle"`
+        const caseDessinee = (x, y, l, h, remplissage, texte, montrer) => {
+            const rayon = Math.min(this.RAYONS[reglages.arrondi] !== undefined
+                ? this.RAYONS[reglages.arrondi] : 3, h / 2);
+            let out = `<rect x="${n(x)}" y="${n(y)}" width="${n(l)}" height="${n(h)}" rx="${n(rayon)}"`
+                + ` fill="${remplissage}"`
+                + (trait ? ` stroke="${encre}" stroke-width="${trait}"` : '') + '/>';
+            if (montrer && texte) {
+                out += `<text x="${n(x + l / 2)}" y="${n(y + h * 0.68)}" text-anchor="middle"`
                     + ` font-family="${xmlEsc(famille)}" font-size="19" font-weight="600"`
-                    + ` fill="${estRacine ? this.encrePosee(this.ROUGE, encre) : this.encrePosee(fond, encre)}">${xmlEsc(n.texte)}</text>`;
+                    + ` fill="${this.encrePosee(remplissage, encre)}">${xmlEsc(texte)}</text>`;
+            }
+            return out;
+        };
+
+        graphe.blocs.forEach(b => {
+            const estRacine = b.id === racine && enRouge;
+            if (b.genre === 'operation') {
+                // CE QU'ON ÉCRIT DANS UNE CASE DE RÉSULTAT : rien, sauf si on le
+                // demande. C'est le double usage de l'outil — on pose l'arbre nu
+                // devant la classe, on le fait chercher, puis on coche.
+                const montrer = estRacine ? reglages.resultat : reglages.etapes;
+                s += caseDessinee(b.x, b.y + 2 * this.R_BULLE + this.FLECHE, b.l, this.H_CASE,
+                    estRacine ? this.ROUGE : fond, this.enTexte(b.valeur), montrer);
+            } else {
+                // Les nombres de départ sont TOUJOURS écrits : sinon ce ne serait
+                // plus un exercice, mais une grille vide.
+                s += caseDessinee(b.x, b.y, b.l, this.H_CASE,
+                    estRacine ? this.ROUGE : fond, b.texte, true);
             }
         });
         return s + '</svg>';
-    }
+    },
+
+    // LE DESSIN D'UN PLAN PASSE PAR LE GRAPHE. Garder deux dessinateurs — un
+    // pour l'arbre posé automatiquement, un pour les blocs qu'on arrange —
+    // aurait été deux vérités pour une même image, et c'est le genre d'écart
+    // qu'on ne voit qu'au moment d'imprimer.
+    dessiner: function (plan, reglages, pourExport) {
+        const g = this.grapheDepuisLePlan(plan);
+        if (g.erreur) return '';
+        this.poserLesValeurs(g);
+        return this.dessinerLeGraphe(g, reglages, pourExport);
+    },
 });
 
 // ---------------------------------------------------------
