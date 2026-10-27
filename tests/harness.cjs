@@ -197,24 +197,44 @@ async function rechargerApp(page) {
     await page.reload();
     await attendreLApp(page);
 
-    // Ce que le navigateur a laissé tomber en route — et qu'on lui rend.
-    const perdues = await page.evaluate((avant) => {
-        const out = [];
-        try {
-            for (const k of Object.keys(avant)) {
-                if (localStorage.getItem(k) === null) { localStorage.setItem(k, avant[k]); out.push(k); }
-            }
-        } catch (e) { /* stockage refusé */ }
-        return out;
-    }, avant);
-
-    if (perdues.length) {
-        // Les réglages se relisent AU CHARGEMENT : rendre la clé après coup ne
-        // suffit pas, le document est déjà passé dessus. On recharge donc une
-        // seconde fois, sur un stockage complet.
+    // CE QUE LE NAVIGATEUR A LAISSÉ TOMBER EN ROUTE — ET QU'ON LUI REND,
+    // AUTANT DE FOIS QU'IL LE FAUT.
+    //
+    // Les réglages se relisent AU CHARGEMENT : rendre la clé après coup ne
+    // suffit pas, le document est déjà passé dessus. On recharge donc une
+    // seconde fois, sur un stockage complet.
+    //
+    // MAIS UN SEUL TOUR DE RATTRAPAGE ÉTAIT UN CHIFFRE ARBITRAIRE, et il ne
+    // suffit pas. Mesuré sur deux suites complètes : au chapitre 39, le
+    // navigateur perd « AuTableau_stylo », le rattrapage la rend, recharge — et
+    // la REPERD au second tour. Les sept vérifications du stylo tombaient
+    // alors en rendant les valeurs d'usine, et l'on accusait l'application d'un
+    // défaut qui était une chasse d'eau de navigateur. Chaque tour laisse donc
+    // un peu plus de temps au stockage de se poser.
+    //
+    // ET L'ÉCHEC FINAL SE DIT FORT. Un rattrapage qui renonce en silence est
+    // pire que pas de rattrapage du tout : la suite accuserait l'application
+    // sans qu'on sache pourquoi.
+    const TOURS = 3;
+    for (let tour = 1; tour <= TOURS; tour++) {
+        const perdues = await page.evaluate((avant) => {
+            const out = [];
+            try {
+                for (const k of Object.keys(avant)) {
+                    if (localStorage.getItem(k) === null) { localStorage.setItem(k, avant[k]); out.push(k); }
+                }
+            } catch (e) { /* stockage refusé */ }
+            return out;
+        }, avant);
+        if (!perdues.length) break;
+        if (tour === TOURS) {
+            console.log('   (!!! le navigateur reperd ' + perdues.join(', ')
+                + ' après ' + TOURS + ' tours : ce qui suit mesure un stockage incomplet)');
+            break;
+        }
         console.log('   (le navigateur a perdu ' + perdues.length + ' clé(s) en rechargeant : '
             + perdues.join(', ') + ' — rendues, on recharge)');
-        await page.waitForTimeout(REPOS_DU_STOCKAGE);
+        await page.waitForTimeout(REPOS_DU_STOCKAGE * tour * 2);
         await page.reload();
         await attendreLApp(page);
     }
