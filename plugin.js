@@ -13980,19 +13980,27 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
 // l'opération nue devant la classe, on la fait chercher, puis on rouvre le
 // réglage et l'on coche « montrer les étapes ». Le dessin se remplace sur
 // place, à la même taille et au même endroit.
+// TOUT CE QU'UN CAHIER, UN CLAVIER OU UNE CALCULETTE APPELLE « FOIS » ET
+// « DIVISÉ PAR ». Mieux vaut quatre caractères de plus ici qu'un message
+// d'erreur parce qu'on a tapé « 47x26 ».
+//
+// UNE SEULE TABLE POUR TOUS LES OUTILS QUI LISENT UN CALCUL. L'opération posée
+// et l'arbre de calcul lisent la même chose ; deux tables jumelles auraient
+// divergé au premier signe ajouté, et le professeur se serait retrouvé avec un
+// outil qui comprend « 47x26 » et un autre qui le refuse — sans rien pour le
+// lui dire.
+const SIGNES_DU_CALCUL = {
+    '+': '+',
+    '-': '−', '−': '−', '–': '−', '—': '−',
+    '*': '×', 'x': '×', 'X': '×', '×': '×',
+    '/': '÷', ':': '÷', '÷': '÷'
+};
+
 registerPlugin('operationPoseeTool', 'Maths - Numérique', {
 
     currentStamp: null, currentArgs: null,
 
-    // Tout ce qu'un cahier, un clavier ou une calculette appelle « fois » et
-    // « divisé par ». Mieux vaut quatre caractères de plus ici qu'un message
-    // d'erreur parce qu'on a tapé « 47x26 ».
-    SIGNES: {
-        '+': '+',
-        '-': '−', '−': '−', '–': '−', '—': '−',
-        '*': '×', 'x': '×', 'X': '×', '×': '×',
-        '/': '÷', ':': '÷', '÷': '÷'
-    },
+    SIGNES: SIGNES_DU_CALCUL,
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
@@ -14580,6 +14588,448 @@ registerPlugin('operationPoseeTool', 'Maths - Numérique', {
             s += `<text x="${cx(g.c) + (g.dx || 0)}" y="${bas(g.r) + (g.dy || 0)}" text-anchor="middle"`
                 + ` font-family="${xmlEsc(famille)}" font-size="${g.petit ? 13 : 28}"`
                 + ` font-weight="${g.petit ? 400 : 600}" fill="${couleur}"${g.petit ? ' opacity="0.7"' : ''}>${xmlEsc(g.t)}</text>`;
+        });
+        return s + '</svg>';
+    }
+});
+
+// ---------------------------------------------------------
+// L'ARBRE DE CALCUL
+//
+// « Savez-vous où je peux trouver ces types d'arbres de calculs éditables,
+// avant que je ne me lance sur leur fabrication chronophage ? »
+//
+// Un arbre de calcul se lit DU HAUT VERS LE BAS : les nombres sont en haut,
+// chaque bulle d'opération réunit deux cases, et le résultat tombe dans la case
+// du dessous. La dernière case est rouge — c'est la réponse.
+//
+// ON ÉCRIT L'EXPRESSION, L'ARBRE SE POSE. C'est le geste le plus court, et
+// c'est aussi la matière même de l'exercice : la seconde question du manuel
+// demande « écrire l'expression en ligne correspondante ». L'arbre EST le
+// parenthésage. Le professeur tape ce qu'il veut voir, et les priorités du
+// collège font le reste : « 2 + 3 × 4 » donne le même arbre que
+// « 2 + (3 × 4) », parce que c'est le même calcul.
+//
+// ET LES NOMBRES SONT EXACTS. « −0,6 × −5 » vaut 3, puis « 3 + (−0,4) » vaut
+// 2,6 — en virgule flottante, 2,5999999999999996. Un arbre de calcul dont la
+// réponse porte seize décimales est un arbre faux, et c'est le genre de faux
+// qu'on projette devant trente élèves. On travaille donc en FRACTIONS
+// D'ENTIERS, et l'on ne rend un nombre à virgule que lorsqu'il en est un.
+// ---------------------------------------------------------
+registerPlugin('arbreDeCalculTool', 'Maths - Numérique', {
+
+    init: function () {
+        const grid = document.getElementById('plugins-grid'); if (!grid) return;
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.title = 'Arbre de calcul';
+        // Deux cases en haut, une bulle, une case en bas : l'image même de ce
+        // que l'outil produit.
+        btn.innerHTML = `<svg viewBox="0 0 24 24" class="stroke-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="2" width="7" height="5" rx="1"/>
+    <rect x="15" y="2" width="7" height="5" rx="1"/>
+    <circle cx="12" cy="12" r="2.6"/>
+    <path d="M7 7.5 10 10M17 7.5 14 10M12 14.6V17"/>
+    <rect x="8.5" y="17" width="7" height="5" rx="1"/>
+</svg>`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ouvrir();
+            if (typeof closeAllPopups === 'function') closeAllPopups();
+        });
+        grid.appendChild(btn);
+    },
+
+    edit: function (imgObj) { this.ouvrir(imgObj.pluginData.args, imgObj); },
+
+    POLICES: [
+        { value: 'sans-serif', label: 'Bâton' },
+        { value: 'serif', label: 'Livre' },
+        { value: 'monospace', label: 'Chasse fixe' },
+        { value: "'Comic Sans MS', cursive", label: 'Comic' }
+    ],
+
+    lireLesReglages: function (args) {
+        const a = args || [];
+        return {
+            expression: a[0] !== undefined ? a[0] : '(−0,6 × −5) + (−0,4)',
+            etapes: !!a[1],
+            resultat: !!a[2],
+            cases: a[3] || '#bcd9f0',
+            encre: a[4] || '#2d3436',
+            police: a[5] || 'sans-serif'
+        };
+    },
+
+    ouvrir: function (prefill, target) {
+        const p = this.lireLesReglages(prefill);
+        openCustomPrompt(target ? "Modifier l'arbre de calcul" : "Arbre de calcul", [
+            {
+                // L'ÉTIQUETTE PORTE L'EXEMPLE, PAS LE FANTÔME DU CHAMP. Le champ
+                // s'ouvre toujours REMPLI — c'est ce qui permet de voir un arbre
+                // avant d'avoir rien tapé —, donc son « placeholder » ne paraît
+                // jamais à l'ouverture, et une possibilité annoncée là n'existe
+                // pour personne. La leçon vient de l'opération posée, où j'avais
+                // fait exactement cette erreur.
+                type: 'text', label: "Le calcul (les parenthèses font l'arbre)",
+                placeholder: '(−0,6 × −5) + (−0,4)     ((−7 − −3) × −0,8) ÷ (−5,5 + −10,5)',
+                value: p.expression
+            },
+            { type: 'checkbox', label: 'Remplir les cases intermédiaires', value: p.etapes },
+            { type: 'checkbox', label: 'Remplir la case du résultat', value: p.resultat },
+            { type: 'color', label: 'Couleur des cases', value: p.cases },
+            { type: 'color', label: "Couleur de l'encre", value: p.encre },
+            { type: 'select', label: 'Police', value: p.police, options: this.POLICES }
+        ], (r) => this.apercu(r), (r) => this.construire(r, target));
+    },
+
+    apercu: function (res) {
+        const p = this.lireLesReglages(res);
+        const plan = this.poser(p.expression);
+        // CE QUI NE SE POSE PAS SE DIT. Un aperçu vide laisse croire que l'outil
+        // est cassé ; la phrase dit quoi corriger, et sans couleur propre pour
+        // que le rattrapage de contraste de la boîte s'applique.
+        if (plan.erreur) {
+            return `<div style="padding:16px;font-size:13px;line-height:1.5;text-align:center;max-width:300px">${xmlEsc(plan.erreur)}</div>`;
+        }
+        return this.dessiner(plan, p, false);
+    },
+
+    construire: function (res, target) {
+        const p = this.lireLesReglages(res);
+        const plan = this.poser(p.expression);
+        if (plan.erreur) {
+            if (typeof showToast === 'function') showToast(plan.erreur);
+            // ON NE JETTE PAS LA SAISIE. Rouvrir la boîte avec ce qui y était
+            // écrit, c'est la seule façon de corriger une coquille sans retaper
+            // le calcul.
+            this.ouvrir(res, target);
+            return;
+        }
+        placeGeneratedStamp('arbreDeCalculTool', this.dessiner(plan, p, true), res, target,
+            '🌳 Arbre de calcul posé');
+    },
+
+    // ============ LES NOMBRES, EXACTS ============
+    // Une fraction d'entiers réduite : c'est la seule façon d'additionner des
+    // dixièmes sans récolter des millionièmes.
+
+    pgcd: function (a, b) {
+        a = Math.abs(a); b = Math.abs(b);
+        while (b) { const t = a % b; a = b; b = t; }
+        return a || 1;
+    },
+
+    reduire: function (n, d) {
+        if (d < 0) { n = -n; d = -d; }
+        const p = this.pgcd(n, d);
+        return { n: n / p, d: d / p };
+    },
+
+    lireUnNombre: function (txt) {
+        const t = String(txt === null || txt === undefined ? '' : txt)
+            .replace(/[\s  ]/g, '').replace(',', '.');
+        if (!/^\d+(\.\d+)?$/.test(t)) return null;
+        const bouts = t.split('.');
+        const dec = bouts[1] || '';
+        return this.reduire(parseInt(bouts[0] + dec, 10), Math.pow(10, dec.length));
+    },
+
+    plus: function (a, b) { return this.reduire(a.n * b.d + b.n * a.d, a.d * b.d); },
+    moins: function (a, b) { return this.reduire(a.n * b.d - b.n * a.d, a.d * b.d); },
+    fois: function (a, b) { return this.reduire(a.n * b.n, a.d * b.d); },
+    divise: function (a, b) { return b.n === 0 ? null : this.reduire(a.n * b.d, a.d * b.n); },
+
+    // UN NOMBRE S'ÉCRIT AVEC UNE VIRGULE QUAND IL LE PEUT. Le dénominateur
+    // réduit ne porte que des 2 et des 5 : c'est exactement la condition pour
+    // qu'une fraction s'écrive en décimal ET S'ARRÊTE. Sinon — « 1 ÷ 3 » —, on
+    // écrit la fraction, qui est la réponse juste ; écrire « 0,333 » serait
+    // enseigner un arrondi sous couvert d'un résultat.
+    enTexte: function (r) {
+        if (!r) return '';
+        let d = r.d, deux = 0, cinq = 0;
+        while (d % 2 === 0) { d /= 2; deux++; }
+        while (d % 5 === 0) { d /= 5; cinq++; }
+        if (d !== 1) return (r.n < 0 ? '−' : '') + Math.abs(r.n) + '/' + r.d;
+        const k = Math.max(deux, cinq);
+        let corps = String(Math.round(Math.abs(r.n) * Math.pow(10, k) / r.d));
+        if (k) {
+            corps = corps.padStart(k + 1, '0');
+            corps = corps.slice(0, corps.length - k) + ',' + corps.slice(corps.length - k);
+            // On n'ôte les zéros de queue QUE s'il y a une virgule : sans cette
+            // garde, « 30 » deviendrait « 3 ».
+            corps = corps.replace(/0+$/, '').replace(/,$/, '');
+        }
+        return (r.n < 0 ? '−' : '') + corps;
+    },
+
+    // ============ LIRE LE CALCUL ============
+    // Un analyseur à précédence, le plus simple qui donne le bon arbre : ce
+    // qu'on met entre parenthèses se retrouve groupé dans le dessin, et ce
+    // qu'on ne parenthèse pas suit les priorités du collège.
+
+    passerLesBlancs: function (c) {
+        while (c.i < c.t.length && /[\s  ]/.test(c.t[c.i])) c.i++;
+    },
+
+    lireSomme: function (c) {
+        let g = this.lireProduit(c);
+        for (; ;) {
+            this.passerLesBlancs(c);
+            const s = SIGNES_DU_CALCUL[c.t[c.i]];
+            if (s !== '+' && s !== '−') return g;
+            c.i++;
+            g = { op: s, g, d: this.lireProduit(c) };
+        }
+    },
+
+    lireProduit: function (c) {
+        let g = this.lireFacteur(c);
+        for (; ;) {
+            this.passerLesBlancs(c);
+            const s = SIGNES_DU_CALCUL[c.t[c.i]];
+            if (s !== '×' && s !== '÷') return g;
+            c.i++;
+            g = { op: s, g, d: this.lireFacteur(c) };
+        }
+    },
+
+    lireFacteur: function (c) {
+        this.passerLesBlancs(c);
+        if (c.i >= c.t.length) throw { ecrit: "Le calcul s'arrête au milieu : il manque un nombre" };
+        if (c.t[c.i] === '(') {
+            c.i++;
+            const n = this.lireSomme(c);
+            this.passerLesBlancs(c);
+            if (c.t[c.i] !== ')') throw { ecrit: 'Il manque une parenthèse fermante' };
+            c.i++;
+            return n;
+        }
+        if (c.t[c.i] === ')') throw { ecrit: 'Il y a une parenthèse fermante de trop' };
+        // UN SIGNE MOINS NE PORTE QUE SUR UN NOMBRE, et c'est une limite voulue :
+        // « −5 » est une CASE de l'arbre, un nombre qu'on y lit, tandis que
+        // « −(3 + 2) » est une opération de plus qui n'a pas de case où se
+        // dessiner. On le dit au lieu de deviner.
+        let negatif = false;
+        if (SIGNES_DU_CALCUL[c.t[c.i]] === '−') {
+            negatif = true; c.i++;
+            this.passerLesBlancs(c);
+            if (c.t[c.i] === '(') {
+                throw { ecrit: "Un moins ne peut porter que sur un nombre : écrivez « 0 − (…) » pour opposer un calcul" };
+            }
+        }
+        let j = c.i;
+        while (j < c.t.length && /[\d,.\s ]/.test(c.t[j])) j++;
+        const brut = c.t.slice(c.i, j);
+        const nb = this.lireUnNombre(brut);
+        if (!nb) throw { ecrit: '« ' + (brut.trim() || c.t[c.i]) + ' » n\'est pas un nombre' };
+        c.i = j;
+        return { valeur: negatif ? { n: -nb.n, d: nb.d } : nb };
+    },
+
+    analyser: function (texte) {
+        const t = String(texte === null || texte === undefined ? '' : texte).trim().replace(/=\s*$/, '');
+        if (!t) return { erreur: 'Écrivez un calcul, par exemple (−0,6 × −5) + (−0,4)' };
+        const c = { t, i: 0 };
+        try {
+            const noeud = this.lireSomme(c);
+            this.passerLesBlancs(c);
+            if (c.i < c.t.length) {
+                return { erreur: 'Je ne comprends pas « ' + c.t.slice(c.i) + ' » : il manque peut-être un signe' };
+            }
+            return { noeud };
+        } catch (e) {
+            // Une phrase écrite exprès, ou bien un vrai défaut : on ne confond
+            // pas les deux, sinon un bug se déguiserait en coquille du
+            // professeur et personne n'irait le chercher.
+            return { erreur: (e && e.ecrit) || 'Ce calcul ne se lit pas' };
+        }
+    },
+
+    // ============ POSER L'ARBRE ============
+    //
+    // CHAQUE NŒUD TOMBE D'UN CRAN SOUS SES ENFANTS. Son rang est la hauteur de
+    // l'arbre moins sa profondeur : c'est ce qui met « −0,4 » sur la même rangée
+    // que le résultat de « −0,6 × −5 » — il n'attend pas son tour, il sert tout
+    // de suite. Numéroter par la profondeur seule aurait aligné tous les
+    // nombres en haut et laissé des rangées vides au milieu.
+    L_MIN: 54, L_RESULTAT: 74, H_CASE: 38, R_BULLE: 15, ECART_H: 14, FLECHE: 24, MARGE: 16,
+
+    // UNE CASE DE RÉSULTAT NE DIT PAS LA LONGUEUR DE SA RÉPONSE. Mesurée sur
+    // son texte comme les autres, elle devenait large pour « −10,5 » et étroite
+    // pour « 3 » : l'élève lisait la réponse dans la taille du rectangle avant
+    // d'avoir calculé. Elles partent donc toutes de la même largeur, comme dans
+    // le manuel — et ne s'élargissent que si le nombre qu'on y écrit déborde,
+    // ce qui garde la mise en page immobile quand on coche « remplir ».
+    largeurDeCase: function (t, estResultat) {
+        return Math.max(estResultat ? this.L_RESULTAT : this.L_MIN, String(t).length * 13 + 18);
+    },
+
+    // LA BULLE EST DE LA FAMILLE DE SES CASES, EN PLUS SOUTENU : c'est ainsi
+    // que le manuel les dessine, et cela donne un sens à l'unique couleur qu'on
+    // choisit. Prise dans l'encre, elle faisait une tache sombre au milieu d'un
+    // dessin clair.
+    //
+    // ON PASSE PAR LA TEINTE, et non par une multiplication des trois canaux.
+    // Multiplier vers le noir DÉSATURE : un bleu pastel y vire au gris, et la
+    // bulle n'était plus de la famille de rien. On garde donc la teinte, on
+    // relève la saturation si elle est pâle, et l'on descend la clarté à
+    // mi-hauteur — ce qui garantit aussi que le signe blanc s'y lise.
+    soutenir: function (hex) {
+        const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex || ''));
+        if (!m) return '#4a90d9';
+        let c = m[1];
+        if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+        const [r, v, b] = [0, 2, 4].map(i => parseInt(c.slice(i, i + 2), 16) / 255);
+        const hi = Math.max(r, v, b), lo = Math.min(r, v, b), d = hi - lo;
+        let teinte = 0;
+        if (d) {
+            if (hi === r) teinte = ((v - b) / d + (v < b ? 6 : 0)) / 6;
+            else if (hi === v) teinte = ((b - r) / d + 2) / 6;
+            else teinte = ((r - v) / d + 4) / 6;
+        }
+        // UNE COULEUR SANS TEINTE N'EN REÇOIT PAS UNE. Relever la saturation
+        // sans condition donnait une bulle ROUGE sur des cases blanches ou
+        // grises — la teinte vaut zéro quand il n'y a pas de couleur, et zéro
+        // est le rouge. Mesuré : « #ffffff » rendait « #b14343 », qui en prime
+        // se disputait avec la case rouge du résultat.
+        const sat = d ? Math.max(d / (1 - Math.abs(hi + lo - 1)), 0.45) : 0;
+        const cl = 0.46;
+        // HSL vers RVB, dans sa forme la plus courte.
+        const f = (n) => {
+            const k = (n + teinte * 12) % 12;
+            return Math.round(255 * (cl - sat * Math.min(cl, 1 - cl)
+                * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+        };
+        return '#' + [0, 8, 4].map(n => f(n).toString(16).padStart(2, '0')).join('');
+    },
+
+    poser: function (texte) {
+        const lu = this.analyser(texte);
+        if (lu.erreur) return lu;
+        const racine = lu.noeud;
+
+        // 1. La valeur de chaque nœud, et sa profondeur.
+        let divisionParZero = false;
+        const valeur = (n, prof) => {
+            n.prof = prof;
+            if (n.valeur) return n.valeur;
+            const a = valeur(n.g, prof + 1), b = valeur(n.d, prof + 1);
+            if (!a || !b) return null;
+            let v = null;
+            if (n.op === '+') v = this.plus(a, b);
+            else if (n.op === '−') v = this.moins(a, b);
+            else if (n.op === '×') v = this.fois(a, b);
+            else { v = this.divise(a, b); if (!v) divisionParZero = true; }
+            n.valeur = v;
+            return v;
+        };
+        valeur(racine, 0);
+        if (divisionParZero) return { erreur: 'On ne divise pas par zéro' };
+
+        // 2. Le rang de chaque nœud, et sa largeur de case.
+        let hauteur = 0;
+        const parcourir = (n, f) => { f(n); if (n.op) { parcourir(n.g, f); parcourir(n.d, f); } };
+        parcourir(racine, n => { hauteur = Math.max(hauteur, n.prof); });
+        const noeuds = [];
+        parcourir(racine, n => {
+            n.rang = hauteur - n.prof;
+            n.texte = this.enTexte(n.valeur);
+            n.l = this.largeurDeCase(n.texte, !!n.op);
+            noeuds.push(n);
+        });
+
+        // 3. L'abscisse : chaque sous-arbre occupe sa bande, et un nœud se
+        //    centre entre ses deux enfants.
+        const placer = (n, x) => {
+            if (!n.op) { n.x = x; n.cx = x + n.l / 2; return n.l; }
+            const lg = placer(n.g, x);
+            const ld = placer(n.d, x + lg + this.ECART_H);
+            n.cx = (n.g.cx + n.d.cx) / 2;
+            n.x = n.cx - n.l / 2;
+            return lg + this.ECART_H + ld;
+        };
+        const large = placer(racine, this.MARGE);
+
+        const pas = this.H_CASE + this.FLECHE + 2 * this.R_BULLE + this.FLECHE;
+        noeuds.forEach(n => { n.y = this.MARGE + n.rang * pas; });
+
+        return {
+            racine, noeuds, hauteur,
+            l: large + this.MARGE * 2,
+            h: this.MARGE * 2 + hauteur * pas + this.H_CASE,
+            resultat: this.enTexte(racine.valeur)
+        };
+    },
+
+    // ============ DESSINER ============
+
+    // UNE FLÈCHE DESSINÉE À LA MAIN, et non un « marker » : le tampon part en
+    // URI de données, et une définition partagée y est une dépendance de plus
+    // à laquelle rien n'oblige. Deux formes suffisent.
+    fleche: function (x1, y1, x2, y2, couleur) {
+        const a = Math.atan2(y2 - y1, x2 - x1);
+        const L = 9, O = 4.5;
+        const bx = x2 - Math.cos(a) * L, by = y2 - Math.sin(a) * L;
+        const n = (v) => v.toFixed(1);
+        return `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(bx)}" y2="${n(by)}" stroke="${couleur}" stroke-width="2" stroke-linecap="round"/>`
+            + `<polygon points="${n(x2)},${n(y2)} ${n(bx - Math.sin(a) * O)},${n(by + Math.cos(a) * O)} ${n(bx + Math.sin(a) * O)},${n(by - Math.cos(a) * O)}" fill="${couleur}"/>`;
+    },
+
+    ROUGE: '#e03131',
+
+    // CE QUI SE LIT SUR UN FOND DONNÉ. Le signe de la bulle était toujours
+    // blanc : sur une famille jaune, la bulle sort à la luminance 182 et le
+    // « × » blanc y disparaît. On choisit donc d'après le fond, par la même
+    // mesure de luminance que le reste de l'application.
+    LISIBILITE: 150,
+    encrePosee: function (fond, encre) {
+        const m = /^#([0-9a-f]{6})$/i.exec(String(fond || ''));
+        if (!m) return '#ffffff';
+        const [r, v, b] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16));
+        return ((r * 299 + v * 587 + b * 114) / 1000) < this.LISIBILITE ? '#ffffff' : (encre || '#2d3436');
+    },
+
+    dessiner: function (plan, reglages, pourExport) {
+        const famille = reglages.police || 'sans-serif';
+        const encre = reglages.encre || '#2d3436';
+        const fond = reglages.cases || '#bcd9f0';
+        const bulle = this.soutenir(fond);
+        const style = pourExport ? '' : ' style="max-width:100%;max-height:260px"';
+        let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(plan.l)} ${Math.round(plan.h)}"`
+            + ` width="${Math.round(plan.l)}" height="${Math.round(plan.h)}"${style}>`;
+
+        // Les flèches et les bulles d'abord : les cases passent par-dessus, et
+        // une pointe de flèche qui mordrait un bord disparaît sous lui.
+        plan.noeuds.forEach(n => {
+            if (!n.op) return;
+            const yBulle = n.y - this.FLECHE - this.R_BULLE;
+            [n.g, n.d].forEach(e => {
+                s += this.fleche(e.cx, e.y + this.H_CASE,
+                    n.cx + (e.cx < n.cx ? -1 : 1) * this.R_BULLE * 0.55,
+                    yBulle - this.R_BULLE * 0.75, encre);
+            });
+            s += this.fleche(n.cx, yBulle + this.R_BULLE, n.cx, n.y - 1, encre);
+            s += `<circle cx="${n.cx.toFixed(1)}" cy="${yBulle.toFixed(1)}" r="${this.R_BULLE}" fill="${bulle}"/>`
+                + `<text x="${n.cx.toFixed(1)}" y="${(yBulle + 6).toFixed(1)}" text-anchor="middle"`
+                + ` font-family="${xmlEsc(famille)}" font-size="18" font-weight="700" fill="${this.encrePosee(bulle, encre)}">${xmlEsc(n.op)}</text>`;
+        });
+
+        plan.noeuds.forEach(n => {
+            const estRacine = n === plan.racine;
+            // CE QU'ON ÉCRIT DANS UNE CASE : toujours les nombres de départ,
+            // sinon ce ne serait plus un exercice ; les résultats seulement si
+            // on les demande. C'est le double usage de l'outil — on pose l'arbre
+            // nu devant la classe, on le fait chercher, puis on rouvre le
+            // réglage et l'on coche. Le dessin se remplace sur place.
+            const montrer = !n.op || (estRacine ? reglages.resultat : reglages.etapes);
+            s += `<rect x="${n.x.toFixed(1)}" y="${n.y.toFixed(1)}" width="${n.l.toFixed(1)}" height="${this.H_CASE}"`
+                + ` rx="3" fill="${estRacine ? this.ROUGE : fond}"/>`;
+            if (montrer && n.texte) {
+                s += `<text x="${n.cx.toFixed(1)}" y="${(n.y + this.H_CASE * 0.68).toFixed(1)}" text-anchor="middle"`
+                    + ` font-family="${xmlEsc(famille)}" font-size="19" font-weight="600"`
+                    + ` fill="${estRacine ? this.encrePosee(this.ROUGE, encre) : this.encrePosee(fond, encre)}">${xmlEsc(n.texte)}</text>`;
+            }
         });
         return s + '</svg>';
     }
