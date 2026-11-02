@@ -94,6 +94,13 @@
        première case à remplir. Le second pixel est donc une ombre sans
        flou : elle se dessine hors de la boîte sans entrer dans son calcul. */
     --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(45, 52, 54, 0.16);
+    /* ET L'ÉPAISSEUR DE CE TRAIT, NOMMÉE. Ce qui se dessine À CÔTÉ d'une
+       surface encadrée — la languette d'un tiroir — doit porter le même trait
+       qu'elle : un pixel de bordure plus un pixel d'ombre, soit deux. Les
+       languettes n'en avaient qu'un, et paraissaient plus maigres que ce
+       qu'elles tiennent. Elle sert aussi à les poser AU RAS du tiroir, car le
+       trait du tiroir ne doit pas passer sous elles. */
+    --contour-epaisseur: 2px;
     /* L'ARRONDI DES SURFACES FLOTTANTES. Sept valeurs cohabitaient : deux
        pixels sur les menus — des angles vifs au milieu d'une interface
        entièrement arrondie —, huit sur la barre de l'objet, douze sur les
@@ -138,6 +145,8 @@ body.dark-mode {
 body.contours-doux {
     --contour: #dfe6e9;
     --contour-ombre: 0 8px 22px rgba(45, 52, 54, 0.10);
+    /* Le trait discret n'a pas d'ombre sans flou : il ne fait qu'un pixel. */
+    --contour-epaisseur: 1px;
 }
 
 body.dark-mode.contours-doux {
@@ -224,8 +233,20 @@ html {
        tiroir. Ce qui dépasse du bord ne change pas — le reste passe derrière
        le tiroir, de la même teinte. */
     height: 24px;
+    /* LES TROIS LANGUETTES NE COMPTAIENT PAS LEUR BORDURE DE LA MÊME FAÇON :
+       celle du haut est un « button », que la remise à zéro met en
+       « border-box », les deux autres des « div » restés en « content-box ».
+       Elles faisaient donc 48 et 50 pixels de large pour la même consigne, et
+       leur bord mordait d'un pixel sur le trait du tiroir — d'un côté
+       seulement. On fixe la règle ici pour les trois. */
+    box-sizing: border-box;
     background: var(--surface);
-    border: 1px solid var(--contour);
+    border: var(--contour-epaisseur) solid var(--contour);
+    /* LA MÊME MATIÈRE QUE SON TIROIR. La partie qui dépasse se pose sur le
+       tableau comme le tiroir lui-même : sans ce flou, elle montrait le dessin
+       net là où le tiroir le montre fondu, et les deux surfaces ne se lisaient
+       plus comme une seule. */
+    backdrop-filter: blur(16px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -238,8 +259,14 @@ html {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* LA LANGUETTE SE POSE AU RAS DU TIROIR, ET NON PAR-DESSUS SON BORD.
+   Elle le chevauchait de douze pixels : le trait du tiroir passait DESSOUS, et
+   comme elle est translucide, il s'y voyait en pâle — une ligne grise en
+   travers de la poignée, et le beau trait noir qui s'interrompait de part et
+   d'autre. On la décale donc de sa propre hauteur PLUS l'épaisseur du trait,
+   si bien que le trait court sans rupture et qu'elle y pend. */
 #bottom-drawer .drawer-toggle {
-    top: -12px;
+    top: calc(-24px - var(--contour-epaisseur));
     border-bottom: none;
     border-radius: 8px 8px 0 0;
 }
@@ -1294,20 +1321,27 @@ html {
     width: 100%;
 }
 
+/* LA LANGUETTE DE LA BARRE DES PLUGINS NE SUIVAIT PAS SON TIROIR.
+   Elle gardait un gris pâle écrit en dur quand le tiroir, lui, porte le trait
+   d'encre — noir par défaut, et de la couleur qu'on veut. Le résultat se
+   mesurait : la barre cernée de noir, et sous elle un galet gris qui coupait
+   son trait. « La languette des tiroirs mal intégrée. » Elle prend donc les
+   mêmes valeurs que tout le reste, et la couleur choisie dans l'apparence la
+   suit elle aussi. */
 #bar-plugins .drawer-toggle {
     position: absolute;
     left: 50%;
-    bottom: -12px;
+    bottom: calc(-24px - var(--contour-epaisseur));
     transform: translateX(-50%);
     width: 48px;
     /* Voir « LA CIBLE FAIT VINGT-QUATRE PIXELS ». Celle-ci pend sous la barre
-       des plugins ; ce qui dépasse ne change pas, le reste passe derrière la
-       barre. */
+       des plugins. */
     height: 24px;
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid #dfe6e9;
+    background: var(--surface);
+    border: var(--contour-epaisseur) solid var(--contour);
     border-top: none;
     border-radius: 0 0 8px 8px;
+    backdrop-filter: blur(16px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1320,9 +1354,11 @@ html {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Et le survol est celui des deux autres languettes : la couleur d'accent
+   écrite en dur ici restait violette quand on en choisissait une autre. */
 #bar-plugins .drawer-toggle:hover {
-    color: #6c5ce7;
-    background: rgba(108, 92, 231, 0.1);
+    color: var(--accent);
+    background: var(--accent-soft);
 }
 
 #bar-plugins .drawer-toggle svg {
@@ -1595,9 +1631,21 @@ html {
     border-color: var(--contour);
 }
 
-.dark-mode .drawer-toggle {
+/* LA LANGUETTE DU TIROIR DES TABLEAUX N'ÉTAIT PAS DU LOT. Les tiroirs sombres
+   ont leur propre gris, plus dense que la surface commune ; les deux
+   languettes horizontales le reprenaient, la verticale non — elle portait sa
+   classe à elle, et restait donc d'un gris plus bleu et plus transparent que
+   le tiroir auquel elle tient. Mesuré, pas relu. */
+.dark-mode .drawer-toggle,
+.dark-mode .drawer-toggle-v {
     background: rgba(45, 52, 54, 0.95);
     border-color: var(--contour);
+}
+
+/* L'encre reste celle de chacune : la flèche du tiroir des tableaux est NETTE
+   — « une flèche nette au lieu d'un bord fantôme » —, et la pâlir ici lui
+   rendrait l'air de résidu qu'on lui a retiré. */
+.dark-mode .drawer-toggle {
     color: #b2bec3;
 }
 
@@ -1662,10 +1710,12 @@ html {
     transform: translateY(-50%);
     width: 16px;
     height: 48px;
+    box-sizing: border-box;
     background: var(--surface);
-    border: 1px solid var(--contour);
+    border: var(--contour-epaisseur) solid var(--contour);
     border-right: none;
     border-radius: 8px 0 0 8px;
+    backdrop-filter: blur(16px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -12831,7 +12881,9 @@ body.focus-mode #bar-document.vertical.visible { transform: translateY(-50%); }
 .drawer-toggle-v {
     width: 18px;
     height: 56px;
-    left: -18px;
+    /* AU RAS DU TIROIR, comme les deux autres : sa largeur plus l'épaisseur du
+       trait, pour que le bord du tiroir ne passe pas sous elle. */
+    left: calc(-18px - var(--contour-epaisseur));
     color: var(--ink);
     box-shadow: -3px 0 10px rgba(0, 0, 0, 0.08);
 }
