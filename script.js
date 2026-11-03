@@ -2869,8 +2869,15 @@ window.poserLaBandeSurLeTiroir = poserLaBandeSurLeTiroir;
 function poserLeTiroirDesMorceaux() {
     const bande = document.getElementById('bande-morceaux');
     if (!bande) return;
+    // LES BULLES SE RANGENT AU-DESSUS DU TIROIR, ET NON DESSUS. La bulle du
+    // découpage annonce le morceau qui vient d'entrer dans le tiroir : elle se
+    // posait très exactement dessus, et cachait en le disant ce qu'elle
+    // annonçait. Les deux vivent au même endroit — le bas de l'écran, au
+    // milieu —, c'est donc à la dernière venue de monter d'un cran.
+    const bulles = document.getElementById('toast-container');
+    const poserLesBulles = (y) => { if (bulles) bulles.style.bottom = y ? y + 'px' : ''; };
     // Déplacé à la main : il reste où on l'a mis, et son double-clic le rend.
-    if (bande.style.top) return;
+    if (bande.style.top) { poserLesBulles(0); return; }
     let bas = 12;
     const sIlGene = (el) => {
         if (!el || el.hidden) return;
@@ -2888,6 +2895,7 @@ function poserLeTiroirDesMorceaux() {
     // La barre de style descend avec celle du document : elle compte aussi.
     sIlGene(document.getElementById('bar-style'));
     bande.style.setProperty('--haut-du-tiroir', bas + 'px');
+    poserLesBulles(bande.hidden ? 0 : bas + (bande.offsetHeight || 78) + 12);
 }
 window.poserLeTiroirDesMorceaux = poserLeTiroirDesMorceaux;
 
@@ -20463,12 +20471,12 @@ function majLeTiroirDesMorceaux() {
         const img = imageCache[m.src];
         const NW = (img && img.naturalWidth) || m.cw;
         const NH = (img && img.naturalHeight) || m.ch;
-        const H = 66;
+        const H = 56;
         const k = H / m.ch;
         const vignette = document.createElement('div');
         vignette.className = 'bm-vignette';
         vignette.dataset.id = String(m.id);
-        vignette.style.width = Math.max(24, Math.min(160, Math.round(m.cw * k))) + 'px';
+        vignette.style.width = Math.max(24, Math.min(112, Math.round(m.cw * k))) + 'px';
         vignette.title = `${m.nom} — page ${m.page} · glissez-le sur le tableau`;
         const el = document.createElement('img');
         el.src = m.src;
@@ -21361,8 +21369,10 @@ function majLeBoutonPoser() {
         mot.textContent = 'Le tiroir est vide : découpez d’abord un morceau dans un document.';
         return;
     }
-    mot.textContent = combien + ' morceau' + (combien > 1 ? 'x' : '')
-        + ' ira' + (combien > 1 ? 'ont' : '') + ' sur la page ' + page
+    // « 2 morceaux IRAONT sur la page » : le pluriel s'AJOUTAIT au singulier au
+    // lieu de le remplacer. Lu sur une capture d'écran, pas dans le code.
+    mot.textContent = combien + ' morceau' + (combien > 1 ? 'x iront' : ' ira')
+        + ' sur la page ' + page
         + (occupe ? ', et tout s’y rangera ensemble.' : ', qui est vide.');
 }
 
@@ -21397,6 +21407,21 @@ function brancherLeTiroirDesMorceaux() {
     const ranger = document.getElementById('bm-ranger');
     // Sans la parenthèse, le clic passerait son événement pour des options.
     if (ranger) ranger.addEventListener('click', () => poserTousLesMorceaux());
+    // LA SECONDE LIGNE SE DEMANDE. Le tiroir est posé sur la page qu'on vient
+    // de découper : il ne montre que ce qu'on vient y chercher — les morceaux
+    // — et garde la pagination du tableau derrière ce bouton. Elle se referme
+    // seule au morceau suivant, pour que le tiroir ne grandisse pas tout seul.
+    const deplier = document.getElementById('bm-plus');
+    const replie = document.getElementById('bm-replie');
+    if (deplier && replie) {
+        deplier.addEventListener('click', () => {
+            const ouvert = replie.hidden;
+            replie.hidden = !ouvert;
+            deplier.setAttribute('aria-expanded', ouvert ? 'true' : 'false');
+            if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+            if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
+        });
+    }
     const vider = document.getElementById('bm-vider');
     if (vider) vider.addEventListener('click', viderLeTiroirDesMorceaux);
     const prec = document.getElementById('bm-page-prec');

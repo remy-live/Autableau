@@ -3613,6 +3613,99 @@ module.exports = async function (browser) {
     r.verifie('elle suit le changement de page toute seule',
         /vide/i.test(libelle.apresPageNeuve.phrase) && libelle.pagesRendues,
         JSON.stringify(libelle.apresPageNeuve));
+    // « 2 morceaux IRAONT sur la page » : le pluriel s'ajoutait au singulier au
+    // lieu de le remplacer. Lu sur une capture d'écran, pas dans le code.
+    r.verifie('et elle est écrite en français : « iront », et non « iraont »',
+        / iront sur la page /.test(libelle.surPageVierge.phrase)
+        && !/iraont/.test(libelle.surPageVierge.phrase), libelle.surPageVierge.phrase);
+
+    // =====================================================================
+    // LE TIROIR NE MONTRE QUE CE QU'ON VIENT Y CHERCHER
+    //
+    // « Quand je découpe un pdf, ça se met dans une barre qui cache un bout du
+    // pdf. » Mesuré : huit cent quatre-vingt-trois pixels de large sur quatre-
+    // vingt-huit, huit boutons et vingt-cinq mots, posés au milieu du bas de
+    // l'écran — c'est-à-dire SUR la page qu'on vient de découper. Or on ne
+    // vient ici que pour une chose : prendre un morceau et le porter.
+    //
+    // La pagination du tableau et la phrase qui annonce la pose sont passées
+    // sur une seconde ligne qui ne paraît que si on la demande ; la phrase du
+    // geste s'en est allée, puisque la bulle du découpage la dit déjà au bon
+    // moment, et chaque vignette sous le doigt ; les vignettes ont maigri.
+    // =====================================================================
+    const tiroirCompact = await page.evaluate(() => {
+        const bande = document.getElementById('bande-morceaux');
+        const replie = document.getElementById('bm-replie');
+        const plus = document.getElementById('bm-plus');
+        if (!bande || !replie || !plus) return { rien: true };
+        images.length = 0; texts.length = 0; freehands.length = 0;
+        morceauxEnAttente = [];
+        // Deux morceaux larges : c'est le cas qui faisait déborder le tiroir.
+        const faux = (id) => ({ id, nom: 'poly', page: 1, w: 800, h: 220,
+                                cx: 0, cy: 0, cw: 800, ch: 220, src: 'x' });
+        morceauxEnAttente.push(faux(1), faux(2));
+        majLeTiroirDesMorceaux();
+        const vu = (e) => {
+            const s = getComputedStyle(e), r = e.getBoundingClientRect();
+            return !e.hidden && s.display !== 'none' && r.width > 3 && r.height > 3;
+        };
+        const mesure = () => {
+            const r = bande.getBoundingClientRect();
+            return { l: Math.round(r.width), h: Math.round(r.height),
+                     aire: Math.round(r.width * r.height),
+                     // LES CROIX DES VIGNETTES NE COMPTENT PAS : elles ne
+                     // paraissent que sous le doigt, sur la vignette qu'on
+                     // vise. Ce qu'on compte, c'est ce qui est là en
+                     // permanence, posé sur la page.
+                     boutons: [...bande.querySelectorAll('button')]
+                         .filter(b => vu(b) && !b.closest('.bm-vignette')).length,
+                     // Et les mots, ce sont les mots : les symboles d'un
+                     // bouton — ⠿, ✂, ⋯, ✕ — ne se lisent pas, ils se
+                     // reconnaissent.
+                     mots: (bande.innerText.match(/[A-Za-zÀ-ÿ']{2,}/g) || []).length };
+        };
+        const ferme = mesure();
+        const pliee = replie.hidden;
+        plus.click();
+        const ouvert = { deplie: !replie.hidden,
+                         pagination: vu(document.getElementById('bm-pages')
+                             || document.querySelector('#bande-morceaux .bm-pages')),
+                         phrase: vu(document.getElementById('bm-explique')),
+                         mesure: mesure() };
+        plus.click();
+        const refermee = { replie: replie.hidden, mesure: mesure() };
+        // La bulle du découpage se posait très exactement sur le tiroir
+        // qu'elle annonce. On regarde si les deux se croisent encore.
+        showToast('Morceau rangé dans le tiroir');
+        poserLeTiroirDesMorceaux();
+        const b = bande.getBoundingClientRect();
+        const t = document.getElementById('toast-container').getBoundingClientRect();
+        const croisent = b.left < t.right && b.right > t.left
+            && b.top < t.bottom && b.bottom > t.top;
+        morceauxEnAttente = []; majLeTiroirDesMorceaux();
+        return { rien: false, ferme, pliee, ouvert, refermee, croisent,
+                 bulle: [t.x, t.y, t.width, t.height].map(Math.round),
+                 tiroir: [b.x, b.y, b.width, b.height].map(Math.round) };
+    });
+    r.verifie('LE TIROIR TIENT SUR UNE LIGNE, et ne mange plus le quart du bas',
+        !tiroirCompact.rien && tiroirCompact.ferme.h <= 86 && tiroirCompact.ferme.l <= 640,
+        JSON.stringify(tiroirCompact.ferme));
+    // Avant : six boutons et vingt-deux mots, dont deux phrases entières.
+    r.verifie('il ne porte que ce qui sert à prendre un morceau : quatre boutons, six mots',
+        !tiroirCompact.rien && tiroirCompact.ferme.boutons <= 4
+        && tiroirCompact.ferme.mots <= 8, JSON.stringify(tiroirCompact.ferme));
+    r.verifie('LA SECONDE LIGNE NE PARAÎT QUE SI ON LA DEMANDE',
+        tiroirCompact.pliee === true && tiroirCompact.ouvert.deplie === true
+        && tiroirCompact.ouvert.pagination === true && tiroirCompact.ouvert.phrase === true,
+        JSON.stringify(tiroirCompact.ouvert));
+    r.verifie('et le même bouton la referme',
+        tiroirCompact.refermee.replie === true
+        && tiroirCompact.refermee.mesure.h === tiroirCompact.ferme.h,
+        JSON.stringify(tiroirCompact.refermee));
+    // LA BULLE SE RANGE AU-DESSUS DU TIROIR, ET NON DESSUS. Elle annonce le
+    // morceau qui vient d'y entrer : elle le cachait en le disant.
+    r.verifie('LA BULLE DU DÉCOUPAGE NE SE POSE PLUS SUR LE TIROIR',
+        tiroirCompact.croisent === false, JSON.stringify(tiroirCompact));
 
     // =====================================================================
     // CE QU'ON A JETÉ NE REVIENT PAS

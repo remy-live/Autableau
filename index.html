@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=239 »,
-         « script.js?v=431 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=241 »,
+         « script.js?v=432 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=240">
+    <link rel="stylesheet" href="style.css?v=241">
 </head>
 
 <body>
@@ -576,15 +576,27 @@
          qui s'y trouvait déjà. On les range ici en découpant, et on les sort
          un par un là où on les veut — découper et placer sont deux gestes,
          qui n'ont pas à se faire en même temps. -->
+    <!-- LE TIROIR NE MONTRE QUE CE QU'ON VIENT Y CHERCHER.
+         « Quand je découpe un pdf, ça se met dans une barre qui cache un bout
+         du pdf. » Mesuré : huit cent quatre-vingt-trois pixels de large sur
+         quatre-vingt-huit, huit boutons et vingt-cinq mots, posés au milieu du
+         bas de l'écran — c'est-à-dire sur la page. Or on ne vient ici que pour
+         UNE chose : prendre un morceau et le porter sur le tableau.
+         La pagination du tableau et la phrase qui annonce la pose passent donc
+         sur une seconde ligne, qui ne paraît que si on la demande. -->
     <div id="bande-morceaux" role="group" aria-label="Morceaux découpés" hidden>
+      <div class="bm-ligne">
         <button class="bm-poignee" id="bm-poignee"
             data-tooltip="Déplacer le tiroir — double-clic pour le remettre en place">⠿</button>
         <!-- LE TIROIR DIT CE QU'IL ATTEND. « ✂ 3 » ne disait rien : on
              découpait, les vignettes arrivaient, et l'on restait devant sans
-             savoir quoi en faire. Il porte maintenant le mot, et la phrase du
-             geste qu'on ne devine pas — glisser une vignette. -->
-        <span class="bm-titre">✂ <b id="bm-compte">0</b> <span id="bm-mot">morceaux</span>
-            <i>glissez-en un où vous le voulez</i></span>
+             savoir quoi en faire. Il porte donc le mot.
+             LA PHRASE DU GESTE, ELLE, SE DISAIT DEUX FOIS : la bulle qui
+             paraît au découpage annonce déjà « glissez-le où vous le voulez »,
+             au moment même où l'on vient de découper — et chaque vignette le
+             redit sous le doigt. La ligne du tiroir, elle, restait là pour
+             toujours, large de cent soixante-dix pixels posés sur la page. -->
+        <span class="bm-titre">✂ <b id="bm-compte">0</b> <span id="bm-mot">morceaux</span></span>
         <div class="bm-rail" id="bm-rail"></div>
         <!-- LA PAGE DU TABLEAU, DEPUIS LE TIROIR. On découpe un poly sur la
              page 1 et l'on veut coller les exercices sur la page 2 : sans
@@ -592,12 +604,6 @@
              bas, en espérant que les morceaux survivent au voyage. Ils le
              font — le tiroir n'appartient à aucune page — mais encore
              fallait-il oser. -->
-        <span class="bm-pages" role="group" aria-label="Page du tableau">
-            <button class="bm-btn bm-mini" id="bm-page-prec" data-tooltip="Page précédente du tableau">◀</button>
-            <b id="bm-page">1/1</b>
-            <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
-            <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
-        </span>
         <!-- UN SEUL BOUTON QUI POSE.
              « J'aime pas les trois boutons poser, je suis perdu. » Ils étaient
              trois à commencer par le même verbe. Les séparer en groupes titrés
@@ -618,11 +624,31 @@
              projette : on désigne, donc on sait.
              La ligne qui suit annonce ce qui va se passer : combien de
              morceaux, sur quelle page, et ce qui s'y trouve déjà. -->
-        <span class="bm-groupe">
-            <button class="bm-btn" id="bm-ranger">⇥ Tout poser sur cette page</button>
-            <span class="bm-explique" id="bm-explique"></span>
-        </span>
+        <!-- Il dit OÙ il pose : un bouton qui ne le dit pas se relit à chaque
+             fois, et la phrase qui le détaille est maintenant sur la seconde
+             ligne, repliée. « Sur cette page » est devenu « sur la page » :
+             un mot de moins, le même sens. -->
+        <button class="bm-btn" id="bm-ranger">⇥ Tout poser sur la page</button>
+        <button class="bm-btn bm-mini bm-plus" id="bm-plus" aria-expanded="false"
+            data-tooltip="La page du tableau, et ce que « Tout poser » va faire">⋯</button>
         <button class="bm-btn bm-vider" id="bm-vider" data-tooltip="Vider le tiroir — les morceaux déjà posés restent">✕</button>
+      </div>
+      <!-- LA SECONDE LIGNE : la page du tableau et ce qui va s'y passer. On
+           découpe un poly sur la page 1 et l'on veut coller les exercices sur
+           la page 2 : sans cela il fallait aller chercher la pagination dans le
+           tiroir du bas, en espérant que les morceaux survivent au voyage. Ils
+           le font — le tiroir n'appartient à aucune page — mais encore
+           fallait-il oser. Elle reste donc à portée d'un bouton, et non sous
+           les yeux en permanence : on ne change pas de page à chaque morceau. -->
+      <div class="bm-replie" id="bm-replie" hidden>
+        <span class="bm-pages" role="group" aria-label="Page du tableau">
+            <button class="bm-btn bm-mini" id="bm-page-prec" data-tooltip="Page précédente du tableau">◀</button>
+            <b id="bm-page">1/1</b>
+            <button class="bm-btn bm-mini" id="bm-page-suiv" data-tooltip="Page suivante du tableau">▶</button>
+            <button class="bm-btn bm-mini" id="bm-page-plus" data-tooltip="Nouvelle page de tableau, vierge">＋</button>
+        </span>
+        <span class="bm-explique" id="bm-explique"></span>
+      </div>
     </div>
 
     <div id="bande-lecture" role="group" aria-label="Lecteur : rejouer le tableau">
@@ -1509,11 +1535,14 @@
                             à l'endroit voulu du tableau (un simple clic la pose au milieu de l'écran) ;
                             ou bien le bouton du tiroir les range tous d'un coup, <b>à droite du
                             document</b> — jamais dessus — et <b>la vue va les chercher</b> : on voit
-                            aussitôt le résultat. Il n'y en a <b>qu'un</b>, <b>⇥ Tout poser sur cette
-                            page</b>, et la ligne sous lui annonce ce qui va se passer : combien de
-                            morceaux, sur quelle page, et si elle est déjà occupée. Pour les mettre sur
-                            une page neuve, le <b>＋</b> juste au-dessus en ouvre une vierge — et c'est
-                            elle que les découpages suivants rejoindront. Ils sont alors <b>agrandis autant que la place le
+                            aussitôt le résultat. Il n'y en a <b>qu'un</b>, <b>⇥ Tout poser sur la
+                            page</b>.<br>
+                            <b>Le tiroir ne montre que les morceaux</b>, parce qu'il est posé sur la page
+                            qu'on vient de découper. Son bouton <b>⋯</b> ouvre une seconde ligne : la
+                            <b>pagination du tableau</b> et la phrase qui annonce ce qui va se passer —
+                            combien de morceaux, sur quelle page, et si elle est déjà occupée. Pour les
+                            mettre sur une page neuve, le <b>＋</b> de cette ligne en ouvre une vierge — et
+                            c'est elle que les découpages suivants rejoindront. Ils sont alors <b>agrandis autant que la place le
                             permet</b>, tous du même facteur, parce qu'un exercice au quart de sa page ne
                             se lit pas depuis le fond de la classe ; la disposition est choisie pour cela
                             — trois bandes larges s'empilent, trois exercices étroits se rangent côte à
@@ -4183,7 +4212,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=431"></script>
+    <script src="script.js?v=432"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

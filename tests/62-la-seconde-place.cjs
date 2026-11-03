@@ -354,7 +354,9 @@ module.exports = async function (browser) {
     });
     r.egal('un seul bouton pose, et il dit sur quoi',
         { poseurs: tiroir.poseurs, libelle: tiroir.libelle },
-        { poseurs: ['bm-ranger'], libelle: '⇥ Tout poser sur cette page' });
+        // « Sur cette page » est devenu « sur la page » : un mot de moins pour
+        // la même chose, dans un tiroir posé sur le document qu'on découpe.
+        { poseurs: ['bm-ranger'], libelle: '⇥ Tout poser sur la page' });
     r.egal('« à côté » et « page neuve » ont quitté le tiroir',
         tiroir.boutons.filter(id => id === 'bm-a-cote' || id === 'bm-ranger-neuve'), []);
     r.egal('il ne reste qu\'un « ＋ » : celui qui ouvre une page vierge',
