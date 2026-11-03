@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=241 »,
-         « script.js?v=432 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=242 »,
+         « script.js?v=433 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=241">
+    <link rel="stylesheet" href="style.css?v=242">
 </head>
 
 <body>
@@ -562,6 +562,36 @@
     </div>
 
     <div id="toast-container"></div>
+    <!-- LE RAIL DE LA PROJECTION.
+         « Je suis toujours chagriné par la place que ça prend pour le pdf et la
+         découpe et la barre d'outils et les tiroirs » — « non, c'est surtout
+         quand le PDF est en plein écran ». Mesuré : les bulles, le tiroir des
+         morceaux et la barre du document s'empilaient en bas au milieu, deux
+         cent quarante-quatre pixels posés sur les derniers exercices.
+         Le rail n'est pas un meuble de plus : la barre du document s'y dresse
+         (voir « placerLaBarreDuDocument »). Il ne reste ici que ce qu'elle n'a
+         pas — l'onglet des morceaux avec son rond, le choix du bord, et
+         l'effacement. -->
+    <div id="rail-bord" hidden>
+        <!-- « Quand on coupe des morceaux l'icône tiroir a un petit rond avec le
+             nombre de morceaux. » Ce rond est ce qui rend l'effacement sûr : il
+             est le seul témoin de ce qui attend, et il remplace les bulles. -->
+        <button id="rail-morceaux" class="rail-btn" hidden
+            data-tooltip="Les morceaux découpés">✂<span id="rail-rond" class="rail-rond">0</span></button>
+        <div class="rail-pied">
+            <!-- Le bon bord dépend de la salle et de la main qui écrit : aucune
+                 valeur par défaut ne peut le savoir. Le choix est retenu. -->
+            <button id="rail-cote" class="rail-btn rail-petit"
+                data-tooltip="Changer le rail de bord">⇄</button>
+            <button id="rail-effacer" class="rail-btn rail-petit"
+                data-tooltip="Cacher le rail">⇥</button>
+        </div>
+    </div>
+    <!-- CE QU'IL RESTE QUAND ON L'EFFACE : dix pixels, et le rond s'il y a des
+         morceaux. Sans ce rond, découper puis effacer perdrait les bouts sans
+         rien dire. -->
+    <button id="rail-poignee" hidden aria-label="Rendre le rail"
+        data-tooltip="Rendre le rail"><span id="rail-poignee-rond" class="rail-rond" hidden>0</span></button>
     <!-- LA DATE, RÉDUITE À ELLE-MÊME. Elle traînait cinq boutons derrière elle
          (poignée, couleur, deux tailles, roue) pour un simple bandeau de date :
          c'était lourd, et la couleur comme la taille se règlent déjà dans la
@@ -4212,7 +4242,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=432"></script>
+    <script src="script.js?v=433"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

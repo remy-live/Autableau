@@ -454,6 +454,14 @@ module.exports = async function (browser) {
     // Plus rien ne dépasse au bord droit, à mi-hauteur : on le MESURE, au lieu
     // de le croire sur parole.
     const bordDroit = await page.evaluate(() => {
+        // ON MESURE LE BORD DE L'ÉCRAN ORDINAIRE, et c'est bien de celui-là
+        // qu'il s'agit : en projection, le bord droit porte maintenant le rail,
+        // soixante-douze pixels qui sont du mobilier et non un résidu. Si une
+        // section d'avant avait laissé une projection ouverte, ce contrôle
+        // dirait « rail-bord » et accuserait le mauvais coupable — il ferme donc
+        // la projection avant de regarder.
+        if (typeof presentationEnCours !== 'undefined' && presentationEnCours
+            && typeof quitterLaPresentation === 'function') quitterLaPresentation();
         const L = window.innerWidth, H = window.innerHeight;
         const restes = [];
         document.querySelectorAll('body > *').forEach(el => {
@@ -508,6 +516,11 @@ module.exports = async function (browser) {
                 const r = e.getBoundingClientRect();
                 return { vu: getComputedStyle(e).display !== 'none' && r.height > 4,
                          haut: Math.round(r.top), bas: Math.round(r.bottom),
+                         // Au bord, c'est l'horizontale qui parle : la barre du
+                         // document s'y dresse, et celle des réglages ne doit
+                         // pas aller se cacher dessous.
+                         droite: Math.round(window.innerWidth - r.right),
+                         large: Math.round(r.width),
                          dansLEcran: r.bottom <= window.innerHeight + 1 && r.top >= -1 };
             };
             return { doc: m('bar-document'), style: m('bar-style') };
@@ -543,12 +556,27 @@ module.exports = async function (browser) {
         && enPleinePage.surLeTableau.style.haut >= enPleinePage.surLeTableau.doc.bas
         && enPleinePage.surLeTableau.style.dansLEcran,
         JSON.stringify(enPleinePage.surLeTableau));
-    r.verifie('en plein écran, la barre du document est en bas',
-        enPleinePage.enPlein.doc.bas > enPleinePage.ecran * 0.75,
+    // SA PLACE EN PLEIN ÉCRAN N'EST PLUS LE BAS, C'EST LE BORD.
+    //
+    // Le bas avait été demandé, et il valait mieux que le haut. Mais le bas
+    // était LA PAGE : mesuré, avec deux morceaux découpés, les bulles, le
+    // tiroir des morceaux et cette barre y faisaient deux cent quarante-quatre
+    // pixels empilés sur les derniers exercices. Elle se dresse donc dans le
+    // rail, une bande de soixante-douze pixels au bord qui n'est plus à la page.
+    //
+    // CE QUI RESTE INTACT, c'est la plainte d'origine : « en pleine page, quand
+    // je tape du texte, j'ai l'impression que la barre de texte est tout en bas,
+    // cachée » — quarante-deux pixels hors de l'écran. Les réglages doivent être
+    // entièrement visibles ; ils n'ont plus à se ranger au-dessus d'une barre
+    // qui a quitté le bas, mais ils ne doivent pas non plus aller se cacher sous
+    // le rail.
+    r.verifie('en plein écran, la barre du document se dresse au bord, dans le rail',
+        enPleinePage.enPlein.doc.vu && enPleinePage.enPlein.doc.droite === 0
+        && enPleinePage.enPlein.doc.large === 72,
         JSON.stringify(enPleinePage.enPlein));
-    r.verifie('et les réglages passent AU-DESSUS d\'elle, entièrement dans l\'écran',
+    r.verifie('et les réglages restent entièrement dans l\'écran, sans aller se cacher sous le rail',
         enPleinePage.enPlein.style.vu
-        && enPleinePage.enPlein.style.bas <= enPleinePage.enPlein.doc.haut
+        && enPleinePage.enPlein.style.droite >= 72
         && enPleinePage.enPlein.style.dansLEcran,
         JSON.stringify(enPleinePage.enPlein));
 

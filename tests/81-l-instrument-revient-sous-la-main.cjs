@@ -250,6 +250,77 @@ module.exports = async function (browser) {
     r.egal('LA MINE REVIENT SUR LA TOILE', remise.sous, 'board', JSON.stringify(remise));
     r.egal('et l\'instrument est de nouveau utilisable', remise.enVue, true, JSON.stringify(remise));
 
+    // ------------------------------------------------------------------
+    // 7. ET DANS UNE PLACE ÉTROITE, C'EST LA MINE QU'ON RAMÈNE, PAS LE CENTRE
+    //
+    // On reposait la POINTE SÈCHE au centre de la place utile, et l'on s'en
+    // allait. Tant que la place est haute, la mine suit ; dès qu'elle est basse
+    // — une page projetée dont on ne voit qu'une bande, un écran de portable,
+    // des barres hautes —, la mine pend hors de la place pendant que le centre
+    // y est bien. Un compas se prend par sa mine : on rendait donc un
+    // instrument « ramené sous la main » que la main ne pouvait pas prendre.
+    //
+    // On le met à l'épreuve en RÉTRÉCISSANT la place : la page projetée est
+    // ramenée à une bande de quatre cents pixels. Le compas y tient — deux cent
+    // cinquante-cinq pixels de la pointe sèche à la mine —, mais il n'y tient
+    // qu'en étant GLISSÉ, car centrer la pointe sèche laisse la mine à deux cent
+    // cinquante-cinq du milieu d'une bande qui n'en offre que deux cents.
+    //
+    // Première version de ce contrôle : une bande de deux cent quarante, plus
+    // courte que le compas. Il tombait sur le code sain, et il avait tort — on
+    // ne peut pas faire entrer deux cent cinquante-cinq pixels dans deux cent
+    // quarante, et exiger l'impossible n'éprouve rien. Un contrôle qui tombe
+    // sur du code sain est un contrôle à corriger, pas un défaut à poursuivre.
+    // ------------------------------------------------------------------
+    const dansUneBande = await page.evaluate(async () => {
+        const w = widgets.compass;
+        const d = getObjectById('image', presentationEnCours);
+        if (!w || !d) return null;
+        // La page devient une bande basse, bien à l'écran : la place utile en
+        // hérite, puisqu'elle est l'intersection de la page et des barres.
+        const H = canvas.clientHeight || window.innerHeight;
+        d.h = 400 / zoom;
+        panY = (H - 400) / 2 - d.y * zoom;
+        draw();
+        const bande = rectangleUtileDeLaVue();
+        // Le compas part du bas, mine dehors : c'est le cas qu'on répare.
+        w.angle = Math.PI / 2;
+        w.x = ((bande.x1 + bande.x2) / 2 - panX) / zoom;
+        w.y = (bande.y2 - panY) / zoom;
+        draw();
+        const avant = instrumentEnVue(w);
+        ramenerLInstrumentEnVue(w);
+        draw();
+        const mine = w.toGlobal(w.radius, 0);
+        const ecart = Math.round(Math.abs(mine.y - w.y) * zoom);
+        return {
+            bande: { haut: Math.round(bande.y1), bas: Math.round(bande.y2) },
+            hauteurDeLaBande: Math.round(bande.y2 - bande.y1),
+            ecartDeLaMine: ecart,
+            avant,
+            apres: instrumentEnVue(w),
+            // CE QU'ON MESURE VRAIMENT : les deux points utiles sont-ils dans
+            // la place ? Le centre seul passerait sans rien prouver.
+            centreDedans: (() => {
+                const y = w.y * zoom + panY;
+                return y > bande.y1 && y < bande.y2;
+            })(),
+            mineDedans: (() => {
+                const y = mine.y * zoom + panY;
+                return y > bande.y1 && y < bande.y2;
+            })()
+        };
+    });
+    r.verifie('le compas tient dans la place, mais pas en y centrant sa pointe sèche : la mine pendrait dehors',
+        dansUneBande && dansUneBande.hauteurDeLaBande > dansUneBande.ecartDeLaMine
+        && dansUneBande.hauteurDeLaBande / 2 < dansUneBande.ecartDeLaMine,
+        JSON.stringify(dansUneBande));
+    r.egal('et il était bien hors d\'usage au départ', dansUneBande && dansUneBande.avant, false,
+        JSON.stringify(dansUneBande));
+    r.verifie('ON RAMÈNE L\'INSTRUMENT ENTIER, MINE COMPRISE : dans une place trop courte pour lui, on le centre au mieux — la mine entre dans la place au lieu de pendre dessous',
+        dansUneBande && dansUneBande.mineDedans && dansUneBande.centreDedans,
+        JSON.stringify(dansUneBande));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();

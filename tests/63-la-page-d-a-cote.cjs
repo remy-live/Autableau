@@ -411,8 +411,12 @@ module.exports = async function (browser) {
         await new Promise(ok => setTimeout(ok, 150));
         const doc = images[0];
         const toile = document.getElementById('board');
-        const pageEntiere = Math.min(toile.clientWidth / doc.w, toile.clientHeight / doc.h);
-        const pleineLargeur = toile.clientWidth / doc.w;
+        // « TOUTE LA PLACE » EST LE CADRE UTILE, et non l'écran : le rail de la
+        // projection s'en réserve soixante-douze pixels au bord, et la page se
+        // pose dans ce qui reste. L'attendu tiré de l'écran entier annonçait
+        // 1,813 là où la page vaut 1,711.
+        const pageEntiere = Math.min(cadreUtile().L / doc.w, toile.clientHeight / doc.h);
+        const pleineLargeur = cadreUtile().L / doc.w;
         return { zoom, cadrage: cadrageDePresentation, pageEntiere, pleineLargeur,
                  attendu: cadrageDePresentation === 'largeur' ? pleineLargeur : pageEntiere };
     });

@@ -1969,6 +1969,42 @@ document.addEventListener('DOMContentLoaded', () => {
         const centre = centreUtileDeLaVue();
         w.x = (centre.x - panX) / zoom;
         w.y = (centre.y - panY) / zoom;
+        // ET L'ON VÉRIFIE OÙ LA MINE EST RETOMBÉE.
+        //
+        // On reposait la POINTE SÈCHE au centre de la place utile, et l'on s'en
+        // allait. Mais un compas se prend par sa MINE, qui pend à cent
+        // cinquante pixels de là : la recentrer ne la met pas en vue pour
+        // autant, et l'on rendait un instrument « ramené sous la main » que la
+        // main ne pouvait pas prendre — « l'instrument est de nouveau
+        // utilisable » rendait faux juste après l'avoir ramené.
+        //
+        // Le défaut ne datait pas du rail ; c'est le rail qui l'a montré, en
+        // déplaçant d'une trentaine de pixels le centre de la place utile — de
+        // quoi faire passer la mine du tableau à un bouton de la barre de
+        // style. Un correctif qui ne regarde que le centre est un correctif
+        // qu'un meuble déplacé défait.
+        //
+        // On translate donc l'instrument ENTIER de ce qu'il faut pour que tous
+        // ses points utiles entrent dans la place, marge comprise. Si la place
+        // est trop petite pour les contenir — un compas de trois cents pixels
+        // dans une bande de deux cents —, on centre au mieux : c'est tout ce
+        // qu'on peut, et cela vaut mieux que de le laisser sous une barre.
+        const r = rectangleUtileDeLaVue();
+        const M = 40;
+        const pts = pointsAVerifier(w).map(p => ({ x: p.x * zoom + panX, y: p.y * zoom + panY }));
+        if (!pts.length) return true;
+        const x1 = Math.min(...pts.map(p => p.x)), x2 = Math.max(...pts.map(p => p.x));
+        const y1 = Math.min(...pts.map(p => p.y)), y2 = Math.max(...pts.map(p => p.y));
+        const glisser = (a, b, min, max) => {
+            // Ce qu'il faut ajouter pour que [a, b] entre dans [min, max].
+            if (b - a > max - min) return (min + max) / 2 - (a + b) / 2;
+            if (a < min) return min - a;
+            if (b > max) return max - b;
+            return 0;
+        };
+        const dx = glisser(x1, x2, r.x1 + M + 1, r.x2 - M - 1);
+        const dy = glisser(y1, y2, r.y1 + M + 1, r.y2 - M - 1);
+        if (dx || dy) { w.x += dx / zoom; w.y += dy / zoom; }
         return true;
     }
     window.ramenerLInstrumentEnVue = ramenerLInstrumentEnVue;
@@ -1993,12 +2029,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     widgets[widgetName].legLength = 250;
                 }
             }
-            // ET S'IL EXISTAIT DÉJÀ, ON LE RAMÈNE SOUS LA MAIN.
-            else if (activeWidgets[widgetName]) {
-                ramenerLInstrumentEnVue(widgets[widgetName]);
-            }
             if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
             setMode(mode); // Rafraîchit l'affichage de la barre de style si le compas est activé
+            // ET S'IL EXISTAIT DÉJÀ, ON LE RAMÈNE SOUS LA MAIN — APRÈS « setMode ».
+            //
+            // On le ramenait AVANT, et l'on jugeait donc sa place sur un écran
+            // qui n'existait pas encore : « setMode » rouvre la barre de style
+            // quand le compas s'allume. Mesuré — plafond 900 au moment du
+            // contrôle, mine à 857, « en vue », rien à faire ; puis la barre de
+            // style reparaît de 830 à 884, très exactement par-dessus la mine,
+            // et l'instrument rendu « sous la main » est inutilisable.
+            //
+            // Le défaut est plus ancien que le rail : il dormait parce que la
+            // mine tombait dans un pixel de la barre qui rendait encore
+            // « board ». Le rail a déplacé la place utile d'une trentaine de
+            // pixels, la mine est tombée sur un bouton, et le contrôle a parlé.
+            if (activeWidgets[widgetName] && widgets[widgetName]) {
+                ramenerLInstrumentEnVue(widgets[widgetName]);
+            }
             draw();
             e.stopPropagation();
         });
@@ -2917,9 +2965,29 @@ function poserLeTiroirDesMorceaux() {
     // annonçait. Les deux vivent au même endroit — le bas de l'écran, au
     // milieu —, c'est donc à la dernière venue de monter d'un cran.
     const bulles = document.getElementById('toast-container');
-    const poserLesBulles = (y) => { if (bulles) bulles.style.bottom = y ? y + 'px' : ''; };
+    const poserLesBulles = (y) => {
+        if (!bulles) return;
+        bulles.style.top = '';
+        bulles.style.bottom = y ? y + 'px' : '';
+    };
+    // EN PROJECTION, LES BULLES MONTENT EN HAUT.
+    //
+    // Les bulles du découpage sont parties — le rond de l'onglet les remplace —
+    // mais il en reste : « tracez un rectangle sur la page », « fin du
+    // document », « la page seule ». Mesurées à leur place habituelle pendant
+    // qu'on projetait : six cent quatre-vingt-dix-sept pixels sur quatre-vingts,
+    // posés à mi-hauteur de la page, cinquante-cinq mille pixels carrés de
+    // l'exercice couverts le temps qu'on les lise.
+    //
+    // En haut, elles tombent sur le titre de la fiche et sur sa marge, non sur
+    // ce qui reste à faire — et le coin de l'écran, calé à droite, ne les
+    // rencontre pas : une bulle est centrée, et il faudrait qu'elle fasse plus
+    // de onze cents pixels pour l'atteindre.
+    const auRail = (typeof leRailEstEnPlace === 'function') && leRailEstEnPlace();
+    if (auRail && bulles) { bulles.style.bottom = 'auto'; bulles.style.top = '14px'; }
     // Déplacé à la main : il reste où on l'a mis, et son double-clic le rend.
-    if (bande.style.top) { poserLesBulles(0); return; }
+    // On ne renvoie pas les bulles en bas quand elles sont montées au rail.
+    if (bande.style.top) { if (!auRail) poserLesBulles(0); return; }
     let bas = 12;
     const sIlGene = (el) => {
         if (!el || el.hidden) return;
@@ -2937,7 +3005,9 @@ function poserLeTiroirDesMorceaux() {
     // La barre de style descend avec celle du document : elle compte aussi.
     sIlGene(document.getElementById('bar-style'));
     bande.style.setProperty('--haut-du-tiroir', bas + 'px');
-    poserLesBulles(bande.hidden ? 0 : bas + (bande.offsetHeight || 78) + 12);
+    // Au rail, les bulles sont déjà en haut : elles ne redescendent pas se
+    // ranger au-dessus d'un tiroir qu'on vient d'appeler.
+    if (!auRail) poserLesBulles(bande.hidden ? 0 : bas + (bande.offsetHeight || 78) + 12);
 }
 window.poserLeTiroirDesMorceaux = poserLeTiroirDesMorceaux;
 
@@ -9522,9 +9592,29 @@ function placerLaBarreDuDocument() {
     // glissement il n'y avait donc rien pour défendre la barre, et elle
     // revenait se centrer sous les doigts.
     if (barre.dataset.enDeplacement) return;
-    barre.classList.toggle('vertical', barreDebout);
-    tournerLesFlechesDePage(barreDebout);
+    // DANS LE RAIL, ELLE EST DEBOUT — ET LE RAIL PASSE AVANT LA PLACE GARDÉE À
+    // LA MAIN. Une barre qu'on avait posée au milieu de l'écran reviendrait se
+    // poser sur la page projetée, c'est-à-dire exactement ce qu'on répare ; sa
+    // place à la main l'attend intacte pour l'écran ordinaire.
+    const dansLeRail = (typeof leRailEstEnPlace === 'function') && leRailEstEnPlace();
+    barre.classList.toggle('dans-le-rail', dansLeRail);
+    barre.classList.toggle('vertical', barreDebout || dansLeRail);
+    tournerLesFlechesDePage(barreDebout || dansLeRail);
     if (barre.parentNode !== document.body) document.body.appendChild(barre);
+
+    if (dansLeRail) {
+        // Collée au bord, centrée sur la hauteur. Les quatre lignes de style
+        // sont posées ici et non dans la feuille : la barre garde des styles en
+        // ligne de ses autres placements, et une feuille ne les efface pas.
+        barre.style.transform = 'translateY(-50%)';
+        barre.style.top = '50%';
+        barre.style.bottom = 'auto';
+        if (bordDuRail() === 'gauche') { barre.style.left = '0px'; barre.style.right = 'auto'; }
+        else { barre.style.left = 'auto'; barre.style.right = '0px'; }
+        barre.removeAttribute('data-dragged');
+        signalerLaBarreDuDocument(barre);
+        return;
+    }
 
     if (barreStylePosee) {
         // DÉPLACÉE À LA MAIN, elle reste où on l'a mise : sans cela le
@@ -20023,8 +20113,19 @@ function basculerLaDecoupe(force) {
         // depuis que le tiroir existe. On guettait donc le côté du document,
         // où rien n'arrivait. Il dit maintenant où le bout descend, et
         // comment reposer les ciseaux, qui restent pris.
-        showToast(veut ? '✂ Tracez un rectangle sur la page : le morceau ira dans le tiroir, en bas — Échap pour reposer les ciseaux'
-                       : 'Découpage terminé');
+        // EN PROJECTION, LE TIROIR N'EST PLUS « EN BAS » : il est au rail, et
+        // c'est le rond de l'onglet qui compte les bouts. Dire « en bas » y
+        // ferait guetter le bord de la page, là où plus rien n'arrive. Et la
+        // fin du découpage ne s'annonce plus : le rond est le témoin, il n'a
+        // pas besoin d'une bulle posée sur la page pour se faire croire.
+        const auRail = leRondLeDitDeja();
+        if (veut) {
+            showToast(auRail
+                ? '✂ Tracez un rectangle sur la page : le morceau ira dans le rail, au bord — Échap pour reposer les ciseaux'
+                : '✂ Tracez un rectangle sur la page : le morceau ira dans le tiroir, en bas — Échap pour reposer les ciseaux');
+        } else if (!auRail) {
+            showToast('Découpage terminé');
+        }
     }
     return decoupeActive;
 }
@@ -20184,7 +20285,11 @@ function prendreUnMorceauDetoure(source, r, forme, chemin) {
     morceauxEnAttente.push(morceau);
     majLeTiroirDesMorceaux();
     draw();
-    if (typeof showToast === 'function') {
+    // LE ROND LE DIT DÉJÀ. « Quand on coupe des morceaux l'icône tiroir a un
+    // petit rond avec le nombre de morceaux » : en projection, cette bulle-là
+    // faisait quatre cent quarante-quatre pixels sur quatre-vingts, posés sur la
+    // page, pour répéter ce que le rond montre sans rien couvrir.
+    if (typeof showToast === 'function' && !leRondLeDitDeja()) {
         showToast('✂ Morceau détouré, rangé dans le tiroir — glissez-le où vous le voulez');
     }
     return morceau;
@@ -20238,7 +20343,7 @@ function prendreUnMorceau(source, r, silencieux) {
     if (silencieux) return morceau;
     majLeTiroirDesMorceaux();
     draw();
-    if (typeof showToast === 'function') {
+    if (typeof showToast === 'function' && !leRondLeDitDeja()) {
         showToast('✂ Morceau rangé dans le tiroir — glissez-le où vous le voulez');
     }
     return morceau;
@@ -20496,7 +20601,15 @@ let morceauxEnAttente = [];
 function majLeTiroirDesMorceaux() {
     const bande = document.getElementById('bande-morceaux');
     if (!bande) return;
-    bande.hidden = morceauxEnAttente.length === 0;
+    // EN PROJECTION, LE TIROIR NE S'OUVRE PLUS TOUT SEUL. « Quand je découpe un
+    // PDF, ça se met dans une barre qui cache un bout du PDF » : il paraissait
+    // de lui-même, six cent dix-neuf pixels au bas de la page projetée, pour
+    // annoncer un rangement dont on n'avait pas besoin sur le moment. C'est le
+    // rond de l'onglet qui le dit maintenant, et c'est l'onglet qui l'ouvre.
+    const parLeRail = (typeof leRailEstEnPlace === 'function') && leRailEstEnPlace();
+    bande.hidden = morceauxEnAttente.length === 0
+        || (parLeRail && !(typeof leTiroirDuRailEstOuvert === 'function' && leTiroirDuRailEstOuvert()));
+    if (typeof majLeRondDuRail === 'function') majLeRondDuRail();
     // Il vient de paraître, ou de changer de taille : il se repose au plus bas.
     if (typeof poserLeTiroirDesMorceaux === 'function') poserLeTiroirDesMorceaux();
     // La bande occupe le bas de l'écran ; la barre de la visite aussi.
@@ -22199,6 +22312,12 @@ window.majLaFormeDeDecoupe = majLaFormeDeDecoupe;
 function majBarreDocument() {
     const barre = document.getElementById('bar-document');
     if (!barre) return;
+    // LE RAIL NE SURVIT PAS À SA PROJECTION. On le resynchronise ici, avant de
+    // placer la barre : c'est le seul endroit où passent TOUS les changements de
+    // sélection et de présentation, y compris ceux qui finissent une projection
+    // sans passer par la sortie. Sans cela, soixante-douze pixels de mobilier
+    // restaient au bord d'un tableau ordinaire.
+    if (typeof syncLaVueDuRail === 'function') syncLaVueDuRail();
     placerLaBarreDuDocument();
     // « Présenter » a une place fixe au coin de l'écran : elle se rafraîchit
     // ici, où passent tous les changements de sélection et de présentation.
@@ -31282,15 +31401,39 @@ let projectionEnPause = null;
 // l'un à l'autre.
 let cadrageDePresentation = 'page';
 
+// LE CADRE OÙ LA PAGE A LE DROIT D'ALLER.
+//
+// Tout le cadrage de la projection lisait « canvas.clientWidth », c'est-à-dire
+// l'écran entier — et c'est pour cela que les meubles se posaient SUR la page :
+// la page prenait tout, il ne restait rien pour eux. Le rail a besoin d'une
+// place qui ne soit à personne d'autre ; une seule fonction la retire, et tous
+// les cadrages passent par elle.
+//
+// Hors projection la réserve vaut zéro : c'est donc le même chemin de code
+// partout, sans condition. Un cadrage qui se branche sur un mode est un
+// cadrage qui finira par n'être juste que dans un seul des deux.
+function cadreUtile() {
+    const el = document.getElementById('board');
+    const L = (el && el.clientWidth) || window.innerWidth;
+    const H = (el && el.clientHeight) || window.innerHeight;
+    const r = (typeof reserveDuRail === 'function') ? reserveDuRail() : { gauche: 0, droite: 0 };
+    // Une réserve ne peut pas manger l'écran : sur un écran minuscule, mieux
+    // vaut un rail à cheval sur la page qu'une page de huit pixels.
+    const utile = L - r.gauche - r.droite;
+    if (utile < 240) return { x: 0, L: L, H: H };
+    return { x: r.gauche, L: utile, H: H };
+}
+window.cadreUtile = cadreUtile;
+
 // Cadre la vue sur un objet, avec une marge, sans toucher à l'objet lui-même.
 function cadrerSurLObjet(obj, marge) {
     const canvas = document.getElementById('board');
     if (!canvas || !obj) return;
-    const L = canvas.clientWidth || window.innerWidth;
-    const H = canvas.clientHeight || window.innerHeight;
+    const cadre = cadreUtile();
+    const L = cadre.L, H = cadre.H;
     const m = (marge === undefined) ? 0.96 : marge;
     zoom = Math.min(L / obj.w, H / obj.h) * m;
-    panX = L / 2 - (obj.x + obj.w / 2) * zoom;
+    panX = cadre.x + L / 2 - (obj.x + obj.w / 2) * zoom;
     panY = H / 2 - (obj.y + obj.h / 2) * zoom;
     if (typeof syncPage === 'function') syncPage();
 }
@@ -31301,10 +31444,15 @@ function cadrerSurLObjet(obj, marge) {
 function cadrerSurLaLargeur(obj) {
     const canvas = document.getElementById('board');
     if (!canvas || !obj) return;
-    const L = canvas.clientWidth || window.innerWidth;
-    const H = canvas.clientHeight || window.innerHeight;
+    // « Toute la largeur » veut dire toute la largeur QU'ON A : celle du rail
+    // appartient au rail. C'est ici que se gagne la réponse à « parfois quand
+    // c'est vertical on veut projeter sur toute la largeur » — on la projette
+    // bien sur toute la largeur, et les soixante-douze pixels sont pris sur sa
+    // marge, non sur un exercice.
+    const cadre = cadreUtile();
+    const L = cadre.L, H = cadre.H;
     zoom = L / obj.w;
-    panX = -obj.x * zoom;
+    panX = cadre.x - obj.x * zoom;
     // Le haut de la page en haut de l'écran ; si elle y tient, on la centre.
     const h = obj.h * zoom;
     panY = (h <= H) ? (H - h) / 2 - obj.y * zoom : -obj.y * zoom;
@@ -31335,6 +31483,27 @@ function documentPresente() {
 }
 window.documentPresente = documentPresente;
 
+// RECADRER CE QU'ON PROJETTE, SANS RIEN DÉCIDER D'AUTRE.
+//
+// Le cadrage vivait dans une fonction locale de « presenterLeDocument » : on ne
+// pouvait le refaire qu'en re-présentant tout. Or changer le bord du rail
+// déplace la réserve, et c'est le seul geste qui ait le droit de bouger la
+// page — il lui fallait donc une porte. Elle sert aussi au redimensionnement de
+// la fenêtre, qui jusque-là laissait la page à côté de son cadre.
+function recadrerLaPresentation() {
+    const doc = documentPresente();
+    if (!doc) return false;
+    const voisin = (typeof objetVoisinDeLaPresentation === 'function')
+        ? objetVoisinDeLaPresentation() : null;
+    if (voisin && voisin !== doc) cadrerSurLesDeux(doc, voisin);
+    else if (cadrageDePresentation === 'largeur') cadrerSurLaLargeur(doc);
+    else cadrerSurLObjet(doc, 1);
+    if (typeof updateWysiwygPosition === 'function') updateWysiwygPosition();
+    if (typeof draw === 'function') draw();
+    return true;
+}
+window.recadrerLaPresentation = recadrerLaPresentation;
+
 // LA PAGE NE SORT PAS DE L'ÉCRAN. Sans cette borne, un coup de molette de trop
 // laissait le tableau vide et l'on ne savait plus où la page était passée.
 // Quand elle tient à l'écran, elle est centrée : c'est le cadrage « page
@@ -31342,11 +31511,14 @@ window.documentPresente = documentPresente;
 function bornerLaPresentation() {
     const doc = documentPresente();
     if (!doc) return;
-    const L = canvas.clientWidth || window.innerWidth;
-    const H = canvas.clientHeight || window.innerHeight;
+    // La borne vaut dans le cadre utile, sinon un coup de molette ramenait la
+    // page sous le rail — et la borne elle-même l'y aurait retenue.
+    const cadre = cadreUtile();
+    const L = cadre.L, H = cadre.H;
     const l = doc.w * zoom, h = doc.h * zoom;
-    panX = (l <= L) ? (L - l) / 2 - doc.x * zoom
-        : Math.min(-doc.x * zoom, Math.max(L - (doc.x + doc.w) * zoom, panX));
+    panX = (l <= L) ? cadre.x + (L - l) / 2 - doc.x * zoom
+        : Math.min(cadre.x - doc.x * zoom,
+                   Math.max(cadre.x + L - (doc.x + doc.w) * zoom, panX));
     panY = (h <= H) ? (H - h) / 2 - doc.y * zoom
         : Math.min(-doc.y * zoom, Math.max(H - (doc.y + doc.h) * zoom, panY));
 }
@@ -31519,6 +31691,9 @@ function presenterLeDocument(cadrageVoulu) {
     // Les outils ne disparaissent pas, ils se rangent : le quai les garde à
     // portée de doigt pendant qu'on projette.
     rangerLesOutilsPourProjeter();
+    // Le rail prend sa place AVANT qu'on cadre : la page se posera dans ce qui
+    // reste, et non l'inverse.
+    if (typeof poserLeRail === 'function') poserLeRail();
 
     if (typeof setMode === 'function') setMode('pointer');
     selectedItems = [{ type: 'image', id: doc.id }];
@@ -31629,6 +31804,307 @@ function rendreLesOutilsApresProjection() {
 }
 window.rangerLesOutilsPourProjeter = rangerLesOutilsPourProjeter;
 window.rendreLesOutilsApresProjection = rendreLesOutilsApresProjection;
+
+// ==============================================================================
+// LE RAIL DE LA PROJECTION
+//
+// « Je suis toujours chagriné par la place que ça prend pour le pdf et la
+// découpe et la barre d'outils et les tiroirs. » Puis, la plainte resserrée :
+// « Non c'est surtout quand le PDF est en plein écran. »
+//
+// Mesuré en projetant un polycopié et en découpant deux morceaux : TROIS
+// surfaces s'empilaient au même endroit, en bas au milieu de l'écran —
+//
+//   les bulles          444 × 80  à 656 px du haut
+//   le tiroir à morceaux 619 × 78  à 748
+//   la barre du document 704 × 44  à 836
+//
+// soit une bande de DEUX CENT QUARANTE-QUATRE pixels, plus du quart de la
+// hauteur, posée sur la page. Et posée sur les DERNIERS exercices, ceux qu'on
+// n'a pas encore faits.
+//
+// Trois questions ont fermé les fausses pistes, l'une après l'autre.
+//
+// « Parfois quand c'est vertical on veut projeter sur toute la largeur. » Une
+// A4 debout sur un écran couché laisse deux bandes noires de trois cent
+// quatre-vingts pixels : on avait voulu y loger les meubles. Mais ces bandes
+// n'existent que si la page tient à la hauteur — sur toute la largeur, il n'y
+// en a plus. Un meuble ne peut pas habiter un endroit qui disparaît.
+//
+// « Comment on reste cohérent avec le reste ? » Un meuble qui change de bord
+// selon l'orientation du document ne se retrouve pas. Le rail est donc TOUJOURS
+// au même bord et TOUJOURS large de soixante-douze pixels ; ce qui change,
+// c'est seulement la page, qui se pose dans ce qui reste. Quand la bande noire
+// est là, il s'y loge et la page ne perd rien ; quand elle n'y est pas, la page
+// lui cède soixante-douze pixels de sa marge — cinq pour cent de la largeur,
+// contre vingt-sept pour cent de la hauteur aujourd'hui, et pris sur une marge
+// plutôt que sur un exercice.
+//
+// « Et si on veut retrouver les tiroirs et la barre d'outils ? » Ils ne sont pas
+// perdus : ils s'appellent. Le rail porte les outils qu'on touche toutes les dix
+// secondes — et le crayon est de ceux-là, lui faire payer un geste serait la
+// pire décision du lot. Le reste sort du rail quand on le demande, par le bord
+// et jamais par le bas : jamais, donc, sur les derniers exercices.
+//
+// Enfin : « quand on coupe des morceaux l'icône tiroir a un petit rond avec le
+// nombre de morceaux ». Ce rond-là n'est pas un ornement, c'est ce qui rend
+// l'effacement SÛR. Puisque les meubles peuvent disparaître, la seule chose qui
+// doive survivre est le signe qu'il y a quelque chose qui attend. Et du coup il
+// remplace les bulles du découpage : le rond passe à 2, il n'y a plus rien à
+// annoncer. Quatre-vingts des deux cent quarante-quatre pixels tombent pour
+// cette seule raison.
+//
+// LE RAIL N'EST PAS UN MEUBLE DE PLUS. C'est la barre du document, dressée au
+// bord — elle sait déjà se mettre debout, et elle porte déjà le crayon, le
+// texte et le cache blanc sur une page projetée. Un rail parallèle aurait
+// dupliqué quinze boutons et leur câblage, et il aurait fallu les tenir
+// d'accord pour toujours.
+//
+// ET IL NE VIT QU'À L'ÉTAT UN — la page seule. L'état deux, « les outils
+// par-dessus la page », est une demande explicite de TOUT voir : on n'y touche
+// pas.
+// ==============================================================================
+const CLE_RAIL_BORD = 'auTableau_rail_bord';
+const RAIL_LARGEUR = 72;        // px : la réserve, au bord
+const RAIL_POIGNEE = 10;        // px : ce qu'il reste quand on l'efface
+
+let railBord = 'droite';
+try {
+    if (localStorage.getItem(CLE_RAIL_BORD) === 'gauche') railBord = 'gauche';
+} catch (e) { /* stockage refusé */ }
+// Effacé pour projeter — on ne le retient PAS d'une séance à l'autre : c'est un
+// geste du moment, et retrouver un écran sans rail au démarrage ferait croire à
+// une panne.
+let railEfface = false;
+
+function bordDuRail() { return railBord === 'gauche' ? 'gauche' : 'droite'; }
+window.bordDuRail = bordDuRail;
+
+// LE RAIL EST EN PLACE PENDANT TOUTE LA PROJECTION.
+//
+// Il n'a d'abord vécu qu'à l'état un — la page seule —, au motif que l'état
+// deux, « les outils par-dessus la page », est une demande explicite de TOUT
+// voir. La suite complète a dit le prix de cette finesse, et il était cher :
+//
+//   « et montrer les outils ne la déplace pas d'un pixel : c'était tout le
+//     reproche »  —  obtenu 836, attendu 229
+//
+// La barre du document sautait du rail au bas de l'écran dès qu'on demandait
+// ses outils, et revenait au retour. C'est mot pour mot le défaut dont on
+// s'était plaint : « pourquoi la barre du PDF va une fois en haut, une fois en
+// bas, selon qu'on mette les toolbars ou non ? » — six cents pixels de saut
+// pour un appui. On ne répare pas un meuble en en faisant sauter un autre.
+//
+// Le rail tient donc la barre d'un bout à l'autre de la projection. L'état deux
+// ajoute les AUTRES barres par-dessus ; il ne déménage pas celle-ci.
+function leRailEstEnPlace() {
+    return (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
+}
+window.leRailEstEnPlace = leRailEstEnPlace;
+
+// CE QU'IL RÉSERVE — ET IL NE LE REPREND JAMAIS.
+//
+// L'effacement ne rend pas les soixante-douze pixels. C'est contre-intuitif et
+// c'est le cœur de l'affaire : une page qui se redessine au milieu d'une leçon,
+// c'est très exactement le défaut qu'on soigne. La classe suit une page qui
+// saute d'un cran chaque fois que le maître range un meuble. La place est donc
+// décidée en entrant en projection, une fois, et tenue jusqu'à la sortie.
+// ET ELLE NE DÉPEND PAS DE CE QU'ON VOIT — ni de l'état, ni de l'effacement.
+// Le rail, lui, est en place pendant toute la projection : les deux conditions
+// se confondent aujourd'hui, et c'est tant mieux, mais on garde les deux noms.
+// La réserve répond à « où la page a-t-elle le droit d'aller », la visibilité à
+// « que voit-on » ; les mêler, c'est reprendre les soixante-douze pixels dès
+// qu'un meuble se cache, donc recadrer la page devant la classe.
+function laProjectionReserveLeRail() {
+    return (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() > 0;
+}
+
+function reserveDuRail() {
+    if (!laProjectionReserveLeRail()) return { gauche: 0, droite: 0 };
+    return bordDuRail() === 'gauche'
+        ? { gauche: RAIL_LARGEUR, droite: 0 }
+        : { gauche: 0, droite: RAIL_LARGEUR };
+}
+window.reserveDuRail = reserveDuRail;
+
+// Le rond : combien de morceaux attendent. Il vaut zéro hors découpage, et
+// c'est alors l'onglet tout entier qui n'a rien à montrer.
+// LE ROND LE DIT DÉJÀ. Ce qu'on annonçait par une bulle posée sur la page, le
+// rond de l'onglet le montre sans rien couvrir : on se taît donc. Hors
+// projection, rien ne change — il n'y a pas de rail, et la bulle est le seul
+// témoin qu'un morceau est parti au tiroir.
+function leRondLeDitDeja() {
+    return (typeof leRailEstEnPlace === 'function') && leRailEstEnPlace();
+}
+window.leRondLeDitDeja = leRondLeDitDeja;
+
+function morceauxQuiAttendent() {
+    return (typeof morceauxEnAttente !== 'undefined' && Array.isArray(morceauxEnAttente))
+        ? morceauxEnAttente.length : 0;
+}
+
+function majLeRondDuRail() {
+    const onglet = document.getElementById('rail-morceaux');
+    if (!onglet) return 0;
+    const combien = morceauxQuiAttendent();
+    // L'ONGLET NE PARAÎT QUE S'IL A QUELQUE CHOSE. Un onglet « ✂ 0 » apprend à
+    // ne plus regarder le rail.
+    onglet.hidden = !(leRailEstEnPlace() && combien > 0);
+    const rond = document.getElementById('rail-rond');
+    if (rond) rond.textContent = String(combien);
+    onglet.setAttribute('data-tooltip', combien > 1
+        ? combien + ' morceaux découpés attendent — ouvrir le tiroir'
+        : 'Un morceau découpé attend — ouvrir le tiroir');
+    // La poignée porte le même rond : effacer le rail ne doit pas effacer ce
+    // qui attend.
+    const surLaPoignee = document.getElementById('rail-poignee-rond');
+    if (surLaPoignee) {
+        surLaPoignee.textContent = String(combien);
+        surLaPoignee.hidden = combien === 0;
+    }
+    return combien;
+}
+window.majLeRondDuRail = majLeRondDuRail;
+
+// POSER LE RAIL. Une seule fonction écrit l'état du rail sur le corps de la
+// page ; tout le reste — la feuille de style, la barre du document, le tiroir —
+// le lit. Deux endroits pour une décision, c'est un endroit qui finit par
+// mentir.
+// CE QU'ON VOIT DU RAIL, ET RIEN D'AUTRE.
+//
+// Séparé de « poserLeRail » parce qu'il faut pouvoir le rafraîchir SANS
+// replacer la barre ni le tiroir — et il le faut souvent. Un contrôle ancien
+// l'a dit avant moi : « rien ne traîne plus au bord droit, à mi-hauteur »,
+// obtenu « rail-bord » alors qu'aucune projection n'était en cours. Le rail
+// survivait à sa projection dès qu'elle finissait par un autre chemin que la
+// sortie — une page qu'on vide, un document qui s'en va, « documentPresente »
+// qui remet le drapeau à zéro en constatant qu'il n'y a plus rien. On se
+// retrouvait avec soixante-douze pixels de mobilier au bord d'un tableau
+// ordinaire, et aucune porte pour les faire partir.
+//
+// La vue du rail se resynchronise donc partout où passe la barre du document,
+// c'est-à-dire à chaque changement de sélection et de présentation.
+function syncLaVueDuRail() {
+    const corps = document.body;
+    if (!corps) return false;
+    const enPlace = leRailEstEnPlace();
+    corps.classList.toggle('rail-en-place', enPlace);
+    corps.classList.toggle('rail-a-gauche', enPlace && bordDuRail() === 'gauche');
+    corps.classList.toggle('rail-efface', enPlace && railEfface);
+    const bande = document.getElementById('rail-bord');
+    if (bande) bande.hidden = !enPlace;
+    const poignee = document.getElementById('rail-poignee');
+    if (poignee) poignee.hidden = !(enPlace && railEfface);
+    majLeRondDuRail();
+    return enPlace;
+}
+window.syncLaVueDuRail = syncLaVueDuRail;
+
+function poserLeRail() {
+    const corps = document.body;
+    if (!corps) return false;
+    const enPlace = leRailEstEnPlace();
+    corps.classList.toggle('rail-en-place', enPlace);
+    corps.classList.toggle('rail-a-gauche', enPlace && bordDuRail() === 'gauche');
+    corps.classList.toggle('rail-efface', enPlace && railEfface);
+    const bande = document.getElementById('rail-bord');
+    if (bande) bande.hidden = !enPlace;
+    const poignee = document.getElementById('rail-poignee');
+    if (poignee) poignee.hidden = !(enPlace && railEfface);
+    majLeRondDuRail();
+    const cote = document.getElementById('rail-cote');
+    if (cote) {
+        cote.setAttribute('data-tooltip', bordDuRail() === 'gauche'
+            ? 'Mettre le rail au bord droit'
+            : 'Mettre le rail au bord gauche');
+    }
+    const effacer = document.getElementById('rail-effacer');
+    if (effacer) {
+        effacer.setAttribute('data-tooltip', railEfface
+            ? 'Rendre le rail — la page ne bougera pas'
+            : 'Cacher le rail — il ne restera qu\'une poignée');
+    }
+    // La barre du document se replace dans le rail, ou en sort.
+    if (typeof placerLaBarreDuDocument === 'function') placerLaBarreDuDocument();
+    // Le tiroir des morceaux ne s'affiche plus tout seul au bas de la page : en
+    // projection c'est l'onglet qui le dit, et c'est l'onglet qui l'ouvre.
+    if (typeof majLeTiroirDesMorceaux === 'function') majLeTiroirDesMorceaux();
+    return enPlace;
+}
+window.poserLeRail = poserLeRail;
+
+// CHANGER DE BORD. « Au choix, dans les réglages » : le choix est retenu, et il
+// se prend aussi depuis le rail lui-même — c'est là qu'on est quand on se dit
+// qu'il gêne. Sur un tableau tactile, le bon bord dépend de la salle et de la
+// main qui écrit ; aucune valeur par défaut ne peut le savoir.
+function basculerLeBordDuRail(force) {
+    railBord = (force === 'gauche' || force === 'droite') ? force
+        : (bordDuRail() === 'droite' ? 'gauche' : 'droite');
+    try { localStorage.setItem(CLE_RAIL_BORD, railBord); } catch (e) { /* refusé */ }
+    // LA PAGE SE RECADRE ICI, ET SEULEMENT ICI. Changer de bord déplace la
+    // réserve : c'est le seul geste du rail qui ait le droit de bouger la page,
+    // et on le demande explicitement.
+    poserLeRail();
+    if (typeof recadrerLaPresentation === 'function') recadrerLaPresentation();
+    if (typeof showToast === 'function') {
+        showToast(bordDuRail() === 'gauche' ? 'Le rail au bord gauche' : 'Le rail au bord droit');
+    }
+    return railBord;
+}
+window.basculerLeBordDuRail = basculerLeBordDuRail;
+
+// EFFACER LE RAIL. « Si on veut projeter le polycopié sans rien parasiter, il
+// faut que ça puisse disparaître. » Il ne reste qu'une poignée de dix pixels —
+// qui garde le rond, sinon les morceaux découpés seraient perdus sans prévenir.
+// La page, elle, ne bouge pas : voir « reserveDuRail ».
+function basculerLeRailEfface(force) {
+    if (!leRailEstEnPlace()) return false;
+    railEfface = (force === undefined) ? !railEfface : !!force;
+    poserLeRail();
+    return railEfface;
+}
+window.basculerLeRailEfface = basculerLeRailEfface;
+
+// La projection commence et finit : le rail se pose avec elle, et l'effacement
+// ne survit pas à une sortie — on ne garde pas un geste de confort pour la
+// séance suivante, où il ressemblerait à une panne.
+// LES TROIS BOUTONS DU RAIL. Ils sont branchés ici et non dans le balisage :
+// un « onclick » dans la page appelle une fonction globale avant qu'elle
+// existe, et l'on ne s'en aperçoit qu'en cliquant devant sa classe.
+document.addEventListener('DOMContentLoaded', () => {
+    const onglet = document.getElementById('rail-morceaux');
+    if (onglet) onglet.addEventListener('click', () => basculerLeTiroirDuRail());
+    const cote = document.getElementById('rail-cote');
+    if (cote) cote.addEventListener('click', () => basculerLeBordDuRail());
+    const effacer = document.getElementById('rail-effacer');
+    if (effacer) effacer.addEventListener('click', () => basculerLeRailEfface(true));
+    const poignee = document.getElementById('rail-poignee');
+    if (poignee) poignee.addEventListener('click', () => basculerLeRailEfface(false));
+});
+
+function oublierLEffacementDuRail() { railEfface = false; railTiroirOuvert = false; }
+window.oublierLEffacementDuRail = oublierLEffacementDuRail;
+
+// LE TIROIR APPELÉ. « Si on veut retrouver les tiroirs » : on touche l'onglet,
+// le tiroir vient, on s'en sert, on le referme. Il ne s'ouvre plus de lui-même
+// au milieu d'un découpage — découper et aller chercher sont deux gestes.
+let railTiroirOuvert = false;
+
+function leTiroirDuRailEstOuvert() { return railTiroirOuvert; }
+window.leTiroirDuRailEstOuvert = leTiroirDuRailEstOuvert;
+
+function basculerLeTiroirDuRail(force) {
+    if (!leRailEstEnPlace()) return false;
+    railTiroirOuvert = (force === undefined) ? !railTiroirOuvert : !!force;
+    // Appeler le tiroir rend le rail s'il était effacé : on vient chercher
+    // quelque chose, ce n'est pas le moment de tâtonner sur une poignée.
+    if (railTiroirOuvert && railEfface) railEfface = false;
+    poserLeRail();
+    const onglet = document.getElementById('rail-morceaux');
+    if (onglet) onglet.classList.toggle('ouvert', railTiroirOuvert);
+    return railTiroirOuvert;
+}
+window.basculerLeTiroirDuRail = basculerLeTiroirDuRail;
 
 // Sortir de la présentation : le fond sombre s'en va avec elle.
 // Vrai si c'est la présentation qui a demandé le plein écran du navigateur.
@@ -31839,6 +32315,9 @@ function basculerLesBarresDeLaPresentation() {
     // par ce bouton ne la ramenait plus — il rendait un écran sans un crayon.
     if (avec) rendreLesOutilsApresProjection();
     else rangerLesOutilsPourProjeter();
+    // Le rail s'efface quand on demande TOUS les outils, et revient avec la
+    // page seule. Sa réserve, elle, ne bouge pas : la page ne saute pas.
+    if (typeof poserLeRail === 'function') poserLeRail();
     if (typeof majBarreDocument === 'function') majBarreDocument();
     if (typeof draw === 'function') draw();
     if (typeof showToast === 'function') {
@@ -31881,6 +32360,9 @@ function quitterLaPresentation() {
     // au quai pour cette projection : qui les avait rangés lui-même les
     // retrouve rangés.
     rendreLesOutilsApresProjection();
+    // Le rail s'en va avec la projection, et l'effacement ne lui survit pas.
+    if (typeof oublierLEffacementDuRail === 'function') oublierLEffacementDuRail();
+    if (typeof poserLeRail === 'function') poserLeRail();
     if (typeof draw === 'function') draw();
     return true;
 }
@@ -31917,6 +32399,10 @@ function quitterLaPresentationEnGardantLEcran() {
     presentationAvecBarres = false;
     cadrageDePresentation = 'page';
     rendreLeModeDuDocument();
+    // La pause rend l'écran : le rail part avec la projection, sa réserve avec
+    // lui — ici la page DOIT se redessiner, puisqu'elle n'est plus projetée.
+    if (typeof oublierLEffacementDuRail === 'function') oublierLEffacementDuRail();
+    if (typeof poserLeRail === 'function') poserLeRail();
     if (typeof draw === 'function') draw();
     return true;
 }
@@ -37032,6 +37518,30 @@ function resizeBoardCanvas() {
     canvas.height = canvas.clientHeight || window.innerHeight;
     draw();
 }
+
+// LA PAGE PROJETÉE SUIT SON CADRE — MAIS SEULEMENT QUAND LE CADRE CHANGE.
+//
+// Entrer en plein écran change la taille de la fenêtre, et le cadrage d'avant
+// devient faux : la page déborde du cadre utile, c'est-à-dire sous le rail. Un
+// rendez-vous différé rattrapait le cas du départ ; il faut aussi l'écran qu'on
+// fait tourner et la fenêtre qu'on redimensionne.
+//
+// On ne recadre PAS à chaque « resize » pour autant. Recadrer remet le zoom et
+// la position : qui s'était approché d'un détail devant sa classe le perdrait.
+// Or « visualViewport » émet un resize quand le clavier s'ouvre, quand la barre
+// d'adresse glisse, à chaque pincement sur certains téléphones. On ne recadre
+// donc que si la taille du canvas a VRAIMENT changé.
+let tailleDuCadreConnue = '';
+
+function recadrerSiLeCadreAChange() {
+    const taille = (canvas.clientWidth || 0) + '×' + (canvas.clientHeight || 0);
+    if (taille === tailleDuCadreConnue) return false;
+    tailleDuCadreConnue = taille;
+    if (typeof recadrerLaPresentation !== 'function') return false;
+    return recadrerLaPresentation();
+}
+window.recadrerSiLeCadreAChange = recadrerSiLeCadreAChange;
+window.addEventListener('resize', recadrerSiLeCadreAChange);
 window.addEventListener('resize', resizeBoardCanvas);
 if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeBoardCanvas);
 resizeBoardCanvas();

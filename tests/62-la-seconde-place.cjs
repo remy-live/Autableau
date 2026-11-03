@@ -397,7 +397,11 @@ module.exports = async function (browser) {
         cadrerSurLesDeux(doc, voisin);
         const apresTrois = voisin.h;
 
-        const toile = document.getElementById('board');
+        // « TOUTE LA LARGEUR » EST CELLE QU'ON A, non celle de l'écran. Le rail
+        // de la projection se réserve soixante-douze pixels au bord, que la page
+        // ne reçoit plus : l'attendu se calcule donc sur le cadre utile. Tiré de
+        // l'écran entier, il annonçait 1,280 là où la page vaut 1,208 — et
+        // accusait le recadrage d'une faute qui n'était pas la sienne.
         const serre = zoom;
         libererLaPlaceACote();
         return {
@@ -408,7 +412,7 @@ module.exports = async function (browser) {
             plusPetitQueLaPage: voisin.h < doc.h,
             place: presentationVoisine,
             serre, apres: zoom,
-            pleineLargeur: toile.clientWidth / doc.w,
+            pleineLargeur: cadreUtile().L / doc.w,
             projectionTenue: !!presentationEnCours
         };
     }, UN_PIXEL);
@@ -441,9 +445,8 @@ module.exports = async function (browser) {
         images = images.filter(o => o.id !== fantome.id);
         draw();
         await new Promise(ok => setTimeout(ok, 100));
-        const toile = document.getElementById('board');
         return { place: presentationVoisine, serre, apres: zoom,
-                 pleineLargeur: toile.clientWidth / doc.w };
+                 pleineLargeur: cadreUtile().L / doc.w };
     });
     r.egal('un occupant effacé libère la place', disparu.place, null);
     r.verifie('et la page reprend sa largeur sans qu\'on demande rien',
@@ -463,9 +466,14 @@ module.exports = async function (browser) {
         cadrerSurLesDeux(doc, voisin);
         libererLaPlaceACote();
         await new Promise(ok => setTimeout(ok, 100));
+        // Les deux attendus se calculent sur le cadre utile, pour la même
+        // raison que plus haut : le rail en réserve une part, et la page se pose
+        // dans ce qui reste. Celui-ci passait par chance — c'est la hauteur qui
+        // commande en « page entière » —, et il aurait menti au premier écran
+        // plus étroit.
         return { apres: zoom,
-                 pageEntiere: Math.min(toile.clientWidth / doc.w, toile.clientHeight / doc.h),
-                 pleineLargeur: toile.clientWidth / doc.w };
+                 pageEntiere: Math.min(cadreUtile().L / doc.w, toile.clientHeight / doc.h),
+                 pleineLargeur: cadreUtile().L / doc.w };
     });
     r.verifie('qui projetait la page entière la retrouve entière',
         Math.abs(rendueEntiere.apres - rendueEntiere.pageEntiere) < 0.01,

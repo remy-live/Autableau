@@ -485,10 +485,22 @@ module.exports = async function (browser) {
             proportions: Math.abs(doc.h / doc.w - 1131 / 1600) < 0.001,
             // ON OUVRE SUR TOUTE LA LARGEUR : la page va d'un bord à l'autre,
             // et déborde donc en hauteur — c'est tout l'objet du cadrage.
-            remplitLargeur: Math.abs(doc.w * zoom - c.clientWidth) < 1.5,
-            gauche: Math.round(doc.x * zoom + panX),
+            //
+            // « TOUTE LA LARGEUR » VEUT DIRE TOUTE LA LARGEUR QU'ON A. En
+            // projection, une bande de soixante-douze pixels au bord est
+            // réservée au rail et n'est plus à la page : les meubles s'y
+            // tiennent au lieu de s'empiler sur elle — deux cent quarante-
+            // quatre pixels mesurés au bas de la page avant cela. Le contrôle
+            // lisait l'écran entier, c'est-à-dire la largeur d'avant la
+            // réserve ; il lit maintenant le cadre utile, qui EST la largeur
+            // disponible. Les soixante-douze pixels sont pris sur la marge de
+            // la page, non sur un exercice.
+            cadre: cadreUtile(),
+            remplitLargeur: Math.abs(doc.w * zoom - cadreUtile().L) < 1.5,
+            gauche: Math.round(doc.x * zoom + panX - cadreUtile().x),
             debordeEnHauteur: doc.h * zoom > c.clientHeight + 1,
-            centre: Math.abs((doc.x + doc.w / 2) * zoom + panX - c.clientWidth / 2) < 2
+            centre: Math.abs((doc.x + doc.w / 2) * zoom + panX
+                             - (cadreUtile().x + cadreUtile().L / 2)) < 2
         };
     });
     r.verifie('la présentation du document part', presentation.ok);
@@ -572,7 +584,8 @@ module.exports = async function (browser) {
         // LA MOLETTE DÉFILE (elle zoomait la page dans son cadre).
         const cadrageAvant = { cx: doc.cx, cy: doc.cy, cw: doc.cw, ch: doc.ch };
         c.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, cancelable: true, bubbles: true }));
-        const apresMolette = { panY, cadrageIntact: doc.cy === cadrageAvant.cy && doc.ch === cadrageAvant.ch };
+        const apresMolette = { panY, bas: bas(),
+            cadrageIntact: doc.cy === cadrageAvant.cy && doc.ch === cadrageAvant.ch };
 
         // On descend jusqu'au bout : le bas de la page se voit vraiment, et
         // l'on ne va pas plus loin — la page ne sort pas de l'écran.
@@ -589,9 +602,24 @@ module.exports = async function (browser) {
     });
     r.verifie('en pleine largeur, la page est plus haute que l\'écran',
         defile.depart.plusHauteQueLEcran, JSON.stringify(defile.depart));
+    // ON MESURE CE QU'ELLE FAIT, NON COMBIEN DE PIXELS ELLE Y GAGNE.
+    //
+    // Le contrôle demandait cent pixels de descente. Ce nombre venait du mou de
+    // la page — ce qui dépasse de l'écran —, et le mou a changé le jour où le
+    // rail s'est réservé soixante-douze pixels au bord : la page en pleine
+    // largeur est d'autant moins large, donc d'autant moins haute, et il n'y a
+    // plus que quarante pixels à descendre sur ce document-ci. Le contrôle
+    // tombait en annonçant une panne de la molette, qui marchait très bien.
+    //
+    // L'intention était : la molette DÉFILE au lieu de zoomer la page dans son
+    // cadre. On le mesure donc en deux faits qui ne dépendent d'aucune largeur
+    // — elle est descendue jusqu'au bout de ce que la page permet, et le
+    // cadrage de la page n'a pas bougé d'un pixel.
     r.verifie('la molette FAIT DESCENDRE, elle ne zoome plus la page dans son cadre',
-        defile.apresMolette.panY < defile.depart.panY - 100 && defile.apresMolette.cadrageIntact,
-        JSON.stringify(defile.apresMolette));
+        defile.apresMolette.panY < defile.depart.panY - 1
+        && Math.abs(defile.apresMolette.bas - defile.H) < 2
+        && defile.apresMolette.cadrageIntact,
+        JSON.stringify([defile.depart, defile.apresMolette, defile.H]));
     r.verifie('on descend jusqu\'à voir le bas de la page',
         Math.abs(defile.auBout.bas - defile.H) < 2, JSON.stringify(defile.auBout));
     r.verifie('et pas plus loin : la page ne sort pas de l\'écran',

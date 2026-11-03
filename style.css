@@ -14312,3 +14312,170 @@ body.dark-mode .cdx-apercu { background: #fff; }
     margin-bottom: 0;
     padding: 0;
 }
+
+/* ============================================================
+   LE RAIL DE LA PROJECTION
+
+   « Je suis toujours chagriné par la place que ça prend pour le pdf et la
+   découpe et la barre d'outils et les tiroirs » — puis, resserré : « non,
+   c'est surtout quand le PDF est en plein écran ».
+
+   Mesuré en projetant un polycopié, deux morceaux découpés : les bulles
+   (444 × 80), le tiroir des morceaux (619 × 78) et la barre du document
+   (704 × 44) s'empilaient en bas au milieu de l'écran — deux cent quarante-
+   quatre pixels, plus du quart de la hauteur, posés sur les derniers
+   exercices, ceux qu'on n'a pas encore faits.
+
+   Le rail est une bande de soixante-douze pixels au bord, qui n'est à
+   personne d'autre : la page se pose dans ce qui reste (« cadreUtile »), et
+   plus rien ne vient par-dessus. Ce qu'il réserve, il ne le reprend jamais —
+   même effacé, même quand on demande toutes les barres : une page qui se
+   redessine au milieu d'une leçon est le défaut qu'on soigne.
+   ============================================================ */
+#rail-bord {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 72px;
+    z-index: 11000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 0;
+    box-sizing: border-box;
+    pointer-events: none;      /* la bande ne prend rien, ses boutons seulement */
+}
+
+body.rail-a-gauche #rail-bord { right: auto; left: 0; }
+
+/* ET « hidden » DOIT GAGNER. Le « display: flex » ci-dessus battait l'attribut
+   — le rail se disait caché et restait au bord. Un contrôle ancien l'a vu avant
+   moi : « rien ne traîne plus au bord droit, à mi-hauteur », obtenu
+   « rail-bord » hors de toute projection. Toute règle de « display » sur un
+   élément qu'on cache par attribut doit porter son exception, sans quoi le
+   « hidden » du code ne veut plus rien dire. */
+#rail-bord[hidden] { display: none; }
+
+/* Effacé, il ne reste que la poignée — et le rail ne doit alors rien
+   intercepter, pas même un bouton qu'on ne voit plus. */
+body.rail-efface #rail-bord { display: none; }
+
+#rail-bord > *,
+#rail-bord .rail-pied { pointer-events: auto; }
+
+#rail-bord .rail-pied {
+    margin-top: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.rail-btn {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: var(--contour-epaisseur) solid var(--contour);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(16px);
+    transition: background .15s, color .15s;
+}
+
+.rail-btn.rail-petit { width: 36px; height: 36px; font-size: 14px; border-radius: 10px; }
+.rail-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.rail-btn.ouvert { color: var(--accent); background: var(--accent-soft); }
+.rail-btn[hidden] { display: none; }
+
+/* LE ROND. « Quand on coupe des morceaux l'icône tiroir a un petit rond avec
+   le nombre de morceaux. » Il n'est pas un ornement : puisque le rail peut
+   s'effacer, il est le seul témoin de ce qui attend — et c'est à ce titre
+   qu'il remplace les bulles du découpage, quatre-vingts pixels de bulle en
+   moins sur la page. */
+.rail-rond {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 20px;
+    text-align: center;
+    border: 2px solid var(--surface);
+}
+
+.rail-rond[hidden] { display: none; }
+
+/* CE QU'IL RESTE QUAND ON L'EFFACE : dix pixels au bord, et le rond. « Si on
+   veut projeter le polycopié sans rien parasiter, il faut que ça puisse
+   disparaître » — mais disparaître sans emporter le signe que des morceaux
+   attendent, sinon on les perd sans être prévenu. */
+#rail-poignee {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 64px;
+    padding: 0;
+    border: none;
+    border-radius: 6px 0 0 6px;
+    background: var(--contour);
+    cursor: pointer;
+    z-index: 11001;
+    opacity: .55;
+    transition: opacity .15s, width .15s;
+}
+
+body.rail-a-gauche #rail-poignee { right: auto; left: 0; border-radius: 0 6px 6px 0; }
+#rail-poignee:hover { opacity: 1; width: 16px; }
+#rail-poignee[hidden] { display: none; }
+#rail-poignee .rail-rond { top: -8px; right: -7px; }
+body.rail-a-gauche #rail-poignee .rail-rond { right: auto; left: -7px; }
+
+/* LA BARRE DU DOCUMENT, DRESSÉE DANS LE RAIL.
+   Le rail n'est pas un meuble de plus : c'est elle qui s'y tient debout. Elle
+   savait déjà se lever et porte déjà le crayon, le texte et le cache blanc sur
+   une page projetée — un rail parallèle aurait dupliqué quinze boutons et leur
+   câblage, et il aurait fallu les tenir d'accord pour toujours.
+   Collée au bord, sans marge : les vingt pixels de sa place debout habituelle
+   laisseraient une bande vide entre elle et le bord, et la réserve ne vaudrait
+   plus ce qu'elle annonce. */
+#bar-document.dans-le-rail {
+    right: 0;
+    left: auto;
+    width: 72px;
+    max-width: 72px;
+    padding: 8px 6px;
+    border-radius: 14px 0 0 14px;
+    max-height: calc(100vh - 160px);
+}
+
+body.rail-a-gauche #bar-document.dans-le-rail {
+    right: auto;
+    left: 0;
+    border-radius: 0 14px 14px 0;
+}
+
+/* Effacée avec le rail — mais sa réserve, elle, reste. */
+body.rail-efface #bar-document.dans-le-rail { display: none; }
+
+.dark-mode .rail-btn { background: rgba(45, 52, 54, .95); border-color: var(--contour); color: #dfe6e9; }
+.dark-mode .rail-rond { border-color: rgba(45, 52, 54, .95); }

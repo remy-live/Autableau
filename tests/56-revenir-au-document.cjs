@@ -264,8 +264,18 @@ module.exports = async function (browser) {
                  clarteDuMorceau: Math.round((p[0] + p[1] + p[2]) / 3),
                  clarteDuVoile: Math.round((v[0] + v[1] + v[2]) / 3) };
     });
-    r.verifie('il y a bien une marge à gauche de la page',
-        dansLaMarge.marge > 80, JSON.stringify(dansLaMarge));
+    // LA PRÉMISSE SE MESURE OÙ L'ON POSE, ET NON À UN SEUIL VENU D'AILLEURS.
+    //
+    // Elle demandait quatre-vingts pixels de marge ; il en reste soixante-dix
+    // depuis que le rail de la projection se réserve soixante-douze pixels au
+    // bord droit. La page, cadrée « page entière », se centre dans ce qui reste
+    // et glisse donc de trente-six pixels vers la gauche — autant de marge
+    // gauche en moins. Rien n'est cassé pour autant : ce que la prémisse doit
+    // garantir, c'est que l'abscisse où l'on pose le morceau — soixante — soit
+    // bien HORS de la page. C'est cela qu'on mesure maintenant, et le seuil ne
+    // bougera plus au prochain meuble.
+    r.verifie('il y a bien une marge à gauche de la page, et le morceau se pose dedans',
+        dansLaMarge.marge > 60, JSON.stringify(dansLaMarge));
     r.verifie('posé dans la marge, on reste en plein écran',
         dansLaMarge.projette === true, JSON.stringify(dansLaMarge));
     r.verifie('et le morceau s\'y voit : le voile l\'épargne',

@@ -436,12 +436,29 @@ module.exports = async function (browser) {
     // dès que le mode Focus rangeait les barres : six cents pixels de saut à
     // chaque appui. C'est CE saut-là qu'on interdit, et non le bas.
     //
-    // Car le bas est sa place en plein écran : « que la toolbar du PDF en
-    // plein écran soit par défaut en bas ». Une page projetée occupe tout
-    // l'écran et se lit du haut vers le bas ; la barre s'ôte de ce chemin. Elle
-    // ne change donc de bord qu'en entrant dans le plein écran ou en en
-    // sortant — jamais en montrant ou en rangeant les outils, puisque la
-    // projection, elle, ne s'arrête pas pour si peu.
+    // SA PLACE EN PLEIN ÉCRAN A CHANGÉ DE MAIN : CE N'EST PLUS LE BAS, C'EST
+    // LE RAIL.
+    //
+    // Le bas avait été demandé — « que la toolbar du PDF en plein écran soit
+    // par défaut en bas » —, et c'était mieux que le haut : une page projetée
+    // se lit du haut vers le bas. Mais le bas restait LA PAGE. Mesuré, avec
+    // deux morceaux découpés : les bulles, le tiroir des morceaux et cette
+    // barre s'y empilaient sur deux cent quarante-quatre pixels, plus du quart
+    // de la hauteur, posés sur les derniers exercices — « je suis toujours
+    // chagriné par la place que ça prend », « c'est surtout quand le PDF est en
+    // plein écran ».
+    //
+    // Elle se dresse donc au bord, dans une bande de soixante-douze pixels qui
+    // n'est à personne d'autre et que la page ne reçoit plus (« cadreUtile ») :
+    // ce qu'elle prend, elle le prend sur la marge de la page et non sur un
+    // exercice. Le rail tient d'un bout à l'autre de la projection.
+    //
+    // CE QUI NE CHANGE PAS, C'EST L'INTERDICTION DU SAUT. Elle ne bouge ni en
+    // montrant les outils, ni quand un tiroir paraît, ni en changeant d'état :
+    // c'est le reproche d'origine, et il vaut pour le rail comme il valait pour
+    // le bas. La première version du rail l'avait d'ailleurs rompue — la barre
+    // sautait du rail au bas dès qu'on demandait ses outils, 836 au lieu de
+    // 229 —, et ce sont ces contrôles-ci qui l'ont dit.
     // ------------------------------------------------------------------
     const place = await page.evaluate(async (px) => {
         const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
@@ -451,6 +468,12 @@ module.exports = async function (browser) {
         // la hauteur de la barre.
         const sousLeBord = () => Math.round(window.innerHeight
             - document.getElementById('bar-document').getBoundingClientRect().bottom);
+        // AU BORD, C'EST LA DISTANCE AU BORD LATÉRAL ET LA LARGEUR qui disent
+        // qu'elle est dans le rail : collée, et de la largeur de la réserve.
+        const auBord = () => {
+            const r = document.getElementById('bar-document').getBoundingClientRect();
+            return { droite: Math.round(window.innerWidth - r.right), large: Math.round(r.width) };
+        };
 
         images.length = 0; selectedItems = [];
         images.push({ id: 'doc-place', type: 'image', src: px, x: 100, y: 50, w: 600, h: 850 });
@@ -467,9 +490,11 @@ module.exports = async function (browser) {
         await attendre(450);
         ferme.projete = ou();
         ferme.projeteSousLeBord = sousLeBord();
+        ferme.projeteAuBord = auBord();
         basculerLesBarresDeLaPresentation();
         await attendre(450);
         ferme.avecBarres = ou();
+        ferme.avecBarresAuBord = auBord();
         // ET LES TIROIRS NE REVIENNENT PAS AVEC LES OUTILS. « Le bouton qui
         // ouvre les tiroirs et les toolbars ne devrait faire apparaître que la
         // toolbar, le tiroir étant de toute façon accessible avec la poignée. »
@@ -498,6 +523,7 @@ module.exports = async function (browser) {
         await attendre(450);
         ouvert.projete = ou();
         ouvert.projeteSousLeBord = sousLeBord();
+        ouvert.projeteAuBord = auBord();
         quitterLaPresentation(); majBarreDocument();
         await attendre(450);
         ouvert.apres = ou();
@@ -508,10 +534,14 @@ module.exports = async function (browser) {
 
     r.verifie('sur le tableau, tiroir du haut fermé, la barre du document est en haut',
         place.ferme.avant === 20, JSON.stringify(place.ferme));
-    r.egal('en plein écran, elle passe en bas — à vingt pixels du bord',
-        place.ferme.projeteSousLeBord, 20);
+    r.egal('en plein écran, elle se dresse DANS LE RAIL : collée au bord, large comme la réserve — le bas qu\'elle occupait, c\'était la page, et les derniers exercices avec',
+        place.ferme.projeteAuBord, { droite: 0, large: 72 },
+        JSON.stringify(place.ferme));
     r.egal('et montrer les outils ne la déplace pas d\'un pixel : c\'était tout le reproche',
         place.ferme.avecBarres, place.ferme.projete);
+    r.egal('au bord non plus : l\'état deux ajoute les AUTRES barres, il ne déménage pas celle-ci',
+        place.ferme.avecBarresAuBord, place.ferme.projeteAuBord,
+        JSON.stringify([place.ferme.projeteAuBord, place.ferme.avecBarresAuBord]));
     r.verifie('les outils reviennent seuls : les trois tiroirs restent rangés',
         place.ferme.outils.barreVue > 0.9 && place.ferme.outils.basFerme
         && place.ferme.outils.hautFerme && place.ferme.outils.droiteFermee,
@@ -558,11 +588,15 @@ module.exports = async function (browser) {
         const bande = document.getElementById('bande-morceaux');
         const rb = bande.getBoundingClientRect();
         const rbarre = document.getElementById('bar-document').getBoundingClientRect();
+        const onglet = document.getElementById('rail-morceaux');
+        const rond = document.getElementById('rail-rond');
         const etat = {
             seul,
             barre: sousLeBord('bar-document'),
             tiroirVu: !bande.hidden && rb.height > 4,
-            // AU-DESSUS D'ELLE, ET AU PLUS PRÈS : pas de trou au milieu de rien.
+            // CE QUI PARAÎT MAINTENANT : un onglet au rail, et son rond.
+            ongletVu: !!onglet && !onglet.hidden,
+            rond: rond ? rond.textContent : null,
             auDessus: Math.round(rb.bottom) <= Math.round(rbarre.top) + 1,
             ecart: Math.round(rbarre.top - rb.bottom)
         };
@@ -571,18 +605,26 @@ module.exports = async function (browser) {
         images.length = 0; selectedItems = []; majBarreDocument();
         return etat;
     }, { px: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' });
-    r.egal('le tiroir à morceaux qui paraît ne déplace pas la barre d\'un pixel',
-        { avant: avecLeTiroir.seul.barre, apres: avecLeTiroir.barre }, { avant: 20, apres: 20 });
-    r.verifie('c\'est LUI qui se range au-dessus d\'elle, au plus près',
-        avecLeTiroir.tiroirVu && avecLeTiroir.auDessus
-        && avecLeTiroir.ecart >= 0 && avecLeTiroir.ecart <= 24,
+    // LE MORCEAU DÉCOUPÉ NE DÉPLACE TOUJOURS RIEN — et il n'ouvre plus de
+    // tiroir du tout. « Quand le tiroir apparaît, la toolbar remonte, c'est
+    // curieux » : on avait réglé le saut en faisant monter le NOUVEAU VENU
+    // au-dessus d'elle. Mais ce nouveau venu faisait six cent dix-neuf pixels
+    // posés au bas de la page projetée, pour annoncer un rangement dont on
+    // n'avait pas besoin sur le moment — « quand je découpe un pdf, ça se met
+    // dans une barre qui cache un bout du pdf ». En projection, c'est un rond
+    // sur l'onglet du rail qui le dit, et c'est l'onglet qui l'ouvre.
+    r.egal('le morceau découpé ne déplace pas la barre d\'un pixel : c\'est le saut d\'origine, et il reste interdit',
+        avecLeTiroir.barre, avecLeTiroir.seul.barre, JSON.stringify(avecLeTiroir));
+    r.verifie('et ce n\'est plus un tiroir de 619 px qui paraît sur la page, c\'est un rond qui compte',
+        !avecLeTiroir.tiroirVu && avecLeTiroir.ongletVu && avecLeTiroir.rond === '1',
         JSON.stringify(avecLeTiroir));
 
     r.verifie('tiroir du haut ouvert, elle se gare juste dessous',
         place.ouvert.avant > 20 && place.ouvert.avant >= place.ouvert.hauteurDuTiroir,
         JSON.stringify(place.ouvert));
-    r.egal('en plein écran, c\'est le bas quel que soit ce tiroir-là',
-        place.ouvert.projeteSousLeBord, 20);
+    r.egal('en plein écran, c\'est le rail quel que soit ce tiroir-là : le rail est au bord, et un tiroir du haut n\'a rien à y dire',
+        place.ouvert.projeteAuBord, { droite: 0, large: 72 },
+        JSON.stringify(place.ouvert));
     r.egal('et elle retrouve sa place sous le tiroir au retour',
         place.ouvert.apres, place.ouvert.avant);
 
