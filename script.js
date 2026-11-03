@@ -1535,6 +1535,9 @@ window.etatDeLAffichage = etatDeLAffichage;
 
 function poserLAffichage(etat) {
     const voulu = Math.max(0, Math.min(2, Number(etat) || 0));
+    // On retient AVANT de comparer : l'état voulu est l'état voulu, même quand
+    // il est déjà le nôtre — la première séance commence ainsi.
+    if (typeof retenirLAffichage === 'function') retenirLAffichage(voulu);
     if (voulu === etatDeLAffichage()) { majLePointDAffichage(); return voulu; }
     // Le tableau nu passe par « toggleFocusMode » : il emporte tout un
     // cortège — la présentation, la barre du document, celle de la visite —
@@ -1556,6 +1559,45 @@ function cyclerLAffichage() {
     return poserLAffichage((etatDeLAffichage() + 1) % 3);
 }
 window.cyclerLAffichage = cyclerLAffichage;
+
+// ---------------------------------------------------------------------------
+// ET L'ÉCRAN QU'ON A LAISSÉ EST CELUI QU'ON RETROUVE
+//
+// « J'ai l'impression qu'il y a trop d'outils, trop de choses. » Compté, un
+// poly ouvert : CENT DEUX boutons sous les yeux à la fois, et les meubles sur
+// seize et demi pour cent du tableau. Le bouton du coin les range déjà d'un
+// appui — soixante et un boutons, six pour cent —, mais l'application rouvrait
+// toujours sur « Tout » : il fallait le redemander à chaque séance, et un
+// réglage qu'on redemande tous les jours n'en est pas un.
+//
+// Ce qu'on choisit se retient donc, comme le reste. Rien n'est imposé : celui
+// qui aime tout voir ne verra aucune différence.
+// ---------------------------------------------------------------------------
+const CLE_AFFICHAGE = 'board_affichage';
+
+function retenirLAffichage(etat) {
+    try { localStorage.setItem(CLE_AFFICHAGE, String(etat)); } catch (e) { /* navigation privée */ }
+}
+
+function affichageRetenu() {
+    try {
+        const v = parseInt(localStorage.getItem(CLE_AFFICHAGE), 10);
+        // Une valeur abîmée rend l'écran entier : c'est l'état où tout est là,
+        // et personne ne se demande ce qui manque.
+        return (v === 1 || v === 2) ? v : 0;
+    } catch (e) { return 0; }
+}
+window.affichageRetenu = affichageRetenu;
+
+// APRÈS TOUT LE RESTE DU CHARGEMENT. « poserLAffichage » touche les tiroirs, la
+// barre du document et la présentation : ils doivent exister. Le délai zéro
+// suffit — il passe après tous les écouteurs de l'ouverture.
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        const voulu = affichageRetenu();
+        if (voulu) poserLAffichage(voulu);
+    }, 0);
+});
 
 // Le bouton dit où l'on est, pas où l'on va : c'est ce qu'on lit d'un coup
 // d'œil sans avoir à se souvenir de l'ordre du cycle.

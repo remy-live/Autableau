@@ -23,7 +23,7 @@
 // ET L'AFFICHAGE RÉDUIT ÉTAIT UN CUL-DE-SAC : la commande qui le règle vit
 // dans le tiroir du bas, lequel est justement caché. On n'en sortait qu'à la
 // touche Échap, pour qui la connaissait.
-const { creerRapport, ouvrirApp, petitPdf } = require('./harness.cjs');
+const { creerRapport, ouvrirApp, petitPdf, rechargerApp } = require('./harness.cjs');
 
 module.exports = async function (browser) {
     const r = creerRapport('Affichage et plein écran');
@@ -1109,6 +1109,59 @@ module.exports = async function (browser) {
         JSON.stringify(dbl));
     r.egal('et un tampon de plugin garde son double-clic', dbl.surLeTampon.presente, null,
         JSON.stringify(dbl));
+
+    // =================================================================
+    // L'ÉCRAN QU'ON A LAISSÉ EST CELUI QU'ON RETROUVE
+    //
+    // « J'ai l'impression qu'il y a trop d'outils, trop de choses. » Compté,
+    // un poly ouvert : cent deux boutons sous les yeux à la fois, et les
+    // meubles sur seize et demi pour cent du tableau. Le bouton du coin les
+    // range d'un appui — soixante et un boutons, six pour cent —, mais
+    // l'application rouvrait toujours sur « Tout » : il fallait le redemander
+    // à chaque séance, et un réglage qu'on redemande tous les jours n'en est
+    // pas un.
+    // =================================================================
+    await page.evaluate(() => poserLAffichage(1));
+    await page.waitForTimeout(450);
+    const ecrit = await page.evaluate(() => localStorage.getItem('board_affichage'));
+    await rechargerApp(page);
+    await page.waitForTimeout(400);
+    const retrouve = await page.evaluate(() => ({
+        etat: etatDeLAffichage(),
+        tiroirHaut: !!document.getElementById('bar-plugins')
+            && getComputedStyle(document.getElementById('bar-plugins')).display !== 'none',
+        range: document.body.classList.contains('sans-tiroirs')
+    }));
+    r.egal('LES TIROIRS RANGÉS SE RETIENNENT, et on les retrouve rangés',
+        [ecrit, retrouve.etat, retrouve.range], ['1', 1, true], JSON.stringify({ ecrit, retrouve }));
+
+    // ET « TOUT EST LÀ » SE RETIENT AUSSI : le réglage va dans les deux sens,
+    // sinon on ne pourrait plus en sortir qu'à chaque ouverture.
+    await page.evaluate(() => poserLAffichage(0));
+    await page.waitForTimeout(450);
+    await rechargerApp(page);
+    await page.waitForTimeout(400);
+    r.egal('et « tout est là » se retient de même',
+        await page.evaluate(() => [etatDeLAffichage(),
+            localStorage.getItem('board_affichage')]), [0, '0']);
+
+    // UNE VALEUR ABÎMÉE REND L'ÉCRAN ENTIER. C'est l'état où tout est là, et
+    // personne ne s'y demande ce qui manque.
+    //
+    // ET ON L'ÉPROUVE AVEC UN NOMBRE, pas avec un mot : « au hasard » ne passe
+    // déjà pas « parseInt », si bien qu'un garde-fou ôté ne changeait rien et
+    // que le contrôle passait quand même — mesuré au banc. Un « 7 » venu d'une
+    // version d'après, lui, serait ramené à deux par le calage, c'est-à-dire
+    // au tableau nu : on ouvrirait sur un écran vide sans l'avoir demandé.
+    const abimee = [];
+    for (const valeur of ['au hasard', '7', '-3']) {
+        await page.evaluate((v) => localStorage.setItem('board_affichage', v), valeur);
+        await rechargerApp(page);
+        await page.waitForTimeout(400);
+        abimee.push([valeur, await page.evaluate(() => etatDeLAffichage())]);
+    }
+    r.egal('une valeur abîmée rend l\'écran entier, mot ou nombre hors bornes',
+        abimee, [['au hasard', 0], ['7', 0], ['-3', 0]], JSON.stringify(abimee));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
