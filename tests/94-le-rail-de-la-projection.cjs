@@ -390,6 +390,51 @@ module.exports = async function (browser) {
         [parLOnglet.avant, parLOnglet.pendant, parLOnglet.apres], [1, 2, 1],
         JSON.stringify(parLOnglet));
 
+    // ET DEMANDER LES OUTILS, C'EST LES OBTENIR — MÊME SI L'ON AVAIT RANGÉ SA
+    // BARRE SOI-MÊME AVANT DE PROJETER.
+    //
+    // « Quand je clique sur outils quand je suis en pdf, je ne vois plus la
+    // barre d'outil apparaître — celle avec le rapporteur, les traits, le
+    // surligneur. » La faute était double. La fonction qui rend la barre ne la
+    // rendait que si c'est LA PROJECTION qui l'avait rangée : bonne règle pour
+    // la sortie — qui avait rangé sa barre lui-même la retrouve rangée, on ne
+    // défait pas son ménage —, mais appliquée à la demande explicite « montre-
+    // moi les outils », elle refusait de les montrer. Et le quai, qui restait
+    // la porte de secours, est désormais caché par le rail : il ne restait plus
+    // AUCUN chemin vers le rapporteur, devant une classe.
+    //
+    // On éprouve donc le chemin entier, et non le drapeau : la barre était-elle
+    // à l'écran après l'appui ?
+    const rangeeAvant = await page.evaluate(async () => {
+        if (etatDuPleinEcran() === 2) basculerLesBarresDeLaPresentation();
+        quitterLaPresentation();
+        await new Promise(r2 => setTimeout(r2, 400));
+        const vue = () => {
+            const b = document.getElementById('system-toolbar-main');
+            if (!b) return false;
+            const s = getComputedStyle(b), q = b.getBoundingClientRect();
+            return s.display !== 'none' && parseFloat(s.opacity) > 0.05 && q.width > 3;
+        };
+        // L'usager range SA barre, lui-même, avant de projeter.
+        minimizeFloatingToolbar(document.getElementById('system-toolbar-main'));
+        await new Promise(r2 => setTimeout(r2, 300));
+        const rangee = vue();
+        presenterCeQuOnRegarde();
+        await new Promise(r2 => setTimeout(r2, 800));
+        const enProjetant = vue();
+        document.getElementById('rail-outils').click();
+        await new Promise(r2 => setTimeout(r2, 700));
+        return { rangee, enProjetant, apresLAppui: vue(), etat: etatDuPleinEcran() };
+    });
+    r.egal('la barre était bien rangée par l\'usager, et le reste en projetant — c\'est la prémisse',
+        [rangeeAvant.rangee, rangeeAvant.enProjetant], [false, false],
+        JSON.stringify(rangeeAvant));
+    r.egal('DEMANDER LES OUTILS, C\'EST LES OBTENIR : même rangée à la main avant de projeter, la barre revient — sinon il ne reste aucun chemin vers le rapporteur, le quai étant caché par le rail',
+        [rangeeAvant.apresLAppui, rangeeAvant.etat], [true, 2],
+        JSON.stringify(rangeeAvant));
+    await page.evaluate(() => { if (etatDuPleinEcran() === 2) basculerLesBarresDeLaPresentation(); });
+    await page.waitForTimeout(350);
+
     // CACHER LE RAIL NE FAIT RIEN SURGIR.
     //
     // Ce contrôle demandait d'abord que la croix revienne quand le rail

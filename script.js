@@ -31913,6 +31913,36 @@ function rendreLesOutilsApresProjection() {
     restoreFloatingToolbar(barre.id);
     return true;
 }
+
+// DEMANDER LES OUTILS, C'EST LES OBTENIR.
+//
+// « Quand je clique sur outils quand je suis en pdf, je ne vois plus la barre
+// d'outil apparaître — celle avec le rapporteur, les traits, le surligneur. »
+//
+// Reproduit, et la faute est double. « rendreLesOutilsApresProjection » ne rend
+// la barre que si c'est LA PROJECTION qui l'a rangée — bonne règle pour la
+// SORTIE : qui avait rangé sa barre lui-même la retrouve rangée, on ne défait
+// pas son ménage. Mais appliquée à la demande explicite « montre-moi les
+// outils », elle refuse de les montrer. Mesuré, barre rangée à la main avant de
+// projeter : en projetant « barre ABSENTE », après « Outils » « barre ABSENTE ».
+//
+// Et le quai, qui restait jusque-là la porte de secours, est désormais caché
+// par le rail. Il ne restait donc AUCUN chemin vers le rapporteur et le
+// surligneur, devant une classe. Une porte qu'on ferme doit toujours en ouvrir
+// une autre ; ici j'avais fermé les deux.
+//
+// Une demande explicite ne se discute pas : on rend la barre quel que soit
+// celui qui l'avait rangée. La règle de la sortie, elle, ne bouge pas.
+function rendreLesOutilsMaintenant() {
+    outilsRangesParLaProjection = false;
+    const barre = laBarreDesOutils();
+    if (!barre) return false;
+    if (!barre.classList.contains('minimized')) return false;
+    if (typeof restoreFloatingToolbar !== 'function') return false;
+    restoreFloatingToolbar(barre.id);
+    return true;
+}
+window.rendreLesOutilsMaintenant = rendreLesOutilsMaintenant;
 window.rangerLesOutilsPourProjeter = rangerLesOutilsPourProjeter;
 window.rendreLesOutilsApresProjection = rendreLesOutilsApresProjection;
 
@@ -32479,7 +32509,9 @@ function basculerLesBarresDeLaPresentation() {
     // ET LA BARRE QUITTE LE QUAI AVEC LES AUTRES. « Montrer les outils » veut
     // dire TOUS les outils : depuis qu'elle s'y range en projetant, la rappeler
     // par ce bouton ne la ramenait plus — il rendait un écran sans un crayon.
-    if (avec) rendreLesOutilsApresProjection();
+    // « Montrer les outils » est une demande explicite : on rend la barre quel
+    // que soit celui qui l'avait rangée (voir « rendreLesOutilsMaintenant »).
+    if (avec) rendreLesOutilsMaintenant();
     else rangerLesOutilsPourProjeter();
     // Le rail s'efface quand on demande TOUS les outils, et revient avec la
     // page seule. Sa réserve, elle, ne bouge pas : la page ne saute pas.
