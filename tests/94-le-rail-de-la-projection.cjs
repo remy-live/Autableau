@@ -287,9 +287,156 @@ module.exports = async function (browser) {
         JSON.stringify([avant, avecBarres.vue, avecBarres.reserve]));
 
     // ------------------------------------------------------------------
-    // 6. LE BORD, AU CHOIX — ET RETENU
+    // 6. CE QUI S'APPELLE DEPUIS LE RAIL — ET CE QUI N'A PLUS À ÊTRE SUR LA PAGE
+    //
+    // « Et si on veut retrouver les tiroirs et la barre d'outils ? » Ils ne sont
+    // pas perdus, ils s'appellent : un onglet pour les outils, un pour les
+    // morceaux. Et ce qui n'était là que pour servir de porte s'en va, puisque
+    // la porte est maintenant dans le rail — le quai des outils (96 × 64 au coin
+    // bas gauche) et la croix de sortie.
     // ------------------------------------------------------------------
     await page.evaluate(() => basculerLesBarresDeLaPresentation());
+    await page.waitForTimeout(300);
+    const appels = await page.evaluate(() => {
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            if (!e || e.hidden) return null;
+            const s = getComputedStyle(e);
+            if (s.display === 'none' || s.visibility === 'hidden') return null;
+            const r = e.getBoundingClientRect();
+            return (r.width > 3 && r.height > 3) ? [r.x, r.y, r.width, r.height].map(Math.round) : null;
+        };
+        const quai = document.getElementById('dock');
+        return {
+            etat: etatDuPleinEcran(),
+            ongletDesOutils: vu('rail-outils'),
+            // LE QUAI GARDE BIEN LA BARRE — c'est la prémisse : s'il était vide,
+            // le contrôle d'en dessous passerait sans rien prouver.
+            quaiTientLaBarre: !!quai && [...quai.querySelectorAll('.dock-item')]
+                .some(i => i.dataset.targetId === 'system-toolbar-main'),
+            quaiRange: !!quai && quai.classList.contains('range-par-le-rail'),
+            quaiVu: vu('dock'),
+            croixVue: vu('exit-focus-cross'),
+            // Et la sortie du plein écran est bien DANS le rail : c'est elle qui
+            // autorise la croix à s'effacer.
+            sortieDansLeRail: (() => {
+                const b = document.getElementById('doc-plein-ecran');
+                if (!b) return false;
+                const r = b.getBoundingClientRect();
+                return r.width > 3 && r.x >= innerWidth - 80;
+            })()
+        };
+    });
+    r.verifie('L\'ONGLET DES OUTILS EST DANS LE RAIL : la porte est là où l\'on a le doigt',
+        appels.ongletDesOutils !== null && appels.ongletDesOutils[0] >= 1328,
+        JSON.stringify(appels.ongletDesOutils));
+    r.verifie('le quai garde bien la barre des outils — sans quoi il n\'y aurait rien à ranger',
+        appels.quaiTientLaBarre, JSON.stringify(appels));
+    r.egal('LE QUAI N\'EST PLUS SUR LA PAGE : 96 × 64 au coin bas gauche pour une porte qu\'on allait chercher loin de là où l\'on regarde — l\'onglet du rail est cette porte',
+        [appels.quaiRange, appels.quaiVu], [true, null], JSON.stringify(appels));
+    // MAIS ON NE CACHE PAS UN QUAI QUI GARDE AUTRE CHOSE.
+    //
+    // Une fenêtre d'outil rangée là — une pyramide, une fraction, un atelier —
+    // n'a pas d'autre porte que cette pastille : la cacher l'enfermerait
+    // dehors, et devant une classe. L'onglet du rail ne rend que la barre des
+    // outils ; il ne sait rien des autres. On compte donc ce que le quai tient,
+    // et on ne l'efface que s'il ne tient que la barre.
+    const quaiPartage = await page.evaluate(async () => {
+        const quai = document.getElementById('dock');
+        if (!quai) return null;
+        const lire = () => {
+            const s = getComputedStyle(quai);
+            return { range: quai.classList.contains('range-par-le-rail'),
+                     vu: s.display !== 'none' && quai.getBoundingClientRect().width > 3 };
+        };
+        // On y range une seconde chose, telle que le code en produit : une
+        // pastille qui vise une autre barre que celle du système.
+        const autre = document.createElement('div');
+        autre.className = 'dock-item';
+        autre.dataset.targetId = 'floating-essai';
+        quai.appendChild(autre);
+        poserLeRail();
+        await new Promise(r2 => setTimeout(r2, 250));
+        const aDeux = lire();
+        autre.remove();
+        poserLeRail();
+        await new Promise(r2 => setTimeout(r2, 250));
+        return { aDeux, seul: lire() };
+    });
+    r.egal('UN QUAI QUI GARDE AUTRE CHOSE RESTE : une fenêtre d\'outil rangée là n\'a pas d\'autre porte, et la cacher l\'enfermerait dehors devant une classe',
+        quaiPartage && [quaiPartage.aDeux.range, quaiPartage.aDeux.vu], [false, true],
+        JSON.stringify(quaiPartage));
+    r.egal('et il se range de nouveau dès qu\'il ne garde plus que la barre',
+        quaiPartage && [quaiPartage.seul.range, quaiPartage.seul.vu], [true, false],
+        JSON.stringify(quaiPartage));
+
+    r.verifie('LA SORTIE DU PLEIN ÉCRAN EST DANS LE RAIL, et c\'est ce qui autorise la croix à s\'effacer',
+        appels.sortieDansLeRail, JSON.stringify(appels));
+    r.egal('LA CROIX DE SORTIE S\'EFFACE AVEC ELLE : deux portes à deux coins opposés pour le même geste, c\'est une porte qu\'on cherche',
+        appels.croixVue, null, JSON.stringify(appels));
+
+    // ET L'ONGLET DES OUTILS FAIT LES DEUX GESTES — c'est la même question.
+    const parLOnglet = await page.evaluate(async () => {
+        const o = document.getElementById('rail-outils');
+        const avant = etatDuPleinEcran();
+        o.click();
+        await new Promise(r2 => setTimeout(r2, 400));
+        const pendant = etatDuPleinEcran();
+        o.click();
+        await new Promise(r2 => setTimeout(r2, 400));
+        return { avant, pendant, apres: etatDuPleinEcran() };
+    });
+    r.egal('L\'ONGLET MONTRE LES OUTILS, ET LE MÊME LES RANGE : une seule question, un seul bouton',
+        [parLOnglet.avant, parLOnglet.pendant, parLOnglet.apres], [1, 2, 1],
+        JSON.stringify(parLOnglet));
+
+    // JAMAIS D'ÉCRAN SANS ISSUE VISIBLE. La croix s'efface parce que le rail
+    // porte la sortie ; le rail effacé, elle doit revenir — sinon on projette
+    // une page dont rien ne dit comment sortir.
+    await page.evaluate(() => basculerLeRailEfface(true));
+    await page.waitForTimeout(300);
+    const sansLeRail = await page.evaluate(() => {
+        const e = document.getElementById('exit-focus-cross');
+        const s = e ? getComputedStyle(e) : null;
+        const r = e ? e.getBoundingClientRect() : null;
+        // ON LIT CE QU'ON VOIT, non l'attribut : effacé, le rail est caché par
+        // la feuille de style et garde son « hidden » à faux, puisqu'il est
+        // toujours « en place » — c'est sa réserve qui ne se reprend pas.
+        const b = document.getElementById('rail-bord');
+        const sb = b ? getComputedStyle(b) : null;
+        return { croixVue: !!e && !e.hidden && s.display !== 'none' && r.width > 3,
+                 railVu: !!b && !b.hidden && sb.display !== 'none' };
+    });
+    r.egal('LE RAIL EFFACÉ, LA CROIX REVIENT : il ne doit jamais rester un écran sans issue visible',
+        [sansLeRail.croixVue, sansLeRail.railVu], [true, false], JSON.stringify(sansLeRail));
+    await page.evaluate(() => basculerLeRailEfface(false));
+    await page.waitForTimeout(250);
+
+    // LE TIROIR APPELÉ SORT DU BORD, JAMAIS DU BAS.
+    const tiroirAppele = await page.evaluate(async () => {
+        basculerLeTiroirDuRail(true);
+        await new Promise(r2 => setTimeout(r2, 400));
+        const e = document.getElementById('bande-morceaux');
+        const r = e.getBoundingClientRect();
+        return { boite: [r.x, r.y, r.width, r.height].map(Math.round),
+                 colonne: e.classList.contains('contre-le-rail'),
+                 // Collé au rail, et pas au bas de l'écran.
+                 contreLeRail: Math.round(innerWidth - r.right),
+                 sousLeBord: Math.round(innerHeight - r.bottom) };
+    });
+    r.verifie('LE TIROIR APPELÉ SORT CONTRE LE RAIL, à hauteur d\'épaule : il se posait encore au milieu du bas de l\'écran, c\'est-à-dire sur les derniers exercices',
+        tiroirAppele.colonne && tiroirAppele.contreLeRail >= 72
+        && tiroirAppele.contreLeRail <= 96 && tiroirAppele.sousLeBord > 120,
+        JSON.stringify(tiroirAppele));
+    r.verifie('et il se lit de haut en bas : une colonne de vignettes, non une barre en travers de la page',
+        tiroirAppele.boite[3] > tiroirAppele.boite[2], JSON.stringify(tiroirAppele));
+    await page.evaluate(() => basculerLeTiroirDuRail(false));
+    await page.waitForTimeout(250);
+
+    // ------------------------------------------------------------------
+    // 7. LE BORD, AU CHOIX — ET RETENU
+    // ------------------------------------------------------------------
+    await page.evaluate(() => { if (etatDuPleinEcran() === 2) basculerLesBarresDeLaPresentation(); });
     await page.waitForTimeout(300);
     await page.evaluate(() => basculerLeBordDuRail('gauche'));
     await page.waitForTimeout(400);

@@ -2985,6 +2985,72 @@ function poserLeTiroirDesMorceaux() {
     // de onze cents pixels pour l'atteindre.
     const auRail = (typeof leRailEstEnPlace === 'function') && leRailEstEnPlace();
     if (auRail && bulles) { bulles.style.bottom = 'auto'; bulles.style.top = '14px'; }
+    // IL SORT DU RAIL, PAR LE BORD, ET JAMAIS PAR LE BAS.
+    //
+    // Appelé depuis son onglet, le tiroir se posait encore à sa place
+    // habituelle — au milieu du bas de l'écran, c'est-à-dire sur les derniers
+    // exercices, ceux qu'on n'a pas encore faits. C'est très exactement ce
+    // qu'on répare : « quand je découpe un pdf, ça se met dans une barre qui
+    // cache un bout du pdf ». Il vient donc se coller au rail, à hauteur
+    // d'épaule, et il couvre la page le temps d'un geste — par le bord, où il
+    // ne tombe sur rien d'essentiel, et non par le bas.
+    //
+    // Les quatre lignes sont posées ICI et non dans la feuille de style : le
+    // tiroir garde des styles en ligne de ses autres placements — « left:50% »,
+    // « bottom: var(--haut-du-tiroir) » —, et une feuille ne les efface pas.
+    // ON REGARDE OÙ IL ÉTAIT AVANT DE LE DIRE : la classe dit s'il était déjà
+    // contre le rail, et c'est la seule façon de ne pas prendre ses propres
+    // styles de rail pour une place posée à la main. Mesuré : cette fonction
+    // repasse plusieurs fois pendant qu'on entre en projection ; au second
+    // passage, « top: 50% » était déjà là — le rail l'y avait mis —, on le
+    // rangeait comme un réglage de l'usager, et l'on restituait au retour un
+    // tiroir collé à mi-hauteur hors de l'écran, mesuré à moins trois cent dix.
+    const etaitContreLeRail = bande.classList.contains('contre-le-rail');
+    bande.classList.toggle('contre-le-rail', auRail);
+    if (auRail) {
+        // ET LA PLACE QU'ON LUI AVAIT DONNÉE À LA MAIN L'ATTEND AU RETOUR. Le
+        // tiroir se déplace à la poignée, et cette place vit dans ses styles en
+        // ligne — ceux-là mêmes qu'on écrase pour le coller au rail. On les met
+        // de côté avant, sinon la projection effacerait un réglage de l'usager.
+        if (!etaitContreLeRail && bande.style.top && !bande.dataset.placeDeLaMain) {
+            bande.dataset.placeDeLaMain = JSON.stringify(
+                { top: bande.style.top, left: bande.style.left });
+        }
+        bande.style.left = 'auto';
+        bande.style.right = 'auto';
+        bande.style.bottom = 'auto';
+        bande.style.top = '50%';
+        bande.style.transform = 'translateY(-50%)';
+        if (typeof bordDuRail === 'function' && bordDuRail() === 'gauche') {
+            bande.style.left = (RAIL_LARGEUR + 8) + 'px';
+        } else {
+            bande.style.right = (RAIL_LARGEUR + 8) + 'px';
+        }
+        return;
+    }
+    // Il reprend sa place du tableau ordinaire : les styles du rail s'en vont,
+    // sans quoi il resterait collé au bord d'un écran qui n'a plus de rail.
+    if (etaitContreLeRail || bande.dataset.placeDeLaMain) {
+        bande.style.right = '';
+        bande.style.transform = '';
+        // ET « bottom » AUSSI : le rail l'avait mis à « auto », ce qui battait
+        // le « bottom: var(--haut-du-tiroir) » de la feuille de style. Oublié,
+        // le tiroir revenait flotter à mi-hauteur au lieu de se reposer au plus
+        // bas, « le tiroir des pages le plus bas possible ».
+        bande.style.bottom = '';
+        const gardee = bande.dataset.placeDeLaMain;
+        delete bande.dataset.placeDeLaMain;
+        if (gardee) {
+            try {
+                const p = JSON.parse(gardee);
+                bande.style.top = p.top || '';
+                bande.style.left = p.left || '';
+            } catch (e) { bande.style.top = ''; bande.style.left = ''; }
+        } else {
+            bande.style.top = '';
+            bande.style.left = '';
+        }
+    }
     // Déplacé à la main : il reste où on l'a mis, et son double-clic le rend.
     // On ne renvoie pas les bulles en bas quand elles sont montées au rail.
     if (bande.style.top) { if (!auRail) poserLesBulles(0); return; }
@@ -32024,6 +32090,43 @@ function poserLeRail() {
             ? 'Rendre le rail — la page ne bougera pas'
             : 'Cacher le rail — il ne restera qu\'une poignée');
     }
+    // L'ONGLET DES OUTILS dit lequel des deux gestes il fera, et s'allume quand
+    // les outils sont là : c'est le même bouton pour les montrer et les ranger,
+    // puisque c'est la même question — voit-on les outils par-dessus la page ?
+    const outils = document.getElementById('rail-outils');
+    if (outils) {
+        const avec = (typeof etatDuPleinEcran === 'function') && etatDuPleinEcran() === 2;
+        outils.classList.toggle('ouvert', avec);
+        outils.setAttribute('data-tooltip', avec
+            ? 'Ranger les outils — la page reste en grand'
+            : 'Montrer tous les outils par-dessus la page');
+    }
+    // LE QUAI N'A PLUS À ÊTRE SUR LA PAGE — quand c'est bien la barre des
+    // outils qu'il garde, et rien d'autre.
+    //
+    // C'est là que la barre se range en projetant, au coin bas gauche : quatre-
+    // vingt-seize pixels sur soixante-quatre, posés sur la page, pour une porte
+    // qu'on allait chercher loin de là où l'on regarde. L'onglet du rail est
+    // cette porte, et il est là où l'on a le doigt.
+    //
+    // MAIS ON NE CACHE PAS UN QUAI QUI GARDE AUTRE CHOSE. Une fenêtre d'outil
+    // rangée là — une pyramide, une fraction, un atelier — n'a pas d'autre
+    // porte que celle-ci : la cacher l'enfermerait dehors. On compte donc ce
+    // qu'il tient, et on ne l'efface que s'il ne tient que la barre.
+    //
+    // ET TOUT CE QUE LE RAIL REMPLACE REVIENT QUAND LE RAIL S'EN VA. C'est la
+    // même règle que pour la croix de sortie, et elle vient d'une promesse plus
+    // ancienne : « une barre rangée dans un tiroir invisible n'est pas rangée,
+    // elle est perdue — et l'on se retrouve devant sa classe sans un crayon ».
+    // Le rail effacé, son onglet n'est plus là pour rappeler la barre : le quai
+    // reprend donc son office, et il reste à tout instant UNE porte visible.
+    const quai = document.getElementById('dock');
+    if (quai) {
+        const pastilles = [...quai.querySelectorAll('.dock-item')];
+        const seuleLaBarre = pastilles.length === 1
+            && pastilles[0].dataset.targetId === 'system-toolbar-main';
+        quai.classList.toggle('range-par-le-rail', enPlace && !railEfface && seuleLaBarre);
+    }
     // La barre du document se replace dans le rail, ou en sort.
     if (typeof placerLaBarreDuDocument === 'function') placerLaBarreDuDocument();
     // Le tiroir des morceaux ne s'affiche plus tout seul au bas de la page : en
@@ -32078,6 +32181,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cote) cote.addEventListener('click', () => basculerLeBordDuRail());
     const effacer = document.getElementById('rail-effacer');
     if (effacer) effacer.addEventListener('click', () => basculerLeRailEfface(true));
+    const outils = document.getElementById('rail-outils');
+    if (outils) outils.addEventListener('click', () => {
+        // C'est la question de l'état deux, et elle a déjà sa fonction : « voit-on
+        // les outils par-dessus la page ? ». On ne refait pas un second chemin
+        // pour la même décision — il finirait par répondre autrement.
+        if (typeof basculerLesBarresDeLaPresentation === 'function') {
+            basculerLesBarresDeLaPresentation();
+        }
+    });
     const poignee = document.getElementById('rail-poignee');
     if (poignee) poignee.addEventListener('click', () => basculerLeRailEfface(false));
 });

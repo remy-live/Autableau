@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=242 »,
-         « script.js?v=433 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=243 »,
+         « script.js?v=434 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=242">
+    <link rel="stylesheet" href="style.css?v=243">
 </head>
 
 <body>
@@ -578,6 +578,13 @@
              est le seul témoin de ce qui attend, et il remplace les bulles. -->
         <button id="rail-morceaux" class="rail-btn" hidden
             data-tooltip="Les morceaux découpés">✂<span id="rail-rond" class="rail-rond">0</span></button>
+        <!-- L'ONGLET DES OUTILS. « Et si on veut retrouver les tiroirs et la
+             barre d'outils ? » Le quai où la barre se range en projetant vivait
+             au coin bas gauche, sur la page : quatre-vingt-seize pixels sur
+             soixante-quatre, et une porte qu'on allait chercher ailleurs que là
+             où l'on regarde. La porte est ici, dans le rail. -->
+        <button id="rail-outils" class="rail-btn"
+            data-tooltip="Montrer tous les outils par-dessus la page">⊞</button>
         <div class="rail-pied">
             <!-- Le bon bord dépend de la salle et de la main qui écrit : aucune
                  valeur par défaut ne peut le savoir. Le choix est retenu. -->
@@ -4242,7 +4249,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=433"></script>
+    <script src="script.js?v=434"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

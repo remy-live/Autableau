@@ -720,25 +720,52 @@ module.exports = async function (browser) {
             barreMontree: montre(barre),
             repliee: barre.classList.contains('minimized'),
             pastilleAuQuai: montre(quai().querySelector(`.dock-item[data-target-id='${barre.id}']`)),
-            quaiMontre: montre(quai())
+            quaiMontre: montre(quai()),
+            ongletDesOutils: montre(document.getElementById('rail-outils'))
         };
+
+        // Le rail effacé, c'est le quai qui redevient la porte.
+        basculerLeRailEfface(true);
+        await new Promise(ok => setTimeout(ok, 350));
+        const railEfface = {
+            pastilleAuQuai: montre(quai().querySelector(`.dock-item[data-target-id='${barre.id}']`)),
+            quaiMontre: montre(quai()),
+            ongletDesOutils: montre(document.getElementById('rail-outils'))
+        };
+        basculerLeRailEfface(false);
+        await new Promise(ok => setTimeout(ok, 250));
 
         quitterLaPresentation();
         await new Promise(ok => setTimeout(ok, 600));
         const apres = { barre: montre(barre), repliee: barre.classList.contains('minimized'),
                         quaiMontre: montre(quai()) };
         images.length = 0; selectedItems = []; majBarreDocument();
-        return { avant, pendant, apres };
+        return { avant, pendant, railEfface, apres };
     });
     r.verifie('avant de projeter, la barre des outils est là, dépliée',
         auQuai.avant.barre && !auQuai.avant.repliee, JSON.stringify(auQuai.avant));
     r.verifie('en projetant, elle se replie et quitte l\'écran',
         auQuai.pendant.projette && auQuai.pendant.repliee && !auQuai.pendant.barreMontree,
         JSON.stringify(auQuai.pendant));
-    r.verifie('et LE QUAI SE VOIT, sa pastille avec : c\'est par elle qu\'on la rappelle',
-        auQuai.pendant.quaiMontre && auQuai.pendant.pastilleAuQuai,
+    // ET IL RESTE UNE PORTE VISIBLE POUR LA RAPPELER — c'est maintenant
+    // l'onglet du rail, et non la pastille du quai.
+    //
+    // La promesse est la même, et elle ne se négocie pas : « une barre rangée
+    // dans un tiroir invisible n'est pas rangée, elle est perdue — et l'on se
+    // retrouve devant sa classe sans un crayon ». Ce qui change, c'est OÙ est
+    // la porte. La pastille vivait au coin bas gauche, c'est-à-dire sur la page
+    // projetée et à l'opposé du regard ; l'onglet ⊞ est dans le rail, là où
+    // l'on a déjà le doigt. Le quai s'efface donc — mais seulement tant que
+    // l'onglet est là pour le remplacer : rail effacé, il reprend son office,
+    // et c'est le contrôle d'après.
+    r.verifie('et IL RESTE UNE PORTE VISIBLE POUR LA RAPPELER : l\'onglet du rail, là où l\'on a le doigt, plutôt qu\'une pastille au coin opposé de l\'écran',
+        auQuai.pendant.ongletDesOutils, JSON.stringify(auQuai.pendant));
+    r.verifie('et le quai s\'efface, puisqu\'il n\'était là que pour cette porte : 96 × 64 posés sur la page',
+        !auQuai.pendant.quaiMontre && !auQuai.pendant.pastilleAuQuai,
         JSON.stringify(auQuai.pendant));
-    r.verifie('en sortant, elle reprend sa place, dépliée',
+    r.verifie('LE RAIL EFFACÉ, LE QUAI REPREND SON OFFICE : il ne doit jamais y avoir d\'instant où rien ne dit où la barre est passée',
+        auQuai.railEfface.quaiMontre && auQuai.railEfface.pastilleAuQuai
+        && !auQuai.railEfface.ongletDesOutils, JSON.stringify(auQuai.railEfface));    r.verifie('en sortant, elle reprend sa place, dépliée',
         auQuai.apres.barre && !auQuai.apres.repliee, JSON.stringify(auQuai.apres));
     r.verifie('et le quai, vidé, se referme',
         !auQuai.apres.quaiMontre, JSON.stringify(auQuai.apres));

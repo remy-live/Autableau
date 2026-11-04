@@ -116,8 +116,15 @@ module.exports = async function (browser) {
     // forte que celle qu'on demandait ici. Une barre à opacité zéro garde sa
     // place et ses boutons : tout le chapitre existe parce qu'ils répondaient
     // quand même. Repliée au quai, elle n'a plus de boîte du tout, donc plus
-    // rien à cliquer par mégarde — et une pastille en bas à gauche dit où elle
-    // est passée, ce qu'une barre effacée ne disait pas.
+    // rien à cliquer par mégarde — et quelque chose de VISIBLE dit où elle est
+    // passée, ce qu'une barre effacée ne disait pas.
+    //
+    // CE QUELQUE CHOSE A CHANGÉ DE PLACE. C'était une pastille au coin bas
+    // gauche — sur la page projetée, et à l'opposé du regard. C'est maintenant
+    // l'onglet ⊞ du rail, là où l'on a déjà le doigt ; le quai s'efface tant
+    // que l'onglet le remplace, et reprend son office dès que le rail est
+    // effacé. La promesse, elle, ne bouge pas : il n'existe aucun instant où
+    // rien ne dit où la barre est passée.
     const effacee = await page.evaluate(() => {
         const b = document.getElementById('system-toolbar-main');
         const quai = document.getElementById('dock');
@@ -126,13 +133,19 @@ module.exports = async function (browser) {
             place: b.getBoundingClientRect().height > 0,
             pastille: !!(pastille && pastille.getBoundingClientRect().width > 4),
             quaiVu: !!(quai && getComputedStyle(quai).display !== 'none'
-                       && Number(getComputedStyle(quai).opacity) > 0.5)
+                       && Number(getComputedStyle(quai).opacity) > 0.5),
+            onglet: (() => {
+                const o = document.getElementById('rail-outils');
+                if (!o || o.hidden) return false;
+                const s2 = getComputedStyle(o);
+                return s2.display !== 'none' && o.getBoundingClientRect().width > 4;
+            })()
         };
     });
     r.verifie('la barre n\'est plus là du tout : elle est rangée au quai',
         !effacee.place, JSON.stringify(effacee));
-    r.verifie('et une pastille dit où elle est passée',
-        effacee.quaiVu && effacee.pastille, JSON.stringify(effacee));
+    r.verifie('et quelque chose de VISIBLE dit où elle est passée : l\'onglet du rail, ou la pastille du quai quand le rail est effacé — jamais ni l\'un ni l\'autre',
+        effacee.onglet || (effacee.quaiVu && effacee.pastille), JSON.stringify(effacee));
 
     await page.mouse.click(depart.rect.x + depart.rect.w / 2, depart.rect.y + depart.rect.h / 2);
     await page.waitForTimeout(200);

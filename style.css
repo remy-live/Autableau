@@ -14479,3 +14479,61 @@ body.rail-efface #bar-document.dans-le-rail { display: none; }
 
 .dark-mode .rail-btn { background: rgba(45, 52, 54, .95); border-color: var(--contour); color: #dfe6e9; }
 .dark-mode .rail-rond { border-color: rgba(45, 52, 54, .95); }
+
+/* ============================================================
+   LE TIROIR DES MORCEAUX, APPELÉ DEPUIS LE RAIL
+
+   « Et si on veut retrouver les tiroirs et la barre d'outils ? » On touche
+   l'onglet, le tiroir vient, on s'en sert, il se referme. Mais il venait
+   encore se poser à sa place habituelle — six cent dix-neuf pixels au milieu
+   du bas de l'écran, c'est-à-dire sur les derniers exercices.
+
+   Contre le rail, il se lit de haut en bas : une colonne de vignettes à
+   hauteur d'épaule. Il couvre la page le temps d'un geste, par le bord, et
+   jamais par le bas.
+   ============================================================ */
+#bande-morceaux.contre-le-rail {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 260px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+}
+
+#bande-morceaux.contre-le-rail .bm-ligne {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+}
+
+/* La poignée de déplacement n'a plus de sens contre le rail : le tiroir y est
+   posé par le rail, et le tirer ailleurs le remettrait sur la page. */
+#bande-morceaux.contre-le-rail .bm-poignee { display: none; }
+
+#bande-morceaux.contre-le-rail .bm-rail {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: none;
+    overflow-x: hidden;
+    gap: 7px;
+}
+
+#bande-morceaux.contre-le-rail .bm-vignette {
+    width: 100% !important;
+    max-width: none;
+    height: 86px;
+}
+
+#bande-morceaux.contre-le-rail .bm-titre { text-align: center; }
+
+/* LE QUAI N'EST PLUS SUR LA PAGE quand il ne garde que la barre des outils :
+   l'onglet du rail est sa porte, et elle est là où l'on a le doigt. S'il garde
+   autre chose — une fenêtre d'outil rangée —, il reste : ce serait sa seule
+   porte, et la cacher l'enfermerait dehors (voir « poserLeRail »). */
+#dock.range-par-le-rail { display: none; }
+
+/* LA CROIX DE SORTIE NON PLUS : le rail porte déjà la sortie du plein écran,
+   dans la barre du document. Deux portes à deux coins opposés pour le même
+   geste, c'est une porte qu'on cherche. Elle revient dès que le rail s'efface —
+   il ne doit jamais rester un écran sans issue visible. */
+body.rail-en-place:not(.rail-efface) #exit-focus-cross { display: none; }
