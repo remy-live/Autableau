@@ -390,9 +390,18 @@ module.exports = async function (browser) {
         [parLOnglet.avant, parLOnglet.pendant, parLOnglet.apres], [1, 2, 1],
         JSON.stringify(parLOnglet));
 
-    // JAMAIS D'ÉCRAN SANS ISSUE VISIBLE. La croix s'efface parce que le rail
-    // porte la sortie ; le rail effacé, elle doit revenir — sinon on projette
-    // une page dont rien ne dit comment sortir.
+    // CACHER LE RAIL NE FAIT RIEN SURGIR.
+    //
+    // Ce contrôle demandait d'abord que la croix revienne quand le rail
+    // s'efface, pour qu'il reste toujours une issue visible. « Cacher le rail
+    // fait apparaître les outils » : on efface le rail POUR AVOIR UN ÉCRAN
+    // PROPRE, et l'on voyait reparaître la croix et le quai. Un geste qui fait
+    // le contraire de ce qu'il annonce est pire que pas de geste du tout.
+    //
+    // L'issue, alors, c'est la poignée — dix pixels au bord, qui portent le
+    // rond des morceaux et rendent le rail d'un doigt —, et Échap, qui sort de
+    // partout. On vérifie donc que la poignée est bien là, et que rien d'autre
+    // n'est venu avec.
     await page.evaluate(() => basculerLeRailEfface(true));
     await page.waitForTimeout(300);
     const sansLeRail = await page.evaluate(() => {
@@ -404,11 +413,22 @@ module.exports = async function (browser) {
         // toujours « en place » — c'est sa réserve qui ne se reprend pas.
         const b = document.getElementById('rail-bord');
         const sb = b ? getComputedStyle(b) : null;
+        const q = document.getElementById('dock');
+        const p2 = document.getElementById('rail-poignee');
+        const vu = (x) => {
+            if (!x || x.hidden) return false;
+            const st = getComputedStyle(x);
+            return st.display !== 'none' && x.getBoundingClientRect().width > 3;
+        };
         return { croixVue: !!e && !e.hidden && s.display !== 'none' && r.width > 3,
+                 quaiVu: vu(q), poigneeVue: vu(p2),
                  railVu: !!b && !b.hidden && sb.display !== 'none' };
     });
-    r.egal('LE RAIL EFFACÉ, LA CROIX REVIENT : il ne doit jamais rester un écran sans issue visible',
-        [sansLeRail.croixVue, sansLeRail.railVu], [true, false], JSON.stringify(sansLeRail));
+    r.egal('LE RAIL CACHÉ, RIEN NE SURGIT — ni la croix, ni le quai : on l\'efface pour avoir un écran propre',
+        [sansLeRail.croixVue, sansLeRail.quaiVu, sansLeRail.railVu], [false, false, false],
+        JSON.stringify(sansLeRail));
+    r.verifie('et la poignée reste : c\'est elle la porte, et Échap sort toujours',
+        sansLeRail.poigneeVue, JSON.stringify(sansLeRail));
     await page.evaluate(() => basculerLeRailEfface(false));
     await page.waitForTimeout(250);
 
@@ -430,8 +450,127 @@ module.exports = async function (browser) {
         JSON.stringify(tiroirAppele));
     r.verifie('et il se lit de haut en bas : une colonne de vignettes, non une barre en travers de la page',
         tiroirAppele.boite[3] > tiroirAppele.boite[2], JSON.stringify(tiroirAppele));
+
+    // JUSTE LES MORCEAUX, ET LA PAGE.
+    //
+    // « J'ai pas compris, il faudrait juste voir les morceaux et choisir la
+    // page. » Mesuré dans le panneau appelé : une barre de titre « ✂ 2
+    // morceaux », PUIS un second titre identique juste dessous, les vignettes,
+    // « Tout poser sur la page », un bouton « ⋯ », un bouton « ✕ », et une
+    // phrase de onze mots. Huit choses à lire pour un geste qui en compte deux.
+    //
+    // Le titre de la fenêtre suffit. Le « ⋯ » dépliait le choix de la page —
+    // c'est justement ce qu'on vient chercher, il est donc là d'emblée.
+    // « Vider le tiroir » est rare et destructeur : il reste sur le tableau
+    // ordinaire. Et la phrase redit ce que « 1/2 » montre.
+    const dedansLeTiroir = await page.evaluate(async () => {
+        basculerLeTiroirDuRail(true);
+        await new Promise(r2 => setTimeout(r2, 400));
+        const vu = (sel) => {
+            const e = document.querySelector(sel);
+            if (!e || e.hidden) return false;
+            const s = getComputedStyle(e);
+            return s.display !== 'none' && s.visibility !== 'hidden'
+                && e.getBoundingClientRect().height > 3;
+        };
+        const b = document.getElementById('bande-morceaux');
+        return {
+            vignettes: b.querySelectorAll('.bm-vignette').length,
+            choixDeLaPage: vu('#bm-replie') && vu('#bm-page'),
+            secondTitre: vu('#bande-morceaux .bm-titre'),
+            boutonDeplier: vu('#bm-plus'),
+            boutonVider: vu('#bm-vider'),
+            laPhrase: vu('#bm-explique'),
+            largeur: Math.round(b.getBoundingClientRect().width),
+            // ET LA MÊME LARGEUR D'UN APPEL À L'AUTRE : « je ne comprends pas
+            // pourquoi ça se ragrandit ».
+            largeurDeuxiemeAppel: await (async () => {
+                basculerLeTiroirDuRail(false);
+                await new Promise(r2 => setTimeout(r2, 300));
+                basculerLeTiroirDuRail(true);
+                await new Promise(r2 => setTimeout(r2, 350));
+                return Math.round(document.getElementById('bande-morceaux')
+                    .getBoundingClientRect().width);
+            })()
+        };
+    });
+    r.egal('LE TIROIR NE MONTRE QUE LES MORCEAUX ET LE CHOIX DE LA PAGE : « il faudrait juste voir les morceaux et choisir la page »',
+        [dedansLeTiroir.vignettes, dedansLeTiroir.choixDeLaPage], [2, true],
+        JSON.stringify(dedansLeTiroir));
+    r.egal('et le reste s\'en va : le second titre, le bouton qui dépliait, le vidage, la phrase — huit choses à lire pour un geste qui en compte deux',
+        [dedansLeTiroir.secondTitre, dedansLeTiroir.boutonDeplier,
+         dedansLeTiroir.boutonVider, dedansLeTiroir.laPhrase],
+        [false, false, false, false], JSON.stringify(dedansLeTiroir));
+    r.egal('ET IL NE SE RAGRANDIT PAS : « je ne comprends pas pourquoi ça se ragrandit » — même largeur d\'un appel à l\'autre',
+        dedansLeTiroir.largeurDeuxiemeAppel, dedansLeTiroir.largeur,
+        JSON.stringify(dedansLeTiroir));
+
+    // ET LE BOUTON DES OUTILS PORTE SON MOT. « L'icône montrer les outils
+    // au-dessus de la page n'est pas clair. » Un « ⊞ » ne dit rien — c'est un
+    // carré divisé, il vaut pour une grille, un tableau, un ajout. Un mot, si.
+    const leMot = await page.evaluate(() => {
+        const o = document.getElementById('rail-outils');
+        if (!o) return null;
+        const m = o.querySelector('.rail-mot');
+        return { mot: m ? (m.textContent || '').trim() : '',
+                 motVu: !!m && m.getBoundingClientRect().height > 3,
+                 dessin: !!o.querySelector('svg'),
+                 infobulle: o.getAttribute('data-tooltip') || '' };
+    });
+    r.verifie('LE BOUTON DES OUTILS PORTE SON MOT, et non un signe à deviner : dans un rail de 72 px, le mot tient sous le dessin',
+        leMot && leMot.motVu && /outils/i.test(leMot.mot) && leMot.dessin,
+        JSON.stringify(leMot));
     await page.evaluate(() => basculerLeTiroirDuRail(false));
     await page.waitForTimeout(250);
+
+    // UNE PAGE QUI NE DÉBORDE QUE D'UN POUCE SE MONTRE ENTIÈRE.
+    //
+    // « Un PDF A4 en paysage a besoin d'être un peu scrollé. » La pleine
+    // largeur est le bon défaut pour un polycopié DEBOUT : il déborde du double
+    // en hauteur, et l'on descend comme dans un lecteur. Mais une A4 COUCHÉE
+    // mesure, dans le cadre utile, neuf cent trente-neuf pixels de haut pour
+    // neuf cents d'écran : trente-neuf de trop, et l'on doit défiler pour voir
+    // le bas d'un document qui tenait presque. En page entière, la même fait
+    // mille deux cent soixante-treize de large sur mille trois cent vingt-huit
+    // disponibles — cinquante-cinq pixels de bande, et la page sous les yeux.
+    const orientations = await page.evaluate(async () => {
+        const essayer = async (w, h) => {
+            if (presentationEnCours) quitterLaPresentation();
+            images.length = 0; selectedItems = []; panX = 0; panY = 0; zoom = 1;
+            const doc = { id: nextId++, x: 0, y: 0, w, h, cx: 0, cy: 0, cw: 1, ch: 1,
+                          src: 'x', fileName: 'p.pdf', z: globalZ++,
+                          pluginData: { id: 'pdfDoc', cle: 'o' + w, page: 1, pages: 1 } };
+            images.push(doc);
+            selectedItems = [{ type: 'image', id: doc.id }];
+            majBarreDocument();
+            presenterLeDocument();
+            await new Promise(r2 => setTimeout(r2, 600));
+            const cadre = cadreUtile();
+            return { cadrage: cadrageDePresentation,
+                     hauteurAffichee: Math.round(doc.h * zoom),
+                     ecran: Math.round(cadre.H),
+                     // Rien à défiler : la page entière tient dans l'écran.
+                     entiere: doc.h * zoom <= cadre.H + 1 };
+        };
+        const couchee = await essayer(1189, 841);   // A4 paysage
+        const debout = await essayer(841, 1189);    // A4 portrait
+        if (presentationEnCours) quitterLaPresentation();
+        images.length = 0; selectedItems = []; majBarreDocument();
+        return { couchee, debout };
+    });
+    r.egal('UNE A4 COUCHÉE S\'OUVRE ENTIÈRE : pour trente-neuf pixels de débordement, on perdait la vue d\'ensemble et il fallait défiler',
+        [orientations.couchee.cadrage, orientations.couchee.entiere], ['page', true],
+        JSON.stringify(orientations.couchee));
+    r.egal('ET UNE A4 DEBOUT GARDE LA PLEINE LARGEUR : elle déborde du double, et c\'est bien ainsi qu\'on lit un polycopié — on descend comme dans un lecteur',
+        [orientations.debout.cadrage, orientations.debout.entiere], ['largeur', false],
+        JSON.stringify(orientations.debout));
+
+    // L'épreuve des orientations a vidé le tableau pour y poser ses deux pages
+    // d'essai : on remet la scène du chapitre avant la suite, sans quoi les
+    // sections qui suivent mesureraient un écran sans rien dessus.
+    await poserLePoly();
+    await page.evaluate(() => presenterCeQuOnRegarde());
+    await page.waitForTimeout(900);
 
     // ------------------------------------------------------------------
     // 7. LE BORD, AU CHOIX — ET RETENU

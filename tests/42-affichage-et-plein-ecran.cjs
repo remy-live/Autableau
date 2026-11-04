@@ -730,7 +730,9 @@ module.exports = async function (browser) {
         const railEfface = {
             pastilleAuQuai: montre(quai().querySelector(`.dock-item[data-target-id='${barre.id}']`)),
             quaiMontre: montre(quai()),
-            ongletDesOutils: montre(document.getElementById('rail-outils'))
+            ongletDesOutils: montre(document.getElementById('rail-outils')),
+            croix: montre(document.getElementById('exit-focus-cross')),
+            poignee: montre(document.getElementById('rail-poignee'))
         };
         basculerLeRailEfface(false);
         await new Promise(ok => setTimeout(ok, 250));
@@ -763,9 +765,22 @@ module.exports = async function (browser) {
     r.verifie('et le quai s\'efface, puisqu\'il n\'était là que pour cette porte : 96 × 64 posés sur la page',
         !auQuai.pendant.quaiMontre && !auQuai.pendant.pastilleAuQuai,
         JSON.stringify(auQuai.pendant));
-    r.verifie('LE RAIL EFFACÉ, LE QUAI REPREND SON OFFICE : il ne doit jamais y avoir d\'instant où rien ne dit où la barre est passée',
-        auQuai.railEfface.quaiMontre && auQuai.railEfface.pastilleAuQuai
-        && !auQuai.railEfface.ongletDesOutils, JSON.stringify(auQuai.railEfface));    r.verifie('en sortant, elle reprend sa place, dépliée',
+    // ET CACHER LE RAIL NE FAIT RIEN SURGIR.
+    //
+    // Ce contrôle demandait d'abord l'inverse : le quai devait reprendre son
+    // office dès que le rail s'effaçait, pour qu'il reste toujours une porte
+    // visible. Le raisonnement se tenait ; le geste non. « Cacher le rail fait
+    // apparaître les outils » — on efface le rail POUR AVOIR UN ÉCRAN PROPRE,
+    // et l'on voyait surgir le quai au coin bas gauche. Un geste qui fait le
+    // contraire de ce qu'il annonce est pire que pas de geste du tout.
+    //
+    // La porte, alors, c'est la poignée : dix pixels au bord, qui portent le
+    // rond des morceaux et rendent le rail d'un doigt. Et Échap sort toujours.
+    r.verifie('LE RAIL CACHÉ, RIEN NE SURGIT : on l\'efface pour avoir un écran propre, pas pour voir reparaître un meuble au coin de la page',
+        !auQuai.railEfface.quaiMontre && !auQuai.railEfface.pastilleAuQuai
+        && !auQuai.railEfface.ongletDesOutils, JSON.stringify(auQuai.railEfface));
+    r.verifie('et la poignée reste, seule porte visible : dix pixels au bord, qui rendent le rail d\'un doigt',
+        auQuai.railEfface.poignee, JSON.stringify(auQuai.railEfface));    r.verifie('en sortant, elle reprend sa place, dépliée',
         auQuai.apres.barre && !auQuai.apres.repliee, JSON.stringify(auQuai.apres));
     r.verifie('et le quai, vidé, se referme',
         !auQuai.apres.quaiMontre, JSON.stringify(auQuai.apres));

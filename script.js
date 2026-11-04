@@ -3016,6 +3016,17 @@ function poserLeTiroirDesMorceaux() {
             bande.dataset.placeDeLaMain = JSON.stringify(
                 { top: bande.style.top, left: bande.style.left });
         }
+        // LE CHOIX DE LA PAGE EST LÀ D'EMBLÉE. « Il faudrait juste voir les
+        // morceaux et choisir la page. » Ce choix vivait derrière un bouton
+        // « ⋯ » qu'il fallait trouver ; au rail, c'est la moitié de ce qu'on
+        // vient chercher. On l'ouvre donc — par le code et non par la feuille
+        // de style, pour qu'une règle de « display » ne batte pas un
+        // « hidden » (la faute qui laissait le rail au bord d'un tableau).
+        const replie = document.getElementById('bm-replie');
+        if (replie && bande.dataset.replieAvant === undefined) {
+            bande.dataset.replieAvant = replie.hidden ? '1' : '0';
+        }
+        if (replie) replie.hidden = false;
         bande.style.left = 'auto';
         bande.style.right = 'auto';
         bande.style.bottom = 'auto';
@@ -3031,6 +3042,14 @@ function poserLeTiroirDesMorceaux() {
     // Il reprend sa place du tableau ordinaire : les styles du rail s'en vont,
     // sans quoi il resterait collé au bord d'un écran qui n'a plus de rail.
     if (etaitContreLeRail || bande.dataset.placeDeLaMain) {
+        // Le volet retrouve l'état où on l'avait pris : ouvert au rail parce
+        // qu'on y vient pour la page, refermé au tableau si on l'y avait laissé
+        // refermé.
+        const replie = document.getElementById('bm-replie');
+        if (replie && bande.dataset.replieAvant !== undefined) {
+            replie.hidden = bande.dataset.replieAvant === '1';
+            delete bande.dataset.replieAvant;
+        }
         bande.style.right = '';
         bande.style.transform = '';
         // ET « bottom » AUSSI : le rail l'avait mis à « auto », ce qui battait
@@ -31739,9 +31758,35 @@ function presenterLeDocument(cadrageVoulu) {
     //
     // Un appelant peut demander son cadrage — c'est le cas du PDF qu'on ouvre
     // d'emblée en grand : on veut toute la largeur, pas la bascule habituelle.
+    // UNE PAGE QUI NE DÉBORDE QUE D'UN POUCE SE MONTRE ENTIÈRE.
+    //
+    // « Un PDF A4 en paysage a besoin d'être un peu scrollé. » La pleine
+    // largeur est le bon défaut pour un polycopié debout : il déborde du double
+    // en hauteur, et l'on descend comme dans un lecteur. Mais une A4 COUCHÉE,
+    // dans le cadre utile, mesure neuf cent trente-neuf pixels de haut pour
+    // neuf cents d'écran : trente-neuf pixels de trop, et l'on doit défiler
+    // pour voir le bas d'un document qui tenait presque. Pour trente-neuf
+    // pixels on perdait la vue d'ensemble.
+    //
+    // En page entière, la même A4 couchée fait mille deux cent soixante-treize
+    // de large sur les mille trois cent vingt-huit disponibles : cinquante-cinq
+    // pixels de bande sur les côtés, et la page ENTIÈRE sous les yeux. C'est le
+    // bon marché, et il ne vaut que là — au-delà d'un cinquième de débordement,
+    // la pleine largeur reprend tout son sens.
+    //
+    // Le second appui bascule toujours : on n'enlève pas le choix, on choisit
+    // mieux au départ.
+    const cadrageDeDepart = () => {
+        const cadre = (typeof cadreUtile === 'function')
+            ? cadreUtile() : { L: window.innerWidth, H: window.innerHeight };
+        if (!doc.w || !doc.h || !cadre.H) return 'largeur';
+        const hauteurEnPleineLargeur = doc.h * (cadre.L / doc.w);
+        const debordement = hauteurEnPleineLargeur / cadre.H;
+        return (debordement > 1 && debordement <= 1.2) ? 'page' : 'largeur';
+    };
     const dejaLa = presentationEnCours === doc.id;
     cadrageDePresentation = cadrageVoulu ? cadrageVoulu
-        : (dejaLa ? (cadrageDePresentation === 'page' ? 'largeur' : 'page') : 'largeur');
+        : (dejaLa ? (cadrageDePresentation === 'page' ? 'largeur' : 'page') : cadrageDeDepart());
     presentationEnCours = doc.id;
 
     // CE QUE LA PRÉSENTATION OUVRE, ELLE LE REFERME. Le plein écran du
@@ -32114,18 +32159,27 @@ function poserLeRail() {
     // porte que celle-ci : la cacher l'enfermerait dehors. On compte donc ce
     // qu'il tient, et on ne l'efface que s'il ne tient que la barre.
     //
-    // ET TOUT CE QUE LE RAIL REMPLACE REVIENT QUAND LE RAIL S'EN VA. C'est la
-    // même règle que pour la croix de sortie, et elle vient d'une promesse plus
-    // ancienne : « une barre rangée dans un tiroir invisible n'est pas rangée,
-    // elle est perdue — et l'on se retrouve devant sa classe sans un crayon ».
-    // Le rail effacé, son onglet n'est plus là pour rappeler la barre : le quai
-    // reprend donc son office, et il reste à tout instant UNE porte visible.
+    // ET CACHER LE RAIL NE DOIT RIEN FAIRE APPARAÎTRE.
+    //
+    // « Cacher le rail fait apparaître les outils. » C'était vrai, et c'était
+    // moi : j'avais posé la règle « tout ce que le rail remplace revient quand
+    // le rail s'en va », pour qu'il reste toujours une porte visible vers la
+    // barre des outils. Le raisonnement se tenait, le geste non — on efface le
+    // rail POUR AVOIR UN ÉCRAN PROPRE, et l'on voyait surgir le quai au coin
+    // bas gauche. Un geste qui fait le contraire de ce qu'il annonce est pire
+    // que pas de geste du tout.
+    //
+    // La porte, quand le rail est effacé, c'est la poignée : dix pixels au
+    // bord, qui portent le rond des morceaux et rendent le rail d'un doigt. Et
+    // Échap sort toujours. La promesse ancienne — « une barre rangée dans un
+    // tiroir invisible n'est pas rangée, elle est perdue » — tient par là, et
+    // non en rallumant un meuble sur la page qu'on vient de nettoyer.
     const quai = document.getElementById('dock');
     if (quai) {
         const pastilles = [...quai.querySelectorAll('.dock-item')];
         const seuleLaBarre = pastilles.length === 1
             && pastilles[0].dataset.targetId === 'system-toolbar-main';
-        quai.classList.toggle('range-par-le-rail', enPlace && !railEfface && seuleLaBarre);
+        quai.classList.toggle('range-par-le-rail', enPlace && seuleLaBarre);
     }
     // La barre du document se replace dans le rail, ou en sort.
     if (typeof placerLaBarreDuDocument === 'function') placerLaBarreDuDocument();

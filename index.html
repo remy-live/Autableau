@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=243 »,
-         « script.js?v=434 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=244 »,
+         « script.js?v=435 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=243">
+    <link rel="stylesheet" href="style.css?v=244">
 </head>
 
 <body>
@@ -583,8 +583,22 @@
              au coin bas gauche, sur la page : quatre-vingt-seize pixels sur
              soixante-quatre, et une porte qu'on allait chercher ailleurs que là
              où l'on regarde. La porte est ici, dans le rail. -->
-        <button id="rail-outils" class="rail-btn"
-            data-tooltip="Montrer tous les outils par-dessus la page">⊞</button>
+        <!-- « L'icône montrer les outils au-dessus de la page n'est pas
+             clair. » Un « ⊞ » ne dit rien : c'est un carré divisé, il vaut
+             pour une grille, un tableau, un ajout. Ce bouton fait paraître la
+             BARRE DES OUTILS par-dessus la page — on dessine donc la barre
+             elle-même, une rangée de pastilles, et on écrit le mot dessous.
+             Le rail fait soixante-douze pixels : le mot y tient. -->
+        <button id="rail-outils" class="rail-btn rail-avec-mot"
+            data-tooltip="Montrer la barre des outils par-dessus la page">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2.5" y="6" width="19" height="9" rx="2.5" />
+                <circle cx="7" cy="10.5" r="1.4" fill="currentColor" stroke="none" />
+                <circle cx="12" cy="10.5" r="1.4" fill="currentColor" stroke="none" />
+                <circle cx="17" cy="10.5" r="1.4" fill="currentColor" stroke="none" />
+            </svg>
+            <span class="rail-mot">Outils</span></button>
         <div class="rail-pied">
             <!-- Le bon bord dépend de la salle et de la main qui écrit : aucune
                  valeur par défaut ne peut le savoir. Le choix est retenu. -->
@@ -4249,7 +4263,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=434"></script>
+    <script src="script.js?v=435"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

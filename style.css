@@ -14394,6 +14394,24 @@ body.rail-efface #rail-bord { display: none; }
 }
 
 .rail-btn.rail-petit { width: 36px; height: 36px; font-size: 14px; border-radius: 10px; }
+
+/* UN BOUTON QUI PORTE SON MOT. « L'icône montrer les outils au-dessus de la
+   page n'est pas clair. » Dans un rail de soixante-douze pixels, le mot tient
+   sous le dessin — et un mot ne se devine pas, il se lit. */
+.rail-btn.rail-avec-mot {
+    width: 56px;
+    height: 52px;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 0;
+}
+
+.rail-btn.rail-avec-mot .rail-mot {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    line-height: 1;
+}
 .rail-btn:hover { color: var(--accent); background: var(--accent-soft); }
 .rail-btn.ouvert { color: var(--accent); background: var(--accent-soft); }
 .rail-btn[hidden] { display: none; }
@@ -14524,7 +14542,49 @@ body.rail-efface #bar-document.dans-le-rail { display: none; }
     height: 86px;
 }
 
-#bande-morceaux.contre-le-rail .bm-titre { text-align: center; }
+/* JUSTE LES MORCEAUX, ET LA PAGE.
+   « J'ai pas compris, il faudrait juste voir les morceaux et choisir la page. »
+   Mesuré dans le panneau appelé au rail : une barre de titre « ✂ 2 morceaux »,
+   PUIS un second titre « ✂ 2 morceaux » juste dessous, les vignettes, un
+   bouton « Tout poser sur la page », un bouton « ⋯ », un bouton « ✕ », et une
+   phrase de onze mots. Huit choses à lire pour un geste qui en compte deux :
+   prendre un morceau, dire sur quelle page.
+   Le titre de la fenêtre suffit ; le second part. Le « ⋯ » servait à déplier
+   le choix de la page — c'est justement ce qu'on vient chercher, il est donc
+   là d'emblée et le bouton n'a plus d'objet. « Vider le tiroir » est un geste
+   rare et destructeur : il reste sur le tableau ordinaire, pas au milieu
+   d'une projection. Et la phrase redit ce que « 1/2 » montre. */
+#bande-morceaux.contre-le-rail .bm-titre,
+#bande-morceaux.contre-le-rail #bm-plus,
+#bande-morceaux.contre-le-rail #bm-vider,
+#bande-morceaux.contre-le-rail #bm-explique { display: none; }
+
+/* Le choix de la page est là d'emblée, et il se lit d'un coup d'œil. */
+/* On ne force PAS « display » ici : c'est le code qui ouvre ce volet au rail,
+   et une règle de « display » battrait son « hidden » — la faute exacte qui
+   laissait le rail au bord d'un tableau ordinaire. La feuille ne fait que la
+   mise en page. */
+#bande-morceaux.contre-le-rail .bm-replie {
+    justify-content: center;
+    padding-top: 2px;
+}
+
+#bande-morceaux.contre-le-rail .bm-pages {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* ET IL NE SE RAGRANDIT PAS. « Je ne comprends pas pourquoi ça se ragrandit. »
+   La fenêtre retenait une largeur de ses autres usages ; au rail, elle est de
+   la largeur du panneau, point. */
+#bande-morceaux.contre-le-rail {
+    width: 220px !important;
+    min-width: 0 !important;
+}
+
+#bande-morceaux.contre-le-rail .fen-poignee { display: none; }
 
 /* LE QUAI N'EST PLUS SUR LA PAGE quand il ne garde que la barre des outils :
    l'onglet du rail est sa porte, et elle est là où l'on a le doigt. S'il garde
@@ -14536,4 +14596,9 @@ body.rail-efface #bar-document.dans-le-rail { display: none; }
    dans la barre du document. Deux portes à deux coins opposés pour le même
    geste, c'est une porte qu'on cherche. Elle revient dès que le rail s'efface —
    il ne doit jamais rester un écran sans issue visible. */
-body.rail-en-place:not(.rail-efface) #exit-focus-cross { display: none; }
+/* ET CACHER LE RAIL NE FAIT RIEN APPARAÎTRE : « cacher le rail fait
+   apparaître les outils ». On efface le rail pour avoir un écran propre ; y
+   voir surgir la croix et le quai est le contraire du geste demandé. La porte
+   est alors la poignée — dix pixels au bord, qui portent le rond — et Échap
+   sort toujours. */
+body.rail-en-place #exit-focus-cross { display: none; }
