@@ -21267,6 +21267,20 @@ function majLesPagesDeLEcran() {
     // geste qu'on venait d'apprendre n'était plus là au moment de le refaire.
     // Sur une page seule, les deux flèches se grisent — le rang, lui, dit
     // toujours où l'on est, et c'est par lui qu'on jette la page.
+    // ET ELLE RESTE, MÊME EN PROJETANT — C'EST UNE DEMANDE, PAS UN OUBLI.
+    //
+    // J'ai voulu la retirer du coin pendant la projection, au motif qu'« on ne
+    // feuillette pas son tableau pendant qu'on projette un PDF ». La prémisse
+    // était fausse, et c'est un contrôle du chapitre 15 qui l'a dit, en portant
+    // la demande d'origine : « il faudrait aussi pouvoir supprimer facilement
+    // une page EN MODE PLEIN ÉCRAN (clic sur le numéro de page 2/3 et option
+    // pour supprimer) ». La même scène tourne aussi les pages du tableau avec
+    // le ▶ du coin, sans sortir de la projection.
+    //
+    // Le rang du coin est donc la porte par laquelle on jette une page
+    // d'exercices devant la classe, sans rendre les barres. On ne la ferme pas
+    // pour gagner quatre boutons : la place qu'elle prend, on la gagnera en
+    // resserrant son dessin, pas en lui retirant son office.
     boite.style.display = 'flex';
     const rang = document.getElementById('ecran-page-rang');
     if (rang) rang.textContent = (currentPageIndex + 1) + '/' + pages.length;

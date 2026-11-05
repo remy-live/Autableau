@@ -819,7 +819,21 @@ module.exports = async function (browser) {
         // LES OUTILS PAR-DESSUS LA PAGE SONT LE BOUTON D'À CÔTÉ, et il ne
         // touche pas au plein écran : la page reste en grand.
         const barres = document.getElementById('doc-barres');
-        const barresVisible = vu('doc-barres');
+        // LA PORTE DES OUTILS, OÙ QU'ELLE SOIT. Depuis que la barre du
+        // document se dresse dans le rail, cet office y était DEUX FOIS : le
+        // « ⊞ » de la barre et l'onglet « Outils » de la bande, à cinquante
+        // pixels l'un de l'autre. Le doublon s'en va, celui qui porte son mot
+        // reste. On compte donc les portes ouvertes, et l'on en veut UNE :
+        // zéro, l'office est perdu ; deux, il se dédouble.
+        // Et l'on compte ce qu'on VOIT — un enfant de parent caché garde son
+        // « display » à lui, seul le rectangle dit la vérité.
+        const porteDesOutils = () => ['doc-barres', 'rail-outils'].filter(id => {
+            const e = document.getElementById(id);
+            if (!e || e.hidden) return false;
+            const q = e.getBoundingClientRect();
+            return q.width > 3 && q.height > 3;
+        }).length;
+        const barresVisible = porteDesOutils();
         barres.click();
         majBarreDocument();
         const avecBarres = {
@@ -843,7 +857,7 @@ module.exports = async function (browser) {
             presentation: !!presentationEnCours,
             modes: vu('doc-modes'), reperer: vu('doc-reperer'),
             allume: bouton.classList.contains('actif'),
-            barresVisible: vu('doc-barres')
+            barresVisible: porteDesOutils()
         };
         // ET Y RENTRE.
         bouton.click();
@@ -867,10 +881,10 @@ module.exports = async function (browser) {
     // remettre en grand. Le bouton est à côté de celui du plein écran, et il
     // ne paraît que pendant qu'on présente : hors présentation, les barres
     // sont là, il n'y a rien à montrer ni à ranger.
-    r.egal('le bouton des outils ne paraît qu\'en présentation',
+    r.egal('le bouton des outils ne paraît qu\'en présentation — et une seule fois',
         { enPresentation: barreDuPlein.barresVisible,
           horsPresentation: barreDuPlein.sorti.barresVisible },
-        { enPresentation: true, horsPresentation: false });
+        { enPresentation: 1, horsPresentation: 0 });
     r.egal('il rend les barres SANS quitter le plein écran',
         { presentation: barreDuPlein.avecBarres.presentation,
           focus: barreDuPlein.avecBarres.focus,

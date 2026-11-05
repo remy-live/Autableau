@@ -262,29 +262,53 @@ module.exports = async function (browser) {
     }, { octets });
     await page.waitForTimeout(400);
 
+    // LE BOUTON DES OUTILS A DÉMÉNAGÉ, IL N'A PAS DISPARU.
+    //
+    // « Rajoute pour la barre du pdf la sortie ou non du plein écran et une
+    // icône pour l'affichage ou non des toolbar » : cet office-là reste, et
+    // c'est lui qu'on mesure ici. Mais depuis que la barre du document se
+    // dresse dans le rail, il y était DEUX FOIS — « ⊞ » dans la barre, et
+    // l'onglet « Outils » de la bande du rail, à cinquante pixels l'un de
+    // l'autre. « La barre à droite en PDF et les boutons me chagrinent encore
+    // un peu » : le doublon s'en va, et c'est celui qui porte son mot qui
+    // reste, puisque l'autre icône « n'est pas claire ».
+    //
+    // On regarde donc LES DEUX portes et l'on demande qu'il y en ait
+    // exactement une : un office qui disparaît et un office qui se dédouble
+    // sont deux défauts, et ce contrôle attrape les deux.
     const doc = async () => ({
         plein: await page.evaluate(() => etatDuPleinEcran()),
         barres: await page.evaluate(() => !!presentationAvecBarres),
-        boutonDesBarres: await vu('#doc-barres')
+        // ON COMPTE CE QU'ON VOIT, et non ce que le style annonce : l'onglet
+        // du rail vit dans une bande qu'on cache par son attribut « hidden »,
+        // et un enfant de parent caché garde son « display: flex » à lui. Seul
+        // le rectangle dit la vérité.
+        boutonDesBarres: await page.evaluate(() => ['doc-barres', 'rail-outils']
+            .filter(id => {
+                const e = document.getElementById(id);
+                if (!e || e.hidden) return false;
+                const r = e.getBoundingClientRect();
+                return r.width > 3 && r.height > 3;
+            }).length)
     });
 
     r.egal('hors présentation, le bouton des outils n\'a rien à dire : il ne paraît pas',
-        await doc(), { plein: 0, barres: false, boutonDesBarres: false });
+        await doc(), { plein: 0, barres: false, boutonDesBarres: 0 });
 
     await page.evaluate(() => document.getElementById('doc-plein-ecran').click());
     await page.waitForTimeout(450);
     r.egal('un appui met la page en grand, sans les outils',
-        await doc(), { plein: 1, barres: false, boutonDesBarres: true });
+        await doc(), { plein: 1, barres: false, boutonDesBarres: 1 });
 
     await page.evaluate(() => document.getElementById('doc-barres').click());
     await page.waitForTimeout(450);
     r.egal('l\'AUTRE bouton rappelle les outils, et la page reste en grand',
-        await doc(), { plein: 2, barres: true, boutonDesBarres: true });
+        await doc(), { plein: 2, barres: true, boutonDesBarres: 1 });
 
     await page.evaluate(() => document.getElementById('doc-barres').click());
     await page.waitForTimeout(450);
     r.egal('le même les range, toujours sans quitter le plein écran',
-        await doc(), { plein: 1, barres: false, boutonDesBarres: true });
+        await doc(), { plein: 1, barres: false, boutonDesBarres: 1 });
 
     // LE POINT DU RETOUR : d'OÙ QU'ON PARTE, le bouton du plein écran sort.
     // C'était le piège du cycle — depuis la page seule, un appui menait au
@@ -305,7 +329,7 @@ module.exports = async function (browser) {
     await page.evaluate(() => document.getElementById('doc-plein-ecran').click());
     await page.waitForTimeout(450);
     r.egal('et depuis la page AVEC les outils, il sort aussi',
-        await doc(), { plein: 0, barres: false, boutonDesBarres: false });
+        await doc(), { plein: 0, barres: false, boutonDesBarres: 0 });
 
     // Le second bouton ne fait rien quand il n'y a pas de présentation.
     r.egal('hors présentation, montrer les outils n\'a pas de sens',

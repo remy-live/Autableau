@@ -14602,3 +14602,24 @@ body.rail-efface #bar-document.dans-le-rail { display: none; }
    est alors la poignée — dix pixels au bord, qui portent le rond — et Échap
    sort toujours. */
 body.rail-en-place #exit-focus-cross { display: none; }
+
+
+/* ============================================================
+   LE RAIL NE GARDE PAS CE QU'IL REND INUTILE
+
+   « La barre à droite en PDF et les boutons me chagrinent encore un peu. »
+   Compté, PDF projeté : dix-huit boutons au bord. Deux d'entre eux ne
+   servaient plus à rien — et ce sont des retraits gratuits, sans un geste
+   de plus à apprendre.
+
+   LE DOUBLON. « Montrer les outils par-dessus la page » existait DEUX FOIS,
+   à cinquante pixels l'un de l'autre : dans la barre du document, et dans
+   l'onglet « Outils » du rail. Celui du rail porte son mot ; celui de la
+   barre s'en va.
+
+   LE RÉSIDU. « Mettre la barre debout, au bord droit » : dans le rail, elle
+   EST debout, par construction. Le bouton ne pouvait plus rien faire — et un
+   bouton qui ne fait rien apprend à ne plus regarder la barre.
+   ============================================================ */
+#bar-document.dans-le-rail #doc-barres,
+#bar-document.dans-le-rail #bar-style-orienter { display: none !important; }

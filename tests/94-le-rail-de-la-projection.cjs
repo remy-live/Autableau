@@ -375,6 +375,113 @@ module.exports = async function (browser) {
     r.egal('LA CROIX DE SORTIE S\'EFFACE AVEC ELLE : deux portes à deux coins opposés pour le même geste, c\'est une porte qu\'on cherche',
         appels.croixVue, null, JSON.stringify(appels));
 
+    // ------------------------------------------------------------------
+    // LE RAIL NE GARDE PAS CE QU'IL REND INUTILE
+    //
+    // « La barre à droite en PDF et les boutons me chagrinent encore un peu,
+    // ainsi que les icônes en haut à droite. L'icône de page, je trouve qu'elle
+    // prend de la place. »
+    //
+    // Compté dans l'application, PDF projeté : dix-huit boutons au bord — quinze
+    // dans la barre du document, trois dans la bande du rail — et six au coin.
+    // Trois retraits ne coûtent AUCUN geste de plus :
+    //
+    //   LE DOUBLON. « Montrer les outils par-dessus la page » existait deux fois,
+    //   à cinquante pixels l'un de l'autre : dans la barre, et dans l'onglet du
+    //   rail qui porte son mot.
+    //
+    //   LE RÉSIDU. « Mettre la barre debout, au bord droit » — dans le rail elle
+    //   l'est par construction, le bouton ne pouvait plus rien faire.
+    //
+    //   LA SECONDE PAGINATION. ◀ 1/1 ▶ ＋ au coin, ce sont les pages du TABLEAU ;
+    //   ▲ 1/6 ▼ dans le rail, celles du DOCUMENT. On ne feuillette pas son
+    //   tableau pendant qu'on projette un PDF.
+    //
+    // Les trois sont des RETRAITS DE LA PROJECTION, non des suppressions : hors
+    // d'elle, tout revient à sa place.
+    // ------------------------------------------------------------------
+    const compter = () => page.evaluate(() => {
+        const vu = (e) => {
+            if (!e || e.hidden) return false;
+            const s = getComputedStyle(e);
+            if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) return false;
+            const r = e.getBoundingClientRect();
+            return r.width > 3 && r.height > 3;
+        };
+        const boutons = (sel) => {
+            const el = document.querySelector(sel);
+            if (!el || !vu(el)) return 0;
+            return [...el.querySelectorAll('button, .doc-btn, input, select')].filter(vu).length;
+        };
+        const coin = document.getElementById('barre-ecran');
+        return {
+            barre: boutons('#bar-document'),
+            bande: boutons('#rail-bord'),
+            coin: boutons('#barre-ecran'),
+            largeurDuCoin: coin && vu(coin) ? Math.round(coin.getBoundingClientRect().width) : 0,
+            doublon: vu(document.getElementById('doc-barres')),
+            residu: vu(document.getElementById('bar-style-orienter')),
+            pagesDuTableau: vu(document.getElementById('ecran-pages')),
+            ongletDesOutils: vu(document.getElementById('rail-outils')),
+            pagesDuDocument: vu(document.getElementById('doc-page-num')),
+            // L'onglet des morceaux ne compte pas comme un meuble permanent :
+            // il ne paraît que lorsqu'il y a quelque chose dedans, et il s'en
+            // va avec le dernier morceau posé.
+            ongletMorceaux: vu(document.getElementById('rail-morceaux'))
+        };
+    });
+    const enProjetant = await compter();
+    r.egal('LE DOUBLON N\'EST PLUS DANS LE RAIL : « montrer les outils par-dessus la page » existait deux fois, à cinquante pixels l\'un de l\'autre — l\'onglet qui porte son mot reste, l\'autre s\'en va',
+        [enProjetant.doublon, enProjetant.ongletDesOutils], [false, true], JSON.stringify(enProjetant));
+    r.egal('LE RÉSIDU NON PLUS : « mettre la barre debout, au bord droit » — dans le rail elle l\'est déjà, et un bouton qui ne fait rien apprend à ne plus regarder la barre',
+        enProjetant.residu, false, JSON.stringify(enProjetant));
+    // LA PAGINATION DU TABLEAU RESTE, ET C'EST UNE DEMANDE.
+    //
+    // Ce contrôle demandait d'abord qu'elle quitte le coin en projetant : « on
+    // ne feuillette pas son tableau pendant qu'on projette un PDF ». La
+    // prémisse était fausse, et c'est le chapitre 15 qui l'a dit, en portant la
+    // demande d'origine : « il faudrait aussi pouvoir supprimer facilement une
+    // page EN MODE PLEIN ÉCRAN (clic sur le numéro de page 2/3 et option pour
+    // supprimer) ». Le rang du coin est la porte par laquelle on jette une page
+    // d'exercices devant la classe, sans rendre les barres — et le ▶ tourne les
+    // pages du tableau sans sortir de la projection.
+    //
+    // La place qu'elle prend se gagnera en resserrant son dessin, pas en lui
+    // retirant son office.
+    r.egal('LA PAGINATION DU TABLEAU RESTE AU COIN, MÊME EN PROJETANT : c\'est par son rang qu\'on jette une page d\'exercices devant la classe, sans rendre les barres',
+        [enProjetant.pagesDuTableau, enProjetant.pagesDuDocument], [true, true],
+        JSON.stringify(enProjetant));
+    // ET LE COMPTE SE FAIT SUR CE QUI EST TOUJOURS LÀ.
+    //
+    // Ce contrôle demandait seize et tombait à dix-sept : l'onglet des morceaux
+    // était compté. Il a raison d'être là — deux morceaux attendent dans cette
+    // scène — mais ce n'est pas un meuble permanent : il paraît avec le premier
+    // découpage et s'en va avec le dernier morceau posé. On compte donc le
+    // bord SANS lui, et on le dit.
+    r.verifie('ET LE COMPTE Y EST : dix-huit boutons au bord avant, seize après — sans un geste de plus à apprendre, et sans qu\'aucun office soit perdu',
+        enProjetant.barre + enProjetant.bande - (enProjetant.ongletMorceaux ? 1 : 0) === 16,
+        JSON.stringify(enProjetant));
+
+    // ET CE SONT DES RETRAITS DE LA PROJECTION, NON DES SUPPRESSIONS.
+    const auTableauEnsuite = await page.evaluate(async () => {
+        quitterLaPresentation();
+        majBarreDocument();
+        if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+        await new Promise(r2 => setTimeout(r2, 500));
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            if (!e || e.hidden) return false;
+            const s = getComputedStyle(e);
+            return s.display !== 'none' && e.getBoundingClientRect().width > 3;
+        };
+        return { pagesDuTableau: vu('ecran-pages'), residu: vu('bar-style-orienter') };
+    });
+    r.egal('HORS PROJECTION, LE BOUTON D\'ORIENTATION REVIENT : il est retiré du RAIL, non supprimé de l\'application — couchée, la barre a de nouveau le choix',
+        [auTableauEnsuite.pagesDuTableau, auTableauEnsuite.residu], [true, true],
+        JSON.stringify(auTableauEnsuite));
+    await page.evaluate(() => presenterCeQuOnRegarde());
+    await page.waitForTimeout(800);
+
     // ET L'ONGLET DES OUTILS FAIT LES DEUX GESTES — c'est la même question.
     const parLOnglet = await page.evaluate(async () => {
         const o = document.getElementById('rail-outils');
