@@ -52325,3 +52325,83 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = document.getElementById('btn-clavier-ecran');
     if (b) b.addEventListener('click', basculerLeClavier);
 });
+
+// ==============================================================================
+// S'INSTALLER, ET OUVRIR LES FICHIERS QU'ON LUI CONFIE
+//
+// « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le rajouter
+// dans le contextuel sous Windows ? »
+//
+// Windows n'associe un type de fichier qu'à un PROGRAMME INSTALLÉ : une page
+// web n'a rien à quoi s'accrocher, et aucune entrée de base de registre n'y
+// change rien — une page ne peut pas lire un fichier local qu'on lui désigne,
+// c'est une barrière de sécurité et non un réglage. Le seul chemin qui ne
+// transforme pas l'application en logiciel empaqueté est de la rendre
+// INSTALLABLE : manifeste, service worker, icônes. Windows la met alors dans
+// « Ouvrir avec », et elle peut devenir le programme par défaut des PDF.
+//
+// Deux morceaux ici : l'enregistrement du service worker, et la réception du
+// fichier au lancement.
+// ==============================================================================
+
+// LE SERVICE WORKER NE S'ENREGISTRE QUE LÀ OÙ IL EXISTE.
+//
+// Il lui faut une origine sûre : « https », ou « localhost » pour l'épreuve.
+// Ouverte en « file:// » — la copie posée sur une clé USB, celle de beaucoup de
+// salles — l'application n'en a pas, et le navigateur refuserait net. On ne
+// tente donc même pas : une erreur dans la console au démarrage de chaque
+// séance n'apprend rien à personne.
+function installerLeServiceWorker() {
+    if (!('serviceWorker' in navigator)) return false;
+    const p = location.protocol;
+    const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    if (p !== 'https:' && !(p === 'http:' && local)) return false;
+    navigator.serviceWorker.register('sw.js').catch(() => { /* refusé : on vit sans */ });
+    return true;
+}
+window.installerLeServiceWorker = installerLeServiceWorker;
+
+// CE QU'ON NOUS OUVRE ARRIVE PAR LÀ.
+//
+// Quand Windows lance l'application sur un fichier, le navigateur le dépose
+// dans « launchQueue ». Il FAUT poser le consommateur tôt : la file garde ce
+// qu'elle a reçu, mais une page qui ne vient jamais le chercher ouvre un
+// tableau vide sur un double-clic — et l'enseignant croit que ça n'a pas marché.
+//
+// ON PASSE PAR LA MÊME PORTE QUE LE GLISSER-DÉPOSER. « deposerDesFichiers »
+// sait déjà quoi faire d'un PDF, d'une image, d'un document, d'un MP3, d'une
+// vidéo — et d'un PDF qui arrive avant que l'écran de départ soit choisi. Un
+// second chemin aurait divergé du premier au premier format ajouté : ce qui
+// arrive d'un double-clic sous Windows et ce qui arrive d'un fichier traîné sur
+// la page sont la MÊME chose, et doivent le rester.
+//
+// On les pose au milieu de l'écran, faute de curseur : personne n'a visé.
+function recevoirLesFichiersDuSysteme() {
+    if (!('launchQueue' in window) || !window.launchQueue) return false;
+    if (typeof deposerDesFichiers !== 'function') return false;
+    window.launchQueue.setConsumer(async (lancement) => {
+        if (!lancement || !lancement.files || !lancement.files.length) return;
+        const fichiers = [];
+        for (const poignee of lancement.files) {
+            try {
+                const f = await poignee.getFile();
+                if (f) fichiers.push(f);
+            } catch (e) { /* le système n'ouvre pas celui-là */ }
+        }
+        if (!fichiers.length) return;
+        try {
+            deposerDesFichiers(fichiers, window.innerWidth / 2, window.innerHeight / 2);
+        } catch (e) {
+            if (typeof showToast === 'function') {
+                showToast('Ce fichier ne s\'ouvre pas : ' + (fichiers[0].name || ''));
+            }
+        }
+    });
+    return true;
+}
+window.recevoirLesFichiersDuSysteme = recevoirLesFichiersDuSysteme;
+
+document.addEventListener('DOMContentLoaded', () => {
+    installerLeServiceWorker();
+    recevoirLesFichiersDuSysteme();
+});
