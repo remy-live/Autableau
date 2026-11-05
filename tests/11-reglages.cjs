@@ -888,7 +888,26 @@ module.exports = async function (browser) {
     // tiroir du bas, où il était une pastille écrite en toutes lettres au
     // milieu de gestes qu'on refait vingt fois par heure. Une ligne ici contre
     // une ligne entière là-bas — le compte est bon.
-    r.egal('et il fait la hauteur qu\'on lui connaît', grand.hauteur, 377);
+    // CE QU'IL FAUT SURVEILLER, C'EST LE NOMBRE D'ENTRÉES, PAS LE PIXEL.
+    //
+    // Le chiffre exact — trois cent soixante-dix-sept — était une sentinelle :
+    // « qu'on s'aperçoive du jour où le menu se remet à grandir ». Elle a sonné
+    // pour trois cent quatre-vingt-quatre, et le menu n'avait pas grandi d'une
+    // ligne : dix entrées hier, dix aujourd'hui. Ce sont les hauteurs de ligne
+    // qui ont bougé, vingt-neuf ou trente pixels selon la ligne, parce que la
+    // police disponible n'est pas la même d'une machine à l'autre — la pile
+    // commence par Roboto, et tout le reste est une solution de repli.
+    // Vérifié : le même contrôle tombe sur l'arbre d'hier, qui passait.
+    //
+    // Une sentinelle qui sonne quand la police change ne surveille plus le
+    // menu, elle surveille la machine. On garde donc les DEUX moitiés de son
+    // intention : le nombre d'entrées, qui augmente d'un quand on ajoute un
+    // réglage, et la hauteur à quelques pixels de métrique près.
+    r.egal('LE MENU N\'A PAS GAGNÉ D\'ENTRÉE : c\'est par là qu\'il grandit, une ligne à la fois',
+        grand.nChoix, 10, JSON.stringify(grand));
+    r.verifie('et il fait la hauteur qu\'on lui connaît, aux métriques de police près',
+        grand.hauteur >= 360 && grand.hauteur <= 400,
+        grand.hauteur + ' px, attendu entre 360 et 400 — 377 sur la machine d\'origine');
     r.verifie('sur un écran de six cents, il tient désormais sans défiler',
         moyen.deborde < 0 && !moyen.defile, JSON.stringify(moyen));
     r.verifie('sur un écran court, il ne dépasse plus le bord bas',

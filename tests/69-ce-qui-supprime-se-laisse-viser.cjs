@@ -249,6 +249,19 @@ module.exports = async function (browser) {
     // ON MESURE CE QUI FAIT QU'ELLES VONT ENSEMBLE : toutes deux dessinées, au
     // même format, de la même épaisseur de trait, sans fond au repos — et
     // lisibles sur leur bandeau, de jour comme de nuit.
+    // ON MESURE DANS UN ÉCRAN PROPRE, et non dans celui que la section d'avant
+    // a laissé. Pour compter les pastilles, elle ouvre TOUTES les fenêtres des
+    // outils — quarante et une, mesurées — et ne les referme pas. Le relevé de
+    // nuit lisait alors une encre restée au gris du jour sur un bandeau déjà
+    // sombre, et annonçait un contraste de 2,63 là où il vaut 6,04 sur un écran
+    // ordinaire (vérifié à une, deux et douze fenêtres). On ferme donc ce qui
+    // traîne avant de mesurer : le contraste d'une commande ne dépend pas du
+    // nombre de fenêtres ouvertes, et un contrôle qui le laisse croire accuse
+    // l'application d'un défaut qu'elle n'a pas.
+    await page.evaluate(async () => {
+        document.querySelectorAll('.fen-tete .fen-fermer').forEach(b => b.click());
+        await new Promise(ok => setTimeout(ok, 600));
+    });
     await page.evaluate(() => { document.getElementById('btn-toggle-calc').click(); });
     // ON ATTEND LA FENÊTRE, ON NE LA CHRONOMÈTRE PAS. Six cents millisecondes
     // suffisaient presque toujours — et une fois sur une suite entière, non :
@@ -291,7 +304,30 @@ module.exports = async function (browser) {
         };
         const jour = relever();
         document.body.classList.add('dark-mode');
-        await new Promise(ok => setTimeout(ok, 400));
+        // ON ATTEND QUE LA COULEUR SE POSE, ON NE LA CHRONOMÈTRE PAS.
+        //
+        // Le fond du bandeau bascule au sombre d'un coup ; l'encre de l'icône,
+        // elle, TRANSITE — mesuré : rgb(107,118,128) au départ, rgb(174,184,190)
+        // au bout de cent cinquante millisecondes. Quatre cents suffisaient sur
+        // la machine d'alors, et plus sur une autre : le contrôle lisait un
+        // entre-deux et annonçait un contraste de 2,63 là où il vaut 6,04.
+        //
+        // C'est la leçon déjà écrite vingt lignes plus haut, pour l'ouverture
+        // de la fenêtre : « un délai fixe en face d'une ouverture asynchrone
+        // finit toujours par mentir ». Elle vaut aussi pour une transition de
+        // couleur. On lit donc jusqu'à ce que deux relevés se ressemblent.
+        const posee = async () => {
+            let avant = '';
+            for (let i = 0; i < 40; i++) {
+                await new Promise(ok => setTimeout(ok, 60));
+                const b = document.querySelector('#calc-widget > .fen-tete .fen-fermer');
+                const c = b ? getComputedStyle(b).color : '';
+                if (c && c === avant) return true;
+                avant = c;
+            }
+            return false;
+        };
+        await posee();
         const nuit = relever();
         document.body.classList.remove('dark-mode');
         return { jour, nuit };

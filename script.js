@@ -4878,6 +4878,43 @@ function drawSmoothFreehand(ctx, points, baseWidth, lw) {
     ctx.lineJoin = 'round';
 
     let firstP = points[0].p !== undefined ? points[0].p : 0.5;
+
+    // UN CLIC SANS BOUGER POSE SON POINT — ET IL FAUT LE PEINDRE SOI-MÊME.
+    //
+    // Un clic immobile donne deux points au même endroit. On en faisait un
+    // trait : « moveTo(p) » puis « lineTo(p) », c'est-à-dire un chemin de
+    // longueur nulle, et l'on comptait sur le bout rond du trait pour dessiner
+    // la pastille. Tous les moteurs ne le font pas.
+    //
+    // Mesuré dans Chromium 153, sur une toile d'essai :
+    //
+    //   segment de longueur nulle, bout rond    0 pixel peint
+    //   segment de longueur nulle, bout carré   0 pixel peint
+    //   segment d'un centième, bout rond       60 pixels
+    //   un vrai disque                         60 pixels
+    //
+    // Le point du crayon avait donc purement et simplement disparu — pas chez
+    // nous, chez l'enseignant qui a un navigateur récent. C'est le chapitre
+    // 75 qui l'a dit, en tombant le jour où la machine d'épreuve a changé de
+    // moteur ; le dépôt, lui, n'avait pas bougé d'une ligne.
+    //
+    // On ne se fie donc plus au bout du trait : quand le tracé n'a aucune
+    // longueur, on peint le disque qu'il doit laisser. Le rayon est la
+    // demi-largeur du trait, exactement ce que le bout rond aurait donné.
+    const immobile = points.every(q => Math.abs(q.x - points[0].x) < 0.01
+                                    && Math.abs(q.y - points[0].y) < 0.01);
+    if (immobile) {
+        const large = (baseWidth || 3) * (firstP * 2) * lw;
+        ctx.beginPath();
+        ctx.arc(points[0].x, points[0].y, Math.max(0.35, large / 2), 0, Math.PI * 2);
+        // Le disque prend la couleur du trait : « strokeStyle » est posé par
+        // l'appelant, et c'est elle qu'on remplit.
+        const encre = ctx.fillStyle;
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fill();
+        ctx.fillStyle = encre;
+        return;
+    }
     let isConstantPressure = true;
     for (let i = 1; i < points.length; i++) {
         let p = points[i].p !== undefined ? points[i].p : 0.5;
@@ -20971,7 +21008,7 @@ function pageDesExercices() {
 // « Tout poser » lui donnerait, agrandi tant que ça reste net.
 function placeDuMorceauAgrandi(m) {
     const zone = placeLibrePourLesMorceaux();
-    const s = Math.max(0.05, Math.min(MORCEAU_AGRANDI_MAX, zone.L / m.w, zone.H / m.h));
+    const s = Math.max(0.05, Math.min(plafondDAgrandissement([m]), zone.L / m.w, zone.H / m.h));
     return {
         x: zone.x + Math.max(0, (zone.L - m.w * s) / 2),
         y: zone.y + Math.max(0, (zone.H - m.h * s) / 2),
@@ -21351,6 +21388,35 @@ function affinerLesMorceaux(poses) {
 // ------------------------------------------------------------------
 const MORCEAU_AGRANDI_MAX = 3;   // au-delà, on ne montre plus que du flou
 
+// SAUF QUAND IL N'Y A PAS DE FLOU À CRAINDRE.
+//
+// « J'aimerais bien que ce que je découpe sur un PDF et que je dépose sur une
+// page occupe le maximum de l'espace de l'écran, avec un peu de marge. »
+//
+// Le plafond de trois valait contre le flou : un timbre-poste étiré à toute la
+// largeur du tableau n'est plus lisible, il est gros. Mais un morceau découpé
+// dans un PDF garde la CLÉ de sa page, et « affinerLesMorceaux » la lui
+// redemande rendue à la finesse qu'il lui faut — jusqu'à douze fois la taille
+// naturelle, c'est « FINESSE_MAX ». Pour celui-là, il n'y a pas de flou avant
+// douze, et s'arrêter à trois ne protégeait de rien : cela rapetissait un
+// exercice qu'on venait justement de mettre en grand pour le fond de la classe.
+//
+// Un morceau découpé dans une IMAGE, lui, n'a rien à redemander : ses pixels
+// sont ceux qu'on a. Il garde son plafond de trois.
+//
+// Le lot entier partage une seule échelle — deux exercices d'une même page
+// gardent leur taille l'un par rapport à l'autre —, donc c'est le plus
+// fragile qui commande : on prend le plus petit des plafonds.
+function plafondDAgrandissement(lot) {
+    if (!lot || !lot.length) return MORCEAU_AGRANDI_MAX;
+    return lot.reduce((plus, o) => {
+        const pd = (o && o.pluginData) || {};
+        const net = !!(pd.cle || o.cle);
+        return Math.min(plus, net ? FINESSE_MAX : MORCEAU_AGRANDI_MAX);
+    }, FINESSE_MAX);
+}
+window.plafondDAgrandissement = plafondDAgrandissement;
+
 function partagesEnLignes(n) {
     // n grand : on n'essaie plus tout, seulement des lignes bien remplies.
     if (n > 10) {
@@ -21449,6 +21515,31 @@ function rangerLesMorceauxDeLaPage() {
     const lot = images.filter(o => o && o.pluginData && o.pluginData.id === 'morceau');
     if (!lot.length) return 0;
 
+    // ET LES TIROIRS SE RANGENT, PARCE QU'ILS MANGENT L'ÉCRAN.
+    //
+    // « J'aimerais bien que ce que je découpe sur un PDF et que je dépose sur
+    // une page occupe le maximum de l'espace de l'écran, avec un peu de marge. »
+    // Mesuré, trois exercices posés : soixante-dix pour cent de la largeur,
+    // soixante-deux de la hauteur — et le pavé remplissait pourtant TOUTE la
+    // place disponible. Les deux tiroirs ouverts en réservaient deux cent
+    // cinquante-deux, soit vingt-huit pour cent de la hauteur de l'écran.
+    //
+    // Poser ses exercices sur leur page est un geste de monstration : on les
+    // met en grand pour le fond de la classe. Les tiroirs, eux, servent à
+    // préparer. Ils se rangent donc comme ils se rangent en projetant — et
+    // c'est la même règle, écrite le même jour : « le tiroir étant de toute
+    // façon accessible avec la poignée ». Un doigt sur la languette les rend.
+    if (typeof rangerLesTiroirs === 'function') rangerLesTiroirs();
+
+    // ON RANGE DANS L'ÉCRAN, MOINS UNE MARGE, et c'est tout : le cadrage qui
+    // suit (« voirToutLeTableau ») inscrit ensuite ce pavé dans la zone de
+    // lecture, avec SA marge. J'ai essayé de ranger directement dans cette
+    // zone-là, pour éviter deux marges l'une dans l'autre — et le banc de
+    // sabotage a dit que cela ne changeait rien : à tiroirs rangés, les deux
+    // rectangles ont la même forme, et le cadrage rattrape le reste. Une
+    // correction que rien ne mesure est une correction qui ment ; elle est
+    // donc partie, et il ne reste que ce qui agit vraiment — ranger les
+    // tiroirs, et ne plus réserver de place à un tiroir absent.
     const marge = 30 / zoom;
     const gauche = (0 - panX) / zoom + marge;
     const haut = (0 - panY) / zoom + marge;
@@ -21459,9 +21550,9 @@ function rangerLesMorceauxDeLaPage() {
     const tailles = lot.map(tailleNaturelleDuMorceau);
     const { partage, echelle } = meilleurPartage(tailles, L, H, ecart);
     if (!partage) return 0;
-    // On agrandit tant que ça reste net : un timbre-poste étiré à toute la
-    // largeur du tableau n'est plus lisible, il est gros.
-    const s = Math.max(0.05, Math.min(echelle, MORCEAU_AGRANDI_MAX));
+    // On agrandit tant que ça reste net — et ce qui vient d'un PDF reste net
+    // bien au-delà de trois, puisqu'il redemande sa page rendue plus fine.
+    const s = Math.max(0.05, Math.min(echelle, plafondDAgrandissement(lot)));
 
     const hauteurs = partage.map(ligne => Math.max(...ligne.map(i => tailles[i].h)) * s);
     const totalH = hauteurs.reduce((t, x) => t + x, 0) + ecart * (partage.length - 1);
@@ -48329,6 +48420,14 @@ function bandeauxDeLEcran() {
     const hauteurBarre = (sel) => {
         const el = document.querySelector(sel);
         if (!el || !el.getClientRects().length) return 0;
+        // UN TIROIR RANGÉ NE RÉSERVE RIEN. Il garde son rectangle entier
+        // pendant qu'il coulisse dehors, et même une fois sorti : on cadrait
+        // donc sous un meuble absent, et ce qu'on montrait à la classe était
+        // plus petit de cent vingt pixels pour rien. « tiroirEnPlace » dit s'il
+        // est VRAIMENT là — c'est la même question que se pose la barre du
+        // document pour ne pas se garer sous un tiroir fantôme.
+        if (typeof tiroirEnPlace === 'function' && el.classList.contains('drawer')
+            && !tiroirEnPlace(el)) return 0;
         return Math.min(200, el.getBoundingClientRect().height + 16);
     };
     // LE TIROIR DU BAS S'APPELLE « bottom-drawer ». Les trois noms cherchés

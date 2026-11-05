@@ -208,6 +208,130 @@ module.exports = async function (browser) {
         { zoom: surLeVide.zoom, panX: surLeVide.panX, panY: surLeVide.panY },
         { zoom: 1, panX: Math.round(surLeVide.L / 2), panY: Math.round(surLeVide.H / 2) });
 
+    // ------------------------------------------------------------------
+    // CE QU'ON POSE OCCUPE L'ÉCRAN — AVEC UN PEU DE MARGE, ET PAS PLUS
+    //
+    // « J'aimerais bien que ce que je découpe sur un PDF et que je dépose sur
+    // une page occupe le maximum de l'espace de l'écran, avec un peu de marge. »
+    //
+    // Mesuré avant d'y toucher, trois exercices découpés et posés : le pavé
+    // faisait SOIXANTE-DOUZE pour cent de la largeur et soixante-deux de la
+    // hauteur. Il remplissait pourtant déjà toute la place qu'on lui laissait —
+    // le mal était ailleurs, en deux endroits :
+    //
+    //   LES DEUX TIROIRS OUVERTS réservaient deux cent cinquante-deux pixels de
+    //   hauteur, vingt-huit pour cent de l'écran. Poser ses exercices est un
+    //   geste de monstration ; les tiroirs servent à préparer. Ils se rangent
+    //   donc, comme en projetant, et leur languette les rend d'un doigt.
+    //
+    //   ET ON RANGEAIT DANS UN RECTANGLE QUI N'ÉTAIT PAS CELUI OÙ L'ON
+    //   REGARDE : forme de l'écran d'un côté, zone de lecture de l'autre, deux
+    //   marges l'une dans l'autre. Les deux se calculent désormais au même
+    //   endroit (« zoneDeLectureDesMorceaux »).
+    //
+    // Et le plafond d'agrandissement — trois fois, « au-delà on ne montre plus
+    // que du flou » — ne vaut plus pour ce qui vient d'un PDF : le morceau
+    // garde la clé de sa page et la redemande rendue plus fine, jusqu'à douze
+    // fois. Il valait pour une découpe d'IMAGE, qui n'a rien à redemander ;
+    // elle le garde.
+    // ------------------------------------------------------------------
+    const occupation = await page.evaluate(async ({ combien }) => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        // Une image blanche, comme le reste du chapitre : on mesure de la
+        // géométrie, pas des pixels d'encre.
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="160">'
+            + '<rect width="900" height="160" fill="#ffffff" stroke="#333333"/></svg>';
+        const st = await new Promise(ok => createStampFromSVG(svg, ok));
+        while (pages.length > 1) pages.pop();
+        loadPage(0);
+        images.length = 0; selectedItems = []; morceauxEnAttente = [];
+        panX = 0; panY = 0; zoom = 1;
+        majLeTiroirDesMorceaux();
+        // Les deux tiroirs sont OUVERTS : c'est l'état ordinaire, et c'est lui
+        // qui mangeait l'écran.
+        const bas = document.getElementById('bottom-drawer');
+        const haut = document.getElementById('bar-plugins');
+        if (bas.classList.contains('closed')) toggleBottomDrawer();
+        if (haut.classList.contains('closed')) togglePluginDrawer();
+        await attendre(500);
+        // Des morceaux qui viennent d'un PDF : ils portent une clé, donc ils
+        // savent se redemander nets.
+        for (let i = 0; i < combien; i++) {
+            morceauxEnAttente.push({ id: nextId++, w: 900, h: 160, cx: 0, cy: 0,
+                                     cw: st.w, ch: st.h, src: st.src,
+                                     nom: 'poly.pdf', page: 1, cle: 'poly:1',
+                                     pdfRef: 'poly', source: 'doc' });
+        }
+        majLeTiroirDesMorceaux();
+        poserTousLesMorceaux();
+        await attendre(700);
+        const L = canvas.clientWidth, H = canvas.clientHeight;
+        const poses = images.filter(o => o.pluginData && o.pluginData.id === 'morceau');
+        if (!poses.length) return null;
+        const bords = poses.map(o => [o.x * zoom + panX, o.y * zoom + panY,
+                                      o.w * zoom, o.h * zoom]);
+        const x1 = Math.min(...bords.map(b => b[0])), y1 = Math.min(...bords.map(b => b[1]));
+        const x2 = Math.max(...bords.map(b => b[0] + b[2])), y2 = Math.max(...bords.map(b => b[1] + b[3]));
+        return {
+            combien: poses.length,
+            partDeLaLargeur: Math.round(1000 * (x2 - x1) / L) / 10,
+            partDeLaHauteur: Math.round(1000 * (y2 - y1) / H) / 10,
+            // La marge : ce qui reste de chaque côté, en pixels d'écran.
+            margeGauche: Math.round(x1), margeDroite: Math.round(L - x2),
+            margeHaut: Math.round(y1), margeBas: Math.round(H - y2),
+            tiroirsRanges: document.getElementById('bottom-drawer').classList.contains('closed')
+                && document.getElementById('bar-plugins').classList.contains('closed')
+        };
+    }, { combien: 3 });
+
+    r.verifie('TROIS EXERCICES POSÉS OCCUPENT L\'ÉCRAN : 72 % de la largeur avant, parce qu\'on cadrait sous deux tiroirs ouverts et dans une zone qui n\'était pas celle où l\'on regarde',
+        occupation && occupation.partDeLaLargeur > 90, JSON.stringify(occupation));
+    r.verifie('et ils en prennent la hauteur aussi, autant que leur forme le permet',
+        occupation && occupation.partDeLaHauteur > 75, JSON.stringify(occupation));
+    // « AVEC UN PEU DE MARGE » : il y en a une, et elle reste petite.
+    //
+    // De côté, c'est la marge du cadrage, au pixel — quarante-cinq ici, cinq
+    // pour cent du petit côté. En haut et en bas s'y ajoutent le bandeau de
+    // trente pixels que l'écran garde toujours, et le reste du centrage quand
+    // la forme du pavé ne remplit pas tout : quatre-vingt-cinq mesurés. Une
+    // première version de ce contrôle demandait soixante-dix au plus partout
+    // et tombait là-dessus — elle réclamait que la marge verticale ignore des
+    // bandeaux qui existent.
+    r.verifie('AVEC UN PEU DE MARGE, ET PAS PLUS : la marge de côté est celle du cadrage, au pixel, et aucune ne dépasse le dixième de l\'écran',
+        occupation && occupation.margeGauche === occupation.margeDroite
+        && occupation.margeGauche >= 20 && occupation.margeGauche <= 70
+        && [occupation.margeHaut, occupation.margeBas].every(m => m >= 20 && m <= 110),
+        JSON.stringify(occupation));
+    r.verifie('les tiroirs se sont rangés, comme en projetant — leur languette les rend d\'un doigt',
+        occupation && occupation.tiroirsRanges, JSON.stringify(occupation));
+
+    // UN TIROIR RANGÉ NE RÉSERVE PLUS RIEN. Il gardait son rectangle entier une
+    // fois coulissé dehors : on cadrait sous un meuble absent, et ce qu'on
+    // montrait à la classe était plus petit de cent vingt pixels pour rien.
+    const bandeaux = await page.evaluate(() => {
+        const bas = document.getElementById('bottom-drawer');
+        const haut = document.getElementById('bar-plugins');
+        if (!bas.classList.contains('closed')) toggleBottomDrawer();
+        if (!haut.classList.contains('closed')) togglePluginDrawer();
+        return bandeauxDeLEcran();
+    });
+    r.egal('UN TIROIR RANGÉ NE RÉSERVE PLUS DE HAUTEUR : il gardait son rectangle une fois sorti de l\'écran, et l\'on cadrait sous un meuble absent',
+        [bandeaux.enHaut, bandeaux.enBas], [30, 30], JSON.stringify(bandeaux));
+
+    // ET LE PLAFOND REGARDE CE QU'IL PROTÈGE. Un morceau de PDF se redemande
+    // net jusqu'à douze fois ; une découpe d'image n'a rien à redemander.
+    const plafonds = await page.evaluate(() => ({
+        venuDUnPdf: plafondDAgrandissement([{ pluginData: { cle: 'poly:1' } }]),
+        venuDUneImage: plafondDAgrandissement([{ pluginData: {} }]),
+        lesDeux: plafondDAgrandissement([{ pluginData: { cle: 'poly:1' } }, { pluginData: {} }])
+    }));
+    r.egal('UN MORCEAU DE PDF S\'AGRANDIT JUSQU\'À DOUZE FOIS : il garde la clé de sa page et la redemande rendue plus fine — le plafond de trois ne le protégeait de rien, il le rapetissait',
+        plafonds.venuDUnPdf, 12, JSON.stringify(plafonds));
+    r.egal('UNE DÉCOUPE D\'IMAGE GARDE SON PLAFOND DE TROIS : ses pixels sont ceux qu\'on a, et au-delà on ne montre plus que du flou',
+        plafonds.venuDUneImage, 3, JSON.stringify(plafonds));
+    r.egal('et un lot mêlé prend le plus petit des deux : une seule échelle pour tout le monde, c\'est le plus fragile qui commande',
+        plafonds.lesDeux, 3, JSON.stringify(plafonds));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
