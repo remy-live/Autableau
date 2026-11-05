@@ -14623,3 +14623,32 @@ body.rail-en-place #exit-focus-cross { display: none; }
    ============================================================ */
 #bar-document.dans-le-rail #doc-barres,
 #bar-document.dans-le-rail #bar-style-orienter { display: none !important; }
+
+/* ============================================================
+   UN OUTIL PRIS MONTRE SA FAMILLE
+
+   « Je me sers rarement simultanément du texte, du crayon ; la barre à droite
+   en PDF et les boutons me chagrinent. L'icône de page prend de la place. »
+
+   Dans le rail, quatre pastilles de tracé et quatre de découpe tenaient la
+   place de huit, en permanence, sur soixante-douze pixels de large.
+
+   Les réunir derrière un bouton à déplier coûterait un appui de plus — et
+   justement sur « sélection ↔ crayon », qu'on alterne sans cesse en annotant
+   une page projetée. On fait donc l'inverse : les TÊTES de famille restent
+   visibles — la main, le crayon, les ciseaux — et chaque famille ne paraît QUE
+   PENDANT QU'ON S'EN SERT. Prendre le crayon fait venir le texte et le cache ;
+   armer les ciseaux fait venir la forme et le rognage. Le geste qui ouvre la
+   famille est celui qu'on allait faire de toute façon : aucun appui ajouté.
+
+   « La forme de la découpe, c'est vraiment à la marge, mais il faut le
+   garder » — elle est gardée, et elle paraît au seul moment où elle sert :
+   quand les ciseaux sont en main.
+
+   ET CELA NE VAUT QUE DANS LE RAIL. Couchée sur le tableau, la barre a de la
+   place, et rien ne justifie d'y cacher quoi que ce soit.
+   ============================================================ */
+#bar-document.dans-le-rail:not(.famille-du-trace) #doc-outil-texte,
+#bar-document.dans-le-rail:not(.famille-du-trace) #doc-outil-cache,
+#bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-decoupe-forme,
+#bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-rogner { display: none !important; }

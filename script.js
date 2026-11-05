@@ -22564,6 +22564,29 @@ function majBarreDocument() {
         document.getElementById('doc-outil-cache').classList.toggle('actif',
             mode === 'rectangle' && typeof cacheBlanc !== 'undefined' && cacheBlanc);
     }
+
+    // UN OUTIL PRIS MONTRE SA FAMILLE.
+    //
+    // « Je me sers rarement simultanément du texte, du crayon ; la barre à
+    // droite et les boutons me chagrinent. » Quatre pastilles de tracé et
+    // quatre de découpe tenaient la place de huit, en permanence, dans un rail
+    // de soixante-douze pixels.
+    //
+    // Les réunir sous un bouton qu'on déplie coûterait un appui de plus — et
+    // justement sur « sélection ↔ crayon », qu'on alterne sans cesse en
+    // annotant une page projetée. On a donc choisi l'inverse : les TÊTES de
+    // famille restent visibles, et chaque famille ne paraît QUE PENDANT QU'ON
+    // S'EN SERT. Prendre le crayon fait venir le texte et le cache ; armer les
+    // ciseaux fait venir la forme et le rognage. Aucun appui ajouté nulle part :
+    // le geste qui ouvre la famille est celui qu'on allait faire de toute façon.
+    //
+    // Et cela ne vaut QUE DANS LE RAIL : couchée sur le tableau, la barre a de
+    // la place, et rien ne justifie d'y cacher quoi que ce soit.
+    const enTrainDeTracer = ['freehand', 'text', 'rectangle', 'highlighter'].includes(mode);
+    const enTrainDeTailler = (typeof decoupeActive !== 'undefined' && decoupeActive)
+        || !!(obj && obj.isCropping);
+    barre.classList.toggle('famille-du-trace', enTrainDeTracer);
+    barre.classList.toggle('famille-de-la-taille', enTrainDeTailler);
     if (!obj || (typeof unMasqueEstOuvert === 'function' && unMasqueEstOuvert())) {
         // ELLE S'EFFACE POUR DE BON. On retirait « ctx-document », qui range
         // les commandes, mais pas « visible » : il restait au milieu de

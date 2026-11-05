@@ -453,14 +453,83 @@ module.exports = async function (browser) {
         JSON.stringify(enProjetant));
     // ET LE COMPTE SE FAIT SUR CE QUI EST TOUJOURS LÀ.
     //
-    // Ce contrôle demandait seize et tombait à dix-sept : l'onglet des morceaux
-    // était compté. Il a raison d'être là — deux morceaux attendent dans cette
-    // scène — mais ce n'est pas un meuble permanent : il paraît avec le premier
-    // découpage et s'en va avec le dernier morceau posé. On compte donc le
-    // bord SANS lui, et on le dit.
-    r.verifie('ET LE COMPTE Y EST : dix-huit boutons au bord avant, seize après — sans un geste de plus à apprendre, et sans qu\'aucun office soit perdu',
-        enProjetant.barre + enProjetant.bande - (enProjetant.ongletMorceaux ? 1 : 0) === 16,
+    // Deux fois corrigé, et les deux fois par la mesure. D'abord il comptait
+    // l'onglet des morceaux, qui n'est pas un meuble permanent : il paraît avec
+    // le premier découpage et s'en va avec le dernier morceau posé. Puis les
+    // familles sont arrivées — le texte, le cache, la forme et le rognage ne
+    // sont plus là qu'avec l'outil qui les appelle —, et seize est devenu
+    // douze.
+    //
+    // L'histoire du bord, mesurée à chaque étape :
+    //
+    //   18   au départ, tout visible en permanence
+    //   16   le doublon et le résidu retirés
+    //   12   les familles repliées sur leur tête
+    //
+    // Ce contrôle est la sentinelle de ce chiffre-là : c'est par là qu'un bord
+    // regrossit, un bouton à la fois.
+    r.verifie('ET LE COMPTE Y EST : dix-huit boutons au bord au départ, seize après les retraits, douze depuis que chaque famille se replie sur sa tête',
+        enProjetant.barre + enProjetant.bande - (enProjetant.ongletMorceaux ? 1 : 0) === 12,
         JSON.stringify(enProjetant));
+
+    // ------------------------------------------------------------------
+    // UN OUTIL PRIS MONTRE SA FAMILLE
+    //
+    // « Je me sers rarement simultanément du texte, du crayon. » Quatre
+    // pastilles de tracé et quatre de découpe tenaient la place de huit, en
+    // permanence, dans un rail de soixante-douze pixels.
+    //
+    // Les réunir derrière un bouton à déplier coûterait un appui de plus — et
+    // justement sur « sélection ↔ crayon », qu'on alterne sans cesse en
+    // annotant une page projetée. On fait donc l'inverse : les TÊTES de famille
+    // restent visibles, et chaque famille ne paraît QUE PENDANT QU'ON S'EN
+    // SERT. Le geste qui l'ouvre est celui qu'on allait faire de toute façon.
+    //
+    // « La forme de la découpe, c'est vraiment à la marge, mais il faut le
+    // garder » : elle est gardée, et elle paraît au seul moment où elle sert.
+    // ------------------------------------------------------------------
+    const familles = await page.evaluate(async () => {
+        const attendre = (ms) => new Promise(ok => setTimeout(ok, ms));
+        const vu = (id) => {
+            const e = document.getElementById(id);
+            if (!e || e.hidden) return false;
+            const s = getComputedStyle(e);
+            if (s.display === 'none' || s.visibility === 'hidden') return false;
+            const r = e.getBoundingClientRect();
+            return r.width > 3 && r.height > 3;
+        };
+        const etat = () => ({
+            main: vu('doc-outil-main'), crayon: vu('doc-outil-crayon'),
+            texte: vu('doc-outil-texte'), cache: vu('doc-outil-cache'),
+            ciseaux: vu('doc-decouper'), forme: vu('doc-decoupe-forme'), rogner: vu('doc-rogner'),
+            hauteur: Math.round(document.getElementById('bar-document').getBoundingClientRect().height)
+        });
+        annoterLeDocument('pointer'); majBarreDocument(); await attendre(250);
+        const repos = etat();
+        annoterLeDocument('freehand'); majBarreDocument(); await attendre(250);
+        const auCrayon = etat();
+        annoterLeDocument('pointer'); basculerLaDecoupe(true); majBarreDocument(); await attendre(250);
+        const auxCiseaux = etat();
+        basculerLaDecoupe(false); majBarreDocument(); await attendre(250);
+        return { repos, auCrayon, auxCiseaux, retour: etat() };
+    });
+    r.egal('AU REPOS, LES TÊTES DE FAMILLE SEULES : la main, le crayon, les ciseaux — on alterne « sélection ↔ crayon » sans cesse, et cela doit rester un seul appui',
+        [familles.repos.main, familles.repos.crayon, familles.repos.ciseaux,
+         familles.repos.texte, familles.repos.cache, familles.repos.forme, familles.repos.rogner],
+        [true, true, true, false, false, false, false], JSON.stringify(familles.repos));
+    r.egal('PRENDRE LE CRAYON FAIT VENIR LE TEXTE ET LE CACHE : le geste qui ouvre la famille est celui qu\'on allait faire de toute façon — aucun appui ajouté',
+        [familles.auCrayon.texte, familles.auCrayon.cache, familles.auCrayon.forme],
+        [true, true, false], JSON.stringify(familles.auCrayon));
+    r.egal('ARMER LES CISEAUX FAIT VENIR LA FORME ET LE ROGNAGE : « la forme de la découpe, c\'est vraiment à la marge, mais il faut le garder » — gardée, et montrée au seul moment où elle sert',
+        [familles.auxCiseaux.forme, familles.auxCiseaux.rogner, familles.auxCiseaux.texte],
+        [true, true, false], JSON.stringify(familles.auxCiseaux));
+    r.egal('et la famille se referme avec l\'outil qu\'on repose',
+        [familles.retour.texte, familles.retour.cache,
+         familles.retour.forme, familles.retour.rogner],
+        [false, false, false, false], JSON.stringify(familles.retour));
+    r.verifie('LA BARRE Y GAGNE EN HAUTEUR, ET C\'EST LA MESURE QUI COMPTE : 547 px au départ, 487 après les retraits, moins de 400 maintenant',
+        familles.repos.hauteur < 400 && familles.auCrayon.hauteur > familles.repos.hauteur,
+        JSON.stringify({ repos: familles.repos.hauteur, auCrayon: familles.auCrayon.hauteur }));
 
     // ET CE SONT DES RETRAITS DE LA PROJECTION, NON DES SUPPRESSIONS.
     const auTableauEnsuite = await page.evaluate(async () => {
