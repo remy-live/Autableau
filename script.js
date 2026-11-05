@@ -8310,7 +8310,7 @@ document.addEventListener('drop', (e) => {
 
 // Ce qu'on fait d'une poignée de fichiers, qu'ils viennent d'être lâchés ou
 // qu'ils aient attendu la réponse du démarrage.
-function deposerDesFichiers(fichiers, clientX, clientY) {
+function deposerDesFichiers(fichiers, clientX, clientY, options) {
     if (fichiers && fichiers.length > 0) {
         let imageDropCount = 0;
         let pdfDropped = false;
@@ -8322,7 +8322,7 @@ function deposerDesFichiers(fichiers, clientX, clientY) {
             // Si c'est un PDF
             if (file.type === 'application/pdf') {
                 if (!pdfDropped) {
-                    if (importPdfFeuilletable) poserPdfFeuilletable(file); else loadPdf(file);
+                    if (importPdfFeuilletable) poserPdfFeuilletable(file, options); else loadPdf(file);
                     pdfDropped = true; // On limite à 1 PDF à la fois pour ne pas faire exploser la mémoire
                 } else {
                     if (typeof showToast === 'function') showToast("Veuillez importer un seul PDF à la fois.");
@@ -18906,7 +18906,7 @@ function ouPoserLeDocument(l, h) {
 }
 window.ouPoserLeDocument = ouPoserLeDocument;
 
-async function poserPdfFeuilletable(file) {
+async function poserPdfFeuilletable(file, options) {
     if (!window.pdfjsLib) { showToast('Le lecteur de PDF n\'est pas disponible'); return; }
     showToast('Ouverture du document…');
     try {
@@ -18958,9 +18958,18 @@ async function poserPdfFeuilletable(file) {
         // largeur, comme on le veut devant une classe. Le cadrage est demandé
         // explicitement — la bascule habituelle de « presenterLeDocument »
         // ouvrirait sur la page entière, avec ses deux bandes blanches.
-        if (pdfDeposeEnGrand && typeof presenterLeDocument === 'function') {
+        // OU PARCE QU'ON L'A OUVERT DEPUIS WINDOWS.
+        //
+        // « Ça pourrait s'ouvrir en plein écran tout de suite, en mode
+        // projection. » Le réglage « PDF déposé en grand » est éteint par
+        // défaut, et c'est juste : poser un document sur le tableau ne doit pas
+        // emporter l'écran. Mais un double-clic dans l'explorateur ne veut rien
+        // dire d'autre que « montre-moi ce document » — il n'y a pas de tableau
+        // en cours à préserver, l'application vient de s'ouvrir pour LUI.
+        const enGrand = pdfDeposeEnGrand || !!(options && options.enGrand);
+        if (enGrand && typeof presenterLeDocument === 'function') {
             selectedItems = [{ type: 'image', id: pose.id }];
-            presenterLeDocument('largeur');
+            presenterLeDocument('largeur', options);
         }
     } catch (e) {
         console.error(e);
@@ -31846,7 +31855,7 @@ function cleDePresentation(e) {
 // Le rendez-vous du second cadrage : on le garde pour pouvoir l'annuler.
 let cadrageDiffere = null;
 
-function presenterLeDocument(cadrageVoulu) {
+function presenterLeDocument(cadrageVoulu, options) {
     const doc = documentAPresenter();
     if (!doc) {
         showToast("Aucun document à présenter : importez d'abord un PDF ou une image");
@@ -31899,7 +31908,16 @@ function presenterLeDocument(cadrageVoulu) {
     // permettait d'en sortir : le seul bouton vit dans le tiroir du bas, que
     // le plein écran efface. On ne referme que ce qu'on a ouvert soi-même :
     // qui était déjà en plein écran avant y reste.
-    if (!document.fullscreenElement) { pleinEcranDeLaPresentation = true; basculerPleinEcran(); }
+    // ON NE RÉCLAME PAS LE PLEIN ÉCRAN QUAND PERSONNE N'A TOUCHÉ L'ÉCRAN.
+    //
+    // Le navigateur n'accorde le plein écran qu'à la suite d'un geste de
+    // l'usager. Un document ouvert DEPUIS WINDOWS — double-clic dans
+    // l'explorateur — n'en est pas un : la demande serait refusée, et
+    // l'application afficherait « Plein écran refusé par le navigateur » à
+    // chaque ouverture. Dans l'application installée, d'ailleurs, la fenêtre
+    // n'a aucune barre à cacher : la projection suffit.
+    const sansPlein = !!(options && options.sansPleinEcranDuNavigateur);
+    if (!sansPlein && !document.fullscreenElement) { pleinEcranDeLaPresentation = true; basculerPleinEcran(); }
     // Le mode Focus efface les barres ; on ne l'allume que s'il ne l'est pas
     // déjà, pour que le raccourci ne le coupe pas en croyant l'allumer.
     if (!document.body.classList.contains('focus-mode')
@@ -52390,7 +52408,8 @@ function recevoirLesFichiersDuSysteme() {
         }
         if (!fichiers.length) return;
         try {
-            deposerDesFichiers(fichiers, window.innerWidth / 2, window.innerHeight / 2);
+            deposerDesFichiers(fichiers, window.innerWidth / 2, window.innerHeight / 2,
+                { enGrand: true, sansPleinEcranDuNavigateur: true });
         } catch (e) {
             if (typeof showToast === 'function') {
                 showToast('Ce fichier ne s\'ouvre pas : ' + (fichiers[0].name || ''));

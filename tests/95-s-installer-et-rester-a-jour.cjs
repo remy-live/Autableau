@@ -126,18 +126,61 @@ module.exports = async function (browser) {
         });
         const pose = recevoirLesFichiersDuSysteme();
         if (!pose || !consommateur) return { pose, consommateur: !!consommateur };
+        // ON COMPTE LES DEMANDES DE PLEIN ÉCRAN, au lieu de guetter la bulle de
+        // refus : en tête sans affichage, ce navigateur ACCORDE le plein écran
+        // sans geste de l'usager, et la bulle n'apparaît jamais. Un sabotage
+        // qui réclamait le plein écran ne faisait donc rien tomber — c'est le
+        // contrôle qui ne mesurait pas. Ce qu'on veut savoir est plus simple et
+        // ne dépend d'aucun navigateur : A-T-ON DEMANDÉ ?
+        window.__demandesDePlein = 0;
+        const vraiPlein = Element.prototype.requestFullscreen;
+        Element.prototype.requestFullscreen = function () {
+            window.__demandesDePlein++;
+            return Promise.reject(new Error('refusé : personne n\'a touché l\'écran'));
+        };
+        setTimeout(() => { Element.prototype.requestFullscreen = vraiPlein; }, 4000);
         const fichier = new File([new Uint8Array(octets)], 'exercice.pdf', { type: 'application/pdf' });
         await consommateur({ files: [{ getFile: async () => fichier }] });
         await new Promise(ok => setTimeout(ok, 2500));
+        const bulles = [...document.querySelectorAll('#toast-container > *')]
+            .map(e => (e.textContent || '').trim());
+        // Voir plus bas : on a compté les demandes de plein écran AU LIEU
+        // d'attendre une bulle de refus que ce navigateur ne produit pas.
+        const demandesDePlein = window.__demandesDePlein || 0;
         return {
             pose, consommateur: true,
             surLeTableau: images.length,
-            estUnPdf: images.some(o => o && o.pluginData && o.pluginData.id === 'pdfDoc')
+            estUnPdf: images.some(o => o && o.pluginData && o.pluginData.id === 'pdfDoc'),
+            // ET IL EST DÉJÀ PROJETÉ : état 1, la page seule, toute la largeur.
+            etat: etatDuPleinEcran(),
+            cadrage: cadrageDePresentation,
+            // Sans réclamer le plein écran du navigateur, qui serait refusé.
+            pleinRefuse: bulles.some(t => /Plein écran refusé/.test(t)),
+            demandesDePlein
         };
     }, { octets });
     r.egal('UN PDF OUVERT DEPUIS WINDOWS ARRIVE SUR LE TABLEAU : c\'est le geste entier — double-clic dans l\'explorateur, et l\'exercice est là',
         [recu.pose, recu.consommateur, recu.estUnPdf], [true, true, true],
         JSON.stringify(recu));
+
+    // ET IL EST DÉJÀ PROJETÉ, SANS QU'ON AIT RIEN À FAIRE.
+    //
+    // « Ça pourrait s'ouvrir en plein écran tout de suite, en mode projection. »
+    // Le réglage « PDF déposé en grand » est éteint par défaut, et c'est juste :
+    // poser un document sur un tableau en cours ne doit pas emporter l'écran.
+    // Mais un double-clic dans l'explorateur ne veut rien dire d'autre que
+    // « montre-moi ce document » — il n'y a pas de tableau à préserver,
+    // l'application vient de s'ouvrir POUR LUI.
+    r.egal('ET IL EST DÉJÀ PROJETÉ, TOUTE LA LARGEUR : un double-clic dans l\'explorateur ne veut rien dire d\'autre que « montre-moi ce document »',
+        [recu.etat, recu.cadrage], [1, 'largeur'], JSON.stringify(recu));
+
+    // SANS RÉCLAMER LE PLEIN ÉCRAN DU NAVIGATEUR. Il ne l'accorde qu'à la suite
+    // d'un geste de l'usager : un lancement par le système n'en est pas un, la
+    // demande serait refusée, et l'application annoncerait « Plein écran refusé
+    // par le navigateur » à chaque ouverture. Dans l'application installée, la
+    // fenêtre n'a d'ailleurs aucune barre à cacher.
+    r.egal('et sans RIEN DEMANDER au navigateur : il n\'accorde le plein écran qu\'après un geste de l\'usager, un lancement n\'en est pas un — et la fenêtre installée n\'a aucune barre à cacher',
+        [recu.demandesDePlein, recu.pleinRefuse], [0, false], JSON.stringify(recu));
     // ET IL PASSE PAR LA MÊME PORTE QUE LE GLISSER-DÉPOSER. Un second chemin
     // aurait divergé du premier au premier format ajouté.
     const memePorte = await parDoubleClic.page.evaluate(() => {
