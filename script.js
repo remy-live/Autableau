@@ -2402,6 +2402,19 @@ function stateForStorage() {
 let autoSaveTimer = null;
 let autoSaveWriting = false;
 
+// LE DERNIER REFUS DU DISQUE. Null quand tout va bien.
+//
+// « L'enregistrement des séances n'est pas toujours évident. » Un disque
+// refuse d'écrire plus souvent qu'on ne croit : navigation privée, quota de
+// l'origine atteint, données du site bloquées par l'établissement. Et
+// l'application ne le disait jamais — « writeAppLocal » marquait
+// « enregistré à l'instant » dans son « finally », c'est-à-dire AUSSI quand
+// ses deux écritures venaient d'échouer. La pastille verte affirmait que le
+// cours était en sécurité ; il n'était nulle part.
+//
+// Un échec qu'on ne dit pas est pire qu'un échec.
+let derniereErreurDEnregistrement = null;
+
 // Écriture réelle dans IndexedDB
 function writeAppLocal() {
     syncPage();
@@ -2422,14 +2435,28 @@ function writeAppLocal() {
             ...p, images: (p.images || []).map(img => img.isBg ? { ...img, src: "" } : img)
         }));
         return localforage.setItem(AUTO_SAVE_KEY, { pages: ultraCleanedPages, assets: appState.assets, nextId, globalZ, currentBgIndex });
-    }).finally(() => {
-        autoSaveWriting = false;
-        if (typeof enregistrementEnCours !== 'undefined') enregistrementEnCours = false;
+    }).then(() => {
+        // LA RÉUSSITE SEULE DONNE L'HEURE. Elle était donnée dans le
+        // « finally », donc même après deux refus d'écriture.
+        derniereErreurDEnregistrement = null;
         if (typeof dernierEnregistrementLocal !== 'undefined') dernierEnregistrementLocal = Date.now();
-        if (typeof updateUnsavedIndicator === 'function') updateUnsavedIndicator();
         // Le disque local est écrit ; la copie de sécurité suit, au plus toutes
         // les deux minutes.
         if (typeof signalerUnChangementASauver === 'function') signalerUnChangementASauver();
+    }).catch((e) => {
+        // LES DEUX ÉCRITURES ONT ÉCHOUÉ. On ne touche pas à l'heure du dernier
+        // enregistrement : la pastille dira « impossible », et l'infobulle dira
+        // quoi faire — exporter son espace dans un fichier, qui ne dépend pas
+        // du disque du navigateur.
+        derniereErreurDEnregistrement = (e && e.message) || 'écriture refusée';
+        console.error('Enregistrement local impossible :', e);
+        if (typeof showToast === 'function') {
+            showToast('⚠ Enregistrement impossible sur cet ordinateur — exportez votre espace dans un fichier');
+        }
+    }).finally(() => {
+        autoSaveWriting = false;
+        if (typeof enregistrementEnCours !== 'undefined') enregistrementEnCours = false;
+        if (typeof updateUnsavedIndicator === 'function') updateUnsavedIndicator();
     });
 }
 
@@ -21182,19 +21209,37 @@ function ouvrirLaPageDesMorceaux(morceau) {
     // est sur la page du polycopié, qui n'est pas vide.
     if (courante && !courante.pageDesMorceaux
         && typeof boiteDuTravail === 'function' && !boiteDuTravail()) {
-        courante.pageDesMorceaux = marque;
+        marquerLaPageDesMorceaux(courante, marque);
         return false;
     }
 
-    // À REBOURS : LA PLUS RÉCENTE GAGNE. On ouvre une page vierge au « ＋ »,
-    // elle devient la page des exercices de ce document, et c'est sur elle que
-    // les bouts suivants se rangent — chercher par le début les aurait renvoyés
-    // sur la première, et la page neuve n'aurait servi qu'une fois.
-    let deja = -1;
+    // LA PLUS RÉCENTE GAGNE — ET « RÉCENTE » NE SE LIT PLUS DANS LE RANG.
+    //
+    // On ouvre une page vierge au « ＋ », elle devient la page des exercices de
+    // ce document, et c'est sur elle que les bouts suivants se rangent :
+    // chercher par le début les aurait renvoyés sur la première, et la page
+    // neuve n'aurait servi qu'une fois. On parcourait donc À REBOURS, la
+    // dernière page étant forcément la dernière marquée.
+    //
+    // CETTE PRÉMISSE EST TOMBÉE le jour où le « ＋ » a cessé d'ajouter au bout
+    // pour insérer après la page courante — « ajouter des feuilles entre deux
+    // existantes ». Une page insérée est récente SANS être la dernière : le
+    // parcours à rebours retrouvait alors l'ANCIENNE page d'exercices, et les
+    // bouts suivants s'empilaient dessus. Mesuré par le chapitre 15 : trois
+    // morceaux sur une page qui devait en porter deux, et l'enseignant
+    // téléporté loin de la page qu'il venait d'ouvrir.
+    //
+    // La récence est donc ÉCRITE, et non plus déduite d'un ordre qui a changé
+    // de sens. Les tableaux enregistrés avant ne portent pas ce numéro : pour
+    // eux tous les rangs valent zéro, le parcours à rebours tranche comme
+    // avant, et rien ne bouge.
+    let deja = -1, plusRecent = -1;
     for (let i = pages.length - 1; i >= 0; i--) {
         const p = pages[i];
-        if (p && p.pageDesMorceaux === marque
-            && !portesLeDocument(i === currentPageIndex ? images : p.images)) { deja = i; break; }
+        if (!(p && p.pageDesMorceaux === marque)) continue;
+        if (portesLeDocument(i === currentPageIndex ? images : p.images)) continue;
+        const rang = p.pageDesMorceauxRang || 0;
+        if (deja < 0 || rang > plusRecent) { deja = i; plusRecent = rang; }
     }
     // ON GARDE L'ÉCRAN. La projection du document ne peut pas survivre — il
     // reste sur sa page —, mais le plein écran et les barres effacées, si : la
@@ -21205,11 +21250,32 @@ function ouvrirLaPageDesMorceaux(morceau) {
         quitterLaPresentationEnGardantLEcran();
     }
     if (deja >= 0) { loadPage(deja); return true; }
-    pages.push(createNewPage());
-    loadPage(pages.length - 1);
-    if (pages[currentPageIndex]) pages[currentPageIndex].pageDesMorceaux = marque;
+    // LA PAGE DES EXERCICES SE RANGE JUSTE APRÈS CELLE DU POLYCOPIÉ. « Découper
+    // sur la page 1, coller sur la page 2 » : sur un tableau de dix feuilles,
+    // l'ajouter au bout l'envoyait en onzième position, loin du cours dont elle
+    // sort. Elle naît donc contre lui.
+    if (typeof syncPage === 'function') syncPage();
+    const vers = Math.min(pages.length, currentPageIndex + 1);
+    pages.splice(vers, 0, createNewPage());
+    loadPage(vers);
+    if (pages[currentPageIndex]) marquerLaPageDesMorceaux(pages[currentPageIndex], marque);
     return true;
 }
+
+// LA MARQUE, ET SON NUMÉRO D'ORDRE. Le numéro dit laquelle des pages
+// d'exercices d'un même document est la plus récente — ce que le rang dans le
+// tableau ne dit plus depuis que le « ＋ » insère au lieu d'ajouter au bout.
+// Il se calcule depuis le plus grand déjà posé, et non depuis un compteur de
+// session : sans cela, un tableau rouvert repartirait de 1 et ses anciennes
+// pages, numérotées plus haut, passeraient pour les plus récentes.
+function marquerLaPageDesMorceaux(p, marque) {
+    if (!p) return;
+    p.pageDesMorceaux = marque;
+    const plusHaut = (typeof pages !== 'undefined' && Array.isArray(pages))
+        ? pages.reduce((m, q) => Math.max(m, (q && q.pageDesMorceauxRang) || 0), 0) : 0;
+    p.pageDesMorceauxRang = plusHaut + 1;
+}
+window.marquerLaPageDesMorceaux = marquerLaPageDesMorceaux;
 
 // Sommes-nous sur une page d'exercices ? C'est ce qui décide si l'on cadre sur
 // tout ce qu'elle tient après y avoir posé.
@@ -38519,8 +38585,11 @@ function etatDuRangement() {
         ? savedTableaux.find(t => t.id === selectedBoardId && !t.deleted) : null;
     return {
         nom,
-        // CET ORDINATEUR
-        local: { quand: dernierEnregistrementLocal, enCours: enregistrementEnCours },
+        // CET ORDINATEUR. « echec » porte le dernier refus du disque, pour qui
+        // relira l'état plutôt que la pastille.
+        local: { quand: dernierEnregistrementLocal, enCours: enregistrementEnCours,
+                 echec: (typeof derniereErreurDEnregistrement !== 'undefined')
+                     ? derniereErreurDEnregistrement : null },
         // MES TABLEAUX
         liste: { dedans: !!entree, nom: entree ? entree.name : null,
                  quand: dernierEnregistrementDansLaListe },
@@ -38601,6 +38670,16 @@ function updateUnsavedIndicator() {
     if (e.local.enCours) {
         etat = 'encours'; texte = 'Enregistrement…';
         aide = 'Enregistrement en cours sur cet ordinateur';
+    } else if (e.local.echec) {
+        // L'ÉCHEC PASSE AVANT TOUT LE RESTE, ET IL DIT QUOI FAIRE. Une pastille
+        // qui annonce seulement une panne laisse devant une classe sans
+        // solution : le fichier d'export, lui, ne dépend pas du disque du
+        // navigateur, et c'est le seul chemin qui reste.
+        etat = 'echec'; texte = 'Enregistrement impossible';
+        aide = 'Cet ordinateur refuse d\'enregistrer (' + e.local.echec + ').'
+            + ' Votre travail est encore à l\'écran, mais il n\'est pas sur le disque :'
+            + ' exportez votre espace dans un fichier avant de fermer l\'onglet.'
+            + ' Cela arrive en navigation privée, ou quand l\'espace du navigateur est plein.';
     } else if (!e.local.quand) {
         etat = 'attente'; texte = 'Rien à enregistrer';
         aide = 'Tout ce que vous écrirez sera enregistré tout seul sur cet ordinateur';
@@ -39717,7 +39796,14 @@ async function promptReinvestir(id) {
             // de la quitter : la trace du cours qu'on vient de faire ne doit
             // pas rester dans un tableau qu'on s'apprête à remplacer à
             // l'écran. Et on relit ensuite un fichier à jour.
-            if (selectedBoardId === id && hasUnsavedChanges) await saveCurrentBoard(true);
+            // ET SI L'ENREGISTREMENT ÉCHOUE, ON NE REMPLACE RIEN À L'ÉCRAN.
+            // On s'apprête à ouvrir la séance neuve par-dessus celle-ci : la
+            // faire disparaître de l'écran alors qu'elle n'est nulle part, ce
+            // serait perdre le cours qu'on vient de faire. Le refus est déjà
+            // annoncé par « saveCurrentBoard » ; il n'y a rien à ajouter.
+            if (selectedBoardId === id && hasUnsavedChanges) {
+                if ((await saveCurrentBoard(true)) === false) return;
+            }
             const fiche = await reinvestirLaSeance(id, classeId || null, c ? c.name : null);
             if (!fiche) return;
             renderExplorerLists();
@@ -39736,8 +39822,12 @@ function _doSaveBoard(name, id, discret) {
     const appState = stateForStorage();
 
     const existingIndex = savedTableaux.findIndex(t => t.id === id);
+    // « existait » dit si la séance était DÉJÀ dans la liste. On ne peut pas le
+    // relire sur « existingObj », qui vaut « {} » — vrai — pour une séance
+    // neuve ; c'est ce qui compte pour défaire proprement un rangement raté.
+    const existait = existingIndex >= 0;
     let existingObj = {};
-    if (existingIndex >= 0) existingObj = savedTableaux[existingIndex];
+    if (existait) existingObj = savedTableaux[existingIndex];
 
     const metadata = {
         ...existingObj,
@@ -39759,11 +39849,26 @@ function _doSaveBoard(name, id, discret) {
     // Sort by most recent
     savedTableaux.sort((a, b) => b.timestamp - a.timestamp);
 
-    // Store lists and real data. On rend la promesse : « refaire avec une
-    // autre classe » doit attendre que la trace du cours soit écrite avant de
-    // relire le tableau pour en tirer la préparation.
-    localforage.setItem('auTableau_tableaux_list', savedTableaux);
+    // LE CONTENU D'ABORD, LA FICHE ENSUITE — ET PAS L'INVERSE.
+    //
+    // « L'enregistrement des séances n'est pas toujours évident. » On écrivait
+    // la fiche de la liste, puis les données, sans jamais vérifier que la
+    // seconde écriture aboutisse. Quand elle échouait — navigation privée,
+    // quota atteint, données du site bloquées —, la séance paraissait dans
+    // « Mes tableaux » avec son nom, sa date et son aperçu, et son contenu
+    // n'existait nulle part. Un fantôme, sur lequel on cliquait sans que rien
+    // ne se passe.
+    //
+    // Dans cet ordre-ci, le pire cas devient un contenu écrit dont la fiche
+    // manque : invisible, mais rien n'est perdu et rien ne ment. Et si le
+    // contenu ne s'écrit pas, la fiche n'est pas posée du tout.
+    //
+    // On rend la promesse : « refaire avec une autre classe » doit attendre que
+    // la trace du cours soit écrite avant de relire le tableau pour en tirer la
+    // préparation.
     return localforage.setItem('data_' + id, appState).then(() => {
+        return localforage.setItem('auTableau_tableaux_list', savedTableaux);
+    }).then(() => {
         selectedBoardId = id;
         hasUnsavedChanges = false;
         if (typeof dernierEnregistrementDansLaListe !== 'undefined') {
@@ -39772,6 +39877,37 @@ function _doSaveBoard(name, id, discret) {
         updateUnsavedIndicator();
         renderExplorerLists();
         if (!discret) showToast("Tableau rangé dans Mes tableaux");
+        return true;
+    }).catch((err) => {
+        // ON DÉFAIT LA FICHE QU'ON VENAIT DE POSER EN MÉMOIRE. Elle n'a pas été
+        // écrite sur le disque, mais la liste vivante la porte déjà : laissée
+        // là, elle reparaîtrait dans « Mes tableaux » jusqu'au rechargement, et
+        // le prochain enregistrement réussi l'emporterait avec lui.
+        //
+        // On la retrouve PAR SON IDENTIFIANT, et non par le rang noté plus
+        // haut : la liste a été triée par date entre-temps, et ce rang ne
+        // désigne plus la même ligne.
+        const i = savedTableaux.findIndex(t => t.id === id);
+        if (i >= 0) {
+            // ON TESTE « existait », PAS « existingObj » : celui-ci vaut « {} »
+            // quand la séance est neuve, et un objet vide est vrai. Le remettre
+            // dans la liste y laissait une ligne sans nom ni identifiant —
+            // mesuré : « noms: [null] ». Un fantôme chassé par un autre.
+            if (existait) savedTableaux[i] = existingObj;
+            else savedTableaux.splice(i, 1);
+        }
+        if (typeof renderExplorerLists === 'function') renderExplorerLists();
+        if (typeof updateUnsavedIndicator === 'function') updateUnsavedIndicator();
+        console.error('Rangement dans Mes tableaux impossible :', err);
+        if (typeof showToast === 'function') {
+            showToast('⚠ Impossible de ranger cette séance : cet ordinateur refuse d\'enregistrer'
+                + ' — exportez votre espace dans un fichier');
+        }
+        // ON NE RELANCE PAS L'ERREUR : six appelants ne l'attrapent pas, et
+        // deux d'entre eux ENCHAÎNENT sur un remplacement du tableau à
+        // l'écran. Une promesse rejetée les laissait continuer dans le vide.
+        // Ils reçoivent donc « false », et c'est à eux de s'arrêter.
+        return false;
     });
 }
 
@@ -39794,6 +39930,28 @@ function loadBoard(id) {
             }
             updateUnsavedIndicator();
             showToast('« ' + (currentBoardName || 'Tableau') + " » est ouvert");
+        } else {
+            // UNE SÉANCE SANS CONTENU LE DIT, AU LIEU DE NE RIEN FAIRE.
+            //
+            // Il n'y avait pas de « else » : on cliquait sur une séance dont
+            // les données manquaient, et il ne se passait RIEN. Pas d'erreur,
+            // pas de message, pas de tableau — on recliquait, on fermait, on
+            // rouvrait. « L'enregistrement des séances n'est pas toujours
+            // évident » : c'est très exactement cela.
+            //
+            // Les fantômes se créaient quand l'écriture du contenu échouait
+            // après celle de la fiche ; ils ne se créent plus, mais ceux qui
+            // dorment déjà dans la liste d'un enseignant doivent devenir
+            // lisibles. ON NE REMPLACE PAS LE TABLEAU À L'ÉCRAN : il est, lui,
+            // bien vivant.
+            const t = (typeof savedTableaux !== 'undefined' && Array.isArray(savedTableaux))
+                ? savedTableaux.find(tb => tb.id === id) : null;
+            const nom = (t && t.name) || 'Cette séance';
+            console.warn('Séance sans contenu enregistré :', id);
+            if (typeof showToast === 'function') {
+                showToast('« ' + nom + ' » n\'a plus de contenu enregistré sur cet ordinateur'
+                    + ' — le tableau à l\'écran n\'a pas été touché');
+            }
         }
     });
 }
@@ -48992,7 +49150,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnRefaire) {
         btnRefaire.addEventListener('click', async () => {
             if (!selectedBoardId || !savedTableaux.some(t => t.id === selectedBoardId)) {
-                await saveCurrentBoard(true);
+                // Même raison qu'au bouton 👥 de l'explorateur : « refaire »
+                // finit par ouvrir une autre séance à l'écran. Si la trace de
+                // celle-ci n'a pas pu s'écrire, on ne va pas plus loin.
+                if ((await saveCurrentBoard(true)) === false) return;
             }
             promptReinvestir(selectedBoardId);
         });

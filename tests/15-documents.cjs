@@ -3946,11 +3946,21 @@ module.exports = async function (browser) {
         const surLaUne = images.length;
         const libelleAvant = document.getElementById('bm-page').textContent;
 
+        const indexAvant = currentPageIndex;
         document.getElementById('bm-page-plus').click();
         const indexBlanche = currentPageIndex;
         const neuve = {
             pages: pages.length - pagesAvant,
-            derniere: currentPageIndex === pages.length - 1,
+            // ON NE DEMANDE PLUS SI ELLE EST LA DERNIÈRE, MAIS SI ELLE EST
+            // CONTRE CELLE D'OÙ L'ON VIENT. « Dernière » était l'accident de
+            // l'ancien « pages.push » : depuis que le « ＋ » insère après la
+            // page courante — « ajouter des feuilles entre deux existantes » —
+            // une page neuve est récente sans être au bout. Le nom du contrôle
+            // dit « ouvre une page vierge et s'y rend » : c'est cela qu'il
+            // mesure maintenant, plus le rang où elle tombe.
+            juteApres: currentPageIndex === indexAvant + 1,
+            index: currentPageIndex,
+            total: pages.length,
             vide: images.length === 0,
             // LE TIROIR TRAVERSE : il n'appartient à aucune page.
             tiroir: morceauxEnAttente.length,
@@ -3989,16 +3999,22 @@ module.exports = async function (browser) {
                                 bas: document.getElementById('ecran-page-rang').textContent };
         return { pagesAvant, surLaUne, libelleAvant, neuve, posee, pageDuDocument, revenu, parLAutreBout };
     });
-    r.egal('＋ ouvre une page vierge et s\'y rend',
-        { pages: pagesDuTiroir.neuve.pages, derniere: pagesDuTiroir.neuve.derniere,
+    r.egal('＋ ouvre une page vierge, s\'y rend, et la met contre celle d\'où l\'on vient',
+        { pages: pagesDuTiroir.neuve.pages, juteApres: pagesDuTiroir.neuve.juteApres,
           vide: pagesDuTiroir.neuve.vide },
-        { pages: 1, derniere: true, vide: true });
+        { pages: 1, juteApres: true, vide: true },
+        JSON.stringify(pagesDuTiroir.neuve));
     r.egal('le tiroir traverse le changement de page, vignettes comprises',
         { tiroir: pagesDuTiroir.neuve.tiroir, visible: pagesDuTiroir.neuve.visible },
         { tiroir: 2, visible: true });
+    // La pagination du tiroir doit NOMMER LA PAGE OÙ L'ON EST, sur le total du
+    // tableau. Elle attendait « pagesAvant + 1 » — c'est-à-dire la dernière —,
+    // ce qui ne mesurait pas sa fidélité mais la place où l'ancien « ＋ »
+    // ajoutait. Elle est fidèle si elle dit le rang courant, où qu'il soit.
     r.verifie('et sa pagination suit celle du tableau',
         pagesDuTiroir.neuve.libelle !== pagesDuTiroir.libelleAvant
-        && pagesDuTiroir.neuve.libelle.startsWith(String(pagesDuTiroir.pagesAvant + 1)),
+        && pagesDuTiroir.neuve.libelle
+            === (pagesDuTiroir.neuve.index + 1) + '/' + pagesDuTiroir.neuve.total,
         JSON.stringify(pagesDuTiroir));
     // « POSER » N'ATTERRIT JAMAIS SUR LA PAGE DU DOCUMENT — c'était la
     // demande d'origine : « en faisant une découpe, cela s'est encore mis à
@@ -4423,14 +4439,22 @@ module.exports = async function (browser) {
     const neuve = await page.evaluate(async () => {
         document.getElementById('bm-page-plus').click();
         await new Promise(ok => setTimeout(ok, 120));
+        // LA PAGE QUE LE « ＋ » VIENT D'OUVRIR : c'est sur ELLE qu'on doit
+        // rester, et non à un rang calculé. Le contrôle attendait
+        // « second.page + 1 », c'est-à-dire la place où l'ancien « ＋ »
+        // ajoutait, au bout ; depuis qu'il insère après la page courante, ce
+        // rang n'est plus le sien, alors que l'intention — « on pose là où
+        // l'on vient d'ouvrir » — n'a pas changé d'un mot.
+        const ouverte = currentPageIndex;
         document.getElementById('bm-ranger').click();
         await new Promise(ok => setTimeout(ok, 200));
-        return { pages: pages.length, page: currentPageIndex,
+        return { pages: pages.length, page: currentPageIndex, ouverte,
                  dessus: images.filter(o => o.pluginData && o.pluginData.id === 'morceau').length };
     });
     r.egal('le « ＋ » puis « Tout poser » ouvrent une page de plus, et n\'y mettent que ces bouts-là',
-        { pages: neuve.pages, page: neuve.page, dessus: neuve.dessus },
-        { pages: second.pages + 1, page: second.page + 1, dessus: 1 });
+        { pages: neuve.pages, resteSurLaNeuve: neuve.page === neuve.ouverte, dessus: neuve.dessus },
+        { pages: second.pages + 1, resteSurLaNeuve: true, dessus: 1 },
+        JSON.stringify(neuve));
 
     // ET C'EST DÉSORMAIS ELLE QU'ON REJOINT : chercher la page des exercices par
     // le DÉBUT aurait renvoyé les bouts suivants sur la première, et la page

@@ -13497,6 +13497,19 @@ body.focus-mode #barre-ecran #btn-ecran-suite {
     background: #0984e3;
     animation: oujePulse 1.1s ease-in-out infinite;
 }
+/* L'ÉCHEC SE VOIT, ET SON MOT RESTE AFFICHÉ.
+   La pastille se réduit d'ordinaire à son point : le mot ne paraît qu'au
+   survol, parce qu'« Enregistré il y a 2 min » n'a pas à manger la barre en
+   permanence. Mais « Enregistrement impossible » n'est pas un état qu'on va
+   chercher : c'est un état qui doit venir. Le point seul, même rouge, se
+   confond avec le vert pour qui ne regarde pas — et personne ne regarde
+   l'intendance en faisant cours. */
+#etat-enregistrement[data-etat="echec"] .etat-point { background: #d63031; }
+#etat-enregistrement[data-etat="echec"] .etat-mot {
+    display: inline;
+    color: #d63031;
+    font-weight: 700;
+}
 @media (prefers-reduced-motion: reduce) { #etat-enregistrement .etat-point { animation: none; } }
 
 /* Il s'efface avec le reste quand on projette : on ne montre pas l'intendance

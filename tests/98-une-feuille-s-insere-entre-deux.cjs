@@ -154,6 +154,95 @@ module.exports = async function (browser) {
     r.egal('les trois feuilles écrites ont gardé leur contenu, et les vierges sont vides',
         contenus, [1, 0, 0, 0, 1, 1], JSON.stringify(contenus));
 
+    // ------------------------------------------------------------------
+    // 5. ET LA PAGE D'EXERCICES D'UN DOCUMENT NAÎT CONTRE LUI.
+    //
+    // Quand on découpe un polycopié, les bouts partent sur « la page
+    // d'exercices de ce document », fabriquée au besoin. Elle l'était par
+    // « pages.push » : sur un tableau de six feuilles, découper depuis la
+    // deuxième envoyait les exercices en septième position, loin du cours dont
+    // ils sortent. « Découper sur la page 1, coller sur la page 2 » — elle
+    // naît donc juste après la page d'où l'on découpe.
+    //
+    // On appelle le repérage directement, avec un bout de polycopié pour tout
+    // décor : ce qu'on mesure ici, c'est OÙ la page est fabriquée, pas le
+    // découpage lui-même — le chapitre 15 s'en charge de bout en bout.
+    // ------------------------------------------------------------------
+    await page.evaluate(() => {
+        // Un tableau de six feuilles, et l'on travaille sur la deuxième.
+        while (pages.length < 6) ajouterUnePageVierge();
+        loadPage(1);
+        // La page courante ne doit pas être vide : une page blanche où l'on se
+        // trouve est déjà une réponse à « où ? », et le repérage s'arrête là.
+        texts.push({ id: nextId++, x: 0, y: 0, content: 'LE POLYCOPIÉ', fontSize: 24, z: globalZ++ });
+        saveState();
+    });
+    const nee = await page.evaluate(() => {
+        const avant = { total: pages.length, ici: currentPageIndex };
+        const bouge = ouvrirLaPageDesMorceaux({ cle: 'poly-de-la-seance' });
+        return { avant, bouge, total: pages.length, ici: currentPageIndex,
+                 marquee: !!(pages[currentPageIndex] && pages[currentPageIndex].pageDesMorceaux) };
+    });
+    r.egal('la page des exercices est fabriquée JUSTE APRÈS celle du polycopié',
+        { bouge: nee.bouge, ici: nee.ici, total: nee.total, marquee: nee.marquee },
+        { bouge: true, ici: nee.avant.ici + 1, total: nee.avant.total + 1, marquee: true },
+        JSON.stringify(nee));
+    r.verifie('et non au bout du tableau',
+        nee.ici !== nee.total - 1, JSON.stringify(nee));
+
+    // ET ELLE SE RETROUVE : le bout suivant doit rejoindre CETTE page-là, sans
+    // qu'une seconde soit fabriquée.
+    const retrouvee = await page.evaluate(() => {
+        const laNeuve = currentPageIndex;
+        loadPage(1);                                   // on retourne au polycopié
+        const bouge = ouvrirLaPageDesMorceaux({ cle: 'poly-de-la-seance' });
+        return { laNeuve, bouge, ici: currentPageIndex, total: pages.length };
+    });
+    r.egal('le bout suivant REJOINT cette page-là, sans en fabriquer une autre',
+        { ici: retrouvee.ici, total: retrouvee.total },
+        { ici: retrouvee.laNeuve, total: nee.total },
+        JSON.stringify(retrouvee));
+
+    // ------------------------------------------------------------------
+    // 6. « LA PLUS RÉCENTE » NE SE LIT PLUS DANS LE RANG.
+    //
+    // Le repérage parcourait les pages À REBOURS : la dernière du tableau
+    // étant forcément la dernière marquée, le premier marquage rencontré en
+    // remontant était le bon. L'insertion a rendu cette prémisse fausse — une
+    // page insérée est récente SANS être au bout.
+    //
+    // On met donc le repérage dans la situation qu'il ne savait pas lire :
+    // DEUX pages d'exercices du même document, la plus récente ayant le rang
+    // le PLUS PETIT. Le parcours à rebours retrouve alors la plus ANCIENNE, et
+    // les bouts s'empilent sur une page que l'enseignant croyait rangée.
+    // ------------------------------------------------------------------
+    const deuxPages = await page.evaluate(() => {
+        const ancienne = currentPageIndex;             // marquée la première
+        loadPage(1);                                   // le polycopié
+        ajouterUnePageVierge();                        // s'insère en 2 ; l'ancienne glisse
+        const neuveVierge = currentPageIndex;
+        // Une page blanche où l'on se trouve devient la page d'exercices : le
+        // repérage le dit lui-même, et rend « false » puisqu'on y est déjà.
+        const surPlace = ouvrirLaPageDesMorceaux({ cle: 'poly-de-la-seance' });
+        const rangs = pages.map(p => (p && p.pageDesMorceaux) ? (p.pageDesMorceauxRang || 0) : null);
+        return { ancienne, neuveVierge, surPlace, rangs, total: pages.length };
+    });
+    r.egal('deux pages d\'exercices, et la plus récente n\'est PAS la dernière du tableau',
+        { marquees: deuxPages.rangs.filter(x => x !== null).length,
+          recenteAvantAncienne: deuxPages.neuveVierge < deuxPages.total - 1 },
+        { marquees: 2, recenteAvantAncienne: true }, JSON.stringify(deuxPages));
+
+    const laquelle = await page.evaluate(() => {
+        loadPage(1);                                   // on repart du polycopié
+        ouvrirLaPageDesMorceaux({ cle: 'poly-de-la-seance' });
+        return { ici: currentPageIndex, total: pages.length };
+    });
+    r.egal('LE BOUT SUIVANT VA SUR LA PLUS RÉCENTE, pas sur la dernière du tableau',
+        laquelle.ici, deuxPages.neuveVierge,
+        JSON.stringify([laquelle, deuxPages]));
+    r.egal('et aucune page n\'a été fabriquée pour autant',
+        laquelle.total, deuxPages.total, JSON.stringify(laquelle));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
