@@ -1235,14 +1235,35 @@ window.basculerLeClignotement = basculerLeClignotement;
 // disparaissait avec elle sans être rangé nulle part. On range donc d'abord
 // ce qui est à l'écran, et on ajoute ensuite : quel que soit l'état de départ,
 // appuyer sur « ＋ » donne toujours une page de plus.
+// UNE PAGE NEUVE S'INSÈRE JUSTE APRÈS CELLE OÙ L'ON EST.
+//
+// « Ce serait super si on pouvait ajouter des feuilles entre deux existantes
+// et pas obligatoirement à la fin. »
+//
+// Les trois « ＋ » de l'application — celui du coin, celui du tiroir du bas,
+// celui du trieur — faisaient tous « pages.push » : la feuille partait au
+// bout, et l'on n'avait plus qu'à la ramener à la main en tirant sa vignette,
+// à supposer qu'on sache que le trieur existe. Or on ajoute une feuille PARCE
+// QU'ON EST LÀ : on manque de place au milieu de son cours, pas à la fin.
+//
+// Insérer après la page courante ne retire rien : sur la dernière page — le
+// cas de qui construit son cours dans l'ordre — c'est exactement l'ancien
+// comportement, au même rang. Le geste ne change que là où l'ancien ne
+// répondait pas au besoin.
 function ajouterUnePageVierge() {
     if (!pages.length) {
         pages = [createNewPage()];
         currentPageIndex = 0;
         syncPage();                  // le tableau courant DEVIENT la page 1
     }
-    pages.push(createNewPage());
-    loadPage(pages.length - 1);
+    // La page courante est rangée avant le décalage. Ici l'insertion tombe
+    // toujours APRÈS son rang, qui ne glisse donc pas — mais on ne laisse pas
+    // une fonction dépendre de cette chance : c'est en insérant DEVANT que le
+    // trieur a perdu une feuille.
+    if (typeof syncPage === 'function') syncPage();
+    const vers = Math.min(pages.length, Math.max(0, currentPageIndex) + 1);
+    pages.splice(vers, 0, createNewPage());
+    loadPage(vers);
     if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
     if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
     return pages.length;
@@ -1250,6 +1271,11 @@ function ajouterUnePageVierge() {
 window.ajouterUnePageVierge = ajouterUnePageVierge;
 
 function loadPage(index) {
+    // CE QUI EST TAPÉ APPARTIENT À LA PAGE QU'ON QUITTE, et doit y être écrit
+    // AVANT que « syncPage » la range — sinon on range une page sans le mot,
+    // et le mot n'est plus nulle part. « Du texte qui disparaît quand je me
+    // déplace dans la page » : c'était ce chemin-ci.
+    if (typeof poserLaFrappeEnCours === 'function') poserLaFrappeEnCours();
     // QUITTER LA PAGE DU DOCUMENT PROJETÉ MET LA PROJECTION EN PAUSE.
     //
     // « On reste dans le mode dans lequel on est. » Elle s'éteignait ici toute
@@ -2045,6 +2071,25 @@ document.addEventListener('DOMContentLoaded', () => {
             // « board ». Le rail a déplacé la place utile d'une trentaine de
             // pixels, la mine est tombée sur un bouton, et le contrôle a parlé.
             if (activeWidgets[widgetName] && widgets[widgetName]) {
+                // ON REFERME AVANT DE RAMENER, ET C'EST TOUT L'ORDRE DU GESTE.
+                //
+                // Un compas ramené sous la main doit pouvoir TRACER. S'il est
+                // ouvert plus large que la place — un tableau rouvert sur un
+                // écran plus petit, un grossissement pris après coup —, le
+                // translater ne suffit pas : sa mine reste dehors, et c'est par
+                // la mine qu'on trace. Demander son instrument, c'est demander
+                // un instrument dont on peut se servir.
+                //
+                // Et l'on referme D'ABORD, car l'inverse ne marche pas :
+                // « ramenerLInstrumentEnVue » centre au mieux un instrument
+                // qui ne tient pas, ce qui jette la pointe hors du cadre — et
+                // une borne mesurée depuis une pointe hors cadre ne borne
+                // rien. Mesuré : pointe à −360, mine à 1640, compas toujours
+                // muet. Dans cet ordre-ci, l'instrument tient, puis il rentre.
+                if (widgets[widgetName] instanceof CompassWidget
+                    && typeof bornerLOuvertureDansLaPlace === 'function') {
+                    bornerLOuvertureDansLaPlace(widgets[widgetName]);
+                }
                 ramenerLInstrumentEnVue(widgets[widgetName]);
             }
             draw();
@@ -11198,7 +11243,11 @@ function setMode(newMode) {
 
     if (typeof syncToolbarActiveStates === 'function') syncToolbarActiveStates();
 
-    creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; wysiwygText.style.display = 'none'; editingTextId = null; if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
+    // ON POSE CE QUI EST TAPÉ AVANT DE BAISSER LE RIDEAU — voir
+    // « poserLaFrappeEnCours ». Le « display = none » qui était ici jetait le
+    // mot en cours sans l'enregistrer nulle part.
+    if (typeof poserLaFrappeEnCours === 'function') poserLaFrappeEnCours();
+    creationStartPointId = null; currentCurvePoints = []; currentPolygonPoints = []; editingTextId = null; if (typeof oublierSelectionSaisie === 'function') oublierSelectionSaisie();
     isDrawingEllipse = false; boiteEllipse = null;   // une boîte en cours ne survit pas au changement d'outil
     boiteTexte = null;
     clearSelection();
@@ -12710,6 +12759,115 @@ function pointerCompasVers(w, x, y) {
     return { x, y };
 }
 
+// ==========================================================================
+// L'OUVERTURE DU COMPAS S'ARRÊTE OÙ LE TABLEAU S'ARRÊTE — ET ELLE LE DIT.
+//
+// « Des traits de compas qui ne veulent pas se faire car ils atteignent une
+// sorte de limite. »
+//
+// La limite était le BORD DE L'ÉCRAN, et elle ne disait rien. Mesuré sur un
+// écran de 1280 de large, compas au centre : à 450 d'écartement la mine tombe
+// à 1090, on trace ; à 600 elle tombe à 1240, on trace encore ; à 800 elle
+// tombe à 1440 — hors de l'écran. Un compas se prend par sa MINE : il n'y
+// avait plus rien sous le doigt. « getHitZone » répondait pourtant encore
+// « trace » — le compas se croyait saisissable —, et l'arc ne se faisait
+// jamais. Rien ne le disait, et l'on réessayait.
+//
+// ON NE DÉPLACE PAS LA POINTE POUR RATTRAPER LA MINE. C'est la tentation, et
+// c'est faux : en géométrie la pointe est posée sur un point précis — un
+// sommet, un milieu —, et la bouger ruine la construction qu'on était en
+// train de faire. La pointe reste où l'enseignant l'a mise.
+//
+// On borne donc l'écartement à ce que la place utile permet, mine comprise.
+// La limite devient alors celle du tableau — une limite physique, qu'on
+// comprend —, la mine reste sous le doigt, et le chemin vers un plus grand
+// cercle est dit : dézoomer. En coordonnées du tableau le cercle n'a plus de
+// plafond, c'est l'écran qui en a un.
+// ==========================================================================
+let plafondDuCompasDit = false;
+function oublierLePlafondDuCompas() { plafondDuCompasDit = false; }
+window.oublierLePlafondDuCompas = oublierLePlafondDuCompas;
+
+function plafondDeLOuvertureDuCompas(w) {
+    const r = (typeof window.rectangleUtileDeLaVue === 'function')
+        ? window.rectangleUtileDeLaVue() : null;
+    if (!r || !w) return Infinity;
+    const M = 24;                       // de quoi poser le doigt sur la mine
+    const x1 = r.x1 + M, x2 = r.x2 - M, y1 = r.y1 + M, y2 = r.y2 - M;
+    if (x2 <= x1 || y2 <= y1) return Infinity;
+    const px = w.x * zoom + panX, py = w.y * zoom + panY;
+    // LA POINTE ELLE-MÊME EST DEHORS : on ne borne rien. Un compas posé hors
+    // du cadre n'a pas de plafond à respecter — il a un autre problème, et
+    // c'est « ramenerLInstrumentEnVue » qui s'en occupe.
+    if (px < x1 || px > x2 || py < y1 || py > y2) return Infinity;
+    const dx = Math.cos(w.angle || 0), dy = Math.sin(w.angle || 0);
+    // Jusqu'où la mine peut-elle aller dans CETTE direction sans sortir ?
+    const jusque = (p, d, min, max) => {
+        if (Math.abs(d) < 1e-9) return Infinity;
+        return d > 0 ? (max - p) / d : (min - p) / d;
+    };
+    const enPixels = Math.min(jusque(px, dx, x1, x2), jusque(py, dy, y1, y2));
+    if (!isFinite(enPixels) || enPixels <= 0) return Infinity;
+    return Math.max(10, enPixels / (zoom || 1));
+}
+window.plafondDeLOuvertureDuCompas = plafondDeLOuvertureDuCompas;
+
+// ET LE PLAFOND QUI NE REGARDE PAS OÙ EST LA POINTE.
+//
+// « plafondDeLOuvertureDuCompas » mesure depuis la pointe : c'est juste quand
+// l'enseignant ouvre son compas, puisque la pointe est posée et visible. Mais
+// quand on RAMÈNE un compas trop ouvert, la pointe est justement n'importe où
+// — « ramenerLInstrumentEnVue » vient de la pousser dehors en essayant de
+// faire tenir un instrument qui ne tient pas —, et le plafond mesuré depuis
+// elle ne veut plus rien dire. Mesuré : pointe rejetée à −360, mine à 1640,
+// plafond « infini », aucune borne appliquée, compas toujours muet. Mon
+// correctif ne marchait pas dans le seul cas où il servait.
+//
+// Celui-ci ne demande pas où est la pointe, mais si l'écartement peut tenir
+// QUELQUE PART dans la place, à l'angle courant. On referme donc d'abord, et
+// l'on ramène ensuite : dans cet ordre, l'instrument tient, et le ramener met
+// la pointe ET la mine sous la main.
+function plafondDeLOuvertureDansLaPlace(w) {
+    const r = (typeof window.rectangleUtileDeLaVue === 'function')
+        ? window.rectangleUtileDeLaVue() : null;
+    if (!r || !w) return Infinity;
+    const M = 24;
+    const L = (r.x2 - r.x1) - 2 * M, H = (r.y2 - r.y1) - 2 * M;
+    if (L <= 0 || H <= 0) return Infinity;
+    const dx = Math.abs(Math.cos(w.angle || 0)), dy = Math.abs(Math.sin(w.angle || 0));
+    const parX = dx < 1e-9 ? Infinity : L / dx;
+    const parY = dy < 1e-9 ? Infinity : H / dy;
+    const enPixels = Math.min(parX, parY);
+    if (!isFinite(enPixels)) return Infinity;
+    return Math.max(10, enPixels / (zoom || 1));
+}
+window.plafondDeLOuvertureDansLaPlace = plafondDeLOuvertureDansLaPlace;
+
+function bornerLOuvertureDansLaPlace(w) {
+    const plafond = plafondDeLOuvertureDansLaPlace(w);
+    if (!isFinite(plafond) || !w || w.radius <= plafond + 0.5) return false;
+    w.radius = plafond;
+    if (typeof showToast === 'function') {
+        showToast('Compas refermé à ce que l\'écran permet — dézoomez pour un plus grand cercle');
+    }
+    return true;
+}
+window.bornerLOuvertureDansLaPlace = bornerLOuvertureDansLaPlace;
+
+function bornerLOuvertureDuCompas(w) {
+    const plafond = plafondDeLOuvertureDuCompas(w);
+    if (!isFinite(plafond) || !w || w.radius <= plafond + 0.5) return false;
+    w.radius = plafond;
+    if (!plafondDuCompasDit) {
+        plafondDuCompasDit = true;
+        if (typeof showToast === 'function') {
+            showToast('Compas ouvert au maximum que l\'écran permet — dézoomez pour un plus grand cercle');
+        }
+    }
+    return true;
+}
+window.bornerLOuvertureDuCompas = bornerLOuvertureDuCompas;
+
 function distToSegment(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2)); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
 function distToLine(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2; return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
 function distToRay(px, py, x1, y1, x2, y2) { const l2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2); if (l2 === 0) return Math.hypot(px - x1, py - y1); let t = Math.max(0, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2); return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1))); }
@@ -13173,6 +13331,45 @@ function finalizeText() {
         if (hasChanged) { saveState(); draw(); }
     }
 }
+
+// CE QU'ON VIENT DE TAPER SE POSE. IL NE SE JETTE JAMAIS.
+//
+// « J'ai eu quelques bugs de texte qui disparaissent quand je me déplace dans
+// la page. » Il n'y avait pas de bug du texte : il y avait deux endroits qui
+// baissaient le rideau de la saisie sans rien enregistrer.
+//
+//   « setMode » — prendre un autre outil — faisait « display = none », et le
+//   mot tapé n'existait plus nulle part ;
+//   « loadPage » — changer de feuille — rangeait la page courante AVANT que le
+//   mot y soit, et le rangement emportait donc une page sans lui.
+//
+// Mesuré : on écrit « CORRECTION » sur la page 2, on va page 1, on revient —
+// zéro texte sur les deux pages. Et le tampon de la saisie, lui, gardait la
+// frappe perdue : le texte suivant sortait collé au précédent, « AAABBB »,
+// n'importe où sur le tableau. Ce qui disparaissait revenait donc en fantôme.
+//
+// Le clic ailleurs, la touche Échap et le départ du curseur posaient déjà la
+// ligne ; ces deux chemins-là ne passaient simplement pas par eux. Ils y
+// passent maintenant, et le tampon est vidé dans tous les cas — un rideau
+// baissé ne doit rien garder derrière lui.
+let frappeEnCoursDePose = false;
+function poserLaFrappeEnCours() {
+    if (frappeEnCoursDePose) return false;       // « finalizeText » peut revenir ici
+    frappeEnCoursDePose = true;
+    try {
+        const ouverte = wysiwygText.style.display === 'block';
+        if (ouverte) finalizeText();
+        // LE TAMPON SE VIDE MÊME SI RIEN N'ÉTAIT OUVERT. Une frappe perdue par
+        // une version d'avant dort peut-être encore là : elle ne doit pas
+        // ressortir au prochain mot.
+        wysiwygText.style.display = 'none';
+        wysiwygText.innerHTML = '';
+        return ouverte;
+    } finally {
+        frappeEnCoursDePose = false;
+    }
+}
+window.poserLaFrappeEnCours = poserLaFrappeEnCours;
 // LE CLIC QUI ROUVRAIT LA SAISIE LA REFERMAIT AUSSITÔT.
 // Cliquer ailleurs pendant qu'on écrit doit poser la ligne et rouvrir la
 // saisie sous le pointeur. Or le clic, lui, continue son chemin : après le
@@ -13740,6 +13937,11 @@ canvas.addEventListener('pointerdown', (e) => {
             if (zone === 'resize' && targetWidget instanceof CompassWidget) {
                 ecartPriseCompas = targetWidget.radius
                     - Math.hypot(rawPos.x - targetWidget.x, rawPos.y - targetWidget.y);
+                // La phrase du plafond se redit à chaque nouvelle ouverture, et
+                // une seule fois par geste : une fois par session, elle manque
+                // à qui rencontre la borne six mois plus tard ; à chaque pixel,
+                // elle devient du bruit.
+                if (typeof oublierLePlafondDuCompas === 'function') oublierLePlafondDuCompas();
             }
 
             // Si on attrape la mine du compas on lance le tracé
@@ -14542,6 +14744,9 @@ canvas.addEventListener('pointermove', (e) => {
             const bout = pointerCompasVers(w, mx, my);
             w.radius = Math.hypot(bout.x - w.x, bout.y - w.y);
             w.angle = Math.atan2(bout.y - w.y, bout.x - w.x);
+            // Et l'ouverture s'arrête où le tableau s'arrête : au-delà, la
+            // mine sortait de l'écran et l'arc ne se faisait plus.
+            if (typeof bornerLOuvertureDuCompas === 'function') bornerLOuvertureDuCompas(w);
         } else if (modeW === 'resize' && w instanceof RulerWidget) {
             const local = w.toLocal(rx, ry);
             if (local.x > 100) w.width = local.x;
@@ -37584,18 +37789,63 @@ document.addEventListener('DOMContentLoaded', () => {
             delBtn.style.cssText = `
                 position: absolute; top: 4px; right: 4px; background: rgba(214, 48, 49, 0.9);
                 color: white; font-size: 14px; width: 24px; height: 24px; border-radius: 50%;
-                display: flex; align-items: center; justify-content: center; opacity: 0; transition: all 0.2s; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; opacity: 0.6; transition: all 0.2s; cursor: pointer;
             `;
+            // ELLE SE VOIT AU DOIGT. Elle n'apparaissait qu'au survol de la
+            // vignette — un geste qui n'existe pas sur un tableau tactile :
+            // devant la classe, la corbeille du trieur était introuvable.
+            // Elle est donc là en permanence, discrète, et franche au survol.
             delBtn.addEventListener('mouseenter', () => delBtn.style.background = '#d63031');
             delBtn.addEventListener('mouseleave', () => delBtn.style.background = 'rgba(214, 48, 49, 0.9)');
             box.addEventListener('mouseenter', () => delBtn.style.opacity = '1');
-            box.addEventListener('mouseleave', () => delBtn.style.opacity = '0');
+            box.addEventListener('mouseleave', () => delBtn.style.opacity = '0.6');
 
             delBtn.onclick = (e) => {
                 e.stopPropagation();
                 supprimerLaPage(index);
             };
             box.appendChild(delBtn);
+
+            // INSÉRER UNE FEUILLE APRÈS CELLE-CI, SANS ALLER DESSUS D'ABORD.
+            // « Ajouter des feuilles entre deux existantes. » Le « ＋ » du bas
+            // insère après la page COURANTE : pour glisser une feuille entre la
+            // 2 et la 3 quand on travaille sur la 7, il fallait aller en 2,
+            // insérer, puis revenir. Ici on désigne, donc on n'a rien à retenir.
+            const insBtn = document.createElement('div');
+            insBtn.innerHTML = '＋';
+            insBtn.title = 'Insérer une page vierge après celle-ci';
+            insBtn.style.cssText = `
+                position: absolute; top: 4px; left: 4px; background: rgba(9, 132, 227, 0.92);
+                color: white; font-size: 14px; width: 24px; height: 24px; border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                opacity: 0.6; transition: all 0.2s; cursor: pointer; font-weight: bold;
+            `;
+            box.addEventListener('mouseenter', () => insBtn.style.opacity = '1');
+            box.addEventListener('mouseleave', () => insBtn.style.opacity = '0.6');
+            insBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (pages[currentPageIndex]) pages[currentPageIndex].thumbnail = capturePageThumb();
+                // ON RANGE LA PAGE COURANTE AVANT DE DÉCALER LES RANGS, ET
+                // L'ON CORRIGE SON RANG APRÈS. Sans ces deux lignes, insérer
+                // DEVANT la page où l'on travaille ÉCRASAIT une feuille :
+                // « syncPage », appelé plus tard par « loadPage », réécrit le
+                // tableau vivant dans « pages[currentPageIndex] » — et ce rang
+                // désignait désormais la feuille suivante, qui avait glissé
+                // d'un cran. Mesuré : trois feuilles UNE/DEUX/TROIS, insertion
+                // depuis la dernière → UNE/·/·/TROIS/TROIS. « DEUX » perdue.
+                if (typeof syncPage === 'function') syncPage();
+                pages.splice(index + 1, 0, createNewPage());
+                if (index + 1 <= currentPageIndex) currentPageIndex++;
+                loadPage(index + 1);
+                renderThumbnails();
+                setTimeout(window.syncActiveThumbnail, 100);
+                if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+                if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+                if (typeof showToast === 'function') {
+                    showToast('Page vierge insérée en ' + (index + 2) + ' sur ' + pages.length);
+                }
+            };
+            box.appendChild(insBtn);
 
             box.onclick = () => {
                 if (box.dataset.aGlisse === '1') { delete box.dataset.aGlisse; return; }
@@ -37630,9 +37880,14 @@ document.addEventListener('DOMContentLoaded', () => {
         addBtn.onmouseenter = () => addBtn.style.background = 'rgba(9, 132, 227, 0.2)';
         addBtn.onmouseleave = () => addBtn.style.background = 'rgba(9, 132, 227, 0.1)';
         addBtn.onclick = () => {
-            pages[currentPageIndex].thumbnail = capturePageThumb();
-            pages.push(createNewPage());
-            loadPage(pages.length - 1);
+            if (pages[currentPageIndex]) pages[currentPageIndex].thumbnail = capturePageThumb();
+            // LE MÊME GESTE QUE PARTOUT AILLEURS : on passe par la fonction
+            // commune, qui insère après la page où l'on est. Le trieur avait
+            // sa propre copie — « pages.push » — et ajoutait donc au bout
+            // quand le coin, lui, insérait : deux « ＋ » qui ne font pas la
+            // même chose sont deux gestes à apprendre.
+            if (typeof ajouterUnePageVierge === 'function') ajouterUnePageVierge();
+            else { pages.push(createNewPage()); loadPage(pages.length - 1); }
             renderThumbnails();
             // On attend que la page soit prête puis on prend la photo de la page blanche
             setTimeout(window.syncActiveThumbnail, 100);
