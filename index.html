@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=247 »,
-         « script.js?v=443 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=248 »,
+         « script.js?v=444 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=247">
+    <link rel="stylesheet" href="style.css?v=248">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -712,6 +712,41 @@
         </span>
         <span class="bm-explique" id="bm-explique"></span>
       </div>
+    </div>
+
+    <!-- ==================================================================
+         LA VISIONNEUSE : LA CAMÉRA DE CLASSE, PROJETÉE.
+         « Utilisant beaucoup la visionneuse, j'adorerais pouvoir projeter ma
+         visionneuse directement sur le site, donc avoir une page avec l'accès
+         direct à la visionneuse, et pouvoir faire des captures d'écran pour
+         corriger des élèves en direct au tableau. »
+         C'est un plein écran noir et un flux, rien de plus — et un bouton qui
+         en tire une photo. La photo, elle, n'a rien de particulier : c'est une
+         image du tableau, donc elle hérite du plein écran, du rail, des
+         crayons et du reste. On ne réinvente pas l'annotation.
+         ELLE N'EST PAS UN OUTIL DE TRACÉ et ne vit donc pas dans les modes :
+         un enseignant qui montre un cahier n'est pas en train de dessiner.
+         ON NE DEMANDE LA CAMÉRA QU'À L'OUVERTURE, ET ON LA REND À LA
+         FERMETURE : le voyant de la caméra doit s'éteindre quand on a fini.
+         Dans une classe, une caméra qu'on croit éteinte et qui filme n'est pas
+         un détail d'implémentation.
+         ================================================================== -->
+    <div id="visionneuse" hidden>
+        <video id="vis-flux" autoplay playsinline muted></video>
+        <div id="vis-barre" role="group" aria-label="Visionneuse">
+            <!-- Il dit ce qu'il va faire : photographier ET emmener sur la
+                 photo pour l'annoter. « Photographier » tout seul laissait
+                 croire qu'on restait devant la caméra. -->
+            <button class="vis-btn vis-principal" id="vis-photo">⎙ Photographier et annoter</button>
+            <!-- Une visionneuse de documents renvoie souvent l'image en
+                 miroir, et une page de cahier à l'envers ne se lit pas. -->
+            <button class="vis-btn" id="vis-miroir" aria-pressed="false">⇄ Miroir</button>
+            <!-- Le choix de la caméra ne paraît QUE s'il y en a plusieurs :
+                 un menu à un seul article est un article de décor. -->
+            <select id="vis-choix" aria-label="Caméra" hidden></select>
+            <button class="vis-btn vis-fermer" id="vis-fermer">✕ Fermer</button>
+        </div>
+        <div id="vis-mot"></div>
     </div>
 
     <div id="bande-lecture" role="group" aria-label="Lecteur : rejouer le tableau">
@@ -2451,6 +2486,21 @@
                     <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
                     <path d="M22 21H7" />
                     <path d="m5 11 9 9" />
+                </svg></button>
+            <!-- LA VISIONNEUSE. « Utilisant beaucoup la visionneuse, j'adorerais
+                 pouvoir la projeter directement sur le site, et pouvoir faire des
+                 captures d'écran pour corriger des élèves en direct au tableau. »
+                 Ce n'est pas un outil de tracé : c'est une caméra qu'on projette.
+                 Le bouton n'a donc pas de « data-mode » — il ouvre un plein
+                 écran, et la photo qu'on en tire devient un document du tableau,
+                 avec son plein écran, son rail et ses crayons. -->
+            <button class="btn" id="btn-visionneuse" title="Visionneuse — projeter la caméra, et en tirer une photo à corriger">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
+                    <path d="M3 20h18" />
+                    <path d="M7 20V9h7v11" />
+                    <path d="M14 12h3l3-3" />
+                    <circle cx="19" cy="7" r="2" />
+                    <path d="M10 5h2" />
                 </svg></button>
             <button class="btn" data-mode="laser" title="Pointeur Laser"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
@@ -4275,7 +4325,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=443"></script>
+    <script src="script.js?v=444"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

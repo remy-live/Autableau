@@ -31116,6 +31116,7 @@ function renderFloatingToolbars() {
     // La gomme et le pointeur laser remontent auprès du texte et du post-it :
     // ce sont des gestes du quotidien, ils traînaient après toute la géométrie.
     if (typeof remonterLesGestesDuQuotidien === 'function') remonterLesGestesDuQuotidien();
+    if (typeof rangerLaVisionneuseAvecLeQuotidien === 'function') rangerLaVisionneuseAvecLeQuotidien();
 
     container.innerHTML = '';
     getStoredFloatingToolbars().forEach(toolbar => renderFloatingToolbar(toolbar));
@@ -50529,6 +50530,51 @@ function remonterLesGestesDuQuotidien() {
 }
 window.remonterLesGestesDuQuotidien = remonterLesGestesDuQuotidien;
 
+// ET LA VISIONNEUSE SE RANGE AVEC LES GESTES DU QUOTIDIEN.
+//
+// Un bouton neuf arrive par le HTML, mais l'ordre de la barre principale vient
+// d'une LISTE ENREGISTRÉE : l'outil inconnu d'elle est donc ajouté au bout du
+// rang. Or le bout du rang est précisément la part que l'option « gestes du
+// quotidien » efface — tout ce qui suit la gomme et le pointeur laser, c'est-à-
+// dire la géométrie et les instruments.
+//
+// La visionneuse y serait tombée, et elle aurait disparu chez ceux qui ont
+// choisi la barre courte : c'est-à-dire chez les enseignants qui ne font pas de
+// géométrie — ceux-là mêmes qui montrent le plus de cahiers. Mesuré : marquée
+// « outil-en-plus » dès le premier démarrage.
+//
+// Elle est donc insérée JUSTE AVANT la gomme, une fois, comme les gestes du
+// quotidien l'ont été avant elle. Une fois seulement : ranger sa barre reste
+// l'affaire du professeur, et un correctif qui revient chaque matin défait son
+// travail de la veille.
+const CLE_PLACE_VISIONNEUSE = 'auTableau_place_visionneuse_v1';
+
+function rangerLaVisionneuseAvecLeQuotidien() {
+    try { if (localStorage.getItem(CLE_PLACE_VISIONNEUSE) === 'true') return false; } catch (e) { return false; }
+    let bougee = false;
+    const barres = getStoredFloatingToolbars().map(tb => {
+        if (tb.id !== 'system-toolbar-main' || !Array.isArray(tb.items)) return tb;
+        const sans = tb.items.filter(x => x !== 'btn-visionneuse');
+        // On vise la gomme, sinon le laser : la coupure de la barre courte est
+        // le DERNIER des deux, donc se placer avant le premier met à l'abri
+        // quel que soit l'ordre où le professeur les a rangés.
+        let place = sans.indexOf('eraser');
+        if (place < 0) place = sans.indexOf('laser');
+        // Ni gomme ni laser dans cette barre : la barre courte ne sait pas où
+        // couper, donc elle ne coupe rien, et il n'y a rien à mettre à l'abri.
+        if (place < 0) return tb;
+        const dejaBien = tb.items.indexOf('btn-visionneuse');
+        if (dejaBien >= 0 && dejaBien <= place) return tb;
+        const remis = [...sans.slice(0, place), 'btn-visionneuse', ...sans.slice(place)];
+        bougee = true;
+        return { ...tb, items: remis };
+    });
+    if (bougee) saveStoredFloatingToolbars(barres);
+    try { localStorage.setItem(CLE_PLACE_VISIONNEUSE, 'true'); } catch (e) { /* refusé */ }
+    return bougee;
+}
+window.rangerLaVisionneuseAvecLeQuotidien = rangerLaVisionneuseAvecLeQuotidien;
+
 function basculerLaBarreCourte(force) {
     barreCourte = (force === undefined) ? !barreCourte : !!force;
     try { localStorage.setItem(CLE_BARRE_COURTE, barreCourte ? 'true' : 'false'); } catch (e) { /* refusé */ }
@@ -52862,4 +52908,267 @@ window.recevoirLesFichiersDuSysteme = recevoirLesFichiersDuSysteme;
 document.addEventListener('DOMContentLoaded', () => {
     installerLeServiceWorker();
     recevoirLesFichiersDuSysteme();
+});
+
+// ==============================================================================
+// LA VISIONNEUSE : LA CAMÉRA DE CLASSE, PROJETÉE — ET LA PHOTO QU'ON CORRIGE
+//
+// « Utilisant beaucoup la visionneuse, j'adorerais pouvoir projeter ma
+// visionneuse directement sur le site, donc avoir une page avec l'accès direct
+// à la visionneuse, et pouvoir faire des captures d'écran pour corriger des
+// élèves en direct au tableau. »
+//
+// Deux gestes, et c'est tout : MONTRER, puis FIGER POUR CORRIGER.
+//
+// CE QU'ON NE RÉINVENTE PAS. La photo qu'on tire n'a rien de particulier :
+// c'est une image du tableau, posée sans « pluginData », donc un DOCUMENT au
+// sens de « estUnDocumentPose ». Elle hérite du coup de tout ce qui existe
+// déjà — le plein écran, le rail, les crayons, le surligneur, la découpe, le
+// rangement dans la page, l'export. Écrire une annotation à part aurait fait
+// une seconde application à l'intérieur de celle-ci.
+//
+// LA CAMÉRA NE SE DEMANDE QU'À L'OUVERTURE, ET SE REND À LA FERMETURE. Le
+// voyant doit s'éteindre quand on a fini : dans une classe, une caméra qu'on
+// croit éteinte et qui filme n'est pas un détail d'implémentation. On coupe
+// donc les pistes, et on les coupe aussi quand l'onglet part en arrière-plan.
+// ==============================================================================
+const CLE_VISIONNEUSE_MIROIR = 'auTableau_visionneuse_miroir';
+let fluxVisionneuse = null;
+let visionneuseEnMiroir = false;
+let camerasConnues = [];
+
+function visionneuseOuverte() {
+    const el = document.getElementById('visionneuse');
+    return !!(el && !el.hidden);
+}
+window.visionneuseOuverte = visionneuseOuverte;
+
+function direDansLaVisionneuse(mot) {
+    const el = document.getElementById('vis-mot');
+    if (el) el.textContent = mot || '';
+}
+
+// ON REND LA CAMÉRA. Appelée par la fermeture, par le départ de l'onglet, et
+// avant chaque changement de caméra : deux flux ouverts en même temps laissent
+// un voyant allumé sur un appareil qu'on ne regarde plus.
+function rendreLaCamera() {
+    if (!fluxVisionneuse) return false;
+    try { fluxVisionneuse.getTracks().forEach(p => p.stop()); } catch (e) { /* déjà coupé */ }
+    fluxVisionneuse = null;
+    const v = document.getElementById('vis-flux');
+    if (v) { try { v.srcObject = null; } catch (e) { /* rien à détacher */ } }
+    return true;
+}
+window.rendreLaCamera = rendreLaCamera;
+
+// LE CHOIX DE LA CAMÉRA NE PARAÎT QUE S'IL Y EN A PLUSIEURS. Un menu à un seul
+// article est un article de décor — et beaucoup de salles n'ont qu'une
+// visionneuse. Les noms ne sont lisibles qu'APRÈS la première autorisation :
+// avant, le navigateur rend des libellés vides, et l'on nommerait « Caméra 1 »
+// et « Caméra 2 » deux appareils que l'enseignant distingue par leur marque.
+async function listerLesCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    let liste = [];
+    try { liste = await navigator.mediaDevices.enumerateDevices(); }
+    catch (e) { return []; }
+    camerasConnues = liste.filter(d => d.kind === 'videoinput');
+    const choix = document.getElementById('vis-choix');
+    if (!choix) return camerasConnues;
+    choix.innerHTML = '';
+    camerasConnues.forEach((d, i) => {
+        const o = document.createElement('option');
+        o.value = d.deviceId;
+        o.textContent = d.label || ('Caméra ' + (i + 1));
+        choix.appendChild(o);
+    });
+    const actuelle = fluxVisionneuse && fluxVisionneuse.getVideoTracks()[0];
+    const reglages = actuelle && actuelle.getSettings ? actuelle.getSettings() : null;
+    if (reglages && reglages.deviceId) choix.value = reglages.deviceId;
+    choix.hidden = camerasConnues.length < 2;
+    return camerasConnues;
+}
+
+// ON DEMANDE LA PLUS GRANDE IMAGE QUE L'APPAREIL VEUT BIEN DONNER, parce que la
+// photo servira à lire une écriture d'élève au tableau. « ideal » et non
+// « exact » : une webcam qui ne sait pas faire du 1920 doit donner ce qu'elle a,
+// pas refuser.
+async function allumerLaCamera(deviceId) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        direDansLaVisionneuse('Ce navigateur ne sait pas ouvrir de caméra.');
+        return false;
+    }
+    rendreLaCamera();
+    const contraintes = {
+        video: deviceId ? { deviceId: { exact: deviceId } }
+                        : { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+    };
+    try {
+        fluxVisionneuse = await navigator.mediaDevices.getUserMedia(contraintes);
+    } catch (e) {
+        // ET L'ON RÉESSAIE SANS RIEN DEMANDER. « facingMode: environment » est
+        // un vœu sur un téléphone, mais sur un ordinateur de classe branché à
+        // une visionneuse USB, certains pilotes le prennent pour une exigence
+        // et refusent tout. Un second essai nu vaut mieux qu'un écran noir.
+        try { fluxVisionneuse = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+        catch (e2) {
+            const refus = /NotAllowed|Permission/i.test(String(e2 && e2.name));
+            direDansLaVisionneuse(refus
+                ? 'La caméra est refusée pour ce site. Autorisez-la dans la barre d\'adresse de votre navigateur, puis rouvrez la visionneuse.'
+                : 'Aucune caméra disponible. Branchez votre visionneuse, puis rouvrez.');
+            return false;
+        }
+    }
+    const v = document.getElementById('vis-flux');
+    if (v) {
+        v.srcObject = fluxVisionneuse;
+        try { await v.play(); } catch (e) { /* le navigateur jouera tout seul */ }
+    }
+    direDansLaVisionneuse('');
+    await listerLesCameras();
+    return true;
+}
+
+function appliquerLeMiroir() {
+    const v = document.getElementById('vis-flux');
+    if (v) v.classList.toggle('en-miroir', !!visionneuseEnMiroir);
+    const b = document.getElementById('vis-miroir');
+    if (b) b.setAttribute('aria-pressed', visionneuseEnMiroir ? 'true' : 'false');
+}
+
+async function ouvrirLaVisionneuse() {
+    const el = document.getElementById('visionneuse');
+    if (!el) return false;
+    // UNE SAISIE EN COURS SE POSE AVANT DE PASSER DEVANT L'ÉCRAN. Le plein
+    // écran recouvre la page : le mot tapé resterait derrière, invisible, et
+    // ressortirait collé au suivant.
+    if (typeof poserLaFrappeEnCours === 'function') poserLaFrappeEnCours();
+    try { visionneuseEnMiroir = localStorage.getItem(CLE_VISIONNEUSE_MIROIR) === '1'; }
+    catch (e) { visionneuseEnMiroir = false; }
+    el.hidden = false;
+    appliquerLeMiroir();
+    direDansLaVisionneuse('Ouverture de la caméra…');
+    const ok = await allumerLaCamera(null);
+    return ok;
+}
+window.ouvrirLaVisionneuse = ouvrirLaVisionneuse;
+
+function fermerLaVisionneuse() {
+    const el = document.getElementById('visionneuse');
+    if (!el || el.hidden) return false;
+    rendreLaCamera();
+    el.hidden = true;
+    direDansLaVisionneuse('');
+    return true;
+}
+window.fermerLaVisionneuse = fermerLaVisionneuse;
+
+// LA PHOTO. On dessine l'image TELLE QU'ELLE EST MONTRÉE — miroir compris :
+// l'enseignant a retourné l'image parce qu'elle était illisible, et une photo
+// qui reviendrait à l'envers lui redonnerait le problème qu'il vient de régler.
+function photographierLaVisionneuse() {
+    const v = document.getElementById('vis-flux');
+    if (!v || !v.videoWidth || !v.videoHeight) {
+        if (typeof showToast === 'function') showToast('La caméra n\'a pas encore d\'image');
+        return null;
+    }
+    const L = v.videoWidth, H = v.videoHeight;
+    const c = document.createElement('canvas');
+    c.width = L; c.height = H;
+    const g = c.getContext('2d');
+    if (visionneuseEnMiroir) { g.translate(L, 0); g.scale(-1, 1); }
+    g.drawImage(v, 0, 0, L, H);
+    return { src: c.toDataURL('image/jpeg', 0.92), L, H };
+}
+window.photographierLaVisionneuse = photographierLaVisionneuse;
+
+// ET ON LA POSE SUR LE TABLEAU, PROJETÉE, PRÊTE À CORRIGER.
+//
+// La taille posée suit celle d'un morceau agrandi — « que ce que je dépose sur
+// une page occupe le maximum de l'espace de l'écran avec un peu de marge ». On
+// la sélectionne ensuite : c'est la sélection qui désigne le document à
+// projeter, et c'est aussi elle qui fait paraître la barre du document.
+function poserLaPhotoDeLaVisionneuse() {
+    const photo = photographierLaVisionneuse();
+    if (!photo) return null;
+    const img = new Image();
+    const objet = {
+        id: nextId++,
+        x: 0, y: 0, w: photo.L, h: photo.H,
+        cx: 0, cy: 0, cw: photo.L, ch: photo.H,
+        src: photo.src,
+        fileName: 'Visionneuse.jpg',
+        z: globalZ++
+    };
+    // La place qu'elle prendra : la même qu'un morceau posé en grand, et à
+    // défaut un cadrage sobre au centre.
+    let place = null;
+    if (typeof placeDuMorceauAgrandi === 'function') {
+        try { place = placeDuMorceauAgrandi(objet); } catch (e) { place = null; }
+    }
+    if (place && place.w > 0 && place.h > 0) {
+        objet.x = place.x; objet.y = place.y; objet.w = place.w; objet.h = place.h;
+    } else {
+        const k = Math.min(1, 800 / photo.L);
+        objet.w = photo.L * k; objet.h = photo.H * k;
+        objet.x = (window.innerWidth / 2 - panX) / zoom - objet.w / 2;
+        objet.y = (window.innerHeight / 2 - panY) / zoom - objet.h / 2;
+    }
+    img.src = photo.src;
+    imageCache[photo.src] = img;
+    images.push(typeof poserEnRognage === 'function' ? poserEnRognage(objet) : objet);
+    selectedItems = [{ type: 'image', id: objet.id }];
+    if (typeof saveState === 'function') saveState();
+    if (typeof draw === 'function') draw();
+    // ON FERME LA CAMÉRA : on vient de figer ce qu'on voulait montrer, et c'est
+    // sur la photo qu'on va écrire. La laisser ouverte poserait un plein écran
+    // par-dessus le tableau qu'on veut annoter — et laisserait le voyant
+    // allumé sur un appareil que plus personne ne regarde.
+    fermerLaVisionneuse();
+    if (typeof presenterLeDocument === 'function') {
+        presenterLeDocument('largeur', { sansPleinEcranDuNavigateur: true });
+    }
+    if (typeof showToast === 'function') {
+        showToast('Photo posée sur le tableau — écrivez dessus, elle s\'enregistre avec');
+    }
+    return objet;
+}
+window.poserLaPhotoDeLaVisionneuse = poserLaPhotoDeLaVisionneuse;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const bouton = document.getElementById('btn-visionneuse');
+    if (bouton) bouton.addEventListener('click', () => { ouvrirLaVisionneuse(); });
+
+    const photo = document.getElementById('vis-photo');
+    if (photo) photo.addEventListener('click', () => { poserLaPhotoDeLaVisionneuse(); });
+
+    const fermer = document.getElementById('vis-fermer');
+    if (fermer) fermer.addEventListener('click', () => { fermerLaVisionneuse(); });
+
+    const miroir = document.getElementById('vis-miroir');
+    if (miroir) miroir.addEventListener('click', () => {
+        visionneuseEnMiroir = !visionneuseEnMiroir;
+        appliquerLeMiroir();
+        // Le réglage se garde : une salle dont la visionneuse renvoie le
+        // miroir le renvoie tous les jours.
+        try { localStorage.setItem(CLE_VISIONNEUSE_MIROIR, visionneuseEnMiroir ? '1' : '0'); }
+        catch (e) { /* stockage refusé */ }
+    });
+
+    const choix = document.getElementById('vis-choix');
+    if (choix) choix.addEventListener('change', () => { allumerLaCamera(choix.value); });
+
+    // ÉCHAP REFERME, comme tout le reste de l'application.
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && visionneuseOuverte()) {
+            e.preventDefault();
+            fermerLaVisionneuse();
+        }
+    });
+
+    // L'ONGLET QU'ON QUITTE REND LA CAMÉRA. On passe à Pronote le temps de
+    // noter une absence, et le voyant restait allumé derrière.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && visionneuseOuverte()) fermerLaVisionneuse();
+    });
 });

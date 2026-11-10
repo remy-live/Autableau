@@ -14665,3 +14665,107 @@ body.rail-en-place #exit-focus-cross { display: none; }
 #bar-document.dans-le-rail:not(.famille-du-trace) #doc-outil-cache,
 #bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-decoupe-forme,
 #bar-document.dans-le-rail:not(.famille-de-la-taille) #doc-rogner { display: none !important; }
+
+/* ============================================================
+   LA VISIONNEUSE
+
+   « Utilisant beaucoup la visionneuse, j'adorerais pouvoir projeter ma
+   visionneuse directement sur le site, donc avoir une page avec l'accès direct
+   à la visionneuse, et pouvoir faire des captures d'écran pour corriger des
+   élèves en direct au tableau. »
+
+   Un fond NOIR, et pas la couleur du thème : on projette, et la classe
+   regarde l'image, pas le cadre. Tout ce qui n'est pas le document doit
+   disparaître — c'est la même règle que le plein écran du PDF.
+
+   « contain » et non « cover » : une page de cahier qu'on rogne pour remplir
+   l'écran est une page dont on a coupé la marge, c'est-à-dire souvent la
+   correction qu'on voulait montrer.
+   ============================================================ */
+#visionneuse {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#visionneuse[hidden] { display: none; }
+
+#vis-flux {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+/* Le miroir se fait à l'affichage ET à la photo : voir « photographierLaVisionneuse ». */
+#vis-flux.en-miroir { transform: scaleX(-1); }
+
+/* LA BARRE SE POSE EN BAS, AU MILIEU, et laisse l'image tranquille. Elle est
+   assez grande pour le doigt : on s'en sert debout, devant une classe, pas
+   assis avec une souris. */
+#vis-barre {
+    position: absolute;
+    left: 50%;
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.62);
+    backdrop-filter: blur(6px);
+    max-width: calc(100vw - 32px);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.vis-btn {
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.vis-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.vis-btn.vis-principal { background: #0984e3; border-color: #0984e3; }
+.vis-btn.vis-principal:hover { background: #0b76c9; }
+.vis-btn.vis-fermer { background: rgba(214, 48, 49, 0.9); border-color: rgba(214, 48, 49, 0.9); }
+/* Le miroir est un interrupteur : il doit dire s'il est mis. */
+.vis-btn[aria-pressed="true"] { background: #00b894; border-color: #00b894; }
+
+#vis-choix {
+    min-height: 44px;
+    max-width: 220px;
+    padding: 0 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-size: 14px;
+}
+#vis-choix[hidden] { display: none; }
+#vis-choix option { color: #000; }
+
+/* CE QU'ELLE DIT QUAND ELLE NE PEUT RIEN MONTRER. Un écran noir muet laisse
+   croire à une panne de l'application, alors que c'est une permission qu'on
+   n'a pas donnée, ou une caméra que personne n'a branchée. */
+#vis-mot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: min(620px, calc(100vw - 48px));
+    text-align: center;
+    color: #fff;
+    font-size: 17px;
+    line-height: 1.5;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+#vis-mot:empty { display: none; }
