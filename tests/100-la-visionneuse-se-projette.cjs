@@ -348,12 +348,17 @@ module.exports = async function (browser) {
         return { items: tb ? tb.items : null,
                  rang: tb ? tb.items.indexOf('btn-visionneuse') : -1,
                  gomme: tb ? tb.items.indexOf('eraser') : -1,
+                 laser: tb ? tb.items.indexOf('laser') : -1,
                  instrument: b ? b.classList.contains('outil-en-plus') : null };
     });
     r.verifie('la visionneuse est entrée dans une barre qui ne la connaissait pas',
         rangee.rang >= 0, JSON.stringify(rangee));
-    r.verifie('ET AVANT LA GOMME : la barre courte ne l\'efface donc pas',
-        rangee.rang >= 0 && rangee.gomme >= 0 && rangee.rang < rangee.gomme,
+    // ELLE SE POSE JUSTE APRÈS LA PAIRE GOMME + LASER, et non avant elle : la
+    // paire est contiguë, le chapitre 9 la fige, et la visionneuse est nommée
+    // parmi les derniers du quotidien — c'est donc ELLE qui devient la coupure
+    // de la barre courte, et à cette place elle est gardée.
+    r.verifie('JUSTE APRÈS LA GOMME ET LE LASER : la barre courte ne l\'efface donc pas',
+        rangee.rang >= 0 && rangee.rang === Math.max(rangee.gomme, rangee.laser) + 1,
         JSON.stringify(rangee));
     r.egal('le bouton n\'est plus marqué comme un instrument de géométrie',
         rangee.instrument, false, JSON.stringify(rangee));

@@ -30136,7 +30136,19 @@ function removePluginFromFloatingToolbar(toolbarId, toolId) {
 // suit — géométrie et instruments — est indispensable en cours de maths et
 // encombrant pour qui vient écrire trois lignes au tableau. On marque la
 // suite ; c'est la feuille de style qui l'efface, sur l'option seule.
-const DERNIERS_DU_QUOTIDIEN = ['eraser', 'laser'];
+// ET LA VISIONNEUSE EN FAIT PARTIE — on le DIT, on ne le ruse pas.
+//
+// Montrer le cahier d'un élève est le geste le plus quotidien qui soit : rien
+// à voir avec la géométrie et les instruments, qui sont ce que cette option
+// efface. Première tentative : glisser son bouton AVANT la gomme, pour tomber
+// du bon côté de la coupure. Le chapitre 9 l'a refusée, et il avait raison —
+// il fige « la gomme et le laser suivent le post-it » en une paire contiguë,
+// et je m'étais intercalé au milieu. Une place volée n'est pas une règle.
+//
+// On nomme donc la visionneuse parmi les derniers du quotidien : elle devient
+// elle-même la coupure, la paire reste intacte, et ce que le code dit est ce
+// qu'on voulait dire.
+const DERNIERS_DU_QUOTIDIEN = ['eraser', 'laser', 'btn-visionneuse'];
 
 function marquerLaSuiteDeLaBarre(pool, toolbar) {
     if (!pool || !toolbar || toolbar.id !== 'system-toolbar-main') return 0;
@@ -50555,16 +50567,19 @@ function rangerLaVisionneuseAvecLeQuotidien() {
     const barres = getStoredFloatingToolbars().map(tb => {
         if (tb.id !== 'system-toolbar-main' || !Array.isArray(tb.items)) return tb;
         const sans = tb.items.filter(x => x !== 'btn-visionneuse');
-        // On vise la gomme, sinon le laser : la coupure de la barre courte est
-        // le DERNIER des deux, donc se placer avant le premier met à l'abri
-        // quel que soit l'ordre où le professeur les a rangés.
-        let place = sans.indexOf('eraser');
-        if (place < 0) place = sans.indexOf('laser');
+        // ELLE SE POSE JUSTE APRÈS LE DERNIER DES DEUX AUTRES, et non avant la
+        // gomme : la gomme et le laser forment une paire que le chapitre 9
+        // fige — « la gomme et le laser suivent le post-it » —, et l'on ne
+        // s'intercale pas au milieu. Elle est nommée dans
+        // « DERNIERS_DU_QUOTIDIEN », donc c'est elle qui devient la coupure de
+        // la barre courte : à cette place, elle est gardée.
+        const apres = Math.max(sans.indexOf('eraser'), sans.indexOf('laser'));
         // Ni gomme ni laser dans cette barre : la barre courte ne sait pas où
         // couper, donc elle ne coupe rien, et il n'y a rien à mettre à l'abri.
-        if (place < 0) return tb;
+        if (apres < 0) return tb;
+        const place = apres + 1;
         const dejaBien = tb.items.indexOf('btn-visionneuse');
-        if (dejaBien >= 0 && dejaBien <= place) return tb;
+        if (dejaBien === place) return tb;
         const remis = [...sans.slice(0, place), 'btn-visionneuse', ...sans.slice(place)];
         bougee = true;
         return { ...tb, items: remis };
