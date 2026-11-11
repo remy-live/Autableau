@@ -38858,6 +38858,16 @@ function switchDrawerTab(tab) {
         document.getElementById('interfaces-container').classList.add('active');
         document.getElementById('trash-section').style.display = 'none';
     }
+    // LE BOUTON MUET D'ENREGISTREMENT NE SERT QUE DU CÔTÉ DES INTERFACES.
+    //
+    // Côté tableaux, le bandeau « Vous travaillez sur » porte la même action
+    // écrite en toutes lettres, soixante pixels plus bas. Côté interfaces, ce
+    // bandeau se trompe de cible — il appelle « saveCurrentBoard » quel que
+    // soit l'onglet —, et ce bouton-ci est le seul à savoir enregistrer une
+    // interface. On le montre donc là, et là seulement.
+    const sauver = document.getElementById('btn-explorer-save');
+    if (sauver) sauver.style.display = (tab === 'interfaces') ? '' : 'none';
+
     document.getElementById('explorer-search-bar').value = '';
     renderExplorerLists();
     renderTrashList();

@@ -1766,6 +1766,52 @@ html {
     color: var(--accent);
 }
 
+/* LES TROIS OUTILS DU MÉTIER, SUR LEUR PROPRE RANG.
+   Ils prennent toute la largeur et passent sous les actions de
+   l'explorateur : c'est le filet qui dit qu'ils ne sont pas de la même
+   famille. Écrits, parce qu'une icône muette n'apprend rien au tableau
+   tactile d'une salle de classe, où il n'y a pas de survol. */
+.rd-outils-metier {
+    flex-basis: 100%;
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.rd-outil {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 2px;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.rd-outil span {
+    /* Le nom ne pousse jamais le tiroir : il se coupe plutôt que d'élargir. */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rd-outil:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
 .file-tree {
     padding: 8px 12px;
     overflow-y: auto;

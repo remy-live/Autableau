@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=250 »,
-         « script.js?v=455 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=251 »,
+         « script.js?v=456 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=250">
+    <link rel="stylesheet" href="style.css?v=251">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -3234,36 +3234,24 @@
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
                     </button>
-                    <button class="rd-btn" onclick="ouvrirLeCahier()" title="Cahier de texte de cette séance" data-tooltip="Cahier de texte">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
-                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                            <line x1="9" y1="7" x2="16" y2="7" />
-                            <line x1="9" y1="11" x2="16" y2="11" />
-                        </svg>
-                    </button>
-                    <button class="rd-btn" onclick="ouvrirLAgenda()" title="Mon emploi du temps" data-tooltip="Emploi du temps">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
-                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="4" width="18" height="17" rx="2" ry="2" />
-                            <line x1="3" y1="9" x2="21" y2="9" />
-                            <line x1="9" y1="9" x2="9" y2="21" />
-                            <line x1="15" y1="9" x2="15" y2="21" />
-                        </svg>
-                    </button>
-                    <button class="rd-btn" onclick="openCalendarModal()" title="Calendrier Historique" data-tooltip="Historique">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
-                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                            <line x1="16" y1="2" x2="16" y2="6" />
-                            <line x1="8" y1="2" x2="8" y2="6" />
-                            <line x1="3" y1="10" x2="21" y2="10" />
-                        </svg>
-                    </button>
                 </div>
                 <div class="rd-btn-group" id="explorer-btn-group">
-                    <button class="rd-btn" id="btn-explorer-save" data-tooltip="Sauvegarder ce tableau dans la liste">
+                    <!-- CE BOUTON NE PARAÎT QUE SUR L'ONGLET DES INTERFACES.
+                         Côté tableaux il faisait doublon avec le bandeau juste
+                         dessous, qui porte la MÊME action écrite en toutes
+                         lettres — « Enregistrer dans Mes tableaux » — à
+                         soixante pixels de là : les deux appellent
+                         « saveCurrentBoard ». Deux portes pour une pièce, dont
+                         une muette.
+                         MAIS CÔTÉ INTERFACES, IL EST LA SEULE PORTE. Le
+                         bandeau, lui, appelle « saveCurrentBoard » quel que
+                         soit l'onglet : il enregistrerait le TABLEAU pendant
+                         qu'on range ses interfaces. Le retirer partout aurait
+                         donc supprimé le seul moyen d'enregistrer une
+                         interface — c'est « switchDrawerTab » qui décide, et
+                         le chapitre 107 tient les deux cas. -->
+                    <button class="rd-btn" id="btn-explorer-save" style="display:none;"
+                        data-tooltip="Enregistrer cette interface dans la liste">
                         <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
                             fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -3289,34 +3277,46 @@
                             <line x1="9" y1="15" x2="15" y2="15"></line>
                         </svg>
                     </button>
-                    <button class="rd-btn" onclick="document.getElementById('file-loader').click()"
-                        data-tooltip="Ouvrir un seul tableau (.prof)">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
-                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                    </button>
                 </div>
-                <div class="rd-btn-group" style="flex-basis: 100%; justify-content: flex-end;">
-                    <button class="rd-btn" onclick="promptExportWorkspace()" data-tooltip="Exporter tout"
-                        style="background: rgba(9,132,227,0.1); color: #0984e3; border: 1px solid rgba(9,132,227,0.25);">
+                <!-- LES TROIS OUTILS DU MÉTIER, SUR LEUR PROPRE RANG ET NOMMÉS.
+                     Ils étaient mêlés aux actions de l'explorateur, en icônes
+                     muettes : le cahier de texte, l'emploi du temps et
+                     l'historique n'agissent pas sur la liste des tableaux —
+                     ils ouvrent autre chose. Mêlés à « nouveau dossier », ils
+                     ne disaient plus de quelle famille ils étaient. Séparés et
+                     écrits, on comprend enfin pourquoi ils cohabitent : ce
+                     sont les trois choses qu'on ouvre à côté de son tableau.
+                     ET L'EMPLOI DU TEMPS EST AUSSI À CÔTÉ DE LA PASTILLE DE
+                     CLASSE : ce doublon-là est voulu — « il faut le mettre en
+                     icône à côté de la classe, sinon on se perd encore » — et
+                     il n'est pas touché ici. -->
+                <div class="rd-outils-metier">
+                    <button class="rd-outil" onclick="ouvrirLeCahier()" title="Cahier de texte de cette séance">
                         <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
                             fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="17 8 12 3 7 8"></polyline>
-                            <line x1="12" y1="3" x2="12" y2="15"></line>
-                        </svg>
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            <line x1="9" y1="7" x2="16" y2="7" />
+                            <line x1="9" y1="11" x2="16" y2="11" />
+                        </svg><span>Cahier de texte</span>
                     </button>
-                    <button class="rd-btn" onclick="document.getElementById('workspace-loader-global').click()" data-tooltip="Importer tout"
-                        style="background: rgba(46,204,113,0.1); color: #00b894; border: 1px solid rgba(46,204,113,0.25);">
+                    <button class="rd-outil" onclick="ouvrirLAgenda()" title="Mon emploi du temps">
                         <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
                             fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
+                            <rect x="3" y="4" width="18" height="17" rx="2" ry="2" />
+                            <line x1="3" y1="9" x2="21" y2="9" />
+                            <line x1="9" y1="9" x2="9" y2="21" />
+                            <line x1="15" y1="9" x2="15" y2="21" />
+                        </svg><span>Emploi du temps</span>
+                    </button>
+                    <button class="rd-outil" onclick="openCalendarModal()" title="Calendrier historique">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="ico sm" viewBox="0 0 24 24" stroke="currentColor"
+                            fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                            <line x1="16" y1="2" x2="16" y2="6" />
+                            <line x1="8" y1="2" x2="8" y2="6" />
+                            <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg><span>Historique</span>
                     </button>
                 </div>
             </div>
@@ -4403,7 +4403,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=455"></script>
+    <script src="script.js?v=456"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
