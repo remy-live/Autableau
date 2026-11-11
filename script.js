@@ -16277,6 +16277,24 @@ function dessinerLesCadresDeSelection(ctx, lw) {
     ctx.lineWidth = 1.5 * lw;
     ctx.strokeStyle = '#6c5ce7';
     ctx.shadowBlur = 0;
+    // UN SEUL OBJET NE REÇOIT PAS DEUX CADRES.
+    //
+    // « Pourquoi ce ne sont pas les mêmes bords ? » Parce qu'ils disaient deux
+    // choses différentes : le cadre PLEIN de l'image voulait dire « choisi, et
+    // tu peux le tirer par ses bords » ; ce cadre-ci, en pointillé, voulait
+    // dire « choisi », et rien de plus — il n'y avait alors aucun moyen de
+    // redimensionner un trait.
+    //
+    // Depuis que la boîte à poignées sert toutes les familles, la distinction
+    // n'existe plus : tout ce qui est choisi se tire. Un objet seul reçoit donc
+    // le cadre plein de la boîte, et celui-ci se tait pour lui.
+    //
+    // À PLUSIEURS, LES DEUX RESTENT, et ils ne disent toujours pas la même
+    // chose : le pointillé désigne CHACUN des objets tenus, la boîte pleine
+    // entoure CE QUI VA GRANDIR. On a besoin des deux.
+    const boiteAPoignees = (typeof boiteAPoigneesDeLaSelection === 'function')
+        ? boiteAPoigneesDeLaSelection() : null;
+    if (boiteAPoignees && selectedItems.length === 1) { ctx.restore(); return; }
     selectedItems.forEach(it => {
         if (TYPES_DEJA_ENCADRES.includes(it.type)) return;
         const o = getObjectById(it.type, it.id);
@@ -17627,15 +17645,21 @@ function draw() {
             if (bs) {
                 ctx.save();
                 ctx.globalAlpha = 1;
+                // EXACTEMENT LE CADRE DE L'IMAGE : plein, épais de deux, même
+                // violet. « Pourquoi ce ne sont pas les mêmes bords ? » —
+                // j'avais fait celui-ci fin et pointillé, et c'était la même
+                // faute que les deux icônes d'à côté : deux apparences pour une
+                // même idée. Un cadre en pointillé dit AUTRE CHOSE dans cette
+                // application — c'est le lasso qu'on trace, et la boîte d'un
+                // document qu'on cadre. Ce qui se tire par ses coins doit se
+                // ressembler, sinon on apprend deux fois la même chose.
                 ctx.strokeStyle = '#6c5ce7';
-                ctx.lineWidth = lw;
-                ctx.setLineDash([lw * 4, lw * 4]);
-                ctx.strokeRect(bs.x, bs.y, bs.w, bs.h);
-                ctx.setLineDash([]);
-                // Les mêmes pastilles que celles du rectangle : blanches,
-                // cerclées de violet. Ce qui se tire se ressemble.
-                const hw = 5 * lw;
                 ctx.lineWidth = lw * 2;
+                ctx.setLineDash([]);
+                ctx.strokeRect(bs.x, bs.y, bs.w, bs.h);
+                // Et les mêmes pastilles : blanches, cerclées de violet, du
+                // même rayon.
+                const hw = 5 * lw;
                 ctx.fillStyle = '#ffffff';
                 coinsDeLaBoiteDeSelection(bs).forEach(c => {
                     ctx.beginPath();
@@ -21309,6 +21333,50 @@ window.onLeVoitALEcran = onLeVoitALEcran;
 // une page vierge, et la règle ci-dessous en fait la page des exercices de ce
 // document. Un second bouton « Tout poser sur une page neuve » refaisait ces
 // deux gestes en un seul, avec un « ＋ » qui ne voulait pas dire la même chose
+
+// OÙ IRONT LES MORCEAUX — DIT AVANT, SANS RIEN FAIRE.
+//
+// « Tout poser sur la page pose sur une nouvelle page. »
+//
+// La phrase du tiroir annonçait « ira sur la page 3/4 » en lisant simplement
+// LA PAGE OÙ L'ON EST. Or ce n'est presque jamais là que ça va : on découpe
+// EN REGARDANT LE POLYCOPIÉ, donc depuis sa page — et la règle, écrite
+// ailleurs et juste, est que « Poser » n'atterrit JAMAIS sur la page du
+// document. Les bouts partent sur la page d'exercices, qui est créée si elle
+// n'existe pas. La phrase promettait donc le contraire de ce qui allait se
+// passer, dans le cas le plus courant de tous.
+//
+// Une seule règle, lue à deux endroits : celui qui agit et celui qui
+// l'annonce. Tant qu'ils étaient écrits séparément, l'un pouvait mentir sans
+// que l'autre le sache.
+function destinationDesMorceaux(morceau) {
+    if (typeof pages === 'undefined' || !Array.isArray(pages)) return null;
+    const marque = (morceau && (morceau.cle || (morceau.source != null ? 'src:' + morceau.source : null)))
+        || 'sans-source';
+    const portesLeDocument = (liste) => (liste || []).some(o => o && o.pluginData
+        && o.pluginData.id === 'pdfDoc' && morceau
+        && (o.pluginData.cle === morceau.cle || o.id === morceau.source));
+    const courante = pages[currentPageIndex];
+    if (courante && courante.pageDesMorceaux === marque && !portesLeDocument(images)) {
+        return { rang: currentPageIndex, neuve: false, surPlace: true };
+    }
+    if (courante && !courante.pageDesMorceaux
+        && typeof boiteDuTravail === 'function' && !boiteDuTravail()) {
+        return { rang: currentPageIndex, neuve: false, surPlace: true };
+    }
+    let deja = -1, plusRecent = -1;
+    for (let i = pages.length - 1; i >= 0; i--) {
+        const p = pages[i];
+        if (!(p && p.pageDesMorceaux === marque)) continue;
+        if (portesLeDocument(i === currentPageIndex ? images : p.images)) continue;
+        const rang = p.pageDesMorceauxRang || 0;
+        if (deja < 0 || rang > plusRecent) { deja = i; plusRecent = rang; }
+    }
+    if (deja >= 0) return { rang: deja, neuve: false, surPlace: deja === currentPageIndex };
+    return { rang: Math.min(pages.length, currentPageIndex + 1), neuve: true, surPlace: false };
+}
+window.destinationDesMorceaux = destinationDesMorceaux;
+
 // que celui d'à côté — « j'aime pas les trois boutons poser, je suis perdu ».
 function ouvrirLaPageDesMorceaux(morceau) {
     if (typeof pages === 'undefined' || typeof createNewPage !== 'function'
@@ -21345,34 +21413,15 @@ function ouvrirLaPageDesMorceaux(morceau) {
         return false;
     }
 
-    // LA PLUS RÉCENTE GAGNE — ET « RÉCENTE » NE SE LIT PLUS DANS LE RANG.
-    //
-    // On ouvre une page vierge au « ＋ », elle devient la page des exercices de
-    // ce document, et c'est sur elle que les bouts suivants se rangent :
-    // chercher par le début les aurait renvoyés sur la première, et la page
-    // neuve n'aurait servi qu'une fois. On parcourait donc À REBOURS, la
-    // dernière page étant forcément la dernière marquée.
-    //
-    // CETTE PRÉMISSE EST TOMBÉE le jour où le « ＋ » a cessé d'ajouter au bout
-    // pour insérer après la page courante — « ajouter des feuilles entre deux
-    // existantes ». Une page insérée est récente SANS être la dernière : le
-    // parcours à rebours retrouvait alors l'ANCIENNE page d'exercices, et les
-    // bouts suivants s'empilaient dessus. Mesuré par le chapitre 15 : trois
-    // morceaux sur une page qui devait en porter deux, et l'enseignant
-    // téléporté loin de la page qu'il venait d'ouvrir.
-    //
-    // La récence est donc ÉCRITE, et non plus déduite d'un ordre qui a changé
-    // de sens. Les tableaux enregistrés avant ne portent pas ce numéro : pour
-    // eux tous les rangs valent zéro, le parcours à rebours tranche comme
-    // avant, et rien ne bouge.
-    let deja = -1, plusRecent = -1;
-    for (let i = pages.length - 1; i >= 0; i--) {
-        const p = pages[i];
-        if (!(p && p.pageDesMorceaux === marque)) continue;
-        if (portesLeDocument(i === currentPageIndex ? images : p.images)) continue;
-        const rang = p.pageDesMorceauxRang || 0;
-        if (deja < 0 || rang > plusRecent) { deja = i; plusRecent = rang; }
-    }
+    // ET LE RESTE SE LIT DANS « destinationDesMorceaux », qui dit où ça va
+    // sans rien faire. Les deux règles — celle qui agit et celle qui
+    // l'annonce — étaient écrites séparément, et c'est ainsi que la phrase du
+    // tiroir a pu promettre « la page où vous êtes » pendant que la pose
+    // ouvrait une page neuve. Une seule règle, lue à deux endroits.
+    const ou = destinationDesMorceaux(morceau);
+    if (!ou) return false;
+    if (ou.surPlace) return false;
+
     // ON GARDE L'ÉCRAN. La projection du document ne peut pas survivre — il
     // reste sur sa page —, mais le plein écran et les barres effacées, si : la
     // classe voit la page changer, elle ne voit pas reparaître d'un coup les six
@@ -21381,15 +21430,14 @@ function ouvrirLaPageDesMorceaux(morceau) {
         && typeof quitterLaPresentationEnGardantLEcran === 'function') {
         quitterLaPresentationEnGardantLEcran();
     }
-    if (deja >= 0) { loadPage(deja); return true; }
+    if (!ou.neuve) { loadPage(ou.rang); return true; }
     // LA PAGE DES EXERCICES SE RANGE JUSTE APRÈS CELLE DU POLYCOPIÉ. « Découper
     // sur la page 1, coller sur la page 2 » : sur un tableau de dix feuilles,
     // l'ajouter au bout l'envoyait en onzième position, loin du cours dont elle
     // sort. Elle naît donc contre lui.
     if (typeof syncPage === 'function') syncPage();
-    const vers = Math.min(pages.length, currentPageIndex + 1);
-    pages.splice(vers, 0, createNewPage());
-    loadPage(vers);
+    pages.splice(ou.rang, 0, createNewPage());
+    loadPage(ou.rang);
     if (pages[currentPageIndex]) marquerLaPageDesMorceaux(pages[currentPageIndex], marque);
     return true;
 }
@@ -22120,17 +22168,37 @@ function majLeBoutonPoser() {
     const mot = document.getElementById('bm-explique');
     if (!mot) return;
     const combien = (typeof morceauxEnAttente !== 'undefined') ? morceauxEnAttente.length : 0;
-    const page = (typeof currentPageIndex !== 'undefined' && typeof pages !== 'undefined')
-        ? (currentPageIndex + 1) + '/' + pages.length : '';
     if (!combien) {
         mot.textContent = 'Le tiroir est vide : découpez d’abord un morceau dans un document.';
         return;
     }
-    // « 2 morceaux IRAONT sur la page » : le pluriel s'AJOUTAIT au singulier au
-    // lieu de le remplacer. Lu sur une capture d'écran, pas dans le code.
-    mot.textContent = combien + ' morceau' + (combien > 1 ? 'x iront' : ' ira')
-        + ' sur la page ' + page
-        + (occupe ? ', et tout s’y rangera ensemble.' : ', qui est vide.');
+    // ON DIT OÙ ÇA VA VRAIMENT, et non où l'on se trouve.
+    //
+    // « Tout poser sur la page pose sur une nouvelle page. » La phrase lisait
+    // la page courante — alors qu'on découpe EN REGARDANT le polycopié, donc
+    // depuis sa page, et que « Poser » n'atterrit jamais sur la page d'un
+    // document. Elle annonçait donc le contraire de ce qui allait se passer,
+    // dans le cas le plus courant de tous.
+    const ou = (typeof destinationDesMorceaux === 'function')
+        ? destinationDesMorceaux(morceauxEnAttente[0]) : null;
+    const sujet = combien + ' morceau' + (combien > 1 ? 'x iront' : ' ira');
+    if (!ou) { mot.textContent = sujet + ' sur la page.'; return; }
+    if (ou.neuve) {
+        // Le rang qu'elle AURA une fois insérée : la page s'ouvre juste après
+        // celle du document, et le tableau compte une feuille de plus.
+        mot.textContent = sujet + ' sur une page NEUVE, la ' + (ou.rang + 1)
+            + '/' + (pages.length + 1) + ', ouverte juste après celle-ci.';
+        return;
+    }
+    const page = (ou.rang + 1) + '/' + pages.length;
+    if (ou.surPlace) {
+        mot.textContent = sujet + ' sur la page ' + page
+            + (occupe ? ', où vous êtes, et tout s’y rangera ensemble.'
+                      : ', où vous êtes, et qui est vide.');
+        return;
+    }
+    mot.textContent = sujet + ' sur la page ' + page
+        + ', celle des exercices de ce document — on vous y emmène.';
 }
 
 function majLaPageDuTiroir() {
@@ -29041,7 +29109,12 @@ function boiteAPoigneesDeLaSelection() {
     let { bx, by, bw, bh } = b;
     if (bw < minimum) { bx -= (minimum - bw) / 2; bw = minimum; }
     if (bh < minimum) { by -= (minimum - bh) / 2; bh = minimum; }
-    return { x: bx, y: by, w: bw, h: bh };
+    // ET ELLE RESPIRE DE SEPT PIXELS, comme le cadre pointillé qu'elle
+    // remplace : « collé au tracé, il se confond avec lui ». C'est la raison
+    // qui avait été écrite pour l'autre, et elle vaut toujours — ce qui change
+    // ici, c'est l'apparence du cadre, pas ce qu'on avait compris du dessin.
+    const m = 7 / (zoom || 1);
+    return { x: bx - m, y: by - m, w: bw + 2 * m, h: bh + 2 * m };
 }
 window.boiteAPoigneesDeLaSelection = boiteAPoigneesDeLaSelection;
 

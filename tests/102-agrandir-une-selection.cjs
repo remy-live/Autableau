@@ -327,10 +327,22 @@ module.exports = async function (browser) {
         tire.largeur > ou.avant.largeur * 1.05, JSON.stringify([ou.avant, tire]));
     // LE COIN OPPOSÉ NE BOUGE PAS : c'est l'idiome de l'image et du texte, et
     // c'est ce qui fait qu'on sait où le dessin va grandir avant de tirer.
+    //
+    // On compare LE COIN DE LA BOÎTE, et non le premier point du tracé :
+    // la boîte respire de sept pixels autour de ce qu'elle entoure — comme le
+    // cadre pointillé qu'elle remplace —, si bien que le sommet du dessin
+    // n'est jamais exactement sur le coin. Comparer les deux mesurait cette
+    // marge, pas l'ancrage.
+    const coinApres = await page.evaluate(() => {
+        const b = boiteAPoigneesDeLaSelection();
+        if (!b) return null;
+        const a = ancreDuCoinOppose('SEL_BR', b);
+        return [+a.x.toFixed(2), +a.y.toFixed(2)];
+    });
     r.verifie('le coin opposé est resté en place',
-        Math.abs(tire.x0 - ou.ancreMonde[0]) < 1.5
-        && Math.abs(tire.y0 - ou.ancreMonde[1]) < 1.5,
-        JSON.stringify([ou.ancreMonde, [tire.x0, tire.y0]]));
+        coinApres && Math.abs(coinApres[0] - ou.ancreMonde[0]) < 1.5
+        && Math.abs(coinApres[1] - ou.ancreMonde[1]) < 1.5,
+        JSON.stringify([ou.ancreMonde, coinApres]));
 
     // ET UN SEUL PAS D'ANNULATION POUR UN SEUL GESTE. Le calcul est appelé à
     // chaque image du glissement ; s'il écrivait l'historique à chaque fois,

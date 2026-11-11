@@ -3581,6 +3581,17 @@ module.exports = async function (browser) {
         images.push({ id: nextId++, x: 0, y: 0, w: 100, h: 100, src: 'x', z: globalZ++ });
         majLeTiroirDesMorceaux();
         const surPageOccupee = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
+        // ET LA PAGE DES EXERCICES DE CE DOCUMENT, DÉJÀ OCCUPÉE : c'est le
+        // seul cas où les morceaux atterrissent VRAIMENT là où l'on est, et
+        // donc le seul où « tout s'y rangera ensemble » est vrai.
+        if (typeof marquerLaPageDesMorceaux === 'function') {
+            marquerLaPageDesMorceaux(pages[currentPageIndex], 'sans-source');
+        }
+        majLeTiroirDesMorceaux();
+        const surLeurPage = { libelle: b.textContent.trim(), phrase: mot.textContent.trim() };
+        delete pages[currentPageIndex].pageDesMorceaux;
+        delete pages[currentPageIndex].pageDesMorceauxRang;
+        majLeTiroirDesMorceaux();
         // Et la phrase suit un changement de page, sans qu'on touche au tiroir.
         const combienDePages = pages.length;
         pages.push(createNewPage());
@@ -3600,7 +3611,7 @@ module.exports = async function (browser) {
         pages.length = combienDePages;
         morceauxEnAttente = []; majLeTiroirDesMorceaux();
         updatePageUI();
-        return { vide, surPageVierge, surPageOccupee, apresPageNeuve, poseurs, titres,
+        return { vide, surPageVierge, surPageOccupee, surLeurPage, apresPageNeuve, poseurs, titres,
                  infobulle: b.getAttribute('data-tooltip') || '',
                  pagesRendues: pages.length === combienDePages };
     });
@@ -3626,8 +3637,24 @@ module.exports = async function (browser) {
         libelle.surPageVierge.phrase);
     r.verifie('elle dit que la page est vide quand elle l\'est',
         /vide/i.test(libelle.surPageVierge.phrase), libelle.surPageVierge.phrase);
-    r.verifie('et qu\'on rangera tout ensemble quand elle ne l\'est pas',
-        /ensemble/i.test(libelle.surPageOccupee.phrase), libelle.surPageOccupee.phrase);
+    // LA PHRASE DIT OÙ ÇA VA, ET NON OÙ L'ON EST.
+    //
+    // « Tout poser sur la page pose sur une nouvelle page. » Elle lisait la
+    // page courante, alors que « Poser » n'atterrit jamais sur la page d'un
+    // document, et qu'une page occupée par autre chose n'est pas revendiquée
+    // non plus : les morceaux partent sur une page neuve. La phrase annonçait
+    // donc « sur la page 1/1, et tout s'y rangera ensemble » là où
+    // l'application ouvrait une seconde feuille et y emmenait l'enseignant.
+    // Et ce contrôle figeait ce mensonge.
+    //
+    // Mesuré : une page occupée, un morceau au tiroir — pages 1 → 2, on
+    // atterrit sur la 2.
+    r.verifie('sur une page occupée qui n\'est pas la leur, elle annonce la page NEUVE',
+        /neuve/i.test(libelle.surPageOccupee.phrase), libelle.surPageOccupee.phrase);
+    r.verifie('et qu\'on rangera tout ensemble quand ils arrivent sur LEUR page occupée',
+        /ensemble/i.test(libelle.surLeurPage.phrase)
+        && /où vous êtes/i.test(libelle.surLeurPage.phrase),
+        libelle.surLeurPage.phrase);
     r.verifie('elle suit le changement de page toute seule',
         /vide/i.test(libelle.apresPageNeuve.phrase) && libelle.pagesRendues,
         JSON.stringify(libelle.apresPageNeuve));
