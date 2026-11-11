@@ -98,6 +98,17 @@ module.exports = async function (browser) {
             dansLaBarre: !!b.closest('#bar-tools, #system-toolbar-main'),
             mode: b.dataset.mode || null,
             mot: (b.textContent || '').trim(),
+            // LA RUBRIQUE AU-DESSUS D'ELLE. Le verbe a quitté la ligne pour
+            // monter dans l'intertitre : « La visionneuse » sous « Montrer à
+            // la classe » dit la même chose que l'ancien « Visionneuse —
+            // projeter la caméra », en cessant de le répéter à sa voisine.
+            rubrique: (() => {
+                let n = b.previousElementSibling;
+                while (n && !(n.classList && n.classList.contains('menu-titre-section'))) {
+                    n = n.previousElementSibling;
+                }
+                return n ? (n.textContent || '').trim() : null;
+            })(),
             // Son voisin : les deux montrent, ils vont ensemble.
             voisinDuFilm: !!(film && (b.nextElementSibling === film || b.previousElementSibling === film))
         };
@@ -108,8 +119,18 @@ module.exports = async function (browser) {
         JSON.stringify(leBouton));
     r.egal('elle n\'est pas un mode de tracé', leBouton && leBouton.mode, null,
         JSON.stringify(leBouton));
-    r.verifie('son libellé dit ce qu\'elle fait, en toutes lettres',
-        leBouton && /visionneuse/i.test(leBouton.mot) && /projeter|caméra/i.test(leBouton.mot),
+    // CE QU'ON MESURE ICI EST L'INTENTION, ET NON LES MOTS.
+    //
+    // La première version exigeait « projeter » ou « caméra » DANS le libellé.
+    // Elle est tombée le jour où les menus ont été rangés par verbe — et elle
+    // avait tort : le verbe n'a pas disparu, il est monté dans l'intertitre,
+    // où il sert aussi à la voisine au lieu d'être répété sur chaque ligne.
+    // Ce qu'on exige vraiment, c'est que l'enseignant qui lit cette entrée
+    // sache ce qu'elle fait — donc la ligne ET la rubrique qui la couvre.
+    r.verifie('son libellé la nomme', leBouton && /visionneuse/i.test(leBouton.mot),
+        JSON.stringify(leBouton));
+    r.verifie('et la rubrique au-dessus dit ce qu\'elle fait : montrer à la classe',
+        !!leBouton && /montrer/i.test(leBouton.rubrique || ''),
         JSON.stringify(leBouton));
     r.egal('et elle est posée à côté de « Filmer l\'écran », sa famille',
         leBouton && leBouton.voisinDuFilm, true, JSON.stringify(leBouton));
