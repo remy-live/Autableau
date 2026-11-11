@@ -45434,25 +45434,32 @@ function showExportOptionsModal(board) {
     }
 }
 
-function promptExportCurrentBoard() {
-    debugLog("📤 START", "promptExportCurrentBoard() appelé", { selectedBoardId, currentBoardName });
+// LE TABLEAU DE L'ÉCRAN, PRÊT À PARTIR DANS UN FICHIER.
+//
+// Une seule construction pour tous les chemins d'export : il y en avait trois,
+// qui ne disaient pas la même chose — l'une rendait une FICHE sans contenu,
+// l'autre une seule page, la troisième le tableau entier. Trois copies d'une
+// même intention sont trois occasions de se tromper, et deux s'étaient déjà
+// trompées.
+function tableauDeLEcranPourExport() {
+    const fiche = (typeof selectedBoardId !== 'undefined' && selectedBoardId
+        && typeof savedTableaux !== 'undefined' && Array.isArray(savedTableaux))
+        ? savedTableaux.find(t => t.id === selectedBoardId) : null;
+    const nom = (fiche && fiche.name && fiche.name.trim())
+        || ((currentBoardName && currentBoardName.trim()) ? currentBoardName : "Tableau sans titre");
 
-    // Récupérer le tableau courant
-    let board = null;
+    // CE QU'ON REGARDE N'EST PAS ENCORE DANS « pages » : la feuille courante
+    // vit dans les tableaux vivants tant qu'on ne l'a pas rangée. Sans ce
+    // passage, l'export rendait la page en cours telle qu'elle était au
+    // dernier changement de feuille — c'est-à-dire sans rien de ce qu'on
+    // venait d'y écrire.
+    if (typeof syncPage === 'function') syncPage();
 
-    if (selectedBoardId) {
-        board = savedTableaux.find(t => t.id === selectedBoardId);
-        debugLog("📋 INFO", "Board trouvé dans savedTableaux", { id: board?.id, name: board?.name });
-    }
-
-    if (!board) {
-        const boardName = (currentBoardName && currentBoardName.trim()) ? currentBoardName : "Tableau sans titre";
-        debugLog("📝 INFO", "Création d'un board temporaire", { boardName, pagesCount: pages.length });
-
-        board = {
-            id: 'current_export_' + Date.now(),
-            name: boardName,
-            data: { pages: pages.map((p, idx) => ({
+    return {
+        id: (fiche && fiche.id) || ('current_export_' + Date.now()),
+        name: nom,
+        data: {
+            pages: pages.map(p => ({
                 points: p.points || [],
                 segments: p.segments || [],
                 circles: p.circles || [],
@@ -45471,12 +45478,44 @@ function promptExportCurrentBoard() {
                 lotPdf: p.lotPdf
             // LE FICHIER EXPORTÉ EST UNE SORTIE COMME LES AUTRES. Sans ce
             // filtre, « _mathImg » partait dans le fichier sous la forme
-            // « {} » — un objet vide mais VRAI —, et le tableau rouvert
-            // depuis ce fichier passait cet objet à « drawImage », qui lève.
-            })).map(sansLesCachesDUnePage), nextId, globalZ, currentBgIndex }
-        };
-    }
+            // « {} » — un objet vide mais VRAI —, et le tableau rouvert depuis
+            // ce fichier passait cet objet à « drawImage », qui lève.
+            })).map(sansLesCachesDUnePage),
+            nextId, globalZ, currentBgIndex
+        }
+    };
+}
+window.tableauDeLEcranPourExport = tableauDeLEcranPourExport;
 
+function promptExportCurrentBoard() {
+    debugLog("📤 START", "promptExportCurrentBoard() appelé", { selectedBoardId, currentBoardName });
+
+    // ==================================================================
+    // « EXPORTER CE TABLEAU » EXPORTE CE QUI EST À L'ÉCRAN.
+    //
+    // « Lorsque je souhaite exporter mon tableau avec la fonction "exporter ce
+    // tableau", j'ai ce message qui s'affiche... je ne comprends pas pourquoi.
+    // J'ai changé de navigateur, cela ne change rien. »
+    //
+    // Le message était le filet de sécurité général — « un problème est
+    // survenu » —, et le défaut touchait TOUT TABLEAU ENREGISTRÉ, avec ou sans
+    // PDF. On allait chercher le tableau dans « savedTableaux »… qui ne
+    // contient que les FICHES : identifiant, nom, date, aperçu. Le contenu,
+    // lui, vit ailleurs, sous « data_<id> ». La fiche n'a donc pas de « data »,
+    // et la première ligne qui lisait « board.data.pages » levait. Mesuré :
+    // « Cannot read properties of undefined (reading 'pages') », sur un
+    // tableau de deux pages sans la moindre image.
+    //
+    // ON NE VA PAS CHERCHER LE CONTENU SUR LE DISQUE POUR AUTANT. Ce serait
+    // réparer le symptôme et garder la faute : le disque porte la DERNIÈRE
+    // VERSION ENREGISTRÉE, et l'on exporterait donc un tableau d'où manquerait
+    // tout ce qui a été écrit depuis — sans que rien ne le dise. Or on appuie
+    // sur « exporter ce tableau » en regardant son tableau.
+    //
+    // La fiche ne sert donc qu'à une chose, son NOM, pour que le fichier
+    // s'appelle comme la séance. Le contenu vient de l'écran, toujours.
+    // ==================================================================
+    const board = tableauDeLEcranPourExport();
     if (!board) {
         debugLog("❌ ERROR", "Aucun board disponible");
         showToast("❌ Aucun tableau à exporter");
@@ -45753,17 +45792,13 @@ function exportCurrentBoard(includeMedias = true, boardObj = null) {
     let board = boardObj;
 
     if (!board) {
-        debugLog("⚠️ INFO", "Pas de boardObj, chercher/créer un board");
-        if (selectedBoardId) {
-            board = savedTableaux.find(t => t.id === selectedBoardId);
-        } else if (currentBoardName) {
-            board = {
-                id: 'current_export_' + Date.now(),
-                name: currentBoardName,
-                // sans l'historique d'annulation : il alourdissait le fichier sans servir
-                data: { pages: [sansLesCachesDUnePage({ points, segments, circles, rectangles, texts, freehands, curves, polygons, images, arcs, htmlPostits, panX, panY, zoom })], nextId, globalZ, currentBgIndex }
-            };
-        }
+        // LE MÊME PIÈGE QU'À CÔTÉ, ET LA MÊME RÉPONSE. On prenait la FICHE de
+        // « savedTableaux », qui n'a pas de contenu — et, à défaut, on bâtissait
+        // un tableau d'UNE SEULE PAGE, la courante, ce qui amputait
+        // silencieusement un tableau de six feuilles. Une seule construction
+        // désormais, celle de l'écran, pages comprises.
+        debugLog("⚠️ INFO", "Pas de boardObj : on exporte le tableau de l'écran");
+        board = tableauDeLEcranPourExport();
     }
 
     if (!board) return;
