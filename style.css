@@ -4514,6 +4514,99 @@ body.dark-mode {
     background: #f1f2f6;
 }
 
+/* L'INTERTITRE PORTE LE VERBE. Les deux menus écrivaient leurs rubriques en
+   style posé à la main, répété à chaque ligne — cinq copies d'une même
+   déclaration, qui ne pouvaient que diverger. Une classe, une fois. */
+.menu-titre-section {
+    padding: 9px 15px 4px;
+    font-size: 11px;
+    font-weight: bold;
+    color: #b2bec3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Le premier intertitre n'a pas de voisin au-dessus de qui s'écarter. */
+.popup-menu > .menu-titre-section:first-child {
+    padding-top: 8px;
+}
+
+/* CE QUI DISTINGUE LA LIGNE DE SA VOISINE, en gris : « Un tableau .prof » et
+   « Tous les tableaux .autableau » se lisent d'un coup d'œil par ce qui change,
+   et non par les trois mots qu'elles ont en commun. */
+.menu-suite {
+    color: #95a5a6;
+    font-size: 12.5px;
+    font-weight: 400;
+}
+
+/* LA LIGNE QUI PORTE SES PROPRES RÉGLAGES. Le bouton garde toute la largeur :
+   le rouage se pose à côté, et ne lui prend que sa boîte. */
+.menu-ligne-reglable {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.menu-ligne-reglable > .menu-item {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.menu-rouage {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-right: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: none;
+    color: #b2bec3;
+    cursor: pointer;
+}
+
+.menu-rouage:hover {
+    background: #f1f2f6;
+    color: #2d3436;
+}
+
+/* OUVERT, LE ROUAGE SE VOIT : sans cela, on ne savait pas si les trois
+   réglages dépliés sous la ligne venaient de ce bouton-là. */
+.menu-rouage[aria-expanded="true"] {
+    background: #eef0ff;
+    color: #5b4bd6;
+}
+
+/* Le creux des trois réglages, replié par défaut. */
+#reglages-media {
+    margin: 0 12px 6px;
+    padding: 9px 10px;
+    border: 1px dashed #dfe6e9;
+    border-radius: 8px;
+}
+
+.dark-mode .menu-suite {
+    color: #7f8c8d;
+}
+
+.dark-mode .menu-rouage:hover {
+    background: #636e72;
+    color: #dfe6e9;
+}
+
+.dark-mode .menu-rouage[aria-expanded="true"] {
+    background: #3d3a63;
+    color: #c7c0ff;
+}
+
+.dark-mode #reglages-media {
+    border-color: #636e72;
+}
+
 .menu-divider {
     height: 1px;
     background: #dfe6e9;

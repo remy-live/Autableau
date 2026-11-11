@@ -24156,8 +24156,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
 
-            // On glisse ce petit menu juste à côté du bouton "Importer PDF" dans ton HTML
-            importBtn.parentNode.insertBefore(selectContainer, importBtn.nextSibling);
+            // LES TROIS RÉGLAGES VONT DANS LEUR CREUX, replié.
+            //
+            // Ils étaient posés à même la liste, juste après « Importer
+            // Média » : on les lisait avant d'avoir choisi d'importer un PDF,
+            // et ils repoussaient les trois lignes suivantes hors de vue. Or
+            // ils n'appartiennent qu'à CETTE ligne-là — qualité de rendu, mode
+            // d'arrivée du PDF, marge de sécurité. Ils vivent désormais
+            // derrière le rouage de leur propre ligne.
+            //
+            // Le creux peut manquer (une page de test réduite, un gabarit plus
+            // ancien) : on retombe alors sur l'ancienne place plutôt que de
+            // perdre les réglages. Un import sans réglage accessible serait
+            // pire qu'un menu chargé.
+            const creux = document.getElementById('reglages-media');
+            if (creux) creux.appendChild(selectContainer);
+            else importBtn.parentNode.insertBefore(selectContainer, importBtn.nextSibling);
 
             document.getElementById('pdf-quality-select').addEventListener('change', (e) => {
                 currentPdfQuality = parseFloat(e.target.value);
@@ -24179,6 +24193,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentPdfMargin = parseInt(e.target.value);
                 document.getElementById('pdf-margin-val').innerText = currentPdfMargin + "px";
             });
+
+            // LE ROUAGE DÉPLIE LES RÉGLAGES.
+            //
+            // IL N'ARRÊTE PAS LE CLIC, ET C'EST VOULU. La première version le
+            // faisait, avec un commentaire assurant que sans cela le menu se
+            // refermerait sous les réglages qui venaient de paraître. Cassée
+            // exprès, elle n'a rien fait tomber : la ligne 26798 arrête déjà
+            // tout clic à l'intérieur d'un « .popup-content », et ce rouage
+            // vit dedans. Une précaution qu'aucun sabotage ne peut atteindre
+            // est une précaution qui ne sert à rien — elle laisse seulement
+            // croire à un danger écarté. Retirée.
+            const rouage = document.getElementById('btn-reglages-media');
+            if (rouage && creux) {
+                rouage.addEventListener('click', () => {
+                    const ouvert = !creux.hidden;
+                    creux.hidden = ouvert;
+                    rouage.setAttribute('aria-expanded', ouvert ? 'false' : 'true');
+                });
+            }
         }
     }
 });
@@ -44893,7 +44926,10 @@ async function droitSurLeDossier(handle, demander) {
 async function choisirLeDossierDeSecurite() {
     if (!sauvegardeDeSecuriteDisponible()) {
         if (typeof showToast === 'function') {
-            showToast('Ce navigateur ne sait pas écrire dans un dossier : utilisez « Exporter tous les tableaux »');
+            // Le message nomme la commande comme l'écran la nomme : la rubrique
+            // puis la ligne. Citer un intitulé qui n'existe plus envoie
+            // chercher un bouton introuvable.
+            showToast('Ce navigateur ne sait pas écrire dans un dossier : utilisez Exporter → Sauvegarder → « Tous les tableaux »');
         }
         return null;
     }

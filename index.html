@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=249 »,
-         « script.js?v=454 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=250 »,
+         « script.js?v=455 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=249">
+    <link rel="stylesheet" href="style.css?v=250">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -1623,7 +1623,8 @@
                             lecteur.</li>
                         <li><strong>Importer PDF :</strong> Menu Importer ou glisser-déposer. Par défaut le
                             <b>document feuilletable</b> — posé en un seul objet sur le tableau. L'autre mode,
-                            une page de tableau par page du document, se choisit dans le menu Importer.</li>
+                            une page de tableau par page du document, se choisit dans le menu Importer, derrière le
+                            <b>rouage</b> de la ligne « Un média » — avec la qualité de rendu et la marge.</li>
                         <li><strong>Prendre un morceau — deux exercices côte à côte :</strong> le bouton
                             <b>✂ Découper</b> de la barre du document, puis on <b>trace un rectangle</b> sur la
                             page : le morceau part dans le <b>tiroir</b>, en bas de l'écran. On découpe ainsi
@@ -1858,13 +1859,14 @@
                             tournent tout de suite — c'est le geste du présentateur. Et la page ne peut pas
                             sortir de l'écran : ni la molette, ni le zoom, ni le glisser ne laissent le tableau
                             vide.</li>
-                        <li><strong>Ouvrir un fichier :</strong> une fenêtre déplaçable, réductible et dimensionnable —
+                        <li><strong>Depuis l'ordinateur ou le nuage :</strong> une fenêtre déplaçable, réductible et dimensionnable —
                             au choix votre ordinateur (glisser-déposer, parcourir, ou ouvrir un dossier et le parcourir
                             sur place), Google Drive, ou votre nuage Nextcloud. Quatre présentations (liste,
                             détails, aperçus, mosaïque), recherche et tri. Le bouton <b>—</b> la range en icône dans
                             la barre des réductions, en bas à gauche.</li>
-                        <li><strong>Parcourir votre ordinateur sans quitter la fenêtre :</strong> dans « Ouvrir un
-                            fichier », le bouton <b>« Parcourir un dossier ici »</b>. Le navigateur demande une fois
+                        <li><strong>Parcourir votre ordinateur sans quitter la fenêtre :</strong> menu Importer →
+                            <b>« Depuis l'ordinateur ou le nuage »</b>, puis le bouton <b>« Parcourir un dossier
+                            ici »</b>. Le navigateur demande une fois
                             l'autorisation d'ouvrir le dossier — c'est sa fenêtre à lui, aucun site ne peut l'éviter.
                             Ensuite tout se passe dans la fenêtre d'Au Tableau : dossiers, aperçus, recherche, tri.
                             (Chrome et Edge le savent faire ; Firefox et Safari, non.)<br>
@@ -1890,7 +1892,9 @@
                         <li><strong>Coller (Ctrl+V) :</strong> une image, ou du texte venu de Word / LibreOffice / d'une
                             page web — il devient un bloc de texte posé sur le tableau. <b>Ctrl+Maj+V</b> ne colle que le
                             texte, sans la mise en forme.</li>
-                        <li><strong>Exporter :</strong> Menu Exporter en PNG/PDF</li>
+                        <li><strong>Donner le cours aux élèves :</strong> menu Exporter → <b>Donner aux élèves</b> →
+                            <b>« En image ou en PDF… »</b>. C'est là que se trouve aussi le PDF de
+                            <b>toutes les pages</b> d'un coup, et non d'une seule.</li>
                         <li><strong>Enregistrer avec ou sans les fichiers :</strong> « Complet » emporte les images
                             dans le fichier ; « Léger » ne garde que les tracés, et le poids annoncé est celui du
                             fichier qui sera vraiment écrit. Un tableau rouvert sans ses images ne perd rien
@@ -2784,14 +2788,35 @@
                         <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
                 </button>
-                <div class="popup-content popup-menu" id="import-popup-menu" style="min-width: 220px;">
-                    <div style="padding: 8px 12px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Importer</div>
-                    <button class="menu-item" onclick="document.getElementById('workspace-loader-global').click()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Importer tous les tableaux (.autableau)</button>
-                    <button class="menu-item" id="btn-import-pdf"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span> Importer Média (PDF, Image, MP3, Vidéo...)</button>
-                    <button class="menu-item" id="btn-import-doc"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg></span> Importer un document (Word, LibreOffice, texte)</button>
-                    <button class="menu-item" id="btn-drive"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L2 14l3 5 6-11z"></path><path d="M16 3H8l6 11h8z"></path><path d="M5 19h14l3-5H8z"></path></svg></span> Ouvrir un fichier (ordinateur ou nuage)</button>
+                <div class="popup-content popup-menu" id="import-popup-menu" style="min-width: 288px;">
+                    <!-- RANGÉ PAR VERBE, ET NON PAR DIRECTION. Six lignes qui
+                         commençaient toutes par « Importer » ou « Ouvrir » : le
+                         mot répété ne distinguait rien, et les deux lignes qui
+                         font le MÊME geste — rouvrir une sauvegarde — se
+                         trouvaient aux deux bouts opposés de la liste.
+                         L'intertitre porte le verbe ; la ligne ne porte plus
+                         que ce qui la distingue de sa voisine. -->
+                    <div class="menu-titre-section">Apporter sur le tableau</div>
+                    <!-- LES TROIS RÉGLAGES NE SONT PLUS DANS LA LISTE. Qualité,
+                         mode PDF et marge n'appartiennent qu'à CETTE ligne-là,
+                         et ils se lisaient avant même qu'on ait choisi
+                         d'importer un PDF — en repoussant les trois lignes
+                         suivantes hors de vue. Ils vivent derrière le rouage
+                         de leur propre ligne, et gardent leurs valeurs. -->
+                    <div class="menu-ligne-reglable">
+                        <button class="menu-item" id="btn-import-pdf" data-tooltip="PDF, image, son (MP3), vidéo (MP4, WebM, MOV), texte, Word, LibreOffice"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span> Un média <span class="menu-suite">PDF, image, vidéo…</span></button>
+                        <button class="menu-rouage" id="btn-reglages-media" type="button" aria-expanded="false"
+                            data-tooltip="Qualité, mode PDF et marge de l'import"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"></path></svg></button>
+                    </div>
+                    <!-- Le creux où « script.js » pose les trois réglages. -->
+                    <div id="reglages-media" hidden></div>
+                    <button class="menu-item" id="btn-import-doc"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg></span> Un document <span class="menu-suite">Word, texte</span></button>
+                    <button class="menu-item" id="btn-drive"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L2 14l3 5 6-11z"></path><path d="M16 3H8l6 11h8z"></path><path d="M5 19h14l3-5H8z"></path></svg></span> Depuis l'ordinateur ou le nuage</button>
                     <button class="menu-item" id="btn-retrouver-images"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> Retrouver les images manquantes</button>
-                    <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Ouvrir un tableau (.prof)</button>
+                    <!-- ROUVRIR : les deux sauvegardes, enfin voisines. -->
+                    <div class="menu-titre-section">Rouvrir</div>
+                    <button class="menu-item" id="btn-load"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> Un tableau <span class="menu-suite">.prof</span></button>
+                    <button class="menu-item" onclick="document.getElementById('workspace-loader-global').click()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Tous les tableaux <span class="menu-suite">.autableau</span></button>
                 </div>
             </div>
                     <!-- « OUVRIR UN FICHIER » VIVAIT ICI ET DANS LE MENU IMPORTER,
@@ -2808,13 +2833,30 @@
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
                 </button>
-                <div class="popup-content popup-menu" id="export-popup-menu" style="min-width: 220px;">
-                    <div style="padding: 8px 12px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Exporter</div>
-                    <button class="menu-item" id="btn-export-page"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> Exporter en image ou en PDF…</button>
-                    <button class="menu-item" id="btn-capture"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></span> Exporter une partie</button>
-                    <button class="menu-item" id="btn-export-current-board"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg></span> Exporter ce tableau</button>
-                    <button class="menu-item" onclick="promptExportWorkspace()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Exporter tous les tableaux (.autableau)</button>
-                    <button class="menu-item" id="btn-imprimer" data-tooltip="Prépare une feuille blanche à encre lisible, et ouvre la boîte d'impression"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg></span> Imprimer...</button>
+                <div class="popup-content popup-menu" id="export-popup-menu" style="min-width: 288px;">
+                    <!-- UN SEUL MOT POUR DEUX MÉTIERS. Quatre lignes
+                         commençaient par « Exporter », et ce mot recouvrait
+                         deux choses que l'enseignant ne confond jamais dans sa
+                         tête : DONNER quelque chose aux élèves, et SAUVEGARDER
+                         un fichier pour le rouvrir.
+                         DEUX RETOURS SONT TOMBÉS LÀ-DESSUS, le même mois. L'un
+                         a cliqué « Exporter ce tableau » pour sortir ses deux
+                         pages de PDF et a reçu une sauvegarde .prof ; l'autre
+                         écrivait « je n'ai pas trouvé l'export PDF des pages »
+                         alors qu'il l'avait sous les yeux. Le défaut n'était
+                         pas le nombre de lignes : c'était le verbe.
+                         L'intertitre le porte désormais, et la ligne ne dit
+                         plus que ce qui la distingue de sa voisine. AUCUNE
+                         entrée n'a été retirée : chacune porte une demande. -->
+                    <div class="menu-titre-section">Donner aux élèves</div>
+                    <button class="menu-item" id="btn-export-page"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span> En image ou en PDF…</button>
+                    <button class="menu-item" id="btn-capture"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></span> Une partie seulement</button>
+                    <button class="menu-item" id="btn-imprimer" data-tooltip="Prépare une feuille blanche à encre lisible, et ouvre la boîte d'impression"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg></span> Imprimer…</button>
+                    <!-- MONTRER N'EST PAS EXPORTER. Ces deux-là vivaient sous
+                         « Exporter » alors que ni l'une ni l'autre ne sort quoi
+                         que ce soit : elles MONTRENT quelque chose à la classe.
+                         Elles ont leur propre verbe. -->
+                    <div class="menu-titre-section">Montrer à la classe</div>
                     <!-- LA VISIONNEUSE EST ICI, ET NON DANS LA BARRE D'OUTILS.
                          La barre d'outils répond à « avec quoi j'écris ». La
                          visionneuse ne répond pas à cette question : elle ne
@@ -2831,17 +2873,44 @@
                          chapitre 9 fige. Trois exceptions pour un bouton, ce
                          n'est pas un bouton difficile : c'est une mauvaise
                          place. -->
-                    <button class="menu-item" id="btn-visionneuse"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"></path><path d="M7 20V9h7v11"></path><path d="M14 12h3l3-3"></path><circle cx="19" cy="7" r="2"></circle><path d="M10 5h2"></path></svg></span> Visionneuse — projeter la caméra</button>
+                    <button class="menu-item" id="btn-visionneuse"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"></path><path d="M7 20V9h7v11"></path><path d="M14 12h3l3-3"></path><circle cx="19" cy="7" r="2"></circle><path d="M10 5h2"></path></svg></span> La visionneuse</button>
                     <button class="menu-item" id="btn-record-canvas"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span> Filmer l'écran</button>
-                    <!-- LA SAUVEGARDE DE SÉCURITÉ. Tout le travail vit dans le
-                         navigateur : un « effacer les données de navigation »
-                         suffisait à perdre l'année. On désigne un dossier une
-                         fois, et une copie complète s'y écrit toute seule. -->
+                    <!-- SAUVEGARDER : les trois écritures de fichier, enfin
+                         ensemble. « Exporter ce tableau » ne produit pas un
+                         PDF — c'est une sauvegarde .prof —, et sous le mot
+                         « Exporter » elle se faisait passer pour une sortie
+                         destinée aux élèves. Elle rejoint ses deux vraies
+                         voisines : tout l'espace de travail, et la copie
+                         automatique sur le disque.
+                         LA SAUVEGARDE DE SÉCURITÉ gardait une rubrique pour
+                         elle seule, « Sécurité » : une rubrique d'une ligne ne
+                         range rien, elle ajoute un titre à lire. Tout le
+                         travail vit dans le navigateur, où un « effacer les
+                         données de navigation » suffisait à perdre l'année ;
+                         on désigne un dossier une fois, et une copie complète
+                         s'y écrit toute seule. C'est une sauvegarde, et elle
+                         est désormais rangée comme telle. -->
+                    <div class="menu-titre-section">Sauvegarder</div>
+                    <button class="menu-item" id="btn-export-current-board"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg></span> Ce tableau <span class="menu-suite">.prof</span></button>
+                    <button class="menu-item" onclick="promptExportWorkspace()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Tous les tableaux <span class="menu-suite">.autableau</span></button>
+                    <button class="menu-item" id="btn-dossier-securite"><span class="icon"><svg
+                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
+                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                                <path d="M12 11v5M9.5 13.5L12 11l2.5 2.5" />
+                            </svg></span> <span id="lib-dossier-securite">Sauvegarde automatique…</span></button>
                     <!-- LA SÉANCE. On fait le même cours à quatre classes : on
                          marque ici l'état d'avant le cours, et l'explorateur
                          permet ensuite de le refaire avec une autre classe
-                         sans toucher à la séance déjà faite. -->
-                    <div style="padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Séance</div>
+                         sans toucher à la séance déjà faite.
+                         SES DEUX LIGNES GARDENT LEUR PHRASE ENTIÈRE, et c'est
+                         voulu : l'aide et trois messages les citent mot pour
+                         mot, et le chapitre 17 tient la règle — « elle nomme
+                         les commandes comme l'écran les nomme ». Les
+                         raccourcir ferait cinq endroits à garder d'accord pour
+                         gagner deux rangs de texte. -->
+                    <div class="menu-titre-section">Séance</div>
                     <button class="menu-item" id="btn-preparation"><span class="icon"><svg
                                 xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
                                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -2861,14 +2930,6 @@
                                 <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
                                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                             </svg></span> Refaire cette séance avec une autre classe</button>
-                    <div style="padding: 8px 12px 4px; font-size: 11px; font-weight: bold; color: #b2bec3; text-transform: uppercase; letter-spacing: 0.5px;">Sécurité</div>
-                    <button class="menu-item" id="btn-dossier-securite"><span class="icon"><svg
-                                xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
-                                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                                <path d="M12 11v5M9.5 13.5L12 11l2.5 2.5" />
-                            </svg></span> <span id="lib-dossier-securite">Sauvegarde automatique…</span></button>
                 </div>
             </div>
                     <!-- « MES TABLEAUX » EST PARTI DANS LE BLOC DE DROITE, avec
@@ -4342,7 +4403,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=454"></script>
+    <script src="script.js?v=455"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
