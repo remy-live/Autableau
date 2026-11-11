@@ -6512,6 +6512,20 @@ const btnExportPage = document.getElementById('btn-export-page');
 let selectedFormat = null;
 let selectedScope = 'page';
 
+// Y A-T-IL PLUSIEURS PAGES À SORTIR ?
+//
+// Deux façons d'en avoir : plusieurs feuilles de tableau, ou UN polycopié
+// feuilletable, qui tient sur une seule feuille mais porte douze pages.
+// « Exporter TOUTES les pages » les tourne dans les deux cas.
+function plusieursPagesASortir() {
+    const feuilles = (typeof pages !== 'undefined' && Array.isArray(pages)) ? pages.length : 0;
+    if (feuilles > 1) return true;
+    const docs = (typeof images !== 'undefined' ? images : []).filter(o => o && o.pluginData
+        && o.pluginData.id === 'pdfDoc' && (o.pluginData.pages || 1) > 1);
+    return docs.length > 0;
+}
+window.plusieursPagesASortir = plusieursPagesASortir;
+
 function updateExportButtonLabel() {
     const btn = document.getElementById('btn-do-export');
     if (!btn) return;
@@ -6596,8 +6610,23 @@ if (btnExportPage) {
         isCropMode = false;
         cropRect = null;
 
+        // LE TITRE NE PROMET PLUS UNE SEULE PAGE. « Exporter la page
+        // courante » annonçait le contraire de ce que la fenêtre sait faire :
+        // « je n'ai pas trouvé l'export pdf des pages ». Il dit maintenant ce
+        // qu'on y trouve — et seulement quand c'est vrai.
         const title = document.getElementById('export-popover-title');
-        if (title) title.innerText = "Exporter la page courante";
+        if (title) {
+            title.innerText = plusieursPagesASortir()
+                ? 'Exporter — cette page, ou toutes'
+                : 'Exporter cette page';
+        }
+
+        // ET LA PORTÉE SE VOIT DÈS L'OUVERTURE, sans attendre qu'on ait
+        // cliqué « PDF ». C'était tout le défaut : la capacité existait,
+        // cachée derrière un choix qu'il fallait deviner.
+        const scope = document.getElementById('export-scope-container');
+        if (scope) scope.style.display = plusieursPagesASortir() ? 'block' : 'none';
+        if (typeof annoncerLaPorteeDuDocument === 'function') annoncerLaPorteeDuDocument();
 
         if (typeof closeAllPopups === 'function') closeAllPopups();
         if (exportPopover) exportPopover.classList.add('visible');
@@ -6633,7 +6662,16 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
         if (ligneFond) ligneFond.style.display = unLien ? 'none' : 'flex';
         if (unLien) annoncerLaTailleDuLien();
 
-        if (scopeContainer) scopeContainer.style.display = supportsMultiPage ? 'block' : 'none';
+        // LA PORTÉE RESTE VISIBLE TANT QU'IL Y A PLUSIEURS PAGES À SORTIR.
+        // Elle ne paraissait qu'après avoir choisi « PDF » : on ouvrait la
+        // fenêtre, on ne voyait que des formats, et l'on en concluait que
+        // l'export de plusieurs pages n'existait pas. Un format qui ne sait
+        // pas en faire plusieurs ramène simplement le choix sur « cette
+        // page » — sans faire disparaître le choix lui-même.
+        const plusieurs = (typeof plusieursPagesASortir === 'function') && plusieursPagesASortir();
+        if (scopeContainer) scopeContainer.style.display = (plusieurs && !unLien) ? 'block' : 'none';
+        const ligneRegle = document.getElementById('export-portee-pdf');
+        if (ligneRegle) ligneRegle.style.display = supportsMultiPage ? 'none' : 'block';
         if (!supportsMultiPage) {
             selectedScope = 'page';
             document.querySelectorAll('.btn-scope-choice').forEach(b => {
@@ -6669,6 +6707,23 @@ document.querySelectorAll('.btn-format-choice').forEach(btn => {
 // Logique de sélection de la portée (page actuelle / toutes les pages)
 document.querySelectorAll('.btn-scope-choice').forEach(btn => {
     btn.addEventListener('click', () => {
+        // DEMANDER TOUTES LES PAGES CHOISIT LE PDF TOUT SEUL.
+        //
+        // Plusieurs pages ne sortent qu'en PDF — c'est le format qui en a. Le
+        // dire et laisser l'enseignant se débrouiller, c'est lui demander de
+        // réparer une contrainte qu'il n'a pas choisie : il a dit ce qu'il
+        // voulait, le format n'est qu'un moyen. On le prend donc à sa place,
+        // en le disant, et le bouton du format s'allume sous ses yeux.
+        if (btn.dataset.scope === 'all'
+            && selectedFormat !== 'pdf' && selectedFormat !== 'pdf-image') {
+            const pdf = document.querySelector('.btn-format-choice[data-format="pdf"]');
+            if (pdf) {
+                pdf.click();
+                if (typeof showToast === 'function') {
+                    showToast('Plusieurs pages : le format PDF a été choisi pour vous');
+                }
+            }
+        }
         selectedScope = btn.dataset.scope;
         document.querySelectorAll('.btn-scope-choice').forEach(b => b.style.borderColor = '#dfe6e9');
         btn.style.borderColor = '#0984e3';
