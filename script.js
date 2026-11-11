@@ -21717,6 +21717,28 @@ window.supprimerLaPage = supprimerLaPage;
 // les montre donc là, mais à deux conditions réunies : plus d'une page, et
 // aucune barre pour les porter. Ailleurs, le tiroir du bas et celui des
 // morceaux les tiennent déjà, et ce coin a été désencombré exprès.
+// LE TABLEAU SOUS LES YEUX EST DÉJÀ UNE PAGE, MÊME QUAND « pages » EST VIDE.
+//
+// « Ça fait un peu chargé » — et sur la capture, le coin disait « 0/0 ».
+//
+// La liste « pages » ne se remplit qu'au premier changement de feuille : avant
+// cela, le tableau vit dans les tableaux vivants, et « pages.length » vaut
+// zéro, « currentPageIndex » vaut moins un. Le coin lisait ces deux nombres
+// tels quels et annonçait « 0/0 » à qui venait d'ouvrir l'application :
+// « zéro page sur zéro », devant un tableau sur lequel on peut écrire. C'est
+// faux, et c'est inquiétant pour rien.
+//
+// Une seule fonction le dit maintenant, pour les deux endroits qui comptent
+// les pages — le coin de l'écran et le tiroir du bas.
+function rangDeLaPage() {
+    const total = (typeof pages !== 'undefined' && Array.isArray(pages)) ? pages.length : 0;
+    if (!total) return { rang: 1, total: 1 };
+    const i = (typeof currentPageIndex !== 'undefined' && currentPageIndex >= 0)
+        ? currentPageIndex : 0;
+    return { rang: i + 1, total };
+}
+window.rangDeLaPage = rangDeLaPage;
+
 function majLesPagesDeLEcran() {
     const boite = document.getElementById('ecran-pages');
     if (!boite || typeof pages === 'undefined') return;
@@ -21743,7 +21765,7 @@ function majLesPagesDeLEcran() {
     // resserrant son dessin, pas en lui retirant son office.
     boite.style.display = 'flex';
     const rang = document.getElementById('ecran-page-rang');
-    if (rang) rang.textContent = (currentPageIndex + 1) + '/' + pages.length;
+    if (rang) { const r = rangDeLaPage(); rang.textContent = r.rang + '/' + r.total; }
     const prec = document.getElementById('btn-ecran-page-prec');
     const suiv = document.getElementById('btn-ecran-page-suiv');
     if (prec) prec.disabled = currentPageIndex <= 0;
@@ -22208,7 +22230,7 @@ function majLaPageDuTiroir() {
     if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
     const ou = document.getElementById('bm-page');
     if (!ou || typeof pages === 'undefined') return;
-    ou.textContent = (currentPageIndex + 1) + '/' + pages.length;
+    { const r = rangDeLaPage(); ou.textContent = r.rang + '/' + r.total; }
     const prec = document.getElementById('bm-page-prec');
     const suiv = document.getElementById('bm-page-suiv');
     if (prec) prec.disabled = currentPageIndex === 0;

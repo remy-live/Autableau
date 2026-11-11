@@ -243,6 +243,37 @@ module.exports = async function (browser) {
     r.egal('et aucune page n\'a été fabriquée pour autant',
         laquelle.total, deuxPages.total, JSON.stringify(laquelle));
 
+    // ------------------------------------------------------------------
+    // 7. LE TABLEAU QU'ON VIENT D'OUVRIR EST DÉJÀ UNE PAGE.
+    //
+    // « Ça fait un peu chargé » — et sur la capture, le coin disait « 0/0 ».
+    //
+    // La liste des pages ne se remplit qu'au premier changement de feuille :
+    // avant cela, le tableau vit dans les tableaux vivants, « pages.length »
+    // vaut zéro et le rang vaut moins un. Le coin lisait ces deux nombres tels
+    // quels et annonçait « zéro page sur zéro » à qui venait d'ouvrir
+    // l'application, devant un tableau sur lequel on peut écrire.
+    // ------------------------------------------------------------------
+    const avantToutePage = await page.evaluate(() => {
+        // L'état d'une application qu'on vient d'ouvrir, reconstitué.
+        pages.length = 0;
+        currentPageIndex = -1;
+        if (typeof majLesPagesDeLEcran === 'function') majLesPagesDeLEcran();
+        if (typeof majLaPageDuTiroir === 'function') majLaPageDuTiroir();
+        const r = (typeof rangDeLaPage === 'function') ? rangDeLaPage() : null;
+        return {
+            coin: (document.getElementById('ecran-page-rang') || {}).textContent,
+            tiroir: (document.getElementById('bm-page') || {}).textContent,
+            compte: r
+        };
+    });
+    r.egal('le coin dit « 1/1 », et non « 0/0 », sur un tableau qu\'on vient d\'ouvrir',
+        avantToutePage.coin, '1/1', JSON.stringify(avantToutePage));
+    r.egal('et le tiroir dit la même chose que lui',
+        avantToutePage.tiroir, avantToutePage.coin, JSON.stringify(avantToutePage));
+    r.egal('le compte lui-même ne rend jamais zéro',
+        avantToutePage.compte, { rang: 1, total: 1 }, JSON.stringify(avantToutePage));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
