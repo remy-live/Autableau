@@ -14769,3 +14769,25 @@ body.rail-en-place #exit-focus-cross { display: none; }
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 #vis-mot:empty { display: none; }
+
+/* ============================================================
+   LE RANG DE LA PAGE DIT QU'IL S'OUVRE
+
+   « Éventuellement avoir une barre de défilement des pages. »
+
+   Le rang du coin ouvre les pages du tableau — y aller, en ajouter, les
+   trier, jeter celle-ci — et rien ne l'indiquait. Un geste qu'on ne devine
+   pas n'existe pas : c'est ainsi que le trieur de pages est resté
+   introuvable derrière ce même chiffre.
+
+   LE CHEVRON EST DESSINÉ, PAS ÉCRIT. Mis dans le texte du bouton, il
+   entrait dans son contenu — et six contrôles lisent ce texte pour savoir
+   où l'on est. Le rang est un nombre ; le chevron est un ornement. Ils ne
+   vivent donc pas au même endroit.
+   ============================================================ */
+#ecran-page-rang::after {
+    content: "▾";
+    font-size: 9px;
+    margin-left: 2px;
+    opacity: 0.55;
+}

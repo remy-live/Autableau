@@ -1857,16 +1857,57 @@ document.addEventListener('DOMContentLoaded', () => {
     // rien ne le dise.
     document.getElementById('ecran-page-rang')?.addEventListener('click', (e) => {
         if (typeof ouvrirPanneauAppui !== 'function') return;
-        const entrees = [
-            { nom: '＋ Nouvelle page', action: () => ajouterUnePageVierge() }
-        ];
+        const entrees = [];
+
+        // ==============================================================
+        // LA BANDE DES PAGES, DÉPLIÉE PAR LE RANG
+        //
+        // « Éventuellement avoir une barre de défilement des pages. »
+        //
+        // Le coin n'a que deux flèches : pour aller de la onzième feuille à la
+        // troisième, il fallait appuyer huit fois. Et le trieur, qui montre
+        // tout, dormait derrière une entrée de menu que personne ne trouvait.
+        //
+        // TROIS FAÇONS ONT ÉTÉ MAQUETTÉES, et c'est celle-ci qui a été
+        // retenue. Mettre les numéros DANS le coin — la plus directe — le fait
+        // grandir avec le tableau : cent quarante pixels à deux pages, deux
+        // cent quatre-vingt-dix à quatorze, pris sur la page au moment précis
+        // où l'on veut l'écran nu. Une bande à vignettes en bas de l'écran
+        // ajoutait un cinquième meuble flottant et reprenait quarante-huit
+        // pixels de hauteur — le reproche même qui avait fait naître le rail.
+        //
+        // Celle-ci ne prend RIEN au repos : le coin ne bouge pas d'un pixel,
+        // le rang dit seulement qu'il s'ouvre, et la rangée paraît le temps du
+        // geste. Le repos, c'est quatre-vingt-quinze pour cent du temps de
+        // classe, projection comprise.
+        //
+        // ET ELLE N'EST PAS UN MEUBLE DE PLUS : le panneau du rang existait
+        // déjà, avec ses trois actions, et il sait déjà poser une RANGÉE de
+        // petites cases — c'est ce qui sert aux couleurs et aux épaisseurs
+        // ailleurs. Les pages en sont une. Rien de neuf à apprendre, ni pour
+        // l'enseignant, ni pour qui relira.
+        // ==============================================================
+        if (Array.isArray(pages) && pages.length > 1) {
+            entrees.push({
+                rangee: pages.map((_, i) => ({
+                    nom: 'Page ' + (i + 1) + ' sur ' + pages.length,
+                    etiquette: String(i + 1),
+                    actif: i === currentPageIndex,
+                    action: () => { if (i !== currentPageIndex) loadPage(i); }
+                }))
+            });
+        }
+
+        entrees.push({ nom: '＋ Nouvelle page', action: () => ajouterUnePageVierge() });
         if (typeof window.ouvrirLeTrieur === 'function') {
             entrees.push({ nom: '⊞ Trier les pages…', action: () => window.ouvrirLeTrieur() });
         }
         entrees.push({ separateur: 'Cette page' });
         entrees.push({ nom: '🗑 Supprimer cette page',
                        action: () => supprimerLaPage(currentPageIndex) });
-        ouvrirPanneauAppui(e.currentTarget, `Page ${currentPageIndex + 1} sur ${pages.length}`, entrees);
+        const r = (typeof rangDeLaPage === 'function')
+            ? rangDeLaPage() : { rang: currentPageIndex + 1, total: pages.length };
+        ouvrirPanneauAppui(e.currentTarget, `Page ${r.rang} sur ${r.total}`, entrees);
     });
 
     document.getElementById('btn-voir-tout')?.addEventListener('click', () => {
@@ -21820,7 +21861,21 @@ function majLesPagesDeLEcran() {
     // resserrant son dessin, pas en lui retirant son office.
     boite.style.display = 'flex';
     const rang = document.getElementById('ecran-page-rang');
-    if (rang) { const r = rangDeLaPage(); rang.textContent = r.rang + '/' + r.total; }
+    // LE RANG DIT QU'IL S'OUVRE — PAR UN CHEVRON DESSINÉ, pas écrit.
+    //
+    // Rien ne l'indiquait : un geste qu'on ne devine pas n'existe pas, et
+    // c'est ainsi que le trieur est resté introuvable derrière ce chiffre.
+    //
+    // Le chevron est posé par la feuille de style, en « ::after ». Écrit ici,
+    // il entrait dans le TEXTE du bouton — et six contrôles lisent ce texte
+    // pour savoir où l'on est : « 2/3 » devenait « 2/3 ▾ », et ils tombaient
+    // tous. Ils avaient raison de le lire : le rang est un nombre, le chevron
+    // est un ornement qui dit « ceci s'ouvre ». Les deux ne doivent pas vivre
+    // au même endroit.
+    if (rang) {
+        const r = rangDeLaPage();
+        rang.textContent = r.rang + '/' + r.total;
+    }
     const prec = document.getElementById('btn-ecran-page-prec');
     const suiv = document.getElementById('btn-ecran-page-suiv');
     if (prec) prec.disabled = currentPageIndex <= 0;
