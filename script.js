@@ -13091,7 +13091,45 @@ function findObjectAt(lx, ly) {
             }
         }
     }
-    for (let i = freehands.length - 1; i >= 0; i--) { const f = freehands[i]; for (let j = 0; j < f.points.length; j++) if (Math.hypot(f.points[j].x - lx, f.points[j].y - ly) < hitZoneLine) updateHit({ type: 'freehand', id: f.id }); }
+    // ET LE TRAIT À MAIN LEVÉE SE PREND SUR SON TRACÉ, PAS SUR SES POINTS.
+    //
+    // « On a aussi beaucoup de mal à sélectionner un trait libre quand on
+    // clique sur le trait. »
+    //
+    // On testait la distance aux POINTS ENREGISTRÉS, un par un. Or un geste
+    // vif n'en laisse pas beaucoup : le pointeur n'est échantillonné que
+    // quelques dizaines de fois par seconde. Mesuré sur un tracé ordinaire —
+    // trois mouvements francs à la souris — quatorze points espacés de
+    // SOIXANTE pixels, pour une zone de prise de huit. Le trait était donc
+    // saisissable sur seize pixels tous les soixante : on a posé le doigt
+    // dessus, et il ne s'est rien passé. Mesuré : 62 % des clics posés
+    // EXACTEMENT sur le tracé le manquaient.
+    //
+    // C'est le défaut que la courbe, juste au-dessus, a déjà connu et déjà
+    // réparé — « elle était dessinée partout et saisissable en quatre
+    // endroits ». Le trait libre était resté en arrière.
+    //
+    // ET LA MARGE SUIT L'ÉPAISSEUR. Un surligneur de trente pixels de large se
+    // voit de loin ; le viser au pixel près parce que sa zone de prise en fait
+    // huit n'a aucun sens. Ce qu'on voit, on doit pouvoir l'attraper.
+    for (let i = freehands.length - 1; i >= 0; i--) {
+        const f = freehands[i];
+        const pts = f.points || [];
+        if (!pts.length) continue;
+        const marge = Math.max(hitZoneLine, (f.width || 2) / 2 + 2 / zoom);
+        if (pts.length === 1) {
+            if (Math.hypot(pts[0].x - lx, pts[0].y - ly) < marge) {
+                updateHit({ type: 'freehand', id: f.id });
+            }
+            continue;
+        }
+        for (let j = 1; j < pts.length; j++) {
+            if (distToSegment(lx, ly, pts[j - 1].x, pts[j - 1].y, pts[j].x, pts[j].y) < marge) {
+                updateHit({ type: 'freehand', id: f.id });
+                break;
+            }
+        }
+    }
 
     // --- 5. Images (Avec compensation de la rotation) ---
     for (let i = images.length - 1; i >= 0; i--) {
@@ -28899,7 +28937,13 @@ function objetsTenus() {
 }
 window.objetsTenus = objetsTenus;
 
-// `t` : { pointDe(p) → {x, y}, dAngle, miroirH, miroirV }
+// `t` : { pointDe(p) → {x, y}, dAngle, miroirH, miroirV, facteur }
+//
+// « facteur » est l'échelle : 1 ne change rien, 1,25 agrandit d'un quart, 0,8
+// rétrécit. Il s'applique à TOUT ce qui a une taille — la boîte d'une image,
+// le corps d'un texte, les rayons d'une ellipse et d'un arc, l'épaisseur des
+// traits —, faute de quoi « agrandir » rendrait un dessin plus grand tracé au
+// même crayon fin, et un texte deux fois plus loin écrit en même corps.
 function appliquerALaSelection(t) {
     const items = objetsTenus();
     if (!items.length) return false;
@@ -28953,15 +28997,37 @@ function appliquerALaSelection(t) {
 
     const bouger = (p) => { const n = t.pointDe(p); p.x = n.x; p.y = n.y; };
     const miroir = !!(t.miroirH || t.miroirV);
+    const k = (t.facteur && isFinite(t.facteur) && t.facteur > 0) ? t.facteur : 1;
+    const change = Math.abs(k - 1) > 1e-9;
+    // CE QUI TIENT À SON COIN SUIT SON COIN. Une boîte qu'on agrandit ne doit
+    // pas grandir autour de son ancre — elle glisserait d'une demi-largeur à
+    // chaque pas. On déplace son centre, puis on replace l'ancre à la distance
+    // du centre MULTIPLIÉE par l'échelle : c'est exact, et cela n'oblige pas à
+    // remesurer une boîte de texte dont la police vient de changer.
+    const replacerAutour = (o, avant, apres) => {
+        o.x = apres.x + (o.x - avant.x) * k;
+        o.y = apres.y + (o.y - avant.y) * k;
+    };
+    const epaissir = (o) => {
+        if (!change || !o) return;
+        if (o.width !== undefined) o.width = Math.max(0.3, o.width * k);
+    };
 
     pts.forEach(id => { const p = getObjectById('point', id); if (p && !p.depend) bouger(p); });
-    traits.forEach(id => { const f = getObjectById('freehand', id); if (f) (f.points || []).forEach(bouger); });
+    traits.forEach(id => {
+        const f = getObjectById('freehand', id);
+        if (!f) return;
+        (f.points || []).forEach(bouger);
+        epaissir(f);
+    });
 
     imgs.forEach(id => {
         const o = getObjectById('image', id);
         if (!o) return;
-        const c = t.pointDe({ x: o.x + o.w / 2, y: o.y + o.h / 2 });
-        o.x = c.x - o.w / 2; o.y = c.y - o.h / 2;
+        const avant = { x: o.x + o.w / 2, y: o.y + o.h / 2 };
+        const c = t.pointDe(avant);
+        replacerAutour(o, avant, c);
+        if (change) { o.w *= k; o.h *= k; }
         if (t.dAngle) o.angle = (o.angle || 0) + t.dAngle;
         // UN MIROIR RENVERSE LA ROTATION. Refléter puis tourner de θ revient à
         // tourner de −θ puis refléter : sans cette bascule, une image déjà
@@ -28980,13 +29046,32 @@ function appliquerALaSelection(t) {
         if (!boite) return;
         const avant = { x: boite.bx + boite.bw / 2, y: boite.by + boite.bh / 2 };
         const apres = t.pointDe(avant);
-        o.x += apres.x - avant.x;
-        o.y += apres.y - avant.y;
+        replacerAutour(o, avant, apres);
     };
     textes.forEach(id => {
         const o = getObjectById('text', id);
         if (!o) return;
         parLeCentre(o, getItemLogicalBounds('text', o));
+        if (change) {
+            // L'INTERLIGNE SUIT LA POLICE, sinon les lignes se chevauchent en
+            // grandissant et s'écartent en rapetissant — c'est la règle déjà
+            // écrite pour la barre de style, et elle vaut ici.
+            const avantTaille = o.fontSize || 24;
+            o.fontSize = Math.max(4, avantTaille * k);
+            if (o.lineHeight) o.lineHeight = o.lineHeight * (o.fontSize / avantTaille);
+            if (o.colWidth) o.colWidth = Math.max(20, o.colWidth * k);
+            // Une bulle porte sa boîte : elle grandit avec son texte.
+            if (o.fixedWidth) o.fixedWidth = Math.max(20, o.fixedWidth * k);
+            if (o.fixedHeight) o.fixedHeight = Math.max(20, o.fixedHeight * k);
+            if (o.bubblePad) o.bubblePad = Math.max(1, o.bubblePad * k);
+            // Une formule est une image fabriquée pour une taille : elle se
+            // refait, sinon elle reste nette à l'ancienne et floue à la neuve.
+            if (o.content && o.content.includes('$') && typeof createMathImage === 'function') {
+                createMathImage(o.content, o.color || o.strokeColor, o.fontSize, (img, w, h) => {
+                    if (img) { o._mathImg = img; o._mathW = w; o._mathH = h; draw(); }
+                });
+            }
+        }
         if (t.dAngle) o.angle = (o.angle || 0) + t.dAngle;
         if (miroir) o.angle = -(o.angle || 0);
     });
@@ -29001,6 +29086,8 @@ function appliquerALaSelection(t) {
         if (!o) return;
         const c = t.pointDe({ x: o.cx, y: o.cy });
         o.cx = c.x; o.cy = c.y;
+        if (change) { o.rx = Math.max(0.5, o.rx * k); o.ry = Math.max(0.5, o.ry * k); }
+        epaissir(o);
         if (t.dAngle && Math.abs(Math.cos(t.dAngle)) < 0.5) { const r = o.rx; o.rx = o.ry; o.ry = r; }
     });
 
@@ -29009,6 +29096,8 @@ function appliquerALaSelection(t) {
         if (!o) return;
         const c = t.pointDe({ x: o.cx, y: o.cy });
         o.cx = c.x; o.cy = c.y;
+        if (change) o.radius = Math.max(0.5, o.radius * k);
+        epaissir(o);
         if (t.dAngle) { o.startAngle += t.dAngle; o.endAngle += t.dAngle; }
         // Un arc reflété se parcourt à l'envers : sans cela, le miroir gardait
         // le bon cercle mais montrait le morceau complémentaire.
@@ -29021,7 +29110,31 @@ function appliquerALaSelection(t) {
     // met pas sur la tranche.
     postits.forEach(id => {
         const o = (htmlPostits || []).find(p => p.id === id);
-        if (o) parLeCentre(o, { bx: o.x, by: o.y, bw: o.w || 200, bh: o.h || 150 });
+        if (!o) return;
+        parLeCentre(o, { bx: o.x, by: o.y, bw: o.w || 200, bh: o.h || 150 });
+        if (change) {
+            o.w = Math.max(40, (o.w || 200) * k);
+            o.h = Math.max(30, (o.h || 150) * k);
+            if (o.fontSize) o.fontSize = Math.max(6, o.fontSize * k);
+        }
+    });
+
+    // L'ÉPAISSEUR DES FIGURES TENUES. Leurs points se transforment par
+    // « pts » — ils peuvent être partagés par deux figures —, mais le trait
+    // appartient à la figure, et une figure deux fois plus grande tracée au
+    // même crayon n'a pas été agrandie : elle a été étirée.
+    if (change) bougeables.forEach(it => {
+        const o = getObjectById(it.type, it.id);
+        if (!o) return;
+        // L'ELLIPSE LIBRE A DÉJÀ ÉTÉ ÉPAISSIE dans son propre bloc, avec ses
+        // rayons : repasser ici lui appliquerait le facteur DEUX FOIS, et son
+        // trait serait un carré de l'échelle demandée — quatre fois plus épais
+        // pour un agrandissement du double.
+        if (it.type === 'circle' && typeof estUneEllipseLibre === 'function'
+            && estUneEllipseLibre(o)) return;
+        if (['segment', 'rectangle', 'curve', 'polygon', 'circle'].includes(it.type)) {
+            epaissir(o);
+        }
     });
 
     draw();
@@ -29047,6 +29160,46 @@ function tournerLaSelection(sens) {
     });
 }
 window.tournerLaSelection = tournerLaSelection;
+
+// AGRANDIR OU RÉTRÉCIR CE QU'ON TIENT.
+//
+// « Lorsque je sélectionne un objet ou une zone du tableau, est-il possible de
+// l'agrandir ou de la rétrécir ? »
+//
+// La réponse était non, et elle surprenait à juste titre : les poignées de
+// coin n'existent que pour QUATRE familles — image, texte, rectangle, ellipse
+// libre. Un trait à main levée, une figure de géométrie, un groupe d'objets
+// n'avaient aucun moyen de changer de taille. Or le tableau sait déjà le
+// faire : quand on fait coulisser une page de PDF, toute l'encre qui lui est
+// accrochée la suit ET se met à l'échelle. Il manquait le geste, pas le calcul.
+//
+// ON AGRANDIT AUTOUR DU CENTRE DE LA SÉLECTION, et non d'un coin : ce qu'on
+// regarde reste là où on le regarde. Un dessin qui part vers le bas à droite
+// à chaque appui, devant une classe, se rattrape à la main.
+//
+// LE PAS EST D'UN QUART, et non d'un dixième : quatre appuis doublent la
+// taille. Un pas plus fin obligerait à marteler le bouton — et l'appui
+// maintenu est précisément ce que ce tableau s'interdit.
+const PAS_DE_TAILLE = 1.25;
+
+function mettreALEchelleLaSelection(facteur) {
+    const b = (typeof getSelectionLogicalBounds === 'function')
+        ? getSelectionLogicalBounds() : null;
+    if (!b) return false;
+    if (!facteur || !isFinite(facteur) || facteur <= 0) return false;
+    const c = { x: b.bx + b.bw / 2, y: b.by + b.bh / 2 };
+    return appliquerALaSelection({
+        pointDe: (p) => ({ x: c.x + (p.x - c.x) * facteur,
+                           y: c.y + (p.y - c.y) * facteur }),
+        facteur
+    });
+}
+window.mettreALEchelleLaSelection = mettreALEchelleLaSelection;
+
+function agrandirLaSelection() { return mettreALEchelleLaSelection(PAS_DE_TAILLE); }
+function retrecirLaSelection() { return mettreALEchelleLaSelection(1 / PAS_DE_TAILLE); }
+window.agrandirLaSelection = agrandirLaSelection;
+window.retrecirLaSelection = retrecirLaSelection;
 
 // `axe` : 'h' pour le miroir gauche-droite, 'v' pour le miroir haut-bas.
 function retournerLaSelection(axe) {
@@ -29482,6 +29635,20 @@ function updateQuickMenu() {
             // Tourner d'un quart de tour, et les deux miroirs. Maj tourne dans
             // l'autre sens : trois quarts de tour pour revenir en arrière,
             // c'était une occasion de trop de rater son coup devant la classe.
+            // AGRANDIR ET RÉTRÉCIR. Ils valent pour TOUTES les familles et pour
+            // un groupe entier, là où les poignées de coin ne servaient que
+            // l'image, le texte, le rectangle et l'ellipse.
+            const brancherLaTaille = (id, faire) => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                b.onpointerdown = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    faire();
+                };
+            };
+            brancherLaTaille('btn-quick-plus', () => agrandirLaSelection());
+            brancherLaTaille('btn-quick-moins', () => retrecirLaSelection());
+
             const btnRot = document.getElementById('btn-quick-rotate');
             if (btnRot) {
                 btnRot.onpointerdown = (e) => {
@@ -30136,19 +30303,7 @@ function removePluginFromFloatingToolbar(toolbarId, toolId) {
 // suit — géométrie et instruments — est indispensable en cours de maths et
 // encombrant pour qui vient écrire trois lignes au tableau. On marque la
 // suite ; c'est la feuille de style qui l'efface, sur l'option seule.
-// ET LA VISIONNEUSE EN FAIT PARTIE — on le DIT, on ne le ruse pas.
-//
-// Montrer le cahier d'un élève est le geste le plus quotidien qui soit : rien
-// à voir avec la géométrie et les instruments, qui sont ce que cette option
-// efface. Première tentative : glisser son bouton AVANT la gomme, pour tomber
-// du bon côté de la coupure. Le chapitre 9 l'a refusée, et il avait raison —
-// il fige « la gomme et le laser suivent le post-it » en une paire contiguë,
-// et je m'étais intercalé au milieu. Une place volée n'est pas une règle.
-//
-// On nomme donc la visionneuse parmi les derniers du quotidien : elle devient
-// elle-même la coupure, la paire reste intacte, et ce que le code dit est ce
-// qu'on voulait dire.
-const DERNIERS_DU_QUOTIDIEN = ['eraser', 'laser', 'btn-visionneuse'];
+const DERNIERS_DU_QUOTIDIEN = ['eraser', 'laser'];
 
 function marquerLaSuiteDeLaBarre(pool, toolbar) {
     if (!pool || !toolbar || toolbar.id !== 'system-toolbar-main') return 0;
@@ -31128,7 +31283,7 @@ function renderFloatingToolbars() {
     // La gomme et le pointeur laser remontent auprès du texte et du post-it :
     // ce sont des gestes du quotidien, ils traînaient après toute la géométrie.
     if (typeof remonterLesGestesDuQuotidien === 'function') remonterLesGestesDuQuotidien();
-    if (typeof rangerLaVisionneuseAvecLeQuotidien === 'function') rangerLaVisionneuseAvecLeQuotidien();
+    if (typeof retirerLaVisionneuseDeLaBarre === 'function') retirerLaVisionneuseDeLaBarre();
 
     container.innerHTML = '';
     getStoredFloatingToolbars().forEach(toolbar => renderFloatingToolbar(toolbar));
@@ -50577,53 +50732,37 @@ function remonterLesGestesDuQuotidien() {
 }
 window.remonterLesGestesDuQuotidien = remonterLesGestesDuQuotidien;
 
-// ET LA VISIONNEUSE SE RANGE AVEC LES GESTES DU QUOTIDIEN.
+// LA VISIONNEUSE QUITTE LA BARRE D'OUTILS, Y COMPRIS CHEZ CEUX QUI L'ONT EUE.
 //
-// Un bouton neuf arrive par le HTML, mais l'ordre de la barre principale vient
-// d'une LISTE ENREGISTRÉE : l'outil inconnu d'elle est donc ajouté au bout du
-// rang. Or le bout du rang est précisément la part que l'option « gestes du
-// quotidien » efface — tout ce qui suit la gomme et le pointeur laser, c'est-à-
-// dire la géométrie et les instruments.
+// Elle y a vécu quelques heures, le temps d'une version. L'ordre de la barre
+// principale étant RETENU chez l'utilisateur, son identifiant dort maintenant
+// dans la liste de ceux qui l'ont reçue — et il y désignerait un bouton qui
+// n'existe plus dans la page. Une liste qui nomme un absent n'est pas une
+// erreur visible, mais c'est une place réservée à un fantôme : le professeur
+// qui range sa barre la trouverait d'un outil plus courte sans comprendre
+// pourquoi.
 //
-// La visionneuse y serait tombée, et elle aurait disparu chez ceux qui ont
-// choisi la barre courte : c'est-à-dire chez les enseignants qui ne font pas de
-// géométrie — ceux-là mêmes qui montrent le plus de cahiers. Mesuré : marquée
-// « outil-en-plus » dès le premier démarrage.
+// On la retire donc, une fois, sous une nouvelle clé : l'ancienne est déjà
+// posée chez eux, et la relire ne dirait rien.
 //
-// Elle est donc insérée JUSTE AVANT la gomme, une fois, comme les gestes du
-// quotidien l'ont été avant elle. Une fois seulement : ranger sa barre reste
-// l'affaire du professeur, et un correctif qui revient chaque matin défait son
-// travail de la veille.
-const CLE_PLACE_VISIONNEUSE = 'auTableau_place_visionneuse_v1';
+// Elle vit désormais dans le menu, à côté de « Filmer l'écran ». La barre
+// d'outils répond à « avec quoi j'écris », et la visionneuse ne répond pas à
+// cette question.
+const CLE_PLACE_VISIONNEUSE = 'auTableau_visionneuse_hors_barre_v2';
 
-function rangerLaVisionneuseAvecLeQuotidien() {
+function retirerLaVisionneuseDeLaBarre() {
     try { if (localStorage.getItem(CLE_PLACE_VISIONNEUSE) === 'true') return false; } catch (e) { return false; }
     let bougee = false;
     const barres = getStoredFloatingToolbars().map(tb => {
-        if (tb.id !== 'system-toolbar-main' || !Array.isArray(tb.items)) return tb;
-        const sans = tb.items.filter(x => x !== 'btn-visionneuse');
-        // ELLE SE POSE JUSTE APRÈS LE DERNIER DES DEUX AUTRES, et non avant la
-        // gomme : la gomme et le laser forment une paire que le chapitre 9
-        // fige — « la gomme et le laser suivent le post-it » —, et l'on ne
-        // s'intercale pas au milieu. Elle est nommée dans
-        // « DERNIERS_DU_QUOTIDIEN », donc c'est elle qui devient la coupure de
-        // la barre courte : à cette place, elle est gardée.
-        const apres = Math.max(sans.indexOf('eraser'), sans.indexOf('laser'));
-        // Ni gomme ni laser dans cette barre : la barre courte ne sait pas où
-        // couper, donc elle ne coupe rien, et il n'y a rien à mettre à l'abri.
-        if (apres < 0) return tb;
-        const place = apres + 1;
-        const dejaBien = tb.items.indexOf('btn-visionneuse');
-        if (dejaBien === place) return tb;
-        const remis = [...sans.slice(0, place), 'btn-visionneuse', ...sans.slice(place)];
+        if (!Array.isArray(tb.items) || !tb.items.includes('btn-visionneuse')) return tb;
         bougee = true;
-        return { ...tb, items: remis };
+        return { ...tb, items: tb.items.filter(x => x !== 'btn-visionneuse') };
     });
     if (bougee) saveStoredFloatingToolbars(barres);
     try { localStorage.setItem(CLE_PLACE_VISIONNEUSE, 'true'); } catch (e) { /* refusé */ }
     return bougee;
 }
-window.rangerLaVisionneuseAvecLeQuotidien = rangerLaVisionneuseAvecLeQuotidien;
+window.retirerLaVisionneuseDeLaBarre = retirerLaVisionneuseDeLaBarre;
 
 function basculerLaBarreCourte(force) {
     barreCourte = (force === undefined) ? !barreCourte : !!force;

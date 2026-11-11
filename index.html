@@ -7,7 +7,7 @@
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
          dépôt est protégé par des numéros de version — « style.css?v=248 »,
-         « script.js?v=446 » — et ces numéros sont écrits DANS CETTE PAGE.
+         « script.js?v=448 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -461,6 +461,39 @@
                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+        </button>
+
+        <div style="width: 1px; height: 16px; background: #dfe6e9; margin: 0 2px;"></div>
+
+        <!-- AGRANDIR ET RÉTRÉCIR. « Lorsque je sélectionne un objet ou une
+             zone du tableau, est-il possible de l'agrandir ou de la
+             rétrécir ? » La réponse était non, et elle surprenait à juste
+             titre : les poignées de coin n'existent que pour l'image, le
+             texte, le rectangle et l'ellipse libre. Un trait à main levée, une
+             figure de géométrie, un groupe d'objets n'avaient aucun moyen de
+             changer de taille.
+             DEUX BOUTONS PLUTÔT QUE DES POIGNÉES, parce qu'on s'en sert debout
+             devant une classe : une poignée de douze pixels se vise à la
+             souris, pas au doigt sur un tableau. Ils agrandissent d'un quart —
+             quatre appuis doublent —, autour du CENTRE de la sélection, pour
+             que ce qu'on regarde reste là où on le regarde. -->
+        <button class="btn-quick" id="btn-quick-moins" title="Rétrécir d'un quart">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 10 4 4 10 4" />
+                <polyline points="20 14 20 20 14 20" />
+                <line x1="4" y1="4" x2="10" y2="10" />
+                <line x1="20" y1="20" x2="14" y2="14" />
+            </svg>
+        </button>
+        <button class="btn-quick" id="btn-quick-plus" title="Agrandir d'un quart">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 3 3 3 3 9" />
+                <polyline points="15 21 21 21 21 15" />
+                <line x1="3" y1="3" x2="10" y2="10" />
+                <line x1="21" y1="21" x2="14" y2="14" />
             </svg>
         </button>
 
@@ -2493,21 +2526,6 @@
                         d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 4.93l1.41 1.41" />
                     <circle cx="12" cy="12" r="3" fill="#e74c3c" stroke="none" />
                 </svg></button>
-            <!-- LA VISIONNEUSE. « Utilisant beaucoup la visionneuse, j'adorerais
-                 pouvoir la projeter directement sur le site, et pouvoir faire des
-                 captures d'écran pour corriger des élèves en direct au tableau. »
-                 Ce n'est pas un outil de tracé : c'est une caméra qu'on projette.
-                 Le bouton n'a donc pas de « data-mode » — il ouvre un plein
-                 écran, et la photo qu'on en tire devient un document du tableau,
-                 avec son plein écran, son rail et ses crayons. -->
-            <button class="btn" id="btn-visionneuse" title="Visionneuse — projeter la caméra, et en tirer une photo à corriger">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="stroke-icon">
-                    <path d="M3 20h18" />
-                    <path d="M7 20V9h7v11" />
-                    <path d="M14 12h3l3-3" />
-                    <circle cx="19" cy="7" r="2" />
-                    <path d="M10 5h2" />
-                </svg></button>
             <button class="btn" data-mode="point" title="Point"><svg xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24" class="stroke-icon">
                     <circle cx="12" cy="12" r="3" fill="currentColor" />
@@ -2830,6 +2848,23 @@
                     <button class="menu-item" id="btn-export-current-board"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg></span> Exporter ce tableau</button>
                     <button class="menu-item" onclick="promptExportWorkspace()"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg></span> Exporter tous les tableaux (.autableau)</button>
                     <button class="menu-item" id="btn-imprimer" data-tooltip="Prépare une feuille blanche à encre lisible, et ouvre la boîte d'impression"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg></span> Imprimer...</button>
+                    <!-- LA VISIONNEUSE EST ICI, ET NON DANS LA BARRE D'OUTILS.
+                         La barre d'outils répond à « avec quoi j'écris ». La
+                         visionneuse ne répond pas à cette question : elle ne
+                         trace rien, elle n'a pas d'état « en main », et la
+                         prendre ne change pas le geste suivant. Elle est de la
+                         même famille que « Filmer l'écran », son voisin : les
+                         deux MONTRENT quelque chose à la classe au lieu
+                         d'écrire dessus.
+                         C'EST LE CODE QUI L'A DIT LE PREMIER. Dans la barre,
+                         ce bouton a demandé trois exceptions : pas de
+                         « data-mode », une entrée dans « les derniers du
+                         quotidien » pour qu'une option ne l'efface pas, et il
+                         a failli couper en deux la paire gomme + laser que le
+                         chapitre 9 fige. Trois exceptions pour un bouton, ce
+                         n'est pas un bouton difficile : c'est une mauvaise
+                         place. -->
+                    <button class="menu-item" id="btn-visionneuse"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"></path><path d="M7 20V9h7v11"></path><path d="M14 12h3l3-3"></path><circle cx="19" cy="7" r="2"></circle><path d="M10 5h2"></path></svg></span> Visionneuse — projeter la caméra</button>
                     <button class="menu-item" id="btn-record-canvas"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span> Filmer l'écran</button>
                     <!-- LA SAUVEGARDE DE SÉCURITÉ. Tout le travail vit dans le
                          navigateur : un « effacer les données de navigation »
@@ -4325,7 +4360,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=446"></script>
+    <script src="script.js?v=448"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=130"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

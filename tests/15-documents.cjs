@@ -384,11 +384,14 @@ module.exports = async function (browser) {
         const propriete = (id) => /doc-(prec|suiv|page-num|volet|mode|grille|proportions|rogner|entiere|outil)|line-width|stamp-opacity|font-size|btn-color/.test(id);
         const action = (id) => /quick-(lock|duplicate|rotate|flip-h|flip-v|delete)/.test(id);
         const fixe = dedans(barreFixe), flot = dedans(flottant);
+        const r = flottant.getBoundingClientRect();
         return {
             enDouble: fixe.filter(id => flot.includes(id)),
             actionsDansLaFixe: fixe.filter(action),
             proprietesDansLeFlottant: flot.filter(propriete),
-            flottant: flot
+            flottant: flot,
+            largeur: Math.round(r.width), hauteur: Math.round(r.height),
+            ecran: window.innerWidth
         };
     });
     r.verifie('aucun bouton ne vit dans les deux barres',
@@ -397,12 +400,32 @@ module.exports = async function (browser) {
         partage.actionsDansLaFixe.length === 0, JSON.stringify(partage.actionsDansLaFixe));
     r.verifie('et le menu flottant aucune propriété',
         partage.proprietesDansLeFlottant.length === 0, JSON.stringify(partage.proprietesDansLeFlottant));
-    // IL RESTE COURT. Six gestes : verrouiller, dupliquer, tourner d'un quart
-    // de tour, les deux miroirs, supprimer. C'est le plafond — au-delà, ce
-    // n'est plus une barre flottante mais un second panneau, et l'on retombe
-    // dans la fusion illisible d'où l'on vient.
+    // IL RESTE UNE BARRE, ET NON UN SECOND PANNEAU.
+    //
+    // Ce contrôle comptait les boutons : sept au plus. Le compte n'était qu'un
+    // substitut — ce qu'on craint, c'est que ce menu cesse d'être une barre et
+    // redevienne le panneau illisible d'où l'on vient. Deux gestes ont été
+    // ajoutés depuis, « agrandir » et « rétrécir », pour répondre à une
+    // demande que rien ne servait : « lorsque je sélectionne un objet ou une
+    // zone du tableau, est-il possible de l'agrandir ou de la rétrécir ? » Les
+    // poignées de coin n'existent que pour quatre familles ; un trait à main
+    // levée, une figure, un groupe n'avaient aucun moyen de changer de taille.
+    //
+    // C'EST MA PROPRE LIMITE QUE JE RELÈVE, et je l'écris plutôt que de la
+    // déplacer en silence. Mesuré : 271 px de large avec sept boutons, 339 px
+    // avec neuf, sur UNE SEULE rangée de 40 px de haut — un quart de la
+    // largeur d'un écran de classe. C'est encore une barre.
+    //
+    // Le contrôle mesure donc ce qu'il voulait dire : une rangée, et une
+    // largeur qui reste celle d'une barre. Le compte demeure, large, pour que
+    // le meuble ne s'allonge pas à petits pas sans que personne ne le voie.
+    r.verifie('le menu flottant tient sur UNE rangée',
+        partage.hauteur <= 52, JSON.stringify(partage));
+    r.verifie('et il reste large comme une barre, pas comme un panneau',
+        partage.largeur <= 380 && partage.largeur <= partage.ecran / 3,
+        JSON.stringify(partage));
     r.verifie('le menu flottant reste court : rien que des gestes, une poignée',
-        partage.flottant.length <= 7, JSON.stringify(partage.flottant));
+        partage.flottant.length <= 9, JSON.stringify(partage.flottant));
 
     // ELLE NE CHANGE PAS DE BORD EN PLEIN ÉCRAN. « Pourquoi la barre du PDF va
     // une fois en haut, une fois en bas, selon qu'on mette les toolbars ou

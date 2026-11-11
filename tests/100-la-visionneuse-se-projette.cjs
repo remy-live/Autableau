@@ -74,38 +74,57 @@ module.exports = async function (browser) {
     const oublierLeFluxRetenu = () => page.evaluate(() => { window.__vu = null; });
 
     // ------------------------------------------------------------------
-    // 1. LE BOUTON EXISTE, ET IL N'EST PAS UN OUTIL DE TRACÉ.
-    //    Un enseignant qui montre un cahier n'est pas en train de dessiner :
-    //    s'il portait un « data-mode », prendre la visionneuse changerait
-    //    l'outil en main et viderait la sélection.
+    // 1. ELLE VIT DANS LE MENU, ET NON DANS LA BARRE D'OUTILS.
+    //
+    // Elle y a d'abord été mise, et c'est le CODE qui a dit que la place était
+    // mauvaise : ce bouton a exigé trois exceptions. Pas de « data-mode », une
+    // entrée dans « les derniers du quotidien » pour qu'une option ne l'efface
+    // pas, et il a failli couper en deux la paire gomme + laser que le
+    // chapitre 9 fige. Trois exceptions pour un bouton, ce n'est pas un bouton
+    // difficile : c'est une mauvaise place.
+    //
+    // La barre d'outils répond à « avec quoi j'écris ». La visionneuse ne
+    // répond pas à cette question — elle ne trace rien, elle n'a pas d'état
+    // « en main », et la prendre ne change pas le geste suivant. Elle est de
+    // la même famille que « Filmer l'écran », son voisin de menu : les deux
+    // MONTRENT quelque chose à la classe au lieu d'écrire dessus.
     // ------------------------------------------------------------------
     const leBouton = await page.evaluate(() => {
         const b = document.getElementById('btn-visionneuse');
         if (!b) return null;
-        const rr = b.getBoundingClientRect();
-        // L'application déplace « title » vers « data-tooltip » : son
-        // infobulle maison marche AU DOIGT, ce que « title » ne fait pas sur
-        // un tableau tactile. C'est donc là qu'il faut lire le libellé.
-        return { mode: b.dataset.mode || null,
-                 titre: b.getAttribute('data-tooltip') || b.title || '',
-                 // LA BARRE COURTE N'EFFACE PAS LA VISIONNEUSE. L'option
-                 // « gestes du quotidien » cache tout ce qui suit la gomme et
-                 // le pointeur laser — la géométrie et les instruments. La
-                 // visionneuse est pourtant le geste le plus quotidien qui
-                 // soit pour qui l'a demandée : elle est donc placée AVANT la
-                 // coupure, et ne porte pas la marque « outil-en-plus ».
-                 dansLesInstruments: b.classList.contains('outil-en-plus'),
-                 visible: rr.width > 0 && rr.height > 0 };
+        const film = document.getElementById('btn-record-canvas');
+        return {
+            dansLeMenu: b.classList.contains('menu-item'),
+            dansLaBarre: !!b.closest('#bar-tools, #system-toolbar-main'),
+            mode: b.dataset.mode || null,
+            mot: (b.textContent || '').trim(),
+            // Son voisin : les deux montrent, ils vont ensemble.
+            voisinDuFilm: !!(film && (b.nextElementSibling === film || b.previousElementSibling === film))
+        };
     });
-    r.verifie('le bouton de la visionneuse est dans la barre d\'outils',
-        leBouton && leBouton.visible, JSON.stringify(leBouton));
-    r.egal('et il n\'est pas un mode de tracé', leBouton && leBouton.mode, null,
+    r.verifie('la visionneuse existe', !!leBouton, JSON.stringify(leBouton));
+    r.egal('elle est une entrée de MENU, pas un outil de la barre',
+        leBouton && [leBouton.dansLeMenu, leBouton.dansLaBarre], [true, false],
         JSON.stringify(leBouton));
-    r.verifie('son infobulle dit les deux choses qu\'il fait',
-        leBouton && /projeter/i.test(leBouton.titre) && /photo/i.test(leBouton.titre),
+    r.egal('elle n\'est pas un mode de tracé', leBouton && leBouton.mode, null,
         JSON.stringify(leBouton));
-    r.egal('et la barre courte ne l\'efface pas : ce n\'est pas un instrument de géométrie',
-        leBouton && leBouton.dansLesInstruments, false, JSON.stringify(leBouton));
+    r.verifie('son libellé dit ce qu\'elle fait, en toutes lettres',
+        leBouton && /visionneuse/i.test(leBouton.mot) && /projeter|caméra/i.test(leBouton.mot),
+        JSON.stringify(leBouton));
+    r.egal('et elle est posée à côté de « Filmer l\'écran », sa famille',
+        leBouton && leBouton.voisinDuFilm, true, JSON.stringify(leBouton));
+
+    // ET LA BARRE D'OUTILS NE LA PORTE PLUS, NI DANS LE GABARIT NI AILLEURS.
+    const barre = await page.evaluate(() => {
+        const gabarit = Array.from(document.querySelectorAll('#bar-tools .btn'))
+            .map(b => b.id || b.dataset.mode || '');
+        const posee = Array.from(document.querySelectorAll('#system-toolbar-main .cwrap > *'))
+            .map(b => (b.dataset && b.dataset.dragSourceToolId) || '');
+        return { gabarit: gabarit.includes('btn-visionneuse'),
+                 posee: posee.includes('btn-visionneuse') };
+    });
+    r.egal('aucune trace d\'elle dans la barre d\'outils',
+        [barre.gabarit, barre.posee], [false, false], JSON.stringify(barre));
 
     // RIEN N'EST DEMANDÉ AVANT QU'ON OUVRE. Une application de classe qui
     // allume la caméra au démarrage est une application qu'on n'ouvre plus.
@@ -315,75 +334,54 @@ module.exports = async function (browser) {
         { ouverte: false, vives: 0 }, JSON.stringify(enArrierePlan));
 
     // ------------------------------------------------------------------
-    // 8. ET LA BARRE DÉJÀ RANGÉE PAR LE PROFESSEUR LA RÉCUPÈRE AU BON ENDROIT.
+    // 8. ET LA BARRE DE CEUX QUI L'ONT DÉJÀ REÇUE EST NETTOYÉE.
     //
-    // C'est le seul vrai cas d'emploi de la migration, et le piège de tout
-    // bouton neuf : l'ordre de la barre principale vient d'une LISTE
-    // ENREGISTRÉE, et l'outil qu'elle ne connaît pas est ajouté AU BOUT du
-    // rang. Or le bout du rang est exactement la part que l'option « gestes du
-    // quotidien » efface. La visionneuse aurait disparu chez ceux qui ont
-    // choisi la barre courte — c'est-à-dire chez les enseignants qui ne font
-    // pas de géométrie, ceux-là mêmes qui montrent le plus de cahiers.
+    // La visionneuse a vécu quelques heures dans la barre d'outils, le temps
+    // d'une version. L'ordre de cette barre étant RETENU chez l'utilisateur,
+    // son identifiant dort maintenant dans la liste de ceux qui l'ont eue — et
+    // il y désignerait un bouton qui n'existe plus dans la page. Ce n'est pas
+    // une erreur visible, mais c'est une place réservée à un fantôme : le
+    // professeur qui range sa barre la trouverait d'un outil plus courte sans
+    // comprendre pourquoi.
     //
-    // On repart donc d'une barre d'hier, sans elle, et l'on vérifie qu'elle
-    // revient AVANT la gomme — et une seule fois : ranger sa barre reste
-    // l'affaire du professeur.
+    // Une fois, et une seule : ranger sa barre reste l'affaire du professeur.
     // ------------------------------------------------------------------
-    const CLE = 'auTableau_place_visionneuse_v1';
+    const CLE = 'auTableau_visionneuse_hors_barre_v2';
     await page.evaluate((cle) => {
         localStorage.removeItem(cle);
         localStorage.setItem('board_floating_toolbars', JSON.stringify([{
             id: 'system-toolbar-main', name: 'Outils', x: 20, y: 80, protected: true,
-            items: ['pointer', 'freehand', 'text', 'eraser', 'laser', 'ruler', 'compass']
+            items: ['pointer', 'freehand', 'text', 'eraser', 'laser', 'btn-visionneuse', 'ruler']
         }]));
     }, CLE);
     await page.reload();
     await page.waitForFunction(() => typeof window.ouvrirLaVisionneuse === 'function',
         null, { timeout: 20000 });
     await page.waitForTimeout(800);
-    const rangee = await page.evaluate(() => {
+    const nettoyee = await page.evaluate(() => {
         const tb = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]')
             .find(t => t.id === 'system-toolbar-main');
-        const b = document.getElementById('btn-visionneuse');
         return { items: tb ? tb.items : null,
-                 rang: tb ? tb.items.indexOf('btn-visionneuse') : -1,
-                 gomme: tb ? tb.items.indexOf('eraser') : -1,
-                 laser: tb ? tb.items.indexOf('laser') : -1,
-                 instrument: b ? b.classList.contains('outil-en-plus') : null };
+                 porteEncore: tb ? tb.items.includes('btn-visionneuse') : null };
     });
-    r.verifie('la visionneuse est entrée dans une barre qui ne la connaissait pas',
-        rangee.rang >= 0, JSON.stringify(rangee));
-    // ELLE SE POSE JUSTE APRÈS LA PAIRE GOMME + LASER, et non avant elle : la
-    // paire est contiguë, le chapitre 9 la fige, et la visionneuse est nommée
-    // parmi les derniers du quotidien — c'est donc ELLE qui devient la coupure
-    // de la barre courte, et à cette place elle est gardée.
-    r.verifie('JUSTE APRÈS LA GOMME ET LE LASER : la barre courte ne l\'efface donc pas',
-        rangee.rang >= 0 && rangee.rang === Math.max(rangee.gomme, rangee.laser) + 1,
-        JSON.stringify(rangee));
-    r.egal('le bouton n\'est plus marqué comme un instrument de géométrie',
-        rangee.instrument, false, JSON.stringify(rangee));
+    r.egal('l\'identifiant fantôme est retiré de la barre enregistrée',
+        nettoyee.porteEncore, false, JSON.stringify(nettoyee));
+    r.egal('et les autres outils n\'ont pas bougé', nettoyee.items,
+        ['pointer', 'freehand', 'text', 'eraser', 'laser', 'ruler'],
+        JSON.stringify(nettoyee));
 
-    // ET ELLE NE REFAIT PAS LE RANGEMENT CHAQUE MATIN. Le professeur qui la
-    // déplace ailleurs doit la retrouver là où il l'a mise.
-    await page.evaluate(() => {
-        const barres = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]')
-            .map(t => t.id === 'system-toolbar-main'
-                ? { ...t, items: t.items.filter(x => x !== 'btn-visionneuse').concat('btn-visionneuse') }
-                : t);
-        localStorage.setItem('board_floating_toolbars', JSON.stringify(barres));
-    });
-    await page.reload();
-    await page.waitForFunction(() => typeof window.ouvrirLaVisionneuse === 'function',
-        null, { timeout: 20000 });
-    await page.waitForTimeout(800);
-    const laissee = await page.evaluate(() => {
-        const tb = JSON.parse(localStorage.getItem('board_floating_toolbars') || '[]')
-            .find(t => t.id === 'system-toolbar-main');
-        return { rang: tb ? tb.items.indexOf('btn-visionneuse') : -1,
-                 dernier: tb ? tb.items.length - 1 : -2, items: tb ? tb.items : null };
-    });
-    r.egal('déplacée à la main par le professeur, elle y reste',
-        laissee.rang, laissee.dernier, JSON.stringify(laissee));
+    // ET ELLE S'OUVRE TOUJOURS DEPUIS LE MENU, après ce nettoyage.
+    await oublierLeFluxRetenu();
+    await page.evaluate(() => document.getElementById('btn-visionneuse').click());
+    await page.waitForFunction(() => {
+        const v = document.getElementById('vis-flux');
+        return !!(v && v.videoWidth > 0);
+    }, null, { timeout: 15000 });
+    const depuisLeMenu = await etat();
+    r.verifie('l\'entrée du menu ouvre bien la visionneuse',
+        depuisLeMenu.ouverte && depuisLeMenu.largeur > 0, JSON.stringify(depuisLeMenu));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
 
     const propres = erreurs.filter(e => !/getUserMedia|mediaDevices|jsPDF|pdfjsLib|localforage/.test(e));
     r.verifie('aucune erreur de page', propres.length === 0, propres.join(' | '));
