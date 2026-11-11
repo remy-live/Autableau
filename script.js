@@ -12921,6 +12921,22 @@ function findObjectAt(lx, ly) {
         }
     }
 
+    // --- 1 bis. Les poignées de la boîte de sélection, pour tout le reste ---
+    // Elles viennent APRÈS celles d'un objet qui a les siennes — celui-là n'a
+    // pas de boîte, « boiteAPoigneesDeLaSelection » la lui refuse — et AVANT
+    // les points, sinon un sommet posé sous un coin prendrait le geste.
+    if (typeof boiteAPoigneesDeLaSelection === 'function') {
+        const boite = boiteAPoigneesDeLaSelection();
+        if (boite) {
+            const hw = 12 / zoom;
+            for (const c of coinsDeLaBoiteDeSelection(boite)) {
+                if (Math.abs(lx - c.x) <= hw && Math.abs(ly - c.y) <= hw) {
+                    return { type: 'handle', name: c.nom, id: -1 };
+                }
+            }
+        }
+    }
+
     // --- 2. Vérification des points (Priorité absolue pour aimantation) ---
     let bestPoint = null; let minDist = Infinity;
     // Le point de départ n'attire pas le second clic : voir « pointDeDepartAEcarter ».
@@ -15051,6 +15067,43 @@ canvas.addEventListener('pointermove', (e) => {
     else if (draggedHandle && selectedItems.length === 1 && selectedItems[0].type === 'circle') {
         etirerLEllipse(getObjectById('circle', selectedItems[0].id), draggedHandle, rawPos);
         lastMouseX = e.clientX; lastMouseY = e.clientY;
+    }
+    // LA POIGNÉE DE LA BOÎTE DE SÉLECTION — tout ce qui n'a pas les siennes.
+    //
+    // Même idiome que l'image et le texte : le coin OPPOSÉ reste fixe, et le
+    // facteur se lit sur la distance à cet ancrage, d'une image à la suivante.
+    // Le facteur est borné par pas, comme pour le texte : un bond de la souris
+    // — ou un doigt qui saute sur un tableau tactile — ne doit pas multiplier
+    // un dessin par dix en une image.
+    else if (draggedHandle && String(draggedHandle).startsWith('SEL_')) {
+        const b = boiteAPoigneesDeLaSelection();
+        if (b) {
+            const ancre = ancreDuCoinOppose(draggedHandle, b);
+            const prev = getRawLogicalPos({ clientX: lastMouseX, clientY: lastMouseY });
+            const dNow = Math.hypot(rawPos.x - ancre.x, rawPos.y - ancre.y);
+            const dPrev = Math.hypot(prev.x - ancre.x, prev.y - ancre.y);
+            if (dPrev > 2) {
+                let k = dNow / dPrev;
+                k = Math.max(0.7, Math.min(1.4, k));
+                // ET LA SÉLECTION NE S'ÉVAPORE PAS. Rétrécir sans fin rend un
+                // objet d'un pixel qu'on ne retrouve plus ; l'agrandir sans
+                // fin le pousse hors de tout. On s'arrête où le geste n'a plus
+                // de sens, et le tableau garde ce qu'il montrait.
+                const apres = Math.min(b.w, b.h) * k;
+                const trop = apres < 6 / (zoom || 1) || Math.max(b.w, b.h) * k > 200000;
+                if (!trop && Math.abs(k - 1) > 1e-6) {
+                    appliquerALaSelection({
+                        pointDe: (p) => ({ x: ancre.x + (p.x - ancre.x) * k,
+                                           y: ancre.y + (p.y - ancre.y) * k }),
+                        facteur: k,
+                        sansHistorique: true
+                    });
+                }
+            }
+        }
+        lastMouseX = e.clientX; lastMouseY = e.clientY;
+        updateCursor(); requestAnimationFrame(draw);
+        return;
     }
     else if (draggedHandle && selectedItems.length === 1 && (selectedItems[0].type === 'image' || selectedItems[0].type === 'text')) {
         const type = selectedItems[0].type;
@@ -17550,6 +17603,34 @@ function draw() {
             activeGuides.x.forEach(gx => { ctx.beginPath(); ctx.moveTo(gx, minY); ctx.lineTo(gx, maxY); ctx.stroke(); });
             activeGuides.y.forEach(gy => { ctx.beginPath(); ctx.moveTo(minX, gy); ctx.lineTo(maxX, gy); ctx.stroke(); });
             ctx.setLineDash([]);
+        }
+
+        // LA BOÎTE À POIGNÉES DE CE QU'ON TIENT. Elle se dessine après tout le
+        // reste, pour ne pas passer sous un objet, et jamais à l'export : un
+        // fichier porte le tableau, pas l'outillage qui servait à le faire.
+        if (!isExportingTransparent && !isSelectingBox && !isDraggingObjs
+            && typeof boiteAPoigneesDeLaSelection === 'function') {
+            const bs = boiteAPoigneesDeLaSelection();
+            if (bs) {
+                ctx.save();
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = '#6c5ce7';
+                ctx.lineWidth = lw;
+                ctx.setLineDash([lw * 4, lw * 4]);
+                ctx.strokeRect(bs.x, bs.y, bs.w, bs.h);
+                ctx.setLineDash([]);
+                // Les mêmes pastilles que celles du rectangle : blanches,
+                // cerclées de violet. Ce qui se tire se ressemble.
+                const hw = 5 * lw;
+                ctx.lineWidth = lw * 2;
+                ctx.fillStyle = '#ffffff';
+                coinsDeLaBoiteDeSelection(bs).forEach(c => {
+                    ctx.beginPath();
+                    ctx.arc(c.x, c.y, hw, 0, Math.PI * 2);
+                    ctx.fill(); ctx.stroke();
+                });
+                ctx.restore();
+            }
         }
 
         if (isSelectingBox && !isExportingTransparent) {
@@ -28896,6 +28977,86 @@ function getSelectionLogicalBounds() {
 }
 
 // ===========================================================================
+// LA BOÎTE À POIGNÉES DE CE QU'ON TIENT
+//
+// « Lorsque je sélectionne un objet ou une zone du tableau, est-il possible de
+// l'agrandir ou de la rétrécir ? »
+//
+// « Pour agrandir et diminuer un trait, il faut des POIGNÉES, pas des icônes
+// comme il existe déjà : c'est absurde. » — et c'est juste. Une image se tire
+// par ses coins depuis toujours. Donner un deuxième geste, en boutons, pour
+// faire la même chose à un trait, c'était demander d'apprendre deux fois la
+// même idée selon ce qu'on tient. Un tableau n'a qu'une façon d'agrandir.
+//
+// Les poignées n'existaient que pour QUATRE familles — image, texte,
+// rectangle, ellipse libre. Cette boîte-ci sert tout le reste : un trait à
+// main levée, un segment, une courbe, un polygone, un arc, un cercle par
+// points, un post-it, et TOUTE sélection de plusieurs objets.
+//
+// QUATRE COINS, ET RIEN QUE LES COINS. Les côtés étireraient — ils changent
+// une largeur sans l'autre —, et un dessin étiré n'est pas un dessin agrandi.
+// Les familles qui ont leurs propres poignées de côté les gardent : là, un
+// côté veut dire quelque chose (la colonne d'un texte, le rognage d'une
+// image). Ici, non.
+function boiteAPoigneesDeLaSelection() {
+    if (typeof selectedItems === 'undefined' || !selectedItems.length) return null;
+    // UN SEUL OBJET QUI A DÉJÀ LES SIENNES GARDE LES SIENNES. Deux jeux de
+    // poignées sur le même objet se disputeraient le même pixel, et le plus
+    // récent gagnerait — c'est-à-dire le mien, qui en sait moins que l'autre
+    // sur ce qu'un côté veut dire pour un texte ou une image.
+    if (selectedItems.length === 1) {
+        const it = selectedItems[0];
+        if (['image', 'text', 'rectangle'].includes(it.type)) return null;
+        if (it.type === 'circle') {
+            const o = getObjectById('circle', it.id);
+            if (o && typeof estUneEllipseLibre === 'function' && estUneEllipseLibre(o)) return null;
+        }
+    }
+    // RIEN NE SE TIRE SUR CE QUI EST VERROUILLÉ, comme partout ailleurs.
+    const tenus = (typeof objetsTenus === 'function') ? objetsTenus() : selectedItems;
+    const libre = tenus.some(it => {
+        const o = getObjectById(it.type, it.id);
+        return o && (!o.locked || o.groupId);
+    });
+    if (!libre) return null;
+    const b = getSelectionLogicalBounds();
+    if (!b) return null;
+    // Une boîte plate — un segment horizontal — n'a pas de coins à saisir :
+    // on lui donne de quoi se prendre, sinon l'objet le plus simple du tableau
+    // serait le seul qu'on ne pourrait pas agrandir.
+    const minimum = 24 / (zoom || 1);
+    let { bx, by, bw, bh } = b;
+    if (bw < minimum) { bx -= (minimum - bw) / 2; bw = minimum; }
+    if (bh < minimum) { by -= (minimum - bh) / 2; bh = minimum; }
+    return { x: bx, y: by, w: bw, h: bh };
+}
+window.boiteAPoigneesDeLaSelection = boiteAPoigneesDeLaSelection;
+
+// Les quatre coins, dans l'ordre des noms que porte déjà le reste du tableau.
+function coinsDeLaBoiteDeSelection(b) {
+    return [
+        { nom: 'SEL_TL', x: b.x, y: b.y },
+        { nom: 'SEL_TR', x: b.x + b.w, y: b.y },
+        { nom: 'SEL_BR', x: b.x + b.w, y: b.y + b.h },
+        { nom: 'SEL_BL', x: b.x, y: b.y + b.h }
+    ];
+}
+window.coinsDeLaBoiteDeSelection = coinsDeLaBoiteDeSelection;
+
+// Le coin OPPOSÉ à celui qu'on tire : c'est lui qui ne bouge pas. C'est
+// l'idiome de l'image et du texte, et il n'y a aucune raison d'en changer.
+function ancreDuCoinOppose(nom, b) {
+    // ON NE LIT QUE CE QUI SUIT « SEL_ », et c'est tout le sujet : « SEL_BR »
+    // CONTIENT un L — celui de « SEL » —, si bien qu'un test naïf prenait les
+    // quatre coins pour des coins gauches. Résultat mesuré : l'ancrage restait
+    // à droite quel que soit le coin tiré, et le dessin partait de travers.
+    const court = String(nom).replace(/^SEL_/, '');
+    const gauche = court.includes('L'), haut = court.includes('T');
+    return { x: gauche ? b.x + b.w : b.x, y: haut ? b.y + b.h : b.y };
+}
+window.ancreDuCoinOppose = ancreDuCoinOppose;
+
+// ===========================================================================
 // TOURNER ET RETOURNER CE QU'ON TIENT
 //
 // « Dans la petite barre, rajoute peut-être un bouton de rotation de 90° et un
@@ -29139,7 +29300,12 @@ function appliquerALaSelection(t) {
 
     draw();
     if (typeof renderHtmlPostits === 'function') renderHtmlPostits();
-    saveState();
+    // PENDANT UN GLISSEMENT, ON N'ÉCRIT PAS L'HISTORIQUE À CHAQUE IMAGE. Une
+    // poignée tirée appelle ceci soixante fois par seconde : autant d'étapes
+    // d'annulation pour un seul geste, et les cent étapes du tableau remplies
+    // en deux secondes. Le relâchement s'en charge, comme pour l'image et le
+    // texte — c'est déjà ce que fait « handlePointerUp ».
+    if (!t.sansHistorique) saveState();
     return true;
 }
 window.appliquerALaSelection = appliquerALaSelection;
@@ -29177,9 +29343,18 @@ window.tournerLaSelection = tournerLaSelection;
 // regarde reste là où on le regarde. Un dessin qui part vers le bas à droite
 // à chaque appui, devant une classe, se rattrape à la main.
 //
-// LE PAS EST D'UN QUART, et non d'un dixième : quatre appuis doublent la
-// taille. Un pas plus fin obligerait à marteler le bouton — et l'appui
-// maintenu est précisément ce que ce tableau s'interdit.
+// IL N'Y A QU'UNE FAÇON D'AGRANDIR : LES POIGNÉES.
+//
+// J'avais commencé par deux boutons dans la barre flottante. « Pour agrandir
+// et diminuer un trait, il faut des poignées, pas des icônes comme il existe
+// déjà : c'est absurde. » C'est juste — une image se tire par ses coins depuis
+// toujours, et donner un second geste pour la même idée, selon ce qu'on tient,
+// c'est demander d'apprendre deux fois la même chose. Les boutons sont partis ;
+// la boîte à poignées de la sélection les remplace, et sert TOUTES les
+// familles.
+//
+// La fonction, elle, reste : elle est ce que la poignée appelle, et ce par
+// quoi le chapitre mesure l'échelle sans mimer un glissement.
 const PAS_DE_TAILLE = 1.25;
 
 function mettreALEchelleLaSelection(facteur) {
@@ -29635,20 +29810,6 @@ function updateQuickMenu() {
             // Tourner d'un quart de tour, et les deux miroirs. Maj tourne dans
             // l'autre sens : trois quarts de tour pour revenir en arrière,
             // c'était une occasion de trop de rater son coup devant la classe.
-            // AGRANDIR ET RÉTRÉCIR. Ils valent pour TOUTES les familles et pour
-            // un groupe entier, là où les poignées de coin ne servaient que
-            // l'image, le texte, le rectangle et l'ellipse.
-            const brancherLaTaille = (id, faire) => {
-                const b = document.getElementById(id);
-                if (!b) return;
-                b.onpointerdown = (e) => {
-                    e.preventDefault(); e.stopPropagation();
-                    faire();
-                };
-            };
-            brancherLaTaille('btn-quick-plus', () => agrandirLaSelection());
-            brancherLaTaille('btn-quick-moins', () => retrecirLaSelection());
-
             const btnRot = document.getElementById('btn-quick-rotate');
             if (btnRot) {
                 btnRot.onpointerdown = (e) => {

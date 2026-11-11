@@ -13,6 +13,13 @@
 // Le calcul, lui, existait déjà : quand on fait coulisser une page de PDF,
 // toute l'encre accrochée la suit ET se met à l'échelle. Il manquait le geste.
 //
+// LE GESTE EST UNE POIGNÉE, ET RIEN D'AUTRE. J'avais commencé par deux
+// boutons dans la barre flottante. « Pour agrandir et diminuer un trait, il
+// faut des poignées, pas des icônes comme il existe déjà : c'est absurde. »
+// C'est juste : une image se tire par ses coins depuis toujours, et offrir un
+// second geste pour la même idée — selon ce qu'on tient — c'est demander
+// d'apprendre deux fois la même chose. Les boutons sont partis.
+//
 // CE CHAPITRE MESURE CE QUE « AGRANDIR » VEUT DIRE, et ce n'est pas seulement
 // « plus loin du centre ». Un dessin deux fois plus grand tracé au même crayon
 // fin n'a pas été agrandi : il a été étiré. Un texte dont les lettres ne
@@ -73,20 +80,68 @@ module.exports = async function (browser) {
     });
 
     // ------------------------------------------------------------------
-    // 1. LE GESTE EXISTE, ET IL EST DANS LA BARRE DE L'OBJET.
+    // 1. LE GESTE EST UNE POIGNÉE, DU MÊME IDIOME QUE CELLES DE L'IMAGE.
+    //
+    // Quatre coins, et rien que les coins : les côtés étireraient — ils
+    // changent une largeur sans l'autre —, et un dessin étiré n'est pas un
+    // dessin agrandi. Les familles qui ont leurs propres poignées de côté les
+    // gardent, parce que là un côté veut dire quelque chose : la colonne d'un
+    // texte, le rognage d'une image.
     // ------------------------------------------------------------------
-    const boutons = await page.evaluate(() => {
-        const p = document.getElementById('btn-quick-plus');
-        const m = document.getElementById('btn-quick-moins');
-        return { plus: !!p, moins: !!m,
-                 bullePlus: p ? (p.getAttribute('data-tooltip') || p.title || '') : '',
-                 bulleMoins: m ? (m.getAttribute('data-tooltip') || m.title || '') : '' };
+    const laBoite = await page.evaluate(() => {
+        selectedItems = [{ type: 'freehand', id: freehands[0].id }];
+        const b = boiteAPoigneesDeLaSelection();
+        if (!b) return null;
+        const coins = coinsDeLaBoiteDeSelection(b);
+        const f = freehands[0];
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        f.points.forEach(p => {
+            x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+            y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+        });
+        return { coins: coins.map(c => c.nom), nombre: coins.length,
+                 entoure: b.x <= x0 + 0.01 && b.y <= y0 + 0.01
+                          && b.x + b.w >= x1 - 0.01 && b.y + b.h >= y1 - 0.01 };
     });
-    r.egal('les deux boutons sont dans la barre flottante de l\'objet',
-        [boutons.plus, boutons.moins], [true, true], JSON.stringify(boutons));
-    r.verifie('et chacun dit ce qu\'il fait',
-        /agrandir/i.test(boutons.bullePlus) && /rétrécir/i.test(boutons.bulleMoins),
-        JSON.stringify(boutons));
+    r.verifie('un trait à main levée sélectionné reçoit une boîte à poignées',
+        !!laBoite, 'aucune boîte');
+    r.egal('quatre coins, et rien que les coins',
+        laBoite && [laBoite.nombre, laBoite.coins],
+        [4, ['SEL_TL', 'SEL_TR', 'SEL_BR', 'SEL_BL']], JSON.stringify(laBoite));
+    r.egal('et la boîte entoure bien ce qu\'on tient', laBoite && laBoite.entoure, true,
+        JSON.stringify(laBoite));
+
+    // ON LA SAISIT LÀ OÙ ON LA VOIT. C'est « findObjectAt » qui la rend, avant
+    // les points : un sommet posé sous un coin ne doit pas prendre le geste.
+    const saisie = await page.evaluate(() => {
+        const b = boiteAPoigneesDeLaSelection();
+        return coinsDeLaBoiteDeSelection(b).map(c => {
+            const o = findObjectAt(c.x, c.y);
+            return o && o.type === 'handle' ? o.name : (o ? o.type : null);
+        });
+    });
+    r.egal('chacun des quatre coins se laisse prendre',
+        saisie, ['SEL_TL', 'SEL_TR', 'SEL_BR', 'SEL_BL'], JSON.stringify(saisie));
+
+    // ET UNE IMAGE SEULE GARDE LES SIENNES : deux jeux de poignées sur le même
+    // objet se disputeraient le même pixel.
+    const pasDeDoublon = await page.evaluate(() => {
+        const im = { id: nextId++, x: 500, y: 500, w: 100, h: 80, cx: 0, cy: 0,
+                     cw: 100, ch: 80, src: '', z: globalZ++ };
+        images.push(im);
+        selectedItems = [{ type: 'image', id: im.id }];
+        const b = boiteAPoigneesDeLaSelection();
+        // et à deux, la boîte revient : l'image n'est plus seule.
+        selectedItems = [{ type: 'image', id: im.id },
+                         { type: 'freehand', id: freehands[0].id }];
+        const b2 = boiteAPoigneesDeLaSelection();
+        images.pop();
+        return { imageSeule: !!b, aDeux: !!b2 };
+    });
+    r.egal('une image seule garde ses propres poignées, sans boîte en plus',
+        pasDeDoublon.imageSeule, false, JSON.stringify(pasDeDoublon));
+    r.egal('mais dès qu\'on en tient deux, la boîte paraît',
+        pasDeDoublon.aDeux, true, JSON.stringify(pasDeDoublon));
 
     // ------------------------------------------------------------------
     // 2. UN TRAIT À MAIN LEVÉE SEUL — exactement le cas de la capture.
@@ -203,6 +258,93 @@ module.exports = async function (browser) {
     });
     r.egal('sans sélection, agrandir ne fait rien et ne lève pas',
         [vide.rendu, vide.leve], [false, false], JSON.stringify(vide));
+
+    // ------------------------------------------------------------------
+    // 7. ET L'ON TIRE VRAIMENT LA POIGNÉE — c'est le geste, pas la fonction.
+    //
+    // Tout ce qui précède appelle le calcul directement. Ici on pose le doigt
+    // sur un coin et on le tire : c'est le seul contrôle qui éprouve la chaîne
+    // entière — la détection du coin, la prise, le facteur lu d'une image à
+    // l'autre, le coin opposé qui ne bouge pas.
+    // ------------------------------------------------------------------
+    await page.evaluate(() => {
+        // Un tableau net : un seul trait, bien au milieu de l'écran.
+        points.length = 0; segments.length = 0; freehands.length = 0;
+        texts.length = 0; arcs.length = 0; circles.length = 0;
+        freehands.push({ id: nextId++, color: '#000', width: 4, z: globalZ++,
+            points: [{ x: -150, y: -80 }, { x: 0, y: 40 }, { x: 150, y: -80 }] });
+        selectedItems = [{ type: 'freehand', id: freehands[0].id }];
+        zoom = 1; panX = window.innerWidth / 2; panY = window.innerHeight / 2;
+        saveState(); draw();
+    });
+    await page.waitForTimeout(150);
+
+    const ou = await page.evaluate(() => {
+        const b = boiteAPoigneesDeLaSelection();
+        const c = coinsDeLaBoiteDeSelection(b).find(x => x.nom === 'SEL_BR');
+        const ancre = ancreDuCoinOppose('SEL_BR', b);
+        return {
+            coinEcran: [c.x * zoom + panX, c.y * zoom + panY],
+            ancreMonde: [ancre.x, ancre.y],
+            avant: { w: +b.w.toFixed(2), h: +b.h.toFixed(2),
+                     largeur: +freehands[0].width.toFixed(3) }
+        };
+    });
+
+    // On tire le coin bas-droit de soixante pixels en diagonale.
+    await page.mouse.move(ou.coinEcran[0], ou.coinEcran[1]);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) {
+        await page.mouse.move(ou.coinEcran[0] + i * 5, ou.coinEcran[1] + i * 5);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+
+    // ON NE DÉRÉFÉRENCE PAS LA BOÎTE SANS L'AVOIR. Si la poignée n'est plus
+    // saisissable, le geste devient un lasso qui vide la sélection : il n'y a
+    // alors plus de boîte, et un contrôle qui l'ignore PLANTE au lieu de
+    // TOMBER. Un test qui plante n'accuse rien — il emporte avec lui tous les
+    // autres contrôles du chapitre, et l'on ne sait plus ce qui marchait.
+    const tire = await page.evaluate(() => {
+        const b = boiteAPoigneesDeLaSelection();
+        const f = freehands[0];
+        return { prise: !!b,
+                 w: b ? +b.w.toFixed(2) : 0, h: b ? +b.h.toFixed(2) : 0,
+                 largeur: f ? +f.width.toFixed(3) : 0,
+                 x0: f ? +f.points[0].x.toFixed(2) : 0,
+                 y0: f ? +f.points[0].y.toFixed(2) : 0 };
+    });
+    r.egal('la poignée a bien été prise — sans quoi le geste n\'était qu\'un lasso',
+        tire.prise, true, JSON.stringify(tire));
+    r.verifie('TIRER LA POIGNÉE AGRANDIT VRAIMENT — c\'était la demande',
+        tire.w > ou.avant.w * 1.05 && tire.h > ou.avant.h * 1.05,
+        JSON.stringify([ou.avant, tire]));
+    r.verifie('la boîte garde ses proportions : on agrandit, on n\'étire pas',
+        Math.abs((tire.w / ou.avant.w) - (tire.h / ou.avant.h)) < 0.02,
+        JSON.stringify([ou.avant, tire]));
+    r.verifie('et le crayon a suivi',
+        tire.largeur > ou.avant.largeur * 1.05, JSON.stringify([ou.avant, tire]));
+    // LE COIN OPPOSÉ NE BOUGE PAS : c'est l'idiome de l'image et du texte, et
+    // c'est ce qui fait qu'on sait où le dessin va grandir avant de tirer.
+    r.verifie('le coin opposé est resté en place',
+        Math.abs(tire.x0 - ou.ancreMonde[0]) < 1.5
+        && Math.abs(tire.y0 - ou.ancreMonde[1]) < 1.5,
+        JSON.stringify([ou.ancreMonde, [tire.x0, tire.y0]]));
+
+    // ET UN SEUL PAS D'ANNULATION POUR UN SEUL GESTE. Le calcul est appelé à
+    // chaque image du glissement ; s'il écrivait l'historique à chaque fois,
+    // les cent étapes du tableau seraient remplies en deux secondes et Ctrl+Z
+    // ne rendrait qu'un pixel.
+    const retour = await page.evaluate(() => {
+        const b0 = boiteAPoigneesDeLaSelection();
+        undo();
+        const b1 = boiteAPoigneesDeLaSelection();
+        return { avant: b0 ? +b0.w.toFixed(2) : null,
+                 apres: b1 ? +b1.w.toFixed(2) : null };
+    });
+    r.verifie('une seule annulation rend toute la taille de départ',
+        retour.apres !== null && Math.abs(retour.apres - ou.avant.w) < 1.5,
+        JSON.stringify([ou.avant.w, retour]));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
