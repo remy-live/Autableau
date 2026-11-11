@@ -143,6 +143,7 @@ module.exports = async function (browser) {
     r.egal('mais dès qu\'on en tient deux, la boîte paraît',
         pasDeDoublon.aDeux, true, JSON.stringify(pasDeDoublon));
 
+
     // ------------------------------------------------------------------
     // 2. UN TRAIT À MAIN LEVÉE SEUL — exactement le cas de la capture.
     // ------------------------------------------------------------------
@@ -345,6 +346,40 @@ module.exports = async function (browser) {
     r.verifie('une seule annulation rend toute la taille de départ',
         retour.apres !== null && Math.abs(retour.apres - ou.avant.w) < 1.5,
         JSON.stringify([ou.avant.w, retour]));
+
+    // ET UN SOMMET POSÉ SOUS UN COIN GARDE LE GESTE.
+    //
+    // J'avais mis ces poignées AVANT les points, en me disant qu'un sommet
+    // sous un coin leur volerait la prise. C'est l'inverse : ce fichier donne
+    // aux points une « priorité absolue » depuis toujours, parce qu'ils sont
+    // ce qu'on vise le plus finement. Une figure collée, c'est une forme ET
+    // ses deux sommets ; on la tire par un sommet, qui tombe pile sur un coin
+    // de la boîte. Mesuré par le chapitre 14 : le rectangle partait à 242 au
+    // lieu de se caler à 200, parce que ma poignée avait volé le geste de
+    // l'alignement. Il reste trois coins pour agrandir.
+    const sommetSousLeCoin = await page.evaluate(() => {
+        points.length = 0; freehands.length = 0; rectangles.length = 0;
+        const a = { id: nextId++, x: 100, y: 100, z: globalZ++ };
+        const b = { id: nextId++, x: 260, y: 220, z: globalZ++ };
+        points.push(a, b);
+        const rect = { id: nextId++, p1_id: a.id, p2_id: b.id, color: '#000', width: 3, z: globalZ++ };
+        rectangles.push(rect);
+        selectedItems = [{ type: 'rectangle', id: rect.id },
+                         { type: 'point', id: a.id }, { type: 'point', id: b.id }];
+        const boite = boiteAPoigneesDeLaSelection();
+        const coin = coinsDeLaBoiteDeSelection(boite).find(c => c.nom === 'SEL_TL');
+        // le sommet « a » est exactement sur ce coin-là
+        const surLeSommet = findObjectAt(coin.x, coin.y);
+        // et un coin SANS sommet dessous rend bien la poignée
+        const libre = coinsDeLaBoiteDeSelection(boite).find(c => c.nom === 'SEL_TR');
+        const surLeVide = findObjectAt(libre.x, libre.y);
+        return { surLeSommet: surLeSommet ? surLeSommet.type : null,
+                 surLeVide: surLeVide ? (surLeVide.name || surLeVide.type) : null };
+    });
+    r.egal('un sommet posé sous un coin garde le geste — les points d\'abord',
+        sommetSousLeCoin.surLeSommet, 'point', JSON.stringify(sommetSousLeCoin));
+    r.egal('et un coin sans sommet dessous rend bien sa poignée',
+        sommetSousLeCoin.surLeVide, 'SEL_TR', JSON.stringify(sommetSousLeCoin));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

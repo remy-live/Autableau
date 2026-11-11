@@ -26,7 +26,7 @@
 
 // Le nom change à chaque version de l'application : l'ancien cache est jeté au
 // lieu de traîner. Ce numéro suit ceux de « index.html ».
-const CACHE = 'au-tableau-v449';
+const CACHE = 'au-tableau-v450';
 
 // Ce qu'on met de côté dès l'installation, pour qu'une première coupure de
 // réseau ne trouve pas l'application vide. Le reste s'ajoute à l'usage.

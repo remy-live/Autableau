@@ -12921,22 +12921,6 @@ function findObjectAt(lx, ly) {
         }
     }
 
-    // --- 1 bis. Les poignées de la boîte de sélection, pour tout le reste ---
-    // Elles viennent APRÈS celles d'un objet qui a les siennes — celui-là n'a
-    // pas de boîte, « boiteAPoigneesDeLaSelection » la lui refuse — et AVANT
-    // les points, sinon un sommet posé sous un coin prendrait le geste.
-    if (typeof boiteAPoigneesDeLaSelection === 'function') {
-        const boite = boiteAPoigneesDeLaSelection();
-        if (boite) {
-            const hw = 12 / zoom;
-            for (const c of coinsDeLaBoiteDeSelection(boite)) {
-                if (Math.abs(lx - c.x) <= hw && Math.abs(ly - c.y) <= hw) {
-                    return { type: 'handle', name: c.nom, id: -1 };
-                }
-            }
-        }
-    }
-
     // --- 2. Vérification des points (Priorité absolue pour aimantation) ---
     let bestPoint = null; let minDist = Infinity;
     // Le point de départ n'attire pas le second clic : voir « pointDeDepartAEcarter ».
@@ -12984,6 +12968,35 @@ function findObjectAt(lx, ly) {
         if (dist < prise && dist < minDist) { minDist = dist; bestPoint = { type: 'point', id: points[i].id }; }
     }
     if (bestPoint) return bestPoint;
+
+    // --- 2 bis. Les poignées de la boîte de sélection, pour tout le reste ---
+    //
+    // APRÈS LES POINTS, et c'est l'inverse de ce que j'avais écrit d'abord.
+    // Je les avais mises avant, en me disant qu'un sommet posé sous un coin
+    // prendrait le geste. C'est justement ce qu'il doit faire : ce fichier
+    // donne aux points une « priorité absolue » depuis toujours, parce qu'ils
+    // sont ce qu'on vise le plus finement — et le chapitre 14 l'a dit tout
+    // net. Une figure collée, c'est une forme ET ses deux sommets ; on la
+    // tire par un sommet, qui tombe pile sur un coin de la boîte. Mesuré :
+    // le rectangle partait à 242 au lieu de se caler à 200, parce que ma
+    // poignée avait volé le geste de l'alignement.
+    //
+    // Il reste trois coins pour agrandir, et le sommet garde son office.
+    //
+    // Elles viennent en revanche AVANT les objets eux-mêmes : une poignée
+    // posée sur le trait qu'elle entoure doit se prendre, sinon elle ne sert
+    // à rien sur un dessin qui remplit sa boîte.
+    if (typeof boiteAPoigneesDeLaSelection === 'function') {
+        const boite = boiteAPoigneesDeLaSelection();
+        if (boite) {
+            const hw = 12 / zoom;
+            for (const c of coinsDeLaBoiteDeSelection(boite)) {
+                if (Math.abs(lx - c.x) <= hw && Math.abs(ly - c.y) <= hw) {
+                    return { type: 'handle', name: c.nom, id: -1 };
+                }
+            }
+        }
+    }
 
     let bestHit = null; let maxZ = -Infinity;
     // Ce qu'on ne voit pas — l'encre d'une autre page du document — ne se
