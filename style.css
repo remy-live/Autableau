@@ -9689,6 +9689,38 @@ body.focus-mode #edt-bandeau { display: none; }
 
 .fen-tete.en-main { cursor: grabbing; }
 
+/* ==================================================================
+   LA BOÎTE COMMUNE PORTE LA MÊME BARRE QUE TOUTES LES FENÊTRES
+   « Garde la même cohérence entre toutes les fenêtres de plugin. »
+
+   Quarante outils ouvrent une fenêtre à eux : elles reçoivent toutes la
+   barre commune, claire, avec le nom à gauche et la croix à droite.
+   Quarante-deux autres passent par la boîte commune des réglages — et
+   celle-là portait un bandeau NOIR, haut de 35 pixels, écrit à la main dans
+   la page, avec son propre corps de texte. Deux barres pour une même
+   application, et l'on voyait laquelle on avait ouverte avant de lire son
+   titre.
+
+   La boîte garde sa place dans le fil de la fenêtre — elle n'est pas
+   équipée par le mécanisme commun, et la rendre absolue décalerait tout ce
+   qu'elle porte. On lui donne donc les mêmes habits, et rien d'autre. Les
+   styles sont écrits en ligne dans la page : seul « important » passe
+   devant. */
+.drag-handle-prompt {
+    height: 34px !important;
+    padding: 0 6px 0 8px !important;
+    background: #f1f2f6 !important;
+    color: #2d3436 !important;
+    border-bottom: 1px solid #dfe6e9 !important;
+    font-size: 14px !important;
+}
+
+.dark-mode .drag-handle-prompt {
+    background: #2f3640 !important;
+    color: #dfe6e9 !important;
+    border-bottom-color: #3d4852 !important;
+}
+
 /* La place que la barre occupe est rendue au contenu. Les fenêtres posent leur
    « padding » en ligne : seul « !important » passe devant. */
 .fen-titree { padding-top: 34px !important; }
@@ -10703,6 +10735,22 @@ body.focus-mode #edt-bandeau { display: none; }
     border: 1px solid rgba(0, 0, 0, 0.10);
     border-radius: 10px;
     overflow: hidden;
+}
+
+/* LA FENÊTRE DE L'ATELIER CARTES PREND LA HAUTEUR DE SA CARTE.
+   « Pour l'atelier carte, corrige les proportions. »
+   Mesuré : le bac du dessin faisait 711 × 587 pour une carte de 711 × 298 —
+   deux cent quatre-vingt-neuf pixels de vide sous le monde. La fenêtre a une
+   hauteur écrite d'avance, 720 pixels, et le bac prend « tout le reste »,
+   quelle que soit la carte qu'il porte. Or le rapport d'une carte n'est pas
+   un choix : il vient des terres qu'elle montre — 2,38 pour le monde sans
+   l'Antarctique, bien autre chose pour l'Europe seule. Une hauteur fixe ne
+   peut donc être juste que par hasard.
+   La fenêtre suit maintenant sa carte, sans dépasser l'écran. Sur un
+   vidéoprojecteur de 1024 × 600, les 756 pixels d'avant ne tenaient pas. */
+#carte-fenetre {
+    height: auto;
+    max-height: min(720px, 94vh);
 }
 
 #carte-dessin svg { max-height: 100%; }
