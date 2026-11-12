@@ -50,14 +50,25 @@ module.exports = async function (browser) {
         bavardage: pointsDeLAxe('bonjour ; 4=C ;  ; =D'),
         point: pointsDeLAxe('3.5=E')
     }));
+    // ON NE COMPARE QUE CE QU'ON EXIGE : LA VALEUR ET LE NOM.
+    //
+    // Ces six contrôles comparaient l'objet ENTIER, et ils sont tombés le jour
+    // où un point a reçu de quoi se souvenir qu'il était une fraction —
+    // « num » et « den », pour que « 7/4=A » s'écrive en quarts. Rien n'était
+    // cassé : le contrôle figeait la FORME de l'objet là où il ne lui était
+    // demandé que son contenu. Un point lu garde sa valeur et son nom ; ce
+    // qu'il porte en plus ne regarde pas ce chapitre-ci.
+    const nus = (l) => (l || []).map(p => ({ val: p.val, nom: p.nom }));
     r.egal('« 3,5=A ; 7=B » donne deux points nommés',
-        lus.courant, [{ val: 3.5, nom: 'A' }, { val: 7, nom: 'B' }]);
-    r.egal('un point peut n\'avoir pas de nom', lus.sansNom, [{ val: 2, nom: '' }]);
+        nus(lus.courant), [{ val: 3.5, nom: 'A' }, { val: 7, nom: 'B' }]);
+    r.egal('un point peut n\'avoir pas de nom', nus(lus.sansNom), [{ val: 2, nom: '' }]);
     r.egal('rien du tout ne donne rien', [lus.vide, lus.rien], [[], []]);
-    r.egal('la virgule est la décimale du cours, pas un séparateur', lus.virgule, [{ val: 3.5, nom: '' }]);
+    r.egal('la virgule est la décimale du cours, pas un séparateur',
+        nus(lus.virgule), [{ val: 3.5, nom: '' }]);
     r.egal('le point décimal marche aussi, pour qui tape au pavé numérique',
-        lus.point, [{ val: 3.5, nom: 'E' }]);
-    r.egal('ce qui n\'est pas un nombre est laissé de côté', lus.bavardage, [{ val: 4, nom: 'C' }]);
+        nus(lus.point), [{ val: 3.5, nom: 'E' }]);
+    r.egal('ce qui n\'est pas un nombre est laissé de côté',
+        nus(lus.bavardage), [{ val: 4, nom: 'C' }]);
 
     // ------------------------------------------------------------------
     // 2. TROIS RANGS, TROIS COULEURS, TROIS HAUTEURS
@@ -126,8 +137,19 @@ module.exports = async function (browser) {
     // lorsqu'il y a quelque chose à y écrire.
     const sansPoint = await svgDe(['0', '10', '1', 'no', 'right', '#111111', '#111111', '#111111', '', '#d63031']);
     const hauteur = s => +s.match(/viewBox="0 0 [\d.]+ ([\d.]+)"/)[1];
-    r.verifie('un axe sans point reste à sa hauteur d\'origine',
-        hauteur(sansPoint) === 100, String(hauteur(sansPoint)));
+    // ON NE RÉSERVE DE CIEL QUE S'IL Y A QUELQUE CHOSE À Y ÉCRIRE.
+    //
+    // Ce contrôle exigeait la hauteur 100, écrite en dur. Elle est tombée à 78
+    // quand le cadre a cessé de réserver une place fixe pour se tailler sur ce
+    // qu'il porte — et 78 n'est pas une régression, c'est la même figure sans
+    // le vide autour. Ce qu'on exige vraiment, c'est qu'un axe sans point ne
+    // garde AUCUNE place au-dessus de son trait.
+    const trait = s => +s.match(/<line x1="\d+" y1="([\d.]+)"/)[1];
+    r.verifie('un axe sans point ne réserve aucun ciel au-dessus de son trait',
+        trait(sansPoint) <= 50, JSON.stringify({ trait: trait(sansPoint), h: hauteur(sansPoint) }));
+    r.verifie('et il ne traîne pas de blanc en dessous non plus',
+        hauteur(sansPoint) - trait(sansPoint) <= 40,
+        JSON.stringify({ trait: trait(sansPoint), h: hauteur(sansPoint) }));
     r.verifie('et un axe qui porte des points s\'en fait de la place au-dessus',
         hauteur(avecPoints) > hauteur(sansPoint),
         JSON.stringify([hauteur(sansPoint), hauteur(avecPoints)]));
@@ -157,7 +179,10 @@ module.exports = async function (browser) {
         PluginManager.plugins['axeTool'].champs(['0', '5', '1', 'yes', 'both', '#e74c3c'])
             .map(c => ({ label: c.label, value: c.value })));
     r.egal('et le formulaire qui le rouvre lui propose sa propre couleur partout',
-        champs.filter(c => /Couleur des (milieux|millimètres)/.test(c.label)).map(c => c.value),
+        // « Millimètres » est devenu « dixièmes » : un axe de mathématiques
+        // n'est pas une règle graduée, et ses sous-graduations sont des
+        // dixièmes du pas. Le contrôle suit le mot de l'écran.
+        champs.filter(c => /Couleur des (milieux|dixièmes)/.test(c.label)).map(c => c.value),
         ['#e74c3c', '#e74c3c']);
     r.egal('avec un champ de points vide, prêt à recevoir',
         champs.find(c => /Points/.test(c.label)).value, '');

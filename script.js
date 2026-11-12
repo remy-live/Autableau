@@ -28646,8 +28646,13 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             const t = document.createElement('div');
             t.className = 'cp-rubrique';
             t.innerText = field.label;
+            // LA COULEUR DE L'INTERTITRE EST CELLE DES LIBELLÉS, ET PAS
+            // PLUS PÂLE. J'avais pris un gris à 2,56 contre le blanc, là où
+            // la norme en demande 4,5 : le chapitre 70 l'a attrapé sur les
+            // cinq rubriques de l'axe d'un coup. Un titre qu'on ne lit pas ne
+            // range rien — il fait seulement croire que c'est rangé.
             t.style.cssText = 'grid-column:1/-1; font-size:10px; font-weight:700;'
-                + ' letter-spacing:0.08em; text-transform:uppercase; color:#95a5a6;'
+                + ' letter-spacing:0.08em; text-transform:uppercase; color:#636e72;'
                 + ' border-top:1px solid rgba(127,127,127,0.25); padding-top:10px; margin-top:2px;';
             // La première rubrique n'a personne au-dessus de qui se séparer.
             if (!container.children.length) { t.style.borderTop = 'none'; t.style.paddingTop = '0'; }
