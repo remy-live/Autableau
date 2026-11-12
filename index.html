@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=252 »,
-         « script.js?v=458 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=254 »,
+         « script.js?v=460 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=252">
+    <link rel="stylesheet" href="style.css?v=254">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -2681,6 +2681,29 @@
                             title="La couleur du trait autour des barres et des fenêtres">
                             <input type="color" id="rp-contour-couleur" value="#000000">
                         </label>
+                        <!-- L'ÉPAISSEUR DU TRAIT, SUR LA MÊME LIGNE QUE SA
+                             COULEUR. Un pixel se voit très bien sur un écran de
+                             bureau ; projeté en 1024 de large sur un mur de
+                             classe, vu du fond de la salle, il se devine.
+                             Trois crans suffisent, et le fin reste le défaut.
+
+                             ET PAS UNE LIGNE DE PLUS. Posée sur sa propre
+                             rangée, cette commande faisait passer le menu de
+                             377 à 437 pixels, et il se remettait à défiler sur
+                             un écran court — ce que deux chapitres
+                             interdisent, pour une raison déjà mesurée : « Un
+                             peu grand, les paramètres. » Trois chiffres au
+                             bout de la ligne du trait disent la même chose
+                             sans rien coûter : ils parlent du même trait. -->
+                        <span class="rp-trait" id="rp-trait" role="group"
+                            aria-label="Épaisseur du trait des contours">
+                            <button type="button" class="rp-trait-choix" data-trait="1"
+                                title="Trait fin : un pixel">1</button>
+                            <button type="button" class="rp-trait-choix" data-trait="2"
+                                title="Trait moyen : deux pixels">2</button>
+                            <button type="button" class="rp-trait-choix" data-trait="3"
+                                title="Trait épais : trois pixels, qui se voient du fond de la classe">3</button>
+                        </span>
                     </div>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
@@ -4403,9 +4426,9 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=458"></script>
+    <script src="script.js?v=460"></script>
     <script src="pc-figures.js?v=1"></script>
-    <script src="plugin.js?v=134"></script>
+    <script src="plugin.js?v=135"></script>
     <script src="./lib/documents/documents.js?v=2"></script>
     <script src="./lib/cloud/explorateur.js?v=7"></script>
     <script src="./lib/cloud/config.js?v=1"></script>

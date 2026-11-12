@@ -28586,6 +28586,68 @@ if (typeof window !== 'undefined') {
     });
 }
 
+// ============================================================
+//  L'APERÇU PREND LA FORME DE CE QU'IL DESSINE
+// ============================================================
+//
+// « Quand tu fais l'aperçu de stat, ce n'est pas vraiment logique que la
+// taille de l'aperçu soit plus haute que la somme des hauteurs des input. »
+//
+// La boîte d'aperçu était haute de 140 px, écrit dans la page, pour les
+// quarante-deux outils. Un axe mathématique mesure 400 × 48 : un rapport de
+// 8,33, qu'on enfermait dans une boîte presque carrée — le dessin flottait au
+// milieu de cent pixels de vide. Un thermomètre mesure 80 × 250 : l'inverse,
+// on le rabotait. Mesuré sur les quatre-vingt-neuf outils : vingt-sept
+// aperçus annoncent leur forme exacte, et aucun ne faisait 140 px de haut.
+//
+// La forme est écrite dans le dessin lui-même : le « viewBox » d'un SVG, la
+// taille naturelle d'une image. On la lit, et la boîte suit.
+function formeDeLApercu(boite) {
+    if (!boite) return null;
+    const svg = boite.querySelector('svg[viewBox]');
+    if (svg) {
+        const v = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+        if (v.length === 4 && v[2] > 0 && v[3] > 0) return v[2] / v[3];
+    }
+    // NEUF APERÇUS SONT UNE IMAGE « data: », ET UNE IMAGE PAS ENCORE DÉCODÉE
+    // N'A PAS DE TAILLE. Mesurée à l'instant où on la pose, celle du Tableau
+    // de numération annonçait 306 × 16 ; décodée, elle fait 840 × 300. On ne
+    // lit donc sa forme que lorsqu'elle en a une, et le guetteur repassera.
+    const img = boite.querySelector('img');
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0) return img.naturalWidth / img.naturalHeight;
+    return null;
+}
+
+const APERCU_HAUTEUR_PAR_DEFAUT = 140;
+
+function ajusterLaHauteurDeLApercu(boite, reglages) {
+    if (!boite || !boite.isConnected) return;
+    if (getComputedStyle(boite).display === 'none') return;
+    const rapport = formeDeLApercu(boite);
+    if (!rapport) {
+        // UNE IMAGE QUI N'EST PAS ENCORE LÀ N'EST PAS UNE IMAGE SANS FORME :
+        // on se donne rendez-vous à son arrivée, une seule fois.
+        const img = boite.querySelector('img');
+        if (img && !img.dataset.formeGuettee) {
+            img.dataset.formeGuettee = '1';
+            img.addEventListener('load', () => ajusterLaHauteurDeLApercu(boite, reglages), { once: true });
+        }
+        boite.style.height = APERCU_HAUTEUR_PAR_DEFAUT + 'px';
+        return;
+    }
+    const largeur = boite.clientWidth || boite.getBoundingClientRect().width;
+    if (!largeur) return;
+    // ET L'APERÇU NE DÉPASSE JAMAIS LA HAUTEUR DES RÉGLAGES. Sans cette
+    // borne, mesuré : l'aperçu des statistiques faisait 2,7 fois ses réglages,
+    // et le thermomètre, au rapport 0,32, se serait étiré sur 906 px — plus
+    // haut que l'écran d'un vidéoprojecteur de classe.
+    const hReglages = reglages && reglages.isConnected
+        ? Math.round(reglages.getBoundingClientRect().height) : 0;
+    const plafond = Math.max(110, Math.min(hReglages || APERCU_HAUTEUR_PAR_DEFAUT, 320));
+    const voulue = Math.round(largeur / rapport);
+    boite.style.height = Math.max(70, Math.min(voulue, plafond)) + 'px';
+}
+
 function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     annulerLaBoite = onCancel || annulerModePlugin;
     document.getElementById('custom-prompt-title').innerText = title;
@@ -28600,8 +28662,7 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     // Il se redessine à chaque frappe, depuis quatre endroits différents ;
     // plutôt que quatre appels qu'on oubliera, un veilleur posé une fois sur
     // l'aperçu — il est petit, et le rattrapage n'écrit que des styles.
-    if (previewBox && !previewBox.dataset.encreVeillee && typeof MutationObserver === 'function'
-        && typeof rendreLesTextesLisibles === 'function') {
+    if (previewBox && !previewBox.dataset.encreVeillee && typeof MutationObserver === 'function') {
         previewBox.dataset.encreVeillee = '1';
         let encreEnAttente = false;
         new MutationObserver(() => {
@@ -28609,7 +28670,12 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             encreEnAttente = true;
             requestAnimationFrame(() => {
                 encreEnAttente = false;
-                rendreLesTextesLisibles(previewBox);
+                if (typeof rendreLesTextesLisibles === 'function') rendreLesTextesLisibles(previewBox);
+                // LE MÊME VEILLEUR DONNE SA HAUTEUR À L'APERÇU. L'aperçu se
+                // redessine à chaque frappe, depuis quatre endroits
+                // différents : quatre appels de plus seraient quatre endroits
+                // à oublier.
+                ajusterLaHauteurDeLApercu(previewBox, container);
             });
         }).observe(previewBox, { childList: true, subtree: true });
     }
@@ -28624,11 +28690,48 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         }
     }
 
-    // NOUVEAU DESIGN : Grille à 2 colonnes pour diviser la hauteur par 2
+    // ============================================================
+    //  LA GRILLE SUIT LE NOMBRE DE RÉGLAGES
+    // ============================================================
+    //
+    // « Tout me va en mode serrée. » Deux colonnes pour tout le monde, c'était
+    // une boîte de 322 px de large quel que soit l'outil — 17 % d'un écran de
+    // 1920 — et, pour l'axe mathématique et ses douze réglages, une colonne de
+    // six rangées qui descendait sous le bord de l'écran. Mesuré sur la
+    // maquette des quarante-deux : l'axe passe de 804 px de haut à 481.
+    //
+    // La règle tient en une ligne et ne demande aucun réglage par outil : un
+    // seul réglage tient sur une colonne, deux à quatre sur deux, cinq à huit
+    // sur trois, neuf et plus sur quatre.
+    const COLONNE_PX = 150, ECART_X = 16, MARGE_BOITE = 15;
+    const combienDeReglages = fields.filter(f => f && f.type !== 'titre' && f.type !== 'hidden').length;
+    const colonnes = combienDeReglages >= 9 ? 4
+        : (combienDeReglages >= 5 ? 3 : (combienDeReglages >= 2 ? 2 : 1));
     container.style.display = 'grid';
-    container.style.gridTemplateColumns = '1fr 1fr';
-    container.style.gap = '12px 16px';
+    container.style.gridTemplateColumns = `repeat(${colonnes}, minmax(0, 1fr))`;
+    container.style.gap = '12px ' + ECART_X + 'px';
     container.style.alignItems = 'end'; // Aligne les champs vers le bas si les labels diffèrent
+
+    // ET LA BOÎTE SUIT LA GRILLE — sans jamais dépasser l'écran. Une boîte de
+    // 680 px tient sur un vidéoprojecteur de 1024 ; sur un téléphone, c'est la
+    // largeur de l'écran moins ses marges qui commande.
+    const largeurVoulue = Math.max(320,
+        colonnes * COLONNE_PX + (colonnes - 1) * ECART_X + 2 * MARGE_BOITE + 2);
+    promptModal.style.width = 'min(' + largeurVoulue + 'px, calc(100vw - 32px))';
+
+    // CE QU'IL FAUT POUR UNE RANGÉE DE COULEUR.
+    //
+    // « Les couleurs qui débordent, c'est normal ? » Non : six pastilles plus
+    // la roue font sept ronds de 26 px et six écarts de 10 — 242 px —, là où
+    // une colonne en offre 150. Elles débordaient de leur case, et leur
+    // libellé était écrasé à zéro. On leur donne donc le nombre de colonnes
+    // qu'il leur faut, calculé, et non deviné.
+    const colonnesPourUneCouleur = () => {
+        const besoin = 7 * 26 + 6 * 10 + 8;
+        let n = 1;
+        while (n < colonnes && (n * COLONNE_PX + (n - 1) * ECART_X) < besoin) n++;
+        return n;
+    };
 
     const inputElements = [];
 
@@ -28670,9 +28773,14 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         // mots — « 3/4 », « 1 1/2 » —, donc un champ texte, mais il se range
         // comme un nombre. Sans cela, écrire les bornes en fractions aurait
         // fait de trois champs courts trois pleines largeurs.
-        if (field.type === 'color' || field.type === 'text') {
-            wrap.style.gridColumn = '1 / -1';
-        }
+        // Une rangée de couleur prend ce qu'il lui faut ; un champ de texte
+        // libre prend deux colonnes, parce qu'on y écrit une phrase —
+        // « 7/4=A ; 2,5=B » — et non un nombre. « mesure » est l'exception :
+        // c'est un nombre qu'on écrit avec des mots, et il garde une colonne.
+        let largeCombien = 1;
+        if (field.type === 'color') largeCombien = colonnesPourUneCouleur();
+        else if (field.type === 'text' || field.type === 'textarea') largeCombien = Math.min(2, colonnes);
+        if (largeCombien > 1) wrap.style.gridColumn = 'span ' + Math.min(largeCombien, colonnes);
 
         // Label au style Premium (Petit, majuscule, discret)
         const lbl = document.createElement('label');
@@ -28775,7 +28883,12 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
                 renderSwatches();
                 wheelBtn.style.boxShadow = (!colors.includes(inp.value.toLowerCase())) ? `0 0 0 2px #ffffff, 0 0 0 4px #b2bec3` : '0 2px 4px rgba(0,0,0,0.15)';
                 if (onChange && typeof onChange === 'function') {
-                    const svgPreview = onChange(inputElements.map(i => i.value));
+                    // LA MÊME LECTURE DES RÉPONSES QUE PARTOUT AILLEURS : une
+                    // case à cochée rend « true », et non la chaîne « on ».
+                    // ET LA BOÎTE D'APERÇU EST TENDUE, comme à l'ouverture :
+                    // deux outils y dessinent eux-mêmes.
+                    const svgPreview = onChange(
+                        inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value), previewBox);
                     if (svgPreview && previewBox) previewBox.innerHTML = svgPreview;
                 }
             });
@@ -28820,7 +28933,8 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
             inp.addEventListener('change', () => {
                 ligne.classList.toggle('cochee', inp.checked);
                 if (onChange && typeof onChange === 'function') {
-                    const rendu = onChange(inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value));
+                    const rendu = onChange(
+                        inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value), previewBox);
                     if (rendu && previewBox && typeof rendu === 'string') previewBox.innerHTML = rendu;
                 }
             });
@@ -28855,7 +28969,7 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         inp.addEventListener(field.type === 'select' ? 'change' : 'input', () => {
             if (onChange && typeof onChange === 'function') {
                 const results = inputElements.map(i => i.type === 'checkbox' ? i.checked : i.value);
-                const svgPreview = onChange(results);
+                const svgPreview = onChange(results, previewBox);
                 if (svgPreview && previewBox) previewBox.innerHTML = svgPreview;
             }
         });
@@ -50941,6 +51055,12 @@ function majReglagesBarre() {
     if (bCourte) bCourte.classList.toggle('actif', barreCourte);
     const bContours = document.getElementById('rp-contours');
     if (bContours) bContours.classList.toggle('actif', !contoursDoux);
+    // L'épaisseur en cours se lit sans survoler : le panneau s'ouvre devant
+    // une classe, pas devant une souris patiente.
+    document.querySelectorAll('#rp-trait .rp-trait-choix').forEach(b => {
+        b.classList.toggle('actif', parseInt(b.dataset.trait, 10) === epaisseurDuContour);
+        b.setAttribute('aria-pressed', parseInt(b.dataset.trait, 10) === epaisseurDuContour ? 'true' : 'false');
+    });
 }
 
 // ==================================================================
@@ -50959,9 +51079,39 @@ const CLE_CONTOURS_DOUX = 'auTableau_contours_doux';
 let contoursDoux = false;
 try { contoursDoux = localStorage.getItem(CLE_CONTOURS_DOUX) === 'true'; } catch (e) { /* stockage refusé */ }
 
+// ET L'ÉPAISSEUR DU TRAIT EST UN RÉGLAGE, COMME SA COULEUR.
+//
+// « Pouvoir régler la bordure. » Un pixel se voit très bien sur un écran de
+// bureau ; projeté en 1024 de large sur un mur, au fond de la salle, il se
+// devine. Trois crans suffisent — fin, normal, épais — et l'on n'en garde
+// que le NOMBRE : la feuille de style sait quoi en faire, ici comme en
+// sombre, pour les barres, les tiroirs et les fenêtres des outils.
+//
+// Le trait reste à un pixel par défaut : changer l'épaisseur de tout le monde
+// sans qu'on l'ait demandé serait refaire le dessin de l'application.
+const CLE_TRAIT_CONTOUR = 'auTableau_trait_contour';
+const TRAITS_POSSIBLES = [1, 2, 3];
+let epaisseurDuContour = 1;
+try {
+    const n = parseInt(localStorage.getItem(CLE_TRAIT_CONTOUR), 10);
+    if (TRAITS_POSSIBLES.includes(n)) epaisseurDuContour = n;
+} catch (e) { /* stockage refusé */ }
+
 function poserLesContours() {
     document.body.classList.toggle('contours-doux', contoursDoux);
+    document.documentElement.style.setProperty('--contour-trait', epaisseurDuContour + 'px');
 }
+
+function choisirLEpaisseurDuContour(n) {
+    const v = parseInt(n, 10);
+    if (!TRAITS_POSSIBLES.includes(v)) return epaisseurDuContour;
+    epaisseurDuContour = v;
+    try { localStorage.setItem(CLE_TRAIT_CONTOUR, String(v)); } catch (e) { /* refusé */ }
+    poserLesContours();
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    return epaisseurDuContour;
+}
+window.choisirLEpaisseurDuContour = choisirLEpaisseurDuContour;
 
 // ==================================================================
 // LA COULEUR DU CONTOUR EST UN RÉGLAGE
@@ -51047,7 +51197,30 @@ function laFormeDUneFenetre(el) {
     if (el.id === 'edt-mot-du-cours') return false;
     const s = getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
-    if (s.position !== 'fixed' && s.position !== 'absolute') return false;
+    // CE QUI PORTE UNE BARRE DE TITRE EST UNE FENÊTRE, MÊME POSÉE EN
+    // « RELATIVE ».
+    //
+    // « Certaines fenêtres n'ont un contour franc que quand on les déplace. »
+    // Mesuré sur les quatre-vingt-neuf outils : quarante ouvrent une fenêtre à
+    // elles, et cinq n'avaient aucun trait au repos — Formules Mathématiques,
+    // la Frise Historique, l'Atelier cartes, le Tableau de Signes et la
+    // Fabrique à Flèches. Toutes les cinq en « position: relative ».
+    //
+    // Et c'est NOUS qui les y mettions : « equiperVraiment » écrit
+    // « position = relative » à toute fenêtre restée statique, parce que la
+    // barre de titre se pose en absolu et qu'il lui faut un repère. Le poseur
+    // de contour, lui, n'acceptait que « fixed » ou « absolute » : le système
+    // de fenêtres fabriquait donc exactement l'état que le système de contour
+    // refusait. Prendre la fenêtre par sa barre appelle « figerLaPlace », qui
+    // la passe en « fixed » — l'observateur voyait alors passer un changement,
+    // et le trait arrivait. D'où le symptôme, à la lettre : un contour qui ne
+    // vient qu'en déplaçant.
+    //
+    // La mesure d'origine voulait écarter ce qui coule dans le fil de la page.
+    // Une fenêtre équipée ne coule nulle part : on la reconnaît déjà à sa
+    // barre, et c'est la règle écrite plus haut pour les voiles.
+    const posee = s.position === 'fixed' || s.position === 'absolute';
+    if (!posee && !el.classList.contains('fen-titree')) return false;
     // Un voile de fond n'est pas une fenêtre : il couvre tout l'écran.
     const r = el.getBoundingClientRect();
     if (r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2) return false;
@@ -51306,6 +51479,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (champ) champ.addEventListener('input', () => reglerLaCouleurDuContour(champ.value));
     const rendre = document.getElementById('rp-contour-rendre');
     if (rendre) rendre.addEventListener('click', (e) => { e.stopPropagation(); reglerLaCouleurDuContour(null); });
+    // Les trois crans d'épaisseur. « stopPropagation » parce qu'un clic dans
+    // le panneau d'apparence le referme — et l'on veut comparer les trois.
+    document.querySelectorAll('#rp-trait .rp-trait-choix').forEach(b => {
+        b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            choisirLEpaisseurDuContour(b.dataset.trait);
+        });
+    });
     brancherLaPoigneeDesOutils();
 });
 

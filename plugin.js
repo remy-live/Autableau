@@ -13131,7 +13131,7 @@ registerPlugin('wordSearchGenerator', 'Jeux', {
     openPrompt: function () {
         openCustomPrompt("Mots Mêlés", [
             { type: 'text', label: 'Entrez jusqu\'à 6 mots (séparés par des virgules)', value: 'TABLEAU, CHAISE, CRAIE, ECOLE, STYLO' }
-        ], null, (res) => {
+        ], (res) => this.apercuDesMots(res[0]), (res) => {
             let input = res[0];
             let words = input.split(',').map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, '')).filter(w => w.length > 2);
             if (words.length > 0) {
@@ -13142,6 +13142,43 @@ registerPlugin('wordSearchGenerator', 'Jeux', {
             }
         });
     },
+    // CE QU'IL FAUT VOIR N'EST PAS LA GRILLE, C'EST CE QUI SERA RETENU.
+    //
+    // L'outil jette en silence les mots de deux lettres ou moins, tout ce qui
+    // n'est pas une lettre, et tout ce qui dépasse le sixième mot. On tapait
+    // sa liste, on attendait la grille, et l'on découvrait après coup qu'un
+    // mot manquait — sans savoir lequel, ni pourquoi. L'aperçu le dit avant.
+    apercuDesMots: function (brut) {
+        const propres = String(brut || '').split(',')
+            .map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, ''));
+        const assez = propres.filter(w => w.length > 2);
+        const gardes = assez.slice(0, 6);
+        const tropCourts = propres.filter(w => w.length > 0 && w.length <= 2);
+        const enTrop = assez.slice(6);
+        const jeton = (m, fond, encre) => `<span style="display:inline-block; margin:2px 3px;`
+            + ` padding:3px 8px; border-radius:11px; font-size:12px; font-weight:700;`
+            + ` background:${fond}; color:${encre};">${m}</span>`;
+        let html = `<div style="width:100%; padding:8px 10px; box-sizing:border-box; text-align:center;">`;
+        if (!gardes.length) {
+            html += `<span style="font-size:12px; color:#636e72;">Il faut au moins un mot de trois lettres.</span>`;
+        } else {
+            html += `<div style="font-size:10px; font-weight:700; letter-spacing:.06em;`
+                + ` text-transform:uppercase; color:#636e72; margin-bottom:4px;">`
+                + `${gardes.length} mot${gardes.length > 1 ? 's' : ''} dans la grille</div>`;
+            html += gardes.map(m => jeton(m, '#d6f5e3', '#145c3a')).join('');
+        }
+        const refuses = tropCourts.concat(enTrop);
+        if (refuses.length) {
+            html += `<div style="font-size:10px; font-weight:700; letter-spacing:.06em;`
+                + ` text-transform:uppercase; color:#636e72; margin:7px 0 3px;">`
+                + (tropCourts.length && !enTrop.length ? 'trop courts, laissés de côté'
+                   : (!tropCourts.length ? 'au-delà du sixième, laissés de côté'
+                      : 'laissés de côté')) + `</div>`;
+            html += refuses.map(m => jeton(m || '…', '#f5dcdc', '#7a2222')).join('');
+        }
+        return html + `</div>`;
+    },
+
     edit: function (imgObj) {
         if (!imgObj || !imgObj.pluginData || !imgObj.pluginData.args) return;
         const inputStr = imgObj.pluginData.args[0];
@@ -13401,10 +13438,42 @@ registerPlugin('dominoGeneratorTool', 'Exercices', {
         openCustomPrompt("Générer des Dominos", [
             { type: 'select', label: 'Objectif', value: 'random', options: [{ value: 'random', label: 'Aléatoire' }, { value: 'doubles', label: 'Les Doubles' }, { value: 'comp10', label: 'Compléments à 10' }] },
             { type: 'select', label: 'Quantité', value: '3', options: [{ value: '3', label: '3 dominos' }, { value: '5', label: '5 dominos' }] }
-        ], null, (res) => this.buildDominos(res[0], parseInt(res[1])));
+        ], (res) => this.dessinDesDominos(res[0] || 'random', parseInt(res[1]) || 3),
+            (res) => this.buildDominos(res[0], parseInt(res[1])));
     },
 
-    getDominoSVG: function (val1, val2) {
+    // CE QUE L'APERÇU PROMET : LE NOMBRE ET LA SORTE, PAS LES NOMBRES.
+    //
+    // Les valeurs sont tirées au sort à la pose — montrer un tirage
+    // particulier serait promettre celui-là. L'aperçu montre donc ce qui, lui,
+    // est décidé par les deux réglages : combien de dominos, et de quelle
+    // sorte — trois doubles, cinq compléments à dix. Les exemples sont fixes,
+    // pour que l'image ne clignote pas d'un tirage à l'autre pendant qu'on
+    // règle.
+    exemplesDeDominos: function (type, count) {
+        const table = {
+            doubles: [[3, 3], [5, 5], [2, 2], [6, 6], [1, 1]],
+            comp10: [[4, 6], [3, 7], [2, 8], [5, 5], [6, 4]],
+            random: [[2, 5], [6, 1], [3, 4], [5, 2], [1, 6]]
+        };
+        const liste = table[type] || table.random;
+        return liste.slice(0, Math.max(1, Math.min(count || 3, liste.length)));
+    },
+
+    dessinDesDominos: function (type, count) {
+        const L = 100, H = 200, E = 26;
+        const paires = this.exemplesDeDominos(type, count);
+        const w = paires.length * L + (paires.length - 1) * E;
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${H}" width="${w}" height="${H}">`;
+        paires.forEach((p, i) => {
+            svg += `<g transform="translate(${i * (L + E)},0)">${this.corpsDUnDomino(p[0], p[1])}</g>`;
+        });
+        return svg + `</svg>`;
+    },
+
+    // Le corps du domino, sans son enveloppe : l'aperçu en aligne plusieurs
+    // dans une seule image, la pose en fait une image chacun.
+    corpsDUnDomino: function (val1, val2) {
         const drawDots = (val, offsetY) => {
             let dots = "";
             let positions = [];
@@ -13421,12 +13490,16 @@ registerPlugin('dominoGeneratorTool', 'Exercices', {
             return dots;
         };
 
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200" width="100" height="200">`;
-        svg += `<rect width="100" height="200" rx="10" fill="#f1f2f6" stroke="#2d3436" stroke-width="4"/>`;
-        svg += `<line x1="0" y1="100" x2="100" y2="100" stroke="#2d3436" stroke-width="4"/>`;
-        svg += drawDots(val1, 0);
-        svg += drawDots(val2, 100);
-        svg += `</svg>`;
+        let corps = `<rect width="100" height="200" rx="10" fill="#f1f2f6" stroke="#2d3436" stroke-width="4"/>`;
+        corps += `<line x1="0" y1="100" x2="100" y2="100" stroke="#2d3436" stroke-width="4"/>`;
+        corps += drawDots(val1, 0);
+        corps += drawDots(val2, 100);
+        return corps;
+    },
+
+    getDominoSVG: function (val1, val2) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200" width="100" height="200">`
+            + this.corpsDUnDomino(val1, val2) + `</svg>`;
         return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     },
 
@@ -14184,16 +14257,22 @@ registerPlugin('divisionTool', 'Maths - Numérique', {
             { type: 'number', label: 'Dividende', value: p[0] !== undefined ? p[0] : Math.floor(Math.random() * 900) + 100 },
             { type: 'number', label: 'Diviseur', value: p[1] !== undefined ? p[1] : Math.floor(Math.random() * 8) + 2 },
             { type: 'color', label: 'Couleur', value: p[2] || '#2d3436' }
-        ], null, (res) => this.buildDivision(res[0], res[1], res[2], target));
+        ], (res) => this.dessinDeLaDivision(res[0], res[1], res[2] || '#2d3436'),
+            (res) => this.buildDivision(res[0], res[1], res[2], target));
     },
-    buildDivision: function (dividende, diviseur, color, target) {
-        let w = 250, h = 250;
+    // Le même dessin pour l'aperçu et pour la pose : la potence qu'on voit est
+    // celle qu'on aura.
+    dessinDeLaDivision: function (dividende, diviseur, color) {
+        const w = 250, h = 250;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
         svg += `<text x="10" y="45" font-family="sans-serif" font-weight="bold" font-size="34" fill="${color}" letter-spacing="6">${dividende}</text>`;
         svg += `<text x="145" y="45" font-family="sans-serif" font-weight="bold" font-size="34" fill="${color}">${diviseur}</text>`;
         svg += `<line x1="130" y1="10" x2="130" y2="${h - 10}" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`;
         svg += `<line x1="130" y1="55" x2="240" y2="55" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`;
-        svg += `</svg>`;
+        return svg + `</svg>`;
+    },
+    buildDivision: function (dividende, diviseur, color, target) {
+        const svg = this.dessinDeLaDivision(dividende, diviseur, color);
         placeGeneratedStamp('divisionTool', svg, [dividende, diviseur, color], target, "➗ Gabarit de division généré !");
     }
 });
@@ -16452,16 +16531,24 @@ registerPlugin('polygonTool', 'Maths - Géométrie', {
         openCustomPrompt(target ? "Modifier le Polygone" : "Polygone Régulier", [
             { type: 'select', label: 'Côtés', value: String(p[0] || '6'), options: [{ value: '3', label: 'Triangle' }, { value: '5', label: 'Pentagone' }, { value: '6', label: 'Hexagone' }, { value: '8', label: 'Octogone' }, { value: '10', label: 'Décagone' }] },
             { type: 'color', label: 'Couleur', value: p[1] || '#0984e3' }
-        ], null, (res) => this.buildPolygon(parseInt(res[0]), res[1], target));
+        ], (res) => this.dessinDuPolygone(parseInt(res[0]) || 6, res[1] || '#0984e3'),
+            (res) => this.buildPolygon(parseInt(res[0]), res[1], target));
     },
-    buildPolygon: function (sides, color, target) {
-        let s = 300, r = 140, cx = 150, cy = 150;
+    // L'APERÇU EST LE DESSIN LUI-MÊME, ET NON SON PORTRAIT. Écrire un second
+    // dessin « qui ressemble » serait signer deux fois la même chose : le jour
+    // où l'un change, l'autre ment. Le dessin sort donc de la pose, et les deux
+    // appellent la même fonction — ce qu'on voit est ce qu'on posera.
+    dessinDuPolygone: function (sides, color) {
+        const s = 300, r = 140, cx = 150, cy = 150;
         let pts = "";
         for (let i = 0; i < sides; i++) {
-            let angle = (i * 2 * Math.PI / sides) - Math.PI / 2;
+            const angle = (i * 2 * Math.PI / sides) - Math.PI / 2;
             pts += `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)} `;
         }
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}"><polygon points="${pts.trim()}" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="4" stroke-linejoin="round"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}"><polygon points="${pts.trim()}" fill="${color}" fill-opacity="0.2" stroke="${color}" stroke-width="4" stroke-linejoin="round"/></svg>`;
+    },
+    buildPolygon: function (sides, color, target) {
+        const svg = this.dessinDuPolygone(sides, color);
         placeGeneratedStamp('polygonTool', svg, [String(sides), color], target, `💠 Polygone à ${sides} côtés généré !`);
     }
 });
@@ -16714,13 +16801,15 @@ registerPlugin('weatherTool', 'Outils Profs', {
         const pre = prefill || [];
         openCustomPrompt(target ? "Modifier la météo" : "Météo du Jour", [
             { type: 'select', label: 'Temps', value: pre[0] || 'sun', options: [{ value: 'sun', label: '☀️ Soleil' }, { value: 'cloud', label: '☁️ Nuageux' }, { value: 'rain', label: '🌧️ Pluie' }, { value: 'snow', label: '❄️ Neige' }] }
-        ], null, (res) => {
+        ], (res) => this.dessinDeLaMeteo(res[0] || 'sun'), (res) => {
             document.querySelectorAll('#bar-tools .btn, #plugins-grid .btn').forEach(b => b.classList.remove('active'));
             this.buildWeather(res[0], target);
         });
     },
-    buildWeather: function (type, target) {
-        let s = 150;
+    // Quatre temps, quatre dessins : on choisit en voyant, et non en lisant le
+    // nom du temps qu'on a choisi.
+    dessinDeLaMeteo: function (type) {
+        const s = 150;
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${s} ${s}" width="${s}" height="${s}">`;
         if (type === 'sun') {
             svg += `<circle cx="75" cy="75" r="40" fill="#f1c40f" stroke="#f39c12" stroke-width="4"/>`;
@@ -16736,7 +16825,11 @@ registerPlugin('weatherTool', 'Outils Profs', {
             svg += `<path d="M 40 80 Q 20 80 20 60 Q 20 30 60 30 Q 70 0 100 20 Q 130 10 130 40 Q 140 40 140 60 Q 140 80 110 80 Z" fill="#ecf0f1" stroke="#b2bec3" stroke-width="4"/>`;
             svg += `<circle cx="50" cy="100" r="4" fill="#74b9ff"/><circle cx="80" cy="112" r="4" fill="#74b9ff"/><circle cx="110" cy="100" r="4" fill="#74b9ff"/>`;
         }
-        svg += `</svg>`;
+        return svg + `</svg>`;
+    },
+    buildWeather: function (type, target) {
+        const s = 150;
+        const svg = this.dessinDeLaMeteo(type);
 
         // Réédition : on remplace le tampon existant, sans repasser par un clic
         if (target) { placeGeneratedStamp('weatherTool', svg, [type], target); return; }
@@ -16930,7 +17023,7 @@ registerPlugin('qrCodeTool', 'Outils Profs', {
         const pre = prefill || [];
         openCustomPrompt(target ? "Modifier le QR Code" : "Créer un QR Code", [
             { type: 'text', label: 'Adresse web (URL)', value: pre[0] || 'https://' }
-        ], null, (res) => {
+        ], (res) => this.apercuDuQrCode(res[0]), (res) => {
             if (!res[0] || res[0] === 'https://') return;
             if (typeof qrcode !== 'function') { showToast("❌ Générateur de QR Code non disponible."); return; }
             showToast("⏳ Génération du QR Code...");
@@ -16960,6 +17053,28 @@ registerPlugin('qrCodeTool', 'Outils Profs', {
             };
             img.src = qr.createDataURL(cellSize, margin);
         });
+    },
+    // ON VOIT LE CODE AVANT DE LE POSER, ET ON PEUT LE SCANNER.
+    //
+    // Un QR code ne se relit pas à l'œil : on tapait une adresse, on posait le
+    // code, et c'est le téléphone d'un élève qui disait — trop tard, devant la
+    // classe — qu'elle était fausse. Celui de l'aperçu est le vrai, fait par
+    // la même bibliothèque : il se scanne.
+    apercuDuQrCode: function (adresse) {
+        const dire = (mot) => `<span style="font-size:12px; color:#636e72; text-align:center; padding:0 10px;">${mot}</span>`;
+        const url = String(adresse || '').trim();
+        if (!url || url === 'https://') return dire('Tapez une adresse : son code apparaîtra ici, et vous pourrez le scanner avant de le poser.');
+        if (typeof qrcode !== 'function') return dire('Le générateur de QR code n’est pas disponible.');
+        try {
+            const qr = qrcode(0, 'M');
+            qr.addData(url);
+            qr.make();
+            return qr.createImgTag(4, 8);
+        } catch (e) {
+            // Une adresse trop longue ne tient dans aucun code : on le dit
+            // tout de suite, plutôt que de laisser croire qu'il va venir.
+            return dire('Cette adresse est trop longue pour tenir dans un QR code.');
+        }
     }
 });
 

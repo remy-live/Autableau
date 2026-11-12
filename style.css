@@ -88,12 +88,19 @@
        assortie à son école, la change dans l'apparence, et tout suit : les
        barres, les fenêtres, les tiroirs et les fenêtres des outils. */
     --contour: #000000;
+    /* ET SON ÉPAISSEUR EST UN RÉGLAGE, COMME SA COULEUR.
+       « Pouvoir régler la bordure. » Un pixel se voit très bien sur un écran
+       de bureau ; projeté en 1024 de large sur un mur de classe, au fond de
+       la salle, il se devine. Celui qui projette le veut plus gras, celui qui
+       travaille assis le veut fin — et c'est le même trait, partout : les
+       barres, les tiroirs, les fenêtres des outils. */
+    --contour-trait: 1px;
     /* DEUX PIXELS VISIBLES, ZÉRO PIXEL PRIS. Le trait doit se voir de loin,
        mais une bordure de deux pixels agrandit la barre d'autant — et celle
        du document, posée sur le haut d'une fiche, recouvrait alors la
        première case à remplir. Le second pixel est donc une ombre sans
        flou : elle se dessine hors de la boîte sans entrer dans son calcul. */
-    --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(45, 52, 54, 0.16);
+    --contour-ombre: 0 0 0 var(--contour-trait) var(--contour), 0 8px 22px rgba(45, 52, 54, 0.16);
     /* ET L'ÉPAISSEUR DE CE TRAIT, NOMMÉE. Ce qui se dessine À CÔTÉ d'une
        surface encadrée — la languette d'un tiroir — doit porter le même trait
        qu'elle : un pixel de bordure plus un pixel d'ombre, soit deux. Les
@@ -135,7 +142,7 @@ body.dark-mode {
     /* Sur fond sombre, c'est un trait CLAIR qui détache : le même noir s'y
        fondrait exactement comme le gris pâle se fondait sur le blanc. */
     --contour: #8d99a6;
-    --contour-ombre: 0 0 0 1px var(--contour), 0 8px 22px rgba(0, 0, 0, 0.5);
+    --contour-ombre: 0 0 0 var(--contour-trait) var(--contour), 0 8px 22px rgba(0, 0, 0, 0.5);
 }
 
 /* CONTOURS FRANCS OU DISCRETS. Le trait d'encre est ce qu'il faut quand on
@@ -11301,7 +11308,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 
 /* Celle qui n'en a pas en reçoit un, comme les barres et les tiroirs. */
 .contour-fenetre.contour-ajoute {
-    border: 1px solid var(--contour) !important;
+    border: var(--contour-trait) solid var(--contour) !important;
     box-shadow: var(--contour-ombre) !important;
 }
 
@@ -11357,6 +11364,57 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
     background: none;
     cursor: pointer;
     flex: 0 0 auto;
+}
+
+/* L'ÉPAISSEUR DU TRAIT : TROIS CRANS SUR UNE LIGNE.
+   Trois boutons côte à côte, et non trois lignes empilées : ce sont les
+   valeurs d'un même réglage, pas trois réglages. Le choix en cours se
+   remplit — on doit pouvoir le lire sans le survoler, le panneau s'ouvrant
+   souvent devant une classe. */
+/* CETTE RANGÉE NE SE REPLIE PAS.
+   Mesuré sur un écran de 800 × 500 : laissée libre, elle passait à la ligne
+   et le menu gagnait quatorze pixels — 398 au lieu de 384 —, assez pour se
+   remettre à défiler, ce que deux chapitres interdisent. Tenue sur une seule
+   ligne, tout tient : le libellé fait ses 134 pixels sans être rogné, et le
+   menu retrouve sa hauteur. L'ellipse est une ceinture, pas un choix : elle
+   ne sert que si un jour la rangée n'a vraiment plus la place. */
+#rp-contour-boite { flex-wrap: nowrap; }
+
+#rp-contour-boite .rp-choix {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reglages-popup .rp-trait {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+    padding-right: 4px;
+}
+
+.reglages-popup .rp-trait-choix {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    border: 1px solid var(--border, #dfe6e9);
+    background: transparent;
+    color: var(--ink, #2d3436);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.reglages-popup .rp-trait-choix:hover { background: rgba(108, 92, 231, 0.10); }
+
+.reglages-popup .rp-trait-choix.actif {
+    background: #6c5ce7;
+    border-color: #6c5ce7;
+    color: #ffffff;
 }
 
 .rp-ligne .rp-rendre {

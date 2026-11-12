@@ -1316,16 +1316,49 @@ module.exports = async function (browser) {
     // ET LA BOÎTE REDEVIENT ÉTROITE EN SE FERMANT. Une classe posée et jamais
     // retirée donnerait cette largeur aux quarante autres réglages de
     // l'application, dont l'aperçu se perdrait dans une colonne vide.
+    // CE QU'ON MESURE, C'EST L'HÉRITAGE — PAS LE NOMBRE 320.
+    //
+    // Ce contrôle attendait « 320px » au repos, parce que la boîte avait cette
+    // largeur-là quel que soit l'outil. Elle suit désormais le nombre de
+    // réglages : une colonne pour un seul, quatre pour douze — « tout me va en
+    // mode serrée ». Un nombre figé ici ne surveillerait plus l'héritage, il
+    // surveillerait la largeur d'un outil au hasard, et tomberait le jour où
+    // l'arbre gagne un réglage.
+    //
+    // L'intention, elle, n'a pas bougé d'un mot : ce qu'une fenêtre large a
+    // pris ne doit pas être légué à la suivante. On la mesure donc pour de
+    // vrai — on ferme l'arbre, on ouvre un outil à UN SEUL réglage, et l'on
+    // regarde si la boîte est redevenue étroite.
     const apresFermeture = await page.evaluate(() => {
         const b = document.getElementById('custom-prompt-modal');
+        // ON LA MESURE OUVERTE, PUIS ON LA FERME : une boîte cachée ne fait
+        // aucune largeur, et l'on comparerait zéro à zéro.
+        const largeurDeLArbre = Math.round(b.getBoundingClientRect().width);
         b.style.display = 'none';
         return new Promise(ok => setTimeout(() => ok({
-            large: b.classList.contains('boite-large'), largeur: b.style.width
+            large: b.classList.contains('boite-large'), largeurDeLArbre
         }), 80));
     });
+    r.verifie('la classe « large » ne reste pas accrochée à la boîte',
+        apresFermeture.large === false, JSON.stringify(apresFermeture));
+
+    const apresUnPetitOutil = await page.evaluate(async () => {
+        const b = Array.from(document.querySelectorAll('#plugins-grid .btn'))
+            .find(x => (x.dataset.pluginKey || x.title || '') === 'Météo du Jour');
+        if (!b) return { erreur: 'bouton introuvable' };
+        b.click();
+        await new Promise(k => setTimeout(k, 400));
+        const m = document.getElementById('custom-prompt-modal');
+        const l = Math.round(m.getBoundingClientRect().width);
+        const annuler = document.getElementById('custom-prompt-cancel');
+        if (annuler) annuler.click();
+        return { large: m.classList.contains('boite-large'), largeur: l };
+    });
     r.verifie('LA BOÎTE REDEVIENT ÉTROITE EN SE FERMANT : les autres réglages n\'héritent de rien',
-        apresFermeture.large === false && apresFermeture.largeur === '320px',
-        JSON.stringify(apresFermeture));
+        apresUnPetitOutil.large === false
+        && apresUnPetitOutil.largeur > 0
+        && apresUnPetitOutil.largeur < apresFermeture.largeurDeLArbre,
+        JSON.stringify({ arbre: apresFermeture, meteo: apresUnPetitOutil }));
 
     await page.evaluate(() => {
         const b = document.getElementById('custom-prompt-modal');
