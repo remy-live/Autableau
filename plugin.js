@@ -30602,6 +30602,18 @@ registerPlugin('extremeStampTool', 'Détente', {
     // et de « GÉNIE » tombe sous le plancher de 200 px.
     POLICE_TAMPON: '900 40px "Courier New", Courier, monospace',
 
+    // LE TAMPON EST POSÉ DE TRAVERS, ET SA TOILE DOIT LE SAVOIR.
+    //
+    // « Le tampon est un peu tronqué. » Il l'était, et pas qu'un peu : le
+    // cadre était tourné de cette inclinaison DANS une toile taillée pour le
+    // cadre DROIT. Mesuré en comptant les pixels qui touchent le bord : 31
+    // rognés en haut et en bas pour « VU », 75 pour « SANS COMMENTAIRE » —
+    // plus le tampon est large, plus sa rotation le fait dépasser en hauteur.
+    //
+    // Une boîte de 200 × 80 tournée de 0,1 radian occupe 207 × 100. C'est
+    // cette boîte-là qu'il faut peindre, pas l'autre.
+    INCLINAISON_TAMPON: 0.1,
+
     tailleDuTampon: function (texte) {
         let largeurTexte = 0;
         try {
@@ -30617,6 +30629,19 @@ registerPlugin('extremeStampTool', 'Détente', {
         // 60 px : le cadre, ses dix pixels de retrait de chaque côté, et de
         // quoi respirer autour du mot.
         return { w: Math.max(200, Math.round(largeurTexte + 60)), h: 80 };
+    },
+
+    // La toile qu'il faut pour peindre ce cadre une fois incliné : sa boîte
+    // tournée, plus les trois pixels dont le trait de six déborde du chemin.
+    toileDuTampon: function (texte) {
+        const cadre = this.tailleDuTampon(texte);
+        const a = this.INCLINAISON_TAMPON;
+        const marge = 4;
+        return {
+            cadre,
+            w: Math.ceil(cadre.w * Math.cos(a) + cadre.h * Math.sin(a)) + marge * 2,
+            h: Math.ceil(cadre.w * Math.sin(a) + cadre.h * Math.cos(a)) + marge * 2
+        };
     },
 
     // Un seul tracé pour les deux usages — le fantôme qui suit la main, et
@@ -30648,13 +30673,16 @@ registerPlugin('extremeStampTool', 'Détente', {
 
     onPointerDown: function (pos) {
         if (typeof mode !== 'undefined' && mode === 'extremeStampTool' && this.activeStamp) {
-            const taille = this.tailleDuTampon(this.activeStamp.text);
-            const w = taille.w, h = taille.h;
+            // LA TOILE EST CELLE DU CADRE INCLINÉ ; le cadre, lui, garde sa
+            // taille. L'image posée sur le tableau prend donc la taille de la
+            // toile — sinon elle étirerait le dessin pour le faire entrer.
+            const toile = this.toileDuTampon(this.activeStamp.text);
+            const w = toile.w, h = toile.h;
             const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
             const cctx = canvas.getContext('2d');
 
-            cctx.translate(w / 2, h / 2); cctx.rotate(-0.1);
-            this.dessinerLeTampon(cctx, this.activeStamp, w, h);
+            cctx.translate(w / 2, h / 2); cctx.rotate(-this.INCLINAISON_TAMPON);
+            this.dessinerLeTampon(cctx, this.activeStamp, toile.cadre.w, toile.cadre.h);
 
             // Pose du tampon sur le tableau
             let stampId = typeof nextId !== 'undefined' ? nextId++ : Date.now();
@@ -30738,12 +30766,14 @@ registerPlugin('extremeStampTool', 'Détente', {
     onDraw: function (ctx) {
         // Rendu du fantôme avant de cliquer
         if (typeof mode !== 'undefined' && mode === 'extremeStampTool' && this.activeStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
-            const taille = this.tailleDuTampon(this.activeStamp.text);
+            // Le fantôme peint à même le tableau : rien ne le rogne, et il
+            // montre donc le CADRE, à la taille qu'il aura une fois posé.
+            const cadre = this.tailleDuTampon(this.activeStamp.text);
             ctx.save();
             ctx.globalAlpha = 0.5;
             ctx.translate(mouseLogicalPos.x, mouseLogicalPos.y);
-            ctx.rotate(-0.1);
-            this.dessinerLeTampon(ctx, this.activeStamp, taille.w, taille.h);
+            ctx.rotate(-this.INCLINAISON_TAMPON);
+            this.dessinerLeTampon(ctx, this.activeStamp, cadre.w, cadre.h);
             ctx.restore();
         }
 

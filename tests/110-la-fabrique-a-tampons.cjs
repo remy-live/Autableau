@@ -284,6 +284,75 @@ module.exports = async function (browser) {
         abime.gardes, [{ t: 'BON', c: '#2d3436' }, { t: 'SALE', c: '#2d3436' }],
         JSON.stringify(abime));
 
+    // ------------------------------------------------------------------
+    // 7. LE TAMPON POSÉ N'EST PAS TRONQUÉ.
+    //
+    //    « Le tampon est un peu tronqué. » Il l'était : le cadre est peint
+    //    INCLINÉ dans une toile taillée pour le cadre DROIT. Une boîte de
+    //    200 × 80 tournée de 0,1 radian occupe 207 × 100 — le reste passait
+    //    par-dessus bord.
+    //
+    //    ON NE CROIT PAS LE CALCUL SUR PAROLE : on peint le tampon et l'on
+    //    COMPTE LES PIXELS QUI TOUCHENT LE BORD de la toile. Un seul pixel
+    //    d'encre sur un bord, c'est un trait qui continuait dehors. Mesuré
+    //    avant correction : 31 pour « VU », 75 pour « SANS COMMENTAIRE » — un
+    //    tampon large dépasse davantage, puisque c'est sa largeur qui le fait
+    //    monter en tournant.
+    // ------------------------------------------------------------------
+    const bords = await page.evaluate(() => {
+        const p = PluginManager.plugins.extremeStampTool;
+        const out = {};
+        for (const mot of ['VU', 'ÉPIQUE', 'CHEF-D\'ŒUVRE', 'SANS COMMENTAIRE']) {
+            const t = p.toileDuTampon(mot);
+            const c = document.createElement('canvas'); c.width = t.w; c.height = t.h;
+            const x = c.getContext('2d');
+            x.translate(t.w / 2, t.h / 2); x.rotate(-p.INCLINAISON_TAMPON);
+            p.dessinerLeTampon(x, { text: mot, color: '#6c5ce7' }, t.cadre.w, t.cadre.h);
+            const d = x.getImageData(0, 0, c.width, c.height).data;
+            let n = 0;
+            for (let i = 0; i < c.width; i++) {
+                if (d[i * 4 + 3] > 20) n++;
+                if (d[((c.height - 1) * c.width + i) * 4 + 3] > 20) n++;
+            }
+            for (let j = 0; j < c.height; j++) {
+                if (d[(j * c.width) * 4 + 3] > 20) n++;
+                if (d[(j * c.width + c.width - 1) * 4 + 3] > 20) n++;
+            }
+            out[mot] = { bord: n, toile: [t.w, t.h], cadre: [t.cadre.w, t.cadre.h] };
+        }
+        return out;
+    });
+    const coupes = Object.keys(bords).filter(m => bords[m].bord > 0);
+    r.egal('aucun tampon ne touche le bord de sa toile : rien n\'est coupé',
+        coupes, [], JSON.stringify(bords));
+    // LA TOILE EST PLUS HAUTE QUE LE CADRE, et c'est la correction même : si
+    // les deux faisaient la même hauteur, l'inclinaison déborderait.
+    r.verifie('la toile est plus haute que le cadre, pour loger l\'inclinaison',
+        Object.keys(bords).every(m => bords[m].toile[1] > bords[m].cadre[1]),
+        JSON.stringify(bords));
+    // Et un tampon large monte plus qu'un étroit : c'est sa largeur qui le
+    // fait dépasser en tournant.
+    r.verifie('et un tampon large demande une toile plus haute qu\'un étroit',
+        bords['SANS COMMENTAIRE'].toile[1] > bords['VU'].toile[1],
+        JSON.stringify({ large: bords['SANS COMMENTAIRE'].toile, court: bords['VU'].toile }));
+
+    // L'IMAGE POSÉE PREND LA TAILLE DE LA TOILE. Garder celle du cadre
+    // étirerait le dessin pour le faire entrer, et le tampon paraîtrait écrasé.
+    const posee2 = await page.evaluate(() => {
+        const p = PluginManager.plugins.extremeStampTool;
+        p.conserver = true;
+        p.activeStamp = p.stamps.find(s => s.text === 'ÉPIQUE');
+        mode = 'extremeStampTool';
+        p.onPointerDown({ x: 600, y: 400 });
+        const img = images[images.length - 1];
+        const t = p.toileDuTampon('ÉPIQUE');
+        return { img: [img.w, img.h], toile: [t.w, t.h], cw: img.cw, ch: img.ch };
+    });
+    r.egal('l\'image posée a exactement la taille de sa toile',
+        posee2.img, posee2.toile, JSON.stringify(posee2));
+    r.egal('et son cadrage n\'étire rien', [posee2.cw, posee2.ch], posee2.toile,
+        JSON.stringify(posee2));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
