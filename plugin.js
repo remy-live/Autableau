@@ -30200,12 +30200,52 @@ registerPlugin('extremeStampTool', 'Détente', {
     conserver: false,
     comptes: {},
 
-    stamps: [
+    // VINGT TAMPONS AU LIEU DE QUATRE.
+    //
+    // « Rajoute bien plus de tampons, et des un peu fun. »
+    //
+    // Les quatre d'origine restent en tête, et dans leur ordre : ce sont ceux
+    // qu'on connaît, et une enseignante qui cherche son GÉNIE ne doit pas
+    // avoir à le retrouver au milieu d'une foule. Viennent ensuite ceux qui
+    // servent à corriger, puis ceux qui ne servent qu'à faire rire — c'est un
+    // outil rangé dans « Détente », il a le droit.
+    //
+    // « GÉNIAL ! » EST LÀ PARCE QU'ELLE L'A ÉCRIT : elle demandait de garder
+    // « les tampons comme "Génial !" » alors que celui du logiciel s'appelle
+    // GÉNIE. Le mot qu'elle avait en tête n'existait pas ; il existe.
+    TAMPONS_LIVRES: [
         { text: "FAUX !", color: "#d63031" },
         { text: "VU", color: "#00b894" },
         { text: "GÉNIE", color: "#0984e3" },
-        { text: "HÉRÉSIE", color: "#e84393" }
+        { text: "HÉRÉSIE", color: "#e84393" },
+
+        { text: "GÉNIAL !", color: "#00b894" },
+        { text: "BRAVO", color: "#00b894" },
+        { text: "EXACT", color: "#0984e3" },
+        { text: "PRESQUE", color: "#f39c12" },
+        { text: "À REVOIR", color: "#e17055" },
+        { text: "SOIGNE !", color: "#e17055" },
+        { text: "OÙ EST LA SUITE ?", color: "#d63031" },
+        { text: "JE N'Y CROIS PAS", color: "#6c5ce7" },
+
+        { text: "CHEF-D'ŒUVRE", color: "#00cec9" },
+        { text: "LÉGENDAIRE", color: "#fdcb6e" },
+        { text: "ÉPIQUE", color: "#6c5ce7" },
+        { text: "MIRACLE", color: "#00cec9" },
+        { text: "CATASTROPHE", color: "#2d3436" },
+        { text: "AÏE", color: "#d63031" },
+        { text: "MOUAIS", color: "#636e72" },
+        { text: "SANS COMMENTAIRE", color: "#636e72" }
     ],
+
+    // Les tampons fabriqués par l'enseignant, gardés avec les comptes.
+    perso: [],
+
+    // LA LISTE ENTIÈRE : les livrés, puis les siens. Le reste du plugin passe
+    // par « stamps » comme avant — on ne réécrit pas ce qui marchait.
+    get stamps() {
+        return this.TAMPONS_LIVRES.concat(this.perso || []);
+    },
 
     // LE DISQUE PEUT REFUSER — navigation privée, données du site bloquées par
     // l'établissement. Un tampon qui ne se pose plus parce qu'un réglage n'a
@@ -30218,17 +30258,63 @@ registerPlugin('extremeStampTool', 'Détente', {
             const r = JSON.parse(brut) || {};
             this.conserver = !!r.conserver;
             this.comptes = (r.comptes && typeof r.comptes === 'object') ? r.comptes : {};
-        } catch (e) { this.conserver = false; this.comptes = {}; }
+            // UN TAMPON FABRIQUÉ SANS TEXTE NE SE POSE PAS, et une couleur
+            // qu'on n'a pas écrite ne se dessine pas : on relit ce qui vient
+            // du disque comme on relirait n'importe quoi d'étranger.
+            this.perso = Array.isArray(r.perso)
+                ? r.perso.filter(t => t && typeof t.text === 'string' && t.text.trim())
+                    .map(t => ({ text: String(t.text).slice(0, 24),
+                                 color: /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '#2d3436',
+                                 perso: true }))
+                : [];
+        } catch (e) { this.conserver = false; this.comptes = {}; this.perso = []; }
     },
 
     ecrireLesReglages: function () {
         try {
             localStorage.setItem(this.CLE_REGLAGES,
-                JSON.stringify({ conserver: this.conserver, comptes: this.comptes }));
+                JSON.stringify({ conserver: this.conserver, comptes: this.comptes,
+                                 perso: this.perso }));
         } catch (e) { /* le disque refuse : le réglage vaut pour cette séance */ }
     },
 
     compteDe: function (texte) { return this.comptes[texte] || 0; },
+
+    // Huit teintes, et pas un nuancier : on choisit un tampon en classe, entre
+    // deux copies. Ce sont celles des tampons livrés, pour que ce qu'on
+    // fabrique ait l'air d'appartenir à la même boîte.
+    COULEURS_FABRIQUE: ['#d63031', '#00b894', '#0984e3', '#e84393',
+                        '#f39c12', '#6c5ce7', '#00cec9', '#2d3436'],
+    couleurChoisie: '#d63031',
+
+    // La grille des tampons, réécrite seule : fabriquer un tampon ne doit pas
+    // refaire toute la fenêtre — on y perdrait la place où elle est posée et
+    // le défilement où l'on en était.
+    htmlDesTampons: function () {
+        const echappe = (t) => String(t).replace(/[&<>"]/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        return this.stamps.map((s, i) => {
+            // Un mot long ne tient pas en 16 px : il rétrécit plutôt que de
+            // déborder de son cadre ou de casser la grille.
+            const taille = s.text.length > 13 ? 11 : (s.text.length > 9 ? 13 : 16);
+            return `<button class="es-btn" data-idx="${i}" title="${echappe(s.text)}"`
+                + ` style="position:relative; padding:14px 8px; border:2px solid ${s.color}; background:#fff;`
+                + ` color:${s.color}; font-weight:900; font-size:${taille}px; line-height:1.15; border-radius:6px;`
+                + ` cursor:pointer; transform:rotate(-5deg); transition:0.2s; overflow-wrap:anywhere;">`
+                + `${echappe(s.text)}`
+                + `<span class="es-compte" data-idx="${i}" style="position:absolute; top:-8px; right:-8px;`
+                + ` min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:${s.color};`
+                + ` color:#fff; font-size:11px; font-weight:700; line-height:20px; text-align:center;`
+                + ` pointer-events:none; visibility:hidden;"></span>`
+                // LE TAMPON FABRIQUÉ SE JETTE, les livrés non : on peut
+                // défaire ce qu'on a fait, on ne peut pas amputer la boîte.
+                + (s.perso ? `<span class="es-jeter" data-idx="${i}" title="Jeter ce tampon"`
+                    + ` style="position:absolute; bottom:-7px; right:-7px; width:18px; height:18px;`
+                    + ` border-radius:50%; background:#fff; border:1px solid #dfe6e9; color:#636e72;`
+                    + ` font-size:11px; line-height:16px; text-align:center;">✕</span>` : '')
+                + `</button>`;
+        }).join('');
+    },
 
     totalDesComptes: function () {
         return this.stamps.reduce((n, s) => n + this.compteDe(s.text), 0);
@@ -30286,30 +30372,80 @@ registerPlugin('extremeStampTool', 'Détente', {
         }
 
         this.widgetEl = document.createElement('div');
-        this.widgetEl.style.cssText = "position:fixed; top:80px; left:120px; background:#fff; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.2); z-index:10000; padding:15px; border:1px solid #dfe6e9; display:flex; flex-direction:column; gap:10px;";
+        // LA FENÊTRE NE ROGNE PLUS SES TAMPONS.
+        //
+        // « C'est un peu coupé. » Deux choses s'additionnaient. La barre de
+        // titre commune réserve 34 px en haut (« .fen-titree ») et se pose
+        // PAR-DESSUS le contenu ; et chaque tampon est tourné de cinq degrés,
+        // si bien que ses coins montent au-dessus de sa boîte. Le haut de
+        // « FAUX ! » et de « VU » passait donc sous la barre.
+        //
+        // La grille vit maintenant dans un corps qui lui est propre, avec sa
+        // marge haute à elle — une marge que le « padding-top » de la barre ne
+        // peut pas écraser, puisqu'elle est sur un autre élément. Et comme il
+        // y a vingt tampons et une fabrique, ce corps DÉFILE au lieu de
+        // pousser la fenêtre hors de l'écran.
+        //
+        // C'EST LE CORPS QU'ON BORNE, ET NON LA FENÊTRE. Un « max-height »
+        // posé ici serait écrasé : « ramenerFenetreDansLecran » réécrit celui
+        // de la fenêtre pour la garder dans l'écran — mesuré, il le remplaçait
+        // par « calc(100vh - 16px) » et la fenêtre faisait 846 px. Cette borne
+        // lui appartient, on ne la lui dispute pas.
+        this.widgetEl.style.cssText = "position:fixed; top:80px; left:120px; background:#fff; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.2); z-index:10000; padding:12px; border:1px solid #dfe6e9; display:flex; flex-direction:column; gap:8px; width:330px;";
 
-        let html = `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:5px; font-weight:bold; cursor:grab;" id="es-drag"><span>💥 Tampon Extrême</span><button id="es-close" style="background:none; border:none; color:#d63031; cursor:pointer;">✕</button></div><div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">`;
+        // LE BANDEAU MAISON RESTE, et il n'est pas un doublon de la barre de
+        // titre commune : celle-ci l'efface d'elle-même quand il ne porte que
+        // le nom et la croix. Écrit ici, il sert aux gabarits où la barre
+        // commune n'équipe pas encore la fenêtre.
+        let html = `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:8px; font-weight:bold; cursor:grab;" id="es-drag"><span>💥 Tampon Extrême</span><button id="es-close" style="background:none; border:none; color:#d63031; cursor:pointer;">✕</button></div>`;
 
-        this.stamps.forEach((s, i) => {
-            // LE CHIFFRE SUR LE TAMPON LUI-MÊME. Posé dans un coin du bouton,
-            // il se lit sans rien ouvrir — et il reste caché à zéro : un « 0 »
-            // sur chaque tampon au premier jour ne compte rien, il meuble.
-            html += `<button class="es-btn" data-idx="${i}" style="position:relative; padding:15px; border:2px solid ${s.color}; background:#fff; color:${s.color}; font-weight:900; font-size:16px; border-radius:6px; cursor:pointer; transform:rotate(-5deg); transition:0.2s;">${s.text}`
-                 + `<span class="es-compte" data-idx="${i}" style="position:absolute; top:-8px; right:-8px; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:${s.color}; color:#fff; font-size:11px; font-weight:700; line-height:20px; text-align:center; pointer-events:none; visibility:hidden;"></span>`
-                 + `</button>`;
-        });
+        // LE CORPS QUI DÉFILE. Vingt tampons et une fabrique ne tiennent pas
+        // sur un écran de portable ; sans ce défilement, la fabrique sortait
+        // par le bas et l'on ne pouvait plus l'atteindre.
+        // « padding-top:10px » : la place que demandent les coins des tampons
+        // tournés de cinq degrés. Sans elle, la première rangée se fait rogner
+        // par la barre de titre.
+        // « min-height:0 » N'EST PAS UNE COQUETTERIE. Dans une colonne flex, un
+        // enfant ne rétrécit JAMAIS sous la taille de son contenu sans cette
+        // ligne : le corps gardait donc sa hauteur entière, poussait la fenêtre
+        // à 846 px — mesuré — et le « max-height » de la fenêtre ne servait à
+        // rien. Avec elle, c'est le corps qui cède, et il défile.
+        html += `<div id="es-corps" style="flex:1 1 auto; min-height:0; max-height:min(50vh, 380px); overflow-y:auto; overflow-x:hidden; padding:10px 4px 4px; margin:0 -4px; display:flex; flex-direction:column; gap:10px;">
+            <div id="es-grille" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">`;
 
-        // LA CASE, SOUS LES TAMPONS ET NON DANS UN RÉGLAGE À PART : c'est une
-        // décision qu'on prend en même temps qu'on choisit son tampon — garder
-        // la correction sur la copie, ou faire éclater le tableau.
-        html += `</div>
-            <label id="es-garder" style="display:flex; align-items:center; gap:8px; font-size:13px; color:#2d3436; cursor:pointer; user-select:none; border-top:1px solid #eee; padding-top:10px;">
-                <input type="checkbox" id="es-conserver" style="width:16px; height:16px; cursor:pointer;">
+        html += this.htmlDesTampons();
+
+        html += `</div>`;
+
+        // LA FABRIQUE. « Ajoute une fabrique à tampons. »
+        //
+        // Deux champs et rien d'autre : le mot, et sa couleur. Un formulaire
+        // de six réglages pour écrire « SUPER » rendrait la fabrique plus
+        // longue à remplir que le tampon n'est utile.
+        html += `<div style="border-top:1px solid #eee; padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                <div style="font-size:12px; font-weight:700; color:#636e72; text-transform:uppercase; letter-spacing:0.5px;">Fabriquer un tampon</div>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="es-mot" maxlength="24" placeholder="Votre mot…"
+                        style="flex:1; min-width:0; padding:7px 9px; border:1px solid #dfe6e9; border-radius:6px; font-size:13px; font-weight:700; text-transform:uppercase;">
+                    <button id="es-fabriquer" style="padding:7px 12px; border:none; border-radius:6px; background:#0984e3; color:#fff; font-size:13px; font-weight:700; cursor:pointer;">Ajouter</button>
+                </div>
+                <div id="es-couleurs" style="display:flex; gap:6px; flex-wrap:wrap;">` +
+            this.COULEURS_FABRIQUE.map((c, i) =>
+                `<button class="es-teinte" data-couleur="${c}" title="${c}" style="width:24px; height:24px; border-radius:50%; border:2px solid ${i === 0 ? '#2d3436' : 'transparent'}; background:${c}; cursor:pointer; padding:0;"></button>`
+            ).join('') + `</div>
+            </div>
+        </div>`;
+
+        // LA CASE ET LE COMPTEUR RESTENT HORS DU DÉFILEMENT : ce sont les deux
+        // choses qu'on vient chercher sans les chercher, et elles n'ont pas à
+        // disparaître parce qu'on a fait défiler la liste des tampons.
+        html += `<label id="es-garder" style="display:flex; align-items:center; gap:8px; font-size:13px; color:#2d3436; cursor:pointer; user-select:none; border-top:1px solid #eee; padding-top:10px;">
+                <input type="checkbox" id="es-conserver" style="width:16px; height:16px; cursor:pointer; flex:0 0 auto;">
                 <span>Garder le tampon sur le tableau (sans explosion)</span>
             </label>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; color:#636e72;">
                 <span id="es-total">Aucun tampon posé</span>
-                <button id="es-raz" style="background:none; border:none; color:#0984e3; font-size:12px; cursor:pointer; padding:2px 4px;">Remettre à zéro</button>
+                <button id="es-raz" style="background:none; border:none; color:#0984e3; font-size:12px; cursor:pointer; padding:2px 4px; flex:0 0 auto;">Remettre à zéro</button>
             </div>`;
 
         this.widgetEl.innerHTML = html;
@@ -30332,6 +30468,64 @@ registerPlugin('extremeStampTool', 'Détente', {
             this.activeStamp = null;
             if (typeof annulerModePlugin === 'function') annulerModePlugin();
         };
+        this.brancherLesTampons();
+
+        const champ = this.widgetEl.querySelector('#es-mot');
+        const bouton = this.widgetEl.querySelector('#es-fabriquer');
+        const fabriquer = () => {
+            const mot = (champ.value || '').trim().toUpperCase();
+            if (!mot) {
+                if (typeof showToast === 'function') showToast('Écrivez d\'abord le mot du tampon');
+                champ.focus();
+                return;
+            }
+            // DEUX FOIS LE MÊME MOT, C'EST DEUX FOIS LE MÊME COMPTEUR : les
+            // comptes sont tenus PAR TEXTE, et un doublon ferait grimper les
+            // deux pastilles ensemble sans qu'on comprenne pourquoi.
+            if (this.stamps.some(t => t.text === mot)) {
+                if (typeof showToast === 'function') showToast(`« ${mot} » existe déjà`);
+                return;
+            }
+            this.perso.push({ text: mot.slice(0, 24), color: this.couleurChoisie, perso: true });
+            this.ecrireLesReglages();
+            this.redessinerLaGrille();
+            champ.value = '';
+            if (typeof showToast === 'function') showToast(`Tampon « ${mot} » fabriqué`);
+        };
+        if (bouton) bouton.addEventListener('click', (e) => { e.stopPropagation(); fabriquer(); });
+        if (champ) champ.addEventListener('keydown', (e) => {
+            // Entrée fabrique : on vient de taper le mot, la main est là.
+            if (e.key === 'Enter') { e.preventDefault(); fabriquer(); }
+            e.stopPropagation();   // le tableau écoute les touches, lui aussi
+        });
+
+        this.widgetEl.querySelectorAll('.es-teinte').forEach(t => {
+            t.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.couleurChoisie = t.dataset.couleur;
+                this.widgetEl.querySelectorAll('.es-teinte').forEach(x => {
+                    x.style.borderColor = (x === t) ? '#2d3436' : 'transparent';
+                });
+            });
+        });
+
+        this.brancherLeReste();
+    },
+
+    // Les tampons se rebranchent après chaque fabrication : la grille vient
+    // d'être réécrite, et les anciens écouteurs sont partis avec les anciens
+    // boutons.
+    redessinerLaGrille: function () {
+        if (!this.widgetEl) return;
+        const g = this.widgetEl.querySelector('#es-grille');
+        if (!g) return;
+        g.innerHTML = this.htmlDesTampons();
+        this.brancherLesTampons();
+        this.majLesComptes();
+    },
+
+    brancherLesTampons: function () {
+        if (!this.widgetEl) return;
         this.widgetEl.querySelectorAll('.es-btn').forEach(btn => {
             btn.onclick = (e) => {
                 // « e.target » peut être la pastille du compteur, posée DANS le
@@ -30342,11 +30536,32 @@ registerPlugin('extremeStampTool', 'Détente', {
                 if (!b) return;
                 this.widgetEl.querySelectorAll('.es-btn').forEach(x => x.style.background = '#fff');
                 b.style.background = '#f1f2f6';
+                // LA CROIX JETTE, ELLE NE CHOISIT PAS. Posée dans le
+                // bouton, un clic dessus armait aussi le tampon qu'on venait
+                // de supprimer — et le tableau attendait qu'on le pose.
+                if (e.target.classList && e.target.classList.contains('es-jeter')) {
+                    e.stopPropagation();
+                    const t = this.stamps[b.dataset.idx];
+                    if (t && t.perso) {
+                        this.perso = this.perso.filter(x => x.text !== t.text);
+                        if (this.activeStamp && this.activeStamp.text === t.text) {
+                            this.activeStamp = null;
+                            if (typeof annulerModePlugin === 'function') annulerModePlugin();
+                        }
+                        this.ecrireLesReglages();
+                        this.redessinerLaGrille();
+                    }
+                    return;
+                }
+                this.widgetEl.querySelectorAll('.es-btn').forEach(x => x.style.background = '#fff');
+                b.style.background = '#f1f2f6';
                 this.activeStamp = this.stamps[b.dataset.idx];
                 if (typeof setMode === 'function') setMode('extremeStampTool');
             };
         });
+    },
 
+    brancherLeReste: function () {
         const caseGarder = this.widgetEl.querySelector('#es-conserver');
         if (caseGarder) {
             caseGarder.checked = this.conserver;
@@ -30374,6 +30589,46 @@ registerPlugin('extremeStampTool', 'Détente', {
         this.majLesComptes();
     },
 
+    // LA TAILLE DU TAMPON SUIT SON MOT.
+    //
+    // Elle était figée à 200 × 80 pour tout le monde, avec « VU » et
+    // « HÉRÉSIE » dedans — et cela tenait, de justesse. Avec « SANS
+    // COMMENTAIRE », seize caractères à 40 px de Courier font près de quatre
+    // cents pixels : le mot sortait du cadre des deux côtés, et le cadre
+    // n'entourait plus rien.
+    //
+    // On mesure donc le mot, et c'est le tampon qui s'adapte. Les quatre
+    // d'origine gardent exactement leur taille d'avant : la mesure de « VU »
+    // et de « GÉNIE » tombe sous le plancher de 200 px.
+    POLICE_TAMPON: '900 40px "Courier New", Courier, monospace',
+
+    tailleDuTampon: function (texte) {
+        let largeurTexte = 0;
+        try {
+            if (!this._mesureur) this._mesureur = document.createElement('canvas').getContext('2d');
+            this._mesureur.font = this.POLICE_TAMPON;
+            largeurTexte = this._mesureur.measureText(String(texte || '')).width;
+        } catch (e) {
+            // Sans contexte de mesure, on retombe sur une largeur de caractère
+            // plausible pour du Courier gras à 40 px : mieux vaut un tampon un
+            // peu large qu'un tampon qui tranche son mot.
+            largeurTexte = String(texte || '').length * 26;
+        }
+        // 60 px : le cadre, ses dix pixels de retrait de chaque côté, et de
+        // quoi respirer autour du mot.
+        return { w: Math.max(200, Math.round(largeurTexte + 60)), h: 80 };
+    },
+
+    // Un seul tracé pour les deux usages — le fantôme qui suit la main, et
+    // l'image qu'on pose. Deux copies divergeaient à la première retouche.
+    dessinerLeTampon: function (ctx, tampon, w, h) {
+        ctx.strokeStyle = tampon.color; ctx.lineWidth = 6;
+        ctx.strokeRect(-w / 2 + 10, -h / 2 + 10, w - 20, h - 20);
+        ctx.fillStyle = tampon.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = this.POLICE_TAMPON;
+        ctx.fillText(tampon.text, 0, 0);
+    },
+
     shakeScreen: function () {
         const wrapper = document.getElementById('canvas-wrapper');
         if (!wrapper) return;
@@ -30393,16 +30648,13 @@ registerPlugin('extremeStampTool', 'Détente', {
 
     onPointerDown: function (pos) {
         if (typeof mode !== 'undefined' && mode === 'extremeStampTool' && this.activeStamp) {
-            const w = 200, h = 80;
+            const taille = this.tailleDuTampon(this.activeStamp.text);
+            const w = taille.w, h = taille.h;
             const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
             const cctx = canvas.getContext('2d');
 
             cctx.translate(w / 2, h / 2); cctx.rotate(-0.1);
-            cctx.strokeStyle = this.activeStamp.color; cctx.lineWidth = 6;
-            cctx.strokeRect(-w / 2 + 10, -h / 2 + 10, w - 20, h - 20);
-            cctx.fillStyle = this.activeStamp.color; cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
-            cctx.font = '900 40px "Courier New", Courier, monospace';
-            cctx.fillText(this.activeStamp.text, 0, 0);
+            this.dessinerLeTampon(cctx, this.activeStamp, w, h);
 
             // Pose du tampon sur le tableau
             let stampId = typeof nextId !== 'undefined' ? nextId++ : Date.now();
@@ -30486,16 +30738,12 @@ registerPlugin('extremeStampTool', 'Détente', {
     onDraw: function (ctx) {
         // Rendu du fantôme avant de cliquer
         if (typeof mode !== 'undefined' && mode === 'extremeStampTool' && this.activeStamp && typeof mouseLogicalPos !== 'undefined' && mouseLogicalPos) {
-            const w = 200, h = 80;
+            const taille = this.tailleDuTampon(this.activeStamp.text);
             ctx.save();
             ctx.globalAlpha = 0.5;
             ctx.translate(mouseLogicalPos.x, mouseLogicalPos.y);
             ctx.rotate(-0.1);
-            ctx.strokeStyle = this.activeStamp.color; ctx.lineWidth = 6;
-            ctx.strokeRect(-w / 2 + 10, -h / 2 + 10, w - 20, h - 20);
-            ctx.fillStyle = this.activeStamp.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.font = '900 40px "Courier New", Courier, monospace';
-            ctx.fillText(this.activeStamp.text, 0, 0);
+            this.dessinerLeTampon(ctx, this.activeStamp, taille.w, taille.h);
             ctx.restore();
         }
 

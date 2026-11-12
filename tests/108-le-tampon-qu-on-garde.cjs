@@ -59,14 +59,30 @@ module.exports = async function (browser) {
     // ------------------------------------------------------------------
     const neuve = await ouvrir();
     r.verifie('la fenêtre du tampon s\'ouvre', !!neuve, 'plugin introuvable');
-    r.egal('elle garde ses quatre tampons',
-        neuve ? neuve.tampons.map(t => t.trim()) : null,
+    // LES QUATRE D'ORIGINE SONT TOUJOURS LÀ, ET EN TÊTE.
+    //
+    // La première version de ce contrôle figeait la liste ENTIÈRE à ces
+    // quatre-là, et elle est tombée le jour où seize autres ont été ajoutés —
+    // à juste titre : ce qu'on exige n'est pas qu'il y en ait quatre, c'est
+    // qu'une enseignante qui cherche son GÉNIE ne doive pas le retrouver au
+    // milieu d'une foule.
+    r.egal('les quatre tampons d\'origine ouvrent toujours la liste',
+        neuve ? neuve.tampons.slice(0, 4).map(t => t.trim()) : null,
         ['FAUX !', 'VU', 'GÉNIE', 'HÉRÉSIE'], JSON.stringify(neuve));
+    r.verifie('et il y en a bien davantage — « rajoute bien plus de tampons »',
+        !!neuve && neuve.tampons.length >= 20, String(neuve && neuve.tampons.length));
+    // « GÉNIAL ! » EST LÀ PARCE QU'ELLE L'A ÉCRIT : elle demandait de garder
+    // « les tampons comme "Génial !" » alors que celui du logiciel s'appelle
+    // GÉNIE. Le mot qu'elle avait en tête n'existait pas.
+    r.verifie('dont le « GÉNIAL ! » qu\'elle avait en tête',
+        !!neuve && neuve.tampons.some(t => t.trim() === 'GÉNIAL !'),
+        JSON.stringify(neuve && neuve.tampons));
     r.egal('la case « garder » est là, et décochée au premier jour',
         neuve ? [neuve.caseLa, neuve.caseCochee] : null, [true, false],
         JSON.stringify(neuve));
     r.egal('chaque tampon porte sa pastille de compte',
-        neuve ? neuve.pastilles : null, 4, JSON.stringify(neuve));
+        neuve ? neuve.pastilles : null, neuve ? neuve.tampons.length : null,
+        JSON.stringify(neuve));
     r.verifie('et le total dit qu\'on n\'a rien posé',
         !!neuve && /aucun/i.test(neuve.total), JSON.stringify(neuve));
 
