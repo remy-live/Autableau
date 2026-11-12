@@ -30175,8 +30175,30 @@ registerPlugin('scratchBlocksTool', 'Informatique', {
 // ==========================================
 // PLUGIN 1 : TAMPON EXTRÊME (Fantôme, Suspense, Particules Lentes)
 // ==========================================
+// LE TAMPON QUI EXPLOSE — ET CELUI QU'ON GARDE.
+//
+// « Serait-il possible de conserver les tampons comme "Génial !" au lieu de
+//  les faire disparaître ? »
+//
+// Le tampon se posait, et deux secondes et demie plus tard il éclatait : écran
+// secoué, soixante éclats, et l'image retirée du tableau. C'est tout l'intérêt
+// du « Tampon Extrême », et personne ne le lui retire — mais une enseignante
+// s'en sert pour CORRIGER, et ce qu'elle appose sur le travail d'un élève doit
+// rester sur le travail de l'élève.
+//
+// L'EXPLOSION RESTE LE DÉFAUT. Un outil nommé « Extrême », dans la catégorie
+// Détente, ne doit pas devenir sage parce qu'on lui a ajouté un réglage : qui
+// l'ouvre pour la première fois doit voir ce qu'il est venu chercher. La case
+// est à côté des tampons, cochée une fois, retenue d'une séance à l'autre.
+//
+// ET LE COMPTEUR. « VU » posé trente fois dans l'heure, c'est trente copies
+// regardées : le chiffre existait déjà dans le geste, il n'était écrit nulle
+// part. Il se garde d'un jour à l'autre et se remet à zéro d'un clic.
 registerPlugin('extremeStampTool', 'Détente', {
     widgetEl: null, activeStamp: null, particles: [],
+    CLE_REGLAGES: 'auTableau_tampon_extreme_v1',
+    conserver: false,
+    comptes: {},
 
     stamps: [
         { text: "FAUX !", color: "#d63031" },
@@ -30184,6 +30206,51 @@ registerPlugin('extremeStampTool', 'Détente', {
         { text: "GÉNIE", color: "#0984e3" },
         { text: "HÉRÉSIE", color: "#e84393" }
     ],
+
+    // LE DISQUE PEUT REFUSER — navigation privée, données du site bloquées par
+    // l'établissement. Un tampon qui ne se pose plus parce qu'un réglage n'a
+    // pas pu se lire serait un bien mauvais échange : on retombe sur les
+    // valeurs d'usine et l'outil marche.
+    lireLesReglages: function () {
+        try {
+            const brut = localStorage.getItem(this.CLE_REGLAGES);
+            if (!brut) return;
+            const r = JSON.parse(brut) || {};
+            this.conserver = !!r.conserver;
+            this.comptes = (r.comptes && typeof r.comptes === 'object') ? r.comptes : {};
+        } catch (e) { this.conserver = false; this.comptes = {}; }
+    },
+
+    ecrireLesReglages: function () {
+        try {
+            localStorage.setItem(this.CLE_REGLAGES,
+                JSON.stringify({ conserver: this.conserver, comptes: this.comptes }));
+        } catch (e) { /* le disque refuse : le réglage vaut pour cette séance */ }
+    },
+
+    compteDe: function (texte) { return this.comptes[texte] || 0; },
+
+    totalDesComptes: function () {
+        return this.stamps.reduce((n, s) => n + this.compteDe(s.text), 0);
+    },
+
+    // Les chiffres se réécrivent sans refaire la fenêtre : elle n'est
+    // construite qu'une fois, et la rebâtir perdrait la place où on l'a posée.
+    majLesComptes: function () {
+        if (!this.widgetEl) return;
+        this.stamps.forEach((s, i) => {
+            const e = this.widgetEl.querySelector(`.es-compte[data-idx="${i}"]`);
+            if (!e) return;
+            const n = this.compteDe(s.text);
+            e.textContent = n ? String(n) : '';
+            e.style.visibility = n ? 'visible' : 'hidden';
+        });
+        const t = this.widgetEl.querySelector('#es-total');
+        if (t) {
+            const n = this.totalDesComptes();
+            t.textContent = n ? (n + (n > 1 ? ' tampons posés' : ' tampon posé')) : 'Aucun tampon posé';
+        }
+    },
 
     init: function () {
         const grid = document.getElementById('plugins-grid'); if (!grid) return;
@@ -30207,7 +30274,16 @@ registerPlugin('extremeStampTool', 'Détente', {
     },
 
     openWidget: function () {
-        if (this.widgetEl) { this.widgetEl.style.display = 'flex'; return; }
+        this.lireLesReglages();
+        // Rouverte, la fenêtre doit dire l'état du jour : les chiffres ont pu
+        // grandir, et la case a pu être cochée à la séance d'avant.
+        if (this.widgetEl) {
+            this.widgetEl.style.display = 'flex';
+            const c = this.widgetEl.querySelector('#es-conserver');
+            if (c) c.checked = this.conserver;
+            this.majLesComptes();
+            return;
+        }
 
         this.widgetEl = document.createElement('div');
         this.widgetEl.style.cssText = "position:fixed; top:80px; left:120px; background:#fff; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.2); z-index:10000; padding:15px; border:1px solid #dfe6e9; display:flex; flex-direction:column; gap:10px;";
@@ -30215,10 +30291,28 @@ registerPlugin('extremeStampTool', 'Détente', {
         let html = `<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:5px; font-weight:bold; cursor:grab;" id="es-drag"><span>💥 Tampon Extrême</span><button id="es-close" style="background:none; border:none; color:#d63031; cursor:pointer;">✕</button></div><div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">`;
 
         this.stamps.forEach((s, i) => {
-            html += `<button class="es-btn" data-idx="${i}" style="padding:15px; border:2px solid ${s.color}; background:#fff; color:${s.color}; font-weight:900; font-size:16px; border-radius:6px; cursor:pointer; transform:rotate(-5deg); transition:0.2s;">${s.text}</button>`;
+            // LE CHIFFRE SUR LE TAMPON LUI-MÊME. Posé dans un coin du bouton,
+            // il se lit sans rien ouvrir — et il reste caché à zéro : un « 0 »
+            // sur chaque tampon au premier jour ne compte rien, il meuble.
+            html += `<button class="es-btn" data-idx="${i}" style="position:relative; padding:15px; border:2px solid ${s.color}; background:#fff; color:${s.color}; font-weight:900; font-size:16px; border-radius:6px; cursor:pointer; transform:rotate(-5deg); transition:0.2s;">${s.text}`
+                 + `<span class="es-compte" data-idx="${i}" style="position:absolute; top:-8px; right:-8px; min-width:20px; height:20px; padding:0 5px; border-radius:10px; background:${s.color}; color:#fff; font-size:11px; font-weight:700; line-height:20px; text-align:center; pointer-events:none; visibility:hidden;"></span>`
+                 + `</button>`;
         });
 
-        this.widgetEl.innerHTML = html + `</div>`;
+        // LA CASE, SOUS LES TAMPONS ET NON DANS UN RÉGLAGE À PART : c'est une
+        // décision qu'on prend en même temps qu'on choisit son tampon — garder
+        // la correction sur la copie, ou faire éclater le tableau.
+        html += `</div>
+            <label id="es-garder" style="display:flex; align-items:center; gap:8px; font-size:13px; color:#2d3436; cursor:pointer; user-select:none; border-top:1px solid #eee; padding-top:10px;">
+                <input type="checkbox" id="es-conserver" style="width:16px; height:16px; cursor:pointer;">
+                <span>Garder le tampon sur le tableau (sans explosion)</span>
+            </label>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12px; color:#636e72;">
+                <span id="es-total">Aucun tampon posé</span>
+                <button id="es-raz" style="background:none; border:none; color:#0984e3; font-size:12px; cursor:pointer; padding:2px 4px;">Remettre à zéro</button>
+            </div>`;
+
+        this.widgetEl.innerHTML = html;
         document.body.appendChild(this.widgetEl);
         if (typeof ramenerFenetreDansLecran === 'function') ramenerFenetreDansLecran(this.widgetEl);
 
@@ -30240,12 +30334,44 @@ registerPlugin('extremeStampTool', 'Détente', {
         };
         this.widgetEl.querySelectorAll('.es-btn').forEach(btn => {
             btn.onclick = (e) => {
-                this.widgetEl.querySelectorAll('.es-btn').forEach(b => b.style.background = '#fff');
-                e.target.style.background = '#f1f2f6';
-                this.activeStamp = this.stamps[e.target.dataset.idx];
+                // « e.target » peut être la pastille du compteur, posée DANS le
+                // bouton : sans ce rattrapage, un clic qui tombe sur le chiffre
+                // ne choisissait aucun tampon. La pastille ignore déjà le
+                // pointeur, mais une ceinture de plus ne coûte rien.
+                const b = e.target.closest ? e.target.closest('.es-btn') : e.target;
+                if (!b) return;
+                this.widgetEl.querySelectorAll('.es-btn').forEach(x => x.style.background = '#fff');
+                b.style.background = '#f1f2f6';
+                this.activeStamp = this.stamps[b.dataset.idx];
                 if (typeof setMode === 'function') setMode('extremeStampTool');
             };
         });
+
+        const caseGarder = this.widgetEl.querySelector('#es-conserver');
+        if (caseGarder) {
+            caseGarder.checked = this.conserver;
+            caseGarder.addEventListener('change', () => {
+                this.conserver = !!caseGarder.checked;
+                this.ecrireLesReglages();
+                if (typeof showToast === 'function') {
+                    showToast(this.conserver
+                        ? '📌 Les tampons resteront sur le tableau'
+                        : '💥 Les tampons éclateront après deux secondes');
+                }
+            });
+        }
+
+        const raz = this.widgetEl.querySelector('#es-raz');
+        if (raz) {
+            raz.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.comptes = {};
+                this.ecrireLesReglages();
+                this.majLesComptes();
+            });
+        }
+
+        this.majLesComptes();
     },
 
     shakeScreen: function () {
@@ -30298,6 +30424,28 @@ registerPlugin('extremeStampTool', 'Détente', {
 
             const color = this.activeStamp.color;
             const px = pos.x; const py = pos.y;
+
+            // LE COMPTEUR. On compte la POSE, pas l'explosion : un tampon gardé
+            // compte autant qu'un tampon qui éclate, et c'est bien le geste de
+            // l'enseignante qu'on dénombre.
+            this.comptes[this.activeStamp.text] = this.compteDe(this.activeStamp.text) + 1;
+            this.ecrireLesReglages();
+            this.majLesComptes();
+
+            // GARDÉ, IL NE SE PASSE RIEN D'AUTRE : ni secousse, ni éclats.
+            // Secouer l'écran puis laisser le tampon en place promettrait une
+            // explosion qui n'arrive pas — et l'enseignante qui coche cette
+            // case corrige une copie, elle ne cherche pas le spectacle.
+            if (this.conserver) {
+                if (typeof saveState === 'function') saveState();
+                if (typeof setMode === 'function') setMode('pointer');
+                this.activeStamp = null;
+                if (this.widgetEl) {
+                    this.widgetEl.style.display = 'none';
+                    this.widgetEl.querySelectorAll('.es-btn').forEach(b => b.style.background = '#fff');
+                }
+                return true;
+            }
 
             // Suspense de 2.5 secondes avant l'explosion !
             setTimeout(() => {

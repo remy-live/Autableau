@@ -53786,3 +53786,216 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.visibilityState === 'hidden' && visionneuseOuverte()) fermerLaVisionneuse();
     });
 });
+
+// ==============================================================================
+// LE MODE DÉMONSTRATION : « ?debug=true »
+//
+// Montrer l'outil, l'éprouver, filmer une capture d'écran, répondre à un
+// enseignant qui demande « ça donne quoi, les classes ? » — tout cela butait
+// sur la même chose : un tableau neuf n'a NI classe NI emploi du temps. Il
+// fallait saisir trente élèves et douze créneaux à la main avant de pouvoir
+// montrer quoi que ce soit, et les effacer après.
+//
+// Trois classes et une semaine de cours s'installent donc d'un paramètre dans
+// l'adresse : « ...../index.html?debug=true ».
+//
+// DEUX RÈGLES, ET ELLES NE SE NÉGOCIENT PAS :
+//
+//   1. ON N'ÉCRASE JAMAIS LE TRAVAIL DE QUELQU'UN. Un enseignant peut très
+//      bien recevoir ce lien d'un collègue et le cliquer sans savoir ce qu'il
+//      fait. S'il a déjà UNE classe ou UN créneau, rien n'est posé et on le
+//      dit. Perdre la liste de ses élèves pour une démonstration serait le
+//      pire échange possible.
+//
+//   2. ON VOIT QU'ON EST EN DÉMONSTRATION. Un bandeau le dit, en toutes
+//      lettres, tant que le mode est actif. Des élèves inventés qu'on prend
+//      pour les siens, c'est un appel fait sur une classe fantôme.
+//
+// Les noms sont des prénoms de liste d'appel, sans famille : personne de réel
+// n'est nommé ici.
+// ==============================================================================
+
+function modeDemonstrationDemande() {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        if (!p.has('debug')) return false;
+        const v = (p.get('debug') || '').toLowerCase();
+        // « ?debug » tout court vaut oui : personne n'écrit « =true » de
+        // mémoire. Seul un « non » explicite l'éteint.
+        return v !== 'false' && v !== '0' && v !== 'non';
+    } catch (e) { return false; }
+}
+
+const PRENOMS_DEMO = [
+    'Camille', 'Noé', 'Inès', 'Gabriel', 'Léa', 'Sacha', 'Jade', 'Ethan',
+    'Louise', 'Adam', 'Alice', 'Raphaël', 'Chloé', 'Maël', 'Zoé', 'Nathan',
+    'Lina', 'Hugo', 'Anna', 'Tom', 'Rose', 'Liam', 'Nina', 'Marius',
+    'Sofia', 'Jules', 'Yasmine', 'Léo', 'Clara', 'Isaac'
+];
+
+// Trois classes de tailles différentes : une pleine, une moyenne, une petite.
+// Une démonstration où tout fait vingt-huit élèves ne montre pas comment la
+// grille se comporte quand elle est à moitié vide.
+const CLASSES_DEMO = [
+    { nom: '6e B', eleves: 28 },
+    { nom: '5e A', eleves: 24 },
+    { nom: '3e C', eleves: 19 }
+];
+
+function classesDeDemonstration() {
+    const maintenant = Date.now();
+    return CLASSES_DEMO.map((c, ic) => ({
+        id: 'demo_classe_' + (ic + 1),
+        name: c.nom,
+        createdAt: maintenant, updatedAt: maintenant,
+        demonstration: true,
+        students: Array.from({ length: c.eleves }, (_, i) => ({
+            id: 'demo_eleve_' + (ic + 1) + '_' + (i + 1),
+            // Au-delà de trente élèves la liste reboucle, et deux « Camille »
+            // dans la même classe se distinguent par leur initiale — comme
+            // dans un vrai cahier d'appel.
+            name: PRENOMS_DEMO[i % PRENOMS_DEMO.length]
+                + (i >= PRENOMS_DEMO.length ? ' ' + String.fromCharCode(66 + Math.floor(i / PRENOMS_DEMO.length)) + '.' : ''),
+            points: 0, malus: 0, badges: []
+        }))
+    }));
+}
+
+// Une semaine ordinaire de collège : quatre classes de mathématiques réparties
+// sur les cinq jours, avec le trou du mercredi après-midi et une heure qui
+// tombe juste après le déjeuner — les deux cas qui font mal à une grille.
+const CRENEAUX_DEMO = [
+    { jour: 1, debut: 8 * 60, duree: 55, classe: '6e B' },
+    { jour: 1, debut: 10 * 60, duree: 55, classe: '5e A' },
+    { jour: 1, debut: 14 * 60, duree: 55, classe: '3e C' },
+    { jour: 2, debut: 9 * 60, duree: 55, classe: '5e A' },
+    { jour: 2, debut: 11 * 60, duree: 55, classe: '6e B' },
+    { jour: 3, debut: 8 * 60, duree: 55, classe: '3e C' },
+    { jour: 3, debut: 9 * 60, duree: 55, classe: '6e B' },
+    { jour: 4, debut: 10 * 60, duree: 55, classe: '3e C' },
+    { jour: 4, debut: 13 * 60 + 30, duree: 55, classe: '6e B' },
+    { jour: 4, debut: 15 * 60, duree: 55, classe: '5e A' },
+    { jour: 5, debut: 8 * 60, duree: 55, classe: '5e A' },
+    { jour: 5, debut: 11 * 60, duree: 55, classe: '3e C' }
+];
+
+const COULEURS_DEMO = { '6e B': '#0984e3', '5e A': '#00b894', '3e C': '#e17055' };
+
+function agendaDeDemonstration() {
+    const entrees = CLASSES_DEMO.map((c, i) => ({
+        id: 'demo_entree_' + (i + 1),
+        libelle: c.nom,
+        couleur: COULEURS_DEMO[c.nom] || '#636e72',
+        classeId: 'demo_classe_' + (i + 1)
+    }));
+    const parNom = {};
+    entrees.forEach(e => { parNom[e.libelle] = e; });
+    const creneaux = CRENEAUX_DEMO.map((c, i) => {
+        const e = parNom[c.classe];
+        return {
+            id: 'demo_creneau_' + (i + 1),
+            jour: c.jour, debut: c.debut, duree: c.duree, semaine: 'T',
+            entreeId: e ? e.id : null,
+            libelle: c.classe,
+            couleur: e ? e.couleur : '#636e72'
+        };
+    });
+    return { entrees, creneaux };
+}
+
+// CE QU'ON A LE DROIT D'ÉCRASER : RIEN.
+//
+// On regarde les deux réserves avant d'écrire, et un seul élément déjà présent
+// de part ou d'autre suffit à tout annuler. Poser « seulement l'emploi du
+// temps » parce que les classes existent laisserait un agenda de démonstration
+// pointant sur de vraies classes : un mélange que personne ne saurait démêler.
+async function reserveDejaOccupee() {
+    let classes = [];
+    try {
+        if (typeof ClassesStore !== 'undefined' && ClassesStore.loadAll) {
+            classes = (await ClassesStore.loadAll()) || [];
+        }
+    } catch (e) { classes = []; }
+    let creneaux = 0, entrees = 0;
+    try {
+        const brut = JSON.parse(localStorage.getItem(CLE_AGENDA) || 'null');
+        if (brut && typeof brut === 'object') {
+            creneaux = Array.isArray(brut.creneaux) ? brut.creneaux.length : 0;
+            entrees = Array.isArray(brut.entrees) ? brut.entrees.length : 0;
+        }
+    } catch (e) { /* illisible : on ne touche à rien, par prudence */ }
+    const vraies = classes.filter(c => c && !c.demonstration);
+    return { occupee: vraies.length > 0 || creneaux > 0 || entrees > 0,
+             classes: vraies.length, creneaux, entrees };
+}
+
+function poserLeBandeauDeDemonstration(mot) {
+    let b = document.getElementById('bandeau-demo');
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'bandeau-demo';
+        document.body.appendChild(b);
+    }
+    b.textContent = mot;
+    return b;
+}
+
+async function installerLaDemonstration() {
+    if (!modeDemonstrationDemande()) return null;
+
+    const etat = await reserveDejaOccupee();
+    if (etat.occupee) {
+        // ON NE TOUCHE À RIEN, ET ON LE DIT. Le silence ferait croire que le
+        // mode n'a pas marché, et l'on recommencerait en cherchant pourquoi.
+        poserLeBandeauDeDemonstration(
+            'Démonstration refusée : vos vraies classes ou votre emploi du temps sont déjà là. Rien n\'a été touché.')
+            .dataset.etat = 'refus';
+        if (typeof showToast === 'function') {
+            showToast('Mode démonstration : vos données existent déjà, rien n\'a été remplacé');
+        }
+        return { pose: false, raison: 'occupee', etat };
+    }
+
+    const classes = classesDeDemonstration();
+    try {
+        if (typeof ClassesStore !== 'undefined' && ClassesStore.saveAll) {
+            await ClassesStore.saveAll(classes);
+        }
+    } catch (e) { /* le disque refuse : la démonstration vit en mémoire */ }
+
+    const a = agendaDeDemonstration();
+    try {
+        if (typeof agenda !== 'undefined') {
+            agenda.entrees = a.entrees;
+            agenda.creneaux = a.creneaux;
+            if (typeof ecrireLAgenda === 'function') ecrireLAgenda();
+        }
+    } catch (e) { /* idem */ }
+
+    // Le plugin des points tient sa propre copie des classes : sans ce
+    // rafraîchissement, il montre une liste vide à côté d'un emploi du temps
+    // plein, et l'on croit la démonstration à moitié cassée.
+    try {
+        const pts = (typeof PluginManager !== 'undefined' && PluginManager.plugins)
+            ? PluginManager.plugins.classPointsTool : null;
+        if (pts) { pts.classes = classes; pts.classeId = classes[0] ? classes[0].id : null; }
+    } catch (e) { /* le plugin n'est pas chargé : tant pis pour lui */ }
+
+    const nbEleves = classes.reduce((n, c) => n + c.students.length, 0);
+    poserLeBandeauDeDemonstration(
+        `Mode démonstration — ${classes.length} classes et ${nbEleves} élèves inventés, `
+        + `${a.creneaux.length} cours dans la semaine. Rien de tout cela n'est réel.`)
+        .dataset.etat = 'pose';
+
+    if (typeof majPastilleDeClasse === 'function') { try { majPastilleDeClasse(); } catch (e) { } }
+    return { pose: true, classes: classes.length, eleves: nbEleves, creneaux: a.creneaux.length };
+}
+window.installerLaDemonstration = installerLaDemonstration;
+window.modeDemonstrationDemande = modeDemonstrationDemande;
+
+// On attend que l'application soit debout : « ClassesStore » et « agenda »
+// n'existent pas avant, et poser des classes dans le vide ne poserait rien.
+window.addEventListener('load', () => {
+    if (!modeDemonstrationDemande()) return;
+    setTimeout(() => { installerLaDemonstration(); }, 600);
+});

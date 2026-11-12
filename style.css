@@ -14930,3 +14930,33 @@ body.rail-en-place #exit-focus-cross { display: none; }
     margin-left: 2px;
     opacity: 0.55;
 }
+
+/* LE BANDEAU DE LA DÉMONSTRATION.
+   En bas, et non en haut : le coin haut porte déjà la date, l'horloge et les
+   pages, et un bandeau de plus y passerait par-dessus ce qu'on vient d'y
+   ranger. En bas, il ne couvre que du tableau vide, et il se voit quand même —
+   c'est tout ce qu'on lui demande. Il ne prend pas le pointeur : on écrit
+   par-dessous sans avoir à le fermer. */
+#bandeau-demo {
+    position: fixed;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    max-width: min(92vw, 720px);
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: #2d3436;
+    color: #fff;
+    font-size: 12.5px;
+    line-height: 1.4;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    z-index: 100010;
+    pointer-events: none;
+}
+
+/* Un refus n'est pas une démonstration : il se lit en rouge, parce qu'il
+   annonce que ce qu'on attendait n'a PAS eu lieu. */
+#bandeau-demo[data-etat="refus"] {
+    background: #c0392b;
+}
