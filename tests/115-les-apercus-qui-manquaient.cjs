@@ -61,10 +61,11 @@ module.exports = async function (browser) {
     }, [rang, valeur]);
 
     // ------------------------------------------------------------------
-    // 1. SIX FENÊTRES QUI N'AVAIENT RIEN À MONTRER EN ONT MAINTENANT.
+    // 1. NEUF FENÊTRES QUI N'AVAIENT RIEN À MONTRER EN ONT MAINTENANT.
     // ------------------------------------------------------------------
     const SIX = ['Polygones Réguliers', 'Division Posée', 'Météo du Jour',
-                 'QR Code', 'Générateur de Dominos', 'Mots Mêlés'];
+                 'QR Code', 'Générateur de Dominos', 'Mots Mêlés',
+                 'Angles à mesurer', 'Jeu du Pendu', 'Le Compte est Bon'];
     const vides = [];
     for (const nom of SIX) {
         if (!(await ouvrir(nom))) { vides.push(nom + ' (bouton introuvable)'); continue; }
@@ -74,7 +75,7 @@ module.exports = async function (browser) {
         await refermer();
         await page.waitForTimeout(180);
     }
-    r.egal('les six fenêtres dessinent quelque chose', vides.length, 0, vides.join(' | '));
+    r.egal('les neuf fenêtres dessinent quelque chose', vides.length, 0, vides.join(' | '));
 
     // ------------------------------------------------------------------
     // 2. L'APERÇU EST LE DESSIN QU'ON POSERA, CARACTÈRE POUR CARACTÈRE.
@@ -222,15 +223,104 @@ module.exports = async function (browser) {
     await refermer();
 
     // ------------------------------------------------------------------
+    // 6 bis. LE PENDU NE TRAHIT PAS LE MOT.
+    //
+    //    La boîte de réglages s'ouvre sur l'écran PROJETÉ, devant la classe.
+    //    Un aperçu qui montrerait le mot que le professeur vient de taper le
+    //    donnerait à tout le monde avant la première lettre. Il montre donc
+    //    ce que la classe verra au début de la partie : les cases, et rien
+    //    d'autre. C'est le contrôle le plus important de ce chapitre.
+    // ------------------------------------------------------------------
+    await ouvrir('Jeu du Pendu');
+    await page.waitForTimeout(450);
+    await regler(1, 'BONJOUR');
+    await page.waitForTimeout(350);
+    const pendu = await page.evaluate(() => {
+        const a = document.getElementById('custom-prompt-preview');
+        const svg = a.querySelector('svg');
+        const texte = svg ? Array.from(svg.querySelectorAll('text')).map(t => t.textContent).join('') : '';
+        const cases = svg ? svg.querySelectorAll('line[stroke="#0984e3"]').length : 0;
+        return { texte, cases, mot: /BONJOUR/i.test(a.innerHTML) };
+    });
+    r.verifie('le mot caché n\'apparaît nulle part dans l\'aperçu',
+        pendu.mot === false && pendu.texte === '', JSON.stringify(pendu));
+    r.egal('et il y a exactement une case par lettre', pendu.cases, 7, JSON.stringify(pendu));
+
+    // Sans mot tapé, c'est la difficulté qui décide de la longueur.
+    await regler(1, '');
+    await regler(0, 'hard');
+    await page.waitForTimeout(350);
+    const penduDur = await page.evaluate(() => {
+        const svg = document.getElementById('custom-prompt-preview').querySelector('svg');
+        return svg ? svg.querySelectorAll('line[stroke="#0984e3"]').length : 0;
+    });
+    r.verifie('sans mot tapé, la difficulté commande la longueur',
+        penduDur > 7, 'difficile : ' + penduDur + ' cases');
+    await refermer();
+    await page.waitForTimeout(180);
+
+    // ------------------------------------------------------------------
+    // 6 ter. LES ANGLES ET LE COMPTE EST BON PROMETTENT LA SORTE.
+    //
+    //    Les deux tirent leur contenu au sort : l'aperçu ne montre donc pas
+    //    des nombres, il montre ce que les réglages décident vraiment — des
+    //    angles aigus ou obtus, une cible du bon ordre de grandeur.
+    // ------------------------------------------------------------------
+    await ouvrir('Angles à mesurer');
+    await page.waitForTimeout(450);
+    const formeDesAngles = () => page.evaluate(() => {
+        const s = document.getElementById('custom-prompt-preview').querySelector('svg[viewBox]');
+        if (!s) return null;
+        const v = (s.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+        return { large: v[2], dessin: s.innerHTML.length };
+    });
+    await regler(0, 'aigu');
+    await page.waitForTimeout(300);
+    const aigus = await formeDesAngles();
+    await regler(0, 'obtus');
+    await page.waitForTimeout(300);
+    const obtus = await formeDesAngles();
+    r.verifie('les angles aigus ne se dessinent pas comme les obtus',
+        !!aigus && !!obtus && aigus.dessin !== obtus.dessin, JSON.stringify({ aigus, obtus }));
+    await regler(1, '4');
+    await page.waitForTimeout(300);
+    const quatre = await formeDesAngles();
+    r.verifie('et quatre angles font une image plus large que trois',
+        !!quatre && !!obtus && quatre.large > obtus.large,
+        'trois : ' + (obtus && obtus.large) + ' | quatre : ' + (quatre && quatre.large));
+    await refermer();
+    await page.waitForTimeout(180);
+
+    await ouvrir('Le Compte est Bon');
+    await page.waitForTimeout(450);
+    const cible = () => page.evaluate(() => {
+        const s = document.getElementById('custom-prompt-preview').querySelector('svg');
+        const t = s ? s.querySelector('text') : null;
+        return t ? parseInt(t.textContent, 10) : null;
+    });
+    await regler(0, 'easy');
+    await page.waitForTimeout(300);
+    const facile = await cible();
+    await regler(0, 'hard');
+    await page.waitForTimeout(300);
+    const dur = await cible();
+    r.verifie('la cible de l\'aperçu a l\'ordre de grandeur annoncé',
+        facile >= 101 && facile <= 300 && dur >= 701 && dur <= 999,
+        'facile ' + facile + ' (101 à 300), difficile ' + dur + ' (701 à 999)');
+    await refermer();
+    await page.waitForTimeout(180);
+
+    // ------------------------------------------------------------------
     // 7. CE QUI RESTE SANS APERÇU, NOMMÉ.
     //
-    //    Quatre fenêtres fabriquent encore un objet sans rien montrer :
-    //    Angles à mesurer, le Jeu du Pendu, Le Compte est Bon et Créer une
-    //    Bulle. Elles tirent leur contenu au sort ou dessinent sur la toile,
-    //    et leur aperçu demande un vrai travail, pas un copier-coller. Ce
-    //    contrôle ne les condamne pas : il empêche qu'on les oublie.
+    //    Il en reste UNE : les Bulles BD. Celle-là ne dessine pas un SVG,
+    //    elle peint sur la toile du tableau — en faire un aperçu demanderait
+    //    d'écrire le même dessin une seconde fois, et deux dessins pour une
+    //    seule bulle finissent toujours par diverger. Elle attend donc de
+    //    passer par la même fonction de dessin, pas un copier-coller. Ce
+    //    contrôle ne la condamne pas : il empêche qu'on l'oublie.
     // ------------------------------------------------------------------
-    const restants = ['Angles à mesurer', 'Jeu du Pendu', 'Le Compte est Bon', 'Bulles BD Interactives'];
+    const restants = ['Bulles BD Interactives'];
     const sansApercu = [];
     for (const nom of restants) {
         if (!(await ouvrir(nom))) continue;
@@ -243,8 +333,8 @@ module.exports = async function (browser) {
         await refermer();
         await page.waitForTimeout(180);
     }
-    r.egal('on sait exactement lesquelles attendent encore leur aperçu',
-        sansApercu.length, 4, sansApercu.join(', '));
+    r.egal('on sait exactement laquelle attend encore son aperçu',
+        sansApercu.length, 1, sansApercu.join(', '));
 
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();

@@ -12541,7 +12541,8 @@ registerPlugin('countdownGameTool', 'Jeux', {
         openCustomPrompt("Le Compte est Bon", [
             { type: 'select', label: 'Cible', value: 'medium', options: [{ value: 'easy', label: 'Facile (101 à 300)' }, { value: 'medium', label: 'Moyen (301 à 700)' }, { value: 'hard', label: 'Difficile (701 à 999)' }] },
             { type: 'select', label: 'Minuteur', value: '3', options: [{ value: '0', label: 'Libre' }, { value: '1', label: '1 minute' }, { value: '3', label: '3 minutes' }] }
-        ], null, (res) => this.generateGame(res[0], parseInt(res[1]))); // null = pas d'aperçu
+        ], (res) => this.apercuDuPlateau(res[0]),
+            (res) => this.generateGame(res[0], parseInt(res[1])));
     },
 
     edit: function (imgObj) {
@@ -12635,23 +12636,43 @@ registerPlugin('countdownGameTool', 'Jeux', {
         return { plates, target, steps };
     },
 
+    // L'APERÇU MONTRE LE PLATEAU, ET LA CIBLE A LE BON ORDRE DE GRANDEUR.
+    //
+    // Le tirage est au sort à la pose : promettre des nombres serait promettre
+    // ceux-là. Mais la TAILLE de la cible, elle, est choisie — « Facile (101 à
+    // 300) », « Difficile (701 à 999) ». L'aperçu montre donc le plateau tel
+    // qu'il sera, avec une cible du bon ordre de grandeur et ses six plaques,
+    // par la même fonction de dessin que la pose.
+    CIBLES_D_EXEMPLE: { easy: 247, medium: 512, hard: 836 },
+    PLAQUES_D_EXEMPLE: [25, 7, 3, 50, 9, 2],
+
+    dessinDuPlateau: function (target, plates) {
+        const w = 550, h = 300;
+        let svgGame = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
+        svgGame += `<rect x="175" y="20" width="200" height="100" rx="15" fill="#0984e3" stroke="#000" stroke-width="3"/>`;
+        svgGame += `<text x="275" y="88" font-family="sans-serif" font-weight="bold" font-size="64" fill="#fff" text-anchor="middle">${target}</text>`;
+        const pW = 70, pH = 70, gap = 15;
+        const startX = (w - (6 * pW + 5 * gap)) / 2;
+        plates.forEach((p, i) => {
+            let x = startX + i * (pW + gap);
+            svgGame += `<rect x="${x}" y="160" width="${pW}" height="${pH}" rx="8" fill="#f1c40f" stroke="#e67e22" stroke-width="4"/>`;
+            svgGame += `<text x="${x + pW / 2}" y="${160 + pH / 2 + 10}" font-family="sans-serif" font-weight="bold" font-size="28" fill="#2d3436" text-anchor="middle">${p}</text>`;
+        });
+        return svgGame + `</svg>`;
+    },
+
+    apercuDuPlateau: function (difficulty) {
+        return this.dessinDuPlateau(this.CIBLES_D_EXEMPLE[difficulty] || this.CIBLES_D_EXEMPLE.medium,
+            this.PLAQUES_D_EXEMPLE);
+    },
+
     generateGame: function (difficulty, timerMinutes) {
         const game = this.generateLogic(difficulty);
         const logicalCenterX = (window.innerWidth / 2 - panX) / zoom;
         const logicalCenterY = (window.innerHeight / 2 - panY) / zoom;
 
         const w = 550, h = 300;
-        let svgGame = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">`;
-        svgGame += `<rect x="175" y="20" width="200" height="100" rx="15" fill="#0984e3" stroke="#000" stroke-width="3"/>`;
-        svgGame += `<text x="275" y="88" font-family="sans-serif" font-weight="bold" font-size="64" fill="#fff" text-anchor="middle">${game.target}</text>`;
-        const pW = 70, pH = 70, gap = 15;
-        const startX = (w - (6 * pW + 5 * gap)) / 2;
-        game.plates.forEach((p, i) => {
-            let x = startX + i * (pW + gap);
-            svgGame += `<rect x="${x}" y="160" width="${pW}" height="${pH}" rx="8" fill="#f1c40f" stroke="#e67e22" stroke-width="4"/>`;
-            svgGame += `<text x="${x + pW / 2}" y="${160 + pH / 2 + 10}" font-family="sans-serif" font-weight="bold" font-size="28" fill="#2d3436" text-anchor="middle">${p}</text>`;
-        });
-        svgGame += `</svg>`;
+        const svgGame = this.dessinDuPlateau(game.target, game.plates);
 
         const solW = 350, solH = 250;
         let svgSol = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${solW} ${solH}" width="${solW}" height="${solH}">`;
@@ -12888,10 +12909,13 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
         openCustomPrompt("Angles à mesurer", [
             { type: 'select', label: 'Type d\'angles', value: 'all', options: [{ value: 'all', label: 'Aléatoires (Aigus et Obtus)' }, { value: 'aigu', label: 'Aigus uniquement (< 90°)' }, { value: 'obtus', label: 'Obtus uniquement (> 90°)' }] },
             { type: 'select', label: 'Quantité', value: '3', options: [{ value: '2', label: '2 angles' }, { value: '3', label: '3 angles' }, { value: '4', label: '4 angles' }] }
-        ], null, (res) => this.buildGrid(res[0], parseInt(res[1])));
+        ], (res) => this.dessinDesAngles(res[0] || 'all', parseInt(res[1]) || 3),
+            (res) => this.buildGrid(res[0], parseInt(res[1])));
     },
 
-    getAngleSVG: function (angleDeg, baseRot) {
+    // Le corps d'un angle, sans son enveloppe : l'aperçu en aligne plusieurs
+    // dans une seule image, la pose en fait une image chacun.
+    corpsDUnAngle: function (angleDeg, baseRot) {
         const cx = 200, cy = 200, rLen = 170, aLen = 40;
         const angleRad = angleDeg * (Math.PI / 180);
 
@@ -12901,11 +12925,43 @@ registerPlugin('angleExerciseGenerator', 'Exercices', {
         const p2y = cy + Math.sin(baseRot + angleRad) * rLen;
         const largeArc = angleDeg > 180 ? 1 : 0;
 
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">`;
-        svg += `<rect width="400" height="400" fill="rgba(255,255,255,0.01)"/>`;
-        svg += `<path d="M ${cx} ${cy} L ${p1x} ${p1y} M ${cx} ${cy} L ${p2x} ${p2y}" stroke="#0984e3" stroke-width="3" stroke-linecap="round" fill="none"/>`;
-        svg += `<path d="M ${cx + Math.cos(baseRot) * aLen} ${cy + Math.sin(baseRot) * aLen} A ${aLen} ${aLen} 0 ${largeArc} 1 ${cx + Math.cos(baseRot + angleRad) * aLen} ${cy + Math.sin(baseRot + angleRad) * aLen}" stroke="#0984e3" stroke-width="1.5" fill="none"/>`;
-        svg += `</svg>`;
+        let corps = `<path d="M ${cx} ${cy} L ${p1x} ${p1y} M ${cx} ${cy} L ${p2x} ${p2y}" stroke="#0984e3" stroke-width="3" stroke-linecap="round" fill="none"/>`;
+        corps += `<path d="M ${cx + Math.cos(baseRot) * aLen} ${cy + Math.sin(baseRot) * aLen} A ${aLen} ${aLen} 0 ${largeArc} 1 ${cx + Math.cos(baseRot + angleRad) * aLen} ${cy + Math.sin(baseRot + angleRad) * aLen}" stroke="#0984e3" stroke-width="1.5" fill="none"/>`;
+        return corps;
+    },
+
+    // CE QUE L'APERÇU PROMET : LA SORTE ET LE NOMBRE, PAS LES MESURES.
+    //
+    // Les angles sont tirés au sort à la pose : montrer un tirage particulier
+    // serait promettre celui-là. Ce que les deux réglages décident, eux, c'est
+    // COMBIEN d'angles et DE QUELLE SORTE — aigus, obtus, ou les deux mêlés.
+    // Les exemples sont fixes, pour que l'image ne clignote pas d'un tirage à
+    // l'autre pendant qu'on règle.
+    exemplesDAngles: function (type, count) {
+        const table = {
+            aigu: [[35, 0.2], [62, 2.4], [48, 4.1], [76, 5.6]],
+            obtus: [[118, 0.3], [146, 2.2], [104, 4.3], [161, 5.5]],
+            all: [[42, 0.25], [133, 2.3], [67, 4.2], [152, 5.5]]
+        };
+        const liste = table[type] || table.all;
+        return liste.slice(0, Math.max(1, Math.min(count || 3, liste.length)));
+    },
+
+    dessinDesAngles: function (type, count) {
+        const C = 400, E = 30;
+        const exemples = this.exemplesDAngles(type, count);
+        const w = exemples.length * C + (exemples.length - 1) * E;
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${C}" width="${w}" height="${C}">`;
+        exemples.forEach((a, i) => {
+            svg += `<g transform="translate(${i * (C + E)},0)">${this.corpsDUnAngle(a[0], a[1])}</g>`;
+        });
+        return svg + `</svg>`;
+    },
+
+    getAngleSVG: function (angleDeg, baseRot) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">`
+            + `<rect width="400" height="400" fill="rgba(255,255,255,0.01)"/>`
+            + this.corpsDUnAngle(angleDeg, baseRot) + `</svg>`;
         return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
     },
 
@@ -12993,40 +13049,65 @@ registerPlugin('hangmanGameTool', 'Jeux', {
         openCustomPrompt("Jeu du Pendu", [
             { type: 'select', label: 'Difficulté (si mot aléatoire)', value: 'easy', options: [{ value: 'easy', label: 'Facile (4-6 lettres)' }, { value: 'medium', label: 'Moyen (7-9 lettres)' }, { value: 'hard', label: 'Difficile (10+ lettres)' }] },
             { type: 'text', label: 'OU tapez un mot caché :', value: '' }
-        ], null, (res) => this.startGame(res[0], res[1]));
+        ], (res) => this.dessinDuDepart(res[0], res[1]),
+            (res) => this.startGame(res[0], res[1]));
+    },
+
+    // L'APERÇU NE DIT PAS LE MOT — IL DIT COMBIEN DE LETTRES.
+    //
+    // La boîte de réglages s'ouvre sur l'écran PROJETÉ, devant la classe.
+    // Montrer le mot que le professeur vient de taper le donnerait à tout le
+    // monde avant la première lettre. Ce qu'on montre est donc exactement ce
+    // que la classe verra au début de la partie : la potence encore vide et
+    // les cases à remplir — par la même fonction de dessin que le jeu,
+    // appelée avec zéro faute.
+    //
+    // Sans mot tapé, la longueur vient de la difficulté choisie : c'est elle
+    // qui décide, et c'est la seule chose qu'elle décide.
+    LETTRES_PAR_DIFFICULTE: { easy: 5, medium: 8, hard: 11 },
+
+    dessinDuDepart: function (difficulte, mot) {
+        const propre = String(mot || '').toUpperCase().replace(/[^A-ZÀ-ÖØ-Ý]/g, '');
+        const combien = propre.length >= 2 ? propre.length
+            : (this.LETTRES_PAR_DIFFICULTE[difficulte] || 5);
+        return this.dessinDuPendu(0, '_'.repeat(combien));
     },
 
     getGameSVG: function () {
+        return "data:image/svg+xml;base64,"
+            + btoa(unescape(encodeURIComponent(this.dessinDuPendu(this.mistakes, this.displayWord))));
+    },
+
+    dessinDuPendu: function (mistakes, displayWord) {
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">`;
         svg += `<rect width="800" height="500" fill="rgba(255,255,255,0.01)"/>`;
 
         let c = '#2d3436'; let w = 8;
         svg += `<g stroke="${c}" stroke-width="${w}" stroke-linecap="round" fill="none">`;
-        if (this.mistakes >= 1) svg += `<line x1="250" y1="320" x2="550" y2="320"/>`;
-        if (this.mistakes >= 2) svg += `<line x1="350" y1="320" x2="350" y2="50"/>`;
-        if (this.mistakes >= 3) svg += `<line x1="350" y1="50" x2="480" y2="50"/>`;
-        if (this.mistakes >= 4) svg += `<line x1="350" y1="120" x2="420" y2="50"/>`;
-        if (this.mistakes >= 5) svg += `<line x1="480" y1="50" x2="480" y2="100"/>`;
-        if (this.mistakes >= 6) svg += `<circle cx="480" cy="130" r="30"/>`;
-        if (this.mistakes >= 7) svg += `<line x1="480" y1="160" x2="480" y2="240"/>`;
-        if (this.mistakes >= 8) svg += `<line x1="480" y1="180" x2="440" y2="220"/>`;
-        if (this.mistakes >= 9) svg += `<line x1="480" y1="180" x2="520" y2="220"/>`;
-        if (this.mistakes >= 10) svg += `<line x1="480" y1="240" x2="440" y2="300"/>`;
-        if (this.mistakes >= 11) svg += `<line x1="480" y1="240" x2="520" y2="300"/>`;
+        if (mistakes >= 1) svg += `<line x1="250" y1="320" x2="550" y2="320"/>`;
+        if (mistakes >= 2) svg += `<line x1="350" y1="320" x2="350" y2="50"/>`;
+        if (mistakes >= 3) svg += `<line x1="350" y1="50" x2="480" y2="50"/>`;
+        if (mistakes >= 4) svg += `<line x1="350" y1="120" x2="420" y2="50"/>`;
+        if (mistakes >= 5) svg += `<line x1="480" y1="50" x2="480" y2="100"/>`;
+        if (mistakes >= 6) svg += `<circle cx="480" cy="130" r="30"/>`;
+        if (mistakes >= 7) svg += `<line x1="480" y1="160" x2="480" y2="240"/>`;
+        if (mistakes >= 8) svg += `<line x1="480" y1="180" x2="440" y2="220"/>`;
+        if (mistakes >= 9) svg += `<line x1="480" y1="180" x2="520" y2="220"/>`;
+        if (mistakes >= 10) svg += `<line x1="480" y1="240" x2="440" y2="300"/>`;
+        if (mistakes >= 11) svg += `<line x1="480" y1="240" x2="520" y2="300"/>`;
         svg += `</g>`;
 
-        const letterW = Math.min(50, 700 / this.displayWord.length);
-        const startX = 400 - ((this.displayWord.length - 1) * letterW) / 2;
+        const letterW = Math.min(50, 700 / displayWord.length);
+        const startX = 400 - ((displayWord.length - 1) * letterW) / 2;
 
-        for (let i = 0; i < this.displayWord.length; i++) {
-            let char = this.displayWord[i];
+        for (let i = 0; i < displayWord.length; i++) {
+            let char = displayWord[i];
             if (char !== '_') {
                 svg += `<text x="${startX + i * letterW}" y="420" font-family="sans-serif" font-weight="bold" font-size="48" fill="#0984e3" text-anchor="middle">${char}</text>`;
             }
             svg += `<line x1="${startX + i * letterW - 15}" y1="430" x2="${startX + i * letterW + 15}" y2="430" stroke="#0984e3" stroke-width="4" stroke-linecap="round"/>`;
         }
-        svg += `</svg>`;
-        return "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+        return svg + `</svg>`;
     },
 
     startGame: function (difficulty, customWord) {
