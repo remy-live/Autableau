@@ -28633,12 +28633,38 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
     const inputElements = [];
 
     fields.forEach(field => {
+        // UNE RUBRIQUE, ET NON UN CHAMP.
+        //
+        // « Améliore-le vraiment, même dans la présentation. » Une boîte de
+        // dix réglages à la file se lit comme une liste de courses : on ne
+        // voit plus lesquels vont ensemble, et l'on descend quatre fois pour
+        // trouver la couleur qu'on cherche. Un intertitre ne règle rien — il
+        // dit seulement de quoi parle ce qui suit, et c'est tout ce qui
+        // manquait. Il ne rend aucune valeur : la lecture des réponses
+        // l'ignore, et les numéros des champs ne bougent pas.
+        if (field.type === 'titre') {
+            const t = document.createElement('div');
+            t.className = 'cp-rubrique';
+            t.innerText = field.label;
+            t.style.cssText = 'grid-column:1/-1; font-size:10px; font-weight:700;'
+                + ' letter-spacing:0.08em; text-transform:uppercase; color:#95a5a6;'
+                + ' border-top:1px solid rgba(127,127,127,0.25); padding-top:10px; margin-top:2px;';
+            // La première rubrique n'a personne au-dessus de qui se séparer.
+            if (!container.children.length) { t.style.borderTop = 'none'; t.style.paddingTop = '0'; }
+            container.appendChild(t);
+            return;
+        }
+
         const wrap = document.createElement('div');
         wrap.style.display = 'flex';
         wrap.style.flexDirection = 'column';
         wrap.style.gap = '6px';
 
         // Si c'est la couleur ou un grand champ (comme les Textes), il prend toute la largeur (2 colonnes)
+        // « mesure » est l'exception : c'est un nombre qu'on écrit avec des
+        // mots — « 3/4 », « 1 1/2 » —, donc un champ texte, mais il se range
+        // comme un nombre. Sans cela, écrire les bornes en fractions aurait
+        // fait de trois champs courts trois pleines largeurs.
         if (field.type === 'color' || field.type === 'text') {
             wrap.style.gridColumn = '1 / -1';
         }
@@ -28801,7 +28827,21 @@ function openCustomPrompt(title, fields, onChange, onValidate, onCancel) {
         }
         else {
             inp = document.createElement('input');
-            inp.type = field.type || 'text'; inp.value = field.value || '';
+            // « MESURE » EST UN NOMBRE QU'ON ÉCRIT AVEC DES MOTS.
+            //
+            // Un champ « number » refuse « 3/4 » : le navigateur rend une
+            // chaîne vide et la borne retombait à zéro sans rien dire. Celui-ci
+            // est un champ texte, mais il garde la place et le clavier d'un
+            // nombre — sur une tablette, c'est le pavé numérique qui s'ouvre.
+            if (field.type === 'mesure') {
+                inp.type = 'text';
+                inp.inputMode = 'decimal';
+                inp.autocomplete = 'off';
+                inp.spellcheck = false;
+            } else {
+                inp.type = field.type || 'text';
+            }
+            inp.value = field.value || '';
             inp.placeholder = field.placeholder || '';
             inp.className = 'prompt-input';
             inp.style.width = '100%';

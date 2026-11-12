@@ -1945,45 +1945,196 @@ registerPlugin('solidTool', 'Maths - Géométrie', {
 // UN POINT SUR L'AXE S'ÉCRIT « valeur » ou « valeur=Nom ». On sépare au
 // point-virgule et non à la virgule : la virgule est le séparateur DÉCIMAL de
 // « 3,5 », et c'est celui-là que le professeur tape.
+// ==========================================================================
+// LIRE UN NOMBRE COMME UN ÉLÈVE L'ÉCRIT
+//
+// « Permets de mettre des fractions. » Un axe gradué sert d'abord à PLACER
+// DES FRACTIONS : c'est son emploi au collège, et c'était précisément ce
+// qu'on ne pouvait pas y écrire. Les bornes et le pas passaient par un champ
+// « number », qui refuse « 3/4 » — le navigateur rendait une chaîne vide, et
+// la borne retombait à zéro sans un mot.
+//
+// On accepte donc ce qu'un cahier porte : 7 ; 2,5 ; 3/4 ; -5/2 ; 1 1/2.
+// ==========================================================================
+function lireUnNombre(brut, defaut) {
+    const vide = (defaut === undefined) ? null : lireUnNombre(defaut);
+    if (brut === null || brut === undefined) return vide;
+    let t = String(brut).trim().replace(/\s+/g, ' ');
+    if (!t) return vide;
+    // La virgule décimale des cahiers français, et le trait de fraction qu'on
+    // trouve sur les claviers (⁄) ou dans un copier-coller (∕).
+    t = t.replace(/[\u2044\u2215]/g, '/');
+
+    let signe = 1;
+    if (t[0] === '-') { signe = -1; t = t.slice(1).trim(); }
+    else if (t[0] === '+') { t = t.slice(1).trim(); }
+
+    // « 1 1/2 » : un entier, puis sa fraction.
+    const mixte = /^(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(t);
+    if (mixte) {
+        const e = +mixte[1], n = +mixte[2], d = +mixte[3];
+        if (!d) return vide;
+        return fraction(signe * (e * d + n), d);
+    }
+    // « 3/4 », et aussi « 2,5/3 » — un élève l'écrit, autant le lire.
+    const frac = /^([\d.,]+)\s*\/\s*([\d.,]+)$/.exec(t);
+    if (frac) {
+        const n = parseFloat(frac[1].replace(',', '.'));
+        const d = parseFloat(frac[2].replace(',', '.'));
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return vide;
+        // Un quotient de décimaux n'est pas une fraction d'entiers : on le
+        // ramène à l'un en multipliant les deux par dix autant qu'il faut.
+        let N = n, D = d, garde = 0;
+        while ((!Number.isInteger(N) || !Number.isInteger(D)) && garde++ < 8) { N *= 10; D *= 10; }
+        return Number.isInteger(N) && Number.isInteger(D)
+            ? fraction(signe * N, D) : { val: signe * n / d, num: null, den: null };
+    }
+    const v = parseFloat(t.replace(',', '.'));
+    if (!Number.isFinite(v)) return vide;
+    return { val: signe * v, num: null, den: null };
+}
+
+function pgcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const r = a % b; a = b; b = r; } return a || 1; }
+
+// Une fraction réduite, et son signe porté par le numérateur : « 3/-4 »
+// s'écrirait au tableau comme personne ne l'écrit.
+function fraction(num, den) {
+    if (!den) return { val: 0, num: null, den: null };
+    if (den < 0) { num = -num; den = -den; }
+    const g = pgcd(num, den);
+    return { val: num / den, num: num / g, den: den / g };
+}
+
+// Le dénominateur commun d'une graduation : c'est lui qui décide si l'axe
+// s'écrit en fractions. Un pas de 1/4 donne 4 ; un pas de 0,25 aussi, et c'est
+// voulu — l'enseignant qui écrit 0,25 peut vouloir des quarts.
+function denominateurDuPas(pas) {
+    if (pas && pas.den && pas.den > 1) return pas.den;
+    if (!pas || !Number.isFinite(pas.val) || pas.val === 0) return 1;
+    const f = fractionApprochee(pas.val);
+    return f ? f.den : 1;
+}
+
+// Un décimal court redevient la fraction qu'il était : 0,25 → 1/4. On ne
+// cherche pas au-delà du centième de dénominateur — « 0,3333 » n'est pas un
+// tiers, c'est un décimal, et le prétendre mentirait sur l'axe.
+function fractionApprochee(v) {
+    for (let d = 2; d <= 64; d++) {
+        const n = v * d;
+        if (Math.abs(n - Math.round(n)) < 1e-9) return fraction(Math.round(n), d);
+    }
+    return null;
+}
+
+window.lireUnNombre = lireUnNombre;
+window.fraction = fraction;
+
 function pointsDeLAxe(brut) {
     if (!brut) return [];
     return String(brut).split(';').map(bout => {
         const t = bout.trim();
         if (!t) return null;
         const eg = t.indexOf('=');
-        const nombre = (eg >= 0 ? t.slice(0, eg) : t).trim().replace(',', '.');
+        const nombre = (eg >= 0 ? t.slice(0, eg) : t).trim();
         const nom = eg >= 0 ? t.slice(eg + 1).trim() : '';
-        const val = parseFloat(nombre);
-        return Number.isFinite(val) ? { val, nom } : null;
+        // LES POINTS AUSSI S'ÉCRIVENT EN FRACTIONS. « 7/4=A » est la demande
+        // la plus courante d'un axe gradué, et c'était la seule chose qu'on ne
+        // pouvait pas y écrire.
+        const lu = lireUnNombre(nombre);
+        return (lu && Number.isFinite(lu.val)) ? { val: lu.val, num: lu.num, den: lu.den, nom } : null;
     }).filter(Boolean);
 }
 window.pointsDeLAxe = pointsDeLAxe;
 
 registerPlugin('axeTool', 'Maths - Numérique', {
     currentStamp: null, currentArgs: null,
-    champs: function (args) {
+    // L'ORDRE DES RÉGLAGES A CHANGÉ, ET LES ANCIENS AXES DOIVENT SURVIVRE.
+    //
+    // Les réponses de la boîte sont un simple tableau : le rang vaut le sens.
+    // Ajouter « Début » et « Fin » au milieu décalerait tout, et un axe
+    // enregistré l'an dernier se rouvrirait avec sa couleur dans la case des
+    // graduations. On reconnaît donc l'ancien format et on le traduit.
+    //
+    // La reconnaissance ne tient pas à la longueur, qui a déjà varié (six
+    // réglages, puis dix), mais à ce que porte la case 3 : « no / mid / yes »
+    // dans l'ancien, « auto / fraction / decimal » dans le nouveau. Les deux
+    // vocabulaires n'ont aucun mot commun.
+    ANCIENNES_GRADUATIONS: ['no', 'mid', 'yes'],
+
+    argsModernes: function (args) {
         const a = args || [];
-        // UN AXE ENREGISTRÉ HIER N'A QUE SIX RÉGLAGES. Les trois derniers sont
-        // nés aujourd'hui : sans ce repli, rouvrir un ancien axe le repeindrait
-        // en noir sur noir et perdrait ses points.
-        const couleur = a[5] || "#2d3436";
+        if (!a.length) return [];
+        if (this.ANCIENNES_GRADUATIONS.indexOf(a[3]) < 0) return a;   // déjà au nouveau format
+        // Ancien : min, max, pas, graduations, flèches, couleur, milieux, mm,
+        //          points, couleur des points.
+        const fleches = a[4] || 'right';
         return [
-            { type: 'number', label: "Min", value: a[0] !== undefined ? a[0] : "0" },
-            { type: 'number', label: "Max", value: a[1] !== undefined ? a[1] : "10" },
-            { type: 'number', label: "Pas", value: a[2] !== undefined ? a[2] : "1" },
+            a[0], a[1], a[2],
+            'auto',                                   // écriture : comme avant
+            a[3],                                     // graduations
+            fleches === 'both' ? 'fleche' : 'trait',  // début
+            'fleche',                                 // fin
+            a[5], a[6], a[7], a[8], a[9]
+        ];
+    },
+
+    champs: function (args) {
+        const a = this.argsModernes(args);
+        // UN AXE ENREGISTRÉ HIER N'A PAS TOUS LES RÉGLAGES D'AUJOURD'HUI :
+        // sans ces replis, le rouvrir le repeindrait en noir sur noir.
+        const couleur = a[7] || "#2d3436";
+        return [
+            { type: 'titre', label: "L'étendue de l'axe" },
+            // ON DIT CE QU'ON ACCEPTE, DANS LE LIBELLÉ MÊME. Un champ nommé
+            // « Min » n'annonce pas qu'on peut y écrire « 3/4 », et personne
+            // n'essaie ce qui n'est pas proposé.
+            { type: 'mesure', label: "Début (ex. 0 ou 1/2)", value: a[0] !== undefined ? a[0] : "0" },
+            { type: 'mesure', label: "Fin (ex. 10 ou 5/2)", value: a[1] !== undefined ? a[1] : "10" },
+            { type: 'mesure', label: "Pas (ex. 1 ou 1/4)", value: a[2] !== undefined ? a[2] : "1" },
             {
-                type: 'select', label: "Graduations", value: a[3] || "no", options: [
-                    { value: 'no', label: 'Aucune' },
-                    { value: 'mid', label: 'Les milieux seulement' },
-                    { value: 'yes', label: 'Milieux et millimètres' }
+                type: 'select', label: "Écriture des nombres", value: a[3] || "auto", options: [
+                    { value: 'auto', label: 'Automatique' },
+                    { value: 'fraction', label: 'En fractions' },
+                    { value: 'decimal', label: 'En décimaux' }
                 ]
             },
-            { type: 'select', label: "Flèches", value: a[4] || "right", options: [{ value: 'right', label: 'À droite' }, { value: 'both', label: 'Des deux côtés' }] },
+            { type: 'titre', label: "Les graduations" },
+            {
+                type: 'select', label: "Sous-graduations", value: a[4] || "no", options: [
+                    // DES LIBELLÉS QUI TIENNENT DANS LEUR BOÎTE. « Les
+                    // milieux seulement » se coupait en « Les milieux se… » :
+                    // un choix qu'on ne lit pas entier n'est pas un choix.
+                    { value: 'no', label: 'Aucune' },
+                    { value: 'mid', label: 'Les milieux' },
+                    { value: 'yes', label: 'Milieux + dixièmes' }
+                ]
+            },
+            { type: 'titre', label: "Les deux bouts" },
+            // CHAQUE BOUT SE RÈGLE À PART. « Permets de mettre le début et la
+            // fin. » Un seul choix « à droite / des deux côtés » ne savait pas
+            // dire la demi-droite graduée d'origine O — trait net à gauche,
+            // flèche à droite —, qui est pourtant la figure du cours.
+            {
+                type: 'select', label: "Début", value: a[5] || "trait", options: [
+                    { value: 'trait', label: 'Trait net' },
+                    { value: 'fleche', label: 'Flèche' },
+                    { value: 'rien', label: 'Rien' }
+                ]
+            },
+            {
+                type: 'select', label: "Fin", value: a[6] || "fleche", options: [
+                    { value: 'fleche', label: 'Flèche' },
+                    { value: 'trait', label: 'Trait net' },
+                    { value: 'rien', label: 'Rien' }
+                ]
+            },
+            { type: 'titre', label: "Les couleurs" },
             { type: 'color', label: "Couleur de l'axe", value: couleur },
-            { type: 'color', label: "Couleur des milieux", value: a[6] || couleur },
-            { type: 'color', label: "Couleur des millimètres", value: a[7] || couleur },
-            { type: 'text', label: "Points (3,5=A ; 7=B)", value: a[8] || "" },
-            { type: 'color', label: "Couleur des points", value: a[9] || "#d63031" }
+            { type: 'color', label: "Couleur des milieux", value: a[8] || couleur },
+            { type: 'color', label: "Couleur des dixièmes", value: a[9] || couleur },
+            { type: 'titre', label: "Les points à placer" },
+            { type: 'text', label: "Points (7/4=A ; 2,5=B)", value: a[10] || "" },
+            { type: 'color', label: "Couleur des points", value: a[11] || "#d63031" }
         ];
     },
     init: function () {
@@ -2004,27 +2155,118 @@ registerPlugin('axeTool', 'Maths - Numérique', {
             (res) => this.generateSVG(res),
             (res) => { createStampFromSVG(this.generateSVG(res, true), (stamp) => { imgObj.src = stamp.src; imgObj.w = stamp.w; imgObj.h = stamp.h; imgObj.cw = stamp.w; imgObj.ch = stamp.h; imgObj.pluginData.args = res; draw(); saveState(); }); });
     },
-    generateSVG: function (res, isExport = false) {
-        res = res || [];
-        let min = parseFloat(res[0]) || 0; let max = parseFloat(res[1]) || 10; let step = parseFloat(res[2]) || 1;
-        if (step <= 0) step = 1; if (max <= min) max = min + step;
-        const gradins = res[3] || 'no';
-        const arrows = res[4] || 'right';
-        const color = res[5] || '#2d3436';
-        const couleurMilieu = res[6] || color;
-        const couleurMm = res[7] || color;
-        const points = pointsDeLAxe(res[8]);
-        const couleurPoints = res[9] || '#d63031';
+    // L'ÉTIQUETTE D'UNE GRADUATION, EN FRACTION OU EN DÉCIMAL.
+    //
+    // Une fraction s'écrit EMPILÉE — numérateur, barre, dénominateur — et non
+    // « 3/4 » sur une ligne : c'est ainsi qu'elle est au tableau, et c'est la
+    // seule écriture qu'un élève de sixième reconnaît. Rendue sur une ligne,
+    // elle se confond avec une division.
+    //
+    // Un entier reste un entier, même dans un axe en quarts : « 1 » ne
+    // s'écrit pas « 4/4 ». C'est le repère de l'unité, et l'effacer sous une
+    // fraction, c'est effacer ce qu'on vient enseigner.
+    etiquetteSVG: function (x, yBase, lu, ecriture, taille, couleur) {
+        const entier = Math.abs(lu.val - Math.round(lu.val)) < 1e-9;
+        const enFraction = (ecriture === 'fraction' || ecriture === 'auto')
+            && !entier && lu.den && lu.den > 1;
 
-        // Les points s'écrivent AU-DESSUS de l'axe : sans cette hauteur en plus,
-        // le nom du point sortait du cadre et disparaissait au tamponnage.
-        const hautDesPoints = points.length ? (isExport ? 26 : 16) : 0;
-        const w = isExport ? 900 : 400, h = (isExport ? 100 : 60) + hautDesPoints;
-        const mX = isExport ? 40 : 20, y = hautDesPoints + (isExport ? 50 : 30);
+        if (!enFraction) {
+            const texte = entier ? String(Math.round(lu.val))
+                : String(parseFloat(lu.val.toFixed(3))).replace('.', ',');
+            // L'ENTIER S'ALIGNE SUR LA BARRE DE SES VOISINES.
+            //
+            // Dans un axe en quarts, « 0 », « 1 » et « 2 » sont des entiers au
+            // milieu de fractions empilées. Posés sur la ligne du numérateur,
+            // ils flottaient au-dessus des autres nombres : l'œil lisait deux
+            // rangées de chiffres là où il n'y a qu'une suite de valeurs. À la
+            // hauteur de la barre, la lecture redevient une seule ligne.
+            const y = (ecriture === 'fraction')
+                ? yBase + taille + 1 + taille * 0.34
+                : yBase + taille;
+            return `<text x="${x}" y="${y}" font-family="sans-serif" font-weight="bold"`
+                + ` font-size="${taille}" fill="${couleur}" text-anchor="middle">${texte}</text>`;
+        }
+
+        // Le signe sort de la fraction : « -3/4 » porte son moins devant la
+        // barre, à hauteur de celle-ci, comme on l'écrit à la main.
+        const negatif = lu.num < 0;
+        const n = Math.abs(lu.num), d = lu.den;
+        const petit = Math.round(taille * 0.92);
+        const demiLargeur = Math.max(String(n).length, String(d).length) * petit * 0.32 + 2;
+        const yBarre = yBase + taille + 1;
+        const dx = negatif ? petit * 0.42 : 0;
+        let g = '';
+        if (negatif) {
+            g += `<line x1="${x - demiLargeur - petit * 0.78}" y1="${yBarre}"`
+               + ` x2="${x - demiLargeur - petit * 0.22}" y2="${yBarre}"`
+               + ` stroke="${couleur}" stroke-width="${Math.max(1.4, petit * 0.11)}" stroke-linecap="round"/>`;
+        }
+        g += `<text x="${x + dx}" y="${yBarre - petit * 0.22}" font-family="sans-serif" font-weight="bold"`
+           + ` font-size="${petit}" fill="${couleur}" text-anchor="middle">${n}</text>`;
+        g += `<line x1="${x + dx - demiLargeur}" y1="${yBarre}" x2="${x + dx + demiLargeur}" y2="${yBarre}"`
+           + ` stroke="${couleur}" stroke-width="${Math.max(1.4, petit * 0.11)}" stroke-linecap="round"/>`;
+        g += `<text x="${x + dx}" y="${yBarre + petit}" font-family="sans-serif" font-weight="bold"`
+           + ` font-size="${petit}" fill="${couleur}" text-anchor="middle">${d}</text>`;
+        return g;
+    },
+
+    generateSVG: function (res, isExport = false) {
+        res = this.argsModernes(res || []);
+
+        const lMin = lireUnNombre(res[0], 0) || { val: 0, num: null, den: null };
+        const lMax = lireUnNombre(res[1], 10) || { val: 10, num: null, den: null };
+        let lPas = lireUnNombre(res[2], 1) || { val: 1, num: null, den: null };
+        if (!(lPas.val > 0)) lPas = { val: 1, num: 1, den: 1 };
+
+        let min = lMin.val, max = lMax.val;
+        if (max <= min) max = min + lPas.val;
+
+        const ecriture = res[3] || 'auto';
+        const gradins = res[4] || 'no';
+        const debut = res[5] || 'trait';
+        const finBout = res[6] || 'fleche';
+        const color = res[7] || '#2d3436';
+        const couleurMilieu = res[8] || color;
+        const couleurMm = res[9] || color;
+        const points = pointsDeLAxe(res[10]);
+        const couleurPoints = res[11] || '#d63031';
+
+        // LE DÉNOMINATEUR DE LA GRADUATION. C'est lui qui fait qu'un axe au
+        // pas de 1/4 écrit 1/4, 1/2, 3/4, 1 — et non 0,25 ; 0,5 ; 0,75 ; 1.
+        const den = denominateurDuPas(lPas);
+        const enFractions = (ecriture === 'fraction')
+            || (ecriture === 'auto' && den > 1);
+
+        // LA HAUTEUR SUIT CE QU'ON Y MET. Une fraction empilée prend deux
+        // lignes : sur la hauteur d'avant, son dénominateur sortait du cadre
+        // et disparaissait au tamponnage, comme les noms des points avant lui.
+        const hautDesPoints = points.length ? (isExport ? 28 : 17) : 0;
+        const basDesNombres = isExport ? (enFractions ? 58 : 32) : (enFractions ? 36 : 20);
+        const w = isExport ? 900 : 400;
+        const y = hautDesPoints + (isExport ? 46 : 28);
+        const h = y + basDesNombres;
+        const mX = isExport ? 40 : 20;
+        const tailleNombre = isExport ? 16 : 10;
+
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${isExport ? w : '100%'}" height="${isExport ? h : '100%'}">`;
         svg += `<line x1="${mX}" y1="${y}" x2="${w - mX}" y2="${y}" stroke="${color}" stroke-width="2"/>`;
-        if (arrows === 'both') svg += `<polygon points="${mX},${y} ${mX + 12},${y - 6} ${mX + 12},${y + 6}" fill="${color}"/>`;
-        svg += `<polygon points="${w - mX},${y} ${w - mX - 12},${y - 6} ${w - mX - 12},${y + 6}" fill="${color}"/>`;
+
+        // LES DEUX BOUTS, CHACUN LE SIEN. Le trait net ferme l'axe là où il
+        // s'arrête ; la flèche dit qu'il continue ; « rien » le laisse ouvert
+        // sans rien promettre. La demi-droite graduée du cours — trait à
+        // gauche, flèche à droite — ne pouvait pas se dire avant.
+        const boutGauche = (quoi) => {
+            if (quoi === 'fleche') return `<polygon points="${mX},${y} ${mX + 12},${y - 6} ${mX + 12},${y + 6}" fill="${color}"/>`;
+            if (quoi === 'trait') return `<line x1="${mX}" y1="${y - 8}" x2="${mX}" y2="${y + 8}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+            return '';
+        };
+        const boutDroit = (quoi) => {
+            if (quoi === 'fleche') return `<polygon points="${w - mX},${y} ${w - mX - 12},${y - 6} ${w - mX - 12},${y + 6}" fill="${color}"/>`;
+            if (quoi === 'trait') return `<line x1="${w - mX}" y1="${y - 8}" x2="${w - mX}" y2="${y + 8}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`;
+            return '';
+        };
+        svg += boutGauche(debut) + boutDroit(finBout);
+
         const pxPerUnit = (w - (mX * 2) - 40) / (max - min); const startX = mX + 20;
         const abscisse = (val) => startX + ((val - min) * pxPerUnit);
 
@@ -2032,23 +2274,30 @@ registerPlugin('axeTool', 'Maths - Numérique', {
         // accumulait son erreur : sur un axe de 0 à 100 au pas de 3, les derniers
         // traits dérivaient d'un pixel et le rang se lisait de travers.
         if (gradins !== 'no') {
-            const dixiemes = Math.floor((max - min) / (step / 10) + 1e-9);
+            const dixiemes = Math.floor((max - min) / (lPas.val / 10) + 1e-9);
             for (let k = 0; k <= dixiemes; k++) {
                 if (k % 10 === 0) continue;                    // c'est une unité : plus bas
                 const milieu = (k % 5 === 0);
                 if (!milieu && gradins !== 'yes') continue;    // les milieux seuls
-                const x = abscisse(min + k * (step / 10));
+                const x = abscisse(min + k * (lPas.val / 10));
                 const demiHauteur = milieu ? 6 : 3;
                 svg += `<line x1="${x}" y1="${y - demiHauteur}" x2="${x}" y2="${y + demiHauteur}" stroke="${milieu ? couleurMilieu : couleurMm}" stroke-width="${milieu ? 2 : 1}"/>`;
             }
         }
 
-        const pas = Math.floor((max - min) / step + 1e-9);
-        for (let i = 0; i <= pas; i++) {
-            const val = min + i * step;
+        // LES GRADUATIONS SE COMPTENT EN PAS ENTIERS, et leur valeur se
+        // reconstruit en fraction plutôt qu'en additionnant des décimaux : sur
+        // un axe en tiers, « min + i × 0,333… » n'est jamais un tiers juste, et
+        // l'étiquette aurait affiché 0,999 au lieu de 1.
+        const nbPas = Math.floor((max - min) / lPas.val + 1e-9);
+        for (let i = 0; i <= nbPas; i++) {
+            const val = min + i * lPas.val;
             const x = abscisse(val);
             svg += `<line x1="${x}" y1="${y - 9}" x2="${x}" y2="${y + 9}" stroke="${color}" stroke-width="2"/>`;
-            svg += `<text x="${x}" y="${y + 25}" font-family="sans-serif" font-weight="bold" font-size="${isExport ? 16 : 10}" fill="${color}" text-anchor="middle">${Number.isInteger(val) ? val : parseFloat(val.toFixed(2))}</text>`;
+            const lu = enFractions ? fraction(Math.round(val * den), den)
+                                   : { val, num: null, den: null };
+            svg += this.etiquetteSVG(x, y + (isExport ? 8 : 5), lu,
+                enFractions ? 'fraction' : 'decimal', tailleNombre, color);
         }
 
         // Un point hors de l'axe n'est pas un point : on ne le dessine pas dans
