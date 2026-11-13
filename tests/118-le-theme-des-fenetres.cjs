@@ -47,11 +47,11 @@ module.exports = async function (browser) {
     const ouverture = await page.evaluate(async () => {
         document.getElementById('btn-reglages-barre').click();
         await new Promise(k => setTimeout(k, 300));
-        const ligne = document.getElementById('rp-apparence-fenetres');
+        const ligne = document.getElementById('rp-apparence');
         if (!ligne) return { erreur: 'pas de ligne dans le menu' };
         ligne.click();
         await new Promise(k => setTimeout(k, 500));
-        const f = document.getElementById('apparence-fenetres');
+        const f = document.getElementById('reglages-apparence');
         if (!f) return { erreur: 'pas de fenêtre' };
         const nom = f.querySelector('.fen-nom');
         return {
@@ -66,7 +66,9 @@ module.exports = async function (browser) {
             // les réglages du trait ont bien déménagé avec elle
             contoursFrancs: !!f.querySelector('#rp-contours'),
             couleur: !!f.querySelector('#rp-contour-couleur'),
-            crans: f.querySelectorAll('.rp-epaisseur-choix').length,
+            // CEUX DU TRAIT, et non tous ceux de la fenêtre : le mode
+            // vidéoprojecteur en a trois à lui, qui comptaient double ici.
+            crans: f.querySelectorAll('#rp-epaisseur .rp-epaisseur-choix').length,
             // et les deux intertitres se lisent
             rubriques: Array.from(f.querySelectorAll('.af-rubrique'))
                 .filter(e => e.getClientRects().length).length,
@@ -76,12 +78,16 @@ module.exports = async function (browser) {
     r.verifie('la ligne du menu ouvre la fenêtre de l\'apparence',
         ouverture.ouverte === true, JSON.stringify(ouverture));
     r.verifie('elle reçoit la barre commune sans l\'avoir demandée',
-        ouverture.equipee && ouverture.barre && ouverture.titre === 'Apparence des fenêtres'
+        ouverture.equipee && ouverture.barre && ouverture.titre === 'Apparence'
         && ouverture.contour, JSON.stringify(ouverture));
     r.verifie('les réglages du trait ont déménagé avec elle',
         ouverture.contoursFrancs && ouverture.couleur && ouverture.crans === 3,
         JSON.stringify(ouverture));
-    r.egal('et ses deux intertitres se lisent', ouverture.rubriques, 2, JSON.stringify(ouverture));
+    // TROIS INTERTITRES DEPUIS QUE LE VIDÉOPROJECTEUR EST ARRIVÉ : le trait
+    // des fenêtres, le thème, et le tableau. La fenêtre ne s'appelle plus
+    // « Apparence des fenêtres » mais « Apparence » — ce qu'on y règle n'est
+    // plus seulement les fenêtres.
+    r.egal('et ses trois intertitres se lisent', ouverture.rubriques, 3, JSON.stringify(ouverture));
     r.egal('six habits sont proposés', ouverture.vignettes, 6, JSON.stringify(ouverture));
 
     // ------------------------------------------------------------------

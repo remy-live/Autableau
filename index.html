@@ -6,8 +6,8 @@
     <!-- CETTE PAGE-CI NE SE GARDE PAS EN CACHE.
          « Le lecteur de dictée a deux étages » — il ne les avait plus depuis
          des heures, mais le navigateur servait une page d'avant. Tout le
-         dépôt est protégé par des numéros de version — « style.css?v=259 »,
-         « script.js?v=464 » — et ces numéros sont écrits DANS CETTE PAGE.
+         dépôt est protégé par des numéros de version — « style.css?v=260 »,
+         « script.js?v=465 » — et ces numéros sont écrits DANS CETTE PAGE.
          Gardée en cache, elle réclame les anciens fichiers : le mécanisme
          entier ne sert alors à rien, et l'on croit un correctif absent quand
          il est simplement pas encore reçu. La page se revalide donc à chaque
@@ -43,7 +43,7 @@
     <script src="./lib/localforage/localforage.min.js?v=1"></script>
     <script src="./lib/qrcode/qrcode.min.js?v=1"></script>
     <script src="./lib/fonts/nunito-base64.js?v=1"></script>
-    <link rel="stylesheet" href="style.css?v=259">
+    <link rel="stylesheet" href="style.css?v=260">
 
     <!-- S'INSTALLER, POUR OUVRIR LES PDF DEPUIS WINDOWS.
          « Comment faire pour ouvrir un PDF par défaut avec Au Tableau, ou le
@@ -2160,7 +2160,16 @@
          C'est aussi la démonstration de ce qu'on veut partout : le même
          système pour toutes les fenêtres.
          ============================================================== -->
-    <div id="apparence-fenetres" data-fenetre-titre="Apparence des fenêtres"
+    <!-- « APPARENCE », ET NON « APPARENCE DES FENÊTRES ».
+         Le mode vidéoprojecteur devait aller quelque part, et le menu des
+         réglages n'a SIX PIXELS de marge avant de se remettre à défiler sur
+         un écran de 800 × 500 : mesuré, et deux chapitres l'interdisent. Une
+         ligne de plus était donc impossible. Mais la question « de quoi tout
+         cela a-t-il l'air ? » n'a jamais eu qu'une réponse, et le trait des
+         fenêtres n'en est qu'un morceau : l'épaisseur de ce qu'on dessine en
+         est un autre. Cette fenêtre les réunit, et le menu ne gagne pas un
+         pixel. -->
+    <div id="reglages-apparence" data-fenetre-titre="Apparence"
         style="display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
                width:min(520px, calc(100vw - 32px)); max-height:min(560px, calc(100vh - 32px));
                overflow:auto; background:#ffffff; border-radius:10px; z-index:200080;
@@ -2211,6 +2220,25 @@
         <p class="af-mot">Il habille la barre de titre et la boîte de réglages des outils.
             Les fenêtres qui peignent leur propre fond gardent le leur.</p>
         <div class="af-themes" id="af-themes" role="group" aria-label="Thème des fenêtres"></div>
+
+        <div class="af-rubrique">Le tableau</div>
+        <p class="af-mot">Un vidéoprojecteur étale l'image sur deux mètres de mur, et
+            l'élève du fond est à six mètres : un trait fin n'y arrive pas. Ce mode
+            épaissit ce qu'on dessine et la réglure du cahier — sans toucher à
+            l'épaisseur choisie dans la palette, qui redevient la bonne en rentrant.</p>
+        <div class="rp-ligne" id="rp-projecteur-boite">
+            <button class="rp-choix" id="rp-videoprojecteur"
+                title="Épaissir les tracés et la réglure pour qu'ils se voient du fond de la classe">Mode vidéoprojecteur</button>
+            <span class="rp-epaisseur" id="rp-grossissement" role="group"
+                aria-label="Force du grossissement">
+                <button type="button" class="rp-epaisseur-choix" data-gros="1.3"
+                    title="Léger : un tiers de plus">×1,3</button>
+                <button type="button" class="rp-epaisseur-choix" data-gros="1.6"
+                    title="Moyen : la moitié de plus — le cran courant">×1,6</button>
+                <button type="button" class="rp-epaisseur-choix" data-gros="2.1"
+                    title="Fort : deux fois plus. Au-delà, deux droites voisines se touchent">×2,1</button>
+            </span>
+        </div>
     </div>
 
     <div id="custom-prompt-modal"
@@ -2743,8 +2771,8 @@
                          cette ligne prend EXACTEMENT la place de celle qu'elle
                          remplace : le menu ne gagne pas un pixel, et ce qui
                          parle du même sujet se regarde ensemble. -->
-                    <button class="rp-choix" id="rp-apparence-fenetres"
-                        title="Le trait des fenêtres, sa couleur, son épaisseur et le thème">Apparence des fenêtres…</button>
+                    <button class="rp-choix" id="rp-apparence"
+                        title="Le trait des fenêtres, sa couleur, son épaisseur, le thème, et le mode vidéoprojecteur">Apparence…</button>
                     <button class="rp-choix" id="rp-date">Afficher la date</button>
 
                     <div class="rp-titre">Sur le tableau</div>
@@ -4466,7 +4494,7 @@
     <!-- Le fond de carte du monde (Natural Earth, domaine public) est livré
          avec l'application : la géographie doit marcher sans connexion. -->
     <script src="./lib/maps/monde.js?v=1"></script>
-    <script src="script.js?v=464"></script>
+    <script src="script.js?v=465"></script>
     <script src="pc-figures.js?v=1"></script>
     <script src="plugin.js?v=137"></script>
     <script src="./lib/documents/documents.js?v=2"></script>

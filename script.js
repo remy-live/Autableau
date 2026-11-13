@@ -4561,7 +4561,95 @@ window.addEventListener('mouseup', () => {
 // construction gardent une taille constante à l'écran quel que soit le
 // grossissement. Confondre les deux faisait maigrir les annotations dès qu'on
 // zoomait pour les montrer.
-const EPAISSEUR_AU_TABLEAU = 1;
+// ET C'EST LE SEUL LEVIER DU MODE VIDÉOPROJECTEUR : trente-huit endroits
+// dessinent un trait, tous en passant par cette unité. On ne retouche donc
+// aucun d'eux — on change ce que vaut UNE unité d'épaisseur au tableau.
+let EPAISSEUR_AU_TABLEAU = 1;
+
+// ==================================================================
+// LE MODE VIDÉOPROJECTEUR
+// ==================================================================
+// « Rajoute un mode projecteur (comme dans GeoMaster) qui augmente un peu les
+//   traits (et aussi des cahiers), paramétrables. »
+//
+// Un trait de trois pixels est net sur l'écran du bureau, à cinquante
+// centimètres. Le même, étalé par un vidéoprojecteur sur deux mètres de mur
+// et regardé du fond de la salle, est un cheveu. C'est la plainte la plus
+// ancienne de tout ce chantier, et elle ne se règle pas en montant
+// l'épaisseur dans la palette : celle-là, on y tient, et elle doit redevenir
+// la bonne en rentrant chez soi. Un interrupteur, donc, qu'on bascule en
+// branchant le vidéoprojecteur et qu'on rebascule en le débranchant.
+//
+// IL NE TOUCHE PAS À L'INTERFACE. « lw » (1/zoom) reste l'unité des cadres
+// de sélection, des poignées et des guides : ils ont déjà la bonne taille à
+// l'écran — ce sont des pixels d'écran, pas de tableau — et les grossir
+// mangerait la figure qu'on montre. Ce qui grossit, c'est ce qu'on a DESSINÉ,
+// plus la réglure du cahier, qui est le trait le plus fin de tous et le
+// premier à disparaître sur un mur.
+//
+// « UN PEU » : trois crans, et le plus fort ne double pas tout à fait. Au-delà
+// un trait de stylo devient un trait de feutre, et deux droites voisines se
+// touchent — on efface la figure en croyant la montrer.
+const CLE_VIDEOPROJECTEUR = 'auTableau_videoprojecteur';
+const CLE_GROSSISSEMENT = 'auTableau_grossissement_trait';
+const GROSSISSEMENTS = [1.3, 1.6, 2.1];
+let modeVideoprojecteur = false;
+let grossissementDuTrait = 1.6;
+try {
+    modeVideoprojecteur = localStorage.getItem(CLE_VIDEOPROJECTEUR) === 'true';
+    const g = parseFloat(localStorage.getItem(CLE_GROSSISSEMENT));
+    if (GROSSISSEMENTS.some(v => Math.abs(v - g) < 1e-9)) grossissementDuTrait = g;
+} catch (e) { /* stockage refusé */ }
+
+function grossissementDuTableau() {
+    return modeVideoprojecteur ? grossissementDuTrait : 1;
+}
+
+// LA RÉGLURE PART DE PLUS BAS QUE LE RESTE. Elle se dessine en pixels
+// d'écran — « lw * gw » — et l'épaisseur du quadrillage descend jusqu'à un
+// demi. Un demi-pixel multiplié par 1,6 en fait huit dixièmes : toujours
+// invisible sur un mur. On lui garde donc un plancher d'un pixel plein, qui
+// est le minimum pour qu'une ligne existe.
+function reglureProjetee(gw) {
+    if (!modeVideoprojecteur) return gw;
+    return Math.max(gw * grossissementDuTrait, 1);
+}
+
+// L'unité se pose tout de suite : le premier dessin a lieu bien avant que la
+// page soit prête, et il doit déjà être à la bonne épaisseur.
+EPAISSEUR_AU_TABLEAU = grossissementDuTableau();
+
+function poserLeVideoprojecteur() {
+    EPAISSEUR_AU_TABLEAU = grossissementDuTableau();
+    if (typeof majReglagesBarre === 'function') majReglagesBarre();
+    if (typeof draw === 'function') draw();
+}
+window.poserLeVideoprojecteur = poserLeVideoprojecteur;
+
+function basculerLeVideoprojecteur() {
+    modeVideoprojecteur = !modeVideoprojecteur;
+    try { localStorage.setItem(CLE_VIDEOPROJECTEUR, String(modeVideoprojecteur)); } catch (e) { /* refusé */ }
+    poserLeVideoprojecteur();
+    return modeVideoprojecteur;
+}
+window.basculerLeVideoprojecteur = basculerLeVideoprojecteur;
+
+// CHOISIR UN CRAN ALLUME LE MODE. Régler la force d'un mode éteint ne montre
+// rien : on cliquerait trois fois sans rien voir changer, et l'on conclurait
+// que le réglage ne marche pas.
+function choisirLeGrossissement(v) {
+    const g = parseFloat(v);
+    if (!GROSSISSEMENTS.some(x => Math.abs(x - g) < 1e-9)) return grossissementDuTrait;
+    grossissementDuTrait = g;
+    try { localStorage.setItem(CLE_GROSSISSEMENT, String(g)); } catch (e) { /* refusé */ }
+    if (!modeVideoprojecteur) {
+        modeVideoprojecteur = true;
+        try { localStorage.setItem(CLE_VIDEOPROJECTEUR, 'true'); } catch (e) { /* refusé */ }
+    }
+    poserLeVideoprojecteur();
+    return grossissementDuTrait;
+}
+window.choisirLeGrossissement = choisirLeGrossissement;
 
 // --- FONCTIONS DE DESSIN DE BASE & FLECHES ---
 
@@ -16489,6 +16577,12 @@ function draw() {
     try {
         ctx.translate(panX, panY); ctx.scale(zoom, zoom);
         const lw = 1 / zoom; const minX = -panX / zoom; const maxX = (canvas.width - panX) / zoom; const minY = -panY / zoom; const maxY = (canvas.height - panY) / zoom;
+        // LE CAHIER SUIT LE VIDÉOPROJECTEUR. « Qui augmente un peu les traits,
+        // et aussi des cahiers. » La réglure du Seyès est le trait le plus fin
+        // de toute l'application — un pixel, à quinze pour cent d'opacité — et
+        // c'est le premier à disparaître sur un mur. Hors de ce mode, « gwProj »
+        // vaut exactement l'épaisseur choisie dans « Le papier du tableau ».
+        const gwProj = reglureProjetee(gridWeight);
 
         if (!isExportingTransparent) {
             // Un document « sous le quadrillage » se dessine avant la réglure :
@@ -16510,11 +16604,11 @@ function draw() {
                 const o = origineFeuille || { x: 0, y: 0 };
                 ctx.save();
                 ctx.translate(o.x, o.y);
-                if (bg === 'seyes-marge') drawSeyesMarge(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gridWeight);
-                else drawCopie(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gridWeight);
+                if (bg === 'seyes-marge') drawSeyesMarge(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gwProj);
+                else drawCopie(minX - o.x, maxX - o.x, minY - o.y, maxY - o.y, lw, gwProj);
                 ctx.restore();
             }
-            else if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gridWeight); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gridWeight);
+            else if (bg === 'carreau') drawCarreau(minX, maxX, minY, maxY, lw, gwProj); else if (bg === 'seyes') drawSeyes(minX, maxX, minY, maxY, lw, gwProj); else if (bg === 'millimetre') drawMillimetre(minX, maxX, minY, maxY, lw, gwProj); else if (bg === 'point') drawPoint(minX, maxX, minY, maxY, lw, gwProj); else if (bg === 'isometrique') drawIsometrique(minX, maxX, minY, maxY, lw, gwProj);
 
             if (showAxes > 0) {
                 const oa = origineAxes || { x: 0, y: 0 };
@@ -16523,7 +16617,7 @@ function draw() {
                 // Le repère est translaté : ce que l'on voit, exprimé depuis son origine
                 const axMinX = minX - oa.x, axMaxX = maxX - oa.x;
                 const axMinY = minY - oa.y, axMaxY = maxY - oa.y;
-                ctx.beginPath(); ctx.moveTo(0, axMinY); ctx.lineTo(0, axMaxY); ctx.moveTo(axMinX, 0); ctx.lineTo(axMaxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gridWeight; ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, axMinY); ctx.lineTo(0, axMaxY); ctx.moveTo(axMinX, 0); ctx.lineTo(axMaxX, 0); ctx.strokeStyle = showAxes === 2 ? (isDarkMode ? "#b2bec3" : "#000") : (isDarkMode ? "#636e72" : "#2d3436"); ctx.lineWidth = lw * 1.5 * gwProj; ctx.stroke();
                 if (showAxes === 2) {
                     ctx.fillStyle = isDarkMode ? "#b2bec3" : "#2d3436"; ctx.font = `${12 * lw}px sans-serif`; ctx.beginPath(); ctx.textAlign = "center"; ctx.textBaseline = "top";
                     // Une case vaut « pasAxes » : on affiche autant de décimales
@@ -51247,6 +51341,16 @@ function majReglagesBarre() {
         b.classList.toggle('actif', parseInt(b.dataset.trait, 10) === epaisseurDuContour);
         b.setAttribute('aria-pressed', parseInt(b.dataset.trait, 10) === epaisseurDuContour ? 'true' : 'false');
     });
+    // Le vidéoprojecteur et sa force, lus de la même façon : le cran reste
+    // marqué même quand le mode est éteint, pour qu'on sache ce qu'on
+    // rallumera.
+    const bProjo = document.getElementById('rp-videoprojecteur');
+    if (bProjo) bProjo.classList.toggle('actif', typeof modeVideoprojecteur !== 'undefined' && !!modeVideoprojecteur);
+    document.querySelectorAll('#rp-grossissement .rp-epaisseur-choix').forEach(b => {
+        const pris = Math.abs(parseFloat(b.dataset.gros) - grossissementDuTrait) < 1e-9;
+        b.classList.toggle('actif', pris);
+        b.setAttribute('aria-pressed', pris ? 'true' : 'false');
+    });
 }
 
 // ==================================================================
@@ -51393,7 +51497,7 @@ function peindreLesVignettesDeTheme() {
 }
 
 function ouvrirLApparenceDesFenetres() {
-    const f = document.getElementById('apparence-fenetres');
+    const f = document.getElementById('reglages-apparence');
     if (!f) return;
     majLesThemesDeFenetre();
     f.style.display = 'block';
@@ -51841,8 +51945,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     // La ligne du menu qui ouvre la fenêtre de l'apparence.
-    const ligneApparence = document.getElementById('rp-apparence-fenetres');
+    const ligneApparence = document.getElementById('rp-apparence');
     if (ligneApparence) ligneApparence.addEventListener('click', () => ouvrirLApparenceDesFenetres());
+    // Le vidéoprojecteur. Même précaution que pour les crans du contour : un
+    // clic dans le panneau le referme, et l'on veut comparer les trois forces.
+    const bProjo = document.getElementById('rp-videoprojecteur');
+    if (bProjo) bProjo.addEventListener('click', (e) => { e.stopPropagation(); basculerLeVideoprojecteur(); });
+    document.querySelectorAll('#rp-grossissement .rp-epaisseur-choix').forEach(b => {
+        b.addEventListener('click', (e) => { e.stopPropagation(); choisirLeGrossissement(b.dataset.gros); });
+    });
+    poserLeVideoprojecteur();
     poserLeThemeDesFenetres();
     brancherLaPoigneeDesOutils();
 });

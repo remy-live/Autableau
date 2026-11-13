@@ -710,7 +710,7 @@ module.exports = async function (browser) {
         const menu = document.getElementById('reglages-barre');
         if (!menu.classList.contains('visible')) ouvrir.click();
         await new Promise(ok => setTimeout(ok, 250));
-        const ligne = document.getElementById('rp-apparence-fenetres');
+        const ligne = document.getElementById('rp-apparence');
         const laLigneOuvre = !!ligne;
         if (ligne) ligne.click();
         await new Promise(ok => setTimeout(ok, 450));
@@ -719,7 +719,7 @@ module.exports = async function (browser) {
         const c = champ.getBoundingClientRect(), b = bouton.getBoundingClientRect();
         const vu = {
             laLigneOuvre,
-            dansLaFenetre: !!champ.closest('#apparence-fenetres'),
+            dansLaFenetre: !!champ.closest('#reglages-apparence'),
             type: champ.type,
             montree: !!champ.getClientRects().length,
             surLaMemeLigne: Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) <= 2,

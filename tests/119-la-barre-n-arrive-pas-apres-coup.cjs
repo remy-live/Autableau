@@ -85,7 +85,18 @@ module.exports = async function (browser) {
     // ce qu'on veut, les traiter ensemble. Ce que le repos borne, c'est le
     // NOMBRE DE FOIS où l'on relit la page : au plus une par image. Compter
     // les éléments mélangeait les deux et donnait un chiffre qu'on ne savait
-    // pas lire.
+    // pas lire (mesuré : 30, 30, puis 46 au repos, pour un même code).
+    //
+    // ET UNE PASSE SE RECONNAÎT À LA RAFALE, PAS À L'HORLOGE. Ce chapitre a
+    // longtemps découpé le temps en tranches de seize millisecondes et
+    // compté les tranches occupées. Ce chiffre ne mesurait rien : saboté —
+    // le repos retiré —, il passait de 15 à 16, là où le travail, lui,
+    // doublait. Il comptait le temps écoulé. Les deux bornes d'images, elles
+    // aussi, étaient estimées à « durée ÷ 16 », c'est-à-dire soixante images
+    // par seconde : ni un écran à 120 Hz ni un navigateur sans écran ne s'y
+    // tiennent, et le contrôle tombait un jour de malchance sur une erreur
+    // d'arithmétique. On compte donc les vraies images, et les vraies
+    // rafales.
     const repos = await page.evaluate(async () => {
         const vrai = window.poserLeContourDesFenetres;
         let quand = [];
@@ -95,18 +106,36 @@ module.exports = async function (browser) {
         document.body.appendChild(d);
         await new Promise(k => setTimeout(k, 300));
         quand = [];
-        const t0 = performance.now();
+        // ON COMPTE LES VRAIES IMAGES, ON NE LES ESTIME PLUS.
+        //
+        // « durée ÷ 16 » suppose soixante images par seconde. Ce n'est vrai ni
+        // d'un écran à 120 Hz ni d'un navigateur sans écran, qui les rend
+        // aussi vite qu'il peut. Mesuré en pleine suite : 17 passes pour 14
+        // images ESTIMÉES — et le contrôle tombait sur une erreur
+        // d'arithmétique, pas sur un défaut. Un compteur branché sur les
+        // images elles-mêmes ne se trompe sur aucune machine.
+        let images = 0;
+        let compte = true;
+        const tic = () => { if (!compte) return; images++; requestAnimationFrame(tic); };
+        requestAnimationFrame(tic);
         for (let i = 0; i < 50; i++) {
             d.style.opacity = String(0.5 + (i % 2) * 0.1);
             await new Promise(k => setTimeout(k, 4));
         }
-        const duree = performance.now() - t0;
         await new Promise(k => setTimeout(k, 300));
+        compte = false;
         d.remove();
         window.poserLeContourDesFenetres = vrai;
-        // les passes : les appels d'une même image comptent pour un
-        const passes = new Set(quand.map(t => Math.floor(t / 16))).size;
-        return { passes, appels: quand.length, images: Math.ceil(duree / 16) };
+        // UNE PASSE EST UNE RAFALE D'APPELS, et non une tranche de seize
+        // millisecondes. Compter les tranches ne mesurait RIEN : saboté — le
+        // repos retiré, cinquante relectures au lieu de vingt-quatre — le
+        // chiffre passait de 15 à 16. Il comptait le temps écoulé, pas le
+        // travail fait. Deux appels séparés de moins de deux millisecondes
+        // sont le même passage ; mesuré, cela donne 24 au repos contre 51
+        // sans repos, et les trois mesures de chaque côté ne bougent pas.
+        let passes = 0;
+        quand.forEach((t, i) => { if (i === 0 || t - quand[i - 1] > 2) passes++; });
+        return { passes, appels: quand.length, images };
     });
     r.verifie('cinquante changements de style ne font pas cinquante relectures',
         repos.passes <= repos.images + 2,

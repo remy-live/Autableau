@@ -7355,7 +7355,7 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .reglages-popup .rp-choix,
-#apparence-fenetres .rp-choix {
+#reglages-apparence .rp-choix {
     display: block;
     width: 100%;
     text-align: left;
@@ -7370,16 +7370,16 @@ body.libelles-couleur #plugins-grid .btn[data-category="Détente"] { background:
 }
 
 .reglages-popup .rp-choix:hover,
-#apparence-fenetres .rp-choix:hover { background: rgba(108, 92, 231, 0.10); }
+#reglages-apparence .rp-choix:hover { background: rgba(108, 92, 231, 0.10); }
 
 .reglages-popup .rp-choix.actif,
-#apparence-fenetres .rp-choix.actif {
+#reglages-apparence .rp-choix.actif {
     background: rgba(108, 92, 231, 0.14);
     color: #6c5ce7;
 }
 
 .reglages-popup .rp-choix.actif::after,
-#apparence-fenetres .rp-choix.actif::after { content: ' ✓'; }
+#reglages-apparence .rp-choix.actif::after { content: ' ✓'; }
 
 /* ==========================================================================
    UNE RANGÉE DE CASES, PLUTÔT QU'UNE LIGNE PAR VALEUR
@@ -9737,7 +9737,7 @@ body.focus-mode #edt-bandeau { display: none; }
     box-sizing: border-box !important;
 }
 
-/* ------- la fenêtre « Apparence des fenêtres » ------- */
+/* ------- la fenêtre « Apparence » ------- */
 .af-rubrique {
     font-size: 10px;
     font-weight: 700;
@@ -9750,7 +9750,7 @@ body.focus-mode #edt-bandeau { display: none; }
 .af-rubrique + .af-rubrique,
 .af-themes + .af-rubrique { margin-top: 16px; }
 
-#apparence-fenetres .af-rubrique:not(:first-child) {
+#reglages-apparence .af-rubrique:not(:first-child) {
     border-top: 1px solid rgba(127, 127, 127, 0.22);
     padding-top: 14px;
     margin-top: 16px;
@@ -9819,7 +9819,7 @@ body.focus-mode #edt-bandeau { display: none; }
 .dark-mode .af-rubrique,
 .dark-mode .af-mot { color: #b2bec3; }
 
-.dark-mode #apparence-fenetres { background: #222a33 !important; }
+.dark-mode #reglages-apparence { background: #222a33 !important; }
 
 .dark-mode .af-theme .af-nom { color: #dfe6e9; }
 
@@ -11671,9 +11671,13 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    ligne, tout tient : le libellé fait ses 134 pixels sans être rogné, et le
    menu retrouve sa hauteur. L'ellipse est une ceinture, pas un choix : elle
    ne sert que si un jour la rangée n'a vraiment plus la place. */
-#rp-contour-boite { flex-wrap: nowrap; }
+/* LA RANGÉE DU VIDÉOPROJECTEUR OBÉIT À LA MÊME RÈGLE, pour la même raison :
+   un libellé et trois crans d'un seul réglage, sur une seule ligne. */
+#rp-contour-boite,
+#rp-projecteur-boite { flex-wrap: nowrap; }
 
-#rp-contour-boite .rp-choix {
+#rp-contour-boite .rp-choix,
+#rp-projecteur-boite .rp-choix {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -11689,7 +11693,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
    menu « ⋯ » du tiroir, et la fenêtre de l'apparence. Un style écrit pour le
    seul menu les laissait nus dans la fenêtre. */
 .reglages-popup .rp-epaisseur,
-#apparence-fenetres .rp-epaisseur {
+#reglages-apparence .rp-epaisseur {
     display: flex;
     align-items: center;
     gap: 3px;
@@ -11698,7 +11702,7 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 }
 
 .reglages-popup .rp-epaisseur-choix,
-#apparence-fenetres .rp-epaisseur-choix {
+#reglages-apparence .rp-epaisseur-choix {
     flex: 0 0 auto;
     width: 22px;
     height: 22px;
@@ -11714,10 +11718,21 @@ body.en-lecture #board { outline: 3px solid rgba(108, 92, 231, 0.55); outline-of
 }
 
 .reglages-popup .rp-epaisseur-choix:hover,
-#apparence-fenetres .rp-epaisseur-choix:hover { background: rgba(108, 92, 231, 0.10); }
+#reglages-apparence .rp-epaisseur-choix:hover { background: rgba(108, 92, 231, 0.10); }
+
+/* LES CRANS DU VIDÉOPROJECTEUR PORTENT QUATRE SIGNES, PAS UN CHIFFRE.
+   « ×1,3 » dans un carré de vingt-deux pixels prévu pour « 1 » : mesuré, les
+   trois libellés débordaient l'un sur l'autre et le cran choisi se lisait
+   « ×1,( ». Ce ne sont pas des épaisseurs numérotées, ce sont des
+   multiplicateurs — ils ont droit à leur largeur. */
+#rp-grossissement .rp-epaisseur-choix {
+    width: auto;
+    min-width: 34px;
+    padding: 0 5px;
+}
 
 .reglages-popup .rp-epaisseur-choix.actif,
-#apparence-fenetres .rp-epaisseur-choix.actif {
+#reglages-apparence .rp-epaisseur-choix.actif {
     background: #6c5ce7;
     border-color: #6c5ce7;
     color: #ffffff;
