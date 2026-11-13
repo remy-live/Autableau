@@ -2095,7 +2095,13 @@ registerPlugin('axeTool', 'Maths - Numérique', {
                 type: 'select', label: "Écriture des nombres", value: a[3] || "auto", options: [
                     { value: 'auto', label: 'Automatique' },
                     { value: 'fraction', label: 'En fractions' },
-                    { value: 'decimal', label: 'En décimaux' }
+                    { value: 'decimal', label: 'En décimaux' },
+                    // UN AXE SANS SES NOMBRES EST UN EXERCICE.
+                    // « Pour l'axe, on ne peut pas supprimer les chiffres sur
+                    // l'axe. » On veut les faire écrire par la classe — ou
+                    // placer une fraction sur un axe muet. Les graduations
+                    // restent : ce sont elles qui portent la question.
+                    { value: 'aucune', label: 'Sans les nombres' }
                 ]
             },
             { type: 'titre', label: "Les graduations" },
@@ -2234,14 +2240,20 @@ registerPlugin('axeTool', 'Maths - Numérique', {
         // LE DÉNOMINATEUR DE LA GRADUATION. C'est lui qui fait qu'un axe au
         // pas de 1/4 écrit 1/4, 1/2, 3/4, 1 — et non 0,25 ; 0,5 ; 0,75 ; 1.
         const den = denominateurDuPas(lPas);
-        const enFractions = (ecriture === 'fraction')
-            || (ecriture === 'auto' && den > 1);
+        const sansNombres = (ecriture === 'aucune');
+        const enFractions = !sansNombres && ((ecriture === 'fraction')
+            || (ecriture === 'auto' && den > 1));
 
         // LA HAUTEUR SUIT CE QU'ON Y MET. Une fraction empilée prend deux
         // lignes : sur la hauteur d'avant, son dénominateur sortait du cadre
         // et disparaissait au tamponnage, comme les noms des points avant lui.
         const hautDesPoints = points.length ? (isExport ? 28 : 17) : 0;
-        const basDesNombres = isExport ? (enFractions ? 58 : 32) : (enFractions ? 36 : 20);
+        // ET LA HAUTEUR SUIT L'ABSENCE AUSSI. Un axe muet garde de quoi loger
+        // ses graduations — neuf pixels sous le trait — et rien de plus : lui
+        // laisser la place des nombres qu'il n'écrit pas poserait un tampon à
+        // moitié vide, qu'on recadrerait à la main.
+        const basDesNombres = sansNombres ? (isExport ? 16 : 12)
+            : (isExport ? (enFractions ? 58 : 32) : (enFractions ? 36 : 20));
         const w = isExport ? 900 : 400;
         const y = hautDesPoints + (isExport ? 46 : 28);
         const h = y + basDesNombres;
@@ -2294,10 +2306,12 @@ registerPlugin('axeTool', 'Maths - Numérique', {
             const val = min + i * lPas.val;
             const x = abscisse(val);
             svg += `<line x1="${x}" y1="${y - 9}" x2="${x}" y2="${y + 9}" stroke="${color}" stroke-width="2"/>`;
-            const lu = enFractions ? fraction(Math.round(val * den), den)
-                                   : { val, num: null, den: null };
-            svg += this.etiquetteSVG(x, y + (isExport ? 8 : 5), lu,
-                enFractions ? 'fraction' : 'decimal', tailleNombre, color);
+            if (!sansNombres) {
+                const lu = enFractions ? fraction(Math.round(val * den), den)
+                                       : { val, num: null, den: null };
+                svg += this.etiquetteSVG(x, y + (isExport ? 8 : 5), lu,
+                    enFractions ? 'fraction' : 'decimal', tailleNombre, color);
+            }
         }
 
         // Un point hors de l'axe n'est pas un point : on ne le dessine pas dans
@@ -9817,6 +9831,118 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
     },
 
     // ------------------------------------------------------------------
+    //  LA LOUPE ET LE DÉPLACEMENT
+    // ------------------------------------------------------------------
+    //  « Pour les cartes, ce serait cool de pouvoir zoomer et se déplacer sur
+    //    la carte, avec la molette ou des boutons. »
+    //
+    //  Le monde entier dans sept cents pixels, ce sont des pays de trois
+    //  pixels : le Luxembourg, Malte, la Jamaïque ne se cliquent pas. La
+    //  loupe n'est donc pas un confort, c'est ce qui rend la moitié de la
+    //  carte atteignable.
+    //
+    //  ON AGRANDIT L'IMAGE, ON NE REDESSINE PAS LA CARTE. Le dessin est un
+    //  SVG : l'agrandir ne coûte rien et ne perd aucun détail, là où
+    //  recalculer la projection à chaque cran de molette referait les mille
+    //  contours du monde.
+    VUE_MIN: 1,
+    VUE_MAX: 8,
+
+    appliquerLaVue: function (zone) {
+        const svg = zone && zone.querySelector('svg');
+        if (!svg) return;
+        const v = this.vue;
+        svg.style.transformOrigin = '0 0';
+        svg.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.zoom})`;
+        const fond = document.getElementById('carte-fond');
+        const bouton = fond && fond.querySelector('#carte-recentrer');
+        if (bouton) bouton.disabled = (v.zoom === 1 && !v.x && !v.y);
+    },
+
+    // LA CARTE NE S'ÉCHAPPE PAS DE SON CADRE. Agrandie huit fois, elle
+    // pourrait être poussée jusqu'à ne plus montrer qu'un coin vide — et il
+    // faudrait deviner dans quel sens revenir. On la retient donc : il reste
+    // toujours de la carte sous les yeux.
+    retenirLaVue: function (zone) {
+        const v = this.vue;
+        const r = zone.getBoundingClientRect();
+        const debord = (v.zoom - 1);
+        v.x = Math.min(0, Math.max(-r.width * debord, v.x));
+        v.y = Math.min(0, Math.max(-r.height * debord, v.y));
+    },
+
+    zoomer: function (facteur, versX, versY) {
+        const fond = document.getElementById('carte-fond');
+        const zone = fond && fond.querySelector('#carte-dessin');
+        if (!zone) return;
+        const v = this.vue || (this.vue = { zoom: 1, x: 0, y: 0, aGlisse: false });
+        const avant = v.zoom;
+        const apres = Math.min(this.VUE_MAX, Math.max(this.VUE_MIN, avant * facteur));
+        if (apres === avant) return;
+        const r = zone.getBoundingClientRect();
+        // LE POINT VISÉ NE BOUGE PAS. Sans cela, la molette éloigne de ce
+        // qu'on regarde : on zoome sur l'Europe et l'on se retrouve au Pérou.
+        const cx = (versX === undefined) ? r.width / 2 : versX;
+        const cy = (versY === undefined) ? r.height / 2 : versY;
+        v.x = cx - (cx - v.x) * (apres / avant);
+        v.y = cy - (cy - v.y) * (apres / avant);
+        v.zoom = apres;
+        if (v.zoom === 1) { v.x = 0; v.y = 0; }
+        this.retenirLaVue(zone);
+        this.appliquerLaVue(zone);
+    },
+
+    recentrerLaVue: function () {
+        const fond = document.getElementById('carte-fond');
+        const zone = fond && fond.querySelector('#carte-dessin');
+        this.vue = { zoom: 1, x: 0, y: 0, aGlisse: false };
+        if (zone) this.appliquerLaVue(zone);
+    },
+
+    brancherLaLoupe: function (zone) {
+        if (!zone || zone.dataset.loupeBranchee) return;
+        zone.dataset.loupeBranchee = '1';
+        zone.style.cursor = 'grab';
+        zone.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const r = zone.getBoundingClientRect();
+            this.zoomer(e.deltaY < 0 ? 1.18 : 1 / 1.18, e.clientX - r.left, e.clientY - r.top);
+        }, { passive: false });
+
+        let prise = null;
+        zone.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            prise = { x: e.clientX, y: e.clientY, x0: this.vue.x, y0: this.vue.y, bouge: false };
+            this.vue.aGlisse = false;
+            zone.style.cursor = 'grabbing';
+        });
+        zone.addEventListener('pointermove', (e) => {
+            if (!prise) return;
+            const dx = e.clientX - prise.x, dy = e.clientY - prise.y;
+            // QUATRE PIXELS AVANT DE DÉCIDER QUE C'EST UN DÉPLACEMENT. En
+            // deçà, c'est un clic : une main qui vise un petit pays tremble
+            // toujours un peu.
+            if (!prise.bouge && Math.abs(dx) + Math.abs(dy) < 4) return;
+            prise.bouge = true;
+            this.vue.aGlisse = true;
+            this.vue.x = prise.x0 + dx;
+            this.vue.y = prise.y0 + dy;
+            this.retenirLaVue(zone);
+            this.appliquerLaVue(zone);
+        });
+        const lacher = () => {
+            prise = null;
+            zone.style.cursor = 'grab';
+            // Le clic du pays arrive APRÈS le relâchement : on ne lève la
+            // garde qu'une fois qu'il est passé.
+            setTimeout(() => { if (this.vue) this.vue.aGlisse = false; }, 0);
+        };
+        zone.addEventListener('pointerup', lacher);
+        zone.addEventListener('pointercancel', lacher);
+        zone.addEventListener('pointerleave', lacher);
+    },
+
+    // ------------------------------------------------------------------
     // LA FENÊTRE
     // ------------------------------------------------------------------
     init: function () {
@@ -9871,6 +9997,16 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
                             <option value="plate">Projection plate</option>
                         </select>
                         <input type="search" id="carte-chercher" placeholder="Chercher un pays…">
+                        <!-- TROIS BOUTONS, PARCE QUE TOUT LE MONDE N'A PAS DE
+                             MOLETTE. Un tableau numérique se touche du doigt,
+                             et un portable de classe n'a qu'un pavé tactile.
+                             La molette reste, elle est plus rapide ; les
+                             boutons font la même chose pour tous. -->
+                        <span class="carte-loupe" role="group" aria-label="Agrandir la carte">
+                            <button type="button" id="carte-moins" title="Voir plus large">−</button>
+                            <button type="button" id="carte-plus" title="Agrandir">+</button>
+                            <button type="button" id="carte-recentrer" title="Revoir toute la carte">Tout voir</button>
+                        </span>
                     </div>
                     <div id="carte-dessin"></div>
                     <div id="carte-etat"></div>
@@ -9937,6 +10073,9 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
             this.rendre();
         });
         fond.querySelector('#carte-poser').addEventListener('click', () => this.poser());
+        fond.querySelector('#carte-plus').addEventListener('click', () => this.zoomer(1.4));
+        fond.querySelector('#carte-moins').addEventListener('click', () => this.zoomer(1 / 1.4));
+        fond.querySelector('#carte-recentrer').addEventListener('click', () => this.recentrerLaVue());
 
         const chercher = fond.querySelector('#carte-chercher');
         chercher.addEventListener('input', () => this.rendre());
@@ -9977,6 +10116,7 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
 
         // --- La carte cliquable ---
         const zone = fond.querySelector('#carte-dessin');
+        if (!this.vue) this.vue = { zoom: 1, x: 0, y: 0, aGlisse: false };
         const largeur = 640;
         const m = this.mesures(this.etat, largeur);
         const cherches = this.paysCherches().map(p => p.i);
@@ -9992,12 +10132,19 @@ registerPlugin('mapTool', 'Histoire-Géographie', {
         zone.innerHTML = `<svg viewBox="0 0 ${largeur} ${m.hauteur}" width="100%" preserveAspectRatio="xMidYMid meet">${dessin}</svg>`;
         zone.querySelectorAll('path[data-pays]').forEach(el => {
             el.addEventListener('click', () => {
+                // ON NE CHOISIT PAS UN PAYS EN DÉPLAÇANT LA CARTE. Un clic qui
+                // termine un glissement n'est pas un clic : c'est la fin d'un
+                // geste. Sans cette garde, déplacer la carte colorait le pays
+                // qu'on avait sous le doigt en partant.
+                if (this.vue && this.vue.aGlisse) return;
                 const code = el.dataset.pays;
                 this.paysChoisi = code;
                 this.basculerPays(this.etat, code);
                 this.rendre();
             });
         });
+        this.brancherLaLoupe(zone);
+        this.appliquerLaVue(zone);
 
         const etatTexte = fond.querySelector('#carte-etat');
         const q = (document.getElementById('carte-chercher') || {}).value || '';

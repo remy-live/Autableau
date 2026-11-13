@@ -10960,6 +10960,45 @@ body[data-theme-fenetre="contraste"] {
 }
 
 #carte-dessin svg { max-height: 100%; }
+
+/* LA LOUPE DE LA CARTE : deux crans et un retour. Les deux signes sont des
+   carrés, le retour s'écrit en toutes lettres — « + » et « − » se devinent,
+   « revenir à toute la carte » ne se devine pas. */
+.carte-loupe {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.carte-loupe button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 7px;
+    background: #fff;
+    color: #2d3436;
+    cursor: pointer;
+}
+
+.carte-loupe button:hover { background: rgba(108, 92, 231, 0.10); }
+
+/* UN BOUTON ÉTEINT SE LIT ENCORE. L'opacité à 45 % le ramenait à 1,88 contre
+   le blanc, là où la norme en demande 4,5 : le chapitre 70 l'a attrapé le jour
+   même. « Rien à faire ici » se dit par un fond et un curseur, pas en effaçant
+   le mot — et c'est « Tout voir », le seul des trois qui s'écrive en lettres. */
+.carte-loupe button:disabled {
+    color: #6b7280;
+    background: rgba(45, 52, 54, 0.05);
+    cursor: default;
+}
+
+/* Ce qu'on agrandit ne doit pas sortir du cadre. */
+#carte-dessin { touch-action: none; }
 #carte-etat { font-size: 11px; color: #64748b; min-height: 14px; }
 
 /* Un pays se désigne au survol : on doit voir qu'il est cliquable. */

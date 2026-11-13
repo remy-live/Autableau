@@ -27759,13 +27759,40 @@ function equiperVraiment(el, cle, options) {
     // par son verbe tombait juste. Un défaut qui dépend de la seconde où on
     // regarde ne se corrige pas en regardant une fois : on SURVEILLE la taille.
     // Le rattrapage réduit la fenêtre, donc le signal se tarit de lui-même.
+    // ET CE QUI DÉPASSE D'ELLE RESTE ATTEIGNABLE, MÊME QUAND ELLE TIENT DANS
+    // L'ÉCRAN.
+    //
+    // « Algorithmes (Scratch) » mesure 746 pixels sur un écran de 760 : elle
+    // n'est donc jamais « perdue », jamais rattrapée, et personne ne lui donne
+    // de quoi défiler. Son CONTENU, lui, fait 110 pixels de plus qu'elle, et
+    // sa propre feuille de style coupe ce qui dépasse. Résultat : une colonne
+    // entière de l'outil n'existe pour personne.
+    //
+    // La question n'est donc pas « cette fenêtre tient-elle dans l'écran ? »
+    // mais « ce qu'elle porte tient-il dans ce qu'on en voit ? ».
+    const rendreAtteignableCeQuiDepasse = () => {
+        if (!el.isConnected || !el.getClientRects().length) return;
+        const c = getComputedStyle(el);
+        const peut = (v) => v === 'auto' || v === 'scroll';
+        if (!peut(c.overflowX) && el.scrollWidth > el.clientWidth + 2) {
+            rendreLaFenetreDefilable(el, 'largeur');
+        }
+        if (!peut(c.overflowY) && el.scrollHeight > el.clientHeight + 2) {
+            rendreLaFenetreDefilable(el, 'hauteur');
+        }
+    };
+
     const fenetrePerdue = () => {
         const b = el.getBoundingClientRect();
         if (!b.width && !b.height) return false;          // repliée : rien à ramener
         return b.top < 0 || b.height > window.innerHeight - 8 || b.width > window.innerWidth - 8;
     };
     const rattraperLaFenetre = () => {
-        if (!el.isConnected || typeof ramenerFenetreDansLecran !== 'function') return;
+        if (!el.isConnected) return;
+        // On regarde d'abord ce qui dépasse d'elle : cela vaut même pour une
+        // fenêtre qui n'a rien à se reprocher vis-à-vis de l'écran.
+        rendreAtteignableCeQuiDepasse();
+        if (typeof ramenerFenetreDansLecran !== 'function') return;
         if (!fenetrePerdue()) return;
         ramenerFenetreDansLecran(el);
     };
@@ -28035,13 +28062,37 @@ window.equiperFenetre = equiperFenetre;
 // les décale donc de ce qui a défilé. C'est la contrepartie d'une barre qui ne
 // vit pas dans le flux, et cela se mesure : on fait défiler, et l'on regarde si
 // la croix est toujours là.
-function rendreLaFenetreDefilable(el) {
-    if (!el || el.dataset.fenetreDefilable === '1') return;
+// ET CE QU'ON A COUPÉ RESTE ATTEIGNABLE — DANS LES DEUX SENS.
+//
+// « Quelques fenêtres qui posent problème : celles qui sont tronquées. »
+//
+// Une fenêtre plus grande que l'écran est bornée, et c'est bien : garder une
+// taille qu'on ne peut pas afficher rend l'outil inutilisable. Mais la borne
+// ne servait qu'à la HAUTEUR : bornée en largeur, la fenêtre se faisait
+// simplement couper à droite, et ce qui était coupé n'existait plus pour
+// personne — pas de barre, pas de molette, rien. La grille des Cartes à jouer
+// perd ses dernières colonnes ; le Tableau, cent pixels.
+//
+// Borner sans donner le moyen d'atteindre ce qu'on borne, ce n'est pas
+// protéger l'outil : c'est l'amputer en silence.
+function rendreLaFenetreDefilable(el, sens) {
+    if (!el) return;
+    const horizontal = sens === 'largeur';
+    const marque = horizontal ? 'fenetreDefilableX' : 'fenetreDefilableY';
+    if (el.dataset[marque] === '1') return;
     const s = getComputedStyle(el);
-    if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') el.style.overflowY = 'auto';
-    el.dataset.fenetreDefilable = '1';
+    if (horizontal) {
+        if (s.overflowX !== 'auto' && s.overflowX !== 'scroll') el.style.overflowX = 'auto';
+    } else if (s.overflowY !== 'auto' && s.overflowY !== 'scroll') {
+        el.style.overflowY = 'auto';
+    }
+    el.dataset[marque] = '1';
+    // La barre ne suit qu'une fois, même si les deux sens sont ouverts.
+    if (el.dataset.fenetreSuitLeDefilement === '1') return;
+    el.dataset.fenetreSuitLeDefilement = '1';
     const suivreLeDefilement = () => {
         const passe = el.scrollTop;
+        const deCote = el.scrollLeft;
         // LES DEUX SE DÉCALENT DE LA MÊME CHOSE, et il a fallu le mesurer pour
         // le croire : le coin bas est posé « bottom: 3px », et l'on s'attendait
         // donc à ce qu'il soit ancré au bas du CONTENU, bien plus bas que la
@@ -28049,7 +28100,8 @@ function rendreLaFenetreDefilable(el) {
         // fenêtre, et il défile avec le contenu comme la barre. Le décaler de
         // « ce qui reste à défiler » le faisait remonter de quatre-vingt-quatre
         // pixels au-dessus de sa place.
-        const decalage = passe ? 'translateY(' + passe + 'px)' : '';
+        const decalage = (passe || deCote)
+            ? 'translate(' + deCote + 'px, ' + passe + 'px)' : '';
         const tete = el.querySelector(':scope > .fen-tete');
         const outils = el.querySelector(':scope > .fen-outils');
         if (tete) tete.style.transform = decalage;
@@ -28089,8 +28141,10 @@ function ramenerFenetreDansLecran(el) {
     // vingt-huit pixels sous le bord de l'écran, et l'on aurait pu relire la
     // règle dix fois sans le voir — seule la mesure le dit.
     if (borneL || borneH) el.style.boxSizing = 'border-box';
-    // ET CE QU'ON A COUPÉ RESTE ATTEIGNABLE : la fenêtre bornée DÉFILE.
-    if (borneH) rendreLaFenetreDefilable(el);
+    // ET CE QU'ON A COUPÉ RESTE ATTEIGNABLE : la fenêtre bornée DÉFILE, dans
+    // le sens où elle a été bornée — et parfois dans les deux.
+    if (borneH) rendreLaFenetreDefilable(el, 'hauteur');
+    if (borneL) rendreLaFenetreDefilable(el, 'largeur');
     const b = el.getBoundingClientRect();
     const gauche = Math.max(marge, Math.min(b.left, window.innerWidth - b.width - marge));
     const haut = Math.max(marge, Math.min(b.top, window.innerHeight - b.height - marge));

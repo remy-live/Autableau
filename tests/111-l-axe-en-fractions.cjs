@@ -295,6 +295,50 @@ module.exports = async function (browser) {
     r.egal('les trois bornes acceptent d\'écrire une fraction',
         boite.mesuresTexte, 3, JSON.stringify(boite));
 
+    // ------------------------------------------------------------------
+    // UN AXE SANS SES NOMBRES.
+    //
+    //   « Pour l'axe, on ne peut pas supprimer les chiffres sur l'axe. »
+    //
+    // On veut un axe muet : les graduations restent — ce sont elles qui
+    // portent la question — et la classe écrit les nombres. C'est un
+    // exercice, pas une infirmité : il faut donc que l'axe garde tout le
+    // reste, et que le cadre se resserre sur ce qu'il dessine vraiment.
+    // ------------------------------------------------------------------
+    const avecNombres = await lireSVG(['0', '10', '1', 'decimal', 'no', 'trait', 'fleche',
+        '#2d3436', '#2d3436', '#2d3436', '', '#d63031']);
+    const sansNombres = await lireSVG(['0', '10', '1', 'aucune', 'no', 'trait', 'fleche',
+        '#2d3436', '#2d3436', '#2d3436', '', '#d63031']);
+    const compter = (svg, quoi) => (svg.match(new RegExp('<' + quoi, 'g')) || []).length;
+    const hauteurDe = (svg) => {
+        const m = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg);
+        return m ? +m[2] : null;
+    };
+
+    r.verifie('l\'axe muet n\'écrit plus aucun nombre',
+        compter(sansNombres, 'text') === 0 && compter(avecNombres, 'text') > 0,
+        'avec ' + compter(avecNombres, 'text') + ' textes, sans ' + compter(sansNombres, 'text'));
+    r.egal('mais il garde toutes ses graduations',
+        compter(sansNombres, 'line'), compter(avecNombres, 'line'),
+        'avec ' + compter(avecNombres, 'line') + ' traits, sans ' + compter(sansNombres, 'line'));
+    r.verifie('et le cadre se resserre sur ce qu\'il dessine',
+        hauteurDe(sansNombres) < hauteurDe(avecNombres),
+        'avec ' + hauteurDe(avecNombres) + ' px, sans ' + hauteurDe(sansNombres) + ' px');
+    // ET LA FLÈCHE, LES BOUTS, LES POINTS RESTENT : un axe muet reste un axe.
+    const muetAvecPoint = await lireSVG(['0', '10', '1', 'aucune', 'no', 'trait', 'fleche',
+        '#2d3436', '#2d3436', '#2d3436', '4=A', '#d63031']);
+    r.verifie('un point posé sur un axe muet garde son nom',
+        /A<\/text>/.test(muetAvecPoint) && /<circle/.test(muetAvecPoint),
+        muetAvecPoint.slice(0, 120));
+
+    const offert = await page.evaluate(() => {
+        const champs = PluginManager.plugins.axeTool.champs();
+        const c = champs.find(x => /Écriture/.test(x.label || ''));
+        return c ? c.options.map(o => o.value) : null;
+    });
+    r.verifie('et la boîte l\'offre, sinon personne ne le trouvera',
+        Array.isArray(offert) && offert.includes('aucune'), JSON.stringify(offert));
+
     r.verifie('aucune erreur de page', erreurs.length === 0, erreurs.join(' | '));
     await context.close();
     return r.bilan();
